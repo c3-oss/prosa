@@ -1,13 +1,16 @@
 import path from 'node:path';
 import { Command } from 'commander';
-import { closeBundle, defaultBundlePath, openBundle } from '../../core/bundle.js';
-import { listenMcpServer } from '../../mcp/server.js';
+import { closeBundle, defaultBundlePath, openBundle, type Bundle } from '../../core/bundle.js';
+import { listenMcpServer, listenMcpStdioServer } from '../../mcp/server.js';
 import type { SearchEngine } from '../../services/indexing.js';
+
+type McpTransport = 'stdio' | 'http';
 
 export function mcpCommand(): Command {
   const serve = new Command('serve')
-    .description('Start a local MCP server (HTTP streamable) over the prosa bundle.')
+    .description('Start a local MCP server over the prosa bundle.')
     .option('--store <path>', 'bundle directory', defaultBundlePath())
+    .option('--transport <transport>', 'MCP transport: stdio|http', 'stdio')
     .option('--host <host>', 'bind host', '127.0.0.1')
     .option('--port <port>', 'bind port', '7331')
     .option('--path <path>', 'HTTP path', '/mcp')
@@ -19,41 +22,62 @@ export function mcpCommand(): Command {
         port: string;
         path: string;
         searchEngine: string;
+        transport: string;
       }) => {
         const bundle = await openBundle(path.resolve(options.store));
-        const port = Number.parseInt(options.port, 10);
-        if (!Number.isFinite(port) || port <= 0) {
-          throw new Error(`invalid port: ${options.port}`);
-        }
-        const searchEngine = parseSearchEngine(options.searchEngine);
-        const server = await listenMcpServer(bundle, {
-          host: options.host,
-          port,
-          path: options.path,
-          searchEngine,
-        });
+        try {
+          const transport = parseMcpTransport(options.transport);
+          const searchEngine = parseSearchEngine(options.searchEngine);
+          if (transport === 'http') {
+            const port = Number.parseInt(options.port, 10);
+            if (!Number.isFinite(port) || port <= 0) {
+              throw new Error(`invalid port: ${options.port}`);
+            }
+            const server = await listenMcpServer(bundle, {
+              host: options.host,
+              port,
+              path: options.path,
+              searchEngine,
+            });
 
-        process.stdout.write(`prosa mcp server listening at ${server.url}\n`);
-        process.stdout.write('press Ctrl+C to stop\n');
+            process.stdout.write(`prosa mcp server listening at ${server.url}\n`);
+            process.stdout.write('press Ctrl+C to stop\n');
+            registerShutdown(server.close, bundle);
+            return;
+          }
 
-        const shutdown = async (): Promise<void> => {
-          await server.close();
+          const server = await listenMcpStdioServer(bundle, { searchEngine });
+          registerShutdown(server.close, bundle);
+        } catch (error) {
           closeBundle(bundle);
-          process.exit(0);
-        };
-        process.once('SIGINT', () => {
-          void shutdown();
-        });
-        process.once('SIGTERM', () => {
-          void shutdown();
-        });
+          throw error;
+        }
       },
     );
 
   return new Command('mcp').description('MCP server commands.').addCommand(serve);
 }
 
+function parseMcpTransport(value: string): McpTransport {
+  if (value === 'stdio' || value === 'http') return value;
+  throw new Error(`invalid --transport: ${value} (expected stdio or http)`);
+}
+
 function parseSearchEngine(value: string): SearchEngine {
   if (value === 'fts5' || value === 'tantivy') return value;
   throw new Error(`invalid --search-engine: ${value} (expected fts5 or tantivy)`);
+}
+
+function registerShutdown(closeServer: () => Promise<void>, bundle: Bundle): void {
+  const shutdown = async (): Promise<void> => {
+    await closeServer();
+    closeBundle(bundle);
+    process.exit(0);
+  };
+  process.once('SIGINT', () => {
+    void shutdown();
+  });
+  process.once('SIGTERM', () => {
+    void shutdown();
+  });
 }

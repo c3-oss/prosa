@@ -2,7 +2,9 @@ import { randomUUID } from 'node:crypto';
 import http from 'node:http';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import type { Bundle } from '../core/bundle.js';
 import { PROSA_PARSER_VERSION } from '../core/version.js';
 import type { SearchEngine } from '../services/indexing.js';
@@ -24,6 +26,30 @@ export interface McpServerOptions {
 export interface RunningServer {
   url: string;
   close(): Promise<void>;
+}
+
+export interface RunningStdioServer {
+  close(): Promise<void>;
+}
+
+export interface McpStdioServerOptions {
+  searchEngine?: SearchEngine;
+}
+
+export async function listenMcpStdioServer(
+  bundle: Bundle,
+  options: McpStdioServerOptions = {},
+): Promise<RunningStdioServer> {
+  const server = createMcpServer(bundle, options.searchEngine ?? 'fts5');
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+
+  return {
+    close: async () => {
+      await safeClose(server);
+      await safeClose(transport);
+    },
+  };
 }
 
 /**
@@ -128,15 +154,7 @@ async function openSession(
 ): Promise<SessionEntry> {
   // We need to assemble server + transport together because the transport's
   // `onsessioninitialized` callback wants to register both into the map.
-  const server = new McpServer(
-    {
-      name: 'prosa',
-      version: PROSA_PARSER_VERSION,
-    },
-    { instructions: PROSA_MCP_INSTRUCTIONS },
-  );
-  registerProsaTools(server, bundle, { searchEngine });
-
+  const server = createMcpServer(bundle, searchEngine);
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: () => randomUUID(),
     onsessioninitialized: (id: string) => {
@@ -156,6 +174,18 @@ async function openSession(
   return { server, transport };
 }
 
+function createMcpServer(bundle: Bundle, searchEngine: SearchEngine): McpServer {
+  const server = new McpServer(
+    {
+      name: 'prosa',
+      version: PROSA_PARSER_VERSION,
+    },
+    { instructions: PROSA_MCP_INSTRUCTIONS },
+  );
+  registerProsaTools(server, bundle, { searchEngine });
+  return server;
+}
+
 async function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
@@ -173,7 +203,7 @@ function safeJsonParse(text: string): unknown {
   }
 }
 
-async function safeClose(o: { close: () => Promise<void> | void }): Promise<void> {
+async function safeClose(o: { close: () => Promise<void> | void } | Transport): Promise<void> {
   try {
     await o.close();
   } catch {
