@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "_notes": {
-    "purpose": "Claude Code project settings for prosa. Domain guidance lives in .claude/skills and specialist subagents live in .claude/agents.",
+    "purpose": "Claude Code project settings for prosa. Domain guidance lives in .codex/skills and specialist subagents live in .claude/agents.",
     "todo": [
       "Consider SessionStart summaries for current parser/schema version.",
       "Consider PreToolUse guards before manual edits to generated output under dist/."
