@@ -1,7 +1,8 @@
-import { stat } from 'node:fs/promises';
-import { readFile } from 'node:fs/promises';
+import { access, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import type { Bundle } from '../bundle.js';
-import { sha256Hex } from '../cas/hash.js';
+import { compressBytes } from '../cas/compress.js';
+import { blake3Hex, objectIdFromHash, sha256Hex } from '../cas/hash.js';
 import { prepare } from '../db.js';
 import { sourceFileId } from '../domain/ids.js';
 import type { SourceTool } from '../domain/types.js';
@@ -57,7 +58,12 @@ export async function registerSourceFile(
       LIMIT 1`,
   ).get(args.sourceTool, args.absolutePath, size, mtime);
 
-  if (cheap) return { row: cheap, alreadyKnown: true };
+  if (cheap) {
+    return {
+      row: await ensureSourceFilePreserved(bundle, cheap, args.absolutePath),
+      alreadyKnown: true,
+    };
+  }
 
   const buf = await readFile(args.absolutePath);
   const contentHash = sha256Hex(buf);
@@ -73,7 +79,14 @@ export async function registerSourceFile(
       LIMIT 1`,
   ).get(args.sourceTool, args.absolutePath, contentHash);
 
-  if (exact) return { row: exact, alreadyKnown: true };
+  if (exact) {
+    return {
+      row: await ensureSourceFilePreserved(bundle, exact, args.absolutePath, buf),
+      alreadyKnown: true,
+    };
+  }
+
+  const objectId = await preserveRawSourceBytes(bundle, buf);
 
   const id = sourceFileId(args.sourceTool, args.absolutePath, contentHash);
   const row: SourceFileRow = {
@@ -84,7 +97,7 @@ export async function registerSourceFile(
     size_bytes: size,
     mtime,
     content_hash: contentHash,
-    object_id: null,
+    object_id: objectId,
     discovered_at: new Date().toISOString(),
     workspace_hint: args.workspaceHint ?? null,
   };
@@ -109,4 +122,77 @@ export async function registerSourceFile(
   );
 
   return { row, alreadyKnown: false };
+}
+
+async function ensureSourceFilePreserved(
+  bundle: Bundle,
+  row: SourceFileRow,
+  absolutePath: string,
+  bytes?: Buffer,
+): Promise<SourceFileRow> {
+  if (row.object_id) return row;
+
+  const sourceBytes = bytes ?? (await readFile(absolutePath));
+  const objectId = await preserveRawSourceBytes(bundle, sourceBytes);
+
+  prepare<[string, string]>(
+    bundle.db,
+    `UPDATE source_files SET object_id = ? WHERE source_file_id = ?`,
+  ).run(objectId, row.source_file_id);
+
+  return { ...row, object_id: objectId };
+}
+
+async function preserveRawSourceBytes(bundle: Bundle, bytes: Uint8Array): Promise<string> {
+  const hash = blake3Hex(bytes);
+  const objectId = objectIdFromHash(hash);
+  const { bytes: stored, compression } = compressBytes(bytes);
+  const storagePath = rawSourceStoragePath(hash, compression);
+  const absolutePath = path.join(bundle.path, storagePath);
+
+  await mkdir(path.dirname(absolutePath), { recursive: true });
+  if (!(await fileExists(absolutePath))) {
+    await writeFile(absolutePath, stored);
+  }
+
+  const existing = prepare<[string], { object_id: string }>(
+    bundle.db,
+    `SELECT object_id FROM objects WHERE object_id = ?`,
+  ).get(objectId);
+
+  if (!existing) {
+    prepare(
+      bundle.db,
+      `INSERT INTO objects (
+         object_id, hash_alg, hash, size_bytes, compressed_size_bytes,
+         compression, mime_type, encoding, storage_path, created_at
+       ) VALUES (?, 'blake3', ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      objectId,
+      hash,
+      bytes.byteLength,
+      compression === 'zstd' ? stored.byteLength : null,
+      compression,
+      'application/octet-stream',
+      null,
+      storagePath,
+      new Date().toISOString(),
+    );
+  }
+
+  return objectId;
+}
+
+function rawSourceStoragePath(hashHex: string, compression: 'zstd' | 'none'): string {
+  const ext = compression === 'zstd' ? '.zst' : '.bin';
+  return `raw/sources/${hashHex}${ext}`;
+}
+
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    await access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
 }
