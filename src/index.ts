@@ -51,6 +51,7 @@ export type {
 } from './core/domain/types.js';
 
 export {
+  countSessions,
   listSessions,
   getSession,
   type SessionListFilters,

@@ -12,6 +12,7 @@ import { tuiCommand } from './commands/tui.js';
 export async function runCli(argv: readonly string[]): Promise<void> {
   const program = new Command()
     .name('prosa')
+    .enablePositionalOptions()
     .description(
       'Compile, search and export local agent session histories\n' +
         '(Cursor, Codex CLI, Claude Code, Gemini CLI) into one canonical store.',

@@ -27,7 +27,7 @@ export interface SessionRow {
   tool_call_count: number;
 }
 
-export function listSessions(bundle: Bundle, filters: SessionListFilters = {}): SessionRow[] {
+function sessionFilterWhere(filters: SessionListFilters): { where: string; params: unknown[] } {
   const conds: string[] = [];
   const params: unknown[] = [];
 
@@ -44,7 +44,14 @@ export function listSessions(bundle: Bundle, filters: SessionListFilters = {}): 
     params.push(filters.untilIso);
   }
 
-  const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
+  return {
+    where: conds.length ? `WHERE ${conds.join(' AND ')}` : '',
+    params,
+  };
+}
+
+export function listSessions(bundle: Bundle, filters: SessionListFilters = {}): SessionRow[] {
+  const { where, params } = sessionFilterWhere(filters);
   const limit = Math.max(1, Math.min(1000, filters.limit ?? 50));
 
   const sql = `
@@ -71,6 +78,21 @@ export function listSessions(bundle: Bundle, filters: SessionListFilters = {}): 
   `;
 
   return bundle.db.prepare(sql).all(...params) as SessionRow[];
+}
+
+export function countSessions(bundle: Bundle, filters: SessionListFilters = {}): number {
+  const { where, params } = sessionFilterWhere(filters);
+  const row = bundle.db
+    .prepare(
+      `
+        SELECT count(*) AS count
+          FROM sessions s
+          ${where}
+      `,
+    )
+    .get(...params) as { count: number } | undefined;
+
+  return row?.count ?? 0;
 }
 
 export interface SessionDetailEvent {
