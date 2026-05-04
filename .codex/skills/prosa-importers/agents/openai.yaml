@@ -1,0 +1,4 @@
+interface:
+  display_name: "Prosa Importers"
+  short_description: "Importer normalization workflow for prosa"
+  default_prompt: "Use $prosa-importers when implementing or reviewing prosa source importers."
