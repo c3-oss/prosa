@@ -478,6 +478,10 @@ Useful commands:
 ```bash
 pnpm install
 pnpm dev -- <command>
+just build
+just test
+just lint
+just typecheck
 pnpm build
 pnpm test
 pnpm test:watch
@@ -509,6 +513,33 @@ Project layout:
 | `src/tui/` | Ink terminal UI |
 | `test/` | Vitest tests and fixtures |
 | `docs/` | Design and recovery notes |
+
+## Releasing
+
+`prosa` uses Changesets for local npm releases to the official npm registry.
+The package is published publicly as `@c3-oss/prosa`.
+
+Create a changeset for user-facing changes:
+
+```bash
+just changeset
+```
+
+Apply pending changesets to `package.json` and `CHANGELOG.md`:
+
+```bash
+just version-packages
+```
+
+Build and publish:
+
+```bash
+just release
+```
+
+Publishing requires an npm account authenticated locally with permission to
+publish public packages under the `@c3-oss` scope. Do not run `just release`
+unless you intend to publish to `https://registry.npmjs.org/`.
 
 ## Status and limitations
 

@@ -4,6 +4,14 @@
   "description": "Compile, search, and export local agent session histories (Cursor, Codex, Claude Code, Gemini CLI) into a single canonical store.",
   "author": "Caian Ertl <hi@caian.org>",
   "license": "MIT",
+  "homepage": "https://github.com/c3-oss/prosa#readme",
+  "bugs": {
+    "url": "https://github.com/c3-oss/prosa/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/c3-oss/prosa.git"
+  },
   "type": "module",
   "exports": {
     ".": {
@@ -17,6 +25,10 @@
     "prosa": "./dist/cli/main.js"
   },
   "files": ["dist"],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "engines": {
     "node": ">=22"
   },
@@ -30,7 +42,10 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
-    "clean": "rm -rf coverage dist .turbo"
+    "clean": "rm -rf coverage dist .turbo",
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "release": "pnpm build && changeset publish"
   },
   "dependencies": {
     "@duckdb/node-api": "1.5.2-r.1",
@@ -46,6 +61,7 @@
     "zstd-napi": "^0.0.10"
   },
   "devDependencies": {
+    "@changesets/cli": "^2.29.7",
     "@biomejs/biome": "^1.9.4",
     "@swc-node/register": "^1.10.10",
     "@swc/core": "^1.13.5",

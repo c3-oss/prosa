@@ -1,12 +1,19 @@
 {
   "$schema": "https://raw.githubusercontent.com/jetify-com/devbox/main/.schema/devbox.schema.json",
-  "packages": ["nodejs@22", "pnpm@9", "sqlite@3", "jq@1", "ripgrep@14"],
+  "packages": [
+    "nodejs@22",
+    "pnpm@9",
+    "sqlite@3",
+    "jq@1",
+    "ripgrep@14",
+    "just@1.50.0"
+  ],
   "shell": {
     "scripts": {
-      "build": ["pnpm build"],
-      "test": ["pnpm test"],
-      "lint": ["pnpm lint"],
-      "typecheck": ["pnpm typecheck"]
+      "build":     ["just build"],
+      "test":      ["just test"],
+      "lint":      ["just lint"],
+      "typecheck": ["just typecheck"]
     }
   }
 }
