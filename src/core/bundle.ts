@@ -24,7 +24,10 @@ export interface Bundle {
     manifest: string;
     objects: string;
     rawSources: string;
+    search: string;
+    tantivy: string;
     exports: string;
+    parquet: string;
     lock: string;
   };
 }
@@ -41,7 +44,10 @@ function bundlePaths(rootPath: string): Bundle['paths'] {
     manifest: path.join(rootPath, 'manifest.json'),
     objects: path.join(rootPath, 'objects'),
     rawSources: path.join(rootPath, 'raw', 'sources'),
+    search: path.join(rootPath, 'search'),
+    tantivy: path.join(rootPath, 'search', 'tantivy'),
     exports: path.join(rootPath, 'exports'),
+    parquet: path.join(rootPath, 'parquet'),
     lock: path.join(rootPath, 'prosa.lock'),
   };
 }
@@ -73,7 +79,10 @@ export async function initBundle(rootPath: string): Promise<Bundle> {
 
   await mkdir(paths.objects, { recursive: true });
   await mkdir(paths.rawSources, { recursive: true });
+  await mkdir(paths.search, { recursive: true });
+  await mkdir(paths.tantivy, { recursive: true });
   await mkdir(paths.exports, { recursive: true });
+  await mkdir(paths.parquet, { recursive: true });
 
   const manifest: BundleManifest = {
     version: 1,
@@ -111,6 +120,8 @@ export async function openBundle(rootPath: string): Promise<Bundle> {
   }
 
   const manifest = JSON.parse(await readFile(paths.manifest, 'utf8')) as BundleManifest;
+  await mkdir(paths.search, { recursive: true });
+  await mkdir(paths.tantivy, { recursive: true });
   const db = openDb(paths.db);
   runMigrations(db);
 

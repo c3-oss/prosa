@@ -42,4 +42,47 @@ describe('sessions CLI', () => {
       await t.cleanup();
     }
   });
+
+  it('exports Parquet and queries it with DuckDB', async () => {
+    const t = await createTempBundle();
+    try {
+      await compileCodex(t.bundle, CODEX_FIXTURES);
+
+      await execFileAsync(
+        process.execPath,
+        [
+          '--import',
+          '@swc-node/register/esm-register',
+          BIN,
+          'export',
+          'parquet',
+          '--store',
+          t.path,
+        ],
+        { cwd: ROOT },
+      );
+
+      const { stdout } = await execFileAsync(
+        process.execPath,
+        [
+          '--import',
+          '@swc-node/register/esm-register',
+          BIN,
+          'query',
+          'duckdb',
+          'select count(*) as n from sessions',
+          '--store',
+          t.path,
+          '--output-format',
+          'json',
+        ],
+        { cwd: ROOT },
+      );
+
+      const parsed = JSON.parse(stdout) as { rows: Array<{ n: string }> };
+      expect(parsed.rows).toEqual([{ n: '2' }]);
+    } finally {
+      await t.cleanup();
+    }
+  });
 });

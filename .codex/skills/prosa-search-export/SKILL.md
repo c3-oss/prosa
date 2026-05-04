@@ -5,7 +5,7 @@ description: Search, session listing, TUI/MCP read surfaces, and export guidance
 
 # Prosa Search Export
 
-Use this skill for read surfaces built on the canonical store. Search and exports are derived views, not sources of truth.
+Use this skill for read surfaces built on the canonical store. Search, exports, and Parquet/DuckDB analytics are derived views, not sources of truth.
 
 ## Search Rules
 
@@ -28,6 +28,13 @@ Use this skill for read surfaces built on the canonical store. Search and export
 - Render messages in timeline order and show tool calls near their owning messages when possible.
 - For large outputs, show preview and object references instead of dumping every byte.
 - If timeline confidence is low, make that visible in the export.
+
+## Parquet and DuckDB
+
+- `prosa export parquet` should generate derived analytics files from canonical SQLite tables, not from Markdown or FTS output.
+- `prosa query duckdb` should query exported Parquet files and keep SQLite/CAS as the source of truth.
+- Do not export `search_docs_fts`; export `search_docs` metadata instead.
+- Keep the MVP layout simple: one Parquet file per canonical table.
 
 ## Validation
 

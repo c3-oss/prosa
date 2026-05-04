@@ -33,8 +33,10 @@
     "clean": "rm -rf coverage dist .turbo"
   },
   "dependencies": {
+    "@duckdb/node-api": "1.5.2-r.1",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@noble/hashes": "^1.7.0",
+    "@oxdev03/node-tantivy-binding": "0.2.0",
     "better-sqlite3": "^11.5.0",
     "commander": "^12.1.0",
     "filtrex": "^3.1.0",
@@ -53,5 +55,11 @@
     "tsup": "^8.5.0",
     "typescript": "^5.7.0",
     "vitest": "^2.1.0"
+  },
+  "optionalDependencies": {
+    "@oxdev03/node-tantivy-binding-darwin-arm64": "0.2.0",
+    "@oxdev03/node-tantivy-binding-darwin-x64": "0.2.0",
+    "@oxdev03/node-tantivy-binding-linux-x64-gnu": "0.2.0",
+    "@oxdev03/node-tantivy-binding-win32-x64-msvc": "0.2.0"
   }
 }

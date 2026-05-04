@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { currentSchemaVersion, runMigrations } from '../../src/core/schema/migrate.js';
+import { PROSA_SCHEMA_VERSION } from '../../src/core/version.js';
 import { createTempBundle } from '../helpers/tmp-bundle.js';
 
 describe('migrations', () => {
   it('runs all migrations on init and reports the current version', async () => {
     const t = await createTempBundle();
     try {
-      expect(currentSchemaVersion(t.bundle.db)).toBe(1);
+      expect(currentSchemaVersion(t.bundle.db)).toBe(PROSA_SCHEMA_VERSION);
       const tableCount = t.bundle.db
         .prepare<[], { n: number }>(
           `SELECT count(*) AS n FROM sqlite_master WHERE type='table' AND name='sessions'`,

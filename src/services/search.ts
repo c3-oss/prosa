@@ -1,4 +1,9 @@
+import { existsSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import type { Bundle } from '../core/bundle.js';
+import { type SearchEngine, getSearchIndexStatus } from './indexing.js';
+
+const require = createRequire(import.meta.url);
 
 export interface SearchHit {
   doc_id: string;
@@ -15,6 +20,7 @@ export interface SearchHit {
 export interface SearchOptions {
   query: string;
   limit?: number;
+  engine?: SearchEngine;
   /**
    * When true, pass `query` straight to FTS5 (MATCH expression). When false
    * (default), each whitespace-delimited token is wrapped in double quotes so
@@ -44,6 +50,10 @@ function escapeFtsQuery(q: string): string {
  * search_docs to recover entity metadata.
  */
 export function searchFullText(bundle: Bundle, options: SearchOptions): SearchHit[] {
+  if (options.engine === 'tantivy') {
+    return searchTantivy(bundle, options);
+  }
+
   const limit = Math.max(1, Math.min(500, options.limit ?? 50));
   const sql = `
     SELECT d.doc_id,
@@ -64,4 +74,93 @@ export function searchFullText(bundle: Bundle, options: SearchOptions): SearchHi
   const ftsQuery = options.raw ? options.query : escapeFtsQuery(options.query);
   if (!ftsQuery) return [];
   return bundle.db.prepare(sql).all(ftsQuery) as SearchHit[];
+}
+
+function searchTantivy(bundle: Bundle, options: SearchOptions): SearchHit[] {
+  if (!existsSync(bundle.paths.tantivy)) {
+    throw new Error('tantivy index not found; run `prosa index tantivy` first');
+  }
+
+  const status = getSearchIndexStatus(bundle, 'tantivy');
+  if (status?.status !== 'ready') {
+    throw new Error(
+      `tantivy index is ${status?.status ?? 'missing'}; run \`prosa index tantivy\` first`,
+    );
+  }
+
+  const limit = Math.max(1, Math.min(500, options.limit ?? 50));
+  const queryText = options.query.trim();
+  if (!queryText) return [];
+
+  const tantivy = requireTantivy();
+  const index = tantivy.Index.open(bundle.paths.tantivy);
+  const searcher = index.searcher();
+  const [query] = options.raw
+    ? [index.parseQuery(queryText, ['text'])]
+    : index.parseQueryLenient(queryText, ['text'], undefined, {
+        text: [true, 2, true],
+      });
+  const result = searcher.search(query, limit, true);
+  const snippets = tantivy.SnippetGenerator.create(searcher, query, index.schema, 'text');
+  snippets.setMaxNumChars(180);
+
+  return result.hits.map((hit: TantivySearchHit) => {
+    const doc = searcher.doc(hit.docAddress);
+    const snippet = snippets.snippetFromDoc(doc);
+    const text = getStoredText(doc, 'text');
+    const renderedSnippet = snippet.fragment()
+      ? highlightSnippet(snippet.fragment(), snippet.highlighted())
+      : text.slice(0, 180);
+    return {
+      doc_id: getStoredText(doc, 'doc_id'),
+      entity_type: getStoredText(doc, 'entity_type'),
+      entity_id: getStoredText(doc, 'entity_id'),
+      session_id: nullIfEmpty(getStoredText(doc, 'session_id')),
+      timestamp: nullIfEmpty(getStoredText(doc, 'timestamp')),
+      role: nullIfEmpty(getStoredText(doc, 'role')),
+      tool_name: nullIfEmpty(getStoredText(doc, 'tool_name')),
+      field_kind: getStoredText(doc, 'field_kind'),
+      snippet: renderedSnippet,
+    };
+  });
+}
+
+type TantivyModule = typeof import('@oxdev03/node-tantivy-binding');
+type TantivyDocument = InstanceType<TantivyModule['Document']>;
+type TantivySearchHit = import('@oxdev03/node-tantivy-binding').SearchHit;
+
+function requireTantivy(): TantivyModule {
+  try {
+    return require('@oxdev03/node-tantivy-binding') as TantivyModule;
+  } catch (error) {
+    throw new Error(
+      `tantivy engine is unavailable: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+function getStoredText(doc: TantivyDocument, field: string): string {
+  const value = doc.getFirst(field);
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value) && typeof value[0] === 'string') return value[0];
+  if (value == null) return '';
+  return String(value);
+}
+
+function nullIfEmpty(value: string): string | null {
+  return value.length > 0 ? value : null;
+}
+
+function highlightSnippet(fragment: string, ranges: Array<{ start: number; end: number }>): string {
+  if (ranges.length === 0) return fragment;
+
+  let out = '';
+  let cursor = 0;
+  for (const range of ranges) {
+    out += fragment.slice(cursor, range.start);
+    out += `⟪${fragment.slice(range.start, range.end)}⟫`;
+    cursor = range.end;
+  }
+  out += fragment.slice(cursor);
+  return out;
 }

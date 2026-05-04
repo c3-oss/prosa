@@ -61,7 +61,28 @@ export {
 } from './services/sessions.js';
 
 export { searchFullText, type SearchHit, type SearchOptions } from './services/search.js';
+export {
+  disableFts5Triggers,
+  enableFts5Triggers,
+  getSearchIndexStatus,
+  getSearchIndexStatuses,
+  markIndexesAfterImport,
+  rebuildFts5Index,
+  rebuildTantivyIndex,
+  type SearchEngine,
+  type SearchIndexStatus,
+} from './services/indexing.js';
 export { exportSessionMarkdown } from './services/export/markdown.js';
+export {
+  exportBundleParquet,
+  queryDuckDbParquet,
+  PARQUET_TABLES,
+  type DuckDbQueryOptions,
+  type DuckDbQueryResult,
+  type ParquetExportOptions,
+  type ParquetExportResult,
+  type ParquetTable,
+} from './services/export/parquet.js';
 
 export { compileCodex, type CompileResult as CodexCompileResult } from './importers/codex/index.js';
 export {

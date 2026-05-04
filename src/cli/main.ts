@@ -3,8 +3,10 @@ import { Command } from 'commander';
 import { PROSA_PARSER_VERSION } from '../core/version.js';
 import { compileCommand } from './commands/compile.js';
 import { exportCommand } from './commands/export.js';
+import { indexCommand } from './commands/index.js';
 import { initCommand } from './commands/init.js';
 import { mcpCommand } from './commands/mcp.js';
+import { queryCommand } from './commands/query.js';
 import { searchCommand } from './commands/search.js';
 import { sessionsCommand } from './commands/sessions.js';
 import { tuiCommand } from './commands/tui.js';
@@ -21,9 +23,11 @@ export async function runCli(argv: readonly string[]): Promise<void> {
 
   program.addCommand(initCommand());
   program.addCommand(compileCommand());
+  program.addCommand(indexCommand());
   program.addCommand(sessionsCommand());
   program.addCommand(searchCommand());
   program.addCommand(exportCommand());
+  program.addCommand(queryCommand());
   program.addCommand(mcpCommand());
   program.addCommand(tuiCommand());
 

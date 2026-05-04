@@ -8,12 +8,18 @@ importers:
 
   .:
     dependencies:
+      '@duckdb/node-api':
+        specifier: 1.5.2-r.1
+        version: 1.5.2-r.1
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.29.0(zod@3.25.76)
       '@noble/hashes':
         specifier: ^1.7.0
         version: 1.8.0
+      '@oxdev03/node-tantivy-binding':
+        specifier: 0.2.0
+        version: 0.2.0
       better-sqlite3:
         specifier: ^11.5.0
         version: 11.10.0
@@ -35,6 +41,19 @@ importers:
       zstd-napi:
         specifier: ^0.0.10
         version: 0.0.10
+    optionalDependencies:
+      '@oxdev03/node-tantivy-binding-darwin-arm64':
+        specifier: 0.2.0
+        version: 0.2.0
+      '@oxdev03/node-tantivy-binding-darwin-x64':
+        specifier: 0.2.0
+        version: 0.2.0
+      '@oxdev03/node-tantivy-binding-linux-x64-gnu':
+        specifier: 0.2.0
+        version: 0.2.0
+      '@oxdev03/node-tantivy-binding-win32-x64-msvc':
+        specifier: 0.2.0
+        version: 0.2.0
     devDependencies:
       '@biomejs/biome':
         specifier: ^1.9.4
@@ -122,6 +141,42 @@ packages:
     engines: {node: '>=14.21.3'}
     cpu: [x64]
     os: [win32]
+
+  '@duckdb/node-api@1.5.2-r.1':
+    resolution: {integrity: sha512-OzBBnS0JGXMoS5mzKNY/Ylr7SshcRQiLFIoxQ4AlePwJ2fNeDL/fbHu/knjxUrXwW1fJBTUgwWftmxDdnZZb3A==}
+
+  '@duckdb/node-bindings-darwin-arm64@1.5.2-r.1':
+    resolution: {integrity: sha512-v35FyKOb8EJCvaiPF7k0gvKiJTXR7PPQDNoWR0Gu+YSX5O9b+DIguzt1348Of3HebHy6ATSMzlUekaVA9YXu+g==}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@duckdb/node-bindings-darwin-x64@1.5.2-r.1':
+    resolution: {integrity: sha512-SU9dIJ1BluKkkGxi4UsP4keqkkstB2YDySF9KcYu3EZKIVM3FTv2zc7XO38dXnHOq6+F3WqhWWZvD+XU945p7A==}
+    cpu: [x64]
+    os: [darwin]
+
+  '@duckdb/node-bindings-linux-arm64@1.5.2-r.1':
+    resolution: {integrity: sha512-3Tra9xM3aM3denaER4KhJ6//6PpmPbik9ECBQ+sh9PyKaEgHw/0kAcKnLm5EzWUnXF0qYmZlewvkCrse8KmOYw==}
+    cpu: [arm64]
+    os: [linux]
+
+  '@duckdb/node-bindings-linux-x64@1.5.2-r.1':
+    resolution: {integrity: sha512-pcQvZRHiIfJ9cq8parkSQczQHEml/IeGfnDCMAbEgD6+jaV9Y9Y5Ph1kP9aR+bm6him1S5ZIEr3kZbihjKnWbA==}
+    cpu: [x64]
+    os: [linux]
+
+  '@duckdb/node-bindings-win32-arm64@1.5.2-r.1':
+    resolution: {integrity: sha512-Ji8tym+N3LkrhVt0Up3bsacD/kpg4/JXFJQqxswiYvBaNCQOk+D+aiVS0GN5pcqvmnG7V7TpsDRzkLEFaWp1vw==}
+    cpu: [arm64]
+    os: [win32]
+
+  '@duckdb/node-bindings-win32-x64@1.5.2-r.1':
+    resolution: {integrity: sha512-5XqcqC+4R8ghBEEbnc2a0sqfz1zyPBRb9YcmIWfiuDoCYSYFbKhmHcEyNftZDHcwCoLOHXnUin45jraex4STqQ==}
+    cpu: [x64]
+    os: [win32]
+
+  '@duckdb/node-bindings@1.5.2-r.1':
+    resolution: {integrity: sha512-bUg3bLVj70YVku6fKyQJS8ASORl7kM7YFVFznsEB9pWbtazPj+ME2x2FUk0WiTzjJdutjzSSGXF066mB4bGGZA==}
 
   '@emnapi/core@1.10.0':
     resolution: {integrity: sha512-yq6OkJ4p82CAfPl0u9mQebQHKPJkY7WrIuk205cTYnYe+k2Z8YBh11FrbRG/H6ihirqcacOgl2BIO8oyMQLeXw==}
@@ -564,6 +619,34 @@ packages:
     resolution: {integrity: sha512-6hIU3RQu45B+VNTY4Ru8ppFwjVS/S5qwYyGhBotmjxfEKk41I2DlGtRfGJndZ5+6lneE2pwloqunlOyZuX/XAw==}
     cpu: [x64]
     os: [win32]
+
+  '@oxdev03/node-tantivy-binding-darwin-arm64@0.2.0':
+    resolution: {integrity: sha512-GwK4M+aqmYaRJ5ITd2z4oiLfG4fl4zVBtVGnbsyfvmlj6A38G+vX1g4qfR1+ab8/mmagwGOFGQz0gGvpY4n0ng==}
+    engines: {node: '>= 22.15.1'}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@oxdev03/node-tantivy-binding-darwin-x64@0.2.0':
+    resolution: {integrity: sha512-hn7sfbC4T8moczT/EkFFCM9DBdkH7CmYyaIDuxFRSJqbwE9T+0ABLkqLhOnHm4/YGWiiI1l0SG9USAMXQIXSMw==}
+    engines: {node: '>= 22.15.1'}
+    cpu: [x64]
+    os: [darwin]
+
+  '@oxdev03/node-tantivy-binding-linux-x64-gnu@0.2.0':
+    resolution: {integrity: sha512-mxYOKUXCqG5nQeWfSC4TburDXk7vKL+vAxykvs6Gdohi94EMAA0OmTOlkw8wQsluGzj+AhESTrrnKZEDEX7VuQ==}
+    engines: {node: '>= 22.15.1'}
+    cpu: [x64]
+    os: [linux]
+
+  '@oxdev03/node-tantivy-binding-win32-x64-msvc@0.2.0':
+    resolution: {integrity: sha512-e7knz7S/zSLZRO32wEvzqU4Wp6Q+HqdwRmf/X3ZaOTYxkfuFwAG9onVA4Vd5tL2OSdh0T3L/M4kyVwg5Wec0HA==}
+    engines: {node: '>= 22.15.1'}
+    cpu: [x64]
+    os: [win32]
+
+  '@oxdev03/node-tantivy-binding@0.2.0':
+    resolution: {integrity: sha512-tL1/mJ5odAfkOXxUFgWkVseRle6tnU+yME1e8AralUbC0n3vgK8YbNJAcuVqZfGHbAomO5D03FKQUhiB4p8fYg==}
+    engines: {node: '>= 22.15.1'}
 
   '@rollup/rollup-android-arm-eabi@4.60.2':
     resolution: {integrity: sha512-dnlp69efPPg6Uaw2dVqzWRfAWRnYVb1XJ8CyyhIbZeaq4CA5/mLeZ1IEt9QqQxmbdvagjLIm2ZL8BxXv5lH4Yw==}
@@ -1880,6 +1963,37 @@ snapshots:
   '@biomejs/cli-win32-x64@1.9.4':
     optional: true
 
+  '@duckdb/node-api@1.5.2-r.1':
+    dependencies:
+      '@duckdb/node-bindings': 1.5.2-r.1
+
+  '@duckdb/node-bindings-darwin-arm64@1.5.2-r.1':
+    optional: true
+
+  '@duckdb/node-bindings-darwin-x64@1.5.2-r.1':
+    optional: true
+
+  '@duckdb/node-bindings-linux-arm64@1.5.2-r.1':
+    optional: true
+
+  '@duckdb/node-bindings-linux-x64@1.5.2-r.1':
+    optional: true
+
+  '@duckdb/node-bindings-win32-arm64@1.5.2-r.1':
+    optional: true
+
+  '@duckdb/node-bindings-win32-x64@1.5.2-r.1':
+    optional: true
+
+  '@duckdb/node-bindings@1.5.2-r.1':
+    optionalDependencies:
+      '@duckdb/node-bindings-darwin-arm64': 1.5.2-r.1
+      '@duckdb/node-bindings-darwin-x64': 1.5.2-r.1
+      '@duckdb/node-bindings-linux-arm64': 1.5.2-r.1
+      '@duckdb/node-bindings-linux-x64': 1.5.2-r.1
+      '@duckdb/node-bindings-win32-arm64': 1.5.2-r.1
+      '@duckdb/node-bindings-win32-x64': 1.5.2-r.1
+
   '@emnapi/core@1.10.0':
     dependencies:
       '@emnapi/wasi-threads': 1.2.1
@@ -2156,6 +2270,25 @@ snapshots:
 
   '@oxc-resolver/binding-win32-x64-msvc@11.19.1':
     optional: true
+
+  '@oxdev03/node-tantivy-binding-darwin-arm64@0.2.0':
+    optional: true
+
+  '@oxdev03/node-tantivy-binding-darwin-x64@0.2.0':
+    optional: true
+
+  '@oxdev03/node-tantivy-binding-linux-x64-gnu@0.2.0':
+    optional: true
+
+  '@oxdev03/node-tantivy-binding-win32-x64-msvc@0.2.0':
+    optional: true
+
+  '@oxdev03/node-tantivy-binding@0.2.0':
+    optionalDependencies:
+      '@oxdev03/node-tantivy-binding-darwin-arm64': 0.2.0
+      '@oxdev03/node-tantivy-binding-darwin-x64': 0.2.0
+      '@oxdev03/node-tantivy-binding-linux-x64-gnu': 0.2.0
+      '@oxdev03/node-tantivy-binding-win32-x64-msvc': 0.2.0
 
   '@rollup/rollup-android-arm-eabi@4.60.2':
     optional: true

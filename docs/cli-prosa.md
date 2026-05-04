@@ -73,6 +73,8 @@ prosa sessions --project movaincentivo --since 2026-01-01
 prosa tools --name Shell --errors
 prosa files --touched src/app.ts
 prosa export session <session-id> --format markdown
+prosa export parquet
+prosa query duckdb "select tool_name, count(*) from tool_calls group by 1"
 ```
 
 Exemplo de TUI:
@@ -144,6 +146,7 @@ A partir de **W**, quero conseguir consultar perguntas como:
 prosa export session <session-id> --format markdown
 prosa export search "termo" --format markdown
 prosa export project <project-id> --format markdown
+prosa export parquet
 ```
 
 O Markdown exportado deve ser fácil de ler e preservar metadados úteis, como:
@@ -159,6 +162,10 @@ O Markdown exportado deve ser fácil de ler e preservar metadados úteis, como:
 - resultados relevantes;
 - erros;
 - links ou referências para artifacts grandes.
+
+O export Parquet é uma camada derivada para análise pesada com DuckDB. Ele não
+substitui o SQLite canônico nem o CAS; pode ser recriado a qualquer momento a
+partir do bundle.
 
 ## TUI
 

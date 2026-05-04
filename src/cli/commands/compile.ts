@@ -6,6 +6,11 @@ import { compileClaude } from '../../importers/claude/index.js';
 import { compileCodex } from '../../importers/codex/index.js';
 import { compileCursor } from '../../importers/cursor/index.js';
 import { compileGemini } from '../../importers/gemini/index.js';
+import {
+  disableFts5Triggers,
+  enableFts5Triggers,
+  markIndexesAfterImport,
+} from '../../services/indexing.js';
 
 export function compileCommand(): Command {
   return new Command('compile')
@@ -15,6 +20,7 @@ export function compileCommand(): Command {
     .option('--gemini <path>', 'root of Gemini CLI tmp dir (e.g. ~/.gemini/tmp)')
     .option('--cursor <path>', 'root of Cursor agent stores (e.g. ~/.cursor/chats)')
     .option('--store <path>', 'bundle directory', defaultBundlePath())
+    .option('--defer-index', 'skip immediate FTS5 updates; run `prosa index fts5` later')
     .action(
       async (options: {
         codex?: string;
@@ -22,6 +28,7 @@ export function compileCommand(): Command {
         gemini?: string;
         cursor?: string;
         store: string;
+        deferIndex?: boolean;
       }) => {
         if (!options.codex && !options.claude && !options.gemini && !options.cursor) {
           process.stderr.write(
@@ -31,24 +38,39 @@ export function compileCommand(): Command {
         }
 
         const bundle = await openBundle(path.resolve(options.store));
+        let importedAny = false;
         try {
+          if (options.deferIndex) {
+            disableFts5Triggers(bundle);
+          }
           if (options.codex) {
             const r = await compileCodex(bundle, path.resolve(options.codex));
+            importedAny ||= r.counts.source_files_imported > 0;
             printCounts('codex', r.batch.batch_id, r.counts);
           }
           if (options.claude) {
             const r = await compileClaude(bundle, path.resolve(options.claude));
+            importedAny ||= r.counts.source_files_imported > 0;
             printCounts('claude', r.batch.batch_id, r.counts);
           }
           if (options.gemini) {
             const r = await compileGemini(bundle, path.resolve(options.gemini));
+            importedAny ||= r.counts.source_files_imported > 0;
             printCounts('gemini', r.batch.batch_id, r.counts);
           }
           if (options.cursor) {
             const r = await compileCursor(bundle, path.resolve(options.cursor));
+            importedAny ||= r.counts.source_files_imported > 0;
             printCounts('cursor', r.batch.batch_id, r.counts);
           }
+          markIndexesAfterImport(bundle, {
+            changed: importedAny,
+            fts5Deferred: options.deferIndex === true,
+          });
         } finally {
+          if (options.deferIndex) {
+            enableFts5Triggers(bundle);
+          }
           closeBundle(bundle);
         }
       },

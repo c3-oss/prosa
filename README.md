@@ -19,6 +19,8 @@ prosa compile --codex ~/.codex/sessions
 prosa sessions --since 2026-01-01
 prosa search "terraform"
 prosa export session <id> --format markdown
+prosa export parquet
+prosa query duckdb "select source_tool, count(*) from sessions group by 1"
 ```
 
 ## Architecture
@@ -31,13 +33,18 @@ prosa export session <id> --format markdown
   prosa.sqlite            # canonical catalog + projections + FTS5
   objects/blake3/ab/cd/<hash>.zst    # content-addressed object store
   raw/sources/<hash>.zst             # preserved copies of source files
-  exports/                # markdown / json / csv exports
+  exports/                # human-readable exports
+  parquet/                # derived analytics snapshots for DuckDB
 ```
 
 The SQLite database is the catalog. Big content (raw JSONL records, tool
 outputs, diffs) is stored in `objects/` keyed by BLAKE3 hash. Source files are
 preserved verbatim in `raw/sources/` so projections can be rebuilt by a future,
 better importer without re-reading the originals.
+
+Parquet exports are derived analytics snapshots, not source of truth. Generate
+them with `prosa export parquet`, then query them with DuckDB through
+`prosa query duckdb "<sql>"`.
 
 ## Why this exists
 
