@@ -5,6 +5,8 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import type { Bundle } from '../core/bundle.js';
 import { PROSA_PARSER_VERSION } from '../core/version.js';
+import type { SearchEngine } from '../services/indexing.js';
+import { PROSA_MCP_INSTRUCTIONS } from './guidance.js';
 import { registerProsaTools } from './tools.js';
 
 interface SessionEntry {
@@ -16,6 +18,7 @@ export interface McpServerOptions {
   host: string;
   port: number;
   path?: string;
+  searchEngine?: SearchEngine;
 }
 
 export interface RunningServer {
@@ -39,8 +42,10 @@ export async function listenMcpServer(
   const mcpPath = options.path ?? '/mcp';
   const sessions = new Map<string, SessionEntry>();
 
+  const searchEngine = options.searchEngine ?? 'fts5';
+
   const httpServer = http.createServer((req, res) => {
-    handleRequest(req, res, mcpPath, sessions, bundle).catch((error: unknown) => {
+    handleRequest(req, res, mcpPath, sessions, bundle, searchEngine).catch((error: unknown) => {
       writeError(res, error);
     });
   });
@@ -74,6 +79,7 @@ async function handleRequest(
   mcpPath: string,
   sessions: Map<string, SessionEntry>,
   bundle: Bundle,
+  searchEngine: SearchEngine,
 ): Promise<void> {
   if (!req.url || !req.url.startsWith(mcpPath)) {
     res.writeHead(404).end();
@@ -107,7 +113,7 @@ async function handleRequest(
       res.writeHead(404).end();
       return;
     }
-    entry = await openSession(bundle, sessions);
+    entry = await openSession(bundle, sessions, searchEngine);
   }
 
   const bodyText = await readBody(req);
@@ -118,14 +124,18 @@ async function handleRequest(
 async function openSession(
   bundle: Bundle,
   store: Map<string, SessionEntry>,
+  searchEngine: SearchEngine,
 ): Promise<SessionEntry> {
   // We need to assemble server + transport together because the transport's
   // `onsessioninitialized` callback wants to register both into the map.
-  const server = new McpServer({
-    name: 'prosa',
-    version: PROSA_PARSER_VERSION,
-  });
-  registerProsaTools(server, bundle);
+  const server = new McpServer(
+    {
+      name: 'prosa',
+      version: PROSA_PARSER_VERSION,
+    },
+    { instructions: PROSA_MCP_INSTRUCTIONS },
+  );
+  registerProsaTools(server, bundle, { searchEngine });
 
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: () => randomUUID(),

@@ -3,8 +3,18 @@ import { z } from 'zod';
 import type { Bundle } from '../core/bundle.js';
 import type { SourceTool } from '../core/domain/types.js';
 import { exportSessionMarkdown } from '../services/export/markdown.js';
+import { type SearchEngine, getSearchIndexStatuses } from '../services/indexing.js';
 import { searchFullText } from '../services/search.js';
 import { getSession, listSessions } from '../services/sessions.js';
+import {
+  AUDIT_TOOL_FAILURES_PROMPT,
+  FIND_FILE_HISTORY_PROMPT,
+  INVESTIGATE_PRIOR_WORK_PROMPT,
+} from './guidance.js';
+
+export interface ProsaToolOptions {
+  searchEngine?: SearchEngine;
+}
 
 /**
  * Register every prosa MCP tool on `server`. All tools are read-only and
@@ -12,13 +22,20 @@ import { getSession, listSessions } from '../services/sessions.js';
  * service functions the CLI calls, so behavior stays consistent across
  * surfaces.
  */
-export function registerProsaTools(server: McpServer, bundle: Bundle): void {
+export function registerProsaTools(
+  server: McpServer,
+  bundle: Bundle,
+  options: ProsaToolOptions = {},
+): void {
+  const searchEngine = options.searchEngine ?? 'fts5';
+  registerProsaPrompts(server);
+
   server.registerTool(
     'list_sessions',
     {
       title: 'List sessions',
       description:
-        'List sessions in the prosa store, optionally filtered by source tool, date range, or substring on cwd/title. Returns at most `limit` rows ordered by most recent start.',
+        'List recent sessions when you need candidates by source/date before deeper inspection. Next step: call get_session for relevant session_id values.',
       inputSchema: {
         source: z.enum(['cursor', 'codex', 'claude', 'gemini']).optional(),
         since: z.string().optional().describe('ISO timestamp lower bound (inclusive)'),
@@ -45,7 +62,7 @@ export function registerProsaTools(server: McpServer, bundle: Bundle): void {
     {
       title: 'Get session detail',
       description:
-        'Return metadata plus the timeline of events for one session. Use `list_sessions` first to discover ids.',
+        'Open one session and return metadata plus timeline events. Use this after search_sessions, list_sessions, find_touched_files, or list_tool_calls before making evidence-backed claims.',
       inputSchema: {
         session_id: z.string().min(1),
       },
@@ -69,8 +86,7 @@ export function registerProsaTools(server: McpServer, bundle: Bundle): void {
     'search_sessions',
     {
       title: 'Full-text search',
-      description:
-        'FTS5 search over messages, tool calls and tool result previews. Punctuation in queries is auto-quoted; pass `raw: true` to use raw FTS5 MATCH syntax (OR, NEAR, prefixes).',
+      description: `Search messages, commands, paths, and result previews using the server-selected ${searchEngine} engine. Start here for open-ended questions with 2-5 concrete terms, then call get_session for relevant hits.`,
       inputSchema: {
         query: z.string().min(1),
         limit: z.number().int().min(1).max(500).optional().default(50),
@@ -79,10 +95,17 @@ export function registerProsaTools(server: McpServer, bundle: Bundle): void {
       annotations: { readOnlyHint: true, idempotentHint: true },
     },
     async ({ query, limit, raw }) => {
-      const hits = searchFullText(bundle, { query, limit: limit ?? 50, raw });
+      const hits = searchFullText(bundle, { query, limit: limit ?? 50, raw, engine: searchEngine });
       return {
         content: [
-          { type: 'text', text: JSON.stringify({ query, count: hits.length, hits }, null, 2) },
+          {
+            type: 'text',
+            text: JSON.stringify(
+              { query, engine: searchEngine, count: hits.length, hits },
+              null,
+              2,
+            ),
+          },
         ],
       };
     },
@@ -92,7 +115,8 @@ export function registerProsaTools(server: McpServer, bundle: Bundle): void {
     'export_session_markdown',
     {
       title: 'Export session as Markdown',
-      description: 'Render a single session into a human-readable Markdown transcript.',
+      description:
+        'Render a selected session into a readable transcript. Use only after get_session confirms relevance; this can return much more context than snippets.',
       inputSchema: {
         session_id: z.string().min(1),
       },
@@ -116,7 +140,7 @@ export function registerProsaTools(server: McpServer, bundle: Bundle): void {
     {
       title: 'List tool calls',
       description:
-        'List tool calls in the bundle, filtered by tool name, canonical type, error status, or session id. Use this to audit what shell commands ran, which files were edited, etc.',
+        'Audit commands and tool usage by tool name, canonical type, error status, or session. Use this for failed commands, shell history, patches, and operational evidence; then open relevant sessions with get_session.',
       inputSchema: {
         tool_name: z.string().optional(),
         canonical_type: z
@@ -181,7 +205,7 @@ export function registerProsaTools(server: McpServer, bundle: Bundle): void {
     {
       title: 'Find sessions that touched a file',
       description:
-        'Find every tool call or artifact whose file path matches `path_substring`. Useful for "what conversations touched src/foo.ts?".',
+        'Find sessions with tool calls or artifacts whose path contains `path_substring`. Start here for file-history questions, then open returned sessions with get_session.',
       inputSchema: {
         path_substring: z.string().min(1),
         limit: z.number().int().min(1).max(500).optional().default(100),
@@ -215,7 +239,7 @@ export function registerProsaTools(server: McpServer, bundle: Bundle): void {
     {
       title: 'Get artifact bytes/text',
       description:
-        'Retrieve the text content of an artifact (diff, tool output, attachment) by its prosa artifact_id. Returns `[base64]` placeholder for binary artifacts.',
+        'Retrieve full text for an artifact_id found in a session or export. Use this for detailed diffs or large tool outputs after identifying the artifact; binary artifacts return a placeholder.',
       inputSchema: {
         artifact_id: z.string().min(1),
       },
@@ -246,5 +270,105 @@ export function registerProsaTools(server: McpServer, bundle: Bundle): void {
         return { content: [{ type: 'text', text: `[binary artifact: ${objectId}]` }] };
       }
     },
+  );
+
+  server.registerTool(
+    'index_status',
+    {
+      title: 'Search index status',
+      description:
+        'Show whether derived search indexes are ready, stale, missing, building, or failed. Use when search results are unexpectedly empty or when choosing between FTS5 and Tantivy.',
+      inputSchema: {},
+      annotations: { readOnlyHint: true, idempotentHint: true },
+    },
+    async () => {
+      const rows = getSearchIndexStatuses(bundle);
+      return {
+        content: [{ type: 'text', text: JSON.stringify(rows, null, 2) }],
+      };
+    },
+  );
+}
+
+function registerProsaPrompts(server: McpServer): void {
+  server.registerPrompt(
+    'investigate_prior_work',
+    {
+      title: 'Investigate prior work',
+      description:
+        'Guide an agent through searching prosa for prior work on a topic, opening relevant sessions, and citing evidence.',
+      argsSchema: {
+        topic: z
+          .string()
+          .min(1)
+          .describe('Topic, feature, error, command, or decision to investigate'),
+      },
+    },
+    ({ topic }) => ({
+      description: 'Search prosa for relevant prior work and answer with session evidence.',
+      messages: [
+        {
+          role: 'user',
+          content: {
+            type: 'text',
+            text: INVESTIGATE_PRIOR_WORK_PROMPT.replace('{{topic}}', topic),
+          },
+        },
+      ],
+    }),
+  );
+
+  server.registerPrompt(
+    'find_file_history',
+    {
+      title: 'Find file history',
+      description:
+        'Guide an agent through finding sessions that touched a file/path and summarizing the relevant history.',
+      argsSchema: {
+        path: z.string().min(1).describe('File path, directory, or distinctive path suffix'),
+      },
+    },
+    ({ path }) => ({
+      description: 'Find sessions that touched a path and summarize the evidence.',
+      messages: [
+        {
+          role: 'user',
+          content: {
+            type: 'text',
+            text: FIND_FILE_HISTORY_PROMPT.replace('{{path}}', path),
+          },
+        },
+      ],
+    }),
+  );
+
+  server.registerPrompt(
+    'audit_tool_failures',
+    {
+      title: 'Audit tool failures',
+      description:
+        'Guide an agent through finding failed tool calls and grouping them by likely cause.',
+      argsSchema: {
+        query: z
+          .string()
+          .optional()
+          .describe('Optional topic, file, command, or error to narrow audit'),
+      },
+    },
+    ({ query }) => ({
+      description: 'Audit failed tool calls and cite operational evidence.',
+      messages: [
+        {
+          role: 'user',
+          content: {
+            type: 'text',
+            text: AUDIT_TOOL_FAILURES_PROMPT.replace(
+              '{{query_clause}}',
+              query ? ` related to: ${query}` : '',
+            ),
+          },
+        },
+      ],
+    }),
   );
 }
