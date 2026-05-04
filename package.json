@@ -1,0 +1,57 @@
+{
+  "name": "prosa",
+  "version": "0.1.0",
+  "description": "Compile, search, and export local agent session histories (Cursor, Codex, Claude Code, Gemini CLI) into a single canonical store.",
+  "author": "Caian Ertl <hi@caian.org>",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "prosa": "./dist/cli/main.js"
+  },
+  "files": ["dist"],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "node --import @swc-node/register/esm-register src/bin/prosa.ts",
+    "build": "tsup",
+    "lint": "biome check .",
+    "lint:fix": "biome check --fix .",
+    "format": "biome format --write .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf coverage dist .turbo"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@noble/hashes": "^1.7.0",
+    "better-sqlite3": "^11.5.0",
+    "commander": "^12.1.0",
+    "filtrex": "^3.1.0",
+    "ink": "^7.0.1",
+    "react": "^19.2.5",
+    "zod": "^3.23.8",
+    "zstd-napi": "^0.0.10"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@swc-node/register": "^1.10.10",
+    "@swc/core": "^1.13.5",
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.2.14",
+    "tsup": "^8.5.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  }
+}

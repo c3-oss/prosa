@@ -1,0 +1,60 @@
+import type { Db } from '../db.js';
+import { SQL_001_INIT } from './sql/001_init.js';
+
+interface Migration {
+  version: number;
+  name: string;
+  sql: string;
+}
+
+// Order matters. Each entry is a self-contained set of DDL statements run
+// inside a single transaction together with its bookkeeping insert.
+const MIGRATIONS: readonly Migration[] = [{ version: 1, name: 'init', sql: SQL_001_INIT }];
+
+export function runMigrations(db: Db): { applied: number[] } {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS _prosa_migrations (
+      version    INTEGER PRIMARY KEY,
+      name       TEXT NOT NULL,
+      applied_at TEXT NOT NULL
+    );
+  `);
+
+  const applied = new Set<number>(
+    db
+      .prepare<[], { version: number }>(`SELECT version FROM _prosa_migrations`)
+      .all()
+      .map((row) => row.version),
+  );
+
+  const newlyApplied: number[] = [];
+
+  for (const migration of MIGRATIONS) {
+    if (applied.has(migration.version)) continue;
+    const tx = db.transaction(() => {
+      db.exec(migration.sql);
+      db.prepare(`INSERT INTO _prosa_migrations(version, name, applied_at) VALUES (?, ?, ?)`).run(
+        migration.version,
+        migration.name,
+        new Date().toISOString(),
+      );
+    });
+    tx();
+    newlyApplied.push(migration.version);
+  }
+
+  return { applied: newlyApplied };
+}
+
+export function currentSchemaVersion(db: Db): number {
+  try {
+    const row = db
+      .prepare<[], { version: number | null }>(
+        `SELECT MAX(version) AS version FROM _prosa_migrations`,
+      )
+      .get();
+    return row?.version ?? 0;
+  } catch {
+    return 0;
+  }
+}

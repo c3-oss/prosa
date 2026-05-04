@@ -1,0 +1,13 @@
+node_modules/
+dist/
+coverage/
+.turbo/
+.devbox/
+.cache/
+
+*.log
+.DS_Store
+
+# local prosa bundles used for smoke tests
+/.prosa-smoke/
+/tmp-prosa/
