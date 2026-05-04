@@ -1,11 +1,12 @@
 import { existsSync } from 'node:fs';
+import { mkdir, readdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { compileCodex } from '../../src/importers/codex/index.js';
 import { exportSessionMarkdown } from '../../src/services/export/markdown.js';
 import { searchFullText } from '../../src/services/search.js';
-import { getSession, listSessions } from '../../src/services/sessions.js';
+import { countSessions, getSession, listSessions } from '../../src/services/sessions.js';
 import { createTempBundle } from '../helpers/tmp-bundle.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -52,11 +53,57 @@ describe('codex importer', () => {
     try {
       const r1 = await compileCodex(t.bundle, FIXTURES);
       expect(r1.counts.source_files_imported).toBe(2);
+      expect(await readdir(t.bundle.paths.rawSources)).toHaveLength(2);
 
       const r2 = await compileCodex(t.bundle, FIXTURES);
       expect(r2.counts.source_files_seen).toBe(2);
       expect(r2.counts.source_files_imported).toBe(0);
       expect(r2.counts.source_files_skipped).toBe(2);
+      expect(await readdir(t.bundle.paths.rawSources)).toHaveLength(2);
+
+      const sessionCount = t.bundle.db
+        .prepare<[], { n: number }>(`SELECT count(*) AS n FROM sessions`)
+        .get();
+      expect(sessionCount?.n).toBe(2);
+    } finally {
+      await t.cleanup();
+    }
+  });
+
+  it('counts sessions with the list filters', async () => {
+    const t = await createTempBundle();
+    try {
+      await compileCodex(t.bundle, FIXTURES);
+
+      expect(countSessions(t.bundle)).toBe(2);
+      expect(countSessions(t.bundle, { sourceTool: 'codex' })).toBe(2);
+      expect(countSessions(t.bundle, { sourceTool: 'claude' })).toBe(0);
+      expect(countSessions(t.bundle, { sinceIso: '2026-05-03T21:15:00.000Z' })).toBe(1);
+      expect(countSessions(t.bundle, { untilIso: '2026-05-03T21:15:00.000Z' })).toBe(1);
+    } finally {
+      await t.cleanup();
+    }
+  });
+
+  it('backfills raw source preservation for legacy source_files rows', async () => {
+    const t = await createTempBundle();
+    try {
+      await compileCodex(t.bundle, FIXTURES);
+      t.bundle.db.exec(`UPDATE source_files SET object_id = NULL`);
+      await rm(t.bundle.paths.rawSources, { recursive: true, force: true });
+      await mkdir(t.bundle.paths.rawSources, { recursive: true });
+
+      const r2 = await compileCodex(t.bundle, FIXTURES);
+      expect(r2.counts.source_files_imported).toBe(0);
+      expect(r2.counts.source_files_skipped).toBe(2);
+
+      const missing = t.bundle.db
+        .prepare<[], { n: number }>(
+          `SELECT count(*) AS n FROM source_files WHERE object_id IS NULL`,
+        )
+        .get();
+      expect(missing?.n).toBe(0);
+      expect(await readdir(t.bundle.paths.rawSources)).toHaveLength(2);
 
       const sessionCount = t.bundle.db
         .prepare<[], { n: number }>(`SELECT count(*) AS n FROM sessions`)
