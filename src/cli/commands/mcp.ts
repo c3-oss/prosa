@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { Command } from 'commander';
-import { closeBundle, defaultBundlePath, openBundle, type Bundle } from '../../core/bundle.js';
+import { type Bundle, closeBundle, defaultBundlePath, openBundle } from '../../core/bundle.js';
 import { listenMcpServer, listenMcpStdioServer } from '../../mcp/server.js';
 import type { SearchEngine } from '../../services/indexing.js';
 

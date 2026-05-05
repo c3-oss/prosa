@@ -1,7 +1,15 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { Bundle } from '../../core/bundle.js';
-import { type ObjectId, putBytes, putJson, putText } from '../../core/cas/index.js';
+import {
+  type ObjectId,
+  type PendingObjects,
+  createPendingObjects,
+  flushPendingObjects,
+  stageBytes,
+  stageJson,
+  stageText,
+} from '../../core/cas/index.js';
 import { prepare, transactional } from '../../core/db.js';
 import {
   artifactId,
@@ -309,6 +317,7 @@ interface PendingState {
   searchDocs: PendingSearchDoc[];
   /** map uuid → message_id for parent_of edges resolved at flush time. */
   uuidToMessageId: Map<string, string>;
+  objects: PendingObjects;
 }
 
 async function compileClaudeFile(
@@ -359,6 +368,7 @@ async function compileClaudeFile(
     edges: [],
     searchDocs: [],
     uuidToMessageId: new Map(),
+    objects: createPendingObjects(),
   };
 
   let modelFirst: string | null = null;
@@ -376,7 +386,7 @@ async function compileClaudeFile(
     const ordinal = i;
 
     const lineBytes = Buffer.from(line, 'utf8');
-    const rawObjectId = await putBytes(bundle, lineBytes, {
+    const rawObjectId = stageBytes(pending.objects, lineBytes, {
       mimeType: 'application/jsonl-line',
       encoding: 'utf-8',
     });
@@ -389,8 +399,10 @@ async function compileClaudeFile(
       parserStatus = 'failed';
     }
 
-    const decodedObjectId =
-      parsed != null && parserStatus === 'ok' ? await putJson(bundle, parsed) : null;
+    // The raw line already IS the JSON for `parserStatus === 'ok'`, so we
+    // skip storing a re-serialized copy as `decoded_json_object_id`. Saves
+    // ~half the CAS writes per file. Nothing reads it back later.
+    const decodedObjectId: ObjectId | null = null;
 
     const nativeId = parsed?.uuid ?? null;
     const rawRecordId = makeRawRecordId(sourceFile.source_file_id, ordinal, rawObjectId);
@@ -504,7 +516,7 @@ async function compileClaudeFile(
         });
         if (content.length > PREVIEW_MAX) {
           // Big text — also store full body in CAS for later retrieval.
-          const fullId = await putText(bundle, content);
+          const fullId = stageText(pending.objects, content);
           const last = pending.blocks[pending.blocks.length - 1];
           if (last) last.text_object_id = fullId;
         }
@@ -659,6 +671,11 @@ async function compileClaudeFile(
 
   buildSearchDocs(pending);
 
+  // Persist staged CAS objects (FS + objects rows) before the domain
+  // transaction. better-sqlite3 transactions are sync, so we can't await
+  // file writes inside them.
+  await flushPendingObjects(bundle, pending.objects);
+
   transactional(bundle.db, () => {
     flushPending(bundle, pending, { modelFirst, modelLast });
   });
@@ -753,7 +770,7 @@ async function processContentBlock(
       event_id: null,
       ordinal: blockOrdinal,
       block_type: 'text',
-      text_object_id: text.length > PREVIEW_MAX ? await putText(bundle, text) : null,
+      text_object_id: text.length > PREVIEW_MAX ? stageText(pending.objects, text) : null,
       text_inline: text.slice(0, PREVIEW_MAX),
       is_error: 0,
       visibility: 'default',
@@ -770,7 +787,7 @@ async function processContentBlock(
       event_id: null,
       ordinal: blockOrdinal,
       block_type: 'thinking',
-      text_object_id: text.length > PREVIEW_MAX ? await putText(bundle, text) : null,
+      text_object_id: text.length > PREVIEW_MAX ? stageText(pending.objects, text) : null,
       text_inline: text.slice(0, PREVIEW_MAX),
       is_error: 0,
       visibility: 'hidden_by_default',
@@ -783,7 +800,7 @@ async function processContentBlock(
     const tu = block as { id?: string; name?: string; input?: unknown };
     const sourceCallId = tu.id ?? `${blockOrdinal}`;
     const toolName = tu.name ?? 'unknown';
-    const argsId = tu.input != null ? await putJson(bundle, tu.input) : null;
+    const argsId = tu.input != null ? stageJson(pending.objects, tu.input) : null;
     const command = inferCommandFromArgs(toolName, tu.input);
     const filePath = inferPathFromArgs(tu.input);
     const tcId = makeToolCallId(sessionId, sourceCallId);
@@ -827,13 +844,14 @@ async function processContentBlock(
     const sourceCallId = tr.tool_use_id ?? null;
     const isError = tr.is_error === true ? 1 : 0;
     const text = stringifyOrNull(tr.content) ?? '';
+    const overflowId = text.length > PREVIEW_MAX ? stageText(pending.objects, text) : null;
     pending.blocks.push({
       block_id: blkId,
       message_id: messageId,
       event_id: null,
       ordinal: blockOrdinal,
       block_type: 'tool_result',
-      text_object_id: text.length > PREVIEW_MAX ? await putText(bundle, text) : null,
+      text_object_id: overflowId,
       text_inline: text.slice(0, PREVIEW_MAX),
       is_error: isError,
       visibility: 'default',
@@ -853,7 +871,7 @@ async function processContentBlock(
       duration_ms: null,
       stdout_object_id: null,
       stderr_object_id: null,
-      output_object_id: text.length > PREVIEW_MAX ? await putText(bundle, text) : null,
+      output_object_id: overflowId,
       preview: text.slice(0, PREVIEW_MAX),
       raw_record_id: rawRecordId,
     });

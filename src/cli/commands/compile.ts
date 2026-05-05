@@ -9,10 +9,12 @@ import { compileCodex } from '../../importers/codex/index.js';
 import type { CompileOptions } from '../../importers/compile-options.js';
 import { compileCursor } from '../../importers/cursor/index.js';
 import { compileGemini } from '../../importers/gemini/index.js';
+import { exportBundleParquet } from '../../services/export/parquet.js';
 import {
   disableFts5Triggers,
   enableFts5Triggers,
   markIndexesAfterImport,
+  rebuildTantivyIndex,
 } from '../../services/indexing.js';
 import { createCliLogger } from '../logger.js';
 
@@ -86,11 +88,12 @@ export function compileCommand(): Command {
 export function compileAllCommand(): Command {
   return addCompileLogOptions(new Command('compile-all'))
     .description('Import all agent CLI session histories using default source paths.')
-    .action(async (options: CompileLogOptions) => {
+    .option('--defer-index', 'skip immediate FTS5 updates; run `prosa index fts5` later')
+    .action(async (options: CompileLogOptions & { deferIndex?: boolean }) => {
       await runCompiles({
         providers: PROVIDERS,
         storePath: defaultBundlePath(),
-        deferIndex: false,
+        deferIndex: options.deferIndex === true,
         logOptions: options,
       });
     });
@@ -174,6 +177,19 @@ async function runCompiles(options: {
       changed: importedAny,
       fts5Deferred: options.deferIndex,
     });
+
+    // Rebuild Tantivy while we still own the bundle handle. Failures here
+    // don't invalidate the SQLite/CAS data already committed; log and move
+    // on so the user can retry with `prosa index tantivy`.
+    if (importedAny) {
+      try {
+        logger.info('rebuilding tantivy index');
+        const status = await rebuildTantivyIndex(bundle);
+        process.stdout.write(`tantivy: indexed ${status.indexed_doc_count} docs\n`);
+      } catch (error) {
+        logger.error({ err: error }, 'tantivy rebuild failed; SQLite data is intact');
+      }
+    }
   } finally {
     if (options.deferIndex) {
       logger.info('re-enabling FTS5 triggers');
@@ -181,6 +197,22 @@ async function runCompiles(options: {
     }
     closeBundle(bundle);
     logger.info({ store_path: storePath }, 'bundle closed');
+  }
+
+  // Parquet rebuild runs after the bundle is closed: exportBundleParquet
+  // opens its own bundle handle and DuckDB attaches the SQLite file
+  // directly, so we avoid any contention. As with Tantivy, failures are
+  // logged but don't fail the compile — the user can re-run with
+  // `prosa export parquet`.
+  if (importedAny) {
+    try {
+      logger.info({ store_path: storePath }, 'exporting parquet');
+      const result = await exportBundleParquet({ bundlePath: storePath });
+      const tableCount = Object.keys(result.files).length;
+      process.stdout.write(`parquet: wrote ${tableCount} tables to ${result.outDir}\n`);
+    } catch (error) {
+      logger.error({ err: error }, 'parquet export failed; SQLite data is intact');
+    }
   }
 }
 

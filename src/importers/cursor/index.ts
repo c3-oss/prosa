@@ -1,7 +1,15 @@
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import type { Bundle } from '../../core/bundle.js';
-import { type ObjectId, putBytes, putJson, putText } from '../../core/cas/index.js';
+import {
+  type ObjectId,
+  type PendingObjects,
+  createPendingObjects,
+  flushPendingObjects,
+  stageBytes,
+  stageJson,
+  stageText,
+} from '../../core/cas/index.js';
 import { prepare, transactional } from '../../core/db.js';
 import {
   artifactId,
@@ -167,6 +175,7 @@ interface PendingState {
   toolResults: PendingToolResult[];
   artifacts: PendingArtifact[];
   searchDocs: PendingSearchDoc[];
+  objects: PendingObjects;
 }
 
 interface PendingRaw {
@@ -332,6 +341,7 @@ async function compileCursorStore(
       toolResults: [],
       artifacts: [],
       searchDocs: [],
+      objects: createPendingObjects(),
     };
 
     // ---- meta: hex-encoded JSON ----
@@ -347,7 +357,7 @@ async function compileCursorStore(
       } catch {
         meta = {};
       }
-      const metaObjId = await putBytes(bundle, Buffer.from(metaText, 'utf8'), {
+      const metaObjId = stageBytes(pending.objects, Buffer.from(metaText, 'utf8'), {
         mimeType: 'application/json',
         encoding: 'utf-8',
       });
@@ -392,7 +402,7 @@ async function compileCursorStore(
       const blob = blobs[i];
       if (!blob) continue;
       const ordinal = i + 1;
-      const blobObjectId = await putBytes(bundle, blob.data);
+      const blobObjectId = stageBytes(pending.objects, blob.data);
       const blobRawId = makeRawRecordId(sourceFile.source_file_id, ordinal, blobObjectId);
 
       // Try to parse JSON. Many blobs are protobuf state and won't parse.
@@ -415,7 +425,7 @@ async function compileCursorStore(
         json_pointer: `blobs/${blob.id}`,
         native_id: blob.id,
         raw_object_id: blobObjectId,
-        decoded_json_object_id: parsed != null ? await putJson(bundle, parsed) : null,
+        decoded_json_object_id: parsed != null ? stageJson(pending.objects, parsed) : null,
         parser_status: parsed != null ? 'ok' : looksJson ? 'failed' : 'partial',
         confidence: 'low', // timeline order from blob list isn't canonical
         import_batch_id: batch.batch_id,
@@ -478,6 +488,10 @@ async function compileCursorStore(
 
     buildSearchDocs(pending);
 
+    // Persist staged CAS objects (FS + objects rows) before the domain
+    // transaction. better-sqlite3 transactions are sync.
+    await flushPendingObjects(bundle, pending.objects);
+
     transactional(bundle.db, () => {
       flushPending(bundle, pending);
     });
@@ -532,7 +546,7 @@ async function pushTextBlock(
   visibility: 'default' | 'hidden_by_default' | 'audit_only' = 'default',
 ): Promise<void> {
   if (!text) return;
-  const overflow = text.length > PREVIEW_MAX ? await putText(bundle, text) : null;
+  const overflow = text.length > PREVIEW_MAX ? stageText(pending.objects, text) : null;
   pending.blocks.push({
     block_id: blockId(messageId, ordinal),
     message_id: messageId,
@@ -593,7 +607,7 @@ async function processContentItem(
   if (t === 'tool-call') {
     const sourceCallId = item.toolCallId ?? `${ordinal}`;
     const toolName = item.toolName ?? 'unknown';
-    const argsObjectId = item.args != null ? await putJson(bundle, item.args) : null;
+    const argsObjectId = item.args != null ? stageJson(pending.objects, item.args) : null;
     const tcId = makeToolCallId(sessionId, sourceCallId);
 
     pending.blocks.push({
@@ -640,7 +654,7 @@ async function processContentItem(
   if (t === 'tool-result') {
     const sourceCallId = item.toolCallId ?? `${ordinal}`;
     const text = stringifyOrNull(item.result) ?? '';
-    const overflow = text.length > PREVIEW_MAX ? await putText(bundle, text) : null;
+    const overflow = text.length > PREVIEW_MAX ? stageText(pending.objects, text) : null;
     const isError = readIsError(item) ? 1 : 0;
 
     pending.blocks.push({

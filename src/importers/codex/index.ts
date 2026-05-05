@@ -1,7 +1,15 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { Bundle } from '../../core/bundle.js';
-import { type ObjectId, putBytes, putJson, putText } from '../../core/cas/index.js';
+import {
+  type ObjectId,
+  type PendingObjects,
+  createPendingObjects,
+  flushPendingObjects,
+  stageBytes,
+  stageJson,
+  stageText,
+} from '../../core/cas/index.js';
 import { prepare, transactional } from '../../core/db.js';
 import {
   artifactId,
@@ -362,6 +370,7 @@ async function compileCodexFile(
     artifacts: [] as PendingArtifact[],
     edges: [] as PendingEdge[],
     searchDocs: [] as PendingSearchDoc[],
+    objects: createPendingObjects(),
   };
 
   let sessionStartTs: string | null = null;
@@ -378,7 +387,7 @@ async function compileCodexFile(
     const ordinal = i;
 
     const lineBytes = Buffer.from(line, 'utf8');
-    const rawObjectId = await putBytes(bundle, lineBytes, {
+    const rawObjectId = stageBytes(pending.objects, lineBytes, {
       mimeType: 'application/jsonl-line',
       encoding: 'utf-8',
     });
@@ -391,8 +400,10 @@ async function compileCodexFile(
       parserStatus = 'failed';
     }
 
-    const decodedObjectId =
-      parsed != null && parserStatus === 'ok' ? await putJson(bundle, parsed) : null;
+    // The raw line already IS the JSON for `parserStatus === 'ok'`, so we
+    // skip storing a re-serialized copy as `decoded_json_object_id`. Saves
+    // ~half the CAS writes per file. Nothing reads it back later.
+    const decodedObjectId: ObjectId | null = null;
 
     const nativeId = parsed ? extractNativeId(parsed) : null;
 
@@ -589,6 +600,11 @@ async function compileCodexFile(
   // Build search_docs from messages and tool calls already accumulated.
   buildSearchDocs(pending);
 
+  // Persist the staged CAS objects to disk + the `objects` table BEFORE the
+  // domain transaction. We do filesystem writes in parallel (better-sqlite3
+  // transactions are synchronous, so this can't run inside `transactional`).
+  await flushPendingObjects(bundle, pending.objects);
+
   // Apply everything in one transaction. The whole file is atomic.
   transactional(bundle.db, () => {
     flushPending(bundle, pending, {
@@ -630,6 +646,7 @@ interface PendingState {
   artifacts: PendingArtifact[];
   edges: PendingEdge[];
   searchDocs: PendingSearchDoc[];
+  objects: PendingObjects;
 }
 
 function handleResponseItem(
@@ -827,10 +844,10 @@ async function handleEventMsg(
   if (subtype === 'exec_command_end') {
     const sourceCallId = em.call_id ?? null;
     const stdoutId = em.stdout
-      ? await putText(bundle, em.stdout, { mimeType: 'text/plain' })
+      ? stageText(pending.objects, em.stdout, { mimeType: 'text/plain' })
       : null;
     const stderrId = em.stderr
-      ? await putText(bundle, em.stderr, { mimeType: 'text/plain' })
+      ? stageText(pending.objects, em.stderr, { mimeType: 'text/plain' })
       : null;
     const preview = (em.formatted_output ?? em.aggregated_output ?? em.stdout ?? '').slice(
       0,

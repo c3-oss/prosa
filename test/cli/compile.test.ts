@@ -51,6 +51,36 @@ describe('compile CLI', () => {
       expect(stdout).toContain('source_files seen=2 imported=2 skipped=0');
       expect(stdout).toContain('source_files seen=1 imported=1 skipped=0');
       expect(stderr).toContain('DEBUG');
+
+      // Tantivy and Parquet sidecar indexes should be rebuilt automatically.
+      expect(stdout).toMatch(/tantivy: indexed \d+ docs/);
+      expect(stdout).toMatch(/parquet: wrote \d+ tables/);
+
+      // Decoded JSON is no longer double-stored for parsed Codex/Claude
+      // raw_records — the raw line itself IS the JSON.
+      const db = new Database(path.join(t.storePath, 'prosa.sqlite'), { readonly: true });
+      try {
+        const codexDecoded = db
+          .prepare<[], { n: number }>(
+            `SELECT count(*) AS n FROM raw_records
+              WHERE source_tool = 'codex'
+                AND parser_status = 'ok'
+                AND decoded_json_object_id IS NOT NULL`,
+          )
+          .get();
+        expect(codexDecoded?.n).toBe(0);
+        const claudeDecoded = db
+          .prepare<[], { n: number }>(
+            `SELECT count(*) AS n FROM raw_records
+              WHERE source_tool = 'claude'
+                AND parser_status = 'ok'
+                AND decoded_json_object_id IS NOT NULL`,
+          )
+          .get();
+        expect(claudeDecoded?.n).toBe(0);
+      } finally {
+        db.close();
+      }
     } finally {
       await t.cleanup();
     }
@@ -126,6 +156,7 @@ describe('compile CLI', () => {
 
 async function makeTempRun(): Promise<{
   homePath: string;
+  storePath: string;
   env: NodeJS.ProcessEnv;
   cleanup: () => Promise<void>;
 }> {
@@ -138,6 +169,7 @@ async function makeTempRun(): Promise<{
 
   return {
     homePath,
+    storePath,
     env: {
       ...process.env,
       HOME: homePath,

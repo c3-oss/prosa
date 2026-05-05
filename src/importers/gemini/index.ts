@@ -2,7 +2,15 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { Bundle } from '../../core/bundle.js';
 import { sha256Hex } from '../../core/cas/hash.js';
-import { type ObjectId, putBytes, putJson, putText } from '../../core/cas/index.js';
+import {
+  type ObjectId,
+  type PendingObjects,
+  createPendingObjects,
+  flushPendingObjects,
+  stageBytes,
+  stageJson,
+  stageText,
+} from '../../core/cas/index.js';
 import { prepare, transactional } from '../../core/db.js';
 import {
   artifactId,
@@ -148,6 +156,7 @@ interface PendingState {
   artifacts: PendingArtifact[];
   searchDocs: PendingSearchDoc[];
   project: PendingProject | null;
+  objects: PendingObjects;
 }
 
 interface PendingRawRecord {
@@ -303,7 +312,8 @@ async function compileGeminiFile(
 
   const text = await readFile(file.filePath, 'utf8');
   const parsed = JSON.parse(text) as GeminiSessionFile;
-  const fileObjectId = await putBytes(bundle, Buffer.from(text, 'utf8'), {
+  const objects = createPendingObjects();
+  const fileObjectId = stageBytes(objects, Buffer.from(text, 'utf8'), {
     mimeType: 'application/json',
     encoding: 'utf-8',
   });
@@ -335,6 +345,7 @@ async function compileGeminiFile(
     artifacts: [],
     searchDocs: [],
     project: null,
+    objects,
   };
 
   const sourceSid = parsed.sessionId ?? path.basename(file.filePath, '.json');
@@ -379,6 +390,10 @@ async function compileGeminiFile(
 
   buildSearchDocs(pending);
 
+  // Persist staged CAS objects (FS + objects rows) before the domain
+  // transaction. better-sqlite3 transactions are sync.
+  await flushPendingObjects(bundle, pending.objects);
+
   transactional(bundle.db, () => {
     flushPending(bundle, pending);
   });
@@ -410,7 +425,7 @@ async function processMessage(
   const ordinal = index + 1;
   const ts = msg.timestamp ?? null;
 
-  const payloadId = await putJson(bundle, msg);
+  const payloadId = stageJson(pending.objects, msg);
   // Use the JSON pointer as a stable per-record locator inside the file.
   const pointer = `/messages/${index}`;
   // Hash includes pointer so two entries with identical content but different
@@ -553,7 +568,7 @@ async function pushTextBlock(
   visibility: 'default' | 'hidden_by_default' | 'audit_only' = 'default',
 ): Promise<void> {
   if (!text) return;
-  const overflowId = text.length > PREVIEW_MAX ? await putText(bundle, text) : null;
+  const overflowId = text.length > PREVIEW_MAX ? stageText(pending.objects, text) : null;
   pending.blocks.push({
     block_id: blockId(messageId, blockOrdinal),
     message_id: messageId,
@@ -580,7 +595,7 @@ async function processToolCall(
   const sourceCallId = tc.id ?? `${messageId}:${index}`;
   const toolName = tc.name ?? 'unknown';
   const toolCallId = makeToolCallId(sessionId, sourceCallId);
-  const argsObjectId = tc.args ? await putJson(bundle, tc.args) : null;
+  const argsObjectId = tc.args ? stageJson(pending.objects, tc.args) : null;
 
   pending.toolCallsList.push({
     tool_call_id: toolCallId,
@@ -606,7 +621,8 @@ async function processToolCall(
 
   const isError = tc.status === 'error' ? 1 : 0;
   const resultText = renderToolResultText(tc.result);
-  const overflowId = resultText.length > PREVIEW_MAX ? await putText(bundle, resultText) : null;
+  const overflowId =
+    resultText.length > PREVIEW_MAX ? stageText(pending.objects, resultText) : null;
 
   pending.toolResults.push({
     tool_result_id: makeToolResultId(sessionId, sourceCallId),
@@ -626,7 +642,9 @@ async function processToolCall(
     const rd = tc.resultDisplay;
     if (rd.fileDiff || rd.filePath) {
       const diffText = rd.fileDiff ?? '';
-      const diffId = diffText ? await putText(bundle, diffText, { mimeType: 'text/x-diff' }) : null;
+      const diffId = diffText
+        ? stageText(pending.objects, diffText, { mimeType: 'text/x-diff' })
+        : null;
       pending.artifacts.push({
         artifact_id: artifactId(sessionId, 'gemini', `${toolCallId}:diff`),
         kind: 'diff',

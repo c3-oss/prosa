@@ -1,8 +1,9 @@
-import { access, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { access, readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { Bundle } from '../bundle.js';
 import { compressBytes } from '../cas/compress.js';
 import { blake3Hex, objectIdFromHash, sha256Hex } from '../cas/hash.js';
+import { ensureDir } from '../cas/index.js';
 import { prepare } from '../db.js';
 import { sourceFileId } from '../domain/ids.js';
 import type { SourceTool } from '../domain/types.js';
@@ -150,7 +151,7 @@ async function preserveRawSourceBytes(bundle: Bundle, bytes: Uint8Array): Promis
   const storagePath = rawSourceStoragePath(hash, compression);
   const absolutePath = path.join(bundle.path, storagePath);
 
-  await mkdir(path.dirname(absolutePath), { recursive: true });
+  await ensureDir(path.dirname(absolutePath));
   if (!(await fileExists(absolutePath))) {
     await writeFile(absolutePath, stored);
   }
