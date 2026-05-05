@@ -97,3 +97,4 @@ export {
   compileCursor,
   type CompileResult as CursorCompileResult,
 } from './importers/cursor/index.js';
+export type { CompileLogger, CompileOptions } from './importers/compile-options.js';

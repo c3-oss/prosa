@@ -39,7 +39,7 @@ During development, run commands through SWC:
 
 ```bash
 pnpm dev -- init
-pnpm dev -- compile --codex ~/.codex/sessions
+pnpm dev -- compile codex
 pnpm dev -- sessions
 pnpm dev -- search "terraform"
 ```
@@ -48,11 +48,7 @@ After building or installing the package, use the `prosa` binary:
 
 ```bash
 prosa init
-prosa compile \
-  --codex ~/.codex/sessions \
-  --claude ~/.claude/projects \
-  --gemini ~/.gemini/tmp \
-  --cursor ~/.cursor/chats
+prosa compile-all
 
 prosa sessions --source codex --since 2026-01-01
 prosa search "package.json"
@@ -73,10 +69,15 @@ prosa sessions --store /tmp/prosa-demo
 
 ## Supported sources
 
-`prosa compile` accepts one or more source roots:
+`prosa compile` imports one source at a time. If `--sessions-path` is omitted,
+the provider default is used:
 
 ```bash
-prosa compile [--codex <path>] [--claude <path>] [--gemini <path>] [--cursor <path>]
+prosa compile codex [--sessions-path <path>]
+prosa compile claude [--sessions-path <path>]
+prosa compile gemini [--sessions-path <path>]
+prosa compile cursor [--sessions-path <path>]
+prosa compile-all [--verbose] [--json-logs]
 ```
 
 Supported importers:
@@ -95,7 +96,7 @@ edges, and errors.
 For large imports, you can defer FTS5 index updates and rebuild later:
 
 ```bash
-prosa compile --codex ~/.codex/sessions --defer-index
+prosa compile codex --defer-index
 prosa index fts5
 ```
 
@@ -122,32 +123,37 @@ prosa init --force-existing
 Import session histories into the bundle:
 
 ```bash
-prosa compile --codex ~/.codex/sessions
-prosa compile --claude ~/.claude/projects
-prosa compile --gemini ~/.gemini/tmp
-prosa compile --cursor ~/.cursor/chats
+prosa compile codex
+prosa compile claude
+prosa compile gemini
+prosa compile cursor
 ```
 
-Import multiple tools in one run:
+Override a provider source path:
 
 ```bash
-prosa compile \
-  --codex ~/.codex/sessions \
-  --claude ~/.claude/projects \
-  --gemini ~/.gemini/tmp \
-  --cursor ~/.cursor/chats
+prosa compile codex --sessions-path ~/custom/codex/sessions
+```
+
+Import every supported provider with default paths:
+
+```bash
+prosa compile-all
 ```
 
 Options:
 
 | Option | Description |
 |---|---|
-| `--codex <path>` | Root of Codex CLI sessions |
-| `--claude <path>` | Root of Claude Code projects |
-| `--gemini <path>` | Root of Gemini CLI temp/session data |
-| `--cursor <path>` | Root of Cursor agent stores |
+| `--sessions-path <path>` | Root of the selected provider's session history |
 | `--store <path>` | Bundle directory |
 | `--defer-index` | Skip immediate FTS5 updates; run `prosa index fts5` later |
+| `--verbose` | Emit debug logs during compilation |
+| `--json-logs` | Emit raw JSON logs instead of pretty logs |
+
+`prosa compile-all` accepts only the logging flags. It uses provider defaults and
+the normal `PROSA_STORE` environment variable when the bundle path must be
+overridden.
 
 ### `prosa index`
 
@@ -382,11 +388,7 @@ All MCP tools are read-only and use the same services as the CLI.
 
 ```bash
 prosa init --force-existing
-prosa compile \
-  --codex ~/.codex/sessions \
-  --claude ~/.claude/projects \
-  --gemini ~/.gemini/tmp \
-  --cursor ~/.cursor/chats
+prosa compile-all
 prosa index status
 ```
 
@@ -424,7 +426,7 @@ prosa index status
 
 ```bash
 prosa init --store /tmp/prosa-demo
-prosa compile --codex ~/.codex/sessions --store /tmp/prosa-demo
+prosa compile codex --store /tmp/prosa-demo
 prosa tui --store /tmp/prosa-demo
 ```
 
@@ -497,7 +499,7 @@ Examples:
 
 ```bash
 pnpm dev -- init --store /tmp/prosa-dev
-pnpm dev -- compile --codex ~/.codex/sessions --store /tmp/prosa-dev
+pnpm dev -- compile codex --store /tmp/prosa-dev
 pnpm dev -- sessions --store /tmp/prosa-dev --output-format json
 ```
 

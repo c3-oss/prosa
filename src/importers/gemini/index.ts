@@ -24,6 +24,7 @@ import {
   startBatch,
 } from '../../core/ingest/batch.js';
 import { registerSourceFile } from '../../core/ingest/idempotency.js';
+import type { CompileLogger, CompileOptions } from '../compile-options.js';
 import { type GeminiChatFile, discoverGeminiChats } from './discover.js';
 import type {
   GeminiContentItem,
@@ -40,17 +41,38 @@ export interface CompileResult {
 
 const PREVIEW_MAX = 4_000;
 
-export async function compileGemini(bundle: Bundle, root: string): Promise<CompileResult> {
+export async function compileGemini(
+  bundle: Bundle,
+  root: string,
+  options: CompileOptions = {},
+): Promise<CompileResult> {
+  const logger = options.logger;
   const batch = startBatch(bundle, 'gemini', [root]);
   const counts = emptyCounts();
+  logger?.info({ batch_id: batch.batch_id, root }, 'gemini batch started');
   try {
     for await (const file of discoverGeminiChats(root)) {
       counts.source_files_seen++;
+      logger?.debug(
+        {
+          path: file.filePath,
+          project_dir: file.projectDir,
+          project_root: file.projectRoot,
+        },
+        'gemini source file discovered',
+      );
       try {
-        const fc = await compileGeminiFile(bundle, batch, file);
+        const fc = await compileGeminiFile(bundle, batch, file, logger);
         addCounts(counts, fc);
       } catch (error) {
         counts.errors++;
+        logger?.warn(
+          {
+            err: error,
+            path: file.filePath,
+          },
+          'gemini source file failed',
+        );
         await recordError(bundle, batch.batch_id, {
           kind: 'gemini_file_failed',
           message: error instanceof Error ? error.message : String(error),
@@ -59,8 +81,10 @@ export async function compileGemini(bundle: Bundle, root: string): Promise<Compi
       }
     }
     finishBatch(bundle, batch, counts, 'completed');
+    logger?.info({ batch_id: batch.batch_id, counts }, 'gemini batch completed');
   } catch (error) {
     finishBatch(bundle, batch, counts, 'failed');
+    logger?.error({ err: error, batch_id: batch.batch_id, counts }, 'gemini batch failed');
     throw error;
   }
   return { batch, counts };
@@ -253,6 +277,7 @@ async function compileGeminiFile(
   bundle: Bundle,
   batch: ImportBatch,
   file: GeminiChatFile,
+  logger?: CompileLogger,
 ): Promise<FileCounts> {
   const counts = emptyFileCounts();
 
@@ -264,9 +289,17 @@ async function compileGeminiFile(
   });
   if (alreadyKnown) {
     counts.source_files_skipped = 1;
+    logger?.debug(
+      { path: file.filePath, source_file_id: sourceFile.source_file_id },
+      'gemini source file skipped',
+    );
     return counts;
   }
   counts.source_files_imported = 1;
+  logger?.debug(
+    { path: file.filePath, source_file_id: sourceFile.source_file_id },
+    'gemini source file registered',
+  );
 
   const text = await readFile(file.filePath, 'utf8');
   const parsed = JSON.parse(text) as GeminiSessionFile;
@@ -358,6 +391,10 @@ async function compileGeminiFile(
   counts.tool_calls = pending.toolCallsList.length;
   counts.tool_results = pending.toolResults.length;
   counts.artifacts = pending.artifacts.length;
+  logger?.debug(
+    { path: file.filePath, source_file_id: sourceFile.source_file_id, counts },
+    'gemini source file imported',
+  );
   return counts;
 }
 

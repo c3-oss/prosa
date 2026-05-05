@@ -23,6 +23,7 @@ import {
   startBatch,
 } from '../../core/ingest/batch.js';
 import { registerSourceFile } from '../../core/ingest/idempotency.js';
+import type { CompileLogger, CompileOptions } from '../compile-options.js';
 import { discoverCodexSessions } from './discover.js';
 import type {
   CodexContentItem,
@@ -40,18 +41,32 @@ export interface CompileResult {
 
 const PREVIEW_MAX = 4_000;
 
-export async function compileCodex(bundle: Bundle, root: string): Promise<CompileResult> {
+export async function compileCodex(
+  bundle: Bundle,
+  root: string,
+  options: CompileOptions = {},
+): Promise<CompileResult> {
+  const logger = options.logger;
   const batch = startBatch(bundle, 'codex', [root]);
   const counts = emptyCounts();
+  logger?.info({ batch_id: batch.batch_id, root }, 'codex batch started');
 
   try {
     for await (const filePath of discoverCodexSessions(root)) {
       counts.source_files_seen++;
+      logger?.debug({ path: filePath }, 'codex source file discovered');
       try {
-        const fileCounts = await compileCodexFile(bundle, batch, filePath);
+        const fileCounts = await compileCodexFile(bundle, batch, filePath, logger);
         addCounts(counts, fileCounts);
       } catch (error) {
         counts.errors++;
+        logger?.warn(
+          {
+            err: error,
+            path: filePath,
+          },
+          'codex source file failed',
+        );
         await recordError(bundle, batch.batch_id, {
           kind: 'codex_file_failed',
           message: error instanceof Error ? error.message : String(error),
@@ -60,9 +75,12 @@ export async function compileCodex(bundle: Bundle, root: string): Promise<Compil
       }
     }
     linkSubagentParents(bundle);
+    logger?.debug({ batch_id: batch.batch_id }, 'codex subagent parent links refreshed');
     finishBatch(bundle, batch, counts, 'completed');
+    logger?.info({ batch_id: batch.batch_id, counts }, 'codex batch completed');
   } catch (error) {
     finishBatch(bundle, batch, counts, 'failed');
+    logger?.error({ err: error, batch_id: batch.batch_id, counts }, 'codex batch failed');
     throw error;
   }
 
@@ -301,6 +319,7 @@ async function compileCodexFile(
   bundle: Bundle,
   batch: ImportBatch,
   filePath: string,
+  logger?: CompileLogger,
 ): Promise<FileCounts> {
   const counts = emptyFileCounts();
 
@@ -313,10 +332,18 @@ async function compileCodexFile(
   if (alreadyKnown) {
     // We've already imported this file (same path,size,mtime,hash). Skip.
     counts.source_files_skipped = 1;
+    logger?.debug(
+      { path: filePath, source_file_id: sourceFileRow.source_file_id },
+      'codex source file skipped',
+    );
     return counts;
   }
 
   counts.source_files_imported = 1;
+  logger?.debug(
+    { path: filePath, source_file_id: sourceFileRow.source_file_id },
+    'codex source file registered',
+  );
 
   const text = await readFile(filePath, 'utf8');
   const rawLines = text.split('\n');
@@ -582,6 +609,10 @@ async function compileCodexFile(
   counts.tool_results = pending.toolResults.length;
   counts.artifacts = pending.artifacts.length;
   counts.edges = pending.edges.length;
+  logger?.debug(
+    { path: filePath, source_file_id: sourceFileRow.source_file_id, counts },
+    'codex source file imported',
+  );
 
   return counts;
 }

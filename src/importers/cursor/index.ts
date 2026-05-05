@@ -22,6 +22,7 @@ import {
   startBatch,
 } from '../../core/ingest/batch.js';
 import { registerSourceFile } from '../../core/ingest/idempotency.js';
+import type { CompileLogger, CompileOptions } from '../compile-options.js';
 import { type CursorStoreDb, discoverCursorStores } from './discover.js';
 
 export interface CompileResult {
@@ -59,17 +60,38 @@ interface CursorContentItem {
   data?: unknown;
 }
 
-export async function compileCursor(bundle: Bundle, root: string): Promise<CompileResult> {
+export async function compileCursor(
+  bundle: Bundle,
+  root: string,
+  options: CompileOptions = {},
+): Promise<CompileResult> {
+  const logger = options.logger;
   const batch = startBatch(bundle, 'cursor', [root]);
   const counts = emptyCounts();
+  logger?.info({ batch_id: batch.batch_id, root }, 'cursor batch started');
   try {
     for await (const store of discoverCursorStores(root)) {
       counts.source_files_seen++;
+      logger?.debug(
+        {
+          path: store.filePath,
+          workspace_id: store.workspaceId,
+          agent_id: store.agentId,
+        },
+        'cursor store discovered',
+      );
       try {
-        const fc = await compileCursorStore(bundle, batch, store);
+        const fc = await compileCursorStore(bundle, batch, store, logger);
         addCounts(counts, fc);
       } catch (error) {
         counts.errors++;
+        logger?.warn(
+          {
+            err: error,
+            path: store.filePath,
+          },
+          'cursor store failed',
+        );
         await recordError(bundle, batch.batch_id, {
           kind: 'cursor_store_failed',
           message: error instanceof Error ? error.message : String(error),
@@ -78,8 +100,10 @@ export async function compileCursor(bundle: Bundle, root: string): Promise<Compi
       }
     }
     finishBatch(bundle, batch, counts, 'completed');
+    logger?.info({ batch_id: batch.batch_id, counts }, 'cursor batch completed');
   } catch (error) {
     finishBatch(bundle, batch, counts, 'failed');
+    logger?.error({ err: error, batch_id: batch.batch_id, counts }, 'cursor batch failed');
     throw error;
   }
   return { batch, counts };
@@ -268,6 +292,7 @@ async function compileCursorStore(
   bundle: Bundle,
   batch: ImportBatch,
   store: CursorStoreDb,
+  logger?: CompileLogger,
 ): Promise<FileCounts> {
   const counts = emptyFileCounts();
 
@@ -279,9 +304,17 @@ async function compileCursorStore(
   });
   if (alreadyKnown) {
     counts.source_files_skipped = 1;
+    logger?.debug(
+      { path: store.filePath, source_file_id: sourceFile.source_file_id },
+      'cursor store skipped',
+    );
     return counts;
   }
   counts.source_files_imported = 1;
+  logger?.debug(
+    { path: store.filePath, source_file_id: sourceFile.source_file_id },
+    'cursor store registered',
+  );
 
   // Open the Cursor store read-only. We don't lock or write to it, so multiple
   // imports can run while Cursor itself is using the database.
@@ -457,6 +490,10 @@ async function compileCursorStore(
     counts.tool_calls = pending.toolCallsList.length;
     counts.tool_results = pending.toolResults.length;
     counts.artifacts = pending.artifacts.length;
+    logger?.debug(
+      { path: store.filePath, source_file_id: sourceFile.source_file_id, counts },
+      'cursor store imported',
+    );
     return counts;
   } finally {
     cdb.close();
