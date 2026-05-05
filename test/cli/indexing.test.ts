@@ -28,8 +28,16 @@ describe('index CLI', () => {
     await rm(storePath, { recursive: true, force: true });
   });
 
-  it('supports compile --defer-index followed by index fts5', async () => {
-    await runProsa(['compile', '--codex', CODEX_FIXTURES, '--store', storePath, '--defer-index']);
+  it('supports compile <provider> --defer-index followed by index fts5', async () => {
+    await runProsa([
+      'compile',
+      'codex',
+      '--sessions-path',
+      CODEX_FIXTURES,
+      '--store',
+      storePath,
+      '--defer-index',
+    ]);
 
     let bundle = await openBundle(storePath);
     try {
