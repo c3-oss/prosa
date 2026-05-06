@@ -15,7 +15,7 @@ Use this skill for repo orientation, command selection, and everyday implementat
 - Importers live in `src/importers/{codex,claude,gemini,cursor}/`.
 - User-facing services live in `src/services/`.
 - Tests live in `test/`, with fixtures in `test/fixtures/` and helpers in `test/helpers/`.
-- Architecture notes live in `docs/`; use `docs/gpt-5-pro-response.md` for format intent.
+- Architecture and source-format references live in `docs/`; start at `docs/README.md`. Schema/CAS contract is `docs/architecture/bundle-format.md`; the `compile` flow is `docs/architecture/import-pipeline.md`.
 
 ## Commands
 

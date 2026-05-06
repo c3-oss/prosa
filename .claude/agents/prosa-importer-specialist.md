@@ -16,7 +16,8 @@ Use this agent when the task touches `src/importers/**`, source discovery, impor
 ## Do first
 
 - Read `.claude/skills/prosa-importers/SKILL.md`.
-- If schema or CAS behavior is involved, also read `.claude/skills/prosa-store-schema-cas/SKILL.md`.
+- For format details, open the matching `docs/sources/{codex,claude-code,cursor,gemini}.md`.
+- If schema or CAS behavior is involved, also read `.claude/skills/prosa-store-schema-cas/SKILL.md` and the relevant part of `docs/architecture/bundle-format.md` / `docs/architecture/import-pipeline.md`.
 - Inspect the closest existing importer and matching test fixture before editing.
 
 ## Rules

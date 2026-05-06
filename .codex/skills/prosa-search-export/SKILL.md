@@ -5,7 +5,7 @@ description: Search, session listing, TUI/MCP read surfaces, and export guidance
 
 # Prosa Search Export
 
-Use this skill for read surfaces built on the canonical store. Search, exports, and Parquet/DuckDB analytics are derived views, not sources of truth.
+Use this skill for read surfaces built on the canonical store. Search, exports, and Parquet/DuckDB analytics are derived views, not sources of truth. See `docs/architecture/search-engines.md` for FTS5 vs. Tantivy semantics and `docs/architecture/bundle-format.md` for `search_docs` field layout.
 
 ## Search Rules
 

@@ -7,7 +7,7 @@ Pointer doc for Claude Code agents working in `prosa`.
 ## Bootstrap
 
 1. `AGENTS.md` — canonical repository rules, project structure, commands, testing, and agent-specific instructions.
-2. `docs/gpt-5-pro-response.md` — format intent for bundle, schema, CAS, raw preservation, and derived indexes.
+2. `docs/README.md` — index into the architecture and source-format references. Read `docs/architecture/bundle-format.md` for the schema/CAS contract before touching schema or storage code.
 3. Relevant `.codex/skills/*/SKILL.md` files for the subsystem being changed.
 
 `AGENTS.md` is authoritative. If `CLAUDE.md` disagrees with it, follow `AGENTS.md` and reconcile this file in the same change set.
@@ -46,7 +46,7 @@ Storage layout:
 - `src/mcp/` — MCP server and tools.
 - `src/tui/` — Ink TUI surfaces.
 - `test/` — Vitest tests, fixtures, and helpers.
-- `docs/` — architecture, recovery notes, and implementation plans.
+- `docs/` — architecture references (`docs/architecture/`) and per-source format references (`docs/sources/`); see `docs/README.md`.
 - `.codex/skills/` — canonical local skills.
 - `.codex/agents/` and `.claude/agents/` — local specialist subagents.
 

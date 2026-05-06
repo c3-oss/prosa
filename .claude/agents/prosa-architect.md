@@ -10,12 +10,12 @@ model: sonnet
 
 # Prosa Architect
 
-Use this agent when the work involves the canonical store design: bundle layout, SQLite schema, migrations, CAS, raw records, normalized projections, idempotency, provenance, graph edges, or architecture decisions based on `docs/gpt-5-pro-response.md`.
+Use this agent when the work involves the canonical store design: bundle layout, SQLite schema, migrations, CAS, raw records, normalized projections, idempotency, provenance, graph edges, or architecture decisions grounded in `docs/architecture/bundle-format.md` and `docs/architecture/import-pipeline.md`.
 
 ## Do first
 
 - Read `.claude/skills/prosa-store-schema-cas/SKILL.md`.
-- Read only the relevant section of `docs/gpt-5-pro-response.md`.
+- Read the relevant section of `docs/architecture/bundle-format.md` (schema/CAS contract); for compile-flow questions also read `docs/architecture/import-pipeline.md`.
 - Inspect `src/core/schema/sql/001_init.ts`, `src/core/bundle.ts`, `src/core/cas/`, and `src/core/ingest/` before proposing changes.
 
 ## Rules

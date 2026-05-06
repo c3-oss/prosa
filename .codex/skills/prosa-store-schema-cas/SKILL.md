@@ -5,7 +5,7 @@ description: Bundle, SQLite schema, raw preservation, content-addressed storage,
 
 # Prosa Store Schema CAS
 
-Use this skill when touching the canonical store. The design target comes from `docs/gpt-5-pro-response.md`: raw bytes are the source of truth, normalized tables are rebuildable projections, and search/export indexes are derived.
+Use this skill when touching the canonical store. The authoritative reference is `docs/architecture/bundle-format.md` (full schema, CAS rules, idempotency keys); pair with `docs/architecture/import-pipeline.md` for how `compile` writes into it. Raw bytes are the source of truth, normalized tables are rebuildable projections, and search/export indexes are derived.
 
 ## Store Model
 

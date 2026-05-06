@@ -514,7 +514,22 @@ Project layout:
 | `src/mcp/` | MCP server, tools, and prompts |
 | `src/tui/` | Ink terminal UI |
 | `test/` | Vitest tests and fixtures |
-| `docs/` | Design and recovery notes |
+| `docs/` | Architecture and source-format references |
+
+## Documentation
+
+`docs/` holds the architecture and source-format references. Start with
+[`docs/README.md`](./docs/README.md) for an index. Highlights:
+
+| Doc | Purpose |
+|---|---|
+| [`docs/architecture/bundle-format.md`](./docs/architecture/bundle-format.md) | Bundle layout, full SQLite schema, CAS, idempotency keys |
+| [`docs/architecture/import-pipeline.md`](./docs/architecture/import-pipeline.md) | How `compile` walks sources, stages CAS, commits, and rebuilds indexes |
+| [`docs/architecture/search-engines.md`](./docs/architecture/search-engines.md) | FTS5 default vs. Tantivy sidecar |
+| [`docs/sources/codex.md`](./docs/sources/codex.md) | `~/.codex/sessions/` JSONL format |
+| [`docs/sources/claude-code.md`](./docs/sources/claude-code.md) | `~/.claude/projects/` JSONL + artifacts |
+| [`docs/sources/cursor.md`](./docs/sources/cursor.md) | `~/.cursor/chats/**/store.db` SQLite |
+| [`docs/sources/gemini.md`](./docs/sources/gemini.md) | `~/.gemini/tmp/` JSON |
 
 ## Releasing
 

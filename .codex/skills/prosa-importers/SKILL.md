@@ -20,10 +20,12 @@ Every importer should:
 
 ## Source-Specific Rules
 
-- Codex: preserve the event envelope; map `session_meta`, `turn_context`, `response_item`, and `event_msg` without flattening everything into messages. Use `call_id` to match tool calls/results. Model spawned subagents with edges when parent IDs are present.
-- Claude: import JSONL files directly; do not trust `sessions-index.json` as the source of truth. Use `uuid`, `parentUuid`, `sessionId`, `agentId`, `isSidechain`, and `sourceToolAssistantUUID` for graph links. Treat `type: "system"` as operational.
-- Gemini: treat session JSON as snapshots. Duplicate `sessionId` means versions/snapshots, not independent logical sessions. Preserve `.project_root` when available.
-- Cursor: preserve SQLite meta and blobs. Extract JSON blobs when possible, but keep timeline confidence low when ordering depends on undecoded protobuf/root state.
+For per-format detail (record types, fields, recipes, importer notes), open the matching `docs/sources/*.md`:
+
+- Codex (`docs/sources/codex.md`): preserve the event envelope; map `session_meta`, `turn_context`, `response_item`, and `event_msg` without flattening everything into messages. Use `call_id` to match tool calls/results. Model spawned subagents with edges when parent IDs are present.
+- Claude (`docs/sources/claude-code.md`): import JSONL files directly; do not trust `sessions-index.json` as the source of truth. Use `uuid`, `parentUuid`, `sessionId`, `agentId`, `isSidechain`, and `sourceToolAssistantUUID` for graph links. Treat `type: "system"` as operational.
+- Gemini (`docs/sources/gemini.md`): treat session JSON as snapshots. Duplicate `sessionId` means versions/snapshots, not independent logical sessions. Preserve `.project_root` when available.
+- Cursor (`docs/sources/cursor.md`): preserve SQLite meta and blobs. Extract JSON blobs when possible, but keep timeline confidence low when ordering depends on undecoded protobuf/root state.
 
 ## Fixture and Test Expectations
 
