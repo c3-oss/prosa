@@ -1,8 +1,8 @@
-import path from 'node:path';
 import { Command } from 'commander';
-import { closeBundle, defaultBundlePath, openBundle } from '../../core/bundle.js';
+import { defaultBundlePath } from '../../core/bundle.js';
 import type { SearchEngine } from '../../services/indexing.js';
 import { searchFullText } from '../../services/search.js';
+import { withBundle } from '../bundle.js';
 import { parseOutputFormat, printRows } from '../output.js';
 
 export function searchCommand(): Command {
@@ -20,8 +20,7 @@ export function searchCommand(): Command {
       ) => {
         const engine = parseSearchEngine(options.engine);
         const format = parseOutputFormat(options.outputFormat, 'table');
-        const bundle = await openBundle(path.resolve(options.store));
-        try {
+        await withBundle(options.store, (bundle) => {
           const hits = searchFullText(bundle, {
             query,
             limit: Number.parseInt(options.limit, 10),
@@ -32,9 +31,7 @@ export function searchCommand(): Command {
             columns: ['timestamp', 'role', 'tool_name', 'session_id', 'snippet'],
             meta: { query, engine, count: hits.length },
           });
-        } finally {
-          closeBundle(bundle);
-        }
+        });
       },
     );
 }

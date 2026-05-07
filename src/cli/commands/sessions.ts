@@ -1,8 +1,8 @@
-import path from 'node:path';
 import { Command } from 'commander';
-import { closeBundle, defaultBundlePath, openBundle } from '../../core/bundle.js';
+import { defaultBundlePath } from '../../core/bundle.js';
 import type { SourceTool } from '../../core/domain/types.js';
 import { countSessions, listSessions } from '../../services/sessions.js';
+import { withBundle } from '../bundle.js';
 import { parseOutputFormat, printRows } from '../output.js';
 
 export function sessionsCommand(): Command {
@@ -25,8 +25,7 @@ export function sessionsCommand(): Command {
         outputFormat: string;
       }) => {
         const format = parseOutputFormat(options.outputFormat, 'table');
-        const bundle = await openBundle(path.resolve(options.store));
-        try {
+        await withBundle(options.store, (bundle) => {
           const rows = listSessions(bundle, {
             sourceTool: options.source as SourceTool | undefined,
             sinceIso: options.since,
@@ -47,9 +46,7 @@ export function sessionsCommand(): Command {
               'title',
             ],
           });
-        } finally {
-          closeBundle(bundle);
-        }
+        });
       },
     );
 
@@ -67,17 +64,14 @@ export function sessionsCommand(): Command {
           since?: string;
           until?: string;
         }) => {
-          const bundle = await openBundle(path.resolve(options.store));
-          try {
+          await withBundle(options.store, (bundle) => {
             const count = countSessions(bundle, {
               sourceTool: options.source as SourceTool | undefined,
               sinceIso: options.since,
               untilIso: options.until,
             });
             process.stdout.write(`${count}\n`);
-          } finally {
-            closeBundle(bundle);
-          }
+          });
         },
       ),
   );

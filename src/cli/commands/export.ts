@@ -1,9 +1,10 @@
 import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { Command } from 'commander';
-import { closeBundle, defaultBundlePath, openBundle } from '../../core/bundle.js';
+import { defaultBundlePath } from '../../core/bundle.js';
 import { exportSessionMarkdown } from '../../services/export/markdown.js';
 import { exportBundleParquet } from '../../services/export/parquet.js';
+import { withBundle } from '../bundle.js';
 
 export function exportCommand(): Command {
   const session = new Command('session')
@@ -16,8 +17,7 @@ export function exportCommand(): Command {
       if (options.format !== 'markdown') {
         throw new Error(`unsupported format: ${options.format} (try --format markdown)`);
       }
-      const bundle = await openBundle(path.resolve(options.store));
-      try {
+      await withBundle(options.store, async (bundle) => {
         const markdown = await exportSessionMarkdown(bundle, sessionId);
         if (options.out) {
           await writeFile(path.resolve(options.out), markdown, 'utf8');
@@ -25,9 +25,7 @@ export function exportCommand(): Command {
         } else {
           process.stdout.write(markdown);
         }
-      } finally {
-        closeBundle(bundle);
-      }
+      });
     });
 
   const parquet = new Command('parquet')

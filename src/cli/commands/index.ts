@@ -1,11 +1,11 @@
-import path from 'node:path';
 import { Command } from 'commander';
-import { closeBundle, defaultBundlePath, openBundle } from '../../core/bundle.js';
+import { defaultBundlePath } from '../../core/bundle.js';
 import {
   getSearchIndexStatuses,
   rebuildFts5Index,
   rebuildTantivyIndex,
 } from '../../services/indexing.js';
+import { withBundle } from '../bundle.js';
 import { parseOutputFormat, printRows } from '../output.js';
 
 export function indexCommand(): Command {
@@ -13,26 +13,18 @@ export function indexCommand(): Command {
     .description('Rebuild the SQLite FTS5 index from search_docs.')
     .option('--store <path>', 'bundle directory', defaultBundlePath())
     .action(async (options: { store: string }) => {
-      const bundle = await openBundle(path.resolve(options.store));
-      try {
-        const status = rebuildFts5Index(bundle);
-        printIndexStatus(status);
-      } finally {
-        closeBundle(bundle);
-      }
+      await withBundle(options.store, (bundle) => {
+        printIndexStatus(rebuildFts5Index(bundle));
+      });
     });
 
   const tantivy = new Command('tantivy')
     .description('Rebuild the Tantivy sidecar index from search_docs.')
     .option('--store <path>', 'bundle directory', defaultBundlePath())
     .action(async (options: { store: string }) => {
-      const bundle = await openBundle(path.resolve(options.store));
-      try {
-        const status = await rebuildTantivyIndex(bundle);
-        printIndexStatus(status);
-      } finally {
-        closeBundle(bundle);
-      }
+      await withBundle(options.store, async (bundle) => {
+        printIndexStatus(await rebuildTantivyIndex(bundle));
+      });
     });
 
   const status = new Command('status')
@@ -41,8 +33,7 @@ export function indexCommand(): Command {
     .option('--output-format <fmt>', 'interactive|table|json|csv', 'table')
     .action(async (options: { store: string; outputFormat: string }) => {
       const format = parseOutputFormat(options.outputFormat, 'table');
-      const bundle = await openBundle(path.resolve(options.store));
-      try {
+      await withBundle(options.store, (bundle) => {
         const rows = getSearchIndexStatuses(bundle);
         printRows(rows as unknown as Record<string, unknown>[], {
           format,
@@ -55,9 +46,7 @@ export function indexCommand(): Command {
             'error_message',
           ],
         });
-      } finally {
-        closeBundle(bundle);
-      }
+      });
     });
 
   return new Command('index')

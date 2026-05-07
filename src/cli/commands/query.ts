@@ -1,7 +1,8 @@
 import path from 'node:path';
 import { Command } from 'commander';
-import { closeBundle, defaultBundlePath, openBundle } from '../../core/bundle.js';
+import { defaultBundlePath } from '../../core/bundle.js';
 import { queryDuckDbParquet } from '../../services/export/parquet.js';
+import { withBundle } from '../bundle.js';
 import { parseOutputFormat, printRows } from '../output.js';
 
 export function queryCommand(): Command {
@@ -19,7 +20,7 @@ export function queryCommand(): Command {
         const format = parseOutputFormat(options.outputFormat, 'table');
         const parquetDir = options.parquetDir
           ? path.resolve(options.parquetDir)
-          : await defaultParquetDir(path.resolve(options.store));
+          : await withBundle(options.store, (bundle) => bundle.paths.parquet);
 
         const result = await queryDuckDbParquet({ parquetDir, sql });
         printRows(result.rows as Record<string, unknown>[], {
@@ -31,13 +32,4 @@ export function queryCommand(): Command {
     );
 
   return new Command('query').description('Run derived analytical queries.').addCommand(duckdb);
-}
-
-async function defaultParquetDir(storePath: string): Promise<string> {
-  const bundle = await openBundle(storePath);
-  try {
-    return bundle.paths.parquet;
-  } finally {
-    closeBundle(bundle);
-  }
 }
