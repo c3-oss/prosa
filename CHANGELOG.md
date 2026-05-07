@@ -1,5 +1,11 @@
 # @c3-oss/prosa
 
+## 0.3.1
+
+### Patch Changes
+
+- Various code improvements
+
 ## 0.3.0
 
 ### Minor Changes
