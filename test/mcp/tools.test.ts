@@ -4,6 +4,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { describe, expect, it } from 'vitest';
 import { PROSA_MCP_INSTRUCTIONS } from '../../src/mcp/guidance.js';
 import { registerProsaTools } from '../../src/mcp/tools.js';
+import { extractPromptText, extractText } from '../helpers/mcp.js';
 import { createTempBundle } from '../helpers/tmp-bundle.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -133,13 +134,3 @@ describe('prosa MCP guidance', () => {
     }
   });
 });
-
-function extractText(result: unknown): string {
-  const content = (result as { content?: Array<{ text?: string }> }).content;
-  return content?.[0]?.text ?? '';
-}
-
-function extractPromptText(result: unknown): string {
-  const messages = (result as { messages?: Array<{ content?: { text?: string } }> }).messages;
-  return messages?.[0]?.content?.text ?? '';
-}
