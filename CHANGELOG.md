@@ -1,5 +1,11 @@
 # @c3-oss/prosa
 
+## 0.3.0
+
+### Minor Changes
+
+- MCP tool to compile sessions and code quality gates
+
 ## 0.2.0
 
 ### Minor Changes
