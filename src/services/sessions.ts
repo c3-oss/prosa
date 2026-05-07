@@ -1,5 +1,6 @@
 import type { Bundle } from '../core/bundle.js';
 import type { Confidence, SourceTool } from '../core/domain/types.js';
+import { clampLimit } from '../core/limits.js';
 
 export interface SessionListFilters {
   sourceTool?: SourceTool;
@@ -52,7 +53,7 @@ function sessionFilterWhere(filters: SessionListFilters): { where: string; param
 
 export function listSessions(bundle: Bundle, filters: SessionListFilters = {}): SessionRow[] {
   const { where, params } = sessionFilterWhere(filters);
-  const limit = Math.max(1, Math.min(1000, filters.limit ?? 50));
+  const limit = clampLimit(filters.limit, { max: 1000, fallback: 50 });
 
   const sql = `
     SELECT s.session_id,

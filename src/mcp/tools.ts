@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { Bundle } from '../core/bundle.js';
 import type { SourceTool } from '../core/domain/types.js';
 import { getErrorMessage } from '../core/errors.js';
+import { clampLimit } from '../core/limits.js';
 import {
   COMPILE_PROVIDERS,
   exportCompileParquet,
@@ -274,7 +275,7 @@ export function registerProsaTools(
           LEFT JOIN tool_results tr ON tr.tool_call_id = tc.tool_call_id
           ${where}
          ORDER BY tc.timestamp_start DESC
-         LIMIT ${Math.max(1, Math.min(500, limit ?? 100))}
+         LIMIT ${clampLimit(limit, { max: 500, fallback: 100 })}
       `;
       const rows = bundle.db.prepare(sql).all(...params);
       return {
@@ -307,7 +308,7 @@ export function registerProsaTools(
           FROM artifacts a
          WHERE a.path IS NOT NULL AND a.path LIKE ?
          ORDER BY timestamp_start DESC
-         LIMIT ${Math.max(1, Math.min(500, limit ?? 100))}
+         LIMIT ${clampLimit(limit, { max: 500, fallback: 100 })}
       `;
       const like = `%${path_substring}%`;
       const rows = bundle.db.prepare(sql).all(like, like);

@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import type { Bundle } from '../core/bundle.js';
 import { getErrorMessage } from '../core/errors.js';
+import { clampLimit } from '../core/limits.js';
 import { type SearchEngine, getSearchIndexStatus } from './indexing.js';
 
 const require = createRequire(import.meta.url);
@@ -55,7 +56,7 @@ export function searchFullText(bundle: Bundle, options: SearchOptions): SearchHi
     return searchTantivy(bundle, options);
   }
 
-  const limit = Math.max(1, Math.min(500, options.limit ?? 50));
+  const limit = clampLimit(options.limit, { max: 500, fallback: 50 });
   const sql = `
     SELECT d.doc_id,
            d.entity_type,
@@ -89,7 +90,7 @@ function searchTantivy(bundle: Bundle, options: SearchOptions): SearchHit[] {
     );
   }
 
-  const limit = Math.max(1, Math.min(500, options.limit ?? 50));
+  const limit = clampLimit(options.limit, { max: 500, fallback: 50 });
   const queryText = options.query.trim();
   if (!queryText) return [];
 
