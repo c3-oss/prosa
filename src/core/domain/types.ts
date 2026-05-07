@@ -2,7 +2,8 @@
 // boundary contract between importers and the catalog. Optional fields use
 // `null` (not `undefined`) to mirror SQLite NULL semantics directly.
 
-export type SourceTool = 'cursor' | 'codex' | 'claude' | 'gemini';
+export const SOURCE_TOOLS = ['cursor', 'codex', 'claude', 'gemini'] as const;
+export type SourceTool = (typeof SOURCE_TOOLS)[number];
 
 export type Confidence = 'high' | 'medium' | 'low';
 

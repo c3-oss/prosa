@@ -1,7 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { Bundle } from '../core/bundle.js';
-import type { SourceTool } from '../core/domain/types.js';
+import { SOURCE_TOOLS, type SourceTool } from '../core/domain/types.js';
 import { getErrorMessage } from '../core/errors.js';
 import { clampLimit } from '../core/limits.js';
 import {
@@ -45,7 +45,7 @@ export function registerProsaTools(
       description:
         'Import local agent session histories into the active prosa bundle. With no input, compiles all providers from default paths. With source, compiles that provider; sessions_path may override that provider path.',
       inputSchema: {
-        source: z.enum(['cursor', 'codex', 'claude', 'gemini']).optional(),
+        source: z.enum(SOURCE_TOOLS).optional(),
         sessions_path: z.string().min(1).optional(),
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
@@ -66,7 +66,7 @@ export function registerProsaTools(
       try {
         const result = await runCompileImports({
           bundle,
-          providers: source ? [getCompileProvider(source as SourceTool)] : COMPILE_PROVIDERS,
+          providers: source ? [getCompileProvider(source)] : COMPILE_PROVIDERS,
           deferIndex: false,
           sessionsPath: sessions_path,
         });
@@ -121,7 +121,7 @@ export function registerProsaTools(
       description:
         'List recent sessions when you need candidates by source/date before deeper inspection. Next step: call get_session for relevant session_id values.',
       inputSchema: {
-        source: z.enum(['cursor', 'codex', 'claude', 'gemini']).optional(),
+        source: z.enum(SOURCE_TOOLS).optional(),
         since: z.string().optional().describe('ISO timestamp lower bound (inclusive)'),
         until: z.string().optional().describe('ISO timestamp upper bound (exclusive)'),
         limit: z.number().int().min(1).max(500).optional().default(50),
@@ -130,7 +130,7 @@ export function registerProsaTools(
     },
     async (input) => {
       const rows = listSessions(bundle, {
-        sourceTool: input.source as SourceTool | undefined,
+        sourceTool: input.source,
         sinceIso: input.since,
         untilIso: input.until,
         limit: input.limit ?? 50,

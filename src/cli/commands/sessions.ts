@@ -1,9 +1,9 @@
 import { Command } from 'commander';
 import { defaultBundlePath } from '../../core/bundle.js';
-import type { SourceTool } from '../../core/domain/types.js';
 import { countSessions, listSessions } from '../../services/sessions.js';
 import { withBundle } from '../bundle.js';
-import { parseOutputFormat, printRows } from '../output.js';
+import { printRows } from '../output.js';
+import { parseOutputFormat, parseSourceTool } from '../parsers.js';
 
 export function sessionsCommand(): Command {
   const command = new Command('sessions')
@@ -27,7 +27,7 @@ export function sessionsCommand(): Command {
         const format = parseOutputFormat(options.outputFormat, 'table');
         await withBundle(options.store, (bundle) => {
           const rows = listSessions(bundle, {
-            sourceTool: options.source as SourceTool | undefined,
+            sourceTool: parseSourceTool(options.source),
             sinceIso: options.since,
             untilIso: options.until,
             limit: Number.parseInt(options.limit, 10),
@@ -66,7 +66,7 @@ export function sessionsCommand(): Command {
         }) => {
           await withBundle(options.store, (bundle) => {
             const count = countSessions(bundle, {
-              sourceTool: options.source as SourceTool | undefined,
+              sourceTool: parseSourceTool(options.source),
               sinceIso: options.since,
               untilIso: options.until,
             });
