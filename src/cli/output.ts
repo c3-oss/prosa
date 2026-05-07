@@ -1,7 +1,3 @@
-// Output formatting shared between every headless command. Mirrors the
-// pattern from `mzi-tfplan-explorer/output.ts`: one normalized row shape, four
-// renderers (interactive falls back to table when no TUI is wired up yet).
-
 export const OUTPUT_FORMATS = ['interactive', 'table', 'json', 'csv'] as const;
 export type OutputFormat = (typeof OUTPUT_FORMATS)[number];
 
@@ -30,8 +26,6 @@ export function printRows(rows: readonly Record<string, unknown>[], opts: PrintO
       return;
     case 'table':
     case 'interactive':
-      // No TUI yet: render a table so headless consumers and humans get the
-      // same thing until Stage 7 lands.
       printTable(rows, opts);
       return;
   }
