@@ -1,5 +1,11 @@
 # @c3-oss/prosa
 
+## 0.3.2
+
+### Patch Changes
+
+- Initialize MCP stores before tool calls.
+
 ## 0.3.1
 
 ### Patch Changes
