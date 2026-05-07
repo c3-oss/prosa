@@ -23,6 +23,7 @@ import {
   toolCallId as makeToolCallId,
   toolResultId as makeToolResultId,
 } from '../../core/domain/ids.js';
+import { getErrorMessage } from '../../core/errors.js';
 import {
   type ImportBatch,
   type ImportCounts,
@@ -83,7 +84,7 @@ export async function compileGemini(
         );
         await recordError(bundle, batch.batch_id, {
           kind: 'gemini_file_failed',
-          message: error instanceof Error ? error.message : String(error),
+          message: getErrorMessage(error),
           payload: { path: file.filePath },
         });
       }

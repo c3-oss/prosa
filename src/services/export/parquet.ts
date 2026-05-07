@@ -2,6 +2,7 @@ import { mkdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { DuckDBConnection } from '@duckdb/node-api';
 import { closeBundle, openBundle } from '../../core/bundle.js';
+import { getErrorMessage } from '../../core/errors.js';
 
 export const PARQUET_TABLES = [
   'objects',
@@ -143,9 +144,7 @@ async function attachSqlite(connection: DuckDBConnection, dbPath: string): Promi
     await connection.run(`ATTACH ${sqlString(dbPath)} AS prosa (TYPE sqlite)`);
   } catch (error) {
     throw new Error(
-      `DuckDB could not attach prosa.sqlite via the sqlite extension: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
+      `DuckDB could not attach prosa.sqlite via the sqlite extension: ${getErrorMessage(error)}`,
     );
   }
 }
@@ -183,6 +182,6 @@ function sqlString(value: string): string {
 }
 
 function isMissingParquetError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
+  const message = getErrorMessage(error);
   return /No files found|does not exist|not found/i.test(message) && /\.parquet/i.test(message);
 }

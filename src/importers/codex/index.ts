@@ -22,6 +22,7 @@ import {
   toolResultId as makeToolResultId,
   turnId as makeTurnId,
 } from '../../core/domain/ids.js';
+import { getErrorMessage } from '../../core/errors.js';
 import {
   type ImportBatch,
   type ImportCounts,
@@ -77,7 +78,7 @@ export async function compileCodex(
         );
         await recordError(bundle, batch.batch_id, {
           kind: 'codex_file_failed',
-          message: error instanceof Error ? error.message : String(error),
+          message: getErrorMessage(error),
           payload: { path: filePath },
         });
       }

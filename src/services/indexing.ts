@@ -2,6 +2,7 @@ import { mkdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { Bundle } from '../core/bundle.js';
 import { prepare, transactional } from '../core/db.js';
+import { getErrorMessage } from '../core/errors.js';
 
 export type SearchEngine = 'fts5' | 'tantivy';
 
@@ -145,7 +146,7 @@ export function rebuildFts5Index(bundle: Bundle): SearchIndexStatus {
       status: 'failed',
       sourceDocCount: countSearchDocs(bundle),
       indexedDocCount: countFts5Docs(bundle),
-      errorMessage: error instanceof Error ? error.message : String(error),
+      errorMessage: getErrorMessage(error),
     });
     throw error;
   }
@@ -240,7 +241,7 @@ export async function rebuildTantivyIndex(bundle: Bundle): Promise<SearchIndexSt
       status: 'failed',
       sourceDocCount: countSearchDocs(bundle),
       indexedDocCount: 0,
-      errorMessage: error instanceof Error ? error.message : String(error),
+      errorMessage: getErrorMessage(error),
     });
     throw error;
   }

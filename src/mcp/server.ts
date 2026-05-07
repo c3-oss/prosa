@@ -6,6 +6,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import type { Bundle } from '../core/bundle.js';
+import { getErrorMessage } from '../core/errors.js';
 import { PROSA_PARSER_VERSION } from '../core/version.js';
 import type { SearchEngine } from '../services/indexing.js';
 import { PROSA_MCP_INSTRUCTIONS } from './guidance.js';
@@ -229,7 +230,7 @@ function writeError(res: ServerResponse, error: unknown): void {
   res.end(
     JSON.stringify({
       jsonrpc: '2.0',
-      error: { code: -32603, message: error instanceof Error ? error.message : String(error) },
+      error: { code: -32603, message: getErrorMessage(error) },
       id: null,
     }),
   );

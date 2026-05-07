@@ -2,6 +2,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { Bundle } from '../core/bundle.js';
 import type { SourceTool } from '../core/domain/types.js';
+import { getErrorMessage } from '../core/errors.js';
 import {
   COMPILE_PROVIDERS,
   exportCompileParquet,
@@ -105,7 +106,7 @@ export function registerProsaTools(
         };
       } catch (error) {
         return {
-          content: [{ type: 'text', text: error instanceof Error ? error.message : String(error) }],
+          content: [{ type: 'text', text: getErrorMessage(error) }],
           isError: true,
         };
       }
@@ -210,7 +211,7 @@ export function registerProsaTools(
         return { content: [{ type: 'text', text: md }] };
       } catch (error) {
         return {
-          content: [{ type: 'text', text: error instanceof Error ? error.message : String(error) }],
+          content: [{ type: 'text', text: getErrorMessage(error) }],
           isError: true,
         };
       }

@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import type { Bundle } from '../core/bundle.js';
+import { getErrorMessage } from '../core/errors.js';
 import { type SearchEngine, getSearchIndexStatus } from './indexing.js';
 
 const require = createRequire(import.meta.url);
@@ -133,9 +134,7 @@ function requireTantivy(): TantivyModule {
   try {
     return require('@oxdev03/node-tantivy-binding') as TantivyModule;
   } catch (error) {
-    throw new Error(
-      `tantivy engine is unavailable: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    throw new Error(`tantivy engine is unavailable: ${getErrorMessage(error)}`);
   }
 }
 

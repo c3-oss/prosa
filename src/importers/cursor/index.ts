@@ -21,6 +21,7 @@ import {
   toolCallId as makeToolCallId,
   toolResultId as makeToolResultId,
 } from '../../core/domain/ids.js';
+import { getErrorMessage } from '../../core/errors.js';
 import {
   type ImportBatch,
   type ImportCounts,
@@ -102,7 +103,7 @@ export async function compileCursor(
         );
         await recordError(bundle, batch.batch_id, {
           kind: 'cursor_store_failed',
-          message: error instanceof Error ? error.message : String(error),
+          message: getErrorMessage(error),
           payload: { path: store.filePath },
         });
       }

@@ -2,6 +2,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { Bundle } from '../core/bundle.js';
 import type { SourceTool } from '../core/domain/types.js';
+import { getErrorMessage } from '../core/errors.js';
 import type { ImportBatch, ImportCounts } from '../core/ingest/batch.js';
 import { compileClaude } from '../importers/claude/index.js';
 import { compileCodex } from '../importers/codex/index.js';
@@ -163,7 +164,7 @@ export async function runCompileImports(options: {
         tantivy = { indexedDocCount: status.indexed_doc_count };
         options.onTantivyComplete?.(tantivy);
       } catch (error) {
-        tantivyError = error instanceof Error ? error.message : String(error);
+        tantivyError = getErrorMessage(error);
         logger?.error({ err: error }, 'tantivy rebuild failed; SQLite data is intact');
       }
     }
