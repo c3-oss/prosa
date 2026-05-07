@@ -6,7 +6,7 @@ import { compileClaude } from '../../src/importers/claude/index.js';
 import { exportSessionMarkdown } from '../../src/services/export/markdown.js';
 import { searchFullText } from '../../src/services/search.js';
 import { getSession, listSessions } from '../../src/services/sessions.js';
-import { createTempBundle } from '../helpers/tmp-bundle.js';
+import { createTempBundle, queryCount } from '../helpers/tmp-bundle.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -49,19 +49,16 @@ describe('claude importer', () => {
     const t = await createTempBundle();
     try {
       await compileClaude(t.bundle, FIXTURES);
-      const systemMessages = t.bundle.db
-        .prepare<[], { n: number }>(
-          `SELECT count(*) AS n FROM messages WHERE role = 'system_prompt'`,
-        )
-        .get();
-      expect(systemMessages?.n).toBe(0);
+      expect(
+        queryCount(t.bundle.db, `SELECT count(*) AS n FROM messages WHERE role = 'system_prompt'`),
+      ).toBe(0);
 
-      const sysOpEvents = t.bundle.db
-        .prepare<[], { n: number }>(
+      expect(
+        queryCount(
+          t.bundle.db,
           `SELECT count(*) AS n FROM events WHERE event_type = 'system_operational' AND source_type = 'system'`,
-        )
-        .get();
-      expect(sysOpEvents?.n).toBeGreaterThan(0);
+        ),
+      ).toBeGreaterThan(0);
     } finally {
       await t.cleanup();
     }
@@ -71,16 +68,16 @@ describe('claude importer', () => {
     const t = await createTempBundle();
     try {
       await compileClaude(t.bundle, FIXTURES);
-      const orphans = t.bundle.db
-        .prepare<[], { n: number }>(
+      expect(
+        queryCount(
+          t.bundle.db,
           `SELECT count(*) AS n
              FROM tool_results tr
             WHERE tr.tool_call_id IS NULL
               AND tr.source_call_id IS NOT NULL
               AND EXISTS (SELECT 1 FROM tool_calls tc WHERE tc.source_call_id = tr.source_call_id)`,
-        )
-        .get();
-      expect(orphans?.n).toBe(0);
+        ),
+      ).toBe(0);
     } finally {
       await t.cleanup();
     }
@@ -90,10 +87,9 @@ describe('claude importer', () => {
     const t = await createTempBundle();
     try {
       await compileClaude(t.bundle, FIXTURES);
-      const edges = t.bundle.db
-        .prepare<[], { n: number }>(`SELECT count(*) AS n FROM edges WHERE edge_type = 'parent_of'`)
-        .get();
-      expect(edges?.n).toBeGreaterThan(0);
+      expect(
+        queryCount(t.bundle.db, `SELECT count(*) AS n FROM edges WHERE edge_type = 'parent_of'`),
+      ).toBeGreaterThan(0);
     } finally {
       await t.cleanup();
     }

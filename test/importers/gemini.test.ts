@@ -6,7 +6,7 @@ import { compileGemini } from '../../src/importers/gemini/index.js';
 import { exportSessionMarkdown } from '../../src/services/export/markdown.js';
 import { searchFullText } from '../../src/services/search.js';
 import { listSessions } from '../../src/services/sessions.js';
-import { createTempBundle } from '../helpers/tmp-bundle.js';
+import { createTempBundle, queryCount } from '../helpers/tmp-bundle.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -49,14 +49,10 @@ describe('gemini importer', () => {
     const t = await createTempBundle();
     try {
       await compileGemini(t.bundle, FIXTURES);
-      const messages = t.bundle.db
-        .prepare<[], { n: number }>(`SELECT count(*) AS n FROM messages`)
-        .get();
-      expect(messages?.n).toBe(3);
-      const errors = t.bundle.db
-        .prepare<[], { n: number }>(`SELECT count(*) AS n FROM events WHERE event_type = 'error'`)
-        .get();
-      expect(errors?.n).toBe(1);
+      expect(queryCount(t.bundle.db, `SELECT count(*) AS n FROM messages`)).toBe(3);
+      expect(
+        queryCount(t.bundle.db, `SELECT count(*) AS n FROM events WHERE event_type = 'error'`),
+      ).toBe(1);
     } finally {
       await t.cleanup();
     }

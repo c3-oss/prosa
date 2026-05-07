@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { compileCursor } from '../../src/importers/cursor/index.js';
 import { exportSessionMarkdown } from '../../src/services/export/markdown.js';
 import { listSessions } from '../../src/services/sessions.js';
-import { createTempBundle } from '../helpers/tmp-bundle.js';
+import { createTempBundle, queryCount } from '../helpers/tmp-bundle.js';
 
 /**
  * Build a minimal Cursor `store.db` on disk that mimics the structure observed
@@ -108,13 +108,13 @@ describe('cursor importer', () => {
     try {
       await makeCursorFixture(fixturesRoot);
       await compileCursor(t.bundle, fixturesRoot);
-      const partial = t.bundle.db
-        .prepare<[], { n: number }>(
+      expect(
+        queryCount(
+          t.bundle.db,
           `SELECT count(*) AS n FROM raw_records
             WHERE source_tool = 'cursor' AND parser_status = 'partial'`,
-        )
-        .get();
-      expect(partial?.n).toBeGreaterThan(0);
+        ),
+      ).toBeGreaterThan(0);
     } finally {
       await t.cleanup();
     }

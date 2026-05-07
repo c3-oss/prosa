@@ -7,6 +7,7 @@ import { promisify } from 'node:util';
 import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
 import { closeBundle, initBundle } from '../../src/core/bundle.js';
+import { queryCount } from '../helpers/tmp-bundle.js';
 
 const execFileAsync = promisify(execFile);
 const __filename = fileURLToPath(import.meta.url);
@@ -60,24 +61,24 @@ describe('compile CLI', () => {
       // raw_records — the raw line itself IS the JSON.
       const db = new Database(path.join(t.storePath, 'prosa.sqlite'), { readonly: true });
       try {
-        const codexDecoded = db
-          .prepare<[], { n: number }>(
+        expect(
+          queryCount(
+            db,
             `SELECT count(*) AS n FROM raw_records
               WHERE source_tool = 'codex'
                 AND parser_status = 'ok'
                 AND decoded_json_object_id IS NOT NULL`,
-          )
-          .get();
-        expect(codexDecoded?.n).toBe(0);
-        const claudeDecoded = db
-          .prepare<[], { n: number }>(
+          ),
+        ).toBe(0);
+        expect(
+          queryCount(
+            db,
             `SELECT count(*) AS n FROM raw_records
               WHERE source_tool = 'claude'
                 AND parser_status = 'ok'
                 AND decoded_json_object_id IS NOT NULL`,
-          )
-          .get();
-        expect(claudeDecoded?.n).toBe(0);
+          ),
+        ).toBe(0);
       } finally {
         db.close();
       }

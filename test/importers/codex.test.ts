@@ -7,7 +7,7 @@ import { compileCodex } from '../../src/importers/codex/index.js';
 import { exportSessionMarkdown } from '../../src/services/export/markdown.js';
 import { searchFullText } from '../../src/services/search.js';
 import { countSessions, getSession, listSessions } from '../../src/services/sessions.js';
-import { createTempBundle } from '../helpers/tmp-bundle.js';
+import { createTempBundle, queryCount } from '../helpers/tmp-bundle.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -61,10 +61,7 @@ describe('codex importer', () => {
       expect(r2.counts.source_files_skipped).toBe(2);
       expect(await readdir(t.bundle.paths.rawSources)).toHaveLength(2);
 
-      const sessionCount = t.bundle.db
-        .prepare<[], { n: number }>(`SELECT count(*) AS n FROM sessions`)
-        .get();
-      expect(sessionCount?.n).toBe(2);
+      expect(queryCount(t.bundle.db, `SELECT count(*) AS n FROM sessions`)).toBe(2);
     } finally {
       await t.cleanup();
     }
@@ -97,18 +94,12 @@ describe('codex importer', () => {
       expect(r2.counts.source_files_imported).toBe(0);
       expect(r2.counts.source_files_skipped).toBe(2);
 
-      const missing = t.bundle.db
-        .prepare<[], { n: number }>(
-          `SELECT count(*) AS n FROM source_files WHERE object_id IS NULL`,
-        )
-        .get();
-      expect(missing?.n).toBe(0);
+      expect(
+        queryCount(t.bundle.db, `SELECT count(*) AS n FROM source_files WHERE object_id IS NULL`),
+      ).toBe(0);
       expect(await readdir(t.bundle.paths.rawSources)).toHaveLength(2);
 
-      const sessionCount = t.bundle.db
-        .prepare<[], { n: number }>(`SELECT count(*) AS n FROM sessions`)
-        .get();
-      expect(sessionCount?.n).toBe(2);
+      expect(queryCount(t.bundle.db, `SELECT count(*) AS n FROM sessions`)).toBe(2);
     } finally {
       await t.cleanup();
     }
