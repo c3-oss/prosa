@@ -33,7 +33,7 @@ export function sessionsCommand(): Command {
             limit: Number.parseInt(options.limit, 10),
           });
 
-          printRows(rows as unknown as Record<string, unknown>[], {
+          printRows(rows, {
             format,
             columns: [
               'start_ts',

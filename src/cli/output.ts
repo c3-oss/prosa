@@ -16,7 +16,7 @@ export interface PrintOptions {
   meta?: Record<string, unknown>;
 }
 
-export function printRows(rows: readonly Record<string, unknown>[], opts: PrintOptions): void {
+export function printRows(rows: readonly object[], opts: PrintOptions): void {
   switch (opts.format) {
     case 'json':
       printJson(rows, opts);
@@ -31,16 +31,17 @@ export function printRows(rows: readonly Record<string, unknown>[], opts: PrintO
   }
 }
 
-function printJson(rows: readonly Record<string, unknown>[], opts: PrintOptions): void {
+function printJson(rows: readonly object[], opts: PrintOptions): void {
   const out = opts.meta ? { ...opts.meta, rows } : rows;
   process.stdout.write(`${JSON.stringify(out, null, 2)}\n`);
 }
 
-function printCsv(rows: readonly Record<string, unknown>[], opts: PrintOptions): void {
+function printCsv(rows: readonly object[], opts: PrintOptions): void {
   const cols = opts.columns;
   process.stdout.write(`${cols.map(csvField).join(',')}\n`);
   for (const row of rows) {
-    const line = cols.map((c) => csvField(formatCell(row[c]))).join(',');
+    const r = row as Record<string, unknown>;
+    const line = cols.map((c) => csvField(formatCell(r[c]))).join(',');
     process.stdout.write(`${line}\n`);
   }
 }
@@ -50,17 +51,18 @@ function csvField(value: string): string {
   return value;
 }
 
-function printTable(rows: readonly Record<string, unknown>[], opts: PrintOptions): void {
+function printTable(rows: readonly object[], opts: PrintOptions): void {
   const cols = opts.columns;
   const widths = cols.map((c) => c.length);
-  const cells = rows.map((row) =>
-    cols.map((col, i) => {
-      const text = formatCell(row[col]);
+  const cells = rows.map((row) => {
+    const r = row as Record<string, unknown>;
+    return cols.map((col, i) => {
+      const text = formatCell(r[col]);
       const w = widths[i] ?? 0;
       if (text.length > w) widths[i] = text.length;
       return text;
-    }),
-  );
+    });
+  });
 
   const header = cols.map((c, i) => c.padEnd(widths[i] ?? 0)).join('  ');
   const sep = cols.map((_, i) => '-'.repeat(widths[i] ?? 0)).join('  ');

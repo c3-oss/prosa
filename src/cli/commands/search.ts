@@ -26,7 +26,7 @@ export function searchCommand(): Command {
             limit: Number.parseInt(options.limit, 10),
             engine,
           });
-          printRows(hits as unknown as Record<string, unknown>[], {
+          printRows(hits, {
             format,
             columns: ['timestamp', 'role', 'tool_name', 'session_id', 'snippet'],
             meta: { query, engine, count: hits.length },

@@ -35,7 +35,7 @@ export function indexCommand(): Command {
       const format = parseOutputFormat(options.outputFormat, 'table');
       await withBundle(options.store, (bundle) => {
         const rows = getSearchIndexStatuses(bundle);
-        printRows(rows as unknown as Record<string, unknown>[], {
+        printRows(rows, {
           format,
           columns: [
             'engine',

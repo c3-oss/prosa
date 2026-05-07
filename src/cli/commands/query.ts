@@ -23,7 +23,7 @@ export function queryCommand(): Command {
           : await withBundle(options.store, (bundle) => bundle.paths.parquet);
 
         const result = await queryDuckDbParquet({ parquetDir, sql });
-        printRows(result.rows as Record<string, unknown>[], {
+        printRows(result.rows, {
           format,
           columns: result.columns,
           meta: { query: sql, count: result.rows.length },
