@@ -2,9 +2,7 @@ import path from 'node:path';
 import { Command } from 'commander';
 import { type Bundle, closeBundle, defaultBundlePath, openBundle } from '../../core/bundle.js';
 import { listenMcpServer, listenMcpStdioServer } from '../../mcp/server.js';
-import type { SearchEngine } from '../../services/indexing.js';
-
-type McpTransport = 'stdio' | 'http';
+import { parseMcpTransport, parseSearchEngine } from '../parsers.js';
 
 export function mcpCommand(): Command {
   const serve = new Command('serve')
@@ -58,16 +56,6 @@ export function mcpCommand(): Command {
     );
 
   return new Command('mcp').description('MCP server commands.').addCommand(serve);
-}
-
-function parseMcpTransport(value: string): McpTransport {
-  if (value === 'stdio' || value === 'http') return value;
-  throw new Error(`invalid --transport: ${value} (expected stdio or http)`);
-}
-
-function parseSearchEngine(value: string): SearchEngine {
-  if (value === 'fts5' || value === 'tantivy') return value;
-  throw new Error(`invalid --search-engine: ${value} (expected fts5 or tantivy)`);
 }
 
 function registerShutdown(closeServer: () => Promise<void>, bundle: Bundle): void {

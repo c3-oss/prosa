@@ -1,9 +1,9 @@
 import { Command } from 'commander';
 import { defaultBundlePath } from '../../core/bundle.js';
-import type { SearchEngine } from '../../services/indexing.js';
 import { searchFullText } from '../../services/search.js';
 import { withBundle } from '../bundle.js';
-import { parseOutputFormat, printRows } from '../output.js';
+import { printRows } from '../output.js';
+import { parseOutputFormat, parseSearchEngine } from '../parsers.js';
 
 export function searchCommand(): Command {
   return new Command('search')
@@ -34,9 +34,4 @@ export function searchCommand(): Command {
         });
       },
     );
-}
-
-function parseSearchEngine(value: string): SearchEngine {
-  if (value === 'fts5' || value === 'tantivy') return value;
-  throw new Error(`invalid --engine: ${value} (expected fts5 or tantivy)`);
 }
