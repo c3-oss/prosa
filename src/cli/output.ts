@@ -1,6 +1,9 @@
 export const OUTPUT_FORMATS = ['interactive', 'table', 'json', 'csv'] as const;
 export type OutputFormat = (typeof OUTPUT_FORMATS)[number];
 
+const COL_SEPARATOR = '  ';
+const RULE_CHAR = '-';
+
 export function parseOutputFormat(value: string | undefined, fallback: OutputFormat): OutputFormat {
   if (value === undefined) return fallback;
   if ((OUTPUT_FORMATS as readonly string[]).includes(value)) return value as OutputFormat;
@@ -37,11 +40,11 @@ function printJson(rows: readonly object[], opts: PrintOptions): void {
 }
 
 function printCsv(rows: readonly object[], opts: PrintOptions): void {
-  const cols = opts.columns;
-  process.stdout.write(`${cols.map(csvField).join(',')}\n`);
+  const columns = opts.columns;
+  process.stdout.write(`${columns.map(csvField).join(',')}\n`);
   for (const row of rows) {
-    const r = row as Record<string, unknown>;
-    const line = cols.map((c) => csvField(formatCell(r[c]))).join(',');
+    const record = row as Record<string, unknown>;
+    const line = columns.map((column) => csvField(formatCell(record[column]))).join(',');
     process.stdout.write(`${line}\n`);
   }
 }
@@ -52,23 +55,25 @@ function csvField(value: string): string {
 }
 
 function printTable(rows: readonly object[], opts: PrintOptions): void {
-  const cols = opts.columns;
-  const widths = cols.map((c) => c.length);
+  const columns = opts.columns;
+  const widths = columns.map((column) => column.length);
   const cells = rows.map((row) => {
-    const r = row as Record<string, unknown>;
-    return cols.map((col, i) => {
-      const text = formatCell(r[col]);
-      const w = widths[i] ?? 0;
-      if (text.length > w) widths[i] = text.length;
+    const record = row as Record<string, unknown>;
+    return columns.map((column, index) => {
+      const text = formatCell(record[column]);
+      const width = widths[index] ?? 0;
+      if (text.length > width) widths[index] = text.length;
       return text;
     });
   });
 
-  const header = cols.map((c, i) => c.padEnd(widths[i] ?? 0)).join('  ');
-  const sep = cols.map((_, i) => '-'.repeat(widths[i] ?? 0)).join('  ');
-  process.stdout.write(`${header}\n${sep}\n`);
+  const header = columns
+    .map((column, index) => column.padEnd(widths[index] ?? 0))
+    .join(COL_SEPARATOR);
+  const rule = columns.map((_, index) => RULE_CHAR.repeat(widths[index] ?? 0)).join(COL_SEPARATOR);
+  process.stdout.write(`${header}\n${rule}\n`);
   for (const cellRow of cells) {
-    const line = cellRow.map((c, i) => c.padEnd(widths[i] ?? 0)).join('  ');
+    const line = cellRow.map((cell, index) => cell.padEnd(widths[index] ?? 0)).join(COL_SEPARATOR);
     process.stdout.write(`${line}\n`);
   }
 }
