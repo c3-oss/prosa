@@ -1,6 +1,11 @@
 import path from 'node:path';
 import { Command } from 'commander';
-import { type Bundle, closeBundle, defaultBundlePath, openBundle } from '../../core/bundle.js';
+import {
+  type Bundle,
+  closeBundle,
+  defaultBundlePath,
+  openOrInitBundle,
+} from '../../core/bundle.js';
 import { listenMcpServer, listenMcpStdioServer } from '../../mcp/server.js';
 import { parseMcpTransport, parseSearchEngine } from '../parsers.js';
 
@@ -23,7 +28,7 @@ export function mcpCommand(): Command {
         transport: string;
       }) => {
         const storePath = path.resolve(options.store);
-        const bundle = await openBundle(storePath);
+        const bundle = await openOrInitBundle(storePath);
         try {
           const transport = parseMcpTransport(options.transport);
           const searchEngine = parseSearchEngine(options.searchEngine);

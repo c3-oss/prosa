@@ -4,6 +4,7 @@
 export {
   initBundle,
   openBundle,
+  openOrInitBundle,
   closeBundle,
   defaultBundlePath,
   type Bundle,

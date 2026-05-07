@@ -1,3 +1,4 @@
+import { stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -90,12 +91,18 @@ describe('prosa MCP guidance', () => {
     const t = await createTempBundle();
     try {
       const server = new FakeMcpServer();
-      registerProsaTools(server as unknown as McpServer, t.bundle, { storePath: t.path });
+      const storePath = path.join(t.path, 'mcp-store');
+      expect(await pathExists(storePath)).toBe(false);
+      registerProsaTools(server as unknown as McpServer, t.bundle, {
+        ensureStore: true,
+        storePath,
+      });
 
       const compile = server.tools.get('compile');
       expect(compile).toBeDefined();
 
       const first = await compile!.callback({ source: 'codex', sessions_path: CODEX_FIXTURES }, {});
+      expect(await pathExists(path.join(storePath, 'manifest.json'))).toBe(true);
       const firstPayload = JSON.parse(extractText(first)) as {
         imported_any: boolean;
         providers: Array<{
@@ -133,4 +140,33 @@ describe('prosa MCP guidance', () => {
       await t.cleanup();
     }
   });
+
+  it('initializes a missing store before an MCP read-only tool runs', async () => {
+    const t = await createTempBundle();
+    try {
+      const server = new FakeMcpServer();
+      const storePath = path.join(t.path, 'read-only-mcp-store');
+      expect(await pathExists(storePath)).toBe(false);
+      registerProsaTools(server as unknown as McpServer, t.bundle, {
+        ensureStore: true,
+        storePath,
+      });
+
+      const indexStatus = server.tools.get('index_status');
+      expect(indexStatus).toBeDefined();
+      const result = await indexStatus!.callback({}, {});
+
+      expect(await pathExists(path.join(storePath, 'manifest.json'))).toBe(true);
+      const rows = JSON.parse(extractText(result)) as Array<{ engine: string; status: string }>;
+      expect(rows.map((r) => r.engine).sort()).toEqual(['fts5', 'tantivy']);
+    } finally {
+      await t.cleanup();
+    }
+  });
 });
+
+async function pathExists(p: string): Promise<boolean> {
+  return stat(p)
+    .then(() => true)
+    .catch(() => false);
+}

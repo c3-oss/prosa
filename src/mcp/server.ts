@@ -194,7 +194,7 @@ function createMcpServer(
     },
     { instructions: PROSA_MCP_INSTRUCTIONS },
   );
-  registerProsaTools(server, bundle, { searchEngine, storePath });
+  registerProsaTools(server, bundle, { ensureStore: true, searchEngine, storePath });
   return server;
 }
 

@@ -1,7 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import type { Bundle } from '../core/bundle.js';
-import { SOURCE_TOOLS, type SourceTool } from '../core/domain/types.js';
+import { type Bundle, closeBundle, openOrInitBundle } from '../core/bundle.js';
+import { SOURCE_TOOLS } from '../core/domain/types.js';
 import { getErrorMessage } from '../core/errors.js';
 import { clampLimit } from '../core/limits.js';
 import {
@@ -23,6 +23,7 @@ import {
 export interface ProsaToolOptions {
   searchEngine?: SearchEngine;
   storePath?: string;
+  ensureStore?: boolean;
 }
 
 /**
@@ -36,6 +37,7 @@ export function registerProsaTools(
 ): void {
   const searchEngine = options.searchEngine ?? 'fts5';
   const storePath = options.storePath ?? bundle.path;
+  const ensureStore = options.ensureStore ?? false;
   registerProsaPrompts(server);
 
   server.registerTool(
@@ -50,68 +52,69 @@ export function registerProsaTools(
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     },
-    async ({ source, sessions_path }) => {
-      if (sessions_path && !source) {
-        return {
-          content: [
-            {
-              type: 'text',
-              text: 'sessions_path requires source because providers use incompatible source layouts',
-            },
-          ],
-          isError: true,
-        };
-      }
+    async ({ source, sessions_path }) =>
+      withToolBundle(bundle, storePath, ensureStore, async (activeBundle) => {
+        if (sessions_path && !source) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: 'sessions_path requires source because providers use incompatible source layouts',
+              },
+            ],
+            isError: true,
+          };
+        }
 
-      try {
-        const result = await runCompileImports({
-          bundle,
-          providers: source ? [getCompileProvider(source)] : COMPILE_PROVIDERS,
-          deferIndex: false,
-          sessionsPath: sessions_path,
-        });
-        const parquet = result.importedAny ? await exportCompileParquet({ storePath }) : null;
+        try {
+          const result = await runCompileImports({
+            bundle: activeBundle,
+            providers: source ? [getCompileProvider(source)] : COMPILE_PROVIDERS,
+            deferIndex: false,
+            sessionsPath: sessions_path,
+          });
+          const parquet = result.importedAny ? await exportCompileParquet({ storePath }) : null;
 
-        return {
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify(
-                {
-                  providers: result.providers.map((provider) => ({
-                    source: provider.source,
-                    source_path: provider.sourcePath,
-                    batch_id: provider.batchId,
-                    counts: provider.counts,
-                  })),
-                  imported_any: result.importedAny,
-                  tantivy: result.tantivy
-                    ? { indexed_doc_count: result.tantivy.indexedDocCount }
-                    : null,
-                  tantivy_error: result.tantivyError,
-                  parquet: parquet
-                    ? {
-                        out_dir: parquet.outDir,
-                        manifest_path: parquet.manifestPath,
-                        table_count: parquet.tableCount,
-                        files: parquet.files,
-                        counts: parquet.counts,
-                      }
-                    : null,
-                },
-                null,
-                2,
-              ),
-            },
-          ],
-        };
-      } catch (error) {
-        return {
-          content: [{ type: 'text', text: getErrorMessage(error) }],
-          isError: true,
-        };
-      }
-    },
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify(
+                  {
+                    providers: result.providers.map((provider) => ({
+                      source: provider.source,
+                      source_path: provider.sourcePath,
+                      batch_id: provider.batchId,
+                      counts: provider.counts,
+                    })),
+                    imported_any: result.importedAny,
+                    tantivy: result.tantivy
+                      ? { indexed_doc_count: result.tantivy.indexedDocCount }
+                      : null,
+                    tantivy_error: result.tantivyError,
+                    parquet: parquet
+                      ? {
+                          out_dir: parquet.outDir,
+                          manifest_path: parquet.manifestPath,
+                          table_count: parquet.tableCount,
+                          files: parquet.files,
+                          counts: parquet.counts,
+                        }
+                      : null,
+                  },
+                  null,
+                  2,
+                ),
+              },
+            ],
+          };
+        } catch (error) {
+          return {
+            content: [{ type: 'text', text: getErrorMessage(error) }],
+            isError: true,
+          };
+        }
+      }),
   );
 
   server.registerTool(
@@ -128,17 +131,18 @@ export function registerProsaTools(
       },
       annotations: { readOnlyHint: true, idempotentHint: true },
     },
-    async (input) => {
-      const rows = listSessions(bundle, {
-        sourceTool: input.source,
-        sinceIso: input.since,
-        untilIso: input.until,
-        limit: input.limit ?? 50,
-      });
-      return {
-        content: [{ type: 'text', text: JSON.stringify(rows, null, 2) }],
-      };
-    },
+    async (input) =>
+      withToolBundle(bundle, storePath, ensureStore, (activeBundle) => {
+        const rows = listSessions(activeBundle, {
+          sourceTool: input.source,
+          sinceIso: input.since,
+          untilIso: input.until,
+          limit: input.limit ?? 50,
+        });
+        return {
+          content: [{ type: 'text', text: JSON.stringify(rows, null, 2) }],
+        };
+      }),
   );
 
   server.registerTool(
@@ -152,18 +156,19 @@ export function registerProsaTools(
       },
       annotations: { readOnlyHint: true, idempotentHint: true },
     },
-    async ({ session_id }) => {
-      const detail = getSession(bundle, session_id);
-      if (!detail) {
+    async ({ session_id }) =>
+      withToolBundle(bundle, storePath, ensureStore, (activeBundle) => {
+        const detail = getSession(activeBundle, session_id);
+        if (!detail) {
+          return {
+            content: [{ type: 'text', text: `session not found: ${session_id}` }],
+            isError: true,
+          };
+        }
         return {
-          content: [{ type: 'text', text: `session not found: ${session_id}` }],
-          isError: true,
+          content: [{ type: 'text', text: JSON.stringify(detail, null, 2) }],
         };
-      }
-      return {
-        content: [{ type: 'text', text: JSON.stringify(detail, null, 2) }],
-      };
-    },
+      }),
   );
 
   server.registerTool(
@@ -178,21 +183,27 @@ export function registerProsaTools(
       },
       annotations: { readOnlyHint: true, idempotentHint: true },
     },
-    async ({ query, limit, raw }) => {
-      const hits = searchFullText(bundle, { query, limit: limit ?? 50, raw, engine: searchEngine });
-      return {
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify(
-              { query, engine: searchEngine, count: hits.length, hits },
-              null,
-              2,
-            ),
-          },
-        ],
-      };
-    },
+    async ({ query, limit, raw }) =>
+      withToolBundle(bundle, storePath, ensureStore, (activeBundle) => {
+        const hits = searchFullText(activeBundle, {
+          query,
+          limit: limit ?? 50,
+          raw,
+          engine: searchEngine,
+        });
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(
+                { query, engine: searchEngine, count: hits.length, hits },
+                null,
+                2,
+              ),
+            },
+          ],
+        };
+      }),
   );
 
   server.registerTool(
@@ -206,17 +217,18 @@ export function registerProsaTools(
       },
       annotations: { readOnlyHint: true, idempotentHint: true },
     },
-    async ({ session_id }) => {
-      try {
-        const md = await exportSessionMarkdown(bundle, session_id);
-        return { content: [{ type: 'text', text: md }] };
-      } catch (error) {
-        return {
-          content: [{ type: 'text', text: getErrorMessage(error) }],
-          isError: true,
-        };
-      }
-    },
+    async ({ session_id }) =>
+      withToolBundle(bundle, storePath, ensureStore, async (activeBundle) => {
+        try {
+          const md = await exportSessionMarkdown(activeBundle, session_id);
+          return { content: [{ type: 'text', text: md }] };
+        } catch (error) {
+          return {
+            content: [{ type: 'text', text: getErrorMessage(error) }],
+            isError: true,
+          };
+        }
+      }),
   );
 
   server.registerTool(
@@ -247,27 +259,28 @@ export function registerProsaTools(
       },
       annotations: { readOnlyHint: true, idempotentHint: true },
     },
-    async ({ tool_name, canonical_type, session_id, errors_only, limit }) => {
-      const conds: string[] = [];
-      const params: unknown[] = [];
-      if (tool_name) {
-        conds.push('tc.tool_name = ?');
-        params.push(tool_name);
-      }
-      if (canonical_type) {
-        conds.push('tc.canonical_tool_type = ?');
-        params.push(canonical_type);
-      }
-      if (session_id) {
-        conds.push('tc.session_id = ?');
-        params.push(session_id);
-      }
-      if (errors_only) {
-        conds.push('(tr.is_error = 1 OR tc.status = ?)');
-        params.push('error');
-      }
-      const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
-      const sql = `
+    async ({ tool_name, canonical_type, session_id, errors_only, limit }) =>
+      withToolBundle(bundle, storePath, ensureStore, (activeBundle) => {
+        const conds: string[] = [];
+        const params: unknown[] = [];
+        if (tool_name) {
+          conds.push('tc.tool_name = ?');
+          params.push(tool_name);
+        }
+        if (canonical_type) {
+          conds.push('tc.canonical_tool_type = ?');
+          params.push(canonical_type);
+        }
+        if (session_id) {
+          conds.push('tc.session_id = ?');
+          params.push(session_id);
+        }
+        if (errors_only) {
+          conds.push('(tr.is_error = 1 OR tc.status = ?)');
+          params.push('error');
+        }
+        const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
+        const sql = `
         SELECT tc.tool_call_id, tc.session_id, tc.tool_name, tc.canonical_tool_type,
                tc.command, tc.path, tc.status, tc.timestamp_start,
                tr.is_error, tr.exit_code, tr.preview
@@ -277,11 +290,11 @@ export function registerProsaTools(
          ORDER BY tc.timestamp_start DESC
          LIMIT ${clampLimit(limit, { max: 500, fallback: 100 })}
       `;
-      const rows = bundle.db.prepare(sql).all(...params);
-      return {
-        content: [{ type: 'text', text: JSON.stringify(rows, null, 2) }],
-      };
-    },
+        const rows = activeBundle.db.prepare(sql).all(...params);
+        return {
+          content: [{ type: 'text', text: JSON.stringify(rows, null, 2) }],
+        };
+      }),
   );
 
   server.registerTool(
@@ -296,8 +309,9 @@ export function registerProsaTools(
       },
       annotations: { readOnlyHint: true, idempotentHint: true },
     },
-    async ({ path_substring, limit }) => {
-      const sql = `
+    async ({ path_substring, limit }) =>
+      withToolBundle(bundle, storePath, ensureStore, (activeBundle) => {
+        const sql = `
         SELECT tc.session_id, tc.tool_name, tc.canonical_tool_type, tc.path,
                tc.timestamp_start, tc.command
           FROM tool_calls tc
@@ -310,12 +324,12 @@ export function registerProsaTools(
          ORDER BY timestamp_start DESC
          LIMIT ${clampLimit(limit, { max: 500, fallback: 100 })}
       `;
-      const like = `%${path_substring}%`;
-      const rows = bundle.db.prepare(sql).all(like, like);
-      return {
-        content: [{ type: 'text', text: JSON.stringify(rows, null, 2) }],
-      };
-    },
+        const like = `%${path_substring}%`;
+        const rows = activeBundle.db.prepare(sql).all(like, like);
+        return {
+          content: [{ type: 'text', text: JSON.stringify(rows, null, 2) }],
+        };
+      }),
   );
 
   server.registerTool(
@@ -329,31 +343,32 @@ export function registerProsaTools(
       },
       annotations: { readOnlyHint: true, idempotentHint: true },
     },
-    async ({ artifact_id }) => {
-      const row = bundle.db
-        .prepare<
-          [string],
-          { text_object_id: string | null; object_id: string | null; mime_type: string | null }
-        >(`SELECT text_object_id, object_id, mime_type FROM artifacts WHERE artifact_id = ?`)
-        .get(artifact_id);
-      if (!row) {
-        return {
-          content: [{ type: 'text', text: `artifact not found: ${artifact_id}` }],
-          isError: true,
-        };
-      }
-      const objectId = row.text_object_id ?? row.object_id;
-      if (!objectId) {
-        return { content: [{ type: 'text', text: '[no content stored]' }] };
-      }
-      try {
-        const { getText } = await import('../core/cas/index.js');
-        const text = await getText(bundle, objectId);
-        return { content: [{ type: 'text', text }] };
-      } catch {
-        return { content: [{ type: 'text', text: `[binary artifact: ${objectId}]` }] };
-      }
-    },
+    async ({ artifact_id }) =>
+      withToolBundle(bundle, storePath, ensureStore, async (activeBundle) => {
+        const row = activeBundle.db
+          .prepare<
+            [string],
+            { text_object_id: string | null; object_id: string | null; mime_type: string | null }
+          >(`SELECT text_object_id, object_id, mime_type FROM artifacts WHERE artifact_id = ?`)
+          .get(artifact_id);
+        if (!row) {
+          return {
+            content: [{ type: 'text', text: `artifact not found: ${artifact_id}` }],
+            isError: true,
+          };
+        }
+        const objectId = row.text_object_id ?? row.object_id;
+        if (!objectId) {
+          return { content: [{ type: 'text', text: '[no content stored]' }] };
+        }
+        try {
+          const { getText } = await import('../core/cas/index.js');
+          const text = await getText(activeBundle, objectId);
+          return { content: [{ type: 'text', text }] };
+        } catch {
+          return { content: [{ type: 'text', text: `[binary artifact: ${objectId}]` }] };
+        }
+      }),
   );
 
   server.registerTool(
@@ -365,13 +380,32 @@ export function registerProsaTools(
       inputSchema: {},
       annotations: { readOnlyHint: true, idempotentHint: true },
     },
-    async () => {
-      const rows = getSearchIndexStatuses(bundle);
-      return {
-        content: [{ type: 'text', text: JSON.stringify(rows, null, 2) }],
-      };
-    },
+    async () =>
+      withToolBundle(bundle, storePath, ensureStore, (activeBundle) => {
+        const rows = getSearchIndexStatuses(activeBundle);
+        return {
+          content: [{ type: 'text', text: JSON.stringify(rows, null, 2) }],
+        };
+      }),
   );
+}
+
+async function withToolBundle<T>(
+  fallbackBundle: Bundle,
+  storePath: string,
+  ensureStore: boolean,
+  fn: (bundle: Bundle) => Promise<T> | T,
+): Promise<T> {
+  if (!ensureStore) {
+    return await fn(fallbackBundle);
+  }
+
+  const bundle = await openOrInitBundle(storePath);
+  try {
+    return await fn(bundle);
+  } finally {
+    closeBundle(bundle);
+  }
 }
 
 function registerProsaPrompts(server: McpServer): void {

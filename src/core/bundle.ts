@@ -140,6 +140,26 @@ export async function openBundle(rootPath: string): Promise<Bundle> {
   return { path: resolved, db, manifest, paths };
 }
 
+/**
+ * Open an existing bundle or transparently initialize one if the store path is
+ * missing or has not been initialized yet.
+ */
+export async function openOrInitBundle(rootPath: string): Promise<Bundle> {
+  const resolved = path.resolve(rootPath);
+  const paths = bundlePaths(resolved);
+
+  const dirStat = await stat(resolved).catch(() => null);
+  if (dirStat && !dirStat.isDirectory()) {
+    throw new Error(`bundle path not found or not a directory: ${resolved}`);
+  }
+
+  if (!dirStat || !(await exists(paths.manifest))) {
+    return await initBundle(resolved);
+  }
+
+  return await openBundle(resolved);
+}
+
 export function closeBundle(bundle: Bundle): void {
   closeDb(bundle.db);
 }
