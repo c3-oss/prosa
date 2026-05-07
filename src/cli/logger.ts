@@ -9,10 +9,10 @@ export interface CliLoggerOptions {
 export function createCliLogger(options: CliLoggerOptions): Logger {
   const loggerOptions = {
     base: undefined,
-    level: options.verbose === true ? 'debug' : 'info',
+    level: options.verbose ? 'debug' : 'info',
   };
 
-  if (options.jsonLogs === true) {
+  if (options.jsonLogs) {
     return pino(loggerOptions, pino.destination({ dest: 2, sync: true }));
   }
 

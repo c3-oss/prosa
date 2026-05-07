@@ -8,12 +8,7 @@ import {
   resolveCompilePath,
   runCompileImports,
 } from '../../services/compile.js';
-import { createCliLogger } from '../logger.js';
-
-interface CompileLogOptions {
-  verbose?: boolean;
-  jsonLogs?: boolean;
-}
+import { type CliLoggerOptions, createCliLogger } from '../logger.js';
 
 export function compileCommand(): Command {
   const command = addCompileLogOptions(
@@ -37,11 +32,11 @@ export function compileAllCommand(): Command {
   return addCompileLogOptions(new Command('compile-all'))
     .description('Import all agent CLI session histories using default source paths.')
     .option('--defer-index', 'skip immediate FTS5 updates; run `prosa index fts5` later')
-    .action(async (options: CompileLogOptions & { deferIndex?: boolean }) => {
+    .action(async (options: CliLoggerOptions & { deferIndex?: boolean }) => {
       await runCompiles({
         providers: COMPILE_PROVIDERS,
         storePath: defaultBundlePath(),
-        deferIndex: options.deferIndex === true,
+        deferIndex: options.deferIndex ?? false,
         logOptions: options,
       });
     });
@@ -69,9 +64,9 @@ function providerCompileCommand(provider: CompileProviderConfig): Command {
         await runCompiles({
           providers: [provider],
           storePath: options.store,
-          deferIndex: options.deferIndex === true,
+          deferIndex: options.deferIndex ?? false,
           sessionsPath: options.sessionsPath,
-          logOptions: command.optsWithGlobals() as CompileLogOptions,
+          logOptions: command.optsWithGlobals() as CliLoggerOptions,
         });
       },
     );
@@ -88,7 +83,7 @@ async function runCompiles(options: {
   storePath: string;
   deferIndex: boolean;
   sessionsPath?: string;
-  logOptions: CompileLogOptions;
+  logOptions: CliLoggerOptions;
 }): Promise<void> {
   const logger = createCliLogger(options.logOptions);
   const storePath = resolveCompilePath(options.storePath);
