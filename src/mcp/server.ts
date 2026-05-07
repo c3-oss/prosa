@@ -21,6 +21,7 @@ export interface McpServerOptions {
   port: number;
   path?: string;
   searchEngine?: SearchEngine;
+  storePath?: string;
 }
 
 export interface RunningServer {
@@ -34,13 +35,14 @@ export interface RunningStdioServer {
 
 export interface McpStdioServerOptions {
   searchEngine?: SearchEngine;
+  storePath?: string;
 }
 
 export async function listenMcpStdioServer(
   bundle: Bundle,
   options: McpStdioServerOptions = {},
 ): Promise<RunningStdioServer> {
-  const server = createMcpServer(bundle, options.searchEngine ?? 'fts5');
+  const server = createMcpServer(bundle, options.searchEngine ?? 'fts5', options.storePath);
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
@@ -69,11 +71,14 @@ export async function listenMcpServer(
   const sessions = new Map<string, SessionEntry>();
 
   const searchEngine = options.searchEngine ?? 'fts5';
+  const storePath = options.storePath ?? bundle.path;
 
   const httpServer = http.createServer((req, res) => {
-    handleRequest(req, res, mcpPath, sessions, bundle, searchEngine).catch((error: unknown) => {
-      writeError(res, error);
-    });
+    handleRequest(req, res, mcpPath, sessions, bundle, searchEngine, storePath).catch(
+      (error: unknown) => {
+        writeError(res, error);
+      },
+    );
   });
 
   await new Promise<void>((resolve, reject) => {
@@ -106,6 +111,7 @@ async function handleRequest(
   sessions: Map<string, SessionEntry>,
   bundle: Bundle,
   searchEngine: SearchEngine,
+  storePath: string,
 ): Promise<void> {
   if (!req.url || !req.url.startsWith(mcpPath)) {
     res.writeHead(404).end();
@@ -139,7 +145,7 @@ async function handleRequest(
       res.writeHead(404).end();
       return;
     }
-    entry = await openSession(bundle, sessions, searchEngine);
+    entry = await openSession(bundle, sessions, searchEngine, storePath);
   }
 
   const bodyText = await readBody(req);
@@ -151,10 +157,11 @@ async function openSession(
   bundle: Bundle,
   store: Map<string, SessionEntry>,
   searchEngine: SearchEngine,
+  storePath: string,
 ): Promise<SessionEntry> {
   // We need to assemble server + transport together because the transport's
   // `onsessioninitialized` callback wants to register both into the map.
-  const server = createMcpServer(bundle, searchEngine);
+  const server = createMcpServer(bundle, searchEngine, storePath);
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: () => randomUUID(),
     onsessioninitialized: (id: string) => {
@@ -174,7 +181,11 @@ async function openSession(
   return { server, transport };
 }
 
-function createMcpServer(bundle: Bundle, searchEngine: SearchEngine): McpServer {
+function createMcpServer(
+  bundle: Bundle,
+  searchEngine: SearchEngine,
+  storePath?: string,
+): McpServer {
   const server = new McpServer(
     {
       name: 'prosa',
@@ -182,7 +193,7 @@ function createMcpServer(bundle: Bundle, searchEngine: SearchEngine): McpServer 
     },
     { instructions: PROSA_MCP_INSTRUCTIONS },
   );
-  registerProsaTools(server, bundle, { searchEngine });
+  registerProsaTools(server, bundle, { searchEngine, storePath });
   return server;
 }
 

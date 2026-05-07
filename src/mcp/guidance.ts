@@ -1,8 +1,11 @@
 export const PROSA_MCP_INSTRUCTIONS = `
-prosa is a read-only memory over local agent session histories. Use it to find prior work,
-commands, decisions, file touches, and full transcripts before answering from memory.
+prosa is a local memory over local agent session histories. Use it to import recent sessions,
+find prior work, commands, decisions, file touches, and full transcripts before answering from
+memory.
 
 Recommended workflow:
+- Use compile to refresh the bundle when recent local sessions may not be indexed yet. With no
+  input it imports all supported providers from default paths.
 - For open-ended questions, start with search_sessions using 2-5 concrete terms.
 - For questions about a file or path, start with find_touched_files, then inspect the returned sessions.
 - After search results, call get_session for the most relevant session_ids before drawing conclusions.

@@ -1,71 +1,19 @@
-import os from 'node:os';
-import path from 'node:path';
 import { Command } from 'commander';
-import { type Bundle, closeBundle, defaultBundlePath, openBundle } from '../../core/bundle.js';
-import type { SourceTool } from '../../core/domain/types.js';
-import type { ImportBatch, ImportCounts } from '../../core/ingest/batch.js';
-import { compileClaude } from '../../importers/claude/index.js';
-import { compileCodex } from '../../importers/codex/index.js';
-import type { CompileOptions } from '../../importers/compile-options.js';
-import { compileCursor } from '../../importers/cursor/index.js';
-import { compileGemini } from '../../importers/gemini/index.js';
-import { exportBundleParquet } from '../../services/export/parquet.js';
+import { closeBundle, defaultBundlePath, openBundle } from '../../core/bundle.js';
 import {
-  disableFts5Triggers,
-  enableFts5Triggers,
-  markIndexesAfterImport,
-  rebuildTantivyIndex,
-} from '../../services/indexing.js';
+  COMPILE_PROVIDERS,
+  type CompileProviderConfig,
+  type ProviderCompileSummary,
+  exportCompileParquet,
+  resolveCompilePath,
+  runCompileImports,
+} from '../../services/compile.js';
 import { createCliLogger } from '../logger.js';
-
-interface CompileResult {
-  batch: ImportBatch;
-  counts: ImportCounts;
-}
-
-interface ProviderConfig {
-  name: SourceTool;
-  description: string;
-  pathHelp: string;
-  defaultSessionsPath: () => string;
-  compile: (bundle: Bundle, root: string, options?: CompileOptions) => Promise<CompileResult>;
-}
 
 interface CompileLogOptions {
   verbose?: boolean;
   jsonLogs?: boolean;
 }
-
-const PROVIDERS: ProviderConfig[] = [
-  {
-    name: 'codex',
-    description: 'Import Codex CLI session histories into the bundle.',
-    pathHelp: 'root of Codex CLI sessions',
-    defaultSessionsPath: () => path.join(os.homedir(), '.codex', 'sessions'),
-    compile: compileCodex,
-  },
-  {
-    name: 'claude',
-    description: 'Import Claude Code project histories into the bundle.',
-    pathHelp: 'root of Claude Code projects',
-    defaultSessionsPath: () => path.join(os.homedir(), '.claude', 'projects'),
-    compile: compileClaude,
-  },
-  {
-    name: 'gemini',
-    description: 'Import Gemini CLI session histories into the bundle.',
-    pathHelp: 'root of Gemini CLI tmp dir',
-    defaultSessionsPath: () => path.join(os.homedir(), '.gemini', 'tmp'),
-    compile: compileGemini,
-  },
-  {
-    name: 'cursor',
-    description: 'Import Cursor agent stores into the bundle.',
-    pathHelp: 'root of Cursor agent stores',
-    defaultSessionsPath: () => path.join(os.homedir(), '.cursor', 'chats'),
-    compile: compileCursor,
-  },
-];
 
 export function compileCommand(): Command {
   const command = addCompileLogOptions(
@@ -74,7 +22,7 @@ export function compileCommand(): Command {
     ),
   );
 
-  for (const provider of PROVIDERS) {
+  for (const provider of COMPILE_PROVIDERS) {
     command.addCommand(providerCompileCommand(provider));
   }
 
@@ -91,7 +39,7 @@ export function compileAllCommand(): Command {
     .option('--defer-index', 'skip immediate FTS5 updates; run `prosa index fts5` later')
     .action(async (options: CompileLogOptions & { deferIndex?: boolean }) => {
       await runCompiles({
-        providers: PROVIDERS,
+        providers: COMPILE_PROVIDERS,
         storePath: defaultBundlePath(),
         deferIndex: options.deferIndex === true,
         logOptions: options,
@@ -99,7 +47,7 @@ export function compileAllCommand(): Command {
     });
 }
 
-function providerCompileCommand(provider: ProviderConfig): Command {
+function providerCompileCommand(provider: CompileProviderConfig): Command {
   return addCompileLogOptions(new Command(provider.name))
     .description(provider.description)
     .option(
@@ -136,65 +84,31 @@ function addCompileLogOptions(command: Command): Command {
 }
 
 async function runCompiles(options: {
-  providers: ProviderConfig[];
+  providers: CompileProviderConfig[];
   storePath: string;
   deferIndex: boolean;
   sessionsPath?: string;
   logOptions: CompileLogOptions;
 }): Promise<void> {
   const logger = createCliLogger(options.logOptions);
-  const storePath = resolvePath(options.storePath);
+  const storePath = resolveCompilePath(options.storePath);
   logger.info({ store_path: storePath }, 'opening bundle');
   const bundle = await openBundle(storePath);
   let importedAny = false;
   try {
-    if (options.deferIndex) {
-      logger.info('disabling FTS5 triggers for deferred indexing');
-      disableFts5Triggers(bundle);
-    }
-
-    for (const provider of options.providers) {
-      const sourcePath = resolvePath(options.sessionsPath ?? provider.defaultSessionsPath());
-      const providerLogger = logger.child({
-        source_tool: provider.name,
-        source_path: sourcePath,
-      });
-      providerLogger.info('starting compile');
-      const r = await provider.compile(bundle, sourcePath, { logger: providerLogger });
-      importedAny ||= r.counts.source_files_imported > 0;
-      providerLogger.info(
-        {
-          batch_id: r.batch.batch_id,
-          counts: r.counts,
-        },
-        'compile finished',
-      );
-      printCounts(provider.name, r.batch.batch_id, r.counts);
-    }
-
-    logger.info({ changed: importedAny, fts5_deferred: options.deferIndex }, 'marking indexes');
-    markIndexesAfterImport(bundle, {
-      changed: importedAny,
-      fts5Deferred: options.deferIndex,
+    const result = await runCompileImports({
+      bundle,
+      providers: options.providers,
+      deferIndex: options.deferIndex,
+      sessionsPath: options.sessionsPath,
+      logger,
+      onProviderComplete: printCounts,
+      onTantivyComplete: (status) => {
+        process.stdout.write(`tantivy: indexed ${status.indexedDocCount} docs\n`);
+      },
     });
-
-    // Rebuild Tantivy while we still own the bundle handle. Failures here
-    // don't invalidate the SQLite/CAS data already committed; log and move
-    // on so the user can retry with `prosa index tantivy`.
-    if (importedAny) {
-      try {
-        logger.info('rebuilding tantivy index');
-        const status = await rebuildTantivyIndex(bundle);
-        process.stdout.write(`tantivy: indexed ${status.indexed_doc_count} docs\n`);
-      } catch (error) {
-        logger.error({ err: error }, 'tantivy rebuild failed; SQLite data is intact');
-      }
-    }
+    importedAny = result.importedAny;
   } finally {
-    if (options.deferIndex) {
-      logger.info('re-enabling FTS5 triggers');
-      enableFts5Triggers(bundle);
-    }
     closeBundle(bundle);
     logger.info({ store_path: storePath }, 'bundle closed');
   }
@@ -206,25 +120,18 @@ async function runCompiles(options: {
   // `prosa export parquet`.
   if (importedAny) {
     try {
-      logger.info({ store_path: storePath }, 'exporting parquet');
-      const result = await exportBundleParquet({ bundlePath: storePath });
-      const tableCount = Object.keys(result.files).length;
-      process.stdout.write(`parquet: wrote ${tableCount} tables to ${result.outDir}\n`);
+      const result = await exportCompileParquet({ storePath, logger });
+      process.stdout.write(`parquet: wrote ${result.tableCount} tables to ${result.outDir}\n`);
     } catch (error) {
       logger.error({ err: error }, 'parquet export failed; SQLite data is intact');
     }
   }
 }
 
-function resolvePath(p: string): string {
-  if (p === '~') return os.homedir();
-  if (p.startsWith('~/')) return path.join(os.homedir(), p.slice(2));
-  return path.resolve(p);
-}
-
-function printCounts(label: string, batchId: string, c: ImportCounts): void {
+function printCounts(summary: ProviderCompileSummary): void {
+  const c = summary.counts;
   process.stdout.write(
-    `${label} import: batch=${batchId}\n` +
+    `${summary.source} import: batch=${summary.batchId}\n` +
       `  source_files seen=${c.source_files_seen} imported=${c.source_files_imported} skipped=${c.source_files_skipped}\n` +
       `  sessions=${c.sessions} turns=${c.turns} messages=${c.messages} blocks=${c.content_blocks}\n` +
       `  events=${c.events} tool_calls=${c.tool_calls} tool_results=${c.tool_results}\n` +

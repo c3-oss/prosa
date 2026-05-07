@@ -24,7 +24,8 @@ export function mcpCommand(): Command {
         searchEngine: string;
         transport: string;
       }) => {
-        const bundle = await openBundle(path.resolve(options.store));
+        const storePath = path.resolve(options.store);
+        const bundle = await openBundle(storePath);
         try {
           const transport = parseMcpTransport(options.transport);
           const searchEngine = parseSearchEngine(options.searchEngine);
@@ -38,6 +39,7 @@ export function mcpCommand(): Command {
               port,
               path: options.path,
               searchEngine,
+              storePath,
             });
 
             process.stdout.write(`prosa mcp server listening at ${server.url}\n`);
@@ -46,7 +48,7 @@ export function mcpCommand(): Command {
             return;
           }
 
-          const server = await listenMcpStdioServer(bundle, { searchEngine });
+          const server = await listenMcpStdioServer(bundle, { searchEngine, storePath });
           registerShutdown(server.close, bundle);
         } catch (error) {
           closeBundle(bundle);

@@ -72,6 +72,18 @@ export {
   type SearchEngine,
   type SearchIndexStatus,
 } from './services/indexing.js';
+export {
+  COMPILE_PROVIDERS,
+  exportCompileParquet,
+  getCompileProvider,
+  resolveCompilePath,
+  runCompileImports,
+  type CompileImportSummary,
+  type CompileProviderConfig,
+  type ParquetCompileSummary,
+  type ProviderCompileSummary,
+  type TantivyCompileSummary,
+} from './services/compile.js';
 export { exportSessionMarkdown } from './services/export/markdown.js';
 export {
   exportBundleParquet,

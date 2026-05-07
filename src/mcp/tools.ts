@@ -2,6 +2,12 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { Bundle } from '../core/bundle.js';
 import type { SourceTool } from '../core/domain/types.js';
+import {
+  COMPILE_PROVIDERS,
+  exportCompileParquet,
+  getCompileProvider,
+  runCompileImports,
+} from '../services/compile.js';
 import { exportSessionMarkdown } from '../services/export/markdown.js';
 import { type SearchEngine, getSearchIndexStatuses } from '../services/indexing.js';
 import { searchFullText } from '../services/search.js';
@@ -14,13 +20,12 @@ import {
 
 export interface ProsaToolOptions {
   searchEngine?: SearchEngine;
+  storePath?: string;
 }
 
 /**
- * Register every prosa MCP tool on `server`. All tools are read-only and
- * idempotent; nothing here mutates the bundle. The handlers reuse the same
- * service functions the CLI calls, so behavior stays consistent across
- * surfaces.
+ * Register every prosa MCP tool on `server`. Most tools are read-only; compile
+ * is intentionally mutating and reuses the same import services as the CLI.
  */
 export function registerProsaTools(
   server: McpServer,
@@ -28,7 +33,84 @@ export function registerProsaTools(
   options: ProsaToolOptions = {},
 ): void {
   const searchEngine = options.searchEngine ?? 'fts5';
+  const storePath = options.storePath ?? bundle.path;
   registerProsaPrompts(server);
+
+  server.registerTool(
+    'compile',
+    {
+      title: 'Compile sessions',
+      description:
+        'Import local agent session histories into the active prosa bundle. With no input, compiles all providers from default paths. With source, compiles that provider; sessions_path may override that provider path.',
+      inputSchema: {
+        source: z.enum(['cursor', 'codex', 'claude', 'gemini']).optional(),
+        sessions_path: z.string().min(1).optional(),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+    },
+    async ({ source, sessions_path }) => {
+      if (sessions_path && !source) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: 'sessions_path requires source because providers use incompatible source layouts',
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      try {
+        const result = await runCompileImports({
+          bundle,
+          providers: source ? [getCompileProvider(source as SourceTool)] : COMPILE_PROVIDERS,
+          deferIndex: false,
+          sessionsPath: sessions_path,
+        });
+        const parquet = result.importedAny ? await exportCompileParquet({ storePath }) : null;
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(
+                {
+                  providers: result.providers.map((provider) => ({
+                    source: provider.source,
+                    source_path: provider.sourcePath,
+                    batch_id: provider.batchId,
+                    counts: provider.counts,
+                  })),
+                  imported_any: result.importedAny,
+                  tantivy: result.tantivy
+                    ? { indexed_doc_count: result.tantivy.indexedDocCount }
+                    : null,
+                  tantivy_error: result.tantivyError,
+                  parquet: parquet
+                    ? {
+                        out_dir: parquet.outDir,
+                        manifest_path: parquet.manifestPath,
+                        table_count: parquet.tableCount,
+                        files: parquet.files,
+                        counts: parquet.counts,
+                      }
+                    : null,
+                },
+                null,
+                2,
+              ),
+            },
+          ],
+        };
+      } catch (error) {
+        return {
+          content: [{ type: 'text', text: error instanceof Error ? error.message : String(error) }],
+          isError: true,
+        };
+      }
+    },
+  );
 
   server.registerTool(
     'list_sessions',
