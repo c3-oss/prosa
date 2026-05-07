@@ -1,6 +1,14 @@
 {
   "$schema": "https://raw.githubusercontent.com/jetify-com/devbox/main/.schema/devbox.schema.json",
-  "packages": ["nodejs@22", "pnpm@9", "sqlite@3", "jq@1", "ripgrep@14", "just@1.50.0"],
+  "packages": [
+    "nodejs@22",
+    "pnpm@9",
+    "sqlite@3",
+    "jq@1",
+    "ripgrep@14",
+    "just@1.50.0",
+    "gitleaks@8"
+  ],
   "shell": {
     "scripts": {
       "build": ["just build"],

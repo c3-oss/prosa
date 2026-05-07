@@ -45,7 +45,9 @@
     "clean": "rm -rf coverage dist .turbo",
     "changeset": "changeset",
     "version-packages": "changeset version",
-    "release": "pnpm build && changeset publish"
+    "release": "pnpm build && changeset publish",
+    "prepare": "husky",
+    "commit": "cz"
   },
   "dependencies": {
     "@duckdb/node-api": "1.5.2-r.1",
@@ -65,11 +67,18 @@
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
     "@changesets/cli": "^2.29.7",
+    "@commitlint/cli": "^20.5.3",
+    "@commitlint/config-conventional": "^20.5.3",
+    "@commitlint/cz-commitlint": "^20.5.3",
     "@swc-node/register": "^1.10.10",
     "@swc/core": "^1.13.5",
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.10.0",
     "@types/react": "^19.2.14",
+    "commitizen": "^4.3.1",
+    "husky": "^9.1.7",
+    "inquirer": "^9.3.8",
+    "lint-staged": "^17.0.2",
     "tsup": "^8.5.0",
     "typescript": "^5.7.0",
     "vitest": "^2.1.0"
@@ -79,5 +88,13 @@
     "@oxdev03/node-tantivy-binding-darwin-x64": "0.2.0",
     "@oxdev03/node-tantivy-binding-linux-x64-gnu": "0.2.0",
     "@oxdev03/node-tantivy-binding-win32-x64-msvc": "0.2.0"
+  },
+  "config": {
+    "commitizen": {
+      "path": "@commitlint/cz-commitlint"
+    }
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,jsx,json,jsonc}": "biome check --write"
   }
 }
