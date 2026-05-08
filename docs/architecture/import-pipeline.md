@@ -37,23 +37,29 @@ For each `(provider, sessions-path)`:
 6. **Per-batch bookkeeping** — `import_batches.counts_json` and
    `import_errors` rows are written.
 
+Before the import loop starts, `runCompileImports` calls
+`disableFts5Triggers(bundle)` so that `search_docs` inserts inside the
+per-file domain transaction do not pay the cost of incremental FTS5
+tokenization. A `finally` block re-enables them.
+
 After all providers in a single `runCompiles(...)` invocation finish:
 
-7. **Tantivy rebuild** — when `importedAny === true`, the still-open bundle
+7. **FTS5 rebuild** — when `importedAny === true`, `rebuildFts5Index(bundle)`
+   issues `INSERT INTO search_docs_fts(search_docs_fts) VALUES('rebuild')`
+   inside a single transaction (much faster than per-row trigger updates)
+   and sets `search_index_status` to `ready`.
+8. **Tantivy rebuild** — when `importedAny === true`, the still-open bundle
    has its Tantivy sidecar rebuilt via `rebuildTantivyIndex(bundle)`.
    See [Search engines](./search-engines.md).
-8. **Parquet export** — after `closeBundle(bundle)` (DuckDB cannot
+9. **Parquet export** — after `closeBundle(bundle)` (DuckDB cannot
    coexist with an open `better-sqlite3` writer),
    `exportBundleParquet({ bundlePath })` rewrites every canonical table
    under `parquet/`.
 
-Either step's failure is logged at error level but does not throw; the
+Index rebuild failures are logged at error level but do not throw; the
 canonical SQLite/CAS layer is already committed and the user can re-run
-`prosa index tantivy` or `prosa export parquet` manually.
-
-`--defer-index` skips inline FTS5 trigger updates during the file-level
-domain transaction; in that mode the user is expected to run
-`prosa index fts5` afterwards. Default is `false` (triggers fire inline).
+`prosa index fts5`, `prosa index tantivy`, or `prosa export parquet`
+manually.
 
 ## CAS staging contract
 
@@ -168,7 +174,7 @@ provenance is preserved separately in `raw_records`.
 | `src/core/ingest/batch.ts` | `import_batches` lifecycle and counts |
 | `src/core/db.ts` | `prepare`, `transactional` helpers |
 | `src/importers/<provider>/index.ts` | The four provider importers |
-| `src/services/indexing.ts` | `markIndexesAfterImport`, `rebuildTantivyIndex`, FTS5 trigger toggles |
+| `src/services/indexing.ts` | FTS5 trigger toggles, `rebuildFts5Index`, `rebuildTantivyIndex`, `markIndexesAfterImport` |
 | `src/services/export/parquet.ts` | Post-compile Parquet refresh |
 
 ## Constraints worth remembering

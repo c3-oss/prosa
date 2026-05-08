@@ -14,6 +14,7 @@ import {
   disableFts5Triggers,
   enableFts5Triggers,
   markIndexesAfterImport,
+  rebuildFts5Index,
   rebuildTantivyIndex,
 } from './indexing.js';
 
@@ -47,6 +48,7 @@ export interface CompileImportSummary {
   importedAny: boolean;
   tantivy: TantivyCompileSummary | null;
   tantivyError: string | null;
+  fts5Error: string | null;
 }
 
 export interface ParquetCompileSummary {
@@ -105,23 +107,21 @@ export function resolveCompilePath(p: string): string {
 export async function runCompileImports(options: {
   bundle: Bundle;
   providers: CompileProviderConfig[];
-  deferIndex: boolean;
   sessionsPath?: string;
   logger?: CompileLogger;
   onProviderComplete?: (summary: ProviderCompileSummary) => void;
   onTantivyComplete?: (summary: TantivyCompileSummary) => void;
 }): Promise<CompileImportSummary> {
-  const { bundle, providers, deferIndex, logger } = options;
+  const { bundle, providers, logger } = options;
   let importedAny = false;
   const summaries: ProviderCompileSummary[] = [];
   let tantivy: TantivyCompileSummary | null = null;
   let tantivyError: string | null = null;
+  let fts5Error: string | null = null;
 
   try {
-    if (deferIndex) {
-      logger?.info('disabling FTS5 triggers for deferred indexing');
-      disableFts5Triggers(bundle);
-    }
+    logger?.info('disabling FTS5 triggers for bulk rebuild');
+    disableFts5Triggers(bundle);
 
     for (const provider of providers) {
       const sourcePath = resolveCompilePath(options.sessionsPath ?? provider.defaultSessionsPath());
@@ -151,13 +151,18 @@ export async function runCompileImports(options: {
       options.onProviderComplete?.(summary);
     }
 
-    logger?.info({ changed: importedAny, fts5_deferred: deferIndex }, 'marking indexes');
-    markIndexesAfterImport(bundle, {
-      changed: importedAny,
-      fts5Deferred: deferIndex,
-    });
-
     if (importedAny) {
+      logger?.info({ changed: importedAny }, 'marking indexes');
+      markIndexesAfterImport(bundle, { changed: true });
+
+      try {
+        logger?.info('rebuilding fts5 index');
+        rebuildFts5Index(bundle);
+      } catch (error) {
+        fts5Error = getErrorMessage(error);
+        logger?.error({ err: error }, 'fts5 rebuild failed; SQLite data is intact');
+      }
+
       try {
         logger?.info('rebuilding tantivy index');
         const status = await rebuildTantivyIndex(bundle);
@@ -169,10 +174,7 @@ export async function runCompileImports(options: {
       }
     }
   } finally {
-    if (deferIndex) {
-      logger?.info('re-enabling FTS5 triggers');
-      enableFts5Triggers(bundle);
-    }
+    enableFts5Triggers(bundle);
   }
 
   return {
@@ -180,6 +182,7 @@ export async function runCompileImports(options: {
     importedAny,
     tantivy,
     tantivyError,
+    fts5Error,
   };
 }
 

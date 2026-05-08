@@ -252,7 +252,11 @@ purpose: `message_text`, `user_prompt`, `assistant_text`, `command`,
 `artifact_text`, `tool_args`, `tool_result`. The FTS5 virtual table
 mirrors `search_docs` via `content='search_docs'` and
 `tokenize='unicode61 remove_diacritics 2'`. Triggers
-(`search_docs_ai/ad/au`) keep them in sync.
+(`search_docs_ai/ad/au`) keep them in sync for direct writes outside of
+compile. During `prosa compile` the triggers are disabled and the FTS5
+index is rebuilt in bulk at the end — see
+[Import pipeline](./import-pipeline.md) and
+[Search engines](./search-engines.md).
 
 #### `search_index_status`
 Tracks the FTS5 and Tantivy engines:

@@ -88,27 +88,8 @@ export function getSearchIndexStatus(
   );
 }
 
-export function markIndexesAfterImport(
-  bundle: Bundle,
-  options: { changed: boolean; fts5Deferred: boolean },
-): void {
+export function markIndexesAfterImport(bundle: Bundle, options: { changed: boolean }): void {
   if (!options.changed) return;
-
-  if (options.fts5Deferred) {
-    updateSearchIndexStatus(bundle, 'fts5', {
-      status: 'stale',
-      sourceDocCount: countSearchDocs(bundle),
-      indexedDocCount: countFts5Docs(bundle),
-      errorMessage: null,
-    });
-  } else {
-    updateSearchIndexStatus(bundle, 'fts5', {
-      status: 'ready',
-      sourceDocCount: countSearchDocs(bundle),
-      indexedDocCount: countFts5Docs(bundle),
-      errorMessage: null,
-    });
-  }
 
   const tantivy = getSearchIndexStatus(bundle, 'tantivy');
   if (tantivy?.status === 'ready' || tantivy?.status === 'stale' || tantivy?.status === 'failed') {

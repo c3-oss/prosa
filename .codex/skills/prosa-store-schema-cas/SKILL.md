@@ -23,7 +23,7 @@ Keep this layering intact:
 
 1. Raw immutable layer: `source_files`, `raw_records`, `objects`, `import_batches`, `import_errors`.
 2. Canonical projection: `projects`, `sessions`, `turns`, `events`, `messages`, `content_blocks`, `tool_calls`, `tool_results`, `artifacts`, `edges`.
-3. Derived indexes: `search_docs` and FTS5 triggers.
+3. Derived indexes: `search_docs` and FTS5 triggers. Triggers keep `search_docs_fts` in sync for writes outside `prosa compile`; during compile the triggers are disabled and FTS5 is bulk-rebuilt at the end (mirroring Tantivy).
 
 ## Schema Rules
 

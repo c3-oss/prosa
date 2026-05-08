@@ -71,7 +71,6 @@ export function registerProsaTools(
           const result = await runCompileImports({
             bundle: activeBundle,
             providers: source ? [getCompileProvider(source)] : COMPILE_PROVIDERS,
-            deferIndex: false,
             sessionsPath: sessions_path,
           });
           const parquet = result.importedAny ? await exportCompileParquet({ storePath }) : null;

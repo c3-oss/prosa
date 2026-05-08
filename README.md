@@ -93,12 +93,10 @@ Imports are idempotent for already-seen source files. Each import reports counts
 for source files, sessions, messages, tool calls, tool results, artifacts,
 edges, and errors.
 
-For large imports, you can defer FTS5 index updates and rebuild later:
-
-```bash
-prosa compile codex --defer-index
-prosa index fts5
-```
+`prosa compile` always disables FTS5 triggers during the import loop and
+rebuilds the FTS5 index in bulk at the end (mirroring how the Tantivy sidecar
+is rebuilt). Sidecars stay in sync without a manual step. For recovery, the
+standalone `prosa index fts5` command is still available.
 
 ## CLI reference
 
@@ -147,7 +145,6 @@ Options:
 |---|---|
 | `--sessions-path <path>` | Root of the selected provider's session history |
 | `--store <path>` | Bundle directory |
-| `--defer-index` | Skip immediate FTS5 updates; run `prosa index fts5` later |
 | `--verbose` | Emit debug logs during compilation |
 | `--json-logs` | Emit raw JSON logs instead of pretty logs |
 
@@ -165,8 +162,9 @@ prosa index fts5
 prosa index tantivy
 ```
 
-`fts5` is the default SQLite full-text index. It is updated during normal
-imports unless `--defer-index` is used.
+`fts5` is the default SQLite full-text index. `prosa compile` rebuilds it in
+bulk at the end of every import; `prosa index fts5` is a standalone recovery
+path that repopulates the index from `search_docs`.
 
 `tantivy` is an optional sidecar search index. Build it before searching with
 `--engine tantivy`:

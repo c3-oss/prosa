@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { closeBundle, initBundle, openBundle } from '../../src/core/bundle.js';
+import { getSearchIndexStatus } from '../../src/services/indexing.js';
 import { searchFullText } from '../../src/services/search.js';
 
 const execFileAsync = promisify(execFile);
@@ -28,28 +29,26 @@ describe('index CLI', () => {
     await rm(storePath, { recursive: true, force: true });
   });
 
-  it('supports compile <provider> --defer-index followed by index fts5', async () => {
-    await runProsa([
-      'compile',
-      'codex',
-      '--sessions-path',
-      CODEX_FIXTURES,
-      '--store',
-      storePath,
-      '--defer-index',
-    ]);
+  it('compile auto-rebuilds the FTS5 index so search works immediately', async () => {
+    await runProsa(['compile', 'codex', '--sessions-path', CODEX_FIXTURES, '--store', storePath]);
 
-    let bundle = await openBundle(storePath);
+    const bundle = await openBundle(storePath);
     try {
-      expect(searchFullText(bundle, { query: 'terraform' })).toHaveLength(0);
+      const status = getSearchIndexStatus(bundle, 'fts5');
+      expect(status?.status).toBe('ready');
+      expect(searchFullText(bundle, { query: 'terraform' }).length).toBeGreaterThan(0);
     } finally {
       closeBundle(bundle);
     }
+  });
+
+  it('index fts5 standalone command rebuilds from search_docs', async () => {
+    await runProsa(['compile', 'codex', '--sessions-path', CODEX_FIXTURES, '--store', storePath]);
 
     const { stdout } = await runProsa(['index', 'fts5', '--store', storePath]);
     expect(stdout).toContain('fts5 index: ready');
 
-    bundle = await openBundle(storePath);
+    const bundle = await openBundle(storePath);
     try {
       expect(searchFullText(bundle, { query: 'terraform' }).length).toBeGreaterThan(0);
     } finally {

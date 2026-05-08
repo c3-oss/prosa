@@ -27,13 +27,17 @@ filtering.
 
 - Virtual table: `search_docs_fts` with `content='search_docs'` and
   `tokenize='unicode61 remove_diacritics 2'`.
-- Kept in sync by triggers (`search_docs_ai`, `search_docs_ad`,
-  `search_docs_au`) — every insert/update/delete on `search_docs`
-  propagates automatically.
-- Inline updates fire during normal `prosa compile` runs.
-  `--defer-index` disables the triggers for the duration of the import
-  and the user must run `prosa index fts5` afterwards to repopulate.
-- Always-available; no extra rebuild step needed for normal use.
+- Triggers (`search_docs_ai`, `search_docs_ad`, `search_docs_au`)
+  propagate every insert/update/delete on `search_docs` to the FTS5
+  virtual table outside of compile.
+- `prosa compile` always disables the triggers for the duration of the
+  import loop and rebuilds the FTS5 index in bulk at the end via
+  `INSERT INTO search_docs_fts(search_docs_fts) VALUES('rebuild')` —
+  same shape as the Tantivy rebuild. Triggers are re-enabled before the
+  command returns. The bundle ends up with FTS5 status `ready` and no
+  drift between `search_docs` and `search_docs_fts`.
+- `prosa index fts5` is a standalone recovery path that repopulates the
+  index from `search_docs`.
 
 When to prefer FTS5: every default case. CLI usage, single-shot scripts,
 small to medium bundles.
@@ -85,11 +89,11 @@ last failed build.
 
 | Trigger | FTS5 | Tantivy |
 |---|---|---|
-| Normal `prosa compile` (no `--defer-index`) | Inline via triggers | Full rebuild after compile if `importedAny` |
-| `prosa compile --defer-index` | Skipped during import | Full rebuild after compile if `importedAny` |
+| `prosa compile` | Triggers off during import; full rebuild after compile if `importedAny` | Full rebuild after compile if `importedAny` |
 | `prosa index fts5` | Full repopulate from `search_docs` | Untouched |
 | `prosa index tantivy` | Untouched | Full rebuild from `search_docs` |
-| Re-run with no source changes (`importedAny === false`) | Triggers no-op | Skipped |
+| Re-run with no source changes (`importedAny === false`) | Skipped | Skipped |
+| Direct writes to `search_docs` outside compile | Kept in sync via triggers | Marked stale until next rebuild |
 
 A future optimization is incremental Tantivy/Parquet rebuilds keyed off
 the import delta. The current full-rebuild model is acceptable while
