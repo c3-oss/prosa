@@ -1,5 +1,20 @@
 # @c3-oss/prosa
 
+## Unreleased
+
+### Minor Changes
+
+- Consolidate the MCP surface from 10 tools to 6 (`search`, `sessions`,
+  `tool_calls`, `analytics`, `artifact`, `compile`). `compile` is now dual-mode:
+  with no args it returns a status snapshot; with `source` (and optional
+  `sessions_path`) it runs the import. `sessions` folds the previous list / get
+  / markdown export tools via a `format` param. `analytics` exposes the same
+  five built-in reports as the CLI, backed by SQLite views.
+- Lift the analytics views (`session_facts`, `tool_usage_facts`, `error_facts`,
+  `model_usage`, `project_activity`) into the SQLite schema as views (migration
+  v3). The DuckDB/Parquet path keeps its mirror of the same shape, so MCP
+  reads run against SQLite without spinning up DuckDB.
+
 ## 0.4.0
 
 ### Minor Changes

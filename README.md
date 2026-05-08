@@ -393,19 +393,16 @@ By default, HTTP mode listens at:
 http://127.0.0.1:7331/mcp
 ```
 
-Registered MCP tools include:
+Registered MCP tools (six in total):
 
 | Tool | Purpose |
 |---|---|
-| `list_sessions` | List recent sessions with optional source/date filters |
-| `get_session` | Return metadata and timeline events for one session |
-| `search_sessions` | Full-text search over indexed session content |
-| `export_session_markdown` | Render a selected session as Markdown |
-| `session_metrics` | Summarize sessions, source file paths, tool counts, durations, errors, and token payloads |
-| `list_tool_calls` | Audit commands and tool usage |
-| `find_touched_files` | Find sessions that touched a file/path |
-| `get_artifact` | Retrieve stored artifact text when available |
-| `index_status` | Show derived search index status |
+| `search` | Full-text search over messages, commands, paths, diffs, and previews. Optional `engine`, `field_kind`, `since`/`until`, `raw`, `limit`. |
+| `sessions` | Without `session_id`, lists candidates filtered by source/time/limit. With `session_id`, opens it: `format=detail` (default) returns metadata + timeline, `format=summary` returns the row only, `format=markdown` renders the transcript. |
+| `tool_calls` | Audit commands and tool usage by tool_name, canonical_type, session_id, errors_only, time bounds. When `path_substring` is set, also returns matching artifacts. |
+| `analytics` | Built-in aggregate reports backed by SQLite views: `report=sessions\|tools\|errors\|models\|projects` with the matching filters. |
+| `artifact` | Fetch full text for an `artifact_id`. Binary artifacts return a placeholder. |
+| `compile` | Without args, returns a status snapshot (search index health). With `source` (and optional `sessions_path`), imports that provider into the bundle. |
 
 Registered MCP prompts include:
 
@@ -415,7 +412,7 @@ Registered MCP prompts include:
 | `find_file_history` | Investigate history for a file or path |
 | `audit_tool_failures` | Group and explain failed tool calls |
 
-All MCP tools are read-only and use the same services as the CLI.
+Five tools are read-only; `compile` is dual-mode (status without args, mutating import with args). All tools use the same services as the CLI.
 
 ## Common workflows
 
@@ -444,7 +441,7 @@ prosa analytics tools --refresh --errors-only
 prosa analytics errors --output-format json
 ```
 
-Use MCP `list_tool_calls` for the richest session-level filtering, or query
+Use MCP `tool_calls` for the richest session-level filtering, or query
 Parquet directly when you need custom SQL:
 
 ```bash
@@ -459,10 +456,11 @@ prosa query duckdb "
 
 ### Summarize a custom session store through MCP
 
-After compiling a non-default sessions path, use MCP `session_metrics` with
-`source_path_substring` to keep analysis inside Prosa instead of reading the
-source JSONL directly. This is useful for stores such as `~/.codex-mz/sessions`
-that share the same provider name as the default Codex store.
+After compiling a non-default sessions path, use MCP `analytics report=sessions`
+with `source_path_substring` to keep analysis inside prosa instead of reading
+the source JSONL directly. This is useful for stores such as
+`~/.codex-mz/sessions` that share the same provider name as the default Codex
+store.
 
 ### Search faster with a sidecar index
 

@@ -42,6 +42,15 @@ Before the import loop starts, `runCompileImports` calls
 per-file domain transaction do not pay the cost of incremental FTS5
 tokenization. A `finally` block re-enables them.
 
+The analytics views (`session_facts`, `tool_usage_facts`, `error_facts`,
+`model_usage`, `project_activity`) are SQLite views created by migration
+v3 (`src/core/schema/sql/003_analytics_views.ts`). They are pure SELECTs,
+so no rebuild step is needed after compile — every query against them
+sees the latest canonical state. The DuckDB-side equivalents in
+`createAnalyticsViews` (`src/services/export/parquet.ts`) mirror the
+same column names so SQLite (MCP / CLI) and DuckDB (Parquet) reads stay
+in lockstep.
+
 After all providers in a single `runCompiles(...)` invocation finish:
 
 7. **FTS5 rebuild** — when `importedAny === true`, `rebuildFts5Index(bundle)`

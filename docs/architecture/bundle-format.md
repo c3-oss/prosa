@@ -48,7 +48,7 @@ sync. It is implemented by `src/core/bundle.ts`, `src/core/schema/`, and
 |---|---|---|
 | Raw immutable | `raw/sources/`, `objects/`, `source_files`, `raw_records`, `import_batches`, `import_errors`, `uncertainties` | Yes |
 | Canonical projection | `projects`, `sessions`, `turns`, `events`, `messages`, `content_blocks`, `tool_calls`, `tool_results`, `artifacts`, `edges` | No — regenerable from raw |
-| Derived read surfaces | `search_docs`, `search_docs_fts`, `search_index_status`, `search/tantivy/`, `parquet/`, DuckDB analytics views, `exports/` | No — disposable |
+| Derived read surfaces | `search_docs`, `search_docs_fts`, `search_index_status`, SQLite analytics views (`session_facts`, `tool_usage_facts`, `error_facts`, `model_usage`, `project_activity`), `search/tantivy/`, `parquet/`, DuckDB analytics views, `exports/` | No — disposable |
 
 Rule: the projection and derived layers can always be rebuilt from the raw
 layer. Importer fixes ship as a re-projection, not a re-import. Everything

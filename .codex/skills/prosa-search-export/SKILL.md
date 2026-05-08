@@ -29,20 +29,32 @@ Use this skill for read surfaces built on the canonical store. Search, exports, 
 - For large outputs, show preview and object references instead of dumping every byte.
 - If timeline confidence is low, make that visible in the export.
 
+## Analytics Views (dual home)
+
+- The five analytics views (`session_facts`, `tool_usage_facts`, `error_facts`, `model_usage`, `project_activity`) live in **both** SQLite (migration v3 in `src/core/schema/sql/003_analytics_views.ts`, queried by MCP and any direct `bundle.db` consumer) and DuckDB (created at query time in `createAnalyticsViews` inside `src/services/export/parquet.ts`, queried by the `prosa analytics` CLI and `prosa query duckdb`).
+- Keep column names and semantics aligned across the two dialects when changing a view. Dialect-specific differences (`date_diff` vs. `julianday`, `ILIKE` vs. `LIKE`) live behind the `dialect` param of `buildAnalyticsSql` in `src/services/analytics.ts`.
+
 ## Parquet and DuckDB
 
 - `prosa export parquet` should generate derived analytics files from canonical SQLite tables, not from Markdown or FTS output.
 - `prosa query duckdb` should query exported Parquet files and keep SQLite/CAS as the source of truth.
-- `queryDuckDbParquet()` exposes one view per canonical table plus analytics views: `session_facts`, `tool_usage_facts`, `error_facts`, `model_usage`, and `project_activity`.
-- `prosa analytics sessions|tools|errors|models|projects` should use the fixed SQL in `src/services/analytics.ts` and preserve `table|json|csv` output support.
+- `queryDuckDbParquet()` exposes one view per canonical table plus the analytics views.
+- `prosa analytics sessions|tools|errors|models|projects` should use the fixed SQL in `src/services/analytics.ts` (DuckDB dialect) and preserve `table|json|csv` output support.
 - `--refresh` on analytics commands should call `exportBundleParquet()` before querying; without it, keep the existing missing-Parquet guidance.
 - Do not export `search_docs_fts`; export `search_docs` metadata instead.
 - Keep the MVP layout simple: one Parquet file per canonical table.
 - Keep `docs/recipes/duckdb.md` and README examples aligned with analytics views and commands.
 
+## MCP read surface
+
+- Six tools total: `search`, `sessions`, `tool_calls`, `analytics`, `artifact`, `compile`. Five are read-only; `compile` is dual-mode (status without args, mutating import with args).
+- `analytics` runs the same five reports as the CLI, but against SQLite views via `runAnalyticsReportFromBundle` — no DuckDB at runtime.
+- `sessions` folds list/get/markdown export via `format=summary|detail|markdown`.
+- `tool_calls` folds command audit and file-history (`path_substring`) into one tool.
+
 ## Validation
 
 - Add focused tests for escaping FTS queries, snippets, filters, low-confidence timeline display, and large output previews.
-- For analytics changes, add or update tests around `test/services/parquet.test.ts` and `test/cli/analytics.test.ts`.
+- For analytics changes, add or update tests around `test/services/parquet.test.ts`, `test/services/sqlite-analytics-views.test.ts`, `test/cli/analytics.test.ts`, and `test/mcp/tools.test.ts`.
 - Compare exported Markdown snapshots only when the output is intentionally stable.
 - Use temp stores and fixture imports; avoid relying on host history.
