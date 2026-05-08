@@ -2,7 +2,15 @@
 
 ## Project Structure & Module Organization
 
-`prosa` is a Node 22 TypeScript CLI for compiling, searching, and exporting local agent session histories. Source lives under `src/`: CLI commands in `src/cli/commands/`, entrypoints in `src/bin/` and `src/cli/main.ts`, storage and schema logic in `src/core/`, importers in `src/importers/`, services in `src/services/`, MCP support in `src/mcp/`, and Ink TUI code in `src/tui/`. Tests live in `test/`, with fixtures in `test/fixtures/` and shared helpers in `test/helpers/`. Architecture and source-format references are in `docs/` (see `docs/README.md`). Generated output belongs in `dist/`.
+`prosa` is a Node 22 TypeScript CLI for compiling, searching, exporting, and
+analyzing local agent session histories. Source lives under `src/`: CLI
+commands in `src/cli/commands/`, entrypoints in `src/bin/` and
+`src/cli/main.ts`, storage and schema logic in `src/core/`, importers in
+`src/importers/`, services in `src/services/`, MCP support in `src/mcp/`, and
+Ink TUI code in `src/tui/`. Tests live in `test/`, with fixtures in
+`test/fixtures/` and shared helpers in `test/helpers/`. Architecture and
+source-format references are in `docs/` (see `docs/README.md`). Generated
+output belongs in `dist/`.
 
 ## Build, Test, and Development Commands
 

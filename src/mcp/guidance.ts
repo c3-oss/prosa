@@ -13,6 +13,8 @@ Recommended workflow:
 - Use session_metrics for per-session audits, custom source-path filters, tool counts, durations,
   errors, and token_count payloads.
 - Use list_tool_calls for command history, failed tools, patches, and operational audit trails.
+- For broad aggregate reports outside MCP, prefer the CLI reports: prosa analytics
+  sessions|tools|errors|models|projects. Use --refresh when Parquet may be stale.
 - Use get_artifact only when a returned artifact_id is needed for full output or diff content.
 - Use index_status if search results look stale or unexpectedly empty.
 
@@ -46,9 +48,10 @@ export const AUDIT_TOOL_FAILURES_PROMPT = `
 Audit tool failures in prosa{{query_clause}}.
 
 Use this workflow:
-1. Call list_tool_calls with errors_only=true.
-2. If a query is provided, also call search_sessions for that query to find related context.
-3. Open relevant session_ids with get_session.
-4. Group failures by tool_name, command/path, and likely cause.
-5. Answer with evidence: session_id, timestamp, command/path, exit code, and preview.
+1. For an MCP-only audit, call list_tool_calls with errors_only=true.
+2. If CLI access is available and an aggregate report is enough, run prosa analytics errors --refresh.
+3. If a query is provided, also call search_sessions for that query to find related context.
+4. Open relevant session_ids with get_session.
+5. Group failures by tool_name, command/path, and likely cause.
+6. Answer with evidence: session_id, timestamp, command/path, exit code, and preview.
 `.trim();

@@ -1,4 +1,4 @@
 interface:
   display_name: "Prosa Search Export"
-  short_description: "Search, session listing, and export guidance"
-  default_prompt: "Use $prosa-search-export when changing prosa search, session listing, or export behavior."
+  short_description: "Search, sessions, analytics, and export guidance"
+  default_prompt: "Use $prosa-search-export when changing prosa search, session listing, analytics, Parquet/DuckDB, or export behavior."

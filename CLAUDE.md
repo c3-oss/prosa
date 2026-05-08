@@ -42,7 +42,7 @@ Storage layout:
 - `src/cli/commands/` — CLI commands.
 - `src/core/` — bundle, SQLite schema, CAS, ingest helpers, and domain IDs/types.
 - `src/importers/` — Codex, Claude, Gemini, and Cursor importers.
-- `src/services/` — search, sessions, export, indexing, and user-facing read/query services.
+- `src/services/` — search, sessions, analytics, export, indexing, and user-facing read/query services.
 - `src/mcp/` — MCP server and tools.
 - `src/tui/` — Ink TUI surfaces.
 - `test/` — Vitest tests, fixtures, and helpers.
@@ -58,3 +58,12 @@ Storage layout:
 - `.codex/skills/prosa-store-schema-cas/SKILL.md`
 
 `.codex/agents/` (Codex) and `.claude/agents/` (Claude Code) hold local specialist subagents. Skills are not duplicated under `.claude/`.
+
+Analytics read surfaces:
+
+- `prosa analytics sessions|tools|errors|models|projects` runs fixed DuckDB reports over exported Parquet.
+- `prosa analytics <report> --refresh` refreshes Parquet before querying.
+- `prosa query duckdb` exposes canonical table views plus `session_facts`,
+  `tool_usage_facts`, `error_facts`, `model_usage`, and `project_activity`.
+- Keep analytics changes in the `prosa-search-export` lane and validate with
+  `test/services/parquet.test.ts` and `test/cli/analytics.test.ts`.

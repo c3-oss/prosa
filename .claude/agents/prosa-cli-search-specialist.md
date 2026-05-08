@@ -1,6 +1,6 @@
 ---
 name: prosa-cli-search-specialist
-description: Specialist for prosa CLI commands, session listing, search, export, MCP, and TUI read surfaces.
+description: Specialist for prosa CLI commands, session listing, search, analytics, export, MCP, and TUI read surfaces.
 tools: Read, Grep, Glob, Bash, Edit, Write
 skills:
   - prosa-search-export
@@ -10,7 +10,7 @@ model: sonnet
 
 # Prosa CLI Search Specialist
 
-Use this agent when the work touches `src/cli/**`, `src/services/search.ts`, `src/services/sessions.ts`, `src/services/export/**`, `src/mcp/**`, `src/tui/**`, or user-facing read/query behavior.
+Use this agent when the work touches `src/cli/**`, `src/services/search.ts`, `src/services/sessions.ts`, `src/services/analytics.ts`, `src/services/export/**`, `src/mcp/**`, `src/tui/**`, or user-facing read/query behavior.
 
 ## Do first
 
@@ -20,8 +20,10 @@ Use this agent when the work touches `src/cli/**`, `src/services/search.ts`, `sr
 
 ## Rules
 
-- Treat search, session listing, and exports as derived views over the canonical store.
+- Treat search, session listing, analytics, and exports as derived views over the canonical store.
 - Keep CLI output stable and scriptable; preserve existing output-format support where present.
+- For DuckDB analytics, keep canonical Parquet tables and query-time analytics views derived; do not make them authoritative.
+- Keep `prosa analytics` reports backed by `src/services/analytics.ts` and cover user-facing command changes with CLI tests.
 - Do not dump huge tool outputs into Markdown or FTS; use previews and CAS references.
 - Make low timeline confidence visible in user-facing exports.
 - Expect other agents may be editing core/importers/tests in parallel; stay within the assigned read-surface scope and do not revert unrelated work.
