@@ -15,10 +15,17 @@ sharing, and external analysis.
 |---|---|---|
 | Analytics views | Initial implementation | [`docs/roadmap/analytics-views.md`](./docs/roadmap/analytics-views.md) |
 | Analytics commands | Initial implementation | [`docs/roadmap/analytics-commands.md`](./docs/roadmap/analytics-commands.md) |
+| Parquet export performance (zstd-1 + row group) | Implemented | [`docs/roadmap/parquet-export-perf.md`](./docs/roadmap/parquet-export-perf.md) |
 | Incremental Parquet export | Proposed | [`docs/roadmap/incremental-parquet-export.md`](./docs/roadmap/incremental-parquet-export.md) |
 | BI-friendly datasets | Proposed | [`docs/roadmap/bi-friendly-datasets.md`](./docs/roadmap/bi-friendly-datasets.md) |
 | Query recipes | Initial implementation | [`docs/roadmap/query-recipes.md`](./docs/roadmap/query-recipes.md) |
 | Sanitized Parquet exports | Proposed | [`docs/roadmap/sanitized-parquet-exports.md`](./docs/roadmap/sanitized-parquet-exports.md) |
+
+## Search Indexing
+
+| Item | Status | Document |
+|---|---|---|
+| Tantivy multi-thread + incremental indexing | Implemented | [`docs/roadmap/tantivy-indexing-perf.md`](./docs/roadmap/tantivy-indexing-perf.md) |
 
 ## Priority Shape
 
