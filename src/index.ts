@@ -88,10 +88,19 @@ export {
 export {
   ANALYTICS_REPORTS,
   runAnalyticsReport,
+  runAnalyticsReportFromBundle,
+  type AnalyticsBundleReportOptions,
+  type AnalyticsDialect,
   type AnalyticsReport,
   type AnalyticsReportFilters,
   type AnalyticsReportOptions,
 } from './services/analytics.js';
+export {
+  listToolCalls,
+  type ToolCallEntity,
+  type ToolCallEvidence,
+  type ToolCallFilters,
+} from './services/tool_calls.js';
 export { exportSessionMarkdown } from './services/export/markdown.js';
 export {
   ANALYTICS_VIEWS,
