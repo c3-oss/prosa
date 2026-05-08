@@ -108,11 +108,19 @@ export async function runCompileImports(options: {
   bundle: Bundle;
   providers: CompileProviderConfig[];
   sessionsPath?: string;
+  /**
+   * Force a full rebuild of derived indexes after import. Tantivy is the
+   * only sidecar with an incremental path today, so this currently flips
+   * Tantivy to a from-scratch rebuild; FTS5 and Parquet are always
+   * full-rewrite. Surfaced by `prosa compile … --overwrite`.
+   */
+  overwrite?: boolean;
   logger?: CompileLogger;
   onProviderComplete?: (summary: ProviderCompileSummary) => void;
   onTantivyComplete?: (summary: TantivyCompileSummary) => void;
 }): Promise<CompileImportSummary> {
   const { bundle, providers, logger } = options;
+  const overwrite = options.overwrite === true;
   let importedAny = false;
   const summaries: ProviderCompileSummary[] = [];
   let tantivy: TantivyCompileSummary | null = null;
@@ -151,8 +159,12 @@ export async function runCompileImports(options: {
       options.onProviderComplete?.(summary);
     }
 
-    if (importedAny) {
-      logger?.info({ changed: importedAny }, 'marking indexes');
+    const shouldRebuildIndexes = importedAny || overwrite;
+    if (shouldRebuildIndexes) {
+      logger?.info(
+        { changed: importedAny, overwrite },
+        importedAny ? 'marking indexes' : 'overwrite forces rebuild despite no new imports',
+      );
       markIndexesAfterImport(bundle, { changed: true });
 
       try {
@@ -164,8 +176,8 @@ export async function runCompileImports(options: {
       }
 
       try {
-        logger?.info('rebuilding tantivy index');
-        const status = await rebuildTantivyIndex(bundle);
+        logger?.info({ overwrite }, 'rebuilding tantivy index');
+        const status = await rebuildTantivyIndex(bundle, { overwrite });
         tantivy = { indexedDocCount: status.indexed_doc_count };
         options.onTantivyComplete?.(tantivy);
       } catch (error) {

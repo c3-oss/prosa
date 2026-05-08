@@ -12,8 +12,17 @@ export function indexCommand(): Command {
   const fts5 = new Command('fts5')
     .description('Rebuild the SQLite FTS5 index from search_docs.')
     .option('--store <path>', 'bundle directory', defaultBundlePath())
-    .action(async (options: { store: string }) => {
+    .option(
+      '--overwrite',
+      'rebuild from scratch (FTS5 always overwrites; flag accepted for parity with other index commands)',
+      false,
+    )
+    .action(async (options: { store: string; overwrite: boolean }) => {
       await withBundle(options.store, (bundle) => {
+        // FTS5 rebuild already wipes and re-tokenizes every doc via the
+        // `INSERT INTO search_docs_fts(search_docs_fts) VALUES('rebuild')`
+        // FTS5 directive, so --overwrite is a no-op today.
+        void options.overwrite;
         printIndexStatus(rebuildFts5Index(bundle));
       });
     });
@@ -21,9 +30,14 @@ export function indexCommand(): Command {
   const tantivy = new Command('tantivy')
     .description('Rebuild the Tantivy sidecar index from search_docs.')
     .option('--store <path>', 'bundle directory', defaultBundlePath())
-    .action(async (options: { store: string }) => {
+    .option(
+      '--overwrite',
+      'force a full re-index instead of the default incremental rebuild',
+      false,
+    )
+    .action(async (options: { store: string; overwrite: boolean }) => {
       await withBundle(options.store, async (bundle) => {
-        printIndexStatus(await rebuildTantivyIndex(bundle));
+        printIndexStatus(await rebuildTantivyIndex(bundle, { overwrite: options.overwrite }));
       });
     });
 

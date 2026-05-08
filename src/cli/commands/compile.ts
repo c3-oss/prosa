@@ -31,10 +31,16 @@ export function compileCommand(): Command {
 export function compileAllCommand(): Command {
   return addCompileLogOptions(new Command('compile-all'))
     .description('Import all agent CLI session histories using default source paths.')
-    .action(async (options: CliLoggerOptions) => {
+    .option(
+      '--overwrite',
+      'force a full rebuild of derived indexes after import (Tantivy from scratch; FTS5 and Parquet are always full)',
+      false,
+    )
+    .action(async (options: CliLoggerOptions & { overwrite: boolean }) => {
       await runCompiles({
         providers: COMPILE_PROVIDERS,
         storePath: defaultBundlePath(),
+        overwrite: options.overwrite,
         logOptions: options,
       });
     });
@@ -49,11 +55,17 @@ function providerCompileCommand(provider: CompileProviderConfig): Command {
       provider.defaultSessionsPath(),
     )
     .option('--store <path>', 'bundle directory', defaultBundlePath())
+    .option(
+      '--overwrite',
+      'force a full rebuild of derived indexes after import (Tantivy from scratch; FTS5 and Parquet are always full)',
+      false,
+    )
     .action(
       async (
         options: {
           sessionsPath: string;
           store: string;
+          overwrite: boolean;
         },
         command: Command,
       ) => {
@@ -61,6 +73,7 @@ function providerCompileCommand(provider: CompileProviderConfig): Command {
           providers: [provider],
           storePath: options.store,
           sessionsPath: options.sessionsPath,
+          overwrite: options.overwrite,
           logOptions: command.optsWithGlobals() as CliLoggerOptions,
         });
       },
@@ -77,6 +90,7 @@ async function runCompiles(options: {
   providers: CompileProviderConfig[];
   storePath: string;
   sessionsPath?: string;
+  overwrite?: boolean;
   logOptions: CliLoggerOptions;
 }): Promise<void> {
   const logger = createCliLogger(options.logOptions);
@@ -89,6 +103,7 @@ async function runCompiles(options: {
       bundle,
       providers: options.providers,
       sessionsPath: options.sessionsPath,
+      overwrite: options.overwrite,
       logger,
       onProviderComplete: printCounts,
       onTantivyComplete: (status) => {
@@ -106,7 +121,8 @@ async function runCompiles(options: {
   // directly, so we avoid any contention. As with Tantivy, failures are
   // logged but don't fail the compile — the user can re-run with
   // `prosa export parquet`.
-  if (importedAny) {
+  const shouldExportParquet = importedAny || options.overwrite === true;
+  if (shouldExportParquet) {
     try {
       const result = await exportCompileParquet({ storePath, logger });
       process.stdout.write(`parquet: wrote ${result.tableCount} tables to ${result.outDir}\n`);
