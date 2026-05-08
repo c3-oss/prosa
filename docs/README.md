@@ -18,6 +18,28 @@ on-disk format looks like.
   FTS5 (default) vs. Tantivy (sidecar): when each is the right choice,
   rebuild semantics, and `search_index_status`.
 
+## Roadmap
+
+- [`../ROADMAP.md`](../ROADMAP.md) — index of proposed product and
+  architecture directions.
+- [`roadmap/analytics-views.md`](./roadmap/analytics-views.md) — stable
+  DuckDB views over exported Parquet files.
+- [`roadmap/analytics-commands.md`](./roadmap/analytics-commands.md) —
+  higher-level CLI reports backed by Parquet and DuckDB.
+- [`roadmap/incremental-parquet-export.md`](./roadmap/incremental-parquet-export.md) —
+  avoiding full Parquet rewrites when imports are small.
+- [`roadmap/bi-friendly-datasets.md`](./roadmap/bi-friendly-datasets.md) —
+  denormalized datasets for notebooks and BI tools.
+- [`roadmap/query-recipes.md`](./roadmap/query-recipes.md) — copy-pasteable
+  DuckDB recipes for common questions.
+- [`roadmap/sanitized-parquet-exports.md`](./roadmap/sanitized-parquet-exports.md) —
+  safer-to-share Parquet export modes.
+
+## Recipes
+
+- [`recipes/duckdb.md`](./recipes/duckdb.md) — practical DuckDB queries over
+  canonical Parquet tables and analytics views.
+
 ## Source formats
 
 One reference per importer, covering directory layout, record format,

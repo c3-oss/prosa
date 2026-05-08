@@ -85,11 +85,20 @@ export {
   type ProviderCompileSummary,
   type TantivyCompileSummary,
 } from './services/compile.js';
+export {
+  ANALYTICS_REPORTS,
+  runAnalyticsReport,
+  type AnalyticsReport,
+  type AnalyticsReportFilters,
+  type AnalyticsReportOptions,
+} from './services/analytics.js';
 export { exportSessionMarkdown } from './services/export/markdown.js';
 export {
+  ANALYTICS_VIEWS,
   exportBundleParquet,
   queryDuckDbParquet,
   PARQUET_TABLES,
+  type AnalyticsView,
   type DuckDbQueryOptions,
   type DuckDbQueryResult,
   type ParquetExportOptions,

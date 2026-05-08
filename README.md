@@ -19,6 +19,7 @@ original raw data.
 - Lists and filters sessions by source and timestamp.
 - Exports individual sessions as Markdown.
 - Exports canonical tables to Parquet for DuckDB analytics.
+- Runs built-in analytics reports over Parquet with DuckDB.
 - Provides an Ink-based terminal UI for browsing sessions and search results.
 - Serves a read-only MCP server over the local bundle for agent memory access.
 
@@ -55,6 +56,7 @@ prosa search "package.json"
 prosa export session <session-id> --format markdown --out session.md
 prosa export parquet
 prosa query duckdb "select source_tool, count(*) from sessions group by 1"
+prosa analytics tools --refresh
 prosa tui
 prosa mcp serve
 ```
@@ -295,6 +297,40 @@ prosa query duckdb "select count(*) as n from sessions" --output-format json
 prosa query duckdb "select * from sessions limit 10" --output-format csv
 ```
 
+`prosa query duckdb` also exposes derived analytics views:
+
+```text
+session_facts, tool_usage_facts, error_facts, model_usage, project_activity
+```
+
+See [`docs/recipes/duckdb.md`](./docs/recipes/duckdb.md) for copy-pasteable
+queries.
+
+### `prosa analytics`
+
+Run built-in reports over exported Parquet files:
+
+```bash
+prosa analytics sessions --refresh
+prosa analytics tools --source codex
+prosa analytics errors --output-format json
+prosa analytics models --since 2026-01-01
+prosa analytics projects --project /Users/me/app
+```
+
+Reports require Parquet files. Add `--refresh` to export Parquet before running
+the report. All reports support `--store`, `--parquet-dir`, `--source`,
+`--since`, `--until`, `--limit`, and `--output-format table|json|csv`.
+
+Additional filters:
+
+```bash
+prosa analytics tools --tool-name Bash --errors-only
+prosa analytics tools --canonical-type shell
+prosa analytics errors --category tool_result
+prosa analytics models --model gpt-5.4
+```
+
 ### `prosa tui`
 
 Open the Ink-based interactive explorer:
@@ -401,7 +437,15 @@ prosa export session <session-id> --format markdown
 
 ### Audit failed or suspicious tool usage
 
-Use MCP `list_tool_calls` for the richest tool-call filtering, or query Parquet:
+Use the built-in analytics report for quick aggregates:
+
+```bash
+prosa analytics tools --refresh --errors-only
+prosa analytics errors --output-format json
+```
+
+Use MCP `list_tool_calls` for the richest session-level filtering, or query
+Parquet directly when you need custom SQL:
 
 ```bash
 prosa export parquet

@@ -41,6 +41,36 @@ describe('parquet export', () => {
       });
       expect(query.columns).toEqual(['source_tool', 'n']);
       expect(query.rows).toEqual([{ source_tool: 'codex', n: '2' }]);
+
+      const sessionFacts = await queryDuckDbParquet({
+        parquetDir: result.outDir,
+        sql: 'select count(*) as n from session_facts',
+      });
+      expect(sessionFacts.rows).toEqual([{ n: '2' }]);
+
+      const toolFacts = await queryDuckDbParquet({
+        parquetDir: result.outDir,
+        sql: 'select count(*) as n from tool_usage_facts',
+      });
+      expect(toolFacts.rows).toEqual([{ n: '2' }]);
+
+      const modelUsage = await queryDuckDbParquet({
+        parquetDir: result.outDir,
+        sql: "select model, session_count from model_usage where model = 'gpt-5.4'",
+      });
+      expect(modelUsage.rows).toEqual([{ model: 'gpt-5.4', session_count: '2' }]);
+
+      const projectActivity = await queryDuckDbParquet({
+        parquetDir: result.outDir,
+        sql: 'select source_tool, sum(session_count) as session_count from project_activity group by 1',
+      });
+      expect(projectActivity.rows).toEqual([{ source_tool: 'codex', session_count: '2' }]);
+
+      const errorFacts = await queryDuckDbParquet({
+        parquetDir: result.outDir,
+        sql: 'select count(*) as n from error_facts',
+      });
+      expect(Number(errorFacts.rows[0]?.n)).toBeGreaterThanOrEqual(0);
     } finally {
       await t.cleanup();
     }

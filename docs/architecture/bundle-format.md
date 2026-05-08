@@ -24,7 +24,7 @@ sync. It is implemented by `src/core/bundle.ts`, `src/core/schema/`, and
     sources/             # zstd-compressed copies of original source files
   search/
     tantivy/             # optional sidecar full-text index (built on demand)
-  parquet/               # derived analytics snapshots (one .parquet per table)
+  parquet/               # derived analytics snapshots (one .parquet per canonical table)
   exports/               # ad-hoc exports (Markdown, etc.)
 ```
 
@@ -48,7 +48,7 @@ sync. It is implemented by `src/core/bundle.ts`, `src/core/schema/`, and
 |---|---|---|
 | Raw immutable | `raw/sources/`, `objects/`, `source_files`, `raw_records`, `import_batches`, `import_errors`, `uncertainties` | Yes |
 | Canonical projection | `projects`, `sessions`, `turns`, `events`, `messages`, `content_blocks`, `tool_calls`, `tool_results`, `artifacts`, `edges` | No — regenerable from raw |
-| Derived read surfaces | `search_docs`, `search_docs_fts`, `search_index_status`, `search/tantivy/`, `parquet/`, `exports/` | No — disposable |
+| Derived read surfaces | `search_docs`, `search_docs_fts`, `search_index_status`, `search/tantivy/`, `parquet/`, DuckDB analytics views, `exports/` | No — disposable |
 
 Rule: the projection and derived layers can always be rebuilt from the raw
 layer. Importer fixes ship as a re-projection, not a re-import. Everything
@@ -263,6 +263,23 @@ Tracks the FTS5 and Tantivy engines:
 `(engine, status, source_doc_count, indexed_doc_count, updated_at, error_message)`.
 `status ∈ {missing, ready, stale, building, failed}`. See
 [Search engines](./search-engines.md).
+
+#### Parquet and DuckDB analytics
+`prosa export parquet` writes one `.parquet` file per canonical table under
+`parquet/`, plus a manifest. These files are derived snapshots and can be
+deleted or rebuilt from SQLite/CAS.
+
+`prosa query duckdb` creates one DuckDB view per canonical Parquet file and
+also creates query-time analytics views:
+
+```text
+session_facts, tool_usage_facts, error_facts, model_usage, project_activity
+```
+
+`prosa analytics sessions|tools|errors|models|projects` runs fixed reports over
+those views. The reports can use `--refresh` to rebuild Parquet before
+querying, but they do not make Parquet authoritative. See
+[`docs/recipes/duckdb.md`](../recipes/duckdb.md) for examples.
 
 ## Idempotency keys
 

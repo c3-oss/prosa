@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
 import { PROSA_PARSER_VERSION } from '../core/version.js';
+import { analyticsCommand } from './commands/analytics.js';
 import { compileAllCommand, compileCommand } from './commands/compile.js';
 import { exportCommand } from './commands/export.js';
 import { indexCommand } from './commands/index.js';
@@ -29,6 +30,7 @@ export async function runCli(argv: readonly string[]): Promise<void> {
   program.addCommand(searchCommand());
   program.addCommand(exportCommand());
   program.addCommand(queryCommand());
+  program.addCommand(analyticsCommand());
   program.addCommand(mcpCommand());
   program.addCommand(tuiCommand());
 
