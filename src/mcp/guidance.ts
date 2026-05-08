@@ -10,6 +10,8 @@ Recommended workflow:
 - For questions about a file or path, start with find_touched_files, then inspect the returned sessions.
 - After search results, call get_session for the most relevant session_ids before drawing conclusions.
 - Use export_session_markdown only after selecting a likely session; it can return a large transcript.
+- Use session_metrics for per-session audits, custom source-path filters, tool counts, durations,
+  errors, and token_count payloads.
 - Use list_tool_calls for command history, failed tools, patches, and operational audit trails.
 - Use get_artifact only when a returned artifact_id is needed for full output or diff content.
 - Use index_status if search results look stale or unexpectedly empty.

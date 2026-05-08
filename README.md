@@ -367,6 +367,7 @@ Registered MCP tools include:
 | `get_session` | Return metadata and timeline events for one session |
 | `search_sessions` | Full-text search over indexed session content |
 | `export_session_markdown` | Render a selected session as Markdown |
+| `session_metrics` | Summarize sessions, source file paths, tool counts, durations, errors, and token payloads |
 | `list_tool_calls` | Audit commands and tool usage |
 | `find_touched_files` | Find sessions that touched a file/path |
 | `get_artifact` | Retrieve stored artifact text when available |
@@ -413,6 +414,13 @@ prosa query duckdb "
   order by n desc
 "
 ```
+
+### Summarize a custom session store through MCP
+
+After compiling a non-default sessions path, use MCP `session_metrics` with
+`source_path_substring` to keep analysis inside Prosa instead of reading the
+source JSONL directly. This is useful for stores such as `~/.codex-mz/sessions`
+that share the same provider name as the default Codex store.
 
 ### Search faster with a sidecar index
 

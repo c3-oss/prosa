@@ -60,6 +60,7 @@ describe('prosa MCP guidance', () => {
       ]);
       expect(server.tools.has('compile')).toBe(true);
       expect(server.tools.has('index_status')).toBe(true);
+      expect(server.tools.has('session_metrics')).toBe(true);
       expect(server.tools.get('search_sessions')?.config.description).toContain('tantivy');
 
       const indexStatus = server.tools.get('index_status');
@@ -136,6 +137,47 @@ describe('prosa MCP guidance', () => {
       const invalid = await compile!.callback({ sessions_path: CODEX_FIXTURES }, {});
       expect((invalid as { isError?: boolean }).isError).toBe(true);
       expect(extractText(invalid)).toContain('sessions_path requires source');
+    } finally {
+      await t.cleanup();
+    }
+  });
+
+  it('reports session metrics filtered by source file path', async () => {
+    const t = await createTempBundle();
+    try {
+      const server = new FakeMcpServer();
+      const storePath = path.join(t.path, 'metrics-store');
+      registerProsaTools(server as unknown as McpServer, t.bundle, {
+        ensureStore: true,
+        storePath,
+      });
+
+      const compile = server.tools.get('compile');
+      await compile!.callback({ source: 'codex', sessions_path: CODEX_FIXTURES }, {});
+
+      const metrics = server.tools.get('session_metrics');
+      expect(metrics).toBeDefined();
+      const result = await metrics!.callback(
+        { source: 'codex', source_path_substring: 'fixtures/codex', limit: 10 },
+        {},
+      );
+      const rows = JSON.parse(extractText(result)) as Array<{
+        source_tool: string;
+        source_file_path: string;
+        message_count: number;
+        tool_call_count: number;
+        tool_result_count: number;
+        tool_duration_ms: number;
+        latest_token_count: unknown;
+      }>;
+
+      expect(rows).toHaveLength(2);
+      expect(rows.every((row) => row.source_tool === 'codex')).toBe(true);
+      expect(rows.every((row) => row.source_file_path.includes('fixtures/codex'))).toBe(true);
+      expect(rows.every((row) => row.message_count > 0)).toBe(true);
+      expect(rows.every((row) => row.tool_call_count >= 0)).toBe(true);
+      expect(rows.every((row) => row.tool_result_count >= 0)).toBe(true);
+      expect(rows.every((row) => row.tool_duration_ms >= 0)).toBe(true);
     } finally {
       await t.cleanup();
     }
