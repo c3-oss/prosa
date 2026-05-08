@@ -351,14 +351,15 @@ export function registerProsaTools(
     {
       title: 'Compile sessions or report bundle status',
       description:
-        'Without input, returns a status snapshot (search index health, last batch, schema version) without mutating anything. With `source`, imports that provider; `sessions_path` may override its default. With neither flag, only status is returned.',
+        'Without input, returns a status snapshot (search index health, last batch, schema version) without mutating anything. With `source`, imports that provider; `sessions_path` may override its default. Pass `overwrite: true` to force a full rebuild of derived indexes (Tantivy from scratch). With neither `source` nor `sessions_path`, only status is returned.',
       inputSchema: {
         source: z.enum(SOURCE_TOOLS).optional(),
         sessions_path: z.string().min(1).optional(),
+        overwrite: z.boolean().optional(),
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     },
-    async ({ source, sessions_path }) =>
+    async ({ source, sessions_path, overwrite }) =>
       withToolBundle(bundle, storePath, ensureStore, async (activeBundle) => {
         if (sessions_path && !source) {
           return {
@@ -392,6 +393,7 @@ export function registerProsaTools(
             bundle: activeBundle,
             providers: source ? [getCompileProvider(source)] : COMPILE_PROVIDERS,
             sessionsPath: sessions_path,
+            overwrite,
           });
           const parquet = result.importedAny ? await exportCompileParquet({ storePath }) : null;
 
