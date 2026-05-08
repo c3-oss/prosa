@@ -54,3 +54,10 @@ pnpm lint
 ```
 
 For importer or schema work, also run the affected focused tests, for example `pnpm test test/importers/codex.test.ts`.
+
+## Commit Hygiene
+
+- **Never bundle every change into a single commit.** Split work into N sequential commits, one per coherent context or change type — schema migration vs. service rewrite vs. CLI vs. tests vs. docs are usually distinct commits.
+- Order commits so each one builds on the previous: foundations (schemas, new services) before consumers (CLI, MCP), code before docs that describe it.
+- Commit message style follows commitlint: `type(scope): subject`. Allowed scopes are `cli`, `mcp`, `core`, `importers`, `services`, `tui`, `docs`, `test`, `deps`, `release`, `infra`. Body lines must stay ≤ 100 chars.
+- A "single big mixed commit" usually means the work wasn't split into clean chunks; pause and stage by file/topic instead of `git add -A`.

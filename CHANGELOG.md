@@ -14,6 +14,17 @@
   `model_usage`, `project_activity`) into the SQLite schema as views (migration
   v3). The DuckDB/Parquet path keeps its mirror of the same shape, so MCP
   reads run against SQLite without spinning up DuckDB.
+- Tantivy index rebuilds are now incremental by default. New
+  `search_docs.rowid > last_indexed_rowid` rows are added on top of the
+  existing segments; full rebuild only on first run, schema fingerprint
+  mismatch, or `prosa index tantivy --full`. Writer runs with 4 threads
+  and a 300 MB heap. Migration v4 adds `last_indexed_rowid` and
+  `schema_fingerprint` to `search_index_status`. Steady-state Tantivy
+  rebuild on a 250k-doc bundle: 12 s → ~0.5 s.
+- Parquet export tuned to `COMPRESSION zstd, COMPRESSION_LEVEL 1,
+  ROW_GROUP_SIZE 100000`. Same wall time as the previous snappy default,
+  ≈half the on-disk size, no read-side regression on the analytics
+  queries we measured. See `docs/roadmap/parquet-export-perf.md`.
 
 ## 0.4.0
 

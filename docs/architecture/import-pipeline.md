@@ -59,11 +59,18 @@ After all providers in a single `runCompiles(...)` invocation finish:
    and sets `search_index_status` to `ready`.
 8. **Tantivy rebuild** — when `importedAny === true`, the still-open bundle
    has its Tantivy sidecar rebuilt via `rebuildTantivyIndex(bundle)`.
-   See [Search engines](./search-engines.md).
+   The default path is **incremental**: only `search_docs.rowid >
+   last_indexed_rowid` are added (with a `deleteDocumentsByTerm` for safety).
+   The first rebuild after upgrade or after a schema fingerprint change
+   falls back to a full re-index. The writer uses 4 threads with a 300 MB
+   heap. See [Search engines](./search-engines.md).
 9. **Parquet export** — after `closeBundle(bundle)` (DuckDB cannot
    coexist with an open `better-sqlite3` writer),
    `exportBundleParquet({ bundlePath })` rewrites every canonical table
-   under `parquet/`.
+   under `parquet/`. Files are written with `COMPRESSION zstd` (level 1)
+   and `ROW_GROUP_SIZE 100000` — same wall time as the previous snappy
+   default but ≈half the on-disk size. Tuning details and benchmarks in
+   [`docs/roadmap/parquet-export-perf.md`](../roadmap/parquet-export-perf.md).
 
 Index rebuild failures are logged at error level but do not throw; the
 canonical SQLite/CAS layer is already committed and the user can re-run

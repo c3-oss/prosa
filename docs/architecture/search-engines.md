@@ -50,14 +50,24 @@ prosa search "package.json" --engine fts5
 ## Tantivy (optional sidecar)
 
 - On-disk index lives at `<bundle>/search/tantivy/`.
-- Built and managed via the Rust binding in `src/services/search/`.
-- Rebuilt **fully** at the end of every successful `prosa compile` run
-  when `importedAny === true` — see
-  [Import pipeline](./import-pipeline.md). Failure is logged but does not
-  abort compile; the canonical SQLite/CAS layer is already committed.
-- Manual rebuild: `prosa index tantivy`.
-- Status surfaced in `search_index_status` (`engine='tantivy'`):
-  `missing`, `ready`, `stale`, `building`, `failed`.
+- Built and managed via the Rust binding in `src/services/indexing.ts`.
+- Rebuilt at the end of every successful `prosa compile` run when
+  `importedAny === true`. The rebuild is **incremental** by default —
+  only `search_docs.rowid > last_indexed_rowid` are added. The first
+  rebuild after upgrading (or after a schema change) falls back to a
+  full re-index automatically. See [Import pipeline](./import-pipeline.md).
+  Failure is logged but does not abort compile.
+- The writer runs with **4 threads** and a **300 MB heap budget** for both
+  full and incremental paths.
+- Manual full rebuild: `prosa index tantivy --overwrite`. Plain
+  `prosa index tantivy` follows the incremental rules.
+- Checkpoint state lives in `search_index_status`:
+  - `last_indexed_rowid` — highest `search_docs.rowid` reflected in the
+    on-disk segments.
+  - `schema_fingerprint` — sha256 of the canonical schema definition;
+    a mismatch forces a full rebuild on the next run.
+- Status field on the same row: `missing`, `ready`, `stale`, `building`,
+  `failed`.
 
 When to prefer Tantivy:
 
@@ -67,7 +77,8 @@ When to prefer Tantivy:
 - Better ranking and snippets across very large result sets.
 
 ```bash
-prosa index tantivy
+prosa index tantivy           # incremental rebuild (default)
+prosa index tantivy --overwrite    # force full rebuild (recovery / schema changes)
 prosa search "terrafom paln" --engine tantivy
 prosa mcp serve --search-engine tantivy
 ```
@@ -89,12 +100,13 @@ last failed build.
 
 | Trigger | FTS5 | Tantivy |
 |---|---|---|
-| `prosa compile` | Triggers off during import; full rebuild after compile if `importedAny` | Full rebuild after compile if `importedAny` |
+| `prosa compile` | Triggers off during import; full rebuild after compile if `importedAny` | **Incremental** rebuild after compile if `importedAny` (full on first run, on schema change, or on missing index) |
 | `prosa index fts5` | Full repopulate from `search_docs` | Untouched |
-| `prosa index tantivy` | Untouched | Full rebuild from `search_docs` |
+| `prosa index tantivy` | Untouched | Incremental rebuild from `search_docs` |
+| `prosa index tantivy --overwrite` | Untouched | **Full** rebuild from `search_docs` |
 | Re-run with no source changes (`importedAny === false`) | Skipped | Skipped |
 | Direct writes to `search_docs` outside compile | Kept in sync via triggers | Marked stale until next rebuild |
 
-A future optimization is incremental Tantivy/Parquet rebuilds keyed off
-the import delta. The current full-rebuild model is acceptable while
+Incremental Parquet rebuilds keyed off the import delta remain a future
+optimization. The current full-Parquet-rewrite model is acceptable while
 bundle size is in the gigabyte range.
