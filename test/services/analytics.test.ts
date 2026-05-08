@@ -55,6 +55,22 @@ describe('analytics reports', () => {
         filters: { project: '/Users/test', limit: 10 },
       });
       expect(projects.rows.length).toBeGreaterThan(0);
+
+      // Range-overlap filters on models/projects reports exercise
+      // `rangeOverlapFilter` since/until branches.
+      const futureModels = await runAnalyticsReport({
+        parquetDir: parquet.outDir,
+        report: 'models',
+        filters: { since: '3000-01-01T00:00:00Z' },
+      });
+      expect(futureModels.rows).toEqual([]);
+
+      const pastProjects = await runAnalyticsReport({
+        parquetDir: parquet.outDir,
+        report: 'projects',
+        filters: { until: '1900-01-01T00:00:00Z' },
+      });
+      expect(pastProjects.rows).toEqual([]);
     } finally {
       await t.cleanup();
     }

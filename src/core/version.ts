@@ -4,4 +4,4 @@
 export const PROSA_PARSER_VERSION = '0.1.0';
 
 // Schema version bumped per migration file in core/schema/.
-export const PROSA_SCHEMA_VERSION = 2;
+export const PROSA_SCHEMA_VERSION = 3;

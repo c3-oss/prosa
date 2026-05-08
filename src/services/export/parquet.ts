@@ -222,6 +222,7 @@ async function createAnalyticsViews(connection: DuckDBConnection): Promise<void>
            s.model_last,
            s.status,
            s.timeline_confidence,
+           sf.path AS source_file_path,
            COALESCE(tc.turn_count, 0) AS turn_count,
            COALESCE(mc.message_count, 0) AS message_count,
            COALESCE(mc.user_message_count, 0) AS user_message_count,
@@ -234,6 +235,8 @@ async function createAnalyticsViews(connection: DuckDBConnection): Promise<void>
            COALESCE(sdc.search_doc_count, 0) AS search_doc_count
       FROM sessions s
       LEFT JOIN projects p ON p.project_id = s.project_id
+      LEFT JOIN raw_records rr ON rr.raw_record_id = s.raw_record_id
+      LEFT JOIN source_files sf ON sf.source_file_id = rr.source_file_id
       LEFT JOIN turn_counts tc ON tc.session_id = s.session_id
       LEFT JOIN message_counts mc ON mc.session_id = s.session_id
       LEFT JOIN tool_call_counts tcc ON tcc.session_id = s.session_id

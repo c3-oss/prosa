@@ -1,8 +1,11 @@
+import type { Bundle } from '../core/bundle.js';
 import { clampLimit } from '../core/limits.js';
 import { type DuckDbQueryResult, queryDuckDbParquet } from './export/parquet.js';
 
 export const ANALYTICS_REPORTS = ['sessions', 'tools', 'errors', 'models', 'projects'] as const;
 export type AnalyticsReport = (typeof ANALYTICS_REPORTS)[number];
+
+export type AnalyticsDialect = 'sqlite' | 'duckdb';
 
 export interface AnalyticsReportFilters {
   source?: string;
@@ -15,10 +18,18 @@ export interface AnalyticsReportFilters {
   category?: string;
   model?: string;
   project?: string;
+  sessionId?: string;
+  sourcePathSubstring?: string;
 }
 
 export interface AnalyticsReportOptions {
   parquetDir: string;
+  report: AnalyticsReport;
+  filters?: AnalyticsReportFilters;
+}
+
+export interface AnalyticsBundleReportOptions {
+  bundle: Bundle;
   report: AnalyticsReport;
   filters?: AnalyticsReportFilters;
 }
@@ -28,35 +39,54 @@ export async function runAnalyticsReport(
 ): Promise<DuckDbQueryResult> {
   return queryDuckDbParquet({
     parquetDir: options.parquetDir,
-    sql: buildAnalyticsSql(options.report, options.filters ?? {}),
+    sql: buildAnalyticsSql(options.report, options.filters ?? {}, 'duckdb'),
   });
 }
 
-function buildAnalyticsSql(report: AnalyticsReport, filters: AnalyticsReportFilters): string {
+export function runAnalyticsReportFromBundle(
+  options: AnalyticsBundleReportOptions,
+): DuckDbQueryResult {
+  const sql = buildAnalyticsSql(options.report, options.filters ?? {}, 'sqlite');
+  const stmt = options.bundle.db.prepare<unknown[], Record<string, unknown>>(sql);
+  const rows = stmt.all();
+  const columns = stmt.columns().map((column) => column.name);
+  return { columns, rows };
+}
+
+function buildAnalyticsSql(
+  report: AnalyticsReport,
+  filters: AnalyticsReportFilters,
+  dialect: AnalyticsDialect,
+): string {
   switch (report) {
     case 'sessions':
-      return buildSessionsSql(filters);
+      return buildSessionsSql(filters, dialect);
     case 'tools':
-      return buildToolsSql(filters);
+      return buildToolsSql(filters, dialect);
     case 'errors':
-      return buildErrorsSql(filters);
+      return buildErrorsSql(filters, dialect);
     case 'models':
-      return buildModelsSql(filters);
+      return buildModelsSql(filters, dialect);
     case 'projects':
-      return buildProjectsSql(filters);
+      return buildProjectsSql(filters, dialect);
   }
 }
 
-function buildSessionsSql(filters: AnalyticsReportFilters): string {
+function buildSessionsSql(filters: AnalyticsReportFilters, dialect: AnalyticsDialect): string {
   const where = buildWhere([
     sourceFilter(filters),
     timeFilter('start_ts', filters),
-    projectFilter(filters),
+    projectFilter(filters, dialect),
+    filters.sessionId ? `session_id = ${sqlString(filters.sessionId)}` : null,
+    filters.sourcePathSubstring
+      ? `source_file_path LIKE ${sqlString(`%${escapeLike(filters.sourcePathSubstring)}%`)} ESCAPE '\\'`
+      : null,
   ]);
   return `
-    SELECT start_ts, source_tool, project_name, session_id, model_last,
-           message_count, tool_call_count, tool_error_count, tool_duration_ms,
-           timeline_confidence, title
+    SELECT start_ts, source_tool, project_name, source_file_path, session_id,
+           source_session_id, model_last, duration_seconds,
+           message_count, tool_call_count, tool_result_count, tool_error_count,
+           tool_duration_ms, timeline_confidence, title
       FROM session_facts
       ${where}
      ORDER BY start_ts DESC NULLS LAST
@@ -64,11 +94,11 @@ function buildSessionsSql(filters: AnalyticsReportFilters): string {
   `;
 }
 
-function buildToolsSql(filters: AnalyticsReportFilters): string {
+function buildToolsSql(filters: AnalyticsReportFilters, dialect: AnalyticsDialect): string {
   const where = buildWhere([
     sourceFilter(filters),
     timeFilter('timestamp_start', filters),
-    projectFilter(filters),
+    projectFilter(filters, dialect),
     filters.toolName ? `tool_name = ${sqlString(filters.toolName)}` : null,
     filters.canonicalType ? `canonical_tool_type = ${sqlString(filters.canonicalType)}` : null,
     filters.errorsOnly ? `(is_error = 1 OR call_status = 'error')` : null,
@@ -87,11 +117,11 @@ function buildToolsSql(filters: AnalyticsReportFilters): string {
   `;
 }
 
-function buildErrorsSql(filters: AnalyticsReportFilters): string {
+function buildErrorsSql(filters: AnalyticsReportFilters, dialect: AnalyticsDialect): string {
   const where = buildWhere([
     sourceFilter(filters),
     timeFilter('timestamp', filters),
-    projectFilter(filters),
+    projectFilter(filters, dialect),
     filters.toolName ? `tool_name = ${sqlString(filters.toolName)}` : null,
     filters.category ? `error_category = ${sqlString(filters.category)}` : null,
   ]);
@@ -105,11 +135,11 @@ function buildErrorsSql(filters: AnalyticsReportFilters): string {
   `;
 }
 
-function buildModelsSql(filters: AnalyticsReportFilters): string {
+function buildModelsSql(filters: AnalyticsReportFilters, dialect: AnalyticsDialect): string {
   const where = buildWhere([
     sourceFilter(filters),
     rangeOverlapFilter('first_seen_ts', 'last_seen_ts', filters),
-    projectFilter(filters),
+    projectFilter(filters, dialect),
     filters.model ? `model = ${sqlString(filters.model)}` : null,
   ]);
   return `
@@ -122,11 +152,11 @@ function buildModelsSql(filters: AnalyticsReportFilters): string {
   `;
 }
 
-function buildProjectsSql(filters: AnalyticsReportFilters): string {
+function buildProjectsSql(filters: AnalyticsReportFilters, dialect: AnalyticsDialect): string {
   const where = buildWhere([
     sourceFilter(filters),
     rangeOverlapFilter('first_session_ts', 'latest_session_ts', filters),
-    projectFilter(filters),
+    projectFilter(filters, dialect),
   ]);
   return `
     SELECT latest_session_ts, source_tool, project_name, project_path,
@@ -167,11 +197,14 @@ function rangeOverlapFilter(
   return filtersSql.length ? filtersSql.join(' AND ') : null;
 }
 
-function projectFilter(filters: AnalyticsReportFilters): string | null {
+function projectFilter(filters: AnalyticsReportFilters, dialect: AnalyticsDialect): string | null {
   if (!filters.project) return null;
   const exact = sqlString(filters.project);
   const like = sqlString(`%${escapeLike(filters.project)}%`);
-  return `(project_id = ${exact} OR project_name ILIKE ${like} ESCAPE '\\' OR project_path ILIKE ${like} ESCAPE '\\')`;
+  // DuckDB's LIKE is case-sensitive, ILIKE is case-insensitive. SQLite's LIKE
+  // is case-insensitive for ASCII by default, so we use LIKE there.
+  const op = dialect === 'duckdb' ? 'ILIKE' : 'LIKE';
+  return `(project_id = ${exact} OR project_name ${op} ${like} ESCAPE '\\' OR project_path ${op} ${like} ESCAPE '\\')`;
 }
 
 function buildWhere(filters: Array<string | null>): string {
