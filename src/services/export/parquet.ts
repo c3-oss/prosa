@@ -85,8 +85,12 @@ export async function exportBundleParquet(
   try {
     await attachSqlite(connection, snapshot.dbPath);
     for (const table of PARQUET_TABLES) {
+      // Tuned via bench/bench-parquet.ts: zstd-1 matches snappy on write
+      // time but halves file size, and ROW_GROUP_SIZE=100k cuts ~20% off
+      // total export time for prosa's table widths. See
+      // docs/roadmap/parquet-export-perf.md.
       await connection.run(
-        `COPY (SELECT * FROM prosa.${quoteIdentifier(table)}) TO ${sqlString(files[table])} (FORMAT parquet)`,
+        `COPY (SELECT * FROM prosa.${quoteIdentifier(table)}) TO ${sqlString(files[table])} (FORMAT parquet, COMPRESSION zstd, COMPRESSION_LEVEL 1, ROW_GROUP_SIZE 100000)`,
       );
     }
   } finally {
