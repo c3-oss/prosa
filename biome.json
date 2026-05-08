@@ -6,7 +6,7 @@
     "useIgnoreFile": true
   },
   "files": {
-    "ignore": ["dist/**", "coverage/**", "node_modules/**", ".devbox/**"]
+    "ignore": ["dist/**", "coverage/**", "node_modules/**", ".devbox/**", "bench/**"]
   },
   "formatter": {
     "enabled": true,
