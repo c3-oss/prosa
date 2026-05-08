@@ -1,5 +1,11 @@
 # @c3-oss/prosa
 
+## 0.4.0
+
+### Minor Changes
+
+- Add an MCP session_metrics tool for session audits.
+
 ## 0.3.2
 
 ### Patch Changes
