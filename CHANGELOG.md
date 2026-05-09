@@ -1,5 +1,11 @@
 # @c3-oss/prosa
 
+## 0.5.0
+
+### Minor Changes
+
+- Performance tuning, MCP+CLI overwrite/metrics, analytics expansion, docs/tests
+
 ## Unreleased
 
 ### Minor Changes
@@ -22,7 +28,7 @@
   `schema_fingerprint` to `search_index_status`. Steady-state Tantivy
   rebuild on a 250k-doc bundle: 12 s → ~0.5 s.
 - Parquet export tuned to `COMPRESSION zstd, COMPRESSION_LEVEL 1,
-  ROW_GROUP_SIZE 100000`. Same wall time as the previous snappy default,
+ROW_GROUP_SIZE 100000`. Same wall time as the previous snappy default,
   ≈half the on-disk size, no read-side regression on the analytics
   queries we measured. See `docs/roadmap/parquet-export-perf.md`.
 
