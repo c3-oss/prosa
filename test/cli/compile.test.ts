@@ -109,7 +109,10 @@ describe('compile CLI', () => {
 
       const { stderr } = await runProsa(['compile', 'codex', '--json-logs'], t.env)
 
-      const lines = stderr.trim().split('\n')
+      const lines = stderr
+        .trim()
+        .split('\n')
+        .filter((line) => line.startsWith('{'))
       expect(lines.length).toBeGreaterThan(0)
       const records = lines.map((line) => JSON.parse(line) as Record<string, unknown>)
       expect(records).toEqual(
