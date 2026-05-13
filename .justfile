@@ -1,47 +1,161 @@
-# Show all available recipes.
+# <https://cheatography.com/linux-china/cheat-sheets/justfile/>
+# <https://just.systems/man/en/chapter_1.html>
+
+
+set shell := ["/bin/bash", "-c"]
+
+set fallback
+
+# --------------------------------------------------------------------------------------------------
+
 default:
-  just --list
+  @just _help
 
-# Install dependencies from pnpm-lock.yaml.
+_help:
+  @just --list
+
+# --------------------------------------------------------------------------------------------------
+
+# install dependencies from pnpm-lock.yaml
+[group('ALIASES')]
 install:
-  pnpm install
+  @pnpm install
 
-# Build the distributable package into dist/.
-build:
-  pnpm build
+# run commitizen, a CLI tool for generating conventional commits (interactive)
+[group('ALIASES')]
+commit:
+  @pnpm cz
 
-# Run the Vitest suite once.
-test:
-  pnpm test
-
-# Run Biome lint/format checks without writing changes.
-lint:
-  pnpm lint
-
-# Run TypeScript type checking without emitting files.
-typecheck:
-  pnpm typecheck
-
-# Remove generated local outputs such as dist/, coverage/, and .turbo/.
-clean:
-  pnpm clean
-
-# Run the standard pre-release quality gate.
+# run the standard pre-release quality gate
+[group('ALIASES')]
 quality:
-  pnpm typecheck
-  pnpm test
-  pnpm lint
+  @just typecheck
+  @just test-all
+  @just lint-all
 
-# Create a new Changeset entry describing the next package release.
+# run TypeScript type checking without emitting files
+[group('ALIASES')]
+typecheck:
+  @pnpm typecheck
+
+# --------------------------------------------------------------------------------------------------
+
+# build the distributable package into dist/
+[group('BUILD')]
+build:
+  @pnpm build
+
+# build all packages
+[group('BUILD')]
+build-all:
+  @pnpm build
+
+# --------------------------------------------------------------------------------------------------
+
+# remove generated local outputs such as dist/, coverage/, and .turbo/
+[group('PROJECT MAINTENANCE')]
+clean:
+  @pnpm clean
+
+# remove all build artifacts, caches and turbo logs
+[group('PROJECT MAINTENANCE')]
+clean-all:
+  @pnpm clean
+
+# --------------------------------------------------------------------------------------------------
+
+# run the linter
+[group('CODE QUALITY')]
+lint:
+  @pnpm lint
+
+# run the linter on all packages
+[group('CODE QUALITY')]
+lint-all:
+  @pnpm lint
+
+# run the linter on all packages and fix all auto-fixable issues
+[group('CODE QUALITY')]
+lint-all-fix:
+  @pnpm lint:fix
+
+# --------------------------------------------------------------------------------------------------
+
+# run tests
+[group('TESTS')]
+test:
+  @pnpm test
+
+# run tests on all packages
+[group('TESTS')]
+test-all:
+  @pnpm test
+
+# run tests on all packages and generate a coverage report
+[group('TESTS')]
+test-all-coverage:
+  @pnpm test:coverage
+
+# --------------------------------------------------------------------------------------------------
+
+# create a package release plan (interactive)
+[group('PACKAGE RELEASING')]
 changeset:
-  pnpm changeset
+  @pnpm changeset
 
-# Apply pending Changesets to package versions and changelog files.
+# apply pending Changesets to package versions and changelog files
+[group('PACKAGE RELEASING')]
 version-packages:
-  pnpm version-packages
+  @pnpm version-packages
 
-# Build and publish changed packages to the official npm registry.
+# create a package release plan (interactive)
+[group('PACKAGE RELEASING')]
+release-plan:
+  @pnpm changeset
+
+# apply the release plan created by "release-plan"
+[group('PACKAGE RELEASING')]
+release-apply:
+  @pnpm version-packages
+
+# publish all packages with new versions to the registry
+[group('PACKAGE RELEASING')]
+release-publish:
+  @just build-all
+  @pnpm changeset publish
+
+# prepare to publish packages -- build, lint, test and apply remaining changesets
+[group('PACKAGE RELEASING')]
+release-prepare-publish:
+  @just build-all
+  @just lint-all
+  @just test-all
+  @just release-apply
+
+# build and publish changed packages to the official npm registry
+[group('PACKAGE RELEASING')]
 release:
-  pnpm release
-  git push
-  git push --tags
+  @pnpm release
+  @git push
+  @git push --tags
+
+# --------------------------------------------------------------------------------------------------
+
+# enter prerelease mode
+[group('PACKAGE PRE-RELEASING')]
+prerelease-enter:
+  @pnpm changeset pre enter next
+
+# exit prerelease mode
+[group('PACKAGE PRE-RELEASING')]
+prerelease-exit:
+  @pnpm changeset pre exit
+
+# generate and publish a prerelease package
+[group('PACKAGE PRE-RELEASING')]
+prerelease-publish:
+  @just prerelease-enter
+  @just release-plan
+  @just release-apply
+  @just release-publish
+  @just prerelease-exit
