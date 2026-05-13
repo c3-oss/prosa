@@ -1,6 +1,6 @@
 {
   "name": "@c3-oss/prosa",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Compile, search, and export local agent session histories (Cursor, Codex, Claude Code, Gemini CLI) into a single canonical store.",
   "author": "Caian Ertl <hi@caian.org>",
   "license": "MIT",
@@ -30,7 +30,7 @@
     "registry": "https://registry.npmjs.org/"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22.15.1 <27"
   },
   "scripts": {
     "dev": "node --import @swc-node/register/esm-register src/bin/prosa.ts",
@@ -54,7 +54,7 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@noble/hashes": "^1.7.0",
     "@oxdev03/node-tantivy-binding": "0.2.0",
-    "better-sqlite3": "^11.5.0",
+    "better-sqlite3": "^12.10.0",
     "commander": "^12.1.0",
     "filtrex": "^3.1.0",
     "ink": "^7.0.1",

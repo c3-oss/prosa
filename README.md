@@ -543,7 +543,7 @@ them as the source of truth.
 
 Requirements:
 
-- Node.js 22 or newer
+- Node.js 22.15.1 through 26.x
 - pnpm
 - devbox, recommended for the local shell
 

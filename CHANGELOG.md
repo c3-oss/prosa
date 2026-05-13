@@ -1,5 +1,11 @@
 # @c3-oss/prosa
 
+## 0.6.1
+
+### Patch Changes
+
+- Fix global installation on Node 26 by updating the native SQLite binding.
+
 ## 0.6.0
 
 ### Minor Changes
