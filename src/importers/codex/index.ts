@@ -1,6 +1,6 @@
-import { readFile } from 'node:fs/promises';
-import path from 'node:path';
-import type { Bundle } from '../../core/bundle.js';
+import { readFile } from 'node:fs/promises'
+import path from 'node:path'
+import type { Bundle } from '../../core/bundle.js'
 import {
   type ObjectId,
   type PendingObjects,
@@ -8,8 +8,8 @@ import {
   flushPendingObjects,
   stageBytes,
   stageText,
-} from '../../core/cas/index.js';
-import { prepare, transactional } from '../../core/db.js';
+} from '../../core/cas/index.js'
+import { prepare, transactional } from '../../core/db.js'
 import {
   artifactId,
   blockId,
@@ -20,8 +20,8 @@ import {
   toolCallId as makeToolCallId,
   toolResultId as makeToolResultId,
   turnId as makeTurnId,
-} from '../../core/domain/ids.js';
-import { getErrorMessage } from '../../core/errors.js';
+} from '../../core/domain/ids.js'
+import { getErrorMessage } from '../../core/errors.js'
 import {
   type ImportBatch,
   type ImportCounts,
@@ -29,10 +29,10 @@ import {
   finishBatch,
   recordError,
   startBatch,
-} from '../../core/ingest/batch.js';
-import { registerSourceFile } from '../../core/ingest/idempotency.js';
-import type { CompileLogger, CompileOptions } from '../compile-options.js';
-import { discoverCodexSessions } from './discover.js';
+} from '../../core/ingest/batch.js'
+import { registerSourceFile } from '../../core/ingest/idempotency.js'
+import type { CompileLogger, CompileOptions } from '../compile-options.js'
+import { discoverCodexSessions } from './discover.js'
 import type {
   CodexContentItem,
   CodexEnvelope,
@@ -40,14 +40,14 @@ import type {
   CodexResponseItemPayload,
   CodexSessionMetaPayload,
   CodexTurnContextPayload,
-} from './types.js';
+} from './types.js'
 
 export interface CompileResult {
-  batch: ImportBatch;
-  counts: ImportCounts;
+  batch: ImportBatch
+  counts: ImportCounts
 }
 
-const PREVIEW_MAX = 4_000;
+const PREVIEW_MAX = 4_000
 
 // Per-file work splits into an async prepare (parse + CAS file writes + objects
 // table inserts, none of which need the per-file domain transaction) and a
@@ -58,56 +58,52 @@ const PREVIEW_MAX = 4_000;
 // keeps each write transaction short — long write transactions degrade
 // INSERT OR IGNORE lookup performance because they force readers to walk the
 // growing WAL.
-const CODEX_PREPARE_CONCURRENCY = 8;
+const CODEX_PREPARE_CONCURRENCY = 8
 
-export async function compileCodex(
-  bundle: Bundle,
-  root: string,
-  options: CompileOptions = {},
-): Promise<CompileResult> {
-  const logger = options.logger;
-  const batch = startBatch(bundle, 'codex', [root]);
-  const counts = emptyCounts();
-  logger?.info({ batch_id: batch.batch_id, root }, 'codex batch started');
+export async function compileCodex(bundle: Bundle, root: string, options: CompileOptions = {}): Promise<CompileResult> {
+  const logger = options.logger
+  const batch = startBatch(bundle, 'codex', [root])
+  const counts = emptyCounts()
+  logger?.info({ batch_id: batch.batch_id, root }, 'codex batch started')
 
   try {
-    const files: string[] = [];
+    const files: string[] = []
     for await (const filePath of discoverCodexSessions(root)) {
-      files.push(filePath);
-      logger?.debug({ path: filePath }, 'codex source file discovered');
+      files.push(filePath)
+      logger?.debug({ path: filePath }, 'codex source file discovered')
     }
-    counts.source_files_seen = files.length;
+    counts.source_files_seen = files.length
 
     for (let i = 0; i < files.length; i += CODEX_PREPARE_CONCURRENCY) {
-      const slice = files.slice(i, i + CODEX_PREPARE_CONCURRENCY);
-      await processCodexBatch(bundle, batch, slice, counts, logger);
+      const slice = files.slice(i, i + CODEX_PREPARE_CONCURRENCY)
+      await processCodexBatch(bundle, batch, slice, counts, logger)
     }
 
-    linkSubagentParents(bundle);
-    logger?.debug({ batch_id: batch.batch_id }, 'codex subagent parent links refreshed');
-    finishBatch(bundle, batch, counts, 'completed');
-    logger?.info({ batch_id: batch.batch_id, counts }, 'codex batch completed');
+    linkSubagentParents(bundle)
+    logger?.debug({ batch_id: batch.batch_id }, 'codex subagent parent links refreshed')
+    finishBatch(bundle, batch, counts, 'completed')
+    logger?.info({ batch_id: batch.batch_id, counts }, 'codex batch completed')
   } catch (error) {
-    finishBatch(bundle, batch, counts, 'failed');
-    logger?.error({ err: error, batch_id: batch.batch_id, counts }, 'codex batch failed');
-    throw error;
+    finishBatch(bundle, batch, counts, 'failed')
+    logger?.error({ err: error, batch_id: batch.batch_id, counts }, 'codex batch failed')
+    throw error
   }
 
-  return { batch, counts };
+  return { batch, counts }
 }
 
 interface CodexPrepared {
-  filePath: string;
-  pending: PendingState;
-  meta: { sessionEndTs: string | null; modelFirst: string | null; modelLast: string | null };
+  filePath: string
+  pending: PendingState
+  meta: { sessionEndTs: string | null; modelFirst: string | null; modelLast: string | null }
 }
 
 interface CodexBatchItem {
-  filePath: string;
-  prepared: CodexPrepared | null;
-  fileCounts: FileCounts;
-  prepareError: Error | null;
-  applyError: Error | null;
+  filePath: string
+  prepared: CodexPrepared | null
+  fileCounts: FileCounts
+  prepareError: Error | null
+  applyError: Error | null
 }
 
 async function processCodexBatch(
@@ -123,14 +119,14 @@ async function processCodexBatch(
   const items = await Promise.all(
     slice.map(async (filePath): Promise<CodexBatchItem> => {
       try {
-        const result = await prepareCodexFile(bundle, batch, filePath, logger);
+        const result = await prepareCodexFile(bundle, batch, filePath, logger)
         return {
           filePath,
           prepared: result.prepared,
           fileCounts: result.counts,
           prepareError: null,
           applyError: null,
-        };
+        }
       } catch (err) {
         return {
           filePath,
@@ -138,10 +134,10 @@ async function processCodexBatch(
           fileCounts: emptyFileCounts(),
           prepareError: err as Error,
           applyError: null,
-        };
+        }
       }
     }),
-  );
+  )
 
   // Phase B: domain INSERTs run one file at a time, each in its own short
   // transaction. We tried wrapping the whole slice in one outer transaction
@@ -149,27 +145,27 @@ async function processCodexBatch(
   // bound because INSERT OR IGNORE lookups had to walk the growing WAL inside
   // the long transaction. Per-file commits keep the WAL small.
   for (const item of items) {
-    if (item.prepareError || !item.prepared) continue;
+    if (item.prepareError || !item.prepared) continue
     try {
-      transactional(bundle.db, () => applyCodexFile(bundle, item.prepared as CodexPrepared));
+      transactional(bundle.db, () => applyCodexFile(bundle, item.prepared as CodexPrepared))
     } catch (err) {
-      item.applyError = err as Error;
+      item.applyError = err as Error
     }
   }
 
   // Phase C: aggregate counts and record per-file errors.
   for (const item of items) {
-    const err = item.prepareError ?? item.applyError;
+    const err = item.prepareError ?? item.applyError
     if (err) {
-      counts.errors++;
-      logger?.warn({ err, path: item.filePath }, 'codex source file failed');
+      counts.errors++
+      logger?.warn({ err, path: item.filePath }, 'codex source file failed')
       await recordError(bundle, batch.batch_id, {
         kind: 'codex_file_failed',
         message: getErrorMessage(err),
         payload: { path: item.filePath },
-      });
+      })
     } else {
-      addCounts(counts, item.fileCounts);
+      addCounts(counts, item.fileCounts)
     }
   }
 }
@@ -195,23 +191,23 @@ function linkSubagentParents(bundle: Bundle): void {
            )
      WHERE parent_session_id IS NULL
        AND is_subagent = 1
-  `);
+  `)
 }
 
 interface FileCounts {
-  source_files_imported: number;
-  source_files_skipped: number;
-  raw_records: number;
-  sessions: number;
-  turns: number;
-  events: number;
-  messages: number;
-  content_blocks: number;
-  tool_calls: number;
-  tool_results: number;
-  artifacts: number;
-  edges: number;
-  errors: number;
+  source_files_imported: number
+  source_files_skipped: number
+  raw_records: number
+  sessions: number
+  turns: number
+  events: number
+  messages: number
+  content_blocks: number
+  tool_calls: number
+  tool_results: number
+  artifacts: number
+  edges: number
+  errors: number
 }
 
 function emptyFileCounts(): FileCounts {
@@ -229,177 +225,177 @@ function emptyFileCounts(): FileCounts {
     artifacts: 0,
     edges: 0,
     errors: 0,
-  };
+  }
 }
 
 function addCounts(target: ImportCounts, source: FileCounts): void {
-  target.source_files_imported += source.source_files_imported;
-  target.source_files_skipped += source.source_files_skipped;
-  target.raw_records += source.raw_records;
-  target.sessions += source.sessions;
-  target.turns += source.turns;
-  target.events += source.events;
-  target.messages += source.messages;
-  target.content_blocks += source.content_blocks;
-  target.tool_calls += source.tool_calls;
-  target.tool_results += source.tool_results;
-  target.artifacts += source.artifacts;
-  target.edges += source.edges;
-  target.errors += source.errors;
+  target.source_files_imported += source.source_files_imported
+  target.source_files_skipped += source.source_files_skipped
+  target.raw_records += source.raw_records
+  target.sessions += source.sessions
+  target.turns += source.turns
+  target.events += source.events
+  target.messages += source.messages
+  target.content_blocks += source.content_blocks
+  target.tool_calls += source.tool_calls
+  target.tool_results += source.tool_results
+  target.artifacts += source.artifacts
+  target.edges += source.edges
+  target.errors += source.errors
 }
 
 // ---- per-file pipeline ---------------------------------------------------
 
 interface PendingRawRecord {
-  raw_record_id: string;
-  source_file_id: string;
-  source_tool: 'codex';
-  record_kind: 'jsonl_line';
-  ordinal: number;
-  line_no: number;
-  json_pointer: null;
-  native_id: string | null;
-  raw_object_id: ObjectId;
-  decoded_json_object_id: ObjectId | null;
-  parser_status: 'ok' | 'partial' | 'failed';
-  confidence: 'high' | 'medium' | 'low';
-  import_batch_id: string;
+  raw_record_id: string
+  source_file_id: string
+  source_tool: 'codex'
+  record_kind: 'jsonl_line'
+  ordinal: number
+  line_no: number
+  json_pointer: null
+  native_id: string | null
+  raw_object_id: ObjectId
+  decoded_json_object_id: ObjectId | null
+  parser_status: 'ok' | 'partial' | 'failed'
+  confidence: 'high' | 'medium' | 'low'
+  import_batch_id: string
 }
 
 interface PendingSession {
-  session_id: string;
-  source_session_id: string;
-  parent_session_id: string | null;
-  is_subagent: 0 | 1;
-  agent_role: string | null;
-  agent_nickname: string | null;
-  title: string | null;
-  start_ts: string | null;
-  cwd_initial: string | null;
-  git_branch_initial: string | null;
-  raw_record_id: string | null;
+  session_id: string
+  source_session_id: string
+  parent_session_id: string | null
+  is_subagent: 0 | 1
+  agent_role: string | null
+  agent_nickname: string | null
+  title: string | null
+  start_ts: string | null
+  cwd_initial: string | null
+  git_branch_initial: string | null
+  raw_record_id: string | null
 }
 
 interface PendingTurn {
-  turn_id: string;
-  ordinal: number;
-  source_turn_id: string | null;
-  start_ts: string | null;
-  model: string | null;
-  cwd: string | null;
-  approval_policy: string | null;
-  sandbox_policy: string | null;
-  effort: string | null;
-  raw_record_id: string;
+  turn_id: string
+  ordinal: number
+  source_turn_id: string | null
+  start_ts: string | null
+  model: string | null
+  cwd: string | null
+  approval_policy: string | null
+  sandbox_policy: string | null
+  effort: string | null
+  raw_record_id: string
 }
 
 interface PendingEvent {
-  event_id: string;
-  ordinal: number;
-  turn_id: string | null;
-  source_event_id: string | null;
-  event_type: string;
-  source_type: string;
-  subtype: string | null;
-  timestamp: string | null;
-  actor: string | null;
-  payload_object_id: ObjectId | null;
-  raw_record_id: string;
-  confidence: 'high' | 'medium' | 'low';
+  event_id: string
+  ordinal: number
+  turn_id: string | null
+  source_event_id: string | null
+  event_type: string
+  source_type: string
+  subtype: string | null
+  timestamp: string | null
+  actor: string | null
+  payload_object_id: ObjectId | null
+  raw_record_id: string
+  confidence: 'high' | 'medium' | 'low'
 }
 
 interface PendingMessage {
-  message_id: string;
-  turn_id: string | null;
-  event_id: string | null;
-  source_message_id: string | null;
-  role: 'system_prompt' | 'developer' | 'user' | 'assistant' | 'tool' | 'operational';
-  model: string | null;
-  timestamp: string | null;
-  ordinal: number;
-  raw_record_id: string;
+  message_id: string
+  turn_id: string | null
+  event_id: string | null
+  source_message_id: string | null
+  role: 'system_prompt' | 'developer' | 'user' | 'assistant' | 'tool' | 'operational'
+  model: string | null
+  timestamp: string | null
+  ordinal: number
+  raw_record_id: string
 }
 
 interface PendingBlock {
-  block_id: string;
-  message_id: string | null;
-  event_id: string | null;
-  ordinal: number;
-  block_type: string;
-  text_object_id: ObjectId | null;
-  text_inline: string | null;
-  raw_record_id: string;
+  block_id: string
+  message_id: string | null
+  event_id: string | null
+  ordinal: number
+  block_type: string
+  text_object_id: ObjectId | null
+  text_inline: string | null
+  raw_record_id: string
 }
 
 interface PendingToolCall {
-  tool_call_id: string;
-  turn_id: string | null;
-  message_id: string | null;
-  event_id: string | null;
-  source_call_id: string | null;
-  tool_name: string;
-  canonical_tool_type: string;
-  args_object_id: ObjectId | null;
-  command: string | null;
-  cwd: string | null;
-  path: string | null;
-  query: string | null;
-  timestamp_start: string | null;
-  status: string | null;
-  raw_record_id: string;
+  tool_call_id: string
+  turn_id: string | null
+  message_id: string | null
+  event_id: string | null
+  source_call_id: string | null
+  tool_name: string
+  canonical_tool_type: string
+  args_object_id: ObjectId | null
+  command: string | null
+  cwd: string | null
+  path: string | null
+  query: string | null
+  timestamp_start: string | null
+  status: string | null
+  raw_record_id: string
 }
 
 interface PendingToolResult {
-  tool_result_id: string;
-  tool_call_id: string | null;
-  source_call_id: string | null;
-  message_id: string | null;
-  event_id: string | null;
-  status: string | null;
-  is_error: 0 | 1;
-  exit_code: number | null;
-  duration_ms: number | null;
-  stdout_object_id: ObjectId | null;
-  stderr_object_id: ObjectId | null;
-  output_object_id: ObjectId | null;
-  preview: string | null;
-  raw_record_id: string;
+  tool_result_id: string
+  tool_call_id: string | null
+  source_call_id: string | null
+  message_id: string | null
+  event_id: string | null
+  status: string | null
+  is_error: 0 | 1
+  exit_code: number | null
+  duration_ms: number | null
+  stdout_object_id: ObjectId | null
+  stderr_object_id: ObjectId | null
+  output_object_id: ObjectId | null
+  preview: string | null
+  raw_record_id: string
 }
 
 interface PendingArtifact {
-  artifact_id: string;
-  kind: string;
-  path: string | null;
-  logical_path: string | null;
-  object_id: ObjectId | null;
-  text_object_id: ObjectId | null;
-  mime_type: string | null;
-  size_bytes: number;
-  created_ts: string | null;
-  raw_record_id: string;
+  artifact_id: string
+  kind: string
+  path: string | null
+  logical_path: string | null
+  object_id: ObjectId | null
+  text_object_id: ObjectId | null
+  mime_type: string | null
+  size_bytes: number
+  created_ts: string | null
+  raw_record_id: string
 }
 
 interface PendingEdge {
-  src_type: string;
-  src_id: string;
-  dst_type: string;
-  dst_id: string;
-  edge_type: string;
-  confidence: 'high' | 'medium' | 'low';
-  source: string;
-  raw_record_id: string | null;
+  src_type: string
+  src_id: string
+  dst_type: string
+  dst_id: string
+  edge_type: string
+  confidence: 'high' | 'medium' | 'low'
+  source: string
+  raw_record_id: string | null
 }
 
 interface PendingSearchDoc {
-  doc_id: string;
-  entity_type: string;
-  entity_id: string;
-  timestamp: string | null;
-  role: string | null;
-  tool_name: string | null;
-  canonical_tool_type: string | null;
-  field_kind: string;
-  text: string;
+  doc_id: string
+  entity_type: string
+  entity_id: string
+  timestamp: string | null
+  role: string | null
+  tool_name: string | null
+  canonical_tool_type: string | null
+  field_kind: string
+  text: string
 }
 
 async function prepareCodexFile(
@@ -408,33 +404,27 @@ async function prepareCodexFile(
   filePath: string,
   logger?: CompileLogger,
 ): Promise<{ prepared: CodexPrepared | null; counts: FileCounts }> {
-  const counts = emptyFileCounts();
+  const counts = emptyFileCounts()
 
   const { row: sourceFileRow, alreadyKnown } = await registerSourceFile(bundle, {
     sourceTool: 'codex',
     absolutePath: path.resolve(filePath),
     fileKind: 'jsonl',
-  });
+  })
 
   if (alreadyKnown) {
     // We've already imported this file (same path,size,mtime,hash). Skip.
-    counts.source_files_skipped = 1;
-    logger?.debug(
-      { path: filePath, source_file_id: sourceFileRow.source_file_id },
-      'codex source file skipped',
-    );
-    return { prepared: null, counts };
+    counts.source_files_skipped = 1
+    logger?.debug({ path: filePath, source_file_id: sourceFileRow.source_file_id }, 'codex source file skipped')
+    return { prepared: null, counts }
   }
 
-  counts.source_files_imported = 1;
-  logger?.debug(
-    { path: filePath, source_file_id: sourceFileRow.source_file_id },
-    'codex source file registered',
-  );
+  counts.source_files_imported = 1
+  logger?.debug({ path: filePath, source_file_id: sourceFileRow.source_file_id }, 'codex source file registered')
 
-  const text = await readFile(filePath, 'utf8');
-  const rawLines = text.split('\n');
-  const lines = rawLines[rawLines.length - 1] === '' ? rawLines.slice(0, -1) : rawLines;
+  const text = await readFile(filePath, 'utf8')
+  const rawLines = text.split('\n')
+  const lines = rawLines[rawLines.length - 1] === '' ? rawLines.slice(0, -1) : rawLines
 
   const pending = {
     rawRecords: [] as PendingRawRecord[],
@@ -450,43 +440,43 @@ async function prepareCodexFile(
     edges: [] as PendingEdge[],
     searchDocs: [] as PendingSearchDoc[],
     objects: createPendingObjects(),
-  };
+  }
 
-  let sessionStartTs: string | null = null;
-  let sessionEndTs: string | null = null;
-  let modelFirst: string | null = null;
-  let modelLast: string | null = null;
-  let messageOrdinal = 0;
-  let turnOrdinal = 0;
+  let sessionStartTs: string | null = null
+  let sessionEndTs: string | null = null
+  let modelFirst: string | null = null
+  let modelLast: string | null = null
+  let messageOrdinal = 0
+  let turnOrdinal = 0
 
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (!line || line.length === 0) continue;
-    const lineNo = i + 1;
-    const ordinal = i;
+    const line = lines[i]
+    if (!line || line.length === 0) continue
+    const lineNo = i + 1
+    const ordinal = i
 
-    const lineBytes = Buffer.from(line, 'utf8');
+    const lineBytes = Buffer.from(line, 'utf8')
     const rawObjectId = stageBytes(pending.objects, lineBytes, {
       mimeType: 'application/jsonl-line',
       encoding: 'utf-8',
-    });
+    })
 
-    let parsed: CodexEnvelope | null = null;
-    let parserStatus: 'ok' | 'partial' | 'failed' = 'ok';
+    let parsed: CodexEnvelope | null = null
+    let parserStatus: 'ok' | 'partial' | 'failed' = 'ok'
     try {
-      parsed = JSON.parse(line) as CodexEnvelope;
+      parsed = JSON.parse(line) as CodexEnvelope
     } catch {
-      parserStatus = 'failed';
+      parserStatus = 'failed'
     }
 
     // The raw line already IS the JSON for `parserStatus === 'ok'`, so we
     // skip storing a re-serialized copy as `decoded_json_object_id`. Saves
     // ~half the CAS writes per file. Nothing reads it back later.
-    const decodedObjectId: ObjectId | null = null;
+    const decodedObjectId: ObjectId | null = null
 
-    const nativeId = parsed ? extractNativeId(parsed) : null;
+    const nativeId = parsed ? extractNativeId(parsed) : null
 
-    const rawRecordId = makeRawRecordId(sourceFileRow.source_file_id, ordinal, rawObjectId);
+    const rawRecordId = makeRawRecordId(sourceFileRow.source_file_id, ordinal, rawObjectId)
 
     pending.rawRecords.push({
       raw_record_id: rawRecordId,
@@ -502,27 +492,27 @@ async function prepareCodexFile(
       parser_status: parserStatus,
       confidence: parserStatus === 'ok' ? 'high' : 'low',
       import_batch_id: batch.batch_id,
-    });
+    })
 
-    if (!parsed) continue;
+    if (!parsed) continue
 
-    const ts = typeof parsed.timestamp === 'string' ? parsed.timestamp : null;
+    const ts = typeof parsed.timestamp === 'string' ? parsed.timestamp : null
     if (ts) {
-      if (!sessionStartTs || ts < sessionStartTs) sessionStartTs = ts;
-      if (!sessionEndTs || ts > sessionEndTs) sessionEndTs = ts;
+      if (!sessionStartTs || ts < sessionStartTs) sessionStartTs = ts
+      if (!sessionEndTs || ts > sessionEndTs) sessionEndTs = ts
     }
 
-    const type = typeof parsed.type === 'string' ? parsed.type : null;
-    const payload = (parsed.payload ?? {}) as Record<string, unknown>;
+    const type = typeof parsed.type === 'string' ? parsed.type : null
+    const payload = (parsed.payload ?? {}) as Record<string, unknown>
 
     if (type === 'session_meta') {
-      const meta = payload as CodexSessionMetaPayload;
-      const sourceSessionId = meta.id ?? path.basename(filePath, '.jsonl');
-      const sessionId = makeSessionId('codex', sourceSessionId);
+      const meta = payload as CodexSessionMetaPayload
+      const sourceSessionId = meta.id ?? path.basename(filePath, '.jsonl')
+      const sessionId = makeSessionId('codex', sourceSessionId)
 
       // First session_meta wins; later ones (rare) become operational events.
       if (!pending.session) {
-        const sub = parseSubagent(meta.source);
+        const sub = parseSubagent(meta.source)
         pending.session = {
           session_id: sessionId,
           source_session_id: sourceSessionId,
@@ -535,7 +525,7 @@ async function prepareCodexFile(
           cwd_initial: meta.cwd ?? null,
           git_branch_initial: meta.git?.branch ?? null,
           raw_record_id: rawRecordId,
-        };
+        }
         if (sub) {
           pending.edges.push({
             src_type: 'session',
@@ -546,16 +536,15 @@ async function prepareCodexFile(
             confidence: 'high',
             source: 'explicit',
             raw_record_id: rawRecordId,
-          });
+          })
         }
       }
-      continue;
+      continue
     }
 
     // From here on, we need a session_id. Ensure we have one (fallback if no
     // session_meta appeared yet).
-    const sessionId =
-      pending.session?.session_id ?? makeSessionId('codex', path.basename(filePath, '.jsonl'));
+    const sessionId = pending.session?.session_id ?? makeSessionId('codex', path.basename(filePath, '.jsonl'))
     if (!pending.session) {
       pending.session = {
         session_id: sessionId,
@@ -569,12 +558,12 @@ async function prepareCodexFile(
         cwd_initial: null,
         git_branch_initial: null,
         raw_record_id: null,
-      };
+      }
     }
 
     if (type === 'turn_context') {
-      const tc = payload as CodexTurnContextPayload;
-      const turnId = makeTurnId(sessionId, turnOrdinal, tc.turn_id ?? null);
+      const tc = payload as CodexTurnContextPayload
+      const turnId = makeTurnId(sessionId, turnOrdinal, tc.turn_id ?? null)
       const turn: PendingTurn = {
         turn_id: turnId,
         ordinal: turnOrdinal++,
@@ -586,20 +575,19 @@ async function prepareCodexFile(
         sandbox_policy: stringifyOrNull(tc.sandbox_policy),
         effort: tc.effort ?? null,
         raw_record_id: rawRecordId,
-      };
-      pending.turns.push(turn);
-      if (turn.model) {
-        if (!modelFirst) modelFirst = turn.model;
-        modelLast = turn.model;
       }
-      continue;
+      pending.turns.push(turn)
+      if (turn.model) {
+        if (!modelFirst) modelFirst = turn.model
+        modelLast = turn.model
+      }
+      continue
     }
 
-    const currentTurnId =
-      pending.turns.length > 0 ? pending.turns[pending.turns.length - 1]!.turn_id : null;
+    const currentTurnId = pending.turns.length > 0 ? pending.turns[pending.turns.length - 1]!.turn_id : null
 
     if (type === 'response_item') {
-      const ri = payload as CodexResponseItemPayload;
+      const ri = payload as CodexResponseItemPayload
       handleResponseItem(
         bundle,
         sessionId,
@@ -612,24 +600,14 @@ async function prepareCodexFile(
         () => messageOrdinal++,
         modelLast,
         pending,
-      );
-      continue;
+      )
+      continue
     }
 
     if (type === 'event_msg') {
-      const em = payload as CodexEventMsgPayload;
-      await handleEventMsg(
-        bundle,
-        sessionId,
-        currentTurnId,
-        rawRecordId,
-        ordinal,
-        ts,
-        em,
-        decodedObjectId,
-        pending,
-      );
-      continue;
+      const em = payload as CodexEventMsgPayload
+      await handleEventMsg(bundle, sessionId, currentTurnId, rawRecordId, ordinal, ts, em, decodedObjectId, pending)
+      continue
     }
 
     if (type === 'compacted') {
@@ -646,13 +624,13 @@ async function prepareCodexFile(
         payload_object_id: decodedObjectId,
         raw_record_id: rawRecordId,
         confidence: 'high',
-      });
-      continue;
+      })
+      continue
     }
 
     // Legacy top-level message / function_call etc.
     if (type === 'message') {
-      const ri = payload as CodexResponseItemPayload;
+      const ri = payload as CodexResponseItemPayload
       // Treat as if it were wrapped in response_item.
       handleResponseItem(
         bundle,
@@ -666,38 +644,35 @@ async function prepareCodexFile(
         () => messageOrdinal++,
         modelLast,
         pending,
-      );
+      )
     }
     // Anything else: keep as raw record, do not normalize. The presence in
     // raw_records is enough for re-processing later.
   }
 
   if (pending.session) {
-    pending.session.start_ts ??= sessionStartTs;
+    pending.session.start_ts ??= sessionStartTs
   }
 
   // Build search_docs from messages and tool calls already accumulated.
-  buildSearchDocs(pending);
+  buildSearchDocs(pending)
 
   // Persist the staged CAS objects to disk + the `objects` table BEFORE the
   // domain transaction. We do filesystem writes in parallel (better-sqlite3
   // transactions are synchronous, so this can't run inside `transactional`).
-  await flushPendingObjects(bundle, pending.objects);
+  await flushPendingObjects(bundle, pending.objects)
 
-  counts.raw_records = pending.rawRecords.length;
-  counts.sessions = pending.session ? 1 : 0;
-  counts.turns = pending.turns.length;
-  counts.events = pending.events.length;
-  counts.messages = pending.messages.length;
-  counts.content_blocks = pending.blocks.length;
-  counts.tool_calls = pending.toolCallsList.length;
-  counts.tool_results = pending.toolResults.length;
-  counts.artifacts = pending.artifacts.length;
-  counts.edges = pending.edges.length;
-  logger?.debug(
-    { path: filePath, source_file_id: sourceFileRow.source_file_id, counts },
-    'codex source file prepared',
-  );
+  counts.raw_records = pending.rawRecords.length
+  counts.sessions = pending.session ? 1 : 0
+  counts.turns = pending.turns.length
+  counts.events = pending.events.length
+  counts.messages = pending.messages.length
+  counts.content_blocks = pending.blocks.length
+  counts.tool_calls = pending.toolCallsList.length
+  counts.tool_results = pending.toolResults.length
+  counts.artifacts = pending.artifacts.length
+  counts.edges = pending.edges.length
+  logger?.debug({ path: filePath, source_file_id: sourceFileRow.source_file_id, counts }, 'codex source file prepared')
 
   return {
     prepared: {
@@ -706,7 +681,7 @@ async function prepareCodexFile(
       meta: { sessionEndTs, modelFirst, modelLast },
     },
     counts,
-  };
+  }
 }
 
 function applyCodexFile(bundle: Bundle, prep: CodexPrepared): void {
@@ -715,23 +690,23 @@ function applyCodexFile(bundle: Bundle, prep: CodexPrepared): void {
     modelFirst: prep.meta.modelFirst,
     modelLast: prep.meta.modelLast,
     sourceTool: 'codex',
-  });
+  })
 }
 
 interface PendingState {
-  rawRecords: PendingRawRecord[];
-  session: PendingSession | null;
-  turns: PendingTurn[];
-  events: PendingEvent[];
-  messages: PendingMessage[];
-  blocks: PendingBlock[];
-  toolCalls: Map<string, PendingToolCall>;
-  toolCallsList: PendingToolCall[];
-  toolResults: PendingToolResult[];
-  artifacts: PendingArtifact[];
-  edges: PendingEdge[];
-  searchDocs: PendingSearchDoc[];
-  objects: PendingObjects;
+  rawRecords: PendingRawRecord[]
+  session: PendingSession | null
+  turns: PendingTurn[]
+  events: PendingEvent[]
+  messages: PendingMessage[]
+  blocks: PendingBlock[]
+  toolCalls: Map<string, PendingToolCall>
+  toolCallsList: PendingToolCall[]
+  toolResults: PendingToolResult[]
+  artifacts: PendingArtifact[]
+  edges: PendingEdge[]
+  searchDocs: PendingSearchDoc[]
+  objects: PendingObjects
 }
 
 function handleResponseItem(
@@ -747,14 +722,14 @@ function handleResponseItem(
   currentModel: string | null,
   pending: PendingState,
 ): void {
-  const subtype = ri.type ?? null;
+  const subtype = ri.type ?? null
 
   if (subtype === 'message') {
-    const role = mapMessageRole(ri.role);
-    const msgOrdinal = nextMsgOrdinal();
-    const messageId = makeMessageId(sessionId, msgOrdinal, null);
+    const role = mapMessageRole(ri.role)
+    const msgOrdinal = nextMsgOrdinal()
+    const messageId = makeMessageId(sessionId, msgOrdinal, null)
 
-    const eventId = makeEventId(sessionId, ordinal, 'message');
+    const eventId = makeEventId(sessionId, ordinal, 'message')
     pending.events.push({
       event_id: eventId,
       ordinal,
@@ -768,7 +743,7 @@ function handleResponseItem(
       payload_object_id: payloadObjectId,
       raw_record_id: rawRecordId,
       confidence: 'high',
-    });
+    })
 
     pending.messages.push({
       message_id: messageId,
@@ -780,14 +755,14 @@ function handleResponseItem(
       timestamp: ts,
       ordinal: msgOrdinal,
       raw_record_id: rawRecordId,
-    });
+    })
 
-    const contentItems = Array.isArray(ri.content) ? (ri.content as CodexContentItem[]) : [];
+    const contentItems = Array.isArray(ri.content) ? (ri.content as CodexContentItem[]) : []
     for (let bi = 0; bi < contentItems.length; bi++) {
-      const item = contentItems[bi];
-      if (!item) continue;
-      const text = typeof item.text === 'string' ? item.text : null;
-      const blockType = item.type ?? 'text';
+      const item = contentItems[bi]
+      if (!item) continue
+      const text = typeof item.text === 'string' ? item.text : null
+      const blockType = item.type ?? 'text'
       pending.blocks.push({
         block_id: blockId(messageId, bi),
         message_id: messageId,
@@ -797,20 +772,20 @@ function handleResponseItem(
         text_object_id: null,
         text_inline: text,
         raw_record_id: rawRecordId,
-      });
+      })
     }
-    return;
+    return
   }
 
   if (subtype === 'function_call') {
-    const sourceCallId = typeof ri.call_id === 'string' ? ri.call_id : null;
-    const toolName = typeof ri.name === 'string' ? ri.name : 'unknown';
-    const toolCallId = makeToolCallId(sessionId, sourceCallId ?? `${ordinal}`);
-    const argsObjectId = ri.arguments != null ? null : null; // keep small inline — see below
-    const argsText = stringifyOrNull(ri.arguments);
-    const command = inferCommandFromArgs(toolName, ri.arguments);
+    const sourceCallId = typeof ri.call_id === 'string' ? ri.call_id : null
+    const toolName = typeof ri.name === 'string' ? ri.name : 'unknown'
+    const toolCallId = makeToolCallId(sessionId, sourceCallId ?? `${ordinal}`)
+    const argsObjectId = ri.arguments != null ? null : null // keep small inline — see below
+    const argsText = stringifyOrNull(ri.arguments)
+    const command = inferCommandFromArgs(toolName, ri.arguments)
 
-    const eventId = makeEventId(sessionId, ordinal, 'tool_call');
+    const eventId = makeEventId(sessionId, ordinal, 'tool_call')
     pending.events.push({
       event_id: eventId,
       ordinal,
@@ -824,7 +799,7 @@ function handleResponseItem(
       payload_object_id: payloadObjectId,
       raw_record_id: rawRecordId,
       confidence: 'high',
-    });
+    })
 
     const call: PendingToolCall = {
       tool_call_id: toolCallId,
@@ -842,19 +817,19 @@ function handleResponseItem(
       timestamp_start: ts,
       status: 'started',
       raw_record_id: rawRecordId,
-    };
-    if (sourceCallId) pending.toolCalls.set(sourceCallId, call);
-    pending.toolCallsList.push(call);
-    void argsText;
-    return;
+    }
+    if (sourceCallId) pending.toolCalls.set(sourceCallId, call)
+    pending.toolCallsList.push(call)
+    void argsText
+    return
   }
 
   if (subtype === 'function_call_output') {
-    const sourceCallId = typeof ri.call_id === 'string' ? ri.call_id : null;
-    const outputText = stringifyOrNull(ri.output) ?? '';
-    const isError = looksLikeError(outputText) ? 1 : 0;
+    const sourceCallId = typeof ri.call_id === 'string' ? ri.call_id : null
+    const outputText = stringifyOrNull(ri.output) ?? ''
+    const isError = looksLikeError(outputText) ? 1 : 0
 
-    const eventId = makeEventId(sessionId, ordinal, 'tool_result');
+    const eventId = makeEventId(sessionId, ordinal, 'tool_result')
     pending.events.push({
       event_id: eventId,
       ordinal,
@@ -868,9 +843,9 @@ function handleResponseItem(
       payload_object_id: payloadObjectId,
       raw_record_id: rawRecordId,
       confidence: 'high',
-    });
+    })
 
-    const matchedCall = sourceCallId ? pending.toolCalls.get(sourceCallId) : undefined;
+    const matchedCall = sourceCallId ? pending.toolCalls.get(sourceCallId) : undefined
     pending.toolResults.push({
       tool_result_id: makeToolResultId(sessionId, sourceCallId ?? `${ordinal}`),
       tool_call_id: matchedCall?.tool_call_id ?? null,
@@ -886,17 +861,16 @@ function handleResponseItem(
       output_object_id: null, // small previews only at this stage
       preview: outputText.slice(0, PREVIEW_MAX),
       raw_record_id: rawRecordId,
-    });
+    })
     if (matchedCall) {
-      matchedCall.status =
-        matchedCall.status === 'started' ? (isError ? 'error' : 'success') : matchedCall.status;
+      matchedCall.status = matchedCall.status === 'started' ? (isError ? 'error' : 'success') : matchedCall.status
     }
-    return;
+    return
   }
 
   // reasoning, custom_tool_*, web_search_call, ghost_snapshot, etc.: keep as
   // operational events for now. Raw is preserved either way.
-  const eventId = makeEventId(sessionId, ordinal, `response_item.${subtype ?? 'unknown'}`);
+  const eventId = makeEventId(sessionId, ordinal, `response_item.${subtype ?? 'unknown'}`)
   pending.events.push({
     event_id: eventId,
     ordinal,
@@ -910,7 +884,7 @@ function handleResponseItem(
     payload_object_id: payloadObjectId,
     raw_record_id: rawRecordId,
     confidence: 'high',
-  });
+  })
 }
 
 async function handleEventMsg(
@@ -924,24 +898,17 @@ async function handleEventMsg(
   payloadObjectId: ObjectId | null,
   pending: PendingState,
 ): Promise<void> {
-  const subtype = em.type ?? 'unknown';
+  const subtype = em.type ?? 'unknown'
 
   if (subtype === 'exec_command_end') {
-    const sourceCallId = em.call_id ?? null;
-    const stdoutId = em.stdout
-      ? stageText(pending.objects, em.stdout, { mimeType: 'text/plain' })
-      : null;
-    const stderrId = em.stderr
-      ? stageText(pending.objects, em.stderr, { mimeType: 'text/plain' })
-      : null;
-    const preview = (em.formatted_output ?? em.aggregated_output ?? em.stdout ?? '').slice(
-      0,
-      PREVIEW_MAX,
-    );
-    const exitCode = typeof em.exit_code === 'number' ? em.exit_code : null;
-    const isError = exitCode != null && exitCode !== 0 ? 1 : 0;
+    const sourceCallId = em.call_id ?? null
+    const stdoutId = em.stdout ? stageText(pending.objects, em.stdout, { mimeType: 'text/plain' }) : null
+    const stderrId = em.stderr ? stageText(pending.objects, em.stderr, { mimeType: 'text/plain' }) : null
+    const preview = (em.formatted_output ?? em.aggregated_output ?? em.stdout ?? '').slice(0, PREVIEW_MAX)
+    const exitCode = typeof em.exit_code === 'number' ? em.exit_code : null
+    const isError = exitCode != null && exitCode !== 0 ? 1 : 0
 
-    const eventId = makeEventId(sessionId, ordinal, 'exec_command_end');
+    const eventId = makeEventId(sessionId, ordinal, 'exec_command_end')
     pending.events.push({
       event_id: eventId,
       ordinal,
@@ -955,9 +922,9 @@ async function handleEventMsg(
       payload_object_id: payloadObjectId,
       raw_record_id: rawRecordId,
       confidence: 'high',
-    });
+    })
 
-    const matchedCall = sourceCallId ? pending.toolCalls.get(sourceCallId) : undefined;
+    const matchedCall = sourceCallId ? pending.toolCalls.get(sourceCallId) : undefined
     pending.toolResults.push({
       tool_result_id: makeToolResultId(sessionId, `${sourceCallId ?? ordinal}::exec_command_end`),
       tool_call_id: matchedCall?.tool_call_id ?? null,
@@ -973,16 +940,16 @@ async function handleEventMsg(
       output_object_id: null,
       preview,
       raw_record_id: rawRecordId,
-    });
+    })
     if (matchedCall) {
-      matchedCall.status = isError ? 'error' : 'success';
-      if (em.cwd && !matchedCall.cwd) matchedCall.cwd = em.cwd;
+      matchedCall.status = isError ? 'error' : 'success'
+      if (em.cwd && !matchedCall.cwd) matchedCall.cwd = em.cwd
     }
-    return;
+    return
   }
 
   if (subtype === 'patch_apply_end') {
-    const eventId = makeEventId(sessionId, ordinal, 'patch_apply_end');
+    const eventId = makeEventId(sessionId, ordinal, 'patch_apply_end')
     pending.events.push({
       event_id: eventId,
       ordinal,
@@ -996,7 +963,7 @@ async function handleEventMsg(
       payload_object_id: payloadObjectId,
       raw_record_id: rawRecordId,
       confidence: 'high',
-    });
+    })
     if (em.changes && typeof em.changes === 'object') {
       for (const filePath of Object.keys(em.changes)) {
         pending.artifacts.push({
@@ -1010,15 +977,15 @@ async function handleEventMsg(
           size_bytes: 0,
           created_ts: ts,
           raw_record_id: rawRecordId,
-        });
+        })
       }
     }
-    return;
+    return
   }
 
   if (subtype === 'mcp_tool_call_end') {
-    const sourceCallId = em.call_id ?? null;
-    const eventId = makeEventId(sessionId, ordinal, 'mcp_tool_call_end');
+    const sourceCallId = em.call_id ?? null
+    const eventId = makeEventId(sessionId, ordinal, 'mcp_tool_call_end')
     pending.events.push({
       event_id: eventId,
       ordinal,
@@ -1032,9 +999,9 @@ async function handleEventMsg(
       payload_object_id: payloadObjectId,
       raw_record_id: rawRecordId,
       confidence: 'high',
-    });
-    const preview = stringifyOrNull(em.result)?.slice(0, PREVIEW_MAX) ?? null;
-    const matchedCall = sourceCallId ? pending.toolCalls.get(sourceCallId) : undefined;
+    })
+    const preview = stringifyOrNull(em.result)?.slice(0, PREVIEW_MAX) ?? null
+    const matchedCall = sourceCallId ? pending.toolCalls.get(sourceCallId) : undefined
     pending.toolResults.push({
       tool_result_id: makeToolResultId(sessionId, `${sourceCallId ?? ordinal}::mcp_tool_call_end`),
       tool_call_id: matchedCall?.tool_call_id ?? null,
@@ -1050,8 +1017,8 @@ async function handleEventMsg(
       output_object_id: null,
       preview,
       raw_record_id: rawRecordId,
-    });
-    return;
+    })
+    return
   }
 
   if (subtype === 'context_compacted') {
@@ -1068,8 +1035,8 @@ async function handleEventMsg(
       payload_object_id: payloadObjectId,
       raw_record_id: rawRecordId,
       confidence: 'high',
-    });
-    return;
+    })
+    return
   }
 
   // user_message / agent_message / task_started / task_complete / turn_aborted /
@@ -1087,41 +1054,41 @@ async function handleEventMsg(
     payload_object_id: payloadObjectId,
     raw_record_id: rawRecordId,
     confidence: 'high',
-  });
+  })
 }
 
 // ---- helpers -------------------------------------------------------------
 
 function extractNativeId(env: CodexEnvelope): string | null {
-  const p = env.payload as Record<string, unknown> | undefined;
-  if (!p) return null;
-  if (typeof p.id === 'string') return p.id;
-  if (typeof p.call_id === 'string') return p.call_id;
-  if (typeof p.turn_id === 'string') return p.turn_id;
-  return null;
+  const p = env.payload as Record<string, unknown> | undefined
+  if (!p) return null
+  if (typeof p.id === 'string') return p.id
+  if (typeof p.call_id === 'string') return p.call_id
+  if (typeof p.turn_id === 'string') return p.turn_id
+  return null
 }
 
 function mapMessageRole(role: unknown): PendingMessage['role'] {
   switch (role) {
     case 'user':
-      return 'user';
+      return 'user'
     case 'assistant':
-      return 'assistant';
+      return 'assistant'
     case 'tool':
-      return 'tool';
+      return 'tool'
     case 'developer':
-      return 'developer';
+      return 'developer'
     case 'system':
       // Codex 'system' content is real system instructions — map to system_prompt.
-      return 'system_prompt';
+      return 'system_prompt'
     default:
-      return 'operational';
+      return 'operational'
   }
 }
 
 function canonicalToolType(toolName: string): string {
-  const lower = toolName.toLowerCase();
-  if (lower.startsWith('mcp__')) return 'mcp';
+  const lower = toolName.toLowerCase()
+  if (lower.startsWith('mcp__')) return 'mcp'
   if (
     lower === 'shell' ||
     lower === 'exec_command' ||
@@ -1130,122 +1097,119 @@ function canonicalToolType(toolName: string): string {
     lower === 'unified_exec' ||
     lower === 'run_terminal_cmd'
   ) {
-    return 'shell';
+    return 'shell'
   }
-  if (lower === 'read_file' || lower === 'readfile') return 'read_file';
-  if (lower === 'write_file' || lower === 'writefile') return 'write_file';
-  if (lower === 'apply_patch' || lower === 'applypatch' || lower === 'patch') return 'patch';
+  if (lower === 'read_file' || lower === 'readfile') return 'read_file'
+  if (lower === 'write_file' || lower === 'writefile') return 'write_file'
+  if (lower === 'apply_patch' || lower === 'applypatch' || lower === 'patch') return 'patch'
   if (lower === 'web_search' || lower === 'websearch' || lower === 'web_search_call') {
-    return 'web_search';
+    return 'web_search'
   }
-  if (lower === 'agent' || lower === 'subagent' || lower === 'collab_spawn') return 'subagent';
-  return 'other';
+  if (lower === 'agent' || lower === 'subagent' || lower === 'collab_spawn') return 'subagent'
+  return 'other'
 }
 
 function inferCommandFromArgs(toolName: string, args: unknown): string | null {
   if (!args || typeof args !== 'object') {
     if (typeof args === 'string') {
       try {
-        const parsed = JSON.parse(args) as Record<string, unknown>;
-        return inferCommandFromArgs(toolName, parsed);
+        const parsed = JSON.parse(args) as Record<string, unknown>
+        return inferCommandFromArgs(toolName, parsed)
       } catch {
-        return null;
+        return null
       }
     }
-    return null;
+    return null
   }
-  const obj = args as Record<string, unknown>;
-  if (typeof obj.command === 'string') return obj.command;
+  const obj = args as Record<string, unknown>
+  if (typeof obj.command === 'string') return obj.command
   if (Array.isArray(obj.command)) {
-    return obj.command.map(String).join(' ');
+    return obj.command.map(String).join(' ')
   }
-  return null;
+  return null
 }
 
 function inferPathFromArgs(args: unknown): string | null {
   if (!args || typeof args !== 'object') {
     if (typeof args === 'string') {
       try {
-        const parsed = JSON.parse(args) as Record<string, unknown>;
-        return inferPathFromArgs(parsed);
+        const parsed = JSON.parse(args) as Record<string, unknown>
+        return inferPathFromArgs(parsed)
       } catch {
-        return null;
+        return null
       }
     }
-    return null;
+    return null
   }
-  const obj = args as Record<string, unknown>;
-  if (typeof obj.file_path === 'string') return obj.file_path;
-  if (typeof obj.path === 'string') return obj.path;
-  if (typeof obj.absolute_path === 'string') return obj.absolute_path;
-  return null;
+  const obj = args as Record<string, unknown>
+  if (typeof obj.file_path === 'string') return obj.file_path
+  if (typeof obj.path === 'string') return obj.path
+  if (typeof obj.absolute_path === 'string') return obj.absolute_path
+  return null
 }
 
 function looksLikeError(text: string): boolean {
-  return /\b(error|exception|failed|stack trace)\b/i.test(text);
+  return /\b(error|exception|failed|stack trace)\b/i.test(text)
 }
 
 function durationMs(d: CodexEventMsgPayload['duration']): number | null {
-  if (!d || typeof d !== 'object') return null;
-  const secs = typeof d.secs === 'number' ? d.secs : 0;
-  const nanos = typeof d.nanos === 'number' ? d.nanos : 0;
-  return secs * 1000 + Math.floor(nanos / 1e6);
+  if (!d || typeof d !== 'object') return null
+  const secs = typeof d.secs === 'number' ? d.secs : 0
+  const nanos = typeof d.nanos === 'number' ? d.nanos : 0
+  return secs * 1000 + Math.floor(nanos / 1e6)
 }
 
 function stringifyOrNull(value: unknown): string | null {
-  if (value == null) return null;
-  if (typeof value === 'string') return value;
+  if (value == null) return null
+  if (typeof value === 'string') return value
   try {
-    return JSON.stringify(value);
+    return JSON.stringify(value)
   } catch {
-    return null;
+    return null
   }
 }
 
 function parseSubagent(
   source: unknown,
 ): { parent_thread_id: string; agent_role?: string; agent_nickname?: string } | null {
-  if (!source || typeof source !== 'object') return null;
-  const obj = source as Record<string, unknown>;
-  const sub = obj.subagent;
-  if (!sub || typeof sub !== 'object') return null;
-  const ts = (sub as Record<string, unknown>).thread_spawn;
-  if (!ts || typeof ts !== 'object') return null;
-  const tso = ts as Record<string, unknown>;
-  const parent = tso.parent_thread_id;
-  if (typeof parent !== 'string') return null;
+  if (!source || typeof source !== 'object') return null
+  const obj = source as Record<string, unknown>
+  const sub = obj.subagent
+  if (!sub || typeof sub !== 'object') return null
+  const ts = (sub as Record<string, unknown>).thread_spawn
+  if (!ts || typeof ts !== 'object') return null
+  const tso = ts as Record<string, unknown>
+  const parent = tso.parent_thread_id
+  if (typeof parent !== 'string') return null
   return {
     parent_thread_id: parent,
     agent_role: typeof tso.agent_role === 'string' ? tso.agent_role : undefined,
     agent_nickname: typeof tso.agent_nickname === 'string' ? tso.agent_nickname : undefined,
-  };
+  }
 }
 
 function buildSearchDocs(pending: PendingState): void {
-  const sessionId = pending.session?.session_id ?? null;
-  if (!sessionId) return;
+  const sessionId = pending.session?.session_id ?? null
+  if (!sessionId) return
 
   // Group blocks by message for indexing concatenated text.
-  const blocksByMsg = new Map<string, PendingBlock[]>();
+  const blocksByMsg = new Map<string, PendingBlock[]>()
   for (const b of pending.blocks) {
-    if (!b.message_id) continue;
-    const list = blocksByMsg.get(b.message_id) ?? [];
-    list.push(b);
-    blocksByMsg.set(b.message_id, list);
+    if (!b.message_id) continue
+    const list = blocksByMsg.get(b.message_id) ?? []
+    list.push(b)
+    blocksByMsg.set(b.message_id, list)
   }
 
   for (const m of pending.messages) {
     const text = (blocksByMsg.get(m.message_id) ?? [])
       .filter(
         (b) =>
-          b.text_inline &&
-          (b.block_type === 'input_text' ||
-            b.block_type === 'output_text' ||
-            b.block_type === 'text'),
+          b.text_inline && (b.block_type === 'input_text' || b.block_type === 'output_text' || b.block_type === 'text'),
       )
       .map((b) => b.text_inline as string)
-      .join('\n');
-    if (!text || text.length === 0) continue;
+      .join('\n')
+    if (!text || text.length === 0) continue
     pending.searchDocs.push({
       doc_id: `msg:${m.message_id}`,
       entity_type: 'message',
@@ -1256,7 +1220,7 @@ function buildSearchDocs(pending: PendingState): void {
       canonical_tool_type: null,
       field_kind: m.role === 'user' ? 'user_prompt' : 'assistant_text',
       text,
-    });
+    })
   }
 
   for (const c of pending.toolCallsList) {
@@ -1271,7 +1235,7 @@ function buildSearchDocs(pending: PendingState): void {
         canonical_tool_type: c.canonical_tool_type,
         field_kind: 'command',
         text: c.command,
-      });
+      })
     }
     if (c.path) {
       pending.searchDocs.push({
@@ -1284,7 +1248,7 @@ function buildSearchDocs(pending: PendingState): void {
         canonical_tool_type: c.canonical_tool_type,
         field_kind: 'file_path',
         text: c.path,
-      });
+      })
     }
   }
 
@@ -1300,7 +1264,7 @@ function buildSearchDocs(pending: PendingState): void {
         canonical_tool_type: null,
         field_kind: r.is_error ? 'error' : 'command_output_preview',
         text: r.preview,
-      });
+      })
     }
   }
 }
@@ -1309,13 +1273,13 @@ function flushPending(
   bundle: Bundle,
   pending: PendingState,
   meta: {
-    sessionEndTs: string | null;
-    modelFirst: string | null;
-    modelLast: string | null;
-    sourceTool: 'codex';
+    sessionEndTs: string | null
+    modelFirst: string | null
+    modelLast: string | null
+    sourceTool: 'codex'
   },
 ): void {
-  if (!pending.session) return;
+  if (!pending.session) return
 
   // Order matters under SQLite's immediate FK checking: rows must be inserted
   // before any other row references them. raw_records → sessions →
@@ -1332,7 +1296,7 @@ function flushPending(
        line_no, json_pointer, native_id, raw_object_id, decoded_json_object_id,
        parser_status, confidence, import_batch_id
      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  );
+  )
   for (const r of pending.rawRecords) {
     insertRaw.run(
       r.raw_record_id,
@@ -1348,7 +1312,7 @@ function flushPending(
       r.parser_status,
       r.confidence,
       r.import_batch_id,
-    );
+    )
   }
 
   const insertSession = prepare(
@@ -1359,7 +1323,7 @@ function flushPending(
        start_ts, end_ts, cwd_initial, git_branch_initial,
        model_first, model_last, status, timeline_confidence, raw_record_id
      ) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'high', ?)`,
-  );
+  )
   insertSession.run(
     pending.session.session_id,
     meta.sourceTool,
@@ -1378,7 +1342,7 @@ function flushPending(
     meta.modelLast,
     'completed',
     pending.session.raw_record_id,
-  );
+  )
 
   const insertTurn = prepare(
     bundle.db,
@@ -1386,7 +1350,7 @@ function flushPending(
        turn_id, session_id, source_turn_id, ordinal, start_ts, end_ts,
        model, cwd, git_branch, approval_policy, sandbox_policy, effort, raw_record_id
      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  );
+  )
   for (const t of pending.turns) {
     insertTurn.run(
       t.turn_id,
@@ -1402,7 +1366,7 @@ function flushPending(
       t.sandbox_policy,
       t.effort,
       t.raw_record_id,
-    );
+    )
   }
 
   const insertEvent = prepare(
@@ -1412,7 +1376,7 @@ function flushPending(
        subtype, timestamp, ordinal, actor, payload_object_id, raw_record_id,
        confidence, is_derived
      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
-  );
+  )
   for (const e of pending.events) {
     insertEvent.run(
       e.event_id,
@@ -1428,7 +1392,7 @@ function flushPending(
       e.payload_object_id,
       e.raw_record_id,
       e.confidence,
-    );
+    )
   }
 
   const insertMessage = prepare(
@@ -1438,7 +1402,7 @@ function flushPending(
        author_name, model, timestamp, ordinal, parent_message_id, request_id,
        status, raw_record_id
      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  );
+  )
   for (const m of pending.messages) {
     insertMessage.run(
       m.message_id,
@@ -1455,7 +1419,7 @@ function flushPending(
       null,
       null,
       m.raw_record_id,
-    );
+    )
   }
 
   const insertBlock = prepare(
@@ -1465,7 +1429,7 @@ function flushPending(
        text_object_id, text_inline, mime_type, token_count, is_error,
        is_redacted, visibility, raw_record_id
      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'default', ?)`,
-  );
+  )
   for (const b of pending.blocks) {
     insertBlock.run(
       b.block_id,
@@ -1481,7 +1445,7 @@ function flushPending(
       0,
       0,
       b.raw_record_id,
-    );
+    )
   }
 
   const insertToolCall = prepare(
@@ -1492,7 +1456,7 @@ function flushPending(
        command, cwd, path, query, timestamp_start, timestamp_end, status,
        raw_record_id
      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  );
+  )
   for (const c of pending.toolCallsList) {
     insertToolCall.run(
       c.tool_call_id,
@@ -1512,7 +1476,7 @@ function flushPending(
       null,
       c.status,
       c.raw_record_id,
-    );
+    )
   }
 
   const insertToolResult = prepare(
@@ -1522,7 +1486,7 @@ function flushPending(
        source_call_id, status, is_error, exit_code, duration_ms,
        stdout_object_id, stderr_object_id, output_object_id, preview, raw_record_id
      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  );
+  )
   for (const r of pending.toolResults) {
     insertToolResult.run(
       r.tool_result_id,
@@ -1540,7 +1504,7 @@ function flushPending(
       r.output_object_id,
       r.preview,
       r.raw_record_id,
-    );
+    )
   }
 
   const insertArtifact = prepare(
@@ -1550,7 +1514,7 @@ function flushPending(
        logical_path, object_id, text_object_id, mime_type, size_bytes,
        created_ts, raw_record_id
      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  );
+  )
   for (const a of pending.artifacts) {
     insertArtifact.run(
       a.artifact_id,
@@ -1566,7 +1530,7 @@ function flushPending(
       a.size_bytes,
       a.created_ts,
       a.raw_record_id,
-    );
+    )
   }
 
   const insertEdge = prepare(
@@ -1575,18 +1539,9 @@ function flushPending(
        src_type, src_id, dst_type, dst_id, edge_type, confidence, source,
        raw_record_id, metadata_object_id
      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
-  );
+  )
   for (const e of pending.edges) {
-    insertEdge.run(
-      e.src_type,
-      e.src_id,
-      e.dst_type,
-      e.dst_id,
-      e.edge_type,
-      e.confidence,
-      e.source,
-      e.raw_record_id,
-    );
+    insertEdge.run(e.src_type, e.src_id, e.dst_type, e.dst_id, e.edge_type, e.confidence, e.source, e.raw_record_id)
   }
 
   const insertSearch = prepare(
@@ -1595,7 +1550,7 @@ function flushPending(
        doc_id, entity_type, entity_id, session_id, project_id, timestamp,
        role, tool_name, canonical_tool_type, field_kind, text
      ) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)`,
-  );
+  )
   for (const d of pending.searchDocs) {
     insertSearch.run(
       d.doc_id,
@@ -1608,6 +1563,6 @@ function flushPending(
       d.canonical_tool_type,
       d.field_kind,
       d.text,
-    );
+    )
   }
 }

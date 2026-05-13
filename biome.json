@@ -2,18 +2,13 @@
   "$schema": "https://biomejs.dev/schemas/1.9.4/schema.json",
   "extends": ["./node_modules/@c3-oss/config-biome/biome.json"],
   "files": {
-    "ignore": ["dist/**", "coverage/**", "node_modules/**", ".devbox/**", "bench/**"]
-  },
-  "formatter": {
-    "indentWidth": 2,
-    "lineWidth": 100
-  },
-  "javascript": {
-    "formatter": {
-      "semicolons": "always",
-      "trailingCommas": "all",
-      "lineWidth": 100
-    }
+    "ignore": [
+      "dist/**",
+      "coverage/**",
+      "node_modules/**",
+      ".devbox/**",
+      "bench/**"
+    ]
   },
   "linter": {
     "rules": {

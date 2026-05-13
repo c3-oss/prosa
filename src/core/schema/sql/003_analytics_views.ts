@@ -268,4 +268,4 @@ SELECT s.source_tool,
   LEFT JOIN tool_results tr ON tr.session_id = s.session_id
   LEFT JOIN search_docs sd ON sd.session_id = s.session_id
  GROUP BY s.source_tool, s.project_id, p.display_name, s.cwd_initial, p.canonical_path;
-`;
+`

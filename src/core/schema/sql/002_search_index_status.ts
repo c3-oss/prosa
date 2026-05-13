@@ -13,4 +13,4 @@ INSERT OR IGNORE INTO search_index_status (
 ) VALUES
   ('fts5', 'ready', 0, 0, strftime('%Y-%m-%dT%H:%M:%fZ','now'), NULL),
   ('tantivy', 'missing', 0, 0, strftime('%Y-%m-%dT%H:%M:%fZ','now'), NULL);
-`;
+`

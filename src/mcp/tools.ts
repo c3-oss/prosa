@@ -1,35 +1,22 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { z } from 'zod';
-import { type Bundle, closeBundle, openOrInitBundle } from '../core/bundle.js';
-import { getText } from '../core/cas/index.js';
-import { SOURCE_TOOLS } from '../core/domain/types.js';
-import { getErrorMessage } from '../core/errors.js';
-import {
-  ANALYTICS_REPORTS,
-  type AnalyticsReportFilters,
-  runAnalyticsReportFromBundle,
-} from '../services/analytics.js';
-import {
-  COMPILE_PROVIDERS,
-  exportCompileParquet,
-  getCompileProvider,
-  runCompileImports,
-} from '../services/compile.js';
-import { exportSessionMarkdown } from '../services/export/markdown.js';
-import { type SearchEngine, getSearchIndexStatuses } from '../services/indexing.js';
-import { searchFullText } from '../services/search.js';
-import { getSession, listSessions } from '../services/sessions.js';
-import { listToolCalls } from '../services/tool_calls.js';
-import {
-  AUDIT_TOOL_FAILURES_PROMPT,
-  FIND_FILE_HISTORY_PROMPT,
-  INVESTIGATE_PRIOR_WORK_PROMPT,
-} from './guidance.js';
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { z } from 'zod'
+import { type Bundle, closeBundle, openOrInitBundle } from '../core/bundle.js'
+import { getText } from '../core/cas/index.js'
+import { SOURCE_TOOLS } from '../core/domain/types.js'
+import { getErrorMessage } from '../core/errors.js'
+import { ANALYTICS_REPORTS, type AnalyticsReportFilters, runAnalyticsReportFromBundle } from '../services/analytics.js'
+import { COMPILE_PROVIDERS, exportCompileParquet, getCompileProvider, runCompileImports } from '../services/compile.js'
+import { exportSessionMarkdown } from '../services/export/markdown.js'
+import { type SearchEngine, getSearchIndexStatuses } from '../services/indexing.js'
+import { searchFullText } from '../services/search.js'
+import { getSession, listSessions } from '../services/sessions.js'
+import { listToolCalls } from '../services/tool_calls.js'
+import { AUDIT_TOOL_FAILURES_PROMPT, FIND_FILE_HISTORY_PROMPT, INVESTIGATE_PRIOR_WORK_PROMPT } from './guidance.js'
 
 export interface ProsaToolOptions {
-  searchEngine?: SearchEngine;
-  storePath?: string;
-  ensureStore?: boolean;
+  searchEngine?: SearchEngine
+  storePath?: string
+  ensureStore?: boolean
 }
 
 const CANONICAL_TOOL_TYPES = [
@@ -43,7 +30,7 @@ const CANONICAL_TOOL_TYPES = [
   'subagent',
   'patch',
   'other',
-] as const;
+] as const
 
 const FIELD_KINDS = [
   'message_text',
@@ -58,21 +45,17 @@ const FIELD_KINDS = [
   'artifact_text',
   'tool_args',
   'tool_result',
-] as const;
+] as const
 
 /**
  * Register the six prosa MCP tools on `server`. Five are read-only; `compile`
  * is dual-mode (no args = bundle status snapshot, with args = mutating import).
  */
-export function registerProsaTools(
-  server: McpServer,
-  bundle: Bundle,
-  options: ProsaToolOptions = {},
-): void {
-  const searchEngine = options.searchEngine ?? 'fts5';
-  const storePath = options.storePath ?? bundle.path;
-  const ensureStore = options.ensureStore ?? false;
-  registerProsaPrompts(server);
+export function registerProsaTools(server: McpServer, bundle: Bundle, options: ProsaToolOptions = {}): void {
+  const searchEngine = options.searchEngine ?? 'fts5'
+  const storePath = options.storePath ?? bundle.path
+  const ensureStore = options.ensureStore ?? false
+  registerProsaPrompts(server)
 
   server.registerTool(
     'search',
@@ -94,14 +77,14 @@ export function registerProsaTools(
     },
     async ({ query, engine, field_kind, limit, raw }) =>
       withToolBundle(bundle, storePath, ensureStore, (activeBundle) => {
-        const selectedEngine = engine ?? searchEngine;
+        const selectedEngine = engine ?? searchEngine
         const hits = searchFullText(activeBundle, {
           query,
           limit: limit ?? 50,
           raw,
           engine: selectedEngine,
-        });
-        const filtered = field_kind ? hits.filter((hit) => hit.field_kind === field_kind) : hits;
+        })
+        const filtered = field_kind ? hits.filter((hit) => hit.field_kind === field_kind) : hits
         return {
           content: [
             {
@@ -119,9 +102,9 @@ export function registerProsaTools(
               ),
             },
           ],
-        };
+        }
       }),
-  );
+  )
 
   server.registerTool(
     'sessions',
@@ -147,37 +130,37 @@ export function registerProsaTools(
             sinceIso: since,
             untilIso: until,
             limit: limit ?? 50,
-          });
+          })
           return {
             content: [{ type: 'text', text: JSON.stringify(rows, null, 2) }],
-          };
+          }
         }
 
         if (format === 'markdown') {
           try {
-            const md = await exportSessionMarkdown(activeBundle, session_id);
-            return { content: [{ type: 'text', text: md }] };
+            const md = await exportSessionMarkdown(activeBundle, session_id)
+            return { content: [{ type: 'text', text: md }] }
           } catch (error) {
             return {
               content: [{ type: 'text', text: getErrorMessage(error) }],
               isError: true,
-            };
+            }
           }
         }
 
-        const detail = getSession(activeBundle, session_id);
+        const detail = getSession(activeBundle, session_id)
         if (!detail) {
           return {
             content: [{ type: 'text', text: `session not found: ${session_id}` }],
             isError: true,
-          };
+          }
         }
-        const payload = format === 'summary' ? { session: detail.session } : detail;
+        const payload = format === 'summary' ? { session: detail.session } : detail
         return {
           content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }],
-        };
+        }
       }),
-  );
+  )
 
   server.registerTool(
     'tool_calls',
@@ -212,12 +195,12 @@ export function registerProsaTools(
           sinceIso: input.since,
           untilIso: input.until,
           limit: input.limit ?? 100,
-        });
+        })
         return {
           content: [{ type: 'text', text: JSON.stringify(rows, null, 2) }],
-        };
+        }
       }),
-  );
+  )
 
   server.registerTool(
     'analytics',
@@ -231,30 +214,15 @@ export function registerProsaTools(
         since: z.string().optional().describe('ISO timestamp lower bound (inclusive)'),
         until: z.string().optional().describe('ISO timestamp upper bound (exclusive)'),
         limit: z.number().int().min(1).max(500).optional().default(50),
-        session_id: z
-          .string()
-          .min(1)
-          .optional()
-          .describe('Drill-down filter (applies to `sessions` report).'),
+        session_id: z.string().min(1).optional().describe('Drill-down filter (applies to `sessions` report).'),
         source_path_substring: z
           .string()
           .min(1)
           .optional()
           .describe('Filter `sessions` rows by imported source file path substring.'),
-        project: z
-          .string()
-          .min(1)
-          .optional()
-          .describe('Filter by project id, name, or path substring.'),
-        tool_name: z
-          .string()
-          .min(1)
-          .optional()
-          .describe('Filter `tools`/`errors` rows by exact tool name.'),
-        canonical_type: z
-          .enum(CANONICAL_TOOL_TYPES)
-          .optional()
-          .describe('Filter `tools` rows by canonical tool type.'),
+        project: z.string().min(1).optional().describe('Filter by project id, name, or path substring.'),
+        tool_name: z.string().min(1).optional().describe('Filter `tools`/`errors` rows by exact tool name.'),
+        canonical_type: z.enum(CANONICAL_TOOL_TYPES).optional().describe('Filter `tools` rows by canonical tool type.'),
         errors_only: z.boolean().optional().describe('`tools` report: only error rows.'),
         category: z
           .string()
@@ -280,33 +248,29 @@ export function registerProsaTools(
           errorsOnly: input.errors_only,
           category: input.category,
           model: input.model,
-        };
+        }
         try {
           const result = runAnalyticsReportFromBundle({
             bundle: activeBundle,
             report: input.report,
             filters,
-          });
+          })
           return {
             content: [
               {
                 type: 'text',
-                text: JSON.stringify(
-                  { report: input.report, count: result.rows.length, rows: result.rows },
-                  null,
-                  2,
-                ),
+                text: JSON.stringify({ report: input.report, count: result.rows.length, rows: result.rows }, null, 2),
               },
             ],
-          };
+          }
         } catch (error) {
           return {
             content: [{ type: 'text', text: getErrorMessage(error) }],
             isError: true,
-          };
+          }
         }
       }),
-  );
+  )
 
   server.registerTool(
     'artifact',
@@ -322,29 +286,28 @@ export function registerProsaTools(
     async ({ artifact_id }) =>
       withToolBundle(bundle, storePath, ensureStore, async (activeBundle) => {
         const row = activeBundle.db
-          .prepare<
-            [string],
-            { text_object_id: string | null; object_id: string | null; mime_type: string | null }
-          >(`SELECT text_object_id, object_id, mime_type FROM artifacts WHERE artifact_id = ?`)
-          .get(artifact_id);
+          .prepare<[string], { text_object_id: string | null; object_id: string | null; mime_type: string | null }>(
+            `SELECT text_object_id, object_id, mime_type FROM artifacts WHERE artifact_id = ?`,
+          )
+          .get(artifact_id)
         if (!row) {
           return {
             content: [{ type: 'text', text: `artifact not found: ${artifact_id}` }],
             isError: true,
-          };
+          }
         }
-        const objectId = row.text_object_id ?? row.object_id;
+        const objectId = row.text_object_id ?? row.object_id
         if (!objectId) {
-          return { content: [{ type: 'text', text: '[no content stored]' }] };
+          return { content: [{ type: 'text', text: '[no content stored]' }] }
         }
         try {
-          const text = await getText(activeBundle, objectId);
-          return { content: [{ type: 'text', text }] };
+          const text = await getText(activeBundle, objectId)
+          return { content: [{ type: 'text', text }] }
         } catch {
-          return { content: [{ type: 'text', text: `[binary artifact: ${objectId}]` }] };
+          return { content: [{ type: 'text', text: `[binary artifact: ${objectId}]` }] }
         }
       }),
-  );
+  )
 
   server.registerTool(
     'compile',
@@ -370,7 +333,7 @@ export function registerProsaTools(
               },
             ],
             isError: true,
-          };
+          }
         }
 
         if (!source && !sessions_path) {
@@ -378,14 +341,10 @@ export function registerProsaTools(
             content: [
               {
                 type: 'text',
-                text: JSON.stringify(
-                  { mode: 'status', search_index: getSearchIndexStatuses(activeBundle) },
-                  null,
-                  2,
-                ),
+                text: JSON.stringify({ mode: 'status', search_index: getSearchIndexStatuses(activeBundle) }, null, 2),
               },
             ],
-          };
+          }
         }
 
         try {
@@ -394,8 +353,8 @@ export function registerProsaTools(
             providers: source ? [getCompileProvider(source)] : COMPILE_PROVIDERS,
             sessionsPath: sessions_path,
             overwrite,
-          });
-          const parquet = result.importedAny ? await exportCompileParquet({ storePath }) : null;
+          })
+          const parquet = result.importedAny ? await exportCompileParquet({ storePath }) : null
 
           return {
             content: [
@@ -411,9 +370,7 @@ export function registerProsaTools(
                       counts: provider.counts,
                     })),
                     imported_any: result.importedAny,
-                    tantivy: result.tantivy
-                      ? { indexed_doc_count: result.tantivy.indexedDocCount }
-                      : null,
+                    tantivy: result.tantivy ? { indexed_doc_count: result.tantivy.indexedDocCount } : null,
                     tantivy_error: result.tantivyError,
                     fts5_error: result.fts5Error,
                     parquet: parquet
@@ -432,15 +389,15 @@ export function registerProsaTools(
                 ),
               },
             ],
-          };
+          }
         } catch (error) {
           return {
             content: [{ type: 'text', text: getErrorMessage(error) }],
             isError: true,
-          };
+          }
         }
       }),
-  );
+  )
 }
 
 async function withToolBundle<T>(
@@ -450,14 +407,14 @@ async function withToolBundle<T>(
   fn: (bundle: Bundle) => Promise<T> | T,
 ): Promise<T> {
   if (!ensureStore) {
-    return await fn(fallbackBundle);
+    return await fn(fallbackBundle)
   }
 
-  const bundle = await openOrInitBundle(storePath);
+  const bundle = await openOrInitBundle(storePath)
   try {
-    return await fn(bundle);
+    return await fn(bundle)
   } finally {
-    closeBundle(bundle);
+    closeBundle(bundle)
   }
 }
 
@@ -469,10 +426,7 @@ function registerProsaPrompts(server: McpServer): void {
       description:
         'Guide an agent through searching prosa for prior work on a topic, opening relevant sessions, and citing evidence.',
       argsSchema: {
-        topic: z
-          .string()
-          .min(1)
-          .describe('Topic, feature, error, command, or decision to investigate'),
+        topic: z.string().min(1).describe('Topic, feature, error, command, or decision to investigate'),
       },
     },
     ({ topic }) => ({
@@ -487,7 +441,7 @@ function registerProsaPrompts(server: McpServer): void {
         },
       ],
     }),
-  );
+  )
 
   server.registerPrompt(
     'find_file_history',
@@ -511,19 +465,15 @@ function registerProsaPrompts(server: McpServer): void {
         },
       ],
     }),
-  );
+  )
 
   server.registerPrompt(
     'audit_tool_failures',
     {
       title: 'Audit tool failures',
-      description:
-        'Guide an agent through finding failed tool calls and grouping them by likely cause.',
+      description: 'Guide an agent through finding failed tool calls and grouping them by likely cause.',
       argsSchema: {
-        query: z
-          .string()
-          .optional()
-          .describe('Optional topic, file, command, or error to narrow audit'),
+        query: z.string().optional().describe('Optional topic, file, command, or error to narrow audit'),
       },
     },
     ({ query }) => ({
@@ -533,13 +483,10 @@ function registerProsaPrompts(server: McpServer): void {
           role: 'user',
           content: {
             type: 'text',
-            text: AUDIT_TOOL_FAILURES_PROMPT.replace(
-              '{{query_clause}}',
-              query ? ` related to: ${query}` : '',
-            ),
+            text: AUDIT_TOOL_FAILURES_PROMPT.replace('{{query_clause}}', query ? ` related to: ${query}` : ''),
           },
         },
       ],
     }),
-  );
+  )
 }

@@ -1,8 +1,8 @@
-import { mkdir, rm, writeFile } from 'node:fs/promises';
-import path from 'node:path';
-import { DuckDBConnection } from '@duckdb/node-api';
-import { closeBundle, openBundle } from '../../core/bundle.js';
-import { getErrorMessage } from '../../core/errors.js';
+import { mkdir, rm, writeFile } from 'node:fs/promises'
+import path from 'node:path'
+import { DuckDBConnection } from '@duckdb/node-api'
+import { closeBundle, openBundle } from '../../core/bundle.js'
+import { getErrorMessage } from '../../core/errors.js'
 
 export const PARQUET_TABLES = [
   'objects',
@@ -22,7 +22,7 @@ export const PARQUET_TABLES = [
   'artifacts',
   'edges',
   'search_docs',
-] as const;
+] as const
 
 export const ANALYTICS_VIEWS = [
   'session_facts',
@@ -30,60 +30,58 @@ export const ANALYTICS_VIEWS = [
   'error_facts',
   'model_usage',
   'project_activity',
-] as const;
+] as const
 
-export type ParquetTable = (typeof PARQUET_TABLES)[number];
-export type AnalyticsView = (typeof ANALYTICS_VIEWS)[number];
+export type ParquetTable = (typeof PARQUET_TABLES)[number]
+export type AnalyticsView = (typeof ANALYTICS_VIEWS)[number]
 
 export interface ParquetExportOptions {
-  bundlePath: string;
-  outDir?: string;
+  bundlePath: string
+  outDir?: string
 }
 
 export interface ParquetExportResult {
-  outDir: string;
-  manifestPath: string;
-  files: Record<ParquetTable, string>;
-  counts: Record<ParquetTable, number>;
+  outDir: string
+  manifestPath: string
+  files: Record<ParquetTable, string>
+  counts: Record<ParquetTable, number>
 }
 
 export interface DuckDbQueryOptions {
-  parquetDir: string;
-  sql: string;
+  parquetDir: string
+  sql: string
 }
 
 export interface DuckDbQueryResult {
-  columns: string[];
-  rows: Record<string, unknown>[];
+  columns: string[]
+  rows: Record<string, unknown>[]
 }
 
 interface BundleSnapshot {
-  dbPath: string;
-  schemaVersion: number;
-  parserVersion: string;
-  defaultOutDir: string;
-  counts: Record<ParquetTable, number>;
+  dbPath: string
+  schemaVersion: number
+  parserVersion: string
+  defaultOutDir: string
+  counts: Record<ParquetTable, number>
 }
 
-export async function exportBundleParquet(
-  options: ParquetExportOptions,
-): Promise<ParquetExportResult> {
-  const snapshot = await openBundleSnapshot(options.bundlePath);
-  const outDir = path.resolve(options.outDir ?? snapshot.defaultOutDir);
-  await mkdir(outDir, { recursive: true });
+export async function exportBundleParquet(options: ParquetExportOptions): Promise<ParquetExportResult> {
+  const snapshot = await openBundleSnapshot(options.bundlePath)
+  const outDir = path.resolve(options.outDir ?? snapshot.defaultOutDir)
+  await mkdir(outDir, { recursive: true })
 
   const files = Object.fromEntries(
     PARQUET_TABLES.map((table) => [table, path.join(outDir, `${table}.parquet`)]),
-  ) as Record<ParquetTable, string>;
-  const manifestPath = path.join(outDir, 'manifest.json');
+  ) as Record<ParquetTable, string>
+  const manifestPath = path.join(outDir, 'manifest.json')
 
   for (const file of [...Object.values(files), manifestPath]) {
-    await rm(file, { force: true });
+    await rm(file, { force: true })
   }
 
-  const connection = await createDuckDbConnection();
+  const connection = await createDuckDbConnection()
   try {
-    await attachSqlite(connection, snapshot.dbPath);
+    await attachSqlite(connection, snapshot.dbPath)
     for (const table of PARQUET_TABLES) {
       // Tuned via bench/bench-parquet.ts: zstd-1 matches snappy on write
       // time but halves file size, and ROW_GROUP_SIZE=100k cuts ~20% off
@@ -91,10 +89,10 @@ export async function exportBundleParquet(
       // docs/roadmap/parquet-export-perf.md.
       await connection.run(
         `COPY (SELECT * FROM prosa.${quoteIdentifier(table)}) TO ${sqlString(files[table])} (FORMAT parquet, COMPRESSION zstd, COMPRESSION_LEVEL 1, ROW_GROUP_SIZE 100000)`,
-      );
+      )
     }
   } finally {
-    connection.closeSync();
+    connection.closeSync()
   }
 
   const manifest = {
@@ -111,55 +109,51 @@ export async function exportBundleParquet(
         },
       ]),
     ),
-  };
-  await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+  }
+  await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
 
-  return { outDir, manifestPath, files, counts: snapshot.counts };
+  return { outDir, manifestPath, files, counts: snapshot.counts }
 }
 
 export async function queryDuckDbParquet(options: DuckDbQueryOptions): Promise<DuckDbQueryResult> {
-  const parquetDir = path.resolve(options.parquetDir);
-  const connection = await createDuckDbConnection();
+  const parquetDir = path.resolve(options.parquetDir)
+  const connection = await createDuckDbConnection()
   try {
     for (const table of PARQUET_TABLES) {
       await connection.run(
         `CREATE OR REPLACE VIEW ${quoteIdentifier(table)} AS SELECT * FROM read_parquet(${sqlString(
           path.join(parquetDir, `${table}.parquet`),
         )})`,
-      );
+      )
     }
-    await createAnalyticsViews(connection);
+    await createAnalyticsViews(connection)
 
-    const reader = await connection.runAndReadAll(options.sql);
+    const reader = await connection.runAndReadAll(options.sql)
     return {
       columns: reader.deduplicatedColumnNames(),
       rows: reader.getRowObjectsJson() as Record<string, unknown>[],
-    };
+    }
   } catch (error) {
     if (isMissingParquetError(error)) {
-      throw new Error(
-        `Parquet export not found in ${parquetDir}; run \`prosa export parquet --store <path>\` first`,
-      );
+      throw new Error(`Parquet export not found in ${parquetDir}; run \`prosa export parquet --store <path>\` first`)
     }
-    throw error;
+    throw error
   } finally {
-    connection.closeSync();
+    connection.closeSync()
   }
 }
 
 async function createDuckDbConnection(): Promise<DuckDBConnection> {
-  return DuckDBConnection.create();
+  return DuckDBConnection.create()
 }
 
 async function attachSqlite(connection: DuckDBConnection, dbPath: string): Promise<void> {
   try {
-    await connection.run('INSTALL sqlite');
-    await connection.run('LOAD sqlite');
-    await connection.run(`ATTACH ${sqlString(dbPath)} AS prosa (TYPE sqlite)`);
+    await connection.run('INSTALL sqlite')
+    await connection.run('LOAD sqlite')
+    await connection.run(`ATTACH ${sqlString(dbPath)} AS prosa (TYPE sqlite)`)
   } catch (error) {
-    throw new Error(
-      `DuckDB could not attach prosa.sqlite via the sqlite extension: ${getErrorMessage(error)}`,
-    );
+    throw new Error(`DuckDB could not attach prosa.sqlite via the sqlite extension: ${getErrorMessage(error)}`)
   }
 }
 
@@ -246,7 +240,7 @@ async function createAnalyticsViews(connection: DuckDBConnection): Promise<void>
       LEFT JOIN tool_call_counts tcc ON tcc.session_id = s.session_id
       LEFT JOIN tool_result_counts trc ON trc.session_id = s.session_id
       LEFT JOIN search_doc_counts sdc ON sdc.session_id = s.session_id
-  `);
+  `)
 
   await connection.run(`
     CREATE OR REPLACE VIEW tool_usage_facts AS
@@ -299,7 +293,7 @@ async function createAnalyticsViews(connection: DuckDBConnection): Promise<void>
       LEFT JOIN sessions s ON s.session_id = tc.session_id
       LEFT JOIN projects p ON p.project_id = s.project_id
       LEFT JOIN result_rollup rr ON rr.tool_call_id = tc.tool_call_id
-  `);
+  `)
 
   await connection.run(`
     CREATE OR REPLACE VIEW error_facts AS
@@ -362,7 +356,7 @@ async function createAnalyticsViews(connection: DuckDBConnection): Promise<void>
            u.entity_id,
            NULL AS raw_record_id
       FROM uncertainties u
-  `);
+  `)
 
   await connection.run(`
     CREATE OR REPLACE VIEW model_usage AS
@@ -414,7 +408,7 @@ async function createAnalyticsViews(connection: DuckDBConnection): Promise<void>
            max(timestamp) AS last_seen_ts
       FROM model_events
      GROUP BY source_tool, project_id, project_name, project_path, model
-  `);
+  `)
 
   await connection.run(`
     CREATE OR REPLACE VIEW project_activity AS
@@ -444,20 +438,18 @@ async function createAnalyticsViews(connection: DuckDBConnection): Promise<void>
       LEFT JOIN tool_results tr ON tr.session_id = s.session_id
       LEFT JOIN search_docs sd ON sd.session_id = s.session_id
      GROUP BY s.source_tool, s.project_id, p.display_name, s.cwd_initial, p.canonical_path
-  `);
+  `)
 }
 
 async function openBundleSnapshot(bundlePath: string): Promise<BundleSnapshot> {
-  const bundle = await openBundle(bundlePath);
+  const bundle = await openBundle(bundlePath)
   try {
     const counts = Object.fromEntries(
       PARQUET_TABLES.map((table) => {
-        const row = bundle.db
-          .prepare<[], { n: number }>(`SELECT count(*) AS n FROM ${quoteIdentifier(table)}`)
-          .get();
-        return [table, row?.n ?? 0];
+        const row = bundle.db.prepare<[], { n: number }>(`SELECT count(*) AS n FROM ${quoteIdentifier(table)}`).get()
+        return [table, row?.n ?? 0]
       }),
-    ) as Record<ParquetTable, number>;
+    ) as Record<ParquetTable, number>
 
     return {
       dbPath: bundle.paths.db,
@@ -465,21 +457,21 @@ async function openBundleSnapshot(bundlePath: string): Promise<BundleSnapshot> {
       parserVersion: bundle.manifest.parser_version,
       defaultOutDir: bundle.paths.parquet,
       counts,
-    };
+    }
   } finally {
-    closeBundle(bundle);
+    closeBundle(bundle)
   }
 }
 
 function quoteIdentifier(value: string): string {
-  return `"${value.replace(/"/g, '""')}"`;
+  return `"${value.replace(/"/g, '""')}"`
 }
 
 function sqlString(value: string): string {
-  return `'${value.replace(/'/g, "''")}'`;
+  return `'${value.replace(/'/g, "''")}'`
 }
 
 function isMissingParquetError(error: unknown): boolean {
-  const message = getErrorMessage(error);
-  return /No files found|does not exist|not found/i.test(message) && /\.parquet/i.test(message);
+  const message = getErrorMessage(error)
+  return /No files found|does not exist|not found/i.test(message) && /\.parquet/i.test(message)
 }

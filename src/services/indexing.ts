@@ -1,43 +1,43 @@
-import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
-import path from 'node:path';
-import type { Bundle } from '../core/bundle.js';
-import { prepare, transactional } from '../core/db.js';
-import { getErrorMessage } from '../core/errors.js';
+import { createHash } from 'node:crypto'
+import { existsSync } from 'node:fs'
+import { mkdir, rm, writeFile } from 'node:fs/promises'
+import path from 'node:path'
+import type { Bundle } from '../core/bundle.js'
+import { prepare, transactional } from '../core/db.js'
+import { getErrorMessage } from '../core/errors.js'
 
-export type SearchEngine = 'fts5' | 'tantivy';
+export type SearchEngine = 'fts5' | 'tantivy'
 
 export interface SearchIndexStatus {
-  engine: SearchEngine;
-  status: 'missing' | 'ready' | 'stale' | 'building' | 'failed';
-  source_doc_count: number;
-  indexed_doc_count: number;
-  updated_at: string;
-  error_message: string | null;
-  last_indexed_rowid: number | null;
-  schema_fingerprint: string | null;
+  engine: SearchEngine
+  status: 'missing' | 'ready' | 'stale' | 'building' | 'failed'
+  source_doc_count: number
+  indexed_doc_count: number
+  updated_at: string
+  error_message: string | null
+  last_indexed_rowid: number | null
+  schema_fingerprint: string | null
 }
 
 interface SearchDocRow {
-  rowid: number;
-  doc_id: string;
-  entity_type: string;
-  entity_id: string;
-  session_id: string | null;
-  project_id: string | null;
-  timestamp: string | null;
-  role: string | null;
-  tool_name: string | null;
-  canonical_tool_type: string | null;
-  field_kind: string;
-  text: string;
+  rowid: number
+  doc_id: string
+  entity_type: string
+  entity_id: string
+  session_id: string | null
+  project_id: string | null
+  timestamp: string | null
+  role: string | null
+  tool_name: string | null
+  canonical_tool_type: string | null
+  field_kind: string
+  text: string
 }
 
 const SEARCH_INDEX_STATUS_COLUMNS = `
   engine, status, source_doc_count, indexed_doc_count, updated_at,
   error_message, last_indexed_rowid, schema_fingerprint
-`;
+`
 
 const FTS5_TRIGGER_SQL = `
 CREATE TRIGGER IF NOT EXISTS search_docs_ai AFTER INSERT ON search_docs BEGIN
@@ -56,10 +56,10 @@ CREATE TRIGGER IF NOT EXISTS search_docs_au AFTER UPDATE ON search_docs BEGIN
   INSERT INTO search_docs_fts(rowid, text, role, tool_name, field_kind)
   VALUES (new.rowid, new.text, new.role, new.tool_name, new.field_kind);
 END;
-`;
+`
 
 export function enableFts5Triggers(bundle: Bundle): void {
-  bundle.db.exec(FTS5_TRIGGER_SQL);
+  bundle.db.exec(FTS5_TRIGGER_SQL)
 }
 
 export function disableFts5Triggers(bundle: Bundle): void {
@@ -67,25 +67,22 @@ export function disableFts5Triggers(bundle: Bundle): void {
     DROP TRIGGER IF EXISTS search_docs_ai;
     DROP TRIGGER IF EXISTS search_docs_ad;
     DROP TRIGGER IF EXISTS search_docs_au;
-  `);
+  `)
 }
 
 export function getSearchIndexStatuses(bundle: Bundle): SearchIndexStatus[] {
-  ensureSearchIndexStatusRows(bundle);
+  ensureSearchIndexStatusRows(bundle)
   return bundle.db
     .prepare<[], SearchIndexStatus>(
       `SELECT ${SEARCH_INDEX_STATUS_COLUMNS}
          FROM search_index_status
         ORDER BY engine`,
     )
-    .all();
+    .all()
 }
 
-export function getSearchIndexStatus(
-  bundle: Bundle,
-  engine: SearchEngine,
-): SearchIndexStatus | null {
-  ensureSearchIndexStatusRows(bundle);
+export function getSearchIndexStatus(bundle: Bundle, engine: SearchEngine): SearchIndexStatus | null {
+  ensureSearchIndexStatusRows(bundle)
   return (
     bundle.db
       .prepare<[SearchEngine], SearchIndexStatus>(
@@ -94,54 +91,54 @@ export function getSearchIndexStatus(
           WHERE engine = ?`,
       )
       .get(engine) ?? null
-  );
+  )
 }
 
 export function markIndexesAfterImport(bundle: Bundle, options: { changed: boolean }): void {
-  if (!options.changed) return;
+  if (!options.changed) return
 
-  const tantivy = getSearchIndexStatus(bundle, 'tantivy');
+  const tantivy = getSearchIndexStatus(bundle, 'tantivy')
   if (tantivy?.status === 'ready' || tantivy?.status === 'stale' || tantivy?.status === 'failed') {
     updateSearchIndexStatus(bundle, 'tantivy', {
       status: 'stale',
       sourceDocCount: countSearchDocs(bundle),
       indexedDocCount: tantivy.indexed_doc_count,
       errorMessage: null,
-    });
+    })
   }
 }
 
 export function rebuildFts5Index(bundle: Bundle): SearchIndexStatus {
-  ensureSearchIndexStatusRows(bundle);
+  ensureSearchIndexStatusRows(bundle)
   updateSearchIndexStatus(bundle, 'fts5', {
     status: 'building',
     sourceDocCount: countSearchDocs(bundle),
     indexedDocCount: countFts5Docs(bundle),
     errorMessage: null,
-  });
+  })
 
   try {
     transactional(bundle.db, () => {
-      enableFts5Triggers(bundle);
-      bundle.db.exec(`INSERT INTO search_docs_fts(search_docs_fts) VALUES('rebuild')`);
-    });
+      enableFts5Triggers(bundle)
+      bundle.db.exec(`INSERT INTO search_docs_fts(search_docs_fts) VALUES('rebuild')`)
+    })
     updateSearchIndexStatus(bundle, 'fts5', {
       status: 'ready',
       sourceDocCount: countSearchDocs(bundle),
       indexedDocCount: countFts5Docs(bundle),
       errorMessage: null,
-    });
+    })
   } catch (error) {
     updateSearchIndexStatus(bundle, 'fts5', {
       status: 'failed',
       sourceDocCount: countSearchDocs(bundle),
       indexedDocCount: countFts5Docs(bundle),
       errorMessage: getErrorMessage(error),
-    });
-    throw error;
+    })
+    throw error
   }
 
-  return getSearchIndexStatus(bundle, 'fts5') as SearchIndexStatus;
+  return getSearchIndexStatus(bundle, 'fts5') as SearchIndexStatus
 }
 
 export interface RebuildTantivyOptions {
@@ -150,14 +147,14 @@ export interface RebuildTantivyOptions {
    * Surfaced by the `--overwrite` flag on `prosa index tantivy` and on
    * `prosa compile`.
    */
-  overwrite?: boolean;
+  overwrite?: boolean
 }
 
-type TantivyModule = typeof import('@oxdev03/node-tantivy-binding');
+type TantivyModule = typeof import('@oxdev03/node-tantivy-binding')
 
 interface TantivySchemaField {
-  name: string;
-  tokenizer: string;
+  name: string
+  tokenizer: string
 }
 
 // Ordered list of fields we put on every tantivy doc. The order is
@@ -176,122 +173,115 @@ const TANTIVY_SCHEMA_FIELDS: readonly TantivySchemaField[] = [
   { name: 'field_kind', tokenizer: 'raw' },
   // The text field uses tantivy's default tokenizer (en_stem in the binding).
   { name: 'text', tokenizer: 'default' },
-];
+]
 
 function buildTantivySchema(tantivy: TantivyModule): InstanceType<TantivyModule['Schema']> {
-  const builder = new tantivy.SchemaBuilder();
+  const builder = new tantivy.SchemaBuilder()
   for (const field of TANTIVY_SCHEMA_FIELDS) {
     if (field.tokenizer === 'default') {
-      builder.addTextField(field.name, { stored: true });
+      builder.addTextField(field.name, { stored: true })
     } else {
-      builder.addTextField(field.name, { stored: true, tokenizerName: field.tokenizer });
+      builder.addTextField(field.name, { stored: true, tokenizerName: field.tokenizer })
     }
   }
-  return builder.build();
+  return builder.build()
 }
 
 export function getCurrentTantivySchemaFingerprint(): string {
-  const canonical = TANTIVY_SCHEMA_FIELDS.map((f) => `${f.name}:${f.tokenizer}:stored`).join('|');
-  return createHash('sha256').update(canonical).digest('hex');
+  const canonical = TANTIVY_SCHEMA_FIELDS.map((f) => `${f.name}:${f.tokenizer}:stored`).join('|')
+  return createHash('sha256').update(canonical).digest('hex')
 }
 
 export function tantivyIndexDirIsValid(dir: string): boolean {
-  return existsSync(path.join(dir, 'meta.json'));
+  return existsSync(path.join(dir, 'meta.json'))
 }
 
-function makeTantivyDoc(
-  tantivy: TantivyModule,
-  row: SearchDocRow,
-): InstanceType<TantivyModule['Document']> {
-  const doc = new tantivy.Document();
-  doc.addText('doc_id', row.doc_id);
-  doc.addText('entity_type', row.entity_type);
-  doc.addText('entity_id', row.entity_id);
-  doc.addText('session_id', row.session_id ?? '');
-  doc.addText('project_id', row.project_id ?? '');
-  doc.addText('timestamp', row.timestamp ?? '');
-  doc.addText('role', row.role ?? '');
-  doc.addText('tool_name', row.tool_name ?? '');
-  doc.addText('canonical_tool_type', row.canonical_tool_type ?? '');
-  doc.addText('field_kind', row.field_kind);
-  doc.addText('text', row.text);
-  return doc;
+function makeTantivyDoc(tantivy: TantivyModule, row: SearchDocRow): InstanceType<TantivyModule['Document']> {
+  const doc = new tantivy.Document()
+  doc.addText('doc_id', row.doc_id)
+  doc.addText('entity_type', row.entity_type)
+  doc.addText('entity_id', row.entity_id)
+  doc.addText('session_id', row.session_id ?? '')
+  doc.addText('project_id', row.project_id ?? '')
+  doc.addText('timestamp', row.timestamp ?? '')
+  doc.addText('role', row.role ?? '')
+  doc.addText('tool_name', row.tool_name ?? '')
+  doc.addText('canonical_tool_type', row.canonical_tool_type ?? '')
+  doc.addText('field_kind', row.field_kind)
+  doc.addText('text', row.text)
+  return doc
 }
 
 const SEARCH_DOCS_SELECT = `
   SELECT rowid, doc_id, entity_type, entity_id, session_id, project_id, timestamp,
          role, tool_name, canonical_tool_type, field_kind, text
     FROM search_docs
-`;
+`
 
 export async function rebuildTantivyIndex(
   bundle: Bundle,
   options: RebuildTantivyOptions = {},
 ): Promise<SearchIndexStatus> {
-  ensureSearchIndexStatusRows(bundle);
-  const sourceDocCount = countSearchDocs(bundle);
+  ensureSearchIndexStatusRows(bundle)
+  const sourceDocCount = countSearchDocs(bundle)
 
   // Read the *previous* status before we mark it 'building' — we rely on it
   // to decide between full and incremental, and on the prior indexed count
   // to project the post-incremental total.
-  const prev = getSearchIndexStatus(bundle, 'tantivy');
-  const fingerprint = getCurrentTantivySchemaFingerprint();
-  const indexDirValid = tantivyIndexDirIsValid(bundle.paths.tantivy);
-  const fingerprintMatches = prev?.schema_fingerprint === fingerprint;
-  const lastIndexedRowid =
-    typeof prev?.last_indexed_rowid === 'number' ? prev.last_indexed_rowid : 0;
-  const wantFullRebuild =
-    options.overwrite === true || !indexDirValid || !fingerprintMatches || lastIndexedRowid <= 0;
+  const prev = getSearchIndexStatus(bundle, 'tantivy')
+  const fingerprint = getCurrentTantivySchemaFingerprint()
+  const indexDirValid = tantivyIndexDirIsValid(bundle.paths.tantivy)
+  const fingerprintMatches = prev?.schema_fingerprint === fingerprint
+  const lastIndexedRowid = typeof prev?.last_indexed_rowid === 'number' ? prev.last_indexed_rowid : 0
+  const wantFullRebuild = options.overwrite === true || !indexDirValid || !fingerprintMatches || lastIndexedRowid <= 0
 
   updateSearchIndexStatus(bundle, 'tantivy', {
     status: 'building',
     sourceDocCount,
     indexedDocCount: 0,
     errorMessage: null,
-  });
+  })
 
   try {
-    const tantivy = await import('@oxdev03/node-tantivy-binding');
-    const schema = buildTantivySchema(tantivy);
+    const tantivy = await import('@oxdev03/node-tantivy-binding')
+    const schema = buildTantivySchema(tantivy)
 
-    let index: InstanceType<TantivyModule['Index']>;
+    let index: InstanceType<TantivyModule['Index']>
     if (wantFullRebuild) {
-      await rm(bundle.paths.tantivy, { recursive: true, force: true });
-      await mkdir(bundle.paths.tantivy, { recursive: true });
-      index = new tantivy.Index(schema, bundle.paths.tantivy, false);
+      await rm(bundle.paths.tantivy, { recursive: true, force: true })
+      await mkdir(bundle.paths.tantivy, { recursive: true })
+      index = new tantivy.Index(schema, bundle.paths.tantivy, false)
     } else {
-      index = tantivy.Index.open(bundle.paths.tantivy);
+      index = tantivy.Index.open(bundle.paths.tantivy)
     }
 
-    const writer = index.writer(300_000_000, 4);
+    const writer = index.writer(300_000_000, 4)
     const select = wantFullRebuild
       ? `${SEARCH_DOCS_SELECT} ORDER BY rowid`
-      : `${SEARCH_DOCS_SELECT} WHERE rowid > ${lastIndexedRowid} ORDER BY rowid`;
+      : `${SEARCH_DOCS_SELECT} WHERE rowid > ${lastIndexedRowid} ORDER BY rowid`
 
-    let addedDocCount = 0;
-    let maxRowid = wantFullRebuild ? 0 : lastIndexedRowid;
+    let addedDocCount = 0
+    let maxRowid = wantFullRebuild ? 0 : lastIndexedRowid
     for (const row of bundle.db.prepare<[], SearchDocRow>(select).iterate()) {
       if (!wantFullRebuild) {
         // Defensive: lets re-imported docs replace the prior copy. The
         // tokenizer for `doc_id` is `raw`, so the stored value maps 1:1
         // to a single deletable term.
-        writer.deleteDocumentsByTerm('doc_id', row.doc_id);
+        writer.deleteDocumentsByTerm('doc_id', row.doc_id)
       }
-      writer.addDocument(makeTantivyDoc(tantivy, row));
-      addedDocCount++;
-      if (row.rowid > maxRowid) maxRowid = row.rowid;
+      writer.addDocument(makeTantivyDoc(tantivy, row))
+      addedDocCount++
+      if (row.rowid > maxRowid) maxRowid = row.rowid
     }
 
-    writer.commit();
-    index.reload();
+    writer.commit()
+    index.reload()
     // Drop the writer deterministically so the directory lock is released
     // before the next rebuildTantivyIndex call (e.g. consecutive runs in
     // the same process).
-    writer.waitMergingThreads();
+    writer.waitMergingThreads()
 
-    const indexedDocCount = wantFullRebuild
-      ? addedDocCount
-      : countTantivyDocsBest(prev, addedDocCount);
+    const indexedDocCount = wantFullRebuild ? addedDocCount : countTantivyDocsBest(prev, addedDocCount)
 
     await writeFile(
       path.join(bundle.paths.tantivy, 'prosa-index.json'),
@@ -310,7 +300,7 @@ export async function rebuildTantivyIndex(
         2,
       )}\n`,
       'utf8',
-    );
+    )
 
     updateSearchIndexStatus(bundle, 'tantivy', {
       status: 'ready',
@@ -319,18 +309,18 @@ export async function rebuildTantivyIndex(
       errorMessage: null,
       lastIndexedRowid: maxRowid,
       schemaFingerprint: fingerprint,
-    });
+    })
   } catch (error) {
     updateSearchIndexStatus(bundle, 'tantivy', {
       status: 'failed',
       sourceDocCount,
       indexedDocCount: 0,
       errorMessage: getErrorMessage(error),
-    });
-    throw error;
+    })
+    throw error
   }
 
-  return getSearchIndexStatus(bundle, 'tantivy') as SearchIndexStatus;
+  return getSearchIndexStatus(bundle, 'tantivy') as SearchIndexStatus
 }
 
 // On an incremental run we know how many docs we added, but we want the
@@ -340,78 +330,67 @@ export async function rebuildTantivyIndex(
 // gates entry, but be defensive), just report what we wrote.
 function countTantivyDocsBest(prev: SearchIndexStatus | null, added: number): number {
   if (prev && typeof prev.indexed_doc_count === 'number') {
-    return prev.indexed_doc_count + added;
+    return prev.indexed_doc_count + added
   }
-  return added;
+  return added
 }
 
 function ensureSearchIndexStatusRows(bundle: Bundle): void {
-  const now = new Date().toISOString();
+  const now = new Date().toISOString()
   const stmt = prepare(
     bundle.db,
     `INSERT OR IGNORE INTO search_index_status (
        engine, status, source_doc_count, indexed_doc_count, updated_at,
        error_message, last_indexed_rowid, schema_fingerprint
      ) VALUES (?, ?, 0, 0, ?, NULL, NULL, NULL)`,
-  );
-  stmt.run('fts5', 'ready', now);
-  stmt.run('tantivy', 'missing', now);
+  )
+  stmt.run('fts5', 'ready', now)
+  stmt.run('tantivy', 'missing', now)
 }
 
 interface UpdateSearchIndexValues {
-  status: SearchIndexStatus['status'];
-  sourceDocCount: number;
-  indexedDocCount: number;
-  errorMessage: string | null;
+  status: SearchIndexStatus['status']
+  sourceDocCount: number
+  indexedDocCount: number
+  errorMessage: string | null
   /** undefined leaves the column untouched; null clears it. */
-  lastIndexedRowid?: number | null;
+  lastIndexedRowid?: number | null
   /** undefined leaves the column untouched; null clears it. */
-  schemaFingerprint?: string | null;
+  schemaFingerprint?: string | null
 }
 
-function updateSearchIndexStatus(
-  bundle: Bundle,
-  engine: SearchEngine,
-  values: UpdateSearchIndexValues,
-): void {
-  ensureSearchIndexStatusRows(bundle);
+function updateSearchIndexStatus(bundle: Bundle, engine: SearchEngine, values: UpdateSearchIndexValues): void {
+  ensureSearchIndexStatusRows(bundle)
   const setClauses = [
     'status = ?',
     'source_doc_count = ?',
     'indexed_doc_count = ?',
     'updated_at = ?',
     'error_message = ?',
-  ];
+  ]
   const params: unknown[] = [
     values.status,
     values.sourceDocCount,
     values.indexedDocCount,
     new Date().toISOString(),
     values.errorMessage,
-  ];
+  ]
   if (values.lastIndexedRowid !== undefined) {
-    setClauses.push('last_indexed_rowid = ?');
-    params.push(values.lastIndexedRowid);
+    setClauses.push('last_indexed_rowid = ?')
+    params.push(values.lastIndexedRowid)
   }
   if (values.schemaFingerprint !== undefined) {
-    setClauses.push('schema_fingerprint = ?');
-    params.push(values.schemaFingerprint);
+    setClauses.push('schema_fingerprint = ?')
+    params.push(values.schemaFingerprint)
   }
-  params.push(engine);
-  prepare(
-    bundle.db,
-    `UPDATE search_index_status SET ${setClauses.join(', ')} WHERE engine = ?`,
-  ).run(...params);
+  params.push(engine)
+  prepare(bundle.db, `UPDATE search_index_status SET ${setClauses.join(', ')} WHERE engine = ?`).run(...params)
 }
 
 export function countSearchDocs(bundle: Bundle): number {
-  return (
-    bundle.db.prepare<[], { n: number }>(`SELECT count(*) AS n FROM search_docs`).get()?.n ?? 0
-  );
+  return bundle.db.prepare<[], { n: number }>(`SELECT count(*) AS n FROM search_docs`).get()?.n ?? 0
 }
 
 export function countFts5Docs(bundle: Bundle): number {
-  return (
-    bundle.db.prepare<[], { n: number }>(`SELECT count(*) AS n FROM search_docs_fts`).get()?.n ?? 0
-  );
+  return bundle.db.prepare<[], { n: number }>(`SELECT count(*) AS n FROM search_docs_fts`).get()?.n ?? 0
 }

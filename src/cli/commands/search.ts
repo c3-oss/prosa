@@ -1,9 +1,9 @@
-import { Command } from 'commander';
-import { defaultBundlePath } from '../../core/bundle.js';
-import { searchFullText } from '../../services/search.js';
-import { withBundle } from '../bundle.js';
-import { printRows } from '../output.js';
-import { parseOutputFormat, parseSearchEngine } from '../parsers.js';
+import { Command } from 'commander'
+import { defaultBundlePath } from '../../core/bundle.js'
+import { searchFullText } from '../../services/search.js'
+import { withBundle } from '../bundle.js'
+import { printRows } from '../output.js'
+import { parseOutputFormat, parseSearchEngine } from '../parsers.js'
 
 export function searchCommand(): Command {
   return new Command('search')
@@ -13,25 +13,20 @@ export function searchCommand(): Command {
     .option('--limit <n>', 'maximum hits', '50')
     .option('--engine <engine>', 'search engine: fts5|tantivy', 'fts5')
     .option('--output-format <fmt>', 'interactive|table|json|csv', 'table')
-    .action(
-      async (
-        query: string,
-        options: { store: string; limit: string; engine: string; outputFormat: string },
-      ) => {
-        const engine = parseSearchEngine(options.engine);
-        const format = parseOutputFormat(options.outputFormat, 'table');
-        await withBundle(options.store, (bundle) => {
-          const hits = searchFullText(bundle, {
-            query,
-            limit: Number.parseInt(options.limit, 10),
-            engine,
-          });
-          printRows(hits, {
-            format,
-            columns: ['timestamp', 'role', 'tool_name', 'session_id', 'snippet'],
-            meta: { query, engine, count: hits.length },
-          });
-        });
-      },
-    );
+    .action(async (query: string, options: { store: string; limit: string; engine: string; outputFormat: string }) => {
+      const engine = parseSearchEngine(options.engine)
+      const format = parseOutputFormat(options.outputFormat, 'table')
+      await withBundle(options.store, (bundle) => {
+        const hits = searchFullText(bundle, {
+          query,
+          limit: Number.parseInt(options.limit, 10),
+          engine,
+        })
+        printRows(hits, {
+          format,
+          columns: ['timestamp', 'role', 'tool_name', 'session_id', 'snippet'],
+          meta: { query, engine, count: hits.length },
+        })
+      })
+    })
 }

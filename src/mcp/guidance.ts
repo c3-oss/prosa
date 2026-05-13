@@ -23,7 +23,7 @@ There are six tools:
 When answering, cite concrete evidence: session_id, timestamp, tool/file path, and the relevant
 snippet or event. Do not treat search snippets as the whole truth; open the session with
 \`sessions session_id=… format=detail\` when accuracy matters.
-`.trim();
+`.trim()
 
 export const INVESTIGATE_PRIOR_WORK_PROMPT = `
 Investigate prior work in prosa for the topic: {{topic}}
@@ -34,7 +34,7 @@ Use this workflow:
 3. Open the most relevant session_ids with \`sessions session_id=… format=detail\`.
 4. Use \`sessions session_id=… format=markdown\` only for sessions that appear directly relevant.
 5. Answer with evidence: session_id, timestamp, and the decisive snippet or event.
-`.trim();
+`.trim()
 
 export const FIND_FILE_HISTORY_PROMPT = `
 Investigate history for file/path: {{path}}
@@ -45,7 +45,7 @@ Use this workflow:
 3. Call \`tool_calls\` with session_id when you need command-level detail inside one session.
 4. Use \`sessions session_id=… format=markdown\` only for the most relevant session.
 5. Summarize what changed, who/what tool touched it, and cite session_id plus timestamp.
-`.trim();
+`.trim()
 
 export const AUDIT_TOOL_FAILURES_PROMPT = `
 Audit tool failures in prosa{{query_clause}}.
@@ -58,4 +58,4 @@ Use this workflow:
 4. Open relevant session_ids with \`sessions session_id=… format=detail\`.
 5. Group failures by tool_name, command/path, and likely cause.
 6. Answer with evidence: session_id, timestamp, command/path, exit code, and preview.
-`.trim();
+`.trim()

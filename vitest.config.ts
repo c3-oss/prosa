@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config';
+import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
   test: {
@@ -7,14 +7,7 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       include: ['src/**/*.ts'],
-      exclude: [
-        'src/bin/**',
-        'src/cli/**',
-        'src/tui/**',
-        'src/index.ts',
-        'src/**/*.d.ts',
-        'src/**/types.ts',
-      ],
+      exclude: ['src/bin/**', 'src/cli/**', 'src/tui/**', 'src/index.ts', 'src/**/*.d.ts', 'src/**/types.ts'],
       thresholds: {
         statements: 80,
         lines: 80,
@@ -29,4 +22,4 @@ export default defineConfig({
     },
     testTimeout: 20_000,
   },
-});
+})

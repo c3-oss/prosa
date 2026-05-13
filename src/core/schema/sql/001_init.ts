@@ -344,4 +344,4 @@ CREATE TRIGGER IF NOT EXISTS search_docs_au AFTER UPDATE ON search_docs BEGIN
   INSERT INTO search_docs_fts(rowid, text, role, tool_name, field_kind)
   VALUES (new.rowid, new.text, new.role, new.tool_name, new.field_kind);
 END;
-`;
+`

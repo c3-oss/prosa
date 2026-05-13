@@ -1,6 +1,6 @@
-import { Command } from 'commander';
-import { defaultBundlePath } from '../../core/bundle.js';
-import { withBundle } from '../bundle.js';
+import { Command } from 'commander'
+import { defaultBundlePath } from '../../core/bundle.js'
+import { withBundle } from '../bundle.js'
 
 export function tuiCommand(): Command {
   return new Command('tui')
@@ -12,12 +12,12 @@ export function tuiCommand(): Command {
         import('ink'),
         import('react'),
         import('../../tui/App.js'),
-      ]);
+      ])
       await withBundle(options.store, async (bundle) => {
         // eslint-disable-next-line no-console
-        console.clear();
-        const app = render(React.createElement(App, { bundle }));
-        await app.waitUntilExit();
-      });
-    });
+        console.clear()
+        const app = render(React.createElement(App, { bundle }))
+        await app.waitUntilExit()
+      })
+    })
 }

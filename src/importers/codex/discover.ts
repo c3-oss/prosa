@@ -1,5 +1,5 @@
-import { readdir } from 'node:fs/promises';
-import path from 'node:path';
+import { readdir } from 'node:fs/promises'
+import path from 'node:path'
 
 /**
  * Walk a Codex sessions root (default `~/.codex/sessions`) and yield every
@@ -8,23 +8,23 @@ import path from 'node:path';
  * counts.
  */
 export async function* discoverCodexSessions(root: string): AsyncGenerator<string, void, void> {
-  yield* walk(root);
+  yield* walk(root)
 }
 
 async function* walk(dir: string): AsyncGenerator<string, void, void> {
-  let entries: import('node:fs').Dirent[];
+  let entries: import('node:fs').Dirent[]
   try {
-    entries = await readdir(dir, { withFileTypes: true });
+    entries = await readdir(dir, { withFileTypes: true })
   } catch {
-    return;
+    return
   }
 
   for (const entry of entries) {
-    const full = path.join(dir, entry.name);
+    const full = path.join(dir, entry.name)
     if (entry.isDirectory()) {
-      yield* walk(full);
+      yield* walk(full)
     } else if (entry.isFile() && entry.name.endsWith('.jsonl')) {
-      yield full;
+      yield full
     }
   }
 }

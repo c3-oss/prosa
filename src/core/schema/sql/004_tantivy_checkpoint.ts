@@ -14,4 +14,4 @@
 export const SQL_004_TANTIVY_CHECKPOINT = String.raw`
 ALTER TABLE search_index_status ADD COLUMN last_indexed_rowid INTEGER;
 ALTER TABLE search_index_status ADD COLUMN schema_fingerprint TEXT;
-`;
+`

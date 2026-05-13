@@ -1,6 +1,6 @@
-import { readFile } from 'node:fs/promises';
-import path from 'node:path';
-import type { Bundle } from '../../core/bundle.js';
+import { readFile } from 'node:fs/promises'
+import path from 'node:path'
+import type { Bundle } from '../../core/bundle.js'
 import {
   type ObjectId,
   type PendingObjects,
@@ -9,8 +9,8 @@ import {
   stageBytes,
   stageJson,
   stageText,
-} from '../../core/cas/index.js';
-import { prepare, transactional } from '../../core/db.js';
+} from '../../core/cas/index.js'
+import { prepare, transactional } from '../../core/db.js'
 import {
   artifactId,
   blockId,
@@ -20,8 +20,8 @@ import {
   sessionId as makeSessionId,
   toolCallId as makeToolCallId,
   toolResultId as makeToolResultId,
-} from '../../core/domain/ids.js';
-import { getErrorMessage } from '../../core/errors.js';
+} from '../../core/domain/ids.js'
+import { getErrorMessage } from '../../core/errors.js'
 import {
   type ImportBatch,
   type ImportCounts,
@@ -29,32 +29,32 @@ import {
   finishBatch,
   recordError,
   startBatch,
-} from '../../core/ingest/batch.js';
-import { registerSourceFile } from '../../core/ingest/idempotency.js';
-import type { CompileLogger, CompileOptions } from '../compile-options.js';
-import { type ClaudeFile, discoverClaudeFiles } from './discover.js';
-import type { ClaudeContentBlock, ClaudeRecord, ClaudeSubagentMeta } from './types.js';
+} from '../../core/ingest/batch.js'
+import { registerSourceFile } from '../../core/ingest/idempotency.js'
+import type { CompileLogger, CompileOptions } from '../compile-options.js'
+import { type ClaudeFile, discoverClaudeFiles } from './discover.js'
+import type { ClaudeContentBlock, ClaudeRecord, ClaudeSubagentMeta } from './types.js'
 
 export interface CompileResult {
-  batch: ImportBatch;
-  counts: ImportCounts;
+  batch: ImportBatch
+  counts: ImportCounts
 }
 
-const PREVIEW_MAX = 4_000;
+const PREVIEW_MAX = 4_000
 
 export async function compileClaude(
   bundle: Bundle,
   root: string,
   options: CompileOptions = {},
 ): Promise<CompileResult> {
-  const logger = options.logger;
-  const batch = startBatch(bundle, 'claude', [root]);
-  const counts = emptyCounts();
-  logger?.info({ batch_id: batch.batch_id, root }, 'claude batch started');
+  const logger = options.logger
+  const batch = startBatch(bundle, 'claude', [root])
+  const counts = emptyCounts()
+  logger?.info({ batch_id: batch.batch_id, root }, 'claude batch started')
 
   try {
     for await (const file of discoverClaudeFiles(root)) {
-      counts.source_files_seen++;
+      counts.source_files_seen++
       logger?.debug(
         {
           path: file.filePath,
@@ -62,37 +62,37 @@ export async function compileClaude(
           is_subagent: file.isSubagent,
         },
         'claude source file discovered',
-      );
+      )
       try {
-        const fc = await compileClaudeFile(bundle, batch, file, logger);
-        addCounts(counts, fc);
+        const fc = await compileClaudeFile(bundle, batch, file, logger)
+        addCounts(counts, fc)
       } catch (error) {
-        counts.errors++;
+        counts.errors++
         logger?.warn(
           {
             err: error,
             path: file.filePath,
           },
           'claude source file failed',
-        );
+        )
         await recordError(bundle, batch.batch_id, {
           kind: 'claude_file_failed',
           message: getErrorMessage(error),
           payload: { path: file.filePath },
-        });
+        })
       }
     }
-    linkSubagentParents(bundle);
-    logger?.debug({ batch_id: batch.batch_id }, 'claude subagent parent links refreshed');
-    finishBatch(bundle, batch, counts, 'completed');
-    logger?.info({ batch_id: batch.batch_id, counts }, 'claude batch completed');
+    linkSubagentParents(bundle)
+    logger?.debug({ batch_id: batch.batch_id }, 'claude subagent parent links refreshed')
+    finishBatch(bundle, batch, counts, 'completed')
+    logger?.info({ batch_id: batch.batch_id, counts }, 'claude batch completed')
   } catch (error) {
-    finishBatch(bundle, batch, counts, 'failed');
-    logger?.error({ err: error, batch_id: batch.batch_id, counts }, 'claude batch failed');
-    throw error;
+    finishBatch(bundle, batch, counts, 'failed')
+    logger?.error({ err: error, batch_id: batch.batch_id, counts }, 'claude batch failed')
+    throw error
   }
 
-  return { batch, counts };
+  return { batch, counts }
 }
 
 function linkSubagentParents(bundle: Bundle): void {
@@ -110,23 +110,23 @@ function linkSubagentParents(bundle: Bundle): void {
      WHERE parent_session_id IS NULL
        AND is_subagent = 1
        AND source_tool = 'claude'
-  `);
+  `)
 }
 
 interface FileCounts {
-  source_files_imported: number;
-  source_files_skipped: number;
-  raw_records: number;
-  sessions: number;
-  turns: number;
-  events: number;
-  messages: number;
-  content_blocks: number;
-  tool_calls: number;
-  tool_results: number;
-  artifacts: number;
-  edges: number;
-  errors: number;
+  source_files_imported: number
+  source_files_skipped: number
+  raw_records: number
+  sessions: number
+  turns: number
+  events: number
+  messages: number
+  content_blocks: number
+  tool_calls: number
+  tool_results: number
+  artifacts: number
+  edges: number
+  errors: number
 }
 
 function emptyFileCounts(): FileCounts {
@@ -144,181 +144,181 @@ function emptyFileCounts(): FileCounts {
     artifacts: 0,
     edges: 0,
     errors: 0,
-  };
+  }
 }
 
 function addCounts(target: ImportCounts, source: FileCounts): void {
-  target.source_files_imported += source.source_files_imported;
-  target.source_files_skipped += source.source_files_skipped;
-  target.raw_records += source.raw_records;
-  target.sessions += source.sessions;
-  target.turns += source.turns;
-  target.events += source.events;
-  target.messages += source.messages;
-  target.content_blocks += source.content_blocks;
-  target.tool_calls += source.tool_calls;
-  target.tool_results += source.tool_results;
-  target.artifacts += source.artifacts;
-  target.edges += source.edges;
-  target.errors += source.errors;
+  target.source_files_imported += source.source_files_imported
+  target.source_files_skipped += source.source_files_skipped
+  target.raw_records += source.raw_records
+  target.sessions += source.sessions
+  target.turns += source.turns
+  target.events += source.events
+  target.messages += source.messages
+  target.content_blocks += source.content_blocks
+  target.tool_calls += source.tool_calls
+  target.tool_results += source.tool_results
+  target.artifacts += source.artifacts
+  target.edges += source.edges
+  target.errors += source.errors
 }
 
 // -- per file --
 
 interface PendingRawRecord {
-  raw_record_id: string;
-  source_file_id: string;
-  ordinal: number;
-  line_no: number;
-  native_id: string | null;
-  raw_object_id: ObjectId;
-  decoded_json_object_id: ObjectId | null;
-  parser_status: 'ok' | 'partial' | 'failed';
-  confidence: 'high' | 'medium' | 'low';
-  import_batch_id: string;
+  raw_record_id: string
+  source_file_id: string
+  ordinal: number
+  line_no: number
+  native_id: string | null
+  raw_object_id: ObjectId
+  decoded_json_object_id: ObjectId | null
+  parser_status: 'ok' | 'partial' | 'failed'
+  confidence: 'high' | 'medium' | 'low'
+  import_batch_id: string
 }
 
 interface PendingSession {
-  session_id: string;
-  source_session_id: string;
-  is_subagent: 0 | 1;
-  agent_role: string | null;
-  agent_nickname: string | null;
-  title: string | null;
-  start_ts: string | null;
-  end_ts: string | null;
-  cwd_initial: string | null;
-  git_branch_initial: string | null;
-  raw_record_id: string | null;
+  session_id: string
+  source_session_id: string
+  is_subagent: 0 | 1
+  agent_role: string | null
+  agent_nickname: string | null
+  title: string | null
+  start_ts: string | null
+  end_ts: string | null
+  cwd_initial: string | null
+  git_branch_initial: string | null
+  raw_record_id: string | null
   /** for subagent files; resolved cross-file in linkSubagentParents */
-  parent_session_id_pending: string | null;
+  parent_session_id_pending: string | null
 }
 
 interface PendingEvent {
-  event_id: string;
-  ordinal: number;
-  source_event_id: string | null;
-  event_type: string;
-  source_type: string;
-  subtype: string | null;
-  timestamp: string | null;
-  actor: string | null;
-  payload_object_id: ObjectId | null;
-  raw_record_id: string;
-  confidence: 'high' | 'medium' | 'low';
+  event_id: string
+  ordinal: number
+  source_event_id: string | null
+  event_type: string
+  source_type: string
+  subtype: string | null
+  timestamp: string | null
+  actor: string | null
+  payload_object_id: ObjectId | null
+  raw_record_id: string
+  confidence: 'high' | 'medium' | 'low'
 }
 
 interface PendingMessage {
-  message_id: string;
-  event_id: string | null;
-  source_message_id: string | null;
-  role: 'system_prompt' | 'developer' | 'user' | 'assistant' | 'tool' | 'operational';
-  model: string | null;
-  timestamp: string | null;
-  ordinal: number;
-  parent_uuid: string | null; // for parent_of edge linking by uuid
-  uuid: string | null;
-  raw_record_id: string;
+  message_id: string
+  event_id: string | null
+  source_message_id: string | null
+  role: 'system_prompt' | 'developer' | 'user' | 'assistant' | 'tool' | 'operational'
+  model: string | null
+  timestamp: string | null
+  ordinal: number
+  parent_uuid: string | null // for parent_of edge linking by uuid
+  uuid: string | null
+  raw_record_id: string
 }
 
 interface PendingBlock {
-  block_id: string;
-  message_id: string | null;
-  event_id: string | null;
-  ordinal: number;
-  block_type: string;
-  text_object_id: ObjectId | null;
-  text_inline: string | null;
-  is_error: 0 | 1;
-  visibility: 'default' | 'hidden_by_default' | 'audit_only';
-  raw_record_id: string;
+  block_id: string
+  message_id: string | null
+  event_id: string | null
+  ordinal: number
+  block_type: string
+  text_object_id: ObjectId | null
+  text_inline: string | null
+  is_error: 0 | 1
+  visibility: 'default' | 'hidden_by_default' | 'audit_only'
+  raw_record_id: string
 }
 
 interface PendingToolCall {
-  tool_call_id: string;
-  message_id: string | null;
-  event_id: string | null;
-  source_call_id: string;
-  tool_name: string;
-  canonical_tool_type: string;
-  args_object_id: ObjectId | null;
-  command: string | null;
-  cwd: string | null;
-  path: string | null;
-  query: string | null;
-  timestamp_start: string | null;
-  status: string | null;
-  raw_record_id: string;
+  tool_call_id: string
+  message_id: string | null
+  event_id: string | null
+  source_call_id: string
+  tool_name: string
+  canonical_tool_type: string
+  args_object_id: ObjectId | null
+  command: string | null
+  cwd: string | null
+  path: string | null
+  query: string | null
+  timestamp_start: string | null
+  status: string | null
+  raw_record_id: string
 }
 
 interface PendingToolResult {
-  tool_result_id: string;
-  tool_call_id: string | null;
-  source_call_id: string | null;
-  message_id: string | null;
-  event_id: string | null;
-  status: string | null;
-  is_error: 0 | 1;
-  exit_code: number | null;
-  duration_ms: number | null;
-  stdout_object_id: ObjectId | null;
-  stderr_object_id: ObjectId | null;
-  output_object_id: ObjectId | null;
-  preview: string | null;
-  raw_record_id: string;
+  tool_result_id: string
+  tool_call_id: string | null
+  source_call_id: string | null
+  message_id: string | null
+  event_id: string | null
+  status: string | null
+  is_error: 0 | 1
+  exit_code: number | null
+  duration_ms: number | null
+  stdout_object_id: ObjectId | null
+  stderr_object_id: ObjectId | null
+  output_object_id: ObjectId | null
+  preview: string | null
+  raw_record_id: string
 }
 
 interface PendingArtifact {
-  artifact_id: string;
-  kind: string;
-  path: string | null;
-  logical_path: string | null;
-  object_id: ObjectId | null;
-  text_object_id: ObjectId | null;
-  mime_type: string | null;
-  size_bytes: number;
-  created_ts: string | null;
-  raw_record_id: string;
+  artifact_id: string
+  kind: string
+  path: string | null
+  logical_path: string | null
+  object_id: ObjectId | null
+  text_object_id: ObjectId | null
+  mime_type: string | null
+  size_bytes: number
+  created_ts: string | null
+  raw_record_id: string
 }
 
 interface PendingEdge {
-  src_type: string;
-  src_id: string;
-  dst_type: string;
-  dst_id: string;
-  edge_type: string;
-  confidence: 'high' | 'medium' | 'low';
-  source: string;
-  raw_record_id: string | null;
+  src_type: string
+  src_id: string
+  dst_type: string
+  dst_id: string
+  edge_type: string
+  confidence: 'high' | 'medium' | 'low'
+  source: string
+  raw_record_id: string | null
 }
 
 interface PendingSearchDoc {
-  doc_id: string;
-  entity_type: string;
-  entity_id: string;
-  timestamp: string | null;
-  role: string | null;
-  tool_name: string | null;
-  canonical_tool_type: string | null;
-  field_kind: string;
-  text: string;
+  doc_id: string
+  entity_type: string
+  entity_id: string
+  timestamp: string | null
+  role: string | null
+  tool_name: string | null
+  canonical_tool_type: string | null
+  field_kind: string
+  text: string
 }
 
 interface PendingState {
-  rawRecords: PendingRawRecord[];
-  session: PendingSession | null;
-  events: PendingEvent[];
-  messages: PendingMessage[];
-  blocks: PendingBlock[];
-  toolCalls: Map<string, PendingToolCall>;
-  toolCallsList: PendingToolCall[];
-  toolResults: PendingToolResult[];
-  artifacts: PendingArtifact[];
-  edges: PendingEdge[];
-  searchDocs: PendingSearchDoc[];
+  rawRecords: PendingRawRecord[]
+  session: PendingSession | null
+  events: PendingEvent[]
+  messages: PendingMessage[]
+  blocks: PendingBlock[]
+  toolCalls: Map<string, PendingToolCall>
+  toolCallsList: PendingToolCall[]
+  toolResults: PendingToolResult[]
+  artifacts: PendingArtifact[]
+  edges: PendingEdge[]
+  searchDocs: PendingSearchDoc[]
   /** map uuid → message_id for parent_of edges resolved at flush time. */
-  uuidToMessageId: Map<string, string>;
-  objects: PendingObjects;
+  uuidToMessageId: Map<string, string>
+  objects: PendingObjects
 }
 
 async function compileClaudeFile(
@@ -327,34 +327,28 @@ async function compileClaudeFile(
   file: ClaudeFile,
   logger?: CompileLogger,
 ): Promise<FileCounts> {
-  const counts = emptyFileCounts();
+  const counts = emptyFileCounts()
 
   const { row: sourceFile, alreadyKnown } = await registerSourceFile(bundle, {
     sourceTool: 'claude',
     absolutePath: path.resolve(file.filePath),
     fileKind: 'jsonl',
     workspaceHint: file.projectSlug,
-  });
+  })
 
   if (alreadyKnown) {
-    counts.source_files_skipped = 1;
-    logger?.debug(
-      { path: file.filePath, source_file_id: sourceFile.source_file_id },
-      'claude source file skipped',
-    );
-    return counts;
+    counts.source_files_skipped = 1
+    logger?.debug({ path: file.filePath, source_file_id: sourceFile.source_file_id }, 'claude source file skipped')
+    return counts
   }
-  counts.source_files_imported = 1;
-  logger?.debug(
-    { path: file.filePath, source_file_id: sourceFile.source_file_id },
-    'claude source file registered',
-  );
+  counts.source_files_imported = 1
+  logger?.debug({ path: file.filePath, source_file_id: sourceFile.source_file_id }, 'claude source file registered')
 
-  const text = await readFile(file.filePath, 'utf8');
-  const rawLines = text.split('\n');
-  const lines = rawLines[rawLines.length - 1] === '' ? rawLines.slice(0, -1) : rawLines;
+  const text = await readFile(file.filePath, 'utf8')
+  const rawLines = text.split('\n')
+  const lines = rawLines[rawLines.length - 1] === '' ? rawLines.slice(0, -1) : rawLines
 
-  const meta = file.metaPath ? await readMeta(file.metaPath) : null;
+  const meta = file.metaPath ? await readMeta(file.metaPath) : null
 
   const pending: PendingState = {
     rawRecords: [],
@@ -370,43 +364,43 @@ async function compileClaudeFile(
     searchDocs: [],
     uuidToMessageId: new Map(),
     objects: createPendingObjects(),
-  };
+  }
 
-  let modelFirst: string | null = null;
-  let modelLast: string | null = null;
-  let messageOrdinal = 0;
-  let sessionStartTs: string | null = null;
-  let sessionEndTs: string | null = null;
-  let cwdInitial: string | null = null;
-  let branchInitial: string | null = null;
+  let modelFirst: string | null = null
+  let modelLast: string | null = null
+  let messageOrdinal = 0
+  let sessionStartTs: string | null = null
+  let sessionEndTs: string | null = null
+  let cwdInitial: string | null = null
+  let branchInitial: string | null = null
 
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (!line || line.length === 0) continue;
-    const lineNo = i + 1;
-    const ordinal = i;
+    const line = lines[i]
+    if (!line || line.length === 0) continue
+    const lineNo = i + 1
+    const ordinal = i
 
-    const lineBytes = Buffer.from(line, 'utf8');
+    const lineBytes = Buffer.from(line, 'utf8')
     const rawObjectId = stageBytes(pending.objects, lineBytes, {
       mimeType: 'application/jsonl-line',
       encoding: 'utf-8',
-    });
+    })
 
-    let parsed: ClaudeRecord | null = null;
-    let parserStatus: 'ok' | 'partial' | 'failed' = 'ok';
+    let parsed: ClaudeRecord | null = null
+    let parserStatus: 'ok' | 'partial' | 'failed' = 'ok'
     try {
-      parsed = JSON.parse(line) as ClaudeRecord;
+      parsed = JSON.parse(line) as ClaudeRecord
     } catch {
-      parserStatus = 'failed';
+      parserStatus = 'failed'
     }
 
     // The raw line already IS the JSON for `parserStatus === 'ok'`, so we
     // skip storing a re-serialized copy as `decoded_json_object_id`. Saves
     // ~half the CAS writes per file. Nothing reads it back later.
-    const decodedObjectId: ObjectId | null = null;
+    const decodedObjectId: ObjectId | null = null
 
-    const nativeId = parsed?.uuid ?? null;
-    const rawRecordId = makeRawRecordId(sourceFile.source_file_id, ordinal, rawObjectId);
+    const nativeId = parsed?.uuid ?? null
+    const rawRecordId = makeRawRecordId(sourceFile.source_file_id, ordinal, rawObjectId)
 
     pending.rawRecords.push({
       raw_record_id: rawRecordId,
@@ -419,23 +413,23 @@ async function compileClaudeFile(
       parser_status: parserStatus,
       confidence: parserStatus === 'ok' ? 'high' : 'low',
       import_batch_id: batch.batch_id,
-    });
+    })
 
-    if (!parsed) continue;
+    if (!parsed) continue
 
-    const ts = typeof parsed.timestamp === 'string' ? parsed.timestamp : null;
+    const ts = typeof parsed.timestamp === 'string' ? parsed.timestamp : null
     if (ts) {
-      if (!sessionStartTs || ts < sessionStartTs) sessionStartTs = ts;
-      if (!sessionEndTs || ts > sessionEndTs) sessionEndTs = ts;
+      if (!sessionStartTs || ts < sessionStartTs) sessionStartTs = ts
+      if (!sessionEndTs || ts > sessionEndTs) sessionEndTs = ts
     }
-    if (!cwdInitial && typeof parsed.cwd === 'string') cwdInitial = parsed.cwd;
-    if (!branchInitial && typeof parsed.gitBranch === 'string') branchInitial = parsed.gitBranch;
+    if (!cwdInitial && typeof parsed.cwd === 'string') cwdInitial = parsed.cwd
+    if (!branchInitial && typeof parsed.gitBranch === 'string') branchInitial = parsed.gitBranch
 
     // Resolve session on first record that carries a sessionId.
     if (!pending.session && typeof parsed.sessionId === 'string') {
-      pending.session = createSessionFromFirstRecord(file, parsed, meta, ts, rawRecordId);
+      pending.session = createSessionFromFirstRecord(file, parsed, meta, ts, rawRecordId)
       if (file.isSubagent && file.parentSessionId) {
-        const parentSid = makeSessionId('claude', file.parentSessionId);
+        const parentSid = makeSessionId('claude', file.parentSessionId)
         pending.edges.push({
           src_type: 'session',
           src_id: parentSid,
@@ -445,27 +439,21 @@ async function compileClaudeFile(
           confidence: 'high',
           source: 'path_inferred',
           raw_record_id: rawRecordId,
-        });
-        pending.session.parent_session_id_pending = parentSid;
+        })
+        pending.session.parent_session_id_pending = parentSid
       }
     }
 
-    const sessionId =
-      pending.session?.session_id ??
-      makeSessionId('claude', `unknown:${path.basename(file.filePath)}`);
+    const sessionId = pending.session?.session_id ?? makeSessionId('claude', `unknown:${path.basename(file.filePath)}`)
 
-    const type = typeof parsed.type === 'string' ? parsed.type : null;
+    const type = typeof parsed.type === 'string' ? parsed.type : null
 
     if (type === 'user' || type === 'assistant') {
-      const msgRole: PendingMessage['role'] = type === 'user' ? 'user' : 'assistant';
-      const role = inferRoleFromContent(parsed, msgRole);
-      const msgOrdinal = messageOrdinal++;
-      const messageId = makeMessageId(
-        sessionId,
-        msgOrdinal,
-        parsed.message?.id ?? parsed.uuid ?? null,
-      );
-      const eventId = makeEventId(sessionId, ordinal, 'message');
+      const msgRole: PendingMessage['role'] = type === 'user' ? 'user' : 'assistant'
+      const role = inferRoleFromContent(parsed, msgRole)
+      const msgOrdinal = messageOrdinal++
+      const messageId = makeMessageId(sessionId, msgOrdinal, parsed.message?.id ?? parsed.uuid ?? null)
+      const eventId = makeEventId(sessionId, ordinal, 'message')
 
       pending.events.push({
         event_id: eventId,
@@ -479,12 +467,12 @@ async function compileClaudeFile(
         payload_object_id: decodedObjectId,
         raw_record_id: rawRecordId,
         confidence: 'high',
-      });
+      })
 
-      const model = parsed.message?.model ?? null;
+      const model = parsed.message?.model ?? null
       if (msgRole === 'assistant' && model) {
-        if (!modelFirst) modelFirst = model;
-        modelLast = model;
+        if (!modelFirst) modelFirst = model
+        modelLast = model
       }
 
       pending.messages.push({
@@ -498,10 +486,10 @@ async function compileClaudeFile(
         parent_uuid: parsed.parentUuid ?? null,
         uuid: parsed.uuid ?? null,
         raw_record_id: rawRecordId,
-      });
-      if (parsed.uuid) pending.uuidToMessageId.set(parsed.uuid, messageId);
+      })
+      if (parsed.uuid) pending.uuidToMessageId.set(parsed.uuid, messageId)
 
-      const content = parsed.message?.content;
+      const content = parsed.message?.content
       if (typeof content === 'string') {
         pending.blocks.push({
           block_id: blockId(messageId, 0),
@@ -514,31 +502,21 @@ async function compileClaudeFile(
           is_error: 0,
           visibility: 'default',
           raw_record_id: rawRecordId,
-        });
+        })
         if (content.length > PREVIEW_MAX) {
           // Big text — also store full body in CAS for later retrieval.
-          const fullId = stageText(pending.objects, content);
-          const last = pending.blocks[pending.blocks.length - 1];
-          if (last) last.text_object_id = fullId;
+          const fullId = stageText(pending.objects, content)
+          const last = pending.blocks[pending.blocks.length - 1]
+          if (last) last.text_object_id = fullId
         }
       } else if (Array.isArray(content)) {
         for (let bi = 0; bi < content.length; bi++) {
-          const block = content[bi] as ClaudeContentBlock | undefined;
-          if (!block) continue;
-          await processContentBlock(
-            bundle,
-            sessionId,
-            messageId,
-            eventId,
-            bi,
-            block,
-            ts,
-            rawRecordId,
-            pending,
-          );
+          const block = content[bi] as ClaudeContentBlock | undefined
+          if (!block) continue
+          await processContentBlock(bundle, sessionId, messageId, eventId, bi, block, ts, rawRecordId, pending)
         }
       }
-      continue;
+      continue
     }
 
     if (type === 'system') {
@@ -556,13 +534,12 @@ async function compileClaudeFile(
         payload_object_id: decodedObjectId,
         raw_record_id: rawRecordId,
         confidence: 'high',
-      });
-      continue;
+      })
+      continue
     }
 
     if (type === 'progress') {
-      const progressType =
-        typeof parsed.data?.type === 'string' ? (parsed.data.type as string) : null;
+      const progressType = typeof parsed.data?.type === 'string' ? (parsed.data.type as string) : null
       pending.events.push({
         event_id: makeEventId(sessionId, ordinal, `progress.${progressType ?? 'unknown'}`),
         ordinal,
@@ -575,8 +552,8 @@ async function compileClaudeFile(
         payload_object_id: decodedObjectId,
         raw_record_id: rawRecordId,
         confidence: 'high',
-      });
-      continue;
+      })
+      continue
     }
 
     if (type === 'attachment') {
@@ -592,8 +569,8 @@ async function compileClaudeFile(
         payload_object_id: decodedObjectId,
         raw_record_id: rawRecordId,
         confidence: 'high',
-      });
-      continue;
+      })
+      continue
     }
 
     if (type === 'file-history-snapshot') {
@@ -609,13 +586,9 @@ async function compileClaudeFile(
         payload_object_id: decodedObjectId,
         raw_record_id: rawRecordId,
         confidence: 'high',
-      });
+      })
       pending.artifacts.push({
-        artifact_id: artifactId(
-          sessionId,
-          'claude',
-          `snapshot:${parsed.snapshot?.messageId ?? ordinal}`,
-        ),
+        artifact_id: artifactId(sessionId, 'claude', `snapshot:${parsed.snapshot?.messageId ?? ordinal}`),
         kind: 'snapshot',
         path: null,
         logical_path: null,
@@ -625,8 +598,8 @@ async function compileClaudeFile(
         size_bytes: line.length,
         created_ts: ts,
         raw_record_id: rawRecordId,
-      });
-      continue;
+      })
+      continue
     }
 
     // permission-mode, last-prompt, queue-operation, agent-name, custom-title,
@@ -643,13 +616,13 @@ async function compileClaudeFile(
       payload_object_id: decodedObjectId,
       raw_record_id: rawRecordId,
       confidence: 'high',
-    });
+    })
   }
 
   // Resolve parent_of edges by uuid.
   for (const m of pending.messages) {
     if (m.parent_uuid && pending.uuidToMessageId.has(m.parent_uuid)) {
-      const parentId = pending.uuidToMessageId.get(m.parent_uuid)!;
+      const parentId = pending.uuidToMessageId.get(m.parent_uuid)!
       pending.edges.push({
         src_type: 'message',
         src_id: parentId,
@@ -659,43 +632,43 @@ async function compileClaudeFile(
         confidence: 'high',
         source: 'explicit',
         raw_record_id: m.raw_record_id,
-      });
+      })
     }
   }
 
   if (pending.session) {
-    pending.session.start_ts ??= sessionStartTs;
-    pending.session.end_ts ??= sessionEndTs;
-    pending.session.cwd_initial ??= cwdInitial;
-    pending.session.git_branch_initial ??= branchInitial;
+    pending.session.start_ts ??= sessionStartTs
+    pending.session.end_ts ??= sessionEndTs
+    pending.session.cwd_initial ??= cwdInitial
+    pending.session.git_branch_initial ??= branchInitial
   }
 
-  buildSearchDocs(pending);
+  buildSearchDocs(pending)
 
   // Persist staged CAS objects (FS + objects rows) before the domain
   // transaction. better-sqlite3 transactions are sync, so we can't await
   // file writes inside them.
-  await flushPendingObjects(bundle, pending.objects);
+  await flushPendingObjects(bundle, pending.objects)
 
   transactional(bundle.db, () => {
-    flushPending(bundle, pending, { modelFirst, modelLast });
-  });
+    flushPending(bundle, pending, { modelFirst, modelLast })
+  })
 
-  counts.raw_records = pending.rawRecords.length;
-  counts.sessions = pending.session ? 1 : 0;
-  counts.events = pending.events.length;
-  counts.messages = pending.messages.length;
-  counts.content_blocks = pending.blocks.length;
-  counts.tool_calls = pending.toolCallsList.length;
-  counts.tool_results = pending.toolResults.length;
-  counts.artifacts = pending.artifacts.length;
-  counts.edges = pending.edges.length;
+  counts.raw_records = pending.rawRecords.length
+  counts.sessions = pending.session ? 1 : 0
+  counts.events = pending.events.length
+  counts.messages = pending.messages.length
+  counts.content_blocks = pending.blocks.length
+  counts.tool_calls = pending.toolCallsList.length
+  counts.tool_results = pending.toolResults.length
+  counts.artifacts = pending.artifacts.length
+  counts.edges = pending.edges.length
   logger?.debug(
     { path: file.filePath, source_file_id: sourceFile.source_file_id, counts },
     'claude source file imported',
-  );
+  )
 
-  return counts;
+  return counts
 }
 
 function createSessionFromFirstRecord(
@@ -705,10 +678,10 @@ function createSessionFromFirstRecord(
   ts: string | null,
   rawRecordId: string,
 ): PendingSession {
-  const sourceSid = parsed.sessionId as string;
+  const sourceSid = parsed.sessionId as string
   // Subagent and main share the same `sessionId` field. Differentiate by
   // appending the agentId for subagents to keep PKs stable.
-  const composite = file.isSubagent && file.agentId ? `${sourceSid}:${file.agentId}` : sourceSid;
+  const composite = file.isSubagent && file.agentId ? `${sourceSid}:${file.agentId}` : sourceSid
   return {
     session_id: makeSessionId('claude', composite),
     source_session_id: composite,
@@ -722,32 +695,27 @@ function createSessionFromFirstRecord(
     git_branch_initial: parsed.gitBranch ?? null,
     raw_record_id: rawRecordId,
     parent_session_id_pending: null,
-  };
+  }
 }
 
 async function readMeta(metaPath: string): Promise<ClaudeSubagentMeta | null> {
   try {
-    const text = await readFile(metaPath, 'utf8');
-    return JSON.parse(text) as ClaudeSubagentMeta;
+    const text = await readFile(metaPath, 'utf8')
+    return JSON.parse(text) as ClaudeSubagentMeta
   } catch {
-    return null;
+    return null
   }
 }
 
-function inferRoleFromContent(
-  parsed: ClaudeRecord,
-  fallback: 'user' | 'assistant',
-): PendingMessage['role'] {
+function inferRoleFromContent(parsed: ClaudeRecord, fallback: 'user' | 'assistant'): PendingMessage['role'] {
   // A user-typed message that contains only tool_result blocks is the agent
   // delivering tool output back to itself. Mark as 'tool' role for clarity in
   // search/filters; mixed messages stay as 'user'.
-  if (fallback !== 'user') return 'assistant';
-  const c = parsed.message?.content;
-  if (!Array.isArray(c) || c.length === 0) return 'user';
-  const allToolResult = c.every(
-    (b) => b && typeof b === 'object' && (b as { type?: string }).type === 'tool_result',
-  );
-  return allToolResult ? 'tool' : 'user';
+  if (fallback !== 'user') return 'assistant'
+  const c = parsed.message?.content
+  if (!Array.isArray(c) || c.length === 0) return 'user'
+  const allToolResult = c.every((b) => b && typeof b === 'object' && (b as { type?: string }).type === 'tool_result')
+  return allToolResult ? 'tool' : 'user'
 }
 
 async function processContentBlock(
@@ -761,10 +729,10 @@ async function processContentBlock(
   rawRecordId: string,
   pending: PendingState,
 ): Promise<void> {
-  const blkId = blockId(messageId, blockOrdinal);
+  const blkId = blockId(messageId, blockOrdinal)
 
   if (block.type === 'text') {
-    const text = (block as { text?: string }).text ?? '';
+    const text = (block as { text?: string }).text ?? ''
     pending.blocks.push({
       block_id: blkId,
       message_id: messageId,
@@ -776,12 +744,12 @@ async function processContentBlock(
       is_error: 0,
       visibility: 'default',
       raw_record_id: rawRecordId,
-    });
-    return;
+    })
+    return
   }
 
   if (block.type === 'thinking') {
-    const text = (block as { thinking?: string }).thinking ?? '';
+    const text = (block as { thinking?: string }).thinking ?? ''
     pending.blocks.push({
       block_id: blkId,
       message_id: messageId,
@@ -793,18 +761,18 @@ async function processContentBlock(
       is_error: 0,
       visibility: 'hidden_by_default',
       raw_record_id: rawRecordId,
-    });
-    return;
+    })
+    return
   }
 
   if (block.type === 'tool_use') {
-    const tu = block as { id?: string; name?: string; input?: unknown };
-    const sourceCallId = tu.id ?? `${blockOrdinal}`;
-    const toolName = tu.name ?? 'unknown';
-    const argsId = tu.input != null ? stageJson(pending.objects, tu.input) : null;
-    const command = inferCommandFromArgs(toolName, tu.input);
-    const filePath = inferPathFromArgs(tu.input);
-    const tcId = makeToolCallId(sessionId, sourceCallId);
+    const tu = block as { id?: string; name?: string; input?: unknown }
+    const sourceCallId = tu.id ?? `${blockOrdinal}`
+    const toolName = tu.name ?? 'unknown'
+    const argsId = tu.input != null ? stageJson(pending.objects, tu.input) : null
+    const command = inferCommandFromArgs(toolName, tu.input)
+    const filePath = inferPathFromArgs(tu.input)
+    const tcId = makeToolCallId(sessionId, sourceCallId)
 
     pending.blocks.push({
       block_id: blkId,
@@ -817,7 +785,7 @@ async function processContentBlock(
       is_error: 0,
       visibility: 'default',
       raw_record_id: rawRecordId,
-    });
+    })
 
     const call: PendingToolCall = {
       tool_call_id: tcId,
@@ -834,18 +802,18 @@ async function processContentBlock(
       timestamp_start: ts,
       status: 'started',
       raw_record_id: rawRecordId,
-    };
-    pending.toolCalls.set(sourceCallId, call);
-    pending.toolCallsList.push(call);
-    return;
+    }
+    pending.toolCalls.set(sourceCallId, call)
+    pending.toolCallsList.push(call)
+    return
   }
 
   if (block.type === 'tool_result') {
-    const tr = block as { tool_use_id?: string; content?: unknown; is_error?: boolean };
-    const sourceCallId = tr.tool_use_id ?? null;
-    const isError = tr.is_error === true ? 1 : 0;
-    const text = stringifyOrNull(tr.content) ?? '';
-    const overflowId = text.length > PREVIEW_MAX ? stageText(pending.objects, text) : null;
+    const tr = block as { tool_use_id?: string; content?: unknown; is_error?: boolean }
+    const sourceCallId = tr.tool_use_id ?? null
+    const isError = tr.is_error === true ? 1 : 0
+    const text = stringifyOrNull(tr.content) ?? ''
+    const overflowId = text.length > PREVIEW_MAX ? stageText(pending.objects, text) : null
     pending.blocks.push({
       block_id: blkId,
       message_id: messageId,
@@ -857,9 +825,9 @@ async function processContentBlock(
       is_error: isError,
       visibility: 'default',
       raw_record_id: rawRecordId,
-    });
+    })
 
-    const matched = sourceCallId ? pending.toolCalls.get(sourceCallId) : undefined;
+    const matched = sourceCallId ? pending.toolCalls.get(sourceCallId) : undefined
     pending.toolResults.push({
       tool_result_id: makeToolResultId(sessionId, sourceCallId ?? `${messageId}:${blockOrdinal}`),
       tool_call_id: matched?.tool_call_id ?? null,
@@ -875,11 +843,11 @@ async function processContentBlock(
       output_object_id: overflowId,
       preview: text.slice(0, PREVIEW_MAX),
       raw_record_id: rawRecordId,
-    });
+    })
     if (matched) {
-      matched.status = isError ? 'error' : 'success';
+      matched.status = isError ? 'error' : 'success'
     }
-    return;
+    return
   }
 
   if (block.type === 'image') {
@@ -894,8 +862,8 @@ async function processContentBlock(
       is_error: 0,
       visibility: 'default',
       raw_record_id: rawRecordId,
-    });
-    return;
+    })
+    return
   }
 
   // Unknown block type — keep it as raw inline JSON for visibility.
@@ -910,15 +878,15 @@ async function processContentBlock(
     is_error: 0,
     visibility: 'audit_only',
     raw_record_id: rawRecordId,
-  });
+  })
 }
 
 function canonicalToolType(toolName: string): string {
-  const lower = toolName.toLowerCase();
-  if (lower.startsWith('mcp__')) return 'mcp';
-  if (lower === 'bash' || lower === 'shell' || lower === 'run_terminal_cmd') return 'shell';
-  if (lower === 'read' || lower === 'readfile' || lower === 'read_file') return 'read_file';
-  if (lower === 'write' || lower === 'writefile' || lower === 'write_file') return 'write_file';
+  const lower = toolName.toLowerCase()
+  if (lower.startsWith('mcp__')) return 'mcp'
+  if (lower === 'bash' || lower === 'shell' || lower === 'run_terminal_cmd') return 'shell'
+  if (lower === 'read' || lower === 'readfile' || lower === 'read_file') return 'read_file'
+  if (lower === 'write' || lower === 'writefile' || lower === 'write_file') return 'write_file'
   if (
     lower === 'edit' ||
     lower === 'strreplace' ||
@@ -926,66 +894,65 @@ function canonicalToolType(toolName: string): string {
     lower === 'replace' ||
     lower === 'search_replace'
   ) {
-    return 'edit_file';
+    return 'edit_file'
   }
-  if (lower === 'grep' || lower === 'glob' || lower === 'glob_file_search') return 'search_file';
-  if (lower === 'websearch' || lower === 'google_web_search') return 'web_search';
-  if (lower === 'webfetch') return 'other';
-  if (lower === 'agent') return 'subagent';
-  if (lower === 'applypatch' || lower === 'apply_patch') return 'patch';
-  return 'other';
+  if (lower === 'grep' || lower === 'glob' || lower === 'glob_file_search') return 'search_file'
+  if (lower === 'websearch' || lower === 'google_web_search') return 'web_search'
+  if (lower === 'webfetch') return 'other'
+  if (lower === 'agent') return 'subagent'
+  if (lower === 'applypatch' || lower === 'apply_patch') return 'patch'
+  return 'other'
 }
 
 function inferCommandFromArgs(toolName: string, args: unknown): string | null {
-  if (!args || typeof args !== 'object') return null;
-  const obj = args as Record<string, unknown>;
-  if (typeof obj.command === 'string') return obj.command;
-  if (toolName.toLowerCase() === 'bash' && typeof obj.cmd === 'string') return obj.cmd;
-  return null;
+  if (!args || typeof args !== 'object') return null
+  const obj = args as Record<string, unknown>
+  if (typeof obj.command === 'string') return obj.command
+  if (toolName.toLowerCase() === 'bash' && typeof obj.cmd === 'string') return obj.cmd
+  return null
 }
 
 function inferPathFromArgs(args: unknown): string | null {
-  if (!args || typeof args !== 'object') return null;
-  const obj = args as Record<string, unknown>;
-  if (typeof obj.file_path === 'string') return obj.file_path;
-  if (typeof obj.path === 'string') return obj.path;
-  if (typeof obj.absolute_path === 'string') return obj.absolute_path;
-  return null;
+  if (!args || typeof args !== 'object') return null
+  const obj = args as Record<string, unknown>
+  if (typeof obj.file_path === 'string') return obj.file_path
+  if (typeof obj.path === 'string') return obj.path
+  if (typeof obj.absolute_path === 'string') return obj.absolute_path
+  return null
 }
 
 function stringifyOrNull(value: unknown): string | null {
-  if (value == null) return null;
-  if (typeof value === 'string') return value;
+  if (value == null) return null
+  if (typeof value === 'string') return value
   try {
-    return JSON.stringify(value);
+    return JSON.stringify(value)
   } catch {
-    return null;
+    return null
   }
 }
 
 function buildSearchDocs(pending: PendingState): void {
-  const sessionId = pending.session?.session_id ?? null;
-  if (!sessionId) return;
+  const sessionId = pending.session?.session_id ?? null
+  if (!sessionId) return
 
-  const blocksByMsg = new Map<string, PendingBlock[]>();
+  const blocksByMsg = new Map<string, PendingBlock[]>()
   for (const b of pending.blocks) {
-    if (!b.message_id) continue;
-    if (!b.text_inline) continue;
-    if (b.block_type !== 'text' && b.block_type !== 'thinking' && b.block_type !== 'tool_result')
-      continue;
-    const list = blocksByMsg.get(b.message_id) ?? [];
-    list.push(b);
-    blocksByMsg.set(b.message_id, list);
+    if (!b.message_id) continue
+    if (!b.text_inline) continue
+    if (b.block_type !== 'text' && b.block_type !== 'thinking' && b.block_type !== 'tool_result') continue
+    const list = blocksByMsg.get(b.message_id) ?? []
+    list.push(b)
+    blocksByMsg.set(b.message_id, list)
   }
 
   for (const m of pending.messages) {
-    const blks = blocksByMsg.get(m.message_id) ?? [];
+    const blks = blocksByMsg.get(m.message_id) ?? []
     const text = blks
       .filter((b) => b.block_type !== 'thinking') // hide reasoning from default search
       .map((b) => b.text_inline ?? '')
       .join('\n')
-      .trim();
-    if (!text) continue;
+      .trim()
+    if (!text) continue
     pending.searchDocs.push({
       doc_id: `msg:${m.message_id}`,
       entity_type: 'message',
@@ -994,10 +961,9 @@ function buildSearchDocs(pending: PendingState): void {
       role: m.role,
       tool_name: null,
       canonical_tool_type: null,
-      field_kind:
-        m.role === 'user' ? 'user_prompt' : m.role === 'tool' ? 'tool_result' : 'assistant_text',
+      field_kind: m.role === 'user' ? 'user_prompt' : m.role === 'tool' ? 'tool_result' : 'assistant_text',
       text,
-    });
+    })
   }
 
   for (const c of pending.toolCallsList) {
@@ -1012,7 +978,7 @@ function buildSearchDocs(pending: PendingState): void {
         canonical_tool_type: c.canonical_tool_type,
         field_kind: 'command',
         text: c.command,
-      });
+      })
     }
     if (c.path) {
       pending.searchDocs.push({
@@ -1025,12 +991,12 @@ function buildSearchDocs(pending: PendingState): void {
         canonical_tool_type: c.canonical_tool_type,
         field_kind: 'file_path',
         text: c.path,
-      });
+      })
     }
   }
 
   for (const r of pending.toolResults) {
-    if (!r.preview) continue;
+    if (!r.preview) continue
     pending.searchDocs.push({
       doc_id: `tr:preview:${r.tool_result_id}`,
       entity_type: 'tool_result',
@@ -1041,7 +1007,7 @@ function buildSearchDocs(pending: PendingState): void {
       canonical_tool_type: null,
       field_kind: r.is_error ? 'error' : 'tool_result',
       text: r.preview,
-    });
+    })
   }
 }
 
@@ -1050,7 +1016,7 @@ function flushPending(
   pending: PendingState,
   meta: { modelFirst: string | null; modelLast: string | null },
 ): void {
-  if (!pending.session) return;
+  if (!pending.session) return
 
   const insertRaw = prepare(
     bundle.db,
@@ -1059,7 +1025,7 @@ function flushPending(
        line_no, json_pointer, native_id, raw_object_id, decoded_json_object_id,
        parser_status, confidence, import_batch_id
      ) VALUES (?, ?, 'claude', 'jsonl_line', ?, ?, NULL, ?, ?, ?, ?, ?, ?)`,
-  );
+  )
   for (const r of pending.rawRecords) {
     insertRaw.run(
       r.raw_record_id,
@@ -1072,7 +1038,7 @@ function flushPending(
       r.parser_status,
       r.confidence,
       r.import_batch_id,
-    );
+    )
   }
 
   prepare(
@@ -1097,7 +1063,7 @@ function flushPending(
     meta.modelFirst,
     meta.modelLast,
     pending.session.raw_record_id,
-  );
+  )
 
   const insertEvent = prepare(
     bundle.db,
@@ -1106,7 +1072,7 @@ function flushPending(
        subtype, timestamp, ordinal, actor, payload_object_id, raw_record_id,
        confidence, is_derived
      ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
-  );
+  )
   for (const e of pending.events) {
     insertEvent.run(
       e.event_id,
@@ -1121,7 +1087,7 @@ function flushPending(
       e.payload_object_id,
       e.raw_record_id,
       e.confidence,
-    );
+    )
   }
 
   const insertMessage = prepare(
@@ -1131,7 +1097,7 @@ function flushPending(
        author_name, model, timestamp, ordinal, parent_message_id, request_id,
        status, raw_record_id
      ) VALUES (?, ?, NULL, ?, ?, ?, NULL, ?, ?, ?, NULL, NULL, NULL, ?)`,
-  );
+  )
   for (const m of pending.messages) {
     insertMessage.run(
       m.message_id,
@@ -1143,7 +1109,7 @@ function flushPending(
       m.timestamp,
       m.ordinal,
       m.raw_record_id,
-    );
+    )
   }
 
   const insertBlock = prepare(
@@ -1153,7 +1119,7 @@ function flushPending(
        text_object_id, text_inline, mime_type, token_count, is_error,
        is_redacted, visibility, raw_record_id
      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, 0, ?, ?)`,
-  );
+  )
   for (const b of pending.blocks) {
     insertBlock.run(
       b.block_id,
@@ -1167,7 +1133,7 @@ function flushPending(
       b.is_error,
       b.visibility,
       b.raw_record_id,
-    );
+    )
   }
 
   const insertToolCall = prepare(
@@ -1178,7 +1144,7 @@ function flushPending(
        command, cwd, path, query, timestamp_start, timestamp_end, status,
        raw_record_id
      ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
-  );
+  )
   for (const c of pending.toolCallsList) {
     insertToolCall.run(
       c.tool_call_id,
@@ -1196,7 +1162,7 @@ function flushPending(
       c.timestamp_start,
       c.status,
       c.raw_record_id,
-    );
+    )
   }
 
   const insertToolResult = prepare(
@@ -1206,7 +1172,7 @@ function flushPending(
        source_call_id, status, is_error, exit_code, duration_ms,
        stdout_object_id, stderr_object_id, output_object_id, preview, raw_record_id
      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  );
+  )
   for (const r of pending.toolResults) {
     insertToolResult.run(
       r.tool_result_id,
@@ -1224,7 +1190,7 @@ function flushPending(
       r.output_object_id,
       r.preview,
       r.raw_record_id,
-    );
+    )
   }
 
   const insertArtifact = prepare(
@@ -1234,7 +1200,7 @@ function flushPending(
        logical_path, object_id, text_object_id, mime_type, size_bytes,
        created_ts, raw_record_id
      ) VALUES (?, ?, NULL, 'claude', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  );
+  )
   for (const a of pending.artifacts) {
     insertArtifact.run(
       a.artifact_id,
@@ -1248,7 +1214,7 @@ function flushPending(
       a.size_bytes,
       a.created_ts,
       a.raw_record_id,
-    );
+    )
   }
 
   const insertEdge = prepare(
@@ -1257,18 +1223,9 @@ function flushPending(
        src_type, src_id, dst_type, dst_id, edge_type, confidence, source,
        raw_record_id, metadata_object_id
      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
-  );
+  )
   for (const e of pending.edges) {
-    insertEdge.run(
-      e.src_type,
-      e.src_id,
-      e.dst_type,
-      e.dst_id,
-      e.edge_type,
-      e.confidence,
-      e.source,
-      e.raw_record_id,
-    );
+    insertEdge.run(e.src_type, e.src_id, e.dst_type, e.dst_id, e.edge_type, e.confidence, e.source, e.raw_record_id)
   }
 
   const insertSearch = prepare(
@@ -1277,7 +1234,7 @@ function flushPending(
        doc_id, entity_type, entity_id, session_id, project_id, timestamp,
        role, tool_name, canonical_tool_type, field_kind, text
      ) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)`,
-  );
+  )
   for (const d of pending.searchDocs) {
     insertSearch.run(
       d.doc_id,
@@ -1290,6 +1247,6 @@ function flushPending(
       d.canonical_tool_type,
       d.field_kind,
       d.text,
-    );
+    )
   }
 }

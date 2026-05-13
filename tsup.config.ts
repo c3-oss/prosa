@@ -1,4 +1,4 @@
-import { defineConfig } from 'tsup';
+import { defineConfig } from 'tsup'
 
 export default defineConfig({
   entry: {
@@ -15,15 +15,15 @@ export default defineConfig({
   splitting: false,
   shims: false,
   banner: ({ format }) => {
-    if (format !== 'esm') return {};
+    if (format !== 'esm') return {}
     return {
       js: "import { createRequire as __prosaCreateRequire } from 'module'; const require = __prosaCreateRequire(import.meta.url);",
-    };
+    }
   },
   esbuildOptions(options) {
-    options.conditions = ['node'];
+    options.conditions = ['node']
   },
   loader: {
     '.sql': 'text',
   },
-});
+})

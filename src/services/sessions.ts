@@ -1,59 +1,59 @@
-import type { Bundle } from '../core/bundle.js';
-import type { Confidence, SourceTool } from '../core/domain/types.js';
-import { clampLimit } from '../core/limits.js';
+import type { Bundle } from '../core/bundle.js'
+import type { Confidence, SourceTool } from '../core/domain/types.js'
+import { clampLimit } from '../core/limits.js'
 
 export interface SessionListFilters {
-  sourceTool?: SourceTool;
-  sinceIso?: string;
-  untilIso?: string;
-  limit?: number;
+  sourceTool?: SourceTool
+  sinceIso?: string
+  untilIso?: string
+  limit?: number
 }
 
 export interface SessionRow {
-  session_id: string;
-  source_tool: SourceTool;
-  source_session_id: string;
-  parent_session_id: string | null;
-  is_subagent: 0 | 1;
-  title: string | null;
-  start_ts: string | null;
-  end_ts: string | null;
-  cwd_initial: string | null;
-  git_branch_initial: string | null;
-  model_first: string | null;
-  model_last: string | null;
-  status: string | null;
-  timeline_confidence: Confidence;
-  message_count: number;
-  tool_call_count: number;
+  session_id: string
+  source_tool: SourceTool
+  source_session_id: string
+  parent_session_id: string | null
+  is_subagent: 0 | 1
+  title: string | null
+  start_ts: string | null
+  end_ts: string | null
+  cwd_initial: string | null
+  git_branch_initial: string | null
+  model_first: string | null
+  model_last: string | null
+  status: string | null
+  timeline_confidence: Confidence
+  message_count: number
+  tool_call_count: number
 }
 
 function sessionFilterWhere(filters: SessionListFilters): { where: string; params: unknown[] } {
-  const conds: string[] = [];
-  const params: unknown[] = [];
+  const conds: string[] = []
+  const params: unknown[] = []
 
   if (filters.sourceTool) {
-    conds.push('s.source_tool = ?');
-    params.push(filters.sourceTool);
+    conds.push('s.source_tool = ?')
+    params.push(filters.sourceTool)
   }
   if (filters.sinceIso) {
-    conds.push('(s.start_ts IS NULL OR s.start_ts >= ?)');
-    params.push(filters.sinceIso);
+    conds.push('(s.start_ts IS NULL OR s.start_ts >= ?)')
+    params.push(filters.sinceIso)
   }
   if (filters.untilIso) {
-    conds.push('(s.start_ts IS NULL OR s.start_ts < ?)');
-    params.push(filters.untilIso);
+    conds.push('(s.start_ts IS NULL OR s.start_ts < ?)')
+    params.push(filters.untilIso)
   }
 
   return {
     where: conds.length ? `WHERE ${conds.join(' AND ')}` : '',
     params,
-  };
+  }
 }
 
 export function listSessions(bundle: Bundle, filters: SessionListFilters = {}): SessionRow[] {
-  const { where, params } = sessionFilterWhere(filters);
-  const limit = clampLimit(filters.limit, { max: 1000, fallback: 50 });
+  const { where, params } = sessionFilterWhere(filters)
+  const limit = clampLimit(filters.limit, { max: 1000, fallback: 50 })
 
   const sql = `
     SELECT s.session_id,
@@ -76,13 +76,13 @@ export function listSessions(bundle: Bundle, filters: SessionListFilters = {}): 
       ${where}
      ORDER BY s.start_ts DESC NULLS LAST
      LIMIT ${limit}
-  `;
+  `
 
-  return bundle.db.prepare(sql).all(...params) as SessionRow[];
+  return bundle.db.prepare(sql).all(...params) as SessionRow[]
 }
 
 export function countSessions(bundle: Bundle, filters: SessionListFilters = {}): number {
-  const { where, params } = sessionFilterWhere(filters);
+  const { where, params } = sessionFilterWhere(filters)
   const row = bundle.db
     .prepare(
       `
@@ -91,32 +91,32 @@ export function countSessions(bundle: Bundle, filters: SessionListFilters = {}):
           ${where}
       `,
     )
-    .get(...params) as { count: number } | undefined;
+    .get(...params) as { count: number } | undefined
 
-  return row?.count ?? 0;
+  return row?.count ?? 0
 }
 
 export interface SessionDetailEvent {
-  ordinal: number;
-  timestamp: string | null;
-  event_type: string;
-  source_type: string | null;
-  subtype: string | null;
-  actor: string | null;
-  message_id: string | null;
-  role: string | null;
-  tool_name: string | null;
-  is_error: 0 | 1 | null;
-  preview: string | null;
+  ordinal: number
+  timestamp: string | null
+  event_type: string
+  source_type: string | null
+  subtype: string | null
+  actor: string | null
+  message_id: string | null
+  role: string | null
+  tool_name: string | null
+  is_error: 0 | 1 | null
+  preview: string | null
 }
 
 export interface SessionDetail {
-  session: SessionRow;
-  events: SessionDetailEvent[];
+  session: SessionRow
+  events: SessionDetailEvent[]
 }
 
 export function getSession(bundle: Bundle, sessionId: string): SessionDetail | null {
-  const rows = listSessions(bundle); // small query reused for shape
+  const rows = listSessions(bundle) // small query reused for shape
   const row = bundle.db
     .prepare<[string], SessionRow>(
       `SELECT s.session_id, s.source_tool, s.source_session_id, s.parent_session_id,
@@ -128,9 +128,9 @@ export function getSession(bundle: Bundle, sessionId: string): SessionDetail | n
          FROM sessions s
         WHERE s.session_id = ?`,
     )
-    .get(sessionId);
-  void rows;
-  if (!row) return null;
+    .get(sessionId)
+  void rows
+  if (!row) return null
 
   const events = bundle.db
     .prepare<[string], SessionDetailEvent>(
@@ -152,7 +152,7 @@ export function getSession(bundle: Bundle, sessionId: string): SessionDetail | n
         WHERE e.session_id = ?
         ORDER BY e.ordinal`,
     )
-    .all(sessionId);
+    .all(sessionId)
 
-  return { session: row, events };
+  return { session: row, events }
 }

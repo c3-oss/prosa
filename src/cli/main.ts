@@ -1,17 +1,17 @@
 #!/usr/bin/env node
-import { Command } from 'commander';
-import { PROSA_PARSER_VERSION } from '../core/version.js';
-import { analyticsCommand } from './commands/analytics.js';
-import { compileAllCommand, compileCommand } from './commands/compile.js';
-import { doctorCommand } from './commands/doctor.js';
-import { exportCommand } from './commands/export.js';
-import { indexCommand } from './commands/index.js';
-import { initCommand } from './commands/init.js';
-import { mcpCommand } from './commands/mcp.js';
-import { queryCommand } from './commands/query.js';
-import { searchCommand } from './commands/search.js';
-import { sessionsCommand } from './commands/sessions.js';
-import { tuiCommand } from './commands/tui.js';
+import { Command } from 'commander'
+import { PROSA_PARSER_VERSION } from '../core/version.js'
+import { analyticsCommand } from './commands/analytics.js'
+import { compileAllCommand, compileCommand } from './commands/compile.js'
+import { doctorCommand } from './commands/doctor.js'
+import { exportCommand } from './commands/export.js'
+import { indexCommand } from './commands/index.js'
+import { initCommand } from './commands/init.js'
+import { mcpCommand } from './commands/mcp.js'
+import { queryCommand } from './commands/query.js'
+import { searchCommand } from './commands/search.js'
+import { sessionsCommand } from './commands/sessions.js'
+import { tuiCommand } from './commands/tui.js'
 
 /**
  * Drop a leading literal `--` token from the user-args portion of argv.
@@ -26,9 +26,9 @@ import { tuiCommand } from './commands/tui.js';
  */
 function stripLeadingDoubleDash(argv: readonly string[]): string[] {
   if (argv.length >= 3 && argv[2] === '--') {
-    return [argv[0]!, argv[1]!, ...argv.slice(3)];
+    return [argv[0]!, argv[1]!, ...argv.slice(3)]
   }
-  return [...argv];
+  return [...argv]
 }
 
 export async function runCli(argv: readonly string[]): Promise<void> {
@@ -39,33 +39,31 @@ export async function runCli(argv: readonly string[]): Promise<void> {
       'Compile, search and export local agent session histories\n' +
         '(Cursor, Codex CLI, Claude Code, Gemini CLI) into one canonical store.',
     )
-    .version(PROSA_PARSER_VERSION, '-v, --version');
+    .version(PROSA_PARSER_VERSION, '-v, --version')
 
-  program.addCommand(initCommand());
-  program.addCommand(compileCommand());
-  program.addCommand(compileAllCommand());
-  program.addCommand(indexCommand());
-  program.addCommand(sessionsCommand());
-  program.addCommand(searchCommand());
-  program.addCommand(exportCommand());
-  program.addCommand(queryCommand());
-  program.addCommand(analyticsCommand());
-  program.addCommand(doctorCommand());
-  program.addCommand(mcpCommand());
-  program.addCommand(tuiCommand());
+  program.addCommand(initCommand())
+  program.addCommand(compileCommand())
+  program.addCommand(compileAllCommand())
+  program.addCommand(indexCommand())
+  program.addCommand(sessionsCommand())
+  program.addCommand(searchCommand())
+  program.addCommand(exportCommand())
+  program.addCommand(queryCommand())
+  program.addCommand(analyticsCommand())
+  program.addCommand(doctorCommand())
+  program.addCommand(mcpCommand())
+  program.addCommand(tuiCommand())
 
-  await program.parseAsync(stripLeadingDoubleDash(argv));
+  await program.parseAsync(stripLeadingDoubleDash(argv))
 }
 
 // Auto-execute when invoked as the entry point (`node dist/cli/main.js …` or
 // via the `prosa` bin shim). Importing this file as a library still gives
 // `runCli` without side effects.
-const isEntry = import.meta.url === `file://${process.argv[1]}`;
+const isEntry = import.meta.url === `file://${process.argv[1]}`
 if (isEntry) {
   runCli(process.argv).catch((error: unknown) => {
-    process.stderr.write(
-      `${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`,
-    );
-    process.exit(1);
-  });
+    process.stderr.write(`${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`)
+    process.exit(1)
+  })
 }

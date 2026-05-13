@@ -1,9 +1,9 @@
-import { Command } from 'commander';
-import { defaultBundlePath } from '../../core/bundle.js';
-import { countSessions, listSessions } from '../../services/sessions.js';
-import { withBundle } from '../bundle.js';
-import { printRows } from '../output.js';
-import { parseOutputFormat, parseSourceTool } from '../parsers.js';
+import { Command } from 'commander'
+import { defaultBundlePath } from '../../core/bundle.js'
+import { countSessions, listSessions } from '../../services/sessions.js'
+import { withBundle } from '../bundle.js'
+import { printRows } from '../output.js'
+import { parseOutputFormat, parseSourceTool } from '../parsers.js'
 
 export function sessionsCommand(): Command {
   const command = new Command('sessions')
@@ -17,21 +17,21 @@ export function sessionsCommand(): Command {
     .option('--output-format <fmt>', 'interactive|table|json|csv', 'table')
     .action(
       async (options: {
-        store: string;
-        source?: string;
-        since?: string;
-        until?: string;
-        limit: string;
-        outputFormat: string;
+        store: string
+        source?: string
+        since?: string
+        until?: string
+        limit: string
+        outputFormat: string
       }) => {
-        const format = parseOutputFormat(options.outputFormat, 'table');
+        const format = parseOutputFormat(options.outputFormat, 'table')
         await withBundle(options.store, (bundle) => {
           const rows = listSessions(bundle, {
             sourceTool: parseSourceTool(options.source),
             sinceIso: options.since,
             untilIso: options.until,
             limit: Number.parseInt(options.limit, 10),
-          });
+          })
 
           printRows(rows, {
             format,
@@ -45,10 +45,10 @@ export function sessionsCommand(): Command {
               'cwd_initial',
               'title',
             ],
-          });
-        });
+          })
+        })
       },
-    );
+    )
 
   command.addCommand(
     new Command('count')
@@ -59,22 +59,22 @@ export function sessionsCommand(): Command {
       .option('--until <iso>', 'sessions starting before this ISO timestamp')
       .action(
         async (options: {
-          store: string;
-          source?: string;
-          since?: string;
-          until?: string;
+          store: string
+          source?: string
+          since?: string
+          until?: string
         }) => {
           await withBundle(options.store, (bundle) => {
             const count = countSessions(bundle, {
               sourceTool: parseSourceTool(options.source),
               sinceIso: options.since,
               untilIso: options.until,
-            });
-            process.stdout.write(`${count}\n`);
-          });
+            })
+            process.stdout.write(`${count}\n`)
+          })
         },
       ),
-  );
+  )
 
-  return command;
+  return command
 }
