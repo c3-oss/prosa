@@ -1,14 +1,17 @@
-// Loose TypeScript shapes for the Codex JSONL envelope. We don't validate
-// strictly — files in the wild contain legacy records, half-deprecated
-// shapes, and forward-compatible additions. The importer treats unknown
-// shapes as raw_records with parser_status='partial' instead of failing.
-
+/**
+ * Recovered Codex JSONL envelope shape. This is a loose importer input for
+ * known records in the wild, not a validator for the native format.
+ */
 export interface CodexEnvelope {
   type?: string
   timestamp?: string
   payload?: Record<string, unknown>
 }
 
+/**
+ * Loose `session_meta` payload recovered from Codex JSONL. Optional fields
+ * reflect legacy, current, and forward-compatible records.
+ */
 export interface CodexSessionMetaPayload {
   id?: string
   timestamp?: string
@@ -28,6 +31,10 @@ export interface CodexSessionMetaPayload {
   }
 }
 
+/**
+ * Loose `turn_context` payload recovered from Codex JSONL. Values that vary by
+ * CLI version stay typed as unknown until normalization needs them.
+ */
 export interface CodexTurnContextPayload {
   turn_id?: string
   cwd?: string
@@ -41,6 +48,10 @@ export interface CodexTurnContextPayload {
   summary?: unknown
 }
 
+/**
+ * Loose `response_item` payload recovered from Codex JSONL. This covers
+ * messages, tool calls, tool results, reasoning, and newer opaque item types.
+ */
 export interface CodexResponseItemPayload {
   type?: string
   role?: string
@@ -53,6 +64,10 @@ export interface CodexResponseItemPayload {
   ghost_commit?: unknown
 }
 
+/**
+ * Loose operational `event_msg` payload recovered from Codex JSONL. The shape
+ * is intentionally permissive because event subtypes are not stable.
+ */
 export interface CodexEventMsgPayload {
   type?: string
   message?: string
@@ -73,12 +88,14 @@ export interface CodexEventMsgPayload {
   turn_id?: string
 }
 
+/** Loose content item recovered from Codex message arrays, including unknown media variants. */
 export interface CodexContentItem {
   type?: string
   text?: string
   // image variants etc.
 }
 
+/** Legacy top-level message record seen in older Codex exports. */
 export type CodexLegacyMessage = {
   role?: string
   content?: unknown

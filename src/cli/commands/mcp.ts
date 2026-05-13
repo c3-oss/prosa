@@ -4,6 +4,7 @@ import { type Bundle, closeBundle, defaultBundlePath, openOrInitBundle } from '.
 import { listenMcpServer, listenMcpStdioServer } from '../../mcp/server.js'
 import { parseMcpTransport, parseSearchEngine } from '../parsers.js'
 
+/** Create the `prosa mcp` command group for stdio and HTTP MCP servers. */
 export function mcpCommand(): Command {
   const serve = new Command('serve')
     .description('Start a local MCP server over the prosa bundle.')
@@ -58,6 +59,7 @@ export function mcpCommand(): Command {
   return new Command('mcp').description('MCP server commands.').addCommand(serve)
 }
 
+/** Close the MCP server and bundle once when the process receives a termination signal. */
 function registerShutdown(closeServer: () => Promise<void>, bundle: Bundle): void {
   const shutdown = async (): Promise<void> => {
     await closeServer()

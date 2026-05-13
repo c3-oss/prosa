@@ -7,21 +7,35 @@ import { type SearchEngine, getSearchIndexStatus } from './indexing.js'
 
 const require = createRequire(import.meta.url)
 
+/** Search result projected from either FTS5 or Tantivy into the common service shape. */
 export interface SearchHit {
+  /** Search document identifier. */
   doc_id: string
+  /** Indexed entity kind. */
   entity_type: string
+  /** Identifier of the indexed entity. */
   entity_id: string
+  /** Session that owns the document, when applicable. */
   session_id: string | null
+  /** Timestamp used for result ordering. */
   timestamp: string | null
+  /** Message role associated with the document. */
   role: string | null
+  /** Tool name associated with the document. */
   tool_name: string | null
+  /** Indexed text field category. */
   field_kind: string
+  /** Highlighted or truncated result snippet. */
   snippet: string
 }
 
+/** Options for full-text search across indexed conversation and tool evidence. */
 export interface SearchOptions {
+  /** Query text, interpreted by the selected engine. */
   query: string
+  /** Maximum hit count, clamped by service limits. */
   limit?: number
+  /** Search backend to query; defaults to FTS5. */
   engine?: SearchEngine
   /**
    * When true, pass `query` straight to FTS5 (MATCH expression). When false
@@ -46,11 +60,7 @@ function escapeFtsQuery(q: string): string {
     .join(' ')
 }
 
-/**
- * FTS5 search over messages, tool calls and tool outputs. Caller passes a
- * raw FTS5 MATCH query. We project a snippet around the hit and join with
- * search_docs to recover entity metadata.
- */
+/** Runs full-text search with FTS5 by default, or Tantivy when requested. */
 export function searchFullText(bundle: Bundle, options: SearchOptions): SearchHit[] {
   if (options.engine === 'tantivy') {
     return searchTantivy(bundle, options)
@@ -78,6 +88,7 @@ export function searchFullText(bundle: Bundle, options: SearchOptions): SearchHi
   return bundle.db.prepare(sql).all(ftsQuery) as SearchHit[]
 }
 
+/** Searches the Tantivy sidecar and maps stored fields back to {@link SearchHit}. */
 function searchTantivy(bundle: Bundle, options: SearchOptions): SearchHit[] {
   if (!existsSync(bundle.paths.tantivy)) {
     throw new Error('tantivy index not found; run `prosa index tantivy` first')
@@ -129,6 +140,7 @@ type TantivyModule = typeof import('@oxdev03/node-tantivy-binding')
 type TantivyDocument = InstanceType<TantivyModule['Document']>
 type TantivySearchHit = import('@oxdev03/node-tantivy-binding').SearchHit
 
+/** Loads the optional Tantivy binding and normalizes missing-module failures. */
 function requireTantivy(): TantivyModule {
   try {
     return require('@oxdev03/node-tantivy-binding') as TantivyModule
@@ -137,6 +149,7 @@ function requireTantivy(): TantivyModule {
   }
 }
 
+/** Reads a stored Tantivy text field across scalar and array binding shapes. */
 function getStoredText(doc: TantivyDocument, field: string): string {
   const value = doc.getFirst(field)
   if (typeof value === 'string') return value
@@ -145,10 +158,12 @@ function getStoredText(doc: TantivyDocument, field: string): string {
   return String(value)
 }
 
+/** Converts Tantivy's empty-string null sentinel back to service-level null. */
 function nullIfEmpty(value: string): string | null {
   return value.length > 0 ? value : null
 }
 
+/** Renders Tantivy highlight byte ranges with the same markers used by FTS5 snippets. */
 function highlightSnippet(fragment: string, ranges: Array<{ start: number; end: number }>): string {
   if (ranges.length === 0) return fragment
 

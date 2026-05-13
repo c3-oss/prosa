@@ -15,6 +15,7 @@ interface Props {
 
 const TOOL_FILTERS: (SourceTool | 'all')[] = ['all', 'codex', 'claude', 'gemini', 'cursor']
 
+/** Ink root component for browsing sessions, search hits, and session timelines. */
 export function App({ bundle }: Props): React.JSX.Element {
   const { exit } = useApp()
   const { stdout } = useStdout()
@@ -235,6 +236,7 @@ export function App({ bundle }: Props): React.JSX.Element {
   )
 }
 
+/** Render the active source filter and session count above the list. */
 function FilterBar({
   toolFilter,
   count,
@@ -258,6 +260,7 @@ function FilterBar({
   )
 }
 
+/** Render the scrollable session list with the selected row highlighted. */
 function SessionList({
   rows,
   selected,
@@ -287,6 +290,7 @@ function SessionList({
   )
 }
 
+/** Render search hits using the same list navigation model as sessions. */
 function SearchList({
   hits,
   selected,
@@ -315,6 +319,7 @@ function SearchList({
   )
 }
 
+/** Render a compact, scrollable session timeline detail view. */
 function DetailView({
   detail,
   scroll,
@@ -356,6 +361,7 @@ function DetailView({
   )
 }
 
+/** Render either the search prompt or the normal-mode shortcut/status bar. */
 function HelpBar({
   mode,
   inputMode,
@@ -391,11 +397,13 @@ function HelpBar({
   )
 }
 
+/** Pad a string to a fixed display width, truncating overflow. */
 function pad(s: string, n: number): string {
   if (s.length >= n) return s.slice(0, n)
   return s + ' '.repeat(n - s.length)
 }
 
+/** Trim a string to a fixed display width while reserving the last cell for an ellipsis. */
 function trim(s: string, n: number): string {
   if (s.length <= n) return pad(s, n)
   return `${s.slice(0, n - 1)}…`

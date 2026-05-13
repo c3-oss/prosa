@@ -1,6 +1,7 @@
 import { readdir } from 'node:fs/promises'
 import path from 'node:path'
 
+/** Discovered Claude Code JSONL file plus path-derived project/subagent context. */
 export interface ClaudeFile {
   /** Absolute path to a JSONL session file. */
   filePath: string
@@ -35,6 +36,7 @@ export async function* discoverClaudeFiles(root: string): AsyncGenerator<ClaudeF
   }
 }
 
+/** Classify project children as top-level session files or subagent rollouts. */
 async function* walkProject(projectRoot: string, projectSlug: string): AsyncGenerator<ClaudeFile, void, void> {
   const entries = await readdirSafe(projectRoot)
   for (const entry of entries) {
@@ -72,6 +74,7 @@ async function* walkProject(projectRoot: string, projectSlug: string): AsyncGene
   }
 }
 
+/** Read a directory as empty when optional Claude folders are absent. */
 async function readdirSafe(dir: string): Promise<import('node:fs').Dirent[]> {
   try {
     return await readdir(dir, { withFileTypes: true })

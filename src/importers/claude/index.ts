@@ -35,13 +35,18 @@ import type { CompileLogger, CompileOptions } from '../compile-options.js'
 import { type ClaudeFile, discoverClaudeFiles } from './discover.js'
 import type { ClaudeContentBlock, ClaudeRecord, ClaudeSubagentMeta } from './types.js'
 
+/** Result returned after a Claude compile batch finishes or records a failed batch. */
 export interface CompileResult {
+  /** Import batch created for this Claude run. */
   batch: ImportBatch
+  /** Final counts accumulated while importing Claude files. */
   counts: ImportCounts
 }
 
+/** Maximum inline text retained in normalized rows before full content moves to CAS. */
 const PREVIEW_MAX = 4_000
 
+/** Compile Claude Code JSONL files under `root` into the bundle. */
 export async function compileClaude(
   bundle: Bundle,
   root: string,
@@ -95,6 +100,7 @@ export async function compileClaude(
   return { batch, counts }
 }
 
+/** Resolve Claude subagent parent links after all files in the batch have been inserted. */
 function linkSubagentParents(bundle: Bundle): void {
   bundle.db.exec(`
     UPDATE sessions
@@ -113,6 +119,7 @@ function linkSubagentParents(bundle: Bundle): void {
   `)
 }
 
+/** Per-source-file deltas that are merged into the import batch counts. */
 interface FileCounts {
   source_files_imported: number
   source_files_skipped: number
@@ -129,6 +136,7 @@ interface FileCounts {
   errors: number
 }
 
+/** Create zeroed file counters for a Claude file that may still fail or be skipped. */
 function emptyFileCounts(): FileCounts {
   return {
     source_files_imported: 0,
@@ -147,6 +155,7 @@ function emptyFileCounts(): FileCounts {
   }
 }
 
+/** Merge a single Claude file's normalized row counts into batch totals. */
 function addCounts(target: ImportCounts, source: FileCounts): void {
   target.source_files_imported += source.source_files_imported
   target.source_files_skipped += source.source_files_skipped
@@ -165,6 +174,7 @@ function addCounts(target: ImportCounts, source: FileCounts): void {
 
 // -- per file --
 
+/** Raw record row staged from a Claude JSONL line before database insertion. */
 interface PendingRawRecord {
   raw_record_id: string
   source_file_id: string
@@ -178,6 +188,7 @@ interface PendingRawRecord {
   import_batch_id: string
 }
 
+/** Session row staged from the first Claude record with a session id. */
 interface PendingSession {
   session_id: string
   source_session_id: string
@@ -194,6 +205,7 @@ interface PendingSession {
   parent_session_id_pending: string | null
 }
 
+/** Event row staged from Claude user, assistant, system, or operational records. */
 interface PendingEvent {
   event_id: string
   ordinal: number
@@ -208,6 +220,7 @@ interface PendingEvent {
   confidence: 'high' | 'medium' | 'low'
 }
 
+/** Message row staged from Claude user and assistant records. */
 interface PendingMessage {
   message_id: string
   event_id: string | null
@@ -221,6 +234,7 @@ interface PendingMessage {
   raw_record_id: string
 }
 
+/** Content block row staged from Claude text, thinking, tool, image, or unknown blocks. */
 interface PendingBlock {
   block_id: string
   message_id: string | null
@@ -234,6 +248,7 @@ interface PendingBlock {
   raw_record_id: string
 }
 
+/** Tool call row staged from Claude `tool_use` content blocks. */
 interface PendingToolCall {
   tool_call_id: string
   message_id: string | null
@@ -251,6 +266,7 @@ interface PendingToolCall {
   raw_record_id: string
 }
 
+/** Tool result row staged from Claude `tool_result` content blocks. */
 interface PendingToolResult {
   tool_result_id: string
   tool_call_id: string | null
@@ -268,6 +284,7 @@ interface PendingToolResult {
   raw_record_id: string
 }
 
+/** Artifact row staged from Claude records that point to external or generated content. */
 interface PendingArtifact {
   artifact_id: string
   kind: string
@@ -281,6 +298,7 @@ interface PendingArtifact {
   raw_record_id: string
 }
 
+/** Graph edge row staged for Claude parent-message and subagent relationships. */
 interface PendingEdge {
   src_type: string
   src_id: string
@@ -292,6 +310,7 @@ interface PendingEdge {
   raw_record_id: string | null
 }
 
+/** Search index row staged from normalized Claude messages, commands, paths, and previews. */
 interface PendingSearchDoc {
   doc_id: string
   entity_type: string
@@ -304,6 +323,7 @@ interface PendingSearchDoc {
   text: string
 }
 
+/** All normalized Claude rows staged for one source file before FK-ordered flush. */
 interface PendingState {
   rawRecords: PendingRawRecord[]
   session: PendingSession | null
@@ -321,6 +341,7 @@ interface PendingState {
   objects: PendingObjects
 }
 
+/** Parse one Claude JSONL file, stage CAS objects, and flush normalized rows. */
 async function compileClaudeFile(
   bundle: Bundle,
   batch: ImportBatch,
@@ -671,6 +692,7 @@ async function compileClaudeFile(
   return counts
 }
 
+/** Build the normalized session id, keeping Claude subagents distinct from parent sessions. */
 function createSessionFromFirstRecord(
   file: ClaudeFile,
   parsed: ClaudeRecord,
@@ -698,6 +720,7 @@ function createSessionFromFirstRecord(
   }
 }
 
+/** Read optional Claude subagent metadata, treating missing or malformed files as absent. */
 async function readMeta(metaPath: string): Promise<ClaudeSubagentMeta | null> {
   try {
     const text = await readFile(metaPath, 'utf8')
@@ -707,6 +730,7 @@ async function readMeta(metaPath: string): Promise<ClaudeSubagentMeta | null> {
   }
 }
 
+/** Reclassify tool-result-only Claude user messages as tool output for search and filters. */
 function inferRoleFromContent(parsed: ClaudeRecord, fallback: 'user' | 'assistant'): PendingMessage['role'] {
   // A user-typed message that contains only tool_result blocks is the agent
   // delivering tool output back to itself. Mark as 'tool' role for clarity in
@@ -718,6 +742,7 @@ function inferRoleFromContent(parsed: ClaudeRecord, fallback: 'user' | 'assistan
   return allToolResult ? 'tool' : 'user'
 }
 
+/** Normalize one Claude content block into blocks, tool calls, tool results, or audit rows. */
 async function processContentBlock(
   bundle: Bundle,
   sessionId: string,
@@ -881,6 +906,7 @@ async function processContentBlock(
   })
 }
 
+/** Collapse Claude tool names into broad search/filter tool categories. */
 function canonicalToolType(toolName: string): string {
   const lower = toolName.toLowerCase()
   if (lower.startsWith('mcp__')) return 'mcp'
@@ -904,6 +930,7 @@ function canonicalToolType(toolName: string): string {
   return 'other'
 }
 
+/** Extract a shell command from Claude tool arguments when the native tool exposes one. */
 function inferCommandFromArgs(toolName: string, args: unknown): string | null {
   if (!args || typeof args !== 'object') return null
   const obj = args as Record<string, unknown>
@@ -912,6 +939,7 @@ function inferCommandFromArgs(toolName: string, args: unknown): string | null {
   return null
 }
 
+/** Extract a file path from Claude tool arguments without treating absence as an error. */
 function inferPathFromArgs(args: unknown): string | null {
   if (!args || typeof args !== 'object') return null
   const obj = args as Record<string, unknown>
@@ -921,6 +949,7 @@ function inferPathFromArgs(args: unknown): string | null {
   return null
 }
 
+/** Convert arbitrary recovered payload values into compact text previews when possible. */
 function stringifyOrNull(value: unknown): string | null {
   if (value == null) return null
   if (typeof value === 'string') return value
@@ -931,6 +960,7 @@ function stringifyOrNull(value: unknown): string | null {
   }
 }
 
+/** Build searchable Claude documents while excluding hidden thinking from default search. */
 function buildSearchDocs(pending: PendingState): void {
   const sessionId = pending.session?.session_id ?? null
   if (!sessionId) return
@@ -1011,6 +1041,7 @@ function buildSearchDocs(pending: PendingState): void {
   }
 }
 
+/** Insert staged Claude rows in foreign-key order after CAS objects are already durable. */
 function flushPending(
   bundle: Bundle,
   pending: PendingState,

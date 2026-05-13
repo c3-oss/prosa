@@ -15,8 +15,10 @@ import {
   tantivyIndexDirIsValid,
 } from './indexing.js'
 
+/** Severity/status emitted by an individual doctor check. */
 export type CheckStatus = 'pass' | 'info' | 'warn' | 'fail' | 'skipped'
 
+/** One diagnostic result produced by doctor. */
 export interface CheckResult {
   check: string
   status: CheckStatus
@@ -25,6 +27,7 @@ export interface CheckResult {
   details?: Record<string, unknown>
 }
 
+/** Complete doctor run result, including filtered checks and status counts. */
 export interface DoctorReport {
   storePath: string
   bundleOpened: boolean
@@ -39,6 +42,7 @@ export interface DoctorReport {
   }
 }
 
+/** Options controlling bundle selection, deep checks, and check filtering. */
 export interface DoctorOptions {
   storePath?: string
   deep?: boolean
@@ -47,10 +51,19 @@ export interface DoctorOptions {
   checks?: string[]
 }
 
+/** Freelist percentage above which doctor recommends VACUUM. */
 const VACUUM_THRESHOLD_PCT = 10
+
+/** WAL size threshold that usually indicates checkpoint blockage. */
 const WAL_WARN_BYTES = 256 * 1024 * 1024
+
+/** Age threshold for considering an unfinished import batch abandoned. */
 const STUCK_BATCH_AGE_HOURS = 1
+
+/** Number of recent import batches sampled for import error warnings. */
 const RECENT_BATCHES_FOR_ERRORS = 3
+
+/** Default number of CAS objects sampled by deep doctor checks. */
 const DEFAULT_DEEP_SAMPLE = 100
 
 /**
@@ -183,17 +196,20 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<DoctorReport>
   }
 }
 
+/** Matches exact doctor check names or dotted check-family prefixes. */
 function matchesFilter(check: string, filters: string[]): boolean {
   return filters.some((f) => check === f || check.startsWith(`${f}.`))
 }
 
 // -- Phase 1: layout checks (run without a Bundle) ---------------------------
 
+/** Layout phase result, including whether openBundle should be attempted. */
 interface LayoutResult {
   results: CheckResult[]
   canOpen: boolean
 }
 
+/** Checks the on-disk bundle layout without opening SQLite. */
 async function checkBundleLayout(storePath: string): Promise<LayoutResult> {
   const results: CheckResult[] = []
   let manifestParsed: BundleManifest | null = null
@@ -327,6 +343,7 @@ async function checkBundleLayout(storePath: string): Promise<LayoutResult> {
 
 // -- Phase 2: checks with an open Bundle -------------------------------------
 
+/** Compares manifest, SQLite, and code schema/parser versions. */
 function checkSchema(bundle: Bundle): CheckResult[] {
   const results: CheckResult[] = []
   const dbVersion = currentSchemaVersion(bundle.db)
@@ -377,6 +394,7 @@ function checkSchema(bundle: Bundle): CheckResult[] {
   return results
 }
 
+/** Runs lightweight SQLite health and storage-efficiency checks. */
 function checkSqliteHealth(bundle: Bundle): CheckResult[] {
   const results: CheckResult[] = []
 
@@ -472,6 +490,7 @@ function checkSqliteHealth(bundle: Bundle): CheckResult[] {
   return results
 }
 
+/** Warns when a WAL file is large enough to suggest blocked checkpointing. */
 async function checkWalSize(bundle: Bundle): Promise<CheckResult> {
   const walPath = `${bundle.paths.db}-wal`
   const s = await stat(walPath).catch(() => null)
@@ -499,6 +518,7 @@ async function checkWalSize(bundle: Bundle): Promise<CheckResult> {
   }
 }
 
+/** Checks FTS5 and Tantivy readiness, validity, and source-count drift. */
 function checkSearchIndexes(
   bundle: Bundle,
   statuses: SearchIndexStatus[],
@@ -643,6 +663,7 @@ function checkSearchIndexes(
   return results
 }
 
+/** Serializes common search-index status fields into doctor details. */
 function statusDetails(s: SearchIndexStatus): Record<string, unknown> {
   return {
     engine: s.engine,
@@ -653,6 +674,7 @@ function statusDetails(s: SearchIndexStatus): Record<string, unknown> {
   }
 }
 
+/** Checks recent import errors and abandoned import batches. */
 function checkImports(bundle: Bundle): CheckResult[] {
   const results: CheckResult[] = []
 
@@ -726,6 +748,7 @@ function checkImports(bundle: Bundle): CheckResult[] {
   return results
 }
 
+/** Runs cross-table sanity checks for imported session data. */
 function checkData(bundle: Bundle): CheckResult[] {
   const results: CheckResult[] = []
 
@@ -793,6 +816,7 @@ function checkData(bundle: Bundle): CheckResult[] {
 
 // -- Deep checks -------------------------------------------------------------
 
+/** Runs SQLite's full integrity_check for opt-in deep diagnostics. */
 function checkIntegrityFull(bundle: Bundle): CheckResult {
   const rows = bundle.db.prepare(`PRAGMA integrity_check`).all() as Array<Record<string, unknown>>
   const first = rows[0] ? Object.values(rows[0])[0] : null
@@ -811,6 +835,7 @@ function checkIntegrityFull(bundle: Bundle): CheckResult {
   }
 }
 
+/** CAS object row sampled during deep hash verification. */
 interface CasSampleRow {
   object_id: string
   hash: string
@@ -819,6 +844,7 @@ interface CasSampleRow {
   size_bytes: number
 }
 
+/** Samples CAS files, verifying file existence and decoded blake3 hashes. */
 async function checkCasSample(bundle: Bundle, sampleSize: number): Promise<CheckResult[]> {
   const rows = bundle.db
     .prepare(
@@ -922,6 +948,7 @@ async function checkCasSample(bundle: Bundle, sampleSize: number): Promise<Check
 
 // -- Helpers -----------------------------------------------------------------
 
+/** Formats byte counts for human-readable doctor messages. */
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`
   const units = ['KiB', 'MiB', 'GiB', 'TiB']

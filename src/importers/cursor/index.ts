@@ -34,13 +34,21 @@ import { registerSourceFile } from '../../core/ingest/idempotency.js'
 import type { CompileLogger, CompileOptions } from '../compile-options.js'
 import { type CursorStoreDb, discoverCursorStores } from './discover.js'
 
+/** Result returned after a Cursor compile batch finishes or records a failed batch. */
 export interface CompileResult {
+  /** Import batch created for this Cursor run. */
   batch: ImportBatch
+  /** Final counts accumulated while importing Cursor stores. */
   counts: ImportCounts
 }
 
+/** Maximum inline text retained in normalized rows before full content moves to CAS. */
 const PREVIEW_MAX = 4_000
 
+/**
+ * Recovered Cursor `meta` row shape. This is a loose importer input for
+ * observed store databases, not a validator for Cursor's native format.
+ */
 interface CursorMeta {
   agentId?: string
   latestRootBlobId?: string
@@ -50,6 +58,10 @@ interface CursorMeta {
   lastUsedModel?: string
 }
 
+/**
+ * Recovered Cursor JSON blob shape. Many blobs are protobuf state instead, so
+ * this shape is only used after a blob looks like JSON and parses successfully.
+ */
 interface CursorBlobJson {
   role?: string
   id?: string
@@ -57,6 +69,7 @@ interface CursorBlobJson {
   providerOptions?: Record<string, unknown>
 }
 
+/** Loose Cursor content item recovered from parsed JSON message blobs. */
 interface CursorContentItem {
   type?: string
   text?: string
@@ -69,6 +82,7 @@ interface CursorContentItem {
   data?: unknown
 }
 
+/** Compile Cursor `store.db` files under `root` into the bundle. */
 export async function compileCursor(
   bundle: Bundle,
   root: string,
@@ -118,6 +132,7 @@ export async function compileCursor(
   return { batch, counts }
 }
 
+/** Per-store deltas that are merged into the import batch counts. */
 interface FileCounts {
   source_files_imported: number
   source_files_skipped: number
@@ -133,6 +148,7 @@ interface FileCounts {
   errors: number
 }
 
+/** Create zeroed file counters for a Cursor store that may still fail or be skipped. */
 function emptyFileCounts(): FileCounts {
   return {
     source_files_imported: 0,
@@ -150,6 +166,7 @@ function emptyFileCounts(): FileCounts {
   }
 }
 
+/** Merge a single Cursor store's normalized row counts into batch totals. */
 function addCounts(target: ImportCounts, source: FileCounts): void {
   target.source_files_imported += source.source_files_imported
   target.source_files_skipped += source.source_files_skipped
@@ -165,6 +182,7 @@ function addCounts(target: ImportCounts, source: FileCounts): void {
   target.errors += source.errors
 }
 
+/** All normalized Cursor rows staged for one store before FK-ordered flush. */
 interface PendingState {
   rawRecords: PendingRaw[]
   session: PendingSession | null
@@ -179,6 +197,7 @@ interface PendingState {
   objects: PendingObjects
 }
 
+/** Raw record row staged from Cursor SQLite meta rows or blobs before insertion. */
 interface PendingRaw {
   raw_record_id: string
   source_file_id: string
@@ -194,6 +213,7 @@ interface PendingRaw {
   record_kind: 'sqlite_meta' | 'sqlite_blob'
 }
 
+/** Session row staged from Cursor meta with low-confidence timeline metadata. */
 interface PendingSession {
   session_id: string
   source_session_id: string
@@ -205,6 +225,7 @@ interface PendingSession {
   model: string | null
 }
 
+/** Event row staged from Cursor JSON message blobs. */
 interface PendingEvent {
   event_id: string
   ordinal: number
@@ -219,6 +240,7 @@ interface PendingEvent {
   confidence: 'high' | 'medium' | 'low'
 }
 
+/** Message row staged from Cursor parsed JSON blobs. */
 interface PendingMessage {
   message_id: string
   event_id: string | null
@@ -230,6 +252,7 @@ interface PendingMessage {
   raw_record_id: string
 }
 
+/** Content block row staged from Cursor text, reasoning, tool, or unknown content. */
 interface PendingBlock {
   block_id: string
   message_id: string | null
@@ -243,6 +266,7 @@ interface PendingBlock {
   raw_record_id: string
 }
 
+/** Tool call row staged from Cursor `tool-call` content items. */
 interface PendingToolCall {
   tool_call_id: string
   message_id: string | null
@@ -260,6 +284,7 @@ interface PendingToolCall {
   raw_record_id: string
 }
 
+/** Tool result row staged from Cursor `tool-result` content items. */
 interface PendingToolResult {
   tool_result_id: string
   tool_call_id: string | null
@@ -273,6 +298,7 @@ interface PendingToolResult {
   raw_record_id: string
 }
 
+/** Artifact row staged from Cursor content that references generated outputs. */
 interface PendingArtifact {
   artifact_id: string
   kind: string
@@ -286,6 +312,7 @@ interface PendingArtifact {
   raw_record_id: string
 }
 
+/** Search index row staged from normalized Cursor messages, commands, and paths. */
 interface PendingSearchDoc {
   doc_id: string
   entity_type: string
@@ -298,6 +325,7 @@ interface PendingSearchDoc {
   text: string
 }
 
+/** Read one Cursor SQLite store, preserve raw blobs, and normalize parseable chat JSON. */
 async function compileCursorStore(
   bundle: Bundle,
   batch: ImportBatch,
@@ -492,10 +520,12 @@ async function compileCursorStore(
   }
 }
 
+/** Decode Cursor meta values, which are stored as hex-encoded UTF-8 JSON. */
 function hexToUtf8(hex: string): string {
   return Buffer.from(hex, 'hex').toString('utf8')
 }
 
+/** Map Cursor chat roles into prosa's normalized message role vocabulary. */
 function mapRole(role: string): PendingMessage['role'] {
   switch (role) {
     case 'user':
@@ -513,6 +543,7 @@ function mapRole(role: string): PendingMessage['role'] {
   }
 }
 
+/** Stage a Cursor text-like content block, storing long bodies in CAS. */
 async function pushTextBlock(
   bundle: Bundle,
   pending: PendingState,
@@ -539,6 +570,7 @@ async function pushTextBlock(
   })
 }
 
+/** Normalize one Cursor content item into blocks, tool calls, tool results, or audit rows. */
 async function processContentItem(
   bundle: Bundle,
   sessionId: string,
@@ -680,6 +712,7 @@ async function processContentItem(
   })
 }
 
+/** Recover Cursor's high-level tool error flag from experimental content metadata. */
 function readIsError(item: CursorContentItem): boolean {
   // Cursor stores isError under providerOptions.cursor.highLevelToolCallResult.
   const exp = item.experimental_content as { isError?: boolean } | undefined
@@ -687,6 +720,7 @@ function readIsError(item: CursorContentItem): boolean {
   return false
 }
 
+/** Collapse Cursor tool names into broad search/filter tool categories. */
 function canonicalToolType(toolName: string): string {
   const lower = toolName.toLowerCase()
   if (lower.startsWith('mcp__')) return 'mcp'
@@ -704,6 +738,7 @@ function canonicalToolType(toolName: string): string {
   return 'other'
 }
 
+/** Convert arbitrary recovered payload values into compact text previews when possible. */
 function stringifyOrNull(value: unknown): string | null {
   if (value == null) return null
   if (typeof value === 'string') return value
@@ -714,6 +749,7 @@ function stringifyOrNull(value: unknown): string | null {
   }
 }
 
+/** Build searchable Cursor documents while excluding hidden and audit-only blocks. */
 function buildSearchDocs(pending: PendingState): void {
   const sessionId = pending.session?.session_id ?? null
   if (!sessionId) return
@@ -774,6 +810,7 @@ function buildSearchDocs(pending: PendingState): void {
   }
 }
 
+/** Insert staged Cursor rows in foreign-key order after CAS objects are already durable. */
 function flushPending(bundle: Bundle, pending: PendingState): void {
   if (!pending.session) return
 

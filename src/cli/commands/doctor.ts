@@ -12,6 +12,7 @@ interface DoctorOptions {
   outputFormat: string
 }
 
+/** Create the `prosa doctor` command for bundle health checks. */
 export function doctorCommand(): Command {
   return new Command('doctor')
     .description('Run health checks against a prosa bundle.')
@@ -75,6 +76,7 @@ export function doctorCommand(): Command {
     })
 }
 
+/** Map doctor statuses to CLI process exit codes. */
 function exitCodeFor(statuses: CheckStatus[], strict: boolean, bundleOpened: boolean): number {
   const hasFail = statuses.includes('fail')
   if (hasFail) return bundleOpened ? 1 : 2

@@ -4,6 +4,7 @@ import { DuckDBConnection } from '@duckdb/node-api'
 import { closeBundle, openBundle } from '../../core/bundle.js'
 import { getErrorMessage } from '../../core/errors.js'
 
+/** Canonical SQLite tables exported as one Parquet file per table. */
 export const PARQUET_TABLES = [
   'objects',
   'source_files',
@@ -24,6 +25,7 @@ export const PARQUET_TABLES = [
   'search_docs',
 ] as const
 
+/** Derived analytics views recreated in DuckDB alongside exported tables. */
 export const ANALYTICS_VIEWS = [
   'session_facts',
   'tool_usage_facts',
@@ -32,31 +34,49 @@ export const ANALYTICS_VIEWS = [
   'project_activity',
 ] as const
 
+/** Exportable canonical table name. */
 export type ParquetTable = (typeof PARQUET_TABLES)[number]
+
+/** DuckDB analytics view name exposed over exported Parquet data. */
 export type AnalyticsView = (typeof ANALYTICS_VIEWS)[number]
 
+/** Options for exporting a bundle's canonical tables to Parquet. */
 export interface ParquetExportOptions {
+  /** Bundle root to open and export. */
   bundlePath: string
+  /** Output directory; defaults to the bundle's parquet directory. */
   outDir?: string
 }
 
+/** Result metadata for a Parquet export operation. */
 export interface ParquetExportResult {
+  /** Directory containing generated Parquet files. */
   outDir: string
+  /** Path to the generated manifest JSON. */
   manifestPath: string
+  /** Absolute Parquet file path by canonical table. */
   files: Record<ParquetTable, string>
+  /** Exported row count by canonical table. */
   counts: Record<ParquetTable, number>
 }
 
+/** Options for querying exported Parquet files through DuckDB. */
 export interface DuckDbQueryOptions {
+  /** Directory containing exported Parquet files. */
   parquetDir: string
+  /** SQL query to run after table and analytics views are created. */
   sql: string
 }
 
+/** Column-oriented query result shape returned by analytics services. */
 export interface DuckDbQueryResult {
+  /** Result column names in DuckDB output order. */
   columns: string[]
+  /** Result rows as plain JSON-compatible objects. */
   rows: Record<string, unknown>[]
 }
 
+/** Immutable bundle metadata captured before DuckDB reads from SQLite. */
 interface BundleSnapshot {
   dbPath: string
   schemaVersion: number
@@ -65,6 +85,7 @@ interface BundleSnapshot {
   counts: Record<ParquetTable, number>
 }
 
+/** Exports canonical bundle tables to Parquet and writes a manifest. */
 export async function exportBundleParquet(options: ParquetExportOptions): Promise<ParquetExportResult> {
   const snapshot = await openBundleSnapshot(options.bundlePath)
   const outDir = path.resolve(options.outDir ?? snapshot.defaultOutDir)
@@ -115,6 +136,7 @@ export async function exportBundleParquet(options: ParquetExportOptions): Promis
   return { outDir, manifestPath, files, counts: snapshot.counts }
 }
 
+/** Queries Parquet exports after creating table and analytics views in DuckDB. */
 export async function queryDuckDbParquet(options: DuckDbQueryOptions): Promise<DuckDbQueryResult> {
   const parquetDir = path.resolve(options.parquetDir)
   const connection = await createDuckDbConnection()
@@ -143,10 +165,12 @@ export async function queryDuckDbParquet(options: DuckDbQueryOptions): Promise<D
   }
 }
 
+/** Opens an in-process DuckDB connection for export or query work. */
 async function createDuckDbConnection(): Promise<DuckDBConnection> {
   return DuckDBConnection.create()
 }
 
+/** Loads DuckDB's sqlite extension and attaches the source bundle database. */
 async function attachSqlite(connection: DuckDBConnection, dbPath: string): Promise<void> {
   try {
     await connection.run('INSTALL sqlite')
@@ -157,6 +181,7 @@ async function attachSqlite(connection: DuckDBConnection, dbPath: string): Promi
   }
 }
 
+/** Recreates analytics views in DuckDB with semantics matching SQLite views. */
 async function createAnalyticsViews(connection: DuckDBConnection): Promise<void> {
   await connection.run(`
     CREATE OR REPLACE VIEW session_facts AS
@@ -441,6 +466,7 @@ async function createAnalyticsViews(connection: DuckDBConnection): Promise<void>
   `)
 }
 
+/** Opens the bundle briefly to collect paths, manifest versions, and row counts. */
 async function openBundleSnapshot(bundlePath: string): Promise<BundleSnapshot> {
   const bundle = await openBundle(bundlePath)
   try {
@@ -463,14 +489,17 @@ async function openBundleSnapshot(bundlePath: string): Promise<BundleSnapshot> {
   }
 }
 
+/** Quotes a SQL identifier for fixed table and view names. */
 function quoteIdentifier(value: string): string {
   return `"${value.replace(/"/g, '""')}"`
 }
 
+/** Quotes a SQL string literal for DuckDB statements. */
 function sqlString(value: string): string {
   return `'${value.replace(/'/g, "''")}'`
 }
 
+/** Detects DuckDB read failures caused by absent Parquet files. */
 function isMissingParquetError(error: unknown): boolean {
   const message = getErrorMessage(error)
   return /No files found|does not exist|not found/i.test(message) && /\.parquet/i.test(message)

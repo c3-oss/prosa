@@ -4,6 +4,7 @@ import { getSearchIndexStatuses, rebuildFts5Index, rebuildTantivyIndex } from '.
 import { withBundle } from '../bundle.js'
 import { parseOutputFormat, printRows } from '../output.js'
 
+/** Create the `prosa index` command group for rebuilding and inspecting search indexes. */
 export function indexCommand(): Command {
   const fts5 = new Command('fts5')
     .description('Rebuild the SQLite FTS5 index from search_docs.')

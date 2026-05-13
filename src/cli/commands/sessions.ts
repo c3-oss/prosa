@@ -57,6 +57,7 @@ const SESSION_COLUMNS: ColumnSet<SessionCol> = {
   tail: new Set(['cwd_initial']),
 }
 
+/** Create the `prosa sessions` command and its count subcommand. */
 export function sessionsCommand(): Command {
   const command = new Command('sessions')
     .description('List sessions in the bundle, with filters.')

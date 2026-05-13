@@ -1,3 +1,9 @@
+/**
+ * Adds durable status tracking for local search index engines.
+ *
+ * FTS5 starts as ready because it is maintained inside SQLite; Tantivy starts
+ * missing until the external index is built.
+ */
 export const SQL_002_SEARCH_INDEX_STATUS = String.raw`
 CREATE TABLE IF NOT EXISTS search_index_status (
   engine                 TEXT PRIMARY KEY,

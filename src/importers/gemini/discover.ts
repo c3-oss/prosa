@@ -1,6 +1,7 @@
 import { readFile, readdir } from 'node:fs/promises'
 import path from 'node:path'
 
+/** Discovered Gemini chat snapshot with project directory context. */
 export interface GeminiChatFile {
   filePath: string
   /** Either a 64-hex hash or a project slug. */
@@ -34,6 +35,7 @@ export async function* discoverGeminiChats(root: string): AsyncGenerator<GeminiC
   }
 }
 
+/** Resolve Gemini's optional `.project_root` companion file. */
 async function readProjectRoot(dir: string): Promise<string | null> {
   try {
     const text = await readFile(path.join(dir, '.project_root'), 'utf8')
@@ -43,6 +45,7 @@ async function readProjectRoot(dir: string): Promise<string | null> {
   }
 }
 
+/** Read optional Gemini directories as empty when they are missing. */
 async function readdirSafe(dir: string): Promise<import('node:fs').Dirent[]> {
   try {
     return await readdir(dir, { withFileTypes: true })

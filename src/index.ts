@@ -1,5 +1,12 @@
-// Public programmatic API. The CLI, TUI, and MCP server all sit on top of
-// these primitives — nothing should bypass them.
+/**
+ * Public programmatic API for opening prosa stores, importing native agent
+ * histories, querying canonical sessions, and exporting derived datasets.
+ *
+ * The CLI, TUI, and MCP server sit on top of these primitives. Callers that
+ * embed prosa should prefer this module over reaching into internal paths.
+ *
+ * @packageDocumentation
+ */
 
 export {
   initBundle,
@@ -11,8 +18,10 @@ export {
   type BundleManifest,
 } from './core/bundle.js'
 
-export { runMigrations, currentSchemaVersion } from './core/schema/migrate.js'
+export { runMigrations, currentSchemaVersion, type MigrationResult } from './core/schema/migrate.js'
 export { PROSA_PARSER_VERSION, PROSA_SCHEMA_VERSION } from './core/version.js'
+export { SOURCE_TOOLS } from './core/domain/types.js'
+export type { Compression } from './core/cas/compress.js'
 
 export {
   putBytes,
@@ -24,6 +33,7 @@ export {
   getObjectMeta,
   type ObjectId,
   type ObjectMeta,
+  type PutOptions,
 } from './core/cas/index.js'
 
 export {
@@ -70,6 +80,7 @@ export {
   markIndexesAfterImport,
   rebuildFts5Index,
   rebuildTantivyIndex,
+  type RebuildTantivyOptions,
   type SearchEngine,
   type SearchIndexStatus,
 } from './services/indexing.js'
@@ -79,8 +90,11 @@ export {
   getCompileProvider,
   resolveCompilePath,
   runCompileImports,
+  type CompileImportOptions,
   type CompileImportSummary,
   type CompileProviderConfig,
+  type CompileResult,
+  type ExportCompileParquetOptions,
   type ParquetCompileSummary,
   type ProviderCompileSummary,
   type TantivyCompileSummary,

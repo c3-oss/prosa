@@ -18,6 +18,7 @@ export function visibleWindow(args: {
   return { startIndex, endIndex }
 }
 
+/** Clamp a numeric cursor or scroll offset to inclusive bounds. */
 export function clamp(value: number, min: number, max: number): number {
   if (value < min) return min
   if (value > max) return max

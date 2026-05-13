@@ -31,6 +31,7 @@ function stripLeadingDoubleDash(argv: readonly string[]): string[] {
   return [...argv]
 }
 
+/** Build and run the prosa CLI program for the provided process argv vector. */
 export async function runCli(argv: readonly string[]): Promise<void> {
   const program = new Command()
     .name('prosa')

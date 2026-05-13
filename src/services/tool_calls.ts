@@ -1,35 +1,60 @@
 import type { Bundle } from '../core/bundle.js'
 import { clampLimit } from '../core/limits.js'
 
+/** Entity kinds surfaced by tool-call history queries. */
 export type ToolCallEntity = 'tool_call' | 'artifact'
 
+/** Tool-call or artifact evidence row returned by file and command history queries. */
 export interface ToolCallEvidence {
+  /** Whether this row describes a tool call or a matching artifact. */
   entity_type: ToolCallEntity
+  /** Session that owns the evidence. */
   session_id: string | null
+  /** Tool call identifier when `entity_type` is `tool_call`. */
   tool_call_id: string | null
+  /** Artifact identifier when `entity_type` is `artifact`. */
   artifact_id: string | null
+  /** Native tool name. */
   tool_name: string | null
+  /** Canonical tool category. */
   canonical_tool_type: string | null
+  /** Command text, when the tool represents shell execution. */
   command: string | null
+  /** File path associated with the tool call or artifact. */
   path: string | null
+  /** Normalized tool call status. */
   status: string | null
+  /** Tool call start timestamp or artifact creation timestamp. */
   timestamp_start: string | null
+  /** SQLite boolean indicating an error result. */
   is_error: 0 | 1 | null
+  /** Process exit code when available. */
   exit_code: number | null
+  /** Human-sized result preview. */
   preview: string | null
 }
 
+/** Filters for tool-call history and file-history queries. */
 export interface ToolCallFilters {
+  /** Restrict evidence to one session. */
   sessionId?: string
+  /** Restrict evidence to a native tool name. */
   toolName?: string
+  /** Restrict evidence to a canonical tool category. */
   canonicalType?: string
+  /** Match paths on tool calls and artifacts. */
   pathSubstring?: string
+  /** Include only tool calls with error evidence. */
   errorsOnly?: boolean
+  /** Inclusive lower bound for tool timestamps. */
   sinceIso?: string
+  /** Exclusive upper bound for tool timestamps. */
   untilIso?: string
+  /** Maximum rows to return, clamped by service limits. */
   limit?: number
 }
 
+/** Lists tool-call evidence, including artifacts when filtering by path substring. */
 export function listToolCalls(bundle: Bundle, filters: ToolCallFilters = {}): ToolCallEvidence[] {
   const conds: string[] = []
   const params: unknown[] = []

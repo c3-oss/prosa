@@ -1,5 +1,7 @@
-// Loose TypeScript shapes for Claude Code's JSONL records.
-
+/**
+ * Recovered Claude Code JSONL record shape. This is a loose importer input for
+ * observed records, not a validator for Claude Code's native format.
+ */
 export interface ClaudeRecord {
   type?: string
   uuid?: string
@@ -36,6 +38,10 @@ export interface ClaudeRecord {
   prUrl?: string
 }
 
+/**
+ * Loose embedded message object from Claude Code user and assistant records.
+ * Content can be text or heterogeneous blocks depending on record vintage.
+ */
 export interface ClaudeMessage {
   id?: string
   role?: string
@@ -46,6 +52,10 @@ export interface ClaudeMessage {
   usage?: Record<string, unknown>
 }
 
+/**
+ * Recovered Claude content block union. The final branch keeps forward and
+ * unknown block kinds available for raw preservation.
+ */
 export type ClaudeContentBlock =
   | { type: 'text'; text: string }
   | { type: 'thinking'; thinking: string; signature?: string }
@@ -59,6 +69,7 @@ export type ClaudeContentBlock =
   | { type: 'image'; source: unknown }
   | { type: string; [k: string]: unknown }
 
+/** Loose attachment object recovered from Claude Code records. */
 export interface ClaudeAttachment {
   type?: string
   fileName?: string
@@ -67,6 +78,7 @@ export interface ClaudeAttachment {
   [k: string]: unknown
 }
 
+/** Optional metadata from Claude subagent companion `.meta.json` files. */
 export interface ClaudeSubagentMeta {
   agentType?: string
   description?: string

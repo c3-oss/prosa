@@ -6,19 +6,30 @@ import type { Bundle } from '../core/bundle.js'
 import { prepare, transactional } from '../core/db.js'
 import { getErrorMessage } from '../core/errors.js'
 
+/** Supported search backends tracked by the bundle. */
 export type SearchEngine = 'fts5' | 'tantivy'
 
+/** Persisted status row for a search index sidecar. */
 export interface SearchIndexStatus {
+  /** Search backend represented by this status row. */
   engine: SearchEngine
+  /** Current index lifecycle state. */
   status: 'missing' | 'ready' | 'stale' | 'building' | 'failed'
+  /** Number of canonical search_docs rows available to index. */
   source_doc_count: number
+  /** Number of documents known to be present in the index. */
   indexed_doc_count: number
+  /** ISO timestamp for the last status update. */
   updated_at: string
+  /** Last build error message, if the index failed. */
   error_message: string | null
+  /** Last indexed SQLite rowid for incremental sidecars. */
   last_indexed_rowid: number | null
+  /** Schema fingerprint used to decide whether incremental rebuild is valid. */
   schema_fingerprint: string | null
 }
 
+/** Canonical search document row used to feed external indexes. */
 interface SearchDocRow {
   rowid: number
   doc_id: string
@@ -34,11 +45,13 @@ interface SearchDocRow {
   text: string
 }
 
+/** Shared projection for search index status queries. */
 const SEARCH_INDEX_STATUS_COLUMNS = `
   engine, status, source_doc_count, indexed_doc_count, updated_at,
   error_message, last_indexed_rowid, schema_fingerprint
 `
 
+/** Triggers that keep the SQLite FTS5 virtual table synchronized with search_docs. */
 const FTS5_TRIGGER_SQL = `
 CREATE TRIGGER IF NOT EXISTS search_docs_ai AFTER INSERT ON search_docs BEGIN
   INSERT INTO search_docs_fts(rowid, text, role, tool_name, field_kind)
@@ -58,10 +71,12 @@ CREATE TRIGGER IF NOT EXISTS search_docs_au AFTER UPDATE ON search_docs BEGIN
 END;
 `
 
+/** Enables incremental FTS5 maintenance after bulk rebuilds or imports. */
 export function enableFts5Triggers(bundle: Bundle): void {
   bundle.db.exec(FTS5_TRIGGER_SQL)
 }
 
+/** Disables FTS5 maintenance triggers while import code performs bulk writes. */
 export function disableFts5Triggers(bundle: Bundle): void {
   bundle.db.exec(`
     DROP TRIGGER IF EXISTS search_docs_ai;
@@ -70,6 +85,7 @@ export function disableFts5Triggers(bundle: Bundle): void {
   `)
 }
 
+/** Returns status rows for all known search engines, creating defaults if absent. */
 export function getSearchIndexStatuses(bundle: Bundle): SearchIndexStatus[] {
   ensureSearchIndexStatusRows(bundle)
   return bundle.db
@@ -81,6 +97,7 @@ export function getSearchIndexStatuses(bundle: Bundle): SearchIndexStatus[] {
     .all()
 }
 
+/** Returns the status row for one search engine, or null only if initialization failed. */
 export function getSearchIndexStatus(bundle: Bundle, engine: SearchEngine): SearchIndexStatus | null {
   ensureSearchIndexStatusRows(bundle)
   return (
@@ -94,6 +111,7 @@ export function getSearchIndexStatus(bundle: Bundle, engine: SearchEngine): Sear
   )
 }
 
+/** Marks derived search indexes stale after canonical search_docs changed. */
 export function markIndexesAfterImport(bundle: Bundle, options: { changed: boolean }): void {
   if (!options.changed) return
 
@@ -108,6 +126,7 @@ export function markIndexesAfterImport(bundle: Bundle, options: { changed: boole
   }
 }
 
+/** Fully rebuilds the SQLite FTS5 index from search_docs and records status. */
 export function rebuildFts5Index(bundle: Bundle): SearchIndexStatus {
   ensureSearchIndexStatusRows(bundle)
   updateSearchIndexStatus(bundle, 'fts5', {
@@ -141,6 +160,7 @@ export function rebuildFts5Index(bundle: Bundle): SearchIndexStatus {
   return getSearchIndexStatus(bundle, 'fts5') as SearchIndexStatus
 }
 
+/** Options controlling Tantivy sidecar rebuild behavior. */
 export interface RebuildTantivyOptions {
   /**
    * Force a full re-index even when an incremental run would be valid.
@@ -152,14 +172,18 @@ export interface RebuildTantivyOptions {
 
 type TantivyModule = typeof import('@oxdev03/node-tantivy-binding')
 
+/** Stored Tantivy schema field used for schema fingerprinting and indexing. */
 interface TantivySchemaField {
   name: string
   tokenizer: string
 }
 
-// Ordered list of fields we put on every tantivy doc. The order is
-// load-bearing: the schema fingerprint hashes this list verbatim, so
-// changing the order forces a full rebuild on existing bundles.
+/**
+ * Ordered list of fields stored on every Tantivy document.
+ *
+ * The order is load-bearing: the schema fingerprint hashes this list verbatim,
+ * so changing the order forces a full rebuild on existing bundles.
+ */
 const TANTIVY_SCHEMA_FIELDS: readonly TantivySchemaField[] = [
   { name: 'doc_id', tokenizer: 'raw' },
   { name: 'entity_type', tokenizer: 'raw' },
@@ -171,10 +195,11 @@ const TANTIVY_SCHEMA_FIELDS: readonly TantivySchemaField[] = [
   { name: 'tool_name', tokenizer: 'raw' },
   { name: 'canonical_tool_type', tokenizer: 'raw' },
   { name: 'field_kind', tokenizer: 'raw' },
-  // The text field uses tantivy's default tokenizer (en_stem in the binding).
+  // The text field uses Tantivy's default tokenizer (en_stem in the binding).
   { name: 'text', tokenizer: 'default' },
 ]
 
+/** Builds the Tantivy schema from the fingerprinted field policy. */
 function buildTantivySchema(tantivy: TantivyModule): InstanceType<TantivyModule['Schema']> {
   const builder = new tantivy.SchemaBuilder()
   for (const field of TANTIVY_SCHEMA_FIELDS) {
@@ -187,15 +212,18 @@ function buildTantivySchema(tantivy: TantivyModule): InstanceType<TantivyModule[
   return builder.build()
 }
 
+/** Returns the fingerprint that decides whether Tantivy can rebuild incrementally. */
 export function getCurrentTantivySchemaFingerprint(): string {
   const canonical = TANTIVY_SCHEMA_FIELDS.map((f) => `${f.name}:${f.tokenizer}:stored`).join('|')
   return createHash('sha256').update(canonical).digest('hex')
 }
 
+/** Checks for Tantivy's metadata file without opening the optional binding. */
 export function tantivyIndexDirIsValid(dir: string): boolean {
   return existsSync(path.join(dir, 'meta.json'))
 }
 
+/** Maps a canonical search_docs row into one stored Tantivy document. */
 function makeTantivyDoc(tantivy: TantivyModule, row: SearchDocRow): InstanceType<TantivyModule['Document']> {
   const doc = new tantivy.Document()
   doc.addText('doc_id', row.doc_id)
@@ -212,12 +240,14 @@ function makeTantivyDoc(tantivy: TantivyModule, row: SearchDocRow): InstanceType
   return doc
 }
 
+/** Base projection used by full and incremental Tantivy indexing. */
 const SEARCH_DOCS_SELECT = `
   SELECT rowid, doc_id, entity_type, entity_id, session_id, project_id, timestamp,
          role, tool_name, canonical_tool_type, field_kind, text
     FROM search_docs
 `
 
+/** Rebuilds the Tantivy sidecar, using an incremental append path when valid. */
 export async function rebuildTantivyIndex(
   bundle: Bundle,
   options: RebuildTantivyOptions = {},
@@ -323,11 +353,10 @@ export async function rebuildTantivyIndex(
   return getSearchIndexStatus(bundle, 'tantivy') as SearchIndexStatus
 }
 
-// On an incremental run we know how many docs we added, but we want the
-// status row to reflect the index's true size. Fall back to the prior
-// `indexed_doc_count` when present and accumulate; if there is no prior
-// (shouldn't happen in the incremental path because last_indexed_rowid > 0
-// gates entry, but be defensive), just report what we wrote.
+/**
+ * Estimates Tantivy's post-incremental document count from prior recorded
+ * state because the binding does not expose a cheap committed count here.
+ */
 function countTantivyDocsBest(prev: SearchIndexStatus | null, added: number): number {
   if (prev && typeof prev.indexed_doc_count === 'number') {
     return prev.indexed_doc_count + added
@@ -335,6 +364,7 @@ function countTantivyDocsBest(prev: SearchIndexStatus | null, added: number): nu
   return added
 }
 
+/** Ensures every supported search engine has a status row before reads/writes. */
 function ensureSearchIndexStatusRows(bundle: Bundle): void {
   const now = new Date().toISOString()
   const stmt = prepare(
@@ -348,6 +378,7 @@ function ensureSearchIndexStatusRows(bundle: Bundle): void {
   stmt.run('tantivy', 'missing', now)
 }
 
+/** Partial search_index_status update; optional fields leave columns unchanged. */
 interface UpdateSearchIndexValues {
   status: SearchIndexStatus['status']
   sourceDocCount: number
@@ -359,6 +390,7 @@ interface UpdateSearchIndexValues {
   schemaFingerprint?: string | null
 }
 
+/** Writes status metadata while preserving optional columns unless explicitly provided. */
 function updateSearchIndexStatus(bundle: Bundle, engine: SearchEngine, values: UpdateSearchIndexValues): void {
   ensureSearchIndexStatusRows(bundle)
   const setClauses = [
@@ -387,10 +419,12 @@ function updateSearchIndexStatus(bundle: Bundle, engine: SearchEngine, values: U
   prepare(bundle.db, `UPDATE search_index_status SET ${setClauses.join(', ')} WHERE engine = ?`).run(...params)
 }
 
+/** Counts canonical search_docs rows that derived indexes should cover. */
 export function countSearchDocs(bundle: Bundle): number {
   return bundle.db.prepare<[], { n: number }>(`SELECT count(*) AS n FROM search_docs`).get()?.n ?? 0
 }
 
+/** Counts rows currently present in the SQLite FTS5 virtual table. */
 export function countFts5Docs(bundle: Bundle): number {
   return bundle.db.prepare<[], { n: number }>(`SELECT count(*) AS n FROM search_docs_fts`).get()?.n ?? 0
 }

@@ -1,3 +1,4 @@
+/** System instructions advertised by the MCP server to guide evidence-first use of prosa tools. */
 export const PROSA_MCP_INSTRUCTIONS = `
 prosa is a local memory over local agent session histories. Use it to find prior work, commands,
 decisions, file touches, transcripts, and analytical rollups before answering from memory.
@@ -25,6 +26,7 @@ snippet or event. Do not treat search snippets as the whole truth; open the sess
 \`sessions session_id=… format=detail\` when accuracy matters.
 `.trim()
 
+/** Prompt template for investigating prior sessions by topic. */
 export const INVESTIGATE_PRIOR_WORK_PROMPT = `
 Investigate prior work in prosa for the topic: {{topic}}
 
@@ -36,6 +38,7 @@ Use this workflow:
 5. Answer with evidence: session_id, timestamp, and the decisive snippet or event.
 `.trim()
 
+/** Prompt template for tracing sessions and tool calls that touched a file or path. */
 export const FIND_FILE_HISTORY_PROMPT = `
 Investigate history for file/path: {{path}}
 
@@ -47,6 +50,7 @@ Use this workflow:
 5. Summarize what changed, who/what tool touched it, and cite session_id plus timestamp.
 `.trim()
 
+/** Prompt template for grouping failed tool calls and related context by likely cause. */
 export const AUDIT_TOOL_FAILURES_PROMPT = `
 Audit tool failures in prosa{{query_clause}}.
 

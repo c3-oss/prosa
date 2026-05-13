@@ -2,10 +2,16 @@ import { createHash } from 'node:crypto'
 import { blake3 } from '@noble/hashes/blake3'
 import { bytesToHex } from '@noble/hashes/utils'
 
+/**
+ * Hash bytes with BLAKE3 and return lowercase hex.
+ */
 export function blake3Hex(bytes: Uint8Array): string {
   return bytesToHex(blake3(bytes))
 }
 
+/**
+ * Hash bytes or text with SHA-256 and return lowercase hex.
+ */
 export function sha256Hex(bytes: Uint8Array | string): string {
   return createHash('sha256').update(bytes).digest('hex')
 }

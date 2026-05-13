@@ -11,6 +11,7 @@ export async function* discoverCodexSessions(root: string): AsyncGenerator<strin
   yield* walk(root)
 }
 
+/** Recursively traverse a possibly-missing sessions directory without failing discovery. */
 async function* walk(dir: string): AsyncGenerator<string, void, void> {
   let entries: import('node:fs').Dirent[]
   try {

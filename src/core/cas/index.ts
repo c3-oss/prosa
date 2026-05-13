@@ -5,23 +5,47 @@ import { prepare } from '../db.js'
 import { type Compression, compressBytes, decompressBytes } from './compress.js'
 import { blake3Hex, objectIdFromHash, objectStoragePath } from './hash.js'
 
+/**
+ * Content-addressed object identifier stored as `blake3:<hex>`.
+ */
 export type ObjectId = string
 
+/**
+ * Complete metadata row for one object stored in the CAS.
+ *
+ * `storage_path` is relative to the bundle root and points at compressed or
+ * raw bytes depending on `compression`.
+ */
 export interface ObjectMeta {
+  /** Canonical object identifier, formatted as `blake3:<hex>`. */
   object_id: ObjectId
+  /** Hash algorithm used to derive `hash` and `object_id`. */
   hash_alg: 'blake3'
+  /** Raw BLAKE3 hex digest without the `blake3:` prefix. */
   hash: string
+  /** Original uncompressed payload size in bytes. */
   size_bytes: number
+  /** Stored compressed payload size, or null when stored uncompressed. */
   compressed_size_bytes: number | null
+  /** Compression algorithm used for the stored payload. */
   compression: Compression
+  /** Optional media type supplied by the writer. */
   mime_type: string | null
+  /** Optional text encoding supplied by the writer. */
   encoding: string | null
+  /** Bundle-relative path to the stored bytes. */
   storage_path: string
+  /** ISO timestamp for the metadata row insertion. */
   created_at: string
 }
 
-interface PutOptions {
+/**
+ * Optional MIME and text-encoding metadata for newly stored CAS objects.
+ */
+export interface PutOptions {
+  /** Optional media type to persist on the object metadata row. */
   mimeType?: string
+  /** Optional text encoding to persist on the object metadata row. */
   encoding?: string
 }
 
@@ -87,6 +111,9 @@ export async function putBytes(bundle: Bundle, bytes: Uint8Array, options: PutOp
   return objectId
 }
 
+/**
+ * Store UTF-8 text in the CAS with text metadata.
+ */
 export async function putText(bundle: Bundle, text: string, options: { mimeType?: string } = {}): Promise<ObjectId> {
   const buf = Buffer.from(text, 'utf8')
   return putBytes(bundle, buf, {
@@ -95,6 +122,13 @@ export async function putText(bundle: Bundle, text: string, options: { mimeType?
   })
 }
 
+/**
+ * Store a JSON-serialized value in the CAS.
+ *
+ * Serialization is compact but not canonicalized; callers should not rely on
+ * object key ordering for cross-process identity unless the input itself is
+ * produced deterministically.
+ */
 export async function putJson(bundle: Bundle, value: unknown): Promise<ObjectId> {
   // Compact serialization. Stable enough for the importer's own writes; we
   // don't promise canonical JSON across producers.
@@ -105,6 +139,13 @@ export async function putJson(bundle: Bundle, value: unknown): Promise<ObjectId>
   })
 }
 
+/**
+ * Read and decompress object bytes from the CAS.
+ *
+ * Throws when `objectId` is absent from the `objects` table; filesystem read or
+ * decompression errors also propagate because they indicate bundle corruption
+ * or inaccessible storage.
+ */
 export async function getBytes(bundle: Bundle, objectId: ObjectId): Promise<Buffer> {
   const meta = prepare<[string], ObjectMeta>(
     bundle.db,
@@ -119,16 +160,25 @@ export async function getBytes(bundle: Bundle, objectId: ObjectId): Promise<Buff
   return decompressBytes(buf, meta.compression)
 }
 
+/**
+ * Read an object as UTF-8 text.
+ */
 export async function getText(bundle: Bundle, objectId: ObjectId): Promise<string> {
   const buf = await getBytes(bundle, objectId)
   return buf.toString('utf8')
 }
 
+/**
+ * Read an object as UTF-8 JSON and parse it as `T`.
+ */
 export async function getJson<T = unknown>(bundle: Bundle, objectId: ObjectId): Promise<T> {
   const text = await getText(bundle, objectId)
   return JSON.parse(text) as T
 }
 
+/**
+ * Look up object metadata without reading object bytes.
+ */
 export function getObjectMeta(bundle: Bundle, objectId: ObjectId): ObjectMeta | null {
   return (
     prepare<[string], ObjectMeta>(
@@ -159,6 +209,12 @@ export function getObjectMeta(bundle: Bundle, objectId: ObjectId): ObjectMeta | 
 // SQLite write boundary for the file, with `flushPendingObjects` running just
 // before that (FS writes can't run inside a sync transaction).
 
+/**
+ * Object staged for a high-volume importer flush.
+ *
+ * Bytes are the original uncompressed payload; compression and storage path are
+ * decided once during `flushPendingObjects`.
+ */
 export interface StagedObject {
   objectId: ObjectId
   hash: string
@@ -167,14 +223,26 @@ export interface StagedObject {
   encoding: string | null
 }
 
+/**
+ * Mutable per-import accumulator of staged CAS objects, deduped by object ID.
+ */
 export interface PendingObjects {
   byId: Map<ObjectId, StagedObject>
 }
 
+/**
+ * Create an empty CAS staging accumulator.
+ */
 export function createPendingObjects(): PendingObjects {
   return { byId: new Map() }
 }
 
+/**
+ * Stage bytes for later CAS persistence and return their object ID.
+ *
+ * This is synchronous and idempotent within the pending set; the first staged
+ * metadata for a given object ID wins.
+ */
 export function stageBytes(pending: PendingObjects, bytes: Uint8Array, options: PutOptions = {}): ObjectId {
   const buf = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes)
   const hash = blake3Hex(buf)
@@ -191,6 +259,9 @@ export function stageBytes(pending: PendingObjects, bytes: Uint8Array, options: 
   return objectId
 }
 
+/**
+ * Stage UTF-8 text for later CAS persistence.
+ */
 export function stageText(pending: PendingObjects, text: string, options: { mimeType?: string } = {}): ObjectId {
   return stageBytes(pending, Buffer.from(text, 'utf8'), {
     mimeType: options.mimeType ?? 'text/plain; charset=utf-8',
@@ -198,6 +269,9 @@ export function stageText(pending: PendingObjects, text: string, options: { mime
   })
 }
 
+/**
+ * Stage a compact JSON representation for later CAS persistence.
+ */
 export function stageJson(pending: PendingObjects, value: unknown): ObjectId {
   return stageBytes(pending, Buffer.from(JSON.stringify(value), 'utf8'), {
     mimeType: 'application/json',
@@ -222,6 +296,9 @@ export async function flushPendingObjects(bundle: Bundle, pending: PendingObject
 
   // Compress once. The same buffer + path are reused for the FS write and
   // the `objects` row.
+  /**
+   * Fully prepared representation used for both filesystem and SQLite writes.
+   */
   interface PreparedObject {
     staged: StagedObject
     compression: Compression
@@ -270,6 +347,9 @@ export async function flushPendingObjects(bundle: Bundle, pending: PendingObject
   }
 }
 
+/**
+ * Query existing object IDs in chunks to stay below SQLite variable limits.
+ */
 function queryExistingObjectIds(bundle: Bundle, ids: ObjectId[]): Set<ObjectId> {
   const found = new Set<ObjectId>()
   if (ids.length === 0) return found
@@ -289,8 +369,17 @@ function queryExistingObjectIds(bundle: Bundle, ids: ObjectId[]): Set<ObjectId> 
   return found
 }
 
+/**
+ * Maximum concurrent filesystem writes during staged CAS flushes.
+ */
 const FS_WRITE_CONCURRENCY = 16
 
+/**
+ * Write compressed object payloads with bounded concurrency.
+ *
+ * Directory creation is cached via `ensureDir`; individual write failures
+ * reject the whole flush.
+ */
 async function writeFilesParallel(tasks: { absolutePath: string; compressedBytes: Buffer }[]): Promise<void> {
   let cursor = 0
   const workers: Promise<void>[] = []

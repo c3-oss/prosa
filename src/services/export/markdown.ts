@@ -1,6 +1,7 @@
 import type { Bundle } from '../../core/bundle.js'
 import { getText } from '../../core/cas/index.js'
 
+/** Session metadata rendered in the Markdown header. */
 interface SessionMeta {
   session_id: string
   source_tool: string
@@ -15,6 +16,7 @@ interface SessionMeta {
   timeline_confidence: 'high' | 'medium' | 'low'
 }
 
+/** Ordered message row rendered as a Markdown section. */
 interface MessageRow {
   message_id: string
   role: string
@@ -23,6 +25,7 @@ interface MessageRow {
   model: string | null
 }
 
+/** Content block row whose text may be inline or CAS-backed. */
 interface BlockRow {
   message_id: string | null
   block_type: string
@@ -31,6 +34,7 @@ interface BlockRow {
   ordinal: number
 }
 
+/** Tool-call row rendered near its owning message when possible. */
 interface ToolCallRow {
   tool_call_id: string
   message_id: string | null
@@ -147,6 +151,7 @@ export async function exportSessionMarkdown(bundle: Bundle, sessionId: string): 
   return `${lines.join('\n')}\n`
 }
 
+/** Resolves a content block's printable text, tolerating missing CAS objects. */
 async function renderBlockText(bundle: Bundle, block: BlockRow): Promise<string | null> {
   if (block.text_inline) return block.text_inline
   if (block.text_object_id) {
@@ -159,6 +164,7 @@ async function renderBlockText(bundle: Bundle, block: BlockRow): Promise<string 
   return null
 }
 
+/** Renders command, path, status, and preview for one Markdown tool-call block. */
 function renderToolCall(c: ToolCallRow): string {
   const status = c.status ? ` · ${c.status}` : ''
   const errFlag = c.is_error === 1 ? ' · ERROR' : ''

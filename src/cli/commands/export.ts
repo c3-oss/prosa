@@ -6,6 +6,7 @@ import { exportSessionMarkdown } from '../../services/export/markdown.js'
 import { exportBundleParquet } from '../../services/export/parquet.js'
 import { withBundle } from '../bundle.js'
 
+/** Create the `prosa export` command group for session and Parquet exports. */
 export function exportCommand(): Command {
   const session = new Command('session')
     .description('Export a single session to a human-readable format.')

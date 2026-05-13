@@ -1,3 +1,9 @@
+/**
+ * Derived analytics views over canonical projection tables.
+ *
+ * These views are read models only; importers should continue to write source,
+ * raw, and canonical tables directly.
+ */
 export const SQL_003_ANALYTICS_VIEWS = String.raw`
 CREATE VIEW IF NOT EXISTS session_facts AS
 WITH turn_counts AS (

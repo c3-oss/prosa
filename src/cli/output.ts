@@ -1,4 +1,7 @@
+/** Output formats accepted by table-oriented CLI commands. */
 export const OUTPUT_FORMATS = ['interactive', 'table', 'json', 'csv'] as const
+
+/** Supported CLI output format names. */
 export type OutputFormat = (typeof OUTPUT_FORMATS)[number]
 
 const COL_SEPARATOR = '  '
@@ -7,12 +10,14 @@ const ELLIPSIS = '…'
 const DEFAULT_TERMINAL_WIDTH = 200
 const MIN_COLUMN_WIDTH = 6
 
+/** Parse and validate an output format, returning the caller's fallback when omitted. */
 export function parseOutputFormat(value: string | undefined, fallback: OutputFormat): OutputFormat {
   if (value === undefined) return fallback
   if ((OUTPUT_FORMATS as readonly string[]).includes(value)) return value as OutputFormat
   throw new Error(`invalid --output-format: ${value} (expected one of ${OUTPUT_FORMATS.join(', ')})`)
 }
 
+/** Options for rendering CLI rows in table, interactive, JSON, or CSV form. */
 export interface PrintOptions {
   format: OutputFormat
   columns: readonly string[]
@@ -36,6 +41,7 @@ export interface PrintOptions {
   terminalWidth?: number
 }
 
+/** Render rows to stdout using the selected CLI output format. */
 export function printRows(rows: readonly object[], opts: PrintOptions): void {
   switch (opts.format) {
     case 'json':

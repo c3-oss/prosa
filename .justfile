@@ -38,6 +38,11 @@ quality:
 typecheck:
   @pnpm typecheck
 
+# generate API documentation with TypeDoc
+[group('ALIASES')]
+docs:
+  @pnpm run docs
+
 # --------------------------------------------------------------------------------------------------
 
 # build the distributable package into dist/

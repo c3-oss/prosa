@@ -1,5 +1,7 @@
-// Loose TypeScript shapes for Gemini CLI's chats/session-*.json files.
-
+/**
+ * Recovered Gemini CLI `chats/session-*.json` shape. This is a loose importer
+ * input for observed snapshots, not a validator for the native format.
+ */
 export interface GeminiSessionFile {
   sessionId?: string
   projectHash?: string
@@ -10,6 +12,7 @@ export interface GeminiSessionFile {
   messages?: GeminiMessage[]
 }
 
+/** Loose Gemini message snapshot entry recovered from a session file. */
 export interface GeminiMessage {
   type?: string // 'user' | 'gemini' | 'info' | 'error'
   id?: string
@@ -29,17 +32,20 @@ export interface GeminiMessage {
   toolCalls?: GeminiToolCall[]
 }
 
+/** Loose Gemini content item from message content arrays. */
 export interface GeminiContentItem {
   type?: string
   text?: string
 }
 
+/** Recovered Gemini thought entry, indexed as hidden reasoning rather than default text. */
 export interface GeminiThought {
   subject?: string
   description?: string
   timestamp?: string
 }
 
+/** Loose Gemini tool-call entry, including result display metadata when present. */
 export interface GeminiToolCall {
   id?: string
   name?: string
@@ -52,6 +58,7 @@ export interface GeminiToolCall {
   renderOutputAsMarkdown?: boolean
 }
 
+/** Recovered Gemini tool result entry, usually text or a function response wrapper. */
 export interface GeminiToolResult {
   functionResponse?: {
     id?: string
@@ -64,6 +71,7 @@ export interface GeminiToolResult {
   text?: string
 }
 
+/** Recovered Gemini result display metadata used to preserve file diffs as artifacts. */
 export interface GeminiResultDisplay {
   filePath?: string
   fileName?: string

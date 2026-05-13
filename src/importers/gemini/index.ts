@@ -37,13 +37,18 @@ import type { CompileLogger, CompileOptions } from '../compile-options.js'
 import { type GeminiChatFile, discoverGeminiChats } from './discover.js'
 import type { GeminiContentItem, GeminiMessage, GeminiSessionFile, GeminiToolCall, GeminiToolResult } from './types.js'
 
+/** Result returned after a Gemini compile batch finishes or records a failed batch. */
 export interface CompileResult {
+  /** Import batch created for this Gemini run. */
   batch: ImportBatch
+  /** Final counts accumulated while importing Gemini files. */
   counts: ImportCounts
 }
 
+/** Maximum inline text retained in normalized rows before full content moves to CAS. */
 const PREVIEW_MAX = 4_000
 
+/** Compile Gemini CLI chat snapshot files under `root` into the bundle. */
 export async function compileGemini(
   bundle: Bundle,
   root: string,
@@ -93,6 +98,7 @@ export async function compileGemini(
   return { batch, counts }
 }
 
+/** Per-source-file deltas that are merged into the import batch counts. */
 interface FileCounts {
   source_files_imported: number
   source_files_skipped: number
@@ -108,6 +114,7 @@ interface FileCounts {
   errors: number
 }
 
+/** Create zeroed file counters for a Gemini file that may still fail or be skipped. */
 function emptyFileCounts(): FileCounts {
   return {
     source_files_imported: 0,
@@ -125,6 +132,7 @@ function emptyFileCounts(): FileCounts {
   }
 }
 
+/** Merge a single Gemini file's normalized row counts into batch totals. */
 function addCounts(target: ImportCounts, source: FileCounts): void {
   target.source_files_imported += source.source_files_imported
   target.source_files_skipped += source.source_files_skipped
@@ -140,6 +148,7 @@ function addCounts(target: ImportCounts, source: FileCounts): void {
   target.errors += source.errors
 }
 
+/** All normalized Gemini rows staged for one source file before FK-ordered flush. */
 interface PendingState {
   rawRecords: PendingRawRecord[]
   session: PendingSession | null
@@ -154,6 +163,7 @@ interface PendingState {
   objects: PendingObjects
 }
 
+/** Raw record row staged from a Gemini JSON pointer before database insertion. */
 interface PendingRawRecord {
   raw_record_id: string
   source_file_id: string
@@ -169,6 +179,7 @@ interface PendingRawRecord {
   record_kind: 'json_pointer' | 'jsonl_line'
 }
 
+/** Session row staged from the Gemini snapshot root object. */
 interface PendingSession {
   session_id: string
   source_session_id: string
@@ -179,12 +190,14 @@ interface PendingSession {
   raw_record_id: string | null
 }
 
+/** Project row staged from Gemini `.project_root` metadata when available. */
 interface PendingProject {
   project_id: string
   canonical_path: string | null
   source_project_id: string
 }
 
+/** Event row staged from Gemini messages and operational snapshot entries. */
 interface PendingEvent {
   event_id: string
   ordinal: number
@@ -199,6 +212,7 @@ interface PendingEvent {
   confidence: 'high' | 'medium' | 'low'
 }
 
+/** Message row staged from Gemini user and model entries. */
 interface PendingMessage {
   message_id: string
   event_id: string | null
@@ -210,6 +224,7 @@ interface PendingMessage {
   raw_record_id: string
 }
 
+/** Content block row staged from Gemini content strings, content arrays, and thoughts. */
 interface PendingBlock {
   block_id: string
   message_id: string | null
@@ -222,6 +237,7 @@ interface PendingBlock {
   raw_record_id: string
 }
 
+/** Tool call row staged from Gemini message-level tool calls. */
 interface PendingToolCall {
   tool_call_id: string
   message_id: string | null
@@ -239,6 +255,7 @@ interface PendingToolCall {
   raw_record_id: string
 }
 
+/** Tool result row staged from Gemini tool-call result arrays. */
 interface PendingToolResult {
   tool_result_id: string
   tool_call_id: string
@@ -252,6 +269,7 @@ interface PendingToolResult {
   raw_record_id: string
 }
 
+/** Artifact row staged from Gemini result display diffs. */
 interface PendingArtifact {
   artifact_id: string
   kind: string
@@ -265,6 +283,7 @@ interface PendingArtifact {
   raw_record_id: string
 }
 
+/** Search index row staged from normalized Gemini messages, commands, paths, and previews. */
 interface PendingSearchDoc {
   doc_id: string
   entity_type: string
@@ -277,6 +296,7 @@ interface PendingSearchDoc {
   text: string
 }
 
+/** Parse one Gemini chat snapshot, stage CAS objects, and flush normalized rows. */
 async function compileGeminiFile(
   bundle: Bundle,
   batch: ImportBatch,
@@ -394,6 +414,7 @@ async function compileGeminiFile(
   return counts
 }
 
+/** Normalize one Gemini message snapshot entry into events, messages, blocks, and tools. */
 async function processMessage(
   bundle: Bundle,
   sessionId: string,
@@ -529,6 +550,7 @@ async function processMessage(
   })
 }
 
+/** Stage a Gemini text-like content block, storing long bodies in CAS. */
 async function pushTextBlock(
   bundle: Bundle,
   pending: PendingState,
@@ -554,6 +576,7 @@ async function pushTextBlock(
   })
 }
 
+/** Normalize a Gemini tool call and its embedded result/display metadata. */
 async function processToolCall(
   bundle: Bundle,
   sessionId: string,
@@ -630,6 +653,7 @@ async function processToolCall(
   }
 }
 
+/** Render Gemini's heterogeneous tool result array into the preview text used for search. */
 function renderToolResultText(result: GeminiToolResult[] | undefined): string {
   if (!Array.isArray(result)) return ''
   const parts: string[] = []
@@ -647,6 +671,7 @@ function renderToolResultText(result: GeminiToolResult[] | undefined): string {
   return parts.join('\n')
 }
 
+/** Collapse Gemini tool names into broad search/filter tool categories. */
 function canonicalToolType(toolName: string): string {
   switch (toolName) {
     case 'run_shell_command':
@@ -675,6 +700,7 @@ function canonicalToolType(toolName: string): string {
   }
 }
 
+/** Build searchable Gemini documents while excluding hidden thought blocks. */
 function buildSearchDocs(pending: PendingState): void {
   const sessionId = pending.session?.session_id ?? null
   if (!sessionId) return
@@ -748,6 +774,7 @@ function buildSearchDocs(pending: PendingState): void {
   }
 }
 
+/** Insert staged Gemini rows in foreign-key order after CAS objects are already durable. */
 function flushPending(bundle: Bundle, pending: PendingState): void {
   if (!pending.session) return
 

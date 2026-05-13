@@ -42,24 +42,25 @@ import type {
   CodexTurnContextPayload,
 } from './types.js'
 
+/** Result returned after a Codex compile batch finishes or records a failed batch. */
 export interface CompileResult {
+  /** Import batch created for this Codex run. */
   batch: ImportBatch
+  /** Final counts accumulated while importing Codex files. */
   counts: ImportCounts
 }
 
+/** Maximum inline text retained in normalized rows before full content moves to CAS. */
 const PREVIEW_MAX = 4_000
 
-// Per-file work splits into an async prepare (parse + CAS file writes + objects
-// table inserts, none of which need the per-file domain transaction) and a
-// sync apply (the domain INSERTs in flushPending). The prepare phase is fully
-// async and dominated by readFile + parallel fs.writeFile in flushPendingObjects;
-// running it concurrently across a slice of files overlaps the I/O wait of one
-// file with the parse work of another. Apply remains per-file and small, which
-// keeps each write transaction short — long write transactions degrade
-// INSERT OR IGNORE lookup performance because they force readers to walk the
-// growing WAL.
+/**
+ * Number of Codex files prepared concurrently before each short per-file
+ * database transaction. Prepare is I/O-heavy; applying rows stays serial to
+ * avoid long write transactions and growing WAL lookup costs.
+ */
 const CODEX_PREPARE_CONCURRENCY = 8
 
+/** Compile Codex JSONL session files under `root` into the bundle. */
 export async function compileCodex(bundle: Bundle, root: string, options: CompileOptions = {}): Promise<CompileResult> {
   const logger = options.logger
   const batch = startBatch(bundle, 'codex', [root])
@@ -92,12 +93,14 @@ export async function compileCodex(bundle: Bundle, root: string, options: Compil
   return { batch, counts }
 }
 
+/** Parsed and CAS-staged Codex file waiting for the short domain insert transaction. */
 interface CodexPrepared {
   filePath: string
   pending: PendingState
   meta: { sessionEndTs: string | null; modelFirst: string | null; modelLast: string | null }
 }
 
+/** Per-file state tracked while a concurrent Codex prepare slice is applied. */
 interface CodexBatchItem {
   filePath: string
   prepared: CodexPrepared | null
@@ -106,6 +109,7 @@ interface CodexBatchItem {
   applyError: Error | null
 }
 
+/** Prepare a slice concurrently, then apply each prepared file in its own transaction. */
 async function processCodexBatch(
   bundle: Bundle,
   batch: ImportBatch,
@@ -194,6 +198,7 @@ function linkSubagentParents(bundle: Bundle): void {
   `)
 }
 
+/** Per-source-file deltas that are merged into the import batch counts. */
 interface FileCounts {
   source_files_imported: number
   source_files_skipped: number
@@ -210,6 +215,7 @@ interface FileCounts {
   errors: number
 }
 
+/** Create zeroed file counters for a Codex file that may still fail or be skipped. */
 function emptyFileCounts(): FileCounts {
   return {
     source_files_imported: 0,
@@ -228,6 +234,7 @@ function emptyFileCounts(): FileCounts {
   }
 }
 
+/** Merge a single Codex file's normalized row counts into batch totals. */
 function addCounts(target: ImportCounts, source: FileCounts): void {
   target.source_files_imported += source.source_files_imported
   target.source_files_skipped += source.source_files_skipped
@@ -246,6 +253,7 @@ function addCounts(target: ImportCounts, source: FileCounts): void {
 
 // ---- per-file pipeline ---------------------------------------------------
 
+/** Raw record row staged from a Codex JSONL line before database insertion. */
 interface PendingRawRecord {
   raw_record_id: string
   source_file_id: string
@@ -262,6 +270,7 @@ interface PendingRawRecord {
   import_batch_id: string
 }
 
+/** Session row staged from `session_meta` or a filename fallback. */
 interface PendingSession {
   session_id: string
   source_session_id: string
@@ -276,6 +285,7 @@ interface PendingSession {
   raw_record_id: string | null
 }
 
+/** Turn row staged from Codex `turn_context` events. */
 interface PendingTurn {
   turn_id: string
   ordinal: number
@@ -289,6 +299,7 @@ interface PendingTurn {
   raw_record_id: string
 }
 
+/** Event row staged from Codex response items and operational event messages. */
 interface PendingEvent {
   event_id: string
   ordinal: number
@@ -304,6 +315,7 @@ interface PendingEvent {
   confidence: 'high' | 'medium' | 'low'
 }
 
+/** Message row staged from Codex assistant/user/tool content. */
 interface PendingMessage {
   message_id: string
   turn_id: string | null
@@ -316,6 +328,7 @@ interface PendingMessage {
   raw_record_id: string
 }
 
+/** Content block row staged from Codex message content arrays. */
 interface PendingBlock {
   block_id: string
   message_id: string | null
@@ -327,6 +340,7 @@ interface PendingBlock {
   raw_record_id: string
 }
 
+/** Tool call row staged from Codex function-call style records. */
 interface PendingToolCall {
   tool_call_id: string
   turn_id: string | null
@@ -345,6 +359,7 @@ interface PendingToolCall {
   raw_record_id: string
 }
 
+/** Tool result row staged from function-call output and operational tool events. */
 interface PendingToolResult {
   tool_result_id: string
   tool_call_id: string | null
@@ -362,6 +377,7 @@ interface PendingToolResult {
   raw_record_id: string
 }
 
+/** Artifact row staged from Codex patch or file-producing events. */
 interface PendingArtifact {
   artifact_id: string
   kind: string
@@ -375,6 +391,7 @@ interface PendingArtifact {
   raw_record_id: string
 }
 
+/** Graph edge row staged for recovered Codex subagent relationships. */
 interface PendingEdge {
   src_type: string
   src_id: string
@@ -386,6 +403,7 @@ interface PendingEdge {
   raw_record_id: string | null
 }
 
+/** Search index row staged from normalized Codex messages, commands, paths, and previews. */
 interface PendingSearchDoc {
   doc_id: string
   entity_type: string
@@ -398,6 +416,7 @@ interface PendingSearchDoc {
   text: string
 }
 
+/** Parse a Codex JSONL file, stage CAS objects, and return rows for later synchronous flush. */
 async function prepareCodexFile(
   bundle: Bundle,
   batch: ImportBatch,
@@ -684,6 +703,7 @@ async function prepareCodexFile(
   }
 }
 
+/** Flush one prepared Codex file's normalized rows inside the caller's transaction. */
 function applyCodexFile(bundle: Bundle, prep: CodexPrepared): void {
   flushPending(bundle, prep.pending, {
     sessionEndTs: prep.meta.sessionEndTs,
@@ -693,6 +713,7 @@ function applyCodexFile(bundle: Bundle, prep: CodexPrepared): void {
   })
 }
 
+/** All normalized Codex rows staged for one source file before FK-ordered flush. */
 interface PendingState {
   rawRecords: PendingRawRecord[]
   session: PendingSession | null
@@ -709,6 +730,7 @@ interface PendingState {
   objects: PendingObjects
 }
 
+/** Normalize a Codex `response_item` payload into messages, tool calls/results, or events. */
 function handleResponseItem(
   _bundle: Bundle,
   sessionId: string,
@@ -887,6 +909,7 @@ function handleResponseItem(
   })
 }
 
+/** Normalize Codex operational `event_msg` payloads while preserving unknown types as events. */
 async function handleEventMsg(
   bundle: Bundle,
   sessionId: string,
@@ -1059,6 +1082,7 @@ async function handleEventMsg(
 
 // ---- helpers -------------------------------------------------------------
 
+/** Pick the best native locator from a loose Codex envelope for raw record lookup. */
 function extractNativeId(env: CodexEnvelope): string | null {
   const p = env.payload as Record<string, unknown> | undefined
   if (!p) return null
@@ -1068,6 +1092,7 @@ function extractNativeId(env: CodexEnvelope): string | null {
   return null
 }
 
+/** Map native Codex roles into prosa's normalized message role vocabulary. */
 function mapMessageRole(role: unknown): PendingMessage['role'] {
   switch (role) {
     case 'user':
@@ -1086,6 +1111,7 @@ function mapMessageRole(role: unknown): PendingMessage['role'] {
   }
 }
 
+/** Collapse Codex and MCP tool names into broad search/filter tool categories. */
 function canonicalToolType(toolName: string): string {
   const lower = toolName.toLowerCase()
   if (lower.startsWith('mcp__')) return 'mcp'
@@ -1109,6 +1135,7 @@ function canonicalToolType(toolName: string): string {
   return 'other'
 }
 
+/** Extract a shell command from loose tool arguments when the native tool exposes one. */
 function inferCommandFromArgs(toolName: string, args: unknown): string | null {
   if (!args || typeof args !== 'object') {
     if (typeof args === 'string') {
@@ -1129,6 +1156,7 @@ function inferCommandFromArgs(toolName: string, args: unknown): string | null {
   return null
 }
 
+/** Extract a file path from loose tool arguments without treating absence as an error. */
 function inferPathFromArgs(args: unknown): string | null {
   if (!args || typeof args !== 'object') {
     if (typeof args === 'string') {
@@ -1148,10 +1176,12 @@ function inferPathFromArgs(args: unknown): string | null {
   return null
 }
 
+/** Heuristic for legacy tool outputs that do not carry an explicit error flag. */
 function looksLikeError(text: string): boolean {
   return /\b(error|exception|failed|stack trace)\b/i.test(text)
 }
 
+/** Convert Codex's seconds/nanoseconds duration object to milliseconds. */
 function durationMs(d: CodexEventMsgPayload['duration']): number | null {
   if (!d || typeof d !== 'object') return null
   const secs = typeof d.secs === 'number' ? d.secs : 0
@@ -1159,6 +1189,7 @@ function durationMs(d: CodexEventMsgPayload['duration']): number | null {
   return secs * 1000 + Math.floor(nanos / 1e6)
 }
 
+/** Convert arbitrary recovered payload values into compact text previews when possible. */
 function stringifyOrNull(value: unknown): string | null {
   if (value == null) return null
   if (typeof value === 'string') return value
@@ -1169,6 +1200,7 @@ function stringifyOrNull(value: unknown): string | null {
   }
 }
 
+/** Recover explicit Codex subagent spawn metadata from `session_meta.source`. */
 function parseSubagent(
   source: unknown,
 ): { parent_thread_id: string; agent_role?: string; agent_nickname?: string } | null {
@@ -1188,6 +1220,7 @@ function parseSubagent(
   }
 }
 
+/** Build searchable Codex documents from staged messages, tool calls, and result previews. */
 function buildSearchDocs(pending: PendingState): void {
   const sessionId = pending.session?.session_id ?? null
   if (!sessionId) return
@@ -1269,6 +1302,7 @@ function buildSearchDocs(pending: PendingState): void {
   }
 }
 
+/** Insert staged Codex rows in foreign-key order after CAS objects are already durable. */
 function flushPending(
   bundle: Bundle,
   pending: PendingState,

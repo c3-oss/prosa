@@ -13,9 +13,13 @@ import { getSession, listSessions } from '../services/sessions.js'
 import { listToolCalls } from '../services/tool_calls.js'
 import { AUDIT_TOOL_FAILURES_PROMPT, FIND_FILE_HISTORY_PROMPT, INVESTIGATE_PRIOR_WORK_PROMPT } from './guidance.js'
 
+/** Options that tune how registered MCP tools open bundles and choose search backends. */
 export interface ProsaToolOptions {
+  /** Default search engine used when a `search` tool call does not specify one. */
   searchEngine?: SearchEngine
+  /** Store path to reopen for each tool call when `ensureStore` is enabled. */
   storePath?: string
+  /** Reopen or initialize the bundle per call instead of reusing the startup handle. */
   ensureStore?: boolean
 }
 
@@ -406,6 +410,8 @@ async function withToolBundle<T>(
   ensureStore: boolean,
   fn: (bundle: Bundle) => Promise<T> | T,
 ): Promise<T> {
+  // MCP servers can stay alive while the store is compiled elsewhere. Reopening
+  // per call keeps schema/index changes visible without restarting the server.
   if (!ensureStore) {
     return await fn(fallbackBundle)
   }
@@ -418,6 +424,7 @@ async function withToolBundle<T>(
   }
 }
 
+/** Register reusable MCP prompt templates alongside the callable prosa tools. */
 function registerProsaPrompts(server: McpServer): void {
   server.registerPrompt(
     'investigate_prior_work',

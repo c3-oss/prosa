@@ -17,28 +17,43 @@ interface SessionEntry {
   transport: StreamableHTTPServerTransport
 }
 
+/** HTTP transport options for exposing a prosa bundle as an MCP server. */
 export interface McpServerOptions {
+  /** Hostname or IP address to bind. */
   host: string
+  /** TCP port to bind. */
   port: number
+  /** HTTP path that receives MCP Streamable HTTP requests. Defaults to `/mcp`. */
   path?: string
+  /** Default search engine passed to MCP search tools. */
   searchEngine?: SearchEngine
+  /** Bundle path reopened by long-lived tool handlers. Defaults to `bundle.path`. */
   storePath?: string
 }
 
+/** Handle returned by the HTTP MCP server listener. */
 export interface RunningServer {
+  /** Full URL clients should use for Streamable HTTP requests. */
   url: string
+  /** Stop the HTTP listener and close all active MCP sessions. */
   close(): Promise<void>
 }
 
+/** Handle returned by the stdio MCP server listener. */
 export interface RunningStdioServer {
+  /** Close the MCP server and stdio transport. */
   close(): Promise<void>
 }
 
+/** Stdio transport options for exposing a prosa bundle as an MCP server. */
 export interface McpStdioServerOptions {
+  /** Default search engine passed to MCP search tools. */
   searchEngine?: SearchEngine
+  /** Bundle path reopened by long-lived tool handlers. Defaults to `bundle.path`. */
   storePath?: string
 }
 
+/** Start a stdio MCP server backed by an already-open prosa bundle. */
 export async function listenMcpStdioServer(
   bundle: Bundle,
   options: McpStdioServerOptions = {},
@@ -109,6 +124,8 @@ async function handleRequest(
   searchEngine: SearchEngine,
   storePath: string,
 ): Promise<void> {
+  // Keep HTTP routing deliberately small: this listener owns exactly one MCP
+  // endpoint and delegates protocol details to StreamableHTTPServerTransport.
   if (!req.url || !req.url.startsWith(mcpPath)) {
     res.writeHead(404).end()
     return
@@ -149,6 +166,7 @@ async function handleRequest(
   await entry.transport.handleRequest(req, res, body)
 }
 
+/** Create and connect a new MCP session, then let the transport register its generated id. */
 async function openSession(
   bundle: Bundle,
   store: Map<string, SessionEntry>,
@@ -177,6 +195,7 @@ async function openSession(
   return { server, transport }
 }
 
+/** Build a per-session MCP server instance with prosa instructions and tools attached. */
 function createMcpServer(bundle: Bundle, searchEngine: SearchEngine, storePath?: string): McpServer {
   const server = new McpServer(
     {
@@ -189,6 +208,7 @@ function createMcpServer(bundle: Bundle, searchEngine: SearchEngine, storePath?:
   return server
 }
 
+/** Read a request body once so the MCP transport can consume a parsed JSON-RPC payload. */
 async function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = []
@@ -198,6 +218,7 @@ async function readBody(req: IncomingMessage): Promise<string> {
   })
 }
 
+/** Parse optional JSON request bodies; invalid or empty bodies are passed through as undefined. */
 function safeJsonParse(text: string): unknown {
   try {
     return JSON.parse(text)
@@ -206,6 +227,7 @@ function safeJsonParse(text: string): unknown {
   }
 }
 
+/** Close transports and servers defensively during shutdown. */
 async function safeClose(o: { close: () => Promise<void> | void } | Transport): Promise<void> {
   try {
     await o.close()
@@ -214,6 +236,7 @@ async function safeClose(o: { close: () => Promise<void> | void } | Transport): 
   }
 }
 
+/** Write a JSON-RPC internal error response when request handling fails before transport dispatch. */
 function writeError(res: ServerResponse, error: unknown): void {
   if (!res.headersSent) {
     res.writeHead(500, { 'Content-Type': 'application/json' })

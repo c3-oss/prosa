@@ -258,6 +258,7 @@ const COLUMN_SETS: Record<AnalyticsReport, ColumnSet<string>> = {
   projects: PROJECTS_COLUMNS,
 }
 
+/** Create the `prosa analytics` command group and its built-in report subcommands. */
 export function analyticsCommand(): Command {
   const command = new Command('analytics').description('Run high-level analytics reports over exported Parquet files.')
 
@@ -270,6 +271,7 @@ export function analyticsCommand(): Command {
   return command
 }
 
+/** Create one report subcommand with filters and column controls appropriate to the report. */
 function reportCommand(report: AnalyticsReport, description: string): Command {
   const command = addCommonOptions(new Command(report).description(description))
 
@@ -317,6 +319,7 @@ function reportCommand(report: AnalyticsReport, description: string): Command {
   })
 }
 
+/** Add filters and output options shared by all analytics report commands. */
 function addCommonOptions(command: Command): Command {
   return command
     .option('--store <path>', 'bundle directory', defaultBundlePath())
@@ -329,6 +332,7 @@ function addCommonOptions(command: Command): Command {
     .option('--output-format <fmt>', 'interactive|table|json|csv', 'table')
 }
 
+/** Resolve or refresh the Parquet directory used as the analytics query source. */
 async function resolveParquetDir(options: AnalyticsCliOptions): Promise<string> {
   const storePath = path.resolve(options.store)
   const outDir = options.parquetDir ? path.resolve(options.parquetDir) : undefined
@@ -340,6 +344,7 @@ async function resolveParquetDir(options: AnalyticsCliOptions): Promise<string> 
   return outDir ?? (await withBundle(storePath, (bundle) => bundle.paths.parquet))
 }
 
+/** Convert raw CLI option strings into analytics service filters. */
 function buildFilters(options: AnalyticsCliOptions): AnalyticsReportFilters {
   return {
     source: parseSourceTool(options.source),

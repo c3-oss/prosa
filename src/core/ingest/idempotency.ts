@@ -8,21 +8,45 @@ import { prepare } from '../db.js'
 import { sourceFileId } from '../domain/ids.js'
 import type { SourceTool } from '../domain/types.js'
 
+/**
+ * Complete `source_files` row used by source discovery and importer idempotency.
+ *
+ * Paths are absolute source paths. `object_id` points at preserved raw source
+ * bytes and may be backfilled for rows created before raw preservation existed.
+ */
 export interface SourceFileRow {
+  /** Stable source file identifier. */
   source_file_id: string
+  /** Importer that discovered the file. */
   source_tool: SourceTool
+  /** Absolute path to the native source file. */
   path: string
+  /** Importer-specific file kind. */
   file_kind: string
+  /** File size observed during discovery. */
   size_bytes: number
+  /** Filesystem modification time as ISO text, when available. */
   mtime: string | null
+  /** SHA-256 content hash used for idempotency. */
   content_hash: string
+  /** CAS object ID for preserved raw bytes, if available. */
   object_id: string | null
+  /** ISO timestamp when the file was first registered. */
   discovered_at: string
+  /** Optional project/workspace hint derived during discovery. */
   workspace_hint: string | null
 }
 
+/**
+ * Result of source-file registration.
+ *
+ * `alreadyKnown` means the same path/content tuple was already registered and
+ * the caller can usually skip parsing/importing the file.
+ */
 export interface RegisterResult {
+  /** Registered source file row. */
   row: SourceFileRow
+  /** True when the caller can usually skip parsing the file. */
   alreadyKnown: boolean
 }
 
@@ -125,6 +149,12 @@ export async function registerSourceFile(
   return { row, alreadyKnown: false }
 }
 
+/**
+ * Backfill raw-byte preservation for an existing `source_files` row.
+ *
+ * Older rows or cheap-path matches may not have `object_id`; this helper stores
+ * the current source bytes and updates the row before returning it.
+ */
 async function ensureSourceFilePreserved(
   bundle: Bundle,
   row: SourceFileRow,
@@ -144,6 +174,15 @@ async function ensureSourceFilePreserved(
   return { ...row, object_id: objectId }
 }
 
+/**
+ * Preserve raw source bytes outside the main CAS fanout and record them in
+ * `objects`.
+ *
+ * The storage path is `raw/sources/<blake3>.<ext>` so original input files are
+ * easy to distinguish from normalized payloads under `objects/blake3`. The DB
+ * insert is idempotent, and the file write is skipped if the object already
+ * exists on disk.
+ */
 async function preserveRawSourceBytes(bundle: Bundle, bytes: Uint8Array): Promise<string> {
   const hash = blake3Hex(bytes)
   const objectId = objectIdFromHash(hash)
@@ -184,6 +223,9 @@ async function preserveRawSourceBytes(bundle: Bundle, bytes: Uint8Array): Promis
   return objectId
 }
 
+/**
+ * Relative bundle path for preserved raw source bytes.
+ */
 function rawSourceStoragePath(hashHex: string, compression: 'zstd' | 'none'): string {
   const ext = compression === 'zstd' ? '.zst' : '.bin'
   return `raw/sources/${hashHex}${ext}`

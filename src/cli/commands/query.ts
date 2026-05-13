@@ -5,6 +5,7 @@ import { queryDuckDbParquet } from '../../services/export/parquet.js'
 import { withBundle } from '../bundle.js'
 import { parseOutputFormat, printRows } from '../output.js'
 
+/** Create the `prosa query` command group for derived analytical queries. */
 export function queryCommand(): Command {
   const duckdb = new Command('duckdb')
     .description('Run a DuckDB SQL query over exported Parquet tables.')

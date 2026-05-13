@@ -1,6 +1,7 @@
 import { readdir } from 'node:fs/promises'
 import path from 'node:path'
 
+/** Discovered Cursor `store.db` with workspace and agent ids derived from the path. */
 export interface CursorStoreDb {
   filePath: string
   workspaceId: string
@@ -33,6 +34,7 @@ export async function* discoverCursorStores(root: string): AsyncGenerator<Cursor
   }
 }
 
+/** Read optional Cursor workspace directories as empty when they are missing. */
 async function readdirSafe(dir: string): Promise<import('node:fs').Dirent[]> {
   try {
     return await readdir(dir, { withFileTypes: true })

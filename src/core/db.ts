@@ -1,7 +1,17 @@
 import Database, { type Database as DatabaseType, type Statement } from 'better-sqlite3'
 
+/**
+ * Synchronous better-sqlite3 database handle used throughout core.
+ */
 export type Db = DatabaseType
 
+/**
+ * Open a SQLite database with Prosa's write-heavy import pragmas applied.
+ *
+ * The function does not run migrations. It configures WAL mode, foreign key
+ * enforcement, larger cache/mmap windows, and import-friendly checkpointing
+ * before callers create or access schema objects.
+ */
 export function openDb(path: string): Db {
   const db = new Database(path)
   // page_size must be set before any table is created. On an existing DB it
@@ -28,10 +38,19 @@ export function openDb(path: string): Db {
   return db
 }
 
+/**
+ * Close an open SQLite handle.
+ */
 export function closeDb(db: Db): void {
   db.close()
 }
 
+/**
+ * Prepared-statement cache keyed by database object and SQL text.
+ *
+ * WeakMap ownership lets statements become collectible when the corresponding
+ * DB handle is no longer referenced.
+ */
 const stmtCache = new WeakMap<Db, Map<string, Statement>>()
 
 /**
@@ -60,6 +79,12 @@ export function prepare<TParams extends unknown[] = unknown[], TRow = unknown>(
   return stmt as Statement<TParams, TRow>
 }
 
+/**
+ * Execute `fn` inside a single synchronous SQLite transaction.
+ *
+ * Any exception thrown by `fn` rolls back the transaction and is rethrown by
+ * better-sqlite3. Async work must happen before or after this helper.
+ */
 export function transactional<T>(db: Db, fn: () => T): T {
   const wrapped = db.transaction(fn)
   return wrapped()

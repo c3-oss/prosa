@@ -9,6 +9,7 @@ import {
 } from '../../services/compile.js'
 import { type CliLoggerOptions, createCliLogger } from '../logger.js'
 
+/** Create the provider-specific `prosa compile` command group. */
 export function compileCommand(): Command {
   const command = addCompileLogOptions(
     new Command('compile').description('Import session histories from one agent CLI into the bundle.'),
@@ -25,6 +26,7 @@ export function compileCommand(): Command {
   return command
 }
 
+/** Create the `prosa compile-all` command that imports every configured provider. */
 export function compileAllCommand(): Command {
   return addCompileLogOptions(new Command('compile-all'))
     .description('Import all agent CLI session histories using default source paths.')
@@ -44,6 +46,7 @@ export function compileAllCommand(): Command {
     })
 }
 
+/** Build one compile subcommand from a provider configuration. */
 function providerCompileCommand(provider: CompileProviderConfig): Command {
   return addCompileLogOptions(new Command(provider.name))
     .description(provider.description)
@@ -78,12 +81,14 @@ function providerCompileCommand(provider: CompileProviderConfig): Command {
     )
 }
 
+/** Add logging flags shared by compile commands. */
 function addCompileLogOptions(command: Command): Command {
   return command
     .option('--verbose', 'emit debug logs during compilation')
     .option('--json-logs', 'emit raw newline-delimited JSON logs instead of pretty logs')
 }
 
+/** Execute one or more provider imports and refresh derived Parquet output when needed. */
 async function runCompiles(options: {
   providers: CompileProviderConfig[]
   storePath: string

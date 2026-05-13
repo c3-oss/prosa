@@ -1,6 +1,13 @@
 // Auto-generated from schema description. Edit the SQL here directly.
 // Loaded at runtime by core/schema/migrate.ts.
 
+/**
+ * Initial bundle schema.
+ *
+ * Defines the raw immutable layer, canonical projection tables, and derived
+ * search index tables/triggers. Projection rows are rebuildable from preserved
+ * raw records and CAS objects.
+ */
 export const SQL_001_INIT = String.raw`
 -- Schema W v1
 --

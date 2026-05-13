@@ -18,47 +18,108 @@ import {
   rebuildTantivyIndex,
 } from './indexing.js'
 
-interface CompileResult {
+/** Importer result shape normalized for compile orchestration. */
+export interface CompileResult {
+  /** Import batch created by the provider. */
   batch: ImportBatch
+  /** Final provider import counts. */
   counts: ImportCounts
 }
 
+/** Configures one source-tool importer for the compile service. */
 export interface CompileProviderConfig {
+  /** Source tool handled by this provider. */
   name: SourceTool
+  /** Human-readable provider description. */
   description: string
+  /** Help text describing the expected root path. */
   pathHelp: string
+  /** Default native history location for this provider. */
   defaultSessionsPath: () => string
+  /** Provider compile implementation. */
   compile: (bundle: Bundle, root: string, options?: CompileOptions) => Promise<CompileResult>
 }
 
+/** Per-provider summary emitted after an importer finishes. */
 export interface ProviderCompileSummary {
+  /** Source tool that completed. */
   source: SourceTool
+  /** Resolved source path compiled by the provider. */
   sourcePath: string
+  /** Batch identifier for this provider run. */
   batchId: string
+  /** Import batch metadata. */
   batch: ImportBatch
+  /** Final import counts. */
   counts: ImportCounts
 }
 
+/** Summary emitted after a Tantivy rebuild completes during compile. */
 export interface TantivyCompileSummary {
+  /** Documents present in the rebuilt Tantivy index. */
   indexedDocCount: number
 }
 
+/** Aggregate result for a compile import run across one or more providers. */
 export interface CompileImportSummary {
+  /** Per-provider summaries in execution order. */
   providers: ProviderCompileSummary[]
+  /** True when at least one source file was imported. */
   importedAny: boolean
+  /** Tantivy rebuild summary, if it completed. */
   tantivy: TantivyCompileSummary | null
+  /** Tantivy rebuild error message, if rebuild failed but compile continued. */
   tantivyError: string | null
+  /** FTS5 rebuild error message, if rebuild failed but compile continued. */
   fts5Error: string | null
 }
 
+/** Summary returned after compile-triggered Parquet export. */
 export interface ParquetCompileSummary {
+  /** Directory containing generated Parquet files. */
   outDir: string
+  /** Path to the generated export manifest. */
   manifestPath: string
+  /** Number of exported canonical tables. */
   tableCount: number
+  /** Absolute output file path by table. */
   files: Record<string, string>
+  /** Row count by table. */
   counts: Record<string, number>
 }
 
+/** Options for running compile imports across configured providers. */
+export interface CompileImportOptions {
+  /** Open bundle to import into. */
+  bundle: Bundle
+  /** Providers to run in order. */
+  providers: CompileProviderConfig[]
+  /** Optional override for every provider's default source path. */
+  sessionsPath?: string
+  /**
+   * Force a full rebuild of derived indexes after import. Tantivy is the
+   * only sidecar with an incremental path today, so this currently flips
+   * Tantivy to a from-scratch rebuild; FTS5 and Parquet are always
+   * full-rewrite. Surfaced by `prosa compile … --overwrite`.
+   */
+  overwrite?: boolean
+  /** Optional structured logger. */
+  logger?: CompileLogger
+  /** Callback invoked after each provider completes. */
+  onProviderComplete?: (summary: ProviderCompileSummary) => void
+  /** Callback invoked after Tantivy rebuild completes. */
+  onTantivyComplete?: (summary: TantivyCompileSummary) => void
+}
+
+/** Options for compile's Parquet export step. */
+export interface ExportCompileParquetOptions {
+  /** Bundle root whose canonical tables should be exported. */
+  storePath: string
+  /** Optional structured logger. */
+  logger?: CompileLogger
+}
+
+/** Built-in compile providers and their default history locations. */
 export const COMPILE_PROVIDERS: CompileProviderConfig[] = [
   {
     name: 'codex',
@@ -90,6 +151,7 @@ export const COMPILE_PROVIDERS: CompileProviderConfig[] = [
   },
 ]
 
+/** Resolves a compile provider by source tool, throwing for unsupported names. */
 export function getCompileProvider(source: SourceTool): CompileProviderConfig {
   const provider = COMPILE_PROVIDERS.find((p) => p.name === source)
   if (!provider) {
@@ -98,27 +160,15 @@ export function getCompileProvider(source: SourceTool): CompileProviderConfig {
   return provider
 }
 
+/** Expands shell-style home paths and resolves compile paths to absolutes. */
 export function resolveCompilePath(p: string): string {
   if (p === '~') return os.homedir()
   if (p.startsWith('~/')) return path.join(os.homedir(), p.slice(2))
   return path.resolve(p)
 }
 
-export async function runCompileImports(options: {
-  bundle: Bundle
-  providers: CompileProviderConfig[]
-  sessionsPath?: string
-  /**
-   * Force a full rebuild of derived indexes after import. Tantivy is the
-   * only sidecar with an incremental path today, so this currently flips
-   * Tantivy to a from-scratch rebuild; FTS5 and Parquet are always
-   * full-rewrite. Surfaced by `prosa compile … --overwrite`.
-   */
-  overwrite?: boolean
-  logger?: CompileLogger
-  onProviderComplete?: (summary: ProviderCompileSummary) => void
-  onTantivyComplete?: (summary: TantivyCompileSummary) => void
-}): Promise<CompileImportSummary> {
+/** Runs provider imports and refreshes derived search indexes when data changed. */
+export async function runCompileImports(options: CompileImportOptions): Promise<CompileImportSummary> {
   const { bundle, providers, logger } = options
   const overwrite = options.overwrite === true
   let importedAny = false
@@ -211,10 +261,8 @@ export async function runCompileImports(options: {
   }
 }
 
-export async function exportCompileParquet(options: {
-  storePath: string
-  logger?: CompileLogger
-}): Promise<ParquetCompileSummary> {
+/** Exports the compiled bundle to Parquet using compile command path semantics. */
+export async function exportCompileParquet(options: ExportCompileParquetOptions): Promise<ParquetCompileSummary> {
   const storePath = resolveCompilePath(options.storePath)
   options.logger?.info({ store_path: storePath }, 'exporting parquet')
   const result = await exportBundleParquet({ bundlePath: storePath })

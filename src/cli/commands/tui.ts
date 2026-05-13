@@ -2,6 +2,7 @@ import { Command } from 'commander'
 import { defaultBundlePath } from '../../core/bundle.js'
 import { withBundle } from '../bundle.js'
 
+/** Create the `prosa tui` command that opens the Ink session explorer. */
 export function tuiCommand(): Command {
   return new Command('tui')
     .description('Open the interactive Ink-based explorer.')
