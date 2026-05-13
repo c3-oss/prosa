@@ -1,56 +1,76 @@
 # prosa
 
-`prosa` is a local-first CLI for compiling, searching, auditing, and exporting
-agent session histories.
+`prosa` is a local-first command-line app for turning scattered AI agent
+session histories into one durable, queryable bundle on your machine.
 
-It imports local histories from Codex CLI, Claude Code, Gemini CLI, and Cursor
-into one canonical bundle so you can search across tools, inspect prior work,
-export readable transcripts, and run analytical queries without giving up the
-original raw data.
+It imports local histories from Codex CLI, Claude Code, Gemini CLI, and Cursor,
+preserves the original raw data, and builds a canonical SQLite-backed store for
+search, audits, transcript export, DuckDB analytics, a terminal UI, and local
+agent memory through MCP.
+
+Use it when you want to answer questions like:
+
+- What did my agents already try in this repository?
+- Which sessions touched this file, command, error, or dependency?
+- What tool calls failed, and in which projects or time ranges?
+- How can I export a useful transcript without reading raw JSONL or SQLite
+  files by hand?
+
+`prosa` is published on the npm registry as
+[`@c3-oss/prosa`](https://www.npmjs.com/package/@c3-oss/prosa).
 
 ## What it does
 
-- Imports session histories from multiple agent CLIs into a single local store.
-- Preserves raw source files and raw records for future re-processing.
+- Imports session histories from multiple agent CLIs into a single local bundle.
+- Preserves raw source files and raw records so importers can improve without
+  losing provenance.
 - Normalizes sessions, messages, tool calls, tool results, artifacts, and graph
-  edges into SQLite tables.
-- Builds searchable derived indexes over messages, commands, paths, and result
+  edges into canonical SQLite tables.
+- Builds search indexes over messages, commands, paths, diffs, and result
   previews.
-- Lists and filters sessions by source and timestamp.
-- Exports individual sessions as Markdown.
-- Exports canonical tables to Parquet for DuckDB analytics.
-- Runs built-in analytics reports over Parquet with DuckDB.
-- Provides an Ink-based terminal UI for browsing sessions and search results.
-- Serves a read-only MCP server over the local bundle for agent memory access.
+- Lists and filters sessions by source, timestamp, and selected columns.
+- Exports readable Markdown transcripts for individual sessions.
+- Exports canonical tables to Parquet and runs DuckDB-backed analytics reports.
+- Opens an Ink-based terminal UI for browsing sessions and search results.
+- Serves an MCP server over the local bundle so other agents can query prior
+  work without reading provider-specific history files.
 
 `prosa` is early software, but the main CLI surfaces described below are
 implemented.
 
+## Installation
+
+Install the published package globally:
+
+```bash
+npm install -g @c3-oss/prosa
+```
+
+Or run it without a global install:
+
+```bash
+npx --package @c3-oss/prosa prosa --help
+npx --package @c3-oss/prosa prosa mcp serve
+```
+
+The package provides the `prosa` binary and requires Node.js 22.15.1 through
+26.x.
+
 ## Quick start
 
-From this repository:
-
-```bash
-devbox shell
-pnpm install
-pnpm build
-```
-
-During development, run commands through SWC:
-
-```bash
-pnpm dev -- init
-pnpm dev -- compile codex
-pnpm dev -- sessions
-pnpm dev -- search "terraform"
-```
-
-After building or installing the package, use the `prosa` binary:
+Initialize a local bundle, import supported agent histories from their default
+locations, and start querying:
 
 ```bash
 prosa init
 prosa compile-all
+prosa sessions
+prosa search "terraform"
+```
 
+Useful next commands:
+
+```bash
 prosa sessions --source codex --since 2026-01-01
 prosa search "package.json"
 prosa export session <session-id> --format markdown --out session.md
@@ -67,6 +87,25 @@ the `PROSA_STORE` environment variable:
 ```bash
 PROSA_STORE=/tmp/prosa-demo prosa init
 prosa sessions --store /tmp/prosa-demo
+```
+
+## Development quick start
+
+From this repository:
+
+```bash
+devbox shell
+pnpm install
+pnpm build
+```
+
+During development, run commands through SWC:
+
+```bash
+pnpm dev -- init
+pnpm dev -- compile codex
+pnpm dev -- sessions
+pnpm dev -- search "terraform"
 ```
 
 ## Supported sources
@@ -386,7 +425,7 @@ binary:
 
 ```bash
 prosa mcp serve
-npx @c3-oss/prosa mcp serve
+npx --package @c3-oss/prosa prosa mcp serve
 prosa mcp serve --transport stdio
 prosa mcp serve --search-engine tantivy
 ```
@@ -396,7 +435,7 @@ Example MCP client command config:
 ```json
 {
   "command": "npx",
-  "args": ["@c3-oss/prosa", "mcp", "serve"]
+  "args": ["--package", "@c3-oss/prosa", "prosa", "mcp", "serve"]
 }
 ```
 
@@ -632,7 +671,8 @@ unless you intend to publish to `https://registry.npmjs.org/`.
 
 ## Status and limitations
 
-- Version is currently `0.1.0`.
+- `prosa` is early software. The main CLI surfaces documented here are
+  implemented, but source formats and importer coverage will continue to evolve.
 - Source formats for agent tools can change; importers preserve raw bytes so
   projections can be improved later.
 - FTS5 is available by default; Tantivy search requires `prosa index tantivy`
