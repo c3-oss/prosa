@@ -24,10 +24,11 @@ describe('compile CLI', () => {
     try {
       await copyFixture(CODEX_FIXTURES, path.join(t.homePath, '.codex', 'sessions'));
 
-      const { stdout, stderr } = await runProsa(['compile', 'codex'], t.env);
+      const { stderr } = await runProsa(['compile', 'codex'], t.env);
 
-      expect(stdout).toContain('codex import: batch=');
-      expect(stdout).toContain('source_files seen=2 imported=2 skipped=0');
+      expect(stderr).toContain('codex batch completed');
+      expect(stderr).toContain('"source_files_seen": 2');
+      expect(stderr).toContain('"source_files_imported": 2');
       expect(stderr).toContain('INFO');
       expect(stderr).not.toContain('DEBUG');
     } finally {
@@ -43,19 +44,19 @@ describe('compile CLI', () => {
       await copyFixture(GEMINI_FIXTURES, path.join(t.homePath, '.gemini', 'tmp'));
       await makeCursorFixture(path.join(t.homePath, '.cursor', 'chats'));
 
-      const { stdout, stderr } = await runProsa(['compile-all', '--verbose'], t.env);
+      const { stderr } = await runProsa(['compile-all', '--verbose'], t.env);
 
-      expect(stdout).toContain('codex import: batch=');
-      expect(stdout).toContain('claude import: batch=');
-      expect(stdout).toContain('gemini import: batch=');
-      expect(stdout).toContain('cursor import: batch=');
-      expect(stdout).toContain('source_files seen=2 imported=2 skipped=0');
-      expect(stdout).toContain('source_files seen=1 imported=1 skipped=0');
+      expect(stderr).toMatch(/codex batch completed/);
+      expect(stderr).toMatch(/claude batch completed/);
+      expect(stderr).toMatch(/gemini batch completed/);
+      expect(stderr).toMatch(/cursor batch completed/);
+      expect(stderr).toContain('"source_files_seen": 2');
+      expect(stderr).toContain('"source_files_seen": 1');
       expect(stderr).toContain('DEBUG');
 
       // Tantivy and Parquet sidecar indexes should be rebuilt automatically.
-      expect(stdout).toMatch(/tantivy: indexed \d+ docs/);
-      expect(stdout).toMatch(/parquet: wrote \d+ tables/);
+      expect(stderr).toMatch(/rebuilding tantivy index/);
+      expect(stderr).toMatch(/parquet export finished/);
 
       // Decoded JSON is no longer double-stored for parsed Codex/Claude
       // raw_records — the raw line itself IS the JSON.

@@ -3,7 +3,6 @@ import { closeBundle, defaultBundlePath, openBundle } from '../../core/bundle.js
 import {
   COMPILE_PROVIDERS,
   type CompileProviderConfig,
-  type ProviderCompileSummary,
   exportCompileParquet,
   resolveCompilePath,
   runCompileImports,
@@ -106,10 +105,6 @@ async function runCompiles(options: {
       sessionsPath: options.sessionsPath,
       overwrite: options.overwrite,
       logger,
-      onProviderComplete: printCounts,
-      onTantivyComplete: (status) => {
-        process.stdout.write(`tantivy: indexed ${status.indexedDocCount} docs\n`);
-      },
     });
     importedAny = result.importedAny;
   } finally {
@@ -126,20 +121,12 @@ async function runCompiles(options: {
   if (shouldExportParquet) {
     try {
       const result = await exportCompileParquet({ storePath, logger });
-      process.stdout.write(`parquet: wrote ${result.tableCount} tables to ${result.outDir}\n`);
+      logger.info(
+        { table_count: result.tableCount, out_dir: result.outDir },
+        'parquet export finished',
+      );
     } catch (error) {
       logger.error({ err: error }, 'parquet export failed; SQLite data is intact');
     }
   }
-}
-
-function printCounts(summary: ProviderCompileSummary): void {
-  const c = summary.counts;
-  process.stdout.write(
-    `${summary.source} import: batch=${summary.batchId}\n` +
-      `  source_files seen=${c.source_files_seen} imported=${c.source_files_imported} skipped=${c.source_files_skipped}\n` +
-      `  sessions=${c.sessions} turns=${c.turns} messages=${c.messages} blocks=${c.content_blocks}\n` +
-      `  events=${c.events} tool_calls=${c.tool_calls} tool_results=${c.tool_results}\n` +
-      `  artifacts=${c.artifacts} edges=${c.edges} errors=${c.errors}\n`,
-  );
 }

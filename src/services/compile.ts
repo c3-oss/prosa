@@ -128,6 +128,22 @@ export async function runCompileImports(options: {
   let fts5Error: string | null = null;
 
   try {
+    // Sweep any unfinished import_batches left behind by a previous crash so
+    // they don't keep tripping `prosa doctor` after every successful compile.
+    // SQLite is single-writer; if we're here, no other process owns those rows.
+    const sweep = bundle.db
+      .prepare(
+        `UPDATE import_batches SET status = 'failed', finished_at = datetime('now')
+         WHERE finished_at IS NULL`,
+      )
+      .run();
+    if (sweep.changes > 0) {
+      logger?.warn(
+        { batches_reaped: sweep.changes },
+        'reaped unfinished import_batches from a prior crash',
+      );
+    }
+
     logger?.info('disabling FTS5 triggers for bulk rebuild');
     disableFts5Triggers(bundle);
 

@@ -22,7 +22,7 @@ export function createCliLogger(options: CliLoggerOptions): Logger {
       colorize: process.stderr.isTTY,
       destination: 2,
       ignore: 'pid,hostname',
-      singleLine: true,
+      singleLine: false,
       sync: true,
       translateTime: 'SYS:yyyy-mm-dd HH:MM:ss.l',
     }),
