@@ -43,3 +43,5 @@ version-packages:
 # Build and publish changed packages to the official npm registry.
 release:
   pnpm release
+  git push
+  git push --tags
