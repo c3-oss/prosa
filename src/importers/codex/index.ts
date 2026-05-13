@@ -7,7 +7,6 @@ import {
   createPendingObjects,
   flushPendingObjects,
   stageBytes,
-  stageJson,
   stageText,
 } from '../../core/cas/index.js';
 import { prepare, transactional } from '../../core/db.js';
