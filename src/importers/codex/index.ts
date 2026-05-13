@@ -50,6 +50,17 @@ export interface CompileResult {
 
 const PREVIEW_MAX = 4_000;
 
+// Per-file work splits into an async prepare (parse + CAS file writes + objects
+// table inserts, none of which need the per-file domain transaction) and a
+// sync apply (the domain INSERTs in flushPending). The prepare phase is fully
+// async and dominated by readFile + parallel fs.writeFile in flushPendingObjects;
+// running it concurrently across a slice of files overlaps the I/O wait of one
+// file with the parse work of another. Apply remains per-file and small, which
+// keeps each write transaction short — long write transactions degrade
+// INSERT OR IGNORE lookup performance because they force readers to walk the
+// growing WAL.
+const CODEX_PREPARE_CONCURRENCY = 8;
+
 export async function compileCodex(
   bundle: Bundle,
   root: string,
@@ -61,28 +72,18 @@ export async function compileCodex(
   logger?.info({ batch_id: batch.batch_id, root }, 'codex batch started');
 
   try {
+    const files: string[] = [];
     for await (const filePath of discoverCodexSessions(root)) {
-      counts.source_files_seen++;
+      files.push(filePath);
       logger?.debug({ path: filePath }, 'codex source file discovered');
-      try {
-        const fileCounts = await compileCodexFile(bundle, batch, filePath, logger);
-        addCounts(counts, fileCounts);
-      } catch (error) {
-        counts.errors++;
-        logger?.warn(
-          {
-            err: error,
-            path: filePath,
-          },
-          'codex source file failed',
-        );
-        await recordError(bundle, batch.batch_id, {
-          kind: 'codex_file_failed',
-          message: getErrorMessage(error),
-          payload: { path: filePath },
-        });
-      }
     }
+    counts.source_files_seen = files.length;
+
+    for (let i = 0; i < files.length; i += CODEX_PREPARE_CONCURRENCY) {
+      const slice = files.slice(i, i + CODEX_PREPARE_CONCURRENCY);
+      await processCodexBatch(bundle, batch, slice, counts, logger);
+    }
+
     linkSubagentParents(bundle);
     logger?.debug({ batch_id: batch.batch_id }, 'codex subagent parent links refreshed');
     finishBatch(bundle, batch, counts, 'completed');
@@ -94,6 +95,84 @@ export async function compileCodex(
   }
 
   return { batch, counts };
+}
+
+interface CodexPrepared {
+  filePath: string;
+  pending: PendingState;
+  meta: { sessionEndTs: string | null; modelFirst: string | null; modelLast: string | null };
+}
+
+interface CodexBatchItem {
+  filePath: string;
+  prepared: CodexPrepared | null;
+  fileCounts: FileCounts;
+  prepareError: Error | null;
+  applyError: Error | null;
+}
+
+async function processCodexBatch(
+  bundle: Bundle,
+  batch: ImportBatch,
+  slice: string[],
+  counts: ImportCounts,
+  logger?: CompileLogger,
+): Promise<void> {
+  // Phase A: parse + CAS flush for the whole slice concurrently. Each file's
+  // prepare is independent — registerSourceFile is idempotent and CAS writes
+  // are content-addressed — so we can overlap their I/O.
+  const items = await Promise.all(
+    slice.map(async (filePath): Promise<CodexBatchItem> => {
+      try {
+        const result = await prepareCodexFile(bundle, batch, filePath, logger);
+        return {
+          filePath,
+          prepared: result.prepared,
+          fileCounts: result.counts,
+          prepareError: null,
+          applyError: null,
+        };
+      } catch (err) {
+        return {
+          filePath,
+          prepared: null,
+          fileCounts: emptyFileCounts(),
+          prepareError: err as Error,
+          applyError: null,
+        };
+      }
+    }),
+  );
+
+  // Phase B: domain INSERTs run one file at a time, each in its own short
+  // transaction. We tried wrapping the whole slice in one outer transaction
+  // with savepoints per file — that turned the steady-state insert loop CPU-
+  // bound because INSERT OR IGNORE lookups had to walk the growing WAL inside
+  // the long transaction. Per-file commits keep the WAL small.
+  for (const item of items) {
+    if (item.prepareError || !item.prepared) continue;
+    try {
+      transactional(bundle.db, () => applyCodexFile(bundle, item.prepared as CodexPrepared));
+    } catch (err) {
+      item.applyError = err as Error;
+    }
+  }
+
+  // Phase C: aggregate counts and record per-file errors.
+  for (const item of items) {
+    const err = item.prepareError ?? item.applyError;
+    if (err) {
+      counts.errors++;
+      logger?.warn({ err, path: item.filePath }, 'codex source file failed');
+      await recordError(bundle, batch.batch_id, {
+        kind: 'codex_file_failed',
+        message: getErrorMessage(err),
+        payload: { path: item.filePath },
+      });
+    } else {
+      addCounts(counts, item.fileCounts);
+    }
+  }
 }
 
 /**
@@ -324,12 +403,12 @@ interface PendingSearchDoc {
   text: string;
 }
 
-async function compileCodexFile(
+async function prepareCodexFile(
   bundle: Bundle,
   batch: ImportBatch,
   filePath: string,
   logger?: CompileLogger,
-): Promise<FileCounts> {
+): Promise<{ prepared: CodexPrepared | null; counts: FileCounts }> {
   const counts = emptyFileCounts();
 
   const { row: sourceFileRow, alreadyKnown } = await registerSourceFile(bundle, {
@@ -345,7 +424,7 @@ async function compileCodexFile(
       { path: filePath, source_file_id: sourceFileRow.source_file_id },
       'codex source file skipped',
     );
-    return counts;
+    return { prepared: null, counts };
   }
 
   counts.source_files_imported = 1;
@@ -606,16 +685,6 @@ async function compileCodexFile(
   // transactions are synchronous, so this can't run inside `transactional`).
   await flushPendingObjects(bundle, pending.objects);
 
-  // Apply everything in one transaction. The whole file is atomic.
-  transactional(bundle.db, () => {
-    flushPending(bundle, pending, {
-      sessionEndTs,
-      modelFirst,
-      modelLast,
-      sourceTool: 'codex',
-    });
-  });
-
   counts.raw_records = pending.rawRecords.length;
   counts.sessions = pending.session ? 1 : 0;
   counts.turns = pending.turns.length;
@@ -628,10 +697,26 @@ async function compileCodexFile(
   counts.edges = pending.edges.length;
   logger?.debug(
     { path: filePath, source_file_id: sourceFileRow.source_file_id, counts },
-    'codex source file imported',
+    'codex source file prepared',
   );
 
-  return counts;
+  return {
+    prepared: {
+      filePath,
+      pending,
+      meta: { sessionEndTs, modelFirst, modelLast },
+    },
+    counts,
+  };
+}
+
+function applyCodexFile(bundle: Bundle, prep: CodexPrepared): void {
+  flushPending(bundle, prep.pending, {
+    sessionEndTs: prep.meta.sessionEndTs,
+    modelFirst: prep.meta.modelFirst,
+    modelLast: prep.meta.modelLast,
+    sourceTool: 'codex',
+  });
 }
 
 interface PendingState {
