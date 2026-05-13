@@ -201,8 +201,12 @@ prosa sessions count
 prosa sessions count --source cursor --since 2026-01-01
 ```
 
-Session list output includes timestamp, source tool, `session_id`, model,
-message count, tool call count, initial working directory, and title.
+Session list output includes timestamp, source tool, a 12-char `session_id`
+prefix, model, message count, tool call count, and title by default. Use
+`--columns all` to include `cwd_initial`, `source_session_id`,
+`parent_session_id`, `is_subagent`, `git_branch_initial`, `model_first`,
+`status`, `timeline_confidence`, and `end_ts`. Pass a CSV list to pick a
+subset (`--columns start_ts,session_id,title`).
 
 Output formats:
 
@@ -210,10 +214,13 @@ Output formats:
 prosa sessions --output-format table
 prosa sessions --output-format json
 prosa sessions --output-format csv
+prosa sessions --columns all
+prosa sessions --columns start_ts,session_id,title
 ```
 
-The `interactive` output format is accepted by headless commands and currently
-renders as a table. Use `prosa tui` for the interactive browser.
+`table` and `interactive` outputs are width-aware: long values are truncated
+with `…` to fit the terminal (or 200 columns when piped). `json` and `csv`
+always emit full values. Use `prosa tui` for the interactive browser.
 
 ### `prosa search`
 
@@ -320,7 +327,24 @@ prosa analytics projects --project /Users/me/app
 
 Reports require Parquet files. Add `--refresh` to export Parquet before running
 the report. All reports support `--store`, `--parquet-dir`, `--source`,
-`--since`, `--until`, `--limit`, and `--output-format table|json|csv`.
+`--since`, `--until`, `--limit`, `--output-format table|json|csv`, and
+`--columns <list>` for column selection.
+
+Table output is curated to fit a normal terminal: `analytics sessions` shows
+9 columns by default (drops `source_file_path`, `session_id`,
+`source_session_id`, `tool_result_count`, `tool_duration_ms`, and
+`timeline_confidence`), `analytics projects` drops `project_path`, and
+`analytics errors` drops `session_id` and the full `message` (the shorter
+`preview` keeps the signal). Use `--columns all` to get every column the SQL
+returns, or `--columns col1,col2` to pick specific ones:
+
+```bash
+prosa analytics sessions --columns all
+prosa analytics sessions --columns start_ts,project_name,source_file_path
+prosa analytics errors --columns all   # includes the full `message`
+```
+
+`json` and `csv` output always include every column regardless of `--columns`.
 
 Additional filters:
 

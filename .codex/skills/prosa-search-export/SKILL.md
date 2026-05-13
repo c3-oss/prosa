@@ -40,6 +40,7 @@ Use this skill for read surfaces built on the canonical store. Search, exports, 
 - `prosa query duckdb` should query exported Parquet files and keep SQLite/CAS as the source of truth.
 - `queryDuckDbParquet()` exposes one view per canonical table plus the analytics views.
 - `prosa analytics sessions|tools|errors|models|projects` should use the fixed SQL in `src/services/analytics.ts` (DuckDB dialect) and preserve `table|json|csv` output support.
+- Table output goes through `printRows` in `src/cli/output.ts`, which is width-aware (truncates to `process.stdout.columns ?? 200` with a single-char `…`). Each command picks a default column subset via a `ColumnSet` in `src/cli/columns.ts`; `--columns default|all|csv` is the public knob. `json`/`csv` always emit every column the service returns — never gate full data on the `--columns` flag.
 - `--refresh` on analytics commands should call `exportBundleParquet()` before querying; without it, keep the existing missing-Parquet guidance.
 - Do not export `search_docs_fts`; export `search_docs` metadata instead.
 - Keep the MVP layout simple: one Parquet file per canonical table.
