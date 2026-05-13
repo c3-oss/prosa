@@ -60,6 +60,9 @@ importers:
       '@c3-oss/config-typescript':
         specifier: ^0.1.0
         version: 0.1.0(typescript@5.9.3)
+      '@c3-oss/config-vitest':
+        specifier: ^0.3.0
+        version: 0.3.0(vitest@2.1.9(@types/node@22.19.17)(terser@5.47.1))
       '@changesets/cli':
         specifier: ^2.29.7
         version: 2.31.0(@types/node@22.19.17)
@@ -228,6 +231,11 @@ packages:
     resolution: {integrity: sha512-NIq53EPiNIChIEukyzLPaEg87k2XmresgV/pnfr+z2ar28Cag5uyKE1ampIWApRlcBm6ntGovWOcGeHoDM5ejw==}
     peerDependencies:
       typescript: ^5.8.2
+
+  '@c3-oss/config-vitest@0.3.0':
+    resolution: {integrity: sha512-zKPXBYAa9gjlphJsWVZqBjUeapoutiGQLLBnSIYnLYd8dz4Lcv8QQV94266RgPqG+0Gr9Jr/pLGNftcYfBgvng==}
+    peerDependencies:
+      vitest: ^3.1.1
 
   '@changesets/apply-release-plan@7.1.1':
     resolution: {integrity: sha512-9qPCm/rLx/xoOFXIHGB229+4GOL76S4MC+7tyOuTsR6+1jYlfFDQORdvwR5hDA6y4FL2BPt3qpbcQIS+dW85LA==}
@@ -3237,6 +3245,10 @@ snapshots:
   '@c3-oss/config-typescript@0.1.0(typescript@5.9.3)':
     dependencies:
       typescript: 5.9.3
+
+  '@c3-oss/config-vitest@0.3.0(vitest@2.1.9(@types/node@22.19.17)(terser@5.47.1))':
+    dependencies:
+      vitest: 2.1.9(@types/node@22.19.17)(terser@5.47.1)
 
   '@changesets/apply-release-plan@7.1.1':
     dependencies:
