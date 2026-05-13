@@ -44,6 +44,7 @@ export function indexCommand(): Command {
         printRows(rows, {
           format,
           columns: ['engine', 'status', 'source_doc_count', 'indexed_doc_count', 'updated_at', 'error_message'],
+          maxColumnWidths: { error_message: 60 },
         })
       })
     })

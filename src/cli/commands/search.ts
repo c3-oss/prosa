@@ -25,6 +25,7 @@ export function searchCommand(): Command {
         printRows(hits, {
           format,
           columns: ['timestamp', 'role', 'tool_name', 'session_id', 'snippet'],
+          maxColumnWidths: { session_id: 12, tool_name: 20 },
           meta: { query, engine, count: hits.length },
         })
       })

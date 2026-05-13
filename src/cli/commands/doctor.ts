@@ -48,6 +48,7 @@ export function doctorCommand(): Command {
       printRows(report.checks, {
         format,
         columns: ['check', 'status', 'message', 'hint'],
+        maxColumnWidths: { message: 80, hint: 80 },
         meta:
           format === 'json'
             ? {
