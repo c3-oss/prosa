@@ -51,6 +51,9 @@ importers:
       '@biomejs/biome':
         specifier: ^1.9.4
         version: 1.9.4
+      '@c3-oss/config-biome':
+        specifier: ^0.3.1
+        version: 0.3.1(@biomejs/biome@1.9.4)
       '@changesets/cli':
         specifier: ^2.29.7
         version: 2.31.0(@types/node@22.19.17)
@@ -206,6 +209,11 @@ packages:
     engines: {node: '>=14.21.3'}
     cpu: [x64]
     os: [win32]
+
+  '@c3-oss/config-biome@0.3.1':
+    resolution: {integrity: sha512-johS8PnbMjQeg44utkqxTvD7PxsATzIId7uteyBE0pEUqdE5prXpODj45mi7tHCRbWdDO5t1UHigLUFicQbHvw==}
+    peerDependencies:
+      '@biomejs/biome': ^1.9.4
 
   '@changesets/apply-release-plan@7.1.1':
     resolution: {integrity: sha512-9qPCm/rLx/xoOFXIHGB229+4GOL76S4MC+7tyOuTsR6+1jYlfFDQORdvwR5hDA6y4FL2BPt3qpbcQIS+dW85LA==}
@@ -3182,6 +3190,10 @@ snapshots:
 
   '@biomejs/cli-win32-x64@1.9.4':
     optional: true
+
+  '@c3-oss/config-biome@0.3.1(@biomejs/biome@1.9.4)':
+    dependencies:
+      '@biomejs/biome': 1.9.4
 
   '@changesets/apply-release-plan@7.1.1':
     dependencies:
