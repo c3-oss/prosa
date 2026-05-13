@@ -1,6 +1,14 @@
-import { defineConfig } from 'tsup'
+import { configBase } from '@c3-oss/config-tsup'
+import { type Options, defineConfig } from 'tsup'
+
+// `configBase` is typed as Options | Options[] | factory because tsup allows
+// all three. The shared package returns a single Options object, so spread
+// it as such — `dts`, `clean`, and `silent` flow in from the base; everything
+// below is prosa-specific (multi-entry CLI bundle with an ESM `require` shim).
+const sharedBase = configBase as Options
 
 export default defineConfig({
+  ...sharedBase,
   entry: {
     index: 'src/index.ts',
     'bin/prosa': 'src/bin/prosa.ts',
@@ -9,8 +17,6 @@ export default defineConfig({
   format: ['esm'],
   target: 'node22',
   platform: 'node',
-  dts: true,
-  clean: true,
   sourcemap: true,
   splitting: false,
   shims: false,
