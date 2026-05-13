@@ -65,6 +65,53 @@ describe('analytics CLI', () => {
       await t.cleanup()
     }
   })
+
+  it('renders only the default analytics sessions columns in table output', async () => {
+    const t = await createTempBundle()
+    try {
+      await compileCodex(t.bundle, CODEX_FIXTURES)
+
+      const def = await execProsa(['analytics', 'sessions', '--store', t.path, '--refresh'])
+      // The default header omits source_file_path / session_id / source_session_id.
+      const header = def.stdout.split('\n')[0] ?? ''
+      expect(header).toContain('start_ts')
+      expect(header).toContain('project_name')
+      expect(header).toContain('title')
+      expect(header).not.toContain('source_file_path')
+      expect(header).not.toContain('source_session_id')
+      expect(header).not.toContain('session_id ') // bare session_id column
+
+      // --columns all brings back the full set.
+      const wide = await execProsa(['analytics', 'sessions', '--store', t.path, '--columns', 'all'])
+      const wideHeader = wide.stdout.split('\n')[0] ?? ''
+      expect(wideHeader).toContain('source_file_path')
+      expect(wideHeader).toContain('source_session_id')
+    } finally {
+      await t.cleanup()
+    }
+  })
+
+  it('rejects unknown --columns entries with a helpful message', async () => {
+    const t = await createTempBundle()
+    try {
+      await compileCodex(t.bundle, CODEX_FIXTURES)
+
+      const error = await execProsa([
+        'analytics',
+        'sessions',
+        '--store',
+        t.path,
+        '--refresh',
+        '--columns',
+        'not_a_column',
+      ]).catch((err: { stderr?: string; stdout?: string }) => err)
+
+      const stderr = (error as { stderr?: string }).stderr ?? ''
+      expect(stderr).toMatch(/unknown column: not_a_column/)
+    } finally {
+      await t.cleanup()
+    }
+  })
 })
 
 function execProsa(args: string[]) {

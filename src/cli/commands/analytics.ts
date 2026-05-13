@@ -4,6 +4,7 @@ import { defaultBundlePath } from '../../core/bundle.js'
 import { type AnalyticsReport, type AnalyticsReportFilters, runAnalyticsReport } from '../../services/analytics.js'
 import { exportBundleParquet } from '../../services/export/parquet.js'
 import { withBundle } from '../bundle.js'
+import { type ColumnSet, maxWidthsForColumns, resolveColumns, tailColumnsFor } from '../columns.js'
 import { printRows } from '../output.js'
 import { parseOutputFormat, parseSourceTool } from '../parsers.js'
 
@@ -16,12 +17,245 @@ interface AnalyticsCliOptions {
   until?: string
   limit: string
   outputFormat: string
+  columns?: string
   toolName?: string
   canonicalType?: string
   errorsOnly?: boolean
   category?: string
   model?: string
   project?: string
+}
+
+// Column surfaces match the columns selected by buildAnalyticsSql in
+// src/services/analytics.ts. `default` is the curated set that fits a ~120-
+// column terminal; `all` keeps every column the SQL returns so power users
+// can opt back in via `--columns all` or pick specific extras by name.
+
+type SessionsCol =
+  | 'start_ts'
+  | 'source_tool'
+  | 'project_name'
+  | 'source_file_path'
+  | 'session_id'
+  | 'source_session_id'
+  | 'model_last'
+  | 'duration_seconds'
+  | 'message_count'
+  | 'tool_call_count'
+  | 'tool_result_count'
+  | 'tool_error_count'
+  | 'tool_duration_ms'
+  | 'timeline_confidence'
+  | 'title'
+
+const SESSIONS_COLUMNS: ColumnSet<SessionsCol> = {
+  default: [
+    'start_ts',
+    'source_tool',
+    'project_name',
+    'model_last',
+    'duration_seconds',
+    'message_count',
+    'tool_call_count',
+    'tool_error_count',
+    'title',
+  ],
+  all: [
+    'start_ts',
+    'source_tool',
+    'project_name',
+    'source_file_path',
+    'session_id',
+    'source_session_id',
+    'model_last',
+    'duration_seconds',
+    'message_count',
+    'tool_call_count',
+    'tool_result_count',
+    'tool_error_count',
+    'tool_duration_ms',
+    'timeline_confidence',
+    'title',
+  ],
+  maxWidths: {
+    project_name: 30,
+    model_last: 25,
+    title: 40,
+    session_id: 12,
+    source_session_id: 12,
+    source_file_path: 40,
+  },
+  tail: new Set(['source_file_path']),
+}
+
+type ToolsCol =
+  | 'tool_name'
+  | 'canonical_tool_type'
+  | 'source_tool'
+  | 'project_name'
+  | 'call_count'
+  | 'error_count'
+  | 'avg_result_duration_ms'
+  | 'latest_ts'
+
+const TOOLS_COLUMNS: ColumnSet<ToolsCol> = {
+  default: [
+    'tool_name',
+    'canonical_tool_type',
+    'source_tool',
+    'project_name',
+    'call_count',
+    'error_count',
+    'avg_result_duration_ms',
+    'latest_ts',
+  ],
+  all: [
+    'tool_name',
+    'canonical_tool_type',
+    'source_tool',
+    'project_name',
+    'call_count',
+    'error_count',
+    'avg_result_duration_ms',
+    'latest_ts',
+  ],
+  maxWidths: {
+    tool_name: 30,
+    project_name: 30,
+    canonical_tool_type: 20,
+  },
+}
+
+type ErrorsCol =
+  | 'timestamp'
+  | 'error_category'
+  | 'source_tool'
+  | 'project_name'
+  | 'session_id'
+  | 'tool_name'
+  | 'status'
+  | 'exit_code'
+  | 'message'
+  | 'preview'
+
+const ERRORS_COLUMNS: ColumnSet<ErrorsCol> = {
+  default: [
+    'timestamp',
+    'error_category',
+    'source_tool',
+    'project_name',
+    'tool_name',
+    'status',
+    'exit_code',
+    'preview',
+  ],
+  all: [
+    'timestamp',
+    'error_category',
+    'source_tool',
+    'project_name',
+    'session_id',
+    'tool_name',
+    'status',
+    'exit_code',
+    'message',
+    'preview',
+  ],
+  maxWidths: {
+    project_name: 30,
+    tool_name: 25,
+    preview: 80,
+    message: 80,
+    session_id: 12,
+  },
+}
+
+type ModelsCol =
+  | 'model'
+  | 'source_tool'
+  | 'project_name'
+  | 'session_count'
+  | 'turn_count'
+  | 'message_count'
+  | 'observation_count'
+  | 'first_seen_ts'
+  | 'last_seen_ts'
+
+const MODELS_COLUMNS: ColumnSet<ModelsCol> = {
+  default: [
+    'model',
+    'source_tool',
+    'project_name',
+    'session_count',
+    'turn_count',
+    'message_count',
+    'observation_count',
+    'first_seen_ts',
+    'last_seen_ts',
+  ],
+  all: [
+    'model',
+    'source_tool',
+    'project_name',
+    'session_count',
+    'turn_count',
+    'message_count',
+    'observation_count',
+    'first_seen_ts',
+    'last_seen_ts',
+  ],
+  maxWidths: {
+    model: 30,
+    project_name: 30,
+  },
+}
+
+type ProjectsCol =
+  | 'latest_session_ts'
+  | 'source_tool'
+  | 'project_name'
+  | 'project_path'
+  | 'session_count'
+  | 'message_count'
+  | 'tool_call_count'
+  | 'tool_error_count'
+  | 'low_confidence_session_count'
+
+const PROJECTS_COLUMNS: ColumnSet<ProjectsCol> = {
+  default: [
+    'latest_session_ts',
+    'source_tool',
+    'project_name',
+    'session_count',
+    'message_count',
+    'tool_call_count',
+    'tool_error_count',
+    'low_confidence_session_count',
+  ],
+  all: [
+    'latest_session_ts',
+    'source_tool',
+    'project_name',
+    'project_path',
+    'session_count',
+    'message_count',
+    'tool_call_count',
+    'tool_error_count',
+    'low_confidence_session_count',
+  ],
+  maxWidths: {
+    project_name: 40,
+    project_path: 40,
+  },
+  tail: new Set(['project_path']),
+}
+
+const COLUMN_SETS: Record<AnalyticsReport, ColumnSet<string>> = {
+  sessions: SESSIONS_COLUMNS,
+  tools: TOOLS_COLUMNS,
+  errors: ERRORS_COLUMNS,
+  models: MODELS_COLUMNS,
+  projects: PROJECTS_COLUMNS,
 }
 
 export function analyticsCommand(): Command {
@@ -60,15 +294,24 @@ function reportCommand(report: AnalyticsReport, description: string): Command {
     command.option('--project <text>', 'filter by project id, name, or path substring')
   }
 
+  const set = COLUMN_SETS[report]
+  command.option(
+    '--columns <list>',
+    `comma-separated columns to show (or 'default'|'all'); available: ${set.all.join(', ')}`,
+  )
+
   return command.action(async (options: AnalyticsCliOptions) => {
     const format = parseOutputFormat(options.outputFormat, 'table')
     const parquetDir = await resolveParquetDir(options)
     const filters = buildFilters(options)
     const result = await runAnalyticsReport({ parquetDir, report, filters })
+    const columns = resolveColumns(set, options.columns)
 
     printRows(result.rows, {
       format,
-      columns: result.columns,
+      columns,
+      maxColumnWidths: maxWidthsForColumns(set, columns),
+      tailColumns: tailColumnsFor(set, columns),
       meta: { report, count: result.rows.length },
     })
   })
