@@ -31,15 +31,16 @@ export function compileCommand(): Command {
 export function compileAllCommand(): Command {
   return addCompileLogOptions(new Command('compile-all'))
     .description('Import all agent CLI session histories using default source paths.')
+    .option('--store <path>', 'bundle directory', defaultBundlePath())
     .option(
       '--overwrite',
       'force a full rebuild of derived indexes after import (Tantivy from scratch; FTS5 and Parquet are always full)',
       false,
     )
-    .action(async (options: CliLoggerOptions & { overwrite: boolean }) => {
+    .action(async (options: CliLoggerOptions & { store: string; overwrite: boolean }) => {
       await runCompiles({
         providers: COMPILE_PROVIDERS,
-        storePath: defaultBundlePath(),
+        storePath: options.store,
         overwrite: options.overwrite,
         logOptions: options,
       });

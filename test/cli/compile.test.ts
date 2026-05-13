@@ -139,15 +139,15 @@ describe('compile CLI', () => {
     }
   });
 
-  it('rejects flags on compile-all', async () => {
+  it('rejects unknown flags on compile-all', async () => {
     const t = await makeTempRun();
     try {
-      const error = await runProsa(['compile-all', '--store', t.homePath], t.env).catch(
+      const error = await runProsa(['compile-all', '--not-a-flag'], t.env).catch(
         (err: unknown) => err,
       );
 
       expect(error).toMatchObject({
-        stderr: expect.stringContaining("unknown option '--store'"),
+        stderr: expect.stringContaining("unknown option '--not-a-flag'"),
       });
     } finally {
       await t.cleanup();
