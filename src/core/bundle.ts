@@ -131,9 +131,20 @@ export async function openBundle(rootPath: string): Promise<Bundle> {
     throw new Error(`schema version mismatch (db=${currentVersion}, code=${PROSA_SCHEMA_VERSION})`);
   }
 
-  // Refresh manifest's parser_version stamp on every open; useful for telemetry.
+  // Refresh manifest's parser_version and schema_version stamps on every open.
+  // schema_version drifts after migrations apply to an older bundle; rewriting
+  // the manifest keeps it in sync with the actual db state and avoids a stale
+  // metadata warning from `prosa doctor`.
+  let manifestDirty = false;
   if (manifest.parser_version !== PROSA_PARSER_VERSION) {
     manifest.parser_version = PROSA_PARSER_VERSION;
+    manifestDirty = true;
+  }
+  if (manifest.schema_version !== currentVersion) {
+    manifest.schema_version = currentVersion;
+    manifestDirty = true;
+  }
+  if (manifestDirty) {
     await writeFile(paths.manifest, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
   }
 

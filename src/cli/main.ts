@@ -3,6 +3,7 @@ import { Command } from 'commander';
 import { PROSA_PARSER_VERSION } from '../core/version.js';
 import { analyticsCommand } from './commands/analytics.js';
 import { compileAllCommand, compileCommand } from './commands/compile.js';
+import { doctorCommand } from './commands/doctor.js';
 import { exportCommand } from './commands/export.js';
 import { indexCommand } from './commands/index.js';
 import { initCommand } from './commands/init.js';
@@ -49,6 +50,7 @@ export async function runCli(argv: readonly string[]): Promise<void> {
   program.addCommand(exportCommand());
   program.addCommand(queryCommand());
   program.addCommand(analyticsCommand());
+  program.addCommand(doctorCommand());
   program.addCommand(mcpCommand());
   program.addCommand(tuiCommand());
 

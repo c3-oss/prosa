@@ -190,12 +190,12 @@ function buildTantivySchema(tantivy: TantivyModule): InstanceType<TantivyModule[
   return builder.build();
 }
 
-function computeSchemaFingerprint(): string {
+export function getCurrentTantivySchemaFingerprint(): string {
   const canonical = TANTIVY_SCHEMA_FIELDS.map((f) => `${f.name}:${f.tokenizer}:stored`).join('|');
   return createHash('sha256').update(canonical).digest('hex');
 }
 
-function tantivyIndexLooksValid(dir: string): boolean {
+export function tantivyIndexDirIsValid(dir: string): boolean {
   return existsSync(path.join(dir, 'meta.json'));
 }
 
@@ -235,8 +235,8 @@ export async function rebuildTantivyIndex(
   // to decide between full and incremental, and on the prior indexed count
   // to project the post-incremental total.
   const prev = getSearchIndexStatus(bundle, 'tantivy');
-  const fingerprint = computeSchemaFingerprint();
-  const indexDirValid = tantivyIndexLooksValid(bundle.paths.tantivy);
+  const fingerprint = getCurrentTantivySchemaFingerprint();
+  const indexDirValid = tantivyIndexDirIsValid(bundle.paths.tantivy);
   const fingerprintMatches = prev?.schema_fingerprint === fingerprint;
   const lastIndexedRowid =
     typeof prev?.last_indexed_rowid === 'number' ? prev.last_indexed_rowid : 0;
@@ -404,13 +404,13 @@ function updateSearchIndexStatus(
   ).run(...params);
 }
 
-function countSearchDocs(bundle: Bundle): number {
+export function countSearchDocs(bundle: Bundle): number {
   return (
     bundle.db.prepare<[], { n: number }>(`SELECT count(*) AS n FROM search_docs`).get()?.n ?? 0
   );
 }
 
-function countFts5Docs(bundle: Bundle): number {
+export function countFts5Docs(bundle: Bundle): number {
   return (
     bundle.db.prepare<[], { n: number }>(`SELECT count(*) AS n FROM search_docs_fts`).get()?.n ?? 0
   );
