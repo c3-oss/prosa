@@ -1,5 +1,19 @@
 # @c3-oss/prosa
 
+## 0.6.0
+
+### Minor Changes
+
+- This release lands four threads of work.
+
+  **Performance**: tuning SQLite pragmas and switching the bundle to a 16 KiB `page_size` cut `compile-all` wall time by 37% (520s → 329s); the Codex importer was split into a `prepare`/`apply` pair so the async parse + CAS file writes can run concurrently across a slice while each domain transaction still commits one file at a time.
+
+  **Health checks**: a new `prosa doctor` command audits the bundle in two phases — a quick set (manifest, schema, SQLite integrity, foreign keys, search index status + drift, recent import errors, stuck batches, data sanity counts) and an opt-in `--deep` set (`PRAGMA integrity_check` plus a configurable CAS hash sample); the command supports `--strict`, `--checks <list>` filtering, and distinct exit codes for opened-but-failed vs unopenable bundles. As a side effect, `compile-all` now reaps abandoned `import_batches` at the start of each run and the pino-pretty logger renders multi-line JSON.
+
+  **Tooling**: the project now extends the shared `@c3-oss/config-{biome,typescript,tsup,vitest}` packages instead of inlining its configuration, keeping only the prosa-specific deltas; adopting the shared Biome config produced a one-time repo-wide formatting sweep.
+
+  **CLI output**: `printRows` is now width-aware (it honors `process.stdout.columns`, shrinks the widest column until the row fits, and truncates cells with a single `…`), each command exposes a `ColumnSet` with a curated default and a `--columns default|all|csv` flag, and JSON/CSV output stays complete. The most visible change is `prosa analytics sessions`, which dropped from 15 columns to 9 by default; `--columns all` brings the full set back.
+
 ## 0.5.0
 
 ### Minor Changes
