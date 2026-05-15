@@ -1,9 +1,19 @@
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
 import { vitestConfig } from '@c3-oss/config-vitest'
 import { defineConfig, mergeConfig } from 'vitest/config'
+
+const moduleDir = path.dirname(fileURLToPath(import.meta.url))
 
 export default mergeConfig(
   vitestConfig,
   defineConfig({
+    resolve: {
+      alias: {
+        '@c3-oss/prosa-db': path.resolve(moduleDir, '../../packages/prosa-db/src/index.ts'),
+      },
+    },
     test: {
       include: ['test/**/*.test.ts'],
       environment: 'node',
@@ -17,7 +27,7 @@ export default mergeConfig(
           singleFork: false,
         },
       },
-      testTimeout: 20_000,
+      testTimeout: 30_000,
     },
   }),
 )

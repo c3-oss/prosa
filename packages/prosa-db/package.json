@@ -1,7 +1,7 @@
 {
-  "name": "@c3-oss/prosa-api",
+  "name": "@c3-oss/prosa-db",
   "version": "0.0.0",
-  "description": "Multi-tenant HTTP/tRPC server for prosa sync and remote reads.",
+  "description": "Shared Drizzle ORM schema for the prosa server (auth, tenancy, sync, projections).",
   "author": "Caian Ertl <hi@caian.org>",
   "license": "MIT",
   "type": "module",
@@ -13,7 +13,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/c3-oss/prosa.git",
-    "directory": "apps/api"
+    "directory": "packages/prosa-db"
   },
   "files": ["dist"],
   "main": "./dist/index.js",
@@ -23,33 +23,29 @@
       "prosa-dev": "./src/index.ts",
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./schema": {
+      "prosa-dev": "./src/schema/index.ts",
+      "import": "./dist/schema/index.js",
+      "types": "./dist/schema/index.d.ts"
+    },
+    "./testing": {
+      "prosa-dev": "./src/testing.ts",
+      "import": "./dist/testing.js",
+      "types": "./dist/testing.d.ts"
     }
   },
-  "bin": {
-    "prosa-api": "./dist/bin/prosa-api.js"
-  },
   "scripts": {
-    "dev": "node --conditions=prosa-dev --import @swc-node/register/esm-register src/bin/prosa-api.ts",
     "build": "tsup",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "lint": "biome check .",
     "lint:fix": "biome check --fix .",
     "clean": "rm -rf dist coverage .turbo"
   },
   "dependencies": {
-    "@better-auth/drizzle-adapter": "^1.6.11",
-    "@c3-oss/prosa-db": "workspace:^",
-    "@trpc/server": "^11.0.0",
-    "better-auth": "^1.6.11",
-    "drizzle-orm": "^0.45.2",
-    "fastify": "^5.0.0",
-    "@fastify/cors": "^10.0.0",
-    "pino": "^10.3.1",
-    "postgres": "^3.4.9",
-    "zod": "^3.23.8"
+    "drizzle-orm": "^0.45.2"
   },
   "devDependencies": {
     "@c3-oss/config-biome": "^0.3.1",
@@ -57,7 +53,6 @@
     "@c3-oss/config-typescript": "^0.1.0",
     "@c3-oss/config-vitest": "^0.3.0",
     "@electric-sql/pglite": "^0.4.5",
-    "@trpc/client": "^11.0.0",
     "drizzle-kit": "^0.31.0"
   }
 }

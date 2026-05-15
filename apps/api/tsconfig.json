@@ -5,9 +5,14 @@
     "rootDir": "../..",
     "baseUrl": ".",
     "paths": {
-      "~/*": ["./src/*"]
+      "~/*": ["./src/*"],
+      "@c3-oss/prosa-db": ["../../packages/prosa-db/src/index.ts"],
+      "@c3-oss/prosa-db/schema": [
+        "../../packages/prosa-db/src/schema/index.ts"
+      ],
+      "@c3-oss/prosa-db/testing": ["../../packages/prosa-db/src/testing.ts"]
     }
   },
-  "include": ["src/**/*.ts"],
+  "include": ["src/**/*.ts", "test/**/*.ts"],
   "exclude": ["dist", "coverage", "node_modules"]
 }
