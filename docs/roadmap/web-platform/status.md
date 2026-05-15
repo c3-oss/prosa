@@ -9,9 +9,9 @@ Completion signal: RALPH_DONE
 
 ## Current State
 
-Status: correction
+Status: final-review
 Current lane: done (Codex final review pending)
-Current HEAD: `650a902`
+Current HEAD: `ffcfabc`
 No-change streak: 0
 Ralph active: yes
 
@@ -26,22 +26,13 @@ Ralph active: yes
 | 05 Console shell and sessions | Ralph | complete | `e83027b` | evidence/lane-05.md |
 | 06 Session detail timeline | Ralph | complete | `cab9939` | evidence/lane-06.md |
 | 07 Search, analytics, and artifacts | Ralph | complete | `3a94f9d` | evidence/lane-07.md |
-| 08 Production readiness | Ralph | complete | `1820bd5` | evidence/lane-08.md |
+| 08 Production readiness | Ralph | complete | `1820bd5` → `98237f7` (CQ closure) | evidence/lane-08.md |
 
 ## Open Blocking Corrections
 
 | ID | Severity | Owner | Summary |
 | --- | --- | --- | --- |
-| CQ-001 | critical | Ralph | Browser E2E must prove the required console product flow. |
-| CQ-002 | high | Ralph | Public marketing routes must not require or probe the API. |
-| CQ-003 | critical | Ralph | Artifact/object reads must require verified promoted object provenance. |
-| CQ-004 | high | Ralph | Read API auxiliary rows must be verified or fail closed. |
-| CQ-005 | high | Ralph | Search and tool-call pagination/filters must be truthful. |
-| CQ-006 | high | Ralph | Remote analytics and CLI sessions must preserve parity contracts. |
-| CQ-007 | high | Ralph | Browser signup must not return bearer tokens to JavaScript. |
-| CQ-008 | medium | Ralph | Object routes must not expose raw storage keys. |
-| CQ-009 | medium | Ralph | Artifact preview must cap decoded bytes before full decompression. |
-| CQ-010 | medium | Ralph | Lane 07 web/API tests must cover search, analytics, tools, and artifacts. |
+| | | | Ralph marked CQ-001 through CQ-010 closed; Codex verifier subagents are rechecking before acceptance. |
 
 ## Latest Gates
 
@@ -77,6 +68,7 @@ Ralph active: yes
 | Codex verifier result | blocking | 2026-05-15T20:03Z: E2E verifier failed CQ-001 and CQ-002 after `d5363be`. |
 | Codex verifier result | blocking | 2026-05-15T20:04Z: security verifier failed CQ-003 and CQ-007; CQ-008/CQ-009 need stronger tests before closure. |
 | Codex monitor check | observed | 2026-05-15T20:09Z: no new commit after `d5363be`; E2E/test WIP remains and all CQs stay open. |
+| Codex monitor check | review | 2026-05-15T20:15Z: Ralph committed `98237f7`/`ffcfabc` marking all CQs closed; verifier subagents launched. |
 
 Pending (run later when lane scope reaches them):
 

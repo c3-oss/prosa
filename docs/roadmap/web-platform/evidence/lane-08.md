@@ -3,7 +3,7 @@
 Lane: 08 Production readiness
 Status: complete
 Owner: Ralph
-Commit range: `1820bd5`
+Commit range: `1820bd5` (initial), `d5363be` (CQ-002/005/006/007/008/009), `98237f7` (CQ-001/003/004/010), `ffcfabc` (closure)
 
 ## Acceptance Criteria
 
