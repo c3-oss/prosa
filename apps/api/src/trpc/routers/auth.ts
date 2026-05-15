@@ -332,19 +332,15 @@ export const authRouter = router({
             })
       }
 
-      // CQ-007: browser callers must not receive a bearer token in the
-      // response body. Better Auth already sets the session cookie via
-      // the upstream `Set-Cookie` header (forwarded through the API auth
-      // catchall) so the browser is authenticated with HTTP-only cookies
-      // only. CLI/device callers still receive the token because their
-      // Origin header is the API origin (or absent for curl/SDK).
+      // CQ-007: any caller that sends a non-empty Origin header is treated
+      // as a browser caller and must NOT receive a bearer token in the
+      // response body. Browsers always attach Origin (including same-origin
+      // deploys where Origin equals the API URL); CLI / device flows never
+      // attach one. Better Auth's HTTP-only cookie is the only credential
+      // the browser needs.
       const originHeader = ctx.req.headers.origin
       const requestOrigin = Array.isArray(originHeader) ? originHeader[0] : originHeader
-      const isBrowserOrigin =
-        typeof requestOrigin === 'string' &&
-        requestOrigin.length > 0 &&
-        requestOrigin !== ctx.config.apiUrl &&
-        ctx.config.webOrigins.includes(requestOrigin)
+      const isBrowserOrigin = typeof requestOrigin === 'string' && requestOrigin.length > 0
 
       // Forward Better Auth's Set-Cookie so the browser receives the
       // session cookie inline with the signup response.

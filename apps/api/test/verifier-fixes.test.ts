@@ -74,6 +74,47 @@ describe('CQ-007 — Better Auth catch-all must strip browser tokens', () => {
     }
   })
 
+  it('strips token when Origin equals the API URL (same-origin browser deploy)', async () => {
+    // Codex verifier finding: a same-origin browser deploy attaches
+    // Origin = PROSA_API_URL. That still travels from JavaScript and must
+    // not receive the bearer token.
+    const t = await buildTestApp({ PROSA_WEB_ORIGIN: browserOrigin })
+    try {
+      const apiOriginUp = await postAuth(
+        t,
+        'sign-up/email',
+        { email: 'cq007-api-origin@example.com', password: 'correct-horse-battery', name: 'API Origin Up' },
+        'http://127.0.0.1:3000',
+      )
+      expect(apiOriginUp.statusCode).toBe(200)
+      const upBody = JSON.parse(apiOriginUp.body) as Record<string, unknown>
+      expect(Object.prototype.hasOwnProperty.call(upBody, 'token')).toBe(false)
+
+      const apiOriginIn = await postAuth(
+        t,
+        'sign-in/email',
+        { email: 'cq007-api-origin@example.com', password: 'correct-horse-battery' },
+        'http://127.0.0.1:3000',
+      )
+      expect(apiOriginIn.statusCode).toBe(200)
+      const inBody = JSON.parse(apiOriginIn.body) as Record<string, unknown>
+      expect(Object.prototype.hasOwnProperty.call(inBody, 'token')).toBe(false)
+    } finally {
+      await t.close()
+    }
+  })
+
+  it('strips token from tRPC auth.signupWithTenant for same-origin browsers', async () => {
+    const t = await buildTestApp({ PROSA_WEB_ORIGIN: browserOrigin })
+    try {
+      const auth = await signup(t, 'cq007-trpc-same@example.com', 'http://127.0.0.1:3000')
+      expect(auth.token).toBeUndefined()
+      expect(typeof auth.tenant.id).toBe('string')
+    } finally {
+      await t.close()
+    }
+  })
+
   it('CLI-origin (no Origin header) sign-up still receives the token', async () => {
     const t = await buildTestApp({ PROSA_WEB_ORIGIN: browserOrigin })
     try {
@@ -410,6 +451,146 @@ describe('CQ-009 — artifact preview caps decoded bytes', () => {
       expect(data.bytesReturned).toBe(maxBytes)
       expect(data.kind).toBe('text')
       expect(data.text.length).toBe(maxBytes)
+    } finally {
+      await t.close()
+    }
+  })
+
+  it('zstd preview stops decoding before the full payload is consumed', async () => {
+    const { compress: zstdCompress } = await import('zstd-napi')
+    const t = await buildTestApp()
+    try {
+      const auth = await signup(t, 'cq009-zstd@example.com')
+      const handshake = await t.app.inject({
+        method: 'POST',
+        url: '/trpc/sync.handshake',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${auth.token!}` },
+        payload: {
+          cliVersion: '0.0.0',
+          device: { name: 'd', platform: 'linux' },
+          store: { path: '/tmp/cq009-zstd', bundleVersion: '1' },
+        } as never,
+      })
+      const deviceId = (handshake.json() as { result: { data: { deviceId: string } } }).result.data.deviceId
+
+      // 64 KiB of mostly-text payload compresses heavily; the compressed
+      // bytes are tiny while the decompressed payload is many multiples of
+      // the maxBytes preview cap. If the decode pipeline consumed the full
+      // payload before applying the cap, bytesReturned would equal the full
+      // uncompressed size — the test below asserts it does not.
+      const uncompressed = Buffer.from('z'.repeat(64 * 1024), 'utf8')
+      const compressed = zstdCompress(uncompressed)
+      const transportHash = computeHashHex(compressed, 'blake3')
+      const canonicalHash = computeHashHex(uncompressed, 'blake3')
+      const objectId = `blake3:${canonicalHash}`
+
+      const plan = await t.app.inject({
+        method: 'POST',
+        url: '/trpc/sync.planUpload',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${auth.token!}` },
+        payload: {
+          deviceId,
+          storePath: '/tmp/cq009-zstd',
+          objects: [
+            {
+              objectId,
+              hash: canonicalHash,
+              hashAlgorithm: 'blake3',
+              transportHash,
+              compression: 'zstd',
+              compressedSize: compressed.byteLength,
+              uncompressedSize: uncompressed.byteLength,
+            },
+          ],
+        } as never,
+      })
+      const batchId = (plan.json() as { result: { data: { batchId: string } } }).result.data.batchId
+
+      const objectQuery = new URLSearchParams({
+        batchId,
+        objectId,
+        hash: canonicalHash,
+        transportHash,
+        size: String(compressed.byteLength),
+        uncompressed: String(uncompressed.byteLength),
+        compression: 'zstd',
+      })
+      const put = await t.app.inject({
+        method: 'PUT',
+        url: `/objects/${objectId}?${objectQuery.toString()}`,
+        headers: { authorization: `Bearer ${auth.token!}`, 'content-type': 'application/octet-stream' },
+        payload: compressed,
+      })
+      expect(put.statusCode).toBe(201)
+
+      const commit = await t.app.inject({
+        method: 'POST',
+        url: '/trpc/sync.commitUpload',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${auth.token!}` },
+        payload: {
+          batchId,
+          deviceId,
+          storePath: '/tmp/cq009-zstd',
+          objects: [
+            {
+              objectId,
+              hash: canonicalHash,
+              hashAlgorithm: 'blake3',
+              transportHash,
+              compression: 'zstd',
+              compressedSize: compressed.byteLength,
+              uncompressedSize: uncompressed.byteLength,
+            },
+          ],
+          projection: {
+            sessions: [{ id: 'sess-cq009-zstd', sourceKind: 'codex', title: 'zstd cap', turnCount: 1 }],
+            searchDocs: [],
+          },
+        } as never,
+      })
+      expect(commit.statusCode).toBe(200)
+
+      const verify = await t.app.inject({
+        method: 'POST',
+        url: '/trpc/sync.verifyPromotion',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${auth.token!}` },
+        payload: {
+          batchId,
+          storePath: '/tmp/cq009-zstd',
+          declaredObjectIds: [objectId],
+          declaredSessionIds: ['sess-cq009-zstd'],
+          declaredSearchDocIds: [],
+        } as never,
+      })
+      expect(verify.statusCode).toBe(200)
+
+      await t.pglite.query(
+        `INSERT INTO "projection_artifact"(tenant_id, id, session_id, kind, object_id, size_bytes, metadata)
+         VALUES ($1, 'art-cq009-zstd', 'sess-cq009-zstd', 'text/plain', $2, $3, NULL)`,
+        [auth.tenant.id, objectId, uncompressed.byteLength],
+      )
+
+      const maxBytes = 4096
+      const resp = await t.app.inject({
+        method: 'GET',
+        url: `/trpc/artifacts.getText?input=${encodeURIComponent(
+          JSON.stringify({ artifactId: 'art-cq009-zstd', maxBytes }),
+        )}`,
+        headers: { authorization: `Bearer ${auth.token!}` },
+      })
+      expect(resp.statusCode).toBe(200)
+      const data = (
+        resp.json() as {
+          result: { data: { bytesReturned: number; truncated: boolean; text: string; kind: string } }
+        }
+      ).result.data
+      expect(data.truncated).toBe(true)
+      expect(data.bytesReturned).toBe(maxBytes)
+      expect(data.text.length).toBe(maxBytes)
+      // Critically: bytesReturned must be the cap, NOT the full uncompressed
+      // size. If the decompressor were drained to completion before
+      // capping, bytesReturned would equal uncompressed.byteLength.
+      expect(data.bytesReturned).toBeLessThan(uncompressed.byteLength)
     } finally {
       await t.close()
     }

@@ -1,3 +1,4 @@
+import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { router, tenantProcedure } from '../../init.js'
 import {
@@ -36,6 +37,28 @@ type SessionRow = {
   error_count: number
 }
 
+function rejectUnverifiedAuxiliaryFilters(input: { model?: string; hasErrors?: boolean }): void {
+  // CQ-004: `model` and `hasErrors` would have to join against the unverified
+  // auxiliary projection tables (projection_message / projection_tool_result).
+  // The promotion manifest does not carry row-level verification for those
+  // tables in v0, so applying these filters would let directly-inserted rows
+  // change which sessions appear or how many. Fail closed instead.
+  if (input.model) {
+    throw new TRPCError({
+      code: 'BAD_REQUEST',
+      message:
+        'sessions filter "model" is not supported by remote v0 (projection_message has no row-level verified manifest). Use the CLI/local engine.',
+    })
+  }
+  if (input.hasErrors !== undefined) {
+    throw new TRPCError({
+      code: 'BAD_REQUEST',
+      message:
+        'sessions filter "hasErrors" is not supported by remote v0 (projection_tool_result has no row-level verified manifest). Use the CLI/local engine.',
+    })
+  }
+}
+
 function buildSessionWhere(
   tenantId: string,
   input: z.infer<typeof sessionsListInput> | z.infer<typeof sessionsCountInput>,
@@ -61,12 +84,6 @@ function buildSessionWhere(
   if (input.projectIds && input.projectIds.length > 0) {
     const placeholders = input.projectIds.map((id) => appendParam(params, id)).join(', ')
     clauses.push(`p.project_id IN (${placeholders})`)
-  }
-  if (input.model) {
-    const param = appendParam(params, input.model)
-    clauses.push(
-      `EXISTS (SELECT 1 FROM "projection_message" pm WHERE pm.tenant_id = p.tenant_id AND pm.session_id = p.id AND pm.model = ${param})`,
-    )
   }
   return { whereSql: clauses.join(' AND '), params }
 }
@@ -107,6 +124,7 @@ const baseRowColumns = `p.id, p.source_kind, p.title,
 
 export const sessionsRouter = router({
   list: tenantProcedure.input(sessionsListInput.default({})).query(async ({ ctx, input }) => {
+    rejectUnverifiedAuxiliaryFilters(input)
     const { whereSql, params } = buildSessionWhere(ctx.tenantId, input)
     const order = input.sort === 'startedAtAsc' ? 'ASC' : 'DESC'
     const cursor = decodeCursor<SessionsListCursor>(input.cursor)
@@ -152,6 +170,7 @@ export const sessionsRouter = router({
   }),
 
   count: tenantProcedure.input(sessionsCountInput.default({})).query(async ({ ctx, input }) => {
+    rejectUnverifiedAuxiliaryFilters(input)
     const { whereSql, params } = buildSessionWhere(ctx.tenantId, input)
     const rows = await ctx.rawExec<{ count: number }>(
       `SELECT count(*)::int AS count FROM "projection_session" p WHERE ${whereSql}`,

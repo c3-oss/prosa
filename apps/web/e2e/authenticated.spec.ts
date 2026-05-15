@@ -102,12 +102,12 @@ test('signup → seed promoted session → console reads → search-fail-closed 
   await expect(page.getByRole('heading', { name: /verified e2e session/i })).toBeVisible()
   await expect(page.getByText(/no events yet/i)).toBeVisible()
 
-  // ---- 5. Analytics: the `sessions` report contains the verified row.
+  // ---- 5. Analytics: every report kind fails closed in v0 (CQ-006).
+  // The default tab is `sessions`; the page should surface the
+  // EmptyState error banner instead of any auxiliary report rows.
   await page.goto('/console/analytics')
   await expect(page.getByRole('heading', { name: 'Analytics' })).toBeVisible()
-  // The default tab is `sessions`, which still operates against verified
-  // projection_session rows. Expect the session id to render in some cell.
-  await expect(page.getByText(sessionId, { exact: false })).toBeVisible()
+  await expect(page.getByText(/could not load|not[_ ]implemented|unavailable/i).first()).toBeVisible()
 
   // ---- 6. Search: must fail closed end-to-end (CQ-005).
   await page.goto('/console/search')

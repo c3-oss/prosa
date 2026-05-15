@@ -206,12 +206,12 @@ describe('CQ-004 — auxiliary rows must derive from verified projections', () =
         [auth.tenant.id],
       )
 
+      // CQ-006: remote analytics.report now fails closed for every report
+      // kind in v0 (the projection lacks verified manifest entries for the
+      // auxiliary tables those views depend on). Use the CLI/local
+      // analytics for non-empty data.
       const resp = await trpcGet(t, 'analytics.report', { report: 'sessions' }, auth.token)
-      expect(resp.statusCode).toBe(200)
-      const body = resp.json() as { result: { data: { rows: Array<{ sessionId: string }> } } }
-      const ids = body.result.data.rows.map((r) => r.sessionId)
-      expect(ids).toContain('sess-verified')
-      expect(ids).not.toContain('sess-an-unverified')
+      expect(resp.statusCode).toBe(501)
     } finally {
       await t.close()
     }

@@ -11,7 +11,7 @@ Completion signal: RALPH_DONE
 
 Status: correction
 Current lane: done (Codex final review pending)
-Current HEAD: `2b5531d`
+Current HEAD: `c16c420`
 No-change streak: 0
 Ralph active: yes
 
@@ -33,14 +33,11 @@ Ralph active: yes
 | ID | Severity | Owner | Summary |
 | --- | --- | --- | --- |
 | CQ-001 | critical | Ralph | Browser E2E must prove the required console product flow. |
-| CQ-002 | high | Ralph | Public marketing routes must not require or probe the API. |
 | CQ-004 | high | Ralph | Read API auxiliary rows must be verified or fail closed. |
-| CQ-005 | high | Ralph | Search and tool-call pagination/filters must be truthful. |
 | CQ-006 | high | Ralph | Remote analytics and CLI sessions must preserve parity contracts. |
-| CQ-003 | critical | Ralph | Artifact/object reads must require verified promoted object provenance. |
 | CQ-007 | high | Ralph | Browser signup must not return bearer tokens to JavaScript. |
-| CQ-008 | medium | Ralph | Object routes must not expose raw storage keys. |
 | CQ-009 | medium | Ralph | Artifact preview must cap decoded bytes before full decompression. |
+| CQ-010 | high | Ralph | Tests must cover the remaining remote read/analytics contracts. |
 
 ## Latest Gates
 
@@ -88,6 +85,15 @@ Ralph active: yes
 | Codex verifier result | blocking | 2026-05-15T20:55Z: WIP E2E verifier found CQ-001 still FAIL; CQ-002 public-route probe now passes but needs committed evidence. |
 | Codex verifier result | blocking | 2026-05-15T20:55Z: WIP remote/search verifier found CQ-004 and CQ-006 still FAIL; CQ-005 fail-closed direction is WIP but CLI/tests/filters remain inconsistent. |
 | Codex monitor check | review | 2026-05-15T21:01Z: Ralph committed `2b5531d` re-closing CQ-002..CQ-010; CQ-001 remains open by Ralph's queue and Codex verifier subagents relaunched before acceptance. |
+| Codex verifier result | blocking | 2026-05-15T21:06Z: E2E/gate verifier rejected finalization after `c16c420`; CQ-001 and gate/status evidence remain blocking, while CQ-002 behavior passed. |
+| Codex verifier result | blocking | 2026-05-15T21:07Z: security verifier failed CQ-007 for API-origin browser token leakage and kept CQ-009 WIP for missing zstd/full-consumption evidence; CQ-003 passed and CQ-008 passed with a minor GET assertion gap. |
+| Codex verifier result | blocking | 2026-05-15T21:08Z: remote-read verifier failed CQ-004 and CQ-006; CQ-010 remains WIP/FAIL because tests miss those contracts. CQ-005 passed. |
+| Codex monitor check | observed | 2026-05-15T21:11Z: Ralph loop restarted; worktree has WIP in `apps/api/src/app.ts`; correction queue reopened CQ-001, CQ-004, CQ-006, CQ-007, CQ-009, and CQ-010 for Ralph steering. |
+| Codex monitor check | review | 2026-05-15T21:18Z: Ralph WIP now touches auth, sessions/analytics reads, verifier tests, and lane evidence; WIP verifier subagents launched for CQ-001, CQ-004, CQ-006, CQ-007, CQ-009, and CQ-010. |
+| Codex monitor check | observed | 2026-05-15T21:26Z: Ralph still active with expanded WIP in read tests/provenance tests; no new commit after `c16c420`; verifier subagents still running. |
+| Codex verifier result | blocking | 2026-05-15T21:27Z: E2E verifier still failed CQ-001; authenticated E2E now conflicts with analytics fail-closed behavior and docs/gates still overclaim. |
+| Codex verifier result | blocking | 2026-05-15T21:27Z: remote-read verifier passed CQ-004 in code/tests and passed CQ-006/CQ-010 technically, but closure remains blocked by stale docs/evidence claiming analytics rows instead of fail-closed behavior. |
+| Codex verifier result | blocking | 2026-05-15T21:35Z: security verifier passed CQ-007 in code/tests; CQ-009 remains WIP because zstd coverage does not prove bounded source consumption. |
 
 Pending (run later when lane scope reaches them):
 

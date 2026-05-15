@@ -278,32 +278,37 @@ describe('Read API v0', () => {
     }
   })
 
-  it('analytics.report fails closed for tools/errors/models and emits camelCase rows for sessions/projects (CQ-004/CQ-006)', async () => {
+  it('analytics.report fails closed for every report kind in v0 (CQ-004/CQ-006)', async () => {
+    // The remote projection lacks the verified auxiliary manifest entries
+    // required for parity with the prosa analytics CLI surface (and the
+    // `project` table is not in the manifest). Rather than emit a reduced
+    // shape that drifts from the CLI/local contract, every remote report
+    // fails closed with 501.
     const t = await buildTestApp()
     try {
       const auth = await signup(t, 'reads-ana@example.com')
       await seedVerifiedSession(t, auth)
 
-      for (const report of ['tools', 'errors', 'models'] as const) {
+      for (const report of ['sessions', 'tools', 'errors', 'models', 'projects'] as const) {
         const resp = await trpc(t, 'analytics.report', { report }, auth.token, 'GET')
         expect(resp.statusCode).toBe(501)
       }
+    } finally {
+      await t.close()
+    }
+  })
 
-      for (const report of ['sessions', 'projects'] as const) {
-        const resp = await trpc(t, 'analytics.report', { report }, auth.token, 'GET')
-        expect(resp.statusCode).toBe(200)
-        const data = (
-          resp.json() as {
-            result: { data: { report: string; rows: Array<Record<string, unknown>> } }
-          }
-        ).result.data
-        expect(data.report).toBe(report)
-        for (const row of data.rows) {
-          for (const key of Object.keys(row)) {
-            // CQ-006: keys are camelCase. Reject any snake_case key.
-            expect(key.includes('_')).toBe(false)
-          }
-        }
+  it('sessions.list/count reject auxiliary-row filters that have no verified manifest (CQ-004)', async () => {
+    const t = await buildTestApp()
+    try {
+      const auth = await signup(t, 'reads-aux-filters@example.com')
+      await seedVerifiedSession(t, auth)
+
+      for (const procedure of ['sessions.list', 'sessions.count'] as const) {
+        const withModel = await trpc(t, procedure, { model: 'gpt-5' }, auth.token, 'GET')
+        expect(withModel.statusCode).toBe(400)
+        const withHasErrors = await trpc(t, procedure, { hasErrors: true }, auth.token, 'GET')
+        expect(withHasErrors.statusCode).toBe(400)
       }
     } finally {
       await t.close()
