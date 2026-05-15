@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { printRows } from '../../src/cli/output.js'
+import { parseOutputFormat, printRows } from '../../src/cli/output.js'
 
 interface Captured {
   lines: string[]
@@ -147,5 +147,60 @@ describe('printRows json format', () => {
     expect(parsed.query).toBe('foo')
     expect(parsed.count).toBe(1)
     expect(parsed.rows[0]?.a).toBe(1)
+  })
+})
+
+describe('printRows csv format', () => {
+  let captured: ReturnType<typeof captureStdout>
+  beforeEach(() => {
+    captured = captureStdout()
+  })
+  afterEach(() => {
+    ;(captured as unknown as { restore: () => void }).restore()
+  })
+
+  it('escapes comma and quote characters and stringifies scalar cells', () => {
+    printRows(
+      [
+        {
+          plain: 'hello',
+          comma: 'a,b',
+          quote: 'a "quote"',
+          bool: true,
+          object: { x: 1 },
+          missing: null,
+        },
+      ],
+      {
+        format: 'csv',
+        columns: ['plain', 'comma', 'quote', 'bool', 'object', 'missing'],
+        maxColumnWidths: { plain: 1 },
+        terminalWidth: 1,
+      },
+    )
+
+    expect(captured.lines).toEqual([
+      'plain,comma,quote,bool,object,missing',
+      'hello,"a,b","a ""quote""",true,"{""x"":1}",',
+    ])
+  })
+})
+
+describe('parseOutputFormat', () => {
+  it('uses the fallback when the option is omitted', () => {
+    expect(parseOutputFormat(undefined, 'interactive')).toBe('interactive')
+  })
+
+  it('accepts every supported output format', () => {
+    expect(parseOutputFormat('interactive', 'table')).toBe('interactive')
+    expect(parseOutputFormat('table', 'interactive')).toBe('table')
+    expect(parseOutputFormat('json', 'table')).toBe('json')
+    expect(parseOutputFormat('csv', 'table')).toBe('csv')
+  })
+
+  it('rejects unknown output formats with the allowed values', () => {
+    expect(() => parseOutputFormat('yaml', 'table')).toThrow(
+      'invalid --output-format: yaml (expected one of interactive, table, json, csv)',
+    )
   })
 })

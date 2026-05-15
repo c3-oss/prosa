@@ -1,7 +1,105 @@
+import { getTableName } from 'drizzle-orm'
+import { getTableConfig } from 'drizzle-orm/pg-core'
 import { describe, expect, it } from 'vitest'
+import {
+  account,
+  device,
+  deviceCode,
+  invitation,
+  jwks,
+  member,
+  organization,
+  remoteAuthority,
+  remoteObject,
+  session,
+  syncBatch,
+  syncBatchObjectManifest,
+  syncBatchProjectionManifest,
+  syncSource,
+  tenantObject,
+  user,
+  verification,
+} from '../src/schema/index.js'
+import { projection } from '../src/schema/index.js'
 import { createTestDb } from '../src/testing.js'
 
 describe('schema bootstrap', () => {
+  it('exports every table used by migrations and app queries', () => {
+    const tables = [
+      user,
+      session,
+      account,
+      verification,
+      organization,
+      member,
+      invitation,
+      deviceCode,
+      jwks,
+      device,
+      syncBatch,
+      syncBatchObjectManifest,
+      syncBatchProjectionManifest,
+      syncSource,
+      remoteAuthority,
+      remoteObject,
+      tenantObject,
+      projection.sourceFile,
+      projection.importBatch,
+      projection.rawRecord,
+      projection.project,
+      projection.session,
+      projection.turn,
+      projection.event,
+      projection.message,
+      projection.contentBlock,
+      projection.toolCall,
+      projection.toolResult,
+      projection.artifact,
+      projection.edge,
+      projection.searchDoc,
+    ]
+
+    expect(tables.map((table) => getTableName(table))).toEqual([
+      'user',
+      'session',
+      'account',
+      'verification',
+      'organization',
+      'member',
+      'invitation',
+      'device_code',
+      'jwks',
+      'device',
+      'sync_batch',
+      'sync_batch_object_manifest',
+      'sync_batch_projection_manifest',
+      'sync_source',
+      'remote_authority',
+      'remote_object',
+      'tenant_object',
+      'source_file',
+      'import_batch',
+      'raw_record',
+      'project',
+      'projection_session',
+      'projection_turn',
+      'projection_event',
+      'projection_message',
+      'projection_content_block',
+      'projection_tool_call',
+      'projection_tool_result',
+      'projection_artifact',
+      'projection_edge',
+      'search_doc',
+    ])
+
+    const configs = tables.map((table) => getTableConfig(table))
+    expect(configs.flatMap((config) => config.columns)).not.toHaveLength(0)
+    expect(configs.flatMap((config) => config.indexes)).not.toHaveLength(0)
+    expect(configs.flatMap((config) => config.primaryKeys)).not.toHaveLength(0)
+    expect(configs.flatMap((config) => config.foreignKeys)).not.toHaveLength(0)
+  })
+
   it('creates auth and projection tables in pglite', async () => {
     const test = await createTestDb()
     try {

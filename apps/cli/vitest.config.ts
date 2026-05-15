@@ -5,6 +5,7 @@ import { vitestConfig } from '@c3-oss/config-vitest'
 import { defineConfig, mergeConfig } from 'vitest/config'
 
 const moduleDir = path.dirname(fileURLToPath(import.meta.url))
+const isCoverage = process.argv.some((arg) => arg === '--coverage' || arg.startsWith('--coverage.'))
 
 export default mergeConfig(
   vitestConfig,
@@ -24,14 +25,16 @@ export default mergeConfig(
       coverage: {
         include: ['src/**/*.ts', 'src/**/*.tsx'],
         exclude: ['src/bin/**', 'src/index.ts', 'src/**/*.d.ts'],
+        cleanOnRerun: false,
       },
+      fileParallelism: !isCoverage,
       pool: 'forks',
       poolOptions: {
         forks: {
-          singleFork: false,
+          singleFork: isCoverage,
         },
       },
-      testTimeout: 20_000,
+      testTimeout: isCoverage ? 90_000 : 20_000,
     },
   }),
 )
