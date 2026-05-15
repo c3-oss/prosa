@@ -9,6 +9,7 @@ import { compileCodex } from '../importers/codex/index.js'
 import type { CompileLogger, CompileOptions } from '../importers/compile-options.js'
 import { compileCursor } from '../importers/cursor/index.js'
 import { compileGemini } from '../importers/gemini/index.js'
+import { compileHermes } from '../importers/hermes/index.js'
 import { exportBundleParquet } from './export/parquet.js'
 import {
   disableFts5Triggers,
@@ -148,6 +149,13 @@ export const COMPILE_PROVIDERS: CompileProviderConfig[] = [
     pathHelp: 'root of Cursor agent stores',
     defaultSessionsPath: () => path.join(os.homedir(), '.cursor', 'chats'),
     compile: compileCursor,
+  },
+  {
+    name: 'hermes',
+    description: 'Import Hermes session histories into the bundle.',
+    pathHelp: 'root of Hermes sessions',
+    defaultSessionsPath: () => path.join(os.homedir(), '.hermes', 'sessions'),
+    compile: compileHermes,
   },
 ]
 

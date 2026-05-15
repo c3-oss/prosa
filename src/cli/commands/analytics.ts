@@ -325,7 +325,7 @@ function addCommonOptions(command: Command): Command {
     .option('--store <path>', 'bundle directory', defaultBundlePath())
     .option('--parquet-dir <path>', 'Parquet directory (default: <store>/parquet)')
     .option('--refresh', 'export Parquet before running the report')
-    .option('--source <tool>', 'filter by source tool: cursor|codex|claude|gemini')
+    .option('--source <tool>', 'filter by source tool: cursor|codex|claude|gemini|hermes')
     .option('--since <iso>', 'lower timestamp bound (inclusive)')
     .option('--until <iso>', 'upper timestamp bound (exclusive)')
     .option('--limit <n>', 'maximum rows', '50')

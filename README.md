@@ -7,7 +7,7 @@
 `prosa` imports local AI agent session histories into one durable, searchable
 bundle on your machine.
 
-It understands Codex CLI, Claude Code, Gemini CLI, and Cursor. It preserves the
+It understands Codex CLI, Claude Code, Gemini CLI, Cursor, and Hermes. It preserves the
 original raw files, normalizes sessions into SQLite, builds search indexes,
 exports readable transcripts, writes Parquet for DuckDB, opens a terminal UI,
 and serves the same local memory over MCP.
@@ -87,7 +87,7 @@ history hard to search, audit, export, or share with another agent.
 
 ## Features
 
-- Import Codex CLI, Claude Code, Gemini CLI, and Cursor session histories.
+- Import Codex CLI, Claude Code, Gemini CLI, Cursor, and Hermes session histories.
 - Preserve raw bytes alongside normalized records.
 - Search with SQLite FTS5 by default, or build an optional Tantivy sidecar.
 - List sessions with filters for source, time range, columns, and output format.
@@ -110,6 +110,7 @@ supported source from its default location.
 | Claude Code | `~/.claude/projects` | Project JSONL files and subagent JSONL files |
 | Gemini CLI | `~/.gemini/tmp` | `chats/session-*.json` snapshots |
 | Cursor | `~/.cursor/chats` | `store.db` SQLite agent stores |
+| Hermes | `~/.hermes/sessions` | Sibling `state.db`, top-level JSONL transcripts, and `session_*.json` snapshots |
 
 Examples:
 
@@ -118,6 +119,7 @@ prosa compile codex
 prosa compile claude --sessions-path ~/custom/claude/projects
 prosa compile gemini
 prosa compile cursor
+prosa compile hermes
 prosa compile-all --verbose
 ```
 
@@ -182,7 +184,7 @@ prosa index status
 | Command | Purpose |
 |---|---|
 | `prosa init` | Create a bundle directory with manifest, SQLite, lock file, and object store. |
-| `prosa compile <source>` | Import one source: `codex`, `claude`, `gemini`, or `cursor`. |
+| `prosa compile <source>` | Import one source: `codex`, `claude`, `gemini`, `cursor`, or `hermes`. |
 | `prosa compile-all` | Import every supported source from default paths. |
 | `prosa sessions` | List or count sessions with filters and table, JSON, or CSV output. |
 | `prosa search <query>` | Full-text search across messages, tool calls, paths, commands, and previews. |
@@ -309,7 +311,7 @@ Project layout:
 |---|---|
 | `src/cli/commands/` | CLI command implementations |
 | `src/core/` | Bundle, schema, CAS, domain IDs, and ingest helpers |
-| `src/importers/` | Codex, Claude, Gemini, and Cursor importers |
+| `src/importers/` | Codex, Claude, Gemini, Cursor, and Hermes importers |
 | `src/services/` | Sessions, search, indexing, exports, and analytics |
 | `src/mcp/` | MCP server, tools, and prompts |
 | `src/tui/` | Ink terminal UI |
@@ -331,6 +333,7 @@ index.
 | [`docs/sources/claude-code.md`](./docs/sources/claude-code.md) | Claude Code source format |
 | [`docs/sources/cursor.md`](./docs/sources/cursor.md) | Cursor source format |
 | [`docs/sources/gemini.md`](./docs/sources/gemini.md) | Gemini CLI source format |
+| [`docs/sources/hermes.md`](./docs/sources/hermes.md) | Hermes source format |
 
 ## Releasing
 

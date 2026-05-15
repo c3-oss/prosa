@@ -14,7 +14,9 @@ For each `(provider, sessions-path)`:
 
 1. **Discovery** — walk the provider tree without trusting auxiliary
    indexes. Codex and Claude scan `*.jsonl`; Gemini scans
-   `chats/session-*.json`; Cursor scans `**/store.db`.
+   `chats/session-*.json`; Cursor scans `**/store.db`; Hermes reads
+   `~/.hermes/state.db` plus top-level transcript files under
+   `~/.hermes/sessions`.
 2. **Source-file registration** — `registerSourceFile()` in
    `src/core/ingest/idempotency.ts` looks up
    `(source_tool, path, size, mtime)` and short-circuits if the row exists.
@@ -128,6 +130,7 @@ out:
 | Claude | `NULL` | Same |
 | Gemini | populated | Source is one big JSON file; per-message payloads are genuinely distinct objects worth caching |
 | Cursor | populated | The importer reads the decoded JSON back during the same pass (`src/importers/cursor/index.ts`) |
+| Hermes | populated | SQLite rows and JSON snapshot pointers are distinct from preserved file bytes; JSONL lines use the same normalized path |
 
 Halving the CAS writes for the two heaviest importers cut cold-import time
 substantially. Existing rows from older imports remain untouched —
@@ -178,6 +181,13 @@ provenance is preserved separately in `raw_records`.
   protobuf root state, so projected sessions get
   `timeline_confidence='low'` until decoding improves. See
   [Cursor source format](../sources/cursor.md).
+- **Hermes** (`src/importers/hermes/`): treats `~/.hermes/state.db` as the
+  canonical store when present, while preserving top-level JSONL transcripts
+  and `session_*.json` snapshots under `~/.hermes/sessions/`. If a transcript
+  file has more messages than the SQLite row for the same session, the file
+  projection wins. Hidden reasoning fields are preserved as non-default
+  content blocks and are not indexed for search or exported in Markdown. See
+  [Hermes source format](../sources/hermes.md).
 
 ## Critical files
 
@@ -189,7 +199,7 @@ provenance is preserved separately in `raw_records`.
 | `src/core/ingest/idempotency.ts` | `registerSourceFile`, `preserveRawSourceBytes` |
 | `src/core/ingest/batch.ts` | `import_batches` lifecycle and counts |
 | `src/core/db.ts` | `prepare`, `transactional` helpers |
-| `src/importers/<provider>/index.ts` | The four provider importers |
+| `src/importers/<provider>/index.ts` | Provider importers |
 | `src/services/indexing.ts` | FTS5 trigger toggles, `rebuildFts5Index`, `rebuildTantivyIndex`, `markIndexesAfterImport` |
 | `src/services/export/parquet.ts` | Post-compile Parquet refresh |
 

@@ -39,7 +39,7 @@ export async function runCli(argv: readonly string[]): Promise<void> {
     .enablePositionalOptions()
     .description(
       'Compile, search and export local agent session histories\n' +
-        '(Cursor, Codex CLI, Claude Code, Gemini CLI) into one canonical store.',
+        '(Cursor, Codex CLI, Claude Code, Gemini CLI, Hermes) into one canonical store.',
     )
     .version(PROSA_PARSER_VERSION, '-v, --version')
 

@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { cp, mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -43,6 +43,7 @@ describe('compile CLI', () => {
       await copyFixture(CLAUDE_FIXTURES, path.join(t.homePath, '.claude', 'projects'))
       await copyFixture(GEMINI_FIXTURES, path.join(t.homePath, '.gemini', 'tmp'))
       await makeCursorFixture(path.join(t.homePath, '.cursor', 'chats'))
+      await makeHermesFixture(path.join(t.homePath, '.hermes', 'sessions'))
 
       const { stderr } = await runProsa(['compile-all', '--verbose'], t.env)
 
@@ -50,6 +51,7 @@ describe('compile CLI', () => {
       expect(stderr).toMatch(/claude batch completed/)
       expect(stderr).toMatch(/gemini batch completed/)
       expect(stderr).toMatch(/cursor batch completed/)
+      expect(stderr).toMatch(/hermes batch completed/)
       expect(stderr).toContain('"source_files_seen": 2')
       expect(stderr).toContain('"source_files_seen": 1')
       expect(stderr).toContain('DEBUG')
@@ -80,6 +82,14 @@ describe('compile CLI', () => {
                 AND decoded_json_object_id IS NOT NULL`,
           ),
         ).toBe(0)
+        expect(
+          queryCount(
+            db,
+            `SELECT count(*) AS n FROM sessions
+              WHERE source_tool = 'hermes'
+                AND source_session_id = 'hermes-cli-test'`,
+          ),
+        ).toBe(1)
       } finally {
         db.close()
       }
@@ -245,6 +255,80 @@ async function makeCursorFixture(root: string): Promise<void> {
     ),
   )
   insertBlob.run('rootblobid', Buffer.from([0x0a, 0x10, 0x01]))
+  db.close()
+}
+
+async function makeHermesFixture(root: string): Promise<void> {
+  await mkdir(root, { recursive: true })
+  await writeFile(path.join(root, '.keep'), '', 'utf8')
+
+  const db = new Database(path.join(path.dirname(root), 'state.db'))
+  db.exec(`
+    CREATE TABLE sessions (
+      id TEXT PRIMARY KEY,
+      source TEXT NOT NULL,
+      user_id TEXT,
+      model TEXT,
+      model_config TEXT,
+      system_prompt TEXT,
+      parent_session_id TEXT,
+      started_at REAL NOT NULL,
+      ended_at REAL,
+      end_reason TEXT,
+      message_count INTEGER DEFAULT 0,
+      tool_call_count INTEGER DEFAULT 0,
+      input_tokens INTEGER DEFAULT 0,
+      output_tokens INTEGER DEFAULT 0,
+      cache_read_tokens INTEGER DEFAULT 0,
+      cache_write_tokens INTEGER DEFAULT 0,
+      reasoning_tokens INTEGER DEFAULT 0,
+      billing_provider TEXT,
+      billing_base_url TEXT,
+      billing_mode TEXT,
+      estimated_cost_usd REAL,
+      actual_cost_usd REAL,
+      cost_status TEXT,
+      cost_source TEXT,
+      pricing_version TEXT,
+      title TEXT,
+      api_call_count INTEGER DEFAULT 0,
+      handoff_state TEXT,
+      handoff_platform TEXT,
+      handoff_error TEXT
+    );
+    CREATE TABLE messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL,
+      role TEXT NOT NULL,
+      content TEXT,
+      tool_call_id TEXT,
+      tool_calls TEXT,
+      tool_name TEXT,
+      timestamp REAL NOT NULL,
+      token_count INTEGER,
+      finish_reason TEXT,
+      reasoning TEXT,
+      reasoning_content TEXT,
+      reasoning_details TEXT,
+      codex_reasoning_items TEXT,
+      codex_message_items TEXT
+    );
+  `)
+  db.prepare(
+    `INSERT INTO sessions (
+       id, source, model, started_at, ended_at, end_reason, message_count, title
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run('hermes-cli-test', 'cli', 'hermes-test-model', 1_778_805_000, 1_778_805_001, 'stop', 2, 'Hermes CLI test')
+  db.prepare(
+    `INSERT INTO messages (
+       session_id, role, content, timestamp, token_count, finish_reason
+     ) VALUES (?, ?, ?, ?, ?, ?)`,
+  ).run('hermes-cli-test', 'user', 'hello hermes', 1_778_805_000, 2, null)
+  db.prepare(
+    `INSERT INTO messages (
+       session_id, role, content, timestamp, token_count, finish_reason
+     ) VALUES (?, ?, ?, ?, ?, ?)`,
+  ).run('hermes-cli-test', 'assistant', 'hello from hermes', 1_778_805_001, 3, 'stop')
   db.close()
 }
 

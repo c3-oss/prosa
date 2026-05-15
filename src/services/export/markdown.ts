@@ -75,7 +75,9 @@ export async function exportSessionMarkdown(bundle: Bundle, sessionId: string): 
   const blocks = bundle.db
     .prepare<[string], BlockRow>(
       `SELECT message_id, block_type, text_object_id, text_inline, ordinal
-         FROM content_blocks WHERE session_id = ? ORDER BY ordinal`,
+         FROM content_blocks
+        WHERE session_id = ? AND visibility = 'default'
+        ORDER BY ordinal`,
     )
     .all(sessionId)
 

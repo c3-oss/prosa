@@ -116,7 +116,7 @@ One row per imported source file, idempotent on
 | Column | Notes |
 |---|---|
 | `source_file_id` | Deterministic from tool + path + content hash |
-| `source_tool` | `codex`, `claude`, `gemini`, `cursor` |
+| `source_tool` | `codex`, `claude`, `gemini`, `cursor`, `hermes` |
 | `path` | Absolute path on the user's machine |
 | `file_kind` | `jsonl`, `json`, `sqlite`, `tool_result`, `memory`, `blob`, … |
 | `size_bytes`, `mtime`, `content_hash` | Natural-key components (SHA-256) |

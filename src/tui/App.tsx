@@ -13,7 +13,7 @@ interface Props {
   bundle: Bundle
 }
 
-const TOOL_FILTERS: (SourceTool | 'all')[] = ['all', 'codex', 'claude', 'gemini', 'cursor']
+const TOOL_FILTERS: (SourceTool | 'all')[] = ['all', 'codex', 'claude', 'gemini', 'cursor', 'hermes']
 
 /** Ink root component for browsing sessions, search hits, and session timelines. */
 export function App({ bundle }: Props): React.JSX.Element {
