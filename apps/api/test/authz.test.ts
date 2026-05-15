@@ -160,6 +160,30 @@ describe('tenant authorization (Mandatory correction queue item: tenant membersh
     }
   })
 
+  it('resolves duplicate membership rows deterministically to the least privileged role', async () => {
+    const t = await buildTestApp()
+    try {
+      const admin = await signup(t, 'authz-duplicate-member@example.com', 'DupOrg', 'dup-org')
+      await t.pglite.query(`INSERT INTO "member"(id, organization_id, user_id, role) VALUES ($1, $2, $3, $4)`, [
+        'm-duplicate-member',
+        admin.tenant.id,
+        admin.user.id,
+        'member',
+      ])
+
+      const me = await trpc(t, 'auth.me', {}, admin.token, 'GET')
+      expect(me.statusCode).toBe(200)
+      const meBody = me.json() as { result: { data: { memberRole: string | null } } }
+      expect(meBody.result.data.memberRole).toBe('member')
+
+      const invite = await trpc(t, 'tenant.invite', { email: 'dupe-target@example.com', role: 'member' }, admin.token)
+      expect(invite.statusCode).toBe(403)
+      expect(invite.body).toContain('Admin role required')
+    } finally {
+      await t.close()
+    }
+  })
+
   it('rejects PUT /objects/:id with a spoofed tenant header', async () => {
     const t = await buildTestApp()
     try {

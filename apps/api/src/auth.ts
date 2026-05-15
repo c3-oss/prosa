@@ -83,6 +83,18 @@ export function createAuth(opts: CreateAuthOptions): ProsaAuth {
       autoSignIn: true,
       minPasswordLength: 8,
     },
+    rateLimit: {
+      enabled: true,
+      storage: 'memory',
+      window: 60,
+      max: 100,
+      customRules: {
+        '/sign-in/*': { window: 60, max: 10 },
+        '/sign-up/*': { window: 60, max: 10 },
+        '/device/code': { window: 60, max: 20 },
+        '/device/token': { window: 60, max: 30 },
+      },
+    },
     plugins: [
       organization({
         allowUserToCreateOrganization: true,

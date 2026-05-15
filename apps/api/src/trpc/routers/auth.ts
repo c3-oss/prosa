@@ -1,5 +1,17 @@
 import { z } from 'zod'
-import { TRPCError, adminTenantProcedure, protectedProcedure, publicProcedure, router } from '../init.js'
+import {
+  TRPCError,
+  adminTenantProcedure,
+  clientIpRateLimitKey,
+  hashRateLimitValue,
+  protectedProcedure,
+  publicProcedure,
+  rateLimitedProcedure,
+  router,
+} from '../init.js'
+import type { RateLimitKeyResolver } from '../init.js'
+
+const AUTH_RATE_LIMIT_WINDOW_MS = 60_000
 
 const signupInput = z.object({
   email: z.string().email(),
@@ -13,6 +25,59 @@ const signupInput = z.object({
     .regex(/^[a-z0-9-]+$/)
     .optional(),
 })
+
+const deviceTokenInput = z.object({
+  deviceCode: z.string().min(1),
+  clientId: z.string().min(1).default('prosa-cli'),
+})
+
+function authRateLimit(
+  bucket: string,
+  max: number,
+  key: RateLimitKeyResolver = ({ ctx }) => clientIpRateLimitKey(ctx),
+) {
+  return rateLimitedProcedure({
+    bucket: `auth.${bucket}`,
+    windowMs: AUTH_RATE_LIMIT_WINDOW_MS,
+    max,
+    key,
+  })
+}
+
+function deviceTokenRateLimitKey({
+  ctx,
+  input,
+}: {
+  ctx: { clientIp: string | null }
+  input: unknown
+}): string {
+  const deviceCode =
+    input && typeof input === 'object' && 'deviceCode' in input && typeof input.deviceCode === 'string'
+      ? input.deviceCode
+      : 'unknown'
+  return `${clientIpRateLimitKey(ctx)}:${hashRateLimitValue(deviceCode)}`
+}
+
+function tenantUserRateLimitKey(ctx: {
+  tenantId: string | null
+  user: { id: string } | null
+  clientIp: string | null
+}): string {
+  return `${ctx.tenantId ?? 'no-tenant'}:${ctx.user?.id ?? clientIpRateLimitKey(ctx)}`
+}
+
+function requestHeadersFromContext(ctx: { req: { headers: Record<string, string | string[] | undefined> } }): Headers {
+  const headers = new Headers()
+  for (const [key, value] of Object.entries(ctx.req.headers)) {
+    if (value == null) continue
+    if (Array.isArray(value)) {
+      for (const v of value) headers.append(key, String(v))
+    } else {
+      headers.set(key, String(value))
+    }
+  }
+  return headers
+}
 
 export const authRouter = router({
   me: protectedProcedure.query(({ ctx }) => ({
@@ -29,6 +94,7 @@ export const authRouter = router({
    */
   deviceCode: publicProcedure
     .input(z.object({ clientId: z.string().min(1).max(64).default('prosa-cli') }))
+    .use(authRateLimit('deviceCode', 20))
     .mutation(async ({ ctx, input }) => {
       const result = (await ctx.auth.api.deviceCode({
         body: { client_id: input.clientId },
@@ -60,7 +126,8 @@ export const authRouter = router({
    * to complete the device-flow login without prompting for a password.
    */
   deviceToken: publicProcedure
-    .input(z.object({ deviceCode: z.string().min(1), clientId: z.string().min(1).default('prosa-cli') }))
+    .input(deviceTokenInput)
+    .use(authRateLimit('deviceToken', 10, deviceTokenRateLimitKey))
     .mutation(async ({ ctx, input }) => {
       try {
         const result = (await ctx.auth.api.deviceToken({
@@ -127,18 +194,11 @@ export const authRouter = router({
   /** Tenant invite proxy kept on auth.* for backwards compatibility. */
   inviteMember: adminTenantProcedure
     .input(z.object({ email: z.string().email(), role: z.enum(['admin', 'member']).default('member') }))
+    .use(authRateLimit('inviteMember', 20, ({ ctx }) => tenantUserRateLimitKey(ctx)))
     .mutation(async ({ ctx, input }) => {
       const created = (await ctx.auth.api.createInvitation({
         body: { email: input.email, role: input.role, organizationId: ctx.tenantId },
-        headers: (() => {
-          const h = new Headers()
-          for (const [key, value] of Object.entries(ctx.req.headers)) {
-            if (value == null) continue
-            if (Array.isArray(value)) for (const v of value) h.append(key, String(v))
-            else h.set(key, String(value))
-          }
-          return h
-        })(),
+        headers: requestHeadersFromContext(ctx),
       })) as { id: string; email: string; role: string; status: string } | null
       if (!created) {
         throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'invite failed' })
@@ -146,105 +206,110 @@ export const authRouter = router({
       return created
     }),
 
-  signupWithTenant: publicProcedure.input(signupInput).mutation(async ({ ctx, input }) => {
-    const signupResult = (await ctx.auth.api.signUpEmail({
-      body: { email: input.email, password: input.password, name: input.name },
-      headers: new Headers(),
-      returnHeaders: true,
-    })) as
-      | { headers: Headers; response: { token?: string; user?: { id: string; email: string; name: string } } }
-      | { token?: string; user?: { id: string; email: string; name: string } }
+  signupWithTenant: publicProcedure
+    .input(signupInput)
+    .use(authRateLimit('signupWithTenant', 40))
+    .mutation(async ({ ctx, input }) => {
+      const signupResult = (await ctx.auth.api.signUpEmail({
+        body: { email: input.email, password: input.password, name: input.name },
+        headers: new Headers(),
+        returnHeaders: true,
+      })) as
+        | { headers: Headers; response: { token?: string; user?: { id: string; email: string; name: string } } }
+        | { token?: string; user?: { id: string; email: string; name: string } }
 
-    const response = 'response' in signupResult ? signupResult.response : signupResult
-    const responseHeaders = 'headers' in signupResult ? signupResult.headers : new Headers()
-    const sessionToken = response.token
-    const user = response.user
-    if (!user || !sessionToken) {
-      throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Signup did not return a session' })
-    }
-
-    // From this point on, any failure leaves the new user orphaned. Wrap the
-    // post-user steps in a try/catch and roll back the user + session via raw
-    // SQL on the auth tables.
-    const rollback = async (): Promise<void> => {
-      // Delete in dependency order: member rows (cascade on user/org), then
-      // organization (created below — may not exist yet), then session, then
-      // account, then user.
-      try {
-        await ctx.rawExec('DELETE FROM "member" WHERE user_id = $1', [user.id])
-        await ctx.rawExec('DELETE FROM "session" WHERE user_id = $1', [user.id])
-        await ctx.rawExec('DELETE FROM "account" WHERE user_id = $1', [user.id])
-        await ctx.rawExec('DELETE FROM "user" WHERE id = $1', [user.id])
-      } catch (rollbackErr) {
-        // Surface in the API logs but don't mask the original error.
-        ctx.req.log?.error?.({ err: rollbackErr, userId: user.id }, 'signup rollback failed')
+      const response = 'response' in signupResult ? signupResult.response : signupResult
+      const responseHeaders = 'headers' in signupResult ? signupResult.headers : new Headers()
+      const sessionToken = response.token
+      const user = response.user
+      if (!user || !sessionToken) {
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Signup did not return a session' })
       }
-    }
 
-    const authHeaders = new Headers(responseHeaders)
-    authHeaders.set('authorization', `Bearer ${sessionToken}`)
-
-    const slug =
-      input.tenantSlug ??
-      input.tenantName
-        .toLowerCase()
-        .replace(/[^a-z0-9-]+/g, '-')
-        .slice(0, 32)
-
-    let created: { id: string; slug?: string | null; name: string } | null
-    try {
-      created = (await ctx.auth.api.createOrganization({
-        body: { name: input.tenantName, slug },
-        headers: authHeaders,
-      })) as { id: string; slug?: string | null; name: string } | null
-    } catch (err) {
-      await rollback()
-      throw err instanceof TRPCError
-        ? err
-        : new TRPCError({
-            code: 'BAD_REQUEST',
-            message:
-              err instanceof Error && err.message ? `Tenant creation failed: ${err.message}` : 'Tenant creation failed',
-          })
-    }
-
-    if (!created) {
-      await rollback()
-      throw new TRPCError({
-        code: 'INTERNAL_SERVER_ERROR',
-        message: 'Tenant creation returned empty result',
-      })
-    }
-
-    try {
-      await ctx.auth.api.setActiveOrganization({
-        body: { organizationId: created.id },
-        headers: authHeaders,
-      })
-    } catch (err) {
-      // Also delete the half-created organization so a retry with the same
-      // slug is not blocked.
-      try {
-        await ctx.rawExec('DELETE FROM "organization" WHERE id = $1', [created.id])
-      } catch (cleanupErr) {
-        ctx.req.log?.error?.({ err: cleanupErr, orgId: created.id }, 'org cleanup failed')
+      // From this point on, any failure leaves the new user orphaned. Wrap the
+      // post-user steps in a try/catch and roll back the user + session via raw
+      // SQL on the auth tables.
+      const rollback = async (): Promise<void> => {
+        // Delete in dependency order: member rows (cascade on user/org), then
+        // organization (created below — may not exist yet), then session, then
+        // account, then user.
+        try {
+          await ctx.rawExec('DELETE FROM "member" WHERE user_id = $1', [user.id])
+          await ctx.rawExec('DELETE FROM "session" WHERE user_id = $1', [user.id])
+          await ctx.rawExec('DELETE FROM "account" WHERE user_id = $1', [user.id])
+          await ctx.rawExec('DELETE FROM "user" WHERE id = $1', [user.id])
+        } catch (rollbackErr) {
+          // Surface in the API logs but don't mask the original error.
+          ctx.req.log?.error?.({ err: rollbackErr, userId: user.id }, 'signup rollback failed')
+        }
       }
-      await rollback()
-      throw err instanceof TRPCError
-        ? err
-        : new TRPCError({
-            code: 'INTERNAL_SERVER_ERROR',
-            message:
-              err instanceof Error && err.message
-                ? `Setting active tenant failed: ${err.message}`
-                : 'Setting active tenant failed',
-          })
-    }
 
-    return {
-      token: sessionToken,
-      user,
-      tenant: { id: created.id, name: created.name, slug: created.slug ?? null },
-    }
-  }),
+      const authHeaders = new Headers(responseHeaders)
+      authHeaders.set('authorization', `Bearer ${sessionToken}`)
+
+      const slug =
+        input.tenantSlug ??
+        input.tenantName
+          .toLowerCase()
+          .replace(/[^a-z0-9-]+/g, '-')
+          .slice(0, 32)
+
+      let created: { id: string; slug?: string | null; name: string } | null
+      try {
+        created = (await ctx.auth.api.createOrganization({
+          body: { name: input.tenantName, slug },
+          headers: authHeaders,
+        })) as { id: string; slug?: string | null; name: string } | null
+      } catch (err) {
+        await rollback()
+        throw err instanceof TRPCError
+          ? err
+          : new TRPCError({
+              code: 'BAD_REQUEST',
+              message:
+                err instanceof Error && err.message
+                  ? `Tenant creation failed: ${err.message}`
+                  : 'Tenant creation failed',
+            })
+      }
+
+      if (!created) {
+        await rollback()
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Tenant creation returned empty result',
+        })
+      }
+
+      try {
+        await ctx.auth.api.setActiveOrganization({
+          body: { organizationId: created.id },
+          headers: authHeaders,
+        })
+      } catch (err) {
+        // Also delete the half-created organization so a retry with the same
+        // slug is not blocked.
+        try {
+          await ctx.rawExec('DELETE FROM "organization" WHERE id = $1', [created.id])
+        } catch (cleanupErr) {
+          ctx.req.log?.error?.({ err: cleanupErr, orgId: created.id }, 'org cleanup failed')
+        }
+        await rollback()
+        throw err instanceof TRPCError
+          ? err
+          : new TRPCError({
+              code: 'INTERNAL_SERVER_ERROR',
+              message:
+                err instanceof Error && err.message
+                  ? `Setting active tenant failed: ${err.message}`
+                  : 'Setting active tenant failed',
+            })
+      }
+
+      return {
+        token: sessionToken,
+        user,
+        tenant: { id: created.id, name: created.name, slug: created.slug ?? null },
+      }
+    }),
 })
