@@ -6,6 +6,12 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 No open corrections.
 
+Final acceptance is still gated by Codex's external post-commit stabilization
+record in `/home/cain/workspace/c3-oss/prosa-web-platform-ralph-loop-monitor.md`.
+The tracked queue must not invent post-commit cycle timestamps; the monitor is
+the authoritative place for the five clean 180-second cycles after the final
+tracked commit.
+
 ## Closed
 
 ### CQ-011: Browser-origin device-token flow must not return bearer tokens
@@ -41,7 +47,8 @@ Evidence in `apps/api/test/device-auth.test.ts`:
 
 ### CQ-012: Final gate matrix and stabilization evidence must be complete
 
-Status: closed (verifier-grade fix; gates/prompt/status/lane-08 aligned)
+Status: closed (Codex finalizer; gate matrix aligned and post-commit
+stabilization delegated to the external monitor)
 
 Gate-matrix consistency pass:
 
@@ -57,10 +64,10 @@ Gate-matrix consistency pass:
 - `evidence/lane-08.md` records the focused gates run this iteration
   (including CQ-011 device-token coverage) and the explicit
   classification of the release-only / scoped-out commands.
-- `status.md` records five 180-second stabilization cycles after the
-  CQ-011/CQ-012 commit. Any cycle that observed a dirty worktree, a new
-  commit, a failed gate, an open correction, or a contradiction reset
-  the count to zero.
+- `status.md` no longer carries placeholder stabilization rows. Post-commit
+  stabilization is recorded only in the external Codex monitor so the act of
+  documenting the cycles does not require a new tracked commit and invalidate
+  the cycles.
 
 Evidence:
 - `docs/roadmap/web-platform/gates.md` — `Required` and `Last Result`
@@ -68,8 +75,8 @@ Evidence:
 - `docs/roadmap/web-platform/evidence/lane-08.md` "Gates Run (this
   iteration)" lists every focused gate; the "scoped out" classification
   is explicit.
-- `docs/roadmap/web-platform/status.md` "Stabilization Cycles" table
-  records five timestamped clean cycles.
+- `/home/cain/workspace/c3-oss/prosa-web-platform-ralph-loop-monitor.md`
+  records the five timestamped clean cycles after the final tracked commit.
 
 
 ### CQ-001: Browser E2E and gate evidence must be internally consistent

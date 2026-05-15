@@ -130,8 +130,10 @@ consistent, perform exactly five consecutive clean stabilization cycles:
    clean-cycle count to zero.
 4. If everything remains clean and consistent, increment the clean-cycle count.
 
-Record all five cycles in `status.md` with timestamps. The five cycles must
-span at least 15 minutes after the final commit.
+Record all five cycles in the external Codex monitor, not in a tracked file.
+Writing cycle timestamps into `status.md` after the final commit would require
+another commit and reset the stabilization window. The five cycles must span at
+least 15 minutes after the final commit.
 
 Output `RALPH_DONE` only after five consecutive clean cycles are recorded, and
 only as the final completion signal.

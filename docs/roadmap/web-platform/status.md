@@ -9,14 +9,16 @@ Completion signal: RALPH_DONE
 
 ## Current State
 
-Status: correction-stabilizing
-Current lane: done (CQ-011 / CQ-012 fixes committed; five-cycle stabilization
-runs after the commit lands)
-Current HEAD: see `git log` — latest correction-iteration commit closes
-CQ-011 (device-token browser-origin) and CQ-012 (gate matrix consistency).
-No-change streak: counting up — see Stabilization Cycles below.
-Ralph active: yes — running five 180-second stabilization cycles before
-emitting `RALPH_DONE`.
+Status: ready-for-codex-stabilization
+Current lane: done
+Current implementation HEAD before Codex's final docs-only commit:
+`d2d2c9a` closes CQ-011 (device-token browser-origin) and CQ-012 (gate
+matrix consistency).
+No-change streak: tracked in the external Codex monitor after the final
+tracked commit.
+Ralph active: no — Codex owns final verification and stabilization from this
+point forward. Ignore `.claude/ralph-loop.local.md` if it remains as a local
+untracked state file.
 
 ## Lane Status
 
@@ -35,20 +37,20 @@ emitting `RALPH_DONE`.
 
 None. CQ-001..CQ-012 are closed; see `correction-queue.md`.
 
-## Stabilization Cycles
+## Stabilization Evidence
 
-Recorded after the CQ-011/CQ-012 commit. Each cycle sleeps 180 seconds then
-rereads correction-queue, gates, status, `git status --short --branch`, and
-recent commits. Any dirty worktree, new commit, failed gate, open
-correction, or contradiction resets the count.
+Post-commit stabilization is recorded in the external Codex monitor:
+`/home/cain/workspace/c3-oss/prosa-web-platform-ralph-loop-monitor.md`.
 
-| Cycle | Started (UTC)         | Ended (UTC)           | Outcome |
-| ----- | --------------------- | --------------------- | ------- |
-| 1     | _filled in at runtime_ | _filled in at runtime_ | _filled in at runtime_ |
-| 2     | _filled in at runtime_ | _filled in at runtime_ | _filled in at runtime_ |
-| 3     | _filled in at runtime_ | _filled in at runtime_ | _filled in at runtime_ |
-| 4     | _filled in at runtime_ | _filled in at runtime_ | _filled in at runtime_ |
-| 5     | _filled in at runtime_ | _filled in at runtime_ | _filled in at runtime_ |
+Reason: writing five cycle timestamps into a tracked file after the final
+commit would itself require another commit and reset the stabilization window.
+The tracked docs therefore define the required checks; the external monitor
+records the five clean cycles after the final tracked commit.
+
+Each cycle must sleep 180 seconds, then reread `correction-queue.md`,
+`gates.md`, `status.md`, `git status --short --branch`, and recent commits.
+Any dirty worktree state beyond documented local-only files, new commit, failed
+gate, open correction, stale evidence, or contradiction resets the count.
 
 ## Latest Gates
 
@@ -117,8 +119,8 @@ correction, or contradiction resets the count.
 | `pnpm --filter @c3-oss/prosa-web exec playwright test e2e/authenticated.spec.ts e2e/marketing.spec.ts --reporter=list` | passed | Browser E2E for the verified-projection v0 contract. |
 | `git diff --check` | passed | Whitespace/patch hygiene after the documentation + bounded-decode changes. |
 | `rg -n "verified session id\|sessions/projects\|auxiliary analytics reports\|omits unverified sessions" docs/roadmap/web-platform apps/api/test apps/web/e2e` | clean | Remaining matches describe the fail-closed contract or are explicitly marked superseded. |
-| Codex E2E/gate subagent | blocking | 2026-05-15: final acceptance blocked because five 180-second stabilization cycles are not evidenced; Docker E2E and base-gate classifications are inconsistent with the prompt. |
-| Codex security subagent | blocking | 2026-05-15: `auth.deviceToken` can still return bearer tokens to browser-origin callers; CQ-011 opened. |
+| Codex security subagent | passed | 2026-05-15: CQ-011 passed after `d2d2c9a`; browser-origin `auth.deviceToken` rejects before token issuance and raw `/api/auth/device/token` strips token-like fields. |
+| Codex E2E/gate subagent | passed-for-tracked-docs | 2026-05-15: Docker E2E classification is aligned; final acceptance depends on external post-commit stabilization cycles recorded by Codex. |
 
 Out of scope for this lane (server-sync lane owns these — see
 `gates.md`):
