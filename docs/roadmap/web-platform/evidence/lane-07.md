@@ -17,6 +17,12 @@ Commit range: `3a94f9d`
 - [x] AC-003 `/console/analytics` exposes all five prosa analytics reports
   (`sessions`, `tools`, `errors`, `models`, `projects`) backed by
   `analytics.report` (`apps/web/src/routes/console/analytics.tsx`).
+  - **Superseded by CQ-006**: in the shipped v0 contract every
+    `analytics.report` kind returns 501 remotely. The `/console/analytics`
+    page renders a fail-closed error banner for every tab; non-empty
+    analytics rows are served only by the local CLI engine. See
+    `evidence/lane-08.md` and `correction-queue.md` (CQ-006) for the
+    authoritative shipped behaviour.
 - [x] AC-004 Artifact previews enforce tenant + verified-data authorization
   through the lane-04 `artifacts.getText` procedure. The
   `/console/artifacts/:artifactId` page renders the text payload (bounded
@@ -38,7 +44,9 @@ Commit range: `3a94f9d`
   navigation all keep the same view.
 - Analytics renders one report at a time via tab toggles. Columns are
   computed from the first row so any future report shape works without UI
-  changes.
+  changes. In the shipped v0 contract every report kind returns 501
+  (CQ-006) and the page surfaces the fail-closed error banner instead of
+  rows.
 - Tool calls renders the lane-04 `toolCalls.list` rows directly; the
   errors-only checkbox resets the cursor to keep pagination semantics
   predictable.

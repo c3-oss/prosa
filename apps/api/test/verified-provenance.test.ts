@@ -194,7 +194,7 @@ describe('CQ-004 — auxiliary rows must derive from verified projections', () =
     }
   })
 
-  it('analytics.report omits unverified sessions from the sessions report', async () => {
+  it('analytics.report fails closed (501) for the sessions report regardless of unverified rows', async () => {
     const t = await buildTestApp()
     try {
       const auth = await signup(t, 'cq004-analytics@example.com')

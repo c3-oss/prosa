@@ -306,6 +306,13 @@ Rules:
 
 ## `analytics.report`
 
+> **Superseded by CQ-006**: in the shipped v0 contract every
+> `analytics.report` kind (`sessions`, `tools`, `errors`, `models`,
+> `projects`) returns 501 NOT_IMPLEMENTED remotely. The schema below is
+> the aspirational contract for a future commit-shape expansion. The
+> authoritative shipped behaviour is documented in
+> `evidence/lane-08.md` and `correction-queue.md` (CQ-006).
+
 Input:
 
 ```ts
@@ -343,6 +350,8 @@ Reports must match existing prosa analytics semantics:
 - `sessions.detail` can power the console timeline without Markdown parsing.
 - `search.query` supports global and per-session search with metadata filters.
 - `analytics.report` exposes all five existing analytics reports remotely.
+  (Superseded by CQ-006: shipped v0 fails closed with 501 for every kind;
+  see `evidence/lane-08.md`.)
 - Artifact/object text access refuses cross-tenant and unverified objects.
 - Web response types are stable and documented in this lane before UI work
   depends on them.

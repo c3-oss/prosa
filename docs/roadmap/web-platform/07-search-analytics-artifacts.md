@@ -111,6 +111,13 @@ Use cases:
 
 ## Analytics page
 
+> **Superseded by CQ-006**: in the shipped v0 contract every
+> `analytics.report` kind returns 501 remotely. The `/console/analytics`
+> page renders the fail-closed error banner for every tab. The
+> aspirational report layout below applies only after the promotion
+> manifest grows verified entries for the auxiliary tables those views
+> join. See `evidence/lane-08.md` and `correction-queue.md` (CQ-006).
+
 Route: `/console/analytics`.
 
 Components:

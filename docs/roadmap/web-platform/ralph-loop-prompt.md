@@ -111,6 +111,12 @@ the current lane is blocked and the blocker is recorded in `correction-queue.md`
      artifact preview page/drawer, URL-backed filters, cursor pagination, and
      result/detail links.
    - Expose all five existing analytics report semantics remotely.
+     **Superseded by CQ-006:** in the shipped v0 contract every
+     `analytics.report` kind returns 501 because the promotion manifest
+     does not yet carry verified entries for the auxiliary tables those
+     views join. The authoritative shipped behaviour is documented in
+     `docs/roadmap/web-platform/evidence/lane-08.md` and
+     `docs/roadmap/web-platform/correction-queue.md` (CQ-006).
    - Keep Parquet/DuckDB/MCP/compile surfaces out of the browser.
    - Evidence: `docs/roadmap/web-platform/evidence/lane-07.md`.
 

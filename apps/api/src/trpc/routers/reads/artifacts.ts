@@ -1,9 +1,7 @@
-import { Readable, Writable } from 'node:stream'
-import { pipeline } from 'node:stream/promises'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
-import { DecompressStream } from 'zstd-napi'
 import { router, tenantProcedure } from '../../init.js'
+import { decompressZstdBounded, readRawBounded } from './bounded-decode.js'
 
 const artifactInput = z
   .object({
@@ -116,88 +114,6 @@ async function resolveArtifact(
     }
   }
   return null
-}
-
-class DecodeCap {
-  private capPlusOne: number
-  private collected = 0
-  private chunks: Buffer[] = []
-  constructor(maxBytes: number) {
-    this.capPlusOne = maxBytes + 1
-  }
-
-  /** Append a chunk and return true if the cap was exceeded. */
-  push(chunk: Buffer): boolean {
-    if (this.collected >= this.capPlusOne) return true
-    const need = this.capPlusOne - this.collected
-    const slice = chunk.byteLength > need ? chunk.subarray(0, need) : chunk
-    this.chunks.push(slice)
-    this.collected += slice.byteLength
-    return this.collected >= this.capPlusOne
-  }
-
-  /** Returns the bytes collected so far, up to capPlusOne. */
-  finish(): Buffer {
-    return Buffer.concat(this.chunks, this.collected)
-  }
-
-  exceededCap(maxBytes: number): boolean {
-    return this.collected > maxBytes
-  }
-}
-
-/**
- * CQ-009: decompress only as many bytes as the preview cap requires. Once
- * `maxBytes + 1` decoded bytes have been collected we stop pulling from the
- * underlying stream and tear it down.
- */
-async function decompressZstdBounded(
-  raw: AsyncIterable<Uint8Array>,
-  maxBytes: number,
-): Promise<{ decoded: Buffer; truncated: boolean }> {
-  const decompressor = new DecompressStream()
-  const cap = new DecodeCap(maxBytes)
-  const sink = new Writable({
-    write(chunk: Buffer | string, _enc, cb) {
-      const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
-      const stop = cap.push(buf)
-      if (stop) {
-        // Signal end-of-pipeline via an error the caller silences below.
-        cb(new BoundedDecodeStop())
-        return
-      }
-      cb()
-    },
-  })
-  try {
-    await pipeline(Readable.from(raw), decompressor, sink)
-  } catch (err) {
-    if (!(err instanceof BoundedDecodeStop)) throw err
-  }
-  const exceeded = cap.exceededCap(maxBytes)
-  const collected = cap.finish()
-  const trimmed = exceeded ? collected.subarray(0, maxBytes) : collected
-  return { decoded: trimmed, truncated: exceeded }
-}
-
-class BoundedDecodeStop extends Error {
-  override readonly name = 'BoundedDecodeStop'
-}
-
-/** Read raw bytes (no compression) up to maxBytes+1 from the stream. */
-async function readRawBounded(
-  raw: AsyncIterable<Uint8Array>,
-  maxBytes: number,
-): Promise<{ decoded: Buffer; truncated: boolean }> {
-  const cap = new DecodeCap(maxBytes)
-  for await (const chunk of raw) {
-    const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
-    if (cap.push(buf)) break
-  }
-  const exceeded = cap.exceededCap(maxBytes)
-  const collected = cap.finish()
-  const trimmed = exceeded ? collected.subarray(0, maxBytes) : collected
-  return { decoded: trimmed, truncated: exceeded }
 }
 
 function looksLikeText(contentType: string | null, decoded: Uint8Array): boolean {

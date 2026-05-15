@@ -1,5 +1,7 @@
 import { computeHashHex } from '@c3-oss/prosa-storage'
 import { describe, expect, it } from 'vitest'
+import { compress as zstdCompress } from 'zstd-napi'
+import { decompressZstdBounded } from '../src/trpc/routers/reads/bounded-decode.js'
 import { type TestApp, buildTestApp } from './helpers/test-app.js'
 
 type SignupResult = { token?: string; tenant: { id: string }; user: { id: string } }
@@ -457,7 +459,6 @@ describe('CQ-009 — artifact preview caps decoded bytes', () => {
   })
 
   it('zstd preview stops decoding before the full payload is consumed', async () => {
-    const { compress: zstdCompress } = await import('zstd-napi')
     const t = await buildTestApp()
     try {
       const auth = await signup(t, 'cq009-zstd@example.com')
@@ -594,5 +595,55 @@ describe('CQ-009 — artifact preview caps decoded bytes', () => {
     } finally {
       await t.close()
     }
+  })
+
+  it('bounded zstd decode does not pull or produce the full payload from a chunked stream', async () => {
+    // Build a 1 MiB payload that compresses well but not into a few bytes:
+    // alternating short runs + counter values keep the compressed frame in
+    // the tens of KiB, large enough that an instrumented chunked source
+    // yields many chunks. The 4 KiB preview cap is far smaller than both
+    // the compressed and uncompressed sizes.
+    const uncompressedSize = 1024 * 1024
+    const uncompressed = Buffer.alloc(uncompressedSize)
+    for (let i = 0; i < uncompressedSize; i += 16) {
+      // 12 repeated bytes (compressible) followed by 4 bytes that vary with
+      // i (incompressible). The whole buffer compresses to roughly 100 KiB.
+      uncompressed.fill('a'.charCodeAt(0), i, i + 12)
+      uncompressed.writeUInt32LE(i, i + 12)
+    }
+    const compressed = zstdCompress(uncompressed)
+    // Sanity: compressed must be smaller than uncompressed (decoder will
+    // expand) AND large enough that the test's small chunk emits many
+    // chunks before the cap is reached.
+    expect(compressed.byteLength).toBeLessThan(uncompressed.byteLength)
+    expect(compressed.byteLength).toBeGreaterThan(1024)
+
+    const chunkSize = 64
+    let chunksYielded = 0
+    let bytesYielded = 0
+    async function* chunkedSource(): AsyncIterable<Uint8Array> {
+      for (let offset = 0; offset < compressed.byteLength; offset += chunkSize) {
+        const slice = compressed.subarray(offset, Math.min(offset + chunkSize, compressed.byteLength))
+        chunksYielded += 1
+        bytesYielded += slice.byteLength
+        yield slice
+      }
+    }
+
+    const maxBytes = 4096
+    const result = await decompressZstdBounded(chunkedSource(), maxBytes)
+
+    // The contract under test: bounded BOTH on the decoded production side
+    // AND on the source-consumption side. Neither the full uncompressed
+    // payload nor the full compressed payload may be processed before the
+    // cap is applied.
+    expect(result.truncated).toBe(true)
+    expect(result.decoded.byteLength).toBe(maxBytes)
+    expect(result.decodedBytesProduced).toBeLessThanOrEqual(maxBytes + 1)
+    expect(result.decodedBytesProduced).toBeLessThan(uncompressed.byteLength)
+    expect(result.srcBytesConsumed).toBeLessThan(compressed.byteLength)
+    // The instrumented stream proves we stopped pulling chunks before EOF.
+    expect(bytesYielded).toBeLessThan(compressed.byteLength)
+    expect(chunksYielded).toBeGreaterThan(1)
   })
 })

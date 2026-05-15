@@ -18,6 +18,13 @@ Commit range: `86f10fa`
 - [x] AC-004 `analytics.report` exposes all five existing analytics report
   types: `sessions`, `tools`, `errors`, `models`, `projects`. The lightweight
   `analytics.summary` is retained for the dashboard.
+  - **Superseded by CQ-006**: in the shipped v0 contract every
+    `analytics.report` kind fails closed with 501 because the promotion
+    manifest does not yet carry verified entries for the auxiliary tables
+    those views join (and `project` is not in the manifest at all). The
+    authoritative shipped behaviour is documented in `evidence/lane-08.md`
+    and `correction-queue.md` under CQ-006. `analytics.summary` continues
+    to operate over the verified projection.
 - [x] AC-005 `artifacts.getText` refuses cross-tenant and unverified objects
   and returns bounded text with a `truncated` flag and `kind: 'text' |
   'binary'` discriminator.
@@ -58,6 +65,8 @@ Commit range: `86f10fa`
 - `analytics.report` covers the five report kinds with deterministic SQL
   matching the existing `session_facts` / `tool_usage_facts` /
   `error_facts` / `model_usage` / `project_activity` semantics.
+  (Superseded by CQ-006: the shipped v0 contract instead returns 501 for
+  every report kind. See `evidence/lane-08.md` and `correction-queue.md`.)
 - The CLI client and existing API tests were updated to consume the new
   `{rows, nextCursor}` envelopes (`apps/cli/src/cli/auth/client.ts`,
   `apps/cli/src/cli/commands/sessions.ts`,
