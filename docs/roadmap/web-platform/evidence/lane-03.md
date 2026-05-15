@@ -3,7 +3,7 @@
 Lane: 03 Browser auth and tenancy
 Status: complete
 Owner: Ralph
-Commit range: pending — see `status.md` for commit hash
+Commit range: `3f39de8`
 
 ## Acceptance Criteria
 
