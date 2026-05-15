@@ -104,6 +104,26 @@ export async function compileClaude(
 /** Resolve Claude subagent parent links after all files in the batch have been inserted. */
 function linkSubagentParents(bundle: Bundle): void {
   bundle.db.exec(`
+    UPDATE edges
+       SET src_id = (
+             SELECT m.message_id
+               FROM messages m
+               JOIN raw_records r ON r.raw_record_id = m.raw_record_id
+              WHERE r.source_tool = 'claude'
+                AND r.native_id = edges.src_id
+              LIMIT 1
+           )
+     WHERE src_type = 'message'
+       AND edge_type = 'spawned'
+       AND source = 'source_tool_assistant_uuid'
+       AND EXISTS (
+             SELECT 1
+               FROM messages m
+               JOIN raw_records r ON r.raw_record_id = m.raw_record_id
+              WHERE r.source_tool = 'claude'
+                AND r.native_id = edges.src_id
+           );
+
     UPDATE sessions
        SET parent_session_id = (
              SELECT e.src_id
@@ -230,6 +250,7 @@ interface PendingMessage {
   model: string | null
   timestamp: string | null
   ordinal: number
+  parent_message_id: string | null
   parent_uuid: string | null // for parent_of edge linking by uuid
   uuid: string | null
   raw_record_id: string
@@ -505,11 +526,24 @@ async function compileClaudeFile(
         model: msgRole === 'assistant' ? model : null,
         timestamp: ts,
         ordinal: msgOrdinal,
+        parent_message_id: null,
         parent_uuid: parsed.parentUuid ?? null,
         uuid: parsed.uuid ?? null,
         raw_record_id: rawRecordId,
       })
       if (parsed.uuid) pending.uuidToMessageId.set(parsed.uuid, messageId)
+      if (parsed.isSidechain && parsed.sourceToolAssistantUUID) {
+        pending.edges.push({
+          src_type: 'message',
+          src_id: parsed.sourceToolAssistantUUID,
+          dst_type: 'session',
+          dst_id: sessionId,
+          edge_type: 'spawned',
+          confidence: 'high',
+          source: 'source_tool_assistant_uuid',
+          raw_record_id: rawRecordId,
+        })
+      }
 
       const content = parsed.message?.content
       if (typeof content === 'string') {
@@ -583,7 +617,7 @@ async function compileClaudeFile(
         event_id: makeEventId(sessionId, ordinal, 'attachment'),
         ordinal,
         source_event_id: parsed.uuid ?? null,
-        event_type: 'attachment',
+        event_type: 'file_history_snapshot',
         source_type: 'attachment',
         subtype: parsed.attachment?.type ?? null,
         timestamp: ts,
@@ -645,6 +679,7 @@ async function compileClaudeFile(
   for (const m of pending.messages) {
     if (m.parent_uuid && pending.uuidToMessageId.has(m.parent_uuid)) {
       const parentId = pending.uuidToMessageId.get(m.parent_uuid)!
+      m.parent_message_id = parentId
       pending.edges.push({
         src_type: 'message',
         src_id: parentId,
@@ -1128,7 +1163,7 @@ function flushPending(
        message_id, session_id, turn_id, event_id, source_message_id, role,
        author_name, model, timestamp, ordinal, parent_message_id, request_id,
        status, raw_record_id
-     ) VALUES (?, ?, NULL, ?, ?, ?, NULL, ?, ?, ?, NULL, NULL, NULL, ?)`,
+     ) VALUES (?, ?, NULL, ?, ?, ?, NULL, ?, ?, ?, ?, NULL, NULL, ?)`,
   )
   for (const m of pending.messages) {
     insertMessage.run(
@@ -1140,6 +1175,7 @@ function flushPending(
       m.model,
       m.timestamp,
       m.ordinal,
+      m.parent_message_id,
       m.raw_record_id,
     )
   }

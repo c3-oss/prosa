@@ -88,6 +88,37 @@ describe('claude importer', () => {
       expect(queryCount(t.bundle.db, `SELECT count(*) AS n FROM edges WHERE edge_type = 'parent_of'`)).toBeGreaterThan(
         0,
       )
+      expect(queryCount(t.bundle.db, `SELECT count(*) AS n FROM messages WHERE parent_message_id IS NOT NULL`)).toBe(
+        queryCount(t.bundle.db, `SELECT count(*) AS n FROM edges WHERE edge_type = 'parent_of'`),
+      )
+    } finally {
+      await t.cleanup()
+    }
+  })
+
+  it('links sourceToolAssistantUUID from subagent session back to parent message', async () => {
+    const t = await createTempBundle()
+    try {
+      await compileClaude(t.bundle, FIXTURES)
+
+      const edge = t.bundle.db
+        .prepare<[], { source: string; parent_uuid: string | null; child_is_subagent: 0 | 1 }>(
+          `SELECT e.source, parent_raw.native_id AS parent_uuid, child.is_subagent AS child_is_subagent
+             FROM edges e
+             JOIN messages parent_msg ON parent_msg.message_id = e.src_id
+             JOIN raw_records parent_raw ON parent_raw.raw_record_id = parent_msg.raw_record_id
+             JOIN sessions child ON child.session_id = e.dst_id
+            WHERE e.src_type = 'message'
+              AND e.dst_type = 'session'
+              AND e.edge_type = 'spawned'
+              AND e.source = 'source_tool_assistant_uuid'`,
+        )
+        .get()
+      expect(edge).toEqual({
+        source: 'source_tool_assistant_uuid',
+        parent_uuid: 'u6',
+        child_is_subagent: 1,
+      })
     } finally {
       await t.cleanup()
     }
