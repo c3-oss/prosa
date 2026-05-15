@@ -29,7 +29,14 @@ export async function buildTestApp(overrides: Partial<NodeJS.ProcessEnv> = {}): 
   const db = openPgliteDatabase(pglite)
   const auth = createAuth({ config, db: db.db })
   const objectStore = new MemoryObjectStore()
-  const app = await buildApp({ config, auth, db: db.db, objectStore, loggerEnabled: false })
+  const app = await buildApp({
+    config,
+    auth,
+    db: db.db,
+    rawExec: db.rawExec,
+    objectStore,
+    loggerEnabled: false,
+  })
   return {
     app,
     auth,

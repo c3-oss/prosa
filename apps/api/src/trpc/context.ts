@@ -2,7 +2,7 @@ import type { RemoteObjectStore } from '@c3-oss/prosa-storage'
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import type { ProsaAuth } from '../auth.js'
 import type { ProsaApiConfig } from '../config.js'
-import type { ProsaDatabase } from '../db.js'
+import type { ProsaDatabase, RawExec } from '../db.js'
 
 export type AuthenticatedUser = {
   id: string
@@ -17,6 +17,7 @@ export type ProsaApiContext = {
   requestId: string
   auth: ProsaAuth
   db: ProsaDatabase
+  rawExec: RawExec
   objectStore: RemoteObjectStore
   session: { id: string; userId: string; activeOrganizationId?: string | null } | null
   user: AuthenticatedUser | null
@@ -29,6 +30,7 @@ export type CreateContextDeps = {
   config: ProsaApiConfig
   auth: ProsaAuth
   db: ProsaDatabase
+  rawExec: RawExec
   objectStore: RemoteObjectStore
 }
 
@@ -52,7 +54,7 @@ function fastifyRequestToHeaders(req: FastifyRequest): Headers {
 }
 
 export function buildCreateContext(deps: CreateContextDeps) {
-  const { config, auth, db, objectStore } = deps
+  const { config, auth, db, rawExec, objectStore } = deps
   return async (opts: { req: FastifyRequest; res: FastifyReply }): Promise<ProsaApiContext> => {
     const headerTenant = readFirstHeader(opts.req, 'x-prosa-tenant-id')
     let session: ProsaApiContext['session'] = null
@@ -81,6 +83,7 @@ export function buildCreateContext(deps: CreateContextDeps) {
       requestId: opts.req.id,
       auth,
       db,
+      rawExec,
       objectStore,
       session,
       user,

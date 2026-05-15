@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { readPackageVersion } from '../version.js'
 import { publicProcedure, router } from './init.js'
 import { authRouter } from './routers/auth.js'
+import { syncRouter } from './routers/sync.js'
 import { tenantRouter } from './routers/tenant.js'
 
 const healthRouter = router({
@@ -19,6 +20,7 @@ export const appRouter = router({
   system: echoRouter,
   auth: authRouter,
   tenant: tenantRouter,
+  sync: syncRouter,
 })
 
 export type AppRouter = typeof appRouter

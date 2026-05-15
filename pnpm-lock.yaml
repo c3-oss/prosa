@@ -91,6 +91,9 @@ importers:
       '@c3-oss/prosa-storage':
         specifier: workspace:^
         version: link:../../packages/prosa-storage
+      '@c3-oss/prosa-sync':
+        specifier: workspace:^
+        version: link:../../packages/prosa-sync
       '@fastify/cors':
         specifier: ^10.0.0
         version: 10.1.0
@@ -270,6 +273,25 @@ importers:
       '@aws-sdk/client-s3':
         specifier: ^3.700.0
         version: 3.1047.0
+    devDependencies:
+      '@c3-oss/config-biome':
+        specifier: ^0.3.1
+        version: 0.3.1(@biomejs/biome@1.9.4)
+      '@c3-oss/config-tsup':
+        specifier: ^0.2.0
+        version: 0.2.0(@swc/core@1.15.33)(jiti@2.6.1)(postcss@8.5.13)(tsx@4.22.0)(typescript@5.9.3)(yaml@2.8.4)
+      '@c3-oss/config-typescript':
+        specifier: ^0.1.0
+        version: 0.1.0(typescript@5.9.3)
+      '@c3-oss/config-vitest':
+        specifier: ^0.3.0
+        version: 0.3.0(vitest@2.1.9(@types/node@22.19.17)(terser@5.47.1))
+
+  packages/prosa-sync:
+    dependencies:
+      zod:
+        specifier: ^3.23.8
+        version: 3.25.76
     devDependencies:
       '@c3-oss/config-biome':
         specifier: ^0.3.1

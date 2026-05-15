@@ -12,6 +12,12 @@ export async function startServer(): Promise<void> {
   const dbHandle = await openPostgresDatabase(config.databaseUrl)
   const auth = createAuth({ config, db: dbHandle.db })
   const objectStore = createObjectStore(config)
-  const app = await buildApp({ config, auth, db: dbHandle.db, objectStore })
+  const app = await buildApp({
+    config,
+    auth,
+    db: dbHandle.db,
+    rawExec: dbHandle.rawExec,
+    objectStore,
+  })
   await app.listen({ host: config.host, port: config.port })
 }
