@@ -172,6 +172,81 @@ describe('gemini importer', () => {
       expect(session?.title).toBe('first snapshot')
       expect(searchFullText(t.bundle, { query: 'first' })).toHaveLength(1)
       expect(searchFullText(t.bundle, { query: 'second' })).toHaveLength(0)
+      // Both snapshots' raw bytes are preserved; only the normalized tables collapse.
+      expect(queryCount(t.bundle.db, `SELECT count(*) AS n FROM messages`)).toBe(1)
+      expect(queryCount(t.bundle.db, `SELECT count(*) AS n FROM events`)).toBe(1)
+      expect(queryCount(t.bundle.db, `SELECT count(*) AS n FROM content_blocks`)).toBe(1)
+      expect(queryCount(t.bundle.db, `SELECT count(DISTINCT source_file_id) AS n FROM raw_records`)).toBe(2)
+      expect(
+        queryCount(t.bundle.db, `SELECT count(*) AS n FROM import_errors WHERE kind = ?`, 'gemini_duplicate_snapshot'),
+      ).toBe(1)
+    } finally {
+      await t.cleanup()
+    }
+  })
+
+  it('logs every duplicate snapshot as a single import_errors row per file', async () => {
+    const t = await createTempBundle()
+    try {
+      await writeGeminiChat(t.path, 'proj', 'session-a.json', {
+        sessionId: 'ordinal-collision',
+        summary: 'first snapshot',
+        messages: [
+          { type: 'user', id: 'u1', content: 'alpha' },
+          { type: 'gemini', id: 'm2', content: 'beta' },
+          { type: 'user', id: 'u3', content: 'gamma' },
+        ],
+      })
+      await writeGeminiChat(t.path, 'proj', 'session-b.json', {
+        sessionId: 'ordinal-collision',
+        summary: 'second snapshot',
+        messages: [
+          { type: 'user', id: 'u1', content: 'alpha-rewrite' },
+          { type: 'gemini', id: 'm2', content: 'beta-rewrite' },
+          { type: 'user', id: 'u3', content: 'gamma-rewrite' },
+          { type: 'user', id: 'u4', content: 'delta-extra' },
+        ],
+      })
+
+      await compileGemini(t.bundle, t.path)
+
+      // Session row: one (first sorted snapshot's title wins).
+      expect(listSessions(t.bundle, { sourceTool: 'gemini' })).toHaveLength(1)
+      expect(listSessions(t.bundle, { sourceTool: 'gemini' })[0]?.title).toBe('first snapshot')
+      // Overlapping ordinals from B are dropped: A's three messages persist; B's
+      // ordinal-4 message lands because no row in A collides with its deterministic id.
+      expect(queryCount(t.bundle.db, `SELECT count(*) AS n FROM messages`)).toBe(4)
+      expect(queryCount(t.bundle.db, `SELECT count(*) AS n FROM messages WHERE ordinal = 1`)).toBe(1)
+      expect(queryCount(t.bundle.db, `SELECT count(*) AS n FROM messages WHERE ordinal = 4`)).toBe(1)
+      // A's content wins for ordinals 1-3, B's content wins for ordinal 4.
+      expect(searchFullText(t.bundle, { query: 'alpha' })).toHaveLength(1)
+      expect(searchFullText(t.bundle, { query: 'alpha-rewrite' })).toHaveLength(0)
+      expect(searchFullText(t.bundle, { query: 'delta-extra' })).toHaveLength(1)
+      // raw_records preserve every snapshot file as a distinct source file.
+      expect(queryCount(t.bundle.db, `SELECT count(DISTINCT source_file_id) AS n FROM raw_records`)).toBe(2)
+      // Exactly one duplicate-snapshot warning was logged.
+      expect(
+        queryCount(t.bundle.db, `SELECT count(*) AS n FROM import_errors WHERE kind = ?`, 'gemini_duplicate_snapshot'),
+      ).toBe(1)
+    } finally {
+      await t.cleanup()
+    }
+  })
+
+  it('does not emit a duplicate-snapshot warning for a unique sessionId', async () => {
+    const t = await createTempBundle()
+    try {
+      await writeGeminiChat(t.path, 'proj', 'session-only.json', {
+        sessionId: 'unique-session',
+        summary: 'only snapshot',
+        messages: [{ type: 'user', id: 'u1', content: 'hello' }],
+      })
+
+      await compileGemini(t.bundle, t.path)
+
+      expect(
+        queryCount(t.bundle.db, `SELECT count(*) AS n FROM import_errors WHERE kind = ?`, 'gemini_duplicate_snapshot'),
+      ).toBe(0)
     } finally {
       await t.cleanup()
     }
