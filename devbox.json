@@ -2,7 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/jetify-com/devbox/main/.schema/devbox.schema.json",
   "packages": [
     "nodejs@24",
-    "pnpm@9",
+    "pnpm@10",
     "sqlite@3",
     "jq@1",
     "ripgrep@14",

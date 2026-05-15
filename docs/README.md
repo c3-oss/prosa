@@ -50,6 +50,7 @@ notes.
 - [`sources/claude-code.md`](./sources/claude-code.md) — `~/.claude/projects/` JSONL + artifacts
 - [`sources/cursor.md`](./sources/cursor.md) — `~/.cursor/chats/**/store.db` SQLite
 - [`sources/gemini.md`](./sources/gemini.md) — `~/.gemini/tmp/` JSON
+- [`sources/hermes.md`](./sources/hermes.md) — `~/.hermes/state.db` + `~/.hermes/sessions/`
 
 ## Where to look first
 

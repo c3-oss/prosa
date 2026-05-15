@@ -3,7 +3,7 @@ import { Command } from 'commander'
 import { defaultBundlePath } from '../../core/bundle.js'
 import { type AnalyticsReport, type AnalyticsReportFilters, runAnalyticsReport } from '../../services/analytics.js'
 import { exportBundleParquet } from '../../services/export/parquet.js'
-import { withBundle } from '../bundle.js'
+import { asCliBundleOpenError, withBundle } from '../bundle.js'
 import { type ColumnSet, maxWidthsForColumns, resolveColumns, tailColumnsFor } from '../columns.js'
 import { printRows } from '../output.js'
 import { parseOutputFormat, parseSourceTool } from '../parsers.js'
@@ -325,7 +325,7 @@ function addCommonOptions(command: Command): Command {
     .option('--store <path>', 'bundle directory', defaultBundlePath())
     .option('--parquet-dir <path>', 'Parquet directory (default: <store>/parquet)')
     .option('--refresh', 'export Parquet before running the report')
-    .option('--source <tool>', 'filter by source tool: cursor|codex|claude|gemini')
+    .option('--source <tool>', 'filter by source tool: cursor|codex|claude|gemini|hermes')
     .option('--since <iso>', 'lower timestamp bound (inclusive)')
     .option('--until <iso>', 'upper timestamp bound (exclusive)')
     .option('--limit <n>', 'maximum rows', '50')
@@ -337,7 +337,9 @@ async function resolveParquetDir(options: AnalyticsCliOptions): Promise<string> 
   const storePath = path.resolve(options.store)
   const outDir = options.parquetDir ? path.resolve(options.parquetDir) : undefined
   if (options.refresh) {
-    const result = await exportBundleParquet({ bundlePath: storePath, outDir })
+    const result = await exportBundleParquet({ bundlePath: storePath, outDir }).catch((error: unknown) => {
+      throw asCliBundleOpenError(error)
+    })
     return result.outDir
   }
 

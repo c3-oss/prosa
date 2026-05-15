@@ -6,7 +6,7 @@
  * Source tools that have first-class importer support and stable schema
  * semantics.
  */
-export const SOURCE_TOOLS = ['cursor', 'codex', 'claude', 'gemini'] as const
+export const SOURCE_TOOLS = ['cursor', 'codex', 'claude', 'gemini', 'hermes'] as const
 
 /**
  * Normalized source-tool discriminator stored on source files, raw records,

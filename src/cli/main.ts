@@ -12,6 +12,7 @@ import { queryCommand } from './commands/query.js'
 import { searchCommand } from './commands/search.js'
 import { sessionsCommand } from './commands/sessions.js'
 import { tuiCommand } from './commands/tui.js'
+import { isCliUserError } from './errors.js'
 
 /**
  * Drop a leading literal `--` token from the user-args portion of argv.
@@ -38,7 +39,7 @@ export async function runCli(argv: readonly string[]): Promise<void> {
     .enablePositionalOptions()
     .description(
       'Compile, search and export local agent session histories\n' +
-        '(Cursor, Codex CLI, Claude Code, Gemini CLI) into one canonical store.',
+        '(Cursor, Codex CLI, Claude Code, Gemini CLI, Hermes) into one canonical store.',
     )
     .version(PROSA_PARSER_VERSION, '-v, --version')
 
@@ -64,6 +65,10 @@ export async function runCli(argv: readonly string[]): Promise<void> {
 const isEntry = import.meta.url === `file://${process.argv[1]}`
 if (isEntry) {
   runCli(process.argv).catch((error: unknown) => {
+    if (isCliUserError(error)) {
+      process.stderr.write(`${error.message}\n`)
+      process.exit(error.exitCode)
+    }
     process.stderr.write(`${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`)
     process.exit(1)
   })

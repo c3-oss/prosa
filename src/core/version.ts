@@ -1,3 +1,5 @@
+import packageJson from '../../package.json' with { type: 'json' }
+
 /**
  * Parser/projection version for normalized importer output.
  *
@@ -5,7 +7,7 @@
  * existing canonical rows stale relative to preserved raw records. Stored on
  * every `import_batches` row for future re-projection decisions.
  */
-export const PROSA_PARSER_VERSION = '0.1.0'
+export const PROSA_PARSER_VERSION = packageJson.version
 
 /**
  * Current SQLite schema version, matching the highest migration in

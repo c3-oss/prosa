@@ -63,7 +63,7 @@ export function sessionsCommand(): Command {
     .description('List sessions in the bundle, with filters.')
     .enablePositionalOptions()
     .option('--store <path>', 'bundle directory', defaultBundlePath())
-    .option('--source <tool>', 'filter by source tool: cursor|codex|claude|gemini')
+    .option('--source <tool>', 'filter by source tool: cursor|codex|claude|gemini|hermes')
     .option('--since <iso>', 'sessions starting on/after this ISO timestamp')
     .option('--until <iso>', 'sessions starting before this ISO timestamp')
     .option('--limit <n>', 'maximum rows', '50')
@@ -106,7 +106,7 @@ export function sessionsCommand(): Command {
     new Command('count')
       .description('Count sessions in the bundle, with filters.')
       .option('--store <path>', 'bundle directory', defaultBundlePath())
-      .option('--source <tool>', 'filter by source tool: cursor|codex|claude|gemini')
+      .option('--source <tool>', 'filter by source tool: cursor|codex|claude|gemini|hermes')
       .option('--since <iso>', 'sessions starting on/after this ISO timestamp')
       .option('--until <iso>', 'sessions starting before this ISO timestamp')
       .action(
