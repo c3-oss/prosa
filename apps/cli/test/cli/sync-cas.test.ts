@@ -24,7 +24,8 @@ async function bootHarness(): Promise<Harness> {
   const storePath = path.join(tmpRoot, '.prosa')
   await mkdir(storePath, { recursive: true })
 
-  // Initialize a bundle WITH at least one CAS object and a source_file row.
+  // Initialize a bundle WITH at least one CAS object, a source_file, and a
+  // raw_record so the sync command exercises every projection upload path.
   const bundle = await initBundle(storePath)
   const objectId = await putBytes(bundle, new Uint8Array([1, 2, 3, 4, 5]))
   bundle.db
@@ -33,16 +34,48 @@ async function bootHarness(): Promise<Harness> {
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
     )
     .run('sess-cas-1', 'codex', 'sess-cas-1', null, 'cas test', null, null)
-  try {
-    bundle.db
-      .prepare(
-        `INSERT INTO source_files (source_file_id, source_tool, source_path, raw_record_id)
-         VALUES (?, ?, ?, ?)`,
-      )
-      .run('sf-cas-1', 'codex', '/source/path', objectId)
-  } catch {
-    /* schema may differ; ignore */
-  }
+  bundle.db
+    .prepare(
+      `INSERT INTO source_files (source_file_id, source_tool, path, file_kind, size_bytes, mtime, content_hash, object_id, discovered_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      'sf-cas-1',
+      'codex',
+      '/source/path',
+      'jsonl',
+      5,
+      new Date().toISOString(),
+      'content-hash-1',
+      objectId,
+      new Date().toISOString(),
+    )
+  bundle.db
+    .prepare(
+      `INSERT INTO import_batches (batch_id, parser_version, source_tool, paths, started_at, finished_at, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run('ib-cas-1', '0', 'codex', '[]', new Date().toISOString(), null, 'running')
+  bundle.db
+    .prepare(
+      `INSERT INTO raw_records (raw_record_id, source_file_id, source_tool, record_kind, ordinal, line_no, json_pointer, native_id, raw_object_id, decoded_json_object_id, parser_status, confidence, import_batch_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      'rr-cas-1',
+      'sf-cas-1',
+      'codex',
+      'message',
+      0,
+      1,
+      null,
+      'native-id-1',
+      objectId,
+      null,
+      'ok',
+      'high',
+      'ib-cas-1',
+    )
   closeBundle(bundle)
 
   const config = loadConfig({
@@ -127,9 +160,19 @@ describe('CLI sync uploads CAS objects', () => {
     const syncOut = await capturedRun(['sync', '--server', h.baseUrl, '--store', h.storePath, '--verbose', '--json'])
     expect(syncOut.stdout).toContain('"ok":true')
 
-    // Confirm at least one tenant_object row was persisted server-side.
+    // Confirm tenant_object, source_file, and raw_record rows were all
+    // persisted server-side — proves every projection class moved.
     const tenantObjects = await h.pglite.query<{ count: number }>('SELECT count(*)::int AS count FROM "tenant_object"')
     expect(tenantObjects.rows[0]?.count ?? 0).toBeGreaterThanOrEqual(1)
+    const sourceFiles = await h.pglite.query<{ count: number }>('SELECT count(*)::int AS count FROM "source_file"')
+    expect(sourceFiles.rows[0]?.count ?? 0).toBeGreaterThanOrEqual(1)
+    const rawRecords = await h.pglite.query<{ count: number }>('SELECT count(*)::int AS count FROM "raw_record"')
+    expect(rawRecords.rows[0]?.count ?? 0).toBeGreaterThanOrEqual(1)
+    // The canonical object_id must match the local catalog: `blake3:<uncompressed hash>`.
+    const remoteObject = await h.pglite.query<{ object_id: string; hash: string }>(
+      'SELECT object_id, hash FROM "remote_object" LIMIT 1',
+    )
+    expect(remoteObject.rows[0]?.object_id.startsWith('blake3:')).toBe(true)
 
     // The promotion receipt in the CLI config must report
     // declaredObjectsVerified > 0 — proof that verification actually

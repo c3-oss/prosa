@@ -5,11 +5,26 @@ export const PROTOCOL_VERSION = 1
 // ---------- Object manifests ----------
 
 export const objectManifestEntrySchema = z.object({
+  /** Canonical object id derived from the BLAKE3 of the original payload. */
   objectId: z.string().min(1),
+  /** BLAKE3 of the original (uncompressed) payload. */
   hash: z.string().min(8),
   hashAlgorithm: z.enum(['blake3', 'sha256']).default('blake3'),
   uncompressedSize: z.number().int().nonnegative(),
   compressedSize: z.number().int().nonnegative(),
+  /**
+   * Compression used for the on-disk / on-transport bytes. Defaults to `zstd`
+   * to match the local bundle layout; `none` is used when compression would
+   * not shrink the payload.
+   */
+  compression: z.enum(['zstd', 'none']).default('zstd'),
+  /**
+   * BLAKE3 of the bytes-on-the-wire (`compressed` bytes for `compression=zstd`,
+   * identical to `hash` for `compression=none`). The server verifies the
+   * uploaded body against this hash; `hash`/`objectId` remain canonical for
+   * the original payload.
+   */
+  transportHash: z.string().min(8).optional(),
   contentType: z.string().optional(),
 })
 export type ObjectManifestEntry = z.infer<typeof objectManifestEntrySchema>

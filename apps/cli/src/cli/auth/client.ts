@@ -180,7 +180,11 @@ export class ProsaApiClient {
 
   async uploadObjectBytes(input: {
     objectId: string
+    /** BLAKE3 of the original payload (canonical). */
     hash: string
+    /** BLAKE3 of the bytes-on-the-wire; defaults to `hash` when none is given. */
+    transportHash?: string
+    compression?: 'zstd' | 'none'
     compressedSize: number
     uncompressedSize: number
     bytes: Uint8Array
@@ -189,6 +193,8 @@ export class ProsaApiClient {
     url.searchParams.set('hash', input.hash)
     url.searchParams.set('size', String(input.compressedSize))
     url.searchParams.set('uncompressed', String(input.uncompressedSize))
+    url.searchParams.set('compression', input.compression ?? 'zstd')
+    if (input.transportHash) url.searchParams.set('transportHash', input.transportHash)
     const response = await this.fetchFn(url.toString(), {
       method: 'PUT',
       headers: this.headers({ 'content-type': 'application/octet-stream' }),

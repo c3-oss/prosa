@@ -124,16 +124,17 @@ export const syncRouter = router({
           obj.objectId,
         ])
         if (existing.length === 0) {
+          const ext = obj.compression === 'none' ? '.bin' : '.zst'
           await ctx.rawExec(
             'INSERT INTO "remote_object"(object_id, hash, hash_algorithm, compression, uncompressed_size, compressed_size, storage_key, content_type) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
             [
               obj.objectId,
               obj.hash,
               obj.hashAlgorithm,
-              'zstd',
+              obj.compression,
               obj.uncompressedSize,
               obj.compressedSize,
-              `objects/blake3/${obj.hash.slice(0, 2)}/${obj.hash.slice(2, 4)}/${obj.hash}.zst`,
+              `objects/blake3/${obj.hash.slice(0, 2)}/${obj.hash.slice(2, 4)}/${obj.hash}${ext}`,
               obj.contentType ?? null,
             ],
           )

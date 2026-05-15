@@ -1,4 +1,4 @@
-import { readFile, readdir, rm, stat } from 'node:fs/promises'
+import { readFile, rm, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { type Bundle, closeBundle, defaultBundlePath, openBundle } from '@c3-oss/prosa-core'
 import { computeHashHex } from '@c3-oss/prosa-storage'
@@ -71,20 +71,30 @@ function readSourceFilesForUpload(bundle: Bundle): SourceFileRow[] {
   try {
     const rows = bundle.db
       .prepare(
-        `SELECT source_file_id, source_tool, source_path, raw_record_id
+        `SELECT source_file_id, source_tool, path, file_kind, size_bytes, mtime, content_hash, object_id
            FROM source_files ORDER BY source_file_id LIMIT 5000`,
       )
       .all() as Array<{
       source_file_id: string
       source_tool: string
-      source_path: string
-      raw_record_id: string | null
+      path: string
+      file_kind: string | null
+      size_bytes: number | null
+      mtime: string | null
+      content_hash: string | null
+      object_id: string | null
     }>
     return rows.map((row) => ({
       id: row.source_file_id,
       sourceKind: row.source_tool,
-      path: row.source_path,
-      objectId: row.raw_record_id ?? null,
+      path: row.path,
+      objectId: row.object_id ?? null,
+      metadata: {
+        fileKind: row.file_kind,
+        sizeBytes: row.size_bytes,
+        mtime: row.mtime,
+        contentHash: row.content_hash,
+      },
     }))
   } catch {
     return []
@@ -95,21 +105,31 @@ function readRawRecordsForUpload(bundle: Bundle): RawRecordRow[] {
   try {
     const rows = bundle.db
       .prepare(
-        `SELECT raw_record_id, source_file_id, line_number, payload_object_id
+        `SELECT raw_record_id, source_file_id, line_no, raw_object_id,
+                decoded_json_object_id, parser_status, confidence, import_batch_id
            FROM raw_records ORDER BY raw_record_id LIMIT 5000`,
       )
       .all() as Array<{
       raw_record_id: string
       source_file_id: string
-      line_number: number | null
-      payload_object_id: string | null
+      line_no: number | null
+      raw_object_id: string
+      decoded_json_object_id: string | null
+      parser_status: string
+      confidence: string
+      import_batch_id: string
     }>
     return rows.map((row) => ({
       id: row.raw_record_id,
       sourceFileId: row.source_file_id,
-      sequence: row.line_number ?? 0,
-      payload: null,
-      objectId: row.payload_object_id ?? null,
+      sequence: row.line_no ?? 0,
+      payload: {
+        decodedObjectId: row.decoded_json_object_id,
+        parserStatus: row.parser_status,
+        confidence: row.confidence,
+        importBatchId: row.import_batch_id,
+      },
+      objectId: row.raw_object_id ?? null,
     }))
   } catch {
     return []
@@ -117,64 +137,61 @@ function readRawRecordsForUpload(bundle: Bundle): RawRecordRow[] {
 }
 
 /**
- * Walk `objects/blake3/*\/*\/*.zst` and return one ObjectManifestEntry per
- * file. Object IDs match the local catalog: `blake3:<hex>`.
+ * Read the bundle's CAS objects from the local catalog and pair each canonical
+ * row with the on-disk bytes. The local `object_id` (`blake3:<uncompressed
+ * hash>`) is the canonical identity; the on-disk file may carry compressed
+ * bytes, in which case we declare a separate `transportHash` so the server
+ * can verify the body against the BLAKE3 of what's actually on the wire while
+ * keeping the canonical `hash`/`objectId` aligned with the local catalog.
  */
-async function walkCasObjects(storePath: string): Promise<Array<{ entry: ObjectManifestEntry; bytes: Uint8Array }>> {
-  const root = path.join(storePath, 'objects', 'blake3')
-  const out: Array<{ entry: ObjectManifestEntry; bytes: Uint8Array }> = []
-  let firstLevel: string[]
-  try {
-    firstLevel = await readdir(root)
-  } catch {
-    return out
+async function walkCasObjects(
+  bundle: Bundle,
+  storePath: string,
+): Promise<Array<{ entry: ObjectManifestEntry; bytes: Uint8Array }>> {
+  type CatalogRow = {
+    object_id: string
+    hash: string
+    size_bytes: number
+    compressed_size_bytes: number | null
+    compression: 'zstd' | 'none'
+    mime_type: string | null
+    storage_path: string
   }
-  for (const aa of firstLevel) {
-    const aaPath = path.join(root, aa)
-    let second: string[]
+  let rows: CatalogRow[]
+  try {
+    rows = bundle.db
+      .prepare(
+        `SELECT object_id, hash, size_bytes, compressed_size_bytes, compression, mime_type, storage_path
+           FROM objects
+           ORDER BY object_id
+           LIMIT 5000`,
+      )
+      .all() as CatalogRow[]
+  } catch {
+    return []
+  }
+  const out: Array<{ entry: ObjectManifestEntry; bytes: Uint8Array }> = []
+  for (const row of rows) {
+    const full = path.join(storePath, row.storage_path)
+    let buf: Buffer
     try {
-      second = await readdir(aaPath)
+      buf = await readFile(full)
     } catch {
       continue
     }
-    for (const bb of second) {
-      const bbPath = path.join(aaPath, bb)
-      let leaves: string[]
-      try {
-        leaves = await readdir(bbPath)
-      } catch {
-        continue
-      }
-      for (const leaf of leaves) {
-        let hash: string
-        if (leaf.endsWith('.zst')) {
-          hash = leaf.slice(0, -'.zst'.length)
-        } else if (leaf.endsWith('.bin')) {
-          hash = leaf.slice(0, -'.bin'.length)
-        } else {
-          continue
-        }
-        const full = path.join(bbPath, leaf)
-        const buf = await readFile(full)
-        const bytes = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength)
-        const stored = computeHashHex(bytes, 'blake3')
-        // The CAS layout stores compressed bytes, so the on-disk file hash
-        // is NOT the canonical BLAKE3 of the original (the canonical hash
-        // is over the uncompressed payload). We treat the on-disk file
-        // hash as both `hash` and the storage hash for transport: the API
-        // verifies the bytes against this declared hash before storing.
-        out.push({
-          entry: {
-            objectId: `blake3:${hash}`,
-            hash: stored,
-            hashAlgorithm: 'blake3',
-            uncompressedSize: bytes.byteLength,
-            compressedSize: bytes.byteLength,
-          },
-          bytes,
-        })
-      }
+    const bytes = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength)
+    const transportHash = computeHashHex(bytes, 'blake3')
+    const entry: ObjectManifestEntry = {
+      objectId: row.object_id,
+      hash: row.hash,
+      hashAlgorithm: 'blake3',
+      uncompressedSize: row.size_bytes,
+      compressedSize: row.compressed_size_bytes ?? bytes.byteLength,
+      compression: row.compression,
+      transportHash,
     }
+    if (row.mime_type) entry.contentType = row.mime_type
+    out.push({ entry, bytes })
   }
   return out
 }
@@ -298,7 +315,7 @@ export function syncCommand(): Command {
         const searchDocs = readSearchDocsForUpload(bundle)
         const sourceFiles = readSourceFilesForUpload(bundle)
         const rawRecords = readRawRecordsForUpload(bundle)
-        const casObjects = await walkCasObjects(storePath)
+        const casObjects = await walkCasObjects(bundle, storePath)
         const projection: ProjectionPayload = {
           sourceFiles,
           rawRecords,
@@ -346,6 +363,8 @@ export function syncCommand(): Command {
           await client.uploadObjectBytes({
             objectId: obj.objectId,
             hash: obj.hash,
+            ...(obj.transportHash ? { transportHash: obj.transportHash } : {}),
+            compression: obj.compression,
             compressedSize: obj.compressedSize,
             uncompressedSize: obj.uncompressedSize,
             bytes,

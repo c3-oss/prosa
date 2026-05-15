@@ -87,6 +87,17 @@ export async function registerObjectRoutes(app: FastifyInstance, deps: ObjectRou
         return { error: 'hash and size query parameters required' }
       }
 
+      const compression = (url.searchParams.get('compression') ?? 'zstd') as 'zstd' | 'none'
+      if (compression !== 'zstd' && compression !== 'none') {
+        reply.code(400)
+        return { error: 'compression must be zstd or none' }
+      }
+      // `hash` is the canonical BLAKE3 of the original payload. The bytes
+      // on the wire may be compressed: we verify the body against the
+      // separately-declared `transportHash` (BLAKE3 of compressed bytes)
+      // when compression=zstd, falling back to `hash` for compression=none.
+      const transportHash = url.searchParams.get('transportHash') ?? hash
+
       const rawBody = request.body
       if (!Buffer.isBuffer(rawBody)) {
         reply.code(400)
@@ -100,14 +111,18 @@ export async function registerObjectRoutes(app: FastifyInstance, deps: ObjectRou
         }
       }
 
-      const storageKey = `objects/blake3/${hash.slice(0, 2)}/${hash.slice(2, 4)}/${hash}.zst`
+      const ext = compression === 'zstd' ? '.zst' : '.bin'
+      const storageKey = `objects/blake3/${hash.slice(0, 2)}/${hash.slice(2, 4)}/${hash}${ext}`
 
       async function* once() {
         yield new Uint8Array(body.buffer, body.byteOffset, body.byteLength)
       }
 
+      // The object store verifies bytes against `meta.hash`. Use the
+      // transport hash here so the on-the-wire bytes are checked. We
+      // record the canonical hash + compression in the catalog below.
       const put = await deps.objectStore.putIfAbsent(storageKey, once(), {
-        hash,
+        hash: transportHash,
         hashAlgorithm: 'blake3',
         uncompressedSize,
         compressedSize,
@@ -117,9 +132,9 @@ export async function registerObjectRoutes(app: FastifyInstance, deps: ObjectRou
       // commitUpload). If the row already exists, leave it alone.
       await deps.rawExec(
         `INSERT INTO "remote_object"(object_id, hash, hash_algorithm, compression, uncompressed_size, compressed_size, storage_key)
-         VALUES ($1, $2, 'blake3', 'zstd', $3, $4, $5)
+         VALUES ($1, $2, 'blake3', $3, $4, $5, $6)
          ON CONFLICT (object_id) DO NOTHING`,
-        [objectId, hash, uncompressedSize, compressedSize, storageKey],
+        [objectId, hash, compression, uncompressedSize, compressedSize, storageKey],
       )
 
       reply.code(put.alreadyExisted ? 200 : 201)
