@@ -2,6 +2,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import Database from 'better-sqlite3'
 import { describe, expect, it } from 'vitest'
+import { getText } from '../../src/core/cas/index.js'
 import { compileCursor } from '../../src/importers/cursor/index.js'
 import { exportSessionMarkdown } from '../../src/services/export/markdown.js'
 import { listSessions } from '../../src/services/sessions.js'
@@ -97,6 +98,74 @@ describe('cursor importer', () => {
       const md = await exportSessionMarkdown(t.bundle, sessions[0]!.session_id)
       expect(md).toMatch(/list files/)
       expect(md).toMatch(/tool: Shell/)
+
+      const toolResult = t.bundle.db
+        .prepare<[], { output_object_id: string | null }>(`SELECT output_object_id FROM tool_results`)
+        .get()
+      expect(toolResult?.output_object_id).not.toBeNull()
+      expect(await getText(t.bundle, toolResult!.output_object_id!)).toBe('total 0\n.\n..\n')
+    } finally {
+      await t.cleanup()
+    }
+  })
+
+  it('reconciles Cursor tool calls and orphan results to canonical statuses', async () => {
+    const t = await createTempBundle()
+    const fixturesRoot = path.join(t.path, 'cursor-fixtures')
+    try {
+      const { workspaceId, agentId } = await makeCursorFixture(fixturesRoot)
+      const db = new Database(path.join(fixturesRoot, workspaceId, agentId, 'store.db'))
+      const insertBlob = db.prepare(`INSERT INTO blobs(id, data) VALUES (?, ?)`)
+      insertBlob.run(
+        'a2',
+        Buffer.from(
+          JSON.stringify({
+            role: 'assistant',
+            id: 'a2',
+            content: [{ type: 'tool-call', toolCallId: 'tc2', toolName: 'Shell', args: { command: 'sleep 1' } }],
+          }),
+          'utf8',
+        ),
+      )
+      insertBlob.run(
+        't2',
+        Buffer.from(
+          JSON.stringify({
+            role: 'tool',
+            id: 't2',
+            content: [
+              {
+                type: 'tool-result',
+                toolCallId: 'missing-call',
+                toolName: 'Shell',
+                result: 'Error: missing call failed',
+                experimental_content: { isError: true },
+              },
+            ],
+          }),
+          'utf8',
+        ),
+      )
+      db.close()
+
+      await compileCursor(t.bundle, fixturesRoot)
+
+      const calls = t.bundle.db
+        .prepare<[], { source_call_id: string | null; status: string | null }>(
+          `SELECT source_call_id, status FROM tool_calls ORDER BY source_call_id`,
+        )
+        .all()
+      expect(calls).toEqual([
+        { source_call_id: 'tc1', status: 'success' },
+        { source_call_id: 'tc2', status: 'unknown' },
+      ])
+
+      const orphan = t.bundle.db
+        .prepare<[], { status: string | null; is_error: 0 | 1 }>(
+          `SELECT status, is_error FROM tool_results WHERE source_call_id = 'missing-call'`,
+        )
+        .get()
+      expect(orphan).toEqual({ status: 'error', is_error: 1 })
     } finally {
       await t.cleanup()
     }

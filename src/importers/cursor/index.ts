@@ -349,9 +349,9 @@ async function compileCursorStore(
   counts.source_files_imported = 1
   logger?.debug({ path: store.filePath, source_file_id: sourceFile.source_file_id }, 'cursor store registered')
 
-  // Open the Cursor store read-only. We don't lock or write to it, so multiple
-  // imports can run while Cursor itself is using the database.
-  const cdb = new Database(store.filePath, { readonly: true, fileMustExist: true })
+  // Open the Cursor store as an immutable URI so SQLite never touches WAL/SHM
+  // files owned by a running Cursor process.
+  const cdb = openCursorStoreReadOnly(store.filePath)
 
   try {
     const pending: PendingState = {
@@ -496,6 +496,7 @@ async function compileCursorStore(
       }
     }
 
+    reconcileUnfinishedToolCalls(pending)
     buildSearchDocs(pending)
 
     // Persist staged CAS objects (FS + objects rows) before the domain
@@ -666,6 +667,7 @@ async function processContentItem(
     const sourceCallId = item.toolCallId ?? `${ordinal}`
     const text = stringifyOrNull(item.result) ?? ''
     const overflow = text.length > PREVIEW_MAX ? stageText(pending.objects, text) : null
+    const outputObjectId = text ? (overflow ?? stageText(pending.objects, text)) : null
     const isError = readIsError(item) ? 1 : 0
 
     pending.blocks.push({
@@ -688,9 +690,9 @@ async function processContentItem(
       source_call_id: sourceCallId,
       message_id: messageId,
       event_id: eventId,
-      status: normalizeToolCallStatus('cursor', matched ? (isError ? 'error' : 'success') : null),
+      status: normalizeToolCallStatus('cursor', isError ? 'error' : matched ? 'success' : null),
       is_error: isError,
-      output_object_id: overflow,
+      output_object_id: outputObjectId,
       preview: text.slice(0, PREVIEW_MAX) || null,
       raw_record_id: rawRecordId,
     })
@@ -711,6 +713,24 @@ async function processContentItem(
     visibility: 'audit_only',
     raw_record_id: rawRecordId,
   })
+}
+
+function reconcileUnfinishedToolCalls(pending: PendingState): void {
+  for (const call of pending.toolCallsList) {
+    if (call.status === 'started') {
+      call.status = 'unknown'
+    }
+  }
+}
+
+function openCursorStoreReadOnly(filePath: string): Database.Database {
+  try {
+    return new Database(`file:${filePath}?mode=ro&immutable=1`, {
+      fileMustExist: true,
+    })
+  } catch {
+    return new Database(filePath, { readonly: true, fileMustExist: true })
+  }
 }
 
 /** Recover Cursor's high-level tool error flag from experimental content metadata. */
