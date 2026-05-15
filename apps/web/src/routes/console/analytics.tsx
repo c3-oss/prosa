@@ -1,16 +1,123 @@
+import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
+
+import { useAuth } from '~/app/auth-context.js'
+import { useAppContext } from '~/app/providers.js'
 import { EmptyState } from '~/components/primitives/empty-state.js'
+import { Panel } from '~/components/primitives/panel.js'
+import { queryKeys } from '~/lib/query-keys.js'
+
+const REPORTS = ['sessions', 'tools', 'errors', 'models', 'projects'] as const
+type Report = (typeof REPORTS)[number]
+
+type AnalyticsReport = { report: string; rows: Array<Record<string, unknown>>; generatedAt: string }
+
+function renderCell(value: unknown): string {
+  if (value == null) return '—'
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return String(value)
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return String(value)
+  }
+}
 
 export function ConsoleAnalytics() {
+  const { api } = useAppContext()
+  const { me } = useAuth()
+  const tenantId = me?.tenantId ?? null
+  const [report, setReport] = useState<Report>('sessions')
+
+  const data = useQuery({
+    enabled: Boolean(tenantId),
+    queryKey: tenantId ? queryKeys.analyticsReport(tenantId, { report }) : ['analytics', 'report', 'no-tenant'],
+    queryFn: async (): Promise<AnalyticsReport> => api.analytics.report.query({ report }),
+  })
+
+  const rows = data.data?.rows ?? []
+  const columns = rows[0] ? Object.keys(rows[0]) : []
+
   return (
     <>
       <header className="console-page-header">
         <div>
           <h1>Analytics</h1>
-          <p>Sessions, tools, errors, models, and projects reports.</p>
+          <p>Five report semantics backed by analytics.report — same as the CLI analytics surface.</p>
         </div>
       </header>
-      <div className="console-content">
-        <EmptyState title="Analytics placeholder" description="Lane 07 exposes the five existing report semantics." />
+      <div className="console-content" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+        <nav
+          aria-label="Report selector"
+          style={{
+            display: 'inline-flex',
+            gap: 'var(--space-1)',
+            background: 'var(--color-panel)',
+            border: '1px solid var(--color-border-subtle)',
+            borderRadius: 'var(--radius-md)',
+            padding: 'var(--space-1)',
+            width: 'fit-content',
+          }}
+        >
+          {REPORTS.map((kind) => {
+            const active = report === kind
+            return (
+              <button
+                key={kind}
+                type="button"
+                onClick={() => setReport(kind)}
+                aria-pressed={active}
+                style={{
+                  background: active ? 'var(--color-panel-strong)' : 'transparent',
+                  color: active ? 'var(--color-text)' : 'var(--color-text-muted)',
+                  border: 'none',
+                  borderRadius: 'var(--radius-sm)',
+                  padding: '6px 10px',
+                  cursor: 'pointer',
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: 'var(--font-size-sm)',
+                }}
+              >
+                {kind}
+              </button>
+            )
+          })}
+        </nav>
+        {!tenantId ? (
+          <EmptyState title="Pick a tenant to continue" description="Analytics is tenant-scoped." />
+        ) : data.error ? (
+          <EmptyState
+            title="Could not load analytics"
+            description={data.error instanceof Error ? data.error.message : 'Unknown error'}
+          />
+        ) : rows.length === 0 && !data.isLoading ? (
+          <EmptyState title={`No data for ${report}`} description="Promote tenant data first via prosa sync push." />
+        ) : (
+          <Panel title={`${report} report`}>
+            <div style={{ overflowX: 'auto' }}>
+              <table className="console-table">
+                <thead>
+                  <tr>
+                    {columns.map((col) => (
+                      <th key={col}>{col}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row, idx) => (
+                    // biome-ignore lint/suspicious/noArrayIndexKey: report rows have no stable composite key; ordinal is the stable position.
+                    <tr key={`${report}-${idx}`}>
+                      {columns.map((col) => (
+                        <td key={col} style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-sm)' }}>
+                          {renderCell(row[col])}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Panel>
+        )}
       </div>
     </>
   )

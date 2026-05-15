@@ -4,6 +4,7 @@ import { AuthLayout } from '~/routes/auth/layout.js'
 import { LoginPage } from '~/routes/auth/login.js'
 import { SignupPage } from '~/routes/auth/signup.js'
 import { ConsoleAnalytics } from '~/routes/console/analytics.js'
+import { ConsoleArtifact } from '~/routes/console/artifact.js'
 import { ConsoleDashboard } from '~/routes/console/dashboard.js'
 import { ConsoleLayout } from '~/routes/console/layout.js'
 import { ConsoleSearch } from '~/routes/console/search.js'
@@ -115,6 +116,12 @@ const consoleSettingsRoute = createRoute({
   component: ConsoleSettings,
 })
 
+const consoleArtifactRoute = createRoute({
+  getParentRoute: () => consoleRoute,
+  path: '/artifacts/$artifactId',
+  component: ConsoleArtifact,
+})
+
 export const routeTree = rootRoute.addChildren([
   marketingRoute.addChildren([landingRoute, productRoute, securityRoute, docsRoute]),
   authRoute.addChildren([loginRoute, signupRoute]),
@@ -126,6 +133,7 @@ export const routeTree = rootRoute.addChildren([
     consoleToolCallsRoute,
     consoleAnalyticsRoute,
     consoleSettingsRoute,
+    consoleArtifactRoute,
   ]),
 ])
 
