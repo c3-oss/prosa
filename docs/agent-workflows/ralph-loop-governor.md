@@ -5,7 +5,10 @@ long-running implementation engine while Codex acts as architect, reviewer,
 correction writer, and final gatekeeper.
 
 Use Ralph/Claude for long-running implementation throughput. Use Codex as the
-architect, governor, reviewer, correction writer, and final gatekeeper.
+architect, governor, reviewer, correction writer, and final gatekeeper. The
+governor's core job is to review code with subagents and steer Ralph through
+blocking corrections. If Codex is only watching commits land, the workflow is
+not being followed.
 
 ## Start From Codex
 
@@ -85,8 +88,11 @@ Each cycle:
    needed.
 4. Compare implementation against lanes, correction queue, and product
    invariants.
-5. Spawn read-only reviewers for changed domains.
-6. Add or update blocking corrections if needed.
+5. Spawn read-only reviewers for changed domains, using GPT-5.5 high or
+   stronger when available for security, data integrity, remote reads, and gate
+   review.
+6. Add or update blocking corrections for every reviewer finding that can break
+   product behavior, security, data integrity, parity, or release gates.
 7. Reset the no-change streak on implementation changes.
 
 Keep treating Ralph as active until `RALPH_DONE` is detected, the user stops the
@@ -120,7 +126,8 @@ The templates live in:
 
 ## Reviewer Lanes
 
-Use subagents with disjoint scopes:
+Use subagents with disjoint scopes. This is required for substantial output,
+especially at lane boundaries and before final gates:
 
 | Agent | Scope |
 | --- | --- |
@@ -132,6 +139,10 @@ Use subagents with disjoint scopes:
 
 Default reviewer mode is read-only. Only assign write scopes after Ralph stops
 or when the user asks Codex to intervene.
+
+Reviewer output must feed steering. Do not leave findings only in chat: copy
+blocking findings into `correction-queue.md`, update `status.md`, and restart or
+steer Ralph with a correction prompt when needed.
 
 Domain specialists still own domain rules. For server-sync work, include
 `prosa-server-sync-specialist` alongside the Ralph Loop reviewers. For read

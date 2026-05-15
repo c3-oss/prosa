@@ -29,7 +29,11 @@ export type AppProvidersProps = {
   config?: WebRuntimeConfig
   /** Override query client for tests. */
   queryClient?: QueryClient
-  /** Skip the AuthProvider — useful for primitive tests that don't need session state. */
+  /**
+   * Mount the AuthProvider around the route tree. Set this only for routes
+   * that need session state (auth + console). Public/marketing routes leave
+   * it false so they never probe `/trpc/auth.me` or `/api/auth/*`.
+   */
   skipAuth?: boolean
 }
 

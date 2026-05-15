@@ -9,6 +9,12 @@ Use this skill to turn a large implementation request into a governed Ralph Loop
 Codex plans, monitors, reviews, writes blocking corrections, and runs final gates;
 Claude/Ralph does long-running implementation throughput.
 
+The point of this skill is code review and steering, not passive status
+tracking. Codex must actively review Ralph's code with focused subagents,
+convert reviewer findings into blocking corrections, and steer Ralph until the
+implementation satisfies the lane contract and gates. If Codex is only watching
+commits land, it is not using this skill correctly.
+
 ## User Invocation
 
 The preferred user-facing interface is terse:
@@ -35,6 +41,10 @@ question. Otherwise, make conservative assumptions and proceed.
 
 - Codex is the architect and gatekeeper; Ralph is the executor.
 - Ralph must not be the final judge of its own "Done".
+- Codex must review code with subagents during the run, not only after Ralph
+  claims completion.
+- Codex must steer Ralph through `correction-queue.md`,
+  `ralph-loop-prompt.md`, and gate updates whenever reviewers find blockers.
 - This skill owns Ralph Loop process artifacts. Domain skills own product
   architecture, path ownership, invariants, and domain validation.
 - When a feature matches another skill, import that skill into the Ralph prompt
@@ -101,16 +111,23 @@ $ralph-loop-governor continuar server-sync usando docs/architecture/server-sync.
   and no-change streak.
 - Update `status.md`, `correction-queue.md`, and gate/evidence artifacts as
   needed after each check.
+- After material implementation changes or completed lanes, spawn focused
+  read-only reviewer subagents for the changed domains. Use GPT-5.5 high or
+  stronger when available for security, data integrity, remote reads, and final
+  gate review.
 - If Ralph is making progress, do not edit implementation files.
-- If critical blockers persist, update `correction-queue.md` and
-  `ralph-loop-prompt.md` so the next loop iteration sees them.
+- If reviewer findings or Codex review reveal blockers, immediately add or
+  update entries in `correction-queue.md` with concrete acceptance criteria and
+  update `ralph-loop-prompt.md` when the executor needs stronger steering.
 - Keep treating Ralph as active until `RALPH_DONE` is detected, the user stops
   the run, or three configured idle checks show no implementation changes and
   final gates begin.
 
 ## Reviewer Subagents
 
-Use disjoint reviewer scopes when the change is large:
+Reviewer subagents are mandatory for substantial Ralph output. Use disjoint
+reviewer scopes as soon as material code lands, at lane boundaries, and before
+any final gate:
 
 - `ralph-loop-security-reviewer`: auth, tenant isolation, device ownership, object-route abuse, production config.
 - `ralph-loop-promotion-integrity-reviewer`: CAS/manifests, raw/source declarations, receipts, idempotency, cleanup safety.
@@ -125,6 +142,13 @@ need `prosa-cli-search-specialist`; local CAS/raw boundary work may also need
 
 Default reviewer mode is read-only. Assign write scopes only after Ralph has
 stopped or when the user explicitly wants Codex to intervene.
+
+Reviewer findings are not advisory notes to remember later. Every finding that
+can break product behavior, security, data integrity, parity, or release gates
+must become a `CQ-*` correction before the next Ralph restart or final review.
+After writing corrections, Codex must steer the executor: update status, point
+Ralph at the correction queue, and refuse `RALPH_DONE` until the corrections are
+closed with code, tests, and evidence.
 
 ## Correction Queue Rules
 

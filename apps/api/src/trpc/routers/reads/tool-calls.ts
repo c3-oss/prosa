@@ -1,3 +1,4 @@
+import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { router, tenantProcedure } from '../../init.js'
 import {
@@ -17,6 +18,10 @@ const toolCallsListInput = cursorPageInput
   .extend({
     sessionId: z.string().optional(),
     toolNames: z.array(z.string()).optional(),
+    // Lane 07 spec lists canonicalToolTypes and pathSubstring; the current
+    // projection_tool_call schema does not store canonical_type or a
+    // structured path. Until the projection schema grows those columns we
+    // fail closed when a caller asks for either filter.
     canonicalToolTypes: z.array(z.string()).optional(),
     statuses: z.array(z.string()).optional(),
     errorsOnly: z.boolean().optional(),
@@ -30,7 +35,10 @@ type ToolCallRow = {
   source_kind: string
   name: string
   status: string | null
-  created_at: string | null
+  // CQ-005: store both the ISO-normalised value used for cursoring and the
+  // raw value for the response payload.
+  created_at_iso: string | null
+  created_at_raw: string | null
   finished_at: string | null
   result_status: string | null
   input_object_id: string | null
@@ -39,6 +47,21 @@ type ToolCallRow = {
 
 export const toolCallsRouter = router({
   list: tenantProcedure.input(toolCallsListInput.default({})).query(async ({ ctx, input }) => {
+    if (input.canonicalToolTypes && input.canonicalToolTypes.length > 0) {
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message:
+          'canonicalToolTypes filter is not supported by the remote projection v0. File this with the prosa-search-export lane to extend the schema.',
+      })
+    }
+    if (input.pathSubstring) {
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message:
+          'pathSubstring filter is not supported by the remote projection v0. File this with the prosa-search-export lane to extend the schema.',
+      })
+    }
+
     const params: unknown[] = [ctx.tenantId]
     const clauses = [tenantVerifiedProjectionSql('s', 'session'), 't.tenant_id = $1']
     if (input.sessionId) {
@@ -54,7 +77,14 @@ export const toolCallsRouter = router({
       clauses.push(`t.status IN (${placeholders})`)
     }
     if (input.errorsOnly) {
-      clauses.push(`(t.status NOT IN ('ok','success','completed') OR r.status NOT IN ('ok','success','completed'))`)
+      // A row is an error when either the tool-call status or the tool-result
+      // status is non-success. NULL stays neutral.
+      clauses.push(
+        `(
+           (t.status IS NOT NULL AND t.status NOT IN ('ok','success','completed'))
+           OR (r.status IS NOT NULL AND r.status NOT IN ('ok','success','completed'))
+         )`,
+      )
     }
     if (input.sourceKinds && input.sourceKinds.length > 0) {
       const placeholders = input.sourceKinds.map((k) => appendParam(params, k)).join(', ')
@@ -69,27 +99,41 @@ export const toolCallsRouter = router({
       clauses.push(`t.created_at < ${param}`)
     }
 
-    const cursor = decodeCursor<{ at: string | null; id: string }>(input.cursor)
+    // CQ-005: cursor compares against the same ISO-formatted timestamp that
+    // is emitted into the cursor payload. The previous implementation
+    // compared an ISO cursor against Postgres's display format
+    // (`timestamptz::text`), which could silently skip rows at page
+    // boundaries when display differed from ISO.
+    const createdAtIso = `COALESCE(to_char(t.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'), '')`
+
+    const cursor = decodeCursor<{ at: string; id: string }>(input.cursor)
     if (cursor) {
-      const atParam = appendParam(params, cursor.at)
+      const atParam = appendParam(params, cursor.at ?? '')
       const idParam = appendParam(params, cursor.id)
-      clauses.push(
-        `(COALESCE(t.created_at::text, '') < ${atParam} OR (COALESCE(t.created_at::text, '') = ${atParam} AND t.id < ${idParam}))`,
-      )
+      clauses.push(`(${createdAtIso} < ${atParam} OR (${createdAtIso} = ${atParam} AND t.id < ${idParam}))`)
     }
     const limit = input.limit + 1
     const limitParam = appendParam(params, limit)
     const rows = await ctx.rawExec<ToolCallRow>(
-      `SELECT t.id, t.session_id, t.name, t.status, t.created_at, t.input_object_id,
-              s.source_kind, s.title AS session_title,
-              r.status AS result_status, r.finished_at, r.output_object_id
+      `SELECT t.id,
+              t.session_id,
+              t.name,
+              t.status,
+              ${createdAtIso} AS created_at_iso,
+              t.created_at AS created_at_raw,
+              t.input_object_id,
+              s.source_kind,
+              s.title AS session_title,
+              r.status AS result_status,
+              r.finished_at,
+              r.output_object_id
          FROM "projection_tool_call" t
          JOIN "projection_session" s
            ON s.tenant_id = t.tenant_id AND s.id = t.session_id
     LEFT JOIN "projection_tool_result" r
            ON r.tenant_id = t.tenant_id AND r.tool_call_id = t.id
         WHERE ${clauses.join(' AND ')}
-        ORDER BY COALESCE(t.created_at, '1970-01-01') DESC, t.id DESC
+        ORDER BY ${createdAtIso} DESC, t.id DESC
         LIMIT ${limitParam}`,
       params,
     )
@@ -99,7 +143,7 @@ export const toolCallsRouter = router({
     const nextCursor =
       overflow && last
         ? encodeCursor({
-            at: last.created_at ? new Date(last.created_at).toISOString() : '',
+            at: last.created_at_iso ?? '',
             id: last.id,
           })
         : null
@@ -126,11 +170,11 @@ export const toolCallsRouter = router({
         name: row.name,
         canonicalType: null,
         status: row.status,
-        startedAt: row.created_at,
+        startedAt: row.created_at_iso || row.created_at_raw,
         finishedAt: row.finished_at,
         durationMs:
-          row.created_at && row.finished_at
-            ? Math.max(0, Date.parse(row.finished_at) - Date.parse(row.created_at))
+          row.created_at_raw && row.finished_at
+            ? Math.max(0, Date.parse(row.finished_at) - Date.parse(row.created_at_raw))
             : null,
         inputObjectId: row.input_object_id,
         outputObjectId: row.output_object_id,

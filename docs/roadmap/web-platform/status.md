@@ -9,9 +9,9 @@ Completion signal: RALPH_DONE
 
 ## Current State
 
-Status: in-progress
+Status: correction
 Current lane: done (Codex final review pending)
-Current HEAD: `1820bd5`
+Current HEAD: `650a902`
 No-change streak: 0
 Ralph active: yes
 
@@ -32,7 +32,16 @@ Ralph active: yes
 
 | ID | Severity | Owner | Summary |
 | --- | --- | --- | --- |
-| | | | No open blocking corrections. |
+| CQ-001 | critical | Ralph | Browser E2E must prove the required console product flow. |
+| CQ-002 | high | Ralph | Public marketing routes must not require or probe the API. |
+| CQ-003 | critical | Ralph | Artifact/object reads must require verified promoted object provenance. |
+| CQ-004 | high | Ralph | Read API auxiliary rows must be verified or fail closed. |
+| CQ-005 | high | Ralph | Search and tool-call pagination/filters must be truthful. |
+| CQ-006 | high | Ralph | Remote analytics and CLI sessions must preserve parity contracts. |
+| CQ-007 | high | Ralph | Browser signup must not return bearer tokens to JavaScript. |
+| CQ-008 | medium | Ralph | Object routes must not expose raw storage keys. |
+| CQ-009 | medium | Ralph | Artifact preview must cap decoded bytes before full decompression. |
+| CQ-010 | medium | Ralph | Lane 07 web/API tests must cover search, analytics, tools, and artifacts. |
 
 ## Latest Gates
 
@@ -59,6 +68,9 @@ Ralph active: yes
 | Codex monitor check | observed | 2026-05-15T19:27Z: lane 05 committed; Ralph active on iteration 5, lane 06 started. |
 | Codex monitor check | observed | 2026-05-15T19:33Z: lane 06 committed; Ralph active on iteration 6, lane 07 started. |
 | Codex monitor check | observed | 2026-05-15T19:39Z: lane 07 committed; Ralph active on iteration 7, lane 08 started. Reviewer subagents launched. |
+| Codex reviewer steering | blocking | 2026-05-15T19:40Z: reviewer findings opened CQ-001 through CQ-010. |
+| Codex monitor check | observed | 2026-05-15T19:47Z: Ralph has uncommitted correction work in auth, object/artifact reads, search/tool-calls, and web auth scoping. |
+| Codex monitor check | observed | 2026-05-15T19:52Z: correction work still uncommitted; new API correction tests present. |
 
 Pending (run later when lane scope reaches them):
 
@@ -89,3 +101,5 @@ Pending (run later when lane scope reaches them):
   built `dist/index.d.ts` (not raw API source) to keep the web TS program
   small and decoupled from server-only types.
 - 2026-05-15T18:56:31Z: Codex monitor switched to the requested 5-minute loop.
+- 2026-05-15T19:40Z: Reviewer findings are blocking; Ralph must resolve the
+  correction queue before `RALPH_DONE`.

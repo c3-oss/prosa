@@ -5,6 +5,11 @@ You are implementing `<feature name>` in this repository.
 Codex is acting as architect and gatekeeper. It may update correction and gate
 files while you work. Treat those files as blocking input.
 
+Codex will actively review your code with focused subagents and steer this run
+through `correction-queue.md`, `gates.md`, and updates to this prompt. Those
+review findings are part of the implementation contract, not optional advice.
+Expect Codex to reject `RALPH_DONE` if subagent findings remain open.
+
 ## Read First
 
 - AGENTS.md
@@ -29,6 +34,8 @@ At the start of each iteration:
 
 - inspect `git status --short --branch`;
 - identify the first incomplete lane or open correction;
+- reread `correction-queue.md` and treat every `Blocking: yes` correction as
+  higher priority than new feature work;
 - continue from there without restarting completed work;
 - preserve user changes and unrelated agent changes;
 - do not touch generated directories by hand.
@@ -47,6 +54,8 @@ Keep these files current:
 - Follow local repo conventions.
 - Commit coherent lane/correction changes.
 - Add or update tests with each meaningful behavior change.
+- Close reviewer findings with code, tests, and evidence; do not mark a
+  correction closed because the implementation "looks right".
 - Do not leave destructive behavior guarded only by optimistic assumptions.
 - If a command cannot run, document the blocker and add a reproducible fallback
   when possible.

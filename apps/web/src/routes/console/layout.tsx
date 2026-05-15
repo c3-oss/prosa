@@ -3,6 +3,7 @@ import { Link, Outlet, useLocation, useNavigate } from '@tanstack/react-router'
 import { useEffect } from 'react'
 
 import { useAuth } from '~/app/auth-context.js'
+import { AuthSurface } from '~/app/auth-surface.js'
 import { useAppContext } from '~/app/providers.js'
 import { TenantSwitcher } from '~/components/console/tenant-switcher.js'
 import { Button } from '~/components/primitives/button.js'
@@ -16,6 +17,14 @@ const navItems = [
 ] as const
 
 export function ConsoleLayout() {
+  return (
+    <AuthSurface>
+      <ConsoleLayoutBody />
+    </AuthSurface>
+  )
+}
+
+function ConsoleLayoutBody() {
   const location = useLocation()
   const navigate = useNavigate()
   const { auth, setTenantId } = useAppContext()

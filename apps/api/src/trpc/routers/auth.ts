@@ -332,8 +332,33 @@ export const authRouter = router({
             })
       }
 
+      // CQ-007: browser callers must not receive a bearer token in the
+      // response body. Better Auth already sets the session cookie via
+      // the upstream `Set-Cookie` header (forwarded through the API auth
+      // catchall) so the browser is authenticated with HTTP-only cookies
+      // only. CLI/device callers still receive the token because their
+      // Origin header is the API origin (or absent for curl/SDK).
+      const originHeader = ctx.req.headers.origin
+      const requestOrigin = Array.isArray(originHeader) ? originHeader[0] : originHeader
+      const isBrowserOrigin =
+        typeof requestOrigin === 'string' &&
+        requestOrigin.length > 0 &&
+        requestOrigin !== ctx.config.apiUrl &&
+        ctx.config.webOrigins.includes(requestOrigin)
+
+      // Forward Better Auth's Set-Cookie so the browser receives the
+      // session cookie inline with the signup response.
+      const setCookieHeader = responseHeaders.get('set-cookie')
+      if (setCookieHeader) {
+        const reply = ctx.res
+        // Fastify uses .header / .setHeader depending on plugin layout.
+        if (typeof (reply as { header?: (name: string, value: string) => void }).header === 'function') {
+          ;(reply as { header: (name: string, value: string) => void }).header('set-cookie', setCookieHeader)
+        }
+      }
+
       return {
-        token: sessionToken,
+        ...(isBrowserOrigin ? {} : { token: sessionToken }),
         user,
         tenant: { id: created.id, name: created.name, slug: created.slug ?? null },
       }

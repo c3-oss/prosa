@@ -1,6 +1,5 @@
-import { Readable } from 'node:stream'
-import { buffer as bufferStream } from 'node:stream/consumers'
-import { asyncIterableToUint8Array } from '@c3-oss/prosa-storage'
+import { Readable, Writable } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { DecompressStream } from 'zstd-napi'
@@ -22,6 +21,13 @@ type ResolveResult = {
   compression: string
   contentType: string | null
   artifactId: string | null
+  /**
+   * True when the resolution path proved verified object provenance (a
+   * `verified` sync_batch_object_manifest entry exists for this object).
+   * Lane 08 CQ-003 requires verified object provenance, not just tenant
+   * ownership, before bytes are returned.
+   */
+  objectVerified: boolean
 }
 
 async function resolveArtifact(
@@ -29,7 +35,11 @@ async function resolveArtifact(
   input: z.infer<typeof artifactInput>,
 ): Promise<ResolveResult | null> {
   if (input.artifactId) {
-    // Tenant ownership is enforced by the projection row + verified manifest.
+    // CQ-003: require both verified projection ownership AND verified object
+    // provenance. The artifact row must belong to a verified-promoted session
+    // for this tenant AND the referenced object must be granted to this
+    // tenant AND that object must be declared by a verified batch's object
+    // manifest.
     const rows = await ctx.rawExec<{
       id: string
       object_id: string | null
@@ -43,12 +53,19 @@ async function resolveArtifact(
               o.compression,
               o.content_type
          FROM "projection_artifact" a
+         JOIN "tenant_object" tx
+           ON tx.tenant_id = a.tenant_id AND tx.object_id = a.object_id
     LEFT JOIN "remote_object" o ON o.object_id = a.object_id
         WHERE a.tenant_id = $1 AND a.id = $2
           AND EXISTS (
             SELECT 1 FROM "sync_batch_projection_manifest" m
             JOIN "sync_batch" b ON b.id = m.batch_id AND b.status = 'verified'
             WHERE m.tenant_id = a.tenant_id AND m.entity_type = 'session' AND m.entity_id = a.session_id
+          )
+          AND EXISTS (
+            SELECT 1 FROM "sync_batch_object_manifest" om
+            JOIN "sync_batch" b2 ON b2.id = om.batch_id AND b2.status = 'verified'
+            WHERE om.tenant_id = a.tenant_id AND om.object_id = a.object_id
           )
         LIMIT 1`,
       [ctx.tenantId, input.artifactId],
@@ -61,11 +78,14 @@ async function resolveArtifact(
       compression: row.compression ?? 'zstd',
       contentType: row.content_type,
       artifactId: row.id,
+      objectVerified: true,
     }
   }
   if (input.objectId) {
-    // For raw object refs we still require the object to be referenced by
-    // verified projection data for this tenant — via tenant_object ref count.
+    // CQ-003: for raw object refs the object must (1) be granted to this
+    // tenant via tenant_object AND (2) have been declared+verified by a
+    // promoted batch's object manifest. Committed-but-unverified objects
+    // are never readable.
     const rows = await ctx.rawExec<{
       object_id: string
       storage_key: string
@@ -76,6 +96,11 @@ async function resolveArtifact(
          FROM "tenant_object" tx
          JOIN "remote_object" o ON o.object_id = tx.object_id
         WHERE tx.tenant_id = $1 AND tx.object_id = $2
+          AND EXISTS (
+            SELECT 1 FROM "sync_batch_object_manifest" om
+            JOIN "sync_batch" b ON b.id = om.batch_id AND b.status = 'verified'
+            WHERE om.tenant_id = tx.tenant_id AND om.object_id = tx.object_id
+          )
         LIMIT 1`,
       [ctx.tenantId, input.objectId],
     )
@@ -87,14 +112,92 @@ async function resolveArtifact(
       compression: row.compression,
       contentType: row.content_type,
       artifactId: null,
+      objectVerified: true,
     }
   }
   return null
 }
 
-async function decompressZstd(input: Uint8Array): Promise<Uint8Array> {
-  const decompressed = await bufferStream(Readable.from([Buffer.from(input)]).pipe(new DecompressStream()))
-  return new Uint8Array(decompressed)
+class DecodeCap {
+  private capPlusOne: number
+  private collected = 0
+  private chunks: Buffer[] = []
+  constructor(maxBytes: number) {
+    this.capPlusOne = maxBytes + 1
+  }
+
+  /** Append a chunk and return true if the cap was exceeded. */
+  push(chunk: Buffer): boolean {
+    if (this.collected >= this.capPlusOne) return true
+    const need = this.capPlusOne - this.collected
+    const slice = chunk.byteLength > need ? chunk.subarray(0, need) : chunk
+    this.chunks.push(slice)
+    this.collected += slice.byteLength
+    return this.collected >= this.capPlusOne
+  }
+
+  /** Returns the bytes collected so far, up to capPlusOne. */
+  finish(): Buffer {
+    return Buffer.concat(this.chunks, this.collected)
+  }
+
+  exceededCap(maxBytes: number): boolean {
+    return this.collected > maxBytes
+  }
+}
+
+/**
+ * CQ-009: decompress only as many bytes as the preview cap requires. Once
+ * `maxBytes + 1` decoded bytes have been collected we stop pulling from the
+ * underlying stream and tear it down.
+ */
+async function decompressZstdBounded(
+  raw: AsyncIterable<Uint8Array>,
+  maxBytes: number,
+): Promise<{ decoded: Buffer; truncated: boolean }> {
+  const decompressor = new DecompressStream()
+  const cap = new DecodeCap(maxBytes)
+  const sink = new Writable({
+    write(chunk: Buffer | string, _enc, cb) {
+      const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+      const stop = cap.push(buf)
+      if (stop) {
+        // Signal end-of-pipeline via an error the caller silences below.
+        cb(new BoundedDecodeStop())
+        return
+      }
+      cb()
+    },
+  })
+  try {
+    await pipeline(Readable.from(raw), decompressor, sink)
+  } catch (err) {
+    if (!(err instanceof BoundedDecodeStop)) throw err
+  }
+  const exceeded = cap.exceededCap(maxBytes)
+  const collected = cap.finish()
+  const trimmed = exceeded ? collected.subarray(0, maxBytes) : collected
+  return { decoded: trimmed, truncated: exceeded }
+}
+
+class BoundedDecodeStop extends Error {
+  override readonly name = 'BoundedDecodeStop'
+}
+
+/** Read raw bytes (no compression) up to maxBytes+1 from the stream. */
+async function readRawBounded(
+  raw: AsyncIterable<Uint8Array>,
+  maxBytes: number,
+): Promise<{ decoded: Buffer; truncated: boolean }> {
+  const cap = new DecodeCap(maxBytes)
+  for await (const chunk of raw) {
+    const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+    if (cap.push(buf)) break
+  }
+  const exceeded = cap.exceededCap(maxBytes)
+  const collected = cap.finish()
+  const trimmed = exceeded ? collected.subarray(0, maxBytes) : collected
+  return { decoded: trimmed, truncated: exceeded }
 }
 
 function looksLikeText(contentType: string | null, decoded: Uint8Array): boolean {
@@ -121,18 +224,18 @@ export const artifactsRouter = router({
     const stream = await ctx.objectStore.get(resolved.storageKey)
     const asyncIter: AsyncIterable<Uint8Array> =
       Symbol.asyncIterator in stream ? (stream as unknown as AsyncIterable<Uint8Array>) : streamToAsyncIterable(stream)
-    const rawBytes = await asyncIterableToUint8Array(asyncIter)
-    const decoded = resolved.compression === 'zstd' ? await decompressZstd(rawBytes) : rawBytes
-    const truncated = decoded.byteLength > input.maxBytes
-    const trimmed = truncated ? decoded.subarray(0, input.maxBytes) : decoded
-    const textLike = looksLikeText(resolved.contentType, trimmed)
+    const { decoded, truncated } =
+      resolved.compression === 'zstd'
+        ? await decompressZstdBounded(asyncIter, input.maxBytes)
+        : await readRawBounded(asyncIter, input.maxBytes)
+    const textLike = looksLikeText(resolved.contentType, decoded)
     return {
       id: resolved.artifactId ?? resolved.objectId,
       objectId: resolved.objectId,
       contentType: resolved.contentType,
-      bytesReturned: trimmed.byteLength,
+      bytesReturned: decoded.byteLength,
       truncated,
-      text: textLike ? Buffer.from(trimmed).toString('utf8') : '',
+      text: textLike ? decoded.toString('utf8') : '',
       kind: textLike ? ('text' as const) : ('binary' as const),
     }
   }),

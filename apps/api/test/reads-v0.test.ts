@@ -303,14 +303,15 @@ describe('Read API v0', () => {
       }
 
       // The 'tools' report must surface the two distinct tool names.
+      // CQ-006: keys are camelCase.
       const tools = await trpc(t, 'analytics.report', { report: 'tools' }, auth.token, 'GET')
-      const toolsData = (tools.json() as { result: { data: { rows: Array<{ tool_name: string }> } } }).result.data
-      expect(toolsData.rows.map((r) => r.tool_name).sort()).toEqual(['fs.write', 'shell.exec'])
+      const toolsData = (tools.json() as { result: { data: { rows: Array<{ toolName: string }> } } }).result.data
+      expect(toolsData.rows.map((r) => r.toolName).sort()).toEqual(['fs.write', 'shell.exec'])
 
       // The 'errors' report should contain tc-2 only.
       const errors = await trpc(t, 'analytics.report', { report: 'errors' }, auth.token, 'GET')
-      const errorsData = (errors.json() as { result: { data: { rows: Array<{ tool_call_id: string }> } } }).result.data
-      expect(errorsData.rows.map((r) => r.tool_call_id)).toEqual(['tc-2'])
+      const errorsData = (errors.json() as { result: { data: { rows: Array<{ toolCallId: string }> } } }).result.data
+      expect(errorsData.rows.map((r) => r.toolCallId)).toEqual(['tc-2'])
     } finally {
       await t.close()
     }

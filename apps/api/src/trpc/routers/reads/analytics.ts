@@ -33,6 +33,21 @@ function applyTimeAndSource(
   return clauses.length > 0 ? ` AND ${clauses.join(' AND ')}` : ''
 }
 
+/**
+ * CQ-006: rename snake_case projection columns to camelCase for web/API
+ * consumers. The five reports keep the existing semantics (rows + columns
+ * match the prosa analytics CLI surface) but the keys are stable JS-friendly
+ * identifiers.
+ */
+function camelize<T extends Record<string, unknown>>(row: T): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(row)) {
+    const next = key.replace(/_([a-z])/g, (_match, ch: string) => ch.toUpperCase())
+    out[next] = value
+  }
+  return out
+}
+
 export const analyticsRouter = router({
   /** Lightweight dashboard summary, retained from the prior surface. */
   summary: tenantProcedure.query(async ({ ctx }) => {
@@ -90,7 +105,7 @@ export const analyticsRouter = router({
             LIMIT ${limitParam}`,
           params,
         )
-        return { report: 'sessions', rows, generatedAt }
+        return { report: 'sessions', rows: rows.map(camelize), generatedAt }
       }
       case 'tools': {
         const rows = await ctx.rawExec<Record<string, unknown>>(
@@ -109,7 +124,7 @@ export const analyticsRouter = router({
             LIMIT ${limitParam}`,
           params,
         )
-        return { report: 'tools', rows, generatedAt }
+        return { report: 'tools', rows: rows.map(camelize), generatedAt }
       }
       case 'errors': {
         const rows = await ctx.rawExec<Record<string, unknown>>(
@@ -132,7 +147,7 @@ export const analyticsRouter = router({
             LIMIT ${limitParam}`,
           params,
         )
-        return { report: 'errors', rows, generatedAt }
+        return { report: 'errors', rows: rows.map(camelize), generatedAt }
       }
       case 'models': {
         const rows = await ctx.rawExec<Record<string, unknown>>(
@@ -149,7 +164,7 @@ export const analyticsRouter = router({
             LIMIT ${limitParam}`,
           params,
         )
-        return { report: 'models', rows, generatedAt }
+        return { report: 'models', rows: rows.map(camelize), generatedAt }
       }
       case 'projects': {
         const rows = await ctx.rawExec<Record<string, unknown>>(
@@ -166,7 +181,7 @@ export const analyticsRouter = router({
             LIMIT ${limitParam}`,
           params,
         )
-        return { report: 'projects', rows, generatedAt }
+        return { report: 'projects', rows: rows.map(camelize), generatedAt }
       }
     }
   }),

@@ -420,9 +420,9 @@ export async function registerObjectRoutes(app: FastifyInstance, deps: ObjectRou
         await recordObjectUpload(deps, upload, put)
 
         reply.code(put.alreadyExisted ? 200 : 201)
+        // CQ-008: only return public identifiers — never the raw storage key.
         return {
           objectId: upload.objectId,
-          storageKey: upload.storageKey,
           alreadyExisted: put.alreadyExisted,
         }
       } catch (err) {

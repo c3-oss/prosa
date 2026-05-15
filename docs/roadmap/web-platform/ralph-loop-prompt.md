@@ -10,6 +10,8 @@ Codex is actively reviewing this implementation with focused subagents. Reviewer
 findings in `correction-queue.md` are blocking steering input, not optional
 notes. Close every blocking correction with code, tests, and evidence before
 continuing new feature work or declaring `RALPH_DONE`.
+Codex will reject `RALPH_DONE` while any subagent finding remains open or lacks
+test/gate evidence.
 
 ## Read First
 

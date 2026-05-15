@@ -65,6 +65,11 @@ export function authCommand(): Command {
         tenantName: options.tenant,
         ...(options.tenantSlug ? { tenantSlug: options.tenantSlug } : {}),
       })
+      if (!result.token) {
+        throw new Error(
+          'signup did not return a CLI bearer token. Browser flows use cookies; for the CLI ensure the API is reachable from the CLI origin and `PROSA_WEB_ORIGIN` does not include it.',
+        )
+      }
       client.token = result.token
       const tokenExpiresAt = await fetchTokenExpiresAt(client)
       const configPath = resolveConfigPath(cmd.opts<AuthOptions>())

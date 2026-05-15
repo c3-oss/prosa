@@ -82,7 +82,12 @@ export class ProsaApiClient {
     tenantSlug?: string
   }) {
     return this.trpcMutation<{
-      token: string
+      /**
+       * Token is present when the caller is the CLI / API-origin client.
+       * Browser-origin callers receive the cookie-only response (CQ-007)
+       * and no token reaches JavaScript.
+       */
+      token?: string
       user: { id: string; email: string; name: string }
       tenant: { id: string; name: string; slug: string | null }
     }>('auth.signupWithTenant', input)
