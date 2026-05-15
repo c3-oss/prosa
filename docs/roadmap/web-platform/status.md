@@ -11,7 +11,7 @@ Completion signal: RALPH_DONE
 
 Status: in-progress
 Current lane: 07 (next)
-Current HEAD: pending commit for lane 06
+Current HEAD: `cab9939`
 No-change streak: 0
 Ralph active: yes
 
@@ -24,7 +24,7 @@ Ralph active: yes
 | 03 Browser auth and tenancy | Ralph | complete | `3f39de8` | evidence/lane-03.md |
 | 04 Read API v0 | Ralph | complete | `86f10fa` | evidence/lane-04.md |
 | 05 Console shell and sessions | Ralph | complete | `e83027b` | evidence/lane-05.md |
-| 06 Session detail timeline | Ralph | complete | pending | evidence/lane-06.md |
+| 06 Session detail timeline | Ralph | complete | `cab9939` | evidence/lane-06.md |
 | 07 Search, analytics, and artifacts | Ralph | open | | evidence/lane-07.md |
 | 08 Production readiness | Ralph | open | | evidence/lane-08.md |
 
