@@ -6,7 +6,11 @@
     "baseUrl": ".",
     "paths": {
       "~/*": ["./src/*"],
-      "@c3-oss/prosa-core": ["../../packages/prosa-core/src/index.ts"]
+      "@c3-oss/prosa-core": ["../../packages/prosa-core/src/index.ts"],
+      "@c3-oss/prosa-sync": ["../../packages/prosa-sync/src/index.ts"],
+      "@c3-oss/prosa-api": ["../api/src/index.ts"],
+      "@c3-oss/prosa-db": ["../../packages/prosa-db/src/index.ts"],
+      "@c3-oss/prosa-storage": ["../../packages/prosa-storage/src/index.ts"]
     }
   },
   "include": ["src/**/*.ts", "src/**/*.tsx"],

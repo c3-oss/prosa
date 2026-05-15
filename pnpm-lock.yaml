@@ -146,6 +146,9 @@ importers:
       '@c3-oss/prosa-core':
         specifier: workspace:^
         version: link:../../packages/prosa-core
+      '@c3-oss/prosa-sync':
+        specifier: workspace:^
+        version: link:../../packages/prosa-sync
       commander:
         specifier: ^12.1.0
         version: 12.1.0
@@ -174,6 +177,18 @@ importers:
       '@c3-oss/config-vitest':
         specifier: ^0.3.0
         version: 0.3.0(vitest@2.1.9(@types/node@22.19.17)(terser@5.47.1))
+      '@c3-oss/prosa-api':
+        specifier: workspace:^
+        version: link:../api
+      '@c3-oss/prosa-db':
+        specifier: workspace:^
+        version: link:../../packages/prosa-db
+      '@c3-oss/prosa-storage':
+        specifier: workspace:^
+        version: link:../../packages/prosa-storage
+      '@electric-sql/pglite':
+        specifier: ^0.4.5
+        version: 0.4.5
       '@types/better-sqlite3':
         specifier: ^7.6.12
         version: 7.6.13
