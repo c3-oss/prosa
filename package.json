@@ -20,7 +20,7 @@
   "scripts": {
     "dev": "pnpm --filter @c3-oss/prosa dev",
     "dev:all": "turbo dev --parallel",
-    "build": "pnpm --filter @c3-oss/prosa-core build && pnpm --filter @c3-oss/prosa build",
+    "build": "turbo build",
     "lint": "turbo lint",
     "lint:fix": "turbo lint:fix",
     "format": "biome format --write .",
