@@ -3,7 +3,7 @@
 Lane: 04 Read API v0
 Status: complete
 Owner: Ralph
-Commit range: pending — see `status.md` for commit hash
+Commit range: `86f10fa`
 
 ## Acceptance Criteria
 
