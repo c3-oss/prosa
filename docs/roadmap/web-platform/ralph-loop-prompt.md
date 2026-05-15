@@ -6,6 +6,11 @@ Codex is acting as architect and gatekeeper. It may update correction and gate
 files while you work. Treat those files as blocking input. Ralph/Claude executes
 implementation; Ralph must not be the final judge of Done.
 
+Codex is actively reviewing this implementation with focused subagents. Reviewer
+findings in `correction-queue.md` are blocking steering input, not optional
+notes. Close every blocking correction with code, tests, and evidence before
+continuing new feature work or declaring `RALPH_DONE`.
+
 ## Read First
 
 - AGENTS.md
@@ -120,6 +125,7 @@ At the start of each iteration:
 - inspect `git status --short --branch`;
 - read `docs/roadmap/web-platform/status.md`;
 - read `docs/roadmap/web-platform/correction-queue.md`;
+- prioritize every open `Blocking: yes` correction over new lane work;
 - identify the first incomplete lane or open blocking correction;
 - continue from there without restarting completed work;
 - preserve user changes and unrelated agent changes;

@@ -3,7 +3,7 @@
 Lane: 08 Production readiness
 Status: complete
 Owner: Ralph
-Commit range: pending — see `status.md` for commit hash
+Commit range: `1820bd5`
 
 ## Acceptance Criteria
 

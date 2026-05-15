@@ -11,7 +11,7 @@ Completion signal: RALPH_DONE
 
 Status: in-progress
 Current lane: done (Codex final review pending)
-Current HEAD: pending commit for lane 08
+Current HEAD: `1820bd5`
 No-change streak: 0
 Ralph active: yes
 
@@ -26,7 +26,7 @@ Ralph active: yes
 | 05 Console shell and sessions | Ralph | complete | `e83027b` | evidence/lane-05.md |
 | 06 Session detail timeline | Ralph | complete | `cab9939` | evidence/lane-06.md |
 | 07 Search, analytics, and artifacts | Ralph | complete | `3a94f9d` | evidence/lane-07.md |
-| 08 Production readiness | Ralph | complete | pending | evidence/lane-08.md |
+| 08 Production readiness | Ralph | complete | `1820bd5` | evidence/lane-08.md |
 
 ## Open Blocking Corrections
 
