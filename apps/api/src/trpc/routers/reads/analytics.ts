@@ -1,3 +1,4 @@
+import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { router, tenantProcedure } from '../../init.js'
 import { appendParam, sourceFilter, tenantVerifiedProjectionSql, timeRangeFilter } from './shared.js'
@@ -35,9 +36,9 @@ function applyTimeAndSource(
 
 /**
  * CQ-006: rename snake_case projection columns to camelCase for web/API
- * consumers. The five reports keep the existing semantics (rows + columns
- * match the prosa analytics CLI surface) but the keys are stable JS-friendly
- * identifiers.
+ * consumers. The remaining `sessions` and `projects` reports keep the
+ * existing semantics (rows + columns match the prosa analytics CLI surface)
+ * but the keys are stable JS-friendly identifiers.
  */
 function camelize<T extends Record<string, unknown>>(row: T): Record<string, unknown> {
   const out: Record<string, unknown> = {}
@@ -83,106 +84,62 @@ export const analyticsRouter = router({
 
   report: tenantProcedure.input(analyticsReportInput).query(async ({ ctx, input }) => {
     const generatedAt = new Date().toISOString()
+
+    // CQ-004 + CQ-006: tools / errors / models reports join auxiliary
+    // projection tables (`projection_tool_call`, `projection_tool_result`,
+    // `projection_message`) whose rows have no row-level verified
+    // provenance in v0. Until the promotion manifest grows those entity
+    // types, those three reports fail closed so the API never surfaces
+    // unverified auxiliary rows. The `sessions` and `projects` reports
+    // continue to operate against the verified-projection-gated
+    // `projection_session` rows only.
+    if (input.report === 'tools' || input.report === 'errors' || input.report === 'models') {
+      throw new TRPCError({
+        code: 'NOT_IMPLEMENTED',
+        message: `analytics.report "${input.report}" requires verified auxiliary projection rows. Remote v0 fails closed; use the CLI/local analytics until promotion-manifest entity types are extended.`,
+      })
+    }
+
     const params: unknown[] = [ctx.tenantId]
     const filter = applyTimeAndSource('p', params, input)
     const limitParam = appendParam(params, input.limit)
 
-    switch (input.report) {
-      case 'sessions': {
-        const rows = await ctx.rawExec<Record<string, unknown>>(
-          `SELECT p.id AS session_id,
-                  p.source_kind,
-                  p.project_id,
-                  p.title,
-                  p.started_at,
-                  p.ended_at,
-                  EXTRACT(EPOCH FROM (p.ended_at - p.started_at)) * 1000 AS duration_ms,
-                  (SELECT count(*)::int FROM "projection_message" m WHERE m.tenant_id = p.tenant_id AND m.session_id = p.id) AS message_count,
-                  (SELECT count(*)::int FROM "projection_tool_call" t WHERE t.tenant_id = p.tenant_id AND t.session_id = p.id) AS tool_call_count
-             FROM "projection_session" p
-            WHERE ${tenantVerifiedProjectionSql('p', 'session')}${filter}
-            ORDER BY p.started_at DESC NULLS LAST, p.id DESC
-            LIMIT ${limitParam}`,
-          params,
-        )
-        return { report: 'sessions', rows: rows.map(camelize), generatedAt }
-      }
-      case 'tools': {
-        const rows = await ctx.rawExec<Record<string, unknown>>(
-          `SELECT t.name AS tool_name,
-                  count(*)::int AS call_count,
-                  count(*) FILTER (WHERE r.status IS NOT NULL AND r.status NOT IN ('ok','success','completed'))::int AS error_count,
-                  count(DISTINCT t.session_id)::int AS session_count
-             FROM "projection_tool_call" t
-             JOIN "projection_session" p
-               ON p.tenant_id = t.tenant_id AND p.id = t.session_id
-        LEFT JOIN "projection_tool_result" r
-               ON r.tenant_id = t.tenant_id AND r.tool_call_id = t.id
-            WHERE t.tenant_id = $1 AND ${tenantVerifiedProjectionSql('p', 'session')}${filter}
-            GROUP BY t.name
-            ORDER BY call_count DESC, tool_name ASC
-            LIMIT ${limitParam}`,
-          params,
-        )
-        return { report: 'tools', rows: rows.map(camelize), generatedAt }
-      }
-      case 'errors': {
-        const rows = await ctx.rawExec<Record<string, unknown>>(
-          `SELECT t.session_id,
-                  t.id AS tool_call_id,
-                  t.name AS tool_name,
-                  r.status AS result_status,
-                  r.finished_at,
-                  p.source_kind,
-                  p.title AS session_title
-             FROM "projection_tool_result" r
-             JOIN "projection_tool_call" t
-               ON t.tenant_id = r.tenant_id AND t.id = r.tool_call_id
-             JOIN "projection_session" p
-               ON p.tenant_id = t.tenant_id AND p.id = t.session_id
-            WHERE r.tenant_id = $1
-              AND r.status IS NOT NULL AND r.status NOT IN ('ok','success','completed')
-              AND ${tenantVerifiedProjectionSql('p', 'session')}${filter}
-            ORDER BY r.finished_at DESC NULLS LAST, r.tool_call_id DESC
-            LIMIT ${limitParam}`,
-          params,
-        )
-        return { report: 'errors', rows: rows.map(camelize), generatedAt }
-      }
-      case 'models': {
-        const rows = await ctx.rawExec<Record<string, unknown>>(
-          `SELECT COALESCE(m.model, 'unknown') AS model,
-                  count(*)::int AS message_count,
-                  count(DISTINCT m.session_id)::int AS session_count
-             FROM "projection_message" m
-             JOIN "projection_session" p
-               ON p.tenant_id = m.tenant_id AND p.id = m.session_id
-            WHERE m.tenant_id = $1
-              AND ${tenantVerifiedProjectionSql('p', 'session')}${filter}
-            GROUP BY model
-            ORDER BY message_count DESC, model ASC
-            LIMIT ${limitParam}`,
-          params,
-        )
-        return { report: 'models', rows: rows.map(camelize), generatedAt }
-      }
-      case 'projects': {
-        const rows = await ctx.rawExec<Record<string, unknown>>(
-          `SELECT COALESCE(pr.id, p.project_id, 'unassigned') AS project_id,
-                  COALESCE(pr.name, p.project_id, 'unassigned') AS project_name,
-                  count(p.id)::int AS session_count,
-                  max(p.started_at) AS latest_session_at
-             FROM "projection_session" p
-        LEFT JOIN "project" pr
-               ON pr.tenant_id = p.tenant_id AND pr.id = p.project_id
-            WHERE ${tenantVerifiedProjectionSql('p', 'session')}${filter}
-            GROUP BY 1, 2
-            ORDER BY session_count DESC, project_name ASC
-            LIMIT ${limitParam}`,
-          params,
-        )
-        return { report: 'projects', rows: rows.map(camelize), generatedAt }
-      }
+    if (input.report === 'sessions') {
+      const rows = await ctx.rawExec<Record<string, unknown>>(
+        `SELECT p.id AS session_id,
+                p.source_kind,
+                p.project_id,
+                p.title,
+                to_char(p.started_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS started_at,
+                to_char(p.ended_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS ended_at,
+                CASE WHEN p.started_at IS NULL OR p.ended_at IS NULL THEN NULL
+                     ELSE (EXTRACT(EPOCH FROM (p.ended_at - p.started_at)) * 1000)::int
+                END AS duration_ms,
+                p.turn_count
+           FROM "projection_session" p
+          WHERE ${tenantVerifiedProjectionSql('p', 'session')}${filter}
+          ORDER BY p.started_at DESC NULLS LAST, p.id DESC
+          LIMIT ${limitParam}`,
+        params,
+      )
+      return { report: 'sessions', rows: rows.map(camelize), generatedAt }
     }
+
+    // input.report === 'projects'
+    const rows = await ctx.rawExec<Record<string, unknown>>(
+      `SELECT COALESCE(pr.id, p.project_id, 'unassigned') AS project_id,
+              COALESCE(pr.name, p.project_id, 'unassigned') AS project_name,
+              count(p.id)::int AS session_count,
+              to_char(max(p.started_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS latest_session_at
+         FROM "projection_session" p
+    LEFT JOIN "project" pr
+           ON pr.tenant_id = p.tenant_id AND pr.id = p.project_id
+        WHERE ${tenantVerifiedProjectionSql('p', 'session')}${filter}
+        GROUP BY 1, 2
+        ORDER BY session_count DESC, project_name ASC
+        LIMIT ${limitParam}`,
+      params,
+    )
+    return { report: 'projects', rows: rows.map(camelize), generatedAt }
   }),
 })

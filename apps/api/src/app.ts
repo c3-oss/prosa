@@ -82,6 +82,33 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
       })
       reply.status(response.status)
       const responseBody = response.body ? await response.text() : ''
+
+      // CQ-007: strip bearer tokens from Better Auth responses when the
+      // caller is a browser origin. The HTTP-only session cookie set above
+      // is the only credential the browser needs. CLI/device callers (no
+      // Origin header or Origin == apiUrl) continue to receive the token.
+      const originHeader = request.headers.origin
+      const requestOrigin = Array.isArray(originHeader) ? originHeader[0] : originHeader
+      const isBrowserOrigin =
+        typeof requestOrigin === 'string' &&
+        requestOrigin.length > 0 &&
+        requestOrigin !== opts.config.apiUrl &&
+        opts.config.webOrigins.includes(requestOrigin)
+      if (isBrowserOrigin && responseBody.length > 0) {
+        try {
+          const parsed = JSON.parse(responseBody) as Record<string, unknown>
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && 'token' in parsed) {
+            const { token: _stripped, ...rest } = parsed as { token?: unknown } & Record<string, unknown>
+            const sanitized = JSON.stringify(rest)
+            // Update Content-Length so chunked clients do not stall.
+            reply.header('content-length', Buffer.byteLength(sanitized).toString())
+            return reply.send(sanitized)
+          }
+        } catch {
+          // Body is not JSON (HTML / text) — pass through unchanged.
+        }
+      }
+
       return reply.send(responseBody)
     },
   })

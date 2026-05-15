@@ -97,21 +97,25 @@ describe('CQ-009 — artifact preview must cap decoded bytes before full decompr
   })
 })
 
-describe('CQ-005 — search filters must fail closed when unsupported', () => {
-  it('rejects role / tool / canonical-tool / errors-only / raw-mode filters', async () => {
+describe('CQ-005 — remote search v0 fails closed', () => {
+  it('search.query is unavailable in remote v0 regardless of filters', async () => {
     const t = await buildTestApp()
     try {
       const auth = await signup(t, 'cq005-search@example.com')
-      const unsupportedInputs: Array<Record<string, unknown>> = [
+      // Whether the caller passes "claimed-supported" filters or not, the
+      // procedure fails closed with 501 NOT_IMPLEMENTED because the
+      // projection lacks FTS columns.
+      const inputs: Array<Record<string, unknown>> = [
+        { q: 'x' },
         { q: 'x', roles: ['user'] },
         { q: 'x', toolNames: ['shell.exec'] },
         { q: 'x', canonicalToolTypes: ['shell'] },
         { q: 'x', errorsOnly: true },
         { q: 'x', mode: 'raw' },
       ]
-      for (const input of unsupportedInputs) {
+      for (const input of inputs) {
         const resp = await trpcGet(t, 'search.query', input, auth.token!)
-        expect(resp.statusCode).toBe(400)
+        expect(resp.statusCode).toBe(501)
       }
     } finally {
       await t.close()

@@ -178,9 +178,11 @@ describe('Read API v0', () => {
       expect(data.nextCursor).toBeNull()
 
       const codexRow = data.rows.find((r) => r.id === 'sess-codex-1')
-      expect(codexRow?.messageCount).toBe(2)
-      expect(codexRow?.toolCallCount).toBe(2)
-      expect(codexRow?.errorCount).toBe(1)
+      // CQ-004: aggregate auxiliary counts are always 0 in v0 because the
+      // auxiliary projection tables have no row-level verified provenance.
+      expect(codexRow?.messageCount).toBe(0)
+      expect(codexRow?.toolCallCount).toBe(0)
+      expect(codexRow?.errorCount).toBe(0)
 
       // Cursor pagination: limit=1 yields a cursor, second page completes the set.
       const page1 = await trpc(t, 'sessions.list', { limit: 1 }, auth.token, 'GET')
@@ -217,7 +219,7 @@ describe('Read API v0', () => {
     }
   })
 
-  it('sessions.detail returns ordered events and a related-artifacts placeholder', async () => {
+  it('sessions.detail returns the session with fail-closed empty auxiliary rows (CQ-004)', async () => {
     const t = await buildTestApp()
     try {
       const auth = await signup(t, 'reads-b@example.com')
@@ -229,23 +231,27 @@ describe('Read API v0', () => {
         detail.json() as {
           result: {
             data: {
-              session: { id: string; messageCount: number; toolCallCount: number }
-              events: { rows: Array<{ id: string; kind: string; ordinal: number }>; nextCursor: string | null }
+              session: { id: string }
+              events: { rows: unknown[]; nextCursor: string | null }
               relatedArtifacts: unknown[]
+              auxiliaryRowsAvailable: boolean
             }
           }
         }
       ).result.data
       expect(data.session.id).toBe('sess-codex-1')
-      expect(data.events.rows.map((e) => e.kind)).toEqual(['message', 'toolCall'])
-      expect(data.events.rows[0]?.ordinal).toBe(0)
-      expect(Array.isArray(data.relatedArtifacts)).toBe(true)
+      // Directly seeded auxiliary rows (events, artifacts) must NOT surface
+      // because they have no row-level verified manifest entry.
+      expect(data.events.rows).toEqual([])
+      expect(data.events.nextCursor).toBeNull()
+      expect(data.relatedArtifacts).toEqual([])
+      expect(data.auxiliaryRowsAvailable).toBe(false)
     } finally {
       await t.close()
     }
   })
 
-  it('toolCalls.list returns global audit rows joined with session metadata', async () => {
+  it('toolCalls.list fails closed with an empty page (CQ-004)', async () => {
     const t = await buildTestApp()
     try {
       const auth = await signup(t, 'reads-tc@example.com')
@@ -256,68 +262,55 @@ describe('Read API v0', () => {
       const data = (
         calls.json() as {
           result: {
-            data: {
-              rows: Array<{
-                id: string
-                name: string
-                status: string | null
-                resultStatus: string | null
-                sourceKind: string
-              }>
-              nextCursor: string | null
-            }
+            data: { rows: unknown[]; nextCursor: string | null; verifiedAuxiliaryAvailable: boolean }
           }
         }
       ).result.data
-      expect(data.rows.map((r) => r.id).sort()).toEqual(['tc-1', 'tc-2'])
-      const errCall = data.rows.find((r) => r.id === 'tc-2')
-      expect(errCall?.status).toBe('error')
-      expect(errCall?.resultStatus).toBe('error')
-      expect(errCall?.sourceKind).toBe('codex')
+      expect(data.rows).toEqual([])
+      expect(data.nextCursor).toBeNull()
+      expect(data.verifiedAuxiliaryAvailable).toBe(false)
 
-      const errorsOnly = await trpc(t, 'toolCalls.list', { errorsOnly: true }, auth.token, 'GET')
-      const errorsData = (errorsOnly.json() as { result: { data: { rows: Array<{ id: string }> } } }).result.data
-      expect(errorsData.rows.map((r) => r.id)).toEqual(['tc-2'])
+      // Unsupported filters still fail with BAD_REQUEST (CQ-005).
+      const bad = await trpc(t, 'toolCalls.list', { canonicalToolTypes: ['shell'] }, auth.token, 'GET')
+      expect(bad.statusCode).toBe(400)
     } finally {
       await t.close()
     }
   })
 
-  it('analytics.report exposes the five report types over verified projection data', async () => {
+  it('analytics.report fails closed for tools/errors/models and emits camelCase rows for sessions/projects (CQ-004/CQ-006)', async () => {
     const t = await buildTestApp()
     try {
       const auth = await signup(t, 'reads-ana@example.com')
       await seedVerifiedSession(t, auth)
 
-      const reports = ['sessions', 'tools', 'errors', 'models', 'projects'] as const
-      for (const report of reports) {
+      for (const report of ['tools', 'errors', 'models'] as const) {
+        const resp = await trpc(t, 'analytics.report', { report }, auth.token, 'GET')
+        expect(resp.statusCode).toBe(501)
+      }
+
+      for (const report of ['sessions', 'projects'] as const) {
         const resp = await trpc(t, 'analytics.report', { report }, auth.token, 'GET')
         expect(resp.statusCode).toBe(200)
         const data = (
           resp.json() as {
-            result: { data: { report: string; rows: unknown[]; generatedAt: string } }
+            result: { data: { report: string; rows: Array<Record<string, unknown>> } }
           }
         ).result.data
         expect(data.report).toBe(report)
-        expect(Array.isArray(data.rows)).toBe(true)
+        for (const row of data.rows) {
+          for (const key of Object.keys(row)) {
+            // CQ-006: keys are camelCase. Reject any snake_case key.
+            expect(key.includes('_')).toBe(false)
+          }
+        }
       }
-
-      // The 'tools' report must surface the two distinct tool names.
-      // CQ-006: keys are camelCase.
-      const tools = await trpc(t, 'analytics.report', { report: 'tools' }, auth.token, 'GET')
-      const toolsData = (tools.json() as { result: { data: { rows: Array<{ toolName: string }> } } }).result.data
-      expect(toolsData.rows.map((r) => r.toolName).sort()).toEqual(['fs.write', 'shell.exec'])
-
-      // The 'errors' report should contain tc-2 only.
-      const errors = await trpc(t, 'analytics.report', { report: 'errors' }, auth.token, 'GET')
-      const errorsData = (errors.json() as { result: { data: { rows: Array<{ toolCallId: string }> } } }).result.data
-      expect(errorsData.rows.map((r) => r.toolCallId)).toEqual(['tc-2'])
     } finally {
       await t.close()
     }
   })
 
-  it('artifacts.getText refuses unknown objects and cross-tenant access', async () => {
+  it('artifacts.getText refuses unknown artifacts', async () => {
     const t = await buildTestApp()
     try {
       const auth = await signup(t, 'reads-art@example.com')
@@ -330,26 +323,14 @@ describe('Read API v0', () => {
     }
   })
 
-  it('search.query returns cursor-paginated FTS-like hits with session metadata', async () => {
+  it('search.query fails closed in remote v0 (CQ-005)', async () => {
     const t = await buildTestApp()
     try {
       const auth = await signup(t, 'reads-s@example.com')
       await seedVerifiedSession(t, auth)
 
-      const hits = await trpc(t, 'search.query', { q: 'widgets' }, auth.token, 'GET')
-      expect(hits.statusCode).toBe(200)
-      const data = (
-        hits.json() as {
-          result: {
-            data: {
-              rows: Array<{ sessionId: string; sessionTitle: string | null; sourceKind: string; snippet: string }>
-              nextCursor: string | null
-            }
-          }
-        }
-      ).result.data
-      expect(data.rows.map((r) => r.sessionId)).toEqual(['sess-codex-1'])
-      expect(data.rows[0]?.sourceKind).toBe('codex')
+      const resp = await trpc(t, 'search.query', { q: 'widgets' }, auth.token, 'GET')
+      expect(resp.statusCode).toBe(501)
     } finally {
       await t.close()
     }

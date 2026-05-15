@@ -298,6 +298,9 @@ describe('object upload hardening', () => {
        VALUES ($1, $2, 1)`,
       [auth.tenant.id, objectId],
     )
+    // CQ-003: GET /objects/:objectId now requires a verified batch entry
+    // for this object. Mark the batch verified so the read is authorised.
+    await t.pglite.query(`UPDATE "sync_batch" SET status = 'verified' WHERE id = $1`, [batchId])
 
     const get = await t.app.inject({
       method: 'GET',

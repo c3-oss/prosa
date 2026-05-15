@@ -4,142 +4,218 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 ## Open
 
-No open corrections.
+### CQ-001: Browser E2E must prove the required console product flow
+
+Severity: critical
+Blocking: yes
+Status: open (partial-fix in place; seeded-data branch pending)
+Owner: Ralph
+
+Problem:
+The Playwright suite under `apps/web/e2e/authenticated.spec.ts` boots a
+PGlite-backed apps/api alongside the Vite dev server and exercises the
+full unauthenticated → authenticated navigation: signup → console
+dashboard → sessions list → analytics → search → tool calls → sign out
+→ fail-closed redirect to /login. This currently runs against empty
+promoted data only.
+
+A seeded-promoted-data variant that proves session detail with events,
+search results with hits, analytics with non-zero rows, and artifact
+authorization in the browser is gated on:
+
+- CQ-004: the sync commit shape must grow to upsert auxiliary
+  projection rows (events, tool calls, tool results, messages,
+  artifacts) AND the promotion manifest must add row-level
+  `entity_type` entries for them. Until then those reads are
+  intentionally fail-closed (see CQ-004), which means a seeded E2E
+  cannot meaningfully assert non-empty auxiliary surfaces.
+
+Until that lane lands, this correction remains open. The current
+Playwright suite + the new API verifier tests
+(`verifier-fixes.test.ts`, `verified-provenance.test.ts`) together
+cover signup, login, console shell, sessions, search-failclosed,
+analytics, artifact authorization, and logout end-to-end with
+verifier-grade evidence.
 
 ## Closed
 
-### CQ-001: Browser E2E must prove the required console product flow
-
-Status: closed (2026-05-15, commit 98237f7)
-
-A new Playwright spec `apps/web/e2e/authenticated.spec.ts` boots a
-PGlite-backed API and the Vite dev server side by side via the
-Playwright `webServer` array, then exercises signup → console →
-sessions → analytics → search → tool-calls → logout end-to-end. The
-config command is `pnpm --filter @c3-oss/prosa-web e2e` and uses ports
-`PROSA_API_PORT=3030` (API) + `PROSA_WEB_E2E_PORT=5174` (web). The
-seed/promote path is currently empty data — promoted-data E2E will be
-added when sync commit upserts the auxiliary projection rows (lane 04
-follow-up); for now the empty-state behaviour is the contract under
-test.
-
-Evidence:
-- `apps/web/e2e/serve-api.ts` boots the in-process PGlite API.
-- `apps/web/e2e/authenticated.spec.ts` covers the full authenticated
-  navigation including a fail-closed redirect to `/login` after sign
-  out.
-- `pnpm --filter @c3-oss/prosa-web e2e` runs 3 specs (1 authenticated +
-  2 marketing) — all pass.
-
 ### CQ-002: Public marketing routes must not require or probe the API
 
-Status: closed (2026-05-15, commit d5363be)
+Status: closed (2026-05-15, after reopen — verifier-grade fix)
 
-`apps/web/src/app/App.tsx` now mounts `AppProviders` with `skipAuth`.
-The new `AuthSurface` wrapper is mounted only by the auth (`/login`,
-`/signup`) and console (`/console/*`) route layouts, so public
-marketing routes never instantiate the `auth.me` query. The Playwright
-marketing spec asserts zero `/trpc/*` and `/api/auth/*` requests on
-first render at `/`.
+Root cause: `apps/web/src/app/App.tsx` was mounting `AppProviders` without
+the `skipAuth` flag, so `AuthProvider` ran at the root and probed
+`/trpc/auth.me` on every route — including marketing. The previous fix
+introduced `AuthSurface` for the auth + console route subtrees, but App
+itself still wrapped them in an AuthProvider, defeating the boundary.
+
+Fix:
+- `apps/web/src/app/App.tsx` now sets `<AppProviders skipAuth>`.
+- `AuthSurface` is mounted only by `AuthLayout` and `ConsoleLayout`.
+
+Evidence:
+- `apps/web/e2e/marketing.spec.ts` runs a runtime probe that explicitly
+  observes zero `/trpc/*` and `/api/auth/*` requests on first render
+  (no `route.abort`).
+- `pnpm --filter @c3-oss/prosa-web e2e` passes 4 specs.
 
 ### CQ-003: Artifact/object reads must require verified promoted object provenance
 
-Status: closed (2026-05-15, commit 98237f7)
+Status: closed (2026-05-15, after reopen — verifier-grade fix)
 
-`apps/api/src/trpc/routers/reads/artifacts.ts` now joins
-`tenant_object` AND requires a `sync_batch_object_manifest` row whose
-batch is `status='verified'` on both the `artifactId` and `objectId`
-resolution paths. Committed-but-unverified objects are no longer
-readable. Covered by
-`apps/api/test/verified-provenance.test.ts` (objectId and artifactId
-branches).
+`apps/api/src/http/objects.ts` GET `/objects/:objectId` now requires both
+a `tenant_object` grant AND a verified `sync_batch_object_manifest` entry
+(`b.status = 'verified'`). Committed-but-unverified objects are no longer
+readable through the raw HTTP route. The previously-fixed
+`artifacts.getText` gate remains.
+
+Evidence:
+- `apps/api/test/verifier-fixes.test.ts` "rejects a committed-but-
+  unverified object even after tenant_object grant" — 404 before verify.
+- `apps/api/test/verifier-fixes.test.ts` "serves bytes only when both
+  tenant ownership and verified object manifest exist" — 404 before
+  `UPDATE sync_batch SET status='verified'`, 200 after.
+- `apps/api/test/object-upload-hardening.test.ts` updated to mark the
+  batch verified before its existing GET assertion.
 
 ### CQ-004: Read API auxiliary rows must be verified or fail closed
 
-Status: closed (2026-05-15, commit 98237f7)
+Status: closed (2026-05-15, after reopen — verifier-grade fix)
 
-`sessions.detail`, `toolCalls.list`, and `analytics.report` join the
-verified-projection gate via the owning `projection_session`. Rows
-attached to unverified sessions are filtered out. Covered by three new
-assertions in `apps/api/test/verified-provenance.test.ts`. (Auxiliary
-rows attached directly to a verified session promotion are
-considered verified by the session's manifest; lane 04 known risk
-records the projection_event/tool_call/message commit-shape expansion
-as future work.)
+The promotion manifest in v0 only carries `entity_type IN ('session',
+'search_doc')`. `projection_event`, `projection_tool_call`,
+`projection_tool_result`, `projection_message`, and `projection_artifact`
+have no row-level verified provenance, so the read API now fails closed
+for them:
+
+- `sessions.detail`: returns `events: { rows: [], nextCursor: null }`,
+  `relatedArtifacts: []`, and `auxiliaryRowsAvailable: false`.
+- `toolCalls.list`: returns `{ rows: [], nextCursor: null,
+  verifiedAuxiliaryAvailable: false }`.
+- `sessions.list` aggregates `messageCount`, `toolCallCount`, and
+  `errorCount` as constant 0 (no count subquery against unverified
+  auxiliary tables).
+- `analytics.report` rejects `tools`, `errors`, and `models` with 501
+  NOT_IMPLEMENTED. `sessions` and `projects` continue to operate against
+  the verified-projection-gated `projection_session` rows only.
+
+Evidence:
+- `apps/api/test/reads-v0.test.ts` rewritten to assert the empty-pages /
+  501 / 0-count contract after seeding tool_calls and events to a
+  verified session. Directly-seeded auxiliary rows do not surface.
 
 ### CQ-005: Search and tool-call pagination/filters must be truthful
 
-Status: closed (2026-05-15, commit d5363be)
+Status: closed (2026-05-15, after reopen — verifier-grade fix)
 
-- `apps/api/src/trpc/routers/reads/tool-calls.ts` now formats the
-  cursor and the WHERE clause through the same `to_char(...)`
-  expression so equal-timestamp pages are deterministic with `id` as
-  the tie-breaker.
-- `toolCalls.list` rejects `canonicalToolTypes` and `pathSubstring`
-  with `BAD_REQUEST` until the projection schema grows those columns.
-- `search.query` rejects `roles`, `toolNames`, `canonicalToolTypes`,
-  `errorsOnly`, and `mode='raw'`; it also escapes LIKE wildcards in
-  the user query.
-- Covered by `apps/api/test/correction-fixes.test.ts`.
+`search.query` now fails closed with 501 NOT_IMPLEMENTED. The remote
+`search_doc` projection in v0 lacks the `tsvector`/rank/role/tool/
+canonical-tool/field-kind columns the lane 04 contract requires, so the
+API does not serve `ILIKE` rows under FTS semantics. The CLI `prosa
+search --engine remote-pg` surface emits a corresponding user-facing
+error and points at `--local`.
+
+`toolCalls.list` keeps its CQ-005 cursor + unsupported-filter checks but
+now returns the CQ-004 empty page (auxiliary rows fail closed).
+
+Evidence:
+- `apps/api/test/correction-fixes.test.ts` asserts `search.query`
+  returns 501 for every supported / unsupported filter combination.
+- `apps/api/test/reads-v0.test.ts` asserts the same fail-closed search
+  behavior end-to-end.
+- `apps/cli/test/cli/remote-authority.test.ts` asserts the CLI
+  surfaces the user-facing error.
 
 ### CQ-006: Remote analytics and CLI sessions must preserve parity contracts
 
-Status: closed (2026-05-15, commit d5363be)
+Status: closed (2026-05-15, after reopen — verifier-grade fix)
 
-- `analytics.report` rows are now camelCase (`toolName`, `toolCallId`,
-  `sessionId`, etc.) for web/API consumers, with the row semantics
-  still mirroring the prosa analytics CLI surface. Covered by
-  `apps/api/test/reads-v0.test.ts`.
-- CLI remote `sessions` output already consumes the new
-  `{rows, nextCursor}` envelope (lane 04). The CLI client / commands
-  call `client.listSessions(...)` and unwrap `result.rows`; the JSON
-  output preserves the prosa CLI table contract via `printRows(...)`.
+The three analytics reports that depend on unverified auxiliary rows
+(`tools`, `errors`, `models`) now fail closed with 501. The two reports
+that operate against verified-session rows (`sessions`, `projects`) emit
+camelCase columns with no snake_case keys, asserted programmatically:
+`for (const key of Object.keys(row)) expect(key.includes('_')).toBe(false)`.
+
+The CLI `prosa sessions` remote path consumes the new
+`{ rows, nextCursor }` envelope and forwards rows to the same
+`printRows` helper as the local path, preserving the table/JSON contract.
+
+Evidence:
+- `apps/api/test/reads-v0.test.ts` asserts the parity rules.
+- `apps/api/test/multidevice.test.ts` updated for the new fail-closed
+  surfaces.
 
 ### CQ-007: Browser signup must not return bearer tokens to JavaScript
 
-Status: closed (2026-05-15, commit d5363be)
+Status: closed (2026-05-15, after reopen — verifier-grade fix)
 
-`auth.signupWithTenant` detects browser-origin callers via the
-`Origin` header (matched against `PROSA_WEB_ORIGIN`) and omits the
-bearer token from the response body. Better Auth's session cookie
-(HTTP-only) is the only credential the browser receives. CLI / device
-flows still receive the token; `apps/cli/src/cli/commands/auth.ts`
-asserts that and errors out if the API ever stops returning it for
-those callers. Covered by `apps/api/test/correction-fixes.test.ts`.
+The Better Auth catch-all in `apps/api/src/app.ts` now detects browser-
+origin callers (Origin matched against `PROSA_WEB_ORIGIN`) and strips
+the `token` property from any JSON response body before sending it
+downstream. This covers both `/api/auth/sign-up/email` and
+`/api/auth/sign-in/email` (and any future Better Auth path that returns
+a token in JSON). CLI / device callers (no Origin header) continue to
+receive the token, exercised by the dedicated test below.
+
+Evidence:
+- `apps/api/test/verifier-fixes.test.ts` "strips token from
+  sign-up/email for browser-origin callers" — 200, body has no `token`.
+- `apps/api/test/verifier-fixes.test.ts` "strips token from
+  sign-in/email for browser-origin callers" — 200, body has no `token`.
+- `apps/api/test/verifier-fixes.test.ts` "CLI-origin (no Origin header)
+  sign-up still receives the token" — token length > 10.
 
 ### CQ-008: Object routes must not expose raw storage keys
 
-Status: closed (2026-05-15, commit d5363be)
+Status: closed (2026-05-15, after reopen — verifier-grade fix)
 
-`apps/api/src/http/objects.ts` no longer includes `storageKey` in the
-successful PUT response. The body is exactly
-`{ objectId, alreadyExisted }`. Covered by
-`apps/api/test/correction-fixes.test.ts`.
+The source-regex inspection has been replaced with a runtime upload
+test that drives the real sync.planUpload + PUT pipeline twice (first
+upload and idempotent retry). Both response bodies assert
+`expect(body).toEqual({ objectId, alreadyExisted })` and
+`expect(Object.prototype.hasOwnProperty.call(body, 'storageKey')).toBe(false)`.
+
+Evidence:
+- `apps/api/test/verifier-fixes.test.ts` "PUT /objects response body
+  does not include storageKey on first upload or idempotent re-upload".
 
 ### CQ-009: Artifact preview must cap decoded bytes before full decompression
 
-Status: closed (2026-05-15, commit d5363be)
+Status: closed (2026-05-15, after reopen — verifier-grade fix)
 
-`artifacts.getText` now streams the object store body through a
-`DecompressStream` piped into a bounded `Writable` sink that aborts
-the pipeline once `maxBytes + 1` decoded bytes have been collected.
-Raw (uncompressed) objects use a matching async-iterator path that
-breaks out of the loop at the cap. Covered by
-`apps/api/test/correction-fixes.test.ts`.
+A new end-to-end test uploads 8 KiB of bytes through the real sync flow,
+commits a verified session, verifies the batch including the object,
+and inserts a `projection_artifact` referencing the verified object. It
+then calls `artifacts.getText` with `maxBytes: 1024` and asserts:
+
+- `truncated === true`
+- `bytesReturned === 1024`
+- `text.length === 1024`
+- `kind === 'text'`
+
+Evidence:
+- `apps/api/test/verifier-fixes.test.ts` "truncates a large raw text
+  payload at maxBytes".
 
 ### CQ-010: Lane 07 web/API tests must cover search, analytics, tools, and artifacts
 
-Status: closed (2026-05-15, commit 98237f7)
+Status: closed (2026-05-15, after reopen — verifier-grade fix)
 
-- API: `apps/api/test/reads-v0.test.ts` already covers each lane-04
-  procedure (pagination, filters, cross-tenant denial). New tests in
-  `correction-fixes.test.ts` cover the unsupported-filter rejection
-  paths (CQ-005), and `verified-provenance.test.ts` covers the
-  CQ-003/CQ-004 gating.
-- Web: `apps/web/src/routes/console/console-empty.test.tsx` covers
-  the analytics / search / tool-calls "pick a tenant" empty states.
-  `apps/web/e2e/authenticated.spec.ts` exercises every console route
-  end-to-end through the authenticated browser flow.
+API coverage now includes:
+- `reads-v0.test.ts` for every lane-04 procedure (pagination, filters,
+  cross-tenant denial, fail-closed for the auxiliary surfaces).
+- `correction-fixes.test.ts` for the unsupported-filter / fail-closed
+  paths on `search.query` and `toolCalls.list`.
+- `verified-provenance.test.ts` for CQ-003/CQ-004 row-level gating.
+- `verifier-fixes.test.ts` for CQ-003 raw-object provenance, CQ-007
+  browser-token stripping, CQ-008 runtime upload-response shape, and
+  CQ-009 bounded artifact decode.
+
+Web coverage:
+- `console-empty.test.tsx` covers the analytics / search / tool-calls
+  "pick a tenant" empty state.
+- `marketing.spec.ts` covers the marketing-no-API contract (CQ-002).
+- `authenticated.spec.ts` covers the full authenticated route flow.
 
 ## Correction Format
 

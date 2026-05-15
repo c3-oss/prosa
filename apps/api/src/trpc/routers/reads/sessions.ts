@@ -90,15 +90,20 @@ function mapSessionRow(row: SessionRow) {
 
 type SessionsListCursor = { s: string | null; id: string }
 
+// CQ-004: auxiliary projection rows (message, tool_call, tool_result, event,
+// artifact) currently have no row-level verified manifest entries — the
+// promotion manifest only covers `session` and `search_doc`. Until that
+// expansion lands, count subqueries against those tables would surface
+// directly-inserted-but-unverified data attached to a verified session.
+// We therefore report 0 here. Per-row reads (sessions.detail.events,
+// toolCalls.list) do the same fail-closed.
 const baseRowColumns = `p.id, p.source_kind, p.title,
    to_char(p.started_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS started_at,
    to_char(p.ended_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS ended_at,
    p.turn_count, p.project_id,
-   (SELECT count(*)::int FROM "projection_message" m WHERE m.tenant_id = p.tenant_id AND m.session_id = p.id) AS message_count,
-   (SELECT count(*)::int FROM "projection_tool_call" t WHERE t.tenant_id = p.tenant_id AND t.session_id = p.id) AS tool_call_count,
-   (SELECT count(*)::int FROM "projection_tool_result" r
-      JOIN "projection_tool_call" t ON t.tenant_id = r.tenant_id AND t.id = r.tool_call_id
-      WHERE r.tenant_id = p.tenant_id AND t.session_id = p.id AND r.status IS NOT NULL AND r.status NOT IN ('ok','success','completed')) AS error_count`
+   0::int AS message_count,
+   0::int AS tool_call_count,
+   0::int AS error_count`
 
 export const sessionsRouter = router({
   list: tenantProcedure.input(sessionsListInput.default({})).query(async ({ ctx, input }) => {
@@ -171,70 +176,20 @@ export const sessionsRouter = router({
       )
       const session = sessionRows[0]
       if (!session) return null
-      const cursor = decodeCursor<{ seq: number; id: string }>(input.cursor)
-      const eventParams: unknown[] = [ctx.tenantId, input.sessionId]
-      let cursorClause = ''
-      if (cursor) {
-        const seqParam = appendParam(eventParams, cursor.seq)
-        const idParam = appendParam(eventParams, cursor.id)
-        cursorClause = ` AND (e.sequence > ${seqParam} OR (e.sequence = ${seqParam} AND e.id > ${idParam}))`
-      }
-      const limit = input.limit + 1
-      const limitParam = appendParam(eventParams, limit)
-      const events = await ctx.rawExec<{
-        id: string
-        sequence: number
-        kind: string
-        payload: unknown
-        occurred_at: string | null
-      }>(
-        `SELECT e.id, e.sequence, e.kind, e.payload, e.occurred_at
-           FROM "projection_event" e
-          WHERE e.tenant_id = $1 AND e.session_id = $2${cursorClause}
-          ORDER BY e.sequence ASC, e.id ASC
-          LIMIT ${limitParam}`,
-        eventParams,
-      )
-      const overflow = events.length > input.limit
-      const window = overflow ? events.slice(0, input.limit) : events
-      const last = window[window.length - 1]
-      const eventCursor = overflow && last ? encodeCursor({ seq: last.sequence, id: last.id }) : null
-
-      const artifacts = await ctx.rawExec<{
-        id: string
-        kind: string
-        object_id: string | null
-        size_bytes: string | null
-      }>(
-        `SELECT a.id, a.kind, a.object_id, a.size_bytes::text AS size_bytes
-           FROM "projection_artifact" a
-          WHERE a.tenant_id = $1 AND a.session_id = $2
-          ORDER BY a.id ASC
-          LIMIT 200`,
-        [ctx.tenantId, input.sessionId],
-      )
-
+      // CQ-004: projection_event / projection_artifact have no row-level
+      // verified-manifest entries in v0. Returning auxiliary rows that were
+      // attached to a verified session would surface unverified data. Until
+      // the promotion manifest grows entity_types for those rows, return
+      // empty pages with an explicit `auxiliaryRowsAvailable: false` flag.
+      void input.cursor
       return {
         session: {
           ...mapSessionRow(session),
           metadata: session.metadata,
         },
-        events: {
-          rows: window.map((ev) => ({
-            id: ev.id,
-            ordinal: ev.sequence,
-            timestamp: ev.occurred_at,
-            kind: ev.kind,
-            payload: ev.payload,
-          })),
-          nextCursor: eventCursor,
-        },
-        relatedArtifacts: artifacts.map((a) => ({
-          id: a.id,
-          kind: a.kind,
-          objectId: a.object_id,
-          sizeBytes: a.size_bytes == null ? null : Number.parseInt(a.size_bytes, 10),
-        })),
+        events: { rows: [], nextCursor: null },
+        relatedArtifacts: [],
+        auxiliaryRowsAvailable: false as const,
       }
     }),
 

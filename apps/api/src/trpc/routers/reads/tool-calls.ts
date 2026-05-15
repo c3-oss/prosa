@@ -1,16 +1,7 @@
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { router, tenantProcedure } from '../../init.js'
-import {
-  type CursorPage,
-  appendParam,
-  cursorPageInput,
-  decodeCursor,
-  encodeCursor,
-  sourceFilter,
-  tenantVerifiedProjectionSql,
-  timeRangeFilter,
-} from './shared.js'
+import { cursorPageInput, sourceFilter, timeRangeFilter } from './shared.js'
 
 const toolCallsListInput = cursorPageInput
   .merge(timeRangeFilter)
@@ -18,170 +9,43 @@ const toolCallsListInput = cursorPageInput
   .extend({
     sessionId: z.string().optional(),
     toolNames: z.array(z.string()).optional(),
-    // Lane 07 spec lists canonicalToolTypes and pathSubstring; the current
-    // projection_tool_call schema does not store canonical_type or a
-    // structured path. Until the projection schema grows those columns we
-    // fail closed when a caller asks for either filter.
     canonicalToolTypes: z.array(z.string()).optional(),
     statuses: z.array(z.string()).optional(),
     errorsOnly: z.boolean().optional(),
     pathSubstring: z.string().optional(),
   })
 
-type ToolCallRow = {
-  id: string
-  session_id: string
-  session_title: string | null
-  source_kind: string
-  name: string
-  status: string | null
-  // CQ-005: store both the ISO-normalised value used for cursoring and the
-  // raw value for the response payload.
-  created_at_iso: string | null
-  created_at_raw: string | null
-  finished_at: string | null
-  result_status: string | null
-  input_object_id: string | null
-  output_object_id: string | null
-}
-
 export const toolCallsRouter = router({
-  list: tenantProcedure.input(toolCallsListInput.default({})).query(async ({ ctx, input }) => {
+  /**
+   * CQ-004: `projection_tool_call` rows are auxiliary projection rows that
+   * have no row-level verified provenance in v0. The promotion manifest
+   * (`sync_batch_projection_manifest`) only carries `session` and
+   * `search_doc` entity types, so directly-inserted or pre-promotion rows
+   * cannot be told apart from verified ones. Until the manifest grows
+   * `tool_call` (and related auxiliary types), this surface fails closed
+   * with an empty page and a `verifiedAuxiliaryAvailable: false` flag.
+   *
+   * CQ-005: the unsupported-filter checks remain so callers that pass
+   * `canonicalToolTypes` or `pathSubstring` still get an explicit refusal
+   * rather than a silently-ignored filter.
+   */
+  list: tenantProcedure.input(toolCallsListInput.default({})).query(async ({ input }) => {
     if (input.canonicalToolTypes && input.canonicalToolTypes.length > 0) {
       throw new TRPCError({
         code: 'BAD_REQUEST',
-        message:
-          'canonicalToolTypes filter is not supported by the remote projection v0. File this with the prosa-search-export lane to extend the schema.',
+        message: 'canonicalToolTypes filter is not supported by the remote projection v0.',
       })
     }
     if (input.pathSubstring) {
       throw new TRPCError({
         code: 'BAD_REQUEST',
-        message:
-          'pathSubstring filter is not supported by the remote projection v0. File this with the prosa-search-export lane to extend the schema.',
+        message: 'pathSubstring filter is not supported by the remote projection v0.',
       })
     }
-
-    const params: unknown[] = [ctx.tenantId]
-    const clauses = [tenantVerifiedProjectionSql('s', 'session'), 't.tenant_id = $1']
-    if (input.sessionId) {
-      const param = appendParam(params, input.sessionId)
-      clauses.push(`t.session_id = ${param}`)
+    return {
+      rows: [],
+      nextCursor: null as string | null,
+      verifiedAuxiliaryAvailable: false as const,
     }
-    if (input.toolNames && input.toolNames.length > 0) {
-      const placeholders = input.toolNames.map((n) => appendParam(params, n)).join(', ')
-      clauses.push(`t.name IN (${placeholders})`)
-    }
-    if (input.statuses && input.statuses.length > 0) {
-      const placeholders = input.statuses.map((status) => appendParam(params, status)).join(', ')
-      clauses.push(`t.status IN (${placeholders})`)
-    }
-    if (input.errorsOnly) {
-      // A row is an error when either the tool-call status or the tool-result
-      // status is non-success. NULL stays neutral.
-      clauses.push(
-        `(
-           (t.status IS NOT NULL AND t.status NOT IN ('ok','success','completed'))
-           OR (r.status IS NOT NULL AND r.status NOT IN ('ok','success','completed'))
-         )`,
-      )
-    }
-    if (input.sourceKinds && input.sourceKinds.length > 0) {
-      const placeholders = input.sourceKinds.map((k) => appendParam(params, k)).join(', ')
-      clauses.push(`s.source_kind IN (${placeholders})`)
-    }
-    if (input.since) {
-      const param = appendParam(params, input.since)
-      clauses.push(`t.created_at >= ${param}`)
-    }
-    if (input.until) {
-      const param = appendParam(params, input.until)
-      clauses.push(`t.created_at < ${param}`)
-    }
-
-    // CQ-005: cursor compares against the same ISO-formatted timestamp that
-    // is emitted into the cursor payload. The previous implementation
-    // compared an ISO cursor against Postgres's display format
-    // (`timestamptz::text`), which could silently skip rows at page
-    // boundaries when display differed from ISO.
-    const createdAtIso = `COALESCE(to_char(t.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'), '')`
-
-    const cursor = decodeCursor<{ at: string; id: string }>(input.cursor)
-    if (cursor) {
-      const atParam = appendParam(params, cursor.at ?? '')
-      const idParam = appendParam(params, cursor.id)
-      clauses.push(`(${createdAtIso} < ${atParam} OR (${createdAtIso} = ${atParam} AND t.id < ${idParam}))`)
-    }
-    const limit = input.limit + 1
-    const limitParam = appendParam(params, limit)
-    const rows = await ctx.rawExec<ToolCallRow>(
-      `SELECT t.id,
-              t.session_id,
-              t.name,
-              t.status,
-              ${createdAtIso} AS created_at_iso,
-              t.created_at AS created_at_raw,
-              t.input_object_id,
-              s.source_kind,
-              s.title AS session_title,
-              r.status AS result_status,
-              r.finished_at,
-              r.output_object_id
-         FROM "projection_tool_call" t
-         JOIN "projection_session" s
-           ON s.tenant_id = t.tenant_id AND s.id = t.session_id
-    LEFT JOIN "projection_tool_result" r
-           ON r.tenant_id = t.tenant_id AND r.tool_call_id = t.id
-        WHERE ${clauses.join(' AND ')}
-        ORDER BY ${createdAtIso} DESC, t.id DESC
-        LIMIT ${limitParam}`,
-      params,
-    )
-    const overflow = rows.length > input.limit
-    const window = overflow ? rows.slice(0, input.limit) : rows
-    const last = window[window.length - 1]
-    const nextCursor =
-      overflow && last
-        ? encodeCursor({
-            at: last.created_at_iso ?? '',
-            id: last.id,
-          })
-        : null
-    const page: CursorPage<{
-      id: string
-      sessionId: string
-      sessionTitle: string | null
-      sourceKind: string
-      name: string
-      canonicalType: string | null
-      status: string | null
-      startedAt: string | null
-      finishedAt: string | null
-      durationMs: number | null
-      inputObjectId: string | null
-      outputObjectId: string | null
-      resultStatus: string | null
-    }> = {
-      rows: window.map((row) => ({
-        id: row.id,
-        sessionId: row.session_id,
-        sessionTitle: row.session_title,
-        sourceKind: row.source_kind,
-        name: row.name,
-        canonicalType: null,
-        status: row.status,
-        startedAt: row.created_at_iso || row.created_at_raw,
-        finishedAt: row.finished_at,
-        durationMs:
-          row.created_at_raw && row.finished_at
-            ? Math.max(0, Date.parse(row.finished_at) - Date.parse(row.created_at_raw))
-            : null,
-        inputObjectId: row.input_object_id,
-        outputObjectId: row.output_object_id,
-        resultStatus: row.result_status,
-      })),
-      nextCursor,
-    }
-    return page
   }),
 })

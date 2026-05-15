@@ -9,9 +9,9 @@ Completion signal: RALPH_DONE
 
 ## Current State
 
-Status: final-review
+Status: correction
 Current lane: done (Codex final review pending)
-Current HEAD: `ffcfabc`
+Current HEAD: `13febb8`
 No-change streak: 0
 Ralph active: yes
 
@@ -32,7 +32,15 @@ Ralph active: yes
 
 | ID | Severity | Owner | Summary |
 | --- | --- | --- | --- |
-| | | | Ralph marked CQ-001 through CQ-010 closed; Codex verifier subagents are rechecking before acceptance. |
+| CQ-001 | critical | Ralph | Browser E2E must prove the required console product flow. |
+| CQ-002 | high | Ralph | Public marketing routes must not require or probe the API. |
+| CQ-004 | high | Ralph | Read API auxiliary rows must be verified or fail closed. |
+| CQ-005 | high | Ralph | Search and tool-call pagination/filters must be truthful. |
+| CQ-006 | high | Ralph | Remote analytics and CLI sessions must preserve parity contracts. |
+| CQ-003 | critical | Ralph | Artifact/object reads must require verified promoted object provenance. |
+| CQ-007 | high | Ralph | Browser signup must not return bearer tokens to JavaScript. |
+| CQ-008 | medium | Ralph | Object routes must not expose raw storage keys. |
+| CQ-009 | medium | Ralph | Artifact preview must cap decoded bytes before full decompression. |
 
 ## Latest Gates
 
@@ -69,6 +77,16 @@ Ralph active: yes
 | Codex verifier result | blocking | 2026-05-15T20:04Z: security verifier failed CQ-003 and CQ-007; CQ-008/CQ-009 need stronger tests before closure. |
 | Codex monitor check | observed | 2026-05-15T20:09Z: no new commit after `d5363be`; E2E/test WIP remains and all CQs stay open. |
 | Codex monitor check | review | 2026-05-15T20:15Z: Ralph committed `98237f7`/`ffcfabc` marking all CQs closed; verifier subagents launched. |
+| Codex verifier result | blocking | 2026-05-15T20:18Z: remote-read/search verifiers failed CQ-004, CQ-005, and CQ-006 after `98237f7`/`ffcfabc`; reopened. |
+| Codex verifier result | blocking | 2026-05-15T20:20Z: security verifier failed CQ-003 and CQ-007; CQ-008/CQ-009 reopened for missing runtime tests. |
+| Codex verifier result | blocking | 2026-05-15T20:21Z: E2E verifier failed CQ-001 and CQ-002 after `98237f7`/`ffcfabc`; reopened. |
+| Codex monitor check | blocking | 2026-05-15T20:26Z: Ralph local state file missing; no new commits after `13febb8`; reopened CQs remain blocking. |
+| Codex monitor check | observed | 2026-05-15T20:31Z: Ralph restarted correction loop; WIP in public auth provider scoping and marketing E2E. |
+| Codex monitor check | observed | 2026-05-15T20:36Z: Ralph active; WIP expanded into API object/read routers, API tests, and public route auth scoping. |
+| Codex verifier launch | review | 2026-05-15T20:41Z: WIP verifier subagents launched for security and remote/search corrections. |
+| Codex verifier result | blocking | 2026-05-15T20:44Z: WIP security verifier found CQ-007 still FAIL; CQ-003/CQ-008/CQ-009 need fixture/test fixes. |
+| Codex verifier result | blocking | 2026-05-15T20:55Z: WIP E2E verifier found CQ-001 still FAIL; CQ-002 public-route probe now passes but needs committed evidence. |
+| Codex verifier result | blocking | 2026-05-15T20:55Z: WIP remote/search verifier found CQ-004 and CQ-006 still FAIL; CQ-005 fail-closed direction is WIP but CLI/tests/filters remain inconsistent. |
 
 Pending (run later when lane scope reaches them):
 

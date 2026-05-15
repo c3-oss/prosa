@@ -171,7 +171,9 @@ describe('remote-authoritative CLI reads', () => {
   it('uses remote routes for supported reads when the local bundle is missing', async () => {
     await makeRemoteAuthoritativeWithMissingBundle(h)
 
-    const searchOut = await capturedRun([
+    // CQ-005: remote-authoritative search v0 fails closed. The CLI must
+    // surface a clear error rather than masquerade a partial result.
+    const searchError = await capturedRun([
       'search',
       'needle',
       '--store',
@@ -180,17 +182,9 @@ describe('remote-authoritative CLI reads', () => {
       'remote-pg',
       '--output-format',
       'json',
-    ])
-    const search = JSON.parse(searchOut.stdout) as {
-      source: string
-      engine: string
-      rows: Array<{ session_id: string; snippet: string }>
-    }
-    expect(search.source).toBe('remote')
-    expect(search.engine).toBe('remote-pg')
-    expect(search.rows).toEqual([
-      expect.objectContaining({ session_id: 'sess-remote-1', snippet: expect.stringContaining('needle') }),
-    ])
+    ]).catch((err: unknown) => err)
+    expect(searchError).toBeInstanceOf(Error)
+    expect((searchError as Error).message).toMatch(/remote-authoritative search is unavailable/i)
 
     const sessionsOut = await capturedRun(['sessions', '--store', h.storePath, '--output-format', 'json'])
     const sessions = JSON.parse(sessionsOut.stdout) as {

@@ -360,12 +360,21 @@ async function findAccessibleObject(
   objectId: string,
   tenantId: string,
 ): Promise<AccessibleObjectRow | null> {
+  // CQ-003: a tenant_object row alone is not enough — the object must also
+  // have been declared by a verified batch's object manifest. Without the
+  // verified-batch join, a committed-but-unverified upload would be
+  // readable through this route between commit and verifyPromotion.
   const rows = await deps.rawExec<AccessibleObjectRow>(
     `SELECT ro.hash, ro.hash_algorithm, ro.compression, ro.uncompressed_size,
             ro.compressed_size, ro.storage_key, MAX(to_.tenant_id) AS tenant
        FROM "remote_object" ro
        LEFT JOIN "tenant_object" to_ ON to_.object_id = ro.object_id AND to_.tenant_id = $2
        WHERE ro.object_id = $1
+         AND EXISTS (
+           SELECT 1 FROM "sync_batch_object_manifest" om
+             JOIN "sync_batch" b ON b.id = om.batch_id AND b.status = 'verified'
+            WHERE om.tenant_id = $2 AND om.object_id = ro.object_id
+         )
        GROUP BY ro.hash, ro.hash_algorithm, ro.compression, ro.uncompressed_size,
                 ro.compressed_size, ro.storage_key`,
     [objectId, tenantId],

@@ -30,34 +30,18 @@ export function searchCommand(): Command {
           remoteSupported: true,
         })
         if (authority.kind === 'remote') {
+          // CQ-005: remote search is fail-closed in v0. The CLI must not
+          // pretend to serve remote search results; instead it surfaces a
+          // clear error pointing the user back at --local.
           const engineSource = command.getOptionValueSource('engine')
           if (engineSource !== 'default' && options.engine !== 'remote-pg') {
             throw new CliUserError(
               `remote-authoritative search uses the remote-pg engine; --engine ${options.engine} is local-only.\nUse --engine remote-pg, or add --local to query a local search index explicitly.`,
             )
           }
-          const result = await authority.client.searchQuery({
-            q: query,
-            limit: Number.parseInt(options.limit, 10),
-          })
-          const rows = result.rows.map((hit) => ({
-            ...hit,
-            session_id: hit.sessionId,
-            kind: hit.fieldKind,
-          }))
-          printRows(rows, {
-            format,
-            columns: ['session_id', 'kind', 'snippet'],
-            maxColumnWidths: { session_id: 12, kind: 12 },
-            meta: {
-              query,
-              source: 'remote',
-              engine: 'remote-pg',
-              server: authority.entry.url,
-              count: result.rows.length,
-            },
-          })
-          return
+          throw new CliUserError(
+            'remote-authoritative search is unavailable in this prosa version (lane 04 FTS columns are not promoted yet). Re-run with --local to use the local Tantivy/FTS engine, or wait for the projection schema upgrade.',
+          )
         }
         const engine = parseSearchEngine(options.engine)
         await withBundle(options.store, (bundle) => {
