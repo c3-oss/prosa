@@ -46,6 +46,7 @@ describe('cross-tenant object attachment', () => {
       const alice = await signup(t, 'cross-a@example.com', 'Alpha', 'cross-alpha')
       const bytes = new Uint8Array([1, 2, 3, 4])
       const hash = computeHashHex(bytes, 'blake3')
+      const objectId = `blake3:${hash}`
 
       const aliceHandshake = await trpc(
         t,
@@ -64,7 +65,9 @@ describe('cross-tenant object attachment', () => {
         {
           deviceId: aliceDevice,
           storePath: '/tmp/a',
-          objects: [{ objectId: 'obj-shared', hash, hashAlgorithm: 'blake3', uncompressedSize: 4, compressedSize: 4 }],
+          objects: [
+            { objectId, hash, hashAlgorithm: 'blake3', uncompressedSize: 4, compressedSize: 4, compression: 'none' },
+          ],
         },
         alice.token,
       )
@@ -73,7 +76,7 @@ describe('cross-tenant object attachment', () => {
       // Upload bytes through the object route.
       const putResp = await t.app.inject({
         method: 'PUT',
-        url: `/objects/obj-shared?hash=${hash}&size=4&uncompressed=4`,
+        url: `/objects/${objectId}?batchId=${aliceBatch}&hash=${hash}&size=4&uncompressed=4&compression=none`,
         headers: {
           authorization: `Bearer ${alice.token}`,
           'content-type': 'application/octet-stream',
@@ -89,7 +92,9 @@ describe('cross-tenant object attachment', () => {
           batchId: aliceBatch,
           deviceId: aliceDevice,
           storePath: '/tmp/a',
-          objects: [{ objectId: 'obj-shared', hash, hashAlgorithm: 'blake3', uncompressedSize: 4, compressedSize: 4 }],
+          objects: [
+            { objectId, hash, hashAlgorithm: 'blake3', uncompressedSize: 4, compressedSize: 4, compression: 'none' },
+          ],
           projection: {
             sessions: [{ id: 'sess-a', sourceKind: 'codex', turnCount: 1 }],
           },
@@ -135,7 +140,7 @@ describe('cross-tenant object attachment', () => {
                 sourceKind: 'codex',
                 path: '/x',
                 // Attempt to attach to Alice's object without declaring own provenance.
-                objectId: 'obj-shared',
+                objectId,
               },
             ],
             sessions: [{ id: 'sess-b', sourceKind: 'codex', turnCount: 1 }],

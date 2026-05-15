@@ -1,14 +1,14 @@
 import { randomUUID } from 'node:crypto'
-import { existsSync } from 'node:fs'
+import { createReadStream, existsSync } from 'node:fs'
 import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
+import { Readable } from 'node:stream'
 import {
   type ObjectMeta,
   type PutMeta,
   type PutResult,
   type RemoteObjectStore,
   asyncIterableToUint8Array,
-  uint8ArrayToWebStream,
 } from '../types.js'
 import { assertNoConflict, verifyBytes } from '../verify.js'
 
@@ -64,8 +64,7 @@ export class FsObjectStore implements RemoteObjectStore {
   async get(key: string): Promise<ReadableStream<Uint8Array>> {
     const { absolute } = this.resolveKey(key)
     await stat(absolute)
-    const bytes = await readFile(absolute)
-    return uint8ArrayToWebStream(new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength))
+    return Readable.toWeb(createReadStream(absolute)) as ReadableStream<Uint8Array>
   }
 
   async delete(key: string): Promise<void> {

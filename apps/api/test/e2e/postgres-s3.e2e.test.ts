@@ -3,6 +3,7 @@ import { applySchema } from '@c3-oss/prosa-db'
 import { S3ObjectStore, computeHashHex } from '@c3-oss/prosa-storage'
 import postgres from 'postgres'
 import { describe, expect, it } from 'vitest'
+import { compress as zstdCompress } from 'zstd-napi'
 import { buildApp } from '../../src/app.js'
 import { createAuth } from '../../src/auth.js'
 import { loadConfig } from '../../src/config.js'
@@ -74,6 +75,7 @@ describe.skipIf(!shouldRun)('e2e: prosa-api against real Postgres + S3 (MinIO)',
       auth,
       db: dbHandle.db,
       rawExec: dbHandle.rawExec,
+      transaction: dbHandle.transaction,
       objectStore,
       loggerEnabled: false,
     })
@@ -107,7 +109,10 @@ describe.skipIf(!shouldRun)('e2e: prosa-api against real Postgres + S3 (MinIO)',
       const deviceId = (hs.json() as { result: { data: { deviceId: string } } }).result.data.deviceId
 
       const e2eBytes = new Uint8Array([1, 2, 3, 4, 5])
+      const e2eTransportBytes = zstdCompress(e2eBytes)
       const e2eHash = computeHashHex(e2eBytes, 'blake3')
+      const e2eTransportHash = computeHashHex(e2eTransportBytes, 'blake3')
+      const e2eObjectId = `blake3:${e2eHash}`
       const plan = await app.inject({
         method: 'POST',
         url: '/trpc/sync.planUpload',
@@ -117,11 +122,13 @@ describe.skipIf(!shouldRun)('e2e: prosa-api against real Postgres + S3 (MinIO)',
           storePath: '/tmp/.prosa-e2e',
           objects: [
             {
-              objectId: 'obj-e2e-1',
+              objectId: e2eObjectId,
               hash: e2eHash,
               hashAlgorithm: 'blake3',
               uncompressedSize: 5,
-              compressedSize: 5,
+              compressedSize: e2eTransportBytes.byteLength,
+              compression: 'zstd',
+              transportHash: e2eTransportHash,
             },
           ],
         } as never,
@@ -130,12 +137,14 @@ describe.skipIf(!shouldRun)('e2e: prosa-api against real Postgres + S3 (MinIO)',
 
       const putResp = await app.inject({
         method: 'PUT',
-        url: `/objects/obj-e2e-1?hash=${e2eHash}&size=5&uncompressed=5`,
+        url:
+          `/objects/${e2eObjectId}?batchId=${batchId}&hash=${e2eHash}&size=${e2eTransportBytes.byteLength}` +
+          `&uncompressed=5&compression=zstd&transportHash=${e2eTransportHash}`,
         headers: {
           authorization: `Bearer ${token}`,
           'content-type': 'application/octet-stream',
         },
-        payload: Buffer.from(e2eBytes),
+        payload: e2eTransportBytes,
       })
       expect([200, 201]).toContain(putResp.statusCode)
 
@@ -149,11 +158,13 @@ describe.skipIf(!shouldRun)('e2e: prosa-api against real Postgres + S3 (MinIO)',
           storePath: '/tmp/.prosa-e2e',
           objects: [
             {
-              objectId: 'obj-e2e-1',
+              objectId: e2eObjectId,
               hash: e2eHash,
               hashAlgorithm: 'blake3',
               uncompressedSize: 5,
-              compressedSize: 5,
+              compressedSize: e2eTransportBytes.byteLength,
+              compression: 'zstd',
+              transportHash: e2eTransportHash,
             },
           ],
           projection: {
@@ -168,7 +179,13 @@ describe.skipIf(!shouldRun)('e2e: prosa-api against real Postgres + S3 (MinIO)',
         method: 'POST',
         url: '/trpc/sync.verifyPromotion',
         headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
-        payload: { batchId, storePath: '/tmp/.prosa-e2e' } as never,
+        payload: {
+          batchId,
+          storePath: '/tmp/.prosa-e2e',
+          declaredObjectIds: [e2eObjectId],
+          declaredSessionIds: ['sess-e2e-1'],
+          declaredSearchDocIds: ['doc-e2e-1'],
+        } as never,
       })
       const receipt = (
         verify.json() as {
@@ -186,7 +203,9 @@ describe.skipIf(!shouldRun)('e2e: prosa-api against real Postgres + S3 (MinIO)',
         `objects/blake3/${e2eHash.slice(0, 2)}/${e2eHash.slice(2, 4)}/${e2eHash}.zst`,
       )
       expect(stored).not.toBeNull()
-      expect(stored?.hash).toBe(e2eHash)
+      expect(stored?.hash).toBe(e2eTransportHash)
+      expect(stored?.compressedSize).toBe(e2eTransportBytes.byteLength)
+      expect(stored?.uncompressedSize).toBe(5)
     } finally {
       await app.close()
       await dbHandle.close()
