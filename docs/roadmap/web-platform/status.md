@@ -10,8 +10,8 @@ Completion signal: RALPH_DONE
 ## Current State
 
 Status: in-progress
-Current lane: 08 (next)
-Current HEAD: pending commit for lane 07
+Current lane: done (Codex final review pending)
+Current HEAD: pending commit for lane 08
 No-change streak: 0
 Ralph active: yes
 
@@ -25,8 +25,8 @@ Ralph active: yes
 | 04 Read API v0 | Ralph | complete | `86f10fa` | evidence/lane-04.md |
 | 05 Console shell and sessions | Ralph | complete | `e83027b` | evidence/lane-05.md |
 | 06 Session detail timeline | Ralph | complete | `cab9939` | evidence/lane-06.md |
-| 07 Search, analytics, and artifacts | Ralph | complete | pending | evidence/lane-07.md |
-| 08 Production readiness | Ralph | open | | evidence/lane-08.md |
+| 07 Search, analytics, and artifacts | Ralph | complete | `3a94f9d` | evidence/lane-07.md |
+| 08 Production readiness | Ralph | complete | pending | evidence/lane-08.md |
 
 ## Open Blocking Corrections
 
@@ -58,6 +58,7 @@ Ralph active: yes
 | Codex monitor check | observed | 2026-05-15T19:21Z: lane 04 committed; Ralph active on iteration 4, lane 05 next. |
 | Codex monitor check | observed | 2026-05-15T19:27Z: lane 05 committed; Ralph active on iteration 5, lane 06 started. |
 | Codex monitor check | observed | 2026-05-15T19:33Z: lane 06 committed; Ralph active on iteration 6, lane 07 started. |
+| Codex monitor check | observed | 2026-05-15T19:39Z: lane 07 committed; Ralph active on iteration 7, lane 08 started. Reviewer subagents launched. |
 
 Pending (run later when lane scope reaches them):
 

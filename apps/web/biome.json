@@ -2,7 +2,14 @@
   "$schema": "https://biomejs.dev/schemas/1.9.4/schema.json",
   "extends": ["../../node_modules/@c3-oss/config-biome/biome.json"],
   "files": {
-    "ignore": ["dist/**", "coverage/**", "node_modules/**", ".turbo/**"]
+    "ignore": [
+      "dist/**",
+      "coverage/**",
+      "node_modules/**",
+      ".turbo/**",
+      "test-results/**",
+      "playwright-report/**"
+    ]
   },
   "linter": {
     "rules": {
