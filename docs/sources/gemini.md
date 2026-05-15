@@ -225,9 +225,8 @@ jq -r '
 
 - Treat each chat file as a **snapshot**, not a session of record.
   Duplicate `sessionId` across files becomes versions of one logical
-  session, not separate sessions. Messages identical by
-  `messages[].id` and content hash dedupe; same id with different
-  content becomes a new version, not a silent overwrite.
+  session, not separate sessions. See [Snapshot merge semantics](#snapshot-merge-semantics)
+  below for the contract the prosa importer applies today.
 - For Gemini, `decoded_json_object_id` on `raw_records` is **populated**
   (not `NULL`) because the source is one big JSON file and per-message
   payloads are genuinely distinct objects worth caching — see
@@ -248,3 +247,47 @@ jq -r '
 - `codebase_investigator` is a tool, not a subagent. Cursor and Claude
   have explicit subagent files; Gemini does not. Do not synthesize
   parent/child session relationships.
+
+### Snapshot merge semantics
+
+When two or more chat files share the same `sessionId` the prosa Gemini
+importer applies a **first-sorted-snapshot-wins** contract:
+
+- Discovery is deterministic. `discoverGeminiChats` sorts project
+  directories under the scan root and then `session-*.json` files inside
+  each `chats/` directory with `localeCompare`. The first file in that
+  order is the **canonical snapshot** for its `sessionId`.
+- Every normalized write — `sessions`, `events`, `messages`,
+  `content_blocks`, `tool_calls`, `tool_results`, `artifacts`,
+  `search_docs` — uses `INSERT OR IGNORE`. Row ids are deterministic
+  hashes that include the `sessionId` and the message/event ordinal
+  (1-indexed by position in `messages[]`), so a later snapshot for the
+  same session collides on the primary key and its rows are silently
+  dropped at the row level.
+- Concretely: if snapshot **A** has three messages and snapshot **B**
+  (same `sessionId`, sorted later) has four messages with different
+  content at the same ordinals, every row whose deterministic id
+  matches an A-row is dropped. Today that catches the `sessions` row,
+  A's overlapping `messages`, `events`, `content_blocks`, `tool_calls`,
+  `tool_results`, `artifacts`, and `search_docs`. Rows in B whose
+  natural key does **not** collide with A (e.g., a message at ordinal
+  4 that A never produced, or a tool call with a Gemini-side id A did
+  not see) still land — the importer does not enforce a stricter
+  "drop everything from later snapshots" rule. This is partial-merge
+  behavior: treat it as a side effect of the current row-level
+  contract, not a guarantee.
+- `raw_records` is the escape hatch. It also uses `INSERT OR IGNORE`,
+  but its primary key is `(source_file_id, ordinal, raw_object_id)`, so
+  the per-snapshot rows are distinct and **every snapshot's bytes are
+  preserved** in CAS. A future merge strategy can replay them without
+  reimporting.
+- Whenever the importer notices a duplicate snapshot (the canonical
+  `session_id` is already in the bundle when a later snapshot is being
+  processed) it appends an `import_errors` row with
+  `kind = 'gemini_duplicate_snapshot'` and a payload pointing at the
+  dropped file path. The batch still completes successfully — the row
+  is informational so operators can audit silent drops.
+- If you need second-snapshot data merged today, reimport into a fresh
+  bundle. A proper merge strategy (last-write-wins, per-message
+  versioning, etc.) is intentionally out of scope for the current
+  importer.

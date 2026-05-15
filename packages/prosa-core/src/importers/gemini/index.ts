@@ -361,6 +361,31 @@ async function compileGeminiFile(
   const sourceSid = parsed.sessionId ?? path.basename(file.filePath, '.json')
   const sessionPk = makeSessionId('gemini', sourceSid)
 
+  const existingSession = prepare<[string], { session_id: string }>(
+    bundle.db,
+    `SELECT session_id FROM sessions WHERE session_id = ? LIMIT 1`,
+  ).get(sessionPk)
+  if (existingSession) {
+    logger?.warn(
+      {
+        path: file.filePath,
+        session_id: sessionPk,
+        source_session_id: sourceSid,
+      },
+      'gemini duplicate snapshot detected; later rows will be dropped by INSERT OR IGNORE',
+    )
+    await recordError(bundle, batch.batch_id, {
+      sourceFileId: sourceFile.source_file_id,
+      kind: 'gemini_duplicate_snapshot',
+      message: `duplicate Gemini snapshot for sessionId ${sourceSid}; first-sorted snapshot wins, rows from this file are dropped at the normalized layer`,
+      payload: {
+        path: file.filePath,
+        session_id: sessionPk,
+        source_session_id: sourceSid,
+      },
+    })
+  }
+
   const projectKey = parsed.projectHash ?? file.projectDir
   if (projectKey) {
     pending.project = {
