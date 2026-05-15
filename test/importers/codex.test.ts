@@ -1,8 +1,9 @@
 import { existsSync } from 'node:fs'
-import { mkdir, readdir, rm } from 'node:fs/promises'
+import { mkdir, readdir, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { getJson } from '../../src/core/cas/index.js'
 import { compileCodex } from '../../src/importers/codex/index.js'
 import { exportSessionMarkdown } from '../../src/services/export/markdown.js'
 import { searchFullText } from '../../src/services/search.js'
@@ -35,6 +36,15 @@ describe('codex importer', () => {
       // from event_msg.exec_command_end.
       expect(result.counts.tool_results).toBe(4)
 
+      const argsRows = t.bundle.db
+        .prepare<[], { args_object_id: string | null }>(
+          `SELECT args_object_id FROM tool_calls WHERE source_call_id IN ('call-1', 'call-2') ORDER BY source_call_id`,
+        )
+        .all()
+      expect(argsRows).toHaveLength(2)
+      expect(argsRows.every((row) => row.args_object_id != null)).toBe(true)
+      expect(await getJson(t.bundle, argsRows[0]!.args_object_id!)).toBe('{"command":"terraform plan"}')
+
       const sessions = listSessions(t.bundle, { sourceTool: 'codex' })
       expect(sessions).toHaveLength(2)
 
@@ -43,6 +53,65 @@ describe('codex importer', () => {
       expect(subagent?.parent_session_id).not.toBeNull()
       // The parent session must exist in the same listing.
       expect(sessions.some((s) => s.session_id === subagent?.parent_session_id)).toBe(true)
+    } finally {
+      await t.cleanup()
+    }
+  })
+
+  it('records structured Codex tool failures', async () => {
+    const t = await createTempBundle()
+    const root = path.join(t.path, 'codex')
+    try {
+      await mkdir(root, { recursive: true })
+      await writeFile(
+        path.join(root, 'rollout-structured-errors.jsonl'),
+        [
+          {
+            timestamp: '2026-05-03T21:00:00.000Z',
+            type: 'session_meta',
+            payload: { id: 'structured-errors', timestamp: '2026-05-03T21:00:00.000Z' },
+          },
+          {
+            timestamp: '2026-05-03T21:00:01.000Z',
+            type: 'response_item',
+            payload: { type: 'function_call', call_id: 'mcp-1', name: 'mcp_tool', arguments: { query: 'x' } },
+          },
+          {
+            timestamp: '2026-05-03T21:00:02.000Z',
+            type: 'event_msg',
+            payload: {
+              type: 'mcp_tool_call_end',
+              call_id: 'mcp-1',
+              status: 'failed',
+              result: { error: { message: 'boom' } },
+            },
+          },
+          {
+            timestamp: '2026-05-03T21:00:03.000Z',
+            type: 'response_item',
+            payload: {
+              type: 'function_call_output',
+              call_id: 'mcp-1',
+              status: 'incomplete',
+              output: { is_error: true, message: 'failed structurally' },
+            },
+          },
+        ]
+          .map((record) => JSON.stringify(record))
+          .join('\n'),
+      )
+
+      await compileCodex(t.bundle, root)
+
+      const rows = t.bundle.db
+        .prepare<[], { source_call_id: string | null; status: string | null; is_error: 0 | 1 }>(
+          `SELECT source_call_id, status, is_error FROM tool_results ORDER BY event_id`,
+        )
+        .all()
+      expect(rows).toEqual([
+        { source_call_id: 'mcp-1', status: 'error', is_error: 1 },
+        { source_call_id: 'mcp-1', status: 'error', is_error: 1 },
+      ])
     } finally {
       await t.cleanup()
     }
