@@ -65,6 +65,15 @@
       "path": "@commitlint/cz-commitlint"
     }
   },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@biomejs/biome",
+      "@swc/core",
+      "better-sqlite3",
+      "esbuild",
+      "zstd-napi"
+    ]
+  },
   "lint-staged": {
     "*.{ts,tsx,js,jsx,json,jsonc}": "biome check --write"
   }

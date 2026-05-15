@@ -24,13 +24,17 @@ COPY --from=build --chown=node:node /repo/package.json ./package.json
 COPY --from=build --chown=node:node /repo/pnpm-workspace.yaml ./pnpm-workspace.yaml
 
 COPY --from=build --chown=node:node /repo/apps/api/package.json ./apps/api/package.json
+COPY --from=build --chown=node:node /repo/apps/api/node_modules ./apps/api/node_modules
 COPY --from=build --chown=node:node /repo/apps/api/dist ./apps/api/dist
 
 COPY --from=build --chown=node:node /repo/packages/prosa-db/package.json ./packages/prosa-db/package.json
+COPY --from=build --chown=node:node /repo/packages/prosa-db/node_modules ./packages/prosa-db/node_modules
 COPY --from=build --chown=node:node /repo/packages/prosa-db/dist ./packages/prosa-db/dist
 COPY --from=build --chown=node:node /repo/packages/prosa-storage/package.json ./packages/prosa-storage/package.json
+COPY --from=build --chown=node:node /repo/packages/prosa-storage/node_modules ./packages/prosa-storage/node_modules
 COPY --from=build --chown=node:node /repo/packages/prosa-storage/dist ./packages/prosa-storage/dist
 COPY --from=build --chown=node:node /repo/packages/prosa-sync/package.json ./packages/prosa-sync/package.json
+COPY --from=build --chown=node:node /repo/packages/prosa-sync/node_modules ./packages/prosa-sync/node_modules
 COPY --from=build --chown=node:node /repo/packages/prosa-sync/dist ./packages/prosa-sync/dist
 
 USER node
