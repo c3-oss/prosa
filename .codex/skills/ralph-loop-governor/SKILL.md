@@ -26,7 +26,7 @@ $ralph-loop-governor implemente <goal>
 Do not require the user to ask for lanes, prompts, status files, correction
 queues, gates, evidence templates, subagents, or Claude commands. Infer and
 create those artifacts from the feature request, then return the exact Claude
-`/ralph-loop` command to run.
+`/ralph-loop:ralph-loop` command to run.
 
 If the request is too vague to produce safe lanes, ask one concise clarifying
 question. Otherwise, make conservative assumptions and proceed.
@@ -70,13 +70,13 @@ prompt rather than duplicated.
 4. Give the user an exact Claude command. Quote any natural-language prompt:
 
 ```text
-/ralph-loop "@docs/roadmap/<feature>/ralph-loop-prompt.md" --max-iterations 30 --completion-promise RALPH_DONE
+/ralph-loop:ralph-loop "@docs/roadmap/<feature>/ralph-loop-prompt.md" --max-iterations 30 --completion-promise RALPH_DONE
 ```
 
 5. If restarting Ralph to consume corrections, use a quoted prompt:
 
 ```text
-/ralph-loop "Read @docs/roadmap/<feature>/ralph-loop-prompt.md, @docs/roadmap/<feature>/correction-queue.md, and @docs/roadmap/<feature>/gates.md. Close every blocking correction with evidence, wait 5 minutes, reread the correction queue, and repeat until no blocking correction remains open." --max-iterations 20 --completion-promise RALPH_DONE
+/ralph-loop:ralph-loop "Read @docs/roadmap/<feature>/ralph-loop-prompt.md, @docs/roadmap/<feature>/correction-queue.md, and @docs/roadmap/<feature>/gates.md. Close every blocking correction with evidence, wait 5 minutes, reread the correction queue, and repeat until no blocking correction remains open." --max-iterations 20 --completion-promise RALPH_DONE
 ```
 
 For server-sync follow-up work, a good terse user prompt is:
