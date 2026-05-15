@@ -234,9 +234,9 @@ describe.skipIf(!shouldRun)('CLI + API + Postgres + S3 — two-device E2E', () =
     })
     expect(sessionsResp.status).toBe(200)
     const sessionsJson = (await sessionsResp.json()) as {
-      result: { data: Array<{ id: string; title: string | null }> }
+      result: { data: { rows: Array<{ id: string; title: string | null }>; nextCursor: string | null } }
     }
-    const ids = sessionsJson.result.data.map((s) => s.id)
+    const ids = sessionsJson.result.data.rows.map((s) => s.id)
     expect(ids).toContain('sess-e2e-1')
 
     // Re-running sync from Device A must be idempotent / non-destructive.

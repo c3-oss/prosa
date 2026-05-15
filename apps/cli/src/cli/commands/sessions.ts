@@ -94,20 +94,20 @@ export function sessionsCommand(): Command {
           remoteSupported: true,
         })
         if (authority.kind === 'remote') {
-          const remoteRows = await authority.client.listSessions({
+          const remotePage = await authority.client.listSessions({
             limit: Number.parseInt(options.limit, 10),
-            ...(sourceTool ? { sourceKind: sourceTool } : {}),
+            ...(sourceTool ? { sourceKinds: [sourceTool] } : {}),
             ...(options.since ? { since: options.since } : {}),
             ...(options.until ? { until: options.until } : {}),
           })
-          const remoteShaped = remoteRows.map((row) => ({
+          const remoteShaped = remotePage.rows.map((row) => ({
             session_id: row.id,
             source_tool: row.sourceKind,
             title: row.title,
             start_ts: row.startedAt,
             end_ts: row.endedAt,
-            message_count: null,
-            tool_call_count: null,
+            message_count: row.messageCount,
+            tool_call_count: row.toolCallCount,
             model_first: null,
             model_last: null,
             status: null,
@@ -166,7 +166,7 @@ export function sessionsCommand(): Command {
           })
           if (authority.kind === 'remote') {
             const result = await authority.client.countSessions({
-              ...(sourceTool ? { sourceKind: sourceTool } : {}),
+              ...(sourceTool ? { sourceKinds: [sourceTool] } : {}),
               ...(options.since ? { since: options.since } : {}),
               ...(options.until ? { until: options.until } : {}),
             })

@@ -158,7 +158,9 @@ describe('cross-tenant object attachment', () => {
         url: '/trpc/sessions.list?input=%7B%7D',
         headers: { authorization: `Bearer ${bob.token}` },
       })
-      const sessionIds = (sessions.json() as { result: { data: Array<{ id: string }> } }).result.data.map((r) => r.id)
+      const sessionIds = (
+        sessions.json() as { result: { data: { rows: Array<{ id: string }> } } }
+      ).result.data.rows.map((r) => r.id)
       expect(sessionIds).not.toContain('sess-a')
     } finally {
       await t.close()

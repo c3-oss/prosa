@@ -36,19 +36,26 @@ export function searchCommand(): Command {
               `remote-authoritative search uses the remote-pg engine; --engine ${options.engine} is local-only.\nUse --engine remote-pg, or add --local to query a local search index explicitly.`,
             )
           }
-          const hits = await authority.client.searchQuery({
+          const result = await authority.client.searchQuery({
             q: query,
             limit: Number.parseInt(options.limit, 10),
           })
-          const rows = hits.map((hit) => ({
+          const rows = result.rows.map((hit) => ({
             ...hit,
             session_id: hit.sessionId,
+            kind: hit.fieldKind,
           }))
           printRows(rows, {
             format,
             columns: ['session_id', 'kind', 'snippet'],
             maxColumnWidths: { session_id: 12, kind: 12 },
-            meta: { query, source: 'remote', engine: 'remote-pg', server: authority.entry.url, count: hits.length },
+            meta: {
+              query,
+              source: 'remote',
+              engine: 'remote-pg',
+              server: authority.entry.url,
+              count: result.rows.length,
+            },
           })
           return
         }

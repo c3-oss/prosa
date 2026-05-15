@@ -87,7 +87,7 @@ describe('sync transaction promotion integrity', () => {
 
       const sessions = await trpc(t, 'sessions.list', {}, auth.token, 'GET')
       expect(sessions.statusCode).toBe(200)
-      expect((sessions.json() as { result: { data: unknown[] } }).result.data).toEqual([])
+      expect((sessions.json() as { result: { data: { rows: unknown[] } } }).result.data.rows).toEqual([])
 
       const status = await t.pglite.query<{ status: string }>('SELECT status FROM "sync_batch" WHERE id = $1', [
         batchId,

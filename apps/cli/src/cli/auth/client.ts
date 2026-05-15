@@ -217,10 +217,10 @@ export class ProsaApiClient {
   // ---- reads ----
 
   async listSessions(
-    input: { limit?: number; sourceKind?: string; search?: string; since?: string; until?: string } = {},
+    input: { limit?: number; sourceKinds?: string[]; q?: string; since?: string; until?: string; cursor?: string } = {},
   ) {
-    return this.trpcQuery<
-      Array<{
+    return this.trpcQuery<{
+      rows: Array<{
         id: string
         sourceKind: string
         title: string | null
@@ -228,11 +228,16 @@ export class ProsaApiClient {
         endedAt: string | null
         turnCount: number
         projectId: string | null
+        messageCount: number
+        toolCallCount: number
+        errorCount: number
+        durationMs: number | null
       }>
-    >('sessions.list', input)
+      nextCursor: string | null
+    }>('sessions.list', input)
   }
 
-  async countSessions(input: { sourceKind?: string; search?: string; since?: string; until?: string } = {}) {
+  async countSessions(input: { sourceKinds?: string[]; q?: string; since?: string; until?: string } = {}) {
     return this.trpcQuery<{ count: number }>('sessions.count', input)
   }
 
@@ -249,11 +254,22 @@ export class ProsaApiClient {
     } | null>('sessions.get', { id })
   }
 
-  async searchQuery(input: { q: string; limit?: number }) {
-    return this.trpcQuery<Array<{ id: string; sessionId: string; kind: string; snippet: string }>>(
-      'search.query',
-      input,
-    )
+  async searchQuery(input: { q: string; limit?: number; cursor?: string }) {
+    return this.trpcQuery<{
+      rows: Array<{
+        id: string
+        sessionId: string
+        sessionTitle: string | null
+        sourceKind: string
+        timestamp: string | null
+        role: string | null
+        toolName: string | null
+        fieldKind: string
+        snippet: string
+        rank: number | null
+      }>
+      nextCursor: string | null
+    }>('search.query', input)
   }
 
   async analyticsSummary() {

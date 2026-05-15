@@ -88,11 +88,15 @@ describe('multi-device remote-only reads', () => {
 
       const unverifiedSessions = await trpc(t, 'sessions.list', {}, auth.token, 'GET')
       expect(unverifiedSessions.statusCode).toBe(200)
-      expect((unverifiedSessions.json() as { result: { data: Array<{ id: string }> } }).result.data).toEqual([])
+      expect(
+        (unverifiedSessions.json() as { result: { data: { rows: Array<{ id: string }> } } }).result.data.rows,
+      ).toEqual([])
 
       const unverifiedSearch = await trpc(t, 'search.query', { q: 'widgets' }, auth.token, 'GET')
       expect(unverifiedSearch.statusCode).toBe(200)
-      expect((unverifiedSearch.json() as { result: { data: Array<{ id: string }> } }).result.data).toEqual([])
+      expect(
+        (unverifiedSearch.json() as { result: { data: { rows: Array<{ id: string }> } } }).result.data.rows,
+      ).toEqual([])
 
       const unverifiedAnalytics = await trpc(t, 'analytics.summary', undefined, auth.token, 'GET')
       expect(unverifiedAnalytics.statusCode).toBe(200)
@@ -122,17 +126,19 @@ describe('multi-device remote-only reads', () => {
       const sessions = await trpc(t, 'sessions.list', {}, auth.token, 'GET')
       expect(sessions.statusCode).toBe(200)
       const sessionsBody = sessions.json() as {
-        result: { data: Array<{ id: string; title: string | null; sourceKind: string }> }
+        result: {
+          data: { rows: Array<{ id: string; title: string | null; sourceKind: string }>; nextCursor: string | null }
+        }
       }
-      expect(sessionsBody.result.data.map((s) => s.id).sort()).toEqual(['sess-A1', 'sess-A2'])
+      expect(sessionsBody.result.data.rows.map((s) => s.id).sort()).toEqual(['sess-A1', 'sess-A2'])
 
       const search = await trpc(t, 'search.query', { q: 'widgets' }, auth.token, 'GET')
       expect(search.statusCode).toBe(200)
       const searchBody = search.json() as {
-        result: { data: Array<{ sessionId: string; snippet: string }> }
+        result: { data: { rows: Array<{ sessionId: string; snippet: string }>; nextCursor: string | null } }
       }
-      expect(searchBody.result.data).toHaveLength(1)
-      expect(searchBody.result.data[0]?.sessionId).toBe('sess-A1')
+      expect(searchBody.result.data.rows).toHaveLength(1)
+      expect(searchBody.result.data.rows[0]?.sessionId).toBe('sess-A1')
 
       const analytics = await trpc(t, 'analytics.summary', undefined, auth.token, 'GET')
       const analyticsBody = analytics.json() as {
@@ -219,7 +225,9 @@ describe('multi-device remote-only reads', () => {
 
       const sessions = await trpc(t, 'sessions.list', {}, bob.token, 'GET')
       expect(sessions.statusCode).toBe(200)
-      const ids = (sessions.json() as { result: { data: Array<{ id: string }> } }).result.data.map((r) => r.id)
+      const ids = (sessions.json() as { result: { data: { rows: Array<{ id: string }> } } }).result.data.rows.map(
+        (r) => r.id,
+      )
       expect(ids).not.toContain('a-secret')
     } finally {
       await t.close()

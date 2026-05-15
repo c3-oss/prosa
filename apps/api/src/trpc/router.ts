@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { readPackageVersion } from '../version.js'
 import { publicProcedure, router } from './init.js'
 import { authRouter } from './routers/auth.js'
-import { analyticsRouter, searchRouter, sessionsRouter } from './routers/reads.js'
+import { analyticsRouter, artifactsRouter, searchRouter, sessionsRouter, toolCallsRouter } from './routers/reads.js'
 import { syncRouter } from './routers/sync.js'
 import { tenantRouter } from './routers/tenant.js'
 
@@ -24,6 +24,8 @@ export const appRouter = router({
   sync: syncRouter,
   sessions: sessionsRouter,
   search: searchRouter,
+  toolCalls: toolCallsRouter,
+  artifacts: artifactsRouter,
   analytics: analyticsRouter,
 })
 
