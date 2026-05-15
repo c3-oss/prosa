@@ -10,8 +10,8 @@ Completion signal: RALPH_DONE
 ## Current State
 
 Status: in-progress
-Current lane: 05 (next)
-Current HEAD: `1a15ad1`
+Current lane: 06 (next)
+Current HEAD: `e83027b`
 No-change streak: 0
 Ralph active: yes
 
@@ -23,7 +23,7 @@ Ralph active: yes
 | 02 Frontend foundation | Ralph | complete | `eb435b6` | evidence/lane-02.md |
 | 03 Browser auth and tenancy | Ralph | complete | `3f39de8` | evidence/lane-03.md |
 | 04 Read API v0 | Ralph | complete | `86f10fa` | evidence/lane-04.md |
-| 05 Console shell and sessions | Ralph | open | | evidence/lane-05.md |
+| 05 Console shell and sessions | Ralph | complete | `e83027b` | evidence/lane-05.md |
 | 06 Session detail timeline | Ralph | open | | evidence/lane-06.md |
 | 07 Search, analytics, and artifacts | Ralph | open | | evidence/lane-07.md |
 | 08 Production readiness | Ralph | open | | evidence/lane-08.md |
