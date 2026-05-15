@@ -41,6 +41,11 @@ commit:
 dev *cmd-args:
   @pnpm --filter @c3-oss/prosa dev -- {{ cmd-args }}
 
+# run the prosa API server through SWC -- e.g. "just dev-api"
+[group('ALIASES')]
+dev-api *cmd-args:
+  @pnpm --filter @c3-oss/prosa-api dev {{ cmd-args }}
+
 # run the standard pre-release quality gate
 [group('ALIASES')]
 quality:
