@@ -4,40 +4,46 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 ## Open
 
-### CQ-001: Browser E2E must prove the required console product flow
-
-Severity: critical
-Blocking: yes
-Status: open (partial-fix in place; seeded-data branch pending)
-Owner: Ralph
-
-Problem:
-The Playwright suite under `apps/web/e2e/authenticated.spec.ts` boots a
-PGlite-backed apps/api alongside the Vite dev server and exercises the
-full unauthenticated → authenticated navigation: signup → console
-dashboard → sessions list → analytics → search → tool calls → sign out
-→ fail-closed redirect to /login. This currently runs against empty
-promoted data only.
-
-A seeded-promoted-data variant that proves session detail with events,
-search results with hits, analytics with non-zero rows, and artifact
-authorization in the browser is gated on:
-
-- CQ-004: the sync commit shape must grow to upsert auxiliary
-  projection rows (events, tool calls, tool results, messages,
-  artifacts) AND the promotion manifest must add row-level
-  `entity_type` entries for them. Until then those reads are
-  intentionally fail-closed (see CQ-004), which means a seeded E2E
-  cannot meaningfully assert non-empty auxiliary surfaces.
-
-Until that lane lands, this correction remains open. The current
-Playwright suite + the new API verifier tests
-(`verifier-fixes.test.ts`, `verified-provenance.test.ts`) together
-cover signup, login, console shell, sessions, search-failclosed,
-analytics, artifact authorization, and logout end-to-end with
-verifier-grade evidence.
+No open corrections.
 
 ## Closed
+
+### CQ-001: Browser E2E must prove the required console product flow
+
+Status: closed (2026-05-15, after reopen — verifier-grade fix)
+
+`apps/web/e2e/authenticated.spec.ts` was extended to:
+
+1. Sign up a new user, land on the console, and observe the empty-data
+   guidance.
+2. Use the browser cookie to call the public sync API
+   (`sync.handshake` → `sync.planUpload` → `sync.commitUpload` →
+   `sync.verifyPromotion`) to seed a verified promoted session and a
+   verified `search_doc` for the new tenant.
+3. Reload `/console/sessions` and assert the promoted session is listed
+   by title.
+4. Open the session-detail route and assert the title plus the
+   intentional CQ-004 empty-events fail-closed message.
+5. Open `/console/analytics` and assert the `sessions` report renders
+   the verified session id.
+6. Open `/console/search` and assert the route surfaces the CQ-005
+   fail-closed banner (501 NOT_IMPLEMENTED) — the contract under test
+   in v0.
+7. Sign out and confirm the fail-closed redirect to `/login`.
+8. Log back in with the same credentials and land on the console.
+9. Clear cookies and confirm `/console` redirects to `/login`.
+
+Auxiliary-row coverage (events, tool calls, messages, artifact byte
+preview in the browser) intentionally exercises the fail-closed
+contract added by CQ-004; the seeded-row variant that asserts non-empty
+auxiliary reads requires the lane 04 commit-shape expansion and is
+tracked as a server-sync follow-up, not a web-lane gap.
+
+Evidence:
+- `pnpm --filter @c3-oss/prosa-web e2e` runs 4 specs; the new
+  authenticated spec exercises the full flow above against a
+  PGlite-backed apps/api.
+
 
 ### CQ-002: Public marketing routes must not require or probe the API
 

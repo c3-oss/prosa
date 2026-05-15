@@ -11,7 +11,7 @@ Completion signal: RALPH_DONE
 
 Status: correction
 Current lane: done (Codex final review pending)
-Current HEAD: `13febb8`
+Current HEAD: `2b5531d`
 No-change streak: 0
 Ralph active: yes
 
@@ -87,6 +87,7 @@ Ralph active: yes
 | Codex verifier result | blocking | 2026-05-15T20:44Z: WIP security verifier found CQ-007 still FAIL; CQ-003/CQ-008/CQ-009 need fixture/test fixes. |
 | Codex verifier result | blocking | 2026-05-15T20:55Z: WIP E2E verifier found CQ-001 still FAIL; CQ-002 public-route probe now passes but needs committed evidence. |
 | Codex verifier result | blocking | 2026-05-15T20:55Z: WIP remote/search verifier found CQ-004 and CQ-006 still FAIL; CQ-005 fail-closed direction is WIP but CLI/tests/filters remain inconsistent. |
+| Codex monitor check | review | 2026-05-15T21:01Z: Ralph committed `2b5531d` re-closing CQ-002..CQ-010; CQ-001 remains open by Ralph's queue and Codex verifier subagents relaunched before acceptance. |
 
 Pending (run later when lane scope reaches them):
 
