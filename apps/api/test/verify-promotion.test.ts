@@ -85,13 +85,13 @@ describe('verifyPromotion rigor', () => {
         alice.token,
       )
       expect(verify.statusCode).toBe(412)
-      expect(verify.body).toContain('Promotion verification failed')
+      expect(verify.body).toContain('object declarations must exactly match')
 
-      // The batch must be marked verification_failed so a retry can find it.
+      // The batch must be marked failed so cleanup cannot proceed.
       const rows = await t.pglite.query<{ status: string }>('SELECT status FROM "sync_batch" WHERE id = $1 LIMIT 1', [
         batchId,
       ])
-      expect(rows.rows[0]?.status).toBe('verification_failed')
+      expect(rows.rows[0]?.status).toBe('failed')
     } finally {
       await t.close()
     }
@@ -137,7 +137,7 @@ describe('verifyPromotion rigor', () => {
         alice.token,
       )
       expect(verify.statusCode).toBe(412)
-      expect(verify.body).toContain('1 sessions')
+      expect(verify.body).toContain('session declarations must exactly match')
     } finally {
       await t.close()
     }
@@ -169,7 +169,9 @@ describe('verifyPromotion rigor', () => {
         {
           deviceId,
           storePath: '/tmp/a',
-          objects: [{ objectId, hash, hashAlgorithm: 'blake3', uncompressedSize: 5, compressedSize: 5 }],
+          objects: [
+            { objectId, hash, hashAlgorithm: 'blake3', uncompressedSize: 5, compressedSize: 5, compression: 'none' },
+          ],
         },
         alice.token,
       )
@@ -178,7 +180,7 @@ describe('verifyPromotion rigor', () => {
       // Upload the bytes through the object route.
       const putResp = await t.app.inject({
         method: 'PUT',
-        url: `/objects/${objectId}?hash=${hash}&size=5&uncompressed=5`,
+        url: `/objects/${objectId}?batchId=${batchId}&hash=${hash}&size=5&uncompressed=5&compression=none`,
         headers: {
           authorization: `Bearer ${alice.token}`,
           'content-type': 'application/octet-stream',
@@ -194,7 +196,9 @@ describe('verifyPromotion rigor', () => {
           batchId,
           deviceId,
           storePath: '/tmp/a',
-          objects: [{ objectId, hash, hashAlgorithm: 'blake3', uncompressedSize: 5, compressedSize: 5 }],
+          objects: [
+            { objectId, hash, hashAlgorithm: 'blake3', uncompressedSize: 5, compressedSize: 5, compression: 'none' },
+          ],
           projection: {
             sessions: [{ id: 'sess-real', sourceKind: 'codex', title: 'live', turnCount: 1 }],
             searchDocs: [{ id: 'doc-real', sessionId: 'sess-real', kind: 'session', body: 'live body' }],

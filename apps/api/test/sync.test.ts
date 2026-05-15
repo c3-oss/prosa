@@ -67,9 +67,9 @@ describe('sync promotion protocol', () => {
       expect(handshakeBody.result.data.promoted).toBe(false)
       const deviceId = handshakeBody.result.data.deviceId
 
-      const objectId = 'obj-0001'
       const bytes = new Uint8Array(Array.from({ length: 16 }, (_, i) => i))
       const hash = computeHashHex(bytes, 'blake3')
+      const objectId = `blake3:${hash}`
 
       const plan = await trpc(
         t,
@@ -84,6 +84,7 @@ describe('sync promotion protocol', () => {
               hashAlgorithm: 'blake3',
               uncompressedSize: bytes.byteLength,
               compressedSize: bytes.byteLength,
+              compression: 'none',
             },
           ],
         },
@@ -98,7 +99,9 @@ describe('sync promotion protocol', () => {
       // PUT the bytes through the object route.
       const putResp = await t.app.inject({
         method: 'PUT',
-        url: `/objects/${objectId}?hash=${hash}&size=${bytes.byteLength}&uncompressed=${bytes.byteLength}`,
+        url:
+          `/objects/${objectId}?batchId=${planBody.result.data.batchId}&hash=${hash}` +
+          `&size=${bytes.byteLength}&uncompressed=${bytes.byteLength}&compression=none`,
         headers: {
           authorization: `Bearer ${signupResult.token}`,
           'content-type': 'application/octet-stream',
@@ -121,6 +124,7 @@ describe('sync promotion protocol', () => {
               hashAlgorithm: 'blake3',
               uncompressedSize: bytes.byteLength,
               compressedSize: bytes.byteLength,
+              compression: 'none',
             },
           ],
           projection: {
@@ -146,7 +150,13 @@ describe('sync promotion protocol', () => {
       const verify = await trpc(
         t,
         'sync.verifyPromotion',
-        { batchId: planBody.result.data.batchId, storePath: '/tmp/.prosa-test' },
+        {
+          batchId: planBody.result.data.batchId,
+          storePath: '/tmp/.prosa-test',
+          declaredObjectIds: [objectId],
+          declaredSessionIds: ['sess-1'],
+          declaredSearchDocIds: ['doc-1'],
+        },
         signupResult.token,
       )
       expect(verify.statusCode).toBe(200)
@@ -212,15 +222,12 @@ describe('sync promotion protocol', () => {
       const first = await trpc(t, 'sync.commitUpload', commitPayload, auth.token)
       const second = await trpc(t, 'sync.commitUpload', commitPayload, auth.token)
       expect(first.statusCode).toBe(200)
-      expect(second.statusCode).toBe(200)
+      expect(second.statusCode).toBe(412)
       const firstBody = first.json() as {
         result: { data: { committedObjects: number; committedRows: number } }
       }
-      const secondBody = second.json() as {
-        result: { data: { committedObjects: number; committedRows: number } }
-      }
       expect(firstBody.result.data.committedRows).toBe(1)
-      expect(secondBody.result.data.committedRows).toBe(0)
+      expect(second.body).toContain('Batch is not open for commit')
     } finally {
       await t.close()
     }
