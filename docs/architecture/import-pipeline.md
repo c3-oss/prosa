@@ -5,8 +5,8 @@ session tree and produce a fully-indexed bundle. This doc describes how
 that pipeline is structured today, the contracts each importer must honor,
 and the per-provider trade-offs.
 
-Implementation: `src/cli/commands/compile.ts`, `src/core/ingest/`,
-`src/core/cas/index.ts`, `src/importers/<provider>/`.
+Implementation: `apps/cli/src/cli/commands/compile.ts`, `packages/prosa-core/src/core/ingest/`,
+`packages/prosa-core/src/core/cas/index.ts`, `packages/prosa-core/src/importers/<provider>/`.
 
 ## Pipeline phases
 
@@ -18,7 +18,7 @@ For each `(provider, sessions-path)`:
    `~/.hermes/state.db` plus top-level transcript files under
    `~/.hermes/sessions`.
 2. **Source-file registration** — `registerSourceFile()` in
-   `src/core/ingest/idempotency.ts` looks up
+   `packages/prosa-core/src/core/ingest/idempotency.ts` looks up
    `(source_tool, path, size, mtime)` and short-circuits if the row exists.
    On miss it hashes the file (SHA-256), preserves the bytes under
    `raw/sources/<blake3>.zst`, and inserts the `source_files` row.
@@ -46,10 +46,10 @@ tokenization. A `finally` block re-enables them.
 
 The analytics views (`session_facts`, `tool_usage_facts`, `error_facts`,
 `model_usage`, `project_activity`) are SQLite views created by migration
-v3 (`src/core/schema/sql/003_analytics_views.ts`). They are pure SELECTs,
+v3 (`packages/prosa-core/src/core/schema/sql/003_analytics_views.ts`). They are pure SELECTs,
 so no rebuild step is needed after compile — every query against them
 sees the latest canonical state. The DuckDB-side equivalents in
-`createAnalyticsViews` (`src/services/export/parquet.ts`) mirror the
+`createAnalyticsViews` (`packages/prosa-core/src/services/export/parquet.ts`) mirror the
 same column names so SQLite (MCP / CLI) and DuckDB (Parquet) reads stay
 in lockstep.
 
@@ -81,7 +81,7 @@ manually.
 
 ## CAS staging contract
 
-`src/core/cas/index.ts` is structured around the observation that
+`packages/prosa-core/src/core/cas/index.ts` is structured around the observation that
 auto-commit per record is the dominant import cost. Every importer follows
 the same shape:
 
@@ -129,7 +129,7 @@ out:
 | Codex | `NULL` | Each JSONL line **is** the JSON; no consumer reads it back |
 | Claude | `NULL` | Same |
 | Gemini | populated | Source is one big JSON file; per-message payloads are genuinely distinct objects worth caching |
-| Cursor | populated | The importer reads the decoded JSON back during the same pass (`src/importers/cursor/index.ts`) |
+| Cursor | populated | The importer reads the decoded JSON back during the same pass (`packages/prosa-core/src/importers/cursor/index.ts`) |
 | Hermes | populated | SQLite rows and JSON snapshot pointers are distinct from preserved file bytes; JSONL lines use the same normalized path |
 
 Halving the CAS writes for the two heaviest importers cut cold-import time
@@ -156,14 +156,14 @@ provenance is preserved separately in `raw_records`.
 
 ## Per-importer notes
 
-- **Codex** (`src/importers/codex/`): preserves the
+- **Codex** (`packages/prosa-core/src/importers/codex/`): preserves the
   `type` / `timestamp` / `payload` envelope. `session_meta`,
   `turn_context`, `response_item`, `event_msg` map to sessions, turns,
   events/messages/tool calls, and operational events respectively. Tool
   calls and outputs match on `call_id`. Subagent sessions are linked via
   `payload.source.subagent.thread_spawn.parent_thread_id`. See
   [Codex source format](../sources/codex.md).
-- **Claude Code** (`src/importers/claude/`): scans `*.jsonl` directly;
+- **Claude Code** (`packages/prosa-core/src/importers/claude/`): scans `*.jsonl` directly;
   `sessions-index.json` is treated as a hint, never the source of truth.
   `uuid` / `parentUuid` / `agentId` / `isSidechain` /
   `sourceToolAssistantUUID` populate the message graph and subagent
@@ -171,17 +171,17 @@ provenance is preserved separately in `raw_records`.
   system prompt. `tool-results/` artifacts and `memory/*.md` files are
   imported as `artifacts`. See
   [Claude Code source format](../sources/claude-code.md).
-- **Gemini** (`src/importers/gemini/`): chat files are treated as
+- **Gemini** (`packages/prosa-core/src/importers/gemini/`): chat files are treated as
   snapshots — duplicate `sessionId` across files becomes versions of one
   logical session. `.project_root` populates `projects.canonical_path`
   when present. See [Gemini source format](../sources/gemini.md).
-- **Cursor** (`src/importers/cursor/`): reads each `store.db` read-only
+- **Cursor** (`packages/prosa-core/src/importers/cursor/`): reads each `store.db` read-only
   (`mode=ro&immutable=1`), classifies blobs (JSON / text / protobuf-ish),
   and projects the JSON ones. Timeline ordering depends on undecoded
   protobuf root state, so projected sessions get
   `timeline_confidence='low'` until decoding improves. See
   [Cursor source format](../sources/cursor.md).
-- **Hermes** (`src/importers/hermes/`): treats `~/.hermes/state.db` as the
+- **Hermes** (`packages/prosa-core/src/importers/hermes/`): treats `~/.hermes/state.db` as the
   canonical store when present, while preserving top-level JSONL transcripts
   and `session_*.json` snapshots under `~/.hermes/sessions/`. If a transcript
   file has more messages than the SQLite row for the same session, the file
@@ -193,15 +193,15 @@ provenance is preserved separately in `raw_records`.
 
 | Path | Role |
 |---|---|
-| `src/cli/commands/compile.ts` | `compile <provider>` / `compile-all` driver, including post-import Tantivy/Parquet step |
-| `src/core/cas/index.ts` | CAS, staging API, `ensureDir` cache |
-| `src/core/cas/compress.ts`, `src/core/cas/hash.ts` | zstd policy, BLAKE3 |
-| `src/core/ingest/idempotency.ts` | `registerSourceFile`, `preserveRawSourceBytes` |
-| `src/core/ingest/batch.ts` | `import_batches` lifecycle and counts |
-| `src/core/db.ts` | `prepare`, `transactional` helpers |
-| `src/importers/<provider>/index.ts` | Provider importers |
-| `src/services/indexing.ts` | FTS5 trigger toggles, `rebuildFts5Index`, `rebuildTantivyIndex`, `markIndexesAfterImport` |
-| `src/services/export/parquet.ts` | Post-compile Parquet refresh |
+| `apps/cli/src/cli/commands/compile.ts` | `compile <provider>` / `compile-all` driver, including post-import Tantivy/Parquet step |
+| `packages/prosa-core/src/core/cas/index.ts` | CAS, staging API, `ensureDir` cache |
+| `packages/prosa-core/src/core/cas/compress.ts`, `packages/prosa-core/src/core/cas/hash.ts` | zstd policy, BLAKE3 |
+| `packages/prosa-core/src/core/ingest/idempotency.ts` | `registerSourceFile`, `preserveRawSourceBytes` |
+| `packages/prosa-core/src/core/ingest/batch.ts` | `import_batches` lifecycle and counts |
+| `packages/prosa-core/src/core/db.ts` | `prepare`, `transactional` helpers |
+| `packages/prosa-core/src/importers/<provider>/index.ts` | Provider importers |
+| `packages/prosa-core/src/services/indexing.ts` | FTS5 trigger toggles, `rebuildFts5Index`, `rebuildTantivyIndex`, `markIndexesAfterImport` |
+| `packages/prosa-core/src/services/export/parquet.ts` | Post-compile Parquet refresh |
 
 ## Constraints worth remembering
 

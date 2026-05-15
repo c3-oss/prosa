@@ -5,7 +5,7 @@ Each `store.db` is a tiny content-addressed object store with a small
 `meta` table for session metadata and a `blobs` table for everything else
 (JSON messages, plain text fragments, and binary/protobuf state).
 
-Imported by `src/importers/cursor/`.
+Imported by `packages/prosa-core/src/importers/cursor/`.
 
 ## Layout
 
@@ -196,7 +196,7 @@ meta_agent="$(sqlite3 "$ro" "SELECT value FROM meta WHERE key='0';" \
 - Always open with `mode=ro&immutable=1`. Do not lock or modify a
   database that Cursor may be writing.
 - `meta.value` decodes from hex to UTF-8 JSON. The importer in
-  `src/importers/cursor/index.ts` runs this decode and projects the
+  `packages/prosa-core/src/importers/cursor/index.ts` runs this decode and projects the
   fields into `sessions` and `projects`.
 - Blob classification (JSON / text / protobuf-ish / empty) drives
   whether a blob becomes a `messages` row, an `artifacts` row, or just

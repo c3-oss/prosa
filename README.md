@@ -309,13 +309,14 @@ Project layout:
 
 | Path | Purpose |
 |---|---|
-| `src/cli/commands/` | CLI command implementations |
-| `src/core/` | Bundle, schema, CAS, domain IDs, and ingest helpers |
-| `src/importers/` | Codex, Claude, Gemini, Cursor, and Hermes importers |
-| `src/services/` | Sessions, search, indexing, exports, and analytics |
-| `src/mcp/` | MCP server, tools, and prompts |
-| `src/tui/` | Ink terminal UI |
-| `test/` | Vitest tests and fixtures |
+| `apps/cli/src/cli/commands/` | CLI command implementations |
+| `packages/prosa-core/src/core/` | Bundle, schema, CAS, domain IDs, and ingest helpers |
+| `packages/prosa-core/src/importers/` | Codex, Claude, Gemini, Cursor, and Hermes importers |
+| `packages/prosa-core/src/services/` | Sessions, search, indexing, exports, and analytics |
+| `packages/prosa-core/src/mcp/` | MCP server, tools, and prompts |
+| `apps/cli/src/tui/` | Ink terminal UI |
+| `apps/cli/test/` | CLI Vitest tests |
+| `packages/prosa-core/test/` | Core, importer, service, MCP, helper, and fixture tests |
 | `docs/` | Architecture and source-format references |
 
 ## Documentation

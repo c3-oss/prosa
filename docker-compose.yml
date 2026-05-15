@@ -1,0 +1,87 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: prosa
+      POSTGRES_PASSWORD: prosa
+      POSTGRES_DB: prosa
+    ports:
+      - "${PROSA_COMPOSE_POSTGRES_PORT:-54329}:5432"
+    volumes:
+      - prosa-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U prosa -d prosa"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: prosa
+      MINIO_ROOT_PASSWORD: prosa-minio
+    ports:
+      - "${PROSA_COMPOSE_MINIO_PORT:-9000}:9000"
+      - "${PROSA_COMPOSE_MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - prosa-minio:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  minio-create-bucket:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint:
+      - /bin/sh
+      - -lc
+      - |
+        mc alias set local http://minio:9000 prosa prosa-minio
+        mc mb --ignore-existing local/prosa
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    environment:
+      PROSA_RUNTIME_MODE: production
+      PROSA_API_HOST: 0.0.0.0
+      PROSA_API_PORT: 3000
+      PROSA_API_URL: http://localhost:${PROSA_COMPOSE_API_PORT:-3000}
+      PROSA_LOG_LEVEL: info
+      PROSA_DATABASE_URL: postgres://prosa:prosa@postgres:5432/prosa
+      PROSA_AUTH_SECRET: ${PROSA_AUTH_SECRET:-compose-development-secret-please-change}
+      PROSA_OBJECT_STORE_DRIVER: s3
+      PROSA_OBJECT_STORE_BUCKET: prosa
+      PROSA_OBJECT_STORE_PREFIX: prosa/
+      PROSA_OBJECT_STORE_ENDPOINT: http://minio:9000
+      PROSA_OBJECT_STORE_REGION: us-east-1
+      PROSA_OBJECT_STORE_ACCESS_KEY_ID: prosa
+      PROSA_OBJECT_STORE_SECRET_ACCESS_KEY: prosa-minio
+    ports:
+      - "${PROSA_COMPOSE_API_PORT:-3000}:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-create-bucket:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\"",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  prosa-postgres:
+  prosa-minio:

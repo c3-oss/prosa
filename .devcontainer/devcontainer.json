@@ -1,0 +1,40 @@
+{
+  "name": "prosa",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "workspaceFolder": "/workspace/prosa",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace/prosa,type=bind,consistency=cached",
+  "remoteUser": "node",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  "forwardPorts": [3000, 54329, 9000, 9001],
+  "portsAttributes": {
+    "3000": {
+      "label": "prosa API"
+    },
+    "54329": {
+      "label": "Postgres"
+    },
+    "9000": {
+      "label": "MinIO S3"
+    },
+    "9001": {
+      "label": "MinIO Console"
+    }
+  },
+  "postCreateCommand": "corepack enable && pnpm install",
+  "postStartCommand": "docker compose up -d postgres minio minio-create-bucket",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "biomejs.biome",
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode"
+      ]
+    }
+  }
+}

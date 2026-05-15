@@ -1,6 +1,12 @@
 node_modules/
 dist/
 coverage/
+apps/*/dist/
+apps/*/coverage/
+apps/*/.turbo/
+packages/*/dist/
+packages/*/coverage/
+packages/*/.turbo/
 docs/api/
 .turbo/
 .devbox/

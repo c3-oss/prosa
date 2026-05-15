@@ -3,7 +3,7 @@
 Codex CLI stores session histories as append-only JSONL under
 `~/.codex/sessions/`. This is the format `prosa compile codex` reads.
 
-Imported by `src/importers/codex/`.
+Imported by `packages/prosa-core/src/importers/codex/`.
 
 ## Layout
 

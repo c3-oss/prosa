@@ -7,8 +7,8 @@ default it lives at `~/.prosa`; override with `--store <path>` or
 
 This document is the authoritative reference for the on-disk layout, the
 SQLite schema, and the rules that keep raw, projection, and derived layers in
-sync. It is implemented by `src/core/bundle.ts`, `src/core/schema/`, and
-`src/core/cas/`.
+sync. It is implemented by `packages/prosa-core/src/core/bundle.ts`, `packages/prosa-core/src/core/schema/`, and
+`packages/prosa-core/src/core/cas/`.
 
 ## On-disk layout
 
@@ -61,7 +61,7 @@ Every byte string with potential reuse — raw lines, decoded JSON, tool
 output, file contents, source-file copies — is stored once in the CAS:
 
 - Hash: BLAKE3 over the uncompressed bytes; `object_id` is `blake3:<hex>`.
-- Compression: zstd when worth it (`src/core/cas/compress.ts` decides per
+- Compression: zstd when worth it (`packages/prosa-core/src/core/cas/compress.ts` decides per
   buffer); the on-disk path is `objects/blake3/<aa>/<bb>/<hash>.zst` where
   `<aa><bb>` are the first 4 hex chars of the hash.
 - Dedup: identical content produces the same `object_id` regardless of which
@@ -74,7 +74,7 @@ column is the natural key for idempotent file registration and predates
 the importer-side staging API. The `object_id` column on `source_files`
 points at the BLAKE3-keyed CAS copy.
 
-The CAS exposes a per-importer staging API in `src/core/cas/index.ts`:
+The CAS exposes a per-importer staging API in `packages/prosa-core/src/core/cas/index.ts`:
 
 ```ts
 const pending = createPendingObjects();
@@ -90,7 +90,7 @@ auto-commit) remain for callers outside the importer hot path.
 ## Schema
 
 All tables live in `prosa.sqlite`. SQL definitions are in
-`src/core/schema/sql/001_init.ts` (v1) and `002_search_index_status.ts`
+`packages/prosa-core/src/core/schema/sql/001_init.ts` (v1) and `002_search_index_status.ts`
 (v2). Changes go in new migration files, never by editing existing ones.
 
 ### Raw layer
@@ -299,9 +299,9 @@ Tantivy/Parquet rebuilds (`importedAny === false`). See the
 
 ## Migrations
 
-Migrations are in `src/core/schema/sql/NNN_*.ts`, applied in numeric order
-by `runMigrations()` in `src/core/schema/migrate.ts`. The current schema
-version is `PROSA_SCHEMA_VERSION` in `src/core/version.ts`. `openBundle`
+Migrations are in `packages/prosa-core/src/core/schema/sql/NNN_*.ts`, applied in numeric order
+by `runMigrations()` in `packages/prosa-core/src/core/schema/migrate.ts`. The current schema
+version is `PROSA_SCHEMA_VERSION` in `packages/prosa-core/src/core/version.ts`. `openBundle`
 refuses to open a bundle whose schema is ahead of the running code.
 
 To add a column or table:

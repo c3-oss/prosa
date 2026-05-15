@@ -2,10 +2,10 @@
 
 > **Status: Implemented.** `exportBundleParquet` now writes with
 > `COMPRESSION zstd, COMPRESSION_LEVEL 1, ROW_GROUP_SIZE 100000`.
-> See `src/services/export/parquet.ts`.
+> See `packages/prosa-core/src/services/export/parquet.ts`.
 
 Empirical investigation of two changes to `exportBundleParquet` in
-`src/services/export/parquet.ts`:
+`packages/prosa-core/src/services/export/parquet.ts`:
 
 1. **`ROW_GROUP_SIZE`** — DuckDB's default behaviour for `COPY ... TO ...
    (FORMAT parquet)` does not pin a row-group size, which produces a small
@@ -125,7 +125,7 @@ on-disk Parquet footprint**, both with no measurable read regression.
 ## Implementation
 
 A two-line change inside `exportBundleParquet`
-(`src/services/export/parquet.ts:87-91`):
+(`packages/prosa-core/src/services/export/parquet.ts:87-91`):
 
 ```diff
    for (const table of PARQUET_TABLES) {

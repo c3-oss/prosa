@@ -1,13 +1,8 @@
 {
   "$schema": "https://typedoc.org/schema.json",
   "name": "prosa API",
-  "entryPoints": [
-    "src/index.ts",
-    "src/mcp/server.ts",
-    "src/mcp/tools.ts",
-    "src/mcp/guidance.ts"
-  ],
-  "tsconfig": "tsconfig.json",
+  "entryPointStrategy": "packages",
+  "entryPoints": ["packages/*", "apps/*"],
   "out": "docs/api",
   "readme": "README.md",
   "includeVersion": true,

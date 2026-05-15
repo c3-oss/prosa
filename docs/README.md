@@ -34,6 +34,20 @@ on-disk format looks like.
   DuckDB recipes for common questions.
 - [`roadmap/sanitized-parquet-exports.md`](./roadmap/sanitized-parquet-exports.md) —
   safer-to-share Parquet export modes.
+- [`roadmap/server-sync/01-api-foundation.md`](./roadmap/server-sync/01-api-foundation.md) —
+  HTTP/tRPC API host for the multi-tenant sync server.
+- [`roadmap/server-sync/02-auth-tenancy.md`](./roadmap/server-sync/02-auth-tenancy.md) —
+  Better Auth signup, login, tenants, invites.
+- [`roadmap/server-sync/03-remote-store-schema.md`](./roadmap/server-sync/03-remote-store-schema.md) —
+  Postgres + object storage split and remote schema groups.
+- [`roadmap/server-sync/04-sync-protocol.md`](./roadmap/server-sync/04-sync-protocol.md) —
+  one-way promotion protocol from local `.prosa` to a remote tenant.
+- [`roadmap/server-sync/05-cli-auth-sync.md`](./roadmap/server-sync/05-cli-auth-sync.md) —
+  `prosa auth` and `prosa sync` CLI surface.
+- [`roadmap/server-sync/06-query-remote-ops-tests.md`](./roadmap/server-sync/06-query-remote-ops-tests.md) —
+  server-side reads, operations, and tests after promotion.
+- [`roadmap/server-sync/e2e.md`](./roadmap/server-sync/e2e.md) —
+  Docker-backed Postgres + MinIO E2E harness for the promotion flow.
 
 ## Recipes
 

@@ -3,7 +3,7 @@
 Hermes stores session metadata and messages in SQLite and may also keep
 transcript files under `~/.hermes/sessions/`.
 
-Imported by `src/importers/hermes/`.
+Imported by `packages/prosa-core/src/importers/hermes/`.
 
 ## Layout
 
