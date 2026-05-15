@@ -28,6 +28,9 @@ implementation.
 - Look for cross-tenant leaks, spoofed headers, missing membership checks, weak
   secrets, unsafe invite/device flows, object route abuse, and destructive
   cleanup triggered by untrusted state.
+- If asked for final verification, treat missing five-cycle stabilization
+  evidence before `RALPH_DONE` as a blocking process risk, even when the
+  security-specific code path passes.
 - Include exploit scenario, affected file paths, and concrete fix direction.
 - Expect other agents may be editing in parallel; do not revert unrelated work.
 

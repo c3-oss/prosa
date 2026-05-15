@@ -56,7 +56,7 @@ Initial kickoff:
 Correction restart:
 
 ```text
-/ralph-loop:ralph-loop "Read @docs/roadmap/<feature>/ralph-loop-prompt.md, @docs/roadmap/<feature>/correction-queue.md, and @docs/roadmap/<feature>/gates.md. Close every blocking correction with evidence, wait 5 minutes, reread the correction queue, and repeat until no blocking correction remains open." --max-iterations 20 --completion-promise RALPH_DONE
+/ralph-loop:ralph-loop "Read @docs/roadmap/<feature>/ralph-loop-prompt.md, @docs/roadmap/<feature>/correction-queue.md, and @docs/roadmap/<feature>/gates.md. Close every blocking correction with code, tests, and evidence. If no blocking correction remains, run five clean stabilization cycles: sleep 180 seconds, then reread correction queue, gates, status, git status, and recent commits. Any open blocker, failed gate, stale evidence, new commit, or unexplained dirty worktree resets the count to zero. Output RALPH_DONE only after five consecutive clean cycles." --max-iterations 20 --completion-promise RALPH_DONE
 ```
 
 Keep natural-language prompts quoted. The failed unquoted restart during PR 12
@@ -221,6 +221,15 @@ Ralph can satisfy `<promise>RALPH_DONE</promise>` only when:
 - Docker-backed E2E passed when applicable;
 - the worktree state is documented;
 - Codex final review has no critical unresolved findings.
+
+Ralph must then perform a mandatory stabilization wait before outputting
+`RALPH_DONE`: five consecutive clean cycles, each consisting of `sleep 180`
+followed by rereading `correction-queue.md`, `gates.md`, `status.md`,
+`git status --short --branch`, and recent commits. Any open blocker, failed
+gate, stale evidence, new commit, or unexplained dirty worktree resets the
+counter to zero. This creates a minimum 15-minute delay after Ralph first thinks
+the work is done and prevents immediate false completion after the executor's
+own last change.
 
 If Codex has to patch critical issues directly, mark the section as
 `Architect intervention` and rerun the relevant gates.

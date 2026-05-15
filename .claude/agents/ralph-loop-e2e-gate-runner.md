@@ -29,6 +29,10 @@ feature.
 - Never run tests against a real user data store.
 - Always plan teardown for Docker services.
 - If a gate is skipped, classify whether the skip is acceptable or blocking.
+- For final acceptance, verify the Ralph executor recorded five consecutive
+  stabilization cycles before `RALPH_DONE`: each cycle must sleep 180 seconds,
+  then reread correction queue, gates, status, git status, and recent commits.
+  Missing or shorter stabilization evidence is a blocking final-gate failure.
 - If `psql` or object-store CLIs are available, use them to verify persisted
   rows/objects when helpful.
 - Expect other agents may be editing in parallel; do not revert unrelated work.
@@ -38,5 +42,6 @@ feature.
 - commands run and pass/fail status
 - services started and teardown status
 - skipped gates and why
+- stabilization-cycle evidence, or an explicit blocking finding if absent
 - DB/object-store evidence where practical
 - reproducibility gaps

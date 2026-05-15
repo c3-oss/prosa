@@ -226,3 +226,30 @@ means outputting exactly:
 ```text
 <promise>RALPH_DONE</promise>
 ```
+
+Mandatory final stabilization wait:
+
+1. Do not output `RALPH_DONE` immediately after a fix, evidence update, or
+   commit.
+2. When you believe no blocking corrections remain, first confirm:
+   - `correction-queue.md` has no open blocking correction;
+   - `gates.md`, `status.md`, lane evidence, and this prompt do not contradict
+     the implemented behavior;
+   - `git status --short --branch` has no unexplained dirty worktree changes;
+   - required gates are green or explicitly classified in evidence.
+3. Then perform five consecutive clean cycles:
+   - sleep exactly 180 seconds;
+   - reread `docs/roadmap/web-platform/correction-queue.md`,
+     `docs/roadmap/web-platform/gates.md`,
+     `docs/roadmap/web-platform/status.md`, `git status --short --branch`, and
+     recent commits;
+   - if any open blocker, failed gate, stale evidence, new commit, or
+     unexplained dirty worktree state appears, fix it and reset the clean-cycle
+     count to zero;
+   - if everything remains clean and consistent, increment the clean-cycle count
+     by one.
+4. Only after five clean cycles, which is at least 15 minutes, may you output
+   `RALPH_DONE`.
+
+Codex will reject `RALPH_DONE` without explicit evidence of these five
+three-minute stabilization checks.

@@ -52,6 +52,9 @@ question. Otherwise, make conservative assumptions and proceed.
 - Convert fuzzy goals into lane invariants, acceptance criteria, and tests.
 - Every blocking finding becomes a correction with an ID, status, owner, and evidence.
 - Final completion requires gates and evidence, not just a clean worktree.
+- Ralph must not output `RALPH_DONE` immediately after it thinks the queue is
+  empty. A final stabilization wait is mandatory; see "Executor Completion
+  Stabilization" below.
 
 ## Setup Workflow
 
@@ -86,7 +89,7 @@ prompt rather than duplicated.
 5. If restarting Ralph to consume corrections, use a quoted prompt:
 
 ```text
-/ralph-loop:ralph-loop "Read @docs/roadmap/<feature>/ralph-loop-prompt.md, @docs/roadmap/<feature>/correction-queue.md, and @docs/roadmap/<feature>/gates.md. Close every blocking correction with evidence, wait 5 minutes, reread the correction queue, and repeat until no blocking correction remains open." --max-iterations 20 --completion-promise RALPH_DONE
+/ralph-loop:ralph-loop "Read @docs/roadmap/<feature>/ralph-loop-prompt.md, @docs/roadmap/<feature>/correction-queue.md, and @docs/roadmap/<feature>/gates.md. Close every blocking correction with code, tests, and evidence. If no blocking correction remains, run the mandatory final stabilization wait: five clean cycles of sleep 180 seconds, then reread correction queue, gates, status, git status, and recent commits. Any change, open blocker, failed gate, or stale evidence resets the five-cycle count to zero. Output RALPH_DONE only after all five cycles stay clean." --max-iterations 20 --completion-promise RALPH_DONE
 ```
 
 For server-sync follow-up work, a good terse user prompt is:
@@ -122,6 +125,33 @@ $ralph-loop-governor continuar server-sync usando docs/architecture/server-sync.
 - Keep treating Ralph as active until `RALPH_DONE` is detected, the user stops
   the run, or three configured idle checks show no implementation changes and
   final gates begin.
+
+## Executor Completion Stabilization
+
+Ralph/Claude must perform a final stabilization wait before satisfying
+`RALPH_DONE`. This rule exists because the executor can make a change, believe
+the run is complete, and then miss stale evidence, gate drift, or newly written
+Codex corrections.
+
+When Ralph believes there are no open blocking corrections:
+
+1. Commit or explicitly document all WIP. Do not begin stabilization with an
+   unexplained dirty worktree.
+2. Run and record the required focused gates for the run.
+3. Start a clean-cycle counter at zero.
+4. Repeat until the counter reaches five:
+   - sleep exactly 180 seconds;
+   - reread `correction-queue.md`, `gates.md`, `status.md`, `git status
+     --short --branch`, and recent commits;
+   - if there is any open blocker, dirty/unexplained worktree state, new commit,
+     failed gate, stale evidence, or contradictory status, fix it and reset the
+     counter to zero;
+   - if everything is still clean and consistent, increment the counter by one.
+5. Only after five consecutive clean cycles, which is at least 15 minutes, may
+   Ralph output `RALPH_DONE`.
+
+Codex should reject `RALPH_DONE` if this five-cycle stabilization evidence is
+missing, shorter than 15 minutes, or reset conditions were ignored.
 
 ## Reviewer Subagents
 

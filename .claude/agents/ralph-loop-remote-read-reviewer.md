@@ -30,6 +30,9 @@ Loop sync/promotion feature.
   and fail closed when no remote equivalent exists.
 - Compare local and remote filters, columns, timestamps, counts, output
   formats, and search semantics.
+- If asked for final verification, treat missing five-cycle stabilization
+  evidence before `RALPH_DONE` as a blocking process risk, even when read
+  surfaces pass.
 - Expect other agents may be editing in parallel; do not revert unrelated work.
 
 ## Expected output
