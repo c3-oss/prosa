@@ -2,6 +2,7 @@ import type { RemoteObjectStore } from '@c3-oss/prosa-storage'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import type { ProsaAuth } from '../auth.js'
 import type { RawExec } from '../db.js'
+import { resolveMembership } from '../trpc/context.js'
 
 export type ObjectRoutesDeps = {
   auth: ProsaAuth
@@ -29,9 +30,23 @@ async function resolveAuth(opts: ObjectRoutesDeps, req: FastifyRequest) {
     user: { id: string; email: string }
   } | null
   if (!result) return null
-  const tenantId =
+  // Tenant resolution must verify membership against the `member` table, just
+  // like the tRPC context. Trusting `x-prosa-tenant-id` directly would let a
+  // signed-in user spoof another tenant's objects.
+  const candidate =
     (req.headers['x-prosa-tenant-id'] as string | undefined) ?? result.session.activeOrganizationId ?? null
-  return { user: result.user, session: result.session, tenantId }
+  if (!candidate) {
+    return { user: result.user, session: result.session, tenantId: null }
+  }
+  const role = await resolveMembership({
+    rawExec: opts.rawExec,
+    tenantId: candidate,
+    userId: result.user.id,
+  })
+  if (!role) {
+    return { user: result.user, session: result.session, tenantId: null }
+  }
+  return { user: result.user, session: result.session, tenantId: candidate }
 }
 
 export async function registerObjectRoutes(app: FastifyInstance, deps: ObjectRoutesDeps) {
@@ -51,8 +66,8 @@ export async function registerObjectRoutes(app: FastifyInstance, deps: ObjectRou
         return { error: 'unauthorized' }
       }
       if (!ctx.tenantId) {
-        reply.code(400)
-        return { error: 'missing tenant' }
+        reply.code(403)
+        return { error: 'not a member of the requested tenant' }
       }
       const { objectId } = request.params as { objectId: string }
       if (!objectId || !/^[a-zA-Z0-9_-]{8,128}$/.test(objectId)) {
@@ -122,8 +137,8 @@ export async function registerObjectRoutes(app: FastifyInstance, deps: ObjectRou
         return { error: 'unauthorized' }
       }
       if (!ctx.tenantId) {
-        reply.code(400)
-        return { error: 'missing tenant' }
+        reply.code(403)
+        return { error: 'not a member of the requested tenant' }
       }
       const { objectId } = request.params as { objectId: string }
       const rows = await deps.rawExec<{ storage_key: string; tenant: string | null }>(

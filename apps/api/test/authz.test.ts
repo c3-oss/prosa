@@ -160,6 +160,51 @@ describe('tenant authorization (Mandatory correction queue item: tenant membersh
     }
   })
 
+  it('rejects PUT /objects/:id with a spoofed tenant header', async () => {
+    const t = await buildTestApp()
+    try {
+      const alice = await signup(t, 'object-alice@example.com', 'Alpha', 'object-alpha')
+      const bob = await signup(t, 'object-bob@example.com', 'Beta', 'object-beta')
+
+      // Bob (a real user) sends a PUT for an object claiming to target
+      // Alice's tenant. The route must reject the spoofed header before
+      // any bytes touch the object store.
+      const response = await t.app.inject({
+        method: 'PUT',
+        url: '/objects/spoofed-obj?hash=aa&size=1&uncompressed=1',
+        headers: {
+          authorization: `Bearer ${bob.token}`,
+          'x-prosa-tenant-id': alice.tenant.id,
+          'content-type': 'application/octet-stream',
+        },
+        payload: Buffer.from([1]),
+      })
+      expect(response.statusCode).toBe(403)
+    } finally {
+      await t.close()
+    }
+  })
+
+  it('rejects GET /objects/:id from a non-member', async () => {
+    const t = await buildTestApp()
+    try {
+      const alice = await signup(t, 'objread-alice@example.com', 'Alpha', 'objread-alpha')
+      const bob = await signup(t, 'objread-bob@example.com', 'Beta', 'objread-beta')
+
+      const response = await t.app.inject({
+        method: 'GET',
+        url: '/objects/some-object',
+        headers: {
+          authorization: `Bearer ${bob.token}`,
+          'x-prosa-tenant-id': alice.tenant.id,
+        },
+      })
+      expect(response.statusCode).toBe(403)
+    } finally {
+      await t.close()
+    }
+  })
+
   it('blocks unauthenticated requests to tenant procedures', async () => {
     const t = await buildTestApp()
     try {

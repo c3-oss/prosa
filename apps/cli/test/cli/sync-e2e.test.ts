@@ -171,10 +171,19 @@ describe.skipIf(!shouldRun)('CLI + API + Postgres + S3 — two-device E2E', () =
       '--json',
     ])
 
-    const syncOut = await capturedRun(['sync', '--server', h.baseUrl, '--store', h.storePath, '--json'])
+    const syncOut = await capturedRun([
+      'sync',
+      '--server',
+      h.baseUrl,
+      '--store',
+      h.storePath,
+      '--purge-bundle',
+      '--json',
+    ])
     expect(syncOut.stdout).toContain('"ok":true')
 
-    // Local bundle data must be removed after successful promotion.
+    // With --purge-bundle, manifest + canonical data must be removed after
+    // successful promotion.
     const manifestExists = await stat(`${h.storePath}/manifest.json`).then(
       () => true,
       () => false,

@@ -22,6 +22,7 @@ type SyncOptions = {
   store?: string
   dryRun?: boolean
   keepLocal?: boolean
+  purgeBundle?: boolean
   json?: boolean
   verbose?: boolean
   configPath?: string
@@ -74,11 +75,28 @@ function readSearchDocsForUpload(bundle: Bundle): SearchDocRow[] {
   }
 }
 
-const LOCAL_PATHS_TO_REMOVE = ['prosa.sqlite', 'manifest.json', 'objects', 'raw', 'search', 'parquet', 'exports']
+/**
+ * Cleanup model:
+ *  - Default cleanup removes only DERIVED artifacts that can be regenerated
+ *    from canonical source (or from the server after promotion).
+ *  - `--purge-bundle` opts into removing the canonical raw/CAS data and the
+ *    manifest. This is destructive: it should only be run AFTER the raw/CAS
+ *    upload path (deferred) is implemented and verified, or when the user
+ *    explicitly accepts that uncommitted source bytes will be lost.
+ *
+ * Until the raw + CAS upload path is wired through the CLI, the default
+ * cleanup preserves `objects/`, `raw/`, `prosa.sqlite`, and `manifest.json`
+ * to prevent silent data loss. The store is still marked
+ * remote-authoritative via the promotion receipt, so reads route to the
+ * server.
+ */
+const DERIVED_PATHS_TO_REMOVE = ['search', 'parquet', 'exports']
+const CANONICAL_PATHS_TO_REMOVE = ['prosa.sqlite', 'manifest.json', 'objects', 'raw']
 
-async function removeLocalBundle(storePath: string): Promise<string[]> {
+async function removeLocalBundle(storePath: string, purge: boolean): Promise<string[]> {
+  const entries = purge ? [...DERIVED_PATHS_TO_REMOVE, ...CANONICAL_PATHS_TO_REMOVE] : DERIVED_PATHS_TO_REMOVE
   const removed: string[] = []
-  for (const entry of LOCAL_PATHS_TO_REMOVE) {
+  for (const entry of entries) {
     const target = path.join(storePath, entry)
     try {
       await rm(target, { recursive: true, force: true })
@@ -94,13 +112,22 @@ export function syncCommand(): Command {
   const cmd = new Command('sync')
     .description(
       'Promote a local prosa bundle to the remote server. After successful verification ' +
-        'the local bundle data is removed (unless --keep-local).',
+        'derived artifacts (search/, parquet/, exports/) are removed by default; ' +
+        'use --purge-bundle to also remove the canonical raw/CAS data, and ' +
+        '--keep-local to skip cleanup entirely.',
     )
     .option('--server <url>', 'override the active server URL')
     .option('--tenant <id-or-slug>', 'override the active tenant')
     .option('--store <path>', 'bundle directory', defaultBundlePath())
     .option('--dry-run', 'plan only; do not upload bytes or modify state', false)
-    .option('--keep-local', 'leave local bundle in place after promotion (still marks remote-authoritative)', false)
+    .option('--keep-local', 'skip cleanup entirely (still marks remote-authoritative)', false)
+    .option(
+      '--purge-bundle',
+      'also remove canonical raw/CAS data (objects/, raw/, prosa.sqlite, manifest.json). ' +
+        'Until raw/CAS upload is wired through the CLI, this is destructive and should only ' +
+        'be used after you have manually confirmed the upload included raw + CAS bytes.',
+      false,
+    )
     .option('--json', 'machine-readable JSON output', false)
     .option('--verbose', 'extra logging', false)
     .option('--config <path>', 'override CLI config path')
@@ -224,7 +251,7 @@ export function syncCommand(): Command {
 
       let removed: string[] = []
       if (!options.keepLocal) {
-        removed = await removeLocalBundle(storePath)
+        removed = await removeLocalBundle(storePath, Boolean(options.purgeBundle))
         await client
           .syncAckCleanup({ batchId: result.batchId, storePath, removedPaths: removed })
           .catch(() => undefined)

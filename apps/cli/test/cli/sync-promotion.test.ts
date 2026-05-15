@@ -124,12 +124,15 @@ describe('CLI auth + sync end-to-end', () => {
     const syncOut = await capturedRun(['sync', '--server', h.baseUrl, '--store', h.storePath, '--json', '--verbose'])
     expect(syncOut.stdout).toContain('"ok":true')
 
-    // Local bundle should be removed.
+    // Default cleanup only removes derived artifacts; canonical data
+    // (manifest.json, prosa.sqlite, objects/, raw/) is preserved unless
+    // the user opts in to `--purge-bundle`. The store is still marked
+    // remote-authoritative via the promotion receipt below.
     const manifestExists = await stat(`${h.storePath}/manifest.json`).then(
       () => true,
       () => false,
     )
-    expect(manifestExists).toBe(false)
+    expect(manifestExists).toBe(true)
 
     // Promotion receipt should be recorded in the config file.
     const config = JSON.parse(await readFile(h.configPath, 'utf8')) as {
@@ -167,6 +170,30 @@ describe('CLI auth + sync end-to-end', () => {
       () => false,
     )
     expect(manifestExists).toBe(true)
+  })
+
+  it('--purge-bundle removes canonical raw/CAS data after promotion', async () => {
+    await capturedRun([
+      'auth',
+      'signup',
+      '--server',
+      h.baseUrl,
+      '--email',
+      'purge@example.com',
+      '--password',
+      'correct-horse-battery',
+      '--name',
+      'Purge',
+      '--tenant',
+      'Purge Co',
+      '--json',
+    ])
+    await capturedRun(['sync', '--server', h.baseUrl, '--store', h.storePath, '--purge-bundle', '--json'])
+    const manifestExists = await stat(`${h.storePath}/manifest.json`).then(
+      () => true,
+      () => false,
+    )
+    expect(manifestExists).toBe(false)
   })
 
   it('--keep-local leaves the local bundle in place', async () => {
