@@ -23,6 +23,7 @@ import {
   toolCallId as makeToolCallId,
   toolResultId as makeToolResultId,
 } from '../../core/domain/ids.js'
+import { normalizeToolCallStatus } from '../../core/domain/status.js'
 import { getErrorMessage } from '../../core/errors.js'
 import {
   type ImportBatch,
@@ -610,7 +611,7 @@ async function processToolCall(
           : null,
     query: typeof tc.args?.query === 'string' ? (tc.args.query as string) : null,
     timestamp_start: tc.timestamp ?? null,
-    status: tc.status ?? null,
+    status: normalizeToolCallStatus('gemini', tc.status),
     raw_record_id: rawRecordId,
   })
 
@@ -624,7 +625,7 @@ async function processToolCall(
     source_call_id: sourceCallId,
     message_id: messageId,
     event_id: eventId,
-    status: tc.status ?? null,
+    status: normalizeToolCallStatus('gemini', tc.status),
     is_error: isError,
     output_object_id: overflowId,
     preview: resultText.slice(0, PREVIEW_MAX) || null,

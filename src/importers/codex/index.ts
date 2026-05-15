@@ -21,6 +21,7 @@ import {
   toolResultId as makeToolResultId,
   turnId as makeTurnId,
 } from '../../core/domain/ids.js'
+import { normalizeToolCallStatus } from '../../core/domain/status.js'
 import { getErrorMessage } from '../../core/errors.js'
 import {
   type ImportBatch,
@@ -874,7 +875,7 @@ function handleResponseItem(
       source_call_id: sourceCallId,
       message_id: null,
       event_id: eventId,
-      status: ri.status ?? null,
+      status: normalizeToolCallStatus('codex', ri.status),
       is_error: isError,
       exit_code: null,
       duration_ms: null,
@@ -954,7 +955,7 @@ async function handleEventMsg(
       source_call_id: sourceCallId,
       message_id: null,
       event_id: eventId,
-      status: em.status ?? null,
+      status: normalizeToolCallStatus('codex', em.status ?? (isError ? 'error' : 'success')),
       is_error: isError,
       exit_code: exitCode,
       duration_ms: durationMs(em.duration),
@@ -1031,7 +1032,7 @@ async function handleEventMsg(
       source_call_id: sourceCallId,
       message_id: null,
       event_id: eventId,
-      status: 'success',
+      status: normalizeToolCallStatus('codex', em.status),
       is_error: 0,
       exit_code: null,
       duration_ms: durationMs(em.duration),
