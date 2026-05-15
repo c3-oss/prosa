@@ -46,6 +46,26 @@ dev *cmd-args:
 dev-api *cmd-args:
   @pnpm --filter @c3-oss/prosa-api dev {{ cmd-args }}
 
+# build the prosa API server container image
+[group('ALIASES')]
+docker-build-api:
+  @docker build -f apps/api/Dockerfile -t c3-oss/prosa-api:local .
+
+# bring up the local server stack: API, Postgres, and MinIO
+[group('ALIASES')]
+docker-up:
+  @docker compose up -d --wait
+
+# stop the local server stack
+[group('ALIASES')]
+docker-down:
+  @docker compose down
+
+# tail the API logs from the local server stack
+[group('ALIASES')]
+docker-logs:
+  @docker compose logs -f api
+
 # bring up Postgres + MinIO for Docker-backed E2E tests
 [group('ALIASES')]
 e2e-up:
