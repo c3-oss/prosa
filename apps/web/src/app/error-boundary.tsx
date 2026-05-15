@@ -13,7 +13,6 @@ export class WebErrorBoundary extends Component<{ children: ReactNode }, State> 
     // Surface the error to the console — production builds can hook this
     // into an external reporter once a privacy-reviewed pipeline exists.
     // We never log auth headers, cookies, or PII here.
-    // biome-ignore lint/suspicious/noConsole: this is the global frontend error sink.
     console.error('prosa-web error boundary', error, info.componentStack)
   }
 

@@ -1,5 +1,5 @@
 :root {
-  /* Color tokens — mirrored from docs/roadmap/web-platform/01-product-surface.md */
+  /* Color tokens for the browser product surface. */
   --color-bg: #070907;
   --color-bg-elevated: #0d120f;
   --color-panel: #111812;

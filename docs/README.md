@@ -30,8 +30,7 @@ One reference per importer covering directory layout, record format, identity ru
 
 ## Future work
 
-- [`../ROADMAP.md`](../ROADMAP.md) — Parquet features, server-sync hardening, and the multi-lane web platform spec.
-- [`roadmap/web-platform/`](./roadmap/web-platform/) — eight-lane spec for the browser product surface and authenticated console.
+- [`../ROADMAP.md`](../ROADMAP.md) — Parquet features and server-sync hardening.
 
 ## Where to look first
 
@@ -44,5 +43,6 @@ One reference per importer covering directory layout, record format, identity ru
 | Add or extend an analytics report | `architecture/analytics.md` |
 | Build a new analytics query | `recipes/duckdb.md` |
 | Work on the sync server, auth, or remote reads | `architecture/server-sync.md` |
+| Work on the browser product surface | `../apps/web` |
 | Run a governed Ralph Loop implementation workflow | `agent-workflows/ralph-loop-governor.md` |
 | Inspect a tool's history without prosa | `sources/<tool>.md` recipes |

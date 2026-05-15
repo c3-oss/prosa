@@ -87,7 +87,8 @@ Start with [`docs/README.md`](./docs/README.md) for the full reference:
 - Recipes — DuckDB queries over Parquet exports.
 - Agent workflows — governed Claude Ralph Loop implementation runs.
 
-Forward-looking work lives in [`ROADMAP.md`](./ROADMAP.md), including the multi-lane spec for the upcoming web platform under [`docs/roadmap/web-platform/`](./docs/roadmap/web-platform/).
+Forward-looking work lives in [`ROADMAP.md`](./ROADMAP.md). The browser product
+surface now lives in the `apps/web` workspace.
 
 ## Development
 
