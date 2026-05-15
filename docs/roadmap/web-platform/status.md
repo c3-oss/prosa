@@ -71,6 +71,12 @@ Ralph active: yes
 | Codex reviewer steering | blocking | 2026-05-15T19:40Z: reviewer findings opened CQ-001 through CQ-010. |
 | Codex monitor check | observed | 2026-05-15T19:47Z: Ralph has uncommitted correction work in auth, object/artifact reads, search/tool-calls, and web auth scoping. |
 | Codex monitor check | observed | 2026-05-15T19:52Z: correction work still uncommitted; new API correction tests present. |
+| Codex monitor check | observed | 2026-05-15T19:58Z: Ralph committed partial correction `d5363be`; CQ remains open pending verifier subagents. |
+| Codex verifier result | blocking | 2026-05-15T20:01Z: remote-read verifier failed CQ-004, CQ-005, and CQ-006 after `d5363be`. |
+| Codex verifier result | blocking | 2026-05-15T20:02Z: search/analytics verifier failed CQ-005, CQ-006, and CQ-010 after `d5363be`. |
+| Codex verifier result | blocking | 2026-05-15T20:03Z: E2E verifier failed CQ-001 and CQ-002 after `d5363be`. |
+| Codex verifier result | blocking | 2026-05-15T20:04Z: security verifier failed CQ-003 and CQ-007; CQ-008/CQ-009 need stronger tests before closure. |
+| Codex monitor check | observed | 2026-05-15T20:09Z: no new commit after `d5363be`; E2E/test WIP remains and all CQs stay open. |
 
 Pending (run later when lane scope reaches them):
 

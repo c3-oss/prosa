@@ -243,6 +243,15 @@ importers:
       '@c3-oss/config-vitest':
         specifier: ^0.3.0
         version: 0.3.0(vitest@2.1.9(@types/node@22.19.17)(jsdom@25.0.1)(terser@5.47.1))
+      '@c3-oss/prosa-db':
+        specifier: workspace:^
+        version: link:../../packages/prosa-db
+      '@c3-oss/prosa-storage':
+        specifier: workspace:^
+        version: link:../../packages/prosa-storage
+      '@electric-sql/pglite':
+        specifier: ^0.4.5
+        version: 0.4.5
       '@playwright/test':
         specifier: ^1.50.0
         version: 1.60.0
@@ -264,6 +273,9 @@ importers:
       jsdom:
         specifier: ^25.0.1
         version: 25.0.1
+      tsx:
+        specifier: ^4.19.0
+        version: 4.22.0
       vite:
         specifier: ^6.0.5
         version: 6.4.2(@types/node@22.19.17)(jiti@2.6.1)(terser@5.47.1)(tsx@4.22.0)(yaml@2.8.4)

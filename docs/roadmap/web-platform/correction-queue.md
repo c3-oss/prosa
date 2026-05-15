@@ -43,6 +43,12 @@ Evidence:
 - Commit:
 - Tests:
 - Notes: `ralph-loop-e2e-gate-runner` finding, 2026-05-15.
+  Verification after `d5363be`: FAIL. Authenticated E2E covers only empty
+  console routes and logout; it lacks real login, seeded/promoted session rows,
+  session detail, search result tied to data, analytics count assertion, artifact
+  route/authorization, and exact gate/evidence documentation. Alternate-port
+  Playwright run passed 3 tests, but default port was occupied and coverage is
+  insufficient.
 
 ### CQ-002: Public marketing routes must not require or probe the API
 
@@ -77,6 +83,9 @@ Evidence:
 - Commit:
 - Tests:
 - Notes: `ralph-loop-e2e-gate-runner` finding, 2026-05-15.
+  Verification after `d5363be`: FAIL. Landing E2E aborts `/trpc/*` and
+  `/api/auth/*` requests rather than failing on them. Public routes still mount
+  `AuthProvider`, which calls `auth.me` on app boot.
 
 ### CQ-003: Artifact/object reads must require verified promoted object provenance
 
@@ -157,6 +166,12 @@ Evidence:
 - Commit:
 - Tests:
 - Notes: `ralph-loop-remote-read-reviewer` finding, 2026-05-15.
+  Verification after `d5363be`: FAIL. Auxiliary rows still lack verified
+  manifest provenance; current tests seed auxiliary rows directly after
+  verifying only sessions/search docs and expect them to be visible.
+  Security verification after `d5363be`: FAIL. Raw `GET /objects/:objectId`
+  still authorizes on `remote_object` + `tenant_object` only and streams bytes
+  without verified object manifest provenance.
 
 ### CQ-005: Search and tool-call pagination/filters must be truthful
 
@@ -203,6 +218,13 @@ Evidence:
 - Tests:
 - Notes: `ralph-loop-remote-read-reviewer` and
   `prosa-cli-search-specialist` findings, 2026-05-15.
+  Verification after `d5363be`: FAIL. Search still uses `ILIKE`, `rank` is
+  `NULL`, snippets are substring-based, ordering is timestamp/id rather than FTS
+  rank, and field-kind mapping from local semantics to remote stored kind remains
+  unproven. Search/export verifier also failed CQ-005: no Postgres FTS,
+  `fieldKinds` compare directly to composite remote `kind`, and tests do not
+  prove FTS semantics, supported metadata filters, field-kind mapping, or
+  equal-timestamp tool pagination.
 
 ### CQ-006: Remote analytics and CLI sessions must preserve parity contracts
 
@@ -239,6 +261,11 @@ Evidence:
 - Tests:
 - Notes: `ralph-loop-remote-read-reviewer` and
   `prosa-cli-search-specialist` findings, 2026-05-15.
+  Verification after `d5363be`: FAIL. Remote analytics only accepts generic
+  filters, report columns remain simplified, and CLI remote sessions still
+  changes JSON shape through metadata wrapping. Search/export verifier also
+  failed CQ-006: all five remote reports remain simplified and remote CLI
+  sessions JSON/table parity remains broken.
 
 ### CQ-007: Browser signup must not return bearer tokens to JavaScript
 
@@ -272,6 +299,9 @@ Evidence:
 - Commit:
 - Tests:
 - Notes: `ralph-loop-security-reviewer` finding, 2026-05-15.
+  Verification after `d5363be`: FAIL. Browser login and direct Better Auth
+  signup still expose token-bearing JSON to browser JavaScript; only the tRPC
+  tenant signup path omits token for configured web origins.
 
 ### CQ-008: Object routes must not expose raw storage keys
 
@@ -301,6 +331,10 @@ Evidence:
 - Commit:
 - Tests:
 - Notes: `ralph-loop-security-reviewer` finding, 2026-05-15.
+  Verification after `d5363be`: PARTIAL PASS. Code no longer appears to expose
+  `storageKey`, but tests are still inadequate; replace source-regex assertions
+  with real successful PUT/GET assertions that response bodies/headers omit
+  storage keys before closing.
 
 ### CQ-009: Artifact preview must cap decoded bytes before full decompression
 
@@ -333,6 +367,9 @@ Evidence:
 - Commit:
 - Tests:
 - Notes: `ralph-loop-security-reviewer` finding, 2026-05-15.
+  Verification after `d5363be`: PARTIAL PASS. Code uses bounded reads, but tests
+  only validate `maxBytes` input on a missing artifact. Add a real large
+  raw/zstd artifact preview test before closing.
 
 ### CQ-010: Lane 07 web/API tests must cover search, analytics, tools, and artifacts
 
@@ -367,6 +404,10 @@ Evidence:
 - Commit:
 - Tests:
 - Notes: `prosa-cli-search-specialist` finding, 2026-05-15.
+  Verification after `d5363be`: FAIL. Focused API/web tests pass, but they do
+  not cover Postgres FTS, field-kind mapping, supported metadata filters,
+  equal-timestamp tool pagination, analytics parity against core report columns,
+  or artifact preview route behavior.
 
 ## Closed
 
