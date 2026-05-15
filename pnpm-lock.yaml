@@ -119,6 +119,9 @@ importers:
         specifier: ^3.23.8
         version: 3.25.76
     devDependencies:
+      '@aws-sdk/client-s3':
+        specifier: ^3.700.0
+        version: 3.1047.0
       '@c3-oss/config-biome':
         specifier: ^0.3.1
         version: 0.3.1(@biomejs/biome@1.9.4)

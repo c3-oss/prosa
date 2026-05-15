@@ -1,5 +1,6 @@
 import { countSessions, defaultBundlePath, listSessions } from '@c3-oss/prosa-core'
 import { Command } from 'commander'
+import { resolveReadAuthority } from '../auth/routing.js'
 import { withBundle } from '../bundle.js'
 import { type ColumnSet, maxWidthsForColumns, resolveColumns, tailColumnsFor } from '../columns.js'
 import { printRows } from '../output.js'
@@ -83,6 +84,35 @@ export function sessionsCommand(): Command {
       }) => {
         const format = parseOutputFormat(options.outputFormat, 'table')
         const columns = resolveColumns(SESSION_COLUMNS, options.columns)
+        const authority = await resolveReadAuthority({ storePath: options.store })
+        if (authority.kind === 'remote') {
+          const remoteRows = await authority.client.listSessions({
+            limit: Number.parseInt(options.limit, 10),
+            ...(options.source ? { sourceKind: options.source } : {}),
+          })
+          const remoteShaped = remoteRows.map((row) => ({
+            session_id: row.id,
+            source_tool: row.sourceKind,
+            title: row.title,
+            start_ts: row.startedAt,
+            end_ts: row.endedAt,
+            message_count: null,
+            tool_call_count: null,
+            model_first: null,
+            model_last: null,
+            status: null,
+            timeline_confidence: null,
+            project_id: row.projectId,
+          }))
+          printRows(remoteShaped, {
+            format,
+            columns,
+            maxColumnWidths: maxWidthsForColumns(SESSION_COLUMNS, columns),
+            tailColumns: tailColumnsFor(SESSION_COLUMNS, columns),
+            meta: { source: 'remote', server: authority.entry.url },
+          })
+          return
+        }
         await withBundle(options.store, (bundle) => {
           const rows = listSessions(bundle, {
             sourceTool: parseSourceTool(options.source),

@@ -120,6 +120,24 @@ Mandatory correction queue before RALPH_DONE:
   local data is removed or marked non-authoritative, and Device B queries the
   same tenant remotely without any pull/rebuild step.
 
+Current monitor findings that must be rechecked and fixed:
+- As of 2026-05-15T02:11:22-03:00, `apps/api/src/trpc/context.ts` still had
+  `memberRole` initialized to `null`. Do not proceed to completion until real
+  membership resolution is implemented and tested.
+- As of 2026-05-15T02:11:22-03:00, `apps/api/src/auth.ts` still did not wire
+  Better Auth `deviceAuthorization()`. Do not proceed to completion until CLI
+  device login exists and is tested.
+- As of 2026-05-15T02:11:22-03:00, `apps/api/src/auth.ts` still allowed a
+  static fallback auth secret. Do not proceed to completion until production
+  startup fails fast without a real `PROSA_AUTH_SECRET`.
+- As of 2026-05-15T02:11:22-03:00, E2E coverage appeared to be skipped unless
+  external env vars are provided. Do not count that as the required full
+  Docker-backed E2E gate unless the repo also provides a reproducible command
+  that starts services and runs the suite.
+- As of 2026-05-15T02:11:22-03:00, read routing and server-side sessions/search
+  were in progress. Confirm `sessions` and `search` use the server after
+  promotion and never read leftover `.prosa` data after the authority switch.
+
 Completion rule:
 Only output RALPH_DONE when all six lanes are implemented, documented,
 committed in coherent commits, Docker-backed E2E tests pass, and the final

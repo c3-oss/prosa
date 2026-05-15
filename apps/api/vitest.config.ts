@@ -17,7 +17,7 @@ export default mergeConfig(
       },
     },
     test: {
-      include: ['test/**/*.test.ts'],
+      include: ['test/**/*.test.ts', 'test/**/*.e2e.test.ts'],
       environment: 'node',
       coverage: {
         include: ['src/**/*.ts'],

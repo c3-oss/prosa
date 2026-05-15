@@ -184,6 +184,49 @@ export class ProsaApiClient {
     return { alreadyExisted: Boolean(parsed.alreadyExisted) }
   }
 
+  // ---- reads ----
+
+  async listSessions(input: { limit?: number; sourceKind?: string; search?: string } = {}) {
+    return this.trpcQuery<
+      Array<{
+        id: string
+        sourceKind: string
+        title: string | null
+        startedAt: string | null
+        endedAt: string | null
+        turnCount: number
+        projectId: string | null
+      }>
+    >('sessions.list', input)
+  }
+
+  async getSession(id: string) {
+    return this.trpcQuery<{
+      id: string
+      sourceKind: string
+      title: string | null
+      startedAt: string | null
+      endedAt: string | null
+      turnCount: number
+      projectId: string | null
+      metadata: unknown
+    } | null>('sessions.get', { id })
+  }
+
+  async searchQuery(input: { q: string; limit?: number }) {
+    return this.trpcQuery<Array<{ id: string; sessionId: string; kind: string; snippet: string }>>(
+      'search.query',
+      input,
+    )
+  }
+
+  async analyticsSummary() {
+    return this.trpcQuery<{
+      counts: { sessions: number; objects: number; docs: number; sources: number }
+      sources: Array<{ sourceKind: string; count: number }>
+    }>('analytics.summary')
+  }
+
   // ---- promotion receipt helper ----
 
   formatReceipt(receipt: PromotionReceipt): string {

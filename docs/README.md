@@ -46,6 +46,8 @@ on-disk format looks like.
   `prosa auth` and `prosa sync` CLI surface.
 - [`roadmap/server-sync/06-query-remote-ops-tests.md`](./roadmap/server-sync/06-query-remote-ops-tests.md) —
   server-side reads, operations, and tests after promotion.
+- [`roadmap/server-sync/e2e.md`](./roadmap/server-sync/e2e.md) —
+  Docker-backed Postgres + MinIO E2E harness for the promotion flow.
 
 ## Recipes
 

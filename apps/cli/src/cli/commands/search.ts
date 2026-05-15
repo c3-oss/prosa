@@ -1,5 +1,6 @@
 import { defaultBundlePath, searchFullText } from '@c3-oss/prosa-core'
 import { Command } from 'commander'
+import { resolveReadAuthority } from '../auth/routing.js'
 import { withBundle } from '../bundle.js'
 import { printRows } from '../output.js'
 import { parseOutputFormat, parseSearchEngine } from '../parsers.js'
@@ -16,6 +17,20 @@ export function searchCommand(): Command {
     .action(async (query: string, options: { store: string; limit: string; engine: string; outputFormat: string }) => {
       const engine = parseSearchEngine(options.engine)
       const format = parseOutputFormat(options.outputFormat, 'table')
+      const authority = await resolveReadAuthority({ storePath: options.store })
+      if (authority.kind === 'remote') {
+        const hits = await authority.client.searchQuery({
+          q: query,
+          limit: Number.parseInt(options.limit, 10),
+        })
+        printRows(hits, {
+          format,
+          columns: ['session_id', 'kind', 'snippet'],
+          maxColumnWidths: { session_id: 12, kind: 12 },
+          meta: { query, source: 'remote', server: authority.entry.url, count: hits.length },
+        })
+        return
+      }
       await withBundle(options.store, (bundle) => {
         const hits = searchFullText(bundle, {
           query,

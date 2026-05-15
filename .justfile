@@ -46,6 +46,26 @@ dev *cmd-args:
 dev-api *cmd-args:
   @pnpm --filter @c3-oss/prosa-api dev {{ cmd-args }}
 
+# bring up Postgres + MinIO for Docker-backed E2E tests
+[group('ALIASES')]
+e2e-up:
+  @docker compose -f apps/api/docker-compose.test.yml up -d --wait
+
+# stop and remove the E2E test services
+[group('ALIASES')]
+e2e-down:
+  @docker compose -f apps/api/docker-compose.test.yml down -v
+
+# run the Docker-backed E2E suite -- requires `just e2e-up` first
+[group('ALIASES')]
+e2e:
+  @PROSA_TEST_POSTGRES_URL="postgres://prosa:prosa@127.0.0.1:${PROSA_TEST_POSTGRES_PORT:-54329}/prosa_test" \
+   PROSA_TEST_S3_ENDPOINT="http://127.0.0.1:${PROSA_TEST_MINIO_PORT:-54392}" \
+   PROSA_TEST_S3_BUCKET="prosa-test" \
+   PROSA_TEST_S3_ACCESS_KEY="prosa" \
+   PROSA_TEST_S3_SECRET_KEY="prosa-minio" \
+   pnpm --filter @c3-oss/prosa-api test test/e2e
+
 # run the standard pre-release quality gate
 [group('ALIASES')]
 quality:
