@@ -1,5 +1,5 @@
 import { Command } from 'commander'
-import { closeBundle, defaultBundlePath, openBundle } from '../../core/bundle.js'
+import { closeBundle, defaultBundlePath } from '../../core/bundle.js'
 import {
   COMPILE_PROVIDERS,
   type CompileProviderConfig,
@@ -7,6 +7,7 @@ import {
   resolveCompilePath,
   runCompileImports,
 } from '../../services/compile.js'
+import { openCliBundle } from '../bundle.js'
 import { type CliLoggerOptions, createCliLogger } from '../logger.js'
 
 /** Create the provider-specific `prosa compile` command group. */
@@ -99,7 +100,7 @@ async function runCompiles(options: {
   const logger = createCliLogger(options.logOptions)
   const storePath = resolveCompilePath(options.storePath)
   logger.info({ store_path: storePath }, 'opening bundle')
-  const bundle = await openBundle(storePath)
+  const bundle = await openCliBundle(storePath)
   let importedAny = false
   try {
     const result = await runCompileImports({

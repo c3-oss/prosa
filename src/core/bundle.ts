@@ -65,6 +65,17 @@ export interface Bundle {
   }
 }
 
+/** Store path exists or was requested, but no initialized bundle is available. */
+export class BundleNotInitializedError extends Error {
+  constructor(
+    readonly bundlePath: string,
+    readonly reason: 'missing-directory' | 'missing-manifest',
+  ) {
+    super(reason === 'missing-directory' ? `bundle path not found: ${bundlePath}` : `no manifest.json in ${bundlePath}`)
+    this.name = 'BundleNotInitializedError'
+  }
+}
+
 /**
  * Resolve the default bundle root.
  *
@@ -158,11 +169,14 @@ export async function openBundle(rootPath: string): Promise<Bundle> {
   const paths = bundlePaths(resolved)
 
   const dirStat = await stat(resolved).catch(() => null)
-  if (!dirStat?.isDirectory()) {
+  if (!dirStat) {
+    throw new BundleNotInitializedError(resolved, 'missing-directory')
+  }
+  if (!dirStat.isDirectory()) {
     throw new Error(`bundle path not found or not a directory: ${resolved}`)
   }
   if (!(await exists(paths.manifest))) {
-    throw new Error(`no manifest.json in ${resolved} — initialize first with \`prosa init --store ${resolved}\``)
+    throw new BundleNotInitializedError(resolved, 'missing-manifest')
   }
 
   const manifest = JSON.parse(await readFile(paths.manifest, 'utf8')) as BundleManifest

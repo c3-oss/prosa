@@ -4,7 +4,7 @@ import { Command } from 'commander'
 import { defaultBundlePath } from '../../core/bundle.js'
 import { exportSessionMarkdown } from '../../services/export/markdown.js'
 import { exportBundleParquet } from '../../services/export/parquet.js'
-import { withBundle } from '../bundle.js'
+import { asCliBundleOpenError, withBundle } from '../bundle.js'
 
 /** Create the `prosa export` command group for session and Parquet exports. */
 export function exportCommand(): Command {
@@ -37,6 +37,8 @@ export function exportCommand(): Command {
       const result = await exportBundleParquet({
         bundlePath: path.resolve(options.store),
         outDir: options.out ? path.resolve(options.out) : undefined,
+      }).catch((error: unknown) => {
+        throw asCliBundleOpenError(error)
       })
       process.stdout.write(`wrote parquet export to ${result.outDir}\n`)
       process.stdout.write(`manifest=${result.manifestPath}\n`)
