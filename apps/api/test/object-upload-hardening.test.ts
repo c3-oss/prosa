@@ -438,6 +438,67 @@ describe('object upload hardening', () => {
     expect(response.body).toContain('canonical hash mismatch')
   })
 
+  it('removes freshly uploaded bytes when the catalog insert fails after putIfAbsent', async () => {
+    const app = Fastify({ logger: false })
+    const objectStore = new MemoryObjectStore()
+    const bytes = Buffer.from('catalog-insert-fails')
+    const hash = computeHashHex(bytes, 'blake3')
+    const objectId = `blake3:${hash}`
+    const storageKey = `objects/blake3/${hash.slice(0, 2)}/${hash.slice(2, 4)}/${hash}.bin`
+
+    const rawExec: RawExec = (async (sql: string, _params?: unknown[]) => {
+      if (/from\s+"?member"?/i.test(sql)) return [{ role: 'member' }]
+      if (/sync_batch_object_manifest/i.test(sql)) {
+        return [
+          {
+            canonical_hash: hash,
+            transport_hash: hash,
+            compression: 'none',
+            uncompressed_size: bytes.byteLength,
+            compressed_size: bytes.byteLength,
+          },
+        ]
+      }
+      if (/^\s*select[\s\S]+from\s+"remote_object"/i.test(sql)) return []
+      if (/^\s*insert\s+into\s+"remote_object"/i.test(sql)) {
+        throw new Error('simulated catalog write failure')
+      }
+      return []
+    }) as RawExec
+
+    await registerObjectRoutes(app, {
+      auth: {
+        api: {
+          getSession: async () => ({
+            session: { id: 'session-1', userId: 'user-1', activeOrganizationId: 'tenant-1' },
+            user: { id: 'user-1', email: 'user@example.com' },
+          }),
+        },
+      } as unknown as ProsaAuth,
+      rawExec,
+      objectStore,
+    })
+
+    const response = await app.inject({
+      method: 'PUT',
+      url: objectUrl({
+        batchId: 'batch-1',
+        objectId,
+        hash,
+        size: bytes.byteLength,
+        uncompressed: bytes.byteLength,
+        compression: 'none',
+      }),
+      headers: { 'content-type': 'application/octet-stream' },
+      payload: bytes,
+    })
+
+    expect(response.statusCode).toBe(500)
+    expect(objectStore.size()).toBe(0)
+    expect(await objectStore.head(storageKey)).toBeNull()
+    await app.close()
+  })
+
   it('rejects zstd bodies that decompress beyond the declared uncompressed size', async () => {
     t = await buildTestApp()
     const auth = await signup(t, 'decompression-limit@example.com')

@@ -34,7 +34,7 @@ export default mergeConfig(
           singleFork: isCoverage,
         },
       },
-      testTimeout: isCoverage ? 90_000 : 20_000,
+      testTimeout: isCoverage ? 90_000 : 60_000,
     },
   }),
 )

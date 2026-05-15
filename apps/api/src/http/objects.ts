@@ -333,6 +333,28 @@ async function insertRemoteObjectCatalog(deps: ObjectRoutesDeps, upload: UploadR
   )
 }
 
+async function recordObjectUpload(deps: ObjectRoutesDeps, upload: UploadRequest, put: PutResult): Promise<void> {
+  try {
+    await insertRemoteObjectCatalog(deps, upload)
+  } catch (err) {
+    // Catalog insert failed after a successful upload. If this PUT wrote new
+    // bytes (rather than no-oping on a pre-existing object), best-effort
+    // delete those bytes so we don't leak storage. putIfAbsent is content-
+    // addressed and idempotent, so a client retry of the PUT will re-upload
+    // and re-attempt the catalog insert without data loss.
+    if (!put.alreadyExisted) {
+      try {
+        await deps.objectStore.delete(upload.storageKey)
+      } catch {
+        // Swallow: cleanup is best-effort. A residual orphan blob is then a
+        // storage-accounting issue, not a correctness one; reads against
+        // `object_id` without a catalog row return 404.
+      }
+    }
+    throw err
+  }
+}
+
 async function findAccessibleObject(
   deps: ObjectRoutesDeps,
   objectId: string,
@@ -395,7 +417,7 @@ export async function registerObjectRoutes(app: FastifyInstance, deps: ObjectRou
         await verifyUploadBody(body, upload, maxObjectBytes)
         await assertCatalogCompatible(deps, upload)
         const put = await putObjectBytes(deps, upload, body)
-        await insertRemoteObjectCatalog(deps, upload)
+        await recordObjectUpload(deps, upload, put)
 
         reply.code(put.alreadyExisted ? 200 : 201)
         return {

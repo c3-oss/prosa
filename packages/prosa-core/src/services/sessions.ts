@@ -22,6 +22,8 @@ export interface SessionRow {
   source_tool: SourceTool
   /** Native source session identifier. */
   source_session_id: string
+  /** Canonical project identifier this session belongs to, when one was recovered. */
+  project_id: string | null
   /** Parent session for subagent sessions. */
   parent_session_id: string | null
   /** SQLite boolean indicating whether this is a subagent session. */
@@ -83,6 +85,7 @@ export function listSessions(bundle: Bundle, filters: SessionListFilters = {}): 
     SELECT s.session_id,
            s.source_tool,
            s.source_session_id,
+           s.project_id,
            s.parent_session_id,
            s.is_subagent,
            s.title,
@@ -160,10 +163,10 @@ export function getSession(bundle: Bundle, sessionId: string): SessionDetail | n
   const rows = listSessions(bundle) // small query reused for shape
   const row = bundle.db
     .prepare<[string], SessionRow>(
-      `SELECT s.session_id, s.source_tool, s.source_session_id, s.parent_session_id,
-              s.is_subagent, s.title, s.start_ts, s.end_ts, s.cwd_initial,
-              s.git_branch_initial, s.model_first, s.model_last, s.status,
-              s.timeline_confidence,
+      `SELECT s.session_id, s.source_tool, s.source_session_id, s.project_id,
+              s.parent_session_id, s.is_subagent, s.title, s.start_ts, s.end_ts,
+              s.cwd_initial, s.git_branch_initial, s.model_first, s.model_last,
+              s.status, s.timeline_confidence,
               (SELECT count(*) FROM messages m WHERE m.session_id = s.session_id) AS message_count,
               (SELECT count(*) FROM tool_calls tc WHERE tc.session_id = s.session_id) AS tool_call_count
          FROM sessions s
