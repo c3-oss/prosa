@@ -24,6 +24,10 @@ One reference per importer covering directory layout, record format, identity ru
 
 - [`recipes/duckdb.md`](./recipes/duckdb.md) — copy-pasteable DuckDB queries over canonical Parquet tables and analytics views.
 
+## Agent workflows
+
+- [`agent-workflows/ralph-loop-governor.md`](./agent-workflows/ralph-loop-governor.md) — how to use Codex as governor for Claude Ralph Loop implementation runs, including prompt handoff, correction queues, reviewer subagents, and final gates.
+
 ## Future work
 
 - [`../ROADMAP.md`](../ROADMAP.md) — Parquet features, server-sync hardening, and the multi-lane web platform spec.
@@ -40,4 +44,5 @@ One reference per importer covering directory layout, record format, identity ru
 | Add or extend an analytics report | `architecture/analytics.md` |
 | Build a new analytics query | `recipes/duckdb.md` |
 | Work on the sync server, auth, or remote reads | `architecture/server-sync.md` |
+| Run a governed Ralph Loop implementation workflow | `agent-workflows/ralph-loop-governor.md` |
 | Inspect a tool's history without prosa | `sources/<tool>.md` recipes |

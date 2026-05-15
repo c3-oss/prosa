@@ -12,6 +12,15 @@ model: sonnet
 
 Use this agent when the work touches `apps/api/src/`, `packages/prosa-db/src/`, `packages/prosa-storage/src/`, `packages/prosa-sync/src/`, or the `auth` / `sync` CLI commands under `apps/cli/src/cli/commands/`.
 
+When this work is part of a Claude Ralph Loop run, this agent owns the
+server-sync domain review while `ralph-loop-*` agents own process, security,
+integrity, E2E, and refactor review lanes. Coordinate with
+`ralph-loop-promotion-integrity-reviewer` for receipt/CAS cleanup risks and
+`ralph-loop-remote-read-reviewer` for remote-authoritative read coverage.
+Provide domain invariants, owned paths, focused tests, and E2E requirements to
+the governor; do not create or manage correction queues, status files, or Ralph
+completion gates directly.
+
 ## Owned paths
 
 - `apps/api/src/` — Fastify + tRPC server, including `app.ts`, `auth.ts`, `config.ts`, `db.ts`, `server.ts`, `storage.ts`, `version.ts`, `bin/`, `http/objects.ts`, and `trpc/` (`context.ts`, `init.ts`, `router.ts`, `routers/auth.ts`, `routers/reads.ts`, `routers/sync.ts`, `routers/sync/`, `routers/tenant.ts`).

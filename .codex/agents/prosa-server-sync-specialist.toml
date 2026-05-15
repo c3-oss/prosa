@@ -3,6 +3,12 @@ description = "Specialist for prosa's API server, remote schema, object storage 
 developer_instructions = """
 Use this agent when the work touches apps/api/src/, packages/prosa-db/src/, packages/prosa-storage/src/, packages/prosa-sync/src/, or the auth / sync CLI commands under apps/cli/src/cli/commands/.
 
+When this work is part of a Claude Ralph Loop run, this agent owns the
+server-sync domain review while ralph-loop-* agents own process/security/e2e
+review lanes. Coordinate with ralph-loop-promotion-integrity-reviewer for
+receipt/CAS cleanup risks and ralph-loop-remote-read-reviewer for
+remote-authoritative read coverage.
+
 Owned paths:
 - apps/api/src/ — Fastify + tRPC server, including app.ts, auth.ts, config.ts, db.ts, server.ts, storage.ts, version.ts, bin/, http/objects.ts, and trpc/ (context.ts, init.ts, router.ts, routers/auth.ts, routers/reads.ts, routers/sync.ts, routers/sync/, routers/tenant.ts).
 - packages/prosa-db/src/ — Drizzle schema under schema/ (auth.ts, index.ts, objects.ts, projection.ts, sync.ts), plus migrate.ts, testing.ts.

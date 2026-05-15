@@ -7,6 +7,15 @@ description: Multi-tenant API server, remote schema/object store, and one-way pr
 
 Use this skill for the remote half of prosa: the multi-tenant HTTP/tRPC server, the Postgres + object-store backing it, the one-way client→server promotion protocol, and the auth and sync CLI surfaces. The canonical reference is `docs/architecture/server-sync.md`; pair with `$prosa-store-schema-cas` only when reasoning about the local bundle the client promotes from.
 
+For large server-sync implementation or hardening runs driven by Claude Ralph
+Loop, pair this skill with `$ralph-loop-governor`. `$prosa-server-sync` owns the
+domain rules; `$ralph-loop-governor` owns the prompt, correction queue, evidence
+manifests, reviewer lanes, and final gates.
+
+When invoked inside a Ralph Loop, provide domain invariants, owned paths,
+focused tests, and E2E requirements to the governor. Do not create or manage
+correction queues, status files, or Ralph completion gates directly.
+
 ## Layout
 
 - API server: `apps/api/src/{server,app,trpc,http,auth,db,storage,config,version,index}.ts` plus the binary at `apps/api/src/bin/`.
@@ -75,3 +84,18 @@ Use the harness for any change that touches the promotion protocol, manifest con
 - Never make the server derive canonical data the client did not promote; reads stay remote-authoritative on what was promoted.
 - Keep manifest application transactional and idempotent; clean up uploaded bytes on catalog failure.
 - Do not commit real `PROSA_AUTH_SECRET` or storage credentials; compose defaults are development-only.
+
+## Ralph Loop Hand-Off
+
+When generating a Ralph Loop prompt for server-sync work, include these domain
+invariants explicitly:
+
+- The sync direction remains one-way: local bundle to remote server.
+- `verifyPromotion` is the cleanup gate and must prove declared objects,
+  source files, raw records, sessions, and search docs.
+- Object identity is canonical BLAKE3 over original bytes; transport hash is
+  separate.
+- Tenant membership, device ownership, and object routes share the same
+  authorization semantics.
+- Docker-backed E2E must cover API, Postgres, object storage, CLI sync, and
+  a second device reading remotely.
