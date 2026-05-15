@@ -7,6 +7,7 @@ import {
   createPendingObjects,
   flushPendingObjects,
   stageBytes,
+  stageJson,
   stageText,
 } from '../../core/cas/index.js'
 import { prepare, transactional } from '../../core/db.js'
@@ -533,10 +534,11 @@ async function prepareCodexFile(
       // First session_meta wins; later ones (rare) become operational events.
       if (!pending.session) {
         const sub = parseSubagent(meta.source)
+        const parentSessionId = sub ? makeSessionId('codex', sub.parent_thread_id) : null
         pending.session = {
           session_id: sessionId,
           source_session_id: sourceSessionId,
-          parent_session_id: sub ? makeSessionId('codex', sub.parent_thread_id) : null,
+          parent_session_id: parentSessionId,
           is_subagent: sub ? 1 : 0,
           agent_role: meta.agent_role ?? sub?.agent_role ?? null,
           agent_nickname: meta.agent_nickname ?? sub?.agent_nickname ?? null,
@@ -546,10 +548,10 @@ async function prepareCodexFile(
           git_branch_initial: meta.git?.branch ?? null,
           raw_record_id: rawRecordId,
         }
-        if (sub) {
+        if (parentSessionId) {
           pending.edges.push({
             src_type: 'session',
-            src_id: pending.session.parent_session_id ?? '',
+            src_id: parentSessionId,
             dst_type: 'session',
             dst_id: sessionId,
             edge_type: 'spawned',
@@ -804,8 +806,7 @@ function handleResponseItem(
     const sourceCallId = typeof ri.call_id === 'string' ? ri.call_id : null
     const toolName = typeof ri.name === 'string' ? ri.name : 'unknown'
     const toolCallId = makeToolCallId(sessionId, sourceCallId ?? `${ordinal}`)
-    const argsObjectId = ri.arguments != null ? null : null // keep small inline — see below
-    const argsText = stringifyOrNull(ri.arguments)
+    const argsObjectId = ri.arguments != null ? stageJson(pending.objects, ri.arguments) : null
     const command = inferCommandFromArgs(toolName, ri.arguments)
 
     const eventId = makeEventId(sessionId, ordinal, 'tool_call')
@@ -843,14 +844,20 @@ function handleResponseItem(
     }
     if (sourceCallId) pending.toolCalls.set(sourceCallId, call)
     pending.toolCallsList.push(call)
-    void argsText
     return
   }
 
   if (subtype === 'function_call_output') {
     const sourceCallId = typeof ri.call_id === 'string' ? ri.call_id : null
     const outputText = stringifyOrNull(ri.output) ?? ''
-    const isError = looksLikeError(outputText) ? 1 : 0
+    const outputObj = isRecord(ri.output) ? ri.output : null
+    const isError =
+      outputObj?.is_error === true ||
+      outputObj?.isError === true ||
+      ri.status === 'incomplete' ||
+      looksLikeError(outputText)
+        ? 1
+        : 0
 
     const eventId = makeEventId(sessionId, ordinal, 'tool_result')
     pending.events.push({
@@ -1026,14 +1033,16 @@ async function handleEventMsg(
     })
     const preview = stringifyOrNull(em.result)?.slice(0, PREVIEW_MAX) ?? null
     const matchedCall = sourceCallId ? pending.toolCalls.get(sourceCallId) : undefined
+    const isError = isMcpResultError(em.status, em.result) ? 1 : 0
+    const status = normalizeToolCallStatus('codex', em.status ?? (isError ? 'error' : 'success'))
     pending.toolResults.push({
       tool_result_id: makeToolResultId(sessionId, `${sourceCallId ?? ordinal}::mcp_tool_call_end`),
       tool_call_id: matchedCall?.tool_call_id ?? null,
       source_call_id: sourceCallId,
       message_id: null,
       event_id: eventId,
-      status: normalizeToolCallStatus('codex', em.status),
-      is_error: 0,
+      status,
+      is_error: isError,
       exit_code: null,
       duration_ms: durationMs(em.duration),
       stdout_object_id: null,
@@ -1042,6 +1051,9 @@ async function handleEventMsg(
       preview,
       raw_record_id: rawRecordId,
     })
+    if (matchedCall) {
+      matchedCall.status = isError ? 'error' : status
+    }
     return
   }
 
@@ -1182,6 +1194,17 @@ function looksLikeError(text: string): boolean {
   return /\b(error|exception|failed|stack trace)\b/i.test(text)
 }
 
+/** Recover structured MCP failures from loose event payloads. */
+function isMcpResultError(status: string | null | undefined, result: unknown): boolean {
+  const normalized = normalizeToolCallStatus('codex', status)
+  if (normalized === 'error' || normalized === 'cancelled') return true
+  if (Array.isArray(result)) return result.some((item) => isMcpResultError(null, item))
+  if (!isRecord(result)) return false
+  if (result.is_error === true || result.isError === true) return true
+  if (typeof result.status === 'string' && normalizeToolCallStatus('codex', result.status) === 'error') return true
+  return result.error != null
+}
+
 /** Convert Codex's seconds/nanoseconds duration object to milliseconds. */
 function durationMs(d: CodexEventMsgPayload['duration']): number | null {
   if (!d || typeof d !== 'object') return null
@@ -1199,6 +1222,10 @@ function stringifyOrNull(value: unknown): string | null {
   } catch {
     return null
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 /** Recover explicit Codex subagent spawn metadata from `session_meta.source`. */

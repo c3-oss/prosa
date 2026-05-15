@@ -361,12 +361,12 @@ async function compileGeminiFile(
   const sourceSid = parsed.sessionId ?? path.basename(file.filePath, '.json')
   const sessionPk = makeSessionId('gemini', sourceSid)
 
-  // Project linkage from .project_root, when present.
-  if (file.projectRoot) {
+  const projectKey = parsed.projectHash ?? file.projectDir
+  if (projectKey) {
     pending.project = {
-      project_id: makeProjectId('gemini', parsed.projectHash ?? file.projectDir),
+      project_id: makeProjectId('gemini', projectKey),
       canonical_path: file.projectRoot,
-      source_project_id: parsed.projectHash ?? file.projectDir,
+      source_project_id: projectKey,
     }
   }
 
@@ -387,7 +387,7 @@ async function compileGeminiFile(
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i]
     if (!msg) continue
-    await processMessage(bundle, sessionPk, sourceFile.source_file_id, i, msg, batch.batch_id, pending)
+    processMessage(sessionPk, sourceFile.source_file_id, i, msg, batch.batch_id, pending)
   }
 
   buildSearchDocs(pending)
@@ -416,26 +416,20 @@ async function compileGeminiFile(
 }
 
 /** Normalize one Gemini message snapshot entry into events, messages, blocks, and tools. */
-async function processMessage(
-  bundle: Bundle,
+function processMessage(
   sessionId: string,
   sourceFileId: string,
   index: number,
   msg: GeminiMessage,
   batchId: string,
   pending: PendingState,
-): Promise<void> {
+): void {
   const ordinal = index + 1
   const ts = msg.timestamp ?? null
 
   const payloadId = stageJson(pending.objects, msg)
   // Use the JSON pointer as a stable per-record locator inside the file.
   const pointer = `/messages/${index}`
-  // Hash includes pointer so two entries with identical content but different
-  // positions get distinct raw_record_ids.
-  const rawObjectIdInput = sha256Hex(`${pointer}\n${JSON.stringify(msg)}`)
-  const rawObjectId: ObjectId = `blake3:${rawObjectIdInput}`
-  void rawObjectId
   const rawRecordId = makeRawRecordId(sourceFileId, ordinal, payloadId)
 
   pending.rawRecords.push({
@@ -488,13 +482,13 @@ async function processMessage(
     // Content blocks.
     const content = msg.content
     if (typeof content === 'string') {
-      await pushTextBlock(bundle, pending, messageId, 0, 'text', content, rawRecordId)
+      pushTextBlock(pending, messageId, 0, 'text', content, rawRecordId)
     } else if (Array.isArray(content)) {
       for (let i = 0; i < content.length; i++) {
         const item = content[i] as GeminiContentItem | undefined
         if (!item) continue
         const t = item.text ?? ''
-        await pushTextBlock(bundle, pending, messageId, i, item.type ?? 'text', t, rawRecordId)
+        pushTextBlock(pending, messageId, i, item.type ?? 'text', t, rawRecordId)
       }
     }
 
@@ -504,7 +498,7 @@ async function processMessage(
       const th = thoughts[i]
       if (!th) continue
       const text = [th.subject, th.description].filter(Boolean).join('\n\n')
-      await pushTextBlock(bundle, pending, messageId, 100 + i, 'thinking', text, rawRecordId, 'hidden_by_default')
+      pushTextBlock(pending, messageId, 100 + i, 'thinking', text, rawRecordId, 'hidden_by_default')
     }
 
     // Tool calls.
@@ -512,7 +506,7 @@ async function processMessage(
     for (let i = 0; i < toolCalls.length; i++) {
       const tc = toolCalls[i]
       if (!tc) continue
-      await processToolCall(bundle, sessionId, messageId, eventId, i, tc, rawRecordId, pending)
+      processToolCall(sessionId, messageId, eventId, i, tc, rawRecordId, pending)
     }
     return
   }
@@ -552,8 +546,7 @@ async function processMessage(
 }
 
 /** Stage a Gemini text-like content block, storing long bodies in CAS. */
-async function pushTextBlock(
-  bundle: Bundle,
+function pushTextBlock(
   pending: PendingState,
   messageId: string,
   blockOrdinal: number,
@@ -561,7 +554,7 @@ async function pushTextBlock(
   text: string,
   rawRecordId: string,
   visibility: 'default' | 'hidden_by_default' | 'audit_only' = 'default',
-): Promise<void> {
+): void {
   if (!text) return
   const overflowId = text.length > PREVIEW_MAX ? stageText(pending.objects, text) : null
   pending.blocks.push({
@@ -578,8 +571,7 @@ async function pushTextBlock(
 }
 
 /** Normalize a Gemini tool call and its embedded result/display metadata. */
-async function processToolCall(
-  bundle: Bundle,
+function processToolCall(
   sessionId: string,
   messageId: string,
   eventId: string,
@@ -587,7 +579,7 @@ async function processToolCall(
   tc: GeminiToolCall,
   rawRecordId: string,
   pending: PendingState,
-): Promise<void> {
+): void {
   const sourceCallId = tc.id ?? `${messageId}:${index}`
   const toolName = tc.name ?? 'unknown'
   const toolCallId = makeToolCallId(sessionId, sourceCallId)
@@ -651,7 +643,36 @@ async function processToolCall(
         raw_record_id: rawRecordId,
       })
     }
+    pushResultDisplayFileArtifact(pending, sessionId, toolCallId, rawRecordId, tc, rd, 'newContent', 'new')
+    pushResultDisplayFileArtifact(pending, sessionId, toolCallId, rawRecordId, tc, rd, 'originalContent', 'original')
   }
+}
+
+function pushResultDisplayFileArtifact(
+  pending: PendingState,
+  sessionId: string,
+  toolCallId: string,
+  rawRecordId: string,
+  tc: GeminiToolCall,
+  rd: Exclude<GeminiToolCall['resultDisplay'], string | undefined>,
+  field: 'newContent' | 'originalContent',
+  suffix: 'new' | 'original',
+): void {
+  const text = rd[field]
+  if (typeof text !== 'string' || text.length === 0) return
+  const objectId = stageText(pending.objects, text)
+  pending.artifacts.push({
+    artifact_id: artifactId(sessionId, 'gemini', `${toolCallId}:${suffix}`),
+    kind: 'file',
+    path: rd.filePath ?? null,
+    logical_path: rd.fileName ?? rd.filePath ?? null,
+    object_id: objectId,
+    text_object_id: objectId,
+    mime_type: null,
+    size_bytes: Buffer.byteLength(text, 'utf8'),
+    created_ts: tc.timestamp ?? null,
+    raw_record_id: rawRecordId,
+  })
 }
 
 /** Render Gemini's heterogeneous tool result array into the preview text used for search. */
@@ -695,7 +716,7 @@ function canonicalToolType(toolName: string): string {
     case 'google_web_search':
       return 'web_search'
     case 'codebase_investigator':
-      return 'subagent'
+      return 'other'
     default:
       return toolName.startsWith('mcp__') ? 'mcp' : 'other'
   }
@@ -822,7 +843,7 @@ function flushPending(bundle: Bundle, pending: PendingState): void {
 
   prepare(
     bundle.db,
-    `INSERT OR REPLACE INTO sessions (
+    `INSERT OR IGNORE INTO sessions (
        session_id, source_tool, source_session_id, project_id, parent_session_id,
        is_subagent, agent_role, agent_nickname, title, summary,
        start_ts, end_ts, cwd_initial, git_branch_initial,
@@ -841,7 +862,7 @@ function flushPending(bundle: Bundle, pending: PendingState): void {
 
   const insertEvent = prepare(
     bundle.db,
-    `INSERT OR REPLACE INTO events (
+    `INSERT OR IGNORE INTO events (
        event_id, session_id, turn_id, source_event_id, event_type, source_type,
        subtype, timestamp, ordinal, actor, payload_object_id, raw_record_id,
        confidence, is_derived
@@ -866,7 +887,7 @@ function flushPending(bundle: Bundle, pending: PendingState): void {
 
   const insertMsg = prepare(
     bundle.db,
-    `INSERT OR REPLACE INTO messages (
+    `INSERT OR IGNORE INTO messages (
        message_id, session_id, turn_id, event_id, source_message_id, role,
        author_name, model, timestamp, ordinal, parent_message_id, request_id,
        status, raw_record_id
@@ -888,7 +909,7 @@ function flushPending(bundle: Bundle, pending: PendingState): void {
 
   const insertBlock = prepare(
     bundle.db,
-    `INSERT OR REPLACE INTO content_blocks (
+    `INSERT OR IGNORE INTO content_blocks (
        block_id, message_id, event_id, session_id, ordinal, block_type,
        text_object_id, text_inline, mime_type, token_count, is_error,
        is_redacted, visibility, raw_record_id
@@ -911,7 +932,7 @@ function flushPending(bundle: Bundle, pending: PendingState): void {
 
   const insertCall = prepare(
     bundle.db,
-    `INSERT OR REPLACE INTO tool_calls (
+    `INSERT OR IGNORE INTO tool_calls (
        tool_call_id, session_id, turn_id, message_id, event_id,
        source_call_id, tool_name, canonical_tool_type, args_object_id,
        command, cwd, path, query, timestamp_start, timestamp_end, status,
@@ -940,7 +961,7 @@ function flushPending(bundle: Bundle, pending: PendingState): void {
 
   const insertResult = prepare(
     bundle.db,
-    `INSERT OR REPLACE INTO tool_results (
+    `INSERT OR IGNORE INTO tool_results (
        tool_result_id, tool_call_id, session_id, message_id, event_id,
        source_call_id, status, is_error, exit_code, duration_ms,
        stdout_object_id, stderr_object_id, output_object_id, preview, raw_record_id
@@ -964,7 +985,7 @@ function flushPending(bundle: Bundle, pending: PendingState): void {
 
   const insertArtifact = prepare(
     bundle.db,
-    `INSERT OR REPLACE INTO artifacts (
+    `INSERT OR IGNORE INTO artifacts (
        artifact_id, session_id, project_id, source_tool, kind, path,
        logical_path, object_id, text_object_id, mime_type, size_bytes,
        created_ts, raw_record_id
@@ -989,7 +1010,7 @@ function flushPending(bundle: Bundle, pending: PendingState): void {
 
   const insertSearch = prepare(
     bundle.db,
-    `INSERT OR REPLACE INTO search_docs (
+    `INSERT OR IGNORE INTO search_docs (
        doc_id, entity_type, entity_id, session_id, project_id, timestamp,
        role, tool_name, canonical_tool_type, field_kind, text
      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,

@@ -17,13 +17,13 @@ export interface GeminiChatFile {
  */
 export async function* discoverGeminiChats(root: string): AsyncGenerator<GeminiChatFile, void, void> {
   const entries = await readdirSafe(root)
-  for (const entry of entries) {
+  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
     if (!entry.isDirectory()) continue
     if (entry.name === 'bin') continue
     const projectRoot = await readProjectRoot(path.join(root, entry.name))
     const chatsDir = path.join(root, entry.name, 'chats')
     const chatEntries = await readdirSafe(chatsDir)
-    for (const c of chatEntries) {
+    for (const c of chatEntries.sort((a, b) => a.name.localeCompare(b.name))) {
       if (!c.isFile()) continue
       if (!c.name.startsWith('session-') || !c.name.endsWith('.json')) continue
       yield {
