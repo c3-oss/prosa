@@ -1,0 +1,89 @@
+:root {
+  /* Color tokens — mirrored from docs/roadmap/web-platform/01-product-surface.md */
+  --color-bg: #070907;
+  --color-bg-elevated: #0d120f;
+  --color-panel: #111812;
+  --color-panel-strong: #172018;
+  --color-border: #263229;
+  --color-border-subtle: #18211b;
+  --color-text: #ecf5ee;
+  --color-text-muted: #9aa89e;
+  --color-text-faint: #657269;
+  --color-accent: #3ecf8e;
+  --color-accent-strong: #6ee7b7;
+  --color-cyan: #61d6d6;
+  --color-warning: #f4b860;
+  --color-danger: #ff6b6b;
+  --color-code-bg: #050805;
+
+  /* Typography */
+  --font-display: "Space Grotesk", system-ui, sans-serif;
+  --font-ui: "IBM Plex Sans", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  --font-size-xs: 11px;
+  --font-size-sm: 13px;
+  --font-size-base: 14px;
+  --font-size-md: 16px;
+  --font-size-lg: 20px;
+  --font-size-xl: 28px;
+  --font-size-2xl: 40px;
+  --font-size-display: 56px;
+
+  --line-height-tight: 1.2;
+  --line-height-base: 1.5;
+  --line-height-loose: 1.7;
+
+  /* Spacing */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --space-20: 80px;
+
+  /* Radius */
+  --radius-xs: 3px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+
+  /* Shadow */
+  --shadow-glow: 0 0 0 1px rgba(62, 207, 142, 0.12), 0 8px 32px
+    rgba(0, 0, 0, 0.4);
+  --shadow-panel: 0 1px 0 rgba(255, 255, 255, 0.03), 0 8px 24px
+    rgba(0, 0, 0, 0.32);
+
+  /* Z-index */
+  --z-base: 1;
+  --z-sticky: 10;
+  --z-header: 20;
+  --z-drawer: 80;
+  --z-dialog: 90;
+  --z-toast: 100;
+
+  /* Motion */
+  --motion-fast: 120ms;
+  --motion-base: 180ms;
+  --motion-slow: 260ms;
+  --easing-standard: cubic-bezier(0.2, 0.7, 0.2, 1);
+
+  /* Layout */
+  --layout-sidebar-width: 240px;
+  --layout-inspector-width: 360px;
+  --layout-max-content: 1280px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-fast: 0ms;
+    --motion-base: 0ms;
+    --motion-slow: 0ms;
+  }
+}

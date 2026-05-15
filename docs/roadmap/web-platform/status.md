@@ -1,0 +1,74 @@
+# Web Platform Ralph Loop Status
+
+Started: 2026-05-15T18:36:15Z
+Repository: `/home/cain/workspace/c3-oss/prosa`
+Branch: `master`
+Monitor: `/home/cain/workspace/c3-oss/prosa-web-platform-ralph-loop-monitor.md`
+
+## Current State
+
+Status: in-progress
+Current lane: 03 (next)
+Current HEAD: pending commit for lanes 01+02
+No-change streak: 0
+
+## Lane Status
+
+| Lane | Owner | Status | Commit(s) | Evidence |
+| --- | --- | --- | --- | --- |
+| 01 Product surface and visual system | Ralph | complete | pending | evidence/lane-01.md |
+| 02 Frontend foundation | Ralph | complete | pending | evidence/lane-02.md |
+| 03 Browser auth and tenancy | Ralph | open | | evidence/lane-03.md |
+| 04 Read API v0 | Ralph | open | | evidence/lane-04.md |
+| 05 Console shell and sessions | Ralph | open | | evidence/lane-05.md |
+| 06 Session detail timeline | Ralph | open | | evidence/lane-06.md |
+| 07 Search, analytics, and artifacts | Ralph | open | | evidence/lane-07.md |
+| 08 Production readiness | Ralph | open | | evidence/lane-08.md |
+
+## Open Blocking Corrections
+
+| ID | Severity | Owner | Summary |
+| --- | --- | --- | --- |
+| | | | No open blocking corrections. |
+
+## Latest Gates
+
+| Command | Result | Notes |
+| --- | --- | --- |
+| `git status --short --branch` | passed | Clean against `origin/master` plus roadmap/`apps/web` additions. |
+| `pnpm install` | passed | New workspace package `apps/web`, plus React 19.2.5 override. |
+| `pnpm --filter @c3-oss/prosa-web typecheck` | passed | Lane 02. |
+| `pnpm --filter @c3-oss/prosa-web build` | passed | Lane 02 — produced `apps/web/dist`. |
+| `pnpm --filter @c3-oss/prosa-web test` | passed | Lane 02 — 6 tests (config, button, landing). |
+| `pnpm --filter @c3-oss/prosa-web lint` | passed | Lane 02 — Biome check clean. |
+| `pnpm --filter @c3-oss/prosa-api typecheck` | passed | No regression. |
+| `pnpm --filter @c3-oss/prosa lint` | passed | No regression in CLI app. |
+
+Pending (run later when lane scope reaches them):
+
+- `pnpm build` (full Turbo build)
+- `just typecheck`, `just test-all`, `just lint-all`
+- `pnpm audit --audit-level moderate`
+- `just e2e-up`, `just e2e`, `just e2e-cli`, `just e2e-down`
+- Browser E2E (added in lane 08)
+
+## Decisions
+
+- 2026-05-15T18:36:15Z: Use `ralph-loop-governor` with Codex as gatekeeper and
+  Ralph/Claude as executor.
+- 2026-05-15T18:36:15Z: Treat `docs/roadmap/web-platform/*.md` as the product
+  and lane contract; implementation proceeds strictly lane-by-lane.
+- 2026-05-15T18:36:15Z: Pair this run with `$prosa-dev-workflow`,
+  `$prosa-server-sync`, and `$prosa-search-export` because the roadmap spans
+  frontend package setup, browser auth/tenancy, remote reads, search,
+  analytics, artifacts, and production gates.
+- 2026-05-15T18:36:15Z: Ralph Loop started in Claude; Codex will monitor and
+  avoid implementation edits while Ralph is actively progressing.
+- 2026-05-15: Lane 02 uses code-based TanStack Router declarations (not
+  file-based codegen) for v0 to keep tooling minimal.
+- 2026-05-15: Workspace `react` / `react-dom` pinned to `19.2.5` via
+  `pnpm-workspace.yaml` overrides so apps/cli (Ink) and apps/web stay on the
+  exact same React version and avoid the "Incompatible React versions" error.
+- 2026-05-15: Web compiles against the `@c3-oss/prosa-api` workspace package's
+  built `dist/index.d.ts` (not raw API source) to keep the web TS program
+  small and decoupled from server-only types.

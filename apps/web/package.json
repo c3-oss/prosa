@@ -1,0 +1,50 @@
+{
+  "name": "@c3-oss/prosa-web",
+  "version": "0.0.0",
+  "description": "Browser console and public site for the prosa web platform.",
+  "author": "Caian Ertl <hi@caian.org>",
+  "license": "MIT",
+  "type": "module",
+  "private": true,
+  "homepage": "https://github.com/c3-oss/prosa#readme",
+  "bugs": {
+    "url": "https://github.com/c3-oss/prosa/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/c3-oss/prosa.git",
+    "directory": "apps/web"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "biome check .",
+    "lint:fix": "biome check --fix .",
+    "clean": "rm -rf dist coverage .turbo"
+  },
+  "dependencies": {
+    "@c3-oss/prosa-api": "workspace:^",
+    "@tanstack/react-query": "^5.62.7",
+    "@tanstack/react-router": "^1.95.0",
+    "@trpc/client": "^11.0.0",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5"
+  },
+  "devDependencies": {
+    "@c3-oss/config-biome": "^0.3.1",
+    "@c3-oss/config-typescript": "^0.1.0",
+    "@c3-oss/config-vitest": "^0.3.0",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.1.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^4.3.4",
+    "jsdom": "^25.0.1",
+    "vite": "^6.0.5"
+  }
+}

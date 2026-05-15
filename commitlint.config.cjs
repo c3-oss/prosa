@@ -19,6 +19,7 @@ module.exports = {
         'api',
         'sync',
         'auth',
+        'web',
       ],
     ],
     'scope-empty': [2, 'never'],

@@ -1,0 +1,186 @@
+.console-shell {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-height: 100vh;
+  background: var(--color-bg);
+}
+
+.console-frame {
+  display: grid;
+  grid-template-columns: 1fr;
+  min-height: 0;
+}
+
+@media (min-width: 1024px) {
+  .console-frame {
+    grid-template-columns: var(--layout-sidebar-width) 1fr;
+  }
+}
+
+.console-sidebar {
+  display: none;
+  flex-direction: column;
+  gap: var(--space-4);
+  border-right: 1px solid var(--color-border-subtle);
+  padding: var(--space-5) var(--space-4);
+  background: var(--color-panel);
+}
+
+@media (min-width: 1024px) {
+  .console-sidebar {
+    display: flex;
+  }
+}
+
+.console-sidebar-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-faint);
+}
+
+.console-nav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.console-nav a {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.console-nav a:hover {
+  background: var(--color-panel-strong);
+  color: var(--color-text);
+}
+
+.console-nav a[data-active="true"] {
+  background: var(--color-panel-strong);
+  color: var(--color-text);
+  border-left: 2px solid var(--color-accent);
+  padding-left: calc(var(--space-3) - 2px);
+}
+
+.console-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.console-command-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-6);
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: var(--color-bg-elevated);
+}
+
+.console-page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-6);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.console-page-header h1 {
+  font-family: var(--font-display);
+  font-size: var(--font-size-xl);
+  margin: 0;
+}
+
+.console-page-header p {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.console-content {
+  padding: var(--space-6);
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.console-metric-grid {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  margin-bottom: var(--space-6);
+}
+
+.console-card {
+  background: var(--color-panel);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  padding: var(--space-5);
+}
+
+.console-card-label {
+  display: block;
+  color: var(--color-text-faint);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: var(--space-2);
+}
+
+.console-card-value {
+  font-family: var(--font-display);
+  font-size: var(--font-size-xl);
+  color: var(--color-text);
+}
+
+.console-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+}
+
+.console-table thead {
+  position: sticky;
+  top: 0;
+  background: var(--color-panel);
+}
+
+.console-table th,
+.console-table td {
+  text-align: left;
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.console-table th {
+  color: var(--color-text-faint);
+  font-weight: 500;
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.console-table tbody tr:hover {
+  background: var(--color-panel);
+}
+
+.console-empty {
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-8);
+  text-align: center;
+  color: var(--color-text-muted);
+}
+
+.console-empty code {
+  display: block;
+  margin: var(--space-3) auto;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-code-bg);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-subtle);
+  max-width: 32rem;
+}

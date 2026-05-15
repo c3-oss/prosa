@@ -1,0 +1,157 @@
+.marketing-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.marketing-header {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-header);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-4) var(--space-6);
+  background: linear-gradient(180deg, rgba(7, 9, 7, 0.92), rgba(7, 9, 7, 0.6));
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.marketing-header-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-family: var(--font-display);
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.marketing-header-nav {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.marketing-header-nav a {
+  color: var(--color-text-muted);
+}
+
+.marketing-header-nav a:hover {
+  color: var(--color-text);
+}
+
+.marketing-hero {
+  display: grid;
+  gap: var(--space-12);
+  grid-template-columns: 1fr;
+  max-width: var(--layout-max-content);
+  margin: 0 auto;
+  padding: var(--space-20) var(--space-6);
+}
+
+@media (min-width: 1024px) {
+  .marketing-hero {
+    grid-template-columns: 1.05fr 1fr;
+    align-items: center;
+  }
+}
+
+.marketing-hero h1 {
+  font-family: var(--font-display);
+  font-size: var(--font-size-2xl);
+  line-height: var(--line-height-tight);
+  margin: 0 0 var(--space-6);
+  letter-spacing: -0.02em;
+}
+
+@media (min-width: 1024px) {
+  .marketing-hero h1 {
+    font-size: var(--font-size-display);
+  }
+}
+
+.marketing-hero p {
+  font-size: var(--font-size-md);
+  color: var(--color-text-muted);
+  margin: 0 0 var(--space-8);
+  max-width: 56ch;
+}
+
+.marketing-hero-cta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.marketing-cli-card {
+  background: var(--color-code-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  box-shadow: var(--shadow-panel);
+}
+
+.marketing-cli-card-line {
+  color: var(--color-accent);
+}
+
+.marketing-cli-card-comment {
+  color: var(--color-text-faint);
+}
+
+.marketing-section {
+  max-width: var(--layout-max-content);
+  margin: 0 auto;
+  padding: var(--space-12) var(--space-6);
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.marketing-section h2 {
+  font-family: var(--font-display);
+  font-size: var(--font-size-xl);
+  margin: 0 0 var(--space-6);
+}
+
+.marketing-feature-grid {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.marketing-feature-card {
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  padding: var(--space-5);
+  background: var(--color-panel);
+}
+
+.marketing-feature-card h3 {
+  font-family: var(--font-ui);
+  font-size: var(--font-size-md);
+  margin: 0 0 var(--space-2);
+}
+
+.marketing-feature-card p {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin: 0;
+}
+
+.marketing-footer {
+  margin-top: auto;
+  border-top: 1px solid var(--color-border-subtle);
+  padding: var(--space-8) var(--space-6);
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  color: var(--color-text-faint);
+  font-size: var(--font-size-xs);
+}
