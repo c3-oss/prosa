@@ -436,6 +436,19 @@ Responsável por:
 - rodar typecheck/lint/testes focados;
 - preservar ownership de outros agentes.
 
+## Artefatos Materializados
+
+O fluxo foi convertido em artefatos versionados para a próxima execução:
+
+- `.codex/skills/ralph-loop-governor/`: skill para Codex preparar lanes,
+  prompt, correction queue, monitoramento, subagentes e gate final.
+- `.codex/skills/ralph-loop-governor/assets/`: templates de prompt,
+  status, correction queue, gates e evidência por lane.
+- `.codex/agents/ralph-loop-*.toml`: subagentes para segurança, integridade
+  de promoção, leituras remotas, E2E Docker e refatoração pós-hardening.
+- `docs/roadmap/server-sync/ralph-loop-operating-model.md`: playbook de uso,
+  incluindo os prompts exatos para iniciar e reiniciar o Ralph Loop.
+
 ## Veredito Final Atualizado
 
 O experimento valeu a pena.
