@@ -1,7 +1,9 @@
 import { existsSync } from 'node:fs'
+import { mkdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { getText } from '../../src/core/cas/index.js'
 import { compileGemini } from '../../src/importers/gemini/index.js'
 import { exportSessionMarkdown } from '../../src/services/export/markdown.js'
 import { searchFullText } from '../../src/services/search.js'
@@ -79,4 +81,110 @@ describe('gemini importer', () => {
       await t.cleanup()
     }
   })
+
+  it('links hash-directory sessions to a Gemini project row', async () => {
+    const t = await createTempBundle()
+    try {
+      const hash = 'a'.repeat(64)
+      await writeGeminiChat(t.path, hash, 'session-hash.json', {
+        sessionId: 'hash-session',
+        projectHash: hash,
+        messages: [{ type: 'user', id: 'u1', content: 'hello' }],
+      })
+
+      await compileGemini(t.bundle, t.path)
+
+      const project = t.bundle.db
+        .prepare<[], { source_project_id: string; canonical_path: string | null }>(
+          `SELECT source_project_id, canonical_path FROM projects`,
+        )
+        .get()
+      expect(project).toEqual({ source_project_id: hash, canonical_path: null })
+      expect(listSessions(t.bundle, { sourceTool: 'gemini' })[0]?.project_id).not.toBeNull()
+    } finally {
+      await t.cleanup()
+    }
+  })
+
+  it('preserves Gemini resultDisplay file contents as artifacts', async () => {
+    const t = await createTempBundle()
+    try {
+      await writeGeminiChat(t.path, 'proj', 'session-artifacts.json', {
+        sessionId: 'artifact-session',
+        messages: [
+          {
+            type: 'gemini',
+            id: 'm1',
+            toolCalls: [
+              {
+                id: 'tc1',
+                name: 'codebase_investigator',
+                status: 'success',
+                resultDisplay: {
+                  filePath: 'src/app.ts',
+                  fileName: 'app.ts',
+                  originalContent: 'old file',
+                  newContent: 'new file',
+                },
+              },
+            ],
+          },
+        ],
+      })
+
+      await compileGemini(t.bundle, t.path)
+
+      expect(
+        t.bundle.db.prepare<[], { canonical_tool_type: string }>(`SELECT canonical_tool_type FROM tool_calls`).get()
+          ?.canonical_tool_type,
+      ).toBe('other')
+      const artifacts = t.bundle.db
+        .prepare<[], { logical_path: string | null; text_object_id: string | null }>(
+          `SELECT logical_path, text_object_id FROM artifacts WHERE kind = 'file' ORDER BY artifact_id`,
+        )
+        .all()
+      expect(artifacts).toHaveLength(2)
+      expect(artifacts.map((artifact) => artifact.logical_path)).toEqual(['app.ts', 'app.ts'])
+      const artifactTexts = await Promise.all(artifacts.map((artifact) => getText(t.bundle, artifact.text_object_id!)))
+      expect(artifactTexts.sort()).toEqual(['new file', 'old file'])
+    } finally {
+      await t.cleanup()
+    }
+  })
+
+  it('does not let later duplicate Gemini snapshots replace existing normalized rows', async () => {
+    const t = await createTempBundle()
+    try {
+      await writeGeminiChat(t.path, 'proj', 'session-a.json', {
+        sessionId: 'duplicate-session',
+        summary: 'first snapshot',
+        messages: [{ type: 'user', id: 'u1', content: 'first' }],
+      })
+      await writeGeminiChat(t.path, 'proj', 'session-b.json', {
+        sessionId: 'duplicate-session',
+        summary: 'second snapshot',
+        messages: [{ type: 'user', id: 'u1', content: 'second' }],
+      })
+
+      await compileGemini(t.bundle, t.path)
+
+      const session = listSessions(t.bundle, { sourceTool: 'gemini' })[0]
+      expect(session?.title).toBe('first snapshot')
+      expect(searchFullText(t.bundle, { query: 'first' })).toHaveLength(1)
+      expect(searchFullText(t.bundle, { query: 'second' })).toHaveLength(0)
+    } finally {
+      await t.cleanup()
+    }
+  })
 })
+
+async function writeGeminiChat(
+  root: string,
+  projectDir: string,
+  filename: string,
+  payload: Record<string, unknown>,
+): Promise<void> {
+  const chatsDir = path.join(root, projectDir, 'chats')
+  await mkdir(chatsDir, { recursive: true })
+  await writeFile(path.join(chatsDir, filename), JSON.stringify(payload), 'utf8')
+}
