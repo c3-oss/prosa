@@ -1,0 +1,69 @@
+import { defaultBundlePath, getSearchIndexStatuses, rebuildFts5Index, rebuildTantivyIndex } from '@c3-oss/prosa-core'
+import { Command } from 'commander'
+import { withBundle } from '../bundle.js'
+import { parseOutputFormat, printRows } from '../output.js'
+
+/** Create the `prosa index` command group for rebuilding and inspecting search indexes. */
+export function indexCommand(): Command {
+  const fts5 = new Command('fts5')
+    .description('Rebuild the SQLite FTS5 index from search_docs.')
+    .option('--store <path>', 'bundle directory', defaultBundlePath())
+    .option(
+      '--overwrite',
+      'rebuild from scratch (FTS5 always overwrites; flag accepted for parity with other index commands)',
+      false,
+    )
+    .action(async (options: { store: string; overwrite: boolean }) => {
+      await withBundle(options.store, (bundle) => {
+        // FTS5 rebuild already wipes and re-tokenizes every doc via the
+        // `INSERT INTO search_docs_fts(search_docs_fts) VALUES('rebuild')`
+        // FTS5 directive, so --overwrite is a no-op today.
+        void options.overwrite
+        printIndexStatus(rebuildFts5Index(bundle))
+      })
+    })
+
+  const tantivy = new Command('tantivy')
+    .description('Rebuild the Tantivy sidecar index from search_docs.')
+    .option('--store <path>', 'bundle directory', defaultBundlePath())
+    .option('--overwrite', 'force a full re-index instead of the default incremental rebuild', false)
+    .action(async (options: { store: string; overwrite: boolean }) => {
+      await withBundle(options.store, async (bundle) => {
+        printIndexStatus(await rebuildTantivyIndex(bundle, { overwrite: options.overwrite }))
+      })
+    })
+
+  const status = new Command('status')
+    .description('Show derived search index status.')
+    .option('--store <path>', 'bundle directory', defaultBundlePath())
+    .option('--output-format <fmt>', 'interactive|table|json|csv', 'table')
+    .action(async (options: { store: string; outputFormat: string }) => {
+      const format = parseOutputFormat(options.outputFormat, 'table')
+      await withBundle(options.store, (bundle) => {
+        const rows = getSearchIndexStatuses(bundle)
+        printRows(rows, {
+          format,
+          columns: ['engine', 'status', 'source_doc_count', 'indexed_doc_count', 'updated_at', 'error_message'],
+          maxColumnWidths: { error_message: 60 },
+        })
+      })
+    })
+
+  return new Command('index')
+    .description('Build or inspect derived search indexes.')
+    .addCommand(fts5)
+    .addCommand(tantivy)
+    .addCommand(status)
+}
+
+function printIndexStatus(status: {
+  engine: string
+  status: string
+  source_doc_count: number
+  indexed_doc_count: number
+}): void {
+  process.stdout.write(
+    `${status.engine} index: ${status.status}\n` +
+      `  source_docs=${status.source_doc_count} indexed_docs=${status.indexed_doc_count}\n`,
+  )
+}

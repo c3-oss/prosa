@@ -4,8 +4,8 @@
 FTS5 is the default and is always present in the bundle. Tantivy is an
 optional sidecar that's faster and richer for concurrent or fuzzy queries.
 
-Implementation: `src/services/indexing.ts`, `src/services/search/`,
-`src/cli/commands/index.ts`, `src/cli/commands/search.ts`.
+Implementation: `packages/prosa-core/src/services/indexing.ts`, `packages/prosa-core/src/services/search/`,
+`apps/cli/src/cli/commands/index.ts`, `apps/cli/src/cli/commands/search.ts`.
 
 ## What gets indexed
 
@@ -50,7 +50,7 @@ prosa search "package.json" --engine fts5
 ## Tantivy (optional sidecar)
 
 - On-disk index lives at `<bundle>/search/tantivy/`.
-- Built and managed via the Rust binding in `src/services/indexing.ts`.
+- Built and managed via the Rust binding in `packages/prosa-core/src/services/indexing.ts`.
 - Rebuilt at the end of every successful `prosa compile` run when
   `importedAny === true`. The rebuild is **incremental** by default —
   only `search_docs.rowid > last_indexed_rowid` are added. The first

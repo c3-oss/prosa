@@ -16,6 +16,16 @@ _help:
 
 # --------------------------------------------------------------------------------------------------
 
+# run a turbo command inside a package -- e.g. "just turbo build prosa-core"
+[group('ALIASES')]
+turbo cmd pkg-name *cmd-args:
+  @pnpm turbo run {{ cmd }} {{ cmd-args }} --filter="@c3-oss/{{ pkg-name }}"
+
+# run a turbo command on all packages
+[group('ALIASES')]
+turbo-all cmd:
+  @pnpm turbo run {{ cmd }} --log-order=grouped
+
 # install dependencies from pnpm-lock.yaml
 [group('ALIASES')]
 install:
@@ -25,6 +35,11 @@ install:
 [group('ALIASES')]
 commit:
   @pnpm cz
+
+# run the prosa CLI through SWC -- e.g. "just dev sessions"
+[group('ALIASES')]
+dev *cmd-args:
+  @pnpm --filter @c3-oss/prosa dev -- {{ cmd-args }}
 
 # run the standard pre-release quality gate
 [group('ALIASES')]
@@ -45,61 +60,57 @@ docs:
 
 # --------------------------------------------------------------------------------------------------
 
-# build the distributable package into dist/
+# build the package with the given name -- e.g. "just build prosa-core"
 [group('BUILD')]
-build:
-  @pnpm build
+build pkg-name:
+  @just turbo build {{ pkg-name }}
 
 # build all packages
 [group('BUILD')]
 build-all:
-  @pnpm build
+  @just turbo-all build
 
 # --------------------------------------------------------------------------------------------------
-
-# remove generated local outputs such as dist/, coverage/, and .turbo/
-[group('PROJECT MAINTENANCE')]
-clean:
-  @pnpm clean
 
 # remove all build artifacts, caches and turbo logs
 [group('PROJECT MAINTENANCE')]
 clean-all:
-  @pnpm clean
+  @just turbo-all clean
+  @rm -rf .turbo coverage docs/api
 
 # --------------------------------------------------------------------------------------------------
 
-# run the linter
+# run the linter on the package with the given name -- e.g. "just lint prosa-core"
 [group('CODE QUALITY')]
-lint:
-  @pnpm lint
+lint pkg-name:
+  @just turbo lint {{ pkg-name }}
 
 # run the linter on all packages
 [group('CODE QUALITY')]
 lint-all:
-  @pnpm lint
+  @just turbo-all lint
 
 # run the linter on all packages and fix all auto-fixable issues
 [group('CODE QUALITY')]
 lint-all-fix:
-  @pnpm lint:fix
+  @pnpm turbo lint:fix
 
 # --------------------------------------------------------------------------------------------------
 
-# run tests
+# run tests on the package with the given name -- e.g. "just test prosa-core"
 [group('TESTS')]
-test:
-  @pnpm test
+test pkg-name:
+  @just turbo test {{ pkg-name }}
 
 # run tests on all packages
 [group('TESTS')]
 test-all:
-  @pnpm test
+  @just turbo-all test
 
 # run tests on all packages and generate a coverage report
 [group('TESTS')]
 test-all-coverage:
-  @pnpm test:coverage
+  @just turbo-all test:coverage
 
 # --------------------------------------------------------------------------------------------------
 

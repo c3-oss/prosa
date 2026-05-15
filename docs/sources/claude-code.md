@@ -4,7 +4,7 @@ Claude Code stores per-project session histories as JSONL files under
 `~/.claude/projects/`, plus subagent JSONL files, large tool-result
 artifacts, optional project memory, and an auxiliary index.
 
-Imported by `src/importers/claude/`.
+Imported by `packages/prosa-core/src/importers/claude/`.
 
 ## Layout
 

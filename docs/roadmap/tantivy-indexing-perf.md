@@ -3,10 +3,10 @@
 > **Status: Implemented.** Multi-thread writer (`writer(300_000_000, 4)`)
 > and incremental indexing landed together with migration v4
 > (`search_index_status.last_indexed_rowid` + `schema_fingerprint`). See
-> `src/services/indexing.ts` and `src/core/schema/sql/004_tantivy_checkpoint.ts`.
+> `packages/prosa-core/src/services/indexing.ts` and `packages/prosa-core/src/core/schema/sql/004_tantivy_checkpoint.ts`.
 
 Empirical investigation of two changes to `rebuildTantivyIndex` in
-`src/services/indexing.ts`:
+`packages/prosa-core/src/services/indexing.ts`:
 
 1. **Multi-thread writer + larger memory budget** — the current call
    `index.writer(50_000_000, 1)` is single-threaded with a 50 MB heap. Tantivy
@@ -108,7 +108,7 @@ adaptively (e.g. `min(8, ceil(rowsToIndex / 5_000))`).
 ### A. Multi-thread writer (1-line change)
 
 ```ts
-// src/services/indexing.ts:167
+// packages/prosa-core/src/services/indexing.ts:167
 - const writer = index.writer(50_000_000, 1);
 + const writer = index.writer(300_000_000, 4);
 ```

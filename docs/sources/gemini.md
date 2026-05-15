@@ -3,7 +3,7 @@
 Gemini CLI stores chats and logs as plain JSON (not JSONL) under
 `~/.gemini/tmp/`. Each chat file is a self-contained session snapshot.
 
-Imported by `src/importers/gemini/`.
+Imported by `packages/prosa-core/src/importers/gemini/`.
 
 ## Layout
 
