@@ -9,14 +9,14 @@ Completion signal: RALPH_DONE
 
 ## Current State
 
-Status: ready-for-final-review
-Current lane: done
+Status: correction-stabilizing
+Current lane: done (CQ-011 / CQ-012 fixes committed; five-cycle stabilization
+runs after the commit lands)
 Current HEAD: see `git log` — latest correction-iteration commit closes
-CQ-001/006/009/010 after the strict-restart pass.
-No-change streak: 0
-Ralph active: no — correction queue empty after the latest fixes for
-CQ-001, CQ-006, CQ-009, and CQ-010. CQ-004 and CQ-007 were left untouched
-because the verifier had accepted them.
+CQ-011 (device-token browser-origin) and CQ-012 (gate matrix consistency).
+No-change streak: counting up — see Stabilization Cycles below.
+Ralph active: yes — running five 180-second stabilization cycles before
+emitting `RALPH_DONE`.
 
 ## Lane Status
 
@@ -33,7 +33,22 @@ because the verifier had accepted them.
 
 ## Open Blocking Corrections
 
-None. CQ-001..CQ-010 are closed; see `correction-queue.md`.
+None. CQ-001..CQ-012 are closed; see `correction-queue.md`.
+
+## Stabilization Cycles
+
+Recorded after the CQ-011/CQ-012 commit. Each cycle sleeps 180 seconds then
+rereads correction-queue, gates, status, `git status --short --branch`, and
+recent commits. Any dirty worktree, new commit, failed gate, open
+correction, or contradiction resets the count.
+
+| Cycle | Started (UTC)         | Ended (UTC)           | Outcome |
+| ----- | --------------------- | --------------------- | ------- |
+| 1     | _filled in at runtime_ | _filled in at runtime_ | _filled in at runtime_ |
+| 2     | _filled in at runtime_ | _filled in at runtime_ | _filled in at runtime_ |
+| 3     | _filled in at runtime_ | _filled in at runtime_ | _filled in at runtime_ |
+| 4     | _filled in at runtime_ | _filled in at runtime_ | _filled in at runtime_ |
+| 5     | _filled in at runtime_ | _filled in at runtime_ | _filled in at runtime_ |
 
 ## Latest Gates
 
@@ -102,6 +117,8 @@ None. CQ-001..CQ-010 are closed; see `correction-queue.md`.
 | `pnpm --filter @c3-oss/prosa-web exec playwright test e2e/authenticated.spec.ts e2e/marketing.spec.ts --reporter=list` | passed | Browser E2E for the verified-projection v0 contract. |
 | `git diff --check` | passed | Whitespace/patch hygiene after the documentation + bounded-decode changes. |
 | `rg -n "verified session id\|sessions/projects\|auxiliary analytics reports\|omits unverified sessions" docs/roadmap/web-platform apps/api/test apps/web/e2e` | clean | Remaining matches describe the fail-closed contract or are explicitly marked superseded. |
+| Codex E2E/gate subagent | blocking | 2026-05-15: final acceptance blocked because five 180-second stabilization cycles are not evidenced; Docker E2E and base-gate classifications are inconsistent with the prompt. |
+| Codex security subagent | blocking | 2026-05-15: `auth.deviceToken` can still return bearer tokens to browser-origin callers; CQ-011 opened. |
 
 Out of scope for this lane (server-sync lane owns these — see
 `gates.md`):

@@ -109,3 +109,116 @@ describe('CLI device authorization flow', () => {
     }
   })
 })
+
+describe('CQ-011 — device-token flow must reject / strip tokens for browser-origin callers', () => {
+  async function approveDeviceCode(t: Awaited<ReturnType<typeof buildTestApp>>, email: string) {
+    const signupResp = await trpc(t, 'auth.signupWithTenant', {
+      email,
+      password: 'correct-horse-battery',
+      name: 'CQ-011 user',
+      tenantName: 'CQ011',
+      tenantSlug: email.replaceAll(/[^a-z0-9]/g, '-'),
+    })
+    expect(signupResp.statusCode).toBe(200)
+    const codeResp = await trpc(t, 'auth.deviceCode', { clientId: 'prosa-cli' })
+    expect(codeResp.statusCode).toBe(200)
+    const deviceCode = (codeResp.json() as { result: { data: { deviceCode: string } } }).result.data.deviceCode
+    const userRow = await t.pglite.query<{ id: string }>(`SELECT id FROM "user" WHERE email = $1 LIMIT 1`, [email])
+    const userId = userRow.rows[0]?.id
+    expect(userId).toBeTruthy()
+    await t.pglite.query(
+      `UPDATE "device_code" SET status='approved', user_id=$1, last_polled_at=NULL WHERE device_code=$2`,
+      [userId, deviceCode],
+    )
+    await new Promise<void>((resolve) => setTimeout(resolve, 100))
+    return deviceCode
+  }
+
+  it('rejects tRPC auth.deviceToken when Origin equals the API URL (same-origin browser deploy)', async () => {
+    const t = await buildTestApp()
+    try {
+      const deviceCode = await approveDeviceCode(t, 'cq011-trpc-same@example.com')
+      const resp = await t.app.inject({
+        method: 'POST',
+        url: '/trpc/auth.deviceToken',
+        headers: { 'content-type': 'application/json', origin: 'http://127.0.0.1:3000' },
+        payload: { deviceCode, clientId: 'prosa-cli' } as never,
+      })
+      // FORBIDDEN translates to HTTP 403 via tRPC.
+      expect(resp.statusCode).toBe(403)
+      // No token-bearing fields anywhere in the body.
+      expect(resp.body).not.toContain('access_token')
+      expect(resp.body.match(/"token"/)).toBeNull()
+    } finally {
+      await t.close()
+    }
+  })
+
+  it('rejects tRPC auth.deviceToken when Origin is a configured web origin', async () => {
+    const t = await buildTestApp({ PROSA_WEB_ORIGIN: 'https://app.example.com' })
+    try {
+      const deviceCode = await approveDeviceCode(t, 'cq011-trpc-web@example.com')
+      const resp = await t.app.inject({
+        method: 'POST',
+        url: '/trpc/auth.deviceToken',
+        headers: { 'content-type': 'application/json', origin: 'https://app.example.com' },
+        payload: { deviceCode, clientId: 'prosa-cli' } as never,
+      })
+      expect(resp.statusCode).toBe(403)
+      expect(resp.body).not.toContain('access_token')
+      expect(resp.body.match(/"token"/)).toBeNull()
+    } finally {
+      await t.close()
+    }
+  })
+
+  it('strips bearer-token-bearing fields from raw /api/auth/device/token for browser-origin callers', async () => {
+    const t = await buildTestApp()
+    try {
+      const deviceCode = await approveDeviceCode(t, 'cq011-raw@example.com')
+      const resp = await t.app.inject({
+        method: 'POST',
+        url: '/api/auth/device/token',
+        headers: { 'content-type': 'application/json', origin: 'http://127.0.0.1:3000' },
+        payload: {
+          grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+          device_code: deviceCode,
+          client_id: 'prosa-cli',
+        } as never,
+      })
+      // Status may be 200 (approved) or carry an error; either way, the body
+      // must not contain any bearer-token-bearing field for a browser-origin
+      // caller.
+      expect(resp.statusCode).toBeGreaterThanOrEqual(200)
+      const body = resp.body
+      expect(body).not.toMatch(/"access_token"\s*:/)
+      expect(body).not.toMatch(/"accessToken"\s*:/)
+      expect(body).not.toMatch(/"refresh_token"\s*:/)
+      expect(body).not.toMatch(/"refreshToken"\s*:/)
+      expect(body).not.toMatch(/"id_token"\s*:/)
+      // A bare `"token":` (Better Auth session shape) must also be absent.
+      expect(body).not.toMatch(/"token"\s*:/)
+    } finally {
+      await t.close()
+    }
+  })
+
+  it('keeps the no-Origin CLI/device flow returning a token after approval', async () => {
+    const t = await buildTestApp()
+    try {
+      const deviceCode = await approveDeviceCode(t, 'cq011-cli@example.com')
+      const resp = await t.app.inject({
+        method: 'POST',
+        url: '/trpc/auth.deviceToken',
+        headers: { 'content-type': 'application/json' }, // no Origin
+        payload: { deviceCode, clientId: 'prosa-cli' } as never,
+      })
+      expect(resp.statusCode).toBe(200)
+      const body = resp.json() as { result: { data: { pending: boolean; token?: string } } }
+      expect(body.result.data.pending).toBe(false)
+      expect(body.result.data.token).toBeTruthy()
+    } finally {
+      await t.close()
+    }
+  })
+})

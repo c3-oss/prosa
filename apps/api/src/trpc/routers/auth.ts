@@ -155,6 +155,20 @@ export const authRouter = router({
     .input(deviceTokenInput)
     .use(authRateLimit('deviceToken', 10, deviceTokenRateLimitKey))
     .mutation(async ({ ctx, input }) => {
+      // CQ-011: the device-token flow issues a CLI bearer. Browsers must
+      // never receive that bearer in JSON. Any request that carries a
+      // non-empty `Origin` header is treated as a browser caller and is
+      // rejected before Better Auth ever issues a token. CLI / device
+      // callers omit `Origin` and continue to receive the token after
+      // device approval.
+      const originHeader = ctx.req.headers.origin
+      const requestOrigin = Array.isArray(originHeader) ? originHeader[0] : originHeader
+      if (typeof requestOrigin === 'string' && requestOrigin.length > 0) {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'Device-token flow is CLI/device-only; browser callers cannot obtain bearer tokens.',
+        })
+      }
       try {
         const result = (await ctx.auth.api.deviceToken({
           body: {

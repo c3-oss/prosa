@@ -81,22 +81,41 @@ Owner: Ralph
 ## Gates Run (this iteration)
 
 The full gate matrix lives in `docs/roadmap/web-platform/gates.md`. The
-focused gates run for this correction iteration:
+focused gates run for this correction iteration (covers CQ-011 device-
+token regression coverage and the original CQ-001..CQ-010 surface):
 
 ```text
-git diff --check                                          (ok)
+git diff --check                                            (ok)
+pnpm --filter @c3-oss/prosa-api typecheck                   (ok)
+pnpm --filter @c3-oss/prosa-api build                       (ok)
 pnpm --filter @c3-oss/prosa-api exec vitest run \
+  test/device-auth.test.ts \
   test/verifier-fixes.test.ts \
   test/reads-v0.test.ts \
-  test/verified-provenance.test.ts                        (ok)
+  test/verified-provenance.test.ts \
+  test/correction-fixes.test.ts                             (ok)
+pnpm --filter @c3-oss/prosa exec vitest run \
+  test/cli/remote-authority.test.ts \
+  test/cli/remote-authority-routing.test.ts                 (ok)
 pnpm --filter @c3-oss/prosa-web exec playwright test \
   e2e/authenticated.spec.ts e2e/marketing.spec.ts \
-  --reporter=list                                          (ok)
+  --reporter=list                                            (ok)
 ```
 
-Broader gates (`pnpm typecheck`, `pnpm build`, `pnpm test`, `pnpm lint`,
-`pnpm audit --audit-level moderate`) are tracked in `gates.md` with
-their last observed result.
+Classification of the base gate matrix (see `gates.md`):
+
+- `pnpm i` — required, passed.
+- `pnpm build` — release-only; per-package builds re-run per-iteration.
+- `just typecheck` / `just test-all` / `just lint-all` — release-only
+  aggregate gates; per-package equivalents above cover the changed
+  surface and are re-run per-iteration.
+- `pnpm audit --audit-level moderate` — required, classified
+  (dev tooling / transitive, no runtime exposure).
+- `git diff --check` — required, passed.
+- `just e2e-up` / `just e2e` / `just e2e-cli` / `just e2e-down` —
+  **scoped out** for the web-platform roadmap (CQ-012 scope decision).
+  Owned by the server-sync lane; the Postgres/MinIO/CLI sync flow is
+  unchanged by web-platform work.
 
 ## Audit classification
 
@@ -125,6 +144,16 @@ Classification: **dev tooling / transitive**. No runtime exposure.
   request that carries a non-empty `Origin` header — including
   same-origin browser deploys where `Origin === PROSA_API_URL`. CLI /
   device callers (no Origin header) keep receiving the token.
+- **CQ-011**: the device-token flow is CLI/device-only. tRPC
+  `auth.deviceToken` returns 403 FORBIDDEN for any non-empty `Origin`
+  header (same-origin deploy or configured web origin). The raw
+  `/api/auth/device/token` path in the Better Auth catch-all recursively
+  strips every bearer-token-bearing field (`token`, `access_token`,
+  `refresh_token`, `id_token` and their camelCase variants) for
+  browser-origin callers. The no-`Origin` CLI flow continues to receive
+  the token after device approval. Four regression tests in
+  `apps/api/test/device-auth.test.ts` cover both browser-reject paths,
+  the raw-route strip, and the CLI happy path.
 - **CQ-003**: GET `/objects/:objectId` and `artifacts.getText` both
   require a verified `sync_batch_object_manifest` entry on top of
   tenant ownership. Committed-but-unverified bytes are 404 through

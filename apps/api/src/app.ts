@@ -96,13 +96,15 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
       const isBrowserOrigin = typeof requestOrigin === 'string' && requestOrigin.length > 0
       if (isBrowserOrigin && responseBody.length > 0) {
         try {
-          const parsed = JSON.parse(responseBody) as Record<string, unknown>
-          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && 'token' in parsed) {
-            const { token: _stripped, ...rest } = parsed as { token?: unknown } & Record<string, unknown>
-            const sanitized = JSON.stringify(rest)
-            // Update Content-Length so chunked clients do not stall.
-            reply.header('content-length', Buffer.byteLength(sanitized).toString())
-            return reply.send(sanitized)
+          const parsed = JSON.parse(responseBody) as unknown
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            // CQ-011: strip every bearer-token-bearing field — `token`,
+            // `access_token`, `refresh_token`, `id_token`. Covers the raw
+            // `/api/auth/device/token` path as well as sign-up / sign-in.
+            const sanitized = stripBearerTokenFields(parsed as Record<string, unknown>)
+            const serialized = JSON.stringify(sanitized)
+            reply.header('content-length', Buffer.byteLength(serialized).toString())
+            return reply.send(serialized)
           }
         } catch {
           // Body is not JSON (HTML / text) — pass through unchanged.
@@ -139,4 +141,32 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   })
 
   return app
+}
+
+const BEARER_TOKEN_KEYS = new Set([
+  'token',
+  'access_token',
+  'accessToken',
+  'refresh_token',
+  'refreshToken',
+  'id_token',
+  'idToken',
+])
+
+/**
+ * Recursively remove every bearer-token-bearing field from a JSON object.
+ * Covers the catch-all `/api/auth/*` responses (sign-up / sign-in / device
+ * token) so a browser-origin caller never sees a bearer token in JSON.
+ */
+function stripBearerTokenFields(input: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(input)) {
+    if (BEARER_TOKEN_KEYS.has(key)) continue
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      out[key] = stripBearerTokenFields(value as Record<string, unknown>)
+    } else {
+      out[key] = value
+    }
+  }
+  return out
 }

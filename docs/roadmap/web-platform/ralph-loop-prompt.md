@@ -194,7 +194,8 @@ pnpm audit --audit-level moderate
 git diff --check
 ```
 
-Because this work touches the server-sync/auth/read stack, also run:
+Because this work touches the server-sync/auth/read stack, also run (or
+explicitly classify):
 
 ```text
 just e2e-up
@@ -202,6 +203,12 @@ just e2e
 just e2e-cli
 just e2e-down
 ```
+
+**Scope decision (CQ-012):** the Docker-backed `just e2e*` matrix is
+`no (scoped out)` for the web-platform roadmap. This lane changes the
+browser surface and the read API; the unchanged Postgres/MinIO/CLI sync
+flow is covered by the server-sync lane's E2E. `gates.md` records the
+classification consistently.
 
 Because this work creates a browser app, also run:
 

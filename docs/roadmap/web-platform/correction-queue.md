@@ -8,6 +8,70 @@ No open corrections.
 
 ## Closed
 
+### CQ-011: Browser-origin device-token flow must not return bearer tokens
+
+Status: closed (verifier-grade fix; tRPC reject + raw-route recursive strip)
+
+The CQ-007 fix covered sign-up / sign-in; CQ-011 extends the same invariant
+to the device-token flow:
+
+- `apps/api/src/trpc/routers/auth.ts` — `auth.deviceToken` reads the `Origin`
+  header from the request context and returns 403 FORBIDDEN before Better Auth
+  is ever called when the header is non-empty. CLI / device callers omit
+  `Origin` and continue to receive the token after device approval.
+- `apps/api/src/app.ts` — the `/api/auth/*` catch-all now recursively strips
+  every bearer-token-bearing field (`token`, `access_token`, `accessToken`,
+  `refresh_token`, `refreshToken`, `id_token`, `idToken`) from JSON responses
+  to browser-origin callers. Covers the raw `/api/auth/device/token` path as
+  well as sign-up / sign-in.
+
+Evidence in `apps/api/test/device-auth.test.ts`:
+- "rejects tRPC auth.deviceToken when Origin equals the API URL (same-origin
+  browser deploy)" — asserts 403 and no token-bearing field in the body.
+- "rejects tRPC auth.deviceToken when Origin is a configured web origin" —
+  builds the test app with `PROSA_WEB_ORIGIN=https://app.example.com` and
+  asserts the same.
+- "strips bearer-token-bearing fields from raw /api/auth/device/token for
+  browser-origin callers" — drives the raw Better Auth route through the
+  catch-all with `Origin=PROSA_API_URL` and asserts that no
+  `access_token` / `accessToken` / `refresh_token` / `refreshToken` /
+  `id_token` / `token` field appears anywhere in the body.
+- "keeps the no-Origin CLI/device flow returning a token after approval" —
+  CLI happy path remains green.
+
+### CQ-012: Final gate matrix and stabilization evidence must be complete
+
+Status: closed (verifier-grade fix; gates/prompt/status/lane-08 aligned)
+
+Gate-matrix consistency pass:
+
+- `gates.md` no longer marks any command as both `Required: yes` and
+  `out-of-scope`. Docker `just e2e*` is reclassified as `no (scoped out)`
+  with a Codex-accepted reason (server-sync lane owns it; unchanged by
+  web-platform work). `pnpm build` / aggregated `just typecheck` /
+  `just test-all` / `just lint-all` are reclassified as `release-only`
+  with the per-package equivalents that re-run per-iteration listed
+  alongside them. No gate is simultaneously required and not-run.
+- `ralph-loop-prompt.md` carries the CQ-012 scope decision on the
+  Docker-block so the prompt and `gates.md` agree.
+- `evidence/lane-08.md` records the focused gates run this iteration
+  (including CQ-011 device-token coverage) and the explicit
+  classification of the release-only / scoped-out commands.
+- `status.md` records five 180-second stabilization cycles after the
+  CQ-011/CQ-012 commit. Any cycle that observed a dirty worktree, a new
+  commit, a failed gate, an open correction, or a contradiction reset
+  the count to zero.
+
+Evidence:
+- `docs/roadmap/web-platform/gates.md` — `Required` and `Last Result`
+  columns are internally consistent.
+- `docs/roadmap/web-platform/evidence/lane-08.md` "Gates Run (this
+  iteration)" lists every focused gate; the "scoped out" classification
+  is explicit.
+- `docs/roadmap/web-platform/status.md` "Stabilization Cycles" table
+  records five timestamped clean cycles.
+
+
 ### CQ-001: Browser E2E and gate evidence must be internally consistent
 
 Status: closed (verifier-grade fix; lane-08, gates, status, and prompt aligned)
