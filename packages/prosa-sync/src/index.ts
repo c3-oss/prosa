@@ -4,29 +4,42 @@ export const PROTOCOL_VERSION = 1
 
 // ---------- Object manifests ----------
 
-export const objectManifestEntrySchema = z.object({
-  /** Canonical object id derived from the BLAKE3 of the original payload. */
-  objectId: z.string().min(1),
-  /** BLAKE3 of the original (uncompressed) payload. */
-  hash: z.string().min(8),
-  hashAlgorithm: z.enum(['blake3', 'sha256']).default('blake3'),
-  uncompressedSize: z.number().int().nonnegative(),
-  compressedSize: z.number().int().nonnegative(),
-  /**
-   * Compression used for the on-disk / on-transport bytes. Defaults to `zstd`
-   * to match the local bundle layout; `none` is used when compression would
-   * not shrink the payload.
-   */
-  compression: z.enum(['zstd', 'none']).default('zstd'),
-  /**
-   * BLAKE3 of the bytes-on-the-wire (`compressed` bytes for `compression=zstd`,
-   * identical to `hash` for `compression=none`). The server verifies the
-   * uploaded body against this hash; `hash`/`objectId` remain canonical for
-   * the original payload.
-   */
-  transportHash: z.string().min(8).optional(),
-  contentType: z.string().optional(),
-})
+export const objectManifestEntrySchema = z
+  .object({
+    /** Canonical object id derived from the BLAKE3 of the original payload. */
+    objectId: z.string().regex(/^blake3:[0-9a-f]{64}$/i),
+    /** BLAKE3 of the original (uncompressed) payload. */
+    hash: z.string().regex(/^[0-9a-f]{64}$/i),
+    hashAlgorithm: z.literal('blake3').default('blake3'),
+    uncompressedSize: z.number().int().nonnegative(),
+    compressedSize: z.number().int().nonnegative(),
+    /**
+     * Compression used for the on-disk / on-transport bytes. Defaults to `zstd`
+     * to match the local bundle layout; `none` is used when compression would
+     * not shrink the payload.
+     */
+    compression: z.enum(['zstd', 'none']).default('zstd'),
+    /**
+     * BLAKE3 of the bytes-on-the-wire (`compressed` bytes for `compression=zstd`,
+     * identical to `hash` for `compression=none`). The server verifies the
+     * uploaded body against this hash; `hash`/`objectId` remain canonical for
+     * the original payload.
+     */
+    transportHash: z
+      .string()
+      .regex(/^[0-9a-f]{64}$/i)
+      .optional(),
+    contentType: z.string().optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.objectId.toLowerCase() !== `blake3:${value.hash.toLowerCase()}`) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['objectId'],
+        message: 'objectId must be blake3:<hash>',
+      })
+    }
+  })
 export type ObjectManifestEntry = z.infer<typeof objectManifestEntrySchema>
 
 // ---------- Projection rows ----------
@@ -153,6 +166,10 @@ export const verifyPromotionInputSchema = z.object({
    * cleanup.
    */
   declaredObjectIds: z.array(z.string()).max(10_000).default([]),
+  /** Source file ids the client claims were uploaded; verifier confirms each. */
+  declaredSourceFileIds: z.array(z.string()).max(10_000).default([]),
+  /** Raw record ids the client claims were uploaded; verifier confirms each. */
+  declaredRawRecordIds: z.array(z.string()).max(10_000).default([]),
   /** Session ids the client claims were uploaded; verifier confirms each. */
   declaredSessionIds: z.array(z.string()).max(10_000).default([]),
   /** Search doc ids the client claims were uploaded; verifier confirms each. */
@@ -165,12 +182,21 @@ export const promotionReceiptSchema = z.object({
   tenantId: z.string(),
   deviceId: z.string(),
   storePath: z.string(),
+  manifestHash: z.string(),
   sessionCount: z.number().int().nonnegative(),
   objectCount: z.number().int().nonnegative(),
   searchDocCount: z.number().int().nonnegative(),
+  batchObjectCount: z.number().int().nonnegative().default(0),
+  batchSourceFileCount: z.number().int().nonnegative().default(0),
+  batchRawRecordCount: z.number().int().nonnegative().default(0),
+  batchSessionCount: z.number().int().nonnegative().default(0),
+  batchSearchDocCount: z.number().int().nonnegative().default(0),
   declaredObjectsVerified: z.number().int().nonnegative().default(0),
+  declaredSourceFilesVerified: z.number().int().nonnegative().default(0),
+  declaredRawRecordsVerified: z.number().int().nonnegative().default(0),
   declaredSessionsVerified: z.number().int().nonnegative().default(0),
   declaredSearchDocsVerified: z.number().int().nonnegative().default(0),
+  cleanupEligible: z.boolean().default(false),
   verifiedAt: z.string().datetime(),
 })
 export type PromotionReceipt = z.infer<typeof promotionReceiptSchema>

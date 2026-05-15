@@ -2,7 +2,7 @@ import type { RemoteObjectStore } from '@c3-oss/prosa-storage'
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import type { ProsaAuth } from '../auth.js'
 import type { ProsaApiConfig } from '../config.js'
-import type { ProsaDatabase, RawExec } from '../db.js'
+import type { DatabaseHandle, ProsaDatabase, RawExec } from '../db.js'
 
 export type AuthenticatedUser = {
   id: string
@@ -20,8 +20,11 @@ export type ProsaApiContext = {
   auth: ProsaAuth
   db: ProsaDatabase
   rawExec: RawExec
+  transaction: DatabaseHandle['transaction']
   objectStore: RemoteObjectStore
-  session: { id: string; userId: string; activeOrganizationId?: string | null } | null
+  /** Best-effort client IP for local abuse controls and audit metadata. */
+  clientIp: string | null
+  session: { id: string; userId: string; activeOrganizationId?: string | null; expiresAt?: Date | string } | null
   user: AuthenticatedUser | null
   /**
    * Resolved tenant id. Only set after we have verified that `user` is a
@@ -39,6 +42,7 @@ export type CreateContextDeps = {
   auth: ProsaAuth
   db: ProsaDatabase
   rawExec: RawExec
+  transaction: DatabaseHandle['transaction']
   objectStore: RemoteObjectStore
 }
 
@@ -46,6 +50,17 @@ function readFirstHeader(req: FastifyRequest, name: string): string | null {
   const value = req.headers[name]
   if (Array.isArray(value)) return value[0] ?? null
   return typeof value === 'string' ? value : null
+}
+
+function resolveClientIp(req: FastifyRequest): string | null {
+  const forwardedFor = readFirstHeader(req, 'x-forwarded-for')
+  if (forwardedFor) {
+    const first = forwardedFor.split(',')[0]?.trim()
+    if (first) return first
+  }
+  const realIp = readFirstHeader(req, 'x-real-ip')
+  if (realIp) return realIp
+  return req.ip || null
 }
 
 function fastifyRequestToHeaders(req: FastifyRequest): Headers {
@@ -80,14 +95,18 @@ async function resolveMembership(opts: {
   userId: string
 }): Promise<MemberRole | null> {
   const rows = await opts.rawExec<{ role: string }>(
-    'SELECT role FROM "member" WHERE organization_id = $1 AND user_id = $2 LIMIT 1',
+    'SELECT role FROM "member" WHERE organization_id = $1 AND user_id = $2 ORDER BY created_at ASC, id ASC',
     [opts.tenantId, opts.userId],
   )
-  return normalizeRole(rows[0]?.role ?? null)
+  const roles = rows.map((row) => normalizeRole(row.role)).filter((role): role is MemberRole => role !== null)
+  if (roles.length === 0) return null
+  if (roles.includes('member')) return 'member'
+  if (roles.includes('admin')) return 'admin'
+  return 'owner'
 }
 
 export function buildCreateContext(deps: CreateContextDeps) {
-  const { config, auth, db, rawExec, objectStore } = deps
+  const { config, auth, db, rawExec, transaction, objectStore } = deps
   return async (opts: { req: FastifyRequest; res: FastifyReply }): Promise<ProsaApiContext> => {
     const headerTenant = readFirstHeader(opts.req, 'x-prosa-tenant-id')
     let session: ProsaApiContext['session'] = null
@@ -97,7 +116,7 @@ export function buildCreateContext(deps: CreateContextDeps) {
 
     try {
       const result = (await auth.api.getSession({ headers: fastifyRequestToHeaders(opts.req) })) as {
-        session: { id: string; userId: string; activeOrganizationId?: string | null }
+        session: { id: string; userId: string; activeOrganizationId?: string | null; expiresAt?: Date | string }
         user: { id: string; email: string; name: string }
       } | null
       if (result) {
@@ -132,7 +151,9 @@ export function buildCreateContext(deps: CreateContextDeps) {
       auth,
       db,
       rawExec,
+      transaction,
       objectStore,
+      clientIp: resolveClientIp(opts.req),
       session,
       user,
       tenantId: resolvedTenant,

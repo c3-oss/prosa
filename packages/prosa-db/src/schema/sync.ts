@@ -1,4 +1,15 @@
-import { bigint, bigserial, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core'
+import {
+  bigint,
+  bigserial,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  primaryKey,
+  text,
+  timestamp,
+  uniqueIndex,
+} from 'drizzle-orm/pg-core'
 import { organization, user } from './auth.js'
 
 export const device = pgTable(
@@ -37,6 +48,7 @@ export const syncBatch = pgTable(
     userId: text('user_id')
       .notNull()
       .references(() => user.id, { onDelete: 'cascade' }),
+    storePath: text('store_path').notNull(),
     status: text('status').notNull().default('open'),
     objectCount: integer('object_count').notNull().default(0),
     rowCount: integer('row_count').notNull().default(0),
@@ -49,6 +61,50 @@ export const syncBatch = pgTable(
   },
   (table) => ({
     tenantStatusIdx: index('sync_batch_tenant_status_idx').on(table.tenantId, table.status),
+  }),
+)
+
+export const syncBatchObjectManifest = pgTable(
+  'sync_batch_object_manifest',
+  {
+    batchId: text('batch_id')
+      .notNull()
+      .references(() => syncBatch.id, { onDelete: 'cascade' }),
+    tenantId: text('tenant_id')
+      .notNull()
+      .references(() => organization.id, { onDelete: 'cascade' }),
+    objectId: text('object_id').notNull(),
+    canonicalHash: text('canonical_hash').notNull(),
+    transportHash: text('transport_hash').notNull(),
+    compression: text('compression').notNull(),
+    uncompressedSize: bigint('uncompressed_size', { mode: 'bigint' }).notNull(),
+    compressedSize: bigint('compressed_size', { mode: 'bigint' }).notNull(),
+    storageKey: text('storage_key').notNull(),
+    contentType: text('content_type'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.batchId, table.tenantId, table.objectId] }),
+    tenantBatchIdx: index('sync_batch_object_manifest_tenant_batch_idx').on(table.tenantId, table.batchId),
+  }),
+)
+
+export const syncBatchProjectionManifest = pgTable(
+  'sync_batch_projection_manifest',
+  {
+    batchId: text('batch_id')
+      .notNull()
+      .references(() => syncBatch.id, { onDelete: 'cascade' }),
+    tenantId: text('tenant_id')
+      .notNull()
+      .references(() => organization.id, { onDelete: 'cascade' }),
+    entityType: text('entity_type').notNull(),
+    entityId: text('entity_id').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.batchId, table.tenantId, table.entityType, table.entityId] }),
+    tenantBatchIdx: index('sync_batch_projection_manifest_tenant_batch_idx').on(table.tenantId, table.batchId),
   }),
 )
 

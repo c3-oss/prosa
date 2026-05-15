@@ -123,6 +123,7 @@ CREATE TABLE IF NOT EXISTS "sync_batch" (
   tenant_id text NOT NULL REFERENCES "organization"(id) ON DELETE CASCADE,
   device_id text NOT NULL REFERENCES "device"(id) ON DELETE CASCADE,
   user_id text NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+  store_path text NOT NULL,
   status text NOT NULL DEFAULT 'open',
   object_count integer NOT NULL DEFAULT 0,
   row_count integer NOT NULL DEFAULT 0,
@@ -134,6 +135,35 @@ CREATE TABLE IF NOT EXISTS "sync_batch" (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS sync_batch_tenant_status_idx ON "sync_batch"(tenant_id, status);
+ALTER TABLE "sync_batch" ADD COLUMN IF NOT EXISTS store_path text;
+
+CREATE TABLE IF NOT EXISTS "sync_batch_object_manifest" (
+  batch_id text NOT NULL REFERENCES "sync_batch"(id) ON DELETE CASCADE,
+  tenant_id text NOT NULL REFERENCES "organization"(id) ON DELETE CASCADE,
+  object_id text NOT NULL,
+  canonical_hash text NOT NULL,
+  transport_hash text NOT NULL,
+  compression text NOT NULL,
+  uncompressed_size bigint NOT NULL,
+  compressed_size bigint NOT NULL,
+  storage_key text NOT NULL,
+  content_type text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (batch_id, tenant_id, object_id)
+);
+CREATE INDEX IF NOT EXISTS sync_batch_object_manifest_tenant_batch_idx
+  ON "sync_batch_object_manifest"(tenant_id, batch_id);
+
+CREATE TABLE IF NOT EXISTS "sync_batch_projection_manifest" (
+  batch_id text NOT NULL REFERENCES "sync_batch"(id) ON DELETE CASCADE,
+  tenant_id text NOT NULL REFERENCES "organization"(id) ON DELETE CASCADE,
+  entity_type text NOT NULL,
+  entity_id text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (batch_id, tenant_id, entity_type, entity_id)
+);
+CREATE INDEX IF NOT EXISTS sync_batch_projection_manifest_tenant_batch_idx
+  ON "sync_batch_projection_manifest"(tenant_id, batch_id);
 
 CREATE TABLE IF NOT EXISTS "sync_source" (
   id text PRIMARY KEY,

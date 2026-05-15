@@ -3,7 +3,7 @@ import { type FastifyTRPCPluginOptions, fastifyTRPCPlugin } from '@trpc/server/a
 import Fastify, { type FastifyInstance } from 'fastify'
 import type { ProsaAuth } from './auth.js'
 import type { ProsaApiConfig } from './config.js'
-import type { ProsaDatabase, RawExec } from './db.js'
+import type { DatabaseHandle, ProsaDatabase, RawExec } from './db.js'
 import { registerObjectRoutes } from './http/objects.js'
 import { buildCreateContext } from './trpc/context.js'
 import { type AppRouter, appRouter } from './trpc/router.js'
@@ -14,6 +14,7 @@ export type BuildAppOptions = {
   auth: ProsaAuth
   db: ProsaDatabase
   rawExec: RawExec
+  transaction: DatabaseHandle['transaction']
   objectStore: RemoteObjectStore
   loggerEnabled?: boolean
 }
@@ -82,6 +83,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
         auth: opts.auth,
         db: opts.db,
         rawExec: opts.rawExec,
+        transaction: opts.transaction,
         objectStore: opts.objectStore,
       }),
       onError({ error, path, ctx }) {

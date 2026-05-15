@@ -35,6 +35,7 @@ export async function buildTestApp(overrides: Partial<NodeJS.ProcessEnv> = {}): 
     auth,
     db: db.db,
     rawExec: db.rawExec,
+    transaction: db.transaction,
     objectStore,
     loggerEnabled: false,
   })

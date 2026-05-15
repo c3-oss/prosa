@@ -52,6 +52,7 @@ export async function startServer(): Promise<void> {
     auth,
     db: dbHandle.db,
     rawExec: dbHandle.rawExec,
+    transaction: dbHandle.transaction,
     objectStore,
   })
   await app.listen({ host: config.host, port: config.port })
