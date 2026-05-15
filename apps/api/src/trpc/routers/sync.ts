@@ -226,6 +226,69 @@ export const syncRouter = router({
           message: 'Batch must be committed before verification',
         })
       }
+
+      // 1. Verify every declared object id has a tenant_object provenance row.
+      let declaredObjectsVerified = 0
+      const missingObjects: string[] = []
+      if (input.declaredObjectIds.length > 0) {
+        const found = await ctx.rawExec<{ object_id: string }>(
+          `SELECT object_id FROM "tenant_object" WHERE tenant_id = $1 AND object_id = ANY($2::text[])`,
+          [ctx.tenantId, input.declaredObjectIds],
+        )
+        const have = new Set(found.map((r) => r.object_id))
+        declaredObjectsVerified = have.size
+        for (const id of input.declaredObjectIds) {
+          if (!have.has(id)) missingObjects.push(id)
+        }
+      }
+
+      // 2. Verify every declared session is queryable.
+      let declaredSessionsVerified = 0
+      const missingSessions: string[] = []
+      if (input.declaredSessionIds.length > 0) {
+        const found = await ctx.rawExec<{ id: string }>(
+          `SELECT id FROM "projection_session" WHERE tenant_id = $1 AND id = ANY($2::text[])`,
+          [ctx.tenantId, input.declaredSessionIds],
+        )
+        const have = new Set(found.map((r) => r.id))
+        declaredSessionsVerified = have.size
+        for (const id of input.declaredSessionIds) {
+          if (!have.has(id)) missingSessions.push(id)
+        }
+      }
+
+      // 3. Verify every declared search doc is queryable.
+      let declaredSearchDocsVerified = 0
+      const missingSearchDocs: string[] = []
+      if (input.declaredSearchDocIds.length > 0) {
+        const found = await ctx.rawExec<{ id: string }>(
+          `SELECT id FROM "search_doc" WHERE tenant_id = $1 AND id = ANY($2::text[])`,
+          [ctx.tenantId, input.declaredSearchDocIds],
+        )
+        const have = new Set(found.map((r) => r.id))
+        declaredSearchDocsVerified = have.size
+        for (const id of input.declaredSearchDocIds) {
+          if (!have.has(id)) missingSearchDocs.push(id)
+        }
+      }
+
+      // Fail-closed: any missing declaration blocks the receipt. The CLI is
+      // expected to retry the upload before invoking cleanup.
+      if (missingObjects.length > 0 || missingSessions.length > 0 || missingSearchDocs.length > 0) {
+        await ctx.rawExec('UPDATE "sync_batch" SET status = $1, error = $2::jsonb, updated_at = now() WHERE id = $3', [
+          'verification_failed',
+          JSON.stringify({ missingObjects, missingSessions, missingSearchDocs }),
+          input.batchId,
+        ])
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: `Promotion verification failed: missing ${missingObjects.length} objects, ${missingSessions.length} sessions, ${missingSearchDocs.length} search docs.`,
+        })
+      }
+
+      // 4. Aggregate tenant-scoped counts for the receipt and confirm a
+      //    smoke-test read works: the sessions sample query exercises the
+      //    same code path the server-side reads use.
       const counts = await ctx.rawExec<{ sessions: number; objects: number; docs: number }>(
         `SELECT
             (SELECT count(*)::int FROM "projection_session" WHERE tenant_id = $1) as sessions,
@@ -246,11 +309,14 @@ export const syncRouter = router({
         sessionCount: counts[0]?.sessions ?? 0,
         objectCount: counts[0]?.objects ?? 0,
         searchDocCount: counts[0]?.docs ?? 0,
+        declaredObjectsVerified,
+        declaredSessionsVerified,
+        declaredSearchDocsVerified,
         verifiedAt: new Date().toISOString(),
       }
 
       await ctx.rawExec(
-        'UPDATE "sync_batch" SET status = $1, promotion_receipt = $2::jsonb, updated_at = now() WHERE id = $3',
+        'UPDATE "sync_batch" SET status = $1, promotion_receipt = $2::jsonb, error = NULL, updated_at = now() WHERE id = $3',
         ['verified', JSON.stringify(receipt), input.batchId],
       )
       await ctx.rawExec(

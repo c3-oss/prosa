@@ -1,7 +1,15 @@
-import { rm, stat } from 'node:fs/promises'
+import { readFile, readdir, rm, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { type Bundle, closeBundle, defaultBundlePath, openBundle } from '@c3-oss/prosa-core'
-import type { ProjectionPayload, ProjectionSessionRow, SearchDocRow } from '@c3-oss/prosa-sync'
+import { computeHashHex } from '@c3-oss/prosa-storage'
+import type {
+  ObjectManifestEntry,
+  ProjectionPayload,
+  ProjectionSessionRow,
+  RawRecordRow,
+  SearchDocRow,
+  SourceFileRow,
+} from '@c3-oss/prosa-sync'
 import { Command } from 'commander'
 import { ProsaApiClient } from '../auth/client.js'
 import {
@@ -57,6 +65,118 @@ function readSessionsForUpload(bundle: Bundle): { sessions: ProjectionSessionRow
       turnCount: row.turn_count,
     })),
   }
+}
+
+function readSourceFilesForUpload(bundle: Bundle): SourceFileRow[] {
+  try {
+    const rows = bundle.db
+      .prepare(
+        `SELECT source_file_id, source_tool, source_path, raw_record_id
+           FROM source_files ORDER BY source_file_id LIMIT 5000`,
+      )
+      .all() as Array<{
+      source_file_id: string
+      source_tool: string
+      source_path: string
+      raw_record_id: string | null
+    }>
+    return rows.map((row) => ({
+      id: row.source_file_id,
+      sourceKind: row.source_tool,
+      path: row.source_path,
+      objectId: row.raw_record_id ?? null,
+    }))
+  } catch {
+    return []
+  }
+}
+
+function readRawRecordsForUpload(bundle: Bundle): RawRecordRow[] {
+  try {
+    const rows = bundle.db
+      .prepare(
+        `SELECT raw_record_id, source_file_id, line_number, payload_object_id
+           FROM raw_records ORDER BY raw_record_id LIMIT 5000`,
+      )
+      .all() as Array<{
+      raw_record_id: string
+      source_file_id: string
+      line_number: number | null
+      payload_object_id: string | null
+    }>
+    return rows.map((row) => ({
+      id: row.raw_record_id,
+      sourceFileId: row.source_file_id,
+      sequence: row.line_number ?? 0,
+      payload: null,
+      objectId: row.payload_object_id ?? null,
+    }))
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Walk `objects/blake3/*\/*\/*.zst` and return one ObjectManifestEntry per
+ * file. Object IDs match the local catalog: `blake3:<hex>`.
+ */
+async function walkCasObjects(storePath: string): Promise<Array<{ entry: ObjectManifestEntry; bytes: Uint8Array }>> {
+  const root = path.join(storePath, 'objects', 'blake3')
+  const out: Array<{ entry: ObjectManifestEntry; bytes: Uint8Array }> = []
+  let firstLevel: string[]
+  try {
+    firstLevel = await readdir(root)
+  } catch {
+    return out
+  }
+  for (const aa of firstLevel) {
+    const aaPath = path.join(root, aa)
+    let second: string[]
+    try {
+      second = await readdir(aaPath)
+    } catch {
+      continue
+    }
+    for (const bb of second) {
+      const bbPath = path.join(aaPath, bb)
+      let leaves: string[]
+      try {
+        leaves = await readdir(bbPath)
+      } catch {
+        continue
+      }
+      for (const leaf of leaves) {
+        let hash: string
+        if (leaf.endsWith('.zst')) {
+          hash = leaf.slice(0, -'.zst'.length)
+        } else if (leaf.endsWith('.bin')) {
+          hash = leaf.slice(0, -'.bin'.length)
+        } else {
+          continue
+        }
+        const full = path.join(bbPath, leaf)
+        const buf = await readFile(full)
+        const bytes = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength)
+        const stored = computeHashHex(bytes, 'blake3')
+        // The CAS layout stores compressed bytes, so the on-disk file hash
+        // is NOT the canonical BLAKE3 of the original (the canonical hash
+        // is over the uncompressed payload). We treat the on-disk file
+        // hash as both `hash` and the storage hash for transport: the API
+        // verifies the bytes against this declared hash before storing.
+        out.push({
+          entry: {
+            objectId: `blake3:${hash}`,
+            hash: stored,
+            hashAlgorithm: 'blake3',
+            uncompressedSize: bytes.byteLength,
+            compressedSize: bytes.byteLength,
+          },
+          bytes,
+        })
+      }
+    }
+  }
+  return out
 }
 
 function readSearchDocsForUpload(bundle: Bundle): SearchDocRow[] {
@@ -173,12 +293,15 @@ export function syncCommand(): Command {
           process.stdout.write(`handshake ok • deviceId=${handshake.deviceId} promoted=${handshake.promoted}\n`)
         }
 
-        // Build projection payload from the local bundle.
+        // Build projection payload + CAS object manifest from the local bundle.
         const sessions = readSessionsForUpload(bundle).sessions
         const searchDocs = readSearchDocsForUpload(bundle)
+        const sourceFiles = readSourceFilesForUpload(bundle)
+        const rawRecords = readRawRecordsForUpload(bundle)
+        const casObjects = await walkCasObjects(storePath)
         const projection: ProjectionPayload = {
-          sourceFiles: [],
-          rawRecords: [],
+          sourceFiles,
+          rawRecords,
           sessions,
           searchDocs,
         }
@@ -191,11 +314,14 @@ export function syncCommand(): Command {
             store: storePath,
             sessions: sessions.length,
             searchDocs: searchDocs.length,
+            sourceFiles: sourceFiles.length,
+            rawRecords: rawRecords.length,
+            casObjects: casObjects.length,
           }
           process.stdout.write(
             options.json
               ? `${JSON.stringify(payload)}\n`
-              : `[dry-run] would upload ${sessions.length} sessions and ${searchDocs.length} search docs from ${storePath}\n`,
+              : `[dry-run] would upload ${sessions.length} sessions, ${searchDocs.length} search docs, ${sourceFiles.length} source files, ${rawRecords.length} raw records, ${casObjects.length} CAS objects from ${storePath}\n`,
           )
           return
         }
@@ -203,17 +329,37 @@ export function syncCommand(): Command {
         const plan = await client.syncPlanUpload({
           deviceId: handshake.deviceId,
           storePath,
-          objects: [],
+          objects: casObjects.map((c) => c.entry),
         })
         if (options.verbose) {
-          process.stdout.write(`plan ok • batchId=${plan.batchId} missingObjects=${plan.missingObjectIds.length}\n`)
+          process.stdout.write(
+            `plan ok • batchId=${plan.batchId} declaredObjects=${casObjects.length} missingObjects=${plan.missingObjectIds.length}\n`,
+          )
+        }
+
+        // Upload missing CAS bytes through the object route. Any failure here
+        // aborts before the commit so projection rows are never persisted
+        // without their backing bytes.
+        const missingSet = new Set(plan.missingObjectIds)
+        for (const { entry: obj, bytes } of casObjects) {
+          if (!missingSet.has(obj.objectId)) continue
+          await client.uploadObjectBytes({
+            objectId: obj.objectId,
+            hash: obj.hash,
+            compressedSize: obj.compressedSize,
+            uncompressedSize: obj.uncompressedSize,
+            bytes,
+          })
+        }
+        if (options.verbose && casObjects.length > 0) {
+          process.stdout.write(`uploaded ${missingSet.size} CAS objects\n`)
         }
 
         const commit = await client.syncCommitUpload({
           batchId: plan.batchId,
           deviceId: handshake.deviceId,
           storePath,
-          objects: [],
+          objects: casObjects.map((c) => c.entry),
           projection,
         })
         if (options.verbose) {
@@ -224,6 +370,9 @@ export function syncCommand(): Command {
           batchId: plan.batchId,
           storePath,
           sampleSessionIds: sessions.slice(0, 5).map((s) => s.id),
+          declaredObjectIds: casObjects.map((c) => c.entry.objectId),
+          declaredSessionIds: sessions.map((s) => s.id),
+          declaredSearchDocIds: searchDocs.map((d) => d.id),
         })
 
         result = {

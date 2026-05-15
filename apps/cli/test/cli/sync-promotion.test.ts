@@ -134,16 +134,29 @@ describe('CLI auth + sync end-to-end', () => {
     )
     expect(manifestExists).toBe(true)
 
-    // Promotion receipt should be recorded in the config file.
+    // Promotion receipt should be recorded in the config file, and the
+    // verification counters should reflect the declared session.
     const config = JSON.parse(await readFile(h.configPath, 'utf8')) as {
       activeServer: string
-      servers: Record<string, { promotions?: Record<string, { batchId: string; receipt: { sessionCount: number } }> }>
+      servers: Record<
+        string,
+        {
+          promotions?: Record<
+            string,
+            {
+              batchId: string
+              receipt: { sessionCount: number; declaredSessionsVerified?: number }
+            }
+          >
+        }
+      >
     }
     const server = config.servers[h.baseUrl]
     expect(server).toBeDefined()
     const promo = server?.promotions?.[h.storePath]
     expect(promo?.batchId).toMatch(/^batch_/)
     expect(promo?.receipt.sessionCount).toBeGreaterThanOrEqual(1)
+    expect(promo?.receipt.declaredSessionsVerified ?? 0).toBeGreaterThanOrEqual(1)
   })
 
   it('dry-run reports plan without uploading', async () => {

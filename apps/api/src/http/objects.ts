@@ -70,7 +70,7 @@ export async function registerObjectRoutes(app: FastifyInstance, deps: ObjectRou
         return { error: 'not a member of the requested tenant' }
       }
       const { objectId } = request.params as { objectId: string }
-      if (!objectId || !/^[a-zA-Z0-9_-]{8,128}$/.test(objectId)) {
+      if (!objectId || !/^[a-zA-Z0-9_:-]{8,128}$/.test(objectId)) {
         reply.code(400)
         return { error: 'invalid objectId' }
       }

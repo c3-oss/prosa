@@ -131,6 +131,17 @@ export const verifyPromotionInputSchema = z.object({
   batchId: z.string().min(1),
   storePath: z.string().min(1),
   sampleSessionIds: z.array(z.string()).max(20).default([]),
+  /**
+   * Object IDs the client uploaded in this batch. Every entry must have a
+   * matching `tenant_object` provenance row for the caller's tenant before
+   * `verifyPromotion` will emit a receipt. Used to authorize destructive
+   * cleanup.
+   */
+  declaredObjectIds: z.array(z.string()).max(10_000).default([]),
+  /** Session ids the client claims were uploaded; verifier confirms each. */
+  declaredSessionIds: z.array(z.string()).max(10_000).default([]),
+  /** Search doc ids the client claims were uploaded; verifier confirms each. */
+  declaredSearchDocIds: z.array(z.string()).max(10_000).default([]),
 })
 export type VerifyPromotionInput = z.infer<typeof verifyPromotionInputSchema>
 
@@ -142,6 +153,9 @@ export const promotionReceiptSchema = z.object({
   sessionCount: z.number().int().nonnegative(),
   objectCount: z.number().int().nonnegative(),
   searchDocCount: z.number().int().nonnegative(),
+  declaredObjectsVerified: z.number().int().nonnegative().default(0),
+  declaredSessionsVerified: z.number().int().nonnegative().default(0),
+  declaredSearchDocsVerified: z.number().int().nonnegative().default(0),
   verifiedAt: z.string().datetime(),
 })
 export type PromotionReceipt = z.infer<typeof promotionReceiptSchema>
