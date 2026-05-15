@@ -3,7 +3,7 @@
 Lane: 01 Product surface and visual system
 Status: complete
 Owner: Ralph
-Commit range: HEAD of master once committed
+Commit range: `eb435b6`
 
 ## Acceptance Criteria
 

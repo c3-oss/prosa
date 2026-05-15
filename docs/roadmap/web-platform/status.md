@@ -9,15 +9,15 @@ Monitor: `/home/cain/workspace/c3-oss/prosa-web-platform-ralph-loop-monitor.md`
 
 Status: in-progress
 Current lane: 03 (next)
-Current HEAD: pending commit for lanes 01+02
+Current HEAD: `eb435b6`
 No-change streak: 0
 
 ## Lane Status
 
 | Lane | Owner | Status | Commit(s) | Evidence |
 | --- | --- | --- | --- | --- |
-| 01 Product surface and visual system | Ralph | complete | pending | evidence/lane-01.md |
-| 02 Frontend foundation | Ralph | complete | pending | evidence/lane-02.md |
+| 01 Product surface and visual system | Ralph | complete | `eb435b6` | evidence/lane-01.md |
+| 02 Frontend foundation | Ralph | complete | `eb435b6` | evidence/lane-02.md |
 | 03 Browser auth and tenancy | Ralph | open | | evidence/lane-03.md |
 | 04 Read API v0 | Ralph | open | | evidence/lane-04.md |
 | 05 Console shell and sessions | Ralph | open | | evidence/lane-05.md |

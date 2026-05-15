@@ -3,7 +3,7 @@
 Lane: 02 Frontend foundation
 Status: complete
 Owner: Ralph
-Commit range: HEAD of master once committed
+Commit range: `eb435b6`
 
 ## Acceptance Criteria
 
