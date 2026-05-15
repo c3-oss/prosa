@@ -124,17 +124,21 @@ export class ProsaApiClient {
 
   async signOut(): Promise<void> {
     if (!this.token) return
-    await this.fetchFn(`${this.baseUrl}/api/auth/sign-out`, {
+    const response = await this.fetchFn(`${this.baseUrl}/api/auth/sign-out`, {
       method: 'POST',
       headers: this.headers({ 'content-type': 'application/json' }),
       body: JSON.stringify({}),
     })
+    if (!response.ok) {
+      const text = await response.text()
+      throw new CliUserError(`sign-out failed: ${response.status} ${text}`)
+    }
   }
 
   async me() {
     return this.trpcQuery<{
       user: { id: string; email: string; name: string } | null
-      session: unknown
+      session: { expiresAt?: string; expires_at?: string } | null
       tenantId: string | null
       memberRole: string | null
     }>('auth.me')
@@ -179,6 +183,7 @@ export class ProsaApiClient {
   }
 
   async uploadObjectBytes(input: {
+    batchId: string
     objectId: string
     /** BLAKE3 of the original payload (canonical). */
     hash: string
@@ -190,6 +195,7 @@ export class ProsaApiClient {
     bytes: Uint8Array
   }): Promise<{ alreadyExisted: boolean }> {
     const url = new URL(`${this.baseUrl}/objects/${input.objectId}`)
+    url.searchParams.set('batchId', input.batchId)
     url.searchParams.set('hash', input.hash)
     url.searchParams.set('size', String(input.compressedSize))
     url.searchParams.set('uncompressed', String(input.uncompressedSize))
@@ -210,7 +216,9 @@ export class ProsaApiClient {
 
   // ---- reads ----
 
-  async listSessions(input: { limit?: number; sourceKind?: string; search?: string } = {}) {
+  async listSessions(
+    input: { limit?: number; sourceKind?: string; search?: string; since?: string; until?: string } = {},
+  ) {
     return this.trpcQuery<
       Array<{
         id: string
@@ -222,6 +230,10 @@ export class ProsaApiClient {
         projectId: string | null
       }>
     >('sessions.list', input)
+  }
+
+  async countSessions(input: { sourceKind?: string; search?: string; since?: string; until?: string } = {}) {
+    return this.trpcQuery<{ count: number }>('sessions.count', input)
   }
 
   async getSession(id: string) {

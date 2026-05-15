@@ -2,6 +2,7 @@ import { writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { defaultBundlePath, exportBundleParquet, exportSessionMarkdown } from '@c3-oss/prosa-core'
 import { Command } from 'commander'
+import { resolveReadAuthorityOrFailClosed } from '../auth/routing.js'
 import { asCliBundleOpenError, withBundle } from '../bundle.js'
 
 /** Create the `prosa export` command group for session and Parquet exports. */
@@ -12,10 +13,17 @@ export function exportCommand(): Command {
     .requiredOption('--format <fmt>', 'currently only "markdown" is supported')
     .option('--out <path>', 'write to file instead of stdout')
     .option('--store <path>', 'bundle directory', defaultBundlePath())
-    .action(async (sessionId: string, options: { format: string; out?: string; store: string }) => {
+    .option('--local', 'read the local bundle even if this store is remote-authoritative', false)
+    .action(async (sessionId: string, options: { format: string; out?: string; store: string; local: boolean }) => {
       if (options.format !== 'markdown') {
         throw new Error(`unsupported format: ${options.format} (try --format markdown)`)
       }
+      await resolveReadAuthorityOrFailClosed({
+        commandName: 'prosa export session',
+        storePath: options.store,
+        forceLocal: options.local,
+        remoteSupported: false,
+      })
       await withBundle(options.store, async (bundle) => {
         const markdown = await exportSessionMarkdown(bundle, sessionId)
         if (options.out) {
@@ -31,7 +39,14 @@ export function exportCommand(): Command {
     .description('Export canonical tables to derived Parquet files for analytics.')
     .option('--store <path>', 'bundle directory', defaultBundlePath())
     .option('--out <path>', 'output directory (default: <store>/parquet)')
-    .action(async (options: { store: string; out?: string }) => {
+    .option('--local', 'read the local bundle even if this store is remote-authoritative', false)
+    .action(async (options: { store: string; out?: string; local: boolean }) => {
+      await resolveReadAuthorityOrFailClosed({
+        commandName: 'prosa export parquet',
+        storePath: options.store,
+        forceLocal: options.local,
+        remoteSupported: false,
+      })
       const result = await exportBundleParquet({
         bundlePath: path.resolve(options.store),
         outDir: options.out ? path.resolve(options.out) : undefined,

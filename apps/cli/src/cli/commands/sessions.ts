@@ -1,6 +1,6 @@
 import { countSessions, defaultBundlePath, listSessions } from '@c3-oss/prosa-core'
 import { Command } from 'commander'
-import { resolveReadAuthority } from '../auth/routing.js'
+import { resolveReadAuthorityOrFailClosed } from '../auth/routing.js'
 import { withBundle } from '../bundle.js'
 import { type ColumnSet, maxWidthsForColumns, resolveColumns, tailColumnsFor } from '../columns.js'
 import { printRows } from '../output.js'
@@ -67,6 +67,7 @@ export function sessionsCommand(): Command {
     .option('--since <iso>', 'sessions starting on/after this ISO timestamp')
     .option('--until <iso>', 'sessions starting before this ISO timestamp')
     .option('--limit <n>', 'maximum rows', '50')
+    .option('--local', 'read the local bundle even if this store is remote-authoritative', false)
     .option('--output-format <fmt>', 'interactive|table|json|csv', 'table')
     .option(
       '--columns <list>',
@@ -79,16 +80,25 @@ export function sessionsCommand(): Command {
         since?: string
         until?: string
         limit: string
+        local: boolean
         outputFormat: string
         columns?: string
       }) => {
         const format = parseOutputFormat(options.outputFormat, 'table')
         const columns = resolveColumns(SESSION_COLUMNS, options.columns)
-        const authority = await resolveReadAuthority({ storePath: options.store })
+        const sourceTool = parseSourceTool(options.source)
+        const authority = await resolveReadAuthorityOrFailClosed({
+          commandName: 'prosa sessions',
+          storePath: options.store,
+          forceLocal: options.local,
+          remoteSupported: true,
+        })
         if (authority.kind === 'remote') {
           const remoteRows = await authority.client.listSessions({
             limit: Number.parseInt(options.limit, 10),
-            ...(options.source ? { sourceKind: options.source } : {}),
+            ...(sourceTool ? { sourceKind: sourceTool } : {}),
+            ...(options.since ? { since: options.since } : {}),
+            ...(options.until ? { until: options.until } : {}),
           })
           const remoteShaped = remoteRows.map((row) => ({
             session_id: row.id,
@@ -115,7 +125,7 @@ export function sessionsCommand(): Command {
         }
         await withBundle(options.store, (bundle) => {
           const rows = listSessions(bundle, {
-            sourceTool: parseSourceTool(options.source),
+            sourceTool,
             sinceIso: options.since,
             untilIso: options.until,
             limit: Number.parseInt(options.limit, 10),
@@ -138,16 +148,34 @@ export function sessionsCommand(): Command {
       .option('--source <tool>', 'filter by source tool: cursor|codex|claude|gemini|hermes')
       .option('--since <iso>', 'sessions starting on/after this ISO timestamp')
       .option('--until <iso>', 'sessions starting before this ISO timestamp')
+      .option('--local', 'read the local bundle even if this store is remote-authoritative', false)
       .action(
         async (options: {
           store: string
           source?: string
           since?: string
           until?: string
+          local: boolean
         }) => {
+          const sourceTool = parseSourceTool(options.source)
+          const authority = await resolveReadAuthorityOrFailClosed({
+            commandName: 'prosa sessions count',
+            storePath: options.store,
+            forceLocal: options.local,
+            remoteSupported: true,
+          })
+          if (authority.kind === 'remote') {
+            const result = await authority.client.countSessions({
+              ...(sourceTool ? { sourceKind: sourceTool } : {}),
+              ...(options.since ? { since: options.since } : {}),
+              ...(options.until ? { until: options.until } : {}),
+            })
+            process.stdout.write(`${result.count}\n`)
+            return
+          }
           await withBundle(options.store, (bundle) => {
             const count = countSessions(bundle, {
-              sourceTool: parseSourceTool(options.source),
+              sourceTool,
               sinceIso: options.since,
               untilIso: options.until,
             })

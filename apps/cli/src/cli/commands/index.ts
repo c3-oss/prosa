@@ -1,5 +1,6 @@
 import { defaultBundlePath, getSearchIndexStatuses, rebuildFts5Index, rebuildTantivyIndex } from '@c3-oss/prosa-core'
 import { Command } from 'commander'
+import { resolveReadAuthorityOrFailClosed } from '../auth/routing.js'
 import { withBundle } from '../bundle.js'
 import { parseOutputFormat, printRows } from '../output.js'
 
@@ -13,7 +14,14 @@ export function indexCommand(): Command {
       'rebuild from scratch (FTS5 always overwrites; flag accepted for parity with other index commands)',
       false,
     )
-    .action(async (options: { store: string; overwrite: boolean }) => {
+    .option('--local', 'read the local bundle even if this store is remote-authoritative', false)
+    .action(async (options: { store: string; overwrite: boolean; local: boolean }) => {
+      await resolveReadAuthorityOrFailClosed({
+        commandName: 'prosa index fts5',
+        storePath: options.store,
+        forceLocal: options.local,
+        remoteSupported: false,
+      })
       await withBundle(options.store, (bundle) => {
         // FTS5 rebuild already wipes and re-tokenizes every doc via the
         // `INSERT INTO search_docs_fts(search_docs_fts) VALUES('rebuild')`
@@ -27,7 +35,14 @@ export function indexCommand(): Command {
     .description('Rebuild the Tantivy sidecar index from search_docs.')
     .option('--store <path>', 'bundle directory', defaultBundlePath())
     .option('--overwrite', 'force a full re-index instead of the default incremental rebuild', false)
-    .action(async (options: { store: string; overwrite: boolean }) => {
+    .option('--local', 'read the local bundle even if this store is remote-authoritative', false)
+    .action(async (options: { store: string; overwrite: boolean; local: boolean }) => {
+      await resolveReadAuthorityOrFailClosed({
+        commandName: 'prosa index tantivy',
+        storePath: options.store,
+        forceLocal: options.local,
+        remoteSupported: false,
+      })
       await withBundle(options.store, async (bundle) => {
         printIndexStatus(await rebuildTantivyIndex(bundle, { overwrite: options.overwrite }))
       })
@@ -36,9 +51,16 @@ export function indexCommand(): Command {
   const status = new Command('status')
     .description('Show derived search index status.')
     .option('--store <path>', 'bundle directory', defaultBundlePath())
+    .option('--local', 'read the local bundle even if this store is remote-authoritative', false)
     .option('--output-format <fmt>', 'interactive|table|json|csv', 'table')
-    .action(async (options: { store: string; outputFormat: string }) => {
+    .action(async (options: { store: string; local: boolean; outputFormat: string }) => {
       const format = parseOutputFormat(options.outputFormat, 'table')
+      await resolveReadAuthorityOrFailClosed({
+        commandName: 'prosa index status',
+        storePath: options.store,
+        forceLocal: options.local,
+        remoteSupported: false,
+      })
       await withBundle(options.store, (bundle) => {
         const rows = getSearchIndexStatuses(bundle)
         printRows(rows, {

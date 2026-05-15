@@ -7,6 +7,7 @@ import {
   runAnalyticsReport,
 } from '@c3-oss/prosa-core'
 import { Command } from 'commander'
+import { resolveReadAuthorityOrFailClosed } from '../auth/routing.js'
 import { asCliBundleOpenError, withBundle } from '../bundle.js'
 import { type ColumnSet, maxWidthsForColumns, resolveColumns, tailColumnsFor } from '../columns.js'
 import { printRows } from '../output.js'
@@ -16,6 +17,7 @@ interface AnalyticsCliOptions {
   store: string
   parquetDir?: string
   refresh?: boolean
+  local?: boolean
   source?: string
   since?: string
   until?: string
@@ -308,6 +310,12 @@ function reportCommand(report: AnalyticsReport, description: string): Command {
 
   return command.action(async (options: AnalyticsCliOptions) => {
     const format = parseOutputFormat(options.outputFormat, 'table')
+    await resolveReadAuthorityOrFailClosed({
+      commandName: `prosa analytics ${report}`,
+      storePath: options.store,
+      forceLocal: options.local,
+      remoteSupported: false,
+    })
     const parquetDir = await resolveParquetDir(options)
     const filters = buildFilters(options)
     const result = await runAnalyticsReport({ parquetDir, report, filters })
@@ -329,6 +337,7 @@ function addCommonOptions(command: Command): Command {
     .option('--store <path>', 'bundle directory', defaultBundlePath())
     .option('--parquet-dir <path>', 'Parquet directory (default: <store>/parquet)')
     .option('--refresh', 'export Parquet before running the report')
+    .option('--local', 'read the local bundle even if this store is remote-authoritative', false)
     .option('--source <tool>', 'filter by source tool: cursor|codex|claude|gemini|hermes')
     .option('--since <iso>', 'lower timestamp bound (inclusive)')
     .option('--until <iso>', 'upper timestamp bound (exclusive)')

@@ -85,7 +85,36 @@ describe('multi-device remote-only reads', () => {
         },
         auth.token,
       )
-      await trpc(t, 'sync.verifyPromotion', { batchId, storePath: '/tmp/.prosa-a' }, auth.token)
+
+      const unverifiedSessions = await trpc(t, 'sessions.list', {}, auth.token, 'GET')
+      expect(unverifiedSessions.statusCode).toBe(200)
+      expect((unverifiedSessions.json() as { result: { data: Array<{ id: string }> } }).result.data).toEqual([])
+
+      const unverifiedSearch = await trpc(t, 'search.query', { q: 'widgets' }, auth.token, 'GET')
+      expect(unverifiedSearch.statusCode).toBe(200)
+      expect((unverifiedSearch.json() as { result: { data: Array<{ id: string }> } }).result.data).toEqual([])
+
+      const unverifiedAnalytics = await trpc(t, 'analytics.summary', undefined, auth.token, 'GET')
+      expect(unverifiedAnalytics.statusCode).toBe(200)
+      expect(
+        (
+          unverifiedAnalytics.json() as {
+            result: { data: { counts: { sessions: number; docs: number; objects: number } } }
+          }
+        ).result.data.counts,
+      ).toMatchObject({ sessions: 0, docs: 0, objects: 0 })
+
+      await trpc(
+        t,
+        'sync.verifyPromotion',
+        {
+          batchId,
+          storePath: '/tmp/.prosa-a',
+          declaredSessionIds: ['sess-A1', 'sess-A2'],
+          declaredSearchDocIds: ['doc-A1'],
+        },
+        auth.token,
+      )
 
       // Device B: logs in as the same user (same tenant), queries server.
       // For this in-process test the token is shared; in real life device B
