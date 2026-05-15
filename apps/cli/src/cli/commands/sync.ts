@@ -68,72 +68,66 @@ function readSessionsForUpload(bundle: Bundle): { sessions: ProjectionSessionRow
 }
 
 function readSourceFilesForUpload(bundle: Bundle): SourceFileRow[] {
-  try {
-    const rows = bundle.db
-      .prepare(
-        `SELECT source_file_id, source_tool, path, file_kind, size_bytes, mtime, content_hash, object_id
-           FROM source_files ORDER BY source_file_id LIMIT 5000`,
-      )
-      .all() as Array<{
-      source_file_id: string
-      source_tool: string
-      path: string
-      file_kind: string | null
-      size_bytes: number | null
-      mtime: string | null
-      content_hash: string | null
-      object_id: string | null
-    }>
-    return rows.map((row) => ({
-      id: row.source_file_id,
-      sourceKind: row.source_tool,
-      path: row.path,
-      objectId: row.object_id ?? null,
-      metadata: {
-        fileKind: row.file_kind,
-        sizeBytes: row.size_bytes,
-        mtime: row.mtime,
-        contentHash: row.content_hash,
-      },
-    }))
-  } catch {
-    return []
-  }
+  // No try/catch: schema drift should surface as a hard CLI error, not as a
+  // silent empty list that lets cleanup proceed with no provenance uploaded.
+  const rows = bundle.db
+    .prepare(
+      `SELECT source_file_id, source_tool, path, file_kind, size_bytes, mtime, content_hash, object_id
+         FROM source_files ORDER BY source_file_id LIMIT 5000`,
+    )
+    .all() as Array<{
+    source_file_id: string
+    source_tool: string
+    path: string
+    file_kind: string | null
+    size_bytes: number | null
+    mtime: string | null
+    content_hash: string | null
+    object_id: string | null
+  }>
+  return rows.map((row) => ({
+    id: row.source_file_id,
+    sourceKind: row.source_tool,
+    path: row.path,
+    objectId: row.object_id ?? null,
+    metadata: {
+      fileKind: row.file_kind,
+      sizeBytes: row.size_bytes,
+      mtime: row.mtime,
+      contentHash: row.content_hash,
+    },
+  }))
 }
 
 function readRawRecordsForUpload(bundle: Bundle): RawRecordRow[] {
-  try {
-    const rows = bundle.db
-      .prepare(
-        `SELECT raw_record_id, source_file_id, line_no, raw_object_id,
-                decoded_json_object_id, parser_status, confidence, import_batch_id
-           FROM raw_records ORDER BY raw_record_id LIMIT 5000`,
-      )
-      .all() as Array<{
-      raw_record_id: string
-      source_file_id: string
-      line_no: number | null
-      raw_object_id: string
-      decoded_json_object_id: string | null
-      parser_status: string
-      confidence: string
-      import_batch_id: string
-    }>
-    return rows.map((row) => ({
-      id: row.raw_record_id,
-      sourceFileId: row.source_file_id,
-      sequence: row.line_no ?? 0,
-      payload: {
-        decodedObjectId: row.decoded_json_object_id,
-        parserStatus: row.parser_status,
-        confidence: row.confidence,
-        importBatchId: row.import_batch_id,
-      },
-      objectId: row.raw_object_id ?? null,
-    }))
-  } catch {
-    return []
-  }
+  const rows = bundle.db
+    .prepare(
+      `SELECT raw_record_id, source_file_id, line_no, raw_object_id,
+              decoded_json_object_id, parser_status, confidence, import_batch_id
+         FROM raw_records ORDER BY raw_record_id LIMIT 5000`,
+    )
+    .all() as Array<{
+    raw_record_id: string
+    source_file_id: string
+    line_no: number | null
+    raw_object_id: string
+    decoded_json_object_id: string | null
+    parser_status: string
+    confidence: string
+    import_batch_id: string
+  }>
+  return rows.map((row) => ({
+    id: row.raw_record_id,
+    sourceFileId: row.source_file_id,
+    sequence: row.line_no ?? 0,
+    payload: {
+      decodedObjectId: row.decoded_json_object_id,
+      parserStatus: row.parser_status,
+      confidence: row.confidence,
+      importBatchId: row.import_batch_id,
+    },
+    objectId: row.raw_object_id ?? null,
+  }))
 }
 
 /**
@@ -157,28 +151,22 @@ async function walkCasObjects(
     mime_type: string | null
     storage_path: string
   }
-  let rows: CatalogRow[]
-  try {
-    rows = bundle.db
-      .prepare(
-        `SELECT object_id, hash, size_bytes, compressed_size_bytes, compression, mime_type, storage_path
-           FROM objects
-           ORDER BY object_id
-           LIMIT 5000`,
-      )
-      .all() as CatalogRow[]
-  } catch {
-    return []
-  }
+  // No try/catch: schema drift in the `objects` catalog should fail the sync
+  // command rather than skip the CAS upload silently.
+  const rows = bundle.db
+    .prepare(
+      `SELECT object_id, hash, size_bytes, compressed_size_bytes, compression, mime_type, storage_path
+         FROM objects
+         ORDER BY object_id
+         LIMIT 5000`,
+    )
+    .all() as CatalogRow[]
   const out: Array<{ entry: ObjectManifestEntry; bytes: Uint8Array }> = []
   for (const row of rows) {
     const full = path.join(storePath, row.storage_path)
-    let buf: Buffer
-    try {
-      buf = await readFile(full)
-    } catch {
-      continue
-    }
+    // A missing file for an entry that the catalog says exists is data
+    // corruption: don't silently skip it.
+    const buf = await readFile(full)
     const bytes = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength)
     const transportHash = computeHashHex(bytes, 'blake3')
     const entry: ObjectManifestEntry = {
@@ -197,19 +185,27 @@ async function walkCasObjects(
 }
 
 function readSearchDocsForUpload(bundle: Bundle): SearchDocRow[] {
-  try {
-    const rows = bundle.db
-      .prepare(`SELECT doc_id, session_id, kind, body FROM search_docs ORDER BY doc_id LIMIT 5000`)
-      .all() as Array<{ doc_id: string; session_id: string; kind: string; body: string }>
-    return rows.map((row) => ({
-      id: row.doc_id,
-      sessionId: row.session_id,
-      kind: row.kind,
-      body: row.body,
-    }))
-  } catch {
-    return []
-  }
+  const rows = bundle.db
+    .prepare(
+      `SELECT doc_id, session_id, entity_type, field_kind, text
+         FROM search_docs
+         WHERE session_id IS NOT NULL
+         ORDER BY doc_id
+         LIMIT 5000`,
+    )
+    .all() as Array<{
+    doc_id: string
+    session_id: string
+    entity_type: string
+    field_kind: string
+    text: string
+  }>
+  return rows.map((row) => ({
+    id: row.doc_id,
+    sessionId: row.session_id,
+    kind: `${row.entity_type}/${row.field_kind}`,
+    body: row.text,
+  }))
 }
 
 /**

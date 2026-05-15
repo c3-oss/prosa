@@ -31,14 +31,12 @@ async function bootHarness(): Promise<Harness> {
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
     )
     .run('sess-1', 'codex', 'sess-1', null, 'first', null, null)
-  // search_docs may not exist on every schema; ignore failures.
-  try {
-    bundle.db
-      .prepare('INSERT INTO search_docs (doc_id, session_id, kind, body) VALUES (?, ?, ?, ?)')
-      .run('doc-1', 'sess-1', 'session', 'hello world')
-  } catch {
-    /* ignore */
-  }
+  bundle.db
+    .prepare(
+      `INSERT INTO search_docs (doc_id, entity_type, entity_id, session_id, field_kind, text)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+    .run('doc-1', 'session', 'sess-1', 'sess-1', 'text', 'hello world')
   closeBundle(bundle)
 
   // Boot the API server on an ephemeral port.

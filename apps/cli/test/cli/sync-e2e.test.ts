@@ -71,13 +71,12 @@ async function bootHarness(): Promise<Harness> {
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
     )
     .run('sess-e2e-1', 'codex', 'sess-e2e-1', null, 'e2e seed', null, null)
-  try {
-    bundle.db
-      .prepare('INSERT INTO search_docs (doc_id, session_id, kind, body) VALUES (?, ?, ?, ?)')
-      .run('doc-e2e-1', 'sess-e2e-1', 'session', 'shared session body')
-  } catch {
-    /* search_docs table may have a different schema; ignore */
-  }
+  bundle.db
+    .prepare(
+      `INSERT INTO search_docs (doc_id, entity_type, entity_id, session_id, field_kind, text)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+    .run('doc-e2e-1', 'session', 'sess-e2e-1', 'sess-e2e-1', 'text', 'shared session body')
   closeBundle(bundle)
 
   // Boot the API against the real Postgres + S3.
