@@ -1,7 +1,7 @@
 {
-  "name": "@c3-oss/prosa-api",
+  "name": "@c3-oss/prosa-storage",
   "version": "0.0.0",
-  "description": "Multi-tenant HTTP/tRPC server for prosa sync and remote reads.",
+  "description": "Remote object store interface and adapters (memory, fs, s3) for prosa sync.",
   "author": "Caian Ertl <hi@caian.org>",
   "license": "MIT",
   "type": "module",
@@ -13,7 +13,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/c3-oss/prosa.git",
-    "directory": "apps/api"
+    "directory": "packages/prosa-storage"
   },
   "files": ["dist"],
   "main": "./dist/index.js",
@@ -25,40 +25,22 @@
       "types": "./dist/index.d.ts"
     }
   },
-  "bin": {
-    "prosa-api": "./dist/bin/prosa-api.js"
-  },
   "scripts": {
-    "dev": "node --conditions=prosa-dev --import @swc-node/register/esm-register src/bin/prosa-api.ts",
     "build": "tsup",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "lint": "biome check .",
     "lint:fix": "biome check --fix .",
     "clean": "rm -rf dist coverage .turbo"
   },
   "dependencies": {
-    "@better-auth/drizzle-adapter": "^1.6.11",
-    "@c3-oss/prosa-db": "workspace:^",
-    "@c3-oss/prosa-storage": "workspace:^",
-    "@trpc/server": "^11.0.0",
-    "better-auth": "^1.6.11",
-    "drizzle-orm": "^0.45.2",
-    "fastify": "^5.0.0",
-    "@fastify/cors": "^10.0.0",
-    "pino": "^10.3.1",
-    "postgres": "^3.4.9",
-    "zod": "^3.23.8"
+    "@aws-sdk/client-s3": "^3.700.0"
   },
   "devDependencies": {
     "@c3-oss/config-biome": "^0.3.1",
     "@c3-oss/config-tsup": "^0.2.0",
     "@c3-oss/config-typescript": "^0.1.0",
-    "@c3-oss/config-vitest": "^0.3.0",
-    "@electric-sql/pglite": "^0.4.5",
-    "@trpc/client": "^11.0.0",
-    "drizzle-kit": "^0.31.0"
+    "@c3-oss/config-vitest": "^0.3.0"
   }
 }

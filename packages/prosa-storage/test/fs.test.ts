@@ -1,0 +1,79 @@
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { FsObjectStore } from '../src/adapters/fs.js'
+
+async function* fromBuffer(buf: Uint8Array): AsyncIterable<Uint8Array> {
+  yield buf
+}
+
+async function consume(stream: ReadableStream<Uint8Array>): Promise<Uint8Array> {
+  const reader = stream.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    if (value) {
+      chunks.push(value)
+      total += value.byteLength
+    }
+  }
+  const out = new Uint8Array(total)
+  let offset = 0
+  for (const c of chunks) {
+    out.set(c, offset)
+    offset += c.byteLength
+  }
+  return out
+}
+
+describe('FsObjectStore', () => {
+  let root: string
+  let store: FsObjectStore
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), 'prosa-fs-store-'))
+    store = new FsObjectStore(root)
+  })
+
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true })
+  })
+
+  it('round-trips bytes through put/head/get', async () => {
+    const bytes = new Uint8Array([4, 8, 15, 16, 23, 42])
+    const put = await store.putIfAbsent('objects/blake3/aa/bb/abcdef.zst', fromBuffer(bytes), {
+      hash: 'abcdef',
+      hashAlgorithm: 'blake3',
+      uncompressedSize: 6,
+      compressedSize: 6,
+    })
+    expect(put.alreadyExisted).toBe(false)
+
+    const meta = await store.head('objects/blake3/aa/bb/abcdef.zst')
+    expect(meta?.hash).toBe('abcdef')
+
+    const out = await consume(await store.get('objects/blake3/aa/bb/abcdef.zst'))
+    expect(Array.from(out)).toEqual([4, 8, 15, 16, 23, 42])
+  })
+
+  it('refuses path traversal', async () => {
+    const bytes = new Uint8Array([1])
+    await expect(
+      store.putIfAbsent('../escape', fromBuffer(bytes), {
+        hash: 'a',
+        hashAlgorithm: 'blake3',
+        uncompressedSize: 1,
+        compressedSize: 1,
+      }),
+    ).rejects.toThrow(/path traversal/)
+  })
+
+  it('returns null on missing head and deletes idempotently', async () => {
+    expect(await store.head('missing/key')).toBeNull()
+    await store.delete('missing/key')
+    await store.delete('missing/key')
+  })
+})

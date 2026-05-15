@@ -1,7 +1,9 @@
+import type { RemoteObjectStore } from '@c3-oss/prosa-storage'
 import { type FastifyTRPCPluginOptions, fastifyTRPCPlugin } from '@trpc/server/adapters/fastify'
 import Fastify, { type FastifyInstance } from 'fastify'
 import type { ProsaAuth } from './auth.js'
 import type { ProsaApiConfig } from './config.js'
+import type { ProsaDatabase } from './db.js'
 import { buildCreateContext } from './trpc/context.js'
 import { type AppRouter, appRouter } from './trpc/router.js'
 import { readPackageVersion } from './version.js'
@@ -9,6 +11,8 @@ import { readPackageVersion } from './version.js'
 export type BuildAppOptions = {
   config: ProsaApiConfig
   auth: ProsaAuth
+  db: ProsaDatabase
+  objectStore: RemoteObjectStore
   loggerEnabled?: boolean
 }
 
@@ -65,7 +69,12 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     prefix: '/trpc',
     trpcOptions: {
       router: appRouter,
-      createContext: buildCreateContext({ config: opts.config, auth: opts.auth }),
+      createContext: buildCreateContext({
+        config: opts.config,
+        auth: opts.auth,
+        db: opts.db,
+        objectStore: opts.objectStore,
+      }),
       onError({ error, path, ctx }) {
         const requestId = ctx?.requestId ?? null
         app.log.error({ err: error, path, requestId }, 'trpc procedure failed')

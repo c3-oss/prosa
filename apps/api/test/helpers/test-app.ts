@@ -1,4 +1,5 @@
 import { applySchema } from '@c3-oss/prosa-db'
+import { MemoryObjectStore } from '@c3-oss/prosa-storage'
 import { PGlite } from '@electric-sql/pglite'
 import type { FastifyInstance } from 'fastify'
 import { buildApp } from '../../src/app.js'
@@ -12,6 +13,7 @@ export type TestApp = {
   config: ProsaApiConfig
   db: DatabaseHandle
   pglite: PGlite
+  objectStore: MemoryObjectStore
   close: () => Promise<void>
 }
 
@@ -26,13 +28,15 @@ export async function buildTestApp(overrides: Partial<NodeJS.ProcessEnv> = {}): 
   await applySchema(pglite)
   const db = openPgliteDatabase(pglite)
   const auth = createAuth({ config, db: db.db })
-  const app = await buildApp({ config, auth, loggerEnabled: false })
+  const objectStore = new MemoryObjectStore()
+  const app = await buildApp({ config, auth, db: db.db, objectStore, loggerEnabled: false })
   return {
     app,
     auth,
     config,
     db,
     pglite,
+    objectStore,
     close: async () => {
       await app.close()
       await pglite.close()

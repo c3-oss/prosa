@@ -12,6 +12,7 @@ export default mergeConfig(
     resolve: {
       alias: {
         '@c3-oss/prosa-db': path.resolve(moduleDir, '../../packages/prosa-db/src/index.ts'),
+        '@c3-oss/prosa-storage': path.resolve(moduleDir, '../../packages/prosa-storage/src/index.ts'),
       },
     },
     test: {

@@ -1,0 +1,5 @@
+export * from './types.js'
+export { MemoryObjectStore } from './adapters/memory.js'
+export { FsObjectStore } from './adapters/fs.js'
+export { S3ObjectStore, type S3ObjectStoreOptions } from './adapters/s3.js'
+export { createObjectStoreFromConfig, type ObjectStoreDriverConfig } from './factory.js'
