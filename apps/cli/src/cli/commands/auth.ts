@@ -11,14 +11,28 @@ import {
 } from '../auth/config.js'
 import { CliUserError } from '../errors.js'
 
-type AuthOptions = { server?: string; configPath?: string }
+type AuthOptions = { server?: string; config?: string }
 
 function resolveServer(opts: AuthOptions): string {
   return opts.server ?? process.env.PROSA_SERVER_URL ?? 'http://127.0.0.1:3000'
 }
 
+function resolveConfigPath(opts: AuthOptions): string {
+  return opts.config ?? defaultConfigPath()
+}
+
+async function fetchTokenExpiresAt(client: ProsaApiClient): Promise<string | undefined> {
+  try {
+    const me = await client.me()
+    const expiresAt = me.session?.expiresAt ?? me.session?.expires_at
+    return typeof expiresAt === 'string' ? expiresAt : undefined
+  } catch {
+    return undefined
+  }
+}
+
 function activeOrThrow(opts: AuthOptions): Promise<ProsaServerEntry> {
-  return loadCliConfig(opts.configPath ?? defaultConfigPath()).then((config) => {
+  return loadCliConfig(resolveConfigPath(opts)).then((config) => {
     const entry = activeEntry(config)
     if (!entry || !entry.token) {
       throw new CliUserError('not logged in. Run `prosa auth login` first.')
@@ -51,14 +65,18 @@ export function authCommand(): Command {
         tenantName: options.tenant,
         ...(options.tenantSlug ? { tenantSlug: options.tenantSlug } : {}),
       })
-      const config = await loadCliConfig(cmd.opts<AuthOptions>().configPath ?? defaultConfigPath())
+      client.token = result.token
+      const tokenExpiresAt = await fetchTokenExpiresAt(client)
+      const configPath = resolveConfigPath(cmd.opts<AuthOptions>())
+      const config = await loadCliConfig(configPath)
       const entry: ProsaServerEntry = {
         url: server,
         user: { id: result.user.id, email: result.user.email, name: result.user.name },
         token: result.token,
         activeTenant: result.tenant,
       }
-      await saveCliConfig(upsertServer(config, entry, true), cmd.opts<AuthOptions>().configPath ?? defaultConfigPath())
+      if (tokenExpiresAt) entry.tokenExpiresAt = tokenExpiresAt
+      await saveCliConfig(upsertServer(config, entry, true), configPath)
       if (options.json) {
         process.stdout.write(`${JSON.stringify({ ok: true, server, tenant: result.tenant })}\n`)
       } else {
@@ -80,16 +98,19 @@ export function authCommand(): Command {
       const client = new ProsaApiClient({ baseUrl: server })
       const result = await client.signInEmail({ email: options.email, password: options.password })
       client.token = result.token
+      const tokenExpiresAt = await fetchTokenExpiresAt(client)
       const tenants = await client.listTenants()
-      const config = await loadCliConfig(cmd.opts<AuthOptions>().configPath ?? defaultConfigPath())
+      const configPath = resolveConfigPath(cmd.opts<AuthOptions>())
+      const config = await loadCliConfig(configPath)
       const entry: ProsaServerEntry = {
         url: server,
         user: result.user,
         token: result.token,
       }
+      if (tokenExpiresAt) entry.tokenExpiresAt = tokenExpiresAt
       const first = tenants[0]
       if (first) entry.activeTenant = first
-      await saveCliConfig(upsertServer(config, entry, true), cmd.opts<AuthOptions>().configPath ?? defaultConfigPath())
+      await saveCliConfig(upsertServer(config, entry, true), configPath)
       if (options.json) {
         process.stdout.write(`${JSON.stringify({ ok: true, server, user: result.user, tenants })}\n`)
       } else {
@@ -140,13 +161,16 @@ export function authCommand(): Command {
         throw new CliUserError('device login timed out before approval')
       }
       const finalClient = new ProsaApiClient({ baseUrl: server, token })
+      const tokenExpiresAt = await fetchTokenExpiresAt(finalClient)
       const tenants = await finalClient.listTenants()
-      const config = await loadCliConfig(cmd.opts<AuthOptions>().configPath ?? defaultConfigPath())
+      const configPath = resolveConfigPath(cmd.opts<AuthOptions>())
+      const config = await loadCliConfig(configPath)
       const entry: ProsaServerEntry = { url: server, token }
       if (user) entry.user = user
+      if (tokenExpiresAt) entry.tokenExpiresAt = tokenExpiresAt
       const first = tenants[0]
       if (first) entry.activeTenant = first
-      await saveCliConfig(upsertServer(config, entry, true), cmd.opts<AuthOptions>().configPath ?? defaultConfigPath())
+      await saveCliConfig(upsertServer(config, entry, true), configPath)
       if (options.json) {
         process.stdout.write(`${JSON.stringify({ ok: true, server, user, tenants })}\n`)
       } else {
@@ -161,7 +185,7 @@ export function authCommand(): Command {
     .description('Clear local credentials for the active server.')
     .option('--all', 'remove the full CLI config', false)
     .action(async (options) => {
-      const configPath = cmd.opts<AuthOptions>().configPath ?? defaultConfigPath()
+      const configPath = resolveConfigPath(cmd.opts<AuthOptions>())
       if (options.all) {
         await clearCliConfig(configPath)
         process.stdout.write('cleared all local prosa CLI credentials\n')
@@ -169,9 +193,12 @@ export function authCommand(): Command {
       }
       const config = await loadCliConfig(configPath)
       const entry = activeEntry(config)
+      let revokeError: unknown = null
       if (entry?.token) {
         const client = new ProsaApiClient({ baseUrl: entry.url, token: entry.token })
-        await client.signOut().catch(() => undefined)
+        await client.signOut().catch((err: unknown) => {
+          revokeError = err
+        })
       }
       if (config.activeServer) {
         const { [config.activeServer]: _removed, ...rest } = config.servers
@@ -179,7 +206,12 @@ export function authCommand(): Command {
         config.activeServer = undefined
       }
       await saveCliConfig(config, configPath)
-      process.stdout.write('logged out\n')
+      if (revokeError) {
+        const message = revokeError instanceof Error ? revokeError.message : String(revokeError)
+        process.stdout.write(`logged out locally; remote session revocation failed: ${message}\n`)
+      } else {
+        process.stdout.write('logged out\n')
+      }
     })
 
   cmd
@@ -187,7 +219,7 @@ export function authCommand(): Command {
     .description('Show current login, tenant, and promotion state.')
     .option('--json', 'machine-readable output', false)
     .action(async (options) => {
-      const configPath = cmd.opts<AuthOptions>().configPath ?? defaultConfigPath()
+      const configPath = resolveConfigPath(cmd.opts<AuthOptions>())
       const config = await loadCliConfig(configPath)
       const entry = activeEntry(config)
       if (!entry) {
@@ -205,6 +237,7 @@ export function authCommand(): Command {
         user: entry.user ?? null,
         activeTenant: entry.activeTenant ?? null,
         device: entry.device ?? null,
+        tokenExpiresAt: entry.tokenExpiresAt ?? null,
         promotedStores: Object.keys(entry.promotions ?? {}),
       }
       if (options.json) {
@@ -214,6 +247,7 @@ export function authCommand(): Command {
           `server: ${summary.server}\n` +
             `user: ${entry.user?.email ?? '(unknown)'}\n` +
             `tenant: ${entry.activeTenant?.name ?? '(none)'}\n` +
+            `token expires: ${entry.tokenExpiresAt ?? '(unknown)'}\n` +
             `device: ${entry.device?.name ?? '(none)'}\n` +
             `promoted: ${summary.promotedStores.length}\n`,
         )
@@ -225,8 +259,8 @@ export function authCommand(): Command {
     .description('List tenants available to the current user.')
     .option('--json', 'machine-readable output', false)
     .action(async (options) => {
-      const configPath = cmd.opts<AuthOptions>().configPath ?? defaultConfigPath()
-      const entry = await activeOrThrow({ configPath })
+      const configPath = resolveConfigPath(cmd.opts<AuthOptions>())
+      const entry = await activeOrThrow({ config: configPath })
       const client = new ProsaApiClient({ baseUrl: entry.url, token: entry.token })
       const tenants = await client.listTenants()
       if (options.json) {
@@ -243,7 +277,7 @@ export function authCommand(): Command {
     .argument('<tenant>', 'tenant id or slug')
     .description('Set the active tenant for future commands.')
     .action(async (tenantSpec: string) => {
-      const configPath = cmd.opts<AuthOptions>().configPath ?? defaultConfigPath()
+      const configPath = resolveConfigPath(cmd.opts<AuthOptions>())
       const config = await loadCliConfig(configPath)
       const entry = activeEntry(config)
       if (!entry) throw new CliUserError('not logged in')

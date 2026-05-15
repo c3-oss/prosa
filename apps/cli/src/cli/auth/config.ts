@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import path from 'node:path'
 
@@ -14,6 +14,7 @@ export type ProsaServerEntry = {
   url: string
   user?: { id: string; email: string; name?: string }
   token?: string
+  tokenExpiresAt?: string
   device?: { id: string; name: string }
   activeTenant?: { id: string; name?: string; slug?: string | null }
   /** Map of former-local-store path → promotion receipt. */
@@ -38,8 +39,19 @@ export function defaultConfigPath(): string {
 
 const EMPTY: ProsaCliConfig = { servers: {} }
 
+async function repairConfigPermissions(filePath: string): Promise<void> {
+  const stats = await stat(filePath)
+  const mode = stats.mode & 0o777
+  if ((mode & 0o077) === 0) return
+  await chmod(filePath, 0o600)
+  process.stderr.write(
+    `prosa auth: WARNING repaired insecure config permissions on ${filePath} (${mode.toString(8)} -> 600)\n`,
+  )
+}
+
 export async function loadCliConfig(filePath = defaultConfigPath()): Promise<ProsaCliConfig> {
   try {
+    await repairConfigPermissions(filePath)
     const raw = await readFile(filePath, 'utf8')
     const parsed = JSON.parse(raw) as ProsaCliConfig
     if (!parsed.servers || typeof parsed.servers !== 'object') parsed.servers = {}
