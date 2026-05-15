@@ -56,6 +56,7 @@ async function bootHarness(): Promise<Harness> {
     auth,
     db: dbHandle.db,
     rawExec: dbHandle.rawExec,
+    transaction: dbHandle.transaction,
     objectStore,
     loggerEnabled: false,
   })

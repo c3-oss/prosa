@@ -1,15 +1,6 @@
-import { readFile, rm, stat } from 'node:fs/promises'
+import { stat } from 'node:fs/promises'
 import path from 'node:path'
-import { type Bundle, closeBundle, defaultBundlePath, openBundle } from '@c3-oss/prosa-core'
-import { computeHashHex } from '@c3-oss/prosa-storage'
-import type {
-  ObjectManifestEntry,
-  ProjectionPayload,
-  ProjectionSessionRow,
-  RawRecordRow,
-  SearchDocRow,
-  SourceFileRow,
-} from '@c3-oss/prosa-sync'
+import { closeBundle, defaultBundlePath, openBundle } from '@c3-oss/prosa-core'
 import { Command } from 'commander'
 import { ProsaApiClient } from '../auth/client.js'
 import {
@@ -23,6 +14,9 @@ import {
   upsertServer,
 } from '../auth/config.js'
 import { CliUserError } from '../errors.js'
+import { readBundleForUpload } from '../sync/bundle.js'
+import { readUploadCounts, uploadLimitViolations } from '../sync/limits.js'
+import { promoteUpload, removeLocalBundle } from '../sync/promotion.js'
 
 type SyncOptions = {
   server?: string
@@ -36,209 +30,18 @@ type SyncOptions = {
   configPath?: string
 }
 
-function readSessionsForUpload(bundle: Bundle): { sessions: ProjectionSessionRow[] } {
-  const rows = bundle.db
-    .prepare(
-      `SELECT s.session_id, s.source_tool, s.project_id, s.title, s.start_ts, s.end_ts,
-              (SELECT COUNT(*) FROM turns t WHERE t.session_id = s.session_id) AS turn_count
-         FROM sessions s
-         ORDER BY s.session_id
-         LIMIT 5000`,
-    )
-    .all() as Array<{
-    session_id: string
-    source_tool: string
-    project_id: string | null
-    title: string | null
-    start_ts: string | null
-    end_ts: string | null
-    turn_count: number
-  }>
-  return {
-    sessions: rows.map((row) => ({
-      id: row.session_id,
-      sourceKind: row.source_tool,
-      projectId: row.project_id,
-      title: row.title,
-      startedAt: row.start_ts,
-      endedAt: row.end_ts,
-      turnCount: row.turn_count,
-    })),
-  }
+type SyncResult = {
+  batchId: string
+  sessionCount: number
+  objectCount: number
+  searchDocCount: number
 }
 
-function readSourceFilesForUpload(bundle: Bundle): SourceFileRow[] {
-  // No try/catch: schema drift should surface as a hard CLI error, not as a
-  // silent empty list that lets cleanup proceed with no provenance uploaded.
-  const rows = bundle.db
-    .prepare(
-      `SELECT source_file_id, source_tool, path, file_kind, size_bytes, mtime, content_hash, object_id
-         FROM source_files ORDER BY source_file_id LIMIT 5000`,
-    )
-    .all() as Array<{
-    source_file_id: string
-    source_tool: string
-    path: string
-    file_kind: string | null
-    size_bytes: number | null
-    mtime: string | null
-    content_hash: string | null
-    object_id: string | null
-  }>
-  return rows.map((row) => ({
-    id: row.source_file_id,
-    sourceKind: row.source_tool,
-    path: row.path,
-    objectId: row.object_id ?? null,
-    metadata: {
-      fileKind: row.file_kind,
-      sizeBytes: row.size_bytes,
-      mtime: row.mtime,
-      contentHash: row.content_hash,
-    },
-  }))
-}
-
-function readRawRecordsForUpload(bundle: Bundle): RawRecordRow[] {
-  const rows = bundle.db
-    .prepare(
-      `SELECT raw_record_id, source_file_id, line_no, raw_object_id,
-              decoded_json_object_id, parser_status, confidence, import_batch_id
-         FROM raw_records ORDER BY raw_record_id LIMIT 5000`,
-    )
-    .all() as Array<{
-    raw_record_id: string
-    source_file_id: string
-    line_no: number | null
-    raw_object_id: string
-    decoded_json_object_id: string | null
-    parser_status: string
-    confidence: string
-    import_batch_id: string
-  }>
-  return rows.map((row) => ({
-    id: row.raw_record_id,
-    sourceFileId: row.source_file_id,
-    sequence: row.line_no ?? 0,
-    payload: {
-      decodedObjectId: row.decoded_json_object_id,
-      parserStatus: row.parser_status,
-      confidence: row.confidence,
-      importBatchId: row.import_batch_id,
-    },
-    objectId: row.raw_object_id ?? null,
-  }))
-}
-
-/**
- * Read the bundle's CAS objects from the local catalog and pair each canonical
- * row with the on-disk bytes. The local `object_id` (`blake3:<uncompressed
- * hash>`) is the canonical identity; the on-disk file may carry compressed
- * bytes, in which case we declare a separate `transportHash` so the server
- * can verify the body against the BLAKE3 of what's actually on the wire while
- * keeping the canonical `hash`/`objectId` aligned with the local catalog.
- */
-async function walkCasObjects(
-  bundle: Bundle,
-  storePath: string,
-): Promise<Array<{ entry: ObjectManifestEntry; bytes: Uint8Array }>> {
-  type CatalogRow = {
-    object_id: string
-    hash: string
-    size_bytes: number
-    compressed_size_bytes: number | null
-    compression: 'zstd' | 'none'
-    mime_type: string | null
-    storage_path: string
-  }
-  // No try/catch: schema drift in the `objects` catalog should fail the sync
-  // command rather than skip the CAS upload silently.
-  const rows = bundle.db
-    .prepare(
-      `SELECT object_id, hash, size_bytes, compressed_size_bytes, compression, mime_type, storage_path
-         FROM objects
-         ORDER BY object_id
-         LIMIT 5000`,
-    )
-    .all() as CatalogRow[]
-  const out: Array<{ entry: ObjectManifestEntry; bytes: Uint8Array }> = []
-  for (const row of rows) {
-    const full = path.join(storePath, row.storage_path)
-    // A missing file for an entry that the catalog says exists is data
-    // corruption: don't silently skip it.
-    const buf = await readFile(full)
-    const bytes = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength)
-    const transportHash = computeHashHex(bytes, 'blake3')
-    const entry: ObjectManifestEntry = {
-      objectId: row.object_id,
-      hash: row.hash,
-      hashAlgorithm: 'blake3',
-      uncompressedSize: row.size_bytes,
-      compressedSize: row.compressed_size_bytes ?? bytes.byteLength,
-      compression: row.compression,
-      transportHash,
-    }
-    if (row.mime_type) entry.contentType = row.mime_type
-    out.push({ entry, bytes })
-  }
-  return out
-}
-
-function readSearchDocsForUpload(bundle: Bundle): SearchDocRow[] {
-  const rows = bundle.db
-    .prepare(
-      `SELECT doc_id, session_id, entity_type, field_kind, text
-         FROM search_docs
-         WHERE session_id IS NOT NULL
-         ORDER BY doc_id
-         LIMIT 5000`,
-    )
-    .all() as Array<{
-    doc_id: string
-    session_id: string
-    entity_type: string
-    field_kind: string
-    text: string
-  }>
-  return rows.map((row) => ({
-    id: row.doc_id,
-    sessionId: row.session_id,
-    kind: `${row.entity_type}/${row.field_kind}`,
-    body: row.text,
-  }))
-}
-
-/**
- * Cleanup model:
- *  - Default cleanup removes only DERIVED artifacts that can be regenerated
- *    from canonical source (or from the server after promotion).
- *  - `--purge-bundle` opts into removing the canonical raw/CAS data and the
- *    manifest. This is destructive: it should only be run AFTER the raw/CAS
- *    upload path (deferred) is implemented and verified, or when the user
- *    explicitly accepts that uncommitted source bytes will be lost.
- *
- * Until the raw + CAS upload path is wired through the CLI, the default
- * cleanup preserves `objects/`, `raw/`, `prosa.sqlite`, and `manifest.json`
- * to prevent silent data loss. The store is still marked
- * remote-authoritative via the promotion receipt, so reads route to the
- * server.
- */
-const DERIVED_PATHS_TO_REMOVE = ['search', 'parquet', 'exports']
-const CANONICAL_PATHS_TO_REMOVE = ['prosa.sqlite', 'manifest.json', 'objects', 'raw']
-
-async function removeLocalBundle(storePath: string, purge: boolean): Promise<string[]> {
-  const entries = purge ? [...DERIVED_PATHS_TO_REMOVE, ...CANONICAL_PATHS_TO_REMOVE] : DERIVED_PATHS_TO_REMOVE
-  const removed: string[] = []
-  for (const entry of entries) {
-    const target = path.join(storePath, entry)
-    try {
-      await rm(target, { recursive: true, force: true })
-      removed.push(target)
-    } catch {
-      // ignore — best-effort cleanup; cleanup retries on next command
-    }
-  }
-  return removed
+async function bundleManifestExists(storePath: string): Promise<boolean> {
+  return stat(`${storePath}/manifest.json`).then(
+    () => true,
+    () => false,
+  )
 }
 
 export function syncCommand(): Command {
@@ -257,8 +60,7 @@ export function syncCommand(): Command {
     .option(
       '--purge-bundle',
       'also remove canonical raw/CAS data (objects/, raw/, prosa.sqlite, manifest.json). ' +
-        'Until raw/CAS upload is wired through the CLI, this is destructive and should only ' +
-        'be used after you have manually confirmed the upload included raw + CAS bytes.',
+        'Only use after the remote receipt verifies the declared bundle contents.',
       false,
     )
     .option('--json', 'machine-readable JSON output', false)
@@ -281,19 +83,11 @@ export function syncCommand(): Command {
       const client = new ProsaApiClient({ baseUrl: server, token: entry.token, tenantId: tenantHint })
 
       const storePath = path.resolve(options.store ?? defaultBundlePath())
-      const exists = await stat(`${storePath}/manifest.json`).then(
-        () => true,
-        () => false,
-      )
+      const exists = await bundleManifestExists(storePath)
       if (!exists) throw new CliUserError(`no prosa bundle at ${storePath}`)
 
       const bundle = await openBundle(storePath)
-      let result: {
-        batchId: string
-        sessionCount: number
-        objectCount: number
-        searchDocCount: number
-      }
+      let result: SyncResult
       try {
         const handshake = await client.syncHandshake({
           cliVersion: process.env.npm_package_version ?? '0.0.0',
@@ -306,18 +100,8 @@ export function syncCommand(): Command {
           process.stdout.write(`handshake ok • deviceId=${handshake.deviceId} promoted=${handshake.promoted}\n`)
         }
 
-        // Build projection payload + CAS object manifest from the local bundle.
-        const sessions = readSessionsForUpload(bundle).sessions
-        const searchDocs = readSearchDocsForUpload(bundle)
-        const sourceFiles = readSourceFilesForUpload(bundle)
-        const rawRecords = readRawRecordsForUpload(bundle)
-        const casObjects = await walkCasObjects(bundle, storePath)
-        const projection: ProjectionPayload = {
-          sourceFiles,
-          rawRecords,
-          sessions,
-          searchDocs,
-        }
+        const counts = readUploadCounts(bundle, handshake.limits)
+        const limitViolations = uploadLimitViolations(counts, handshake.limits)
 
         if (options.dryRun) {
           const payload = {
@@ -325,87 +109,51 @@ export function syncCommand(): Command {
             server,
             tenant: tenantHint,
             store: storePath,
-            sessions: sessions.length,
-            searchDocs: searchDocs.length,
-            sourceFiles: sourceFiles.length,
-            rawRecords: rawRecords.length,
-            casObjects: casObjects.length,
+            sessions: counts.sessions,
+            searchDocs: counts.searchDocs,
+            sourceFiles: counts.sourceFiles,
+            rawRecords: counts.rawRecords,
+            casObjects: counts.casObjects,
+            limitViolations,
           }
           process.stdout.write(
             options.json
               ? `${JSON.stringify(payload)}\n`
-              : `[dry-run] would upload ${sessions.length} sessions, ${searchDocs.length} search docs, ${sourceFiles.length} source files, ${rawRecords.length} raw records, ${casObjects.length} CAS objects from ${storePath}\n`,
+              : `[dry-run] would upload ${counts.sessions} sessions, ${counts.searchDocs} search docs, ${counts.sourceFiles} source files, ${counts.rawRecords} raw records, ${counts.casObjects} CAS objects from ${storePath}\n`,
           )
           return
         }
 
-        const plan = await client.syncPlanUpload({
-          deviceId: handshake.deviceId,
-          storePath,
-          objects: casObjects.map((c) => c.entry),
-        })
-        if (options.verbose) {
-          process.stdout.write(
-            `plan ok • batchId=${plan.batchId} declaredObjects=${casObjects.length} missingObjects=${plan.missingObjectIds.length}\n`,
+        if (limitViolations.length > 0) {
+          throw new CliUserError(
+            `bundle is too large for a single sync batch: ${limitViolations.join('; ')}. Rebuild with fewer sessions or wait for chunked sync support.`,
           )
         }
 
-        // Upload missing CAS bytes through the object route. Any failure here
-        // aborts before the commit so projection rows are never persisted
-        // without their backing bytes.
-        const missingSet = new Set(plan.missingObjectIds)
-        for (const { entry: obj, bytes } of casObjects) {
-          if (!missingSet.has(obj.objectId)) continue
-          await client.uploadObjectBytes({
-            objectId: obj.objectId,
-            hash: obj.hash,
-            ...(obj.transportHash ? { transportHash: obj.transportHash } : {}),
-            compression: obj.compression,
-            compressedSize: obj.compressedSize,
-            uncompressedSize: obj.uncompressedSize,
-            bytes,
-          })
-        }
-        if (options.verbose && casObjects.length > 0) {
-          process.stdout.write(`uploaded ${missingSet.size} CAS objects\n`)
-        }
-
-        const commit = await client.syncCommitUpload({
-          batchId: plan.batchId,
+        const upload = await readBundleForUpload(bundle, storePath)
+        const promotion = await promoteUpload({
+          client,
           deviceId: handshake.deviceId,
           storePath,
-          objects: casObjects.map((c) => c.entry),
-          projection,
-        })
-        if (options.verbose) {
-          process.stdout.write(`commit ok • objects=${commit.committedObjects} rows=${commit.committedRows}\n`)
-        }
-
-        const verify = await client.syncVerifyPromotion({
-          batchId: plan.batchId,
-          storePath,
-          sampleSessionIds: sessions.slice(0, 5).map((s) => s.id),
-          declaredObjectIds: casObjects.map((c) => c.entry.objectId),
-          declaredSessionIds: sessions.map((s) => s.id),
-          declaredSearchDocIds: searchDocs.map((d) => d.id),
+          upload,
+          verbose: options.verbose,
         })
 
         result = {
-          batchId: plan.batchId,
-          sessionCount: verify.receipt.sessionCount,
-          objectCount: verify.receipt.objectCount,
-          searchDocCount: verify.receipt.searchDocCount,
+          batchId: promotion.batchId,
+          sessionCount: promotion.sessionCount,
+          objectCount: promotion.objectCount,
+          searchDocCount: promotion.searchDocCount,
         }
 
-        // Update local config with promotion record.
         const nextEntry = recordPromotion(
           { ...entry, device: { id: handshake.deviceId, name: handshake.deviceId } },
           storePath,
           {
-            batchId: plan.batchId,
-            tenantId: verify.receipt.tenantId,
-            promotedAt: verify.receipt.verifiedAt,
-            receipt: verify.receipt,
+            batchId: promotion.batchId,
+            tenantId: promotion.receipt.tenantId,
+            promotedAt: promotion.receipt.verifiedAt,
+            receipt: promotion.receipt,
           },
         )
         await saveCliConfig(upsertServer(config, nextEntry, true), configPath)
@@ -458,10 +206,7 @@ export function syncCommand(): Command {
         return
       }
       const storePath = path.resolve(options.store ?? defaultBundlePath())
-      const local = await stat(`${storePath}/manifest.json`).then(
-        () => true,
-        () => false,
-      )
+      const local = await bundleManifestExists(storePath)
       const promoted = isPromoted(entry, storePath)
       const payload = {
         server: entry.url,
