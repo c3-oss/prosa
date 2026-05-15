@@ -155,6 +155,28 @@ Current monitor findings that must be rechecked and fixed:
   object arrays as proof of promotion. Add failing tests for a bundle containing
   at least one CAS object/raw record/source file, and assert those are uploaded
   and tenant-owned before cleanup is allowed.
+- As of 2026-05-15T03:17:11-03:00, the in-progress CLI raw/source-file readers
+  appeared to query local SQLite columns that do not exist:
+  `source_files.source_path`, `source_files.raw_record_id`,
+  `raw_records.line_number`, and `raw_records.payload_object_id`. The local
+  schema uses `source_files.path`, `source_files.object_id`,
+  `raw_records.line_no`, `raw_records.raw_object_id`, and
+  `raw_records.decoded_json_object_id`. Add tests that run `prosa sync` against
+  a real initialized local bundle with at least one source file, raw record, and
+  CAS object so invalid SQL cannot slip through.
+- As of 2026-05-15T03:17:11-03:00, the CLI CAS walk computes BLAKE3 over the
+  stored compressed bytes and sends that as the object hash, while local
+  `object_id` is BLAKE3 of the uncompressed payload. If the server stores a
+  transport hash, name it separately; do not overwrite canonical CAS semantics.
+  The remote object model must preserve local `object_id = blake3:<uncompressed
+  hash>` and compression metadata.
+- As of 2026-05-15T03:28:30-03:00, `apps/cli/test/cli/sync-cas.test.ts` still
+  created `source_files` with invalid legacy columns and swallowed the failure.
+  That test proves CAS bytes, but not source file or raw record promotion.
+  Update it to insert rows using the real local schema and assert
+  `sourceFiles.length > 0`, `rawRecords.length > 0`, and server-side
+  persistence for both. Avoid broad `catch { return [] }` paths in sync readers
+  that can hide schema drift and still allow cleanup/remote-authority marking.
 
 Completion rule:
 Only output RALPH_DONE when all six lanes are implemented, documented,
