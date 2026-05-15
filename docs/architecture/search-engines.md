@@ -54,11 +54,14 @@ prosa search "package.json" --engine fts5
 - Rebuilt at the end of every successful `prosa compile` run when
   `importedAny === true`. The rebuild is **incremental** by default —
   only `search_docs.rowid > last_indexed_rowid` are added. The first
-  rebuild after upgrading (or after a schema change) falls back to a
-  full re-index automatically. See [Import pipeline](./import-pipeline.md).
-  Failure is logged but does not abort compile.
-- The writer runs with **4 threads** and a **300 MB heap budget** for both
-  full and incremental paths.
+  rebuild on a fresh bundle and any rebuild after a schema change falls
+  back to a full re-index automatically. See
+  [Import pipeline](./import-pipeline.md). Failure is logged but does
+  not abort compile.
+- The writer runs multi-threaded with **4 threads** and a **300 MB heap
+  budget** (`index.writer(300_000_000, 4)` in
+  `packages/prosa-core/src/services/indexing.ts`). Both full and
+  incremental paths share that configuration.
 - Manual full rebuild: `prosa index tantivy --overwrite`. Plain
   `prosa index tantivy` follows the incremental rules.
 - Checkpoint state lives in `search_index_status`:
@@ -107,6 +110,6 @@ last failed build.
 | Re-run with no source changes (`importedAny === false`) | Skipped | Skipped |
 | Direct writes to `search_docs` outside compile | Kept in sync via triggers | Marked stale until next rebuild |
 
-Incremental Parquet rebuilds keyed off the import delta remain a future
-optimization. The current full-Parquet-rewrite model is acceptable while
-bundle size is in the gigabyte range.
+Parquet rebuilds remain full rewrites. The model is acceptable while
+bundle size sits in the gigabyte range; incremental Parquet keyed off the
+import delta is tracked in [`../../ROADMAP.md`](../../ROADMAP.md).

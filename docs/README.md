@@ -1,70 +1,37 @@
 # `prosa` documentation
 
-Reference docs for the prosa bundle, importers, and search surfaces. Skim
-[`README.md`](../README.md) first for the user-facing CLI surface; the
-docs below cover how it works on the inside and what each agent CLI's
-on-disk format looks like.
+Reference for the prosa bundle, importers, search surfaces, analytics, and the sync server. Skim the top-level [`README.md`](../README.md) first for the user-facing CLI; the docs below cover how the system works inside and what each agent CLI's on-disk format looks like.
 
 ## Architecture
 
-- [`architecture/bundle-format.md`](./architecture/bundle-format.md) —
-  on-disk layout, manifest, content-addressed storage, full SQLite schema,
-  idempotency keys, and migration rules.
-- [`architecture/import-pipeline.md`](./architecture/import-pipeline.md) —
-  how `prosa compile <provider>` and `prosa compile-all` walk source
-  trees, stage CAS objects, commit one transaction per file, and rebuild
-  Tantivy + Parquet at the end.
-- [`architecture/search-engines.md`](./architecture/search-engines.md) —
-  FTS5 (default) vs. Tantivy (sidecar): when each is the right choice,
-  rebuild semantics, and `search_index_status`.
-
-## Roadmap
-
-- [`../ROADMAP.md`](../ROADMAP.md) — index of proposed product and
-  architecture directions.
-- [`roadmap/analytics-views.md`](./roadmap/analytics-views.md) — stable
-  DuckDB views over exported Parquet files.
-- [`roadmap/analytics-commands.md`](./roadmap/analytics-commands.md) —
-  higher-level CLI reports backed by Parquet and DuckDB.
-- [`roadmap/incremental-parquet-export.md`](./roadmap/incremental-parquet-export.md) —
-  avoiding full Parquet rewrites when imports are small.
-- [`roadmap/bi-friendly-datasets.md`](./roadmap/bi-friendly-datasets.md) —
-  denormalized datasets for notebooks and BI tools.
-- [`roadmap/query-recipes.md`](./roadmap/query-recipes.md) — copy-pasteable
-  DuckDB recipes for common questions.
-- [`roadmap/sanitized-parquet-exports.md`](./roadmap/sanitized-parquet-exports.md) —
-  safer-to-share Parquet export modes.
-- [`roadmap/server-sync/01-api-foundation.md`](./roadmap/server-sync/01-api-foundation.md) —
-  HTTP/tRPC API host for the multi-tenant sync server.
-- [`roadmap/server-sync/02-auth-tenancy.md`](./roadmap/server-sync/02-auth-tenancy.md) —
-  Better Auth signup, login, tenants, invites.
-- [`roadmap/server-sync/03-remote-store-schema.md`](./roadmap/server-sync/03-remote-store-schema.md) —
-  Postgres + object storage split and remote schema groups.
-- [`roadmap/server-sync/04-sync-protocol.md`](./roadmap/server-sync/04-sync-protocol.md) —
-  one-way promotion protocol from local `.prosa` to a remote tenant.
-- [`roadmap/server-sync/05-cli-auth-sync.md`](./roadmap/server-sync/05-cli-auth-sync.md) —
-  `prosa auth` and `prosa sync` CLI surface.
-- [`roadmap/server-sync/06-query-remote-ops-tests.md`](./roadmap/server-sync/06-query-remote-ops-tests.md) —
-  server-side reads, operations, and tests after promotion.
-- [`roadmap/server-sync/e2e.md`](./roadmap/server-sync/e2e.md) —
-  Docker-backed Postgres + MinIO E2E harness for the promotion flow.
-
-## Recipes
-
-- [`recipes/duckdb.md`](./recipes/duckdb.md) — practical DuckDB queries over
-  canonical Parquet tables and analytics views.
+- [`architecture/bundle-format.md`](./architecture/bundle-format.md) — on-disk layout, manifest, content-addressed storage, full SQLite schema, idempotency keys, and migration rules.
+- [`architecture/import-pipeline.md`](./architecture/import-pipeline.md) — how `prosa compile <provider>` and `prosa compile-all` walk source trees, stage CAS objects, commit one transaction per file, and rebuild Tantivy and Parquet at the end.
+- [`architecture/search-engines.md`](./architecture/search-engines.md) — FTS5 default versus Tantivy sidecar: when each is the right choice, rebuild semantics, writer configuration, and `search_index_status`.
+- [`architecture/analytics.md`](./architecture/analytics.md) — `prosa analytics` reports, Parquet export configuration, the five stable DuckDB views (`session_facts`, `tool_usage_facts`, `error_facts`, `model_usage`, `project_activity`), and the ad-hoc `prosa query duckdb` surface.
+- [`architecture/server-sync.md`](./architecture/server-sync.md) — `apps/api` host, Better Auth multi-tenancy, the one-way promotion protocol, object store adapters, Postgres schema split, remote-authoritative reads, and the E2E Docker harness.
 
 ## Source formats
 
-One reference per importer, covering directory layout, record format,
-identity rules, reading recipes (`jq` / `sqlite3` / `rg`), and importer
-notes.
+One reference per importer covering directory layout, record format, identity rules, reading recipes (`jq` / `sqlite3` / `rg`), and importer notes.
 
-- [`sources/codex.md`](./sources/codex.md) — `~/.codex/sessions/` JSONL
-- [`sources/claude-code.md`](./sources/claude-code.md) — `~/.claude/projects/` JSONL + artifacts
-- [`sources/cursor.md`](./sources/cursor.md) — `~/.cursor/chats/**/store.db` SQLite
-- [`sources/gemini.md`](./sources/gemini.md) — `~/.gemini/tmp/` JSON
-- [`sources/hermes.md`](./sources/hermes.md) — `~/.hermes/state.db` + `~/.hermes/sessions/`
+- [`sources/codex.md`](./sources/codex.md) — `~/.codex/sessions/` JSONL.
+- [`sources/claude-code.md`](./sources/claude-code.md) — `~/.claude/projects/` JSONL + artifacts.
+- [`sources/cursor.md`](./sources/cursor.md) — `~/.cursor/chats/**/store.db` SQLite.
+- [`sources/gemini.md`](./sources/gemini.md) — `~/.gemini/tmp/` JSON.
+- [`sources/hermes.md`](./sources/hermes.md) — `~/.hermes/state.db` + `~/.hermes/sessions/`.
+
+## Recipes
+
+- [`recipes/duckdb.md`](./recipes/duckdb.md) — copy-pasteable DuckDB queries over canonical Parquet tables and analytics views.
+
+## Agent workflows
+
+- [`agent-workflows/ralph-loop-governor.md`](./agent-workflows/ralph-loop-governor.md) — how to use Codex as governor for Claude Ralph Loop implementation runs, including prompt handoff, correction queues, reviewer subagents, and final gates.
+
+## Future work
+
+- [`../ROADMAP.md`](../ROADMAP.md) — Parquet features, server-sync hardening, and the multi-lane web platform spec.
+- [`roadmap/web-platform/`](./roadmap/web-platform/) — eight-lane spec for the browser product surface and authenticated console.
 
 ## Where to look first
 
@@ -74,4 +41,8 @@ notes.
 | Change how an importer normalizes a source | the matching `sources/*.md` and `architecture/import-pipeline.md` |
 | Debug a slow `compile` | `architecture/import-pipeline.md` |
 | Decide between FTS5 and Tantivy | `architecture/search-engines.md` |
+| Add or extend an analytics report | `architecture/analytics.md` |
+| Build a new analytics query | `recipes/duckdb.md` |
+| Work on the sync server, auth, or remote reads | `architecture/server-sync.md` |
+| Run a governed Ralph Loop implementation workflow | `agent-workflows/ralph-loop-governor.md` |
 | Inspect a tool's history without prosa | `sources/<tool>.md` recipes |

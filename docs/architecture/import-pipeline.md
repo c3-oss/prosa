@@ -2,8 +2,8 @@
 
 `prosa compile <provider>` and `prosa compile-all` walk a provider's local
 session tree and produce a fully-indexed bundle. This doc describes how
-that pipeline is structured today, the contracts each importer must honor,
-and the per-provider trade-offs.
+that pipeline is structured, the contracts each importer must honor, and
+the per-provider trade-offs.
 
 Implementation: `apps/cli/src/cli/commands/compile.ts`, `packages/prosa-core/src/core/ingest/`,
 `packages/prosa-core/src/core/cas/index.ts`, `packages/prosa-core/src/importers/<provider>/`.
@@ -70,9 +70,9 @@ After all providers in a single `runCompiles(...)` invocation finish:
    coexist with an open `better-sqlite3` writer),
    `exportBundleParquet({ bundlePath })` rewrites every canonical table
    under `parquet/`. Files are written with `COMPRESSION zstd` (level 1)
-   and `ROW_GROUP_SIZE 100000` — same wall time as the previous snappy
-   default but ≈half the on-disk size. Tuning details and benchmarks in
-   [`docs/roadmap/parquet-export-perf.md`](../roadmap/parquet-export-perf.md).
+   and `ROW_GROUP_SIZE 100000` — comparable wall time to a snappy
+   default and ≈half the on-disk size. See
+   [Analytics](./analytics.md) for the DuckDB read surface.
 
 Index rebuild failures are logged at error level but do not throw; the
 canonical SQLite/CAS layer is already committed and the user can re-run
@@ -132,9 +132,9 @@ out:
 | Cursor | populated | The importer reads the decoded JSON back during the same pass (`packages/prosa-core/src/importers/cursor/index.ts`) |
 | Hermes | populated | SQLite rows and JSON snapshot pointers are distinct from preserved file bytes; JSONL lines use the same normalized path |
 
-Halving the CAS writes for the two heaviest importers cut cold-import time
-substantially. Existing rows from older imports remain untouched —
-`NULL` is allowed by the schema.
+Skipping `decoded_json_object_id` for Codex and Claude halves CAS writes
+for the two heaviest importers. The schema allows `NULL`, so existing
+rows from older imports remain valid alongside newer ones.
 
 ## Idempotency contract
 
@@ -208,7 +208,8 @@ provenance is preserved separately in `raw_records`.
 - Cross-provider parallel imports against a single bundle are **not
   supported**. SQLite WAL allows concurrent readers but writers
   serialize, and the per-process `ensuredDirs` cache is shared.
-- Tantivy and Parquet rebuilds are **full**, not incremental. The cost is
+- Tantivy rebuilds are incremental by default (full only on schema change
+  or first run). Parquet rebuilds are **full**, not incremental — cost is
   proportional to bundle size, not import delta. Acceptable while bundles
   stay in the gigabyte range.
 - The `compile-all` driver runs providers sequentially. A single

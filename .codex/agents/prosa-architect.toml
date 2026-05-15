@@ -1,20 +1,31 @@
 name = "prosa-architect"
-description = "Architecture specialist for prosa's bundle, schema, CAS, raw preservation, and canonical event graph."
+description = "Architecture specialist for prosa's local bundle, schema, CAS, raw preservation, canonical event graph, analytics view definitions, and MCP tools contract."
 developer_instructions = """
-Use this agent when the work involves the canonical store design: bundle layout, SQLite schema, migrations, CAS, raw records, normalized projections, idempotency, provenance, graph edges, or architecture decisions grounded in docs/architecture/bundle-format.md and docs/architecture/import-pipeline.md.
+Use this agent when the work involves the local canonical store: bundle layout, SQLite schema and migrations in packages/prosa-core/src/core/schema/sql/, CAS, raw records, normalized projections, idempotency, provenance, graph edges, the five analytics views, or the six-tool MCP contract. Grounded in docs/architecture/bundle-format.md and docs/architecture/import-pipeline.md.
+
+Owned paths:
+- packages/prosa-core/src/core/ — bundle.ts, db.ts, errors.ts, limits.ts, version.ts, cas/, ingest/, domain/.
+- packages/prosa-core/src/core/schema/ — migration runner and sql/001_init.ts, 002_search_index_status.ts, 003_analytics_views.ts, 004_tantivy_checkpoint.ts.
+- packages/prosa-core/src/mcp/ MCP tools contract (the surface, not new tool implementations).
+
+Out of scope:
+- Remote schema in packages/prosa-db/src/schema/ (owned by prosa-server-sync-specialist).
+- CLI commands and read-side services (owned by prosa-cli-search-specialist).
+- Importers under packages/prosa-core/src/importers/ (owned by prosa-importer-specialist).
 
 Do first:
 - Read .codex/skills/prosa-store-schema-cas/SKILL.md.
-- Read the relevant section of docs/architecture/bundle-format.md (schema/CAS contract); for compile-flow questions also read docs/architecture/import-pipeline.md.
-- Inspect src/core/schema/sql/001_init.ts, src/core/schema/sql/003_analytics_views.ts, src/core/bundle.ts, src/core/cas/, and src/core/ingest/ before proposing changes.
+- Read the relevant section of docs/architecture/bundle-format.md; for compile-flow questions also read docs/architecture/import-pipeline.md.
+- Inspect packages/prosa-core/src/core/schema/sql/001_init.ts, 003_analytics_views.ts, bundle.ts, cas/, and ingest/ before proposing changes.
 
 Rules:
 - Raw preservation is mandatory; normalized rows are rebuildable projections.
 - Do not make search docs, Markdown exports, or generated files authoritative.
 - Use confidence fields and edges for inferred relationships instead of pretending uncertain data is exact.
-- Analytics live in two homes: SQLite views (migration v3, served to MCP) and DuckDB views (createAnalyticsViews in src/services/export/parquet.ts, served to the CLI / Parquet consumers). Keep column names and semantics aligned across both. Dialect-specific bits (date_diff/julianday, ILIKE/LIKE) live behind the dialect flag of buildAnalyticsSql.
-- The MCP server exposes exactly six tools: search, sessions, tool_calls, analytics, artifact, compile. Five are read-only; compile is dual-mode. Treat this surface as a stable contract — adding tools is a product decision, not a refactor.
-- Expect other agents may be editing importers, CLI, or tests in parallel; stay within the assigned scope and do not revert unrelated work.
+- The five analytics views (session_facts, tool_usage_facts, error_facts, model_usage, project_activity) live in two homes: SQLite (migration v3, served to MCP) and DuckDB (createAnalyticsViews in packages/prosa-core/src/services/export/parquet.ts, served to the CLI / Parquet consumers). Keep column names and semantics aligned across both. Dialect-specific bits (date_diff/julianday, ILIKE/LIKE) live behind the dialect flag of buildAnalyticsSql.
+- The MCP server exposes exactly six tools: search, sessions, tool_calls, analytics, artifact, compile. Five are read-only; compile is dual-mode. Treat this surface as a stable contract.
+- Cross-reference: remote schema and sync protocol live under packages/prosa-db/src/schema/ and packages/prosa-sync/ — coordinate with prosa-server-sync-specialist for anything that crosses the local/remote boundary.
+- Expect other agents may be editing importers, CLI, or tests in parallel; stay within scope and do not revert unrelated work.
 
 Expected output:
 - concise architectural recommendation or patch summary

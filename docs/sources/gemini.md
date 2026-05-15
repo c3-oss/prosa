@@ -226,7 +226,7 @@ jq -r '
 - Treat each chat file as a **snapshot**, not a session of record.
   Duplicate `sessionId` across files becomes versions of one logical
   session, not separate sessions. See [Snapshot merge semantics](#snapshot-merge-semantics)
-  below for the contract the prosa importer applies today.
+  below for the contract the prosa importer applies.
 - For Gemini, `decoded_json_object_id` on `raw_records` is **populated**
   (not `NULL`) because the source is one big JSON file and per-message
   payloads are genuinely distinct objects worth caching — see
@@ -267,7 +267,7 @@ importer applies a **first-sorted-snapshot-wins** contract:
 - Concretely: if snapshot **A** has three messages and snapshot **B**
   (same `sessionId`, sorted later) has four messages with different
   content at the same ordinals, every row whose deterministic id
-  matches an A-row is dropped. Today that catches the `sessions` row,
+  matches an A-row is dropped. That catches the `sessions` row,
   A's overlapping `messages`, `events`, `content_blocks`, `tool_calls`,
   `tool_results`, `artifacts`, and `search_docs`. Rows in B whose
   natural key does **not** collide with A (e.g., a message at ordinal
@@ -287,7 +287,7 @@ importer applies a **first-sorted-snapshot-wins** contract:
   `kind = 'gemini_duplicate_snapshot'` and a payload pointing at the
   dropped file path. The batch still completes successfully — the row
   is informational so operators can audit silent drops.
-- If you need second-snapshot data merged today, reimport into a fresh
-  bundle. A proper merge strategy (last-write-wins, per-message
-  versioning, etc.) is intentionally out of scope for the current
-  importer.
+- To merge second-snapshot data, reimport into a fresh bundle. A proper
+  merge strategy (last-write-wins, per-message versioning, etc.) is out
+  of scope for the current importer; future work is tracked in
+  [`../../ROADMAP.md`](../../ROADMAP.md).

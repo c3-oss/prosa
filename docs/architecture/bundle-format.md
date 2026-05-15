@@ -101,7 +101,7 @@ Hash-addressed bytes referenced by everything else.
 | Column | Type | Notes |
 |---|---|---|
 | `object_id` | TEXT PK | `blake3:<hex>` |
-| `hash_alg`, `hash` | TEXT | Always `blake3` today; second index on `(hash_alg, hash)` |
+| `hash_alg`, `hash` | TEXT | Always `blake3`; second index on `(hash_alg, hash)` |
 | `size_bytes` | INTEGER | Original (uncompressed) size |
 | `compressed_size_bytes` | INTEGER nullable | Set when `compression='zstd'` |
 | `compression` | TEXT | `zstd` or `none` |
@@ -279,7 +279,8 @@ session_facts, tool_usage_facts, error_facts, model_usage, project_activity
 `prosa analytics sessions|tools|errors|models|projects` runs fixed reports over
 those views. The reports can use `--refresh` to rebuild Parquet before
 querying, but they do not make Parquet authoritative. See
-[`docs/recipes/duckdb.md`](../recipes/duckdb.md) for examples.
+[Analytics](./analytics.md) and [`docs/recipes/duckdb.md`](../recipes/duckdb.md)
+for examples.
 
 ## Idempotency keys
 
