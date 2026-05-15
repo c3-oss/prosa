@@ -32,7 +32,8 @@ ready.
 ## Run the E2E suite
 
 ```sh
-just e2e
+just e2e       # API-only flow (signup → handshake → put → commit → verify)
+just e2e-cli   # CLI + API two-device flow: Device A promotes, Device B queries
 ```
 
 The recipe exports the following environment variables before invoking

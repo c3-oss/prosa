@@ -185,10 +185,21 @@ CREATE TABLE IF NOT EXISTS "source_file" (
   id text NOT NULL,
   source_kind text NOT NULL,
   path text NOT NULL,
-  object_id text REFERENCES "remote_object"(object_id) ON DELETE SET NULL,
+  size_bytes bigint,
+  mtime_iso timestamptz,
+  content_hash text,
+  decoded_object_id text,
+  parser_status text,
+  confidence text,
+  import_batch_id text,
+  object_id text,
   imported_at timestamptz NOT NULL DEFAULT now(),
   metadata jsonb,
-  PRIMARY KEY (tenant_id, id)
+  PRIMARY KEY (tenant_id, id),
+  FOREIGN KEY (tenant_id, object_id)
+    REFERENCES "tenant_object"(tenant_id, object_id) ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED,
+  FOREIGN KEY (tenant_id, decoded_object_id)
+    REFERENCES "tenant_object"(tenant_id, object_id) ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED
 );
 CREATE INDEX IF NOT EXISTS source_file_path_idx ON "source_file"(tenant_id, path);
 
@@ -210,8 +221,18 @@ CREATE TABLE IF NOT EXISTS "raw_record" (
   source_file_id text NOT NULL,
   sequence integer NOT NULL,
   payload jsonb NOT NULL,
-  object_id text REFERENCES "remote_object"(object_id) ON DELETE SET NULL,
-  PRIMARY KEY (tenant_id, id)
+  object_id text,
+  decoded_object_id text,
+  parser_status text,
+  confidence text,
+  import_batch_id text,
+  PRIMARY KEY (tenant_id, id),
+  FOREIGN KEY (tenant_id, source_file_id)
+    REFERENCES "source_file"(tenant_id, id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+  FOREIGN KEY (tenant_id, object_id)
+    REFERENCES "tenant_object"(tenant_id, object_id) ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED,
+  FOREIGN KEY (tenant_id, decoded_object_id)
+    REFERENCES "tenant_object"(tenant_id, object_id) ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED
 );
 CREATE INDEX IF NOT EXISTS raw_record_source_idx ON "raw_record"(tenant_id, source_file_id, sequence);
 
@@ -245,7 +266,9 @@ CREATE TABLE IF NOT EXISTS "projection_turn" (
   sequence integer NOT NULL,
   role text NOT NULL,
   started_at timestamptz,
-  PRIMARY KEY (tenant_id, id)
+  PRIMARY KEY (tenant_id, id),
+  FOREIGN KEY (tenant_id, session_id)
+    REFERENCES "projection_session"(tenant_id, id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
 );
 CREATE INDEX IF NOT EXISTS projection_turn_session_idx ON "projection_turn"(tenant_id, session_id, sequence);
 
@@ -258,7 +281,9 @@ CREATE TABLE IF NOT EXISTS "projection_event" (
   kind text NOT NULL,
   payload jsonb,
   occurred_at timestamptz,
-  PRIMARY KEY (tenant_id, id)
+  PRIMARY KEY (tenant_id, id),
+  FOREIGN KEY (tenant_id, session_id)
+    REFERENCES "projection_session"(tenant_id, id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
 );
 CREATE INDEX IF NOT EXISTS projection_event_session_idx ON "projection_event"(tenant_id, session_id, sequence);
 
@@ -270,7 +295,9 @@ CREATE TABLE IF NOT EXISTS "projection_message" (
   role text NOT NULL,
   model text,
   created_at timestamptz,
-  PRIMARY KEY (tenant_id, id)
+  PRIMARY KEY (tenant_id, id),
+  FOREIGN KEY (tenant_id, session_id)
+    REFERENCES "projection_session"(tenant_id, id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
 );
 
 CREATE TABLE IF NOT EXISTS "projection_content_block" (
@@ -280,9 +307,13 @@ CREATE TABLE IF NOT EXISTS "projection_content_block" (
   sequence integer NOT NULL,
   kind text NOT NULL,
   text text,
-  object_id text REFERENCES "remote_object"(object_id) ON DELETE SET NULL,
+  object_id text,
   metadata jsonb,
-  PRIMARY KEY (tenant_id, id)
+  PRIMARY KEY (tenant_id, id),
+  FOREIGN KEY (tenant_id, message_id)
+    REFERENCES "projection_message"(tenant_id, id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+  FOREIGN KEY (tenant_id, object_id)
+    REFERENCES "tenant_object"(tenant_id, object_id) ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED
 );
 CREATE INDEX IF NOT EXISTS projection_content_block_message_idx ON "projection_content_block"(tenant_id, message_id, sequence);
 
@@ -293,19 +324,27 @@ CREATE TABLE IF NOT EXISTS "projection_tool_call" (
   turn_id text,
   name text NOT NULL,
   status text,
-  input_object_id text REFERENCES "remote_object"(object_id) ON DELETE SET NULL,
+  input_object_id text,
   created_at timestamptz,
-  PRIMARY KEY (tenant_id, id)
+  PRIMARY KEY (tenant_id, id),
+  FOREIGN KEY (tenant_id, session_id)
+    REFERENCES "projection_session"(tenant_id, id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+  FOREIGN KEY (tenant_id, input_object_id)
+    REFERENCES "tenant_object"(tenant_id, object_id) ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED
 );
 
 CREATE TABLE IF NOT EXISTS "projection_tool_result" (
   tenant_id text NOT NULL REFERENCES "organization"(id) ON DELETE CASCADE,
   id text NOT NULL,
   tool_call_id text NOT NULL,
-  output_object_id text REFERENCES "remote_object"(object_id) ON DELETE SET NULL,
+  output_object_id text,
   status text,
   finished_at timestamptz,
-  PRIMARY KEY (tenant_id, id)
+  PRIMARY KEY (tenant_id, id),
+  FOREIGN KEY (tenant_id, tool_call_id)
+    REFERENCES "projection_tool_call"(tenant_id, id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+  FOREIGN KEY (tenant_id, output_object_id)
+    REFERENCES "tenant_object"(tenant_id, object_id) ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED
 );
 
 CREATE TABLE IF NOT EXISTS "projection_artifact" (
@@ -313,10 +352,12 @@ CREATE TABLE IF NOT EXISTS "projection_artifact" (
   id text NOT NULL,
   session_id text,
   kind text NOT NULL,
-  object_id text REFERENCES "remote_object"(object_id) ON DELETE SET NULL,
+  object_id text,
   size_bytes bigint,
   metadata jsonb,
-  PRIMARY KEY (tenant_id, id)
+  PRIMARY KEY (tenant_id, id),
+  FOREIGN KEY (tenant_id, object_id)
+    REFERENCES "tenant_object"(tenant_id, object_id) ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED
 );
 
 CREATE TABLE IF NOT EXISTS "projection_edge" (
@@ -337,7 +378,9 @@ CREATE TABLE IF NOT EXISTS "search_doc" (
   kind text NOT NULL,
   body text NOT NULL,
   indexed_at timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (tenant_id, id)
+  PRIMARY KEY (tenant_id, id),
+  FOREIGN KEY (tenant_id, session_id)
+    REFERENCES "projection_session"(tenant_id, id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
 );
 CREATE INDEX IF NOT EXISTS search_doc_session_idx ON "search_doc"(tenant_id, session_id);
 `

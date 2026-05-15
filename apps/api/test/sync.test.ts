@@ -1,3 +1,4 @@
+import { computeHashHex } from '@c3-oss/prosa-storage'
 import { describe, expect, it } from 'vitest'
 import { type TestApp, buildTestApp } from './helpers/test-app.js'
 
@@ -67,8 +68,8 @@ describe('sync promotion protocol', () => {
       const deviceId = handshakeBody.result.data.deviceId
 
       const objectId = 'obj-0001'
-      const hash = 'deadbeef0123456789abcdef'
       const bytes = new Uint8Array(Array.from({ length: 16 }, (_, i) => i))
+      const hash = computeHashHex(bytes, 'blake3')
 
       const plan = await trpc(
         t,

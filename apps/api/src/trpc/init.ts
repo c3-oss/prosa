@@ -21,20 +21,26 @@ const requireUser = t.middleware(({ ctx, next }) => {
 export const protectedProcedure = t.procedure.use(requireUser)
 
 const requireTenant = requireUser.unstable_pipe(({ ctx, next }) => {
-  if (!ctx.tenantId) {
+  if (!ctx.tenantId || !ctx.memberRole) {
+    // tenantId is only set on the context after a real membership lookup,
+    // so a null value here means: caller is not a member of any tenant they
+    // tried to address (header or session activeOrganization).
     throw new TRPCError({
-      code: 'BAD_REQUEST',
-      message: 'Active tenant required. Pass `tenantId` or set X-Prosa-Tenant-Id.',
+      code: 'FORBIDDEN',
+      message: 'Active tenant required. The current user is not a member of the requested tenant.',
     })
   }
-  return next({ ctx: { ...ctx, tenantId: ctx.tenantId } })
+  return next({ ctx: { ...ctx, tenantId: ctx.tenantId, memberRole: ctx.memberRole } })
 })
 
 export const tenantProcedure = t.procedure.use(requireTenant)
 
 const requireAdmin = requireTenant.unstable_pipe(({ ctx, next }) => {
-  if (!ctx.isAdmin) {
-    throw new TRPCError({ code: 'FORBIDDEN', message: 'Admin role required' })
+  if (ctx.memberRole !== 'admin' && ctx.memberRole !== 'owner') {
+    throw new TRPCError({
+      code: 'FORBIDDEN',
+      message: 'Admin role required for this operation.',
+    })
   }
   return next({ ctx })
 })

@@ -6,6 +6,7 @@ import {
   asyncIterableToUint8Array,
   uint8ArrayToWebStream,
 } from '../types.js'
+import { assertNoConflict, verifyBytes } from '../verify.js'
 
 type Entry = { bytes: Uint8Array; meta: ObjectMeta }
 
@@ -22,13 +23,12 @@ export class MemoryObjectStore implements RemoteObjectStore {
 
   async putIfAbsent(key: string, bytes: AsyncIterable<Uint8Array>, meta: PutMeta): Promise<PutResult> {
     const existing = this.entries.get(key)
-    if (existing) return { meta: existing.meta, alreadyExisted: true }
-    const buffer = await asyncIterableToUint8Array(bytes)
-    if (buffer.byteLength !== meta.compressedSize) {
-      throw new Error(
-        `MemoryObjectStore.putIfAbsent: byte size mismatch (declared ${meta.compressedSize}, received ${buffer.byteLength})`,
-      )
+    if (existing) {
+      assertNoConflict(existing.meta, meta)
+      return { meta: existing.meta, alreadyExisted: true }
     }
+    const buffer = await asyncIterableToUint8Array(bytes)
+    verifyBytes(buffer, meta)
     const stored: Entry = { bytes: buffer, meta: { ...meta, storageKey: key } }
     this.entries.set(key, stored)
     return { meta: stored.meta, alreadyExisted: false }

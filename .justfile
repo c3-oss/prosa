@@ -56,7 +56,7 @@ e2e-up:
 e2e-down:
   @docker compose -f apps/api/docker-compose.test.yml down -v
 
-# run the Docker-backed E2E suite -- requires `just e2e-up` first
+# run the Docker-backed API E2E suite -- requires `just e2e-up` first
 [group('ALIASES')]
 e2e:
   @PROSA_TEST_POSTGRES_URL="postgres://prosa:prosa@127.0.0.1:${PROSA_TEST_POSTGRES_PORT:-54329}/prosa_test" \
@@ -65,6 +65,16 @@ e2e:
    PROSA_TEST_S3_ACCESS_KEY="prosa" \
    PROSA_TEST_S3_SECRET_KEY="prosa-minio" \
    pnpm --filter @c3-oss/prosa-api test test/e2e
+
+# run the Docker-backed CLI two-device E2E (requires `just e2e-up` first)
+[group('ALIASES')]
+e2e-cli:
+  @PROSA_TEST_POSTGRES_URL="postgres://prosa:prosa@127.0.0.1:${PROSA_TEST_POSTGRES_PORT:-54329}/prosa_test" \
+   PROSA_TEST_S3_ENDPOINT="http://127.0.0.1:${PROSA_TEST_MINIO_PORT:-54392}" \
+   PROSA_TEST_S3_BUCKET="prosa-test" \
+   PROSA_TEST_S3_ACCESS_KEY="prosa" \
+   PROSA_TEST_S3_SECRET_KEY="prosa-minio" \
+   pnpm --filter @c3-oss/prosa test test/cli/sync-e2e.test.ts
 
 # run the standard pre-release quality gate
 [group('ALIASES')]

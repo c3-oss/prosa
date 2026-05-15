@@ -104,6 +104,24 @@ export class ProsaApiClient {
     return { token: body.token, user: body.user }
   }
 
+  async deviceCode(input: { clientId?: string } = {}) {
+    return this.trpcMutation<{
+      deviceCode: string
+      userCode: string
+      verificationUri: string
+      verificationUriComplete: string | null
+      expiresIn: number
+      interval: number
+    }>('auth.deviceCode', { clientId: input.clientId ?? 'prosa-cli' })
+  }
+
+  async deviceToken(input: { deviceCode: string; clientId?: string }) {
+    return this.trpcMutation<
+      | { pending: true; code: string }
+      | { pending: false; token: string; user: { id: string; email: string; name: string } | null }
+    >('auth.deviceToken', { deviceCode: input.deviceCode, clientId: input.clientId ?? 'prosa-cli' })
+  }
+
   async signOut(): Promise<void> {
     if (!this.token) return
     await this.fetchFn(`${this.baseUrl}/api/auth/sign-out`, {

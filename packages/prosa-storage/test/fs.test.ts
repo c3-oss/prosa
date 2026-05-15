@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { FsObjectStore } from '../src/adapters/fs.js'
+import { ObjectVerificationError, computeHashHex } from '../src/verify.js'
 
 async function* fromBuffer(buf: Uint8Array): AsyncIterable<Uint8Array> {
   yield buf
@@ -42,28 +43,53 @@ describe('FsObjectStore', () => {
     await rm(root, { recursive: true, force: true })
   })
 
-  it('round-trips bytes through put/head/get', async () => {
+  it('round-trips bytes through put/head/get when the hash matches', async () => {
     const bytes = new Uint8Array([4, 8, 15, 16, 23, 42])
-    const put = await store.putIfAbsent('objects/blake3/aa/bb/abcdef.zst', fromBuffer(bytes), {
-      hash: 'abcdef',
-      hashAlgorithm: 'blake3',
-      uncompressedSize: 6,
-      compressedSize: 6,
-    })
+    const hash = computeHashHex(bytes, 'blake3')
+    const put = await store.putIfAbsent(
+      `objects/blake3/${hash.slice(0, 2)}/${hash.slice(2, 4)}/${hash}.zst`,
+      fromBuffer(bytes),
+      {
+        hash,
+        hashAlgorithm: 'blake3',
+        uncompressedSize: 6,
+        compressedSize: 6,
+      },
+    )
     expect(put.alreadyExisted).toBe(false)
 
-    const meta = await store.head('objects/blake3/aa/bb/abcdef.zst')
-    expect(meta?.hash).toBe('abcdef')
+    const meta = await store.head(`objects/blake3/${hash.slice(0, 2)}/${hash.slice(2, 4)}/${hash}.zst`)
+    expect(meta?.hash).toBe(hash)
 
-    const out = await consume(await store.get('objects/blake3/aa/bb/abcdef.zst'))
+    const out = await consume(await store.get(`objects/blake3/${hash.slice(0, 2)}/${hash.slice(2, 4)}/${hash}.zst`))
     expect(Array.from(out)).toEqual([4, 8, 15, 16, 23, 42])
+  })
+
+  it('rejects a conflicting repeat put on the same key', async () => {
+    const bytes = new Uint8Array([1])
+    const hash = computeHashHex(bytes, 'blake3')
+    await store.putIfAbsent('objects/test', fromBuffer(bytes), {
+      hash,
+      hashAlgorithm: 'blake3',
+      uncompressedSize: 1,
+      compressedSize: 1,
+    })
+    await expect(
+      store.putIfAbsent('objects/test', fromBuffer(bytes), {
+        hash: 'deadbeef',
+        hashAlgorithm: 'blake3',
+        uncompressedSize: 1,
+        compressedSize: 1,
+      }),
+    ).rejects.toThrow(ObjectVerificationError)
   })
 
   it('refuses path traversal', async () => {
     const bytes = new Uint8Array([1])
+    const hash = computeHashHex(bytes, 'blake3')
     await expect(
       store.putIfAbsent('../escape', fromBuffer(bytes), {
-        hash: 'a',
+        hash,
         hashAlgorithm: 'blake3',
         uncompressedSize: 1,
         compressedSize: 1,

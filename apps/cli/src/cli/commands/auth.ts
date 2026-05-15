@@ -100,6 +100,63 @@ export function authCommand(): Command {
     })
 
   cmd
+    .command('device-login')
+    .description('Log in via OAuth Device Authorization (no password prompt).')
+    .option('--server <url>', 'API server URL')
+    .option('--client-id <id>', 'OAuth client id', 'prosa-cli')
+    .option('--json', 'machine-readable JSON output', false)
+    .option('--poll-max-seconds <n>', 'polling timeout cap, in seconds', '900')
+    .action(async (options) => {
+      const server = resolveServer(options)
+      const client = new ProsaApiClient({ baseUrl: server })
+      const issued = await client.deviceCode({ clientId: options.clientId })
+      if (!options.json) {
+        process.stdout.write(
+          `Visit ${issued.verificationUri} and enter the code: ${issued.userCode}\n` +
+            `Waiting for approval (polling every ${issued.interval}s, max ${options.pollMaxSeconds}s)...\n`,
+        )
+      } else {
+        process.stdout.write(
+          `${JSON.stringify({ kind: 'device-code', userCode: issued.userCode, verificationUri: issued.verificationUri, expiresIn: issued.expiresIn, interval: issued.interval })}\n`,
+        )
+      }
+      const intervalMs = Math.max(1, issued.interval) * 1000
+      const deadline = Date.now() + Math.max(60, Number(options.pollMaxSeconds)) * 1000
+      let user: { id: string; email: string; name: string } | null = null
+      let token: string | null = null
+      while (Date.now() < deadline) {
+        await new Promise<void>((resolve) => setTimeout(resolve, intervalMs))
+        const tokenResp = await client.deviceToken({
+          deviceCode: issued.deviceCode,
+          clientId: options.clientId,
+        })
+        if (!tokenResp.pending) {
+          token = tokenResp.token
+          user = tokenResp.user
+          break
+        }
+      }
+      if (!token) {
+        throw new CliUserError('device login timed out before approval')
+      }
+      const finalClient = new ProsaApiClient({ baseUrl: server, token })
+      const tenants = await finalClient.listTenants()
+      const config = await loadCliConfig(cmd.opts<AuthOptions>().configPath ?? defaultConfigPath())
+      const entry: ProsaServerEntry = { url: server, token }
+      if (user) entry.user = user
+      const first = tenants[0]
+      if (first) entry.activeTenant = first
+      await saveCliConfig(upsertServer(config, entry, true), cmd.opts<AuthOptions>().configPath ?? defaultConfigPath())
+      if (options.json) {
+        process.stdout.write(`${JSON.stringify({ ok: true, server, user, tenants })}\n`)
+      } else {
+        process.stdout.write(
+          `device login complete; ${tenants.length} tenant(s) available${first ? ` (active: ${first.name})` : ''}\n`,
+        )
+      }
+    })
+
+  cmd
     .command('logout')
     .description('Clear local credentials for the active server.')
     .option('--all', 'remove the full CLI config', false)

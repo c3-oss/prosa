@@ -1,6 +1,6 @@
 import { CreateBucketCommand, HeadBucketCommand, S3Client } from '@aws-sdk/client-s3'
 import { applySchema } from '@c3-oss/prosa-db'
-import { S3ObjectStore } from '@c3-oss/prosa-storage'
+import { S3ObjectStore, computeHashHex } from '@c3-oss/prosa-storage'
 import postgres from 'postgres'
 import { describe, expect, it } from 'vitest'
 import { buildApp } from '../../src/app.js'
@@ -106,6 +106,8 @@ describe.skipIf(!shouldRun)('e2e: prosa-api against real Postgres + S3 (MinIO)',
       })
       const deviceId = (hs.json() as { result: { data: { deviceId: string } } }).result.data.deviceId
 
+      const e2eBytes = new Uint8Array([1, 2, 3, 4, 5])
+      const e2eHash = computeHashHex(e2eBytes, 'blake3')
       const plan = await app.inject({
         method: 'POST',
         url: '/trpc/sync.planUpload',
@@ -116,7 +118,7 @@ describe.skipIf(!shouldRun)('e2e: prosa-api against real Postgres + S3 (MinIO)',
           objects: [
             {
               objectId: 'obj-e2e-1',
-              hash: 'abcd1234abcd1234',
+              hash: e2eHash,
               hashAlgorithm: 'blake3',
               uncompressedSize: 5,
               compressedSize: 5,
@@ -128,12 +130,12 @@ describe.skipIf(!shouldRun)('e2e: prosa-api against real Postgres + S3 (MinIO)',
 
       const putResp = await app.inject({
         method: 'PUT',
-        url: '/objects/obj-e2e-1?hash=abcd1234abcd1234&size=5&uncompressed=5',
+        url: `/objects/obj-e2e-1?hash=${e2eHash}&size=5&uncompressed=5`,
         headers: {
           authorization: `Bearer ${token}`,
           'content-type': 'application/octet-stream',
         },
-        payload: Buffer.from([1, 2, 3, 4, 5]),
+        payload: Buffer.from(e2eBytes),
       })
       expect([200, 201]).toContain(putResp.statusCode)
 
@@ -148,7 +150,7 @@ describe.skipIf(!shouldRun)('e2e: prosa-api against real Postgres + S3 (MinIO)',
           objects: [
             {
               objectId: 'obj-e2e-1',
-              hash: 'abcd1234abcd1234',
+              hash: e2eHash,
               hashAlgorithm: 'blake3',
               uncompressedSize: 5,
               compressedSize: 5,
@@ -180,9 +182,11 @@ describe.skipIf(!shouldRun)('e2e: prosa-api against real Postgres + S3 (MinIO)',
       expect(receipt.searchDocCount).toBe(1)
 
       // Confirm the bytes really live in MinIO.
-      const stored = await objectStore.head('objects/blake3/ab/cd/abcd1234abcd1234.zst')
+      const stored = await objectStore.head(
+        `objects/blake3/${e2eHash.slice(0, 2)}/${e2eHash.slice(2, 4)}/${e2eHash}.zst`,
+      )
       expect(stored).not.toBeNull()
-      expect(stored?.hash).toBe('abcd1234abcd1234')
+      expect(stored?.hash).toBe(e2eHash)
     } finally {
       await app.close()
       await dbHandle.close()

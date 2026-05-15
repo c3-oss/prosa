@@ -10,6 +10,7 @@ import {
   asyncIterableToUint8Array,
   uint8ArrayToWebStream,
 } from '../types.js'
+import { assertNoConflict, verifyBytes } from '../verify.js'
 
 /**
  * Filesystem-backed object store. Single-node, suitable for self-host or
@@ -46,14 +47,11 @@ export class FsObjectStore implements RemoteObjectStore {
     const { absolute, metaPath } = this.resolveKey(key)
     if (existsSync(absolute) && existsSync(metaPath)) {
       const existing = JSON.parse(await readFile(metaPath, 'utf8')) as ObjectMeta
+      assertNoConflict(existing, meta)
       return { meta: existing, alreadyExisted: true }
     }
     const buffer = await asyncIterableToUint8Array(bytes)
-    if (buffer.byteLength !== meta.compressedSize) {
-      throw new Error(
-        `FsObjectStore.putIfAbsent: byte size mismatch (declared ${meta.compressedSize}, received ${buffer.byteLength})`,
-      )
-    }
+    verifyBytes(buffer, meta)
     await mkdir(dirname(absolute), { recursive: true })
     const tmp = `${absolute}.${randomUUID()}.tmp`
     await writeFile(tmp, buffer)

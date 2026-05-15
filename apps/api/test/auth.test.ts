@@ -56,6 +56,37 @@ describe('auth.signupWithTenant', () => {
     }
   })
 
+  it('rolls back the new user when tenant creation collides on slug', async () => {
+    const t = await buildTestApp()
+    try {
+      // Pre-seed an organization with the slug the second signup will request.
+      await t.pglite.query(
+        `INSERT INTO "organization"(id, name, slug) VALUES ('preexisting-org', 'Existing', 'shared-slug')`,
+      )
+      const response = await trpcMutation(t.app, 'auth.signupWithTenant', {
+        email: 'rollback@example.com',
+        password: 'correct-horse-battery',
+        name: 'Rollback',
+        tenantName: 'Whatever',
+        tenantSlug: 'shared-slug',
+      })
+      expect(response.statusCode).toBeGreaterThanOrEqual(400)
+      const users = await t.pglite.query<{ count: number }>(
+        `SELECT count(*)::int AS count FROM "user" WHERE email = $1`,
+        ['rollback@example.com'],
+      )
+      // Rollback must have removed the orphaned user record.
+      expect(users.rows[0]?.count).toBe(0)
+      // Pre-existing org is preserved (we did not delete it).
+      const orgs = await t.pglite.query<{ count: number }>(
+        `SELECT count(*)::int AS count FROM "organization" WHERE slug = 'shared-slug'`,
+      )
+      expect(orgs.rows[0]?.count).toBe(1)
+    } finally {
+      await t.close()
+    }
+  })
+
   it('rejects duplicate signups for the same email', async () => {
     const t = await buildTestApp()
     try {

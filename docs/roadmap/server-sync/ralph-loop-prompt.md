@@ -137,6 +137,24 @@ Current monitor findings that must be rechecked and fixed:
 - As of 2026-05-15T02:11:22-03:00, read routing and server-side sessions/search
   were in progress. Confirm `sessions` and `search` use the server after
   promotion and never read leftover `.prosa` data after the authority switch.
+- As of 2026-05-15T02:45:45-03:00, the CLI still appeared to upload only
+  sessions and search docs (`sourceFiles: []`, `rawRecords: []`, `objects: []`)
+  while also deleting local `objects/` and `raw/` by default. This is a
+  data-loss blocker. Either implement full raw/CAS promotion before cleanup, or
+  disable/descope destructive local cleanup until raw source files, raw records,
+  CAS objects, artifacts, and source file provenance are actually uploaded and
+  verified.
+- As of 2026-05-15T02:45:45-03:00, object HTTP routes still appeared to resolve
+  tenant from `x-prosa-tenant-id`/active org outside the same membership check
+  used by tRPC context. Object routes must reject non-members and must not allow
+  tenant header spoofing.
+- As of 2026-05-15T02:45:45-03:00, `verifyPromotion` still needed to prove the
+  uploaded batch, sample sessions, expected counts, object availability, and
+  search/read behavior before a promotion receipt can authorize cleanup.
+- As of 2026-05-15T02:45:45-03:00, tests still needed to stop accepting empty
+  object arrays as proof of promotion. Add failing tests for a bundle containing
+  at least one CAS object/raw record/source file, and assert those are uploaded
+  and tenant-owned before cleanup is allowed.
 
 Completion rule:
 Only output RALPH_DONE when all six lanes are implemented, documented,

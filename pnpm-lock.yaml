@@ -168,6 +168,9 @@ importers:
         specifier: ^19.2.5
         version: 19.2.5
     devDependencies:
+      '@aws-sdk/client-s3':
+        specifier: ^3.700.0
+        version: 3.1047.0
       '@c3-oss/config-biome':
         specifier: ^0.3.1
         version: 0.3.1(@biomejs/biome@1.9.4)
@@ -201,6 +204,9 @@ importers:
       better-sqlite3:
         specifier: ^12.10.0
         version: 12.10.0
+      postgres:
+        specifier: ^3.4.9
+        version: 3.4.9
 
   packages/prosa-core:
     dependencies:
@@ -291,6 +297,9 @@ importers:
       '@aws-sdk/client-s3':
         specifier: ^3.700.0
         version: 3.1047.0
+      '@noble/hashes':
+        specifier: ^1.7.0
+        version: 1.8.0
     devDependencies:
       '@c3-oss/config-biome':
         specifier: ^0.3.1

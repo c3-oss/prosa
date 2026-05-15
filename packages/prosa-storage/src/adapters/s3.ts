@@ -13,6 +13,7 @@ import {
   type RemoteObjectStore,
   asyncIterableToUint8Array,
 } from '../types.js'
+import { assertNoConflict, verifyBytes } from '../verify.js'
 
 export type S3ObjectStoreOptions = {
   bucket: string
@@ -86,13 +87,12 @@ export class S3ObjectStore implements RemoteObjectStore {
 
   async putIfAbsent(key: string, bytes: AsyncIterable<Uint8Array>, meta: PutMeta): Promise<PutResult> {
     const existing = await this.head(key)
-    if (existing) return { meta: existing, alreadyExisted: true }
-    const buffer = await asyncIterableToUint8Array(bytes)
-    if (buffer.byteLength !== meta.compressedSize) {
-      throw new Error(
-        `S3ObjectStore.putIfAbsent: byte size mismatch (declared ${meta.compressedSize}, received ${buffer.byteLength})`,
-      )
+    if (existing) {
+      assertNoConflict(existing, meta)
+      return { meta: existing, alreadyExisted: true }
     }
+    const buffer = await asyncIterableToUint8Array(bytes)
+    verifyBytes(buffer, meta)
     const metadata: Record<string, string> = {
       [META_FIELDS.hash]: meta.hash,
       [META_FIELDS.hashAlgorithm]: meta.hashAlgorithm,

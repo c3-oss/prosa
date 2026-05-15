@@ -1,14 +1,16 @@
 import { z } from 'zod'
 
 const objectStoreDriverSchema = z.enum(['s3', 'fs', 'memory'])
+const runtimeModeSchema = z.enum(['production', 'development', 'test']).default('production')
 
 const baseSchema = z.object({
   PROSA_API_URL: z.string().url().default('http://127.0.0.1:3000'),
   PROSA_API_HOST: z.string().default('127.0.0.1'),
   PROSA_API_PORT: z.coerce.number().int().positive().default(3000),
   PROSA_LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent']).default('info'),
+  PROSA_RUNTIME_MODE: runtimeModeSchema,
   PROSA_DATABASE_URL: z.string().min(1).optional(),
-  PROSA_AUTH_SECRET: z.string().min(1).optional(),
+  PROSA_AUTH_SECRET: z.string().min(16).optional(),
   PROSA_OBJECT_STORE_DRIVER: objectStoreDriverSchema.default('memory'),
   PROSA_OBJECT_STORE_BUCKET: z.string().optional(),
   PROSA_OBJECT_STORE_PREFIX: z.string().default('prosa/'),
@@ -19,11 +21,14 @@ const baseSchema = z.object({
   PROSA_OBJECT_STORE_SECRET_ACCESS_KEY: z.string().optional(),
 })
 
+export type RuntimeMode = 'production' | 'development' | 'test'
+
 export type ProsaApiConfig = {
   apiUrl: string
   host: string
   port: number
   logLevel: 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal' | 'silent'
+  runtimeMode: RuntimeMode
   databaseUrl: string | null
   authSecret: string | null
   objectStore:
@@ -50,6 +55,30 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ProsaApiConfig
     throw new ConfigError(`Invalid configuration: ${parsed.error.message}`)
   }
   const v = parsed.data
+
+  // Fail-fast in production: no static fallback secret, real Postgres, and
+  // an S3 (or fs) object store. The `memory` driver is rejected outside test.
+  if (v.PROSA_RUNTIME_MODE === 'production') {
+    if (!v.PROSA_AUTH_SECRET) {
+      throw new ConfigError(
+        'PROSA_AUTH_SECRET is required in production (>=16 chars). Refusing to start with a static fallback secret.',
+      )
+    }
+    if (!v.PROSA_DATABASE_URL) {
+      throw new ConfigError('PROSA_DATABASE_URL is required in production.')
+    }
+    if (v.PROSA_OBJECT_STORE_DRIVER === 'memory') {
+      throw new ConfigError(
+        'PROSA_OBJECT_STORE_DRIVER=memory is only allowed in test runs. Set driver to s3 or fs in production.',
+      )
+    }
+  }
+  if (v.PROSA_RUNTIME_MODE === 'development' && v.PROSA_OBJECT_STORE_DRIVER === 'memory') {
+    // dev mode is allowed to use memory, but warn loudly via stderr
+    process.stderr.write(
+      'prosa-api: WARNING — using memory object store in development mode. Data will not persist across restarts.\n',
+    )
+  }
 
   const objectStore = ((): ProsaApiConfig['objectStore'] => {
     switch (v.PROSA_OBJECT_STORE_DRIVER) {
@@ -84,6 +113,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ProsaApiConfig
     host: v.PROSA_API_HOST,
     port: v.PROSA_API_PORT,
     logLevel: v.PROSA_LOG_LEVEL,
+    runtimeMode: v.PROSA_RUNTIME_MODE,
     databaseUrl: v.PROSA_DATABASE_URL ?? null,
     authSecret: v.PROSA_AUTH_SECRET ?? null,
     objectStore,

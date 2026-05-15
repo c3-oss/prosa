@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { TRPCError, protectedProcedure, publicProcedure, router } from '../init.js'
+import { TRPCError, adminTenantProcedure, protectedProcedure, publicProcedure, router } from '../init.js'
 
 const signupInput = z.object({
   email: z.string().email(),
@@ -22,6 +22,130 @@ export const authRouter = router({
     memberRole: ctx.memberRole,
   })),
 
+  /**
+   * Issue an OAuth Device Authorization code. The CLI calls this without
+   * authentication and then polls `deviceToken` until the user approves
+   * the request in a browser via `verificationUri`.
+   */
+  deviceCode: publicProcedure
+    .input(z.object({ clientId: z.string().min(1).max(64).default('prosa-cli') }))
+    .mutation(async ({ ctx, input }) => {
+      const result = (await ctx.auth.api.deviceCode({
+        body: { client_id: input.clientId },
+        headers: new Headers(),
+      })) as {
+        device_code: string
+        user_code: string
+        verification_uri: string
+        verification_uri_complete?: string
+        expires_in: number
+        interval: number
+      } | null
+      if (!result) {
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Device code issue failed' })
+      }
+      return {
+        deviceCode: result.device_code,
+        userCode: result.user_code,
+        verificationUri: `${ctx.config.apiUrl}${result.verification_uri.startsWith('/') ? '' : '/'}${result.verification_uri}`,
+        verificationUriComplete: result.verification_uri_complete ?? null,
+        expiresIn: result.expires_in,
+        interval: result.interval,
+      }
+    }),
+
+  /**
+   * Poll for an issued session token. Returns `{ pending: true }` until the
+   * user approves; returns `{ token, user }` on success. The CLI uses this
+   * to complete the device-flow login without prompting for a password.
+   */
+  deviceToken: publicProcedure
+    .input(z.object({ deviceCode: z.string().min(1), clientId: z.string().min(1).default('prosa-cli') }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const result = (await ctx.auth.api.deviceToken({
+          body: {
+            grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+            device_code: input.deviceCode,
+            client_id: input.clientId,
+          },
+          headers: new Headers(),
+          asResponse: true,
+        })) as unknown
+        if (!result) {
+          throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'deviceToken returned empty' })
+        }
+        // When asResponse:true Better Auth returns a fetch Response. The
+        // structured body lives under .body once parsed.
+        type DeviceTokenBody = { access_token?: string; user?: unknown; error?: string }
+        let raw: string | null = null
+        if (result instanceof Response) {
+          raw = await result.text()
+        } else if (result && typeof result === 'object') {
+          raw = JSON.stringify(result)
+        }
+        if (!raw) {
+          throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'deviceToken empty body' })
+        }
+        const body = JSON.parse(raw) as DeviceTokenBody
+        if (body.error) {
+          const errCode = body.error
+          if (errCode === 'authorization_pending' || errCode === 'slow_down') {
+            return { pending: true as const, code: errCode }
+          }
+          throw new TRPCError({ code: 'BAD_REQUEST', message: `device-flow: ${errCode}` })
+        }
+        if (!body.access_token) {
+          return { pending: true as const, code: 'authorization_pending' as const }
+        }
+        return {
+          pending: false as const,
+          token: body.access_token,
+          user: (body.user as { id: string; email: string; name: string } | null) ?? null,
+        }
+      } catch (err: unknown) {
+        // Better Auth raises a thrown APIError for `authorization_pending` /
+        // `slow_down` / `access_denied` / `expired_token`. We translate the
+        // first two into a pending response so the CLI can keep polling and
+        // surface the rest as user-visible CLI errors.
+        const errBody = (err as { body?: { error?: string } } | null)?.body
+        const errCode = errBody?.error ?? null
+        if (errCode === 'authorization_pending' || errCode === 'slow_down') {
+          return { pending: true as const, code: errCode }
+        }
+        if (errCode) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: `device-flow: ${errCode}` })
+        }
+        const message = err instanceof Error ? err.message : String(err)
+        if (/authorization_pending|slow_down/i.test(message)) {
+          return { pending: true as const, code: 'authorization_pending' as const }
+        }
+        throw err
+      }
+    }),
+
+  /** Tenant invite proxy kept on auth.* for backwards compatibility. */
+  inviteMember: adminTenantProcedure
+    .input(z.object({ email: z.string().email(), role: z.enum(['admin', 'member']).default('member') }))
+    .mutation(async ({ ctx, input }) => {
+      const created = (await ctx.auth.api.createInvitation({
+        body: { email: input.email, role: input.role, organizationId: ctx.tenantId },
+        headers: (() => {
+          const h = new Headers()
+          for (const [key, value] of Object.entries(ctx.req.headers)) {
+            if (value == null) continue
+            if (Array.isArray(value)) for (const v of value) h.append(key, String(v))
+            else h.set(key, String(value))
+          }
+          return h
+        })(),
+      })) as { id: string; email: string; role: string; status: string } | null
+      if (!created) {
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'invite failed' })
+      }
+      return created
+    }),
+
   signupWithTenant: publicProcedure.input(signupInput).mutation(async ({ ctx, input }) => {
     const signupResult = (await ctx.auth.api.signUpEmail({
       body: { email: input.email, password: input.password, name: input.name },
@@ -39,6 +163,24 @@ export const authRouter = router({
       throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Signup did not return a session' })
     }
 
+    // From this point on, any failure leaves the new user orphaned. Wrap the
+    // post-user steps in a try/catch and roll back the user + session via raw
+    // SQL on the auth tables.
+    const rollback = async (): Promise<void> => {
+      // Delete in dependency order: member rows (cascade on user/org), then
+      // organization (created below — may not exist yet), then session, then
+      // account, then user.
+      try {
+        await ctx.rawExec('DELETE FROM "member" WHERE user_id = $1', [user.id])
+        await ctx.rawExec('DELETE FROM "session" WHERE user_id = $1', [user.id])
+        await ctx.rawExec('DELETE FROM "account" WHERE user_id = $1', [user.id])
+        await ctx.rawExec('DELETE FROM "user" WHERE id = $1', [user.id])
+      } catch (rollbackErr) {
+        // Surface in the API logs but don't mask the original error.
+        ctx.req.log?.error?.({ err: rollbackErr, userId: user.id }, 'signup rollback failed')
+      }
+    }
+
     const authHeaders = new Headers(responseHeaders)
     authHeaders.set('authorization', `Bearer ${sessionToken}`)
 
@@ -48,22 +190,56 @@ export const authRouter = router({
         .toLowerCase()
         .replace(/[^a-z0-9-]+/g, '-')
         .slice(0, 32)
-    const created = (await ctx.auth.api.createOrganization({
-      body: { name: input.tenantName, slug },
-      headers: authHeaders,
-    })) as { id: string; slug?: string | null; name: string } | null
+
+    let created: { id: string; slug?: string | null; name: string } | null
+    try {
+      created = (await ctx.auth.api.createOrganization({
+        body: { name: input.tenantName, slug },
+        headers: authHeaders,
+      })) as { id: string; slug?: string | null; name: string } | null
+    } catch (err) {
+      await rollback()
+      throw err instanceof TRPCError
+        ? err
+        : new TRPCError({
+            code: 'BAD_REQUEST',
+            message:
+              err instanceof Error && err.message ? `Tenant creation failed: ${err.message}` : 'Tenant creation failed',
+          })
+    }
 
     if (!created) {
+      await rollback()
       throw new TRPCError({
         code: 'INTERNAL_SERVER_ERROR',
         message: 'Tenant creation returned empty result',
       })
     }
 
-    await ctx.auth.api.setActiveOrganization({
-      body: { organizationId: created.id },
-      headers: authHeaders,
-    })
+    try {
+      await ctx.auth.api.setActiveOrganization({
+        body: { organizationId: created.id },
+        headers: authHeaders,
+      })
+    } catch (err) {
+      // Also delete the half-created organization so a retry with the same
+      // slug is not blocked.
+      try {
+        await ctx.rawExec('DELETE FROM "organization" WHERE id = $1', [created.id])
+      } catch (cleanupErr) {
+        ctx.req.log?.error?.({ err: cleanupErr, orgId: created.id }, 'org cleanup failed')
+      }
+      await rollback()
+      throw err instanceof TRPCError
+        ? err
+        : new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message:
+              err instanceof Error && err.message
+                ? `Setting active tenant failed: ${err.message}`
+                : 'Setting active tenant failed',
+          })
+    }
 
     return {
       token: sessionToken,

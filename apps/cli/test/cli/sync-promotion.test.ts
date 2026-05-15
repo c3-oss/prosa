@@ -43,6 +43,7 @@ async function bootHarness(): Promise<Harness> {
 
   // Boot the API server on an ephemeral port.
   const config = loadConfig({
+    PROSA_RUNTIME_MODE: 'test',
     PROSA_OBJECT_STORE_DRIVER: 'memory',
     PROSA_AUTH_SECRET: 'test-secret-1234567890abcdef',
     PROSA_API_URL: 'http://127.0.0.1:0',

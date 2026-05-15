@@ -59,10 +59,12 @@
     "@c3-oss/config-tsup": "^0.2.0",
     "@c3-oss/config-typescript": "^0.1.0",
     "@c3-oss/config-vitest": "^0.3.0",
+    "@aws-sdk/client-s3": "^3.700.0",
     "@c3-oss/prosa-api": "workspace:^",
     "@c3-oss/prosa-db": "workspace:^",
     "@c3-oss/prosa-storage": "workspace:^",
     "@electric-sql/pglite": "^0.4.5",
+    "postgres": "^3.4.9",
     "@types/better-sqlite3": "^7.6.12",
     "@types/react": "^19.2.14",
     "better-sqlite3": "^12.10.0"

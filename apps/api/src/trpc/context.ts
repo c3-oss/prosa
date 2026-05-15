@@ -10,6 +10,8 @@ export type AuthenticatedUser = {
   name: string
 }
 
+export type MemberRole = 'admin' | 'owner' | 'member'
+
 export type ProsaApiContext = {
   req: FastifyRequest
   res: FastifyReply
@@ -21,8 +23,14 @@ export type ProsaApiContext = {
   objectStore: RemoteObjectStore
   session: { id: string; userId: string; activeOrganizationId?: string | null } | null
   user: AuthenticatedUser | null
+  /**
+   * Resolved tenant id. Only set after we have verified that `user` is a
+   * member of this tenant. Procedures that require a tenant should rely on
+   * this field, never on the raw `x-prosa-tenant-id` header.
+   */
   tenantId: string | null
-  memberRole: 'admin' | 'member' | 'owner' | null
+  /** Real membership role for `tenantId`, or null if no membership exists. */
+  memberRole: MemberRole | null
   isAdmin: boolean
 }
 
@@ -53,14 +61,39 @@ function fastifyRequestToHeaders(req: FastifyRequest): Headers {
   return headers
 }
 
+function normalizeRole(raw: string | null | undefined): MemberRole | null {
+  if (!raw) return null
+  const lower = raw.toLowerCase()
+  if (lower === 'admin' || lower === 'owner' || lower === 'member') return lower
+  return null
+}
+
+/**
+ * Resolve membership for `(tenantId, userId)` via the `member` table. Returns
+ * `null` when the user is not a member, which is treated as access denied by
+ * `tenantProcedure`. The header-supplied tenant id is treated as a candidate,
+ * never as truth — only this lookup grants access.
+ */
+async function resolveMembership(opts: {
+  rawExec: RawExec
+  tenantId: string
+  userId: string
+}): Promise<MemberRole | null> {
+  const rows = await opts.rawExec<{ role: string }>(
+    'SELECT role FROM "member" WHERE organization_id = $1 AND user_id = $2 LIMIT 1',
+    [opts.tenantId, opts.userId],
+  )
+  return normalizeRole(rows[0]?.role ?? null)
+}
+
 export function buildCreateContext(deps: CreateContextDeps) {
   const { config, auth, db, rawExec, objectStore } = deps
   return async (opts: { req: FastifyRequest; res: FastifyReply }): Promise<ProsaApiContext> => {
     const headerTenant = readFirstHeader(opts.req, 'x-prosa-tenant-id')
     let session: ProsaApiContext['session'] = null
     let user: ProsaApiContext['user'] = null
-    const memberRole: ProsaApiContext['memberRole'] = null
-    let tenantId: string | null = headerTenant
+    let memberRole: MemberRole | null = null
+    let resolvedTenant: string | null = null
 
     try {
       const result = (await auth.api.getSession({ headers: fastifyRequestToHeaders(opts.req) })) as {
@@ -70,10 +103,25 @@ export function buildCreateContext(deps: CreateContextDeps) {
       if (result) {
         session = result.session
         user = { id: result.user.id, email: result.user.email, name: result.user.name }
-        if (!tenantId && session.activeOrganizationId) tenantId = session.activeOrganizationId
       }
     } catch {
       // unauthenticated requests still produce a context with null session
+    }
+
+    if (user) {
+      // Tenant resolution precedence:
+      //   1. explicit `x-prosa-tenant-id` header
+      //   2. active organization on the session
+      // In both cases we MUST verify membership before exposing the tenant
+      // to procedures.
+      const candidate = headerTenant ?? session?.activeOrganizationId ?? null
+      if (candidate) {
+        const role = await resolveMembership({ rawExec, tenantId: candidate, userId: user.id })
+        if (role) {
+          resolvedTenant = candidate
+          memberRole = role
+        }
+      }
     }
 
     return {
@@ -87,9 +135,11 @@ export function buildCreateContext(deps: CreateContextDeps) {
       objectStore,
       session,
       user,
-      tenantId,
+      tenantId: resolvedTenant,
       memberRole,
       isAdmin: memberRole === 'admin' || memberRole === 'owner',
     }
   }
 }
+
+export { resolveMembership }
