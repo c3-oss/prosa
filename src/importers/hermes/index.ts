@@ -21,7 +21,8 @@ import {
   toolCallId as makeToolCallId,
   toolResultId as makeToolResultId,
 } from '../../core/domain/ids.js'
-import type { MessageRole } from '../../core/domain/types.js'
+import { normalizeToolCallStatus } from '../../core/domain/status.js'
+import type { MessageRole, ToolCallStatus } from '../../core/domain/types.js'
 import { getErrorMessage } from '../../core/errors.js'
 import {
   type ImportBatch,
@@ -45,6 +46,7 @@ export interface CompileResult {
 }
 
 const PREVIEW_MAX = 4_000
+const HIDDEN_BLOCK_ORDINAL_BASE = 100
 
 interface SourceFileRef {
   sourceFileId: string
@@ -133,6 +135,7 @@ interface PendingSession {
   source_session_id: string
   project_id: string | null
   parent_session_id: string | null
+  is_subagent: 0 | 1
   title: string | null
   start_ts: string | null
   end_ts: string | null
@@ -197,7 +200,7 @@ interface PendingToolCall {
   path: string | null
   query: string | null
   timestamp_start: string | null
-  status: string | null
+  status: ToolCallStatus | null
   raw_record_id: string
 }
 
@@ -208,7 +211,7 @@ interface PendingToolResult {
   message_id: string | null
   event_id: string | null
   source_call_id: string
-  status: string | null
+  status: ToolCallStatus | null
   is_error: 0 | 1
   output_object_id: ObjectId | null
   preview: string | null
@@ -733,7 +736,7 @@ async function stageMessage(
       path: stringField(args, 'path') ?? stringField(args, 'file_path'),
       query: stringField(args, 'query'),
       timestamp_start: message.timestamp,
-      status: message.finishReason,
+      status: normalizeToolCallStatus('hermes', message.finishReason),
       raw_record_id: rawRecordId,
     })
   }
@@ -757,11 +760,12 @@ async function stageMessage(
         path: null,
         query: null,
         timestamp_start: message.timestamp,
-        status: null,
+        status: 'unknown',
         raw_record_id: rawRecordId,
       })
     }
     const outputObjectId = text.length > PREVIEW_MAX ? stageText(pending.objects, text) : null
+    const status = normalizeToolCallStatus('hermes', message.finishReason)
     pending.toolResults.push({
       tool_result_id: makeToolResultId(sessionPk, sourceCallId),
       tool_call_id: toolCallId,
@@ -769,8 +773,8 @@ async function stageMessage(
       message_id: messageId,
       event_id: eventId,
       source_call_id: sourceCallId,
-      status: message.finishReason,
-      is_error: message.finishReason === 'error' ? 1 : 0,
+      status,
+      is_error: status === 'error' ? 1 : 0,
       output_object_id: outputObjectId,
       preview: text.slice(0, PREVIEW_MAX) || null,
       raw_record_id: rawRecordId,

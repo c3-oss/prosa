@@ -21,6 +21,7 @@ import {
   toolCallId as makeToolCallId,
   toolResultId as makeToolResultId,
 } from '../../core/domain/ids.js'
+import { normalizeToolCallStatus } from '../../core/domain/status.js'
 import { getErrorMessage } from '../../core/errors.js'
 import {
   type ImportBatch,
@@ -687,7 +688,7 @@ async function processContentItem(
       source_call_id: sourceCallId,
       message_id: messageId,
       event_id: eventId,
-      status: matched ? (isError ? 'error' : 'success') : null,
+      status: normalizeToolCallStatus('cursor', matched ? (isError ? 'error' : 'success') : null),
       is_error: isError,
       output_object_id: overflow,
       preview: text.slice(0, PREVIEW_MAX) || null,
