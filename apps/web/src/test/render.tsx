@@ -12,14 +12,19 @@ const TEST_CONFIG: WebRuntimeConfig = {
   githubUrl: null,
 }
 
-export function renderWithProviders(ui: ReactElement, options?: RenderOptions): RenderResult {
+type WithProvidersOptions = RenderOptions & {
+  skipAuth?: boolean
+}
+
+export function renderWithProviders(ui: ReactElement, options?: WithProvidersOptions): RenderResult {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Number.POSITIVE_INFINITY } },
   })
+  const { skipAuth = true, ...renderOptions } = options ?? {}
   return render(
-    <AppProviders config={TEST_CONFIG} queryClient={queryClient}>
+    <AppProviders config={TEST_CONFIG} queryClient={queryClient} skipAuth={skipAuth}>
       {ui}
     </AppProviders>,
-    options,
+    renderOptions,
   )
 }

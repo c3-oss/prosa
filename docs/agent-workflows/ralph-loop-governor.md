@@ -68,19 +68,30 @@ Codex should write a monitor file outside the repo, for example:
 ~/workspace/c3-oss/prosa-<feature>-ralph-loop-monitor.md
 ```
 
+When the user reports "Ralph started", "Loop iniciado", or equivalent, Codex
+must enter the active monitor loop immediately. Do not only record the start.
+Use a 5-minute interval by default unless the user requested a different
+interval. The interval is a real idle wait: Codex stops all monitoring work,
+runs no intermediate checks, sends no progress updates, and does no parallel
+review or implementation work until the wait expires.
+
 Each cycle:
 
-1. Idle for the requested interval, usually 10 minutes.
-2. Record `git status --short --branch`.
-3. Record new commits and changed areas.
+1. Idle for the configured interval.
+2. Record timestamp, `git status --short --branch`, recent commits, changed
+   areas, lane evidence/status, correction queue, gates, `RALPH_DONE` signal,
+   open blockers, and no-change streak in the external monitor.
+3. Update `status.md`, `correction-queue.md`, and gate/evidence artifacts as
+   needed.
 4. Compare implementation against lanes, correction queue, and product
    invariants.
 5. Spawn read-only reviewers for changed domains.
 6. Add or update blocking corrections if needed.
 7. Reset the no-change streak on implementation changes.
 
-After three configured idle checks with no implementation change, Codex treats
-Ralph as finished and runs final validation.
+Keep treating Ralph as active until `RALPH_DONE` is detected, the user stops the
+run, or three configured idle checks show no implementation change and final
+gates begin.
 
 ## Files For Each Feature
 

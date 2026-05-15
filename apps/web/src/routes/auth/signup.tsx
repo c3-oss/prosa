@@ -1,4 +1,5 @@
-import { Link } from '@tanstack/react-router'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { Link, useNavigate } from '@tanstack/react-router'
 import { type FormEvent, useState } from 'react'
 
 import { useAppContext } from '~/app/providers.js'
@@ -7,32 +8,39 @@ import { TextField } from '~/components/primitives/text-field.js'
 
 export function SignupPage() {
   const { api } = useAppContext()
+  const queryClient = useQueryClient()
+  const navigate = useNavigate()
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [tenantName, setTenantName] = useState('')
   const [tenantSlug, setTenantSlug] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
 
-  async function onSubmit(event: FormEvent<HTMLFormElement>) {
+  const signup = useMutation({
+    mutationFn: async (payload: {
+      email: string
+      password: string
+      name: string
+      tenantName: string
+      tenantSlug?: string
+    }) => {
+      return api.auth.signupWithTenant.mutate(payload)
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['auth', 'me'] })
+      navigate({ to: '/console' })
+    },
+  })
+
+  function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    setError(null)
-    setBusy(true)
-    try {
-      await api.auth.signupWithTenant.mutate({
-        email,
-        password,
-        name,
-        tenantName,
-        ...(tenantSlug ? { tenantSlug } : {}),
-      })
-      window.location.assign('/console')
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Signup failed')
-    } finally {
-      setBusy(false)
-    }
+    signup.mutate({
+      email,
+      password,
+      name,
+      tenantName,
+      ...(tenantSlug ? { tenantSlug } : {}),
+    })
   }
 
   return (
@@ -70,13 +78,13 @@ export function SignupPage() {
         value={tenantSlug}
         onChange={(e) => setTenantSlug(e.target.value)}
       />
-      {error ? (
+      {signup.error ? (
         <p role="alert" style={{ color: 'var(--color-danger)', margin: 0, fontSize: 'var(--font-size-sm)' }}>
-          {error}
+          {signup.error instanceof Error ? signup.error.message : 'Signup failed'}
         </p>
       ) : null}
-      <Button type="submit" variant="primary" disabled={busy}>
-        {busy ? 'Creating…' : 'Create account'}
+      <Button type="submit" variant="primary" disabled={signup.isPending}>
+        {signup.isPending ? 'Creating…' : 'Create account'}
       </Button>
       <p style={{ margin: 0, color: 'var(--color-text-muted)', fontSize: 'var(--font-size-sm)' }}>
         Already have an account? <Link to="/login">Sign in</Link>

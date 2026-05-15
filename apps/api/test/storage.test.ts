@@ -15,6 +15,7 @@ const baseConfig: Omit<ProsaApiConfig, 'objectStore'> = {
   runtimeMode: 'test',
   databaseUrl: null,
   authSecret: 'test-secret-1234567890abcdef',
+  webOrigins: [],
 }
 
 function configWithObjectStore(objectStore: ProsaApiConfig['objectStore']): ProsaApiConfig {

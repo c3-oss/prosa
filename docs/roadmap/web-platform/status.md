@@ -4,13 +4,16 @@ Started: 2026-05-15T18:36:15Z
 Repository: `/home/cain/workspace/c3-oss/prosa`
 Branch: `master`
 Monitor: `/home/cain/workspace/c3-oss/prosa-web-platform-ralph-loop-monitor.md`
+Monitor interval: 5 minutes unless overridden
+Completion signal: RALPH_DONE
 
 ## Current State
 
 Status: in-progress
-Current lane: 03 (next)
-Current HEAD: `eb435b6`
+Current lane: 04 (next)
+Current HEAD: pending commit for lane 03
 No-change streak: 0
+Ralph active: yes
 
 ## Lane Status
 
@@ -18,7 +21,7 @@ No-change streak: 0
 | --- | --- | --- | --- | --- |
 | 01 Product surface and visual system | Ralph | complete | `eb435b6` | evidence/lane-01.md |
 | 02 Frontend foundation | Ralph | complete | `eb435b6` | evidence/lane-02.md |
-| 03 Browser auth and tenancy | Ralph | open | | evidence/lane-03.md |
+| 03 Browser auth and tenancy | Ralph | complete | pending | evidence/lane-03.md |
 | 04 Read API v0 | Ralph | open | | evidence/lane-04.md |
 | 05 Console shell and sessions | Ralph | open | | evidence/lane-05.md |
 | 06 Session detail timeline | Ralph | open | | evidence/lane-06.md |
@@ -43,6 +46,13 @@ No-change streak: 0
 | `pnpm --filter @c3-oss/prosa-web lint` | passed | Lane 02 — Biome check clean. |
 | `pnpm --filter @c3-oss/prosa-api typecheck` | passed | No regression. |
 | `pnpm --filter @c3-oss/prosa lint` | passed | No regression in CLI app. |
+| Codex monitor check | observed | 2026-05-15T18:56:31Z: Ralph active, lane 03 API auth/CORS work in progress. |
+| `pnpm --filter @c3-oss/prosa-api test` | passed | Lane 03 — 59 passed, 1 skipped (incl. new web-auth.test.ts for auth.me tenants + CORS). |
+| `pnpm --filter @c3-oss/prosa-api lint` | passed | Lane 03. |
+| `pnpm --filter @c3-oss/prosa-web test` | passed | Lane 03 — 8 tests (config, button, landing, auth-context). |
+| `pnpm --filter @c3-oss/prosa-web typecheck` | passed | Lane 03 — types include new `tenants[]` from auth.me. |
+| `pnpm --filter @c3-oss/prosa-web build` | passed | Lane 03. |
+| `pnpm --filter @c3-oss/prosa-web lint` | passed | Lane 03. |
 
 Pending (run later when lane scope reaches them):
 
@@ -72,3 +82,4 @@ Pending (run later when lane scope reaches them):
 - 2026-05-15: Web compiles against the `@c3-oss/prosa-api` workspace package's
   built `dist/index.d.ts` (not raw API source) to keep the web TS program
   small and decoupled from server-only types.
+- 2026-05-15T18:56:31Z: Codex monitor switched to the requested 5-minute loop.

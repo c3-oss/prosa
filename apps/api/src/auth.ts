@@ -72,7 +72,7 @@ export function createAuth(opts: CreateAuthOptions): ProsaAuth {
     baseURL: config.apiUrl,
     basePath: '/api/auth',
     secret,
-    trustedOrigins: [config.apiUrl],
+    trustedOrigins: [config.apiUrl, ...config.webOrigins],
     database: drizzleAdapter(db, {
       provider: 'pg',
       usePlural: false,

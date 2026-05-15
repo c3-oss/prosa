@@ -5,6 +5,8 @@ import { type ProsaTRPCClient, createApiClient } from '~/lib/api.js'
 import { type BrowserAuth, createBrowserAuth } from '~/lib/auth.js'
 import { type WebRuntimeConfig, loadWebConfig } from '~/lib/config.js'
 
+import { AuthProvider } from './auth-context.js'
+
 type AppContextValue = {
   config: WebRuntimeConfig
   api: ProsaTRPCClient
@@ -27,12 +29,15 @@ export type AppProvidersProps = {
   config?: WebRuntimeConfig
   /** Override query client for tests. */
   queryClient?: QueryClient
+  /** Skip the AuthProvider — useful for primitive tests that don't need session state. */
+  skipAuth?: boolean
 }
 
 export function AppProviders({
   children,
   config: configOverride,
   queryClient: queryClientOverride,
+  skipAuth,
 }: AppProvidersProps) {
   const config = useMemo(() => configOverride ?? loadWebConfig(), [configOverride])
   const [tenantId, setTenantId] = useState<string | null>(null)
@@ -59,7 +64,9 @@ export function AppProviders({
 
   return (
     <AppContext.Provider value={value}>
-      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      <QueryClientProvider client={queryClient}>
+        {skipAuth ? children : <AuthProvider>{children}</AuthProvider>}
+      </QueryClientProvider>
     </AppContext.Provider>
   )
 }

@@ -89,14 +89,24 @@ $ralph-loop-governor continuar server-sync usando docs/architecture/server-sync.
 
 - Write the monitor outside the repo unless the user asks otherwise, for example:
   `~/workspace/c3-oss/<repo>-<feature>-ralph-loop-monitor.md`.
-- Use real idle intervals requested by the user. Do not poll aggressively.
-- Each check records: timestamp, `git status --short --branch`, recent commits,
-  changed areas, new test evidence, open blockers, and no-change streak.
+- When the user reports "Ralph started", "Loop iniciado", or equivalent, enter
+  the active monitor loop immediately. Do not only record the start.
+- Use a 5-minute interval by default unless the user requested a different
+  interval. The interval is a real idle wait: stop all monitoring work, do not
+  run intermediate checks, do not send progress updates, and do not do parallel
+  review or implementation work until the wait expires.
+- Each check records in the external monitor: timestamp,
+  `git status --short --branch`, recent commits, changed areas, lane
+  evidence/status, correction queue, gates, `RALPH_DONE` signal, open blockers,
+  and no-change streak.
+- Update `status.md`, `correction-queue.md`, and gate/evidence artifacts as
+  needed after each check.
 - If Ralph is making progress, do not edit implementation files.
 - If critical blockers persist, update `correction-queue.md` and
   `ralph-loop-prompt.md` so the next loop iteration sees them.
-- If three configured idle checks show no implementation changes, treat Ralph as
-  finished and run the final gate.
+- Keep treating Ralph as active until `RALPH_DONE` is detected, the user stops
+  the run, or three configured idle checks show no implementation changes and
+  final gates begin.
 
 ## Reviewer Subagents
 

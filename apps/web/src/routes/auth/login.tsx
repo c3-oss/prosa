@@ -1,4 +1,5 @@
-import { Link } from '@tanstack/react-router'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { Link, useNavigate } from '@tanstack/react-router'
 import { type FormEvent, useState } from 'react'
 
 import { useAppContext } from '~/app/providers.js'
@@ -7,23 +8,22 @@ import { TextField } from '~/components/primitives/text-field.js'
 
 export function LoginPage() {
   const { auth } = useAppContext()
+  const queryClient = useQueryClient()
+  const navigate = useNavigate()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
 
-  async function onSubmit(event: FormEvent<HTMLFormElement>) {
+  const signIn = useMutation({
+    mutationFn: async (payload: { email: string; password: string }) => auth.signIn(payload),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['auth', 'me'] })
+      navigate({ to: '/console' })
+    },
+  })
+
+  function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    setError(null)
-    setBusy(true)
-    try {
-      await auth.signIn({ email, password })
-      window.location.assign('/console')
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Sign-in failed')
-    } finally {
-      setBusy(false)
-    }
+    signIn.mutate({ email, password })
   }
 
   return (
@@ -51,13 +51,13 @@ export function LoginPage() {
         value={password}
         onChange={(e) => setPassword(e.target.value)}
       />
-      {error ? (
+      {signIn.error ? (
         <p role="alert" style={{ color: 'var(--color-danger)', margin: 0, fontSize: 'var(--font-size-sm)' }}>
-          {error}
+          {signIn.error instanceof Error ? signIn.error.message : 'Sign-in failed'}
         </p>
       ) : null}
-      <Button type="submit" variant="primary" disabled={busy}>
-        {busy ? 'Signing in…' : 'Sign in'}
+      <Button type="submit" variant="primary" disabled={signIn.isPending}>
+        {signIn.isPending ? 'Signing in…' : 'Sign in'}
       </Button>
       <p style={{ margin: 0, color: 'var(--color-text-muted)', fontSize: 'var(--font-size-sm)' }}>
         No account? <Link to="/signup">Create one</Link>

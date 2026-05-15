@@ -79,13 +79,39 @@ function requestHeadersFromContext(ctx: { req: { headers: Record<string, string 
   return headers
 }
 
+type MemberOrgRow = {
+  organization_id: string
+  organization_name: string
+  organization_slug: string | null
+  role: string
+}
+
 export const authRouter = router({
-  me: protectedProcedure.query(({ ctx }) => ({
-    user: ctx.user,
-    session: ctx.session,
-    tenantId: ctx.tenantId,
-    memberRole: ctx.memberRole,
-  })),
+  me: protectedProcedure.query(async ({ ctx }) => {
+    // Resolve every tenant this user is a member of, joined with role. We
+    // never trust the client to declare its tenants — the source of truth
+    // is the `member` table joined to `organization`.
+    const tenants = await ctx.rawExec<MemberOrgRow>(
+      `SELECT m.organization_id, o.name AS organization_name, o.slug AS organization_slug, m.role
+         FROM "member" m
+         JOIN "organization" o ON o.id = m.organization_id
+         WHERE m.user_id = $1
+         ORDER BY o.name ASC, m.organization_id ASC`,
+      [ctx.user.id],
+    )
+    return {
+      user: ctx.user,
+      session: ctx.session,
+      tenantId: ctx.tenantId,
+      memberRole: ctx.memberRole,
+      tenants: tenants.map((row) => ({
+        id: row.organization_id,
+        name: row.organization_name,
+        slug: row.organization_slug,
+        role: row.role,
+      })),
+    }
+  }),
 
   /**
    * Issue an OAuth Device Authorization code. The CLI calls this without

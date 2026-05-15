@@ -1,4 +1,5 @@
 import type { RemoteObjectStore } from '@c3-oss/prosa-storage'
+import fastifyCors from '@fastify/cors'
 import { type FastifyTRPCPluginOptions, fastifyTRPCPlugin } from '@trpc/server/adapters/fastify'
 import Fastify, { type FastifyInstance } from 'fastify'
 import type { ProsaAuth } from './auth.js'
@@ -23,6 +24,23 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   const app = Fastify({
     logger: opts.loggerEnabled === false ? false : { level: opts.config.logLevel },
     genReqId: () => crypto.randomUUID(),
+  })
+
+  // Credentialed CORS for browser-origin reads. The API URL is always
+  // allowed; additional browser origins come from `PROSA_WEB_ORIGIN`. We
+  // never allow `*` because credentials must be sent.
+  const allowedOrigins = new Set<string>([opts.config.apiUrl, ...opts.config.webOrigins])
+  await app.register(fastifyCors, {
+    credentials: true,
+    methods: ['GET', 'POST', 'OPTIONS'],
+    allowedHeaders: ['content-type', 'authorization', 'x-prosa-tenant-id', 'x-prosa-device-id'],
+    origin: (origin, cb) => {
+      // Same-origin / non-browser callers (curl, server-to-server) send no Origin
+      // header; allow them to reach the API.
+      if (!origin) return cb(null, true)
+      if (allowedOrigins.has(origin)) return cb(null, true)
+      return cb(null, false)
+    },
   })
 
   app.get('/health', async () => ({ ok: true as const, version: readPackageVersion() }))

@@ -11,6 +11,12 @@ const baseSchema = z.object({
   PROSA_RUNTIME_MODE: runtimeModeSchema,
   PROSA_DATABASE_URL: z.string().min(1).optional(),
   PROSA_AUTH_SECRET: z.string().min(16).optional(),
+  /**
+   * Comma-separated list of additional origins (in addition to PROSA_API_URL)
+   * that browser apps may use to issue credentialed requests. Each entry must
+   * be a full origin like `https://console.prosa.dev`.
+   */
+  PROSA_WEB_ORIGIN: z.string().optional(),
   PROSA_OBJECT_STORE_DRIVER: objectStoreDriverSchema.default('memory'),
   PROSA_OBJECT_STORE_BUCKET: z.string().optional(),
   PROSA_OBJECT_STORE_PREFIX: z.string().default('prosa/'),
@@ -31,6 +37,8 @@ export type ProsaApiConfig = {
   runtimeMode: RuntimeMode
   databaseUrl: string | null
   authSecret: string | null
+  /** Additional trusted browser origins (beyond `apiUrl`) for CORS and Better Auth. */
+  webOrigins: string[]
   objectStore:
     | {
         driver: 's3'
@@ -108,6 +116,23 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ProsaApiConfig
     }
   })()
 
+  const webOrigins = (v.PROSA_WEB_ORIGIN ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+  for (const origin of webOrigins) {
+    try {
+      // Confirm each entry is a valid origin (URL parses, no path).
+      const parsed = new URL(origin)
+      if (parsed.pathname !== '/' && parsed.pathname !== '') {
+        throw new Error('contains a path')
+      }
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : 'invalid URL'
+      throw new ConfigError(`PROSA_WEB_ORIGIN entry "${origin}" is not a valid origin: ${reason}`)
+    }
+  }
+
   return {
     apiUrl: v.PROSA_API_URL,
     host: v.PROSA_API_HOST,
@@ -116,6 +141,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ProsaApiConfig
     runtimeMode: v.PROSA_RUNTIME_MODE,
     databaseUrl: v.PROSA_DATABASE_URL ?? null,
     authSecret: v.PROSA_AUTH_SECRET ?? null,
+    webOrigins,
     objectStore,
   }
 }
