@@ -27,14 +27,20 @@ import {
 } from '../auth/config.js'
 import { CliUserError } from '../errors.js'
 import { type LocalCasObject, readBundleForUpload, readLocalCasObjectBytes } from '../sync/bundle.js'
-import { mapConcurrent } from '../sync/concurrency.js'
+import { mapConcurrent, mapConcurrentResults } from '../sync/concurrency.js'
 import {
   estimateChunkedUploadBatches,
   readUploadCounts,
   uploadHardLimitViolations,
   uploadLimitViolations,
 } from '../sync/limits.js'
-import { type SyncMetrics, emptySyncMetrics, promoteUpload, removeLocalBundle } from '../sync/promotion.js'
+import {
+  type SyncMetrics,
+  emptySyncMetrics,
+  mergeSyncMetrics,
+  promoteUpload,
+  removeLocalBundle,
+} from '../sync/promotion.js'
 
 type SyncOptions = {
   server?: string
@@ -47,6 +53,7 @@ type SyncOptions = {
   verbose?: boolean
   configPath?: string
   objectConcurrency: number
+  batchConcurrency: number
 }
 
 type SyncResult = {
@@ -80,6 +87,7 @@ type ChunkedPromotionOptions = {
   maxObjectsPerPlan: number
   maxRowsPerCommit: number
   objectConcurrency: number
+  batchConcurrency: number
   verbose?: boolean
 }
 
@@ -98,6 +106,9 @@ type PromoteChunkOptions = {
 const DEFAULT_OBJECT_UPLOAD_CONCURRENCY = 32
 const MIN_OBJECT_UPLOAD_CONCURRENCY = 1
 const MAX_OBJECT_UPLOAD_CONCURRENCY = 128
+const DEFAULT_BATCH_CONCURRENCY = 4
+const MIN_BATCH_CONCURRENCY = 1
+const MAX_BATCH_CONCURRENCY = 8
 
 async function bundleManifestExists(storePath: string): Promise<boolean> {
   return stat(`${storePath}/manifest.json`).then(
@@ -115,6 +126,16 @@ function parseObjectConcurrency(value: string): number {
   if (!Number.isInteger(parsed) || parsed < MIN_OBJECT_UPLOAD_CONCURRENCY || parsed > MAX_OBJECT_UPLOAD_CONCURRENCY) {
     throw new CliUserError(
       `--object-concurrency must be an integer from ${MIN_OBJECT_UPLOAD_CONCURRENCY} to ${MAX_OBJECT_UPLOAD_CONCURRENCY}`,
+    )
+  }
+  return parsed
+}
+
+function parseBatchConcurrency(value: string): number {
+  const parsed = Number(value)
+  if (!Number.isInteger(parsed) || parsed < MIN_BATCH_CONCURRENCY || parsed > MAX_BATCH_CONCURRENCY) {
+    throw new CliUserError(
+      `--batch-concurrency must be an integer from ${MIN_BATCH_CONCURRENCY} to ${MAX_BATCH_CONCURRENCY}`,
     )
   }
   return parsed
@@ -148,6 +169,52 @@ function projectionRowCount(projection: ProjectionPayload): number {
     projection.toolCalls.length +
     projection.toolResults.length
   )
+}
+
+type ChunkCursor = {
+  afterId: string | null
+  sequence: number
+}
+
+type ChunkPromotionResult = {
+  receipt: PromotionReceipt
+  metrics: SyncMetrics
+}
+
+function readChunkIds(
+  bundle: Bundle,
+  table: string,
+  idColumn: string,
+  afterId: string | null,
+  limit: number,
+  whereClause?: string,
+): string[] {
+  const predicates = [...(whereClause ? [whereClause] : []), ...(afterId ? [`${idColumn} > ?`] : [])]
+  const sql = `SELECT ${idColumn} AS id
+         FROM ${table}
+         ${predicates.length > 0 ? `WHERE ${predicates.join(' AND ')}` : ''}
+         ORDER BY ${idColumn}
+         LIMIT ?`
+  const rows = bundle.db.prepare(sql).all(...(afterId ? [afterId, limit] : [limit])) as Array<{ id: string }>
+  return rows.map((row) => row.id)
+}
+
+function collectChunkCursors(
+  bundle: Bundle,
+  table: string,
+  idColumn: string,
+  limit: number,
+  whereClause?: string,
+): ChunkCursor[] {
+  const cursors: ChunkCursor[] = []
+  let afterId: string | null = null
+  while (true) {
+    const ids = readChunkIds(bundle, table, idColumn, afterId, limit, whereClause)
+    if (ids.length === 0) break
+    cursors.push({ afterId, sequence: cursors.length + 1 })
+    afterId = ids[ids.length - 1] ?? null
+  }
+  return cursors
 }
 
 function readObjectCatalogRows(bundle: Bundle, afterObjectId: string | null, limit: number) {
@@ -528,7 +595,43 @@ async function promoteChunk({
   return verify.receipt
 }
 
-async function promoteChunkedUpload({
+function addObjectChunkMetrics(metrics: SyncMetrics, chunkMetrics: ObjectChunk['metrics']): void {
+  metrics.localScanMs += chunkMetrics.localScanMs
+  metrics.localReadMs += chunkMetrics.localReadMs
+  metrics.localBytesRead += chunkMetrics.localBytesRead
+  metrics.localObjectsRead += chunkMetrics.localObjectsRead
+}
+
+async function promoteBatchTask(
+  opts: Omit<PromoteChunkOptions, 'metrics'> & {
+    chunkMetrics?: ObjectChunk['metrics']
+  },
+): Promise<ChunkPromotionResult> {
+  const metrics = emptySyncMetrics(opts.objectConcurrency)
+  if (opts.chunkMetrics) addObjectChunkMetrics(metrics, opts.chunkMetrics)
+  const receipt = await promoteChunk({ ...opts, metrics })
+  return { receipt, metrics }
+}
+
+async function promotePhase<TTask extends ChunkCursor>(
+  tasks: TTask[],
+  concurrency: number,
+  worker: (task: TTask) => Promise<ChunkPromotionResult>,
+): Promise<ChunkPromotionResult[]> {
+  const parallelTasks = tasks.slice(0, -1)
+  const finalTask = tasks[tasks.length - 1]
+  const results = await mapConcurrentResults(parallelTasks, concurrency, worker)
+
+  // The server stores a batch-scoped receipt as remote_authority on every
+  // verify. Keep the logical phase tail last so status output is deterministic.
+  if (finalTask) {
+    results.push(await worker(finalTask))
+  }
+
+  return results
+}
+
+export async function promoteChunkedUpload({
   client,
   deviceId,
   storePath,
@@ -536,87 +639,109 @@ async function promoteChunkedUpload({
   maxObjectsPerPlan,
   maxRowsPerCommit,
   objectConcurrency,
+  batchConcurrency,
   verbose,
 }: ChunkedPromotionOptions): Promise<SyncResult> {
   let batchCount = 0
   let lastReceipt: PromotionReceipt | null = null
-  let objectCursor: string | null = null
-  const metrics = emptySyncMetrics(objectConcurrency)
+  let metrics = emptySyncMetrics(objectConcurrency)
 
-  while (true) {
-    const chunk = await readObjectChunk(bundle, storePath, objectCursor, maxObjectsPerPlan)
-    if (chunk.casObjects.length === 0) break
-    batchCount += 1
-    metrics.localScanMs += chunk.metrics.localScanMs
-    metrics.localReadMs += chunk.metrics.localReadMs
-    metrics.localBytesRead += chunk.metrics.localBytesRead
-    metrics.localObjectsRead += chunk.metrics.localObjectsRead
-    lastReceipt = await promoteChunk({
+  const objectCursors = collectChunkCursors(bundle, 'objects', 'object_id', maxObjectsPerPlan)
+  const objectResults = await promotePhase(objectCursors, batchConcurrency, async (cursor) => {
+    const chunk = await readObjectChunk(bundle, storePath, cursor.afterId, maxObjectsPerPlan)
+    return promoteBatchTask({
       client,
       deviceId,
       storePath,
       casObjects: chunk.casObjects,
       projection: emptyProjection(),
-      label: `object batch ${batchCount}`,
-      metrics,
+      label: `object batch ${batchCount + cursor.sequence}`,
+      chunkMetrics: chunk.metrics,
       objectConcurrency,
       verbose,
     })
-    objectCursor = chunk.nextCursor
+  })
+  for (const result of objectResults) {
+    metrics = mergeSyncMetrics(metrics, result.metrics)
+    lastReceipt = result.receipt
   }
+  batchCount += objectResults.length
 
   const promoteProjectionChunks = async <TRow>(
     label: string,
+    table: string,
+    idColumn: string,
+    whereClause: string | undefined,
     readChunk: (afterId: string | null, limit: number) => ProjectionChunk<TRow>,
     toProjection: (rows: TRow[]) => ProjectionPayload,
   ) => {
-    let cursor: string | null = null
-    while (true) {
-      const chunk = readChunk(cursor, maxRowsPerCommit)
-      if (chunk.rows.length === 0) break
-      batchCount += 1
-      lastReceipt = await promoteChunk({
+    const cursors = collectChunkCursors(bundle, table, idColumn, maxRowsPerCommit, whereClause)
+    const phaseStart = batchCount
+    const results = await promotePhase(cursors, batchConcurrency, async (cursor) => {
+      const chunk = readChunk(cursor.afterId, maxRowsPerCommit)
+      return promoteBatchTask({
         client,
         deviceId,
         storePath,
         casObjects: [],
         projection: toProjection(chunk.rows),
-        label: `${label} batch ${batchCount}`,
-        metrics,
+        label: `${label} batch ${phaseStart + cursor.sequence}`,
         objectConcurrency,
         verbose,
       })
-      cursor = chunk.nextCursor
+    })
+    for (const result of results) {
+      metrics = mergeSyncMetrics(metrics, result.metrics)
+      lastReceipt = result.receipt
     }
+    batchCount += results.length
   }
 
   await promoteProjectionChunks(
     'source-file',
+    'source_files',
+    'source_file_id',
+    undefined,
     (cursor, limit) => readSourceFileChunk(bundle, cursor, limit),
     (sourceFiles) => ({ ...emptyProjection(), sourceFiles }),
   )
   await promoteProjectionChunks(
     'raw-record',
+    'raw_records',
+    'raw_record_id',
+    undefined,
     (cursor, limit) => readRawRecordChunk(bundle, cursor, limit),
     (rawRecords) => ({ ...emptyProjection(), rawRecords }),
   )
   await promoteProjectionChunks(
     'session',
+    'sessions',
+    'session_id',
+    undefined,
     (cursor, limit) => readSessionChunk(bundle, cursor, limit),
     (sessions) => ({ ...emptyProjection(), sessions }),
   )
   await promoteProjectionChunks(
     'search-doc',
+    'search_docs',
+    'doc_id',
+    'session_id IS NOT NULL',
     (cursor, limit) => readSearchDocChunk(bundle, cursor, limit),
     (searchDocs) => ({ ...emptyProjection(), searchDocs }),
   )
   await promoteProjectionChunks(
     'tool-call',
+    'tool_calls',
+    'tool_call_id',
+    undefined,
     (cursor, limit) => readToolCallChunk(bundle, cursor, limit),
     (toolCalls) => ({ ...emptyProjection(), toolCalls }),
   )
   await promoteProjectionChunks(
     'tool-result',
+    'tool_results',
+    'tool_result_id',
+    'tool_call_id IS NOT NULL',
     (cursor, limit) => readToolResultChunk(bundle, cursor, limit),
     (toolResults) => ({ ...emptyProjection(), toolResults }),
   )
@@ -663,6 +788,12 @@ export function syncCommand(): Command {
       parseObjectConcurrency,
       DEFAULT_OBJECT_UPLOAD_CONCURRENCY,
     )
+    .option(
+      '--batch-concurrency <n>',
+      `concurrent chunked sync batches per phase (default: ${DEFAULT_BATCH_CONCURRENCY}; range ${MIN_BATCH_CONCURRENCY}-${MAX_BATCH_CONCURRENCY})`,
+      parseBatchConcurrency,
+      DEFAULT_BATCH_CONCURRENCY,
+    )
     .option('--config <path>', 'override CLI config path')
     .action(async (options: SyncOptions) => {
       const configPath = options.configPath ?? defaultConfigPath()
@@ -696,7 +827,7 @@ export function syncCommand(): Command {
 
         if (options.verbose) {
           process.stderr.write(
-            `handshake ok • deviceId=${handshake.deviceId} promoted=${handshake.promoted} objectConcurrency=${options.objectConcurrency}\n`,
+            `handshake ok • deviceId=${handshake.deviceId} promoted=${handshake.promoted} objectConcurrency=${options.objectConcurrency} batchConcurrency=${options.batchConcurrency}\n`,
           )
         }
 
@@ -721,6 +852,7 @@ export function syncCommand(): Command {
             casObjects: counts.casObjects,
             limitViolations,
             estimatedBatches,
+            batchConcurrency: options.batchConcurrency,
             cleanupEligible: limitViolations.length === 0,
           }
           process.stdout.write(
@@ -751,6 +883,7 @@ export function syncCommand(): Command {
             maxObjectsPerPlan: handshake.limits.maxObjectsPerPlan,
             maxRowsPerCommit: handshake.limits.maxRowsPerCommit,
             objectConcurrency: options.objectConcurrency,
+            batchConcurrency: options.batchConcurrency,
             verbose: options.verbose,
           })
           result = {
