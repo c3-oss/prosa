@@ -92,11 +92,11 @@ describe('multi-device remote-only reads', () => {
         (unverifiedSessions.json() as { result: { data: { rows: Array<{ id: string }> } } }).result.data.rows,
       ).toEqual([])
 
-      // CQ-005: remote search.query fails closed in v0 (501) — no
-      // promoted FTS surface yet, so calling it without verified data
-      // is the same NOT_IMPLEMENTED response we get with data.
       const unverifiedSearch = await trpc(t, 'search.query', { q: 'widgets' }, auth.token, 'GET')
-      expect(unverifiedSearch.statusCode).toBe(501)
+      expect(unverifiedSearch.statusCode).toBe(200)
+      expect(
+        (unverifiedSearch.json() as { result: { data: { rows: Array<{ id: string }> } } }).result.data.rows,
+      ).toEqual([])
 
       const unverifiedAnalytics = await trpc(t, 'analytics.summary', undefined, auth.token, 'GET')
       expect(unverifiedAnalytics.statusCode).toBe(200)
@@ -132,11 +132,11 @@ describe('multi-device remote-only reads', () => {
       }
       expect(sessionsBody.result.data.rows.map((s) => s.id).sort()).toEqual(['sess-A1', 'sess-A2'])
 
-      // CQ-005: remote search.query still fails closed in v0 even with
-      // verified data, because the promoted search projection lacks the
-      // FTS / rank / metadata columns required by the lane 04 contract.
       const search = await trpc(t, 'search.query', { q: 'widgets' }, auth.token, 'GET')
-      expect(search.statusCode).toBe(501)
+      expect(search.statusCode).toBe(200)
+      expect((search.json() as { result: { data: { rows: Array<{ id: string }> } } }).result.data.rows).toEqual([
+        expect.objectContaining({ id: 'doc-A1' }),
+      ])
 
       const analytics = await trpc(t, 'analytics.summary', undefined, auth.token, 'GET')
       const analyticsBody = analytics.json() as {

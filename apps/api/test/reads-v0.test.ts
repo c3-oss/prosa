@@ -95,6 +95,42 @@ async function seedVerifiedSession(t: TestApp, auth: SignupResult): Promise<void
             body: 'plan timeline panel structure for the console',
           },
         ],
+        toolCalls: [
+          {
+            id: 'tc-error',
+            sessionId: 'sess-codex-1',
+            name: 'fs.write',
+            status: 'error',
+            createdAt: '2026-04-01T10:02:00.000Z',
+          },
+          {
+            id: 'tc-success',
+            sessionId: 'sess-claude-1',
+            name: 'shell.exec',
+            status: 'success',
+            createdAt: '2026-04-02T12:01:00.000Z',
+          },
+        ],
+        toolResults: [
+          {
+            id: 'tr-error',
+            toolCallId: 'tc-error',
+            status: 'error',
+            finishedAt: '2026-04-01T10:02:10.000Z',
+          },
+          {
+            id: 'tr-success-old-error',
+            toolCallId: 'tc-success',
+            status: 'error',
+            finishedAt: '2026-04-02T12:01:05.000Z',
+          },
+          {
+            id: 'tr-success',
+            toolCallId: 'tc-success',
+            status: 'success',
+            finishedAt: '2026-04-02T12:01:30.000Z',
+          },
+        ],
       },
     },
     auth.token,
@@ -108,31 +144,17 @@ async function seedVerifiedSession(t: TestApp, auth: SignupResult): Promise<void
       storePath: '/tmp/.prosa-reads',
       declaredSessionIds: ['sess-codex-1', 'sess-claude-1'],
       declaredSearchDocIds: ['doc-codex-1', 'doc-claude-1'],
+      declaredToolCallIds: ['tc-error', 'tc-success'],
+      declaredToolResultIds: ['tr-error', 'tr-success-old-error', 'tr-success'],
     },
     auth.token,
   )
   expect(verifyResp.statusCode).toBe(200)
 
-  // Seed the auxiliary projection rows directly. The sync commit surface
-  // currently only upserts sessions + searchDocs (sourceFiles/rawRecords);
-  // tool calls, results, messages, and events arrive through a future
-  // expansion of the commit shape. The verified-manifest gate is already
-  // satisfied by the session rows above, so reads still respect it.
+  // Seed only auxiliary rows that still have no sync projection manifest.
+  // Tool calls/results above arrive through commitUpload and are verified
+  // row-by-row before reads can expose them.
   const tenantId = auth.tenant.id
-  await t.pglite.query(
-    `INSERT INTO "projection_tool_call"(tenant_id, id, session_id, turn_id, name, status, input_object_id, created_at)
-       VALUES
-         ($1, 'tc-1', 'sess-codex-1', NULL, 'shell.exec', 'ok', NULL, '2026-04-01T10:01:00Z'),
-         ($1, 'tc-2', 'sess-codex-1', NULL, 'fs.write', 'error', NULL, '2026-04-01T10:02:00Z')`,
-    [tenantId],
-  )
-  await t.pglite.query(
-    `INSERT INTO "projection_tool_result"(tenant_id, id, tool_call_id, output_object_id, status, finished_at)
-       VALUES
-         ($1, 'tr-1', 'tc-1', NULL, 'ok', '2026-04-01T10:01:30Z'),
-         ($1, 'tr-2', 'tc-2', NULL, 'error', '2026-04-01T10:02:10Z')`,
-    [tenantId],
-  )
   await t.pglite.query(
     `INSERT INTO "projection_message"(tenant_id, id, session_id, turn_id, role, model, created_at)
        VALUES
@@ -144,7 +166,7 @@ async function seedVerifiedSession(t: TestApp, auth: SignupResult): Promise<void
     `INSERT INTO "projection_event"(tenant_id, id, session_id, turn_id, sequence, kind, payload, occurred_at)
        VALUES
          ($1, 'ev-1', 'sess-codex-1', NULL, 0, 'message', '{"messageId":"msg-1"}'::jsonb, '2026-04-01T10:00:30Z'),
-         ($1, 'ev-2', 'sess-codex-1', NULL, 1, 'toolCall', '{"toolCallId":"tc-1"}'::jsonb, '2026-04-01T10:01:00Z')`,
+         ($1, 'ev-2', 'sess-codex-1', NULL, 1, 'toolCall', '{"toolCallId":"tc-error"}'::jsonb, '2026-04-01T10:01:00Z')`,
     [tenantId],
   )
 }
@@ -178,11 +200,15 @@ describe('Read API v0', () => {
       expect(data.nextCursor).toBeNull()
 
       const codexRow = data.rows.find((r) => r.id === 'sess-codex-1')
-      // CQ-004: aggregate auxiliary counts are always 0 in v0 because the
-      // auxiliary projection tables have no row-level verified provenance.
+      // Tool calls/results now have verified manifest entries; messages still
+      // fail closed until their projection rows are promoted and verified.
       expect(codexRow?.messageCount).toBe(0)
-      expect(codexRow?.toolCallCount).toBe(0)
-      expect(codexRow?.errorCount).toBe(0)
+      expect(codexRow?.toolCallCount).toBe(1)
+      expect(codexRow?.errorCount).toBe(1)
+
+      const claudeRow = data.rows.find((r) => r.id === 'sess-claude-1')
+      expect(claudeRow?.toolCallCount).toBe(1)
+      expect(claudeRow?.errorCount).toBe(0)
 
       // Cursor pagination: limit=1 yields a cursor, second page completes the set.
       const page1 = await trpc(t, 'sessions.list', { limit: 1 }, auth.token, 'GET')
@@ -251,7 +277,7 @@ describe('Read API v0', () => {
     }
   })
 
-  it('toolCalls.list fails closed with an empty page (CQ-004)', async () => {
+  it('toolCalls.list returns tool calls attached to verified sessions', async () => {
     const t = await buildTestApp()
     try {
       const auth = await signup(t, 'reads-tc@example.com')
@@ -262,13 +288,45 @@ describe('Read API v0', () => {
       const data = (
         calls.json() as {
           result: {
-            data: { rows: unknown[]; nextCursor: string | null; verifiedAuxiliaryAvailable: boolean }
+            data: {
+              rows: Array<{
+                id: string
+                sessionId: string
+                sessionTitle: string | null
+                sourceKind: string
+                name: string
+                status: string | null
+                resultStatus: string | null
+                durationMs: number | null
+              }>
+              nextCursor: string | null
+              verifiedAuxiliaryAvailable: boolean
+            }
           }
         }
       ).result.data
-      expect(data.rows).toEqual([])
+      expect(data.rows.map((row) => row.id)).toEqual(['tc-success', 'tc-error'])
+      expect(data.rows[1]).toMatchObject({
+        id: 'tc-error',
+        sessionId: 'sess-codex-1',
+        sessionTitle: 'compile bundle',
+        sourceKind: 'codex',
+        name: 'fs.write',
+        status: 'error',
+        resultStatus: 'error',
+        durationMs: 10000,
+      })
       expect(data.nextCursor).toBeNull()
-      expect(data.verifiedAuxiliaryAvailable).toBe(false)
+      expect(data.verifiedAuxiliaryAvailable).toBe(true)
+
+      const errorsOnly = await trpc(t, 'toolCalls.list', { limit: 50, errorsOnly: true }, auth.token, 'GET')
+      expect(errorsOnly.statusCode).toBe(200)
+      const errorsOnlyData = (
+        errorsOnly.json() as {
+          result: { data: { rows: Array<{ id: string }> } }
+        }
+      ).result.data
+      expect(errorsOnlyData.rows.map((row) => row.id)).toEqual(['tc-error'])
 
       // Unsupported filters still fail with BAD_REQUEST (CQ-005).
       const bad = await trpc(t, 'toolCalls.list', { canonicalToolTypes: ['shell'] }, auth.token, 'GET')
@@ -278,27 +336,59 @@ describe('Read API v0', () => {
     }
   })
 
-  it('analytics.report fails closed for every report kind in v0 (CQ-004/CQ-006)', async () => {
-    // The remote projection lacks the verified auxiliary manifest entries
-    // required for parity with the prosa analytics CLI surface (and the
-    // `project` table is not in the manifest). Rather than emit a reduced
-    // shape that drifts from the CLI/local contract, every remote report
-    // fails closed with 501.
+  it('analytics.report returns remote-authoritative reports from verified projection data', async () => {
     const t = await buildTestApp()
     try {
       const auth = await signup(t, 'reads-ana@example.com')
       await seedVerifiedSession(t, auth)
 
-      for (const report of ['sessions', 'tools', 'errors', 'models', 'projects'] as const) {
+      const sessions = await trpc(t, 'analytics.report', { report: 'sessions' }, auth.token, 'GET')
+      expect(sessions.statusCode).toBe(200)
+      const sessionsData = (
+        sessions.json() as {
+          result: {
+            data: {
+              report: 'sessions'
+              rows: Array<{ session_id: string; source_tool: string; title: string | null }>
+              generatedAt: string
+            }
+          }
+        }
+      ).result.data
+      expect(sessionsData.report).toBe('sessions')
+      expect(sessionsData.rows.map((row) => row.session_id).sort()).toEqual(['sess-claude-1', 'sess-codex-1'])
+      expect(sessionsData.rows.find((row) => row.session_id === 'sess-codex-1')).toMatchObject({
+        source_tool: 'codex',
+        title: 'compile bundle',
+      })
+      expect(new Date(sessionsData.generatedAt).toString()).not.toBe('Invalid Date')
+
+      const projects = await trpc(t, 'analytics.report', { report: 'projects' }, auth.token, 'GET')
+      expect(projects.statusCode).toBe(200)
+      const projectsData = (
+        projects.json() as {
+          result: { data: { report: 'projects'; rows: Array<{ source_tool: string; session_count: number }> } }
+        }
+      ).result.data
+      expect(projectsData.report).toBe('projects')
+      expect(projectsData.rows.map((row) => [row.source_tool, row.session_count])).toEqual([
+        ['claude', 1],
+        ['codex', 1],
+      ])
+
+      for (const report of ['tools', 'errors', 'models'] as const) {
         const resp = await trpc(t, 'analytics.report', { report }, auth.token, 'GET')
-        expect(resp.statusCode).toBe(501)
+        expect(resp.statusCode).toBe(200)
+        const data = (resp.json() as { result: { data: { report: typeof report; rows: unknown[] } } }).result.data
+        expect(data.report).toBe(report)
+        expect(data.rows).toEqual([])
       }
     } finally {
       await t.close()
     }
   })
 
-  it('sessions.list/count reject auxiliary-row filters that have no verified manifest (CQ-004)', async () => {
+  it('sessions.list/count reject message filters and support verified tool error filters', async () => {
     const t = await buildTestApp()
     try {
       const auth = await signup(t, 'reads-aux-filters@example.com')
@@ -308,7 +398,7 @@ describe('Read API v0', () => {
         const withModel = await trpc(t, procedure, { model: 'gpt-5' }, auth.token, 'GET')
         expect(withModel.statusCode).toBe(400)
         const withHasErrors = await trpc(t, procedure, { hasErrors: true }, auth.token, 'GET')
-        expect(withHasErrors.statusCode).toBe(400)
+        expect(withHasErrors.statusCode).toBe(200)
       }
     } finally {
       await t.close()
@@ -328,14 +418,32 @@ describe('Read API v0', () => {
     }
   })
 
-  it('search.query fails closed in remote v0 (CQ-005)', async () => {
+  it('search.query returns verified search_doc matches', async () => {
     const t = await buildTestApp()
     try {
       const auth = await signup(t, 'reads-s@example.com')
       await seedVerifiedSession(t, auth)
 
       const resp = await trpc(t, 'search.query', { q: 'widgets' }, auth.token, 'GET')
-      expect(resp.statusCode).toBe(501)
+      expect(resp.statusCode).toBe(200)
+      const data = (
+        resp.json() as {
+          result: {
+            data: {
+              rows: Array<{ id: string; sessionId: string; sessionTitle: string | null; snippet: string }>
+              nextCursor: string | null
+            }
+          }
+        }
+      ).result.data
+      expect(data.rows).toHaveLength(1)
+      expect(data.rows[0]).toMatchObject({
+        id: 'doc-codex-1',
+        sessionId: 'sess-codex-1',
+        sessionTitle: 'compile bundle',
+      })
+      expect(data.rows[0]?.snippet).toContain('widgets')
+      expect(data.nextCursor).toBeNull()
     } finally {
       await t.close()
     }

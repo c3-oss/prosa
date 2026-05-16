@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-export type ProjectionEntityType = 'source_file' | 'raw_record' | 'session' | 'search_doc'
+export type ProjectionEntityType = 'source_file' | 'raw_record' | 'session' | 'search_doc' | 'tool_call' | 'tool_result'
 
 /**
  * Build a SQL fragment that asserts a projection row has a verified sync

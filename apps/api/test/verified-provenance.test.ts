@@ -194,7 +194,7 @@ describe('CQ-004 — auxiliary rows must derive from verified projections', () =
     }
   })
 
-  it('analytics.report fails closed (501) for the sessions report regardless of unverified rows', async () => {
+  it('analytics.report returns only verified sessions and ignores unverified rows', async () => {
     const t = await buildTestApp()
     try {
       const auth = await signup(t, 'cq004-analytics@example.com')
@@ -206,12 +206,12 @@ describe('CQ-004 — auxiliary rows must derive from verified projections', () =
         [auth.tenant.id],
       )
 
-      // CQ-006: remote analytics.report now fails closed for every report
-      // kind in v0 (the projection lacks verified manifest entries for the
-      // auxiliary tables those views depend on). Use the CLI/local
-      // analytics for non-empty data.
       const resp = await trpcGet(t, 'analytics.report', { report: 'sessions' }, auth.token)
-      expect(resp.statusCode).toBe(501)
+      expect(resp.statusCode).toBe(200)
+      const body = resp.json() as {
+        result: { data: { rows: Array<{ session_id: string }> } }
+      }
+      expect(body.result.data.rows.map((row) => row.session_id)).toEqual(['sess-verified'])
     } finally {
       await t.close()
     }

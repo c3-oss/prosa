@@ -11,6 +11,7 @@ import {
   sourceFilter,
   tenantVerifiedProjectionSql,
   timeRangeFilter,
+  verifiedProjectionExistsSql,
 } from './shared.js'
 
 const sessionsListFilters = z.object({
@@ -38,11 +39,9 @@ type SessionRow = {
 }
 
 function rejectUnverifiedAuxiliaryFilters(input: { model?: string; hasErrors?: boolean }): void {
-  // CQ-004: `model` and `hasErrors` would have to join against the unverified
-  // auxiliary projection tables (projection_message / projection_tool_result).
-  // The promotion manifest does not carry row-level verification for those
-  // tables in v0, so applying these filters would let directly-inserted rows
-  // change which sessions appear or how many. Fail closed instead.
+  // `model` still requires projection_message rows, which are not promoted
+  // with row-level manifest entries yet. Tool calls/results now are promoted
+  // and verified, so `hasErrors` is handled in buildSessionWhere.
   if (input.model) {
     throw new TRPCError({
       code: 'BAD_REQUEST',
@@ -50,14 +49,31 @@ function rejectUnverifiedAuxiliaryFilters(input: { model?: string; hasErrors?: b
         'sessions filter "model" is not supported by remote v0 (projection_message has no row-level verified manifest). Use the CLI/local engine.',
     })
   }
-  if (input.hasErrors !== undefined) {
-    throw new TRPCError({
-      code: 'BAD_REQUEST',
-      message:
-        'sessions filter "hasErrors" is not supported by remote v0 (projection_tool_result has no row-level verified manifest). Use the CLI/local engine.',
-    })
-  }
 }
+
+const verifiedToolErrorExistsSql = `EXISTS (
+    SELECT 1
+      FROM "projection_tool_call" c
+      LEFT JOIN LATERAL (
+        SELECT tr.status
+          FROM "projection_tool_result" tr
+         WHERE tr.tenant_id = c.tenant_id
+           AND tr.tool_call_id = c.id
+           AND ${verifiedProjectionExistsSql('tr', 'tool_result')}
+         ORDER BY tr.finished_at DESC NULLS LAST, tr.id DESC
+         LIMIT 1
+      ) r ON TRUE
+     WHERE c.tenant_id = p.tenant_id
+       AND c.session_id = p.id
+       AND ${verifiedProjectionExistsSql('c', 'tool_call')}
+       AND (
+         lower(COALESCE(c.status, '')) IN ('error', 'failed', 'failure')
+         OR (
+           r.status IS NOT NULL
+           AND lower(r.status) NOT IN ('ok', 'success', 'completed')
+         )
+       )
+  )`
 
 function buildSessionWhere(
   tenantId: string,
@@ -85,6 +101,11 @@ function buildSessionWhere(
     const placeholders = input.projectIds.map((id) => appendParam(params, id)).join(', ')
     clauses.push(`p.project_id IN (${placeholders})`)
   }
+  if (input.hasErrors === true) {
+    clauses.push(verifiedToolErrorExistsSql)
+  } else if (input.hasErrors === false) {
+    clauses.push(`NOT ${verifiedToolErrorExistsSql}`)
+  }
   return { whereSql: clauses.join(' AND '), params }
 }
 
@@ -107,20 +128,45 @@ function mapSessionRow(row: SessionRow) {
 
 type SessionsListCursor = { s: string | null; id: string }
 
-// CQ-004: auxiliary projection rows (message, tool_call, tool_result, event,
-// artifact) currently have no row-level verified manifest entries — the
-// promotion manifest only covers `session` and `search_doc`. Until that
-// expansion lands, count subqueries against those tables would surface
-// directly-inserted-but-unverified data attached to a verified session.
-// We therefore report 0 here. Per-row reads (sessions.detail.events,
-// toolCalls.list) do the same fail-closed.
+// Tool calls/results now have row-level verified manifest entries, so their
+// aggregate counts can be exposed. Messages/events/artifacts are still
+// fail-closed until those projection rows are promoted and verified too.
 const baseRowColumns = `p.id, p.source_kind, p.title,
    to_char(p.started_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS started_at,
    to_char(p.ended_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS ended_at,
    p.turn_count, p.project_id,
    0::int AS message_count,
-   0::int AS tool_call_count,
-   0::int AS error_count`
+   (
+     SELECT count(*)::int
+       FROM "projection_tool_call" c
+      WHERE c.tenant_id = p.tenant_id
+        AND c.session_id = p.id
+        AND ${verifiedProjectionExistsSql('c', 'tool_call')}
+   ) AS tool_call_count,
+   (
+     SELECT count(*)::int
+       FROM "projection_tool_call" c
+      WHERE c.tenant_id = p.tenant_id
+        AND c.session_id = p.id
+        AND ${verifiedProjectionExistsSql('c', 'tool_call')}
+        AND (
+          lower(COALESCE(c.status, '')) IN ('error', 'failed', 'failure')
+          OR EXISTS (
+            SELECT 1
+              FROM LATERAL (
+                SELECT tr.status
+                  FROM "projection_tool_result" tr
+                 WHERE tr.tenant_id = c.tenant_id
+                   AND tr.tool_call_id = c.id
+                   AND ${verifiedProjectionExistsSql('tr', 'tool_result')}
+                 ORDER BY tr.finished_at DESC NULLS LAST, tr.id DESC
+                 LIMIT 1
+              ) r
+             WHERE r.status IS NOT NULL
+               AND lower(r.status) NOT IN ('ok', 'success', 'completed')
+          )
+        )
+   ) AS error_count`
 
 export const sessionsRouter = router({
   list: tenantProcedure.input(sessionsListInput.default({})).query(async ({ ctx, input }) => {

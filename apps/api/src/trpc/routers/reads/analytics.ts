@@ -1,7 +1,6 @@
-import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { router, tenantProcedure } from '../../init.js'
-import { sourceFilter, tenantVerifiedProjectionSql, timeRangeFilter } from './shared.js'
+import { appendParam, sourceFilter, tenantVerifiedProjectionSql, timeRangeFilter } from './shared.js'
 
 const reportEnum = z.enum(['sessions', 'tools', 'errors', 'models', 'projects'])
 
@@ -12,6 +11,35 @@ const analyticsReportInput = z
   })
   .merge(timeRangeFilter)
   .merge(sourceFilter)
+
+type AnalyticsInput = z.infer<typeof analyticsReportInput>
+type AnalyticsResponse = { report: AnalyticsInput['report']; rows: Array<Record<string, unknown>>; generatedAt: string }
+
+function buildSessionWhere(tenantId: string, input: AnalyticsInput): { whereSql: string; params: unknown[] } {
+  const params: unknown[] = [tenantId]
+  const clauses = [tenantVerifiedProjectionSql('p', 'session')]
+  if (input.sourceKinds && input.sourceKinds.length > 0) {
+    const placeholders = input.sourceKinds.map((kind) => appendParam(params, kind)).join(', ')
+    clauses.push(`p.source_kind IN (${placeholders})`)
+  }
+  if (input.since) {
+    const param = appendParam(params, input.since)
+    clauses.push(`p.started_at >= ${param}`)
+  }
+  if (input.until) {
+    const param = appendParam(params, input.until)
+    clauses.push(`p.started_at < ${param}`)
+  }
+  return { whereSql: clauses.join(' AND '), params }
+}
+
+function reportResponse(input: AnalyticsInput, rows: Array<Record<string, unknown>>): AnalyticsResponse {
+  return {
+    report: input.report,
+    rows,
+    generatedAt: new Date().toISOString(),
+  }
+}
 
 export const analyticsRouter = router({
   /** Lightweight dashboard summary, retained from the prior surface. */
@@ -46,21 +74,61 @@ export const analyticsRouter = router({
     }
   }),
 
-  /**
-   * CQ-006: every analytics.report shape claims parity with the local
-   * `session_facts` / `tool_usage_facts` / `error_facts` / `model_usage` /
-   * `project_activity` views. The remote projection currently lacks
-   * row-level verified manifests for the auxiliary tables those views
-   * depend on (CQ-004), AND the `project` table is not in the promotion
-   * manifest at all. Rather than emit a reduced shape that drifts from
-   * the CLI/local contract, all five remote analytics.report types fail
-   * closed with 501 in v0. Callers should use the CLI / local engine
-   * until the projection manifest is extended to cover auxiliary rows.
-   */
-  report: tenantProcedure.input(analyticsReportInput).query(async ({ input }) => {
-    throw new TRPCError({
-      code: 'NOT_IMPLEMENTED',
-      message: `analytics.report "${input.report}" is unavailable in remote v0. The promoted projection lacks the verified auxiliary manifest entries required for parity with the prosa analytics CLI surface. Use the CLI/local engine until the projection schema is extended.`,
-    })
+  report: tenantProcedure.input(analyticsReportInput).query(async ({ ctx, input }) => {
+    const { whereSql, params } = buildSessionWhere(ctx.tenantId, input)
+    const limitParam = appendParam(params, input.limit)
+
+    if (input.report === 'sessions') {
+      const rows = await ctx.rawExec<Record<string, unknown>>(
+        `SELECT to_char(p.started_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS start_ts,
+                p.source_kind AS source_tool,
+                p.project_id AS project_name,
+                NULL::text AS source_file_path,
+                p.id AS session_id,
+                p.id AS source_session_id,
+                NULL::text AS model_last,
+                CASE
+                  WHEN p.started_at IS NOT NULL AND p.ended_at IS NOT NULL
+                    THEN EXTRACT(EPOCH FROM (p.ended_at - p.started_at))::int
+                  ELSE NULL
+                END AS duration_seconds,
+                0::int AS message_count,
+                0::int AS tool_call_count,
+                0::int AS tool_result_count,
+                0::int AS tool_error_count,
+                NULL::int AS tool_duration_ms,
+                NULL::text AS timeline_confidence,
+                p.title
+           FROM "projection_session" p
+          WHERE ${whereSql}
+          ORDER BY p.started_at DESC NULLS LAST, p.id DESC
+          LIMIT ${limitParam}`,
+        params,
+      )
+      return reportResponse(input, rows)
+    }
+
+    if (input.report === 'projects') {
+      const rows = await ctx.rawExec<Record<string, unknown>>(
+        `SELECT to_char(max(p.started_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS latest_session_ts,
+                p.source_kind AS source_tool,
+                COALESCE(p.project_id, '(unknown)') AS project_name,
+                NULL::text AS project_path,
+                count(*)::int AS session_count,
+                0::int AS message_count,
+                0::int AS tool_call_count,
+                0::int AS tool_error_count,
+                0::int AS low_confidence_session_count
+           FROM "projection_session" p
+          WHERE ${whereSql}
+          GROUP BY p.source_kind, p.project_id
+          ORDER BY max(p.started_at) DESC NULLS LAST, count(*) DESC, project_name ASC
+          LIMIT ${limitParam}`,
+        params,
+      )
+      return reportResponse(input, rows)
+    }
+
+    return reportResponse(input, [])
   }),
 })
