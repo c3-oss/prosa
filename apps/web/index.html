@@ -16,6 +16,18 @@
       rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap"
     />
+    <script>
+      (function () {
+        try {
+          var stored = window.localStorage.getItem('prosa:theme');
+          var pref = stored === 'light' || stored === 'dark' ? stored : 'system';
+          var resolved = pref === 'system'
+            ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+            : pref;
+          document.documentElement.setAttribute('data-theme', resolved);
+        } catch (_e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="app"></div>

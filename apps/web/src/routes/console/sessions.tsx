@@ -1,9 +1,15 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { useAuth } from '~/app/auth-context.js'
 import { useAppContext } from '~/app/providers.js'
-import { DEFAULT_FILTERS, SessionsFilterBar, type SessionsFilters } from '~/components/console/sessions-filter-bar.js'
+import {
+  DEFAULT_FILTERS,
+  SessionsFilterBar,
+  SessionsFilterToolbar,
+  type SessionsFilters,
+  countActiveFilters,
+} from '~/components/console/sessions-filter-bar.js'
 import { type SessionRow, SessionsTable } from '~/components/console/sessions-table.js'
 import { Button } from '~/components/primitives/button.js'
 import { EmptyState } from '~/components/primitives/empty-state.js'
@@ -19,6 +25,26 @@ function toIsoOrUndefined(value: string | undefined): string | undefined {
   const parsed = new Date(value)
   if (Number.isNaN(parsed.getTime())) return undefined
   return parsed.toISOString()
+}
+
+// Persist the filter drawer state across reloads. localStorage may be unavailable
+// (private mode, SSR-ish prerender) so we wrap both read and write in try/catch.
+const FILTERS_OPEN_STORAGE_KEY = 'prosa:sessions-filters:open'
+
+function readFiltersOpen(): boolean {
+  try {
+    return globalThis.localStorage?.getItem(FILTERS_OPEN_STORAGE_KEY) === 'true'
+  } catch {
+    return false
+  }
+}
+
+function writeFiltersOpen(open: boolean): void {
+  try {
+    globalThis.localStorage?.setItem(FILTERS_OPEN_STORAGE_KEY, open ? 'true' : 'false')
+  } catch {
+    // ignore — non-critical UI preference
+  }
 }
 
 function buildListInput(filters: SessionsFilters, cursor: string | null) {
@@ -37,8 +63,19 @@ export function ConsoleSessions() {
   const { me } = useAuth()
   const tenantId = me?.tenantId ?? null
   const [filters, setFilters] = useState<SessionsFilters>(DEFAULT_FILTERS)
+  const [filtersOpen, setFiltersOpen] = useState<boolean>(() => readFiltersOpen())
   const [cursor, setCursor] = useState<string | null>(null)
   const [cursorStack, setCursorStack] = useState<Array<string | null>>([])
+
+  const toggleFiltersOpen = useCallback(() => {
+    setFiltersOpen((prev) => {
+      const next = !prev
+      writeFiltersOpen(next)
+      return next
+    })
+  }, [])
+
+  const activeFilterCount = useMemo(() => countActiveFilters(filters), [filters])
 
   // Reset cursor whenever filters change. Biome's exhaustive-deps lint flags
   // `filters` as unused on the rule's behalf, but we deliberately rerun this
@@ -104,11 +141,7 @@ export function ConsoleSessions() {
       <header className="console-page-header">
         <div>
           <h1>Sessions</h1>
-          <p>
-            {total == null
-              ? 'Paginated session table backed by sessions.list.'
-              : `${total.toLocaleString()} session${total === 1 ? '' : 's'} match the current filters.`}
-          </p>
+          <p>Promoted sessions for this tenant.</p>
         </div>
       </header>
       <div className="console-content">
@@ -121,7 +154,17 @@ export function ConsoleSessions() {
           />
         ) : (
           <>
-            <SessionsFilterBar value={filters} onChange={setFilters} />
+            <SessionsFilterToolbar
+              open={filtersOpen}
+              onToggle={toggleFiltersOpen}
+              activeCount={activeFilterCount}
+              right={
+                total == null
+                  ? null
+                  : `${total.toLocaleString()} session${total === 1 ? '' : 's'} match the current filters.`
+              }
+            />
+            <SessionsFilterBar value={filters} onChange={setFilters} open={filtersOpen} />
             {showEmpty ? (
               <EmptyState
                 title="No promoted sessions yet"
