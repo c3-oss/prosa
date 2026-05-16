@@ -301,7 +301,12 @@ describe('CLI sync uploads CAS objects', () => {
 
     const syncOut = await capturedRun(['sync', '--server', h.baseUrl, '--store', h.storePath, '--verbose', '--json'])
     expect(syncOut.stdout).toContain('"ok":true')
-    expect(syncOut.stdout).toContain('packed in 1 pack(s)')
+    const syncJson = JSON.parse(syncOut.stdout) as {
+      metrics: { objectsMissing: number; objectsUploaded: number; bytesUploaded: number }
+    }
+    expect(syncJson.metrics.objectsMissing).toBe(1)
+    expect(syncJson.metrics.objectsUploaded).toBe(1)
+    expect(syncJson.metrics.bytesUploaded).toBeGreaterThan(0)
 
     // Confirm tenant_object, source_file, and raw_record rows were all
     // persisted server-side — proves every projection class moved.

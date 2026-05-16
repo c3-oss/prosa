@@ -116,6 +116,10 @@ class PreverifiedOnlyStore implements RemoteObjectStore {
     throw new Error('not used')
   }
 
+  async getRange(_key: string, _offset: number, _length: number): Promise<ReadableStream<Uint8Array>> {
+    throw new Error('not used')
+  }
+
   async delete(_key: string): Promise<void> {}
 }
 

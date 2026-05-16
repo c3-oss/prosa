@@ -3,7 +3,7 @@ import path from 'node:path'
 import type { PromotionReceipt } from '@c3-oss/prosa-sync'
 import type { ProsaApiClient } from '../auth/client.js'
 import { type LocalBundleUpload, type LocalCasObject, readLocalCasObjectBytes } from './bundle.js'
-import { mapConcurrent } from './concurrency.js'
+import { mapConcurrent, mapConcurrentResults } from './concurrency.js'
 
 export type SyncMetrics = {
   planMs: number
@@ -234,10 +234,10 @@ export async function promoteUpload({
     sourceFiles,
     toolCalls,
     toolResults,
-    messages,
-    contentBlocks,
-    events,
-    artifacts,
+    messages = [],
+    contentBlocks = [],
+    events = [],
+    artifacts = [],
   } = upload
   const objectEntries = casObjects.map((c) => c.entry)
   const metrics = emptySyncMetrics(objectConcurrency)
@@ -266,7 +266,7 @@ export async function promoteUpload({
   const missingSet = new Set(plan.missingObjectIds)
   const missingObjects = casObjects.filter(({ entry }) => missingSet.has(entry.objectId))
   const uploadStart = Date.now()
-  const preparedMissingObjects = await mapConcurrent(missingObjects, objectConcurrency, async (object) => {
+  const preparedMissingObjects = await mapConcurrentResults(missingObjects, objectConcurrency, async (object) => {
     const bytes = await bytesForUpload(storePath, object, metrics)
     return { ...object, bytes }
   })

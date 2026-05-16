@@ -123,7 +123,13 @@ async function verifyCommitObjectBytes(opts: {
   const hint = await loadBatchObjectProofHint(opts)
   if (canTrustFreshPlanForObjects(hint)) return
   await mapWithConcurrency(opts.objects, objectStoreIoConcurrency, async (object) =>
-    requireStoredObject({ objectStore: opts.objectStore, object, storageKey: storageKeyForObject(object) }),
+    requireStoredObject({
+      rawExec: opts.rawExec,
+      objectStore: opts.objectStore,
+      object,
+      storageKey: storageKeyForObject(object),
+      tenantId: opts.tenantId,
+    }),
   )
 }
 
