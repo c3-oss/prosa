@@ -11,6 +11,7 @@ import { initCommand } from './commands/init.js'
 import { mcpCommand } from './commands/mcp.js'
 import { queryCommand } from './commands/query.js'
 import { searchCommand } from './commands/search.js'
+import { sessionCommand } from './commands/session.js'
 import { sessionsCommand } from './commands/sessions.js'
 import { syncCommand } from './commands/sync.js'
 import { tuiCommand } from './commands/tui.js'
@@ -50,6 +51,7 @@ export async function runCli(argv: readonly string[]): Promise<void> {
   program.addCommand(compileAllCommand())
   program.addCommand(indexCommand())
   program.addCommand(sessionsCommand())
+  program.addCommand(sessionCommand())
   program.addCommand(searchCommand())
   program.addCommand(exportCommand())
   program.addCommand(queryCommand())
