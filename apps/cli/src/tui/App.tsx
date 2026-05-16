@@ -19,7 +19,12 @@ interface Props {
   bundle: Bundle
 }
 
-const TOOL_FILTERS: (SourceTool | 'all')[] = ['all', 'codex', 'claude', 'gemini', 'cursor', 'hermes']
+// Hand-rolled cycle order for the `s` shortcut; not derived from SOURCE_TOOLS
+// because the canonical ordering there is alphabetical-ish and would surprise
+// people pressing `s` (the test suite locks the order down).
+const TOOL_FILTERS: readonly (SourceTool | 'all')[] = ['all', 'codex', 'claude', 'gemini', 'cursor', 'hermes']
+/** Vim's `gg` requires two presses; the second must land within this window. */
+const VIM_DOUBLE_PRESS_MS = 500
 
 /** Ink root component for browsing sessions, search hits, and session timelines. */
 export function App({ bundle }: Props): React.JSX.Element {
@@ -148,7 +153,7 @@ export function App({ bundle }: Props): React.JSX.Element {
           setPendingG(false)
         } else {
           setPendingG(true)
-          setTimeout(() => setPendingG(false), 500)
+          setTimeout(() => setPendingG(false), VIM_DOUBLE_PRESS_MS)
         }
         return
       }
@@ -183,7 +188,7 @@ export function App({ bundle }: Props): React.JSX.Element {
         setPendingG(false)
       } else {
         setPendingG(true)
-        setTimeout(() => setPendingG(false), 500)
+        setTimeout(() => setPendingG(false), VIM_DOUBLE_PRESS_MS)
       }
       return
     }
@@ -266,6 +271,46 @@ function FilterBar({
   )
 }
 
+function formatSessionRow(row: SessionRow, isSelected: boolean): string {
+  const cursor = isSelected ? '› ' : '  '
+  const ts = pad(row.start_ts ?? '—', 24)
+  const tool = pad(row.source_tool, 7)
+  const messages = pad(row.message_count.toString(), 5)
+  const toolCalls = pad(row.tool_call_count.toString(), 5)
+  const cwd = trim(row.cwd_initial ?? '—', 32)
+  const title = trim(row.title ?? row.source_session_id, 30)
+  return `${cursor}${ts} ${tool} ${messages} ${toolCalls} ${cwd} ${title}`
+}
+
+function formatSearchHit(hit: SearchHit, isSelected: boolean): string {
+  const cursor = isSelected ? '› ' : '  '
+  const ts = pad(hit.timestamp ?? '—', 24)
+  const role = pad(hit.role ?? '—', 10)
+  const sessionId = trim(hit.session_id ?? '—', 16)
+  const snippet = trim(hit.snippet.replace(/\s+/g, ' '), 80)
+  return `${cursor}${ts} ${role} ${sessionId} ${snippet}`
+}
+
+function buildDetailHeaderLines(detail: SessionDetail): string[] {
+  const s = detail.session
+  return [
+    `# session ${s.session_id}`,
+    `source: ${s.source_tool}  ·  start: ${s.start_ts ?? '—'}`,
+    `cwd: ${s.cwd_initial ?? '—'}  ·  branch: ${s.git_branch_initial ?? '—'}`,
+    `models: ${s.model_first ?? '?'} → ${s.model_last ?? '?'}`,
+    `messages: ${s.message_count}  ·  tool_calls: ${s.tool_call_count}  ·  confidence: ${s.timeline_confidence}`,
+    '',
+  ]
+}
+
+function formatEventLine(e: SessionDetail['events'][number]): string {
+  const role = e.role ? `[${e.role}] ` : ''
+  const tool = e.tool_name ? ` tool=${e.tool_name}` : ''
+  const err = e.is_error === 1 ? ' ERROR' : ''
+  const ts = e.timestamp ?? ''
+  return `${pad(ts, 24)} ${pad(e.event_type, 18)} ${role}${tool}${err}`
+}
+
 /** Render the scrollable session list with the selected row highlighted. */
 function SessionList({
   rows,
@@ -282,12 +327,11 @@ function SessionList({
   return (
     <Box flexDirection="column" height={height}>
       {slice.map((row, i) => {
-        const realIndex = window.startIndex + i
-        const isSelected = realIndex === selected
+        const isSelected = window.startIndex + i === selected
         return (
           <Box key={row.session_id}>
             <Text color={isSelected ? 'black' : undefined} backgroundColor={isSelected ? 'cyan' : undefined}>
-              {`${isSelected ? '› ' : '  '}${pad(row.start_ts ?? '—', 24)} ${pad(row.source_tool, 7)} ${pad(row.message_count.toString(), 5)} ${pad(row.tool_call_count.toString(), 5)} ${trim(row.cwd_initial ?? '—', 32)} ${trim(row.title ?? row.source_session_id, 30)}`}
+              {formatSessionRow(row, isSelected)}
             </Text>
           </Box>
         )
@@ -311,12 +355,11 @@ function SearchList({
   return (
     <Box flexDirection="column" height={height}>
       {slice.map((hit, i) => {
-        const realIndex = window.startIndex + i
-        const isSelected = realIndex === selected
+        const isSelected = window.startIndex + i === selected
         return (
           <Box key={hit.doc_id}>
             <Text color={isSelected ? 'black' : undefined} backgroundColor={isSelected ? 'cyan' : undefined}>
-              {`${isSelected ? '› ' : '  '}${pad(hit.timestamp ?? '—', 24)} ${pad(hit.role ?? '—', 10)} ${trim(hit.session_id ?? '—', 16)} ${trim(hit.snippet.replace(/\s+/g, ' '), 80)}`}
+              {formatSearchHit(hit, isSelected)}
             </Text>
           </Box>
         )
@@ -335,21 +378,8 @@ function DetailView({
   scroll: number
   height: number
 }): React.JSX.Element {
-  const headerLines = [
-    `# session ${detail.session.session_id}`,
-    `source: ${detail.session.source_tool}  ·  start: ${detail.session.start_ts ?? '—'}`,
-    `cwd: ${detail.session.cwd_initial ?? '—'}  ·  branch: ${detail.session.git_branch_initial ?? '—'}`,
-    `models: ${detail.session.model_first ?? '?'} → ${detail.session.model_last ?? '?'}`,
-    `messages: ${detail.session.message_count}  ·  tool_calls: ${detail.session.tool_call_count}  ·  confidence: ${detail.session.timeline_confidence}`,
-    '',
-  ]
-  const eventLines = detail.events.map((e) => {
-    const role = e.role ? `[${e.role}] ` : ''
-    const tool = e.tool_name ? ` tool=${e.tool_name}` : ''
-    const err = e.is_error === 1 ? ' ERROR' : ''
-    const ts = e.timestamp ?? ''
-    return `${pad(ts, 24)} ${pad(e.event_type, 18)} ${role}${tool}${err}`
-  })
+  const headerLines = buildDetailHeaderLines(detail)
+  const eventLines = detail.events.map(formatEventLine)
   const allLines = [...headerLines, ...eventLines]
   const slice = allLines.slice(scroll, scroll + height)
   return (

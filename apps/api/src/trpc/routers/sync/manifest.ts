@@ -4,9 +4,17 @@ import type { ObjectManifestEntry } from '@c3-oss/prosa-sync'
 import type { RawExec } from '../../../db.js'
 import { TRPCError } from '../../init.js'
 
+/**
+ * Hard caps applied to one batch. Sized to keep promotion plans and receipts
+ * small enough to fit comfortably in a single request body and to avoid
+ * pathological row-by-row transactions on the projection tables.
+ */
 export const syncLimits = {
+  /** Per-batch object manifest entries. Caps the planned upload list. */
   maxObjectsPerPlan: 5000,
+  /** Per-batch projection rows (sessions + source files + raw records + search docs). */
   maxRowsPerCommit: 10_000,
+  /** Per-object byte ceiling, matches the HTTP upload route body limit. */
   maxObjectBytes: 256 * 1024 * 1024,
 }
 
@@ -50,6 +58,14 @@ export function validateObjectManifest(obj: ObjectManifestEntry): ObjectManifest
   return { ...obj, hash, transportHash }
 }
 
+/**
+ * Order-independent JSON serializer used to compute the promotion-receipt
+ * digest. Object keys are sorted recursively so two structurally equal
+ * payloads always produce the same string (and therefore the same hash),
+ * regardless of insertion order. Do not replace with `JSON.stringify` — that
+ * preserves insertion order and would break receipt comparison across
+ * different clients.
+ */
 export function stableJson(value: unknown): string {
   if (value === null || value === undefined) return 'null'
   if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`
