@@ -282,7 +282,7 @@ export function remoteObjectCatalogMatches(
     row.compression === object.compression &&
     Number(row.uncompressed_size) === object.uncompressedSize &&
     Number(row.compressed_size) === object.compressedSize &&
-    row.storage_key === storageKey
+    (row.storage_key == null || row.storage_key === storageKey)
   )
 }
 

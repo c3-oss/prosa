@@ -181,3 +181,12 @@ function bodyToWebStream(body: unknown, emptyMessage: string): ReadableStream<Ui
     },
   })
 }
+
+function isPreconditionFailed(err: unknown): boolean {
+  const value = err as { name?: string; Code?: string; $metadata?: { httpStatusCode?: number } }
+  return (
+    value.name === 'PreconditionFailed' ||
+    value.Code === 'PreconditionFailed' ||
+    value.$metadata?.httpStatusCode === 412
+  )
+}

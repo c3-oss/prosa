@@ -14,6 +14,7 @@ import {
 import { assertNoConflict, verifyBytes } from '../verify.js'
 
 const LOCK_RETRY_MS = 5
+const LOCK_RETRY_ATTEMPTS = 1_000
 
 /**
  * Filesystem-backed object store. Single-node, suitable for self-host or
@@ -140,4 +141,38 @@ function assertValidRange(key: string, total: number, offset: number, length: nu
   if (offset + length > total) {
     throw new Error(`FsObjectStore.getRange: range exceeds object length for ${key}`)
   }
+}
+
+async function readExisting(absolute: string, metaPath: string): Promise<ObjectMeta | null> {
+  try {
+    await stat(absolute)
+    const raw = await readFile(metaPath, 'utf8')
+    return JSON.parse(raw) as ObjectMeta
+  } catch (err) {
+    const code = (err as { code?: string }).code
+    if (code === 'ENOENT') return null
+    throw err
+  }
+}
+
+async function acquireFileLock(lockPath: string): Promise<() => Promise<void>> {
+  await mkdir(dirname(lockPath), { recursive: true })
+  for (let attempt = 0; attempt < LOCK_RETRY_ATTEMPTS; attempt += 1) {
+    try {
+      const handle = await open(lockPath, 'wx')
+      await handle.close()
+      return async () => {
+        await rm(lockPath, { force: true })
+      }
+    } catch (err) {
+      const code = (err as { code?: string }).code
+      if (code !== 'EEXIST') throw err
+      await sleep(LOCK_RETRY_MS)
+    }
+  }
+  throw new Error(`FsObjectStore: timed out acquiring lock ${lockPath}`)
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
