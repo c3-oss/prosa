@@ -6,6 +6,9 @@ import './styles/tokens.css'
 import './styles/global.css'
 import './styles/marketing.css'
 import './styles/console.css'
+// `highlight.js` ships theme CSS as plain stylesheets; the dark theme matches
+// the console palette without extra tuning.
+import 'highlight.js/styles/github-dark.css'
 
 const container = document.getElementById('app')
 if (!container) {

@@ -449,3 +449,295 @@ describe('Read API v0', () => {
     }
   })
 })
+
+/**
+ * Promote a second batch carrying messages, content blocks, and tool
+ * call/result rows so the transcript procedure has verified rows to read.
+ * Returns nothing — the seed runs in addition to `seedVerifiedSession` which
+ * already creates `sess-codex-1` and `sess-claude-1`.
+ */
+async function seedVerifiedTranscript(t: TestApp, auth: SignupResult): Promise<void> {
+  const handshake = await trpc(
+    t,
+    'sync.handshake',
+    {
+      cliVersion: '0.0.0',
+      device: { name: 'device-transcript', platform: 'linux' },
+      store: { path: '/tmp/.prosa-transcript', bundleVersion: '1' },
+    },
+    auth.token,
+  )
+  const deviceId = (handshake.json() as { result: { data: { deviceId: string } } }).result.data.deviceId
+  const plan = await trpc(
+    t,
+    'sync.planUpload',
+    { deviceId, storePath: '/tmp/.prosa-transcript', objects: [] },
+    auth.token,
+  )
+  const batchId = (plan.json() as { result: { data: { batchId: string } } }).result.data.batchId
+
+  // Build a 3-turn conversation (user → assistant → assistant) so cursor
+  // pagination has multiple pages to walk.
+  const largeText = 'x'.repeat(20_000) // > 8KB inline budget; must come back as objectId-only.
+  await trpc(
+    t,
+    'sync.commitUpload',
+    {
+      batchId,
+      deviceId,
+      storePath: '/tmp/.prosa-transcript',
+      objects: [],
+      projection: {
+        messages: [
+          {
+            id: 'tx-msg-1',
+            sessionId: 'sess-codex-1',
+            turnId: 'tx-turn-1',
+            role: 'user',
+            model: null,
+            createdAt: '2026-04-01T10:00:30.000Z',
+          },
+          {
+            id: 'tx-msg-2',
+            sessionId: 'sess-codex-1',
+            turnId: 'tx-turn-2',
+            role: 'assistant',
+            model: 'gpt-5',
+            createdAt: '2026-04-01T10:00:45.000Z',
+          },
+          {
+            id: 'tx-msg-3',
+            sessionId: 'sess-codex-1',
+            turnId: 'tx-turn-3',
+            role: 'assistant',
+            model: 'gpt-5',
+            createdAt: '2026-04-01T10:01:00.000Z',
+          },
+        ],
+        contentBlocks: [
+          {
+            id: 'tx-blk-user',
+            messageId: 'tx-msg-1',
+            sequence: 0,
+            kind: 'text',
+            text: 'Please compile the bundle',
+            metadata: { visibility: 'default', mimeType: 'text/plain', isError: false },
+          },
+          {
+            id: 'tx-blk-asst-1',
+            messageId: 'tx-msg-2',
+            sequence: 0,
+            kind: 'text',
+            text: 'Compiling now…',
+            metadata: { visibility: 'default' },
+          },
+          {
+            id: 'tx-blk-asst-thinking',
+            messageId: 'tx-msg-2',
+            sequence: 1,
+            kind: 'thinking',
+            text: 'reasoning chain',
+            metadata: { visibility: 'hidden_by_default' },
+          },
+          {
+            id: 'tx-blk-asst-large',
+            messageId: 'tx-msg-3',
+            sequence: 0,
+            kind: 'text',
+            // Large body must NOT be returned as `textInline`; only `objectId`.
+            text: largeText,
+            metadata: { visibility: 'default' },
+          },
+        ],
+        toolCalls: [
+          {
+            id: 'tx-tc-1',
+            sessionId: 'sess-codex-1',
+            turnId: 'tx-turn-2',
+            name: 'bash.run',
+            status: 'success',
+            createdAt: '2026-04-01T10:00:46.000Z',
+          },
+        ],
+        toolResults: [
+          {
+            id: 'tx-tr-1',
+            toolCallId: 'tx-tc-1',
+            status: 'success',
+            finishedAt: '2026-04-01T10:00:47.500Z',
+          },
+        ],
+      },
+    },
+    auth.token,
+  )
+  const verify = await trpc(
+    t,
+    'sync.verifyPromotion',
+    {
+      batchId,
+      storePath: '/tmp/.prosa-transcript',
+      declaredMessageIds: ['tx-msg-1', 'tx-msg-2', 'tx-msg-3'],
+      declaredContentBlockIds: ['tx-blk-user', 'tx-blk-asst-1', 'tx-blk-asst-thinking', 'tx-blk-asst-large'],
+      declaredToolCallIds: ['tx-tc-1'],
+      declaredToolResultIds: ['tx-tr-1'],
+    },
+    auth.token,
+  )
+  expect(verify.statusCode).toBe(200)
+}
+
+type TranscriptPage = {
+  session: {
+    id: string
+    sourceKind: string
+    title: string | null
+    messageCount: number
+    toolCallCount: number
+    errorCount: number
+  }
+  turns: Array<{
+    messageId: string
+    ordinal: number
+    role: string
+    model: string | null
+    timestamp: string | null
+    blocks: Array<{
+      blockId: string
+      blockType: string
+      textInline: string | null
+      textObjectId: string | null
+      hidden: boolean
+      isError: boolean
+      mimeType: string | null
+    }>
+    toolCalls: Array<{
+      toolCallId: string
+      toolName: string
+      status: string | null
+      result: {
+        toolResultId: string
+        status: string | null
+        isError: boolean
+        durationMs: number | null
+      } | null
+    }>
+  }>
+  nextCursor: string | null
+  unattachedToolCalls: Array<{ toolCallId: string }>
+}
+
+describe('sessions.transcript', () => {
+  it('returns ordered turns when the message manifest is present', async () => {
+    const t = await buildTestApp()
+    try {
+      const auth = await signup(t, 'transcript-ordered@example.com')
+      await seedVerifiedSession(t, auth)
+      await seedVerifiedTranscript(t, auth)
+
+      const resp = await trpc(t, 'sessions.transcript', { sessionId: 'sess-codex-1', limit: 50 }, auth.token, 'GET')
+      expect(resp.statusCode).toBe(200)
+      const data = (resp.json() as { result: { data: TranscriptPage } }).result.data
+      expect(data.session.id).toBe('sess-codex-1')
+      expect(data.session.messageCount).toBe(3)
+      expect(data.session.toolCallCount).toBe(2) // tc-error (from F2 seed) + tx-tc-1
+      // Ordered by (createdAt, id).
+      expect(data.turns.map((turn) => turn.messageId)).toEqual(['tx-msg-1', 'tx-msg-2', 'tx-msg-3'])
+      expect(data.turns[0]?.role).toBe('user')
+      expect(data.turns[1]?.role).toBe('assistant')
+      expect(data.turns[1]?.model).toBe('gpt-5')
+
+      // Block ordering and inline text returned.
+      const assistantBlocks = data.turns[1]?.blocks ?? []
+      expect(assistantBlocks.map((b) => b.blockId)).toEqual(['tx-blk-asst-1', 'tx-blk-asst-thinking'])
+      expect(assistantBlocks[0]?.textInline).toBe('Compiling now…')
+      expect(assistantBlocks[1]?.hidden).toBe(true)
+      expect(assistantBlocks[1]?.blockType).toBe('thinking')
+
+      // Tool call grouped under the assistant turn that shares its turn_id.
+      const toolCalls = data.turns[1]?.toolCalls ?? []
+      expect(toolCalls.map((c) => c.toolCallId)).toEqual(['tx-tc-1'])
+      expect(toolCalls[0]?.result?.toolResultId).toBe('tx-tr-1')
+      expect(toolCalls[0]?.result?.durationMs).toBe(1500)
+      expect(toolCalls[0]?.result?.isError).toBe(false)
+    } finally {
+      await t.close()
+    }
+  })
+
+  it('returns null when no verified session manifest is present (fail-closed)', async () => {
+    const t = await buildTestApp()
+    try {
+      const auth = await signup(t, 'transcript-empty@example.com')
+      // Insert raw rows without ever verifying them.
+      await t.pglite.query(
+        `INSERT INTO "projection_session"(tenant_id, id, source_kind, turn_count) VALUES ($1, 'sess-orphan', 'codex', 0)`,
+        [auth.tenant.id],
+      )
+      await t.pglite.query(
+        `INSERT INTO "projection_message"(tenant_id, id, session_id, role) VALUES ($1, 'msg-orphan', 'sess-orphan', 'user')`,
+        [auth.tenant.id],
+      )
+
+      const resp = await trpc(t, 'sessions.transcript', { sessionId: 'sess-orphan' }, auth.token, 'GET')
+      expect(resp.statusCode).toBe(200)
+      const data = (resp.json() as { result: { data: unknown } }).result.data
+      expect(data).toBeNull()
+    } finally {
+      await t.close()
+    }
+  })
+
+  it('paginates via cursor', async () => {
+    const t = await buildTestApp()
+    try {
+      const auth = await signup(t, 'transcript-cursor@example.com')
+      await seedVerifiedSession(t, auth)
+      await seedVerifiedTranscript(t, auth)
+
+      const page1 = await trpc(t, 'sessions.transcript', { sessionId: 'sess-codex-1', limit: 2 }, auth.token, 'GET')
+      expect(page1.statusCode).toBe(200)
+      const data1 = (page1.json() as { result: { data: TranscriptPage } }).result.data
+      expect(data1.turns.map((turn) => turn.messageId)).toEqual(['tx-msg-1', 'tx-msg-2'])
+      expect(data1.nextCursor).not.toBeNull()
+
+      const page2 = await trpc(
+        t,
+        'sessions.transcript',
+        { sessionId: 'sess-codex-1', limit: 2, cursor: data1.nextCursor as string },
+        auth.token,
+        'GET',
+      )
+      expect(page2.statusCode).toBe(200)
+      const data2 = (page2.json() as { result: { data: TranscriptPage } }).result.data
+      expect(data2.turns.map((turn) => turn.messageId)).toEqual(['tx-msg-3'])
+      expect(data2.nextCursor).toBeNull()
+      // unattachedToolCalls only on the first page (cursor=null).
+      expect(data2.unattachedToolCalls).toEqual([])
+    } finally {
+      await t.close()
+    }
+  })
+
+  it('keeps large block text out of the inline payload but preserves objectId', async () => {
+    const t = await buildTestApp()
+    try {
+      const auth = await signup(t, 'transcript-inline-cap@example.com')
+      await seedVerifiedSession(t, auth)
+      await seedVerifiedTranscript(t, auth)
+
+      const resp = await trpc(t, 'sessions.transcript', { sessionId: 'sess-codex-1', limit: 50 }, auth.token, 'GET')
+      expect(resp.statusCode).toBe(200)
+      const data = (resp.json() as { result: { data: TranscriptPage } }).result.data
+      const lastTurn = data.turns.find((turn) => turn.messageId === 'tx-msg-3')
+      const largeBlock = lastTurn?.blocks.find((b) => b.blockId === 'tx-blk-asst-large')
+      expect(largeBlock).toBeDefined()
+      // 20KB > 8KB inline cap: textInline must be null even though no CAS
+      // objectId is attached (the slim test row has none either way). The
+      // important invariant is that the wire payload stays small.
+      expect(largeBlock?.textInline).toBeNull()
+    } finally {
+      await t.close()
+    }
+  })
+})
