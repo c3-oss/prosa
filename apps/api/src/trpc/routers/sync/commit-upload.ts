@@ -118,6 +118,7 @@ export async function commitUpload(ctx: SyncHandlerContext, input: CommitUploadI
 
       await assertRemoteObjectCatalogs({ rawExec: tx, objects })
       committedObjects = await insertRemoteObjectIfMissing({ rawExec: tx, objects })
+      await assertRemoteObjectCatalogs({ rawExec: tx, objects })
       await attachTenantObjects({ rawExec: tx, tenantId: ctx.tenantId, objects, batchId: input.batchId })
 
       await insertProjectionRows({
