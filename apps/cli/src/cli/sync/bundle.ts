@@ -50,8 +50,10 @@ function readSessionsForUpload(bundle: Bundle): ProjectionSessionRow[] {
   const rows = bundle.db
     .prepare(
       `SELECT s.session_id, s.source_tool, s.project_id, s.title, s.start_ts, s.end_ts,
-              (SELECT COUNT(*) FROM turns t WHERE t.session_id = s.session_id) AS turn_count
+              COALESCE(tc.cnt, 0) AS turn_count
          FROM sessions s
+         LEFT JOIN (SELECT session_id, COUNT(*) AS cnt FROM turns GROUP BY session_id) tc
+           ON s.session_id = tc.session_id
          ORDER BY s.session_id
         `,
     )
