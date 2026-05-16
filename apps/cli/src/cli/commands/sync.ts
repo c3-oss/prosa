@@ -1,9 +1,7 @@
 import { stat } from 'node:fs/promises'
 import path from 'node:path'
 import { type Bundle, closeBundle, defaultBundlePath, openBundle } from '@c3-oss/prosa-core'
-import { computeHashHex } from '@c3-oss/prosa-storage'
 import type {
-  ObjectManifestEntry,
   ProjectionArtifactRow,
   ProjectionContentBlockRow,
   ProjectionEventRow,
@@ -32,7 +30,13 @@ import {
 import { CliUserError } from '../errors.js'
 import { emitStatus } from '../ink/messages.js'
 import { type SyncProgressHandle, startSyncProgress } from '../ink/sync-progress.js'
-import { type LocalCasObject, readBundleForUpload, readLocalCasObjectBytes } from '../sync/bundle.js'
+import {
+  type LocalCasObject,
+  readBundleForUpload,
+  readCasObjectCatalogRows,
+  readLocalCasObjectBytes,
+  readLocalCasObjectFromCatalogRow,
+} from '../sync/bundle.js'
 import { mapConcurrent, mapConcurrentResults } from '../sync/concurrency.js'
 import {
   type SyncLimits,
@@ -423,29 +427,6 @@ function collectChunkCursors(
   return cursors
 }
 
-function readObjectCatalogRows(bundle: Bundle, afterObjectId: string | null, limit: number) {
-  type CatalogRow = {
-    object_id: string
-    hash: string
-    size_bytes: number
-    compressed_size_bytes: number | null
-    compression: 'zstd' | 'none'
-    mime_type: string | null
-    storage_path: string
-  }
-  const sql = afterObjectId
-    ? `SELECT object_id, hash, size_bytes, compressed_size_bytes, compression, mime_type, storage_path
-         FROM objects
-         WHERE object_id > ?
-         ORDER BY object_id
-         LIMIT ?`
-    : `SELECT object_id, hash, size_bytes, compressed_size_bytes, compression, mime_type, storage_path
-         FROM objects
-         ORDER BY object_id
-         LIMIT ?`
-  return bundle.db.prepare(sql).all(...(afterObjectId ? [afterObjectId, limit] : [limit])) as CatalogRow[]
-}
-
 async function readObjectChunk(
   bundle: Bundle,
   storePath: string,
@@ -453,34 +434,18 @@ async function readObjectChunk(
   limit: number,
 ): Promise<ObjectChunk> {
   const scanStart = Date.now()
-  const rows = readObjectCatalogRows(bundle, afterObjectId, limit)
+  const rows = readCasObjectCatalogRows(bundle, { afterObjectId, limit })
   const localScanMs = Date.now() - scanStart
   const casObjects: LocalCasObjectChunk[] = []
   let localReadMs = 0
   let localBytesRead = 0
   let localObjectsRead = 0
   for (const row of rows) {
-    let bytes: Uint8Array | undefined
-    let transportHash = row.hash
-    if (row.compression !== 'none') {
-      const readStart = Date.now()
-      bytes = await readLocalCasObjectBytes(storePath, { storagePath: row.storage_path })
-      localReadMs += Date.now() - readStart
-      localBytesRead += bytes.byteLength
-      localObjectsRead += 1
-      transportHash = computeHashHex(bytes, 'blake3')
-    }
-    const entry: ObjectManifestEntry = {
-      objectId: row.object_id,
-      hash: row.hash,
-      hashAlgorithm: 'blake3',
-      uncompressedSize: row.size_bytes,
-      compressedSize: row.compressed_size_bytes ?? row.size_bytes,
-      compression: row.compression,
-      transportHash,
-    }
-    if (row.mime_type) entry.contentType = row.mime_type
-    casObjects.push({ entry, storagePath: row.storage_path, bytes })
+    const { casObject, metrics } = await readLocalCasObjectFromCatalogRow(bundle, storePath, row)
+    localReadMs += metrics.localReadMs
+    localBytesRead += metrics.localBytesRead
+    localObjectsRead += metrics.localObjectsRead
+    casObjects.push(casObject)
   }
   return {
     casObjects,
@@ -1068,7 +1033,7 @@ export async function promoteChunkedUpload({
     tickProgress()
   }
 
-  const hasCasObjects = readObjectCatalogRows(bundle, null, 1).length > 0
+  const hasCasObjects = readCasObjectCatalogRows(bundle, { limit: 1 }).length > 0
   if (!hasCasObjects) {
     await promoteProjectionChunks(
       'source-file',

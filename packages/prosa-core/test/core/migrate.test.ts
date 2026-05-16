@@ -25,4 +25,16 @@ describe('migrations', () => {
       await t.cleanup()
     }
   })
+
+  it('adds nullable transport hashes to the object catalog', async () => {
+    const t = await createTempBundle()
+    try {
+      const columns = t.bundle.db.prepare<[], { name: string; notnull: number }>(`PRAGMA table_info(objects)`).all()
+      const transportHash = columns.find((column) => column.name === 'transport_hash')
+      expect(transportHash).toBeDefined()
+      expect(transportHash?.notnull).toBe(0)
+    } finally {
+      await t.cleanup()
+    }
+  })
 })

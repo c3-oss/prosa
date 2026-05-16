@@ -362,7 +362,7 @@ function readArtifactsForUpload(bundle: Bundle): ProjectionArtifactRow[] {
  * can verify the body against the BLAKE3 of what's actually on the wire while
  * keeping the canonical `hash`/`objectId` aligned with the local catalog.
  */
-type ObjectCatalogRow = {
+export type ObjectCatalogRow = {
   object_id: string
   hash: string
   size_bytes: number
@@ -370,16 +370,29 @@ type ObjectCatalogRow = {
   compression: 'zstd' | 'none'
   mime_type: string | null
   storage_path: string
+  transport_hash: string | null
 }
 
-function readObjectCatalogRows(bundle: Bundle): ObjectCatalogRow[] {
+export function readCasObjectCatalogRows(
+  bundle: Bundle,
+  options: { afterObjectId?: string | null; limit?: number } = {},
+): ObjectCatalogRow[] {
+  const { afterObjectId = null, limit } = options
+  const where = afterObjectId ? 'WHERE object_id > ?' : ''
+  const limitClause = limit == null ? '' : 'LIMIT ?'
+  const params = [...(afterObjectId ? [afterObjectId] : []), ...(limit == null ? [] : [limit])] as Array<
+    string | number
+  >
   return bundle.db
     .prepare(
-      `SELECT object_id, hash, size_bytes, compressed_size_bytes, compression, mime_type, storage_path
+      `SELECT object_id, hash, size_bytes, compressed_size_bytes, compression, mime_type,
+              storage_path, transport_hash
          FROM objects
-         ORDER BY object_id`,
+         ${where}
+         ORDER BY object_id
+         ${limitClause}`,
     )
-    .all() as ObjectCatalogRow[]
+    .all(...params) as ObjectCatalogRow[]
 }
 
 export async function readLocalCasObjectBytes(
@@ -390,11 +403,58 @@ export async function readLocalCasObjectBytes(
   return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength)
 }
 
+function backfillObjectTransportHash(bundle: Bundle, objectId: string, transportHash: string): void {
+  bundle.db
+    .prepare(`UPDATE objects SET transport_hash = ? WHERE object_id = ? AND transport_hash IS NULL`)
+    .run(transportHash, objectId)
+}
+
+export async function readLocalCasObjectFromCatalogRow(
+  bundle: Bundle,
+  storePath: string,
+  row: ObjectCatalogRow,
+): Promise<{ casObject: LocalCasObject; metrics: LocalBundleReadMetrics }> {
+  let bytes: Uint8Array | undefined
+  let transportHash = row.transport_hash
+  let localReadMs = 0
+  let localBytesRead = 0
+  let localObjectsRead = 0
+
+  if (!transportHash) {
+    if (row.compression === 'none') {
+      transportHash = row.hash
+    } else {
+      const readStart = Date.now()
+      bytes = await readLocalCasObjectBytes(storePath, { storagePath: row.storage_path })
+      localReadMs += Date.now() - readStart
+      localBytesRead += bytes.byteLength
+      localObjectsRead += 1
+      transportHash = computeHashHex(bytes, 'blake3')
+    }
+    backfillObjectTransportHash(bundle, row.object_id, transportHash)
+  }
+
+  const entry: ObjectManifestEntry = {
+    objectId: row.object_id,
+    hash: row.hash,
+    hashAlgorithm: 'blake3',
+    uncompressedSize: row.size_bytes,
+    compressedSize: row.compressed_size_bytes ?? row.size_bytes,
+    compression: row.compression,
+    transportHash,
+  }
+  if (row.mime_type) entry.contentType = row.mime_type
+  return {
+    casObject: { entry, storagePath: row.storage_path, bytes },
+    metrics: { localScanMs: 0, localReadMs, localBytesRead, localObjectsRead },
+  }
+}
+
 /**
  * Build object manifest entries from the local object catalog. For uncompressed
  * objects the transport hash equals the canonical hash, so bytes are read only
- * if the server later reports the object as missing. Compressed objects still
- * need a pre-plan byte read until the catalog stores transport hashes.
+ * if the server later reports the object as missing. Compressed objects use the
+ * catalog transport hash; legacy null rows are read once and backfilled.
  */
 async function walkCasObjects(
   bundle: Bundle,
@@ -403,34 +463,18 @@ async function walkCasObjects(
   // Schema drift in the `objects` catalog should fail the sync command rather
   // than skip the CAS upload silently.
   const scanStart = Date.now()
-  const rows = readObjectCatalogRows(bundle)
+  const rows = readCasObjectCatalogRows(bundle)
   const localScanMs = Date.now() - scanStart
   const out: LocalCasObject[] = []
   let localReadMs = 0
   let localBytesRead = 0
   let localObjectsRead = 0
   for (const row of rows) {
-    let bytes: Uint8Array | undefined
-    let transportHash = row.hash
-    if (row.compression !== 'none') {
-      const readStart = Date.now()
-      bytes = await readLocalCasObjectBytes(storePath, { storagePath: row.storage_path })
-      localReadMs += Date.now() - readStart
-      localBytesRead += bytes.byteLength
-      localObjectsRead += 1
-      transportHash = computeHashHex(bytes, 'blake3')
-    }
-    const entry: ObjectManifestEntry = {
-      objectId: row.object_id,
-      hash: row.hash,
-      hashAlgorithm: 'blake3',
-      uncompressedSize: row.size_bytes,
-      compressedSize: row.compressed_size_bytes ?? row.size_bytes,
-      compression: row.compression,
-      transportHash,
-    }
-    if (row.mime_type) entry.contentType = row.mime_type
-    out.push({ entry, storagePath: row.storage_path, bytes })
+    const { casObject, metrics } = await readLocalCasObjectFromCatalogRow(bundle, storePath, row)
+    localReadMs += metrics.localReadMs
+    localBytesRead += metrics.localBytesRead
+    localObjectsRead += metrics.localObjectsRead
+    out.push(casObject)
   }
   return { casObjects: out, metrics: { localScanMs, localReadMs, localBytesRead, localObjectsRead } }
 }

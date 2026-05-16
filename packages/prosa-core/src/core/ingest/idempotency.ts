@@ -205,8 +205,8 @@ async function preserveRawSourceBytes(bundle: Bundle, bytes: Uint8Array): Promis
       bundle.db,
       `INSERT INTO objects (
          object_id, hash_alg, hash, size_bytes, compressed_size_bytes,
-         compression, mime_type, encoding, storage_path, created_at
-       ) VALUES (?, 'blake3', ?, ?, ?, ?, ?, ?, ?, ?)`,
+         compression, mime_type, encoding, storage_path, transport_hash, created_at
+       ) VALUES (?, 'blake3', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       objectId,
       hash,
@@ -216,6 +216,7 @@ async function preserveRawSourceBytes(bundle: Bundle, bytes: Uint8Array): Promis
       'application/octet-stream',
       null,
       storagePath,
+      blake3Hex(stored),
       new Date().toISOString(),
     )
   }
