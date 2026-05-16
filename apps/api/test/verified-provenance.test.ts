@@ -194,6 +194,104 @@ describe('CQ-004 — auxiliary rows must derive from verified projections', () =
     }
   })
 
+  it('verifiedProjectionExistsSql gates messages/blocks/events/artifacts by manifest row (F3)', async () => {
+    const t = await buildTestApp()
+    try {
+      const { verifiedProjectionExistsSql } = await import('../src/trpc/routers/reads/shared.js')
+      const auth = await signup(t, 'cq004-transcript@example.com')
+      await seedVerifiedSession(t, auth)
+
+      // Promote a SECOND batch that carries a message, block, event and
+      // artifact tied to the already-verified session. This proves the
+      // manifest mechanism extends end-to-end for the new entity types.
+      const handshake = await t.app.inject({
+        method: 'POST',
+        url: '/trpc/sync.handshake',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${auth.token}` },
+        payload: {
+          cliVersion: '0.0.0',
+          device: { name: 'device-verify-2', platform: 'linux' },
+          store: { path: '/tmp/.prosa-verify-2', bundleVersion: '1' },
+        } as never,
+      })
+      const deviceId = (handshake.json() as { result: { data: { deviceId: string } } }).result.data.deviceId
+      const plan = await t.app.inject({
+        method: 'POST',
+        url: '/trpc/sync.planUpload',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${auth.token}` },
+        payload: { deviceId, storePath: '/tmp/.prosa-verify-2', objects: [] } as never,
+      })
+      const batchId = (plan.json() as { result: { data: { batchId: string } } }).result.data.batchId
+      await t.app.inject({
+        method: 'POST',
+        url: '/trpc/sync.commitUpload',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${auth.token}` },
+        payload: {
+          batchId,
+          deviceId,
+          storePath: '/tmp/.prosa-verify-2',
+          objects: [],
+          projection: {
+            messages: [{ id: 'msg-verified', sessionId: 'sess-verified', role: 'user' }],
+            contentBlocks: [{ id: 'blk-verified', messageId: 'msg-verified', sequence: 0, kind: 'text', text: 'hi' }],
+            events: [{ id: 'ev-verified', sessionId: 'sess-verified', sequence: 0, kind: 'message' }],
+            artifacts: [{ id: 'art-verified', sessionId: 'sess-verified', kind: 'text' }],
+          },
+        } as never,
+      })
+      const verify = await t.app.inject({
+        method: 'POST',
+        url: '/trpc/sync.verifyPromotion',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${auth.token}` },
+        payload: {
+          batchId,
+          storePath: '/tmp/.prosa-verify-2',
+          declaredMessageIds: ['msg-verified'],
+          declaredContentBlockIds: ['blk-verified'],
+          declaredEventIds: ['ev-verified'],
+          declaredArtifactIds: ['art-verified'],
+        } as never,
+      })
+      expect(verify.statusCode).toBe(200)
+
+      // Also seed unverified rows that should never satisfy the gate.
+      await t.pglite.query(
+        `INSERT INTO "projection_message"(tenant_id, id, session_id, role) VALUES ($1, 'msg-orphan', 'sess-verified', 'user')`,
+        [auth.tenant.id],
+      )
+      await t.pglite.query(
+        `INSERT INTO "projection_artifact"(tenant_id, id, session_id, kind) VALUES ($1, 'art-orphan', 'sess-verified', 'text')`,
+        [auth.tenant.id],
+      )
+
+      const cases: Array<{ entity: 'message' | 'content_block' | 'event' | 'artifact'; table: string }> = [
+        { entity: 'message', table: 'projection_message' },
+        { entity: 'content_block', table: 'projection_content_block' },
+        { entity: 'event', table: 'projection_event' },
+        { entity: 'artifact', table: 'projection_artifact' },
+      ]
+      for (const { entity, table } of cases) {
+        // Use a distinct outer alias so the helper's inner `m` (the manifest
+        // table) does not shadow the projection table we are testing.
+        const sql = `SELECT id FROM "${table}" p
+                     WHERE p.tenant_id = $1 AND ${verifiedProjectionExistsSql('p', entity)}
+                     ORDER BY id`
+        const rows = await t.pglite.query<{ id: string }>(sql, [auth.tenant.id])
+        const ids = rows.rows.map((r) => r.id)
+        // Verified rows are visible; orphans inserted directly into the
+        // projection table without a manifest entry must NOT appear.
+        expect(ids).not.toContain('msg-orphan')
+        expect(ids).not.toContain('art-orphan')
+        if (entity === 'message') expect(ids).toContain('msg-verified')
+        if (entity === 'content_block') expect(ids).toContain('blk-verified')
+        if (entity === 'event') expect(ids).toContain('ev-verified')
+        if (entity === 'artifact') expect(ids).toContain('art-verified')
+      }
+    } finally {
+      await t.close()
+    }
+  })
+
   it('analytics.report returns only verified sessions and ignores unverified rows', async () => {
     const t = await buildTestApp()
     try {

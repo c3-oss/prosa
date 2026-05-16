@@ -128,6 +128,95 @@ async function bootHarness(): Promise<Harness> {
       'ok',
       'rr-cas-1',
     )
+  // F3: seed transcript-tier rows so the push must emit manifest entries
+  // for message/content_block/event/artifact on top of tool_call/tool_result.
+  bundle.db
+    .prepare(
+      `INSERT INTO events (event_id, session_id, turn_id, source_event_id, event_type, source_type,
+         subtype, timestamp, ordinal, actor, payload_object_id, raw_record_id, confidence, is_derived)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      'ev-cas-1',
+      'sess-cas-1',
+      null,
+      null,
+      'message',
+      'codex',
+      null,
+      '2026-04-01T10:00:00.000Z',
+      0,
+      'user',
+      null,
+      'rr-cas-1',
+      'high',
+      0,
+    )
+  bundle.db
+    .prepare(
+      `INSERT INTO messages (message_id, session_id, turn_id, event_id, source_message_id, role,
+         author_name, model, timestamp, ordinal, parent_message_id, request_id, status, raw_record_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      'msg-cas-1',
+      'sess-cas-1',
+      null,
+      'ev-cas-1',
+      null,
+      'user',
+      null,
+      null,
+      '2026-04-01T10:00:00.000Z',
+      0,
+      null,
+      null,
+      null,
+      'rr-cas-1',
+    )
+  bundle.db
+    .prepare(
+      `INSERT INTO content_blocks (block_id, message_id, event_id, session_id, ordinal, block_type,
+         text_object_id, text_inline, mime_type, token_count, is_error, is_redacted, visibility, raw_record_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      'blk-cas-1',
+      'msg-cas-1',
+      'ev-cas-1',
+      'sess-cas-1',
+      0,
+      'text',
+      null,
+      'hello world',
+      'text/plain',
+      2,
+      0,
+      0,
+      'default',
+      'rr-cas-1',
+    )
+  bundle.db
+    .prepare(
+      `INSERT INTO artifacts (artifact_id, session_id, project_id, source_tool, kind, path, logical_path,
+         object_id, text_object_id, mime_type, size_bytes, created_ts, raw_record_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      'art-cas-1',
+      'sess-cas-1',
+      null,
+      'codex',
+      'text',
+      '/tmp/out.txt',
+      null,
+      null,
+      null,
+      'text/plain',
+      5,
+      '2026-04-01T10:00:00.000Z',
+      'rr-cas-1',
+    )
   closeBundle(bundle)
 
   const config = loadConfig({
@@ -230,6 +319,28 @@ describe('CLI sync uploads CAS objects', () => {
       'SELECT count(*)::int AS count FROM "projection_tool_result"',
     )
     expect(toolResults.rows[0]?.count ?? 0).toBe(1)
+    // F3 transcript-tier projections must also land server-side.
+    const messages = await h.pglite.query<{ count: number }>('SELECT count(*)::int AS count FROM "projection_message"')
+    expect(messages.rows[0]?.count ?? 0).toBe(1)
+    const contentBlocks = await h.pglite.query<{ count: number }>(
+      'SELECT count(*)::int AS count FROM "projection_content_block"',
+    )
+    expect(contentBlocks.rows[0]?.count ?? 0).toBe(1)
+    const events = await h.pglite.query<{ count: number }>('SELECT count(*)::int AS count FROM "projection_event"')
+    expect(events.rows[0]?.count ?? 0).toBe(1)
+    const artifacts = await h.pglite.query<{ count: number }>(
+      'SELECT count(*)::int AS count FROM "projection_artifact"',
+    )
+    expect(artifacts.rows[0]?.count ?? 0).toBe(1)
+    // The verified manifest must carry one entry per new entity type so
+    // future remote reads can fail-closed gate transcript rows the same way
+    // tool_call/tool_result already do.
+    const manifestRows = await h.pglite.query<{ entity_type: string }>(
+      `SELECT entity_type FROM "sync_batch_projection_manifest"
+         WHERE entity_type = ANY(ARRAY['message','content_block','event','artifact'])
+         ORDER BY entity_type`,
+    )
+    expect(manifestRows.rows.map((r) => r.entity_type)).toEqual(['artifact', 'content_block', 'event', 'message'])
     // The canonical object_id must match the local catalog: `blake3:<uncompressed hash>`.
     const remoteObject = await h.pglite.query<{ object_id: string; hash: string }>(
       'SELECT object_id, hash FROM "remote_object" LIMIT 1',

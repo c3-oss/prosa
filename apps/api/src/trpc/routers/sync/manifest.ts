@@ -46,7 +46,19 @@ export type RemoteObjectCatalogRow = {
   storage_key: string
 }
 
-export type ProjectionEntityType = 'source_file' | 'raw_record' | 'session' | 'search_doc' | 'tool_call' | 'tool_result'
+export type ProjectionEntityType =
+  | 'source_file'
+  | 'raw_record'
+  | 'session'
+  | 'search_doc'
+  | 'tool_call'
+  | 'tool_result'
+  // Transcript-tier entity types added in F3. Older CLIs simply omit these,
+  // so the manifest stays backward-compatible.
+  | 'message'
+  | 'content_block'
+  | 'event'
+  | 'artifact'
 
 export const objectStoreIoConcurrency = 16
 

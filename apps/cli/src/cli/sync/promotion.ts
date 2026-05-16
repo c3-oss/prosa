@@ -225,7 +225,20 @@ export async function promoteUpload({
   objectConcurrency,
   verbose,
 }: PromoteUploadOptions): Promise<SyncPromotionResult> {
-  const { casObjects, projection, rawRecords, searchDocs, sessions, sourceFiles, toolCalls, toolResults } = upload
+  const {
+    casObjects,
+    projection,
+    rawRecords,
+    searchDocs,
+    sessions,
+    sourceFiles,
+    toolCalls,
+    toolResults,
+    messages,
+    contentBlocks,
+    events,
+    artifacts,
+  } = upload
   const objectEntries = casObjects.map((c) => c.entry)
   const metrics = emptySyncMetrics(objectConcurrency)
   metrics.batches = 1
@@ -301,6 +314,10 @@ export async function promoteUpload({
     declaredSearchDocIds: searchDocs.map((d) => d.id),
     declaredToolCallIds: toolCalls.map((c) => c.id),
     declaredToolResultIds: toolResults.map((r) => r.id),
+    declaredMessageIds: messages.map((m) => m.id),
+    declaredContentBlockIds: contentBlocks.map((b) => b.id),
+    declaredEventIds: events.map((e) => e.id),
+    declaredArtifactIds: artifacts.map((a) => a.id),
   })
   metrics.verifyMs += Date.now() - verifyStart
   metrics.totalMs += Date.now() - totalStart

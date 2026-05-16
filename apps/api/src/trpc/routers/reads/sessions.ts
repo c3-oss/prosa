@@ -13,6 +13,7 @@ import {
   timeRangeFilter,
   verifiedProjectionExistsSql,
 } from './shared.js'
+import { transcriptProcedure } from './transcript.js'
 
 const sessionsListFilters = z.object({
   projectIds: z.array(z.string()).optional(),
@@ -257,6 +258,13 @@ export const sessionsRouter = router({
         auxiliaryRowsAvailable: false as const,
       }
     }),
+
+  /**
+   * Page-cursored transcript: returns ordered turns with content blocks and
+   * matched tool calls/results. Mirrors the local `SessionTranscript` shape
+   * but defers large bodies to CAS so the wire payload stays bounded.
+   */
+  transcript: transcriptProcedure,
 
   /** Legacy `sessions.get` alias kept for the existing CLI/MCP consumers. */
   get: tenantProcedure.input(z.object({ id: z.string().min(1) })).query(async ({ ctx, input }) => {

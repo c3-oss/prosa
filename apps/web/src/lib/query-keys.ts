@@ -10,6 +10,9 @@ export const queryKeys = {
   sessionsList: (tenantId: string, params: unknown) => ['sessions', 'list', tenantId, params] as const,
   sessionsCount: (tenantId: string, params: unknown) => ['sessions', 'count', tenantId, params] as const,
   sessionDetail: (tenantId: string, sessionId: string) => ['sessions', 'detail', tenantId, sessionId] as const,
+  /** Transcript page key — `cursor` is `'first'` for the first page. */
+  sessionTranscript: (tenantId: string, sessionId: string, cursor?: string | null) =>
+    ['sessions', tenantId, 'transcript', sessionId, cursor ?? 'first'] as const,
   searchQuery: (tenantId: string, params: unknown) => ['search', 'query', tenantId, params] as const,
   toolCallsList: (tenantId: string, params: unknown) => ['toolCalls', 'list', tenantId, params] as const,
   analyticsReport: (tenantId: string, params: unknown) => ['analytics', 'report', tenantId, params] as const,

@@ -4,6 +4,10 @@ import type { Bundle } from '@c3-oss/prosa-core'
 import { computeHashHex } from '@c3-oss/prosa-storage'
 import type {
   ObjectManifestEntry,
+  ProjectionArtifactRow,
+  ProjectionContentBlockRow,
+  ProjectionEventRow,
+  ProjectionMessageRow,
   ProjectionPayload,
   ProjectionSessionRow,
   ProjectionToolCallRow,
@@ -27,6 +31,10 @@ export type LocalBundleUpload = {
   rawRecords: RawRecordRow[]
   toolCalls: ProjectionToolCallRow[]
   toolResults: ProjectionToolResultRow[]
+  messages: ProjectionMessageRow[]
+  contentBlocks: ProjectionContentBlockRow[]
+  events: ProjectionEventRow[]
+  artifacts: ProjectionArtifactRow[]
   casObjects: LocalCasObject[]
   metrics: LocalBundleReadMetrics
 }
@@ -207,6 +215,145 @@ function readToolResultsForUpload(bundle: Bundle): ProjectionToolResultRow[] {
   }))
 }
 
+function readMessagesForUpload(bundle: Bundle): ProjectionMessageRow[] {
+  // Map the local SQLite `messages` schema down to the remote projection's
+  // narrower column set. Extra local fields (parent_message_id, status,
+  // raw_record_id, ordinal, etc.) are not promoted yet — Fase 4 may surface
+  // them via a richer transcript API once the manifest contract stabilizes.
+  const rows = bundle.db
+    .prepare(
+      `SELECT message_id, session_id, turn_id, role, model, timestamp
+         FROM messages
+         ORDER BY message_id`,
+    )
+    .all() as Array<{
+    message_id: string
+    session_id: string
+    turn_id: string | null
+    role: string
+    model: string | null
+    timestamp: string | null
+  }>
+  return rows.map((row) => ({
+    id: row.message_id,
+    sessionId: row.session_id,
+    turnId: row.turn_id,
+    role: row.role,
+    model: row.model,
+    createdAt: row.timestamp,
+  }))
+}
+
+function readContentBlocksForUpload(bundle: Bundle): ProjectionContentBlockRow[] {
+  // Only promote blocks attached to a message — the remote
+  // `projection_content_block.message_id` is NOT NULL.
+  const rows = bundle.db
+    .prepare(
+      `SELECT block_id, message_id, ordinal, block_type, text_inline, text_object_id,
+              mime_type, token_count, is_error, is_redacted, visibility
+         FROM content_blocks
+         WHERE message_id IS NOT NULL
+         ORDER BY block_id`,
+    )
+    .all() as Array<{
+    block_id: string
+    message_id: string
+    ordinal: number
+    block_type: string
+    text_inline: string | null
+    text_object_id: string | null
+    mime_type: string | null
+    token_count: number | null
+    is_error: number
+    is_redacted: number
+    visibility: string
+  }>
+  return rows.map((row) => ({
+    id: row.block_id,
+    messageId: row.message_id,
+    sequence: row.ordinal,
+    kind: row.block_type,
+    text: row.text_inline,
+    objectId: row.text_object_id,
+    metadata: {
+      mimeType: row.mime_type,
+      tokenCount: row.token_count,
+      isError: row.is_error === 1,
+      isRedacted: row.is_redacted === 1,
+      visibility: row.visibility,
+    },
+  }))
+}
+
+function readEventsForUpload(bundle: Bundle): ProjectionEventRow[] {
+  const rows = bundle.db
+    .prepare(
+      `SELECT event_id, session_id, turn_id, ordinal, event_type, subtype, source_type,
+              actor, timestamp, confidence, is_derived
+         FROM events
+         ORDER BY event_id`,
+    )
+    .all() as Array<{
+    event_id: string
+    session_id: string
+    turn_id: string | null
+    ordinal: number
+    event_type: string
+    subtype: string | null
+    source_type: string | null
+    actor: string | null
+    timestamp: string | null
+    confidence: string
+    is_derived: number
+  }>
+  return rows.map((row) => ({
+    id: row.event_id,
+    sessionId: row.session_id,
+    turnId: row.turn_id,
+    sequence: row.ordinal,
+    kind: row.event_type,
+    payload: {
+      subtype: row.subtype,
+      sourceType: row.source_type,
+      actor: row.actor,
+      confidence: row.confidence,
+      isDerived: row.is_derived === 1,
+    },
+    occurredAt: row.timestamp,
+  }))
+}
+
+function readArtifactsForUpload(bundle: Bundle): ProjectionArtifactRow[] {
+  const rows = bundle.db
+    .prepare(
+      `SELECT artifact_id, session_id, kind, path, mime_type, size_bytes, object_id
+         FROM artifacts
+         ORDER BY artifact_id`,
+    )
+    .all() as Array<{
+    artifact_id: string
+    session_id: string | null
+    kind: string
+    path: string | null
+    mime_type: string | null
+    size_bytes: number | null
+    object_id: string | null
+  }>
+  return rows.map((row) => ({
+    id: row.artifact_id,
+    sessionId: row.session_id,
+    kind: row.kind,
+    objectId: row.object_id,
+    // Local schema marks `size_bytes` as NOT NULL but coerce defensively for
+    // older bundles that may have written 0 vs null.
+    sizeBytes: row.size_bytes ?? null,
+    metadata: {
+      path: row.path,
+      mimeType: row.mime_type,
+    },
+  }))
+}
+
 /**
  * Read the bundle's CAS objects from the local catalog and pair each canonical
  * row with the on-disk bytes. The local `object_id` (`blake3:<uncompressed
@@ -295,6 +442,10 @@ export async function readBundleForUpload(bundle: Bundle, storePath: string): Pr
   const rawRecords = readRawRecordsForUpload(bundle)
   const toolCalls = readToolCallsForUpload(bundle)
   const toolResults = readToolResultsForUpload(bundle)
+  const messages = readMessagesForUpload(bundle)
+  const contentBlocks = readContentBlocksForUpload(bundle)
+  const events = readEventsForUpload(bundle)
+  const artifacts = readArtifactsForUpload(bundle)
   const { casObjects, metrics } = await walkCasObjects(bundle, storePath)
   return {
     projection: {
@@ -304,6 +455,10 @@ export async function readBundleForUpload(bundle: Bundle, storePath: string): Pr
       searchDocs,
       toolCalls,
       toolResults,
+      messages,
+      contentBlocks,
+      events,
+      artifacts,
     },
     sessions,
     searchDocs,
@@ -311,6 +466,10 @@ export async function readBundleForUpload(bundle: Bundle, storePath: string): Pr
     rawRecords,
     toolCalls,
     toolResults,
+    messages,
+    contentBlocks,
+    events,
+    artifacts,
     casObjects,
     metrics,
   }
