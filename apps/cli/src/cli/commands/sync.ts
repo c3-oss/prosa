@@ -1,4 +1,4 @@
-import { readFile, stat } from 'node:fs/promises'
+import { stat } from 'node:fs/promises'
 import path from 'node:path'
 import { type Bundle, closeBundle, defaultBundlePath, openBundle } from '@c3-oss/prosa-core'
 import { computeHashHex } from '@c3-oss/prosa-storage'
@@ -26,14 +26,15 @@ import {
   upsertServer,
 } from '../auth/config.js'
 import { CliUserError } from '../errors.js'
-import { readBundleForUpload } from '../sync/bundle.js'
+import { type LocalCasObject, readBundleForUpload, readLocalCasObjectBytes } from '../sync/bundle.js'
+import { mapConcurrent } from '../sync/concurrency.js'
 import {
   estimateChunkedUploadBatches,
   readUploadCounts,
   uploadHardLimitViolations,
   uploadLimitViolations,
 } from '../sync/limits.js'
-import { promoteUpload, removeLocalBundle } from '../sync/promotion.js'
+import { type SyncMetrics, emptySyncMetrics, promoteUpload, removeLocalBundle } from '../sync/promotion.js'
 
 type SyncOptions = {
   server?: string
@@ -45,6 +46,7 @@ type SyncOptions = {
   json?: boolean
   verbose?: boolean
   configPath?: string
+  objectConcurrency: number
 }
 
 type SyncResult = {
@@ -54,16 +56,15 @@ type SyncResult = {
   searchDocCount: number
   batchCount: number
   chunked: boolean
+  metrics: SyncMetrics
 }
 
-type LocalCasObjectChunk = {
-  entry: ObjectManifestEntry
-  bytes: Uint8Array
-}
+type LocalCasObjectChunk = LocalCasObject
 
 type ObjectChunk = {
   casObjects: LocalCasObjectChunk[]
   nextCursor: string | null
+  metrics: Pick<SyncMetrics, 'localScanMs' | 'localReadMs' | 'localBytesRead' | 'localObjectsRead'>
 }
 
 type ProjectionChunk<TEntity> = {
@@ -78,6 +79,7 @@ type ChunkedPromotionOptions = {
   bundle: Bundle
   maxObjectsPerPlan: number
   maxRowsPerCommit: number
+  objectConcurrency: number
   verbose?: boolean
 }
 
@@ -88,10 +90,14 @@ type PromoteChunkOptions = {
   casObjects: LocalCasObjectChunk[]
   projection: ProjectionPayload
   label: string
+  metrics: SyncMetrics
+  objectConcurrency: number
   verbose?: boolean
 }
 
-const OBJECT_UPLOAD_CONCURRENCY = 16
+const DEFAULT_OBJECT_UPLOAD_CONCURRENCY = 32
+const MIN_OBJECT_UPLOAD_CONCURRENCY = 1
+const MAX_OBJECT_UPLOAD_CONCURRENCY = 128
 
 async function bundleManifestExists(storePath: string): Promise<boolean> {
   return stat(`${storePath}/manifest.json`).then(
@@ -100,26 +106,37 @@ async function bundleManifestExists(storePath: string): Promise<boolean> {
   )
 }
 
-async function mapConcurrent<T>(
-  items: T[],
-  concurrency: number,
-  worker: (item: T, index: number) => Promise<void>,
-): Promise<void> {
-  let next = 0
-  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
-    while (true) {
-      const index = next
-      next += 1
-      const item = items[index]
-      if (!item) return
-      await worker(item, index)
-    }
-  })
-  await Promise.all(workers)
-}
-
 function emptyProjection(): ProjectionPayload {
   return { sourceFiles: [], rawRecords: [], sessions: [], searchDocs: [], toolCalls: [], toolResults: [] }
+}
+
+function parseObjectConcurrency(value: string): number {
+  const parsed = Number(value)
+  if (!Number.isInteger(parsed) || parsed < MIN_OBJECT_UPLOAD_CONCURRENCY || parsed > MAX_OBJECT_UPLOAD_CONCURRENCY) {
+    throw new CliUserError(
+      `--object-concurrency must be an integer from ${MIN_OBJECT_UPLOAD_CONCURRENCY} to ${MAX_OBJECT_UPLOAD_CONCURRENCY}`,
+    )
+  }
+  return parsed
+}
+
+function addLocalReadMetric(metrics: SyncMetrics, ms: number, bytes: number): void {
+  metrics.localReadMs += ms
+  metrics.localBytesRead += bytes
+  metrics.localObjectsRead += 1
+}
+
+async function bytesForUpload(
+  storePath: string,
+  object: LocalCasObjectChunk,
+  metrics: SyncMetrics,
+): Promise<Uint8Array> {
+  if (object.bytes) return object.bytes
+  const readStart = Date.now()
+  const bytes = await readLocalCasObjectBytes(storePath, object)
+  addLocalReadMetric(metrics, Date.now() - readStart, bytes.byteLength)
+  object.bytes = bytes
+  return bytes
 }
 
 function projectionRowCount(projection: ProjectionPayload): number {
@@ -162,28 +179,40 @@ async function readObjectChunk(
   afterObjectId: string | null,
   limit: number,
 ): Promise<ObjectChunk> {
+  const scanStart = Date.now()
   const rows = readObjectCatalogRows(bundle, afterObjectId, limit)
+  const localScanMs = Date.now() - scanStart
   const casObjects: LocalCasObjectChunk[] = []
+  let localReadMs = 0
+  let localBytesRead = 0
+  let localObjectsRead = 0
   for (const row of rows) {
-    const full = path.join(storePath, row.storage_path)
-    const buf = await readFile(full)
-    const bytes = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength)
-    const transportHash = computeHashHex(bytes, 'blake3')
+    let bytes: Uint8Array | undefined
+    let transportHash = row.hash
+    if (row.compression !== 'none') {
+      const readStart = Date.now()
+      bytes = await readLocalCasObjectBytes(storePath, { storagePath: row.storage_path })
+      localReadMs += Date.now() - readStart
+      localBytesRead += bytes.byteLength
+      localObjectsRead += 1
+      transportHash = computeHashHex(bytes, 'blake3')
+    }
     const entry: ObjectManifestEntry = {
       objectId: row.object_id,
       hash: row.hash,
       hashAlgorithm: 'blake3',
       uncompressedSize: row.size_bytes,
-      compressedSize: row.compressed_size_bytes ?? bytes.byteLength,
+      compressedSize: row.compressed_size_bytes ?? row.size_bytes,
       compression: row.compression,
       transportHash,
     }
     if (row.mime_type) entry.contentType = row.mime_type
-    casObjects.push({ entry, bytes })
+    casObjects.push({ entry, storagePath: row.storage_path, bytes })
   }
   return {
     casObjects,
     nextCursor: rows.length > 0 ? (rows[rows.length - 1]?.object_id ?? null) : null,
+    metrics: { localScanMs, localReadMs, localBytesRead, localObjectsRead },
   }
 }
 
@@ -423,19 +452,30 @@ async function promoteChunk({
   casObjects,
   projection,
   label,
+  metrics,
+  objectConcurrency,
   verbose,
 }: PromoteChunkOptions): Promise<PromotionReceipt> {
   const objectEntries = casObjects.map((c) => c.entry)
+  const totalStart = Date.now()
+  const planStart = Date.now()
   const plan = await client.syncPlanUpload({ deviceId, storePath, objects: objectEntries })
+  metrics.planMs += Date.now() - planStart
+  metrics.objectsDeclared += casObjects.length
+  metrics.objectsMissing += plan.missingObjectIds.length
+  metrics.batches += 1
   if (verbose) {
-    process.stdout.write(
-      `plan ${label} • batchId=${plan.batchId} declaredObjects=${casObjects.length} missingObjects=${plan.missingObjectIds.length} rows=${projectionRowCount(projection)}\n`,
+    process.stderr.write(
+      `plan ${label} • batchId=${plan.batchId} declaredObjects=${casObjects.length} missingObjects=${plan.missingObjectIds.length} rows=${projectionRowCount(projection)} planMs=${metrics.planMs}\n`,
     )
   }
 
   const missingSet = new Set(plan.missingObjectIds)
   const missingObjects = casObjects.filter(({ entry }) => missingSet.has(entry.objectId))
-  await mapConcurrent(missingObjects, OBJECT_UPLOAD_CONCURRENCY, async ({ entry: obj, bytes }) => {
+  const uploadStart = Date.now()
+  await mapConcurrent(missingObjects, objectConcurrency, async (object) => {
+    const { entry: obj } = object
+    const bytes = await bytesForUpload(storePath, object, metrics)
     await client.uploadObjectBytes({
       batchId: plan.batchId,
       objectId: obj.objectId,
@@ -446,8 +486,12 @@ async function promoteChunk({
       uncompressedSize: obj.uncompressedSize,
       bytes,
     })
+    metrics.bytesUploaded += bytes.byteLength
+    metrics.objectsUploaded += 1
   })
+  metrics.uploadMs += Date.now() - uploadStart
 
+  const commitStart = Date.now()
   const commit = await client.syncCommitUpload({
     batchId: plan.batchId,
     deviceId,
@@ -455,10 +499,15 @@ async function promoteChunk({
     objects: objectEntries,
     projection,
   })
+  metrics.commitMs += Date.now() - commitStart
+  metrics.rowsCommitted += commit.committedRows
   if (verbose) {
-    process.stdout.write(`commit ${label} • objects=${commit.committedObjects} rows=${commit.committedRows}\n`)
+    process.stderr.write(
+      `commit ${label} • objects=${commit.committedObjects} rows=${commit.committedRows} commitMs=${metrics.commitMs}\n`,
+    )
   }
 
+  const verifyStart = Date.now()
   const verify = await client.syncVerifyPromotion({
     batchId: plan.batchId,
     storePath,
@@ -471,6 +520,8 @@ async function promoteChunk({
     declaredToolCallIds: projection.toolCalls.map((c) => c.id),
     declaredToolResultIds: projection.toolResults.map((r) => r.id),
   })
+  metrics.verifyMs += Date.now() - verifyStart
+  metrics.totalMs += Date.now() - totalStart
   return verify.receipt
 }
 
@@ -481,16 +532,22 @@ async function promoteChunkedUpload({
   bundle,
   maxObjectsPerPlan,
   maxRowsPerCommit,
+  objectConcurrency,
   verbose,
 }: ChunkedPromotionOptions): Promise<SyncResult> {
   let batchCount = 0
   let lastReceipt: PromotionReceipt | null = null
   let objectCursor: string | null = null
+  const metrics = emptySyncMetrics(objectConcurrency)
 
   while (true) {
     const chunk = await readObjectChunk(bundle, storePath, objectCursor, maxObjectsPerPlan)
     if (chunk.casObjects.length === 0) break
     batchCount += 1
+    metrics.localScanMs += chunk.metrics.localScanMs
+    metrics.localReadMs += chunk.metrics.localReadMs
+    metrics.localBytesRead += chunk.metrics.localBytesRead
+    metrics.localObjectsRead += chunk.metrics.localObjectsRead
     lastReceipt = await promoteChunk({
       client,
       deviceId,
@@ -498,6 +555,8 @@ async function promoteChunkedUpload({
       casObjects: chunk.casObjects,
       projection: emptyProjection(),
       label: `object batch ${batchCount}`,
+      metrics,
+      objectConcurrency,
       verbose,
     })
     objectCursor = chunk.nextCursor
@@ -520,6 +579,8 @@ async function promoteChunkedUpload({
         casObjects: [],
         projection: toProjection(chunk.rows),
         label: `${label} batch ${batchCount}`,
+        metrics,
+        objectConcurrency,
         verbose,
       })
       cursor = chunk.nextCursor
@@ -568,6 +629,7 @@ async function promoteChunkedUpload({
     searchDocCount: 0,
     batchCount,
     chunked: true,
+    metrics,
   }
 }
 
@@ -592,6 +654,12 @@ export function syncCommand(): Command {
     )
     .option('--json', 'machine-readable JSON output', false)
     .option('--verbose', 'extra logging', false)
+    .option(
+      '--object-concurrency <n>',
+      `concurrent CAS object PUTs per batch (default: ${DEFAULT_OBJECT_UPLOAD_CONCURRENCY}; range ${MIN_OBJECT_UPLOAD_CONCURRENCY}-${MAX_OBJECT_UPLOAD_CONCURRENCY})`,
+      parseObjectConcurrency,
+      DEFAULT_OBJECT_UPLOAD_CONCURRENCY,
+    )
     .option('--config <path>', 'override CLI config path')
     .action(async (options: SyncOptions) => {
       const configPath = options.configPath ?? defaultConfigPath()
@@ -624,7 +692,9 @@ export function syncCommand(): Command {
         })
 
         if (options.verbose) {
-          process.stdout.write(`handshake ok • deviceId=${handshake.deviceId} promoted=${handshake.promoted}\n`)
+          process.stderr.write(
+            `handshake ok • deviceId=${handshake.deviceId} promoted=${handshake.promoted} objectConcurrency=${options.objectConcurrency}\n`,
+          )
         }
 
         const counts = readUploadCounts(bundle, handshake.limits)
@@ -666,7 +736,7 @@ export function syncCommand(): Command {
 
         if (limitViolations.length > 0) {
           if (options.verbose) {
-            process.stdout.write(
+            process.stderr.write(
               `bundle exceeds single-batch limits; switching to chunked sync (~${estimatedBatches} batches). Local cleanup will be skipped.\n`,
             )
           }
@@ -677,6 +747,7 @@ export function syncCommand(): Command {
             bundle,
             maxObjectsPerPlan: handshake.limits.maxObjectsPerPlan,
             maxRowsPerCommit: handshake.limits.maxRowsPerCommit,
+            objectConcurrency: options.objectConcurrency,
             verbose: options.verbose,
           })
           result = {
@@ -692,6 +763,7 @@ export function syncCommand(): Command {
             deviceId: handshake.deviceId,
             storePath,
             upload,
+            objectConcurrency: options.objectConcurrency,
             verbose: options.verbose,
           })
 
@@ -702,6 +774,7 @@ export function syncCommand(): Command {
             searchDocCount: promotion.searchDocCount,
             batchCount: 1,
             chunked: false,
+            metrics: promotion.metrics,
           }
 
           const nextEntry = recordPromotion(
@@ -736,6 +809,7 @@ export function syncCommand(): Command {
             tenant: tenantHint,
             store: storePath,
             ...result,
+            metrics: result.metrics,
             removedLocalPaths: removed,
             keptLocal: Boolean(options.keepLocal) || result.chunked,
             cleanupSkippedReason: result.chunked
@@ -750,7 +824,9 @@ export function syncCommand(): Command {
             ? `kept local bundle at ${storePath} (marked remote-authoritative)\n`
             : `removed ${removed.length} local paths under ${storePath}\n`
         process.stdout.write(
-          `sync ok • batch=${result.batchId} batches=${result.batchCount} mode=${result.chunked ? 'chunked' : 'single-batch'} sessions=${result.sessionCount} searchDocs=${result.searchDocCount}\n${tail}`,
+          `sync ok • batch=${result.batchId} batches=${result.batchCount} mode=${result.chunked ? 'chunked' : 'single-batch'} sessions=${result.sessionCount} searchDocs=${result.searchDocCount}
+metrics • planMs=${result.metrics.planMs} uploadMs=${result.metrics.uploadMs} commitMs=${result.metrics.commitMs} verifyMs=${result.metrics.verifyMs} bytesUploaded=${result.metrics.bytesUploaded} rowsCommitted=${result.metrics.rowsCommitted}
+${tail}`,
         )
       }
     })

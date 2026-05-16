@@ -2,7 +2,27 @@ import { rm } from 'node:fs/promises'
 import path from 'node:path'
 import type { PromotionReceipt } from '@c3-oss/prosa-sync'
 import type { ProsaApiClient } from '../auth/client.js'
-import type { LocalBundleUpload } from './bundle.js'
+import { type LocalBundleUpload, type LocalCasObject, readLocalCasObjectBytes } from './bundle.js'
+import { mapConcurrent } from './concurrency.js'
+
+export type SyncMetrics = {
+  planMs: number
+  uploadMs: number
+  commitMs: number
+  verifyMs: number
+  totalMs: number
+  localScanMs: number
+  localReadMs: number
+  localBytesRead: number
+  localObjectsRead: number
+  bytesUploaded: number
+  rowsCommitted: number
+  objectsDeclared: number
+  objectsMissing: number
+  objectsUploaded: number
+  batches: number
+  objectConcurrency: number
+}
 
 export type SyncPromotionResult = {
   batchId: string
@@ -10,6 +30,7 @@ export type SyncPromotionResult = {
   objectCount: number
   searchDocCount: number
   receipt: PromotionReceipt
+  metrics: SyncMetrics
 }
 
 type PromoteUploadOptions = {
@@ -17,7 +38,61 @@ type PromoteUploadOptions = {
   deviceId: string
   storePath: string
   upload: LocalBundleUpload
+  objectConcurrency: number
   verbose?: boolean
+}
+
+export function emptySyncMetrics(objectConcurrency: number): SyncMetrics {
+  return {
+    planMs: 0,
+    uploadMs: 0,
+    commitMs: 0,
+    verifyMs: 0,
+    totalMs: 0,
+    localScanMs: 0,
+    localReadMs: 0,
+    localBytesRead: 0,
+    localObjectsRead: 0,
+    bytesUploaded: 0,
+    rowsCommitted: 0,
+    objectsDeclared: 0,
+    objectsMissing: 0,
+    objectsUploaded: 0,
+    batches: 0,
+    objectConcurrency,
+  }
+}
+
+export function mergeSyncMetrics(left: SyncMetrics, right: SyncMetrics): SyncMetrics {
+  return {
+    planMs: left.planMs + right.planMs,
+    uploadMs: left.uploadMs + right.uploadMs,
+    commitMs: left.commitMs + right.commitMs,
+    verifyMs: left.verifyMs + right.verifyMs,
+    totalMs: left.totalMs + right.totalMs,
+    localScanMs: left.localScanMs + right.localScanMs,
+    localReadMs: left.localReadMs + right.localReadMs,
+    localBytesRead: left.localBytesRead + right.localBytesRead,
+    localObjectsRead: left.localObjectsRead + right.localObjectsRead,
+    bytesUploaded: left.bytesUploaded + right.bytesUploaded,
+    rowsCommitted: left.rowsCommitted + right.rowsCommitted,
+    objectsDeclared: left.objectsDeclared + right.objectsDeclared,
+    objectsMissing: left.objectsMissing + right.objectsMissing,
+    objectsUploaded: left.objectsUploaded + right.objectsUploaded,
+    batches: left.batches + right.batches,
+    objectConcurrency: right.objectConcurrency,
+  }
+}
+
+async function bytesForUpload(storePath: string, object: LocalCasObject, metrics: SyncMetrics): Promise<Uint8Array> {
+  if (object.bytes) return object.bytes
+  const readStart = Date.now()
+  const bytes = await readLocalCasObjectBytes(storePath, object)
+  metrics.localReadMs += Date.now() - readStart
+  metrics.localBytesRead += bytes.byteLength
+  metrics.localObjectsRead += 1
+  object.bytes = bytes
+  return bytes
 }
 
 export async function promoteUpload({
@@ -25,24 +100,40 @@ export async function promoteUpload({
   deviceId,
   storePath,
   upload,
+  objectConcurrency,
   verbose,
 }: PromoteUploadOptions): Promise<SyncPromotionResult> {
   const { casObjects, projection, rawRecords, searchDocs, sessions, sourceFiles, toolCalls, toolResults } = upload
   const objectEntries = casObjects.map((c) => c.entry)
+  const metrics = emptySyncMetrics(objectConcurrency)
+  metrics.batches = 1
+  metrics.objectsDeclared = casObjects.length
+  metrics.localScanMs = upload.metrics.localScanMs
+  metrics.localReadMs = upload.metrics.localReadMs
+  metrics.localBytesRead = upload.metrics.localBytesRead
+  metrics.localObjectsRead = upload.metrics.localObjectsRead
+  const totalStart = Date.now()
+
+  const planStart = Date.now()
   const plan = await client.syncPlanUpload({
     deviceId,
     storePath,
     objects: objectEntries,
   })
+  metrics.planMs += Date.now() - planStart
+  metrics.objectsMissing = plan.missingObjectIds.length
   if (verbose) {
-    process.stdout.write(
-      `plan ok • batchId=${plan.batchId} declaredObjects=${casObjects.length} missingObjects=${plan.missingObjectIds.length}\n`,
+    process.stderr.write(
+      `plan ok • batchId=${plan.batchId} declaredObjects=${casObjects.length} missingObjects=${plan.missingObjectIds.length} planMs=${metrics.planMs}\n`,
     )
   }
 
   const missingSet = new Set(plan.missingObjectIds)
-  for (const { entry: obj, bytes } of casObjects) {
-    if (!missingSet.has(obj.objectId)) continue
+  const missingObjects = casObjects.filter(({ entry }) => missingSet.has(entry.objectId))
+  const uploadStart = Date.now()
+  await mapConcurrent(missingObjects, objectConcurrency, async (object) => {
+    const { entry: obj } = object
+    const bytes = await bytesForUpload(storePath, object, metrics)
     await client.uploadObjectBytes({
       batchId: plan.batchId,
       objectId: obj.objectId,
@@ -53,11 +144,17 @@ export async function promoteUpload({
       uncompressedSize: obj.uncompressedSize,
       bytes,
     })
-  }
+    metrics.bytesUploaded += bytes.byteLength
+    metrics.objectsUploaded += 1
+  })
+  metrics.uploadMs += Date.now() - uploadStart
   if (verbose && casObjects.length > 0) {
-    process.stdout.write(`uploaded ${missingSet.size} CAS objects\n`)
+    process.stderr.write(
+      `uploaded ${missingSet.size} CAS objects bytes=${metrics.bytesUploaded} uploadMs=${metrics.uploadMs}\n`,
+    )
   }
 
+  const commitStart = Date.now()
   const commit = await client.syncCommitUpload({
     batchId: plan.batchId,
     deviceId,
@@ -65,10 +162,15 @@ export async function promoteUpload({
     objects: objectEntries,
     projection,
   })
+  metrics.commitMs += Date.now() - commitStart
+  metrics.rowsCommitted += commit.committedRows
   if (verbose) {
-    process.stdout.write(`commit ok • objects=${commit.committedObjects} rows=${commit.committedRows}\n`)
+    process.stderr.write(
+      `commit ok • objects=${commit.committedObjects} rows=${commit.committedRows} commitMs=${metrics.commitMs}\n`,
+    )
   }
 
+  const verifyStart = Date.now()
   const verify = await client.syncVerifyPromotion({
     batchId: plan.batchId,
     storePath,
@@ -81,6 +183,8 @@ export async function promoteUpload({
     declaredToolCallIds: toolCalls.map((c) => c.id),
     declaredToolResultIds: toolResults.map((r) => r.id),
   })
+  metrics.verifyMs += Date.now() - verifyStart
+  metrics.totalMs += Date.now() - totalStart
 
   return {
     batchId: plan.batchId,
@@ -88,6 +192,7 @@ export async function promoteUpload({
     objectCount: verify.receipt.objectCount,
     searchDocCount: verify.receipt.searchDocCount,
     receipt: verify.receipt,
+    metrics,
   }
 }
 

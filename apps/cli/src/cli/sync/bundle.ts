@@ -15,7 +15,8 @@ import type {
 
 export type LocalCasObject = {
   entry: ObjectManifestEntry
-  bytes: Uint8Array
+  storagePath: string
+  bytes?: Uint8Array
 }
 
 export type LocalBundleUpload = {
@@ -27,6 +28,14 @@ export type LocalBundleUpload = {
   toolCalls: ProjectionToolCallRow[]
   toolResults: ProjectionToolResultRow[]
   casObjects: LocalCasObject[]
+  metrics: LocalBundleReadMetrics
+}
+
+export type LocalBundleReadMetrics = {
+  localScanMs: number
+  localReadMs: number
+  localBytesRead: number
+  localObjectsRead: number
 }
 
 function readSessionsForUpload(bundle: Bundle): ProjectionSessionRow[] {
@@ -206,44 +215,77 @@ function readToolResultsForUpload(bundle: Bundle): ProjectionToolResultRow[] {
  * can verify the body against the BLAKE3 of what's actually on the wire while
  * keeping the canonical `hash`/`objectId` aligned with the local catalog.
  */
-async function walkCasObjects(bundle: Bundle, storePath: string): Promise<LocalCasObject[]> {
-  type CatalogRow = {
-    object_id: string
-    hash: string
-    size_bytes: number
-    compressed_size_bytes: number | null
-    compression: 'zstd' | 'none'
-    mime_type: string | null
-    storage_path: string
-  }
-  // Schema drift in the `objects` catalog should fail the sync command rather
-  // than skip the CAS upload silently.
-  const rows = bundle.db
+type ObjectCatalogRow = {
+  object_id: string
+  hash: string
+  size_bytes: number
+  compressed_size_bytes: number | null
+  compression: 'zstd' | 'none'
+  mime_type: string | null
+  storage_path: string
+}
+
+function readObjectCatalogRows(bundle: Bundle): ObjectCatalogRow[] {
+  return bundle.db
     .prepare(
       `SELECT object_id, hash, size_bytes, compressed_size_bytes, compression, mime_type, storage_path
          FROM objects
          ORDER BY object_id`,
     )
-    .all() as CatalogRow[]
+    .all() as ObjectCatalogRow[]
+}
+
+export async function readLocalCasObjectBytes(
+  storePath: string,
+  object: Pick<LocalCasObject, 'storagePath'>,
+): Promise<Uint8Array> {
+  const buf = await readFile(path.join(storePath, object.storagePath))
+  return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength)
+}
+
+/**
+ * Build object manifest entries from the local object catalog. For uncompressed
+ * objects the transport hash equals the canonical hash, so bytes are read only
+ * if the server later reports the object as missing. Compressed objects still
+ * need a pre-plan byte read until the catalog stores transport hashes.
+ */
+async function walkCasObjects(
+  bundle: Bundle,
+  storePath: string,
+): Promise<{ casObjects: LocalCasObject[]; metrics: LocalBundleReadMetrics }> {
+  // Schema drift in the `objects` catalog should fail the sync command rather
+  // than skip the CAS upload silently.
+  const scanStart = Date.now()
+  const rows = readObjectCatalogRows(bundle)
+  const localScanMs = Date.now() - scanStart
   const out: LocalCasObject[] = []
+  let localReadMs = 0
+  let localBytesRead = 0
+  let localObjectsRead = 0
   for (const row of rows) {
-    const full = path.join(storePath, row.storage_path)
-    const buf = await readFile(full)
-    const bytes = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength)
-    const transportHash = computeHashHex(bytes, 'blake3')
+    let bytes: Uint8Array | undefined
+    let transportHash = row.hash
+    if (row.compression !== 'none') {
+      const readStart = Date.now()
+      bytes = await readLocalCasObjectBytes(storePath, { storagePath: row.storage_path })
+      localReadMs += Date.now() - readStart
+      localBytesRead += bytes.byteLength
+      localObjectsRead += 1
+      transportHash = computeHashHex(bytes, 'blake3')
+    }
     const entry: ObjectManifestEntry = {
       objectId: row.object_id,
       hash: row.hash,
       hashAlgorithm: 'blake3',
       uncompressedSize: row.size_bytes,
-      compressedSize: row.compressed_size_bytes ?? bytes.byteLength,
+      compressedSize: row.compressed_size_bytes ?? row.size_bytes,
       compression: row.compression,
       transportHash,
     }
     if (row.mime_type) entry.contentType = row.mime_type
-    out.push({ entry, bytes })
+    out.push({ entry, storagePath: row.storage_path, bytes })
   }
-  return out
+  return { casObjects: out, metrics: { localScanMs, localReadMs, localBytesRead, localObjectsRead } }
 }
 
 export async function readBundleForUpload(bundle: Bundle, storePath: string): Promise<LocalBundleUpload> {
@@ -253,7 +295,7 @@ export async function readBundleForUpload(bundle: Bundle, storePath: string): Pr
   const rawRecords = readRawRecordsForUpload(bundle)
   const toolCalls = readToolCallsForUpload(bundle)
   const toolResults = readToolResultsForUpload(bundle)
-  const casObjects = await walkCasObjects(bundle, storePath)
+  const { casObjects, metrics } = await walkCasObjects(bundle, storePath)
   return {
     projection: {
       sourceFiles,
@@ -270,5 +312,6 @@ export async function readBundleForUpload(bundle: Bundle, storePath: string): Pr
     toolCalls,
     toolResults,
     casObjects,
+    metrics,
   }
 }
