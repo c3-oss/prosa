@@ -30,6 +30,8 @@ import {
   upsertServer,
 } from '../auth/config.js'
 import { CliUserError } from '../errors.js'
+import { emitStatus } from '../ink/messages.js'
+import { type SyncProgressHandle, startSyncProgress } from '../ink/sync-progress.js'
 import { type LocalCasObject, readBundleForUpload, readLocalCasObjectBytes } from '../sync/bundle.js'
 import { mapConcurrent, mapConcurrentResults } from '../sync/concurrency.js'
 import {
@@ -94,6 +96,10 @@ type ChunkedPromotionOptions = {
   objectConcurrency: number
   batchConcurrency: number
   verbose?: boolean
+  /** Optional Ink progress sink; ignored when running headless. */
+  progress?: SyncProgressHandle
+  /** Total batches expected, used to drive the progress bar pct. */
+  totalBatches?: number
 }
 
 type ProjectionStream<TEntity> = {
@@ -1020,10 +1026,16 @@ export async function promoteChunkedUpload({
   objectConcurrency,
   batchConcurrency,
   verbose,
+  progress,
+  totalBatches,
 }: ChunkedPromotionOptions): Promise<SyncResult> {
   let batchCount = 0
   let lastReceipt: PromotionReceipt | null = null
   let metrics = emptySyncMetrics(objectConcurrency)
+  const denominator = totalBatches && totalBatches > 0 ? totalBatches : 1
+  const tickProgress = () => {
+    progress?.setPhase({ kind: 'upload', completed: batchCount, total: denominator })
+  }
 
   const promoteProjectionChunks = async <TRow>(
     label: string,
@@ -1053,6 +1065,7 @@ export async function promoteChunkedUpload({
       lastReceipt = result.receipt
     }
     batchCount += results.length
+    tickProgress()
   }
 
   const hasCasObjects = readObjectCatalogRows(bundle, null, 1).length > 0
@@ -1164,6 +1177,7 @@ export async function promoteChunkedUpload({
       }
 
       batchCount += 1
+      tickProgress()
       lastReceipt = await promoteChunk({
         client,
         deviceId,
@@ -1248,9 +1262,15 @@ export function syncCommand(): Command {
       const exists = await bundleManifestExists(storePath)
       if (!exists) throw new CliUserError(`no prosa bundle at ${storePath}`)
 
+      // Ink progress is suppressed for --json/--dry-run and headless contexts;
+      // the imperative flow below drives phase transitions unconditionally,
+      // and the inert handle no-ops when Ink isn't active.
+      const progress = startSyncProgress({ json: options.json, quiet: options.dryRun })
+
       const bundle = await openBundle(storePath)
       let result: SyncResult
       try {
+        progress.setPhase({ kind: 'handshake' })
         const handshake = await client.syncHandshake({
           cliVersion: process.env.npm_package_version ?? '0.0.0',
           protocolVersion: 1,
@@ -1308,6 +1328,7 @@ export function syncCommand(): Command {
               `bundle exceeds single-batch limits; switching to chunked sync (~${estimatedBatches} batches). Local cleanup will be skipped.\n`,
             )
           }
+          progress.setPhase({ kind: 'upload', completed: 0, total: estimatedBatches })
           result = await promoteChunkedUpload({
             client,
             deviceId: handshake.deviceId,
@@ -1318,6 +1339,8 @@ export function syncCommand(): Command {
             objectConcurrency: options.objectConcurrency,
             batchConcurrency: options.batchConcurrency,
             verbose: options.verbose,
+            progress,
+            totalBatches: estimatedBatches,
           })
           result = {
             ...result,
@@ -1326,7 +1349,9 @@ export function syncCommand(): Command {
             searchDocCount: counts.searchDocs,
           }
         } else {
+          progress.setPhase({ kind: 'plan' })
           const upload = await readBundleForUpload(bundle, storePath)
+          progress.setPhase({ kind: 'upload', completed: 0, total: 1 })
           const promotion = await promoteUpload({
             client,
             deviceId: handshake.deviceId,
@@ -1335,6 +1360,7 @@ export function syncCommand(): Command {
             objectConcurrency: options.objectConcurrency,
             verbose: options.verbose,
           })
+          progress.setPhase({ kind: 'verify' })
 
           result = {
             batchId: promotion.batchId,
@@ -1358,21 +1384,32 @@ export function syncCommand(): Command {
           )
           await saveCliConfig(upsertServer(config, nextEntry, true), configPath)
         }
+      } catch (err) {
+        await progress.stop()
+        throw err
       } finally {
         closeBundle(bundle)
       }
 
       let removed: string[] = []
       if (!options.keepLocal && !result.chunked) {
+        progress.setPhase({ kind: 'cleanup' })
         removed = await removeLocalBundle(storePath, Boolean(options.purgeBundle))
         await client
           .syncAckCleanup({ batchId: result.batchId, storePath, removedPaths: removed })
           .catch(() => undefined)
       }
 
-      if (options.json) {
-        process.stdout.write(
-          `${JSON.stringify({
+      progress.setPhase({ kind: 'done' })
+      await progress.stop()
+
+      const tail = result.chunked
+        ? `kept local bundle at ${storePath} (chunked sync uses per-batch receipts; cleanup disabled)\n`
+        : options.keepLocal
+          ? `kept local bundle at ${storePath} (marked remote-authoritative)\n`
+          : `removed ${removed.length} local paths under ${storePath}\n`
+      const plain = options.json
+        ? `${JSON.stringify({
             ok: true,
             server,
             tenant: tenantHint,
@@ -1384,20 +1421,16 @@ export function syncCommand(): Command {
             cleanupSkippedReason: result.chunked
               ? 'chunked sync uses per-batch receipts; local cleanup is disabled'
               : null,
-          })}\n`,
-        )
-      } else {
-        const tail = result.chunked
-          ? `kept local bundle at ${storePath} (chunked sync uses per-batch receipts; cleanup disabled)\n`
-          : options.keepLocal
-            ? `kept local bundle at ${storePath} (marked remote-authoritative)\n`
-            : `removed ${removed.length} local paths under ${storePath}\n`
-        process.stdout.write(
-          `sync ok • batch=${result.batchId} batches=${result.batchCount} mode=${result.chunked ? 'chunked' : 'single-batch'} sessions=${result.sessionCount} searchDocs=${result.searchDocCount}
+          })}\n`
+        : `sync ok • batch=${result.batchId} batches=${result.batchCount} mode=${result.chunked ? 'chunked' : 'single-batch'} sessions=${result.sessionCount} searchDocs=${result.searchDocCount}
 metrics • planMs=${result.metrics.planMs} uploadMs=${result.metrics.uploadMs} commitMs=${result.metrics.commitMs} verifyMs=${result.metrics.verifyMs} bytesUploaded=${result.metrics.bytesUploaded} rowsCommitted=${result.metrics.rowsCommitted}
-${tail}`,
-        )
-      }
+${tail}`
+      await emitStatus({
+        json: options.json,
+        variant: 'success',
+        message: `sync ok • batch=${result.batchId} batches=${result.batchCount} mode=${result.chunked ? 'chunked' : 'single-batch'} sessions=${result.sessionCount} searchDocs=${result.searchDocCount}`,
+        plain,
+      })
     })
 
   cmd

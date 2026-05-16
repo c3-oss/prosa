@@ -10,6 +10,8 @@ import {
   upsertServer,
 } from '../auth/config.js'
 import { CliUserError } from '../errors.js'
+import { emitStatus } from '../ink/messages.js'
+import { withSpinner } from '../ink/spinner.js'
 
 type AuthOptions = { server?: string; config?: string }
 
@@ -120,10 +122,14 @@ export function authCommand(): Command {
     .action(async (options) => {
       const server = resolveServer(options)
       const client = new ProsaApiClient({ baseUrl: server })
-      const result = await client.signInEmail({ email: options.email, password: options.password })
+      const result = await withSpinner(
+        `Signing in to ${server}…`,
+        () => client.signInEmail({ email: options.email, password: options.password }),
+        { quiet: options.json },
+      )
       client.token = result.token
       const tokenExpiresAt = await fetchTokenExpiresAt(client)
-      const tenants = await client.listTenants()
+      const tenants = await withSpinner('Fetching tenants…', () => client.listTenants(), { quiet: options.json })
       const configPath = resolveConfigPath(cmd.opts<AuthOptions>())
       const config = await loadCliConfig(configPath)
       const entry: ProsaServerEntry = {
@@ -135,13 +141,15 @@ export function authCommand(): Command {
       const first = tenants[0]
       if (first) entry.activeTenant = first
       await saveCliConfig(upsertServer(config, entry, true), configPath)
-      if (options.json) {
-        process.stdout.write(`${JSON.stringify({ ok: true, server, user: result.user, tenants })}\n`)
-      } else {
-        process.stdout.write(
-          `logged in as ${result.user.email}; ${tenants.length} tenant(s) available${first ? ` (active: ${first.name})` : ''}\n`,
-        )
-      }
+      const plain = options.json
+        ? `${JSON.stringify({ ok: true, server, user: result.user, tenants })}\n`
+        : `logged in as ${result.user.email}; ${tenants.length} tenant(s) available${first ? ` (active: ${first.name})` : ''}\n`
+      await emitStatus({
+        json: options.json,
+        variant: 'success',
+        message: `Logged in as ${result.user.email}${first ? ` (tenant: ${first.name})` : ''}`,
+        plain,
+      })
     })
 
   cmd
@@ -235,7 +243,11 @@ export function authCommand(): Command {
       const configPath = resolveConfigPath(cmd.opts<AuthOptions>())
       if (options.all) {
         await clearCliConfig(configPath)
-        process.stdout.write('cleared all local prosa CLI credentials\n')
+        await emitStatus({
+          variant: 'success',
+          message: 'Cleared all local prosa CLI credentials',
+          plain: 'cleared all local prosa CLI credentials\n',
+        })
         return
       }
       const config = await loadCliConfig(configPath)
@@ -243,8 +255,10 @@ export function authCommand(): Command {
       let revokeError: unknown = null
       if (entry?.token) {
         const client = new ProsaApiClient({ baseUrl: entry.url, token: entry.token })
-        await client.signOut().catch((err: unknown) => {
-          revokeError = err
+        await withSpinner('Revoking remote session…', async () => {
+          await client.signOut().catch((err: unknown) => {
+            revokeError = err
+          })
         })
       }
       if (config.activeServer) {
@@ -255,9 +269,17 @@ export function authCommand(): Command {
       await saveCliConfig(config, configPath)
       if (revokeError) {
         const message = revokeError instanceof Error ? revokeError.message : String(revokeError)
-        process.stdout.write(`logged out locally; remote session revocation failed: ${message}\n`)
+        await emitStatus({
+          variant: 'warning',
+          message: `Logged out locally; remote session revocation failed: ${message}`,
+          plain: `logged out locally; remote session revocation failed: ${message}\n`,
+        })
       } else {
-        process.stdout.write('logged out\n')
+        await emitStatus({
+          variant: 'success',
+          message: 'Logged out',
+          plain: 'logged out\n',
+        })
       }
     })
 

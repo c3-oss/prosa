@@ -48,6 +48,7 @@
   "dependencies": {
     "@c3-oss/prosa-core": "workspace:^",
     "@c3-oss/prosa-sync": "workspace:^",
+    "@inkjs/ui": "^2.0.0",
     "commander": "^12.1.0",
     "ink": "^7.0.1",
     "pino": "^10.3.1",
