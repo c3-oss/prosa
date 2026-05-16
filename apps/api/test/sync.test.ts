@@ -348,6 +348,252 @@ describe('sync promotion protocol', () => {
     }
   })
 
+  it('accepts message/content_block/event/artifact projection rows end-to-end', async () => {
+    const t = await buildTestApp()
+    try {
+      const auth = await signup(t, 'sync-f3-types@example.com')
+      const handshake = await trpc(
+        t,
+        'sync.handshake',
+        {
+          cliVersion: '0.0.0-test',
+          device: { name: 'transcript-box', platform: 'linux' },
+          store: { path: '/tmp/.prosa-f3', bundleVersion: '1' },
+        },
+        auth.token,
+      )
+      const deviceId = (handshake.json() as { result: { data: { deviceId: string } } }).result.data.deviceId
+      const plan = await trpc(t, 'sync.planUpload', { deviceId, storePath: '/tmp/.prosa-f3', objects: [] }, auth.token)
+      const batchId = (plan.json() as { result: { data: { batchId: string } } }).result.data.batchId
+
+      const commit = await trpc(
+        t,
+        'sync.commitUpload',
+        {
+          batchId,
+          deviceId,
+          storePath: '/tmp/.prosa-f3',
+          objects: [],
+          projection: {
+            sessions: [{ id: 'sess-f3', sourceKind: 'codex', title: 't', turnCount: 1 }],
+            messages: [
+              {
+                id: 'msg-1',
+                sessionId: 'sess-f3',
+                role: 'user',
+                createdAt: '2026-04-01T10:00:00.000Z',
+              },
+            ],
+            contentBlocks: [
+              {
+                id: 'blk-1',
+                messageId: 'msg-1',
+                sequence: 0,
+                kind: 'text',
+                text: 'hello',
+              },
+            ],
+            events: [
+              {
+                id: 'ev-1',
+                sessionId: 'sess-f3',
+                sequence: 0,
+                kind: 'message',
+                payload: { source: 'user' },
+                occurredAt: '2026-04-01T10:00:00.000Z',
+              },
+            ],
+            artifacts: [
+              {
+                id: 'art-1',
+                sessionId: 'sess-f3',
+                kind: 'text',
+                sizeBytes: 5,
+              },
+            ],
+          },
+        },
+        auth.token,
+      )
+      expect(commit.statusCode).toBe(200)
+      const commitBody = commit.json() as { result: { data: { committedRows: number } } }
+      // 1 session + 1 msg + 1 block + 1 event + 1 artifact = 5
+      expect(commitBody.result.data.committedRows).toBe(5)
+
+      const verify = await trpc(
+        t,
+        'sync.verifyPromotion',
+        {
+          batchId,
+          storePath: '/tmp/.prosa-f3',
+          declaredSessionIds: ['sess-f3'],
+          declaredMessageIds: ['msg-1'],
+          declaredContentBlockIds: ['blk-1'],
+          declaredEventIds: ['ev-1'],
+          declaredArtifactIds: ['art-1'],
+        },
+        auth.token,
+      )
+      expect(verify.statusCode).toBe(200)
+      const verifyBody = verify.json() as {
+        result: {
+          data: {
+            receipt: {
+              batchMessageCount: number
+              batchContentBlockCount: number
+              batchEventCount: number
+              batchArtifactCount: number
+              declaredMessagesVerified: number
+              declaredContentBlocksVerified: number
+              declaredEventsVerified: number
+              declaredArtifactsVerified: number
+            }
+          }
+        }
+      }
+      expect(verifyBody.result.data.receipt.batchMessageCount).toBe(1)
+      expect(verifyBody.result.data.receipt.batchContentBlockCount).toBe(1)
+      expect(verifyBody.result.data.receipt.batchEventCount).toBe(1)
+      expect(verifyBody.result.data.receipt.batchArtifactCount).toBe(1)
+      expect(verifyBody.result.data.receipt.declaredMessagesVerified).toBe(1)
+      expect(verifyBody.result.data.receipt.declaredContentBlocksVerified).toBe(1)
+      expect(verifyBody.result.data.receipt.declaredEventsVerified).toBe(1)
+      expect(verifyBody.result.data.receipt.declaredArtifactsVerified).toBe(1)
+
+      // Each new entity type gets its own manifest row, scoped to this batch+tenant.
+      const manifest = await t.pglite.query<{ entity_type: string; entity_id: string }>(
+        `SELECT entity_type, entity_id FROM "sync_batch_projection_manifest"
+           WHERE batch_id = $1 AND entity_type = ANY(ARRAY['message','content_block','event','artifact'])
+           ORDER BY entity_type, entity_id`,
+        [batchId],
+      )
+      expect(manifest.rows).toEqual([
+        { entity_type: 'artifact', entity_id: 'art-1' },
+        { entity_type: 'content_block', entity_id: 'blk-1' },
+        { entity_type: 'event', entity_id: 'ev-1' },
+        { entity_type: 'message', entity_id: 'msg-1' },
+      ])
+    } finally {
+      await t.close()
+    }
+  })
+
+  it('fail-closes verify-promotion when transcript declarations diverge from the batch manifest', async () => {
+    const t = await buildTestApp()
+    try {
+      const auth = await signup(t, 'sync-f3-mismatch@example.com')
+      const handshake = await trpc(
+        t,
+        'sync.handshake',
+        {
+          cliVersion: '0.0.0-test',
+          device: { name: 'm', platform: 'linux' },
+          store: { path: '/tmp/.prosa-f3-mismatch', bundleVersion: '1' },
+        },
+        auth.token,
+      )
+      const deviceId = (handshake.json() as { result: { data: { deviceId: string } } }).result.data.deviceId
+      const plan = await trpc(
+        t,
+        'sync.planUpload',
+        { deviceId, storePath: '/tmp/.prosa-f3-mismatch', objects: [] },
+        auth.token,
+      )
+      const batchId = (plan.json() as { result: { data: { batchId: string } } }).result.data.batchId
+      await trpc(
+        t,
+        'sync.commitUpload',
+        {
+          batchId,
+          deviceId,
+          storePath: '/tmp/.prosa-f3-mismatch',
+          objects: [],
+          projection: {
+            sessions: [{ id: 'sess-mm', sourceKind: 'codex', turnCount: 1 }],
+            messages: [{ id: 'msg-mm', sessionId: 'sess-mm', role: 'user' }],
+          },
+        },
+        auth.token,
+      )
+
+      // Declaring an extra message that is not in the batch must fail-close
+      // with a manifest declaration mismatch.
+      const verify = await trpc(
+        t,
+        'sync.verifyPromotion',
+        {
+          batchId,
+          storePath: '/tmp/.prosa-f3-mismatch',
+          declaredSessionIds: ['sess-mm'],
+          declaredMessageIds: ['msg-mm', 'msg-ghost'],
+        },
+        auth.token,
+      )
+      expect(verify.statusCode).toBe(412)
+      expect(verify.body).toContain('message declarations')
+    } finally {
+      await t.close()
+    }
+  })
+
+  it('remains backward-compatible with older clients that omit transcript entity types', async () => {
+    const t = await buildTestApp()
+    try {
+      const auth = await signup(t, 'sync-f3-bc@example.com')
+      const handshake = await trpc(
+        t,
+        'sync.handshake',
+        {
+          cliVersion: '0.0.0-old',
+          device: { name: 'old-cli', platform: 'linux' },
+          store: { path: '/tmp/.prosa-f3-bc', bundleVersion: '1' },
+        },
+        auth.token,
+      )
+      const deviceId = (handshake.json() as { result: { data: { deviceId: string } } }).result.data.deviceId
+      const plan = await trpc(
+        t,
+        'sync.planUpload',
+        { deviceId, storePath: '/tmp/.prosa-f3-bc', objects: [] },
+        auth.token,
+      )
+      const batchId = (plan.json() as { result: { data: { batchId: string } } }).result.data.batchId
+      // Payload mirrors a pre-F3 client: only tool_call/tool_result + session.
+      const commit = await trpc(
+        t,
+        'sync.commitUpload',
+        {
+          batchId,
+          deviceId,
+          storePath: '/tmp/.prosa-f3-bc',
+          objects: [],
+          projection: {
+            sessions: [{ id: 'sess-bc', sourceKind: 'codex', turnCount: 1 }],
+            toolCalls: [{ id: 'tc-bc', sessionId: 'sess-bc', name: 'shell.exec' }],
+            toolResults: [{ id: 'tr-bc', toolCallId: 'tc-bc', status: 'ok' }],
+          },
+        },
+        auth.token,
+      )
+      expect(commit.statusCode).toBe(200)
+      const verify = await trpc(
+        t,
+        'sync.verifyPromotion',
+        {
+          batchId,
+          storePath: '/tmp/.prosa-f3-bc',
+          declaredSessionIds: ['sess-bc'],
+          declaredToolCallIds: ['tc-bc'],
+          declaredToolResultIds: ['tr-bc'],
+        },
+        auth.token,
+      )
+      expect(verify.statusCode).toBe(200)
+    } finally {
+      await t.close()
+    }
+  })
+
   it('does not bind device authorization to the last handshaken store path', async () => {
     const t = await buildTestApp()
     try {

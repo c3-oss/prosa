@@ -1,6 +1,19 @@
 import { z } from 'zod'
 
-export type ProjectionEntityType = 'source_file' | 'raw_record' | 'session' | 'search_doc' | 'tool_call' | 'tool_result'
+export type ProjectionEntityType =
+  | 'source_file'
+  | 'raw_record'
+  | 'session'
+  | 'search_doc'
+  | 'tool_call'
+  | 'tool_result'
+  // Transcript-tier entities promoted in F3. Each row carries its own
+  // manifest entry so `verifiedProjectionExistsSql` can gate reads exactly
+  // like it does for tool_call/tool_result today.
+  | 'message'
+  | 'content_block'
+  | 'event'
+  | 'artifact'
 
 /**
  * Build a SQL fragment that asserts a projection row has a verified sync

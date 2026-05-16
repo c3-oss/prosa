@@ -27,7 +27,20 @@ export async function promoteUpload({
   upload,
   verbose,
 }: PromoteUploadOptions): Promise<SyncPromotionResult> {
-  const { casObjects, projection, rawRecords, searchDocs, sessions, sourceFiles, toolCalls, toolResults } = upload
+  const {
+    casObjects,
+    projection,
+    rawRecords,
+    searchDocs,
+    sessions,
+    sourceFiles,
+    toolCalls,
+    toolResults,
+    messages,
+    contentBlocks,
+    events,
+    artifacts,
+  } = upload
   const objectEntries = casObjects.map((c) => c.entry)
   const plan = await client.syncPlanUpload({
     deviceId,
@@ -80,6 +93,10 @@ export async function promoteUpload({
     declaredSearchDocIds: searchDocs.map((d) => d.id),
     declaredToolCallIds: toolCalls.map((c) => c.id),
     declaredToolResultIds: toolResults.map((r) => r.id),
+    declaredMessageIds: messages.map((m) => m.id),
+    declaredContentBlockIds: contentBlocks.map((b) => b.id),
+    declaredEventIds: events.map((e) => e.id),
+    declaredArtifactIds: artifacts.map((a) => a.id),
   })
 
   return {

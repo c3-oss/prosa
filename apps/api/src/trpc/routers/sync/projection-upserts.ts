@@ -1,4 +1,8 @@
 import type {
+  ProjectionArtifactRow,
+  ProjectionContentBlockRow,
+  ProjectionEventRow,
+  ProjectionMessageRow,
   ProjectionPayload,
   ProjectionSessionRow,
   ProjectionToolCallRow,
@@ -78,7 +82,13 @@ export function countProjectionRows(projection: ProjectionPayload): number {
     projection.sessions.length +
     projection.searchDocs.length +
     projection.toolCalls.length +
-    projection.toolResults.length
+    projection.toolResults.length +
+    // Transcript-tier entities count toward the same per-batch row budget so
+    // operators can keep a single mental model for `maxRowsPerCommit`.
+    projection.messages.length +
+    projection.contentBlocks.length +
+    projection.events.length +
+    projection.artifacts.length
   )
 }
 
@@ -355,6 +365,215 @@ async function insertToolResultRow(opts: {
   })
 }
 
+async function insertMessageRow(opts: {
+  rawExec: RawExec
+  tenantId: string
+  message: ProjectionMessageRow
+}): Promise<void> {
+  const { rawExec, tenantId, message } = opts
+  await insertOrVerifyRow<{
+    session_id: string
+    turn_id: string | null
+    role: string
+    model: string | null
+    created_at: unknown
+  }>({
+    rawExec,
+    table: 'projection_message',
+    selectColumns: 'session_id, turn_id, role, model, created_at',
+    tenantId,
+    id: message.id,
+    buildChecks: (row) => [
+      { kind: 'nullable', label: 'message sessionId', existing: row.session_id, incoming: message.sessionId },
+      { kind: 'nullable', label: 'message turnId', existing: row.turn_id, incoming: message.turnId ?? null },
+      { kind: 'nullable', label: 'message role', existing: row.role, incoming: message.role },
+      { kind: 'nullable', label: 'message model', existing: row.model, incoming: message.model ?? null },
+      {
+        kind: 'timestamp',
+        label: 'message createdAt',
+        existing: row.created_at,
+        incoming: message.createdAt ?? null,
+      },
+    ],
+    insertSql: `INSERT INTO "projection_message"(tenant_id, id, session_id, turn_id, role, model, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    insertParams: [
+      tenantId,
+      message.id,
+      message.sessionId,
+      message.turnId ?? null,
+      message.role,
+      message.model ?? null,
+      message.createdAt ?? null,
+    ],
+  })
+}
+
+async function insertContentBlockRow(opts: {
+  rawExec: RawExec
+  tenantId: string
+  contentBlock: ProjectionContentBlockRow
+}): Promise<void> {
+  const { rawExec, tenantId, contentBlock } = opts
+  await insertOrVerifyRow<{
+    message_id: string
+    sequence: number
+    kind: string
+    text: string | null
+    object_id: string | null
+    metadata: unknown
+  }>({
+    rawExec,
+    table: 'projection_content_block',
+    selectColumns: 'message_id, sequence, kind, text, object_id, metadata',
+    tenantId,
+    id: contentBlock.id,
+    buildChecks: (row) => [
+      {
+        kind: 'nullable',
+        label: 'content block messageId',
+        existing: row.message_id,
+        incoming: contentBlock.messageId,
+      },
+      { kind: 'nullable', label: 'content block sequence', existing: row.sequence, incoming: contentBlock.sequence },
+      { kind: 'nullable', label: 'content block kind', existing: row.kind, incoming: contentBlock.kind },
+      { kind: 'nullable', label: 'content block text', existing: row.text, incoming: contentBlock.text ?? null },
+      {
+        kind: 'nullable',
+        label: 'content block objectId',
+        existing: row.object_id,
+        incoming: contentBlock.objectId ?? null,
+      },
+      {
+        kind: 'json',
+        label: 'content block metadata',
+        existing: row.metadata,
+        incoming: contentBlock.metadata ?? null,
+      },
+    ],
+    insertSql: `INSERT INTO "projection_content_block"(tenant_id, id, message_id, sequence, kind, text, object_id, metadata)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)`,
+    insertParams: [
+      tenantId,
+      contentBlock.id,
+      contentBlock.messageId,
+      contentBlock.sequence,
+      contentBlock.kind,
+      contentBlock.text ?? null,
+      contentBlock.objectId ?? null,
+      contentBlock.metadata ? JSON.stringify(contentBlock.metadata) : null,
+    ],
+  })
+}
+
+async function insertEventRow(opts: {
+  rawExec: RawExec
+  tenantId: string
+  event: ProjectionEventRow
+}): Promise<void> {
+  const { rawExec, tenantId, event } = opts
+  await insertOrVerifyRow<{
+    session_id: string
+    turn_id: string | null
+    sequence: number
+    kind: string
+    payload: unknown
+    occurred_at: unknown
+  }>({
+    rawExec,
+    table: 'projection_event',
+    selectColumns: 'session_id, turn_id, sequence, kind, payload, occurred_at',
+    tenantId,
+    id: event.id,
+    buildChecks: (row) => [
+      { kind: 'nullable', label: 'event sessionId', existing: row.session_id, incoming: event.sessionId },
+      { kind: 'nullable', label: 'event turnId', existing: row.turn_id, incoming: event.turnId ?? null },
+      { kind: 'nullable', label: 'event sequence', existing: row.sequence, incoming: event.sequence },
+      { kind: 'nullable', label: 'event kind', existing: row.kind, incoming: event.kind },
+      { kind: 'json', label: 'event payload', existing: row.payload, incoming: event.payload ?? null },
+      {
+        kind: 'timestamp',
+        label: 'event occurredAt',
+        existing: row.occurred_at,
+        incoming: event.occurredAt ?? null,
+      },
+    ],
+    insertSql: `INSERT INTO "projection_event"(tenant_id, id, session_id, turn_id, sequence, kind, payload, occurred_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)`,
+    insertParams: [
+      tenantId,
+      event.id,
+      event.sessionId,
+      event.turnId ?? null,
+      event.sequence,
+      event.kind,
+      event.payload != null ? JSON.stringify(event.payload) : null,
+      event.occurredAt ?? null,
+    ],
+  })
+}
+
+async function insertArtifactRow(opts: {
+  rawExec: RawExec
+  tenantId: string
+  artifact: ProjectionArtifactRow
+}): Promise<void> {
+  const { rawExec, tenantId, artifact } = opts
+  await insertOrVerifyRow<{
+    session_id: string | null
+    kind: string
+    object_id: string | null
+    size_bytes: string | number | null
+    metadata: unknown
+  }>({
+    rawExec,
+    table: 'projection_artifact',
+    selectColumns: 'session_id, kind, object_id, size_bytes, metadata',
+    tenantId,
+    id: artifact.id,
+    buildChecks: (row) => [
+      {
+        kind: 'nullable',
+        label: 'artifact sessionId',
+        existing: row.session_id,
+        incoming: artifact.sessionId ?? null,
+      },
+      { kind: 'nullable', label: 'artifact kind', existing: row.kind, incoming: artifact.kind },
+      {
+        kind: 'nullable',
+        label: 'artifact objectId',
+        existing: row.object_id,
+        incoming: artifact.objectId ?? null,
+      },
+      {
+        kind: 'nullable',
+        label: 'artifact sizeBytes',
+        // Postgres returns `bigint` as a string when going through `postgres-js`,
+        // so coerce both sides to Number for the equality predicate.
+        existing: row.size_bytes != null ? Number(row.size_bytes) : null,
+        incoming: artifact.sizeBytes ?? null,
+      },
+      {
+        kind: 'json',
+        label: 'artifact metadata',
+        existing: row.metadata,
+        incoming: artifact.metadata ?? null,
+      },
+    ],
+    insertSql: `INSERT INTO "projection_artifact"(tenant_id, id, session_id, kind, object_id, size_bytes, metadata)
+     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)`,
+    insertParams: [
+      tenantId,
+      artifact.id,
+      artifact.sessionId ?? null,
+      artifact.kind,
+      artifact.objectId ?? null,
+      artifact.sizeBytes ?? null,
+      artifact.metadata ? JSON.stringify(artifact.metadata) : null,
+    ],
+  })
+}
+
 export async function insertProjectionRows(opts: {
   rawExec: RawExec
   tenantId: string
@@ -415,5 +634,29 @@ export async function insertProjectionRows(opts: {
       entityId: toolResult.id,
     })
     await insertToolResultRow({ rawExec, tenantId, toolResult })
+  }
+  // Insert messages BEFORE content_blocks so the (tenant_id, message_id) FK
+  // resolves even with deferred constraints disabled (e.g. PGlite test paths).
+  for (const message of projection.messages) {
+    await insertProjectionManifest({ rawExec, tenantId, batchId, entityType: 'message', entityId: message.id })
+    await insertMessageRow({ rawExec, tenantId, message })
+  }
+  for (const contentBlock of projection.contentBlocks) {
+    await insertProjectionManifest({
+      rawExec,
+      tenantId,
+      batchId,
+      entityType: 'content_block',
+      entityId: contentBlock.id,
+    })
+    await insertContentBlockRow({ rawExec, tenantId, contentBlock })
+  }
+  for (const event of projection.events) {
+    await insertProjectionManifest({ rawExec, tenantId, batchId, entityType: 'event', entityId: event.id })
+    await insertEventRow({ rawExec, tenantId, event })
+  }
+  for (const artifact of projection.artifacts) {
+    await insertProjectionManifest({ rawExec, tenantId, batchId, entityType: 'artifact', entityId: artifact.id })
+    await insertArtifactRow({ rawExec, tenantId, artifact })
   }
 }
