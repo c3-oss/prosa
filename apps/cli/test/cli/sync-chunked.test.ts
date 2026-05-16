@@ -1,0 +1,290 @@
+import { once } from 'node:events'
+import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { type IncomingMessage, type Server, type ServerResponse, createServer } from 'node:http'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import { closeBundle, initBundle, putBytes } from '@c3-oss/prosa-core'
+import type { CommitUploadInput, PlanUploadInput, VerifyPromotionInput } from '@c3-oss/prosa-sync'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { saveCliConfig } from '../../src/cli/auth/config.js'
+import { runCli } from '../../src/cli/main.js'
+
+type CommitRecord = {
+  objectCount: number
+  rowCount: number
+  sourceFileCount: number
+  sessionCount: number
+}
+
+type Harness = {
+  baseUrl: string
+  configPath: string
+  storePath: string
+  commits: CommitRecord[]
+  close: () => Promise<void>
+}
+
+function projectionRowCount(input: CommitUploadInput): number {
+  return (
+    input.projection.sourceFiles.length +
+    input.projection.rawRecords.length +
+    input.projection.sessions.length +
+    input.projection.searchDocs.length +
+    input.projection.toolCalls.length +
+    input.projection.toolResults.length
+  )
+}
+
+async function readJson(req: IncomingMessage): Promise<unknown> {
+  const chunks: Buffer[] = []
+  for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+  const raw = Buffer.concat(chunks).toString('utf8')
+  return raw.length > 0 ? JSON.parse(raw) : {}
+}
+
+function writeTrpc<T>(res: ServerResponse, data: T): void {
+  res.writeHead(200, { 'content-type': 'application/json' })
+  res.end(JSON.stringify({ result: { data } }))
+}
+
+function writeObjectUpload(res: ServerResponse): void {
+  res.writeHead(200, { 'content-type': 'application/json' })
+  res.end(JSON.stringify({ alreadyExisted: false }))
+}
+
+function writeError(res: ServerResponse, status: number, message: string): void {
+  res.writeHead(status, { 'content-type': 'application/json' })
+  res.end(JSON.stringify({ error: { message, data: { code: 'BAD_REQUEST' } } }))
+}
+
+async function listen(server: Server): Promise<string> {
+  server.listen(0, '127.0.0.1')
+  await once(server, 'listening')
+  const address = server.address()
+  if (address == null || typeof address === 'string') throw new Error('test server did not bind a TCP port')
+  return `http://127.0.0.1:${address.port}`
+}
+
+async function closeServer(server: Server): Promise<void> {
+  if (!server.listening) return
+  server.close()
+  await once(server, 'close')
+}
+
+async function createMixedBundle(storePath: string): Promise<void> {
+  await mkdir(storePath, { recursive: true })
+  const bundle = await initBundle(storePath)
+  const objectIds = [
+    await putBytes(bundle, new Uint8Array([1, 1, 1])),
+    await putBytes(bundle, new Uint8Array([2, 2, 2])),
+    await putBytes(bundle, new Uint8Array([3, 3, 3])),
+  ].sort()
+  for (const [index, objectId] of objectIds.entries()) {
+    bundle.db
+      .prepare(
+        `INSERT INTO source_files (source_file_id, source_tool, path, file_kind, size_bytes, mtime, content_hash, object_id, discovered_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        `sf-mixed-${index + 1}`,
+        'codex',
+        `/source/${index + 1}.jsonl`,
+        'jsonl',
+        3,
+        '2026-05-16T00:00:00.000Z',
+        `content-hash-${index + 1}`,
+        objectId,
+        '2026-05-16T00:00:00.000Z',
+      )
+  }
+  for (let index = 1; index <= 3; index += 1) {
+    bundle.db
+      .prepare(
+        `INSERT INTO sessions (session_id, source_tool, source_session_id, project_id, title, start_ts, end_ts)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        `sess-mixed-${index}`,
+        'codex',
+        `sess-mixed-${index}`,
+        null,
+        `mixed ${index}`,
+        '2026-05-16T00:00:00.000Z',
+        null,
+      )
+  }
+  closeBundle(bundle)
+}
+
+async function bootHarness(): Promise<Harness> {
+  const tmpRoot = await mkdtemp(path.join(tmpdir(), 'prosa-cli-chunked-'))
+  const configPath = path.join(tmpRoot, 'config.json')
+  const storePath = path.join(tmpRoot, '.prosa')
+  const commits: CommitRecord[] = []
+  const availableObjectIds = new Set<string>()
+  let batchIndex = 0
+
+  await createMixedBundle(storePath)
+
+  const server = createServer(async (req, res) => {
+    try {
+      const url = new URL(req.url ?? '/', 'http://127.0.0.1')
+      if (req.method === 'PUT' && url.pathname.startsWith('/objects/')) {
+        for await (const _chunk of req) {
+          // Drain the upload body so fetch can complete cleanly.
+        }
+        writeObjectUpload(res)
+        return
+      }
+      if (req.method !== 'POST') {
+        writeError(res, 404, 'not found')
+        return
+      }
+      if (url.pathname === '/trpc/sync.handshake') {
+        await readJson(req)
+        writeTrpc(res, {
+          serverVersion: 'test',
+          protocolVersion: 1,
+          deviceId: 'device-chunked-test',
+          promoted: false,
+          limits: { maxObjectsPerPlan: 2, maxRowsPerCommit: 2, maxObjectBytes: 1024 },
+        })
+        return
+      }
+      if (url.pathname === '/trpc/sync.planUpload') {
+        const input = (await readJson(req)) as PlanUploadInput
+        expect(input.objects.length).toBeLessThanOrEqual(2)
+        batchIndex += 1
+        writeTrpc(res, {
+          batchId: `batch-${batchIndex}`,
+          missingObjectIds: input.objects.map((object) => object.objectId),
+          uploadUrlTemplate: '/objects/:objectId',
+        })
+        return
+      }
+      if (url.pathname === '/trpc/sync.commitUpload') {
+        const input = (await readJson(req)) as CommitUploadInput
+        expect(input.objects.length).toBeLessThanOrEqual(2)
+        const rowCount = projectionRowCount(input)
+        expect(rowCount).toBeLessThanOrEqual(2)
+        const batchObjectIds = input.objects.map((object) => object.objectId)
+        const objectsAvailableForCommit = new Set([...availableObjectIds, ...batchObjectIds])
+        for (const sourceFile of input.projection.sourceFiles) {
+          expect(sourceFile.objectId == null || objectsAvailableForCommit.has(sourceFile.objectId)).toBe(true)
+        }
+        for (const objectId of batchObjectIds) availableObjectIds.add(objectId)
+        commits.push({
+          objectCount: input.objects.length,
+          rowCount,
+          sourceFileCount: input.projection.sourceFiles.length,
+          sessionCount: input.projection.sessions.length,
+        })
+        writeTrpc(res, { batchId: input.batchId, committedObjects: input.objects.length, committedRows: rowCount })
+        return
+      }
+      if (url.pathname === '/trpc/sync.verifyPromotion') {
+        const input = (await readJson(req)) as VerifyPromotionInput
+        writeTrpc(res, {
+          receipt: {
+            batchId: input.batchId,
+            tenantId: 'tenant-chunked-test',
+            deviceId: 'device-chunked-test',
+            storePath: input.storePath,
+            manifestHash: `manifest-${input.batchId}`,
+            sessionCount: input.declaredSessionIds.length,
+            objectCount: input.declaredObjectIds.length,
+            searchDocCount: input.declaredSearchDocIds.length,
+            batchObjectCount: input.declaredObjectIds.length,
+            batchSourceFileCount: input.declaredSourceFileIds.length,
+            batchRawRecordCount: input.declaredRawRecordIds.length,
+            batchSessionCount: input.declaredSessionIds.length,
+            batchSearchDocCount: input.declaredSearchDocIds.length,
+            batchToolCallCount: input.declaredToolCallIds.length,
+            batchToolResultCount: input.declaredToolResultIds.length,
+            declaredObjectsVerified: input.declaredObjectIds.length,
+            declaredSourceFilesVerified: input.declaredSourceFileIds.length,
+            declaredRawRecordsVerified: input.declaredRawRecordIds.length,
+            declaredSessionsVerified: input.declaredSessionIds.length,
+            declaredSearchDocsVerified: input.declaredSearchDocIds.length,
+            declaredToolCallsVerified: input.declaredToolCallIds.length,
+            declaredToolResultsVerified: input.declaredToolResultIds.length,
+            cleanupEligible: false,
+            verifiedAt: '2026-05-16T00:00:00.000Z',
+          },
+          sampledSessions: [],
+        })
+        return
+      }
+      writeError(res, 404, 'not found')
+    } catch (error) {
+      writeError(res, 500, error instanceof Error ? error.message : 'unknown test server error')
+    }
+  })
+
+  const baseUrl = await listen(server)
+  await saveCliConfig(
+    {
+      activeServer: baseUrl,
+      servers: {
+        [baseUrl]: {
+          url: baseUrl,
+          token: 'token-chunked-test',
+          activeTenant: { id: 'tenant-chunked-test', name: 'Chunked Test', slug: 'chunked-test' },
+        },
+      },
+    },
+    configPath,
+  )
+
+  return {
+    baseUrl,
+    configPath,
+    storePath,
+    commits,
+    close: async () => {
+      await closeServer(server)
+      await rm(tmpRoot, { recursive: true, force: true })
+    },
+  }
+}
+
+async function capturedRun(args: string[]): Promise<{ stdout: string }> {
+  const original = process.stdout.write.bind(process.stdout)
+  const captured: string[] = []
+  process.stdout.write = ((chunk: unknown) => {
+    captured.push(typeof chunk === 'string' ? chunk : String(chunk))
+    return true
+  }) as typeof process.stdout.write
+  try {
+    await runCli(['node', 'prosa', ...args])
+  } finally {
+    process.stdout.write = original
+  }
+  return { stdout: captured.join('') }
+}
+
+describe('CLI chunked sync batching', () => {
+  let h: Harness
+  beforeEach(async () => {
+    h = await bootHarness()
+    process.env.PROSA_CONFIG_PATH = h.configPath
+  })
+  afterEach(async () => {
+    process.env.PROSA_CONFIG_PATH = undefined
+    await h.close()
+  })
+
+  it('mixes CAS objects and projection rows in the same chunked commits', async () => {
+    const out = await capturedRun(['sync', '--server', h.baseUrl, '--store', h.storePath, '--json'])
+    const payload = JSON.parse(out.stdout) as { ok: boolean; chunked: boolean; batchCount: number }
+
+    expect(payload.ok).toBe(true)
+    expect(payload.chunked).toBe(true)
+    expect(payload.batchCount).toBe(3)
+    expect(h.commits).toEqual([
+      { objectCount: 2, rowCount: 2, sourceFileCount: 2, sessionCount: 0 },
+      { objectCount: 1, rowCount: 2, sourceFileCount: 1, sessionCount: 1 },
+      { objectCount: 0, rowCount: 2, sourceFileCount: 0, sessionCount: 2 },
+    ])
+  })
+})

@@ -11,7 +11,6 @@ import {
   loadObjectManifest,
   mapWithConcurrency,
   objectFromManifestRow,
-  objectStoreHeadMatches,
   objectStoreIoConcurrency,
 } from './manifest.js'
 import type { SyncHandlerContext } from './types.js'
@@ -111,14 +110,7 @@ async function verifyObjectManifest(opts: {
   objectManifest: BatchObjectManifestRow[]
 }): Promise<void> {
   if (opts.objectManifest.length === 0) return
-  const foundRows = await opts.rawExec<{ object_id: string }>(
-    `SELECT object_id
-       FROM "tenant_object"
-       WHERE tenant_id = $1 AND object_id = ANY($2::text[])`,
-    [opts.tenantId, opts.objectManifest.map((row) => row.object_id)],
-  )
-  const foundObjectIds = new Set(foundRows.map((row) => row.object_id))
-  const headResults = await mapWithConcurrency(opts.objectManifest, objectStoreIoConcurrency, async (row) => {
+  await mapWithConcurrency(opts.objectManifest, objectStoreIoConcurrency, async (row) => {
     const object = objectFromManifestRow(row)
     const found = await opts.rawExec<{ object_id: string }>(
       'SELECT object_id FROM "tenant_object" WHERE tenant_id = $1 AND object_id = $2 LIMIT 1',
@@ -140,7 +132,7 @@ async function verifyObjectManifest(opts: {
         message: `Promotion verification failed: object ${row.object_id} is missing or mismatched`,
       })
     }
-  }
+  })
 }
 
 async function countProjectionRows(opts: {
