@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { OBJECT_PACK_BINARY_CONTENT_TYPE, decodeBinaryObjectPack } from '@c3-oss/prosa-sync'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { ProsaApiClient } from '../../src/cli/auth/client.js'
 import {
@@ -91,7 +92,7 @@ describe('ProsaApiClient request shaping', () => {
     await expect(client.listTenants()).rejects.toThrow(/forbidden/)
   })
 
-  it('posts packed object bytes with ranges and auth headers', async () => {
+  it('posts binary packed object bytes with ranges and auth headers', async () => {
     const captured: Array<{ url: string; init: RequestInit | undefined }> = []
     const fakeFetch = async (url: string | URL | Request, init?: RequestInit) => {
       captured.push({ url: String(url), init })
@@ -143,17 +144,61 @@ describe('ProsaApiClient request shaping', () => {
     const headers = recorded.init?.headers as Record<string, string>
     expect(headers.authorization).toBe('Bearer xyz')
     expect(headers['x-prosa-tenant-id']).toBe('t-123')
-    expect(headers['content-type']).toBe('application/json')
+    expect(headers['content-type']).toBe(OBJECT_PACK_BINARY_CONTENT_TYPE)
 
-    const body = JSON.parse(String(recorded.init?.body)) as {
-      bytesBase64: string
-      entries: Array<{ objectId: string; offset: number; length: number; contentType?: string }>
-    }
-    expect(Buffer.from(body.bytesBase64, 'base64')).toEqual(Buffer.from([1, 2, 3, 4, 5]))
+    const body = decodeBinaryObjectPack(recorded.init?.body as Uint8Array)
+    expect(Buffer.from(body.payload)).toEqual(Buffer.from([1, 2, 3, 4, 5]))
     expect(body.entries).toMatchObject([
       { objectId: `blake3:${'a'.repeat(64)}`, offset: 0, length: 2, contentType: 'text/plain' },
       { objectId: `blake3:${'b'.repeat(64)}`, offset: 2, length: 3 },
     ])
+  })
+
+  it('falls back to JSON/base64 object packs when binary media type is unsupported', async () => {
+    const captured: Array<{ url: string; init: RequestInit | undefined }> = []
+    const fakeFetch = async (url: string | URL | Request, init?: RequestInit) => {
+      captured.push({ url: String(url), init })
+      if (captured.length === 1) {
+        return new Response('unsupported media type', { status: 415 })
+      }
+      return new Response(
+        JSON.stringify({ blobId: 'object-pack:t:batch:hash', objectIds: ['blake3:a'], alreadyExisted: false }),
+        { status: 201, headers: { 'content-type': 'application/json' } },
+      )
+    }
+    const client = new ProsaApiClient({
+      baseUrl: 'http://example/',
+      token: 'xyz',
+      tenantId: 't-123',
+      fetch: fakeFetch as typeof fetch,
+    })
+    const hash = 'a'.repeat(64)
+
+    await client.uploadObjectPack({
+      batchId: 'batch-1',
+      objects: [
+        {
+          objectId: `blake3:${hash}`,
+          hash,
+          hashAlgorithm: 'blake3',
+          compression: 'none',
+          compressedSize: 3,
+          uncompressedSize: 3,
+          transportHash: hash,
+          bytes: new Uint8Array([1, 2, 3]),
+        },
+      ],
+    })
+
+    expect(captured).toHaveLength(2)
+    expect((captured[0]?.init?.headers as Record<string, string>)['content-type']).toBe(OBJECT_PACK_BINARY_CONTENT_TYPE)
+    expect((captured[1]?.init?.headers as Record<string, string>)['content-type']).toBe('application/json')
+    const fallback = JSON.parse(String(captured[1]?.init?.body)) as {
+      bytesBase64: string
+      entries: Array<{ objectId: string; offset: number; length: number }>
+    }
+    expect(Buffer.from(fallback.bytesBase64, 'base64')).toEqual(Buffer.from([1, 2, 3]))
+    expect(fallback.entries).toMatchObject([{ objectId: `blake3:${hash}`, offset: 0, length: 3 }])
   })
 
   it('retries object PUTs on retryable HTTP status using Retry-After', async () => {

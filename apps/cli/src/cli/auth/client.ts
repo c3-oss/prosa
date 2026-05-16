@@ -1,16 +1,19 @@
 import { request as httpRequest } from 'node:http'
 import { request as httpsRequest } from 'node:https'
-import type {
-  CommitUploadInput,
-  CommitUploadOutput,
-  HandshakeInput,
-  HandshakeOutput,
-  ObjectManifestEntry,
-  PlanUploadInput,
-  PlanUploadOutput,
-  PromotionReceipt,
-  VerifyPromotionInput,
-  VerifyPromotionOutput,
+import {
+  type CommitUploadInput,
+  type CommitUploadOutput,
+  type HandshakeInput,
+  type HandshakeOutput,
+  OBJECT_PACK_BINARY_CONTENT_TYPE,
+  type ObjectManifestEntry,
+  type ObjectPackWireEntry,
+  type PlanUploadInput,
+  type PlanUploadOutput,
+  type PromotionReceipt,
+  type VerifyPromotionInput,
+  type VerifyPromotionOutput,
+  encodeBinaryObjectPack,
 } from '@c3-oss/prosa-sync'
 import { CliUserError } from '../errors.js'
 
@@ -25,6 +28,7 @@ export type ProsaApiClientOptions = {
 type TrpcSuccess<T> = { result: { data: T } }
 type TrpcFailure = { error: { message: string; data?: { code?: string } } }
 type PlainHttpResponse = { ok: boolean; status: number; text: string }
+type PreparedObjectPackUpload = { entries: ObjectPackWireEntry[]; payload: Buffer }
 
 export type ObjectPackUploadEntry = ObjectManifestEntry & {
   bytes: Uint8Array
@@ -77,6 +81,10 @@ function isRetryableNetworkError(err: unknown): boolean {
     (err as Error & { code?: string; cause?: { code?: string } }).code ??
     (err.cause as { code?: string } | undefined)?.code
   return code != null && ['ECONNRESET', 'ETIMEDOUT', 'EPIPE'].includes(code)
+}
+
+function isUnsupportedBinaryObjectPackResponse(status: number, text: string): boolean {
+  return status === 415 || (status === 400 && /Unsupported Media Type|JSON body required/i.test(text))
 }
 
 async function sleep(ms: number): Promise<void> {
@@ -423,9 +431,32 @@ export class ProsaApiClient {
     const url = new URL(`${this.baseUrl}/object-packs`)
     url.searchParams.set('batchId', input.batchId)
 
+    const prepared = this.prepareObjectPackUpload(input.objects)
+    const binaryResponse = await this.fetchFn(url.toString(), {
+      method: 'POST',
+      headers: this.headers({ 'content-type': OBJECT_PACK_BINARY_CONTENT_TYPE }),
+      body: encodeBinaryObjectPack({ entries: prepared.entries, payload: prepared.payload }),
+    })
+    const binaryText = await binaryResponse.text()
+    if (!isUnsupportedBinaryObjectPackResponse(binaryResponse.status, binaryText)) {
+      return this.parseObjectPackUploadResponse(binaryResponse.status, binaryText)
+    }
+
+    const fallbackResponse = await this.fetchFn(url.toString(), {
+      method: 'POST',
+      headers: this.headers({ 'content-type': 'application/json' }),
+      body: JSON.stringify({
+        bytesBase64: prepared.payload.toString('base64'),
+        entries: prepared.entries,
+      }),
+    })
+    return this.parseObjectPackUploadResponse(fallbackResponse.status, await fallbackResponse.text())
+  }
+
+  private prepareObjectPackUpload(objects: ObjectPackUploadEntry[]): PreparedObjectPackUpload {
     let offset = 0
     const buffers: Buffer[] = []
-    const entries = input.objects.map((object) => {
+    const entries: ObjectPackWireEntry[] = objects.map((object) => {
       const bytes = Buffer.from(object.bytes.buffer, object.bytes.byteOffset, object.bytes.byteLength)
       buffers.push(bytes)
       const length = bytes.byteLength
@@ -445,17 +476,12 @@ export class ProsaApiClient {
       return entry
     })
 
-    const response = await this.fetchFn(url.toString(), {
-      method: 'POST',
-      headers: this.headers({ 'content-type': 'application/json' }),
-      body: JSON.stringify({
-        bytesBase64: Buffer.concat(buffers, offset).toString('base64'),
-        entries,
-      }),
-    })
-    const text = await response.text()
-    if (response.status >= 400) {
-      throw new CliUserError(`object pack upload failed: ${response.status} ${text}`)
+    return { entries, payload: Buffer.concat(buffers, offset) }
+  }
+
+  private parseObjectPackUploadResponse(status: number, text: string): ObjectPackUploadOutput {
+    if (status >= 400) {
+      throw new CliUserError(`object pack upload failed: ${status} ${text}`)
     }
     const parsed = JSON.parse(text) as ObjectPackUploadOutput
     return {

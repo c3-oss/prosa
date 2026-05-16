@@ -1,4 +1,5 @@
 import { computeHashHex } from '@c3-oss/prosa-storage'
+import { OBJECT_PACK_BINARY_CONTENT_TYPE, encodeBinaryObjectPack } from '@c3-oss/prosa-sync'
 import { describe, expect, it } from 'vitest'
 import { type TestApp, buildTestApp } from './helpers/test-app.js'
 
@@ -54,6 +55,34 @@ async function trpc(t: TestApp, path: string, input: unknown, token: string, met
     headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
     payload: input as never,
   })
+}
+
+async function handshakeDevice(t: TestApp, token: string, storePath: string, name: string): Promise<string> {
+  const handshake = await trpc(
+    t,
+    'sync.handshake',
+    {
+      cliVersion: '0.0.0-test',
+      device: { name, platform: 'linux' },
+      store: { path: storePath, bundleVersion: '1' },
+    },
+    token,
+  )
+  expect(handshake.statusCode).toBe(200)
+  return (handshake.json() as { result: { data: { deviceId: string } } }).result.data.deviceId
+}
+
+async function readStoreBytes(t: TestApp, storageKey: string): Promise<Buffer> {
+  const reader = (await t.objectStore.get(storageKey)).getReader()
+  const chunks: Buffer[] = []
+  let total = 0
+  for (;;) {
+    const result = await reader.read()
+    if (result.done) break
+    chunks.push(Buffer.from(result.value))
+    total += result.value.byteLength
+  }
+  return Buffer.concat(chunks, total)
 }
 
 describe('sync promotion protocol', () => {
@@ -231,7 +260,53 @@ describe('sync promotion protocol', () => {
     }
   })
 
-  it('uploads missing objects as one remote pack blob and reads them by range', async () => {
+  it('uploads missing objects as a binary remote pack blob and stores payload bytes only', async () => {
+    const t = await buildTestApp()
+    try {
+      const auth = await signup(t, 'sync-binary-pack-user@example.com')
+      const storePath = '/tmp/.prosa-binary-pack-test'
+      const deviceId = await handshakeDevice(t, auth.token, storePath, 'binary-pack-box')
+
+      const first = Buffer.from('alpha')
+      const second = Buffer.from('beta!')
+      const objects = [objectForBytes(first), objectForBytes(second)]
+      const plan = await trpc(t, 'sync.planUpload', { deviceId, storePath, objects }, auth.token)
+      expect(plan.statusCode).toBe(200)
+      const batchId = (plan.json() as { result: { data: { batchId: string } } }).result.data.batchId
+
+      const packBytes = Buffer.concat([first, second])
+      const encoded = encodeBinaryObjectPack({
+        payload: packBytes,
+        entries: [
+          { ...objects[0]!, offset: 0, length: first.byteLength },
+          { ...objects[1]!, offset: first.byteLength, length: second.byteLength },
+        ],
+      })
+      const pack = await t.app.inject({
+        method: 'POST',
+        url: `/object-packs?batchId=${batchId}`,
+        headers: {
+          authorization: `Bearer ${auth.token}`,
+          'content-type': OBJECT_PACK_BINARY_CONTENT_TYPE,
+        },
+        payload: Buffer.from(encoded),
+      })
+      expect(pack.statusCode).toBe(201)
+      expect((pack.json() as { objectIds: string[] }).objectIds).toEqual(objects.map((object) => object.objectId))
+
+      const blobs = await t.pglite.query<{ storage_key: string; byte_size: string | number }>(
+        'SELECT storage_key, byte_size FROM "remote_blob" WHERE batch_id = $1',
+        [batchId],
+      )
+      expect(blobs.rows).toHaveLength(1)
+      expect(Number(blobs.rows[0]?.byte_size)).toBe(packBytes.byteLength)
+      await expect(readStoreBytes(t, blobs.rows[0]!.storage_key)).resolves.toEqual(packBytes)
+    } finally {
+      await t.close()
+    }
+  })
+
+  it('accepts JSON/base64 object packs as a fallback and stores payload bytes only', async () => {
     const t = await buildTestApp()
     try {
       const signupResult = await signup(t, 'sync-pack-user@example.com')
@@ -301,59 +376,131 @@ describe('sync promotion protocol', () => {
       })
       expect(pack.statusCode).toBe(201)
       expect(t.objectStore.size()).toBe(1)
+      const blobs = await t.pglite.query<{ storage_key: string; byte_size: string | number }>(
+        'SELECT storage_key, byte_size FROM "remote_blob" WHERE batch_id = $1',
+        [batchId],
+      )
+      expect(blobs.rows).toHaveLength(1)
+      expect(Number(blobs.rows[0]?.byte_size)).toBe(packBytes.byteLength)
+      await expect(readStoreBytes(t, blobs.rows[0]!.storage_key)).resolves.toEqual(packBytes)
+    } finally {
+      await t.close()
+    }
+  })
 
-      const commit = await trpc(
-        t,
-        'sync.commitUpload',
-        {
-          batchId,
-          deviceId,
-          storePath: '/tmp/.prosa-pack-test',
-          objects,
-          projection: {
-            sessions: [{ id: 'sess-pack-1', sourceKind: 'codex', title: 'packed session', turnCount: 1 }],
-          },
+  it('rejects malformed binary object packs', async () => {
+    const t = await buildTestApp()
+    try {
+      const auth = await signup(t, 'sync-pack-malformed@example.com')
+      const response = await t.app.inject({
+        method: 'POST',
+        url: '/object-packs?batchId=batch_malformed_binary',
+        headers: {
+          authorization: `Bearer ${auth.token}`,
+          'content-type': OBJECT_PACK_BINARY_CONTENT_TYPE,
         },
-        signupResult.token,
-      )
-      expect(commit.statusCode).toBe(200)
+        payload: Buffer.from('definitely-not-a-pack'),
+      })
 
-      const verify = await trpc(
-        t,
-        'sync.verifyPromotion',
-        {
-          batchId,
-          storePath: '/tmp/.prosa-pack-test',
-          declaredObjectIds: [firstObjectId, secondObjectId],
-          declaredSessionIds: ['sess-pack-1'],
+      expect(response.statusCode).toBe(400)
+      expect(response.body).toContain('binary object pack')
+      expect(t.objectStore.size()).toBe(0)
+    } finally {
+      await t.close()
+    }
+  })
+
+  it('rejects binary object packs when payload bytes do not match declared hashes', async () => {
+    const t = await buildTestApp()
+    try {
+      const auth = await signup(t, 'sync-pack-hash-mismatch@example.com')
+      const storePath = '/tmp/.prosa-pack-hash-mismatch'
+      const deviceId = await handshakeDevice(t, auth.token, storePath, 'hash-mismatch-box')
+      const bytes = Buffer.from('correct')
+      const object = objectForBytes(bytes)
+      const plan = await trpc(t, 'sync.planUpload', { deviceId, storePath, objects: [object] }, auth.token)
+      expect(plan.statusCode).toBe(200)
+      const batchId = (plan.json() as { result: { data: { batchId: string } } }).result.data.batchId
+      const wrongBytes = Buffer.from('wrong!!')
+      const encoded = encodeBinaryObjectPack({
+        payload: wrongBytes,
+        entries: [{ ...object, offset: 0, length: wrongBytes.byteLength }],
+      })
+
+      const response = await t.app.inject({
+        method: 'POST',
+        url: `/object-packs?batchId=${batchId}`,
+        headers: {
+          authorization: `Bearer ${auth.token}`,
+          'content-type': OBJECT_PACK_BINARY_CONTENT_TYPE,
         },
-        signupResult.token,
-      )
-      expect(verify.statusCode).toBe(200)
+        payload: Buffer.from(encoded),
+      })
 
-      for (const [objectId, expected] of [
-        [firstObjectId, first],
-        [secondObjectId, second],
-      ] as const) {
-        const get = await t.app.inject({
-          method: 'GET',
-          url: `/objects/${objectId}`,
-          headers: { authorization: `Bearer ${signupResult.token}` },
-        })
-        expect(get.statusCode).toBe(200)
-        expect(get.body).toBe(expected.toString('utf8'))
-      }
+      expect(response.statusCode).toBe(400)
+      expect(response.body).toContain('transport hash mismatch')
+      expect(t.objectStore.size()).toBe(0)
+    } finally {
+      await t.close()
+    }
+  })
 
-      const preview = await trpc(
-        t,
-        'artifacts.getText',
-        { objectId: secondObjectId, maxBytes: 1024 },
-        signupResult.token,
-        'GET',
-      )
-      expect(preview.statusCode).toBe(200)
-      const previewBody = preview.json() as { result: { data: { text: string } } }
-      expect(previewBody.result.data.text).toBe('beta!')
+  it('rejects duplicate binary object-pack entries before writing bytes', async () => {
+    const t = await buildTestApp()
+    try {
+      const auth = await signup(t, 'sync-pack-duplicate@example.com')
+      const bytes = Buffer.from('dup')
+      const object = objectForBytes(bytes)
+      const encoded = encodeBinaryObjectPack({
+        payload: bytes,
+        entries: [
+          { ...object, offset: 0, length: bytes.byteLength },
+          { ...object, offset: 0, length: bytes.byteLength },
+        ],
+      })
+
+      const response = await t.app.inject({
+        method: 'POST',
+        url: '/object-packs?batchId=batch_duplicate_binary',
+        headers: {
+          authorization: `Bearer ${auth.token}`,
+          'content-type': OBJECT_PACK_BINARY_CONTENT_TYPE,
+        },
+        payload: Buffer.from(encoded),
+      })
+
+      expect(response.statusCode).toBe(400)
+      expect(response.body).toContain('duplicate objectId in pack entries')
+      expect(t.objectStore.size()).toBe(0)
+    } finally {
+      await t.close()
+    }
+  })
+
+  it('rejects binary object packs over the entry limit before writing bytes', async () => {
+    const t = await buildTestApp()
+    try {
+      const auth = await signup(t, 'sync-pack-entry-limit@example.com')
+      const bytes = Buffer.alloc(0)
+      const object = objectForBytes(bytes)
+      const encoded = encodeBinaryObjectPack({
+        payload: bytes,
+        entries: Array.from({ length: 1025 }, () => ({ ...object, offset: 0, length: 0 })),
+      })
+
+      const response = await t.app.inject({
+        method: 'POST',
+        url: '/object-packs?batchId=batch_entry_limit_binary',
+        headers: {
+          authorization: `Bearer ${auth.token}`,
+          'content-type': OBJECT_PACK_BINARY_CONTENT_TYPE,
+        },
+        payload: Buffer.from(encoded),
+      })
+
+      expect(response.statusCode).toBe(400)
+      expect(response.body).toContain('entries exceeds max object manifest count')
+      expect(t.objectStore.size()).toBe(0)
     } finally {
       await t.close()
     }
@@ -441,6 +588,7 @@ describe('sync promotion protocol', () => {
       const auth = await signup(t, 'sync-pack-dos@example.com')
       const empty = Buffer.alloc(0)
       const hash = computeHashHex(empty, 'blake3')
+      const otherHash = 'b'.repeat(64)
       const overHalfLimit = 129 * 1024 * 1024
       const response = await t.app.inject({
         method: 'POST',
@@ -460,8 +608,8 @@ describe('sync promotion protocol', () => {
               length: 0,
             },
             {
-              objectId: `blake3:${hash}`,
-              hash,
+              objectId: `blake3:${otherHash}`,
+              hash: otherHash,
               hashAlgorithm: 'blake3',
               compression: 'none',
               compressedSize: 0,
