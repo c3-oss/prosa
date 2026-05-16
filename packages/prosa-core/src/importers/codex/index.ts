@@ -733,173 +733,173 @@ interface PendingState {
   objects: PendingObjects
 }
 
-/** Normalize a Codex `response_item` payload into messages, tool calls/results, or events. */
-function handleResponseItem(
-  _bundle: Bundle,
-  sessionId: string,
-  currentTurnId: string | null,
-  rawRecordId: string,
-  ordinal: number,
-  ts: string | null,
-  ri: CodexResponseItemPayload,
-  payloadObjectId: ObjectId | null,
-  nextMsgOrdinal: () => number,
-  currentModel: string | null,
-  pending: PendingState,
-): void {
-  const subtype = ri.type ?? null
+type ResponseItemCtx = {
+  sessionId: string
+  currentTurnId: string | null
+  rawRecordId: string
+  ordinal: number
+  ts: string | null
+  payloadObjectId: ObjectId | null
+  nextMsgOrdinal: () => number
+  currentModel: string | null
+  pending: PendingState
+}
 
-  if (subtype === 'message') {
-    const role = mapMessageRole(ri.role)
-    const msgOrdinal = nextMsgOrdinal()
-    const messageId = makeMessageId(sessionId, msgOrdinal, null)
+function handleResponseItemMessage(ctx: ResponseItemCtx, ri: CodexResponseItemPayload): void {
+  const { sessionId, currentTurnId, rawRecordId, ordinal, ts, payloadObjectId, nextMsgOrdinal, currentModel, pending } =
+    ctx
+  const role = mapMessageRole(ri.role)
+  const msgOrdinal = nextMsgOrdinal()
+  const messageId = makeMessageId(sessionId, msgOrdinal, null)
 
-    const eventId = makeEventId(sessionId, ordinal, 'message')
-    pending.events.push({
-      event_id: eventId,
-      ordinal,
-      turn_id: currentTurnId,
-      source_event_id: null,
-      event_type: 'message',
-      source_type: 'response_item.message',
-      subtype: null,
-      timestamp: ts,
-      actor: ri.role ?? null,
-      payload_object_id: payloadObjectId,
-      raw_record_id: rawRecordId,
-      confidence: 'high',
-    })
+  const eventId = makeEventId(sessionId, ordinal, 'message')
+  pending.events.push({
+    event_id: eventId,
+    ordinal,
+    turn_id: currentTurnId,
+    source_event_id: null,
+    event_type: 'message',
+    source_type: 'response_item.message',
+    subtype: null,
+    timestamp: ts,
+    actor: ri.role ?? null,
+    payload_object_id: payloadObjectId,
+    raw_record_id: rawRecordId,
+    confidence: 'high',
+  })
 
-    pending.messages.push({
+  pending.messages.push({
+    message_id: messageId,
+    turn_id: currentTurnId,
+    event_id: eventId,
+    source_message_id: null,
+    role,
+    model: role === 'assistant' ? currentModel : null,
+    timestamp: ts,
+    ordinal: msgOrdinal,
+    raw_record_id: rawRecordId,
+  })
+
+  const contentItems = Array.isArray(ri.content) ? (ri.content as CodexContentItem[]) : []
+  for (let bi = 0; bi < contentItems.length; bi++) {
+    const item = contentItems[bi]
+    if (!item) continue
+    const text = typeof item.text === 'string' ? item.text : null
+    const blockType = item.type ?? 'text'
+    pending.blocks.push({
+      block_id: blockId(messageId, bi),
       message_id: messageId,
-      turn_id: currentTurnId,
-      event_id: eventId,
-      source_message_id: null,
-      role,
-      model: role === 'assistant' ? currentModel : null,
-      timestamp: ts,
-      ordinal: msgOrdinal,
+      event_id: null,
+      ordinal: bi,
+      block_type: blockType,
+      text_object_id: null,
+      text_inline: text,
       raw_record_id: rawRecordId,
     })
-
-    const contentItems = Array.isArray(ri.content) ? (ri.content as CodexContentItem[]) : []
-    for (let bi = 0; bi < contentItems.length; bi++) {
-      const item = contentItems[bi]
-      if (!item) continue
-      const text = typeof item.text === 'string' ? item.text : null
-      const blockType = item.type ?? 'text'
-      pending.blocks.push({
-        block_id: blockId(messageId, bi),
-        message_id: messageId,
-        event_id: null,
-        ordinal: bi,
-        block_type: blockType,
-        text_object_id: null,
-        text_inline: text,
-        raw_record_id: rawRecordId,
-      })
-    }
-    return
   }
+}
 
-  if (subtype === 'function_call') {
-    const sourceCallId = typeof ri.call_id === 'string' ? ri.call_id : null
-    const toolName = typeof ri.name === 'string' ? ri.name : 'unknown'
-    const toolCallId = makeToolCallId(sessionId, sourceCallId ?? `${ordinal}`)
-    const argsObjectId = ri.arguments != null ? stageJson(pending.objects, ri.arguments) : null
-    const command = inferCommandFromArgs(toolName, ri.arguments)
+function handleResponseItemFunctionCall(ctx: ResponseItemCtx, ri: CodexResponseItemPayload): void {
+  const { sessionId, currentTurnId, rawRecordId, ordinal, ts, payloadObjectId, pending } = ctx
+  const sourceCallId = typeof ri.call_id === 'string' ? ri.call_id : null
+  const toolName = typeof ri.name === 'string' ? ri.name : 'unknown'
+  const toolCallId = makeToolCallId(sessionId, sourceCallId ?? `${ordinal}`)
+  const argsObjectId = ri.arguments != null ? stageJson(pending.objects, ri.arguments) : null
+  const command = inferCommandFromArgs(toolName, ri.arguments)
 
-    const eventId = makeEventId(sessionId, ordinal, 'tool_call')
-    pending.events.push({
-      event_id: eventId,
-      ordinal,
-      turn_id: currentTurnId,
-      source_event_id: null,
-      event_type: 'tool_call',
-      source_type: 'response_item.function_call',
-      subtype: toolName,
-      timestamp: ts,
-      actor: 'assistant',
-      payload_object_id: payloadObjectId,
-      raw_record_id: rawRecordId,
-      confidence: 'high',
-    })
+  const eventId = makeEventId(sessionId, ordinal, 'tool_call')
+  pending.events.push({
+    event_id: eventId,
+    ordinal,
+    turn_id: currentTurnId,
+    source_event_id: null,
+    event_type: 'tool_call',
+    source_type: 'response_item.function_call',
+    subtype: toolName,
+    timestamp: ts,
+    actor: 'assistant',
+    payload_object_id: payloadObjectId,
+    raw_record_id: rawRecordId,
+    confidence: 'high',
+  })
 
-    const call: PendingToolCall = {
-      tool_call_id: toolCallId,
-      turn_id: currentTurnId,
-      message_id: null,
-      event_id: eventId,
-      source_call_id: sourceCallId,
-      tool_name: toolName,
-      canonical_tool_type: canonicalToolType(toolName),
-      args_object_id: argsObjectId,
-      command,
-      cwd: null,
-      path: inferPathFromArgs(ri.arguments),
-      query: null,
-      timestamp_start: ts,
-      status: 'started',
-      raw_record_id: rawRecordId,
-    }
-    if (sourceCallId) pending.toolCalls.set(sourceCallId, call)
-    pending.toolCallsList.push(call)
-    return
+  const call: PendingToolCall = {
+    tool_call_id: toolCallId,
+    turn_id: currentTurnId,
+    message_id: null,
+    event_id: eventId,
+    source_call_id: sourceCallId,
+    tool_name: toolName,
+    canonical_tool_type: canonicalToolType(toolName),
+    args_object_id: argsObjectId,
+    command,
+    cwd: null,
+    path: inferPathFromArgs(ri.arguments),
+    query: null,
+    timestamp_start: ts,
+    status: 'started',
+    raw_record_id: rawRecordId,
   }
+  if (sourceCallId) pending.toolCalls.set(sourceCallId, call)
+  pending.toolCallsList.push(call)
+}
 
-  if (subtype === 'function_call_output') {
-    const sourceCallId = typeof ri.call_id === 'string' ? ri.call_id : null
-    const outputText = stringifyOrNull(ri.output) ?? ''
-    const outputObj = isRecord(ri.output) ? ri.output : null
-    const isError =
-      outputObj?.is_error === true ||
-      outputObj?.isError === true ||
-      ri.status === 'incomplete' ||
-      looksLikeError(outputText)
-        ? 1
-        : 0
+function handleResponseItemFunctionCallOutput(ctx: ResponseItemCtx, ri: CodexResponseItemPayload): void {
+  const { sessionId, currentTurnId, rawRecordId, ordinal, ts, payloadObjectId, pending } = ctx
+  const sourceCallId = typeof ri.call_id === 'string' ? ri.call_id : null
+  const outputText = stringifyOrNull(ri.output) ?? ''
+  const outputObj = isRecord(ri.output) ? ri.output : null
+  const isError =
+    outputObj?.is_error === true ||
+    outputObj?.isError === true ||
+    ri.status === 'incomplete' ||
+    looksLikeError(outputText)
+      ? 1
+      : 0
 
-    const eventId = makeEventId(sessionId, ordinal, 'tool_result')
-    pending.events.push({
-      event_id: eventId,
-      ordinal,
-      turn_id: currentTurnId,
-      source_event_id: null,
-      event_type: 'tool_result',
-      source_type: 'response_item.function_call_output',
-      subtype: null,
-      timestamp: ts,
-      actor: 'tool',
-      payload_object_id: payloadObjectId,
-      raw_record_id: rawRecordId,
-      confidence: 'high',
-    })
+  const eventId = makeEventId(sessionId, ordinal, 'tool_result')
+  pending.events.push({
+    event_id: eventId,
+    ordinal,
+    turn_id: currentTurnId,
+    source_event_id: null,
+    event_type: 'tool_result',
+    source_type: 'response_item.function_call_output',
+    subtype: null,
+    timestamp: ts,
+    actor: 'tool',
+    payload_object_id: payloadObjectId,
+    raw_record_id: rawRecordId,
+    confidence: 'high',
+  })
 
-    const matchedCall = sourceCallId ? pending.toolCalls.get(sourceCallId) : undefined
-    pending.toolResults.push({
-      tool_result_id: makeToolResultId(sessionId, sourceCallId ?? `${ordinal}`),
-      tool_call_id: matchedCall?.tool_call_id ?? null,
-      source_call_id: sourceCallId,
-      message_id: null,
-      event_id: eventId,
-      status: normalizeToolCallStatus('codex', ri.status),
-      is_error: isError,
-      exit_code: null,
-      duration_ms: null,
-      stdout_object_id: null,
-      stderr_object_id: null,
-      output_object_id: null, // small previews only at this stage
-      preview: outputText.slice(0, PREVIEW_MAX),
-      raw_record_id: rawRecordId,
-    })
-    if (matchedCall) {
-      matchedCall.status = matchedCall.status === 'started' ? (isError ? 'error' : 'success') : matchedCall.status
-    }
-    return
+  const matchedCall = sourceCallId ? pending.toolCalls.get(sourceCallId) : undefined
+  pending.toolResults.push({
+    tool_result_id: makeToolResultId(sessionId, sourceCallId ?? `${ordinal}`),
+    tool_call_id: matchedCall?.tool_call_id ?? null,
+    source_call_id: sourceCallId,
+    message_id: null,
+    event_id: eventId,
+    status: normalizeToolCallStatus('codex', ri.status),
+    is_error: isError,
+    exit_code: null,
+    duration_ms: null,
+    stdout_object_id: null,
+    stderr_object_id: null,
+    output_object_id: null,
+    preview: outputText.slice(0, PREVIEW_MAX),
+    raw_record_id: rawRecordId,
+  })
+  if (matchedCall) {
+    matchedCall.status = matchedCall.status === 'started' ? (isError ? 'error' : 'success') : matchedCall.status
   }
+}
 
+function handleResponseItemPassthrough(ctx: ResponseItemCtx, ri: CodexResponseItemPayload): void {
   // reasoning, custom_tool_*, web_search_call, ghost_snapshot, etc.: keep as
   // operational events for now. Raw is preserved either way.
+  const { sessionId, currentTurnId, rawRecordId, ordinal, ts, payloadObjectId, pending } = ctx
+  const subtype = ri.type ?? null
   const eventId = makeEventId(sessionId, ordinal, `response_item.${subtype ?? 'unknown'}`)
   pending.events.push({
     event_id: eventId,
@@ -917,166 +917,200 @@ function handleResponseItem(
   })
 }
 
-/** Normalize Codex operational `event_msg` payloads while preserving unknown types as events. */
-async function handleEventMsg(
-  bundle: Bundle,
+const RESPONSE_ITEM_HANDLERS: Record<string, (ctx: ResponseItemCtx, ri: CodexResponseItemPayload) => void> = {
+  message: handleResponseItemMessage,
+  function_call: handleResponseItemFunctionCall,
+  function_call_output: handleResponseItemFunctionCallOutput,
+}
+
+/** Normalize a Codex `response_item` payload into messages, tool calls/results, or events. */
+function handleResponseItem(
+  _bundle: Bundle,
   sessionId: string,
   currentTurnId: string | null,
   rawRecordId: string,
   ordinal: number,
   ts: string | null,
-  em: CodexEventMsgPayload,
+  ri: CodexResponseItemPayload,
   payloadObjectId: ObjectId | null,
+  nextMsgOrdinal: () => number,
+  currentModel: string | null,
   pending: PendingState,
-): Promise<void> {
-  const subtype = em.type ?? 'unknown'
+): void {
+  const ctx: ResponseItemCtx = {
+    sessionId,
+    currentTurnId,
+    rawRecordId,
+    ordinal,
+    ts,
+    payloadObjectId,
+    nextMsgOrdinal,
+    currentModel,
+    pending,
+  }
+  const handler = ri.type ? RESPONSE_ITEM_HANDLERS[ri.type] : undefined
+  ;(handler ?? handleResponseItemPassthrough)(ctx, ri)
+}
 
-  if (subtype === 'exec_command_end') {
-    const sourceCallId = em.call_id ?? null
-    const stdoutId = em.stdout ? stageText(pending.objects, em.stdout, { mimeType: 'text/plain' }) : null
-    const stderrId = em.stderr ? stageText(pending.objects, em.stderr, { mimeType: 'text/plain' }) : null
-    const preview = (em.formatted_output ?? em.aggregated_output ?? em.stdout ?? '').slice(0, PREVIEW_MAX)
-    const exitCode = typeof em.exit_code === 'number' ? em.exit_code : null
-    const isError = exitCode != null && exitCode !== 0 ? 1 : 0
+type EventMsgCtx = {
+  sessionId: string
+  currentTurnId: string | null
+  rawRecordId: string
+  ordinal: number
+  ts: string | null
+  payloadObjectId: ObjectId | null
+  pending: PendingState
+}
 
-    const eventId = makeEventId(sessionId, ordinal, 'exec_command_end')
-    pending.events.push({
-      event_id: eventId,
-      ordinal,
-      turn_id: currentTurnId,
-      source_event_id: null,
-      event_type: 'tool_result',
-      source_type: 'event_msg.exec_command_end',
-      subtype: 'shell',
-      timestamp: ts,
-      actor: 'tool',
-      payload_object_id: payloadObjectId,
-      raw_record_id: rawRecordId,
-      confidence: 'high',
-    })
+function handleExecCommandEnd(ctx: EventMsgCtx, em: CodexEventMsgPayload): void {
+  const { sessionId, currentTurnId, rawRecordId, ordinal, ts, payloadObjectId, pending } = ctx
+  const sourceCallId = em.call_id ?? null
+  const stdoutId = em.stdout ? stageText(pending.objects, em.stdout, { mimeType: 'text/plain' }) : null
+  const stderrId = em.stderr ? stageText(pending.objects, em.stderr, { mimeType: 'text/plain' }) : null
+  const preview = (em.formatted_output ?? em.aggregated_output ?? em.stdout ?? '').slice(0, PREVIEW_MAX)
+  const exitCode = typeof em.exit_code === 'number' ? em.exit_code : null
+  const isError = exitCode != null && exitCode !== 0 ? 1 : 0
 
-    const matchedCall = sourceCallId ? pending.toolCalls.get(sourceCallId) : undefined
-    pending.toolResults.push({
-      tool_result_id: makeToolResultId(sessionId, `${sourceCallId ?? ordinal}::exec_command_end`),
-      tool_call_id: matchedCall?.tool_call_id ?? null,
-      source_call_id: sourceCallId,
-      message_id: null,
-      event_id: eventId,
-      status: normalizeToolCallStatus('codex', em.status ?? (isError ? 'error' : 'success')),
-      is_error: isError,
-      exit_code: exitCode,
-      duration_ms: durationMs(em.duration),
-      stdout_object_id: stdoutId,
-      stderr_object_id: stderrId,
-      output_object_id: null,
-      preview,
-      raw_record_id: rawRecordId,
-    })
-    if (matchedCall) {
-      matchedCall.status = isError ? 'error' : 'success'
-      if (em.cwd && !matchedCall.cwd) matchedCall.cwd = em.cwd
+  const eventId = makeEventId(sessionId, ordinal, 'exec_command_end')
+  pending.events.push({
+    event_id: eventId,
+    ordinal,
+    turn_id: currentTurnId,
+    source_event_id: null,
+    event_type: 'tool_result',
+    source_type: 'event_msg.exec_command_end',
+    subtype: 'shell',
+    timestamp: ts,
+    actor: 'tool',
+    payload_object_id: payloadObjectId,
+    raw_record_id: rawRecordId,
+    confidence: 'high',
+  })
+
+  const matchedCall = sourceCallId ? pending.toolCalls.get(sourceCallId) : undefined
+  pending.toolResults.push({
+    tool_result_id: makeToolResultId(sessionId, `${sourceCallId ?? ordinal}::exec_command_end`),
+    tool_call_id: matchedCall?.tool_call_id ?? null,
+    source_call_id: sourceCallId,
+    message_id: null,
+    event_id: eventId,
+    status: normalizeToolCallStatus('codex', em.status ?? (isError ? 'error' : 'success')),
+    is_error: isError,
+    exit_code: exitCode,
+    duration_ms: durationMs(em.duration),
+    stdout_object_id: stdoutId,
+    stderr_object_id: stderrId,
+    output_object_id: null,
+    preview,
+    raw_record_id: rawRecordId,
+  })
+  if (matchedCall) {
+    matchedCall.status = isError ? 'error' : 'success'
+    if (em.cwd && !matchedCall.cwd) matchedCall.cwd = em.cwd
+  }
+}
+
+function handlePatchApplyEnd(ctx: EventMsgCtx, em: CodexEventMsgPayload): void {
+  const { sessionId, currentTurnId, rawRecordId, ordinal, ts, payloadObjectId, pending } = ctx
+  const eventId = makeEventId(sessionId, ordinal, 'patch_apply_end')
+  pending.events.push({
+    event_id: eventId,
+    ordinal,
+    turn_id: currentTurnId,
+    source_event_id: null,
+    event_type: 'patch',
+    source_type: 'event_msg.patch_apply_end',
+    subtype: null,
+    timestamp: ts,
+    actor: 'tool',
+    payload_object_id: payloadObjectId,
+    raw_record_id: rawRecordId,
+    confidence: 'high',
+  })
+  if (em.changes && typeof em.changes === 'object') {
+    for (const filePath of Object.keys(em.changes)) {
+      pending.artifacts.push({
+        artifact_id: artifactId(sessionId, 'codex', `${eventId}:${filePath}`),
+        kind: 'diff',
+        path: filePath,
+        logical_path: filePath,
+        object_id: null,
+        text_object_id: null,
+        mime_type: 'text/x-diff',
+        size_bytes: 0,
+        created_ts: ts,
+        raw_record_id: rawRecordId,
+      })
     }
-    return
   }
+}
 
-  if (subtype === 'patch_apply_end') {
-    const eventId = makeEventId(sessionId, ordinal, 'patch_apply_end')
-    pending.events.push({
-      event_id: eventId,
-      ordinal,
-      turn_id: currentTurnId,
-      source_event_id: null,
-      event_type: 'patch',
-      source_type: 'event_msg.patch_apply_end',
-      subtype: null,
-      timestamp: ts,
-      actor: 'tool',
-      payload_object_id: payloadObjectId,
-      raw_record_id: rawRecordId,
-      confidence: 'high',
-    })
-    if (em.changes && typeof em.changes === 'object') {
-      for (const filePath of Object.keys(em.changes)) {
-        pending.artifacts.push({
-          artifact_id: artifactId(sessionId, 'codex', `${eventId}:${filePath}`),
-          kind: 'diff',
-          path: filePath,
-          logical_path: filePath,
-          object_id: null,
-          text_object_id: null,
-          mime_type: 'text/x-diff',
-          size_bytes: 0,
-          created_ts: ts,
-          raw_record_id: rawRecordId,
-        })
-      }
-    }
-    return
+function handleMcpToolCallEnd(ctx: EventMsgCtx, em: CodexEventMsgPayload): void {
+  const { sessionId, currentTurnId, rawRecordId, ordinal, ts, payloadObjectId, pending } = ctx
+  const sourceCallId = em.call_id ?? null
+  const eventId = makeEventId(sessionId, ordinal, 'mcp_tool_call_end')
+  pending.events.push({
+    event_id: eventId,
+    ordinal,
+    turn_id: currentTurnId,
+    source_event_id: null,
+    event_type: 'tool_result',
+    source_type: 'event_msg.mcp_tool_call_end',
+    subtype: 'mcp',
+    timestamp: ts,
+    actor: 'tool',
+    payload_object_id: payloadObjectId,
+    raw_record_id: rawRecordId,
+    confidence: 'high',
+  })
+  const preview = stringifyOrNull(em.result)?.slice(0, PREVIEW_MAX) ?? null
+  const matchedCall = sourceCallId ? pending.toolCalls.get(sourceCallId) : undefined
+  const isError = isMcpResultError(em.status, em.result) ? 1 : 0
+  const status = normalizeToolCallStatus('codex', em.status ?? (isError ? 'error' : 'success'))
+  pending.toolResults.push({
+    tool_result_id: makeToolResultId(sessionId, `${sourceCallId ?? ordinal}::mcp_tool_call_end`),
+    tool_call_id: matchedCall?.tool_call_id ?? null,
+    source_call_id: sourceCallId,
+    message_id: null,
+    event_id: eventId,
+    status,
+    is_error: isError,
+    exit_code: null,
+    duration_ms: durationMs(em.duration),
+    stdout_object_id: null,
+    stderr_object_id: null,
+    output_object_id: null,
+    preview,
+    raw_record_id: rawRecordId,
+  })
+  if (matchedCall) {
+    matchedCall.status = isError ? 'error' : status
   }
+}
 
-  if (subtype === 'mcp_tool_call_end') {
-    const sourceCallId = em.call_id ?? null
-    const eventId = makeEventId(sessionId, ordinal, 'mcp_tool_call_end')
-    pending.events.push({
-      event_id: eventId,
-      ordinal,
-      turn_id: currentTurnId,
-      source_event_id: null,
-      event_type: 'tool_result',
-      source_type: 'event_msg.mcp_tool_call_end',
-      subtype: 'mcp',
-      timestamp: ts,
-      actor: 'tool',
-      payload_object_id: payloadObjectId,
-      raw_record_id: rawRecordId,
-      confidence: 'high',
-    })
-    const preview = stringifyOrNull(em.result)?.slice(0, PREVIEW_MAX) ?? null
-    const matchedCall = sourceCallId ? pending.toolCalls.get(sourceCallId) : undefined
-    const isError = isMcpResultError(em.status, em.result) ? 1 : 0
-    const status = normalizeToolCallStatus('codex', em.status ?? (isError ? 'error' : 'success'))
-    pending.toolResults.push({
-      tool_result_id: makeToolResultId(sessionId, `${sourceCallId ?? ordinal}::mcp_tool_call_end`),
-      tool_call_id: matchedCall?.tool_call_id ?? null,
-      source_call_id: sourceCallId,
-      message_id: null,
-      event_id: eventId,
-      status,
-      is_error: isError,
-      exit_code: null,
-      duration_ms: durationMs(em.duration),
-      stdout_object_id: null,
-      stderr_object_id: null,
-      output_object_id: null,
-      preview,
-      raw_record_id: rawRecordId,
-    })
-    if (matchedCall) {
-      matchedCall.status = isError ? 'error' : status
-    }
-    return
-  }
+function handleContextCompacted(ctx: EventMsgCtx): void {
+  const { sessionId, currentTurnId, rawRecordId, ordinal, ts, payloadObjectId, pending } = ctx
+  pending.events.push({
+    event_id: makeEventId(sessionId, ordinal, 'compaction'),
+    ordinal,
+    turn_id: currentTurnId,
+    source_event_id: null,
+    event_type: 'compaction',
+    source_type: 'event_msg.context_compacted',
+    subtype: null,
+    timestamp: ts,
+    actor: 'system',
+    payload_object_id: payloadObjectId,
+    raw_record_id: rawRecordId,
+    confidence: 'high',
+  })
+}
 
-  if (subtype === 'context_compacted') {
-    pending.events.push({
-      event_id: makeEventId(sessionId, ordinal, 'compaction'),
-      ordinal,
-      turn_id: currentTurnId,
-      source_event_id: null,
-      event_type: 'compaction',
-      source_type: 'event_msg.context_compacted',
-      subtype: null,
-      timestamp: ts,
-      actor: 'system',
-      payload_object_id: payloadObjectId,
-      raw_record_id: rawRecordId,
-      confidence: 'high',
-    })
-    return
-  }
-
+function handleEventMsgPassthrough(ctx: EventMsgCtx, em: CodexEventMsgPayload): void {
   // user_message / agent_message / task_started / task_complete / turn_aborted /
   // token_count / others — keep as operational events.
+  const { sessionId, currentTurnId, rawRecordId, ordinal, ts, payloadObjectId, pending } = ctx
+  const subtype = em.type ?? 'unknown'
   pending.events.push({
     event_id: makeEventId(sessionId, ordinal, `event_msg.${subtype}`),
     ordinal,
@@ -1091,6 +1125,38 @@ async function handleEventMsg(
     raw_record_id: rawRecordId,
     confidence: 'high',
   })
+}
+
+const EVENT_MSG_HANDLERS: Record<string, (ctx: EventMsgCtx, em: CodexEventMsgPayload) => void> = {
+  exec_command_end: handleExecCommandEnd,
+  patch_apply_end: handlePatchApplyEnd,
+  mcp_tool_call_end: handleMcpToolCallEnd,
+  context_compacted: (ctx) => handleContextCompacted(ctx),
+}
+
+/** Normalize Codex operational `event_msg` payloads while preserving unknown types as events. */
+async function handleEventMsg(
+  _bundle: Bundle,
+  sessionId: string,
+  currentTurnId: string | null,
+  rawRecordId: string,
+  ordinal: number,
+  ts: string | null,
+  em: CodexEventMsgPayload,
+  payloadObjectId: ObjectId | null,
+  pending: PendingState,
+): Promise<void> {
+  const ctx: EventMsgCtx = {
+    sessionId,
+    currentTurnId,
+    rawRecordId,
+    ordinal,
+    ts,
+    payloadObjectId,
+    pending,
+  }
+  const handler = em.type ? EVENT_MSG_HANDLERS[em.type] : undefined
+  ;(handler ?? handleEventMsgPassthrough)(ctx, em)
 }
 
 // ---- helpers -------------------------------------------------------------

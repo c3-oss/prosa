@@ -14,22 +14,51 @@ function normalizeTimestamp(value: unknown): string | null {
   return new Date(String(value)).toISOString()
 }
 
-function assertSameJson(label: string, existing: unknown, incoming: unknown): void {
-  if (stableJson(existing ?? null) !== stableJson(incoming ?? null)) {
-    throw new TRPCError({ code: 'CONFLICT', message: `Conflicting ${label}` })
+type FieldCheck =
+  | { kind: 'nullable'; label: string; existing: unknown; incoming: unknown }
+  | { kind: 'json'; label: string; existing: unknown; incoming: unknown }
+  | { kind: 'timestamp'; label: string; existing: unknown; incoming: unknown }
+
+function assertSameField(check: FieldCheck): void {
+  const match =
+    check.kind === 'json'
+      ? stableJson(check.existing ?? null) === stableJson(check.incoming ?? null)
+      : check.kind === 'timestamp'
+        ? normalizeTimestamp(check.existing) === normalizeTimestamp(check.incoming)
+        : (check.existing ?? null) === (check.incoming ?? null)
+  if (!match) {
+    throw new TRPCError({ code: 'CONFLICT', message: `Conflicting ${check.label}` })
   }
 }
 
-function assertSameNullable(label: string, existing: unknown, incoming: unknown): void {
-  if ((existing ?? null) !== (incoming ?? null)) {
-    throw new TRPCError({ code: 'CONFLICT', message: `Conflicting ${label}` })
+/**
+ * Idempotent upsert: if a row with the given primary key already exists, every
+ * declared field must match (otherwise we throw CONFLICT). If no row exists,
+ * the insert runs. Centralizing this lets each entity hand off its select
+ * columns and equality predicates without re-implementing the dance.
+ */
+async function insertOrVerifyRow<TRow extends Record<string, unknown>>(opts: {
+  rawExec: RawExec
+  table: string
+  selectColumns: string
+  tenantId: string
+  id: string
+  buildChecks: (existing: TRow) => FieldCheck[]
+  insertSql: string
+  insertParams: unknown[]
+}): Promise<void> {
+  const existing = await opts.rawExec<TRow>(
+    `SELECT ${opts.selectColumns} FROM "${opts.table}" WHERE tenant_id = $1 AND id = $2 LIMIT 1`,
+    [opts.tenantId, opts.id],
+  )
+  const row = existing[0]
+  if (row) {
+    for (const check of opts.buildChecks(row)) {
+      assertSameField(check)
+    }
+    return
   }
-}
-
-function assertSameTimestamp(label: string, existing: unknown, incoming: unknown): void {
-  if (normalizeTimestamp(existing) !== normalizeTimestamp(incoming)) {
-    throw new TRPCError({ code: 'CONFLICT', message: `Conflicting ${label}` })
-  }
+  await opts.rawExec(opts.insertSql, opts.insertParams)
 }
 
 export function countProjectionRows(projection: ProjectionPayload): number {
@@ -61,7 +90,7 @@ async function insertSessionRow(opts: {
   session: ProjectionSessionRow
 }): Promise<void> {
   const { rawExec, tenantId, session } = opts
-  const existing = await rawExec<{
+  await insertOrVerifyRow<{
     source_kind: string
     project_id: string | null
     title: string | null
@@ -69,25 +98,24 @@ async function insertSessionRow(opts: {
     ended_at: unknown
     turn_count: number
     metadata: unknown
-  }>(
-    'SELECT source_kind, project_id, title, started_at, ended_at, turn_count, metadata FROM "projection_session" WHERE tenant_id = $1 AND id = $2 LIMIT 1',
-    [tenantId, session.id],
-  )
-  const row = existing[0]
-  if (row) {
-    assertSameNullable('session sourceKind', row.source_kind, session.sourceKind)
-    assertSameNullable('session projectId', row.project_id, session.projectId ?? null)
-    assertSameNullable('session title', row.title, session.title ?? null)
-    assertSameTimestamp('session startedAt', row.started_at, session.startedAt ?? null)
-    assertSameTimestamp('session endedAt', row.ended_at, session.endedAt ?? null)
-    assertSameNullable('session turnCount', row.turn_count, session.turnCount)
-    assertSameJson('session metadata', row.metadata, session.metadata ?? null)
-    return
-  }
-  await rawExec(
-    `INSERT INTO "projection_session"(tenant_id, id, source_kind, project_id, title, started_at, ended_at, turn_count, metadata)
+  }>({
+    rawExec,
+    table: 'projection_session',
+    selectColumns: 'source_kind, project_id, title, started_at, ended_at, turn_count, metadata',
+    tenantId,
+    id: session.id,
+    buildChecks: (row) => [
+      { kind: 'nullable', label: 'session sourceKind', existing: row.source_kind, incoming: session.sourceKind },
+      { kind: 'nullable', label: 'session projectId', existing: row.project_id, incoming: session.projectId ?? null },
+      { kind: 'nullable', label: 'session title', existing: row.title, incoming: session.title ?? null },
+      { kind: 'timestamp', label: 'session startedAt', existing: row.started_at, incoming: session.startedAt ?? null },
+      { kind: 'timestamp', label: 'session endedAt', existing: row.ended_at, incoming: session.endedAt ?? null },
+      { kind: 'nullable', label: 'session turnCount', existing: row.turn_count, incoming: session.turnCount },
+      { kind: 'json', label: 'session metadata', existing: row.metadata, incoming: session.metadata ?? null },
+    ],
+    insertSql: `INSERT INTO "projection_session"(tenant_id, id, source_kind, project_id, title, started_at, ended_at, turn_count, metadata)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)`,
-    [
+    insertParams: [
       tenantId,
       session.id,
       session.sourceKind,
@@ -98,7 +126,7 @@ async function insertSessionRow(opts: {
       session.turnCount,
       session.metadata ? JSON.stringify(session.metadata) : null,
     ],
-  )
+  })
 }
 
 async function insertSourceFileRow(opts: {
@@ -107,27 +135,31 @@ async function insertSourceFileRow(opts: {
   sourceFile: SourceFileRow
 }): Promise<void> {
   const { rawExec, tenantId, sourceFile } = opts
-  const existing = await rawExec<{
+  await insertOrVerifyRow<{
     source_kind: string
     path: string
     object_id: string | null
     metadata: unknown
-  }>('SELECT source_kind, path, object_id, metadata FROM "source_file" WHERE tenant_id = $1 AND id = $2 LIMIT 1', [
+  }>({
+    rawExec,
+    table: 'source_file',
+    selectColumns: 'source_kind, path, object_id, metadata',
     tenantId,
-    sourceFile.id,
-  ])
-  const row = existing[0]
-  if (row) {
-    assertSameNullable('source file sourceKind', row.source_kind, sourceFile.sourceKind)
-    assertSameNullable('source file path', row.path, sourceFile.path)
-    assertSameNullable('source file objectId', row.object_id, sourceFile.objectId ?? null)
-    assertSameJson('source file metadata', row.metadata, sourceFile.metadata ?? null)
-    return
-  }
-  await rawExec(
-    `INSERT INTO "source_file"(tenant_id, id, source_kind, path, object_id, metadata)
+    id: sourceFile.id,
+    buildChecks: (row) => [
+      { kind: 'nullable', label: 'source file sourceKind', existing: row.source_kind, incoming: sourceFile.sourceKind },
+      { kind: 'nullable', label: 'source file path', existing: row.path, incoming: sourceFile.path },
+      {
+        kind: 'nullable',
+        label: 'source file objectId',
+        existing: row.object_id,
+        incoming: sourceFile.objectId ?? null,
+      },
+      { kind: 'json', label: 'source file metadata', existing: row.metadata, incoming: sourceFile.metadata ?? null },
+    ],
+    insertSql: `INSERT INTO "source_file"(tenant_id, id, source_kind, path, object_id, metadata)
      VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,
-    [
+    insertParams: [
       tenantId,
       sourceFile.id,
       sourceFile.sourceKind,
@@ -135,7 +167,7 @@ async function insertSourceFileRow(opts: {
       sourceFile.objectId ?? null,
       sourceFile.metadata ? JSON.stringify(sourceFile.metadata) : null,
     ],
-  )
+  })
 }
 
 async function insertRawRecordRow(opts: {
@@ -144,27 +176,31 @@ async function insertRawRecordRow(opts: {
   rawRecord: RawRecordRow
 }): Promise<void> {
   const { rawExec, tenantId, rawRecord } = opts
-  const existing = await rawExec<{
+  await insertOrVerifyRow<{
     source_file_id: string
     sequence: number
     payload: unknown
     object_id: string | null
-  }>('SELECT source_file_id, sequence, payload, object_id FROM "raw_record" WHERE tenant_id = $1 AND id = $2 LIMIT 1', [
+  }>({
+    rawExec,
+    table: 'raw_record',
+    selectColumns: 'source_file_id, sequence, payload, object_id',
     tenantId,
-    rawRecord.id,
-  ])
-  const row = existing[0]
-  if (row) {
-    assertSameNullable('raw record sourceFileId', row.source_file_id, rawRecord.sourceFileId)
-    assertSameNullable('raw record sequence', row.sequence, rawRecord.sequence)
-    assertSameJson('raw record payload', row.payload, rawRecord.payload ?? null)
-    assertSameNullable('raw record objectId', row.object_id, rawRecord.objectId ?? null)
-    return
-  }
-  await rawExec(
-    `INSERT INTO "raw_record"(tenant_id, id, source_file_id, sequence, payload, object_id)
+    id: rawRecord.id,
+    buildChecks: (row) => [
+      {
+        kind: 'nullable',
+        label: 'raw record sourceFileId',
+        existing: row.source_file_id,
+        incoming: rawRecord.sourceFileId,
+      },
+      { kind: 'nullable', label: 'raw record sequence', existing: row.sequence, incoming: rawRecord.sequence },
+      { kind: 'json', label: 'raw record payload', existing: row.payload, incoming: rawRecord.payload ?? null },
+      { kind: 'nullable', label: 'raw record objectId', existing: row.object_id, incoming: rawRecord.objectId ?? null },
+    ],
+    insertSql: `INSERT INTO "raw_record"(tenant_id, id, source_file_id, sequence, payload, object_id)
      VALUES ($1, $2, $3, $4, $5::jsonb, $6)`,
-    [
+    insertParams: [
       tenantId,
       rawRecord.id,
       rawRecord.sourceFileId,
@@ -172,7 +208,7 @@ async function insertRawRecordRow(opts: {
       JSON.stringify(rawRecord.payload ?? null),
       rawRecord.objectId ?? null,
     ],
-  )
+  })
 }
 
 async function insertSearchDocRow(opts: {
@@ -181,22 +217,21 @@ async function insertSearchDocRow(opts: {
   searchDoc: SearchDocRow
 }): Promise<void> {
   const { rawExec, tenantId, searchDoc } = opts
-  const existing = await rawExec<{ session_id: string; kind: string; body: string }>(
-    'SELECT session_id, kind, body FROM "search_doc" WHERE tenant_id = $1 AND id = $2 LIMIT 1',
-    [tenantId, searchDoc.id],
-  )
-  const row = existing[0]
-  if (row) {
-    assertSameNullable('search doc sessionId', row.session_id, searchDoc.sessionId)
-    assertSameNullable('search doc kind', row.kind, searchDoc.kind)
-    assertSameNullable('search doc body', row.body, searchDoc.body)
-    return
-  }
-  await rawExec(
-    `INSERT INTO "search_doc"(tenant_id, id, session_id, kind, body)
+  await insertOrVerifyRow<{ session_id: string; kind: string; body: string }>({
+    rawExec,
+    table: 'search_doc',
+    selectColumns: 'session_id, kind, body',
+    tenantId,
+    id: searchDoc.id,
+    buildChecks: (row) => [
+      { kind: 'nullable', label: 'search doc sessionId', existing: row.session_id, incoming: searchDoc.sessionId },
+      { kind: 'nullable', label: 'search doc kind', existing: row.kind, incoming: searchDoc.kind },
+      { kind: 'nullable', label: 'search doc body', existing: row.body, incoming: searchDoc.body },
+    ],
+    insertSql: `INSERT INTO "search_doc"(tenant_id, id, session_id, kind, body)
      VALUES ($1, $2, $3, $4, $5)`,
-    [tenantId, searchDoc.id, searchDoc.sessionId, searchDoc.kind, searchDoc.body],
-  )
+    insertParams: [tenantId, searchDoc.id, searchDoc.sessionId, searchDoc.kind, searchDoc.body],
+  })
 }
 
 export async function insertProjectionRows(opts: {

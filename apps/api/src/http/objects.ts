@@ -190,30 +190,38 @@ function requireBinaryBody(body: unknown): Buffer {
   return body
 }
 
-async function verifyUploadBody(body: Buffer, upload: UploadRequest, maxObjectBytes: number): Promise<void> {
+function assertTransportShape(body: Buffer, upload: UploadRequest): void {
   if (body.byteLength !== upload.compressedSize) {
     fail(400, `size mismatch: header declared ${upload.compressedSize}, body has ${body.byteLength}`)
   }
-
-  const computedTransportHash = computeHashHex(body, 'blake3')
-  if (computedTransportHash !== upload.transportHash) {
-    fail(400, `transport hash mismatch: declared ${upload.transportHash}, computed ${computedTransportHash}`)
+  const computed = computeHashHex(body, 'blake3')
+  if (computed !== upload.transportHash) {
+    fail(400, `transport hash mismatch: declared ${upload.transportHash}, computed ${computed}`)
   }
+}
 
-  let plain: Buffer
+async function decodeUploadPayload(body: Buffer, upload: UploadRequest, maxObjectBytes: number): Promise<Buffer> {
   try {
-    plain = await decompressBody(body, upload.compression, upload.uncompressedSize, maxObjectBytes)
+    return await decompressBody(body, upload.compression, upload.uncompressedSize, maxObjectBytes)
   } catch {
     fail(400, 'unable to decompress object body')
   }
+}
+
+function assertCanonicalShape(plain: Buffer, upload: UploadRequest): void {
   if (plain.byteLength !== upload.uncompressedSize) {
     fail(400, `uncompressed size mismatch: declared ${upload.uncompressedSize}, body has ${plain.byteLength}`)
   }
-
-  const computedCanonicalHash = computeHashHex(plain, 'blake3')
-  if (computedCanonicalHash !== upload.hash) {
-    fail(400, `canonical hash mismatch: declared ${upload.hash}, computed ${computedCanonicalHash}`)
+  const computed = computeHashHex(plain, 'blake3')
+  if (computed !== upload.hash) {
+    fail(400, `canonical hash mismatch: declared ${upload.hash}, computed ${computed}`)
   }
+}
+
+async function verifyUploadBody(body: Buffer, upload: UploadRequest, maxObjectBytes: number): Promise<void> {
+  assertTransportShape(body, upload)
+  const plain = await decodeUploadPayload(body, upload, maxObjectBytes)
+  assertCanonicalShape(plain, upload)
 }
 
 function manifestMatches(declared: BatchManifestRow, upload: UploadRequest): boolean {

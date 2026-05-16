@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { RawExec } from '../../db.js'
 import { headersFromTrpcCtx } from '../../shared/http.js'
 import {
   TRPCError,
@@ -72,6 +73,47 @@ type MemberOrgRow = {
   organization_name: string
   organization_slug: string | null
   role: string
+}
+
+type SignupContext = {
+  rawExec: RawExec
+  req: { log?: { error?: (data: unknown, msg?: string) => void } }
+}
+
+type Tenant = { id: string; slug?: string | null; name: string }
+
+function asTrpcError(err: unknown, fallback: string, code: 'BAD_REQUEST' | 'INTERNAL_SERVER_ERROR'): TRPCError {
+  if (err instanceof TRPCError) return err
+  const message = err instanceof Error && err.message ? `${fallback}: ${err.message}` : fallback
+  return new TRPCError({ code, message })
+}
+
+function deriveTenantSlug(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .slice(0, 32)
+}
+
+/** Rollback the half-created auth rows for a user. Best-effort; never throws. */
+async function rollbackOrphanUser(ctx: SignupContext, userId: string): Promise<void> {
+  try {
+    // Dependency order: members (cascades on user/org), then session, account, user.
+    await ctx.rawExec('DELETE FROM "member" WHERE user_id = $1', [userId])
+    await ctx.rawExec('DELETE FROM "session" WHERE user_id = $1', [userId])
+    await ctx.rawExec('DELETE FROM "account" WHERE user_id = $1', [userId])
+    await ctx.rawExec('DELETE FROM "user" WHERE id = $1', [userId])
+  } catch (rollbackErr) {
+    ctx.req.log?.error?.({ err: rollbackErr, userId }, 'signup rollback failed')
+  }
+}
+
+async function deleteHalfCreatedOrg(ctx: SignupContext, orgId: string): Promise<void> {
+  try {
+    await ctx.rawExec('DELETE FROM "organization" WHERE id = $1', [orgId])
+  } catch (cleanupErr) {
+    ctx.req.log?.error?.({ err: cleanupErr, orgId }, 'org cleanup failed')
+  }
 }
 
 export const authRouter = router({
@@ -254,59 +296,26 @@ export const authRouter = router({
         throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Signup did not return a session' })
       }
 
-      // From this point on, any failure leaves the new user orphaned. Wrap the
-      // post-user steps in a try/catch and roll back the user + session via raw
-      // SQL on the auth tables.
-      const rollback = async (): Promise<void> => {
-        // Delete in dependency order: member rows (cascade on user/org), then
-        // organization (created below — may not exist yet), then session, then
-        // account, then user.
-        try {
-          await ctx.rawExec('DELETE FROM "member" WHERE user_id = $1', [user.id])
-          await ctx.rawExec('DELETE FROM "session" WHERE user_id = $1', [user.id])
-          await ctx.rawExec('DELETE FROM "account" WHERE user_id = $1', [user.id])
-          await ctx.rawExec('DELETE FROM "user" WHERE id = $1', [user.id])
-        } catch (rollbackErr) {
-          // Surface in the API logs but don't mask the original error.
-          ctx.req.log?.error?.({ err: rollbackErr, userId: user.id }, 'signup rollback failed')
-        }
-      }
-
+      // From here on, the user exists but isn't useful without a tenant. Each
+      // step rolls back the user (and any org it created) on failure.
       const authHeaders = new Headers(responseHeaders)
       authHeaders.set('authorization', `Bearer ${sessionToken}`)
+      const slug = input.tenantSlug ?? deriveTenantSlug(input.tenantName)
 
-      const slug =
-        input.tenantSlug ??
-        input.tenantName
-          .toLowerCase()
-          .replace(/[^a-z0-9-]+/g, '-')
-          .slice(0, 32)
-
-      let created: { id: string; slug?: string | null; name: string } | null
+      let created: Tenant | null
       try {
         created = (await ctx.auth.api.createOrganization({
           body: { name: input.tenantName, slug },
           headers: authHeaders,
-        })) as { id: string; slug?: string | null; name: string } | null
+        })) as Tenant | null
       } catch (err) {
-        await rollback()
-        throw err instanceof TRPCError
-          ? err
-          : new TRPCError({
-              code: 'BAD_REQUEST',
-              message:
-                err instanceof Error && err.message
-                  ? `Tenant creation failed: ${err.message}`
-                  : 'Tenant creation failed',
-            })
+        await rollbackOrphanUser(ctx, user.id)
+        throw asTrpcError(err, 'Tenant creation failed', 'BAD_REQUEST')
       }
 
       if (!created) {
-        await rollback()
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'Tenant creation returned empty result',
-        })
+        await rollbackOrphanUser(ctx, user.id)
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Tenant creation returned empty result' })
       }
 
       try {
@@ -315,23 +324,9 @@ export const authRouter = router({
           headers: authHeaders,
         })
       } catch (err) {
-        // Also delete the half-created organization so a retry with the same
-        // slug is not blocked.
-        try {
-          await ctx.rawExec('DELETE FROM "organization" WHERE id = $1', [created.id])
-        } catch (cleanupErr) {
-          ctx.req.log?.error?.({ err: cleanupErr, orgId: created.id }, 'org cleanup failed')
-        }
-        await rollback()
-        throw err instanceof TRPCError
-          ? err
-          : new TRPCError({
-              code: 'INTERNAL_SERVER_ERROR',
-              message:
-                err instanceof Error && err.message
-                  ? `Setting active tenant failed: ${err.message}`
-                  : 'Setting active tenant failed',
-            })
+        await deleteHalfCreatedOrg(ctx, created.id)
+        await rollbackOrphanUser(ctx, user.id)
+        throw asTrpcError(err, 'Setting active tenant failed', 'INTERNAL_SERVER_ERROR')
       }
 
       // CQ-007: any caller that sends a non-empty Origin header is treated
