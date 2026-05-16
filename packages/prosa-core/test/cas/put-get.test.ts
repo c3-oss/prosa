@@ -1,4 +1,7 @@
+import { readFile } from 'node:fs/promises'
+import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { blake3Hex } from '../../src/core/cas/hash.js'
 import { getBytes, getJson, putBytes, putJson, putText } from '../../src/core/cas/index.js'
 import { createTempBundle } from '../helpers/tmp-bundle.js'
 
@@ -39,6 +42,34 @@ describe('CAS', () => {
 
       const back = await getBytes(t.bundle, id)
       expect(back.byteLength).toBe(10_000)
+    } finally {
+      await t.cleanup()
+    }
+  })
+
+  it('persists transport hashes for stored bytes', async () => {
+    const t = await createTempBundle()
+    try {
+      const small = Buffer.from('small payload', 'utf8')
+      const smallId = await putBytes(t.bundle, small)
+      const smallMeta = t.bundle.db
+        .prepare<[string], { hash: string; transport_hash: string | null; storage_path: string; compression: string }>(
+          `SELECT hash, transport_hash, storage_path, compression FROM objects WHERE object_id = ?`,
+        )
+        .get(smallId)
+      expect(smallMeta?.compression).toBe('none')
+      expect(smallMeta?.transport_hash).toBe(smallMeta?.hash)
+
+      const big = Buffer.from('transport-hash '.repeat(1_000), 'utf8')
+      const bigId = await putBytes(t.bundle, big)
+      const bigMeta = t.bundle.db
+        .prepare<[string], { hash: string; transport_hash: string | null; storage_path: string; compression: string }>(
+          `SELECT hash, transport_hash, storage_path, compression FROM objects WHERE object_id = ?`,
+        )
+        .get(bigId)
+      expect(bigMeta?.compression).toBe('zstd')
+      const stored = await readFile(path.join(t.path, bigMeta?.storage_path ?? ''))
+      expect(bigMeta?.transport_hash).toBe(blake3Hex(stored))
     } finally {
       await t.cleanup()
     }

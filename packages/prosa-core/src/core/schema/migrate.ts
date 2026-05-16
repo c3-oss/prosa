@@ -3,6 +3,7 @@ import { SQL_001_INIT } from './sql/001_init.js'
 import { SQL_002_SEARCH_INDEX_STATUS } from './sql/002_search_index_status.js'
 import { SQL_003_ANALYTICS_VIEWS } from './sql/003_analytics_views.js'
 import { SQL_004_TANTIVY_CHECKPOINT } from './sql/004_tantivy_checkpoint.js'
+import { SQL_005_OBJECT_TRANSPORT_HASH } from './sql/005_object_transport_hash.js'
 
 /**
  * One immutable schema migration entry.
@@ -27,6 +28,7 @@ const MIGRATIONS: readonly Migration[] = [
   { version: 2, name: 'search_index_status', sql: SQL_002_SEARCH_INDEX_STATUS },
   { version: 3, name: 'analytics_views', sql: SQL_003_ANALYTICS_VIEWS },
   { version: 4, name: 'tantivy_checkpoint', sql: SQL_004_TANTIVY_CHECKPOINT },
+  { version: 5, name: 'object_transport_hash', sql: SQL_005_OBJECT_TRANSPORT_HASH },
 ]
 
 /** Result returned after running schema migrations. */

@@ -35,6 +35,8 @@ export interface ObjectMeta {
   encoding: string | null
   /** Bundle-relative path to the stored bytes. */
   storage_path: string
+  /** BLAKE3 hex digest of the bytes stored on disk and uploaded over sync. */
+  transport_hash: string | null
   /** ISO timestamp for the metadata row insertion. */
   created_at: string
 }
@@ -77,7 +79,7 @@ export async function putBytes(bundle: Bundle, bytes: Uint8Array, options: PutOp
   const existing = prepare<[string], ObjectMeta>(
     bundle.db,
     `SELECT object_id, hash_alg, hash, size_bytes, compressed_size_bytes,
-            compression, mime_type, encoding, storage_path, created_at
+            compression, mime_type, encoding, storage_path, transport_hash, created_at
        FROM objects WHERE object_id = ?`,
   ).get(objectId)
 
@@ -94,8 +96,8 @@ export async function putBytes(bundle: Bundle, bytes: Uint8Array, options: PutOp
     bundle.db,
     `INSERT INTO objects (
        object_id, hash_alg, hash, size_bytes, compressed_size_bytes,
-       compression, mime_type, encoding, storage_path, created_at
-     ) VALUES (?, 'blake3', ?, ?, ?, ?, ?, ?, ?, ?)`,
+       compression, mime_type, encoding, storage_path, transport_hash, created_at
+     ) VALUES (?, 'blake3', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     objectId,
     hash,
@@ -105,6 +107,7 @@ export async function putBytes(bundle: Bundle, bytes: Uint8Array, options: PutOp
     options.mimeType ?? null,
     options.encoding ?? null,
     storagePath,
+    blake3Hex(stored),
     new Date().toISOString(),
   )
 
@@ -150,7 +153,7 @@ export async function getBytes(bundle: Bundle, objectId: ObjectId): Promise<Buff
   const meta = prepare<[string], ObjectMeta>(
     bundle.db,
     `SELECT object_id, hash_alg, hash, size_bytes, compressed_size_bytes,
-            compression, mime_type, encoding, storage_path, created_at
+            compression, mime_type, encoding, storage_path, transport_hash, created_at
        FROM objects WHERE object_id = ?`,
   ).get(objectId)
   if (!meta) {
@@ -184,7 +187,7 @@ export function getObjectMeta(bundle: Bundle, objectId: ObjectId): ObjectMeta | 
     prepare<[string], ObjectMeta>(
       bundle.db,
       `SELECT object_id, hash_alg, hash, size_bytes, compressed_size_bytes,
-              compression, mime_type, encoding, storage_path, created_at
+              compression, mime_type, encoding, storage_path, transport_hash, created_at
          FROM objects WHERE object_id = ?`,
     ).get(objectId) ?? null
   )
@@ -328,8 +331,8 @@ export async function flushPendingObjects(bundle: Bundle, pending: PendingObject
     bundle.db,
     `INSERT OR IGNORE INTO objects (
        object_id, hash_alg, hash, size_bytes, compressed_size_bytes,
-       compression, mime_type, encoding, storage_path, created_at
-     ) VALUES (?, 'blake3', ?, ?, ?, ?, ?, ?, ?, ?)`,
+       compression, mime_type, encoding, storage_path, transport_hash, created_at
+     ) VALUES (?, 'blake3', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
   const now = new Date().toISOString()
   for (const p of toWrite) {
@@ -342,6 +345,7 @@ export async function flushPendingObjects(bundle: Bundle, pending: PendingObject
       p.staged.mimeType,
       p.staged.encoding,
       p.storagePath,
+      blake3Hex(p.compressedBytes),
       now,
     )
   }

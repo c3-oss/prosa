@@ -27,7 +27,18 @@ function cas(hashChar: string, bytes: number[], overrides: Partial<ObjectManifes
 }
 
 function emptyProjection(): ProjectionPayload {
-  return { sourceFiles: [], rawRecords: [], sessions: [], searchDocs: [], toolCalls: [], toolResults: [] }
+  return {
+    sourceFiles: [],
+    rawRecords: [],
+    sessions: [],
+    searchDocs: [],
+    toolCalls: [],
+    toolResults: [],
+    messages: [],
+    contentBlocks: [],
+    events: [],
+    artifacts: [],
+  }
 }
 
 describe('CLI sync object pack uploads', () => {
@@ -104,6 +115,10 @@ describe('CLI sync object pack uploads', () => {
       rawRecords: [],
       toolCalls: [],
       toolResults: [],
+      messages: [],
+      contentBlocks: [],
+      events: [],
+      artifacts: [],
       casObjects,
       metrics: { localScanMs: 0, localReadMs: 0, localBytesRead: 0, localObjectsRead: 0 },
     }
