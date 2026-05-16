@@ -54,6 +54,26 @@ these. The web bundle never writes session tokens or cookies into
 localStorage; the only persisted browser auth state is the HTTP-only
 cookie set by Better Auth.
 
+### Local development origins
+
+For local browser testing, keep the web app and API on the same hostname:
+
+```bash
+pnpm --filter @c3-oss/prosa-web dev
+# open http://localhost:5173
+```
+
+In development, `apps/web/src/lib/config.ts` defaults
+`VITE_PROSA_API_URL` to `http://localhost:3000`, and the web package dev
+script starts Vite with `--host localhost`. Do not mix
+`http://localhost:5173` with `http://127.0.0.1:3000`, or
+`http://127.0.0.1:5173` with an API CORS allow-list for localhost only:
+browser cookies and credentialed CORS treat those as different origins.
+
+If you intentionally serve web from `127.0.0.1`, set both sides
+explicitly for that hostname, including `VITE_PROSA_API_URL` and
+`PROSA_WEB_ORIGIN`.
+
 ### Server (`apps/api`)
 
 | Variable | Required | Purpose |
@@ -67,7 +87,7 @@ cookie set by Better Auth.
 | `PROSA_OBJECT_STORE_PREFIX` | yes (defaults `prosa/`) | Prefix for canonical and artifact storage keys. |
 | `PROSA_OBJECT_STORE_ENDPOINT` / `REGION` / `ACCESS_KEY_ID` / `SECRET_ACCESS_KEY` | s3 only | S3 SDK configuration. |
 | `PROSA_OBJECT_STORE_ROOT` | fs only | Local filesystem root for the `fs` driver. |
-| `PROSA_API_HOST` / `PROSA_API_PORT` | no | Bind host/port; default `127.0.0.1:3000`. |
+| `PROSA_API_HOST` / `PROSA_API_PORT` | no | Bind host/port; default `127.0.0.1:3000`. For local browser flows, advertise and call the API as `http://localhost:3000` unless you also switch the web origin to `127.0.0.1`. |
 | `PROSA_LOG_LEVEL` | no | pino level; default `info`. |
 
 The fail-closed startup invariants live in
