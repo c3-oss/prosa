@@ -19,9 +19,15 @@ type CommitRecord = {
 type Harness = {
   baseUrl: string
   configPath: string
+  stateHome: string
   storePath: string
   commits: CommitRecord[]
   close: () => Promise<void>
+}
+
+type HarnessOptions = {
+  failPlanOnceAt?: number
+  failVerifyOnceAt?: number
 }
 
 function projectionRowCount(input: CommitUploadInput): number {
@@ -29,9 +35,13 @@ function projectionRowCount(input: CommitUploadInput): number {
     input.projection.sourceFiles.length +
     input.projection.rawRecords.length +
     input.projection.sessions.length +
-    input.projection.searchDocs.length +
     input.projection.toolCalls.length +
-    input.projection.toolResults.length
+    input.projection.toolResults.length +
+    input.projection.messages.length +
+    input.projection.contentBlocks.length +
+    input.projection.events.length +
+    input.projection.artifacts.length +
+    input.projection.searchDocs.length
   )
 }
 
@@ -116,13 +126,18 @@ async function createMixedBundle(storePath: string): Promise<void> {
   closeBundle(bundle)
 }
 
-async function bootHarness(): Promise<Harness> {
+async function bootHarness(options: HarnessOptions = {}): Promise<Harness> {
   const tmpRoot = await mkdtemp(path.join(tmpdir(), 'prosa-cli-chunked-'))
   const configPath = path.join(tmpRoot, 'config.json')
+  const stateHome = path.join(tmpRoot, 'state')
   const storePath = path.join(tmpRoot, '.prosa')
   const commits: CommitRecord[] = []
   const availableObjectIds = new Set<string>()
   let batchIndex = 0
+  let planRequestCount = 0
+  let verifyRequestCount = 0
+  let failedPlan = false
+  let failedVerify = false
 
   await createMixedBundle(storePath)
 
@@ -153,6 +168,12 @@ async function bootHarness(): Promise<Harness> {
       }
       if (url.pathname === '/trpc/sync.planUpload') {
         const input = (await readJson(req)) as PlanUploadInput
+        planRequestCount += 1
+        if (!failedPlan && options.failPlanOnceAt === planRequestCount) {
+          failedPlan = true
+          writeError(res, 500, 'planned test failure')
+          return
+        }
         expect(input.objects.length).toBeLessThanOrEqual(2)
         batchIndex += 1
         writeTrpc(res, {
@@ -184,6 +205,12 @@ async function bootHarness(): Promise<Harness> {
       }
       if (url.pathname === '/trpc/sync.verifyPromotion') {
         const input = (await readJson(req)) as VerifyPromotionInput
+        verifyRequestCount += 1
+        if (!failedVerify && options.failVerifyOnceAt === verifyRequestCount) {
+          failedVerify = true
+          writeError(res, 500, 'planned verify failure')
+          return
+        }
         writeTrpc(res, {
           receipt: {
             batchId: input.batchId,
@@ -239,6 +266,7 @@ async function bootHarness(): Promise<Harness> {
   return {
     baseUrl,
     configPath,
+    stateHome,
     storePath,
     commits,
     close: async () => {
@@ -265,12 +293,22 @@ async function capturedRun(args: string[]): Promise<{ stdout: string }> {
 
 describe('CLI chunked sync batching', () => {
   let h: Harness
+
+  async function replaceHarness(options: HarnessOptions): Promise<void> {
+    await h.close()
+    h = await bootHarness(options)
+    process.env.PROSA_CONFIG_PATH = h.configPath
+    process.env.PROSA_STATE_HOME = h.stateHome
+  }
+
   beforeEach(async () => {
     h = await bootHarness()
     process.env.PROSA_CONFIG_PATH = h.configPath
+    process.env.PROSA_STATE_HOME = h.stateHome
   })
   afterEach(async () => {
     process.env.PROSA_CONFIG_PATH = undefined
+    process.env.PROSA_STATE_HOME = undefined
     await h.close()
   })
 
@@ -286,5 +324,61 @@ describe('CLI chunked sync batching', () => {
       { objectCount: 1, rowCount: 2, sourceFileCount: 1, sessionCount: 1 },
       { objectCount: 0, rowCount: 2, sourceFileCount: 0, sessionCount: 2 },
     ])
+  })
+
+  it('resumes chunked sync by skipping chunks that already verified', async () => {
+    await replaceHarness({ failPlanOnceAt: 3 })
+
+    await expect(capturedRun(['sync', '--server', h.baseUrl, '--store', h.storePath, '--json'])).rejects.toThrow(
+      /planned test failure/,
+    )
+    expect(h.commits).toEqual([
+      { objectCount: 2, rowCount: 2, sourceFileCount: 2, sessionCount: 0 },
+      { objectCount: 1, rowCount: 2, sourceFileCount: 1, sessionCount: 1 },
+    ])
+
+    const out = await capturedRun(['sync', '--server', h.baseUrl, '--store', h.storePath, '--json'])
+    const payload = JSON.parse(out.stdout) as { ok: boolean; chunked: boolean; batchCount: number }
+
+    expect(payload.ok).toBe(true)
+    expect(payload.chunked).toBe(true)
+    expect(payload.batchCount).toBe(3)
+    expect(h.commits).toEqual([
+      { objectCount: 2, rowCount: 2, sourceFileCount: 2, sessionCount: 0 },
+      { objectCount: 1, rowCount: 2, sourceFileCount: 1, sessionCount: 1 },
+      { objectCount: 0, rowCount: 2, sourceFileCount: 0, sessionCount: 2 },
+    ])
+  })
+
+  it('does not skip a chunk whose verifyPromotion call failed', async () => {
+    await replaceHarness({ failVerifyOnceAt: 1 })
+
+    await expect(capturedRun(['sync', '--server', h.baseUrl, '--store', h.storePath, '--json'])).rejects.toThrow(
+      /planned verify failure/,
+    )
+    expect(h.commits).toEqual([{ objectCount: 2, rowCount: 2, sourceFileCount: 2, sessionCount: 0 }])
+
+    await capturedRun(['sync', '--server', h.baseUrl, '--store', h.storePath, '--json'])
+
+    expect(h.commits).toEqual([
+      { objectCount: 2, rowCount: 2, sourceFileCount: 2, sessionCount: 0 },
+      { objectCount: 2, rowCount: 2, sourceFileCount: 2, sessionCount: 0 },
+      { objectCount: 1, rowCount: 2, sourceFileCount: 1, sessionCount: 1 },
+      { objectCount: 0, rowCount: 2, sourceFileCount: 0, sessionCount: 2 },
+    ])
+  })
+
+  it('supports disabling and resetting chunked sync checkpoints', async () => {
+    await capturedRun(['sync', '--server', h.baseUrl, '--store', h.storePath, '--json'])
+    expect(h.commits).toHaveLength(3)
+
+    await capturedRun(['sync', '--server', h.baseUrl, '--store', h.storePath, '--json'])
+    expect(h.commits).toHaveLength(3)
+
+    await capturedRun(['sync', '--server', h.baseUrl, '--store', h.storePath, '--no-resume', '--json'])
+    expect(h.commits).toHaveLength(6)
+
+    await capturedRun(['sync', '--server', h.baseUrl, '--store', h.storePath, '--reset-sync-checkpoint', '--json'])
+    expect(h.commits).toHaveLength(9)
   })
 })
