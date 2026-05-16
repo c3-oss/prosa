@@ -169,10 +169,11 @@ export function getCompileProvider(source: SourceTool): CompileProviderConfig {
 }
 
 /** Expands shell-style home paths and resolves compile paths to absolutes. */
-export function resolveCompilePath(p: string): string {
+export function resolveCompilePath(p: string, basePath = process.env.INIT_CWD ?? process.cwd()): string {
   if (p === '~') return os.homedir()
   if (p.startsWith('~/')) return path.join(os.homedir(), p.slice(2))
-  return path.resolve(p)
+  if (path.isAbsolute(p)) return path.resolve(p)
+  return path.resolve(basePath, p)
 }
 
 /** Runs provider imports and refreshes derived search indexes when data changed. */

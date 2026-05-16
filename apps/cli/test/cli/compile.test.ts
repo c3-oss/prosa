@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -13,6 +13,7 @@ const execFileAsync = promisify(execFile)
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 const ROOT = path.resolve(__dirname, '../..')
+const REPO_ROOT = path.resolve(ROOT, '../..')
 const BIN = path.join(ROOT, 'src/bin/prosa.ts')
 const CODEX_FIXTURES = path.join(ROOT, '../../packages/prosa-core/test/fixtures/codex')
 const CLAUDE_FIXTURES = path.join(ROOT, '../../packages/prosa-core/test/fixtures/claude')
@@ -138,6 +139,50 @@ describe('compile CLI', () => {
     }
   })
 
+  it('initializes an explicit empty store and resolves relative sessions paths from INIT_CWD', async () => {
+    const rootPath = await mkdtemp(path.join(os.tmpdir(), 'prosa-compile-cli-'))
+    const homePath = path.join(rootPath, 'home')
+    const storePath = path.join(rootPath, 'store')
+    await mkdir(homePath, { recursive: true })
+    await mkdir(storePath, { recursive: true })
+    try {
+      const env = envWithInvocationRoot(homePath)
+
+      const { stderr } = await runProsa(
+        ['compile', 'codex', '--sessions-path', 'packages/prosa-core/test/fixtures/codex', '--store', storePath],
+        env,
+      )
+
+      expect(stderr).toContain('codex batch completed')
+      expect(stderr).toContain('"source_files_imported": 2')
+      await expect(stat(path.join(storePath, 'manifest.json'))).resolves.toBeDefined()
+    } finally {
+      await rm(rootPath, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects nonexistent user-provided sessions paths before importing', async () => {
+    const t = await makeTempRun()
+    try {
+      const env = { ...t.env, INIT_CWD: REPO_ROOT }
+      const missingPath = path.join(REPO_ROOT, 'packages/prosa-core/test/fixtures/missing-codex')
+
+      const error = await runProsa(
+        ['compile', 'codex', '--sessions-path', 'packages/prosa-core/test/fixtures/missing-codex'],
+        env,
+      ).catch((err: unknown) => err)
+
+      expect(error).toMatchObject({
+        code: 1,
+        stderr: expect.stringContaining(`sessions path not found: ${missingPath}`),
+      })
+      expect(error.stderr).toContain('Check --sessions-path or pass an absolute path.')
+      expect(error.stderr).not.toContain('codex batch completed')
+    } finally {
+      await t.cleanup()
+    }
+  })
+
   it('rejects the legacy provider flag syntax', async () => {
     const t = await makeTempRun()
     try {
@@ -190,6 +235,12 @@ async function makeTempRun(): Promise<{
       await rm(rootPath, { recursive: true, force: true })
     },
   }
+}
+
+function envWithInvocationRoot(homePath: string): NodeJS.ProcessEnv {
+  const env = { ...process.env, HOME: homePath, INIT_CWD: REPO_ROOT }
+  env.PROSA_STORE = undefined
+  return env
 }
 
 async function copyFixture(from: string, to: string): Promise<void> {
