@@ -120,8 +120,27 @@ describe('CLI auth + sync end-to-end', () => {
     ])
     expect(signupOut.stdout).toContain('"ok":true')
 
-    const syncOut = await capturedRun(['sync', '--server', h.baseUrl, '--store', h.storePath, '--json', '--verbose'])
-    expect(syncOut.stdout).toContain('"ok":true')
+    const syncOut = await capturedRun([
+      'sync',
+      '--server',
+      h.baseUrl,
+      '--store',
+      h.storePath,
+      '--json',
+      '--verbose',
+      '--object-concurrency',
+      '2',
+    ])
+    const syncJson = JSON.parse(syncOut.stdout) as {
+      ok: boolean
+      metrics: { objectConcurrency: number; planMs: number; commitMs: number; verifyMs: number; batches: number }
+    }
+    expect(syncJson.ok).toBe(true)
+    expect(syncJson.metrics.objectConcurrency).toBe(2)
+    expect(syncJson.metrics.batches).toBe(1)
+    expect(syncJson.metrics.planMs).toBeGreaterThanOrEqual(0)
+    expect(syncJson.metrics.commitMs).toBeGreaterThanOrEqual(0)
+    expect(syncJson.metrics.verifyMs).toBeGreaterThanOrEqual(0)
 
     // Default cleanup only removes derived artifacts; canonical data
     // (manifest.json, prosa.sqlite, objects/, raw/) is preserved unless

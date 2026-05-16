@@ -25,6 +25,9 @@ type TrpcSuccess<T> = { result: { data: T } }
 type TrpcFailure = { error: { message: string; data?: { code?: string } } }
 type PlainHttpResponse = { ok: boolean; status: number; text: string }
 
+const OBJECT_UPLOAD_MAX_ATTEMPTS = 4
+const OBJECT_UPLOAD_BASE_BACKOFF_MS = 250
+
 function trimTrailingSlash(url: string): string {
   return url.endsWith('/') ? url.slice(0, -1) : url
 }
@@ -34,6 +37,40 @@ function retryAfterSecondsFromMessage(message: string): number | undefined {
   if (!match) return undefined
   const seconds = Number(match[1])
   return Number.isFinite(seconds) && seconds > 0 ? seconds : undefined
+}
+
+function retryAfterMs(headers: Headers): number | undefined {
+  const value = headers.get('retry-after')
+  if (!value) return undefined
+  const seconds = Number(value)
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000
+  const at = Date.parse(value)
+  if (!Number.isNaN(at)) return Math.max(0, at - Date.now())
+  return undefined
+}
+
+function objectUploadBackoffMs(attempt: number, headers?: Headers): number {
+  const retryAfter = headers ? retryAfterMs(headers) : undefined
+  if (retryAfter !== undefined) return retryAfter
+  return OBJECT_UPLOAD_BASE_BACKOFF_MS * 2 ** attempt
+}
+
+function isRetryableObjectUploadStatus(status: number): boolean {
+  return status === 408 || status === 429 || status >= 500
+}
+
+function isRetryableNetworkError(err: unknown): boolean {
+  if (err instanceof TypeError) return true
+  if (!(err instanceof Error)) return false
+  const code =
+    (err as Error & { code?: string; cause?: { code?: string } }).code ??
+    (err.cause as { code?: string } | undefined)?.code
+  return code != null && ['ECONNRESET', 'ETIMEDOUT', 'EPIPE'].includes(code)
+}
+
+async function sleep(ms: number): Promise<void> {
+  if (ms <= 0) return
+  await new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 function embeddedAbsoluteUrl(value: URL): string | null {
@@ -316,6 +353,34 @@ export class ProsaApiClient {
     uncompressedSize: number
     bytes: Uint8Array
   }): Promise<{ alreadyExisted: boolean }> {
+    let lastError: unknown
+    for (let attempt = 0; attempt < OBJECT_UPLOAD_MAX_ATTEMPTS; attempt += 1) {
+      try {
+        return await this.uploadObjectBytesOnce(input, attempt)
+      } catch (err) {
+        lastError = err
+        if (!isRetryableNetworkError(err) || attempt >= OBJECT_UPLOAD_MAX_ATTEMPTS - 1) {
+          throw err
+        }
+        await sleep(objectUploadBackoffMs(attempt))
+      }
+    }
+    throw lastError instanceof Error ? lastError : new CliUserError('object upload failed')
+  }
+
+  private async uploadObjectBytesOnce(
+    input: {
+      batchId: string
+      objectId: string
+      hash: string
+      transportHash?: string
+      compression?: 'zstd' | 'none'
+      compressedSize: number
+      uncompressedSize: number
+      bytes: Uint8Array
+    },
+    attempt: number,
+  ): Promise<{ alreadyExisted: boolean }> {
     const url = new URL(`${this.baseUrl}/objects/${input.objectId}`)
     url.searchParams.set('batchId', input.batchId)
     url.searchParams.set('hash', input.hash)
@@ -330,6 +395,10 @@ export class ProsaApiClient {
     })
     const text = await response.text()
     if (response.status >= 400) {
+      if (isRetryableObjectUploadStatus(response.status) && attempt < OBJECT_UPLOAD_MAX_ATTEMPTS - 1) {
+        await sleep(objectUploadBackoffMs(attempt, response.headers))
+        return this.uploadObjectBytesOnce(input, attempt + 1)
+      }
       throw new CliUserError(`object upload failed: ${response.status} ${text}`)
     }
     const parsed = JSON.parse(text) as { alreadyExisted: boolean }

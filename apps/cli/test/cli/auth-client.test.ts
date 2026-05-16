@@ -90,6 +90,83 @@ describe('ProsaApiClient request shaping', () => {
     const client = new ProsaApiClient({ baseUrl: 'http://example', fetch: fakeFetch as typeof fetch })
     await expect(client.listTenants()).rejects.toThrow(/forbidden/)
   })
+
+  it('retries object PUTs on retryable HTTP status using Retry-After', async () => {
+    const calls: string[] = []
+    const fakeFetch = async (url: string | URL | Request) => {
+      calls.push(String(url))
+      if (calls.length === 1) {
+        return new Response('busy', { status: 503, headers: { 'retry-after': '0' } })
+      }
+      return new Response(JSON.stringify({ alreadyExisted: false }), { status: 201 })
+    }
+    const client = new ProsaApiClient({ baseUrl: 'http://example', fetch: fakeFetch as typeof fetch })
+
+    const hash = 'a'.repeat(64)
+    await expect(
+      client.uploadObjectBytes({
+        batchId: 'batch-1',
+        objectId: `blake3:${hash}`,
+        hash,
+        compression: 'none',
+        compressedSize: 3,
+        uncompressedSize: 3,
+        bytes: new Uint8Array([1, 2, 3]),
+      }),
+    ).resolves.toEqual({ alreadyExisted: false })
+    expect(calls).toHaveLength(2)
+  })
+
+  it('retries object PUTs on retryable network errors', async () => {
+    let calls = 0
+    const fakeFetch = async () => {
+      calls += 1
+      if (calls === 1) {
+        const err = new Error('socket closed') as Error & { code: string }
+        err.code = 'ECONNRESET'
+        throw err
+      }
+      return new Response(JSON.stringify({ alreadyExisted: true }), { status: 200 })
+    }
+    const client = new ProsaApiClient({ baseUrl: 'http://example', fetch: fakeFetch as typeof fetch })
+
+    const hash = 'c'.repeat(64)
+    await expect(
+      client.uploadObjectBytes({
+        batchId: 'batch-1',
+        objectId: `blake3:${hash}`,
+        hash,
+        compression: 'none',
+        compressedSize: 3,
+        uncompressedSize: 3,
+        bytes: new Uint8Array([1, 2, 3]),
+      }),
+    ).resolves.toEqual({ alreadyExisted: true })
+    expect(calls).toBe(2)
+  })
+
+  it('does not retry object PUT protocol conflicts', async () => {
+    const calls: string[] = []
+    const fakeFetch = async (url: string | URL | Request) => {
+      calls.push(String(url))
+      return new Response('conflict', { status: 409 })
+    }
+    const client = new ProsaApiClient({ baseUrl: 'http://example', fetch: fakeFetch as typeof fetch })
+
+    const hash = 'b'.repeat(64)
+    await expect(
+      client.uploadObjectBytes({
+        batchId: 'batch-1',
+        objectId: `blake3:${hash}`,
+        hash,
+        compression: 'none',
+        compressedSize: 3,
+        uncompressedSize: 3,
+        bytes: new Uint8Array([1, 2, 3]),
+      }),
+    ).rejects.toThrow(/409 conflict/)
+    expect(calls).toHaveLength(1)
+  })
 })
 
 describe('defaultConfigPath', () => {

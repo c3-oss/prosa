@@ -522,6 +522,9 @@ async function promoteChunk({
   })
   metrics.verifyMs += Date.now() - verifyStart
   metrics.totalMs += Date.now() - totalStart
+  if (verbose) {
+    process.stderr.write(`verify ${label} • verifyMs=${metrics.verifyMs} totalMs=${metrics.totalMs}\n`)
+  }
   return verify.receipt
 }
 
