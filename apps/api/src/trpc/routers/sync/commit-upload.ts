@@ -3,6 +3,11 @@ import type { RawExec } from '../../../db.js'
 import { TRPCError } from '../../init.js'
 import { markBatchFailed, requireDeviceAccess, requireOpenBatchForCommit } from './batches.js'
 import {
+  releaseCommitUploadIdempotency,
+  reserveCommitUploadIdempotency,
+  storeCommitUploadIdempotencyResponse,
+} from './idempotency.js'
+import {
   assertObjectManifestsMatch,
   assertRemoteObjectCatalogs,
   assertUniqueObjectIds,
@@ -138,6 +143,9 @@ export async function commitUpload(ctx: SyncHandlerContext, input: CommitUploadI
   if (committedRows > syncLimits.maxRowsPerCommit) {
     throw new TRPCError({ code: 'BAD_REQUEST', message: 'Commit exceeds maxRowsPerCommit limit' })
   }
+  const idempotency = await reserveCommitUploadIdempotency(ctx, input)
+  if (idempotency?.replay) return idempotency.replay
+
   await requireDeviceAccess({
     rawExec: ctx.rawExec,
     tenantId: ctx.tenantId,
@@ -208,8 +216,25 @@ export async function commitUpload(ctx: SyncHandlerContext, input: CommitUploadI
         'UPDATE "sync_batch" SET status = $1, row_count = $2, object_count = $3, updated_at = now() WHERE id = $4 AND tenant_id = $5',
         ['committed', committedRows, objects.length, input.batchId, ctx.tenantId],
       )
+      if (idempotency) {
+        await storeCommitUploadIdempotencyResponse({
+          rawExec: tx,
+          tenantId: ctx.tenantId,
+          userId: ctx.user.id,
+          reservation: idempotency,
+          response: { batchId: input.batchId, committedObjects, committedRows },
+        })
+      }
     })
   } catch (error) {
+    if (idempotency) {
+      await releaseCommitUploadIdempotency({
+        rawExec: ctx.rawExec,
+        tenantId: ctx.tenantId,
+        userId: ctx.user.id,
+        reservation: idempotency,
+      })
+    }
     if (commitStarted) {
       await markBatchFailed(ctx.rawExec, input.batchId, ctx.tenantId, error)
     }
