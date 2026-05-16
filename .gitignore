@@ -18,3 +18,4 @@ docs/api/
 # local prosa bundles used for smoke tests
 /.prosa-smoke/
 /tmp-prosa/
+docker-compose.override.yml
