@@ -216,3 +216,29 @@ meta_agent="$(sqlite3 "$ro" "SELECT value FROM meta WHERE key='0';" \
 - WAL/SHM files matter for forensics. To capture a complete snapshot
   (e.g. into `raw/sources/`), copy `store.db`, `store.db-wal`, and
   `store.db-shm` together, ideally after Cursor exits.
+
+## Transcript fidelity
+
+What `loadTranscript` / `prosa session show` surface for Cursor sessions:
+
+- **Preserved verbatim**: text-content blocks of `user`, `assistant`,
+  and `tool` messages, `tool-call.args` (raw JSON), and the
+  `tool-result.result` payload — each lands as its own
+  `content_blocks` row or as a `tool_call` / `tool_result` pair joined
+  by `toolCallId`.
+- **CAS (`text_object_id` / `*_object_id`)**: tool outputs go through
+  `stageText`; `tool_results.output_object_id` carries the full body
+  and the original blob is also preserved under `raw_records`. Long
+  text content uses `content_blocks.text_object_id` when over the
+  inline budget.
+- **Hidden by default**: thinking/reasoning content blobs (when
+  recognized) are projected as `block_type='thinking'` with
+  `visibility='hidden_by_default'`; these are excluded from the
+  default search index.
+- **Summarized vs verbatim**: tool results carry a `preview` plus the
+  matching `*_object_id` for the verbatim payload.
+- **Gaps**: Cursor's protobuf root-state blob is **not** decoded —
+  message ordering is best-effort from blob discovery order. Affected
+  sessions land with `timeline_confidence='low'` and an
+  `uncertainties` row. Subagent/sub-session causality is left `null`
+  until a real signal appears in the source.

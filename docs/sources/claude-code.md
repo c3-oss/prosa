@@ -242,3 +242,27 @@ metadata-rich version with tool-call summaries.
   what's also in `content[].tool_result`. The importer prefers
   `toolUseResult` for structured payloads and falls back to the content
   block.
+
+## Transcript fidelity
+
+What `loadTranscript` / `prosa session show` surface for Claude Code sessions:
+
+- **Preserved verbatim**: `content[].type='text'` blocks (user + assistant),
+  `content[].type='tool_use'` arguments, and the matched `tool_result`
+  payloads. Image and unknown block types are kept as content blocks so the
+  raw shape is reachable.
+- **CAS (`text_object_id` / `*_object_id`)**: large tool outputs land in
+  `tool_results.output_object_id` (and may also appear as
+  `artifacts.object_id` for entries that arrived via `tool-results/`).
+  Long assistant text bodies past the inline limit live in
+  `content_blocks.text_object_id`.
+- **Hidden by default**: `content[].type='thinking'` is imported as
+  `block_type='thinking'` with `visibility='hidden_by_default'`. The
+  default search index also excludes thinking content.
+- **Summarized vs verbatim**: `tool_results.preview` is a short snapshot
+  of the result text; the verbatim payload is reachable via
+  `*_object_id`. Subagent-side artifacts cross-link to the parent assistant
+  message via `sourceToolAssistantUUID`.
+- **Gaps**: `type='system'` events are projected as
+  `messages.role='operational'`, not `system_prompt`, so consumers that
+  look only at `role='system_prompt'` miss them.

@@ -145,3 +145,31 @@ while IFS= read -r -d '' f; do
   [ "${db_count:-0}" -lt "$lines" ] && printf '%s\t%s\t%s\n' "$id" "$db_count" "$lines"
 done
 ```
+
+## Transcript fidelity
+
+What `loadTranscript` / `prosa session show` surface for Hermes sessions:
+
+- **Preserved verbatim**: `messages.content` for every role, plus
+  `messages.tool_calls` (parsed and re-emitted as `tool_calls` rows
+  with the original argument JSON) and `messages.role='tool'` payloads
+  (re-emitted as `tool_results.preview`). SQLite is the authoritative
+  source when available; JSONL/JSON fall back row-for-row when SQLite
+  is missing or thinner than the transcript file.
+- **CAS (`text_object_id` / `*_object_id`)**: long tool outputs route
+  through `stageText` into `tool_results.output_object_id`; full
+  argument JSON above the inline budget lives in
+  `tool_calls.args_object_id`.
+- **Hidden by default**: `messages.reasoning`,
+  `messages.reasoning_content`, `messages.reasoning_details`, and the
+  Codex-bridge fields (`codex_reasoning_items`, `codex_message_items`)
+  are imported as `content_blocks.block_type='thinking'` with
+  `visibility='hidden_by_default'`. They are excluded from the default
+  search index.
+- **Summarized vs verbatim**: `tool_results.preview` is capped at
+  `PREVIEW_MAX` bytes; the verbatim body is reachable via the matching
+  `output_object_id`.
+- **Gaps**: when both SQLite and JSONL exist, the importer keeps the
+  source with more messages and records `parser_status='partial'` on
+  raw records for the dropped side — consumers wanting a full merge
+  must reimport from a fresh bundle.

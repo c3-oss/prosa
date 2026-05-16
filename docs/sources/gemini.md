@@ -291,3 +291,31 @@ importer applies a **first-sorted-snapshot-wins** contract:
   merge strategy (last-write-wins, per-message versioning, etc.) is out
   of scope for the current importer; future work is tracked in
   [`../../ROADMAP.md`](../../ROADMAP.md).
+
+## Transcript fidelity
+
+What `loadTranscript` / `prosa session show` surface for Gemini sessions:
+
+- **Preserved verbatim**: user prompts and Gemini responses (each
+  `messages[]` entry projects to a `content_blocks` row), tool-call
+  `args`, and tool-result payloads. `info`/`error` entries land as
+  operational events, not chat messages.
+- **CAS (`text_object_id` / `*_object_id`)**: tool outputs are routed
+  through `stageText`; oversize bodies live in
+  `tool_results.output_object_id` and large file-read attachments use
+  `content_blocks.text_object_id`. The whole original snapshot's bytes
+  always live under `raw_records` as well.
+- **Hidden by default**: reasoning content (when present in
+  `messages[].thoughts`) is projected as
+  `content_blocks.block_type='thinking'` with
+  `visibility='hidden_by_default'`. The importer offsets thinking-block
+  ordinals by `HIDDEN_BLOCK_ORDINAL_BASE` so they sort after the visible
+  content of the same message.
+- **Summarized vs verbatim**: `tool_results.preview` is a short copy of
+  the rendered output; use the matching `*_object_id` for the verbatim
+  body.
+- **Gaps**: snapshots collide at the row level (`INSERT OR IGNORE` per
+  message id), so a later snapshot of the same chat can be partially
+  dropped — `import_errors` with `kind='gemini_duplicate_snapshot'`
+  flags the case. Re-importing into a fresh bundle is the current
+  recovery path.

@@ -227,3 +227,28 @@ metadata and tool-call summaries; the recipe above is for raw inspection.
 - Some legacy records appear as `{"record_type":"state"}` without a
   `type` key — these are markers, not chat content. Skip from messages
   but still preserve as `raw_records`.
+
+## Transcript fidelity
+
+What `loadTranscript` / `prosa session show` surface for Codex sessions:
+
+- **Preserved verbatim**: user `input_text`, assistant `output_text`, and
+  tool-call `arguments` (raw JSON). Tool results from
+  `function_call_output` keep their `output` payload, and
+  `event_msg.exec_command_end` keeps `exit_code` and `duration`.
+- **CAS (`text_object_id` / `*_object_id`)**: the importer routes
+  `event_msg.exec_command_end.stdout`, `stderr`, `formatted_output`, and
+  `aggregated_output` through `stageText` and references them from
+  `tool_results.stdout_object_id` / `stderr_object_id` /
+  `output_object_id`. `tool_calls.args_object_id` carries the original
+  argument JSON when it exceeds the inline budget.
+- **Hidden by default**: `response_item.payload.type=="reasoning"` is
+  imported as `content_blocks.block_type='thinking'` with
+  `visibility='hidden_by_default'`. `encrypted_content` is treated as
+  opaque (no body is decoded).
+- **Summarized vs verbatim**: `tool_results.preview` is a truncated copy
+  of the full output (capped by the importer's `PREVIEW_MAX`); the
+  matching `*_object_id` returns the verbatim payload.
+- **Gaps**: subagent → parent linkage relies on
+  `session_meta.payload.source.subagent.thread_spawn.parent_thread_id`
+  and is `null` for older session files.
