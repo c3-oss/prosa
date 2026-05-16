@@ -47,4 +47,54 @@ export const tenantRouter = router({
       }
       return result
     }),
+
+  // WHY protectedProcedure (not adminTenantProcedure): members and viewers must
+  // be able to see who is on the tenant; only invites/role changes are gated to
+  // admins. WHY try/catch: better-auth's `listMembers` is part of the
+  // organization plugin and may not be present in every plugin set we ship —
+  // degrade to an empty list rather than throwing so the UI can still render.
+  members: protectedProcedure.query(async ({ ctx }) => {
+    try {
+      const tenantId = (ctx as { tenantId?: string }).tenantId
+      if (!tenantId)
+        return {
+          members: [] as Array<{
+            id: string
+            email: string
+            name: string | null
+            role: string
+            createdAt: string | null
+          }>,
+        }
+      const result = await (
+        ctx.auth.api as unknown as {
+          listMembers?: (args: { query: { organizationId: string }; headers: Headers }) => Promise<unknown>
+        }
+      ).listMembers?.({ query: { organizationId: tenantId }, headers: fastifyHeadersWithAuth(ctx) })
+      const items = Array.isArray(result)
+        ? result
+        : Array.isArray((result as { members?: unknown[] })?.members)
+          ? (result as { members: unknown[] }).members
+          : []
+      const members = items.map((m) => {
+        const item = m as {
+          id?: string
+          userId?: string
+          role?: string
+          createdAt?: string | Date | null
+          user?: { email?: string; name?: string | null }
+        }
+        return {
+          id: String(item.id ?? item.userId ?? ''),
+          email: String(item.user?.email ?? ''),
+          name: item.user?.name ?? null,
+          role: String(item.role ?? 'member'),
+          createdAt: item.createdAt ? String(item.createdAt) : null,
+        }
+      })
+      return { members }
+    } catch {
+      return { members: [] }
+    }
+  }),
 })
