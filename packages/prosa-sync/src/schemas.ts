@@ -82,11 +82,33 @@ export const searchDocRowSchema = z.object({
 })
 export type SearchDocRow = z.infer<typeof searchDocRowSchema>
 
+export const projectionToolCallRowSchema = z.object({
+  id: z.string().min(1),
+  sessionId: z.string().min(1),
+  turnId: z.string().min(1).nullable().optional(),
+  name: z.string().min(1),
+  status: z.string().nullable().optional(),
+  inputObjectId: z.string().min(1).nullable().optional(),
+  createdAt: z.string().datetime().nullable().optional(),
+})
+export type ProjectionToolCallRow = z.infer<typeof projectionToolCallRowSchema>
+
+export const projectionToolResultRowSchema = z.object({
+  id: z.string().min(1),
+  toolCallId: z.string().min(1),
+  outputObjectId: z.string().min(1).nullable().optional(),
+  status: z.string().nullable().optional(),
+  finishedAt: z.string().datetime().nullable().optional(),
+})
+export type ProjectionToolResultRow = z.infer<typeof projectionToolResultRowSchema>
+
 export const projectionPayloadSchema = z.object({
   sourceFiles: z.array(sourceFileRowSchema).default([]),
   rawRecords: z.array(rawRecordRowSchema).default([]),
   sessions: z.array(projectionSessionRowSchema).default([]),
   searchDocs: z.array(searchDocRowSchema).default([]),
+  toolCalls: z.array(projectionToolCallRowSchema).default([]),
+  toolResults: z.array(projectionToolResultRowSchema).default([]),
 })
 export type ProjectionPayload = z.infer<typeof projectionPayloadSchema>
 
@@ -174,6 +196,10 @@ export const verifyPromotionInputSchema = z.object({
   declaredSessionIds: z.array(z.string()).max(10_000).default([]),
   /** Search doc ids the client claims were uploaded; verifier confirms each. */
   declaredSearchDocIds: z.array(z.string()).max(10_000).default([]),
+  /** Tool call ids the client claims were uploaded; verifier confirms each. */
+  declaredToolCallIds: z.array(z.string()).max(10_000).default([]),
+  /** Tool result ids the client claims were uploaded; verifier confirms each. */
+  declaredToolResultIds: z.array(z.string()).max(10_000).default([]),
 })
 export type VerifyPromotionInput = z.infer<typeof verifyPromotionInputSchema>
 
@@ -191,11 +217,15 @@ export const promotionReceiptSchema = z.object({
   batchRawRecordCount: z.number().int().nonnegative().default(0),
   batchSessionCount: z.number().int().nonnegative().default(0),
   batchSearchDocCount: z.number().int().nonnegative().default(0),
+  batchToolCallCount: z.number().int().nonnegative().default(0),
+  batchToolResultCount: z.number().int().nonnegative().default(0),
   declaredObjectsVerified: z.number().int().nonnegative().default(0),
   declaredSourceFilesVerified: z.number().int().nonnegative().default(0),
   declaredRawRecordsVerified: z.number().int().nonnegative().default(0),
   declaredSessionsVerified: z.number().int().nonnegative().default(0),
   declaredSearchDocsVerified: z.number().int().nonnegative().default(0),
+  declaredToolCallsVerified: z.number().int().nonnegative().default(0),
+  declaredToolResultsVerified: z.number().int().nonnegative().default(0),
   cleanupEligible: z.boolean().default(false),
   verifiedAt: z.string().datetime(),
 })

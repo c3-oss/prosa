@@ -76,6 +76,58 @@ async function bootHarness(): Promise<Harness> {
       'high',
       'ib-cas-1',
     )
+  bundle.db
+    .prepare(
+      `INSERT INTO tool_calls (
+         tool_call_id, session_id, turn_id, message_id, event_id, source_call_id, tool_name,
+         canonical_tool_type, args_object_id, command, cwd, path, query, timestamp_start,
+         timestamp_end, status, raw_record_id
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      'tc-cas-1',
+      'sess-cas-1',
+      null,
+      null,
+      null,
+      'source-call-1',
+      'shell.exec',
+      'shell',
+      objectId,
+      'echo ok',
+      null,
+      null,
+      null,
+      '2026-04-01T10:00:00.000Z',
+      '2026-04-01T10:00:01.000Z',
+      'ok',
+      'rr-cas-1',
+    )
+  bundle.db
+    .prepare(
+      `INSERT INTO tool_results (
+         tool_result_id, tool_call_id, session_id, message_id, event_id, source_call_id, status,
+         is_error, exit_code, duration_ms, stdout_object_id, stderr_object_id, output_object_id,
+         preview, raw_record_id
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      'tr-cas-1',
+      'tc-cas-1',
+      'sess-cas-1',
+      null,
+      null,
+      'source-call-1',
+      'ok',
+      0,
+      0,
+      1000,
+      null,
+      null,
+      objectId,
+      'ok',
+      'rr-cas-1',
+    )
   closeBundle(bundle)
 
   const config = loadConfig({
@@ -169,6 +221,14 @@ describe('CLI sync uploads CAS objects', () => {
     expect(sourceFiles.rows[0]?.count ?? 0).toBeGreaterThanOrEqual(1)
     const rawRecords = await h.pglite.query<{ count: number }>('SELECT count(*)::int AS count FROM "raw_record"')
     expect(rawRecords.rows[0]?.count ?? 0).toBeGreaterThanOrEqual(1)
+    const toolCalls = await h.pglite.query<{ count: number }>(
+      'SELECT count(*)::int AS count FROM "projection_tool_call"',
+    )
+    expect(toolCalls.rows[0]?.count ?? 0).toBe(1)
+    const toolResults = await h.pglite.query<{ count: number }>(
+      'SELECT count(*)::int AS count FROM "projection_tool_result"',
+    )
+    expect(toolResults.rows[0]?.count ?? 0).toBe(1)
     // The canonical object_id must match the local catalog: `blake3:<uncompressed hash>`.
     const remoteObject = await h.pglite.query<{ object_id: string; hash: string }>(
       'SELECT object_id, hash FROM "remote_object" LIMIT 1',

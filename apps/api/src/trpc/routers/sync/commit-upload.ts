@@ -63,7 +63,6 @@ export async function commitUpload(ctx: SyncHandlerContext, input: CommitUploadI
     tenantId: ctx.tenantId,
     userId: ctx.user.id,
     deviceId: input.deviceId,
-    storePath: input.storePath,
   })
   const objects = input.objects.map(validateObjectManifest)
 

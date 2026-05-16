@@ -12,7 +12,7 @@ import { TRPCError } from '../../init.js'
 export const syncLimits = {
   /** Per-batch object manifest entries. Caps the planned upload list. */
   maxObjectsPerPlan: 5000,
-  /** Per-batch projection rows (sessions + source files + raw records + search docs). */
+  /** Per-batch projection rows promoted from the local canonical projection. */
   maxRowsPerCommit: 10_000,
   /** Per-object byte ceiling, matches the HTTP upload route body limit. */
   maxObjectBytes: 256 * 1024 * 1024,
@@ -29,7 +29,7 @@ export type BatchObjectManifestRow = {
   content_type: string | null
 }
 
-export type ProjectionEntityType = 'source_file' | 'raw_record' | 'session' | 'search_doc'
+export type ProjectionEntityType = 'source_file' | 'raw_record' | 'session' | 'search_doc' | 'tool_call' | 'tool_result'
 
 export type ProjectionManifestRow = {
   entity_type: ProjectionEntityType

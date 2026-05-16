@@ -31,13 +31,12 @@ export async function requireDeviceAccess(opts: {
   tenantId: string
   userId: string
   deviceId: string
-  storePath: string
 }): Promise<void> {
   const rows = await opts.rawExec<{ id: string }>(
     `SELECT id FROM "device"
-       WHERE id = $1 AND tenant_id = $2 AND user_id = $3 AND store_path = $4 AND revoked_at IS NULL
+       WHERE id = $1 AND tenant_id = $2 AND user_id = $3 AND revoked_at IS NULL
        LIMIT 1`,
-    [opts.deviceId, opts.tenantId, opts.userId, opts.storePath],
+    [opts.deviceId, opts.tenantId, opts.userId],
   )
   if (!rows[0]) {
     throw new TRPCError({ code: 'FORBIDDEN', message: 'Device is not authorized for this tenant/store' })

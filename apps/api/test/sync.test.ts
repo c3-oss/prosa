@@ -137,6 +137,23 @@ describe('sync promotion protocol', () => {
               },
             ],
             searchDocs: [{ id: 'doc-1', sessionId: 'sess-1', kind: 'session', body: 'hello world' }],
+            toolCalls: [
+              {
+                id: 'tc-1',
+                sessionId: 'sess-1',
+                name: 'shell.exec',
+                status: 'ok',
+                createdAt: '2026-04-01T10:00:00.000Z',
+              },
+            ],
+            toolResults: [
+              {
+                id: 'tr-1',
+                toolCallId: 'tc-1',
+                status: 'ok',
+                finishedAt: '2026-04-01T10:00:01.000Z',
+              },
+            ],
           },
         },
         signupResult.token,
@@ -145,7 +162,7 @@ describe('sync promotion protocol', () => {
       const commitBody = commit.json() as {
         result: { data: { committedObjects: number; committedRows: number } }
       }
-      expect(commitBody.result.data.committedRows).toBe(2)
+      expect(commitBody.result.data.committedRows).toBe(4)
 
       const verify = await trpc(
         t,
@@ -156,6 +173,8 @@ describe('sync promotion protocol', () => {
           declaredObjectIds: [objectId],
           declaredSessionIds: ['sess-1'],
           declaredSearchDocIds: ['doc-1'],
+          declaredToolCallIds: ['tc-1'],
+          declaredToolResultIds: ['tr-1'],
         },
         signupResult.token,
       )
@@ -163,7 +182,13 @@ describe('sync promotion protocol', () => {
       const verifyBody = verify.json() as {
         result: {
           data: {
-            receipt: { sessionCount: number; objectCount: number; searchDocCount: number }
+            receipt: {
+              sessionCount: number
+              objectCount: number
+              searchDocCount: number
+              batchToolCallCount: number
+              batchToolResultCount: number
+            }
             sampledSessions: Array<{ id: string; title: string | null; turnCount: number }>
           }
         }
@@ -171,6 +196,8 @@ describe('sync promotion protocol', () => {
       expect(verifyBody.result.data.receipt.sessionCount).toBe(1)
       expect(verifyBody.result.data.receipt.objectCount).toBe(1)
       expect(verifyBody.result.data.receipt.searchDocCount).toBe(1)
+      expect(verifyBody.result.data.receipt.batchToolCallCount).toBe(1)
+      expect(verifyBody.result.data.receipt.batchToolResultCount).toBe(1)
       expect(verifyBody.result.data.sampledSessions[0]?.title).toBe('first session')
 
       // After verify, handshake should report `promoted: true`.
@@ -228,6 +255,171 @@ describe('sync promotion protocol', () => {
       }
       expect(firstBody.result.data.committedRows).toBe(1)
       expect(second.body).toContain('Batch is not open for commit')
+    } finally {
+      await t.close()
+    }
+  })
+
+  it('treats raw record import batch ids as volatile during equivalent re-promotion', async () => {
+    const t = await buildTestApp()
+    try {
+      const auth = await signup(t, 'sync-raw-import-batch@example.com')
+      const handshake = await trpc(
+        t,
+        'sync.handshake',
+        {
+          cliVersion: '0.0.0-test',
+          device: { name: 'box', platform: 'linux' },
+          store: { path: '/tmp/raw-a', bundleVersion: '1' },
+        },
+        auth.token,
+      )
+      const deviceId = (handshake.json() as { result: { data: { deviceId: string } } }).result.data.deviceId
+
+      async function commitRawRecord(storePath: string, payload: Record<string, unknown>) {
+        const plan = await trpc(t, 'sync.planUpload', { deviceId, storePath, objects: [] }, auth.token)
+        const batchId = (plan.json() as { result: { data: { batchId: string } } }).result.data.batchId
+        return trpc(
+          t,
+          'sync.commitUpload',
+          {
+            batchId,
+            deviceId,
+            storePath,
+            objects: [],
+            projection: {
+              sourceFiles: [
+                {
+                  id: 'source-codex-fixture',
+                  sourceKind: 'codex',
+                  path: '/fixtures/codex/session.jsonl',
+                },
+              ],
+              rawRecords: [
+                {
+                  id: 'raw-codex-fixture-line-1',
+                  sourceFileId: 'source-codex-fixture',
+                  sequence: 1,
+                  payload,
+                  objectId: null,
+                },
+              ],
+            },
+          },
+          auth.token,
+        )
+      }
+
+      const first = await commitRawRecord('/tmp/raw-a', {
+        decodedObjectId: null,
+        parserStatus: 'ok',
+        confidence: 'high',
+        importBatchId: 'compile-run-a',
+      })
+      const second = await commitRawRecord('/tmp/raw-b', {
+        decodedObjectId: null,
+        parserStatus: 'ok',
+        confidence: 'high',
+        importBatchId: 'compile-run-b',
+      })
+      const conflicting = await commitRawRecord('/tmp/raw-c', {
+        decodedObjectId: null,
+        parserStatus: 'failed',
+        confidence: 'high',
+        importBatchId: 'compile-run-c',
+      })
+
+      expect(first.statusCode).toBe(200)
+      expect(second.statusCode).toBe(200)
+      expect(conflicting.statusCode).toBe(409)
+      expect(conflicting.body).toContain('Conflicting raw record payload')
+
+      const stored = await t.pglite.query<{ payload: Record<string, unknown> }>(
+        'SELECT payload FROM "raw_record" WHERE id = $1',
+        ['raw-codex-fixture-line-1'],
+      )
+      expect(stored.rows[0]?.payload).toEqual({
+        decodedObjectId: null,
+        parserStatus: 'ok',
+        confidence: 'high',
+      })
+    } finally {
+      await t.close()
+    }
+  })
+
+  it('does not bind device authorization to the last handshaken store path', async () => {
+    const t = await buildTestApp()
+    try {
+      const auth = await signup(t, 'sync-multi-store@example.com')
+      const realHandshake = await trpc(
+        t,
+        'sync.handshake',
+        {
+          cliVersion: '0.0.0-test',
+          device: { name: 'same-cli-device', platform: 'linux' },
+          store: { path: '/home/user/.prosa', bundleVersion: '1' },
+        },
+        auth.token,
+      )
+      const deviceId = (realHandshake.json() as { result: { data: { deviceId: string } } }).result.data.deviceId
+      const realPlan = await trpc(
+        t,
+        'sync.planUpload',
+        { deviceId, storePath: '/home/user/.prosa', objects: [] },
+        auth.token,
+      )
+      const realBatchId = (realPlan.json() as { result: { data: { batchId: string } } }).result.data.batchId
+
+      const tempHandshake = await trpc(
+        t,
+        'sync.handshake',
+        {
+          cliVersion: '0.0.0-test',
+          device: { name: 'same-cli-device', platform: 'linux' },
+          store: { path: '/tmp/prosa-store', bundleVersion: '1' },
+        },
+        auth.token,
+      )
+      expect((tempHandshake.json() as { result: { data: { deviceId: string } } }).result.data.deviceId).toBe(deviceId)
+      const tempPlan = await trpc(
+        t,
+        'sync.planUpload',
+        { deviceId, storePath: '/tmp/prosa-store', objects: [] },
+        auth.token,
+      )
+      const tempBatchId = (tempPlan.json() as { result: { data: { batchId: string } } }).result.data.batchId
+      const tempCommit = await trpc(
+        t,
+        'sync.commitUpload',
+        {
+          batchId: tempBatchId,
+          deviceId,
+          storePath: '/tmp/prosa-store',
+          objects: [],
+          projection: {
+            sessions: [{ id: 'temp-session', sourceKind: 'codex', turnCount: 1 }],
+          },
+        },
+        auth.token,
+      )
+      expect(tempCommit.statusCode).toBe(200)
+
+      const realCommit = await trpc(
+        t,
+        'sync.commitUpload',
+        {
+          batchId: realBatchId,
+          deviceId,
+          storePath: '/home/user/.prosa',
+          objects: [],
+          projection: {
+            sessions: [{ id: 'real-session', sourceKind: 'codex', turnCount: 1 }],
+          },
+        },
+        auth.token,
+      )
+      expect(realCommit.statusCode).toBe(200)
     } finally {
       await t.close()
     }

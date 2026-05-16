@@ -6,6 +6,8 @@ import type {
   ObjectManifestEntry,
   ProjectionPayload,
   ProjectionSessionRow,
+  ProjectionToolCallRow,
+  ProjectionToolResultRow,
   RawRecordRow,
   SearchDocRow,
   SourceFileRow,
@@ -22,6 +24,8 @@ export type LocalBundleUpload = {
   searchDocs: SearchDocRow[]
   sourceFiles: SourceFileRow[]
   rawRecords: RawRecordRow[]
+  toolCalls: ProjectionToolCallRow[]
+  toolResults: ProjectionToolResultRow[]
   casObjects: LocalCasObject[]
 }
 
@@ -111,7 +115,6 @@ function readRawRecordsForUpload(bundle: Bundle): RawRecordRow[] {
       decodedObjectId: row.decoded_json_object_id,
       parserStatus: row.parser_status,
       confidence: row.confidence,
-      importBatchId: row.import_batch_id,
     },
     objectId: row.raw_object_id ?? null,
   }))
@@ -137,6 +140,61 @@ function readSearchDocsForUpload(bundle: Bundle): SearchDocRow[] {
     sessionId: row.session_id,
     kind: `${row.entity_type}/${row.field_kind}`,
     body: row.text,
+  }))
+}
+
+function readToolCallsForUpload(bundle: Bundle): ProjectionToolCallRow[] {
+  const rows = bundle.db
+    .prepare(
+      `SELECT tool_call_id, session_id, turn_id, tool_name, status, args_object_id, timestamp_start
+         FROM tool_calls
+         ORDER BY tool_call_id`,
+    )
+    .all() as Array<{
+    tool_call_id: string
+    session_id: string
+    turn_id: string | null
+    tool_name: string
+    status: string | null
+    args_object_id: string | null
+    timestamp_start: string | null
+  }>
+  return rows.map((row) => ({
+    id: row.tool_call_id,
+    sessionId: row.session_id,
+    turnId: row.turn_id,
+    name: row.tool_name,
+    status: row.status,
+    inputObjectId: row.args_object_id,
+    createdAt: row.timestamp_start,
+  }))
+}
+
+function readToolResultsForUpload(bundle: Bundle): ProjectionToolResultRow[] {
+  const rows = bundle.db
+    .prepare(
+      `SELECT r.tool_result_id, r.tool_call_id,
+              COALESCE(r.output_object_id, r.stdout_object_id, r.stderr_object_id) AS output_object_id,
+              COALESCE(r.status, CASE WHEN r.is_error <> 0 THEN 'error' ELSE NULL END) AS status,
+              c.timestamp_end AS finished_at
+         FROM tool_results r
+         LEFT JOIN tool_calls c ON c.tool_call_id = r.tool_call_id
+         WHERE r.tool_call_id IS NOT NULL
+         ORDER BY r.tool_result_id`,
+    )
+    .all() as Array<{
+    tool_result_id: string
+    tool_call_id: string
+    output_object_id: string | null
+    status: string | null
+    finished_at: string | null
+  }>
+  return rows.map((row) => ({
+    id: row.tool_result_id,
+    toolCallId: row.tool_call_id,
+    outputObjectId: row.output_object_id,
+    status: row.status,
+    finishedAt: row.finished_at,
   }))
 }
 
@@ -193,6 +251,8 @@ export async function readBundleForUpload(bundle: Bundle, storePath: string): Pr
   const searchDocs = readSearchDocsForUpload(bundle)
   const sourceFiles = readSourceFilesForUpload(bundle)
   const rawRecords = readRawRecordsForUpload(bundle)
+  const toolCalls = readToolCallsForUpload(bundle)
+  const toolResults = readToolResultsForUpload(bundle)
   const casObjects = await walkCasObjects(bundle, storePath)
   return {
     projection: {
@@ -200,11 +260,15 @@ export async function readBundleForUpload(bundle: Bundle, storePath: string): Pr
       rawRecords,
       sessions,
       searchDocs,
+      toolCalls,
+      toolResults,
     },
     sessions,
     searchDocs,
     sourceFiles,
     rawRecords,
+    toolCalls,
+    toolResults,
     casObjects,
   }
 }

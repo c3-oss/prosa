@@ -20,7 +20,6 @@ export async function planUpload(ctx: SyncHandlerContext, input: PlanUploadInput
     tenantId: ctx.tenantId,
     userId: ctx.user.id,
     deviceId: input.deviceId,
-    storePath: input.storePath,
   })
   const objects = input.objects.map(validateObjectManifest)
   const batchId = `batch_${randomUUID()}`

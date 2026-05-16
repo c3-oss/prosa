@@ -57,7 +57,7 @@ export class S3ObjectStore implements RemoteObjectStore {
       this.client = new S3ClientCtor({
         region: opts.region ?? 'us-east-1',
         ...(opts.endpoint ? { endpoint: opts.endpoint } : {}),
-        ...(opts.forcePathStyle ? { forcePathStyle: true } : {}),
+        ...((opts.forcePathStyle ?? opts.endpoint) ? { forcePathStyle: true } : {}),
         ...(credentials ? { credentials } : {}),
       })
     }

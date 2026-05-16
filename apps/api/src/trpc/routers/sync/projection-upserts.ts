@@ -1,6 +1,8 @@
 import type {
   ProjectionPayload,
   ProjectionSessionRow,
+  ProjectionToolCallRow,
+  ProjectionToolResultRow,
   RawRecordRow,
   SearchDocRow,
   SourceFileRow,
@@ -29,6 +31,14 @@ function assertSameField(check: FieldCheck): void {
   if (!match) {
     throw new TRPCError({ code: 'CONFLICT', message: `Conflicting ${check.label}` })
   }
+}
+
+function normalizeRawRecordPayload(payload: unknown): unknown {
+  if (payload == null || typeof payload !== 'object' || Array.isArray(payload)) {
+    return payload ?? null
+  }
+  const { importBatchId: _importBatchId, ...stablePayload } = payload as Record<string, unknown>
+  return stablePayload
 }
 
 /**
@@ -66,7 +76,9 @@ export function countProjectionRows(projection: ProjectionPayload): number {
     projection.sourceFiles.length +
     projection.rawRecords.length +
     projection.sessions.length +
-    projection.searchDocs.length
+    projection.searchDocs.length +
+    projection.toolCalls.length +
+    projection.toolResults.length
   )
 }
 
@@ -176,6 +188,7 @@ async function insertRawRecordRow(opts: {
   rawRecord: RawRecordRow
 }): Promise<void> {
   const { rawExec, tenantId, rawRecord } = opts
+  const stablePayload = normalizeRawRecordPayload(rawRecord.payload ?? null)
   await insertOrVerifyRow<{
     source_file_id: string
     sequence: number
@@ -195,7 +208,12 @@ async function insertRawRecordRow(opts: {
         incoming: rawRecord.sourceFileId,
       },
       { kind: 'nullable', label: 'raw record sequence', existing: row.sequence, incoming: rawRecord.sequence },
-      { kind: 'json', label: 'raw record payload', existing: row.payload, incoming: rawRecord.payload ?? null },
+      {
+        kind: 'json',
+        label: 'raw record payload',
+        existing: normalizeRawRecordPayload(row.payload),
+        incoming: stablePayload,
+      },
       { kind: 'nullable', label: 'raw record objectId', existing: row.object_id, incoming: rawRecord.objectId ?? null },
     ],
     insertSql: `INSERT INTO "raw_record"(tenant_id, id, source_file_id, sequence, payload, object_id)
@@ -205,7 +223,7 @@ async function insertRawRecordRow(opts: {
       rawRecord.id,
       rawRecord.sourceFileId,
       rawRecord.sequence,
-      JSON.stringify(rawRecord.payload ?? null),
+      JSON.stringify(stablePayload),
       rawRecord.objectId ?? null,
     ],
   })
@@ -231,6 +249,109 @@ async function insertSearchDocRow(opts: {
     insertSql: `INSERT INTO "search_doc"(tenant_id, id, session_id, kind, body)
      VALUES ($1, $2, $3, $4, $5)`,
     insertParams: [tenantId, searchDoc.id, searchDoc.sessionId, searchDoc.kind, searchDoc.body],
+  })
+}
+
+async function insertToolCallRow(opts: {
+  rawExec: RawExec
+  tenantId: string
+  toolCall: ProjectionToolCallRow
+}): Promise<void> {
+  const { rawExec, tenantId, toolCall } = opts
+  await insertOrVerifyRow<{
+    session_id: string
+    turn_id: string | null
+    name: string
+    status: string | null
+    input_object_id: string | null
+    created_at: unknown
+  }>({
+    rawExec,
+    table: 'projection_tool_call',
+    selectColumns: 'session_id, turn_id, name, status, input_object_id, created_at',
+    tenantId,
+    id: toolCall.id,
+    buildChecks: (row) => [
+      { kind: 'nullable', label: 'tool call sessionId', existing: row.session_id, incoming: toolCall.sessionId },
+      { kind: 'nullable', label: 'tool call turnId', existing: row.turn_id, incoming: toolCall.turnId ?? null },
+      { kind: 'nullable', label: 'tool call name', existing: row.name, incoming: toolCall.name },
+      { kind: 'nullable', label: 'tool call status', existing: row.status, incoming: toolCall.status ?? null },
+      {
+        kind: 'nullable',
+        label: 'tool call inputObjectId',
+        existing: row.input_object_id,
+        incoming: toolCall.inputObjectId ?? null,
+      },
+      {
+        kind: 'timestamp',
+        label: 'tool call createdAt',
+        existing: row.created_at,
+        incoming: toolCall.createdAt ?? null,
+      },
+    ],
+    insertSql: `INSERT INTO "projection_tool_call"(tenant_id, id, session_id, turn_id, name, status, input_object_id, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+    insertParams: [
+      tenantId,
+      toolCall.id,
+      toolCall.sessionId,
+      toolCall.turnId ?? null,
+      toolCall.name,
+      toolCall.status ?? null,
+      toolCall.inputObjectId ?? null,
+      toolCall.createdAt ?? null,
+    ],
+  })
+}
+
+async function insertToolResultRow(opts: {
+  rawExec: RawExec
+  tenantId: string
+  toolResult: ProjectionToolResultRow
+}): Promise<void> {
+  const { rawExec, tenantId, toolResult } = opts
+  await insertOrVerifyRow<{
+    tool_call_id: string
+    output_object_id: string | null
+    status: string | null
+    finished_at: unknown
+  }>({
+    rawExec,
+    table: 'projection_tool_result',
+    selectColumns: 'tool_call_id, output_object_id, status, finished_at',
+    tenantId,
+    id: toolResult.id,
+    buildChecks: (row) => [
+      {
+        kind: 'nullable',
+        label: 'tool result toolCallId',
+        existing: row.tool_call_id,
+        incoming: toolResult.toolCallId,
+      },
+      {
+        kind: 'nullable',
+        label: 'tool result outputObjectId',
+        existing: row.output_object_id,
+        incoming: toolResult.outputObjectId ?? null,
+      },
+      { kind: 'nullable', label: 'tool result status', existing: row.status, incoming: toolResult.status ?? null },
+      {
+        kind: 'timestamp',
+        label: 'tool result finishedAt',
+        existing: row.finished_at,
+        incoming: toolResult.finishedAt ?? null,
+      },
+    ],
+    insertSql: `INSERT INTO "projection_tool_result"(tenant_id, id, tool_call_id, output_object_id, status, finished_at)
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    insertParams: [
+      tenantId,
+      toolResult.id,
+      toolResult.toolCallId,
+      toolResult.outputObjectId ?? null,
+      toolResult.status ?? null,
+      toolResult.finishedAt ?? null,
+    ],
   })
 }
 
@@ -274,5 +395,25 @@ export async function insertProjectionRows(opts: {
       entityId: searchDoc.id,
     })
     await insertSearchDocRow({ rawExec, tenantId, searchDoc })
+  }
+  for (const toolCall of projection.toolCalls) {
+    await insertProjectionManifest({
+      rawExec,
+      tenantId,
+      batchId,
+      entityType: 'tool_call',
+      entityId: toolCall.id,
+    })
+    await insertToolCallRow({ rawExec, tenantId, toolCall })
+  }
+  for (const toolResult of projection.toolResults) {
+    await insertProjectionManifest({
+      rawExec,
+      tenantId,
+      batchId,
+      entityType: 'tool_result',
+      entityId: toolResult.id,
+    })
+    await insertToolResultRow({ rawExec, tenantId, toolResult })
   }
 }

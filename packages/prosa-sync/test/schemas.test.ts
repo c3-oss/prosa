@@ -26,6 +26,8 @@ describe('sync schemas', () => {
     })
     expect(parsed.objects).toEqual([])
     expect(parsed.projection.sessions).toEqual([])
+    expect(parsed.projection.toolCalls).toEqual([])
+    expect(parsed.projection.toolResults).toEqual([])
   })
 
   it('rejects plan input without deviceId', () => {
@@ -47,8 +49,12 @@ describe('sync schemas', () => {
         },
       ],
       searchDocs: [{ id: 'd1', sessionId: 's1', kind: 'session', body: 'hi' }],
+      toolCalls: [{ id: 'tc1', sessionId: 's1', name: 'shell.exec', status: 'ok' }],
+      toolResults: [{ id: 'tr1', toolCallId: 'tc1', status: 'ok' }],
     })
     expect(parsed.sessions[0]?.turnCount).toBe(5)
     expect(parsed.searchDocs).toHaveLength(1)
+    expect(parsed.toolCalls).toHaveLength(1)
+    expect(parsed.toolResults).toHaveLength(1)
   })
 })

@@ -17,6 +17,8 @@ type ProjectionManifestByType = {
   raw_record: string[]
   session: string[]
   search_doc: string[]
+  tool_call: string[]
+  tool_result: string[]
 }
 
 type VerifiedProjectionCounts = {
@@ -24,6 +26,8 @@ type VerifiedProjectionCounts = {
   rawRecords: number
   sessions: number
   searchDocs: number
+  toolCalls: number
+  toolResults: number
 }
 
 function groupProjectionManifest(rows: ProjectionManifestRow[]): ProjectionManifestByType {
@@ -32,6 +36,8 @@ function groupProjectionManifest(rows: ProjectionManifestRow[]): ProjectionManif
     raw_record: rows.filter((row) => row.entity_type === 'raw_record').map((row) => row.entity_id),
     session: rows.filter((row) => row.entity_type === 'session').map((row) => row.entity_id),
     search_doc: rows.filter((row) => row.entity_type === 'search_doc').map((row) => row.entity_id),
+    tool_call: rows.filter((row) => row.entity_type === 'tool_call').map((row) => row.entity_id),
+    tool_result: rows.filter((row) => row.entity_type === 'tool_result').map((row) => row.entity_id),
   }
 }
 
@@ -49,6 +55,8 @@ function assertDeclaredManifestMatches(
   assertSameDeclarationSet('raw record', input.declaredRawRecordIds, projection.raw_record)
   assertSameDeclarationSet('session', input.declaredSessionIds, projection.session)
   assertSameDeclarationSet('search doc', input.declaredSearchDocIds, projection.search_doc)
+  assertSameDeclarationSet('tool call', input.declaredToolCallIds, projection.tool_call)
+  assertSameDeclarationSet('tool result', input.declaredToolResultIds, projection.tool_result)
 }
 
 async function loadProjectionManifest(
@@ -122,11 +130,25 @@ async function countProjectionRows(opts: {
        WHERE tenant_id = $1 AND id = ANY($2::text[])`,
     [opts.tenantId, opts.projection.search_doc],
   )
+  const toolCallsFound = await opts.rawExec<{ count: number }>(
+    `SELECT count(*)::int AS count
+       FROM "projection_tool_call"
+       WHERE tenant_id = $1 AND id = ANY($2::text[])`,
+    [opts.tenantId, opts.projection.tool_call],
+  )
+  const toolResultsFound = await opts.rawExec<{ count: number }>(
+    `SELECT count(*)::int AS count
+       FROM "projection_tool_result"
+       WHERE tenant_id = $1 AND id = ANY($2::text[])`,
+    [opts.tenantId, opts.projection.tool_result],
+  )
   return {
     sourceFiles: sourceFilesFound[0]?.count ?? 0,
     rawRecords: rawRecordsFound[0]?.count ?? 0,
     sessions: sessionsFound[0]?.count ?? 0,
     searchDocs: searchDocsFound[0]?.count ?? 0,
+    toolCalls: toolCallsFound[0]?.count ?? 0,
+    toolResults: toolResultsFound[0]?.count ?? 0,
   }
 }
 
@@ -135,7 +157,9 @@ function assertProjectionRowsExist(projection: ProjectionManifestByType, counts:
     counts.sourceFiles !== projection.source_file.length ||
     counts.rawRecords !== projection.raw_record.length ||
     counts.sessions !== projection.session.length ||
-    counts.searchDocs !== projection.search_doc.length
+    counts.searchDocs !== projection.search_doc.length ||
+    counts.toolCalls !== projection.tool_call.length ||
+    counts.toolResults !== projection.tool_result.length
   ) {
     throw new TRPCError({
       code: 'PRECONDITION_FAILED',
@@ -192,11 +216,15 @@ function buildPromotionReceipt(opts: {
     batchRawRecordCount: opts.projection.raw_record.length,
     batchSessionCount: opts.projection.session.length,
     batchSearchDocCount: opts.projection.search_doc.length,
+    batchToolCallCount: opts.projection.tool_call.length,
+    batchToolResultCount: opts.projection.tool_result.length,
     declaredObjectsVerified: opts.objectManifest.length,
     declaredSourceFilesVerified: opts.counts.sourceFiles,
     declaredRawRecordsVerified: opts.counts.rawRecords,
     declaredSessionsVerified: opts.counts.sessions,
     declaredSearchDocsVerified: opts.counts.searchDocs,
+    declaredToolCallsVerified: opts.counts.toolCalls,
+    declaredToolResultsVerified: opts.counts.toolResults,
     cleanupEligible: true,
     verifiedAt: new Date().toISOString(),
   }
