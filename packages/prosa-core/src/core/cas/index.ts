@@ -3,7 +3,7 @@ import path from 'node:path'
 import type { Bundle } from '../bundle.js'
 import { prepare } from '../db.js'
 import { type Compression, compressBytes, decompressBytes } from './compress.js'
-import { blake3Hex, objectIdFromHash, objectStoragePath } from './hash.js'
+import { blake3Hex, blake3HexAsync, objectIdFromHash, objectStoragePath } from './hash.js'
 
 /**
  * Content-addressed object identifier stored as `blake3:<hex>`.
@@ -73,7 +73,7 @@ export async function ensureDir(absoluteDir: string): Promise<void> {
  * The on-disk path is `<bundle>/objects/blake3/ab/cd/<hash>.zst`.
  */
 export async function putBytes(bundle: Bundle, bytes: Uint8Array, options: PutOptions = {}): Promise<ObjectId> {
-  const hash = blake3Hex(bytes)
+  const hash = await blake3HexAsync(bytes)
   const objectId = objectIdFromHash(hash)
 
   const existing = prepare<[string], ObjectMeta>(
@@ -107,7 +107,7 @@ export async function putBytes(bundle: Bundle, bytes: Uint8Array, options: PutOp
     options.mimeType ?? null,
     options.encoding ?? null,
     storagePath,
-    blake3Hex(stored),
+    await blake3HexAsync(stored),
     new Date().toISOString(),
   )
 
@@ -327,6 +327,10 @@ export async function flushPendingObjects(bundle: Bundle, pending: PendingObject
     await writeFilesParallel(toWrite)
   }
 
+  // Compute transport hashes in parallel using WASM before entering the sync
+  // SQLite insert loop. Promise.all lets the WASM calls overlap.
+  const transportHashes = await Promise.all(toWrite.map((p) => blake3HexAsync(p.compressedBytes)))
+
   const insertObject = prepare(
     bundle.db,
     `INSERT OR IGNORE INTO objects (
@@ -335,7 +339,7 @@ export async function flushPendingObjects(bundle: Bundle, pending: PendingObject
      ) VALUES (?, 'blake3', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
   const now = new Date().toISOString()
-  for (const p of toWrite) {
+  for (const [i, p] of toWrite.entries()) {
     insertObject.run(
       p.staged.objectId,
       p.staged.hash,
@@ -345,7 +349,7 @@ export async function flushPendingObjects(bundle: Bundle, pending: PendingObject
       p.staged.mimeType,
       p.staged.encoding,
       p.storagePath,
-      blake3Hex(p.compressedBytes),
+      transportHashes[i],
       now,
     )
   }

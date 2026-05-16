@@ -2,7 +2,7 @@ import { access, readFile, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { Bundle } from '../bundle.js'
 import { compressBytes } from '../cas/compress.js'
-import { blake3Hex, objectIdFromHash, sha256Hex } from '../cas/hash.js'
+import { blake3HexAsync, objectIdFromHash, sha256Hex } from '../cas/hash.js'
 import { ensureDir } from '../cas/index.js'
 import { prepare } from '../db.js'
 import { sourceFileId } from '../domain/ids.js'
@@ -184,7 +184,7 @@ async function ensureSourceFilePreserved(
  * exists on disk.
  */
 async function preserveRawSourceBytes(bundle: Bundle, bytes: Uint8Array): Promise<string> {
-  const hash = blake3Hex(bytes)
+  const hash = await blake3HexAsync(bytes)
   const objectId = objectIdFromHash(hash)
   const { bytes: stored, compression } = compressBytes(bytes)
   const storagePath = rawSourceStoragePath(hash, compression)
@@ -216,7 +216,7 @@ async function preserveRawSourceBytes(bundle: Bundle, bytes: Uint8Array): Promis
       'application/octet-stream',
       null,
       storagePath,
-      blake3Hex(stored),
+      await blake3HexAsync(stored),
       new Date().toISOString(),
     )
   }

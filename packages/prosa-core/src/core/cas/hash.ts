@@ -1,12 +1,28 @@
 import { createHash } from 'node:crypto'
-import { blake3 } from '@noble/hashes/blake3'
+import { blake3 as nobleBlake3 } from '@noble/hashes/blake3'
 import { bytesToHex } from '@noble/hashes/utils'
+import { blake3 as wasmBlake3 } from 'hash-wasm'
 
 /**
  * Hash bytes with BLAKE3 and return lowercase hex.
+ *
+ * Uses the pure-JS @noble/hashes implementation to remain synchronous.
+ * Call sites that are already async should use blake3HexAsync instead for
+ * better throughput via the WASM implementation.
  */
 export function blake3Hex(bytes: Uint8Array): string {
-  return bytesToHex(blake3(bytes))
+  return bytesToHex(nobleBlake3(bytes))
+}
+
+/**
+ * Hash bytes with BLAKE3 and return lowercase hex.
+ *
+ * Uses the hash-wasm WASM implementation for better throughput on large
+ * payloads. Output is byte-identical to blake3Hex for the same input.
+ * Prefer this in async call sites (putBytes, flushPendingObjects, etc.).
+ */
+export async function blake3HexAsync(bytes: Uint8Array): Promise<string> {
+  return wasmBlake3(bytes)
 }
 
 /**
