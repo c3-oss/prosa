@@ -1,5 +1,11 @@
 import { createHash } from 'node:crypto'
-import { BLAKE3_HEX_RE, type RemoteObjectStore, canonicalObjectId, objectStorageKey } from '@c3-oss/prosa-storage'
+import {
+  BLAKE3_HEX_RE,
+  type ObjectMeta,
+  type RemoteObjectStore,
+  canonicalObjectId,
+  objectStorageKey,
+} from '@c3-oss/prosa-storage'
 import type { ObjectManifestEntry } from '@c3-oss/prosa-sync'
 import type { RawExec } from '../../../db.js'
 import { hasMaterializedObject } from '../../../objects/locations.js'
@@ -30,7 +36,19 @@ export type BatchObjectManifestRow = {
   content_type: string | null
 }
 
+export type RemoteObjectCatalogRow = {
+  object_id: string
+  hash: string
+  hash_algorithm: string
+  compression: string
+  uncompressed_size: string | number
+  compressed_size: string | number
+  storage_key: string
+}
+
 export type ProjectionEntityType = 'source_file' | 'raw_record' | 'session' | 'search_doc' | 'tool_call' | 'tool_result'
+
+export const objectStoreIoConcurrency = 16
 
 export type ProjectionManifestRow = {
   entity_type: ProjectionEntityType
@@ -57,6 +75,38 @@ export function validateObjectManifest(obj: ObjectManifestEntry): ObjectManifest
     throw new TRPCError({ code: 'BAD_REQUEST', message: 'Object exceeds maxObjectBytes limit' })
   }
   return { ...obj, hash, transportHash }
+}
+
+export function assertUniqueObjectIds(objects: ObjectManifestEntry[]): void {
+  const seen = new Set<string>()
+  for (const obj of objects) {
+    if (seen.has(obj.objectId)) {
+      throw new TRPCError({ code: 'BAD_REQUEST', message: `Duplicate object_id in manifest: ${obj.objectId}` })
+    }
+    seen.add(obj.objectId)
+  }
+}
+
+export async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  if (items.length === 0) return []
+  const results = new Array<R>(items.length)
+  let nextIndex = 0
+  const workerCount = Math.min(Math.max(1, concurrency), items.length)
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (true) {
+        const index = nextIndex
+        nextIndex += 1
+        if (index >= items.length) return
+        results[index] = await mapper(items[index] as T, index)
+      }
+    }),
+  )
+  return results
 }
 
 /**
@@ -192,6 +242,65 @@ export async function assertRemoteObjectCatalog(opts: {
   ) {
     throw new TRPCError({ code: 'CONFLICT', message: `Conflicting remote object metadata for ${opts.object.objectId}` })
   }
+}
+
+export async function loadRemoteObjectCatalog(opts: {
+  rawExec: RawExec
+  objectIds: string[]
+}): Promise<Map<string, RemoteObjectCatalogRow>> {
+  const uniqueObjectIds = [...new Set(opts.objectIds)]
+  if (uniqueObjectIds.length === 0) return new Map()
+  const rows = await opts.rawExec<RemoteObjectCatalogRow>(
+    `SELECT object_id, hash, hash_algorithm, compression, uncompressed_size, compressed_size, storage_key
+       FROM "remote_object"
+       WHERE object_id = ANY($1::text[])`,
+    [uniqueObjectIds],
+  )
+  return new Map(rows.map((row) => [row.object_id, row]))
+}
+
+export function remoteObjectCatalogMatches(
+  row: RemoteObjectCatalogRow,
+  object: ObjectManifestEntry,
+  storageKey: string,
+): boolean {
+  return (
+    row.hash.toLowerCase() === object.hash &&
+    row.hash_algorithm === 'blake3' &&
+    row.compression === object.compression &&
+    Number(row.uncompressed_size) === object.uncompressedSize &&
+    Number(row.compressed_size) === object.compressedSize &&
+    row.storage_key === storageKey
+  )
+}
+
+export async function assertRemoteObjectCatalogs(opts: {
+  rawExec: RawExec
+  objects: ObjectManifestEntry[]
+}): Promise<Map<string, RemoteObjectCatalogRow>> {
+  const catalog = await loadRemoteObjectCatalog({
+    rawExec: opts.rawExec,
+    objectIds: opts.objects.map((object) => object.objectId),
+  })
+  for (const object of opts.objects) {
+    const row = catalog.get(object.objectId)
+    if (!row) continue
+    const storageKey = storageKeyForObject(object)
+    if (!remoteObjectCatalogMatches(row, object, storageKey)) {
+      throw new TRPCError({ code: 'CONFLICT', message: `Conflicting remote object metadata for ${object.objectId}` })
+    }
+  }
+  return catalog
+}
+
+export function objectStoreHeadMatches(head: ObjectMeta | null, object: ObjectManifestEntry): boolean {
+  const transportHash = object.transportHash ?? object.hash
+  return (
+    !!head &&
+    head.hash.toLowerCase() === transportHash &&
+    head.compressedSize === object.compressedSize &&
+    head.uncompressedSize === object.uncompressedSize
+  )
 }
 
 export async function requireStoredObject(opts: {

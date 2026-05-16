@@ -79,6 +79,41 @@ async function uploadObject(t: TestApp, token: string, batchId: string, bytes: U
 }
 
 describe('sync server-owned manifest verification', () => {
+  it('rejects duplicate object ids during planning', async () => {
+    const t = await buildTestApp()
+    try {
+      const auth = await signup(t, 'manifest-duplicate-object@example.com')
+      const object = objectEntry(new Uint8Array([1, 2, 3, 4]))
+      const handshake = await trpc(
+        t,
+        'sync.handshake',
+        {
+          cliVersion: '0.0.0-test',
+          device: { name: 'duplicate-object-device', platform: 'linux' },
+          store: { path: '/tmp/manifest-duplicate-object', bundleVersion: '1' },
+        },
+        auth.token,
+      )
+      const deviceId = (handshake.json() as { result: { data: { deviceId: string } } }).result.data.deviceId
+
+      const plan = await trpc(
+        t,
+        'sync.planUpload',
+        {
+          deviceId,
+          storePath: '/tmp/manifest-duplicate-object',
+          objects: [object, object],
+        },
+        auth.token,
+      )
+
+      expect(plan.statusCode).toBe(400)
+      expect(plan.body).toContain('Duplicate object_id in manifest')
+    } finally {
+      await t.close()
+    }
+  })
+
   it('rejects commit object drift from the planned manifest', async () => {
     const t = await buildTestApp()
     try {

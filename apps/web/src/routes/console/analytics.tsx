@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useAuth } from '~/app/auth-context.js'
 import { useAppContext } from '~/app/providers.js'
 import { EmptyState } from '~/components/primitives/empty-state.js'
-import { Panel } from '~/components/primitives/panel.js'
+import { formatAbsoluteTime } from '~/lib/format.js'
 import { queryKeys } from '~/lib/query-keys.js'
 
 const REPORTS = ['sessions', 'tools', 'errors', 'models', 'projects'] as const
@@ -45,7 +45,7 @@ export function ConsoleAnalytics() {
           <p>Five report semantics backed by analytics.report — same as the CLI analytics surface.</p>
         </div>
       </header>
-      <div className="console-content" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+      <div className="console-content">
         <nav aria-label="Report selector" className="console-segmented">
           {REPORTS.map((kind) => {
             const active = report === kind
@@ -66,7 +66,13 @@ export function ConsoleAnalytics() {
         ) : rows.length === 0 && !data.isLoading ? (
           <EmptyState title={`No data for ${report}`} description="Promote tenant data first via prosa sync push." />
         ) : (
-          <Panel title={`${report} report`}>
+          <section className="console-section" aria-label={`${report} report`}>
+            <div className="console-section-header">
+              <h2 className="console-section-title">{report} report</h2>
+              {data.data?.generatedAt ? (
+                <span className="console-faint console-mono">{formatAbsoluteTime(data.data.generatedAt)}</span>
+              ) : null}
+            </div>
             <div className="console-table-wrap">
               <table className="console-table">
                 <thead>
@@ -90,7 +96,7 @@ export function ConsoleAnalytics() {
                 </tbody>
               </table>
             </div>
-          </Panel>
+          </section>
         )}
       </div>
     </>

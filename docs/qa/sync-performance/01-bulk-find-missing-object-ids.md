@@ -1,10 +1,30 @@
-# 01 — Bulk-ify `findMissingObjectIds` (1 SELECT + Promise.all HEAD)
+# 01 — Bulk-ify `findMissingObjectIds` (1 SELECT + HEADs concorrentes)
 
-**Tier**: 1 (maior alavanca) · **Onde**: servidor · **Impacto estimado**: 30–60× na fase `planUpload` · **Esforço**: XS (~40 LoC)
+**Tier**: 1 (maior alavanca) · **Onde**: servidor · **Impacto estimado**: 30–60× em `findMissingObjectIds`, não no `planUpload` inteiro · **Esforço**: XS-S
+
+## Fact-check 2026-05-16
+
+**Veredicto**: parcialmente válida. O gargalo existe em
+`apps/api/src/trpc/routers/sync/manifest.ts:216`: hoje a função faz um
+`SELECT remote_object` e um `objectStore.head()` por objeto, em série.
+
+**Correções de escopo**:
+
+- Esta mudança acelera `findMissingObjectIds`, mas não bulkifica o `planUpload`
+  inteiro. Antes dela, `planUpload` ainda roda `assertRemoteObjectCatalog` e
+  `INSERT sync_batch_object_manifest` por objeto.
+- Manter o `SELECT` em `remote_object`, sem join em `tenant_object`, preserva a
+  semântica atual de dedupe global de CAS. O grant do tenant continua sendo
+  criado no `commitUpload`.
+- `HEAD_CONCURRENCY=32` é razoável como ponto de partida, mas precisa benchmark
+  com MinIO/S3 e deve ser limitado, não `Promise.all` aberto.
+- Testes mínimos: entrada vazia, ordem estável de `missingObjectIds`, catálogo
+  ausente, blob ausente, hash/size drift e objeto global existente sem
+  `tenant_object` do tenant atual.
 
 ## Resumo
 
-`findMissingObjectIds` faz 2 round-trips seriais por objeto (1 SELECT Postgres + 1 `objectStore.head()`). Para o `~/.prosa` do memo são 5000 objetos × 2 = 10 000 round-trips por plan, em 167 plans só para CAS — mais de **1,6 milhão de round-trips seriais** apenas para descobrir o que falta. Trocar por **1 SELECT bulk** + **HEADs paralelos limitados** zera o custo do SELECT e divide o tempo dos HEADs pelo grau de paralelismo.
+`findMissingObjectIds` faz 2 round-trips seriais por objeto (1 SELECT Postgres + 1 `objectStore.head()`). Para o `~/.prosa` do memo são 5000 objetos × 2 = 10 000 round-trips por plan, em 167 plans só para CAS — mais de **1,6 milhão de round-trips seriais** apenas para descobrir o que falta. Trocar por **1 SELECT bulk** + **HEADs paralelos limitados** reduz drasticamente essa função específica. O `planUpload` completo ainda precisa de otimizações separadas para o loop de manifesto/catálogo.
 
 ## Diagnóstico atual
 

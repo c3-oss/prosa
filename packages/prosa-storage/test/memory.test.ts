@@ -7,6 +7,15 @@ async function* fromBuffer(buf: Uint8Array): AsyncIterable<Uint8Array> {
   yield buf
 }
 
+function trackedBytes(buf: Uint8Array, tracker: { consumed: number }): AsyncIterable<Uint8Array> {
+  return {
+    async *[Symbol.asyncIterator]() {
+      tracker.consumed += 1
+      yield buf
+    },
+  }
+}
+
 async function consume(stream: ReadableStream<Uint8Array>): Promise<Uint8Array> {
   const reader = stream.getReader()
   const chunks: Uint8Array[] = []
@@ -124,5 +133,56 @@ describe('MemoryObjectStore', () => {
         compressedSize: 3,
       }),
     ).rejects.toThrow(/blake3 mismatch/)
+  })
+
+  it('serializes concurrent identical putIfAbsent calls for the same key', async () => {
+    const store = new MemoryObjectStore()
+    const bytes = new Uint8Array([1, 1, 2, 3, 5, 8])
+    const hash = computeHashHex(bytes, 'blake3')
+    const first = { consumed: 0 }
+    const second = { consumed: 0 }
+    const meta = {
+      hash,
+      hashAlgorithm: 'blake3' as const,
+      uncompressedSize: bytes.byteLength,
+      compressedSize: bytes.byteLength,
+    }
+
+    const [a, b] = await Promise.all([
+      store.putIfAbsent('objects/race', trackedBytes(bytes, first), meta),
+      store.putIfAbsent('objects/race', trackedBytes(bytes, second), meta),
+    ])
+
+    expect([a.alreadyExisted, b.alreadyExisted].sort()).toEqual([false, true])
+    expect(first.consumed + second.consumed).toBe(1)
+    expect(store.size()).toBe(1)
+    expect(Array.from(await consume(await store.get('objects/race')))).toEqual(Array.from(bytes))
+  })
+
+  it('rejects concurrent conflicting putIfAbsent calls without overwriting bytes', async () => {
+    const store = new MemoryObjectStore()
+    const stored = new Uint8Array([9, 9, 9])
+    const conflicting = new Uint8Array([7, 7, 7])
+    const storedHash = computeHashHex(stored, 'blake3')
+    const conflictHash = computeHashHex(conflicting, 'blake3')
+    const conflictTracker = { consumed: 0 }
+
+    const first = store.putIfAbsent('objects/conflicting-race', fromBuffer(stored), {
+      hash: storedHash,
+      hashAlgorithm: 'blake3',
+      uncompressedSize: stored.byteLength,
+      compressedSize: stored.byteLength,
+    })
+    const second = store.putIfAbsent('objects/conflicting-race', trackedBytes(conflicting, conflictTracker), {
+      hash: conflictHash,
+      hashAlgorithm: 'blake3',
+      uncompressedSize: conflicting.byteLength,
+      compressedSize: conflicting.byteLength,
+    })
+
+    await expect(second).rejects.toThrow(ObjectVerificationError)
+    await expect(first).resolves.toMatchObject({ alreadyExisted: false })
+    expect(conflictTracker.consumed).toBe(0)
+    expect(Array.from(await consume(await store.get('objects/conflicting-race')))).toEqual(Array.from(stored))
   })
 })

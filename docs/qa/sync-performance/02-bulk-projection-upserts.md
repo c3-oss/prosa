@@ -2,13 +2,35 @@
 
 **Tier**: 1 · **Onde**: servidor · **Impacto estimado**: 50–500× redução em queries por commit · **Esforço**: M (refactor focado em 2 arquivos)
 
+## Fact-check 2026-05-16
+
+**Veredicto**: parcialmente correta, mas não implementar como escrita. O
+gargalo row-by-row existe em `commitUpload` e `projection-upserts`, mas a
+proposta está desatualizada e o skeleton SQL de conflito é inseguro sob corrida.
+
+**Correções obrigatórias**:
+
+- O protocolo atual tem **6 tipos de projeção**, não 4: `sourceFiles`,
+  `rawRecords`, `sessions`, `searchDocs`, `toolCalls`, `toolResults`.
+- `sync_batch_object_manifest` é escrito em `planUpload`, não em `commitUpload`.
+- O fluxo normal de PUT já insere `remote_object`; no commit, o pior caso por
+  objeto pode chegar a `assertRemoteObjectCatalog` + `SELECT` + `INSERT` +
+  `tenant_object`.
+- A CTE `conflicts` antes de `INSERT ... ON CONFLICT DO NOTHING` pode aceitar
+  silenciosamente uma linha divergente inserida concorrentemente entre a checagem
+  e o insert. A implementação precisa fazer verificação pós-insert em bulk ou
+  usar `ON CONFLICT DO UPDATE ... WHERE campos equivalentes RETURNING` e validar
+  que todos os IDs foram cobertos.
+- A normalização de `raw_record.payload` removendo `importBatchId` deve continuar
+  no servidor. Não mover essa equivalência apenas para o cliente.
+
 ## Resumo
 
-`commitUpload` hoje executa **dezenas de milhares de queries seriais por batch** dentro de uma única transação, todas seguindo o padrão `SELECT → maybe INSERT`. Substituir cada loop por **um INSERT bulk com `unnest()` + `ON CONFLICT DO NOTHING`**, seguido de um **único SELECT de divergência** quando há linhas pré-existentes, mantém a semântica de detecção de conflito e reduz a contagem de queries de O(N) para O(1) por tabela.
+`commitUpload` hoje executa **dezenas de milhares de queries seriais por batch** dentro de uma única transação, todas seguindo o padrão `SELECT → maybe INSERT`. Substituir os loops por operações bulk é a direção correta, mas o desenho precisa preservar a semântica atual de conflito/idempotência. O padrão “pré-checar conflitos e depois `ON CONFLICT DO NOTHING`” não é suficiente sob concorrência; prefira verificação pós-insert ou `ON CONFLICT DO UPDATE ... WHERE equal RETURNING`.
 
 ## Diagnóstico atual
 
-Cinco loops seriais por commit:
+Loops seriais por commit:
 
 ### 1. Re-validação do catálogo de objetos
 `apps/api/src/trpc/routers/sync/commit-upload.ts:97-109` chama, por objeto:
@@ -26,7 +48,7 @@ for (const session of projection.sessions) {
   await insertProjectionManifest({ ... })  // 1 INSERT
   await insertSessionRow({ ... })          // 1 SELECT + maybe 1 INSERT
 }
-// idem para sourceFiles, rawRecords, searchDocs
+// idem para sourceFiles, rawRecords, searchDocs, toolCalls, toolResults
 ```
 
 → até **3M queries** para M linhas de projeção totais.
@@ -44,7 +66,11 @@ Tudo dentro de transações Postgres separadas, com WAL flush por commit.
 
 ## Mudança proposta
 
-Padrão único aplicável a todas as 5 tabelas (`remote_object`, `tenant_object`, `projection_session`, `source_file`, `raw_record`, `search_doc`) + as 2 tabelas de manifesto (`sync_batch_object_manifest`, `sync_batch_projection_manifest`).
+Padrão aplicável a `remote_object`, `tenant_object`, `projection_session`,
+`source_file`, `raw_record`, `search_doc`, `projection_tool_call`,
+`projection_tool_result` e `sync_batch_projection_manifest`. O
+`sync_batch_object_manifest` pertence ao `planUpload` e deve ser tratado em uma
+proposta/patch separado.
 
 ### Skeleton
 

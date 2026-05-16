@@ -37,6 +37,33 @@ export interface RemoteObjectStore {
   delete(key: string): Promise<void>
 }
 
+export const PUT_PREVERIFIED_BYTES = Symbol.for('@c3-oss/prosa-storage.putPreverifiedBytes')
+
+export type PreverifiedRemoteObjectStore = RemoteObjectStore & {
+  /**
+   * Server-internal fast path for callers that already verified byte size and
+   * hash before invoking the adapter. The public `putIfAbsent` contract still
+   * verifies all new bytes.
+   */
+  [PUT_PREVERIFIED_BYTES](key: string, bytes: AsyncIterable<Uint8Array>, meta: PutMeta): Promise<PutResult>
+}
+
+export function supportsPreverifiedPut(store: RemoteObjectStore): store is PreverifiedRemoteObjectStore {
+  return typeof (store as Partial<PreverifiedRemoteObjectStore>)[PUT_PREVERIFIED_BYTES] === 'function'
+}
+
+export function putPreverifiedIfAbsent(
+  store: RemoteObjectStore,
+  key: string,
+  bytes: AsyncIterable<Uint8Array>,
+  meta: PutMeta,
+): Promise<PutResult> {
+  if (supportsPreverifiedPut(store)) {
+    return store[PUT_PREVERIFIED_BYTES](key, bytes, meta)
+  }
+  return store.putIfAbsent(key, bytes, meta)
+}
+
 export type ObjectCompression = 'zstd' | 'none'
 
 /**

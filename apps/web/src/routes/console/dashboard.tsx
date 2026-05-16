@@ -49,13 +49,11 @@ export function ConsoleDashboard() {
             <MetricCardGrid summary={summary.data ?? null} isLoading={summary.isLoading} />
             <SourceBreakdown sources={summary.data?.sources ?? []} />
             {empty ? (
-              <div style={{ marginTop: 'var(--space-6)' }}>
-                <EmptyState
-                  title="No promoted sessions yet"
-                  description="Run the CLI on each device that owns agent history, then push to this tenant to populate the console."
-                  code="prosa auth login && prosa sync push"
-                />
-              </div>
+              <EmptyState
+                title="No promoted sessions yet"
+                description="Run the CLI on each device that owns agent history, then push to this tenant to populate the console."
+                code="prosa auth login && prosa sync push"
+              />
             ) : null}
           </>
         )}

@@ -2,6 +2,30 @@
 
 **Tier**: 3 (maior impacto, maior esforço — só vale após #01/#02) · **Onde**: ambos · **Impacto estimado**: 5–10× na fase de bytes quando há muitos objetos pequenos · **Esforço**: M-L
 
+## Fact-check 2026-05-16
+
+**Veredicto**: parcialmente correta, mas deve ser tratada como protocolo novo,
+não como patch médio. O gargalo de um PUT por objeto existe quando há muitos
+`missingObjects`, mas o desenho atual chama de streaming algo que os handlers e
+adapters existentes não suportam de ponta a ponta.
+
+**Correções obrigatórias**:
+
+- O Fastify atual só registra parser `application/octet-stream` com
+  `parseAs: 'buffer'`. `application/vnd.prosa.pack+binary` precisa de
+  parser/handler próprio e limite de corpo explícito.
+- `RemoteObjectStore.putIfAbsent` aceita `AsyncIterable`, mas os adapters
+  `memory`, `fs` e `s3` materializam bytes antes de gravar/verificar. A proposta
+  deve assumir buffering bounded por objeto ou mudar a interface de storage.
+- O bulk precisa repetir por entrada as garantias do `PUT`: usuário/tenant,
+  batch aberto, objeto declarado, metadata idêntica ao manifest, `objectId`
+  canônico BLAKE3 e `transportHash` separado.
+- A rota HTTP atual não valida `deviceId`; ela valida tenant/user/batch. Se o
+  bulk mudar isso, é hardening/protocolo novo.
+- `maxBulkObjects`/`maxBulkBytes` exigem mudança no handshake/schema e fallback
+  para clientes antigos.
+- Rejeitar objectIds duplicados no pack e tratar race same-key em S3/FS/memory.
+
 ## Resumo
 
 Hoje cada CAS object faltante vai num **PUT individual** para `/objects/:objectId`. Para um sync inicial de `~/.prosa`, isso pode chegar a centenas de milhares de PUTs. A literatura (Git packfiles, Sentry chunk API, restic pack files) converge em uma resposta: **empacotar N objetos pequenos numa única requisição** colapsa overhead TCP/TLS/HTTP/Fastify. Cap típico: ~64 objetos / ~16 MB por request, com server explodindo internamente em paralelo para o object store.
@@ -36,7 +60,9 @@ Mesmo com 32 em paralelo (item #06), são ~26 000 "ondas" sequenciais.
 
 ### Formato da requisição: framed binary stream
 
-`POST /objects:bulk?batchId=<...>` com body `application/vnd.prosa.pack+binary`:
+`POST /objects:bulk?batchId=<...>` com body `application/vnd.prosa.pack+binary`.
+O formato precisa ser versionado e negociado no handshake; clientes antigos
+continuam usando `PUT /objects/:objectId`.
 
 ```
 ┌──────────────────────────────────────┐
@@ -81,9 +107,11 @@ Objetos maiores que `maxBulkBytes` continuam indo via PUT individual (path antig
 
 Custom binary é o melhor trade-off para um internal protocol.
 
-### Server: handler streaming
+### Server: handler streaming / buffering bounded
 
-`apps/api/src/http/objects.ts` (atualmente o handler PUT em `objects.ts:395-429`) ganha sibling `POST /objects:bulk`:
+`apps/api/src/http/objects.ts` (atualmente o handler PUT em `objects.ts:395-429`)
+ganha sibling `POST /objects:bulk`. Com os adapters atuais, o desenho realista é
+“buffering bounded por entrada”, não streaming zero-copy end-to-end:
 
 ```ts
 app.post('/objects:bulk', { bodyLimit: 32 * 1024 * 1024 }, async (req, reply) => {

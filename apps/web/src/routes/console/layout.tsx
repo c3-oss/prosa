@@ -19,6 +19,7 @@ import { AuthSurface } from '~/app/auth-surface.js'
 import { useAppContext } from '~/app/providers.js'
 import { TenantSwitcher } from '~/components/console/tenant-switcher.js'
 import { Button } from '~/components/primitives/button.js'
+import { ThemeToggle } from '~/components/primitives/theme-toggle.js'
 
 const SIDEBAR_STORAGE_KEY = 'prosa:console-sidebar:collapsed'
 
@@ -178,6 +179,7 @@ function ConsoleLayoutBody() {
             </div>
           </div>
           <div className="console-command-right">
+            <ThemeToggle />
             <span className="console-connected-badge">
               <Database size={13} /> remote reads
             </span>

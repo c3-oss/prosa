@@ -9,6 +9,7 @@ import {
   computeHashHex,
   objectPackStorageKey,
   objectStorageKey,
+  putPreverifiedIfAbsent,
 } from '@c3-oss/prosa-storage'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { DecompressStream } from 'zstd-napi'
@@ -410,7 +411,7 @@ async function* bufferAsAsyncIterable(body: Buffer): AsyncIterable<Uint8Array> {
 
 async function putObjectBytes(deps: ObjectRoutesDeps, upload: UploadRequest, body: Buffer): Promise<PutResult> {
   try {
-    return await deps.objectStore.putIfAbsent(upload.storageKey, bufferAsAsyncIterable(body), {
+    return await putPreverifiedIfAbsent(deps.objectStore, upload.storageKey, bufferAsAsyncIterable(body), {
       hash: upload.transportHash,
       hashAlgorithm: 'blake3',
       uncompressedSize: upload.uncompressedSize,
