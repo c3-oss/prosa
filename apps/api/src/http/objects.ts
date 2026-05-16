@@ -11,6 +11,12 @@ import {
   objectStorageKey,
   putPreverifiedIfAbsent,
 } from '@c3-oss/prosa-storage'
+import {
+  BinaryObjectPackFormatError,
+  OBJECT_PACK_BINARY_CONTENT_TYPE,
+  type ObjectPackWireEntry,
+  decodeBinaryObjectPack,
+} from '@c3-oss/prosa-sync'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { DecompressStream } from 'zstd-napi'
 import type { ProsaAuth } from '../auth.js'
@@ -54,6 +60,7 @@ async function resolveAuth(opts: ObjectRoutesDeps, req: FastifyRequest) {
 
 export const DEFAULT_OBJECT_ROUTE_MAX_BYTES = 256 * 1024 * 1024
 const MAX_OBJECT_PACK_ENTRIES = 1024
+const MAX_OBJECT_PACK_BINARY_HEADER_BYTES = 1024 * 1024
 
 type AuthContext = NonNullable<Awaited<ReturnType<typeof resolveAuth>>>
 
@@ -184,24 +191,53 @@ function parseObjectPackRequest(req: FastifyRequest, maxObjectBytes: number): Pa
   const batchId = url.searchParams.get('batchId')
   if (!batchId) fail(400, 'batchId query parameter required')
   const body = req.body
+
+  if (Buffer.isBuffer(body)) {
+    let decoded: { entries: ObjectPackWireEntry[]; payload: Uint8Array }
+    try {
+      decoded = decodeBinaryObjectPack(body, { maxHeaderBytes: MAX_OBJECT_PACK_BINARY_HEADER_BYTES })
+    } catch (err) {
+      if (err instanceof BinaryObjectPackFormatError) {
+        fail(400, err.message)
+      }
+      throw err
+    }
+    return parseObjectPackPayload(batchId, decoded.entries, bufferView(decoded.payload), maxObjectBytes)
+  }
+
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     fail(400, 'JSON body required')
   }
   const payload = body as Record<string, unknown>
-  if (!Array.isArray(payload.entries) || payload.entries.length === 0) {
-    fail(400, 'entries must be a non-empty array')
-  }
-  if (payload.entries.length > MAX_OBJECT_PACK_ENTRIES) {
-    fail(400, 'entries exceeds max object manifest count')
-  }
   if (typeof payload.bytesBase64 !== 'string') {
     fail(400, 'bytesBase64 is required')
   }
   const bytes = Buffer.from(payload.bytesBase64, 'base64')
+  return parseObjectPackPayload(batchId, payload.entries, bytes, maxObjectBytes)
+}
+
+function bufferView(bytes: Uint8Array): Buffer {
+  if (Buffer.isBuffer(bytes)) return bytes
+  return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+}
+
+function parseObjectPackPayload(
+  batchId: string,
+  rawEntries: unknown,
+  bytes: Buffer,
+  maxObjectBytes: number,
+): ParsedObjectPack {
+  if (!Array.isArray(rawEntries) || rawEntries.length === 0) {
+    fail(400, 'entries must be a non-empty array')
+  }
+  if (rawEntries.length > MAX_OBJECT_PACK_ENTRIES) {
+    fail(400, 'entries exceeds max object manifest count')
+  }
   if (bytes.byteLength > maxObjectBytes) {
     fail(400, 'pack exceeds maxObjectBytes')
   }
-  const entries = payload.entries.map((entry) => parseObjectPackEntry(entry, batchId, bytes.byteLength, maxObjectBytes))
+  const entries = rawEntries.map((entry) => parseObjectPackEntry(entry, batchId, bytes.byteLength, maxObjectBytes))
+  assertUniquePackObjectIds(entries)
   const aggregateCompressedSize = entries.reduce((sum, entry) => sum + entry.compressedSize, 0)
   const aggregateUncompressedSize = entries.reduce((sum, entry) => sum + entry.uncompressedSize, 0)
   if (aggregateCompressedSize > maxObjectBytes) {
@@ -247,6 +283,16 @@ function parseObjectPackEntry(
     offset,
     length,
     ...(typeof value.contentType === 'string' ? { contentType: value.contentType } : {}),
+  }
+}
+
+function assertUniquePackObjectIds(entries: ParsedObjectPack['entries']): void {
+  const seen = new Set<string>()
+  for (const entry of entries) {
+    if (seen.has(entry.objectId)) {
+      fail(400, 'duplicate objectId in pack entries')
+    }
+    seen.add(entry.objectId)
   }
 }
 
@@ -696,10 +742,20 @@ function sendObjectStream(reply: FastifyReply, row: AccessibleObjectRow, stream:
 
 export async function registerObjectRoutes(app: FastifyInstance, deps: ObjectRoutesDeps) {
   const maxObjectBytes = deps.maxObjectBytes ?? DEFAULT_OBJECT_ROUTE_MAX_BYTES
+  const objectPackBinaryBodyLimit = maxObjectBytes + MAX_OBJECT_PACK_BINARY_HEADER_BYTES
+  const objectPackJsonBodyLimit = Math.ceil(maxObjectBytes * 1.4) + MAX_OBJECT_PACK_BINARY_HEADER_BYTES
+  const objectPackRouteBodyLimit = Math.max(objectPackBinaryBodyLimit, objectPackJsonBodyLimit)
   // Enable raw body parsing for octet-stream so PUT bodies pass through unmodified.
   app.addContentTypeParser(
     'application/octet-stream',
     { parseAs: 'buffer', bodyLimit: maxObjectBytes },
+    (_req, body, done) => {
+      done(null, body)
+    },
+  )
+  app.addContentTypeParser(
+    OBJECT_PACK_BINARY_CONTENT_TYPE,
+    { parseAs: 'buffer', bodyLimit: objectPackBinaryBodyLimit },
     (_req, body, done) => {
       done(null, body)
     },
@@ -769,7 +825,7 @@ export async function registerObjectRoutes(app: FastifyInstance, deps: ObjectRou
   app.route({
     method: 'POST',
     url: '/object-packs',
-    bodyLimit: Math.ceil(maxObjectBytes * 1.4) + 1024 * 1024,
+    bodyLimit: objectPackRouteBodyLimit,
     handler: async (request, reply) => {
       const ctx = await resolveAuth(deps, request)
       if (!ctx) {
