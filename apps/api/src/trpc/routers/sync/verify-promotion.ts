@@ -1,7 +1,8 @@
 import type { PromotionReceipt, VerifyPromotionInput, VerifyPromotionOutput } from '@c3-oss/prosa-sync'
 import type { RawExec } from '../../../db.js'
+import { hasMaterializedObject } from '../../../objects/locations.js'
 import { TRPCError } from '../../init.js'
-import { type VerificationBatchRow, markBatchFailed } from './batches.js'
+import type { VerificationBatchRow } from './batches.js'
 import {
   type BatchObjectManifestRow,
   type ProjectionManifestRow,
@@ -10,7 +11,6 @@ import {
   loadObjectManifest,
   mapWithConcurrency,
   objectFromManifestRow,
-  objectStoreHeadMatches,
   objectStoreIoConcurrency,
 } from './manifest.js'
 import type { SyncHandlerContext } from './types.js'
@@ -80,7 +80,7 @@ async function requireBatchForVerification(opts: {
   if (batch.store_path !== opts.storePath) {
     throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Batch storePath mismatch' })
   }
-  if (batch.status !== 'committed' && batch.status !== 'verifying') {
+  if (batch.status !== 'committed') {
     throw new TRPCError({
       code: 'PRECONDITION_FAILED',
       message: 'Batch must be committed before verification',
@@ -110,29 +110,29 @@ async function verifyObjectManifest(opts: {
   objectManifest: BatchObjectManifestRow[]
 }): Promise<void> {
   if (opts.objectManifest.length === 0) return
-  const foundRows = await opts.rawExec<{ object_id: string }>(
-    `SELECT object_id
-       FROM "tenant_object"
-       WHERE tenant_id = $1 AND object_id = ANY($2::text[])`,
-    [opts.tenantId, opts.objectManifest.map((row) => row.object_id)],
-  )
-  const foundObjectIds = new Set(foundRows.map((row) => row.object_id))
-  const headResults = await mapWithConcurrency(opts.objectManifest, objectStoreIoConcurrency, async (row) => {
+  await mapWithConcurrency(opts.objectManifest, objectStoreIoConcurrency, async (row) => {
     const object = objectFromManifestRow(row)
-    return {
-      objectId: row.object_id,
-      matches: objectStoreHeadMatches(await opts.objectStore.head(row.storage_key), object),
-    }
-  })
-  const matchingHeads = new Set(headResults.filter((result) => result.matches).map((result) => result.objectId))
-  for (const row of opts.objectManifest) {
-    if (!foundObjectIds.has(row.object_id) || !matchingHeads.has(row.object_id)) {
+    const found = await opts.rawExec<{ object_id: string }>(
+      'SELECT object_id FROM "tenant_object" WHERE tenant_id = $1 AND object_id = $2 LIMIT 1',
+      [opts.tenantId, row.object_id],
+    )
+    if (
+      !found[0] ||
+      !(await hasMaterializedObject({
+        rawExec: opts.rawExec,
+        objectStore: opts.objectStore,
+        object,
+        legacyStorageKey: row.storage_key,
+        tenantId: opts.tenantId,
+        verifyBytes: true,
+      }))
+    ) {
       throw new TRPCError({
         code: 'PRECONDITION_FAILED',
         message: `Promotion verification failed: object ${row.object_id} is missing or mismatched`,
       })
     }
-  }
+  })
 }
 
 async function countProjectionRows(opts: {
@@ -267,10 +267,16 @@ async function savePromotionReceipt(opts: {
   batch: VerificationBatchRow
   receipt: PromotionReceipt
 }): Promise<void> {
-  await opts.rawExec(
-    'UPDATE "sync_batch" SET status = $1, promotion_receipt = $2::jsonb, error = NULL, updated_at = now() WHERE id = $3 AND tenant_id = $4',
+  const updated = await opts.rawExec<{ id: string }>(
+    'UPDATE "sync_batch" SET status = $1, promotion_receipt = $2::jsonb, error = NULL, updated_at = now() WHERE id = $3 AND tenant_id = $4 AND status = \'verifying\' RETURNING id',
     ['verified', JSON.stringify(opts.receipt), opts.batchId, opts.tenantId],
   )
+  if (updated.length === 0) {
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: 'Batch verification state changed before receipt save',
+    })
+  }
   await opts.rawExec(
     `INSERT INTO "remote_authority"(tenant_id, device_id, store_path, promotion_receipt)
      VALUES ($1, $2, $3, $4::jsonb)
@@ -349,7 +355,15 @@ export async function verifyPromotion(
     })
   } catch (error) {
     if (verificationStarted) {
-      await markBatchFailed(ctx.rawExec, input.batchId, ctx.tenantId, error)
+      const message = error instanceof Error ? error.message : String(error)
+      await ctx.rawExec(
+        `UPDATE "sync_batch"
+            SET status = 'failed', error = $1, updated_at = now()
+          WHERE id = $2
+            AND tenant_id = $3
+            AND status IN ('committed', 'verifying')`,
+        [JSON.stringify({ message }), input.batchId, ctx.tenantId],
+      )
     }
     throw error
   }

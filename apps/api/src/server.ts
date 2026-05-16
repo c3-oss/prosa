@@ -29,6 +29,8 @@ export async function startServer(): Promise<void> {
     'device',
     'sync_batch',
     'remote_object',
+    'remote_blob',
+    'remote_object_location',
     'tenant_object',
     'projection_session',
     'search_doc',

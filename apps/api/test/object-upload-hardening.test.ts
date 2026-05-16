@@ -1,4 +1,12 @@
-import { MemoryObjectStore, computeHashHex } from '@c3-oss/prosa-storage'
+import {
+  MemoryObjectStore,
+  type ObjectMeta,
+  PUT_PREVERIFIED_BYTES,
+  type PutMeta,
+  type PutResult,
+  type RemoteObjectStore,
+  computeHashHex,
+} from '@c3-oss/prosa-storage'
 import Fastify from 'fastify'
 import { afterEach, describe, expect, it } from 'vitest'
 import { compress as zstdCompress } from 'zstd-napi'
@@ -86,6 +94,29 @@ async function planObjectUpload(
   })
   expect(plan.statusCode).toBe(200)
   return (plan.json() as { result: { data: { batchId: string } } }).result.data.batchId
+}
+
+class PreverifiedOnlyStore implements RemoteObjectStore {
+  called = false
+
+  async head(_key: string): Promise<ObjectMeta | null> {
+    return null
+  }
+
+  async putIfAbsent(): Promise<PutResult> {
+    throw new Error('route should use the preverified storage path')
+  }
+
+  async [PUT_PREVERIFIED_BYTES](key: string, _bytes: AsyncIterable<Uint8Array>, meta: PutMeta): Promise<PutResult> {
+    this.called = true
+    return { meta: { ...meta, storageKey: key }, alreadyExisted: false }
+  }
+
+  async get(_key: string): Promise<ReadableStream<Uint8Array>> {
+    throw new Error('not used')
+  }
+
+  async delete(_key: string): Promise<void> {}
 }
 
 describe('object upload hardening', () => {
@@ -262,6 +293,61 @@ describe('object upload hardening', () => {
     expect(rows.rows[0]).toMatchObject({ hash: canonicalHash, compression: 'zstd' })
   })
 
+  it('uses the preverified storage path after route-level byte validation succeeds', async () => {
+    const app = Fastify({ logger: false })
+    const objectStore = new PreverifiedOnlyStore()
+    const bytes = Buffer.from('preverified upload')
+    const hash = computeHashHex(bytes, 'blake3')
+    const objectId = `blake3:${hash}`
+    const rawExec: RawExec = (async (sql: string, _params?: unknown[]) => {
+      if (/from\s+"?member"?/i.test(sql)) return [{ role: 'member' }]
+      if (/sync_batch_object_manifest/i.test(sql)) {
+        return [
+          {
+            canonical_hash: hash,
+            transport_hash: hash,
+            compression: 'none',
+            uncompressed_size: bytes.byteLength,
+            compressed_size: bytes.byteLength,
+          },
+        ]
+      }
+      if (/^\s*select[\s\S]+from\s+"remote_object"/i.test(sql)) return []
+      return []
+    }) as RawExec
+
+    await registerObjectRoutes(app, {
+      auth: {
+        api: {
+          getSession: async () => ({
+            session: { id: 'session-1', userId: 'user-1', activeOrganizationId: 'tenant-1' },
+            user: { id: 'user-1', email: 'user@example.com' },
+          }),
+        },
+      } as unknown as ProsaAuth,
+      rawExec,
+      objectStore,
+    })
+
+    const response = await app.inject({
+      method: 'PUT',
+      url: objectUrl({
+        batchId: 'batch-preverified',
+        objectId,
+        hash,
+        size: bytes.byteLength,
+        uncompressed: bytes.byteLength,
+        compression: 'none',
+      }),
+      headers: { 'content-type': 'application/octet-stream' },
+      payload: bytes,
+    })
+
+    expect(response.statusCode).toBe(201)
+    expect(objectStore.called).toBe(true)
+    await app.close()
+  })
+
   it('serves object bytes with catalog metadata headers without route-level buffering', async () => {
     t = await buildTestApp()
     const auth = await signup(t, 'get-object@example.com')
@@ -364,6 +450,78 @@ describe('object upload hardening', () => {
     expect(response.statusCode).toBe(409)
     expect(response.body).toContain('conflicting remote object metadata')
     expect(t.objectStore.size()).toBe(0)
+  })
+
+  it('removes freshly uploaded bytes when a concurrent catalog insert wins incompatibly', async () => {
+    const app = Fastify({ logger: false })
+    const objectStore = new MemoryObjectStore()
+    const bytes = Buffer.from('catalog race loser')
+    const hash = computeHashHex(bytes, 'blake3')
+    const objectId = `blake3:${hash}`
+    const storageKey = `objects/blake3/${hash.slice(0, 2)}/${hash.slice(2, 4)}/${hash}.bin`
+    let remoteObjectSelects = 0
+    const rawExec: RawExec = (async (sql: string, _params?: unknown[]) => {
+      if (/from\s+"?member"?/i.test(sql)) return [{ role: 'member' }]
+      if (/sync_batch_object_manifest/i.test(sql)) {
+        return [
+          {
+            canonical_hash: hash,
+            transport_hash: hash,
+            compression: 'none',
+            uncompressed_size: bytes.byteLength,
+            compressed_size: bytes.byteLength,
+          },
+        ]
+      }
+      if (/^\s*select[\s\S]+from\s+"remote_object"/i.test(sql)) {
+        remoteObjectSelects += 1
+        if (remoteObjectSelects === 1) return []
+        return [
+          {
+            hash,
+            hash_algorithm: 'blake3',
+            compression: 'zstd',
+            uncompressed_size: bytes.byteLength,
+            compressed_size: bytes.byteLength,
+            storage_key: storageKey.replace(/\.bin$/, '.zst'),
+          },
+        ]
+      }
+      return []
+    }) as RawExec
+
+    await registerObjectRoutes(app, {
+      auth: {
+        api: {
+          getSession: async () => ({
+            session: { id: 'session-1', userId: 'user-1', activeOrganizationId: 'tenant-1' },
+            user: { id: 'user-1', email: 'user@example.com' },
+          }),
+        },
+      } as unknown as ProsaAuth,
+      rawExec,
+      objectStore,
+    })
+
+    const response = await app.inject({
+      method: 'PUT',
+      url: objectUrl({
+        batchId: 'batch-catalog-race',
+        objectId,
+        hash,
+        size: bytes.byteLength,
+        uncompressed: bytes.byteLength,
+        compression: 'none',
+      }),
+      headers: { 'content-type': 'application/octet-stream' },
+      payload: bytes,
+    })
+
+    expect(response.statusCode).toBe(409)
+    expect(response.body).toContain('conflicting remote object metadata')
+    expect(objectStore.size()).toBe(0)
+    expect(await objectStore.head(storageKey)).toBeNull()
+    await app.close()
   })
 
   it('rejects transport hash mismatches before storing bytes', async () => {
