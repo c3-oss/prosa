@@ -37,6 +37,12 @@ import {
   readLocalCasObjectBytes,
   readLocalCasObjectFromCatalogRow,
 } from '../sync/bundle.js'
+import {
+  type SyncCheckpointHandle,
+  openSyncCheckpoint,
+  resetSyncCheckpoint,
+  syncChunkFingerprint,
+} from '../sync/checkpoint.js'
 import { mapConcurrent, mapConcurrentResults } from '../sync/concurrency.js'
 import {
   type SyncLimits,
@@ -65,6 +71,8 @@ type SyncOptions = {
   configPath?: string
   objectConcurrency: number
   batchConcurrency: number
+  resume?: boolean
+  resetSyncCheckpoint?: boolean
 }
 
 type SyncResult = {
@@ -104,6 +112,8 @@ type ChunkedPromotionOptions = {
   progress?: SyncProgressHandle
   /** Total batches expected, used to drive the progress bar pct. */
   totalBatches?: number
+  /** Optional chunk checkpoint, stored outside the local bundle. */
+  checkpoint?: SyncCheckpointHandle
 }
 
 type ProjectionStream<TEntity> = {
@@ -126,6 +136,7 @@ type PromoteChunkOptions = {
   metrics: SyncMetrics
   objectConcurrency: number
   verbose?: boolean
+  checkpoint?: SyncCheckpointHandle
 }
 
 const DEFAULT_OBJECT_UPLOAD_CONCURRENCY = 32
@@ -389,6 +400,7 @@ type ChunkCursor = {
 type ChunkPromotionResult = {
   receipt: PromotionReceipt
   metrics: SyncMetrics
+  skipped?: boolean
 }
 
 function readChunkIds(
@@ -952,6 +964,32 @@ function addObjectChunkMetrics(metrics: SyncMetrics, chunkMetrics: ObjectChunk['
   metrics.localObjectsRead += chunkMetrics.localObjectsRead
 }
 
+async function promoteCheckpointedChunk(
+  opts: PromoteChunkOptions & { metrics: SyncMetrics },
+): Promise<ChunkPromotionResult> {
+  const objectEntries = opts.casObjects.map((c) => c.entry)
+  const fingerprint = syncChunkFingerprint({
+    label: opts.label,
+    objects: objectEntries,
+    projection: opts.projection,
+  })
+  const checkpointed = opts.checkpoint?.verifiedChunk(fingerprint)
+  if (checkpointed) {
+    if (opts.verbose) {
+      process.stderr.write(`resume ${opts.label} • skipped verified batch=${checkpointed.batchId}\n`)
+    }
+    return { receipt: checkpointed.receipt, metrics: opts.metrics, skipped: true }
+  }
+
+  const receipt = await promoteChunk(opts)
+  await opts.checkpoint?.markVerified({
+    fingerprint,
+    label: opts.label,
+    receipt,
+  })
+  return { receipt, metrics: opts.metrics }
+}
+
 async function promoteBatchTask(
   opts: Omit<PromoteChunkOptions, 'metrics'> & {
     chunkMetrics?: ObjectChunk['metrics']
@@ -959,8 +997,7 @@ async function promoteBatchTask(
 ): Promise<ChunkPromotionResult> {
   const metrics = emptySyncMetrics(opts.objectConcurrency)
   if (opts.chunkMetrics) addObjectChunkMetrics(metrics, opts.chunkMetrics)
-  const receipt = await promoteChunk({ ...opts, metrics })
-  return { receipt, metrics }
+  return promoteCheckpointedChunk({ ...opts, metrics })
 }
 
 async function promotePhase<TTask extends ChunkCursor>(
@@ -993,6 +1030,7 @@ export async function promoteChunkedUpload({
   verbose,
   progress,
   totalBatches,
+  checkpoint,
 }: ChunkedPromotionOptions): Promise<SyncResult> {
   let batchCount = 0
   let lastReceipt: PromotionReceipt | null = null
@@ -1023,6 +1061,7 @@ export async function promoteChunkedUpload({
         label: `${label} batch ${phaseStart + cursor.sequence}`,
         objectConcurrency,
         verbose,
+        checkpoint,
       })
     })
     for (const result of results) {
@@ -1143,7 +1182,7 @@ export async function promoteChunkedUpload({
 
       batchCount += 1
       tickProgress()
-      lastReceipt = await promoteChunk({
+      const promoted = await promoteCheckpointedChunk({
         client,
         deviceId,
         storePath,
@@ -1153,7 +1192,9 @@ export async function promoteChunkedUpload({
         metrics,
         objectConcurrency,
         verbose,
+        checkpoint,
       })
+      lastReceipt = promoted.receipt
       for (const objectId of batchObjectIds) promotedObjectIds.add(objectId)
     }
   }
@@ -1186,6 +1227,8 @@ export function syncCommand(): Command {
     .option('--store <path>', 'bundle directory', defaultBundlePath())
     .option('--dry-run', 'plan only; do not upload bytes or modify state', false)
     .option('--keep-local', 'skip cleanup entirely (still marks remote-authoritative)', false)
+    .option('--no-resume', 'ignore an existing chunked sync checkpoint and re-submit all chunks')
+    .option('--reset-sync-checkpoint', 'delete the chunked sync checkpoint before uploading', false)
     .option(
       '--purge-bundle',
       'also remove canonical raw/CAS data (objects/, raw/, prosa.sqlite, manifest.json). ' +
@@ -1294,19 +1337,35 @@ export function syncCommand(): Command {
             )
           }
           progress.setPhase({ kind: 'upload', completed: 0, total: estimatedBatches })
-          result = await promoteChunkedUpload({
-            client,
+          const checkpointIdentity = {
+            server,
+            tenant: tenantHint,
             deviceId: handshake.deviceId,
             storePath,
-            bundle,
-            maxObjectsPerPlan: handshake.limits.maxObjectsPerPlan,
-            maxRowsPerCommit: handshake.limits.maxRowsPerCommit,
-            objectConcurrency: options.objectConcurrency,
-            batchConcurrency: options.batchConcurrency,
-            verbose: options.verbose,
-            progress,
-            totalBatches: estimatedBatches,
+          }
+          if (options.resetSyncCheckpoint) await resetSyncCheckpoint(checkpointIdentity)
+          const checkpoint = await openSyncCheckpoint({
+            identity: checkpointIdentity,
+            resume: options.resume !== false,
           })
+          try {
+            result = await promoteChunkedUpload({
+              client,
+              deviceId: handshake.deviceId,
+              storePath,
+              bundle,
+              maxObjectsPerPlan: handshake.limits.maxObjectsPerPlan,
+              maxRowsPerCommit: handshake.limits.maxRowsPerCommit,
+              objectConcurrency: options.objectConcurrency,
+              batchConcurrency: options.batchConcurrency,
+              verbose: options.verbose,
+              progress,
+              totalBatches: estimatedBatches,
+              checkpoint,
+            })
+          } finally {
+            await checkpoint.release()
+          }
           result = {
             ...result,
             sessionCount: counts.sessions,
