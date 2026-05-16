@@ -29,7 +29,8 @@ import { CliUserError } from '../errors.js'
 import { type LocalCasObject, readBundleForUpload, readLocalCasObjectBytes } from '../sync/bundle.js'
 import { mapConcurrent } from '../sync/concurrency.js'
 import {
-  estimateChunkedUploadBatches,
+  type SyncLimits,
+  type UploadCounts,
   readUploadCounts,
   uploadHardLimitViolations,
   uploadLimitViolations,
@@ -81,6 +82,16 @@ type ChunkedPromotionOptions = {
   maxRowsPerCommit: number
   objectConcurrency: number
   verbose?: boolean
+}
+
+type ProjectionStream<TEntity> = {
+  label: string
+  cursor: string | null
+  pending: TEntity[]
+  done: boolean
+  readChunk: (afterId: string | null, limit: number) => ProjectionChunk<TEntity>
+  appendRows: (projection: ProjectionPayload, rows: TEntity[]) => void
+  referencedObjectIds: (row: TEntity) => Array<string | null | undefined>
 }
 
 type PromoteChunkOptions = {
@@ -148,6 +159,132 @@ function projectionRowCount(projection: ProjectionPayload): number {
     projection.toolCalls.length +
     projection.toolResults.length
   )
+}
+
+function estimateMixedChunkedUploadBatches(counts: UploadCounts, limits: SyncLimits): number {
+  return Math.max(
+    Math.ceil(counts.casObjects / limits.maxObjectsPerPlan),
+    Math.ceil(counts.totalRows / limits.maxRowsPerCommit),
+  )
+}
+
+function projectionStreams(bundle: Bundle): Array<ProjectionStream<unknown>> {
+  return [
+    {
+      label: 'source-file',
+      cursor: null,
+      pending: [],
+      done: false,
+      readChunk: (cursor, limit) => readSourceFileChunk(bundle, cursor, limit),
+      appendRows: (projection, rows) => {
+        projection.sourceFiles.push(...(rows as SourceFileRow[]))
+      },
+      referencedObjectIds: (row) => [(row as SourceFileRow).objectId],
+    },
+    {
+      label: 'session',
+      cursor: null,
+      pending: [],
+      done: false,
+      readChunk: (cursor, limit) => readSessionChunk(bundle, cursor, limit),
+      appendRows: (projection, rows) => {
+        projection.sessions.push(...(rows as ProjectionSessionRow[]))
+      },
+      referencedObjectIds: () => [],
+    },
+    {
+      label: 'raw-record',
+      cursor: null,
+      pending: [],
+      done: false,
+      readChunk: (cursor, limit) => readRawRecordChunk(bundle, cursor, limit),
+      appendRows: (projection, rows) => {
+        projection.rawRecords.push(...(rows as RawRecordRow[]))
+      },
+      referencedObjectIds: (row) => [(row as RawRecordRow).objectId],
+    },
+    {
+      label: 'search-doc',
+      cursor: null,
+      pending: [],
+      done: false,
+      readChunk: (cursor, limit) => readSearchDocChunk(bundle, cursor, limit),
+      appendRows: (projection, rows) => {
+        projection.searchDocs.push(...(rows as SearchDocRow[]))
+      },
+      referencedObjectIds: () => [],
+    },
+    {
+      label: 'tool-call',
+      cursor: null,
+      pending: [],
+      done: false,
+      readChunk: (cursor, limit) => readToolCallChunk(bundle, cursor, limit),
+      appendRows: (projection, rows) => {
+        projection.toolCalls.push(...(rows as ProjectionToolCallRow[]))
+      },
+      referencedObjectIds: (row) => [(row as ProjectionToolCallRow).inputObjectId],
+    },
+    {
+      label: 'tool-result',
+      cursor: null,
+      pending: [],
+      done: false,
+      readChunk: (cursor, limit) => readToolResultChunk(bundle, cursor, limit),
+      appendRows: (projection, rows) => {
+        projection.toolResults.push(...(rows as ProjectionToolResultRow[]))
+      },
+      referencedObjectIds: (row) => [(row as ProjectionToolResultRow).outputObjectId],
+    },
+  ]
+}
+
+function canPromoteProjectionRow(
+  row: unknown,
+  stream: ProjectionStream<unknown>,
+  availableObjectIds: Set<string>,
+): boolean {
+  return stream.referencedObjectIds(row).every((objectId) => objectId == null || availableObjectIds.has(objectId))
+}
+
+function projectionStreamsDone(streams: Array<ProjectionStream<unknown>>): boolean {
+  return streams.every((stream) => stream.done && stream.pending.length === 0)
+}
+
+function fillProjectionBatch(
+  streams: Array<ProjectionStream<unknown>>,
+  availableObjectIds: Set<string>,
+  maxRows: number,
+): ProjectionPayload {
+  const projection = emptyProjection()
+  let remainingRows = maxRows
+  while (remainingRows > 0) {
+    let addedRows = 0
+    for (const stream of streams) {
+      const rows: unknown[] = []
+      while (remainingRows > 0) {
+        if (stream.pending.length === 0) {
+          if (stream.done) break
+          const chunk = stream.readChunk(stream.cursor, remainingRows)
+          if (chunk.rows.length === 0) {
+            stream.done = true
+            break
+          }
+          stream.pending.push(...chunk.rows)
+          stream.cursor = chunk.nextCursor
+        }
+        const next = stream.pending[0]
+        if (!canPromoteProjectionRow(next, stream, availableObjectIds)) break
+        rows.push(stream.pending.shift() as unknown)
+        remainingRows -= 1
+        addedRows += 1
+      }
+      if (rows.length > 0) stream.appendRows(projection, rows)
+      if (remainingRows === 0) break
+    }
+    if (addedRows === 0) break
+  }
+  return projection
 }
 
 function readObjectCatalogRows(bundle: Bundle, afterObjectId: string | null, limit: number) {
@@ -541,85 +678,46 @@ async function promoteChunkedUpload({
   let batchCount = 0
   let lastReceipt: PromotionReceipt | null = null
   let objectCursor: string | null = null
+  let objectCatalogDone = false
+  const streams = projectionStreams(bundle)
+  const promotedObjectIds = new Set<string>()
   const metrics = emptySyncMetrics(objectConcurrency)
 
   while (true) {
-    const chunk = await readObjectChunk(bundle, storePath, objectCursor, maxObjectsPerPlan)
-    if (chunk.casObjects.length === 0) break
+    let casObjects: LocalCasObjectChunk[] = []
+    if (!objectCatalogDone) {
+      const chunk = await readObjectChunk(bundle, storePath, objectCursor, maxObjectsPerPlan)
+      casObjects = chunk.casObjects
+      objectCatalogDone = chunk.casObjects.length === 0
+      objectCursor = chunk.nextCursor
+      metrics.localScanMs += chunk.metrics.localScanMs
+      metrics.localReadMs += chunk.metrics.localReadMs
+      metrics.localBytesRead += chunk.metrics.localBytesRead
+      metrics.localObjectsRead += chunk.metrics.localObjectsRead
+    }
+
+    const batchObjectIds = casObjects.map(({ entry }) => entry.objectId)
+    const availableObjectIds = new Set([...promotedObjectIds, ...batchObjectIds])
+    const projection = fillProjectionBatch(streams, availableObjectIds, maxRowsPerCommit)
+    if (casObjects.length === 0 && projectionRowCount(projection) === 0) {
+      if (objectCatalogDone && projectionStreamsDone(streams)) break
+      throw new CliUserError('projection rows reference CAS objects that are not available in the local object catalog')
+    }
+
     batchCount += 1
-    metrics.localScanMs += chunk.metrics.localScanMs
-    metrics.localReadMs += chunk.metrics.localReadMs
-    metrics.localBytesRead += chunk.metrics.localBytesRead
-    metrics.localObjectsRead += chunk.metrics.localObjectsRead
     lastReceipt = await promoteChunk({
       client,
       deviceId,
       storePath,
-      casObjects: chunk.casObjects,
-      projection: emptyProjection(),
-      label: `object batch ${batchCount}`,
+      casObjects,
+      projection,
+      label: `chunk ${batchCount}`,
       metrics,
       objectConcurrency,
       verbose,
     })
-    objectCursor = chunk.nextCursor
+    for (const objectId of batchObjectIds) promotedObjectIds.add(objectId)
   }
-
-  const promoteProjectionChunks = async <TRow>(
-    label: string,
-    readChunk: (afterId: string | null, limit: number) => ProjectionChunk<TRow>,
-    toProjection: (rows: TRow[]) => ProjectionPayload,
-  ) => {
-    let cursor: string | null = null
-    while (true) {
-      const chunk = readChunk(cursor, maxRowsPerCommit)
-      if (chunk.rows.length === 0) break
-      batchCount += 1
-      lastReceipt = await promoteChunk({
-        client,
-        deviceId,
-        storePath,
-        casObjects: [],
-        projection: toProjection(chunk.rows),
-        label: `${label} batch ${batchCount}`,
-        metrics,
-        objectConcurrency,
-        verbose,
-      })
-      cursor = chunk.nextCursor
-    }
-  }
-
-  await promoteProjectionChunks(
-    'source-file',
-    (cursor, limit) => readSourceFileChunk(bundle, cursor, limit),
-    (sourceFiles) => ({ ...emptyProjection(), sourceFiles }),
-  )
-  await promoteProjectionChunks(
-    'raw-record',
-    (cursor, limit) => readRawRecordChunk(bundle, cursor, limit),
-    (rawRecords) => ({ ...emptyProjection(), rawRecords }),
-  )
-  await promoteProjectionChunks(
-    'session',
-    (cursor, limit) => readSessionChunk(bundle, cursor, limit),
-    (sessions) => ({ ...emptyProjection(), sessions }),
-  )
-  await promoteProjectionChunks(
-    'search-doc',
-    (cursor, limit) => readSearchDocChunk(bundle, cursor, limit),
-    (searchDocs) => ({ ...emptyProjection(), searchDocs }),
-  )
-  await promoteProjectionChunks(
-    'tool-call',
-    (cursor, limit) => readToolCallChunk(bundle, cursor, limit),
-    (toolCalls) => ({ ...emptyProjection(), toolCalls }),
-  )
-  await promoteProjectionChunks(
-    'tool-result',
-    (cursor, limit) => readToolResultChunk(bundle, cursor, limit),
-    (toolResults) => ({ ...emptyProjection(), toolResults }),
-  )
 
   if (!lastReceipt) {
     throw new CliUserError(`bundle at ${storePath} has no syncable rows or CAS objects`)
@@ -703,7 +801,7 @@ export function syncCommand(): Command {
         const counts = readUploadCounts(bundle, handshake.limits)
         const limitViolations = uploadLimitViolations(counts, handshake.limits)
         const hardLimitViolations = uploadHardLimitViolations(counts, handshake.limits)
-        const estimatedBatches = estimateChunkedUploadBatches(counts, handshake.limits)
+        const estimatedBatches = estimateMixedChunkedUploadBatches(counts, handshake.limits)
 
         if (options.dryRun) {
           const mode =
