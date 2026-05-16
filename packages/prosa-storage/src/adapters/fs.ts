@@ -105,6 +105,22 @@ export class FsObjectStore implements RemoteObjectStore {
     return Readable.toWeb(createReadStream(absolute)) as ReadableStream<Uint8Array>
   }
 
+  async getRange(key: string, offset: number, length: number): Promise<ReadableStream<Uint8Array>> {
+    const { absolute } = this.resolveKey(key)
+    const file = await stat(absolute)
+    assertValidRange(key, file.size, offset, length)
+    if (length === 0) {
+      return new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.close()
+        },
+      })
+    }
+    return Readable.toWeb(
+      createReadStream(absolute, { start: offset, end: offset + length - 1 }),
+    ) as ReadableStream<Uint8Array>
+  }
+
   async delete(key: string): Promise<void> {
     const { absolute, metaPath } = this.resolveKey(key)
     const release = await acquireFileLock(`${absolute}.lock`)
@@ -117,37 +133,11 @@ export class FsObjectStore implements RemoteObjectStore {
   }
 }
 
-async function readExisting(absolute: string, metaPath: string): Promise<ObjectMeta | null> {
-  try {
-    await stat(absolute)
-    const text = await readFile(metaPath, 'utf8')
-    return JSON.parse(text) as ObjectMeta
-  } catch (err) {
-    if (errorCode(err) === 'ENOENT') return null
-    throw err
+function assertValidRange(key: string, total: number, offset: number, length: number): void {
+  if (!Number.isSafeInteger(offset) || !Number.isSafeInteger(length) || offset < 0 || length < 0) {
+    throw new Error(`FsObjectStore.getRange: invalid range for ${key}`)
   }
-}
-
-async function acquireFileLock(lockPath: string): Promise<() => Promise<void>> {
-  await mkdir(dirname(lockPath), { recursive: true })
-  for (;;) {
-    try {
-      const handle = await open(lockPath, 'wx')
-      return async () => {
-        await handle.close()
-        await rm(lockPath, { force: true })
-      }
-    } catch (err) {
-      if (errorCode(err) !== 'EEXIST') throw err
-      await sleep(LOCK_RETRY_MS)
-    }
+  if (offset + length > total) {
+    throw new Error(`FsObjectStore.getRange: range exceeds object length for ${key}`)
   }
-}
-
-function errorCode(err: unknown): string | undefined {
-  return (err as { code?: string }).code
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
 }

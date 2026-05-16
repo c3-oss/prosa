@@ -153,6 +153,17 @@ export async function commitUpload(ctx: SyncHandlerContext, input: CommitUploadI
   })
 
   let committedObjects = 0
+  for (const obj of objects) {
+    const storageKey = storageKeyForObject(obj)
+    await requireStoredObject({
+      rawExec: ctx.rawExec,
+      objectStore: ctx.objectStore,
+      object: obj,
+      storageKey,
+      tenantId: ctx.tenantId,
+    })
+  }
+
   let commitStarted = false
   try {
     await ctx.transaction(async (tx) => {

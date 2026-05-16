@@ -225,6 +225,22 @@ describe('S3ObjectStore', () => {
     await expect(store.get('missing-body')).rejects.toThrow(/empty response body/)
   })
 
+  it('reads byte ranges with an S3 Range header', async () => {
+    const client = new FakeS3Client()
+    const store = new S3ObjectStore({ bucket: 'bucket', client: client as unknown as S3Client })
+    client.nextGet = { Body: Readable.from([Buffer.from([2, 3, 4])]) }
+
+    expect(Array.from(await consume(await store.getRange('objects/pack', 2, 3)))).toEqual([2, 3, 4])
+
+    const command = client.commands.at(-1) as GetObjectCommand
+    expect(command).toBeInstanceOf(GetObjectCommand)
+    expect(command.input).toMatchObject({
+      Bucket: 'bucket',
+      Key: 'objects/pack',
+      Range: 'bytes=2-4',
+    })
+  })
+
   it('deletes the configured bucket/key pair', async () => {
     const client = new FakeS3Client()
     const store = new S3ObjectStore({ bucket: 'bucket', client: client as unknown as S3Client })

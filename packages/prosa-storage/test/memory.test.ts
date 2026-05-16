@@ -61,6 +61,9 @@ describe('MemoryObjectStore', () => {
     const stream = await store.get(key)
     const out = await consume(stream)
     expect(Array.from(out)).toEqual([1, 2, 3, 4, 5])
+
+    const range = await consume(await store.getRange(key, 1, 3))
+    expect(Array.from(range)).toEqual([2, 3, 4])
   })
 
   it('treats repeat putIfAbsent with matching metadata as a no-op', async () => {

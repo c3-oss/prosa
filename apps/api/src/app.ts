@@ -148,6 +148,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   await registerObjectRoutes(app, {
     auth: opts.auth,
     rawExec: opts.rawExec,
+    transaction: opts.transaction,
     objectStore: opts.objectStore,
   })
 

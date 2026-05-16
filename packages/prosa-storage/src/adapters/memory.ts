@@ -38,6 +38,13 @@ export class MemoryObjectStore implements RemoteObjectStore {
     return uint8ArrayToWebStream(entry.bytes)
   }
 
+  async getRange(key: string, offset: number, length: number): Promise<ReadableStream<Uint8Array>> {
+    const entry = this.entries.get(key)
+    if (!entry) throw new Error(`MemoryObjectStore.getRange: object not found at ${key}`)
+    assertValidRange(key, entry.bytes.byteLength, offset, length)
+    return uint8ArrayToWebStream(entry.bytes.slice(offset, offset + length))
+  }
+
   async delete(key: string): Promise<void> {
     this.entries.delete(key)
   }
@@ -85,5 +92,14 @@ export class MemoryObjectStore implements RemoteObjectStore {
         this.locks.delete(key)
       }
     }
+  }
+}
+
+function assertValidRange(key: string, total: number, offset: number, length: number): void {
+  if (!Number.isSafeInteger(offset) || !Number.isSafeInteger(length) || offset < 0 || length < 0) {
+    throw new Error(`MemoryObjectStore.getRange: invalid range for ${key}`)
+  }
+  if (offset + length > total) {
+    throw new Error(`MemoryObjectStore.getRange: range exceeds object length for ${key}`)
   }
 }

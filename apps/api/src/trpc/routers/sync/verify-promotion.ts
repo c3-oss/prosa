@@ -1,5 +1,6 @@
 import type { PromotionReceipt, VerifyPromotionInput, VerifyPromotionOutput } from '@c3-oss/prosa-sync'
 import type { RawExec } from '../../../db.js'
+import { hasMaterializedObject } from '../../../objects/locations.js'
 import { TRPCError } from '../../init.js'
 import type { VerificationBatchRow } from './batches.js'
 import {
@@ -119,14 +120,21 @@ async function verifyObjectManifest(opts: {
   const foundObjectIds = new Set(foundRows.map((row) => row.object_id))
   const headResults = await mapWithConcurrency(opts.objectManifest, objectStoreIoConcurrency, async (row) => {
     const object = objectFromManifestRow(row)
-    return {
-      objectId: row.object_id,
-      matches: objectStoreHeadMatches(await opts.objectStore.head(row.storage_key), object),
-    }
-  })
-  const matchingHeads = new Set(headResults.filter((result) => result.matches).map((result) => result.objectId))
-  for (const row of opts.objectManifest) {
-    if (!foundObjectIds.has(row.object_id) || !matchingHeads.has(row.object_id)) {
+    const found = await opts.rawExec<{ object_id: string }>(
+      'SELECT object_id FROM "tenant_object" WHERE tenant_id = $1 AND object_id = $2 LIMIT 1',
+      [opts.tenantId, row.object_id],
+    )
+    if (
+      !found[0] ||
+      !(await hasMaterializedObject({
+        rawExec: opts.rawExec,
+        objectStore: opts.objectStore,
+        object,
+        legacyStorageKey: row.storage_key,
+        tenantId: opts.tenantId,
+        verifyBytes: true,
+      }))
+    ) {
       throw new TRPCError({
         code: 'PRECONDITION_FAILED',
         message: `Promotion verification failed: object ${row.object_id} is missing or mismatched`,

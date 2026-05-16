@@ -82,7 +82,7 @@ export async function planUpload(ctx: SyncHandlerContext, input: PlanUploadInput
     rawExec: ctx.rawExec,
     objectStore: ctx.objectStore,
     objects,
-    remoteCatalog,
+    tenantId: ctx.tenantId,
   })
   await ctx.rawExec(
     'UPDATE "sync_batch" SET plan_missing_count = $1, updated_at = now() WHERE id = $2 AND tenant_id = $3',

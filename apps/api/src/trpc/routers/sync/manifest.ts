@@ -8,6 +8,7 @@ import {
 } from '@c3-oss/prosa-storage'
 import type { ObjectManifestEntry } from '@c3-oss/prosa-sync'
 import type { RawExec } from '../../../db.js'
+import { hasMaterializedObject } from '../../../objects/locations.js'
 import { TRPCError } from '../../init.js'
 
 /**
@@ -223,7 +224,7 @@ export async function assertRemoteObjectCatalog(opts: {
     compression: string
     uncompressed_size: string | number
     compressed_size: string | number
-    storage_key: string
+    storage_key: string | null
   }>(
     `SELECT hash, hash_algorithm, compression, uncompressed_size, compressed_size, storage_key
        FROM "remote_object" WHERE object_id = $1 LIMIT 1`,
@@ -237,7 +238,7 @@ export async function assertRemoteObjectCatalog(opts: {
     row.compression !== opts.object.compression ||
     Number(row.uncompressed_size) !== opts.object.uncompressedSize ||
     Number(row.compressed_size) !== opts.object.compressedSize ||
-    row.storage_key !== opts.storageKey
+    (row.storage_key != null && row.storage_key !== opts.storageKey)
   ) {
     throw new TRPCError({ code: 'CONFLICT', message: `Conflicting remote object metadata for ${opts.object.objectId}` })
   }
@@ -303,36 +304,52 @@ export function objectStoreHeadMatches(head: ObjectMeta | null, object: ObjectMa
 }
 
 export async function requireStoredObject(opts: {
+  rawExec: RawExec
   objectStore: RemoteObjectStore
   object: ObjectManifestEntry
   storageKey: string
+  tenantId: string
 }): Promise<void> {
-  const head = await opts.objectStore.head(opts.storageKey)
-  if (!objectStoreHeadMatches(head, opts.object)) {
-    throw new TRPCError({
-      code: 'PRECONDITION_FAILED',
-      message: `Object bytes are missing or mismatched for ${opts.object.objectId}`,
+  if (
+    await hasMaterializedObject({
+      rawExec: opts.rawExec,
+      objectStore: opts.objectStore,
+      object: opts.object,
+      legacyStorageKey: opts.storageKey,
+      tenantId: opts.tenantId,
+      verifyBytes: true,
     })
+  ) {
+    return
   }
+  throw new TRPCError({
+    code: 'PRECONDITION_FAILED',
+    message: `Object bytes are missing or mismatched for ${opts.object.objectId}`,
+  })
 }
 
 export async function findMissingObjectIds(opts: {
   rawExec: RawExec
   objectStore: RemoteObjectStore
   objects: ObjectManifestEntry[]
-  remoteCatalog?: Map<string, RemoteObjectCatalogRow>
+  tenantId: string
 }): Promise<string[]> {
-  const catalog =
-    opts.remoteCatalog ?? (await assertRemoteObjectCatalogs({ rawExec: opts.rawExec, objects: opts.objects }))
-  const catalogedObjects = opts.objects.filter((object) => catalog.has(object.objectId))
-  const headResults = await mapWithConcurrency(catalogedObjects, objectStoreIoConcurrency, async (object) => ({
-    objectId: object.objectId,
-    matches: objectStoreHeadMatches(await opts.objectStore.head(storageKeyForObject(object)), object),
-  }))
-  const matchingHeads = new Set(headResults.filter((result) => result.matches).map((result) => result.objectId))
-  return opts.objects
-    .filter((object) => !catalog.has(object.objectId) || !matchingHeads.has(object.objectId))
-    .map((object) => object.objectId)
+  const missing: string[] = []
+  for (const obj of opts.objects) {
+    const storageKey = storageKeyForObject(obj)
+    if (
+      !(await hasMaterializedObject({
+        rawExec: opts.rawExec,
+        objectStore: opts.objectStore,
+        object: obj,
+        legacyStorageKey: storageKey,
+        tenantId: opts.tenantId,
+      }))
+    ) {
+      missing.push(obj.objectId)
+    }
+  }
+  return missing
 }
 
 export async function loadObjectManifest(
