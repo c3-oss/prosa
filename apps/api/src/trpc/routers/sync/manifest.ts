@@ -320,8 +320,10 @@ export async function findMissingObjectIds(opts: {
   rawExec: RawExec
   objectStore: RemoteObjectStore
   objects: ObjectManifestEntry[]
+  remoteCatalog?: Map<string, RemoteObjectCatalogRow>
 }): Promise<string[]> {
-  const catalog = await assertRemoteObjectCatalogs({ rawExec: opts.rawExec, objects: opts.objects })
+  const catalog =
+    opts.remoteCatalog ?? (await assertRemoteObjectCatalogs({ rawExec: opts.rawExec, objects: opts.objects }))
   const catalogedObjects = opts.objects.filter((object) => catalog.has(object.objectId))
   const headResults = await mapWithConcurrency(catalogedObjects, objectStoreIoConcurrency, async (object) => ({
     objectId: object.objectId,

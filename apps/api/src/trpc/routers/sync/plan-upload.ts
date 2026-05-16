@@ -3,6 +3,7 @@ import type { PlanUploadInput, PlanUploadOutput } from '@c3-oss/prosa-sync'
 import { TRPCError } from '../../init.js'
 import { requireDeviceAccess } from './batches.js'
 import {
+  type RemoteObjectCatalogRow,
   assertRemoteObjectCatalogs,
   assertUniqueObjectIds,
   findMissingObjectIds,
@@ -68,18 +69,20 @@ export async function planUpload(ctx: SyncHandlerContext, input: PlanUploadInput
   const objects = input.objects.map(validateObjectManifest)
   assertUniqueObjectIds(objects)
   const batchId = `batch_${randomUUID()}`
+  let remoteCatalog = new Map<string, RemoteObjectCatalogRow>()
   await ctx.transaction(async (tx) => {
     await tx(
       'INSERT INTO "sync_batch"(id, tenant_id, device_id, user_id, store_path, status, object_count) VALUES ($1, $2, $3, $4, $5, $6, $7)',
       [batchId, ctx.tenantId, input.deviceId, ctx.user.id, input.storePath, 'open', objects.length],
     )
-    await assertRemoteObjectCatalogs({ rawExec: tx, objects })
+    remoteCatalog = await assertRemoteObjectCatalogs({ rawExec: tx, objects })
     await insertObjectManifestBulk({ rawExec: tx, tenantId: ctx.tenantId, batchId, objects })
   })
   const missingObjectIds = await findMissingObjectIds({
     rawExec: ctx.rawExec,
     objectStore: ctx.objectStore,
     objects,
+    remoteCatalog,
   })
   return { batchId, missingObjectIds, uploadUrlTemplate: '/objects/:objectId' }
 }
