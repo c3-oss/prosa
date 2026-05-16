@@ -170,7 +170,7 @@ function parseJsonOutput(result: CommandResult): SyncRunResult {
 }
 
 function prosaArgs(args: string[]): string[] {
-  return ['--filter', '@c3-oss/prosa', 'dev', '--', ...args]
+  return ['--silent', '--filter', '@c3-oss/prosa', 'dev', '--', ...args]
 }
 
 async function runSync(args: string[], env: NodeJS.ProcessEnv): Promise<SyncRunResult> {
