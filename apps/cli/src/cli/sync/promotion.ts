@@ -2,7 +2,7 @@ import { rm } from 'node:fs/promises'
 import path from 'node:path'
 import type { PromotionReceipt } from '@c3-oss/prosa-sync'
 import type { ProsaApiClient } from '../auth/client.js'
-import type { LocalBundleUpload } from './bundle.js'
+import type { LocalBundleUpload, LocalCasObject } from './bundle.js'
 
 export type SyncPromotionResult = {
   batchId: string
@@ -17,7 +17,116 @@ type PromoteUploadOptions = {
   deviceId: string
   storePath: string
   upload: LocalBundleUpload
+  maxObjectPackBytes?: number
   verbose?: boolean
+}
+
+export type MissingObjectUploadStats = {
+  packedObjectCount: number
+  packCount: number
+  putObjectCount: number
+}
+
+const BLAKE3_HEX_RE = /^[0-9a-f]{64}$/i
+const OBJECT_PACK_ENTRY_LIMIT = 1024
+const DEFAULT_OBJECT_PACK_MAX_BYTES = 8 * 1024 * 1024
+
+function isSafePackObject({ entry, bytes }: LocalCasObject, maxObjectPackBytes: number): boolean {
+  const hash = entry.hash.toLowerCase()
+  const transportHash = (entry.transportHash ?? entry.hash).toLowerCase()
+  return (
+    entry.hashAlgorithm === 'blake3' &&
+    BLAKE3_HEX_RE.test(hash) &&
+    BLAKE3_HEX_RE.test(transportHash) &&
+    entry.objectId === `blake3:${hash}` &&
+    (entry.compression === 'zstd' || entry.compression === 'none') &&
+    Number.isSafeInteger(entry.compressedSize) &&
+    Number.isSafeInteger(entry.uncompressedSize) &&
+    entry.compressedSize >= 0 &&
+    entry.uncompressedSize >= 0 &&
+    entry.compressedSize === bytes.byteLength &&
+    entry.compressedSize <= maxObjectPackBytes &&
+    entry.uncompressedSize <= maxObjectPackBytes
+  )
+}
+
+export function splitMissingObjectUploads(
+  missingObjects: LocalCasObject[],
+  maxObjectPackBytes: number = DEFAULT_OBJECT_PACK_MAX_BYTES,
+): { packs: LocalCasObject[][]; putObjects: LocalCasObject[] } {
+  const packs: LocalCasObject[][] = []
+  const putObjects: LocalCasObject[] = []
+  let current: LocalCasObject[] = []
+  let currentCompressedSize = 0
+  let currentUncompressedSize = 0
+
+  for (const object of missingObjects) {
+    if (!isSafePackObject(object, maxObjectPackBytes)) {
+      putObjects.push(object)
+      continue
+    }
+
+    const nextCompressedSize = currentCompressedSize + object.entry.compressedSize
+    const nextUncompressedSize = currentUncompressedSize + object.entry.uncompressedSize
+    if (
+      current.length >= OBJECT_PACK_ENTRY_LIMIT ||
+      nextCompressedSize > maxObjectPackBytes ||
+      nextUncompressedSize > maxObjectPackBytes
+    ) {
+      if (current.length > 0) packs.push(current)
+      current = []
+      currentCompressedSize = 0
+      currentUncompressedSize = 0
+    }
+
+    current.push(object)
+    currentCompressedSize += object.entry.compressedSize
+    currentUncompressedSize += object.entry.uncompressedSize
+  }
+
+  if (current.length > 0) packs.push(current)
+  return { packs, putObjects }
+}
+
+async function uploadObjectPut(client: ProsaApiClient, batchId: string, { entry: obj, bytes }: LocalCasObject) {
+  await client.uploadObjectBytes({
+    batchId,
+    objectId: obj.objectId,
+    hash: obj.hash,
+    ...(obj.transportHash ? { transportHash: obj.transportHash } : {}),
+    compression: obj.compression,
+    compressedSize: obj.compressedSize,
+    uncompressedSize: obj.uncompressedSize,
+    bytes,
+  })
+}
+
+export async function uploadMissingCasObjects({
+  client,
+  batchId,
+  missingObjects,
+  maxObjectPackBytes = DEFAULT_OBJECT_PACK_MAX_BYTES,
+}: {
+  client: ProsaApiClient
+  batchId: string
+  missingObjects: LocalCasObject[]
+  maxObjectPackBytes?: number
+}): Promise<MissingObjectUploadStats> {
+  const { packs, putObjects } = splitMissingObjectUploads(missingObjects, maxObjectPackBytes)
+  for (const pack of packs) {
+    await client.uploadObjectPack({
+      batchId,
+      objects: pack.map(({ entry, bytes }) => ({ ...entry, bytes })),
+    })
+  }
+  for (const object of putObjects) {
+    await uploadObjectPut(client, batchId, object)
+  }
+  return {
+    packedObjectCount: packs.reduce((sum, pack) => sum + pack.length, 0),
+    packCount: packs.length,
+    putObjectCount: putObjects.length,
+  }
 }
 
 export async function promoteUpload({
@@ -25,6 +134,7 @@ export async function promoteUpload({
   deviceId,
   storePath,
   upload,
+  maxObjectPackBytes,
   verbose,
 }: PromoteUploadOptions): Promise<SyncPromotionResult> {
   const { casObjects, projection, rawRecords, searchDocs, sessions, sourceFiles, toolCalls, toolResults } = upload
@@ -41,21 +151,17 @@ export async function promoteUpload({
   }
 
   const missingSet = new Set(plan.missingObjectIds)
-  for (const { entry: obj, bytes } of casObjects) {
-    if (!missingSet.has(obj.objectId)) continue
-    await client.uploadObjectBytes({
-      batchId: plan.batchId,
-      objectId: obj.objectId,
-      hash: obj.hash,
-      ...(obj.transportHash ? { transportHash: obj.transportHash } : {}),
-      compression: obj.compression,
-      compressedSize: obj.compressedSize,
-      uncompressedSize: obj.uncompressedSize,
-      bytes,
-    })
-  }
+  const missingObjects = casObjects.filter(({ entry }) => missingSet.has(entry.objectId))
+  const uploadStats = await uploadMissingCasObjects({
+    client,
+    batchId: plan.batchId,
+    missingObjects,
+    ...(maxObjectPackBytes ? { maxObjectPackBytes } : {}),
+  })
   if (verbose && casObjects.length > 0) {
-    process.stdout.write(`uploaded ${missingSet.size} CAS objects\n`)
+    process.stdout.write(
+      `uploaded ${missingSet.size} CAS objects (${uploadStats.packedObjectCount} packed in ${uploadStats.packCount} pack(s), ${uploadStats.putObjectCount} via PUT)\n`,
+    )
   }
 
   const commit = await client.syncCommitUpload({
