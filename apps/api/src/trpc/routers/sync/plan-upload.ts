@@ -84,5 +84,9 @@ export async function planUpload(ctx: SyncHandlerContext, input: PlanUploadInput
     objects,
     remoteCatalog,
   })
+  await ctx.rawExec(
+    'UPDATE "sync_batch" SET plan_missing_count = $1, updated_at = now() WHERE id = $2 AND tenant_id = $3',
+    [missingObjectIds.length, batchId, ctx.tenantId],
+  )
   return { batchId, missingObjectIds, uploadUrlTemplate: '/objects/:objectId' }
 }

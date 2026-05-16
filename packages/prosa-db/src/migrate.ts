@@ -126,6 +126,7 @@ CREATE TABLE IF NOT EXISTS "sync_batch" (
   store_path text NOT NULL,
   status text NOT NULL DEFAULT 'open',
   object_count integer NOT NULL DEFAULT 0,
+  plan_missing_count integer,
   row_count integer NOT NULL DEFAULT 0,
   bytes_uploaded bigint NOT NULL DEFAULT 0,
   error jsonb,
@@ -136,6 +137,7 @@ CREATE TABLE IF NOT EXISTS "sync_batch" (
 );
 CREATE INDEX IF NOT EXISTS sync_batch_tenant_status_idx ON "sync_batch"(tenant_id, status);
 ALTER TABLE "sync_batch" ADD COLUMN IF NOT EXISTS store_path text;
+ALTER TABLE "sync_batch" ADD COLUMN IF NOT EXISTS plan_missing_count integer;
 
 CREATE TABLE IF NOT EXISTS "sync_batch_object_manifest" (
   batch_id text NOT NULL REFERENCES "sync_batch"(id) ON DELETE CASCADE,

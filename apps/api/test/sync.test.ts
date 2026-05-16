@@ -1,4 +1,4 @@
-import { computeHashHex } from '@c3-oss/prosa-storage'
+import { computeHashHex, objectStorageKey } from '@c3-oss/prosa-storage'
 import { describe, expect, it } from 'vitest'
 import { type TestApp, buildTestApp } from './helpers/test-app.js'
 
@@ -213,6 +213,98 @@ describe('sync promotion protocol', () => {
       )
       const body2 = handshake2.json() as { result: { data: { promoted: boolean } } }
       expect(body2.result.data.promoted).toBe(true)
+    } finally {
+      await t.close()
+    }
+  })
+
+  it('trusts a fresh zero-missing plan at commit but still blocks verify if bytes disappear', async () => {
+    const t = await buildTestApp()
+    try {
+      const auth = await signup(t, 'sync-fastpath@example.com')
+      const handshake = await trpc(
+        t,
+        'sync.handshake',
+        {
+          cliVersion: '0.0.0-test',
+          device: { name: 'fastpath-box', platform: 'linux' },
+          store: { path: '/tmp/fastpath', bundleVersion: '1' },
+        },
+        auth.token,
+      )
+      const deviceId = (handshake.json() as { result: { data: { deviceId: string } } }).result.data.deviceId
+      const bytes = Buffer.from('already remote')
+      const hash = computeHashHex(bytes, 'blake3')
+      const objectId = `blake3:${hash}`
+      const object = {
+        objectId,
+        hash,
+        hashAlgorithm: 'blake3' as const,
+        uncompressedSize: bytes.byteLength,
+        compressedSize: bytes.byteLength,
+        compression: 'none' as const,
+      }
+
+      const firstPlan = await trpc(
+        t,
+        'sync.planUpload',
+        { deviceId, storePath: '/tmp/fastpath', objects: [object] },
+        auth.token,
+      )
+      const firstBatchId = (firstPlan.json() as { result: { data: { batchId: string } } }).result.data.batchId
+      const put = await t.app.inject({
+        method: 'PUT',
+        url:
+          `/objects/${objectId}?batchId=${firstBatchId}&hash=${hash}` +
+          `&size=${bytes.byteLength}&uncompressed=${bytes.byteLength}&compression=none`,
+        headers: { authorization: `Bearer ${auth.token}`, 'content-type': 'application/octet-stream' },
+        payload: bytes,
+      })
+      expect([200, 201]).toContain(put.statusCode)
+      const firstCommit = await trpc(
+        t,
+        'sync.commitUpload',
+        { batchId: firstBatchId, deviceId, storePath: '/tmp/fastpath', objects: [object], projection: {} },
+        auth.token,
+      )
+      expect(firstCommit.statusCode).toBe(200)
+
+      const secondPlan = await trpc(
+        t,
+        'sync.planUpload',
+        { deviceId, storePath: '/tmp/fastpath', objects: [object] },
+        auth.token,
+      )
+      const secondPlanBody = secondPlan.json() as { result: { data: { batchId: string; missingObjectIds: string[] } } }
+      expect(secondPlanBody.result.data.missingObjectIds).toEqual([])
+      await t.objectStore.delete(objectStorageKey({ hash, compression: 'none' }))
+
+      const secondCommit = await trpc(
+        t,
+        'sync.commitUpload',
+        {
+          batchId: secondPlanBody.result.data.batchId,
+          deviceId,
+          storePath: '/tmp/fastpath',
+          objects: [object],
+          projection: {},
+        },
+        auth.token,
+      )
+      expect(secondCommit.statusCode).toBe(200)
+
+      const verify = await trpc(
+        t,
+        'sync.verifyPromotion',
+        {
+          batchId: secondPlanBody.result.data.batchId,
+          storePath: '/tmp/fastpath',
+          declaredObjectIds: [objectId],
+        },
+        auth.token,
+      )
+      expect(verify.statusCode).toBe(412)
+      expect(verify.body).toContain('missing or mismatched')
     } finally {
       await t.close()
     }

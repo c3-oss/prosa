@@ -51,6 +51,7 @@ export const syncBatch = pgTable(
     storePath: text('store_path').notNull(),
     status: text('status').notNull().default('open'),
     objectCount: integer('object_count').notNull().default(0),
+    planMissingCount: integer('plan_missing_count'),
     rowCount: integer('row_count').notNull().default(0),
     bytesUploaded: bigint('bytes_uploaded', { mode: 'bigint' }).notNull().default(0n),
     error: jsonb('error'),
