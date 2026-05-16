@@ -5,6 +5,7 @@ import type {
   CommitUploadOutput,
   HandshakeInput,
   HandshakeOutput,
+  ObjectManifestEntry,
   PlanUploadInput,
   PlanUploadOutput,
   PromotionReceipt,
@@ -24,6 +25,16 @@ export type ProsaApiClientOptions = {
 type TrpcSuccess<T> = { result: { data: T } }
 type TrpcFailure = { error: { message: string; data?: { code?: string } } }
 type PlainHttpResponse = { ok: boolean; status: number; text: string }
+
+export type ObjectPackUploadEntry = ObjectManifestEntry & {
+  bytes: Uint8Array
+}
+
+export type ObjectPackUploadOutput = {
+  blobId: string
+  objectIds: string[]
+  alreadyExisted: boolean
+}
 
 const OBJECT_UPLOAD_MAX_ATTEMPTS = 4
 const OBJECT_UPLOAD_BASE_BACKOFF_MS = 250
@@ -403,6 +414,55 @@ export class ProsaApiClient {
     }
     const parsed = JSON.parse(text) as { alreadyExisted: boolean }
     return { alreadyExisted: Boolean(parsed.alreadyExisted) }
+  }
+
+  async uploadObjectPack(input: {
+    batchId: string
+    objects: ObjectPackUploadEntry[]
+  }): Promise<ObjectPackUploadOutput> {
+    const url = new URL(`${this.baseUrl}/object-packs`)
+    url.searchParams.set('batchId', input.batchId)
+
+    let offset = 0
+    const buffers: Buffer[] = []
+    const entries = input.objects.map((object) => {
+      const bytes = Buffer.from(object.bytes.buffer, object.bytes.byteOffset, object.bytes.byteLength)
+      buffers.push(bytes)
+      const length = bytes.byteLength
+      const entry = {
+        objectId: object.objectId,
+        hash: object.hash,
+        hashAlgorithm: object.hashAlgorithm,
+        ...(object.transportHash ? { transportHash: object.transportHash } : {}),
+        compression: object.compression,
+        compressedSize: object.compressedSize,
+        uncompressedSize: object.uncompressedSize,
+        ...(object.contentType ? { contentType: object.contentType } : {}),
+        offset,
+        length,
+      }
+      offset += length
+      return entry
+    })
+
+    const response = await this.fetchFn(url.toString(), {
+      method: 'POST',
+      headers: this.headers({ 'content-type': 'application/json' }),
+      body: JSON.stringify({
+        bytesBase64: Buffer.concat(buffers, offset).toString('base64'),
+        entries,
+      }),
+    })
+    const text = await response.text()
+    if (response.status >= 400) {
+      throw new CliUserError(`object pack upload failed: ${response.status} ${text}`)
+    }
+    const parsed = JSON.parse(text) as ObjectPackUploadOutput
+    return {
+      blobId: parsed.blobId,
+      objectIds: Array.isArray(parsed.objectIds) ? parsed.objectIds : [],
+      alreadyExisted: Boolean(parsed.alreadyExisted),
+    }
   }
 
   // ---- reads ----

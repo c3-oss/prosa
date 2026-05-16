@@ -39,7 +39,128 @@ type PromoteUploadOptions = {
   storePath: string
   upload: LocalBundleUpload
   objectConcurrency: number
+  maxObjectPackBytes?: number
   verbose?: boolean
+}
+
+type PackableCasObject = LocalCasObject & { bytes: Uint8Array }
+
+export type MissingObjectUploadStats = {
+  packedObjectCount: number
+  packCount: number
+  putObjectCount: number
+}
+
+const BLAKE3_HEX_RE = /^[0-9a-f]{64}$/i
+const OBJECT_PACK_ENTRY_LIMIT = 1024
+const DEFAULT_OBJECT_PACK_MAX_BYTES = 8 * 1024 * 1024
+
+function hasObjectBytes(object: LocalCasObject): object is PackableCasObject {
+  return object.bytes instanceof Uint8Array
+}
+
+function isSafePackObject(object: LocalCasObject, maxObjectPackBytes: number): object is PackableCasObject {
+  if (!hasObjectBytes(object)) return false
+  const { entry, bytes } = object
+  const hash = entry.hash.toLowerCase()
+  const transportHash = (entry.transportHash ?? entry.hash).toLowerCase()
+  return (
+    entry.hashAlgorithm === 'blake3' &&
+    BLAKE3_HEX_RE.test(hash) &&
+    BLAKE3_HEX_RE.test(transportHash) &&
+    entry.objectId === `blake3:${hash}` &&
+    (entry.compression === 'zstd' || entry.compression === 'none') &&
+    Number.isSafeInteger(entry.compressedSize) &&
+    Number.isSafeInteger(entry.uncompressedSize) &&
+    entry.compressedSize >= 0 &&
+    entry.uncompressedSize >= 0 &&
+    entry.compressedSize === bytes.byteLength &&
+    entry.compressedSize <= maxObjectPackBytes &&
+    entry.uncompressedSize <= maxObjectPackBytes
+  )
+}
+
+export function splitMissingObjectUploads(
+  missingObjects: LocalCasObject[],
+  maxObjectPackBytes: number = DEFAULT_OBJECT_PACK_MAX_BYTES,
+): { packs: PackableCasObject[][]; putObjects: LocalCasObject[] } {
+  const packs: PackableCasObject[][] = []
+  const putObjects: LocalCasObject[] = []
+  let current: PackableCasObject[] = []
+  let currentCompressedSize = 0
+  let currentUncompressedSize = 0
+
+  for (const object of missingObjects) {
+    if (!isSafePackObject(object, maxObjectPackBytes)) {
+      putObjects.push(object)
+      continue
+    }
+
+    const nextCompressedSize = currentCompressedSize + object.entry.compressedSize
+    const nextUncompressedSize = currentUncompressedSize + object.entry.uncompressedSize
+    if (
+      current.length >= OBJECT_PACK_ENTRY_LIMIT ||
+      nextCompressedSize > maxObjectPackBytes ||
+      nextUncompressedSize > maxObjectPackBytes
+    ) {
+      if (current.length > 0) packs.push(current)
+      current = []
+      currentCompressedSize = 0
+      currentUncompressedSize = 0
+    }
+
+    current.push(object)
+    currentCompressedSize += object.entry.compressedSize
+    currentUncompressedSize += object.entry.uncompressedSize
+  }
+
+  if (current.length > 0) packs.push(current)
+  return { packs, putObjects }
+}
+
+async function uploadObjectPut(client: ProsaApiClient, batchId: string, object: LocalCasObject) {
+  if (!object.bytes) throw new Error(`missing local bytes for ${object.entry.objectId}`)
+  const { entry: obj, bytes } = object
+  await client.uploadObjectBytes({
+    batchId,
+    objectId: obj.objectId,
+    hash: obj.hash,
+    ...(obj.transportHash ? { transportHash: obj.transportHash } : {}),
+    compression: obj.compression,
+    compressedSize: obj.compressedSize,
+    uncompressedSize: obj.uncompressedSize,
+    bytes,
+  })
+}
+
+export async function uploadMissingCasObjects({
+  client,
+  batchId,
+  missingObjects,
+  objectConcurrency,
+  maxObjectPackBytes = DEFAULT_OBJECT_PACK_MAX_BYTES,
+}: {
+  client: ProsaApiClient
+  batchId: string
+  missingObjects: LocalCasObject[]
+  objectConcurrency: number
+  maxObjectPackBytes?: number
+}): Promise<MissingObjectUploadStats> {
+  const { packs, putObjects } = splitMissingObjectUploads(missingObjects, maxObjectPackBytes)
+  await mapConcurrent(packs, objectConcurrency, async (pack) => {
+    await client.uploadObjectPack({
+      batchId,
+      objects: pack.map(({ entry, bytes }) => ({ ...entry, bytes })),
+    })
+  })
+  await mapConcurrent(putObjects, objectConcurrency, async (object) => {
+    await uploadObjectPut(client, batchId, object)
+  })
+  return {
+    packedObjectCount: packs.reduce((sum, pack) => sum + pack.length, 0),
+    packCount: packs.length,
+    putObjectCount: putObjects.length,
+  }
 }
 
 export function emptySyncMetrics(objectConcurrency: number): SyncMetrics {
@@ -100,6 +221,7 @@ export async function promoteUpload({
   deviceId,
   storePath,
   upload,
+  maxObjectPackBytes,
   objectConcurrency,
   verbose,
 }: PromoteUploadOptions): Promise<SyncPromotionResult> {
@@ -131,26 +253,23 @@ export async function promoteUpload({
   const missingSet = new Set(plan.missingObjectIds)
   const missingObjects = casObjects.filter(({ entry }) => missingSet.has(entry.objectId))
   const uploadStart = Date.now()
-  await mapConcurrent(missingObjects, objectConcurrency, async (object) => {
-    const { entry: obj } = object
+  const preparedMissingObjects = await mapConcurrent(missingObjects, objectConcurrency, async (object) => {
     const bytes = await bytesForUpload(storePath, object, metrics)
-    await client.uploadObjectBytes({
-      batchId: plan.batchId,
-      objectId: obj.objectId,
-      hash: obj.hash,
-      ...(obj.transportHash ? { transportHash: obj.transportHash } : {}),
-      compression: obj.compression,
-      compressedSize: obj.compressedSize,
-      uncompressedSize: obj.uncompressedSize,
-      bytes,
-    })
-    metrics.bytesUploaded += bytes.byteLength
-    metrics.objectsUploaded += 1
+    return { ...object, bytes }
   })
+  const uploadStats = await uploadMissingCasObjects({
+    client,
+    batchId: plan.batchId,
+    missingObjects: preparedMissingObjects,
+    objectConcurrency,
+    ...(maxObjectPackBytes ? { maxObjectPackBytes } : {}),
+  })
+  metrics.bytesUploaded += preparedMissingObjects.reduce((sum, object) => sum + object.bytes.byteLength, 0)
+  metrics.objectsUploaded += uploadStats.packedObjectCount + uploadStats.putObjectCount
   metrics.uploadMs += Date.now() - uploadStart
   if (verbose && casObjects.length > 0) {
     process.stderr.write(
-      `uploaded ${missingSet.size} CAS objects bytes=${metrics.bytesUploaded} uploadMs=${metrics.uploadMs}\n`,
+      `uploaded ${missingSet.size} CAS objects bytes=${metrics.bytesUploaded} uploadMs=${metrics.uploadMs} packs=${uploadStats.packCount} packedObjects=${uploadStats.packedObjectCount} putObjects=${uploadStats.putObjectCount}\n`,
     )
   }
 

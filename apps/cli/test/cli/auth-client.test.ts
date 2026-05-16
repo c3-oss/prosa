@@ -91,6 +91,71 @@ describe('ProsaApiClient request shaping', () => {
     await expect(client.listTenants()).rejects.toThrow(/forbidden/)
   })
 
+  it('posts packed object bytes with ranges and auth headers', async () => {
+    const captured: Array<{ url: string; init: RequestInit | undefined }> = []
+    const fakeFetch = async (url: string | URL | Request, init?: RequestInit) => {
+      captured.push({ url: String(url), init })
+      return new Response(
+        JSON.stringify({ blobId: 'object-pack:t:batch:hash', objectIds: ['blake3:a'], alreadyExisted: false }),
+        {
+          status: 201,
+          headers: { 'content-type': 'application/json' },
+        },
+      )
+    }
+    const client = new ProsaApiClient({
+      baseUrl: 'http://example/',
+      token: 'xyz',
+      tenantId: 't-123',
+      fetch: fakeFetch as typeof fetch,
+    })
+
+    await client.uploadObjectPack({
+      batchId: 'batch-1',
+      objects: [
+        {
+          objectId: `blake3:${'a'.repeat(64)}`,
+          hash: 'a'.repeat(64),
+          hashAlgorithm: 'blake3',
+          compression: 'none',
+          compressedSize: 2,
+          uncompressedSize: 2,
+          transportHash: 'a'.repeat(64),
+          contentType: 'text/plain',
+          bytes: new Uint8Array([1, 2]),
+        },
+        {
+          objectId: `blake3:${'b'.repeat(64)}`,
+          hash: 'b'.repeat(64),
+          hashAlgorithm: 'blake3',
+          compression: 'none',
+          compressedSize: 3,
+          uncompressedSize: 3,
+          transportHash: 'b'.repeat(64),
+          bytes: new Uint8Array([3, 4, 5]),
+        },
+      ],
+    })
+
+    expect(captured).toHaveLength(1)
+    const recorded = captured[0]!
+    expect(recorded.url).toBe('http://example/object-packs?batchId=batch-1')
+    const headers = recorded.init?.headers as Record<string, string>
+    expect(headers.authorization).toBe('Bearer xyz')
+    expect(headers['x-prosa-tenant-id']).toBe('t-123')
+    expect(headers['content-type']).toBe('application/json')
+
+    const body = JSON.parse(String(recorded.init?.body)) as {
+      bytesBase64: string
+      entries: Array<{ objectId: string; offset: number; length: number; contentType?: string }>
+    }
+    expect(Buffer.from(body.bytesBase64, 'base64')).toEqual(Buffer.from([1, 2, 3, 4, 5]))
+    expect(body.entries).toMatchObject([
+      { objectId: `blake3:${'a'.repeat(64)}`, offset: 0, length: 2, contentType: 'text/plain' },
+      { objectId: `blake3:${'b'.repeat(64)}`, offset: 2, length: 3 },
+    ])
+  })
+
   it('retries object PUTs on retryable HTTP status using Retry-After', async () => {
     const calls: string[] = []
     const fakeFetch = async (url: string | URL | Request) => {
