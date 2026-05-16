@@ -39,6 +39,9 @@ export const eventCursorPageInput = z.object({
   limit: z.number().int().min(1).max(250).default(100),
 })
 
+// Mirrors `SOURCE_TOOLS` in @c3-oss/prosa-core. Kept hand-rolled so the API
+// build does not have to pull the importers' native dependencies just to
+// type-check this enum. New entries must be added in both places.
 export const sourceKindEnum = z.enum(['codex', 'claude', 'gemini', 'cursor', 'hermes'])
 
 export const timeRangeFilter = z.object({

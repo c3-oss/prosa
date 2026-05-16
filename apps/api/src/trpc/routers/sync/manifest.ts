@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import type { RemoteObjectStore } from '@c3-oss/prosa-storage'
+import { BLAKE3_HEX_RE, type RemoteObjectStore, canonicalObjectId, objectStorageKey } from '@c3-oss/prosa-storage'
 import type { ObjectManifestEntry } from '@c3-oss/prosa-sync'
 import type { RawExec } from '../../../db.js'
 import { TRPCError } from '../../init.js'
@@ -9,8 +9,6 @@ export const syncLimits = {
   maxRowsPerCommit: 10_000,
   maxObjectBytes: 256 * 1024 * 1024,
 }
-
-const BLAKE3_HEX_RE = /^[0-9a-f]{64}$/i
 
 export type BatchObjectManifestRow = {
   object_id: string
@@ -30,13 +28,8 @@ export type ProjectionManifestRow = {
   entity_id: string
 }
 
-function canonicalObjectId(hash: string): string {
-  return `blake3:${hash.toLowerCase()}`
-}
-
 export function storageKeyForObject(obj: ObjectManifestEntry): string {
-  const ext = obj.compression === 'none' ? '.bin' : '.zst'
-  return `objects/blake3/${obj.hash.slice(0, 2)}/${obj.hash.slice(2, 4)}/${obj.hash}${ext}`
+  return objectStorageKey({ hash: obj.hash, compression: obj.compression })
 }
 
 export function validateObjectManifest(obj: ObjectManifestEntry): ObjectManifestEntry {

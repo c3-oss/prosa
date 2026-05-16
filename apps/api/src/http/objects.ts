@@ -1,9 +1,19 @@
 import { Readable } from 'node:stream'
-import { ObjectVerificationError, type PutResult, type RemoteObjectStore, computeHashHex } from '@c3-oss/prosa-storage'
+import {
+  BLAKE3_HEX_RE,
+  type ObjectCompression,
+  ObjectVerificationError,
+  type PutResult,
+  type RemoteObjectStore,
+  canonicalObjectId,
+  computeHashHex,
+  objectStorageKey,
+} from '@c3-oss/prosa-storage'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { DecompressStream } from 'zstd-napi'
 import type { ProsaAuth } from '../auth.js'
 import type { RawExec } from '../db.js'
+import { readFirstHeader, requestToHeaders } from '../shared/http.js'
 import { resolveMembership } from '../trpc/context.js'
 
 export type ObjectRoutesDeps = {
@@ -13,27 +23,8 @@ export type ObjectRoutesDeps = {
   maxObjectBytes?: number
 }
 
-function fastifyHeadersToHeaders(req: FastifyRequest): Headers {
-  const headers = new Headers()
-  for (const [key, value] of Object.entries(req.headers)) {
-    if (value == null) continue
-    if (Array.isArray(value)) {
-      for (const v of value) headers.append(key, String(v))
-    } else {
-      headers.set(key, String(value))
-    }
-  }
-  return headers
-}
-
-function readFirstHeader(req: FastifyRequest, name: string): string | null {
-  const value = req.headers[name]
-  if (Array.isArray(value)) return value[0] ?? null
-  return typeof value === 'string' ? value : null
-}
-
 async function resolveAuth(opts: ObjectRoutesDeps, req: FastifyRequest) {
-  const headers = fastifyHeadersToHeaders(req)
+  const headers = requestToHeaders(req)
   const result = (await opts.auth.api.getSession({ headers })) as {
     session: { id: string; userId: string; activeOrganizationId?: string | null }
     user: { id: string; email: string }
@@ -57,11 +48,9 @@ async function resolveAuth(opts: ObjectRoutesDeps, req: FastifyRequest) {
   return { user: result.user, session: result.session, tenantId: candidate }
 }
 
-const BLAKE3_HEX_RE = /^[0-9a-f]{64}$/i
 export const DEFAULT_OBJECT_ROUTE_MAX_BYTES = 256 * 1024 * 1024
 
 type AuthContext = NonNullable<Awaited<ReturnType<typeof resolveAuth>>>
-type ObjectCompression = 'zstd' | 'none'
 
 type UploadRequest = {
   objectId: string
@@ -116,15 +105,6 @@ function sendObjectRouteError(reply: FastifyReply, err: unknown): { error: strin
   throw err
 }
 
-function canonicalObjectId(hash: string): string {
-  return `blake3:${hash.toLowerCase()}`
-}
-
-function objectStorageKey(hash: string, compression: ObjectCompression): string {
-  const ext = compression === 'zstd' ? '.zst' : '.bin'
-  return `objects/blake3/${hash.slice(0, 2)}/${hash.slice(2, 4)}/${hash}${ext}`
-}
-
 function parseSizeParam(value: string | null, name: string, maxObjectBytes: number): number {
   if (value == null || value.trim() === '') {
     fail(400, `${name} query parameter required`)
@@ -177,7 +157,7 @@ function parseUploadRequest(req: FastifyRequest, maxObjectBytes: number): Upload
     compression,
     compressedSize,
     uncompressedSize,
-    storageKey: objectStorageKey(hash, compression),
+    storageKey: objectStorageKey({ hash, compression }),
   }
 }
 

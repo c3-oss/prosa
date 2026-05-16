@@ -34,6 +34,19 @@ export interface RemoteObjectStore {
   delete(key: string): Promise<void>
 }
 
+export type ObjectCompression = 'zstd' | 'none'
+
+/**
+ * BLAKE3 hex hashes are 32 bytes / 64 hex characters. The regex is anchored
+ * because we use it to validate untrusted client input.
+ */
+export const BLAKE3_HEX_RE = /^[0-9a-f]{64}$/i
+
+/** Build the canonical `blake3:<hash>` object id used in manifests and routes. */
+export function canonicalObjectId(hash: string): string {
+  return `blake3:${hash.toLowerCase()}`
+}
+
 /**
  * Standard fanout for CAS-keyed objects, derived from the BLAKE3 hash. Mirrors
  * the local bundle layout (`objects/blake3/<aa>/<bb>/<hash>.zst`).
@@ -41,6 +54,15 @@ export interface RemoteObjectStore {
 export function casObjectKey(hash: string, prefix: string): string {
   const root = prefix.endsWith('/') ? prefix : `${prefix}/`
   return `${root}objects/blake3/${hash.slice(0, 2)}/${hash.slice(2, 4)}/${hash}.zst`
+}
+
+/**
+ * Server-side variant of {@link casObjectKey}: no prefix and the extension
+ * tracks the compression actually applied (`.zst` for zstd, `.bin` for raw).
+ */
+export function objectStorageKey(opts: { hash: string; compression: ObjectCompression }): string {
+  const ext = opts.compression === 'zstd' ? '.zst' : '.bin'
+  return `objects/blake3/${opts.hash.slice(0, 2)}/${opts.hash.slice(2, 4)}/${opts.hash}${ext}`
 }
 
 export function rawSourceKey(tenantId: string, sourceFileId: string, prefix: string): string {

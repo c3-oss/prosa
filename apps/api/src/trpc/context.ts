@@ -3,6 +3,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify'
 import type { ProsaAuth } from '../auth.js'
 import type { ProsaApiConfig } from '../config.js'
 import type { DatabaseHandle, ProsaDatabase, RawExec } from '../db.js'
+import { readFirstHeader, requestToHeaders } from '../shared/http.js'
 
 export type AuthenticatedUser = {
   id: string
@@ -46,12 +47,6 @@ export type CreateContextDeps = {
   objectStore: RemoteObjectStore
 }
 
-function readFirstHeader(req: FastifyRequest, name: string): string | null {
-  const value = req.headers[name]
-  if (Array.isArray(value)) return value[0] ?? null
-  return typeof value === 'string' ? value : null
-}
-
 function resolveClientIp(req: FastifyRequest): string | null {
   const forwardedFor = readFirstHeader(req, 'x-forwarded-for')
   if (forwardedFor) {
@@ -61,19 +56,6 @@ function resolveClientIp(req: FastifyRequest): string | null {
   const realIp = readFirstHeader(req, 'x-real-ip')
   if (realIp) return realIp
   return req.ip || null
-}
-
-function fastifyRequestToHeaders(req: FastifyRequest): Headers {
-  const headers = new Headers()
-  for (const [key, value] of Object.entries(req.headers)) {
-    if (value == null) continue
-    if (Array.isArray(value)) {
-      for (const v of value) headers.append(key, String(v))
-    } else {
-      headers.set(key, String(value))
-    }
-  }
-  return headers
 }
 
 function normalizeRole(raw: string | null | undefined): MemberRole | null {
@@ -115,7 +97,7 @@ export function buildCreateContext(deps: CreateContextDeps) {
     let resolvedTenant: string | null = null
 
     try {
-      const result = (await auth.api.getSession({ headers: fastifyRequestToHeaders(opts.req) })) as {
+      const result = (await auth.api.getSession({ headers: requestToHeaders(opts.req) })) as {
         session: { id: string; userId: string; activeOrganizationId?: string | null; expiresAt?: Date | string }
         user: { id: string; email: string; name: string }
       } | null

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { headersFromTrpcCtx } from '../../shared/http.js'
 import {
   TRPCError,
   adminTenantProcedure,
@@ -64,19 +65,6 @@ function tenantUserRateLimitKey(ctx: {
   clientIp: string | null
 }): string {
   return `${ctx.tenantId ?? 'no-tenant'}:${ctx.user?.id ?? clientIpRateLimitKey(ctx)}`
-}
-
-function requestHeadersFromContext(ctx: { req: { headers: Record<string, string | string[] | undefined> } }): Headers {
-  const headers = new Headers()
-  for (const [key, value] of Object.entries(ctx.req.headers)) {
-    if (value == null) continue
-    if (Array.isArray(value)) {
-      for (const v of value) headers.append(key, String(v))
-    } else {
-      headers.set(key, String(value))
-    }
-  }
-  return headers
 }
 
 type MemberOrgRow = {
@@ -238,7 +226,7 @@ export const authRouter = router({
     .mutation(async ({ ctx, input }) => {
       const created = (await ctx.auth.api.createInvitation({
         body: { email: input.email, role: input.role, organizationId: ctx.tenantId },
-        headers: requestHeadersFromContext(ctx),
+        headers: headersFromTrpcCtx(ctx),
       })) as { id: string; email: string; role: string; status: string } | null
       if (!created) {
         throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'invite failed' })

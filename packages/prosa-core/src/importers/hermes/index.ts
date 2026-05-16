@@ -21,7 +21,7 @@ import {
   toolCallId as makeToolCallId,
   toolResultId as makeToolResultId,
 } from '../../core/domain/ids.js'
-import { normalizeToolCallStatus } from '../../core/domain/status.js'
+import { normalizeSessionStatus, normalizeToolCallStatus } from '../../core/domain/status.js'
 import type { MessageRole, ToolCallStatus } from '../../core/domain/types.js'
 import { getErrorMessage } from '../../core/errors.js'
 import {
@@ -1224,16 +1224,6 @@ function coerceTimestamp(value: string | number | null | undefined): string | nu
   if (typeof value === 'number') return unixToIso(value)
   const parsed = Date.parse(value)
   return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null
-}
-
-function normalizeSessionStatus(status: string | null): string | null {
-  if (!status) return null
-  const normalized = status.trim().toLowerCase()
-  if (normalized === 'stop' || normalized === 'completed' || normalized === 'success') return 'completed'
-  if (normalized === 'tool_calls') return 'completed'
-  if (normalized === 'error' || normalized === 'failed' || normalized === 'failure') return 'error'
-  if (normalized === 'cancelled' || normalized === 'canceled' || normalized === 'cancel') return 'cancelled'
-  return 'unknown'
 }
 
 function normalizeToolResultStatus(message: NormalizedMessage, text: string): ToolCallStatus {
