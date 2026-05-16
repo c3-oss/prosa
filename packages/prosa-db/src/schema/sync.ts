@@ -65,6 +65,28 @@ export const syncBatch = pgTable(
   }),
 )
 
+export const syncCommitIdempotency = pgTable(
+  'sync_commit_idempotency',
+  {
+    tenantId: text('tenant_id')
+      .notNull()
+      .references(() => organization.id, { onDelete: 'cascade' }),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    idempotencyKey: text('idempotency_key').notNull(),
+    requestHash: text('request_hash').notNull(),
+    response: jsonb('response'),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.tenantId, table.userId, table.idempotencyKey] }),
+    expiresAtIdx: index('sync_commit_idempotency_expires_at_idx').on(table.expiresAt),
+  }),
+)
+
 export const syncBatchObjectManifest = pgTable(
   'sync_batch_object_manifest',
   {

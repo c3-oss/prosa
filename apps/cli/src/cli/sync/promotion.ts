@@ -287,13 +287,18 @@ export async function promoteUpload({
   }
 
   const commitStart = Date.now()
-  const commit = await client.syncCommitUpload({
-    batchId: plan.batchId,
-    deviceId,
-    storePath,
-    objects: objectEntries,
-    projection,
-  })
+  const commit = await client.syncCommitUpload(
+    {
+      batchId: plan.batchId,
+      deviceId,
+      storePath,
+      objects: objectEntries,
+      projection,
+    },
+    {
+      idempotencyKey: `sync.commitUpload:${plan.batchId}`,
+    },
+  )
   metrics.commitMs += Date.now() - commitStart
   metrics.rowsCommitted += commit.committedRows
   if (verbose) {

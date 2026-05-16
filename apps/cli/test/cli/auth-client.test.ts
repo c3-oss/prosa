@@ -92,6 +92,43 @@ describe('ProsaApiClient request shaping', () => {
     await expect(client.listTenants()).rejects.toThrow(/forbidden/)
   })
 
+  it('sends Idempotency-Key for sync.commitUpload when provided', async () => {
+    const captured: Array<{ url: string; init: RequestInit | undefined }> = []
+    const fakeFetch = async (url: string | URL | Request, init?: RequestInit) => {
+      captured.push({ url: String(url), init })
+      return new Response(
+        JSON.stringify({ result: { data: { batchId: 'batch-1', committedObjects: 0, committedRows: 0 } } }),
+        {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        },
+      )
+    }
+    const client = new ProsaApiClient({
+      baseUrl: 'http://example',
+      token: 'xyz',
+      tenantId: 't-123',
+      fetch: fakeFetch as typeof fetch,
+    })
+
+    await client.syncCommitUpload(
+      {
+        batchId: 'batch-1',
+        deviceId: 'device-1',
+        storePath: '/tmp/prosa',
+        objects: [],
+        projection: {},
+      },
+      { idempotencyKey: 'sync.commitUpload:batch-1' },
+    )
+
+    expect(captured).toHaveLength(1)
+    const headers = captured[0]?.init?.headers as Record<string, string>
+    expect(headers['idempotency-key']).toBe('sync.commitUpload:batch-1')
+    expect(headers.authorization).toBe('Bearer xyz')
+    expect(headers['x-prosa-tenant-id']).toBe('t-123')
+  })
+
   it('posts binary packed object bytes with ranges and auth headers', async () => {
     const captured: Array<{ url: string; init: RequestInit | undefined }> = []
     const fakeFetch = async (url: string | URL | Request, init?: RequestInit) => {

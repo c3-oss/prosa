@@ -1,6 +1,7 @@
 import { computeHashHex } from '@c3-oss/prosa-storage'
 import { OBJECT_PACK_BINARY_CONTENT_TYPE, encodeBinaryObjectPack } from '@c3-oss/prosa-sync'
 import { describe, expect, it } from 'vitest'
+import { cleanupExpiredCommitUploadIdempotency } from '../src/trpc/routers/sync/idempotency.js'
 import { type TestApp, buildTestApp } from './helpers/test-app.js'
 
 type Signup = {
@@ -40,19 +41,26 @@ function objectForBytes(bytes: Buffer) {
   }
 }
 
-async function trpc(t: TestApp, path: string, input: unknown, token: string, method: 'POST' | 'GET' = 'POST') {
+async function trpc(
+  t: TestApp,
+  path: string,
+  input: unknown,
+  token: string,
+  method: 'POST' | 'GET' = 'POST',
+  headers: Record<string, string> = {},
+) {
   if (method === 'GET') {
     const q = encodeURIComponent(JSON.stringify(input))
     return t.app.inject({
       method: 'GET',
       url: `/trpc/${path}?input=${q}`,
-      headers: { authorization: `Bearer ${token}` },
+      headers: { authorization: `Bearer ${token}`, ...headers },
     })
   }
   return t.app.inject({
     method: 'POST',
     url: `/trpc/${path}`,
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${token}`, ...headers },
     payload: input as never,
   })
 }
@@ -831,6 +839,135 @@ describe('sync promotion protocol', () => {
       }
       expect(firstBody.result.data.committedRows).toBe(1)
       expect(second.body).toContain('Batch is not open for commit')
+    } finally {
+      await t.close()
+    }
+  })
+
+  it('replays commitUpload responses for a matching Idempotency-Key', async () => {
+    const t = await buildTestApp()
+    try {
+      const auth = await signup(t, 'sync-idempotency-key@example.com')
+      const handshake = await trpc(
+        t,
+        'sync.handshake',
+        {
+          cliVersion: '0.0.0-test',
+          device: { name: 'box', platform: 'linux' },
+          store: { path: '/tmp/idempotency-key', bundleVersion: '1' },
+        },
+        auth.token,
+      )
+      const deviceId = (handshake.json() as { result: { data: { deviceId: string } } }).result.data.deviceId
+      const plan = await trpc(
+        t,
+        'sync.planUpload',
+        { deviceId, storePath: '/tmp/idempotency-key', objects: [] },
+        auth.token,
+      )
+      const batchId = (plan.json() as { result: { data: { batchId: string } } }).result.data.batchId
+      const payload = {
+        batchId,
+        deviceId,
+        storePath: '/tmp/idempotency-key',
+        objects: [],
+        projection: {
+          sessions: [{ id: 'sess-idempotency-key', sourceKind: 'codex', turnCount: 1 }],
+        },
+      }
+      const headers = { 'idempotency-key': `sync.commitUpload:${batchId}` }
+
+      const first = await trpc(t, 'sync.commitUpload', payload, auth.token, 'POST', headers)
+      const second = await trpc(t, 'sync.commitUpload', payload, auth.token, 'POST', headers)
+
+      expect(first.statusCode).toBe(200)
+      expect(second.statusCode).toBe(200)
+      expect(second.headers['x-prosa-idempotent-replay']).toBe('true')
+      expect(second.json()).toEqual(first.json())
+
+      const stored = await t.pglite.query<{ request_hash: string; response: unknown }>(
+        'SELECT request_hash, response FROM "sync_commit_idempotency" WHERE tenant_id = $1',
+        [auth.tenant.id],
+      )
+      expect(stored.rows).toHaveLength(1)
+      expect(stored.rows[0]?.request_hash).toMatch(/^sha256:/)
+      expect(stored.rows[0]?.response).toMatchObject({
+        batchId,
+        committedObjects: 0,
+        committedRows: 1,
+      })
+    } finally {
+      await t.close()
+    }
+  })
+
+  it('rejects reusing an Idempotency-Key for a different commitUpload request', async () => {
+    const t = await buildTestApp()
+    try {
+      const auth = await signup(t, 'sync-idempotency-conflict@example.com')
+      const handshake = await trpc(
+        t,
+        'sync.handshake',
+        {
+          cliVersion: '0.0.0-test',
+          device: { name: 'box', platform: 'linux' },
+          store: { path: '/tmp/idempotency-conflict', bundleVersion: '1' },
+        },
+        auth.token,
+      )
+      const deviceId = (handshake.json() as { result: { data: { deviceId: string } } }).result.data.deviceId
+      const plan = await trpc(
+        t,
+        'sync.planUpload',
+        { deviceId, storePath: '/tmp/idempotency-conflict', objects: [] },
+        auth.token,
+      )
+      const batchId = (plan.json() as { result: { data: { batchId: string } } }).result.data.batchId
+      const firstPayload = {
+        batchId,
+        deviceId,
+        storePath: '/tmp/idempotency-conflict',
+        objects: [],
+        projection: {
+          sessions: [{ id: 'sess-idempotency-conflict-a', sourceKind: 'codex', turnCount: 1 }],
+        },
+      }
+      const secondPayload = {
+        ...firstPayload,
+        projection: {
+          sessions: [{ id: 'sess-idempotency-conflict-b', sourceKind: 'codex', turnCount: 1 }],
+        },
+      }
+      const headers = { 'idempotency-key': `sync.commitUpload:${batchId}` }
+
+      const first = await trpc(t, 'sync.commitUpload', firstPayload, auth.token, 'POST', headers)
+      const second = await trpc(t, 'sync.commitUpload', secondPayload, auth.token, 'POST', headers)
+
+      expect(first.statusCode).toBe(200)
+      expect(second.statusCode).toBe(409)
+      expect(second.body).toContain('different sync.commitUpload request')
+    } finally {
+      await t.close()
+    }
+  })
+
+  it('cleans up expired commitUpload idempotency rows', async () => {
+    const t = await buildTestApp()
+    try {
+      const auth = await signup(t, 'sync-idempotency-cleanup@example.com')
+      await t.db.rawExec(
+        `INSERT INTO "sync_commit_idempotency"(
+           tenant_id, user_id, idempotency_key, request_hash, expires_at
+         )
+         VALUES ($1, $2, $3, $4, now() - interval '1 minute')`,
+        [auth.tenant.id, auth.user.id, 'expired-key', 'sha256:expired'],
+      )
+
+      await expect(cleanupExpiredCommitUploadIdempotency(t.db.rawExec)).resolves.toBe(1)
+      const remaining = await t.db.rawExec<{ count: number }>(
+        'SELECT count(*)::int AS count FROM "sync_commit_idempotency"',
+      )
+      expect(remaining[0]?.count).toBe(0)
     } finally {
       await t.close()
     }

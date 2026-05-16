@@ -139,6 +139,20 @@ CREATE INDEX IF NOT EXISTS sync_batch_tenant_status_idx ON "sync_batch"(tenant_i
 ALTER TABLE "sync_batch" ADD COLUMN IF NOT EXISTS store_path text;
 ALTER TABLE "sync_batch" ADD COLUMN IF NOT EXISTS plan_missing_count integer;
 
+CREATE TABLE IF NOT EXISTS "sync_commit_idempotency" (
+  tenant_id text NOT NULL REFERENCES "organization"(id) ON DELETE CASCADE,
+  user_id text NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+  idempotency_key text NOT NULL,
+  request_hash text NOT NULL,
+  response jsonb,
+  expires_at timestamptz NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (tenant_id, user_id, idempotency_key)
+);
+CREATE INDEX IF NOT EXISTS sync_commit_idempotency_expires_at_idx
+  ON "sync_commit_idempotency"(expires_at);
+
 CREATE TABLE IF NOT EXISTS "sync_batch_object_manifest" (
   batch_id text NOT NULL REFERENCES "sync_batch"(id) ON DELETE CASCADE,
   tenant_id text NOT NULL REFERENCES "organization"(id) ON DELETE CASCADE,

@@ -28,6 +28,7 @@ export async function startServer(): Promise<void> {
     'member',
     'device',
     'sync_batch',
+    'sync_commit_idempotency',
     'remote_object',
     'remote_blob',
     'remote_object_location',

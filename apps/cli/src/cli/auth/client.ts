@@ -29,6 +29,7 @@ type TrpcSuccess<T> = { result: { data: T } }
 type TrpcFailure = { error: { message: string; data?: { code?: string } } }
 type PlainHttpResponse = { ok: boolean; status: number; text: string }
 type PreparedObjectPackUpload = { entries: ObjectPackWireEntry[]; payload: Buffer }
+type TrpcMutationOptions = { headers?: Record<string, string> }
 
 export type ObjectPackUploadEntry = ObjectManifestEntry & {
   bytes: Uint8Array
@@ -200,10 +201,10 @@ export class ProsaApiClient {
     return this.parseTrpc<T>(path, response)
   }
 
-  private async trpcMutation<T>(path: string, input: unknown): Promise<T> {
+  private async trpcMutation<T>(path: string, input: unknown, opts: TrpcMutationOptions = {}): Promise<T> {
     const response = await this.fetchFn(`${this.baseUrl}/trpc/${path}`, {
       method: 'POST',
-      headers: this.headers({ 'content-type': 'application/json' }),
+      headers: this.headers({ 'content-type': 'application/json', ...opts.headers }),
       body: JSON.stringify(input ?? {}),
     })
     return this.parseTrpc<T>(path, response)
@@ -344,8 +345,13 @@ export class ProsaApiClient {
     return this.trpcMutation<PlanUploadOutput>('sync.planUpload', input)
   }
 
-  async syncCommitUpload(input: CommitUploadInput): Promise<CommitUploadOutput> {
-    return this.trpcMutation<CommitUploadOutput>('sync.commitUpload', input)
+  async syncCommitUpload(
+    input: CommitUploadInput,
+    opts: { idempotencyKey?: string } = {},
+  ): Promise<CommitUploadOutput> {
+    return this.trpcMutation<CommitUploadOutput>('sync.commitUpload', input, {
+      headers: opts.idempotencyKey ? { 'idempotency-key': opts.idempotencyKey } : undefined,
+    })
   }
 
   async syncVerifyPromotion(input: VerifyPromotionInput): Promise<VerifyPromotionOutput> {
