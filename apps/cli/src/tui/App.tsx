@@ -1,15 +1,19 @@
+import { spawnSync } from 'node:child_process'
 import {
   type Bundle,
   type SearchHit,
-  type SessionDetail,
   type SessionRow,
+  type SessionTranscript,
   type SourceTool,
-  getSession,
   listSessions,
+  loadTranscript,
   searchFullText,
 } from '@c3-oss/prosa-core'
 import { Box, Text, useApp, useInput, useStdout } from 'ink'
 import { useEffect, useMemo, useState } from 'react'
+import { openInPager } from './open-in-pager.js'
+import { TranscriptView } from './transcript-view.js'
+import { type FlatLine, flattenTranscript } from './use-flat-lines.js'
 import { clamp, visibleWindow } from './use-visible-window.js'
 
 type Screen = 'sessions' | 'detail' | 'search'
@@ -25,6 +29,8 @@ interface Props {
 const TOOL_FILTERS: readonly (SourceTool | 'all')[] = ['all', 'codex', 'claude', 'gemini', 'cursor', 'hermes']
 /** Vim's `gg` requires two presses; the second must land within this window. */
 const VIM_DOUBLE_PRESS_MS = 500
+/** Tool-output truncation budget used when flattening transcripts for the TUI. */
+const TRANSCRIPT_MAX_OUTPUT_LINES = 40
 
 /** Ink root component for browsing sessions, search hits, and session timelines. */
 export function App({ bundle }: Props): React.JSX.Element {
@@ -33,8 +39,11 @@ export function App({ bundle }: Props): React.JSX.Element {
   const [rows, setRows] = useState<SessionRow[]>([])
   const [selected, setSelected] = useState(0)
   const [screen, setScreen] = useState<Screen>('sessions')
-  const [detail, setDetail] = useState<SessionDetail | null>(null)
-  const [detailScroll, setDetailScroll] = useState(0)
+  const [transcript, setTranscript] = useState<SessionTranscript | null>(null)
+  const [transcriptScroll, setTranscriptScroll] = useState(0)
+  const [transcriptSelectedLine, setTranscriptSelectedLine] = useState(0)
+  const [expandedTurns, setExpandedTurns] = useState<Set<number>>(() => new Set())
+  const [showThinkingGlobal, setShowThinkingGlobal] = useState(false)
   const [toolFilterIdx, setToolFilterIdx] = useState(0)
   const [inputMode, setInputMode] = useState<InputMode>('normal')
   const [searchBuffer, setSearchBuffer] = useState('')
@@ -62,6 +71,29 @@ export function App({ bundle }: Props): React.JSX.Element {
     () => visibleWindow({ total: rows.length, selectedIndex: selected, height: listHeight }),
     [rows.length, selected, listHeight],
   )
+
+  // Recompute the flat line list whenever the transcript or any flag affecting
+  // expansion changes. Empty array when no transcript is loaded.
+  const flatLines: FlatLine[] = useMemo(() => {
+    if (!transcript) return []
+    return flattenTranscript(transcript, {
+      showThinking: showThinkingGlobal,
+      expandedTurns,
+      maxOutputLines: TRANSCRIPT_MAX_OUTPUT_LINES,
+    })
+  }, [transcript, showThinkingGlobal, expandedTurns])
+
+  // Keep the selected line in view as it moves; mirrors `visibleWindow` but
+  // for line-based navigation rather than a centered window.
+  useEffect(() => {
+    const usableHeight = Math.max(1, detailHeight - 1)
+    setTranscriptScroll((s) => {
+      if (transcriptSelectedLine < s) return transcriptSelectedLine
+      const lastVisible = s + usableHeight - 1
+      if (transcriptSelectedLine > lastVisible) return transcriptSelectedLine - usableHeight + 1
+      return s
+    })
+  }, [transcriptSelectedLine, detailHeight])
 
   useInput((input, key) => {
     if (inputMode === 'search') {
@@ -99,8 +131,10 @@ export function App({ bundle }: Props): React.JSX.Element {
     if (key.escape) {
       if (screen === 'detail' || screen === 'search') {
         setScreen('sessions')
-        setDetail(null)
-        setDetailScroll(0)
+        setTranscript(null)
+        setTranscriptScroll(0)
+        setTranscriptSelectedLine(0)
+        setExpandedTurns(new Set())
         setSelected(0)
       }
       return
@@ -134,22 +168,34 @@ export function App({ bundle }: Props): React.JSX.Element {
     const length = screen === 'sessions' ? rows.length : screen === 'search' ? searchHits.length : 0
 
     if (screen === 'detail') {
-      const totalLines = (detail?.events.length ?? 0) + 8 // rough header height
+      const totalLines = flatLines.length
+      const maxIndex = Math.max(0, totalLines - 1)
+      const usableHeight = Math.max(1, detailHeight - 1)
+
       if (input === 'j' || key.downArrow) {
-        setDetailScroll((s) => clamp(s + 1, 0, Math.max(0, totalLines - detailHeight)))
+        setTranscriptSelectedLine((i) => clamp(i + 1, 0, maxIndex))
         return
       }
       if (input === 'k' || key.upArrow) {
-        setDetailScroll((s) => clamp(s - 1, 0, Math.max(0, totalLines - detailHeight)))
+        setTranscriptSelectedLine((i) => clamp(i - 1, 0, maxIndex))
+        return
+      }
+      if (input === 'J') {
+        setTranscriptSelectedLine((i) => nextTurnHeader(flatLines, i, 1, maxIndex))
+        return
+      }
+      if (input === 'K') {
+        setTranscriptSelectedLine((i) => nextTurnHeader(flatLines, i, -1, maxIndex))
         return
       }
       if (input === 'G') {
-        setDetailScroll(Math.max(0, totalLines - detailHeight))
+        setTranscriptSelectedLine(maxIndex)
         return
       }
       if (input === 'g') {
         if (pendingG) {
-          setDetailScroll(0)
+          setTranscriptSelectedLine(0)
+          setTranscriptScroll(0)
           setPendingG(false)
         } else {
           setPendingG(true)
@@ -158,11 +204,40 @@ export function App({ bundle }: Props): React.JSX.Element {
         return
       }
       if (key.ctrl && input === 'd') {
-        setDetailScroll((s) => clamp(s + Math.floor(detailHeight / 2), 0, totalLines))
+        setTranscriptSelectedLine((i) => clamp(i + Math.floor(usableHeight / 2), 0, maxIndex))
         return
       }
       if (key.ctrl && input === 'u') {
-        setDetailScroll((s) => clamp(s - Math.floor(detailHeight / 2), 0, totalLines))
+        setTranscriptSelectedLine((i) => clamp(i - Math.floor(usableHeight / 2), 0, maxIndex))
+        return
+      }
+      if (key.return || input === 'e') {
+        const line = flatLines[transcriptSelectedLine]
+        if (line && line.turnIndex != null) {
+          setExpandedTurns((prev) => toggleSet(prev, line.turnIndex as number))
+        }
+        return
+      }
+      if (input === 't') {
+        setShowThinkingGlobal((b) => !b)
+        return
+      }
+      if (input === 'o') {
+        const line = flatLines[transcriptSelectedLine]
+        if (line?.objectId) {
+          const objectId = line.objectId
+          void openInPager(bundle, objectId)
+            .then(() => setStatusMessage('opened in pager'))
+            .catch((err: Error) => setStatusMessage(err.message))
+        }
+        return
+      }
+      if (input === 'c') {
+        const line = flatLines[transcriptSelectedLine]
+        if (line) {
+          const ok = copyToClipboard(line.text)
+          setStatusMessage(ok ? 'copied' : 'clipboard unavailable')
+        }
         return
       }
       return
@@ -203,12 +278,23 @@ export function App({ bundle }: Props): React.JSX.Element {
     if (key.return) {
       const sid = screen === 'sessions' ? rows[selected]?.session_id : searchHits[selected]?.session_id
       if (sid) {
-        const d = getSession(bundle, sid)
-        if (d) {
-          setDetail(d)
-          setScreen('detail')
-          setDetailScroll(0)
-        }
+        // loadTranscript is async; fire and update on resolve. We switch the
+        // screen optimistically so the user sees an empty frame instead of
+        // a frozen list, then the transcript snaps in.
+        setScreen('detail')
+        setTranscript(null)
+        setTranscriptScroll(0)
+        setTranscriptSelectedLine(0)
+        setExpandedTurns(new Set())
+        void (async () => {
+          try {
+            const t = await loadTranscript(bundle, sid)
+            if (t) setTranscript(t)
+            else setStatusMessage(`session not found: ${sid}`)
+          } catch (err) {
+            setStatusMessage(`load failed: ${(err as Error).message}`)
+          }
+        })()
       }
     }
   })
@@ -219,8 +305,28 @@ export function App({ bundle }: Props): React.JSX.Element {
     return () => clearTimeout(t)
   }, [statusMessage])
 
-  if (screen === 'detail' && detail) {
-    return <DetailView detail={detail} scroll={detailScroll} height={detailHeight} />
+  if (screen === 'detail') {
+    return (
+      <Box flexDirection="column">
+        {transcript ? (
+          <TranscriptView
+            transcript={transcript}
+            lines={flatLines}
+            height={detailHeight}
+            scroll={transcriptScroll}
+            selectedLine={transcriptSelectedLine}
+            showThinking={showThinkingGlobal}
+            expandedTurns={expandedTurns}
+            maxOutputLines={TRANSCRIPT_MAX_OUTPUT_LINES}
+          />
+        ) : (
+          <Box height={detailHeight}>
+            <Text dimColor>loading transcript…</Text>
+          </Box>
+        )}
+        <HelpBar mode="detail" inputMode={inputMode} searchBuffer={searchBuffer} status={statusMessage} />
+      </Box>
+    )
   }
 
   if (screen === 'search') {
@@ -291,24 +397,42 @@ function formatSearchHit(hit: SearchHit, isSelected: boolean): string {
   return `${cursor}${ts} ${role} ${sessionId} ${snippet}`
 }
 
-function buildDetailHeaderLines(detail: SessionDetail): string[] {
-  const s = detail.session
-  return [
-    `# session ${s.session_id}`,
-    `source: ${s.source_tool}  ·  start: ${s.start_ts ?? '—'}`,
-    `cwd: ${s.cwd_initial ?? '—'}  ·  branch: ${s.git_branch_initial ?? '—'}`,
-    `models: ${s.model_first ?? '?'} → ${s.model_last ?? '?'}`,
-    `messages: ${s.message_count}  ·  tool_calls: ${s.tool_call_count}  ·  confidence: ${s.timeline_confidence}`,
-    '',
-  ]
+/** Toggle membership of `value` in `prev`, returning a new Set so React sees a change. */
+function toggleSet<T>(prev: Set<T>, value: T): Set<T> {
+  const next = new Set(prev)
+  if (next.has(value)) next.delete(value)
+  else next.add(value)
+  return next
 }
 
-function formatEventLine(e: SessionDetail['events'][number]): string {
-  const role = e.role ? `[${e.role}] ` : ''
-  const tool = e.tool_name ? ` tool=${e.tool_name}` : ''
-  const err = e.is_error === 1 ? ' ERROR' : ''
-  const ts = e.timestamp ?? ''
-  return `${pad(ts, 24)} ${pad(e.event_type, 18)} ${role}${tool}${err}`
+/**
+ * Find the next/previous `turn-header` row from `from`. `dir` is +1 (forward)
+ * or -1 (back). Returns `from` if nothing else matches so the cursor doesn't
+ * jump unexpectedly.
+ */
+function nextTurnHeader(lines: FlatLine[], from: number, dir: 1 | -1, maxIndex: number): number {
+  for (let i = from + dir; i >= 0 && i <= maxIndex; i += dir) {
+    if (lines[i]?.kind === 'turn-header') return i
+  }
+  return from
+}
+
+/**
+ * Best-effort clipboard copy via `pbcopy` (darwin) or `xclip` (linux).
+ * Returns false when no clipboard tool is reachable so the caller can show
+ * a hint instead of pretending it worked.
+ */
+function copyToClipboard(text: string): boolean {
+  const platform = process.platform
+  if (platform === 'darwin') {
+    const r = spawnSync('pbcopy', [], { input: text })
+    return r.status === 0
+  }
+  if (platform === 'linux') {
+    const r = spawnSync('xclip', ['-selection', 'clipboard'], { input: text })
+    return r.status === 0
+  }
+  return false
 }
 
 /** Render the scrollable session list with the selected row highlighted. */
@@ -368,35 +492,6 @@ function SearchList({
   )
 }
 
-/** Render a compact, scrollable session timeline detail view. */
-function DetailView({
-  detail,
-  scroll,
-  height,
-}: {
-  detail: SessionDetail
-  scroll: number
-  height: number
-}): React.JSX.Element {
-  const headerLines = buildDetailHeaderLines(detail)
-  const eventLines = detail.events.map(formatEventLine)
-  const allLines = [...headerLines, ...eventLines]
-  const slice = allLines.slice(scroll, scroll + height)
-  return (
-    <Box flexDirection="column" height={height}>
-      {slice.map((line, idx) => {
-        // Detail lines are content-derived; the (scroll, idx) pair is unique
-        // within a render and we don't reorder them, so it's safe as a key.
-        const key = `l${scroll + idx}-${line.length}`
-        return <Text key={key}>{line}</Text>
-      })}
-      <Box marginTop={1}>
-        <Text dimColor>j/k scroll · gg/G top/bottom · Esc back · q quits from sessions</Text>
-      </Box>
-    </Box>
-  )
-}
-
 /** Render either the search prompt or the normal-mode shortcut/status bar. */
 function HelpBar({
   mode,
@@ -404,7 +499,7 @@ function HelpBar({
   searchBuffer,
   status,
 }: {
-  mode: 'sessions' | 'search'
+  mode: 'sessions' | 'search' | 'detail'
   inputMode: InputMode
   searchBuffer: string
   status: string | null
@@ -419,16 +514,25 @@ function HelpBar({
       </Box>
     )
   }
+  if (status) {
+    return (
+      <Box>
+        <Text color="green">{status}</Text>
+      </Box>
+    )
+  }
+  if (mode === 'detail') {
+    return (
+      <Box>
+        <Text dimColor>
+          j/k nav · J/K jumps · Enter expand · e thinking · t toggle all · o open · c copy · Esc back
+        </Text>
+      </Box>
+    )
+  }
   return (
     <Box>
-      {status ? (
-        <Text color="green">{status}</Text>
-      ) : (
-        <Text dimColor>
-          j/k nav · Enter open · / search · s cycle source · R reload · Esc back · q quit
-          {mode === 'search' ? '' : ''}
-        </Text>
-      )}
+      <Text dimColor>j/k nav · Enter open · / search · s cycle source · R reload · Esc back · q quit</Text>
     </Box>
   )
 }
