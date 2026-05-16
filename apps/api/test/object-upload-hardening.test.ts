@@ -8,11 +8,12 @@ import {
   computeHashHex,
 } from '@c3-oss/prosa-storage'
 import Fastify from 'fastify'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { compress as zstdCompress } from 'zstd-napi'
 import type { ProsaAuth } from '../src/auth.js'
 import type { RawExec } from '../src/db.js'
 import { registerObjectRoutes } from '../src/http/objects.js'
+import { _resetBatchManifestCache } from '../src/objects/manifest-cache.js'
 import { type TestApp, buildTestApp } from './helpers/test-app.js'
 
 type Signup = {
@@ -125,6 +126,10 @@ class PreverifiedOnlyStore implements RemoteObjectStore {
 
 describe('object upload hardening', () => {
   let t: TestApp | null = null
+
+  beforeEach(() => {
+    _resetBatchManifestCache()
+  })
 
   afterEach(async () => {
     await t?.close()
@@ -308,6 +313,7 @@ describe('object upload hardening', () => {
       if (/sync_batch_object_manifest/i.test(sql)) {
         return [
           {
+            object_id: objectId,
             canonical_hash: hash,
             transport_hash: hash,
             compression: 'none',
@@ -469,6 +475,7 @@ describe('object upload hardening', () => {
       if (/sync_batch_object_manifest/i.test(sql)) {
         return [
           {
+            object_id: objectId,
             canonical_hash: hash,
             transport_hash: hash,
             compression: 'none',
@@ -616,6 +623,7 @@ describe('object upload hardening', () => {
       if (/sync_batch_object_manifest/i.test(sql)) {
         return [
           {
+            object_id: objectId,
             canonical_hash: hash,
             transport_hash: hash,
             compression: 'none',
@@ -700,5 +708,47 @@ describe('object upload hardening', () => {
 
     expect(response.statusCode).toBe(400)
     expect(response.body).toContain('unable to decompress object body')
+  })
+
+  it('serves manifest from cache on second PUT and misses after invalidate', async () => {
+    const { loadBatchManifest, invalidateBatchManifest } = await import('../src/objects/manifest-cache.js')
+    const bytes = Buffer.from('cache-test-object')
+    const hash = computeHashHex(bytes, 'blake3')
+    const objectId = `blake3:${hash}`
+    let queryCount = 0
+    const rawExec: RawExec = (async (sql: string, _params?: unknown[]) => {
+      if (/sync_batch_object_manifest/i.test(sql)) {
+        queryCount += 1
+        return [
+          {
+            object_id: objectId,
+            canonical_hash: hash,
+            transport_hash: hash,
+            compression: 'none',
+            uncompressed_size: bytes.byteLength,
+            compressed_size: bytes.byteLength,
+          },
+        ]
+      }
+      return []
+    }) as RawExec
+
+    const opts = { rawExec, tenantId: 'tenant-cache', batchId: 'batch-cache', userId: 'user-cache' }
+
+    // First call: cache miss — hits Postgres
+    const m1 = await loadBatchManifest(opts)
+    expect(queryCount).toBe(1)
+    expect(m1.has(objectId)).toBe(true)
+
+    // Second call: cache hit — no additional query
+    const m2 = await loadBatchManifest(opts)
+    expect(queryCount).toBe(1)
+    expect(m2).toBe(m1)
+
+    // After invalidate: cache miss — hits Postgres again
+    invalidateBatchManifest(opts)
+    const m3 = await loadBatchManifest(opts)
+    expect(queryCount).toBe(2)
+    expect(m3.has(objectId)).toBe(true)
   })
 })

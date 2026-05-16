@@ -1,5 +1,6 @@
 import type { CommitUploadInput, CommitUploadOutput, ObjectManifestEntry } from '@c3-oss/prosa-sync'
 import type { RawExec } from '../../../db.js'
+import { invalidateBatchManifest } from '../../../objects/manifest-cache.js'
 import { TRPCError } from '../../init.js'
 import { markBatchFailed, requireDeviceAccess, requireOpenBatchForCommit } from './batches.js'
 import {
@@ -198,6 +199,7 @@ export async function commitUpload(ctx: SyncHandlerContext, input: CommitUploadI
         input.batchId,
         ctx.tenantId,
       ])
+      invalidateBatchManifest({ tenantId: ctx.tenantId, batchId: input.batchId, userId: ctx.user.id })
       commitStarted = true
 
       await assertRemoteObjectCatalogs({ rawExec: tx, objects })
@@ -236,6 +238,7 @@ export async function commitUpload(ctx: SyncHandlerContext, input: CommitUploadI
       })
     }
     if (commitStarted) {
+      invalidateBatchManifest({ tenantId: ctx.tenantId, batchId: input.batchId, userId: ctx.user.id })
       await markBatchFailed(ctx.rawExec, input.batchId, ctx.tenantId, error)
     }
     throw error

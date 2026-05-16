@@ -22,6 +22,7 @@ import { DecompressStream } from 'zstd-napi'
 import type { ProsaAuth } from '../auth.js'
 import type { DatabaseHandle, RawExec } from '../db.js'
 import { hasCompatibleObjectBytes, readObjectByteLocation, resolveObjectByteLocation } from '../objects/locations.js'
+import { type BatchManifestRow, loadBatchManifest } from '../objects/manifest-cache.js'
 import { readFirstHeader, requestToHeaders } from '../shared/http.js'
 import { resolveMembership } from '../trpc/context.js'
 
@@ -74,14 +75,6 @@ type UploadRequest = {
   uncompressedSize: number
   storageKey: string
   contentType?: string
-}
-
-type BatchManifestRow = {
-  canonical_hash: string
-  transport_hash: string
-  compression: string
-  uncompressed_size: string | number
-  compressed_size: string | number
 }
 
 type RemoteObjectRow = {
@@ -405,21 +398,14 @@ async function assertDeclaredByOpenBatch(
   ctx: AuthContext,
   upload: UploadRequest,
 ): Promise<void> {
-  const declaredRows = await deps.rawExec<BatchManifestRow>(
-    `SELECT m.canonical_hash, m.transport_hash, m.compression, m.uncompressed_size, m.compressed_size
-       FROM "sync_batch_object_manifest" m
-       JOIN "sync_batch" b
-         ON b.id = m.batch_id
-        AND b.tenant_id = m.tenant_id
-        AND b.status = 'open'
-        AND b.user_id = $3
-      WHERE m.batch_id = $1
-        AND m.tenant_id = $2
-        AND m.object_id = $4
-      LIMIT 1`,
-    [upload.batchId, ctx.tenantId, ctx.user.id, upload.objectId],
-  )
-  const declared = declaredRows[0]
+  const manifest = await loadBatchManifest({
+    rawExec: deps.rawExec,
+    // ctx.tenantId is guarded as non-null by the caller before reaching here
+    tenantId: ctx.tenantId as string,
+    batchId: upload.batchId,
+    userId: ctx.user.id,
+  })
+  const declared = manifest.get(upload.objectId)
   if (!declared) {
     fail(403, 'object is not declared by an open sync batch for this tenant')
   }
