@@ -13,6 +13,9 @@ work. Produce raw numbers cited in `docs/roadmap/*-perf.md`.
   variants for the six largest tables. Writes into `/tmp/prosa-bench-parquet/`.
 - `bench-parquet-read.ts` — Read-side latency comparison between the parquet
   variants produced by `bench-parquet.ts`.
+- `bench-sync-docker.ts` — end-to-end sync timing harness for a copied local
+  bundle against the Docker/API server. It records dry-run, cold sync, and warm
+  re-sync JSON metrics without touching the source store.
 
 ## How to run
 
@@ -30,6 +33,23 @@ work. Produce raw numbers cited in `docs/roadmap/*-perf.md`.
    node --import @swc-node/register/esm-register bench/bench-parquet-read.ts
    ```
 
+   Sync benchmark against an already running API:
+
+   ```sh
+   node --import @swc-node/register/esm-register bench/bench-sync-docker.ts \
+     --source-store ~/.prosa \
+     --server http://127.0.0.1:3000 \
+     --output /tmp/prosa-sync-bench.json
+   ```
+
+   Or let the script manage the root Docker compose stack:
+
+   ```sh
+   node --import @swc-node/register/esm-register bench/bench-sync-docker.ts \
+     --start-stack --stop-stack \
+     --output /tmp/prosa-sync-bench.json
+   ```
+
 3. Clean up after:
 
    ```sh
@@ -41,5 +61,8 @@ work. Produce raw numbers cited in `docs/roadmap/*-perf.md`.
 - Each script must be standalone (no shared imports across `bench/`).
 - Hard-coded paths live at the top of each script; rewrite if your bundle
   lives elsewhere.
+- Sync benchmarks must copy the bundle to a temporary work directory, set a
+  temporary `PROSA_CONFIG_PATH`, and pass `--keep-local`; never run them against
+  the live `~/.prosa` bundle directly.
 - Numbers should be reproducible on the same hardware; record CPU and bundle
   size in any results doc that cites them.
