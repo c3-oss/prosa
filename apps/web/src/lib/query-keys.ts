@@ -5,6 +5,7 @@
 export const queryKeys = {
   authMe: () => ['auth', 'me'] as const,
   tenantList: () => ['tenant', 'list'] as const,
+  tenantMembers: (tenantId: string) => ['tenant', 'members', tenantId] as const,
   analyticsSummary: (tenantId: string) => ['analytics', 'summary', tenantId] as const,
   sessionsList: (tenantId: string, params: unknown) => ['sessions', 'list', tenantId, params] as const,
   sessionsCount: (tenantId: string, params: unknown) => ['sessions', 'count', tenantId, params] as const,

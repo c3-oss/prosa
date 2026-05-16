@@ -59,8 +59,8 @@ export function ConsoleToolCalls() {
           <p>Audit view across promoted tool calls for this tenant.</p>
         </div>
       </header>
-      <div className="console-content" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-        <div className="console-toolbar" style={{ marginBottom: 0 }}>
+      <div className="console-content">
+        <div className="console-filters-toolbar">
           <label className="console-checkbox-pill">
             <input
               type="checkbox"
@@ -72,6 +72,12 @@ export function ConsoleToolCalls() {
             />
             <span>Errors only</span>
           </label>
+          <div className="console-filters-right">
+            <span>
+              {rows.length}
+              {calls.data?.nextCursor ? '+' : ''} tool call{rows.length === 1 ? '' : 's'}
+            </span>
+          </div>
         </div>
         {!tenantId ? (
           <EmptyState title="Pick a tenant to continue" description="Tool calls are tenant-scoped." />

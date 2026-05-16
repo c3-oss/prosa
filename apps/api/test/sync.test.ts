@@ -1,4 +1,4 @@
-import { computeHashHex } from '@c3-oss/prosa-storage'
+import { computeHashHex, objectStorageKey } from '@c3-oss/prosa-storage'
 import { describe, expect, it } from 'vitest'
 import { type TestApp, buildTestApp } from './helpers/test-app.js'
 

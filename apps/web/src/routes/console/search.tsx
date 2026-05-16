@@ -1,5 +1,6 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { Link, useNavigate, useSearch } from '@tanstack/react-router'
+import { Search } from 'lucide-react'
 import { type FormEvent, useEffect, useState } from 'react'
 
 import { useAuth } from '~/app/auth-context.js'
@@ -67,20 +68,29 @@ export function ConsoleSearch() {
           <p>Search across promoted search_doc rows for this tenant.</p>
         </div>
       </header>
-      <div className="console-content" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+      <div className="console-content">
         <form onSubmit={onSubmit} aria-label="Search query form" className="console-search-form">
-          <input
-            className="console-input"
-            type="search"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder="search snippets, tool inputs, message text…"
-            aria-label="Search query"
-          />
-          <Button type="submit" variant="primary">
+          <div className="console-input-with-icon">
+            <Search size={15} aria-hidden="true" className="console-input-icon" />
+            <input
+              className="console-input"
+              type="search"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              placeholder="search snippets, tool inputs, message text…"
+              aria-label="Search query"
+            />
+          </div>
+          <Button type="submit" variant="secondary" size="sm">
             Search
           </Button>
         </form>
+        {submitted && rows.length > 0 ? (
+          <p className="console-faint console-results-count">
+            {rows.length}
+            {nextCursor ? '+' : ''} hits for "{submitted}"
+          </p>
+        ) : null}
         {!tenantId ? (
           <EmptyState title="Pick a tenant to continue" description="Search is tenant-scoped." />
         ) : !submitted ? (

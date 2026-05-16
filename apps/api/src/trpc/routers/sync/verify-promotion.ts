@@ -2,14 +2,16 @@ import type { PromotionReceipt, VerifyPromotionInput, VerifyPromotionOutput } fr
 import type { RawExec } from '../../../db.js'
 import { hasMaterializedObject } from '../../../objects/locations.js'
 import { TRPCError } from '../../init.js'
-import { type VerificationBatchRow, markBatchFailed, requireCommittedBatchForVerification } from './batches.js'
+import type { VerificationBatchRow } from './batches.js'
 import {
   type BatchObjectManifestRow,
   type ProjectionManifestRow,
   assertSameDeclarationSet,
   buildManifestHash,
   loadObjectManifest,
+  mapWithConcurrency,
   objectFromManifestRow,
+  objectStoreIoConcurrency,
 } from './manifest.js'
 import type { SyncHandlerContext } from './types.js'
 
@@ -60,6 +62,33 @@ function assertDeclaredManifestMatches(
   assertSameDeclarationSet('tool result', input.declaredToolResultIds, projection.tool_result)
 }
 
+async function requireBatchForVerification(opts: {
+  rawExec: RawExec
+  batchId: string
+  tenantId: string
+  userId: string
+  storePath: string
+}): Promise<VerificationBatchRow> {
+  const rows = await opts.rawExec<VerificationBatchRow>(
+    'SELECT id, device_id, status, user_id, store_path FROM "sync_batch" WHERE id = $1 AND tenant_id = $2 AND user_id = $3 FOR UPDATE',
+    [opts.batchId, opts.tenantId, opts.userId],
+  )
+  const batch = rows[0]
+  if (!batch) {
+    throw new TRPCError({ code: 'NOT_FOUND', message: 'Unknown batch' })
+  }
+  if (batch.store_path !== opts.storePath) {
+    throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Batch storePath mismatch' })
+  }
+  if (batch.status !== 'committed') {
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: 'Batch must be committed before verification',
+    })
+  }
+  return batch
+}
+
 async function loadProjectionManifest(
   rawExec: RawExec,
   batchId: string,
@@ -80,7 +109,8 @@ async function verifyObjectManifest(opts: {
   tenantId: string
   objectManifest: BatchObjectManifestRow[]
 }): Promise<void> {
-  for (const row of opts.objectManifest) {
+  if (opts.objectManifest.length === 0) return
+  await mapWithConcurrency(opts.objectManifest, objectStoreIoConcurrency, async (row) => {
     const object = objectFromManifestRow(row)
     const found = await opts.rawExec<{ object_id: string }>(
       'SELECT object_id FROM "tenant_object" WHERE tenant_id = $1 AND object_id = $2 LIMIT 1',
@@ -102,7 +132,7 @@ async function verifyObjectManifest(opts: {
         message: `Promotion verification failed: object ${row.object_id} is missing or mismatched`,
       })
     }
-  }
+  })
 }
 
 async function countProjectionRows(opts: {
@@ -110,49 +140,45 @@ async function countProjectionRows(opts: {
   tenantId: string
   projection: ProjectionManifestByType
 }): Promise<VerifiedProjectionCounts> {
-  const sourceFilesFound = await opts.rawExec<{ count: number }>(
-    `SELECT count(*)::int AS count
-       FROM "source_file"
-       WHERE tenant_id = $1 AND id = ANY($2::text[])`,
-    [opts.tenantId, opts.projection.source_file],
+  const rows = await opts.rawExec<{
+    source_files: number
+    raw_records: number
+    sessions: number
+    search_docs: number
+    tool_calls: number
+    tool_results: number
+  }>(
+    `SELECT
+       (SELECT count(*)::int FROM "source_file"
+         WHERE tenant_id = $1 AND id = ANY($2::text[])) AS source_files,
+       (SELECT count(*)::int FROM "raw_record"
+         WHERE tenant_id = $1 AND id = ANY($3::text[])) AS raw_records,
+       (SELECT count(*)::int FROM "projection_session"
+         WHERE tenant_id = $1 AND id = ANY($4::text[])) AS sessions,
+       (SELECT count(*)::int FROM "search_doc"
+         WHERE tenant_id = $1 AND id = ANY($5::text[])) AS search_docs,
+       (SELECT count(*)::int FROM "projection_tool_call"
+         WHERE tenant_id = $1 AND id = ANY($6::text[])) AS tool_calls,
+       (SELECT count(*)::int FROM "projection_tool_result"
+         WHERE tenant_id = $1 AND id = ANY($7::text[])) AS tool_results`,
+    [
+      opts.tenantId,
+      opts.projection.source_file,
+      opts.projection.raw_record,
+      opts.projection.session,
+      opts.projection.search_doc,
+      opts.projection.tool_call,
+      opts.projection.tool_result,
+    ],
   )
-  const rawRecordsFound = await opts.rawExec<{ count: number }>(
-    `SELECT count(*)::int AS count
-       FROM "raw_record"
-       WHERE tenant_id = $1 AND id = ANY($2::text[])`,
-    [opts.tenantId, opts.projection.raw_record],
-  )
-  const sessionsFound = await opts.rawExec<{ count: number }>(
-    `SELECT count(*)::int AS count
-       FROM "projection_session"
-       WHERE tenant_id = $1 AND id = ANY($2::text[])`,
-    [opts.tenantId, opts.projection.session],
-  )
-  const searchDocsFound = await opts.rawExec<{ count: number }>(
-    `SELECT count(*)::int AS count
-       FROM "search_doc"
-       WHERE tenant_id = $1 AND id = ANY($2::text[])`,
-    [opts.tenantId, opts.projection.search_doc],
-  )
-  const toolCallsFound = await opts.rawExec<{ count: number }>(
-    `SELECT count(*)::int AS count
-       FROM "projection_tool_call"
-       WHERE tenant_id = $1 AND id = ANY($2::text[])`,
-    [opts.tenantId, opts.projection.tool_call],
-  )
-  const toolResultsFound = await opts.rawExec<{ count: number }>(
-    `SELECT count(*)::int AS count
-       FROM "projection_tool_result"
-       WHERE tenant_id = $1 AND id = ANY($2::text[])`,
-    [opts.tenantId, opts.projection.tool_result],
-  )
+  const row = rows[0]
   return {
-    sourceFiles: sourceFilesFound[0]?.count ?? 0,
-    rawRecords: rawRecordsFound[0]?.count ?? 0,
-    sessions: sessionsFound[0]?.count ?? 0,
-    searchDocs: searchDocsFound[0]?.count ?? 0,
-    toolCalls: toolCallsFound[0]?.count ?? 0,
-    toolResults: toolResultsFound[0]?.count ?? 0,
+    sourceFiles: row?.source_files ?? 0,
+    rawRecords: row?.raw_records ?? 0,
+    sessions: row?.sessions ?? 0,
+    searchDocs: row?.search_docs ?? 0,
+    toolCalls: row?.tool_calls ?? 0,
+    toolResults: row?.tool_results ?? 0,
   }
 }
 
@@ -241,10 +267,16 @@ async function savePromotionReceipt(opts: {
   batch: VerificationBatchRow
   receipt: PromotionReceipt
 }): Promise<void> {
-  await opts.rawExec(
-    'UPDATE "sync_batch" SET status = $1, promotion_receipt = $2::jsonb, error = NULL, updated_at = now() WHERE id = $3 AND tenant_id = $4',
+  const updated = await opts.rawExec<{ id: string }>(
+    'UPDATE "sync_batch" SET status = $1, promotion_receipt = $2::jsonb, error = NULL, updated_at = now() WHERE id = $3 AND tenant_id = $4 AND status = \'verifying\' RETURNING id',
     ['verified', JSON.stringify(opts.receipt), opts.batchId, opts.tenantId],
   )
+  if (updated.length === 0) {
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: 'Batch verification state changed before receipt save',
+    })
+  }
   await opts.rawExec(
     `INSERT INTO "remote_authority"(tenant_id, device_id, store_path, promotion_receipt)
      VALUES ($1, $2, $3, $4::jsonb)
@@ -258,9 +290,15 @@ export async function verifyPromotion(
   input: VerifyPromotionInput,
 ): Promise<VerifyPromotionOutput> {
   let verificationStarted = false
+  let batch: VerificationBatchRow
+  let objectManifest: BatchObjectManifestRow[]
+  let projectionManifest: ProjectionManifestRow[]
+  let projection: ProjectionManifestByType
+  let counts: VerifiedProjectionCounts
+  let sampledSessions: Array<{ id: string; title: string | null; turnCount: number }>
   try {
-    return await ctx.transaction(async (tx) => {
-      const batch = await requireCommittedBatchForVerification({
+    await ctx.transaction(async (tx) => {
+      batch = await requireBatchForVerification({
         rawExec: tx,
         batchId: input.batchId,
         tenantId: ctx.tenantId,
@@ -275,39 +313,57 @@ export async function verifyPromotion(
       ])
       verificationStarted = true
 
-      const objectManifest = await loadObjectManifest(tx, input.batchId, ctx.tenantId)
-      const projectionManifest = await loadProjectionManifest(tx, input.batchId, ctx.tenantId)
-      const projection = groupProjectionManifest(projectionManifest)
+      objectManifest = await loadObjectManifest(tx, input.batchId, ctx.tenantId)
+      projectionManifest = await loadProjectionManifest(tx, input.batchId, ctx.tenantId)
+      projection = groupProjectionManifest(projectionManifest)
 
       assertDeclaredManifestMatches(input, objectManifest, projection)
-      await verifyObjectManifest({
-        rawExec: tx,
-        objectStore: ctx.objectStore,
-        tenantId: ctx.tenantId,
-        objectManifest,
-      })
 
-      const counts = await countProjectionRows({ rawExec: tx, tenantId: ctx.tenantId, projection })
+      counts = await countProjectionRows({ rawExec: tx, tenantId: ctx.tenantId, projection })
       assertProjectionRowsExist(projection, counts)
 
-      const sampledSessions = await sampleSessions({ rawExec: tx, tenantId: ctx.tenantId, input, projection })
+      sampledSessions = await sampleSessions({ rawExec: tx, tenantId: ctx.tenantId, input, projection })
+    })
+
+    await verifyObjectManifest({
+      rawExec: ctx.rawExec,
+      objectStore: ctx.objectStore,
+      tenantId: ctx.tenantId,
+      objectManifest: objectManifest!,
+    })
+
+    return await ctx.transaction(async (tx) => {
       const receipt = buildPromotionReceipt({
         batchId: input.batchId,
         tenantId: ctx.tenantId,
-        batch,
-        objectManifest,
-        projectionManifest,
-        projection,
-        counts,
+        batch: batch!,
+        objectManifest: objectManifest!,
+        projectionManifest: projectionManifest!,
+        projection: projection!,
+        counts: counts!,
       })
 
-      await savePromotionReceipt({ rawExec: tx, tenantId: ctx.tenantId, batchId: input.batchId, batch, receipt })
+      await savePromotionReceipt({
+        rawExec: tx,
+        tenantId: ctx.tenantId,
+        batchId: input.batchId,
+        batch: batch!,
+        receipt,
+      })
 
-      return { receipt, sampledSessions }
+      return { receipt, sampledSessions: sampledSessions! }
     })
   } catch (error) {
     if (verificationStarted) {
-      await markBatchFailed(ctx.rawExec, input.batchId, ctx.tenantId, error)
+      const message = error instanceof Error ? error.message : String(error)
+      await ctx.rawExec(
+        `UPDATE "sync_batch"
+            SET status = 'failed', error = $1, updated_at = now()
+          WHERE id = $2
+            AND tenant_id = $3
+            AND status IN ('committed', 'verifying')`,
+        [JSON.stringify({ message }), input.batchId, ctx.tenantId],
+      )
     }
     throw error
   }

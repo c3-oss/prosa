@@ -21,6 +21,7 @@ function entry(hashChar: string, size: number, overrides: Partial<ObjectManifest
 function cas(hashChar: string, bytes: number[], overrides: Partial<ObjectManifestEntry> = {}): LocalCasObject {
   return {
     entry: entry(hashChar, bytes.length, overrides),
+    storagePath: `objects/${hashChar}`,
     bytes: new Uint8Array(bytes),
   }
 }
@@ -104,6 +105,7 @@ describe('CLI sync object pack uploads', () => {
       toolCalls: [],
       toolResults: [],
       casObjects,
+      metrics: { localScanMs: 0, localReadMs: 0, localBytesRead: 0, localObjectsRead: 0 },
     }
 
     await promoteUpload({
@@ -111,6 +113,7 @@ describe('CLI sync object pack uploads', () => {
       deviceId: 'device-1',
       storePath: '/tmp/.prosa',
       upload,
+      objectConcurrency: 2,
       maxObjectPackBytes: 5,
     })
 

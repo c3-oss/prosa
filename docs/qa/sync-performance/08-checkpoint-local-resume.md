@@ -2,6 +2,26 @@
 
 **Tier**: 3 · **Onde**: cliente · **Impacto estimado**: UX/robustez (zera retrabalho em crashes) · **Esforço**: S-M
 
+## Fact-check 2026-05-16
+
+**Veredicto**: parcialmente correta. Não existe checkpoint/resume persistente no
+sync chunked hoje, e os cursores realmente somem no crash. A proposta, porém,
+não é segura como escrita: `verifyPromotion` é batch-scoped e o snapshot baseado
+em `manifest.json + counts` não prova que o bundle local não mudou.
+
+**Correções obrigatórias**:
+
+- Incluir todos os cursores atuais: `object`, `sourceFile`, `rawRecord`,
+  `session`, `searchDoc`, `toolCall`, `toolResult`.
+- Não afirmar que o último `verifyPromotion` prova integridade global; ele
+  valida apenas o manifesto do batch atual.
+- Substituir `manifestSnapshotHash` por snapshot forte do conteúdo ou por um
+  `bundle_generation` atualizado por comandos mutantes.
+- Chavear checkpoint por `server`, `tenantId`, `deviceId`, `storePath`,
+  `protocolVersion` e limites negociados.
+- Adicionar lock real. `prosa.lock` existe como path reservado, mas não é usado
+  pelo sync.
+
 ## Resumo
 
 Hoje, se o `prosa sync` morre no batch 140 de 281, a próxima execução **começa do zero**. O servidor é idempotente — re-envio de objetos/batches é seguro — mas o cliente revisita todos os batches anteriores, executando `planUpload` (com seu loop serial pesado) novamente. Para `~/.prosa`, isso significa **minutos a dezenas de minutos de retrabalho** em cada retry. Solução: persistir cursors + lista de batches já verificados em `<storePath>/.prosa-sync-checkpoint.json`, com TTL e invariantes claras.
@@ -22,7 +42,7 @@ while (true) {
   lastReceipt = await promoteChunk({ ... })
   objectCursor = chunk.nextCursor
 }
-// ... similar para 4 tipos de projeção
+// ... similar para os 6 tipos de projeção atuais
 ```
 
 Se `promoteChunk` falhar ou o processo for morto, `objectCursor`/`lastReceipt` desaparecem. Próximo `sync` começa em `objectCursor = null`. O servidor reaceita planos com objetos já existentes (`findMissingObjectIds` retorna `[]`), mas **todo o overhead de plan + commit + verify se repete por batch**.
@@ -61,9 +81,14 @@ Arquivo `<storePath>/.prosa-sync-checkpoint.json` (gitignore-able):
 }
 ```
 
-### (b) Snapshot do manifest local
+### (b) Snapshot do bundle local
 
-`manifestSnapshotHash` é hash do `manifest.json` + count de cada tabela no SQLite local. Se o bundle local mudou desde o checkpoint (novos imports, compile, etc.), o checkpoint é **inválido** e descartado.
+`manifestSnapshotHash` não deve ser apenas hash do `manifest.json` + count de
+cada tabela. `manifest.json` é metadado, e contagens não detectam troca de
+linhas com mesma cardinalidade. Use um digest ordenado das chaves/campos
+relevantes de `objects`, `source_files`, `raw_records`, `sessions`,
+`search_docs`, `tool_calls`, `tool_results`, ou introduza um `bundle_generation`
+persistente alterado por comandos mutantes.
 
 ### (c) Write pattern
 
@@ -141,7 +166,11 @@ Não acelera o caminho feliz, mas elimina retrabalho em caminhos infelizes — c
 - **Lock entre processos**: dois `prosa sync` simultâneos lendo o mesmo checkpoint causa race. Solução: file lock (`proper-lockfile` ou similar) no `<storePath>/.prosa-sync.lock`.
 - **Concurrent writes**: se #03 estiver ligado (paralelismo de batches), persistir checkpoint precisa ser feito atomicamente — só após todos os batches da "onda" verificarem. Ou persistir o pior-cursor (mínimo de todos os ranges em flight).
 - **`storePath` read-only**: se o usuário rodar sync com bundle em local sem write permission, fall back para `~/.cache/prosa/checkpoints/<storeHash>.json`.
-- **Falsa segurança**: o checkpoint não invalida se o server tiver perdido dados entre tentativas. Mitigação: o `verifyPromotion` final ainda re-checa a integridade global da last batch — se algo derivou, falha.
+- **Falsa segurança**: o checkpoint não invalida se o server tiver perdido dados
+  entre tentativas. O `verifyPromotion` final não re-checa o store global; ele
+  re-checa apenas o último batch. Para tolerar perda/drift no servidor, é
+  preciso validação server-side dos batches pulados ou um receipt agregado de
+  sync completo.
 
 ## Como validar
 

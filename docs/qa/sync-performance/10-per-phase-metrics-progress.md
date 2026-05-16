@@ -2,9 +2,29 @@
 
 **Tier**: 4 (não acelera, mas muda a percepção) · **Onde**: cliente (com pequena ajuda do servidor) · **Impacto estimado**: zero de wall-clock; muito ganho de confiança e diagnóstico · **Esforço**: S-M
 
+## Fact-check 2026-05-16
+
+**Veredicto**: válida como UX/diagnóstico, mas ajustar antes de implementar. O
+CLI já tem contadores e receipts com counts por batch; o que falta é timing por
+fase, throughput, ETA, renderer TTY e event stream. A proposta precisa cobrir
+também o caminho single-batch e definir contrato rigoroso para `--json`.
+
+**Correções obrigatórias**:
+
+- Referências de linha estão defasadas; `promoteChunk` atual fica em
+  `apps/cli/src/cli/commands/sync.ts:419-474`.
+- Bundles pequenos usam `apps/cli/src/cli/sync/promotion.ts`; a telemetria deve
+  ser compartilhada entre single-batch e chunked.
+- `--json` deve emitir exatamente um JSON parseável, sem logs humanos. Se houver
+  `--events-json`, ele deve ser NDJSON próprio ou incompatível com `--json`.
+- Métricas server-side exigem mudança de schema/protocolo. Se a primeira versão
+  for client-side, declarar isso explicitamente.
+- Render não deve inferir fase por `label` string; usar eventos estruturados com
+  `phase`, `entityType`, `rowsDone`, `rowsTotal`, `objectsDone`, `objectsTotal`.
+
 ## Resumo
 
-O memo cita: *"o usuário vê centenas de batches antes de qualquer dado de projeção estar totalmente aplicado"* e *"a fase inicial imprime muitos commits com `objects=0 rows=0`, o que parece progresso vazio e reduz confiança"*. O sync **é** progresso — só não comunica isso. Adicionar **timing por fase** (`plan / upload / commit / verify`), **throughput agregado** (objects/s, rows/s, bytes/s), e **barra de progresso fásica** ("verifying existing objects 167/167 ▓▓▓▓▓ → uploading missing bytes 0/0 ✓ → promoting projection rows 280k/1.1M ▓▓░░░") transforma "281 commits vazios" em "fase 1 concluída, fase 3 em andamento".
+O memo cita: *"o usuário vê centenas de batches antes de qualquer dado de projeção estar totalmente aplicado"* e *"a fase inicial imprime muitos commits com `objects=0 rows=0`, o que parece progresso vazio e reduz confiança"*. O sync **é** progresso — só não comunica isso. Adicionar **timing por fase** (`plan / upload / commit / verify`), **throughput agregado** (objects/s, rows/s, bytes/s), e **barra de progresso fásica** transforma "281 commits vazios" em "fase 1 concluída, fase 3 em andamento". A primeira versão deve medir latência vista pelo cliente; métricas internas do servidor são outra mudança de protocolo.
 
 ## Diagnóstico atual
 
@@ -122,7 +142,9 @@ Implementação: usar `ink` (já dependência? checar `apps/cli/package.json`) o
 
 ### (d) JSON event stream (opcional, com `--events-json`)
 
-Para CI/automação: emitir uma linha NDJSON por batch:
+Para CI/automação: emitir NDJSON estruturado. Definir antes se `--events-json`
+substitui o JSON final ou se inclui um evento final `summary`. `--json` deve
+continuar sendo JSON único e parseável.
 
 ```json
 {"ts":"2026-05-15T12:01:11Z","event":"batch","kind":"object","seq":5,"total":281,"timings":{"planMs":2100,"uploadBytesMs":0,"commitMs":340,"verifyMs":80}}
@@ -152,7 +174,9 @@ A mudança subjetiva é tão grande quanto a real. *Não* é decorativo — sem 
 
 ## Riscos e armadilhas
 
-- **stdout poluição**: rendering com `\r` quebra em pipes não-TTY. Detectar `process.stdout.isTTY`; cair para linha por minuto.
+- **stdout poluição**: rendering com `\r` quebra em pipes não-TTY. Detectar
+  `process.stdout.isTTY`; não renderizar UI humana quando `--json` ou
+  `--events-json` estiver ativo.
 - **Performance overhead**: `Date.now()` chamado 5×/batch = irrelevante. P50 rolling sobre 20 amostras = O(20).
 - **Concorrência (com #03)**: barra precisa ser thread-safe (rolling buffer compartilhado). Renderizar a partir de uma única "tick" loop a cada 250 ms, não por evento.
 - **ETA instável no começo**: nos primeiros 5 batches, ETA oscila muito. Mostrar `—` até ter ≥ 5 amostras.

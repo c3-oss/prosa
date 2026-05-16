@@ -126,6 +126,21 @@ export {
 } from './services/tool_calls.js'
 export { exportSessionMarkdown } from './services/export/markdown.js'
 export {
+  loadTranscript,
+  resolveBlockText,
+  resolveArgsText,
+  type LoadTranscriptOptions,
+  type SessionTranscript,
+  type TranscriptBlock,
+  type TranscriptToolCall,
+  type TranscriptToolResult,
+  type TranscriptTurn,
+} from './services/transcript.js'
+export {
+  formatTranscriptText,
+  type FormatTranscriptTextOptions,
+} from './services/transcript-format-text.js'
+export {
   ANALYTICS_VIEWS,
   exportBundleParquet,
   queryDuckDbParquet,

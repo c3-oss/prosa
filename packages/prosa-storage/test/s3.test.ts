@@ -9,7 +9,7 @@ import {
 import { describe, expect, it } from 'vitest'
 import { S3ObjectStore } from '../src/adapters/s3.js'
 import type { PutMeta } from '../src/types.js'
-import { computeHashHex } from '../src/verify.js'
+import { ObjectVerificationError, computeHashHex } from '../src/verify.js'
 
 async function* fromBuffer(bytes: Uint8Array): AsyncIterable<Uint8Array> {
   yield bytes
@@ -41,14 +41,20 @@ class FakeS3Client {
   readonly commands: Command[] = []
   nextHead: unknown = { Metadata: {}, ContentLength: 0 }
   nextGet: unknown = { Body: Readable.from([Buffer.from('ok')]) }
+  headResponses: unknown[] = []
+  nextPut: unknown = {}
 
   async send(command: Command): Promise<unknown> {
     this.commands.push(command)
     if (command instanceof HeadObjectCommand) {
-      if (this.nextHead instanceof Error) throw this.nextHead
-      return this.nextHead
+      const response = this.headResponses.length > 0 ? this.headResponses.shift() : this.nextHead
+      if (response instanceof Error) throw response
+      return response
     }
-    if (command instanceof PutObjectCommand) return {}
+    if (command instanceof PutObjectCommand) {
+      if (this.nextPut instanceof Error) throw this.nextPut
+      return this.nextPut
+    }
     if (command instanceof GetObjectCommand) return this.nextGet
     if (command instanceof DeleteObjectCommand) return {}
     throw new Error('unexpected command')
@@ -59,6 +65,25 @@ function notFound(name: 'NotFound' | 'NoSuchKey'): Error {
   const err = new Error(name)
   err.name = name
   return err
+}
+
+function preconditionFailed(): Error {
+  const err = new Error('PreconditionFailed') as Error & { $metadata: { httpStatusCode: number } }
+  err.name = 'PreconditionFailed'
+  err.$metadata = { httpStatusCode: 412 }
+  return err
+}
+
+function s3HeadFor(meta: PutMeta): unknown {
+  return {
+    Metadata: {
+      'prosa-hash': meta.hash,
+      'prosa-hash-algorithm': meta.hashAlgorithm,
+      'prosa-uncompressed-size': String(meta.uncompressedSize),
+      'prosa-compressed-size': String(meta.compressedSize),
+      ...(meta.contentType ? { 'prosa-content-type': meta.contentType } : {}),
+    },
+  }
 }
 
 function metaFor(bytes: Uint8Array, overrides: Partial<PutMeta> = {}): PutMeta {
@@ -155,6 +180,35 @@ describe('S3ObjectStore', () => {
     expect(result.alreadyExisted).toBe(true)
     expect(consumed).toBe(false)
     expect(client.commands.some((command) => command instanceof PutObjectCommand)).toBe(false)
+  })
+
+  it('treats a conditional write race with compatible metadata as already existing', async () => {
+    const client = new FakeS3Client()
+    const bytes = new Uint8Array([2, 4, 6])
+    const meta = metaFor(bytes)
+    client.headResponses = [notFound('NotFound'), s3HeadFor(meta)]
+    client.nextPut = preconditionFailed()
+    const store = new S3ObjectStore({ bucket: 'bucket', client: client as unknown as S3Client })
+
+    const result = await store.putIfAbsent('objects/key', fromBuffer(bytes), meta)
+
+    expect(result).toEqual({ meta: { ...meta, storageKey: 'objects/key' }, alreadyExisted: true })
+    expect(client.commands.filter((command) => command instanceof HeadObjectCommand)).toHaveLength(2)
+    expect(client.commands.filter((command) => command instanceof PutObjectCommand)).toHaveLength(1)
+  })
+
+  it('rejects a conditional write race when the winner metadata conflicts', async () => {
+    const client = new FakeS3Client()
+    const bytes = new Uint8Array([2, 4, 6])
+    const meta = metaFor(bytes)
+    client.headResponses = [
+      notFound('NotFound'),
+      s3HeadFor(metaFor(new Uint8Array([9, 9, 9]), { uncompressedSize: 3, compressedSize: 3 })),
+    ]
+    client.nextPut = preconditionFailed()
+    const store = new S3ObjectStore({ bucket: 'bucket', client: client as unknown as S3Client })
+
+    await expect(store.putIfAbsent('objects/key', fromBuffer(bytes), meta)).rejects.toThrow(ObjectVerificationError)
   })
 
   it('reads web streams, async iterable bodies, and rejects empty get bodies', async () => {
