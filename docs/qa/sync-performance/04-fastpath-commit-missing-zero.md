@@ -2,9 +2,28 @@
 
 **Tier**: 2 · **Onde**: servidor · **Impacto estimado**: 16–32× nesta fase específica · **Esforço**: XS (~10 LoC)
 
+## Fact-check 2026-05-16
+
+**Veredicto**: parcialmente válida. Paralelizar `requireStoredObject` com limite
+é seguro e ataca um gargalo real. Pular o `head()` quando `missingObjects=0`
+altera a garantia documentada de `commitUpload` e deve ser tratado como mudança
+de protocolo/semântica, idealmente atrás de feature flag.
+
+**Correções obrigatórias**:
+
+- `plan_missing_count` não existe hoje em `sync_batch`.
+- `verifyPromotion` valida todos os objetos do manifesto do batch, não
+  `sampleSessionIds + declaredObjectIds`. `sampleSessionIds` só controla amostra
+  de sessões retornada.
+- `verifyPromotion` também tem loop serial de `tenant_object SELECT` +
+  `objectStore.head()` por objeto; se esta proposta remover custo do commit,
+  esse custo reaparece na verificação.
+- A doc de arquitetura diz que `commitUpload` confirma todos os CAS bytes. O
+  fast path muda isso para “trust plan, prove in verify”.
+
 ## Resumo
 
-Antes da transação, o `commitUpload` re-verifica via `head()` **todos os objetos** declarados — inclusive os que o `planUpload` já confirmou existir. Esse loop é serial. Solução em duas camadas: (a) paralelizar o loop com `Promise.all` capado (zero risco semântico); (b) opcionalmente, pular o loop quando `plan_missing_count = 0` e o batch é "fresco".
+Antes da transação, o `commitUpload` re-verifica via `head()` **todos os objetos** declarados — inclusive os que o `planUpload` já confirmou existir. Esse loop é serial. Solução em duas camadas: (a) paralelizar o loop com concorrência limitada (sem mudança semântica); (b) opcionalmente, pular o loop quando `plan_missing_count = 0` e o batch é "fresco", desde que essa confiança no plano seja registrada no protocolo/docs e que `verifyPromotion` continue sendo gate de reads/cleanup.
 
 ## Diagnóstico atual
 
@@ -77,7 +96,8 @@ Para 167 batches CAS-only sem missing objects: **fast-path economiza ~13 minutos
 
 - **(a) é seguro**: o predicado de cada `head()` é independente. Paralelizar não afeta consistência.
 - **(b) janela de confiança**: se um operador apagar manualmente o bucket entre `planUpload` e `commitUpload`, o fast-path comita sem detectar. Mitigação:
-  - `verifyPromotion` posterior re-valida via `sampleSessionIds` + `declaredObjectIds`.
+  - `verifyPromotion` posterior reabre o manifesto do batch e revalida todos os
+    objetos declarados; `sampleSessionIds` não participa da prova de objetos.
   - A janela de 5 min torna o cenário muito específico.
   - O fast-path é **opcional** — pode ficar atrás de um feature flag (`PROSA_TRUST_PLAN_RESULT=1`) e ligar só após observação.
 - **Por que (a) sozinho não é suficiente**: 5 s × 167 batches ainda é ~14 min. Vale fazer ambos.
