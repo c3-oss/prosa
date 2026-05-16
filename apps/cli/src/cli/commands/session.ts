@@ -3,6 +3,7 @@ import { Command } from 'commander'
 import { resolveReadAuthorityOrFailClosed } from '../auth/routing.js'
 import { withBundle } from '../bundle.js'
 import { CliUserError } from '../errors.js'
+import { renderTranscriptInk } from '../ink/transcript.js'
 
 /** Output formats supported by `prosa session show`. */
 type SessionShowFormat = 'text' | 'markdown' | 'json'
@@ -73,13 +74,20 @@ export function sessionCommand(): Command {
             return
           }
 
-          // Caller decides whether to emit ANSI: --no-color always wins;
-          // otherwise honor TTY detection so piped output stays clean.
-          const color = options.color !== false && Boolean(process.stdout.isTTY)
+          // Caller decides between Ink (interactive TTY, colored) and a plain
+          // ANSI-free string (pipes, files, --no-color). --no-color always
+          // wins; otherwise honor TTY detection so piped output stays clean.
+          const wantsInk = options.color !== false && Boolean(process.stdout.isTTY)
+          if (wantsInk) {
+            await renderTranscriptInk(transcript, {
+              showThinking: options.showThinking,
+              maxOutputLines,
+            })
+            return
+          }
           const rendered = formatTranscriptText(transcript, {
             showThinking: options.showThinking,
             maxOutputLines,
-            color,
           })
           process.stdout.write(rendered)
         })
