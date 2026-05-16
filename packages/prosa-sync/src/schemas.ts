@@ -102,6 +102,50 @@ export const projectionToolResultRowSchema = z.object({
 })
 export type ProjectionToolResultRow = z.infer<typeof projectionToolResultRowSchema>
 
+// Transcript-tier projection rows (F3). Older CLIs that omit these arrays
+// remain protocol-compatible because every field uses `.default([])`.
+export const projectionMessageRowSchema = z.object({
+  id: z.string().min(1),
+  sessionId: z.string().min(1),
+  turnId: z.string().min(1).nullable().optional(),
+  role: z.string().min(1),
+  model: z.string().nullable().optional(),
+  createdAt: z.string().datetime().nullable().optional(),
+})
+export type ProjectionMessageRow = z.infer<typeof projectionMessageRowSchema>
+
+export const projectionContentBlockRowSchema = z.object({
+  id: z.string().min(1),
+  messageId: z.string().min(1),
+  sequence: z.number().int().nonnegative(),
+  kind: z.string().min(1),
+  text: z.string().nullable().optional(),
+  objectId: z.string().min(1).nullable().optional(),
+  metadata: z.record(z.unknown()).nullable().optional(),
+})
+export type ProjectionContentBlockRow = z.infer<typeof projectionContentBlockRowSchema>
+
+export const projectionEventRowSchema = z.object({
+  id: z.string().min(1),
+  sessionId: z.string().min(1),
+  turnId: z.string().min(1).nullable().optional(),
+  sequence: z.number().int().nonnegative(),
+  kind: z.string().min(1),
+  payload: z.unknown().optional(),
+  occurredAt: z.string().datetime().nullable().optional(),
+})
+export type ProjectionEventRow = z.infer<typeof projectionEventRowSchema>
+
+export const projectionArtifactRowSchema = z.object({
+  id: z.string().min(1),
+  sessionId: z.string().min(1).nullable().optional(),
+  kind: z.string().min(1),
+  objectId: z.string().min(1).nullable().optional(),
+  sizeBytes: z.number().int().nonnegative().nullable().optional(),
+  metadata: z.record(z.unknown()).nullable().optional(),
+})
+export type ProjectionArtifactRow = z.infer<typeof projectionArtifactRowSchema>
+
 export const projectionPayloadSchema = z.object({
   sourceFiles: z.array(sourceFileRowSchema).default([]),
   rawRecords: z.array(rawRecordRowSchema).default([]),
@@ -109,6 +153,11 @@ export const projectionPayloadSchema = z.object({
   searchDocs: z.array(searchDocRowSchema).default([]),
   toolCalls: z.array(projectionToolCallRowSchema).default([]),
   toolResults: z.array(projectionToolResultRowSchema).default([]),
+  // New transcript projections (F3). Older CLIs can omit them entirely.
+  messages: z.array(projectionMessageRowSchema).default([]),
+  contentBlocks: z.array(projectionContentBlockRowSchema).default([]),
+  events: z.array(projectionEventRowSchema).default([]),
+  artifacts: z.array(projectionArtifactRowSchema).default([]),
 })
 export type ProjectionPayload = z.infer<typeof projectionPayloadSchema>
 
@@ -200,6 +249,14 @@ export const verifyPromotionInputSchema = z.object({
   declaredToolCallIds: z.array(z.string()).max(10_000).default([]),
   /** Tool result ids the client claims were uploaded; verifier confirms each. */
   declaredToolResultIds: z.array(z.string()).max(10_000).default([]),
+  /** Message ids the client claims were uploaded; verifier confirms each. (F3) */
+  declaredMessageIds: z.array(z.string()).max(50_000).default([]),
+  /** Content-block ids the client claims were uploaded; verifier confirms each. (F3) */
+  declaredContentBlockIds: z.array(z.string()).max(100_000).default([]),
+  /** Event ids the client claims were uploaded; verifier confirms each. (F3) */
+  declaredEventIds: z.array(z.string()).max(100_000).default([]),
+  /** Artifact ids the client claims were uploaded; verifier confirms each. (F3) */
+  declaredArtifactIds: z.array(z.string()).max(10_000).default([]),
 })
 export type VerifyPromotionInput = z.infer<typeof verifyPromotionInputSchema>
 
@@ -219,6 +276,10 @@ export const promotionReceiptSchema = z.object({
   batchSearchDocCount: z.number().int().nonnegative().default(0),
   batchToolCallCount: z.number().int().nonnegative().default(0),
   batchToolResultCount: z.number().int().nonnegative().default(0),
+  batchMessageCount: z.number().int().nonnegative().default(0),
+  batchContentBlockCount: z.number().int().nonnegative().default(0),
+  batchEventCount: z.number().int().nonnegative().default(0),
+  batchArtifactCount: z.number().int().nonnegative().default(0),
   declaredObjectsVerified: z.number().int().nonnegative().default(0),
   declaredSourceFilesVerified: z.number().int().nonnegative().default(0),
   declaredRawRecordsVerified: z.number().int().nonnegative().default(0),
@@ -226,6 +287,10 @@ export const promotionReceiptSchema = z.object({
   declaredSearchDocsVerified: z.number().int().nonnegative().default(0),
   declaredToolCallsVerified: z.number().int().nonnegative().default(0),
   declaredToolResultsVerified: z.number().int().nonnegative().default(0),
+  declaredMessagesVerified: z.number().int().nonnegative().default(0),
+  declaredContentBlocksVerified: z.number().int().nonnegative().default(0),
+  declaredEventsVerified: z.number().int().nonnegative().default(0),
+  declaredArtifactsVerified: z.number().int().nonnegative().default(0),
   cleanupEligible: z.boolean().default(false),
   verifiedAt: z.string().datetime(),
 })

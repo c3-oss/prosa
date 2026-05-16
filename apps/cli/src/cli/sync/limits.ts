@@ -7,6 +7,12 @@ export type UploadCounts = {
   rawRecords: number
   toolCalls: number
   toolResults: number
+  // F3 transcript-tier counters. `contentBlocks` in particular can scale to
+  // 10k+ per session, so we surface it explicitly to drive chunking.
+  messages: number
+  contentBlocks: number
+  events: number
+  artifacts: number
   casObjects: number
   totalRows: number
   oversizedCasObjects: number
@@ -30,6 +36,13 @@ export function readUploadCounts(bundle: Bundle, limits: SyncLimits): UploadCoun
   const rawRecords = readCount(bundle, 'SELECT count(*) AS count FROM raw_records')
   const toolCalls = readCount(bundle, 'SELECT count(*) AS count FROM tool_calls')
   const toolResults = readCount(bundle, 'SELECT count(*) AS count FROM tool_results WHERE tool_call_id IS NOT NULL')
+  const messages = readCount(bundle, 'SELECT count(*) AS count FROM messages')
+  // Match the bundle-reader's filter: only blocks attached to a message are
+  // promoted, because the remote `projection_content_block.message_id` is
+  // NOT NULL.
+  const contentBlocks = readCount(bundle, 'SELECT count(*) AS count FROM content_blocks WHERE message_id IS NOT NULL')
+  const events = readCount(bundle, 'SELECT count(*) AS count FROM events')
+  const artifacts = readCount(bundle, 'SELECT count(*) AS count FROM artifacts')
   const casObjects = readCount(bundle, 'SELECT count(*) AS count FROM objects')
   const oversizedCasObjects = readCount(
     bundle,
@@ -46,8 +59,22 @@ export function readUploadCounts(bundle: Bundle, limits: SyncLimits): UploadCoun
     rawRecords,
     toolCalls,
     toolResults,
+    messages,
+    contentBlocks,
+    events,
+    artifacts,
     casObjects,
-    totalRows: sessions + searchDocs + sourceFiles + rawRecords + toolCalls + toolResults,
+    totalRows:
+      sessions +
+      searchDocs +
+      sourceFiles +
+      rawRecords +
+      toolCalls +
+      toolResults +
+      messages +
+      contentBlocks +
+      events +
+      artifacts,
     oversizedCasObjects,
   }
 }
@@ -86,6 +113,10 @@ export function estimateChunkedUploadBatches(counts: UploadCounts, limits: SyncL
     Math.ceil(counts.sessions / limits.maxRowsPerCommit) +
     Math.ceil(counts.searchDocs / limits.maxRowsPerCommit) +
     Math.ceil(counts.toolCalls / limits.maxRowsPerCommit) +
-    Math.ceil(counts.toolResults / limits.maxRowsPerCommit)
+    Math.ceil(counts.toolResults / limits.maxRowsPerCommit) +
+    Math.ceil(counts.messages / limits.maxRowsPerCommit) +
+    Math.ceil(counts.contentBlocks / limits.maxRowsPerCommit) +
+    Math.ceil(counts.events / limits.maxRowsPerCommit) +
+    Math.ceil(counts.artifacts / limits.maxRowsPerCommit)
   )
 }

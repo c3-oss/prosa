@@ -4,6 +4,10 @@ import { type Bundle, closeBundle, defaultBundlePath, openBundle } from '@c3-oss
 import { computeHashHex } from '@c3-oss/prosa-storage'
 import type {
   ObjectManifestEntry,
+  ProjectionArtifactRow,
+  ProjectionContentBlockRow,
+  ProjectionEventRow,
+  ProjectionMessageRow,
   ProjectionPayload,
   ProjectionSessionRow,
   ProjectionToolCallRow,
@@ -119,7 +123,18 @@ async function mapConcurrent<T>(
 }
 
 function emptyProjection(): ProjectionPayload {
-  return { sourceFiles: [], rawRecords: [], sessions: [], searchDocs: [], toolCalls: [], toolResults: [] }
+  return {
+    sourceFiles: [],
+    rawRecords: [],
+    sessions: [],
+    searchDocs: [],
+    toolCalls: [],
+    toolResults: [],
+    messages: [],
+    contentBlocks: [],
+    events: [],
+    artifacts: [],
+  }
 }
 
 function projectionRowCount(projection: ProjectionPayload): number {
@@ -129,7 +144,11 @@ function projectionRowCount(projection: ProjectionPayload): number {
     projection.sessions.length +
     projection.searchDocs.length +
     projection.toolCalls.length +
-    projection.toolResults.length
+    projection.toolResults.length +
+    projection.messages.length +
+    projection.contentBlocks.length +
+    projection.events.length +
+    projection.artifacts.length
   )
 }
 
@@ -416,6 +435,181 @@ function readToolResultChunk(
   }
 }
 
+function readMessageChunk(
+  bundle: Bundle,
+  afterId: string | null,
+  limit: number,
+): ProjectionChunk<ProjectionMessageRow> {
+  const sql = afterId
+    ? `SELECT message_id, session_id, turn_id, role, model, timestamp
+         FROM messages
+         WHERE message_id > ?
+         ORDER BY message_id
+         LIMIT ?`
+    : `SELECT message_id, session_id, turn_id, role, model, timestamp
+         FROM messages
+         ORDER BY message_id
+         LIMIT ?`
+  const rows = bundle.db.prepare(sql).all(...(afterId ? [afterId, limit] : [limit])) as Array<{
+    message_id: string
+    session_id: string
+    turn_id: string | null
+    role: string
+    model: string | null
+    timestamp: string | null
+  }>
+  return {
+    rows: rows.map((row) => ({
+      id: row.message_id,
+      sessionId: row.session_id,
+      turnId: row.turn_id,
+      role: row.role,
+      model: row.model,
+      createdAt: row.timestamp,
+    })),
+    nextCursor: rows.length > 0 ? (rows[rows.length - 1]?.message_id ?? null) : null,
+  }
+}
+
+function readContentBlockChunk(
+  bundle: Bundle,
+  afterId: string | null,
+  limit: number,
+): ProjectionChunk<ProjectionContentBlockRow> {
+  // Skip blocks that are not attached to a message — the remote
+  // `projection_content_block.message_id` is NOT NULL.
+  const sql = afterId
+    ? `SELECT block_id, message_id, ordinal, block_type, text_inline, text_object_id,
+              mime_type, token_count, is_error, is_redacted, visibility
+         FROM content_blocks
+         WHERE message_id IS NOT NULL AND block_id > ?
+         ORDER BY block_id
+         LIMIT ?`
+    : `SELECT block_id, message_id, ordinal, block_type, text_inline, text_object_id,
+              mime_type, token_count, is_error, is_redacted, visibility
+         FROM content_blocks
+         WHERE message_id IS NOT NULL
+         ORDER BY block_id
+         LIMIT ?`
+  const rows = bundle.db.prepare(sql).all(...(afterId ? [afterId, limit] : [limit])) as Array<{
+    block_id: string
+    message_id: string
+    ordinal: number
+    block_type: string
+    text_inline: string | null
+    text_object_id: string | null
+    mime_type: string | null
+    token_count: number | null
+    is_error: number
+    is_redacted: number
+    visibility: string
+  }>
+  return {
+    rows: rows.map((row) => ({
+      id: row.block_id,
+      messageId: row.message_id,
+      sequence: row.ordinal,
+      kind: row.block_type,
+      text: row.text_inline,
+      objectId: row.text_object_id,
+      metadata: {
+        mimeType: row.mime_type,
+        tokenCount: row.token_count,
+        isError: row.is_error === 1,
+        isRedacted: row.is_redacted === 1,
+        visibility: row.visibility,
+      },
+    })),
+    nextCursor: rows.length > 0 ? (rows[rows.length - 1]?.block_id ?? null) : null,
+  }
+}
+
+function readEventChunk(bundle: Bundle, afterId: string | null, limit: number): ProjectionChunk<ProjectionEventRow> {
+  const sql = afterId
+    ? `SELECT event_id, session_id, turn_id, ordinal, event_type, subtype, source_type,
+              actor, timestamp, confidence, is_derived
+         FROM events
+         WHERE event_id > ?
+         ORDER BY event_id
+         LIMIT ?`
+    : `SELECT event_id, session_id, turn_id, ordinal, event_type, subtype, source_type,
+              actor, timestamp, confidence, is_derived
+         FROM events
+         ORDER BY event_id
+         LIMIT ?`
+  const rows = bundle.db.prepare(sql).all(...(afterId ? [afterId, limit] : [limit])) as Array<{
+    event_id: string
+    session_id: string
+    turn_id: string | null
+    ordinal: number
+    event_type: string
+    subtype: string | null
+    source_type: string | null
+    actor: string | null
+    timestamp: string | null
+    confidence: string
+    is_derived: number
+  }>
+  return {
+    rows: rows.map((row) => ({
+      id: row.event_id,
+      sessionId: row.session_id,
+      turnId: row.turn_id,
+      sequence: row.ordinal,
+      kind: row.event_type,
+      payload: {
+        subtype: row.subtype,
+        sourceType: row.source_type,
+        actor: row.actor,
+        confidence: row.confidence,
+        isDerived: row.is_derived === 1,
+      },
+      occurredAt: row.timestamp,
+    })),
+    nextCursor: rows.length > 0 ? (rows[rows.length - 1]?.event_id ?? null) : null,
+  }
+}
+
+function readArtifactChunk(
+  bundle: Bundle,
+  afterId: string | null,
+  limit: number,
+): ProjectionChunk<ProjectionArtifactRow> {
+  const sql = afterId
+    ? `SELECT artifact_id, session_id, kind, path, mime_type, size_bytes, object_id
+         FROM artifacts
+         WHERE artifact_id > ?
+         ORDER BY artifact_id
+         LIMIT ?`
+    : `SELECT artifact_id, session_id, kind, path, mime_type, size_bytes, object_id
+         FROM artifacts
+         ORDER BY artifact_id
+         LIMIT ?`
+  const rows = bundle.db.prepare(sql).all(...(afterId ? [afterId, limit] : [limit])) as Array<{
+    artifact_id: string
+    session_id: string | null
+    kind: string
+    path: string | null
+    mime_type: string | null
+    size_bytes: number | null
+    object_id: string | null
+  }>
+  return {
+    rows: rows.map((row) => ({
+      id: row.artifact_id,
+      sessionId: row.session_id,
+      kind: row.kind,
+      objectId: row.object_id,
+      sizeBytes: row.size_bytes ?? null,
+      metadata: {
+        path: row.path,
+        mimeType: row.mime_type,
+      },
+    })),
+    nextCursor: rows.length > 0 ? (rows[rows.length - 1]?.artifact_id ?? null) : null,
+  }
+}
+
 async function promoteChunk({
   client,
   deviceId,
@@ -470,6 +664,10 @@ async function promoteChunk({
     declaredSearchDocIds: projection.searchDocs.map((d) => d.id),
     declaredToolCallIds: projection.toolCalls.map((c) => c.id),
     declaredToolResultIds: projection.toolResults.map((r) => r.id),
+    declaredMessageIds: projection.messages.map((m) => m.id),
+    declaredContentBlockIds: projection.contentBlocks.map((b) => b.id),
+    declaredEventIds: projection.events.map((e) => e.id),
+    declaredArtifactIds: projection.artifacts.map((a) => a.id),
   })
   return verify.receipt
 }
@@ -555,6 +753,28 @@ async function promoteChunkedUpload({
     'tool-result',
     (cursor, limit) => readToolResultChunk(bundle, cursor, limit),
     (toolResults) => ({ ...emptyProjection(), toolResults }),
+  )
+  // F3 transcript-tier projections. Messages must promote BEFORE content
+  // blocks so the (tenant_id, message_id) FK resolves cleanly on the server.
+  await promoteProjectionChunks(
+    'message',
+    (cursor, limit) => readMessageChunk(bundle, cursor, limit),
+    (messages) => ({ ...emptyProjection(), messages }),
+  )
+  await promoteProjectionChunks(
+    'content-block',
+    (cursor, limit) => readContentBlockChunk(bundle, cursor, limit),
+    (contentBlocks) => ({ ...emptyProjection(), contentBlocks }),
+  )
+  await promoteProjectionChunks(
+    'event',
+    (cursor, limit) => readEventChunk(bundle, cursor, limit),
+    (events) => ({ ...emptyProjection(), events }),
+  )
+  await promoteProjectionChunks(
+    'artifact',
+    (cursor, limit) => readArtifactChunk(bundle, cursor, limit),
+    (artifacts) => ({ ...emptyProjection(), artifacts }),
   )
 
   if (!lastReceipt) {

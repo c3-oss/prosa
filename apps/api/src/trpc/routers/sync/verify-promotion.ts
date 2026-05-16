@@ -19,6 +19,10 @@ type ProjectionManifestByType = {
   search_doc: string[]
   tool_call: string[]
   tool_result: string[]
+  message: string[]
+  content_block: string[]
+  event: string[]
+  artifact: string[]
 }
 
 type VerifiedProjectionCounts = {
@@ -28,6 +32,10 @@ type VerifiedProjectionCounts = {
   searchDocs: number
   toolCalls: number
   toolResults: number
+  messages: number
+  contentBlocks: number
+  events: number
+  artifacts: number
 }
 
 function groupProjectionManifest(rows: ProjectionManifestRow[]): ProjectionManifestByType {
@@ -38,6 +46,10 @@ function groupProjectionManifest(rows: ProjectionManifestRow[]): ProjectionManif
     search_doc: rows.filter((row) => row.entity_type === 'search_doc').map((row) => row.entity_id),
     tool_call: rows.filter((row) => row.entity_type === 'tool_call').map((row) => row.entity_id),
     tool_result: rows.filter((row) => row.entity_type === 'tool_result').map((row) => row.entity_id),
+    message: rows.filter((row) => row.entity_type === 'message').map((row) => row.entity_id),
+    content_block: rows.filter((row) => row.entity_type === 'content_block').map((row) => row.entity_id),
+    event: rows.filter((row) => row.entity_type === 'event').map((row) => row.entity_id),
+    artifact: rows.filter((row) => row.entity_type === 'artifact').map((row) => row.entity_id),
   }
 }
 
@@ -57,6 +69,10 @@ function assertDeclaredManifestMatches(
   assertSameDeclarationSet('search doc', input.declaredSearchDocIds, projection.search_doc)
   assertSameDeclarationSet('tool call', input.declaredToolCallIds, projection.tool_call)
   assertSameDeclarationSet('tool result', input.declaredToolResultIds, projection.tool_result)
+  assertSameDeclarationSet('message', input.declaredMessageIds, projection.message)
+  assertSameDeclarationSet('content block', input.declaredContentBlockIds, projection.content_block)
+  assertSameDeclarationSet('event', input.declaredEventIds, projection.event)
+  assertSameDeclarationSet('artifact', input.declaredArtifactIds, projection.artifact)
 }
 
 async function loadProjectionManifest(
@@ -142,6 +158,30 @@ async function countProjectionRows(opts: {
        WHERE tenant_id = $1 AND id = ANY($2::text[])`,
     [opts.tenantId, opts.projection.tool_result],
   )
+  const messagesFound = await opts.rawExec<{ count: number }>(
+    `SELECT count(*)::int AS count
+       FROM "projection_message"
+       WHERE tenant_id = $1 AND id = ANY($2::text[])`,
+    [opts.tenantId, opts.projection.message],
+  )
+  const contentBlocksFound = await opts.rawExec<{ count: number }>(
+    `SELECT count(*)::int AS count
+       FROM "projection_content_block"
+       WHERE tenant_id = $1 AND id = ANY($2::text[])`,
+    [opts.tenantId, opts.projection.content_block],
+  )
+  const eventsFound = await opts.rawExec<{ count: number }>(
+    `SELECT count(*)::int AS count
+       FROM "projection_event"
+       WHERE tenant_id = $1 AND id = ANY($2::text[])`,
+    [opts.tenantId, opts.projection.event],
+  )
+  const artifactsFound = await opts.rawExec<{ count: number }>(
+    `SELECT count(*)::int AS count
+       FROM "projection_artifact"
+       WHERE tenant_id = $1 AND id = ANY($2::text[])`,
+    [opts.tenantId, opts.projection.artifact],
+  )
   return {
     sourceFiles: sourceFilesFound[0]?.count ?? 0,
     rawRecords: rawRecordsFound[0]?.count ?? 0,
@@ -149,6 +189,10 @@ async function countProjectionRows(opts: {
     searchDocs: searchDocsFound[0]?.count ?? 0,
     toolCalls: toolCallsFound[0]?.count ?? 0,
     toolResults: toolResultsFound[0]?.count ?? 0,
+    messages: messagesFound[0]?.count ?? 0,
+    contentBlocks: contentBlocksFound[0]?.count ?? 0,
+    events: eventsFound[0]?.count ?? 0,
+    artifacts: artifactsFound[0]?.count ?? 0,
   }
 }
 
@@ -159,7 +203,11 @@ function assertProjectionRowsExist(projection: ProjectionManifestByType, counts:
     counts.sessions !== projection.session.length ||
     counts.searchDocs !== projection.search_doc.length ||
     counts.toolCalls !== projection.tool_call.length ||
-    counts.toolResults !== projection.tool_result.length
+    counts.toolResults !== projection.tool_result.length ||
+    counts.messages !== projection.message.length ||
+    counts.contentBlocks !== projection.content_block.length ||
+    counts.events !== projection.event.length ||
+    counts.artifacts !== projection.artifact.length
   ) {
     throw new TRPCError({
       code: 'PRECONDITION_FAILED',
@@ -218,6 +266,10 @@ function buildPromotionReceipt(opts: {
     batchSearchDocCount: opts.projection.search_doc.length,
     batchToolCallCount: opts.projection.tool_call.length,
     batchToolResultCount: opts.projection.tool_result.length,
+    batchMessageCount: opts.projection.message.length,
+    batchContentBlockCount: opts.projection.content_block.length,
+    batchEventCount: opts.projection.event.length,
+    batchArtifactCount: opts.projection.artifact.length,
     declaredObjectsVerified: opts.objectManifest.length,
     declaredSourceFilesVerified: opts.counts.sourceFiles,
     declaredRawRecordsVerified: opts.counts.rawRecords,
@@ -225,6 +277,10 @@ function buildPromotionReceipt(opts: {
     declaredSearchDocsVerified: opts.counts.searchDocs,
     declaredToolCallsVerified: opts.counts.toolCalls,
     declaredToolResultsVerified: opts.counts.toolResults,
+    declaredMessagesVerified: opts.counts.messages,
+    declaredContentBlocksVerified: opts.counts.contentBlocks,
+    declaredEventsVerified: opts.counts.events,
+    declaredArtifactsVerified: opts.counts.artifacts,
     cleanupEligible: true,
     verifiedAt: new Date().toISOString(),
   }
