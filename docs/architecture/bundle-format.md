@@ -282,6 +282,61 @@ querying, but they do not make Parquet authoritative. See
 [Analytics](./analytics.md) and [`docs/recipes/duckdb.md`](../recipes/duckdb.md)
 for examples.
 
+## Verified projection manifest entity types
+
+The remote read surfaces (`apps/api`) refuse to expose a projected row until
+the sync server records a row-level manifest entry whose batch reached
+`status='verified'`. The current entity-type set, after the F3 transcript-tier
+promotion, is:
+
+```text
+source_file, raw_record, session, search_doc,
+tool_call, tool_result,
+message, content_block, event, artifact
+```
+
+Adding a new entity type requires updating every layer of the promotion
+pipeline:
+
+1. Extend `ProjectionEntityType` in `apps/api/src/trpc/routers/reads/shared.ts`
+   so the verified-projection SQL helper recognizes it.
+2. Update the sync routers under `apps/api/src/trpc/routers/sync/`
+   (`manifest.ts`, `plan-upload.ts`, `commit-upload.ts`,
+   `projection-upserts.ts`, `verify-promotion.ts`) to accept, validate, count,
+   and emit the new entity type.
+3. Teach the CLI promotion path (`apps/cli/src/cli/sync/`) to enumerate the
+   new entity type's IDs and emit manifest rows after upsert.
+4. Cover the new type in `apps/api/test/sync.test.ts` and
+   `apps/api/test/verified-provenance.test.ts`.
+
+Reads must always gate through `verifiedProjectionExistsSql` / 
+`tenantVerifiedProjectionSql`. A projected row with no verified manifest
+entry is treated as not present.
+
+## Session transcript reconstruction
+
+The session transcript primitive — used by CLI, TUI, and the web detail page —
+assembles messages, content blocks, and tool calls (with matched results) into
+an ordered turn list:
+
+- **Local** (`packages/prosa-core/src/services/transcript.ts`):
+  `loadTranscript(bundle, sessionId, options?)` reads `messages`,
+  `content_blocks` (excluding `visibility='audit_only'`), `tool_calls`, and
+  `tool_results`, resolving CAS-backed text inline when ≤ `maxInlineBytes`
+  (default 64 KB) and tool-call args when ≤ `maxArgsInlineBytes` (default
+  8 KB). Oversize bodies surface only as object ids so renderers can fetch
+  on demand. Hidden `thinking` blocks are kept with `hidden=true` for the
+  renderer to gate.
+- **Remote** (`apps/api/src/trpc/routers/reads/transcript.ts`): the
+  `sessions.transcript` tRPC procedure mirrors the same shape, joined through
+  `tenantVerifiedProjectionSql` against `message`, `content_block`,
+  `tool_call`, and `tool_result` manifest entries. CAS bodies are not
+  inlined: the procedure returns `objectId`s and the web fetches via
+  `artifacts.getText` on demand.
+- **CLI surfaces**: `prosa session show <id> [--format text|markdown|json]`
+  reuses `loadTranscript`; the markdown exporter (`exportSessionMarkdown`)
+  builds on the same primitive so all three views stay synchronized.
+
 ## Idempotency keys
 
 | Table | Natural key | Behavior |

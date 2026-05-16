@@ -20,6 +20,14 @@ One reference per importer covering directory layout, record format, identity ru
 - [`sources/gemini.md`](./sources/gemini.md) — `~/.gemini/tmp/` JSON.
 - [`sources/hermes.md`](./sources/hermes.md) — `~/.hermes/state.db` + `~/.hermes/sessions/`.
 
+## Transcript surfaces
+
+The session transcript primitive backs CLI, TUI, and web rendering. All three read paths share the same shape so renderers behave consistently:
+
+- `prosa session show <id> [--format text|markdown|json]` — local transcript viewer in [`apps/cli/src/cli/commands/session.ts`](../apps/cli/src/cli/commands/session.ts). Reads the bundle directly; `--format json` emits the same `SessionTranscript` payload the TUI and remote API consume.
+- `loadTranscript(bundle, sessionId, options?)` — programmatic API in [`packages/prosa-core/src/services/transcript.ts`](../packages/prosa-core/src/services/transcript.ts). Resolves CAS-backed text inline when small enough; oversize bodies remain reachable through `objectId` fields so callers can fetch on demand.
+- `sessions.transcript` — tRPC procedure in [`apps/api/src/trpc/routers/reads/transcript.ts`](../apps/api/src/trpc/routers/reads/transcript.ts). Feeds the web detail page and is gated by the row-level verified projection manifest (see [`architecture/bundle-format.md`](./architecture/bundle-format.md#verified-projection-manifest-entity-types)).
+
 ## Recipes
 
 - [`recipes/duckdb.md`](./recipes/duckdb.md) — copy-pasteable DuckDB queries over canonical Parquet tables and analytics views.
@@ -43,6 +51,8 @@ One reference per importer covering directory layout, record format, identity ru
 | Add or extend an analytics report | `architecture/analytics.md` |
 | Build a new analytics query | `recipes/duckdb.md` |
 | Work on the sync server, auth, or remote reads | `architecture/server-sync.md` |
+| Render a single session locally (CLI/TUI) or programmatically | `prosa session show` + `loadTranscript()` (above) |
+| Render the session detail page in the web console | `sessions.transcript` tRPC procedure (above) |
 | Work on the browser product surface | `../apps/web` |
 | Run a governed Ralph Loop implementation workflow | `agent-workflows/ralph-loop-governor.md` |
 | Inspect a tool's history without prosa | `sources/<tool>.md` recipes |
