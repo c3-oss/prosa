@@ -58,13 +58,7 @@ function TeamSettings() {
               <select
                 value={role}
                 onChange={(e) => setRole(e.target.value as 'admin' | 'member')}
-                style={{
-                  background: 'var(--color-bg-elevated)',
-                  color: 'var(--color-text)',
-                  border: '1px solid var(--color-border)',
-                  borderRadius: 'var(--radius-sm)',
-                  padding: '10px 12px',
-                }}
+                className="console-select"
               >
                 <option value="member">member</option>
                 <option value="admin">admin</option>
@@ -99,7 +93,7 @@ function AccountSettings() {
   const { me } = useAuth()
   return (
     <Panel title="Account">
-      <ul style={{ margin: 0, paddingLeft: 'var(--space-5)', color: 'var(--color-text-muted)' }}>
+      <ul className="console-muted" style={{ margin: 0, paddingLeft: 'var(--space-5)' }}>
         <li>User: {me?.user.name}</li>
         <li>Email: {me?.user.email}</li>
         <li>Active tenant: {me?.tenantId ?? '—'}</li>

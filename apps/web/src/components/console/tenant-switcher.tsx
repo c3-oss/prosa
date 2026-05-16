@@ -15,8 +15,6 @@ export function TenantSwitcher() {
     },
     onSuccess: async (tenantId) => {
       setTenantId(tenantId)
-      // Invalidate everything tenant-scoped: auth.me to pick up the new active
-      // tenant and any tenant-prefixed query keys.
       await queryClient.invalidateQueries()
       await refresh()
     },
@@ -26,8 +24,9 @@ export function TenantSwitcher() {
 
   return (
     <div className="console-sidebar-section">
-      <span>Tenant</span>
+      <span className="console-sidebar-label">Tenant</span>
       <select
+        className="console-select"
         aria-label="Active tenant"
         value={me.tenantId ?? ''}
         disabled={setActive.isPending || me.tenants.length <= 1}
@@ -36,17 +35,9 @@ export function TenantSwitcher() {
           if (!next || next === me.tenantId) return
           setActive.mutate(next)
         }}
-        style={{
-          background: 'var(--color-bg-elevated)',
-          color: 'var(--color-text)',
-          border: '1px solid var(--color-border)',
-          borderRadius: 'var(--radius-sm)',
-          padding: '6px 8px',
-          fontFamily: 'var(--font-mono)',
-          fontSize: 'var(--font-size-sm)',
-        }}
       >
         {me.tenants.length === 0 ? <option value="">No tenants</option> : null}
+        {!me.tenantId && me.tenants.length > 0 ? <option value="">Pick a tenant</option> : null}
         {me.tenants.map((tenant) => (
           <option key={tenant.id} value={tenant.id}>
             {tenant.name}
@@ -54,9 +45,7 @@ export function TenantSwitcher() {
           </option>
         ))}
       </select>
-      {me.memberRole ? (
-        <span style={{ color: 'var(--color-text-faint)', fontSize: 'var(--font-size-xs)' }}>role: {me.memberRole}</span>
-      ) : null}
+      {me.memberRole ? <span className="console-faint">role: {me.memberRole}</span> : null}
     </div>
   )
 }

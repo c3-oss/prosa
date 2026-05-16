@@ -1,6 +1,6 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { Link, useNavigate, useSearch } from '@tanstack/react-router'
-import { type ChangeEvent, useEffect, useState } from 'react'
+import { type FormEvent, useEffect, useState } from 'react'
 
 import { useAuth } from '~/app/auth-context.js'
 import { useAppContext } from '~/app/providers.js'
@@ -38,13 +38,10 @@ export function ConsoleSearch() {
     setSubmitted(initialQuery)
   }, [initialQuery])
 
-  function onSubmit(event: ChangeEvent<HTMLFormElement>) {
+  function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setSubmitted(draft)
-    navigate({
-      to: '/console/search',
-      search: draft ? { q: draft } : {},
-    })
+    navigate({ to: '/console/search', search: draft ? { q: draft } : {} })
   }
 
   const enabled = Boolean(tenantId && submitted.length > 0)
@@ -71,26 +68,14 @@ export function ConsoleSearch() {
         </div>
       </header>
       <div className="console-content" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-        <form
-          onSubmit={onSubmit as unknown as React.FormEventHandler<HTMLFormElement>}
-          aria-label="Search query form"
-          style={{ display: 'flex', gap: 'var(--space-2)' }}
-        >
+        <form onSubmit={onSubmit} aria-label="Search query form" className="console-search-form">
           <input
+            className="console-input"
             type="search"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             placeholder="search snippets, tool inputs, message text…"
             aria-label="Search query"
-            style={{
-              flex: 1,
-              background: 'var(--color-bg-elevated)',
-              color: 'var(--color-text)',
-              border: '1px solid var(--color-border)',
-              borderRadius: 'var(--radius-sm)',
-              padding: '10px 12px',
-              fontSize: 'var(--font-size-base)',
-            }}
           />
           <Button type="submit" variant="primary">
             Search
@@ -111,51 +96,18 @@ export function ConsoleSearch() {
         ) : rows.length === 0 && !results.isFetching ? (
           <EmptyState title="No results" description={`No promoted search_doc rows match "${submitted}" yet.`} />
         ) : (
-          <ul
-            style={{
-              listStyle: 'none',
-              padding: 0,
-              margin: 0,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 'var(--space-3)',
-            }}
-          >
+          <ul className="console-results-list">
             {rows.map((hit) => (
-              <li
-                key={hit.id}
-                style={{
-                  background: 'var(--color-panel)',
-                  border: '1px solid var(--color-border-subtle)',
-                  borderRadius: 'var(--radius-md)',
-                  padding: 'var(--space-4)',
-                }}
-              >
-                <header
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'baseline',
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: 'var(--font-size-xs)',
-                    color: 'var(--color-text-faint)',
-                    marginBottom: 'var(--space-2)',
-                  }}
-                >
+              <li key={hit.id} className="console-result-card">
+                <header className="console-result-meta">
                   <span>
                     {hit.sourceKind} · {hit.fieldKind}
                   </span>
                   <span>{formatAbsoluteTime(hit.timestamp)}</span>
                 </header>
-                <p style={{ margin: 0, color: 'var(--color-text)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                  {truncate(hit.snippet, 320)}
-                </p>
-                <footer style={{ marginTop: 'var(--space-2)' }}>
-                  <Link
-                    to="/console/sessions/$sessionId"
-                    params={{ sessionId: hit.sessionId }}
-                    style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-xs)' }}
-                  >
+                <p className="console-result-body">{truncate(hit.snippet, 320)}</p>
+                <footer className="console-result-footer">
+                  <Link to="/console/sessions/$sessionId" params={{ sessionId: hit.sessionId }}>
                     {hit.sessionTitle ?? hit.sessionId}
                   </Link>
                 </footer>

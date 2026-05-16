@@ -9,7 +9,9 @@ export function SourceBreakdown({ sources }: SourceBreakdownProps) {
   return (
     <Panel title="Source breakdown">
       {sources.length === 0 ? (
-        <p style={{ margin: 0, color: 'var(--color-text-muted)' }}>No promoted sessions yet.</p>
+        <p className="console-muted" style={{ margin: 0 }}>
+          No promoted sessions yet.
+        </p>
       ) : (
         <ul style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)', margin: 0, padding: 0 }}>
           {sources.map((row) => {
@@ -19,35 +21,16 @@ export function SourceBreakdown({ sources }: SourceBreakdownProps) {
                 key={row.sourceKind}
                 style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}
               >
-                <div
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: 'var(--font-size-sm)',
-                  }}
-                >
-                  <span>{row.sourceKind}</span>
-                  <span style={{ color: 'var(--color-text-faint)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span className="console-badge" data-tone="accent">
+                    {row.sourceKind}
+                  </span>
+                  <span className="console-mono console-faint">
                     {row.count} · {percentage}%
                   </span>
                 </div>
-                <div
-                  aria-hidden="true"
-                  style={{
-                    height: 4,
-                    background: 'var(--color-bg-elevated)',
-                    borderRadius: 'var(--radius-xs)',
-                    overflow: 'hidden',
-                  }}
-                >
-                  <div
-                    style={{
-                      height: '100%',
-                      width: `${percentage}%`,
-                      background: 'var(--color-accent)',
-                    }}
-                  />
+                <div className="console-progress-track" aria-hidden="true">
+                  <div className="console-progress-value" style={{ width: `${percentage}%` }} />
                 </div>
               </li>
             )

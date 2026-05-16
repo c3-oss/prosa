@@ -24,6 +24,11 @@ type ToolCallRow = {
 
 type ToolCallPage = { rows: ToolCallRow[]; nextCursor: string | null }
 
+function statusTone(status: string | null): 'success' | 'warning' | undefined {
+  if (!status) return undefined
+  return ['ok', 'success', 'completed'].includes(status) ? 'success' : 'warning'
+}
+
 export function ConsoleToolCalls() {
   const { api } = useAppContext()
   const { me } = useAuth()
@@ -55,15 +60,8 @@ export function ConsoleToolCalls() {
         </div>
       </header>
       <div className="console-content" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-        <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-          <label
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 'var(--space-2)',
-              color: 'var(--color-text-muted)',
-            }}
-          >
+        <div className="console-toolbar" style={{ marginBottom: 0 }}>
+          <label className="console-checkbox-pill">
             <input
               type="checkbox"
               checked={errorsOnly}
@@ -72,7 +70,7 @@ export function ConsoleToolCalls() {
                 setCursor(null)
               }}
             />
-            <span style={{ fontSize: 'var(--font-size-sm)' }}>Errors only</span>
+            <span>Errors only</span>
           </label>
         </div>
         {!tenantId ? (
@@ -85,56 +83,50 @@ export function ConsoleToolCalls() {
         ) : rows.length === 0 && !calls.isFetching ? (
           <EmptyState title="No tool calls" description="No promoted tool calls match the current filters." />
         ) : (
-          <table className="console-table">
-            <thead>
-              <tr>
-                <th>Time</th>
-                <th>Tool</th>
-                <th>Source</th>
-                <th>Status</th>
-                <th>Result</th>
-                <th>Session</th>
-                <th>Duration</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.id}>
-                  <td style={{ fontFamily: 'var(--font-mono)' }}>{formatAbsoluteTime(row.startedAt)}</td>
-                  <td style={{ fontFamily: 'var(--font-mono)' }}>{truncate(row.name, 40)}</td>
-                  <td
-                    style={{
-                      fontFamily: 'var(--font-mono)',
-                      fontSize: 'var(--font-size-xs)',
-                      color: 'var(--color-text-muted)',
-                    }}
-                  >
-                    {row.sourceKind}
-                  </td>
-                  <td style={{ fontFamily: 'var(--font-mono)' }}>{row.status ?? '—'}</td>
-                  <td
-                    style={{
-                      fontFamily: 'var(--font-mono)',
-                      color:
-                        row.resultStatus && !['ok', 'success', 'completed'].includes(row.resultStatus)
-                          ? 'var(--color-warning)'
-                          : 'var(--color-text-muted)',
-                    }}
-                  >
-                    {row.resultStatus ?? '—'}
-                  </td>
-                  <td>
-                    <Link to="/console/sessions/$sessionId" params={{ sessionId: row.sessionId }}>
-                      {row.sessionTitle ? truncate(row.sessionTitle, 36) : row.sessionId}
-                    </Link>
-                  </td>
-                  <td style={{ fontFamily: 'var(--font-mono)' }}>
-                    {row.durationMs == null ? '—' : `${row.durationMs} ms`}
-                  </td>
+          <div className="console-table-wrap">
+            <table className="console-table">
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>Tool</th>
+                  <th>Source</th>
+                  <th>Status</th>
+                  <th>Result</th>
+                  <th>Session</th>
+                  <th>Duration</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <tr key={row.id}>
+                    <td className="console-mono">{formatAbsoluteTime(row.startedAt)}</td>
+                    <td className="console-mono">{truncate(row.name, 40)}</td>
+                    <td>
+                      <span className="console-badge" data-tone="accent">
+                        {row.sourceKind}
+                      </span>
+                    </td>
+                    <td>
+                      <span className="console-badge" data-tone={statusTone(row.status)}>
+                        {row.status ?? '—'}
+                      </span>
+                    </td>
+                    <td>
+                      <span className="console-badge" data-tone={statusTone(row.resultStatus)}>
+                        {row.resultStatus ?? '—'}
+                      </span>
+                    </td>
+                    <td>
+                      <Link to="/console/sessions/$sessionId" params={{ sessionId: row.sessionId }}>
+                        {row.sessionTitle ? truncate(row.sessionTitle, 36) : row.sessionId}
+                      </Link>
+                    </td>
+                    <td className="console-mono">{row.durationMs == null ? '—' : `${row.durationMs} ms`}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
         {calls.data?.nextCursor ? (
           <Button

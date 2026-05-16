@@ -11,8 +11,12 @@ body,
 }
 
 html {
-  background: var(--color-bg);
-  color-scheme: dark;
+  background: radial-gradient(
+      circle at 12% 0%,
+      rgba(217, 144, 47, 0.16),
+      transparent 30%
+    ), var(--color-bg);
+  color-scheme: light;
 }
 
 body {
@@ -21,7 +25,11 @@ body {
   font-size: var(--font-size-base);
   line-height: var(--line-height-base);
   color: var(--color-text);
-  background: var(--color-bg);
+  background: radial-gradient(
+      circle at 12% 0%,
+      rgba(217, 144, 47, 0.16),
+      transparent 30%
+    ), var(--color-bg);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
@@ -59,7 +67,7 @@ samp {
 }
 
 ::selection {
-  background: rgba(62, 207, 142, 0.32);
+  background: rgba(217, 144, 47, 0.28);
   color: var(--color-text);
 }
 

@@ -124,14 +124,7 @@ export function ConsoleSessionDetail() {
           />
         ) : (
           <>
-            <section
-              aria-label="Session summary"
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
-                gap: 'var(--space-3)',
-              }}
-            >
+            <section aria-label="Session summary" className="console-summary-grid">
               <SummaryCell label="Source" value={session.sourceKind} mono />
               <SummaryCell label="Started" value={formatAbsoluteTime(session.startedAt)} mono />
               <SummaryCell label="Ended" value={formatAbsoluteTime(session.endedAt)} mono />
@@ -240,33 +233,9 @@ function SummaryCell({
 }) {
   const color = tone === 'warning' ? 'var(--color-warning)' : 'var(--color-text)'
   return (
-    <div
-      style={{
-        background: 'var(--color-panel)',
-        border: '1px solid var(--color-border-subtle)',
-        borderRadius: 'var(--radius-sm)',
-        padding: 'var(--space-3) var(--space-4)',
-      }}
-    >
-      <span
-        style={{
-          display: 'block',
-          color: 'var(--color-text-faint)',
-          fontFamily: 'var(--font-mono)',
-          fontSize: 'var(--font-size-xs)',
-          textTransform: 'uppercase',
-          letterSpacing: '0.06em',
-        }}
-      >
-        {label}
-      </span>
-      <span
-        style={{
-          color,
-          fontFamily: mono ? 'var(--font-mono)' : 'var(--font-ui)',
-          fontSize: 'var(--font-size-md)',
-        }}
-      >
+    <div className="console-summary-cell">
+      <span className="console-summary-label">{label}</span>
+      <span className={mono ? 'console-summary-value console-mono' : 'console-summary-value'} style={{ color }}>
         {value}
       </span>
     </div>

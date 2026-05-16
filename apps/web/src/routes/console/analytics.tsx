@@ -46,37 +46,11 @@ export function ConsoleAnalytics() {
         </div>
       </header>
       <div className="console-content" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-        <nav
-          aria-label="Report selector"
-          style={{
-            display: 'inline-flex',
-            gap: 'var(--space-1)',
-            background: 'var(--color-panel)',
-            border: '1px solid var(--color-border-subtle)',
-            borderRadius: 'var(--radius-md)',
-            padding: 'var(--space-1)',
-            width: 'fit-content',
-          }}
-        >
+        <nav aria-label="Report selector" className="console-segmented">
           {REPORTS.map((kind) => {
             const active = report === kind
             return (
-              <button
-                key={kind}
-                type="button"
-                onClick={() => setReport(kind)}
-                aria-pressed={active}
-                style={{
-                  background: active ? 'var(--color-panel-strong)' : 'transparent',
-                  color: active ? 'var(--color-text)' : 'var(--color-text-muted)',
-                  border: 'none',
-                  borderRadius: 'var(--radius-sm)',
-                  padding: '6px 10px',
-                  cursor: 'pointer',
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: 'var(--font-size-sm)',
-                }}
-              >
+              <button key={kind} type="button" onClick={() => setReport(kind)} aria-pressed={active}>
                 {kind}
               </button>
             )
@@ -93,7 +67,7 @@ export function ConsoleAnalytics() {
           <EmptyState title={`No data for ${report}`} description="Promote tenant data first via prosa sync push." />
         ) : (
           <Panel title={`${report} report`}>
-            <div style={{ overflowX: 'auto' }}>
+            <div className="console-table-wrap">
               <table className="console-table">
                 <thead>
                   <tr>
@@ -107,7 +81,7 @@ export function ConsoleAnalytics() {
                     // biome-ignore lint/suspicious/noArrayIndexKey: report rows have no stable composite key; ordinal is the stable position.
                     <tr key={`${report}-${idx}`}>
                       {columns.map((col) => (
-                        <td key={col} style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-sm)' }}>
+                        <td key={col} className="console-mono">
                           {renderCell(row[col])}
                         </td>
                       ))}

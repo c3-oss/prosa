@@ -6,32 +6,17 @@ export type PanelProps = HTMLAttributes<HTMLDivElement> & {
 }
 
 export function Panel(props: PanelProps) {
-  const { title, action, children, style, ...rest } = props
+  const { title, action, children, className, ...rest } = props
+  const composedClassName = className ? `console-panel ${className}` : 'console-panel'
   return (
-    <section
-      {...rest}
-      style={{
-        background: 'var(--color-panel)',
-        border: '1px solid var(--color-border-subtle)',
-        borderRadius: 'var(--radius-md)',
-        ...style,
-      }}
-    >
+    <section {...rest} className={composedClassName}>
       {title || action ? (
-        <header
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            padding: 'var(--space-4) var(--space-5)',
-            borderBottom: '1px solid var(--color-border-subtle)',
-          }}
-        >
-          <h3 style={{ margin: 0, fontFamily: 'var(--font-ui)', fontSize: 'var(--font-size-md)' }}>{title}</h3>
+        <header className="console-panel-header">
+          <h3 className="console-panel-title">{title}</h3>
           {action}
         </header>
       ) : null}
-      <div style={{ padding: 'var(--space-5)' }}>{children}</div>
+      <div className="console-panel-body">{children}</div>
     </section>
   )
 }
