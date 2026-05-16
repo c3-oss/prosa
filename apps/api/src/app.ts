@@ -43,6 +43,22 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     },
   })
 
+  // fastify-cors registers a catch-all `OPTIONS *` handler, but @trpc/server's
+  // Fastify adapter uses `fastify.all('/trpc/:path')`, so OPTIONS preflights to
+  // tRPC routes hit the tRPC handler (which then 415s on missing content-type)
+  // before fastify-cors gets to short-circuit them. CORS response headers were
+  // already added in fastify-cors' onRequest hook above, so we just terminate
+  // the request here with 204 for any browser-style preflight.
+  app.addHook('onRequest', async (req, reply) => {
+    if (
+      req.method === 'OPTIONS' &&
+      typeof req.headers.origin === 'string' &&
+      typeof req.headers['access-control-request-method'] === 'string'
+    ) {
+      reply.code(204).send()
+    }
+  })
+
   app.get('/health', async () => ({ ok: true as const, version: readPackageVersion() }))
 
   app.route({
