@@ -185,6 +185,9 @@ export async function promoteUpload({
   })
   metrics.verifyMs += Date.now() - verifyStart
   metrics.totalMs += Date.now() - totalStart
+  if (verbose) {
+    process.stderr.write(`verify ok • verifyMs=${metrics.verifyMs} totalMs=${metrics.totalMs}\n`)
+  }
 
   return {
     batchId: plan.batchId,
