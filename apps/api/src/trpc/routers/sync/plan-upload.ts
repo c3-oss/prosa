@@ -56,6 +56,7 @@ export async function planUpload(ctx: SyncHandlerContext, input: PlanUploadInput
     rawExec: ctx.rawExec,
     objectStore: ctx.objectStore,
     objects,
+    tenantId: ctx.tenantId,
   })
   return { batchId, missingObjectIds, uploadUrlTemplate: '/objects/:objectId' }
 }

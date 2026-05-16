@@ -195,11 +195,45 @@ CREATE TABLE IF NOT EXISTS "remote_object" (
   compression text NOT NULL DEFAULT 'zstd',
   uncompressed_size bigint NOT NULL,
   compressed_size bigint NOT NULL,
-  storage_key text NOT NULL UNIQUE,
+  storage_key text UNIQUE,
   content_type text,
   created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS remote_object_hash_idx ON "remote_object"(hash);
+ALTER TABLE "remote_object" ALTER COLUMN storage_key DROP NOT NULL;
+
+CREATE TABLE IF NOT EXISTS "remote_blob" (
+  id text PRIMARY KEY,
+  tenant_id text NOT NULL REFERENCES "organization"(id) ON DELETE RESTRICT,
+  batch_id text REFERENCES "sync_batch"(id) ON DELETE SET NULL,
+  storage_key text NOT NULL UNIQUE,
+  hash text NOT NULL,
+  hash_algorithm text NOT NULL DEFAULT 'blake3',
+  byte_size bigint NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS remote_blob_tenant_batch_idx ON "remote_blob"(tenant_id, batch_id);
+
+CREATE TABLE IF NOT EXISTS "remote_object_location" (
+  tenant_id text NOT NULL REFERENCES "organization"(id) ON DELETE CASCADE,
+  object_id text NOT NULL REFERENCES "remote_object"(object_id) ON DELETE CASCADE,
+  batch_id text REFERENCES "sync_batch"(id) ON DELETE SET NULL,
+  location_type text NOT NULL,
+  blob_id text REFERENCES "remote_blob"(id) ON DELETE RESTRICT,
+  storage_key text,
+  byte_offset bigint NOT NULL DEFAULT 0,
+  byte_length bigint NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (tenant_id, object_id),
+  CHECK (
+    (location_type = 'object' AND storage_key IS NOT NULL AND blob_id IS NULL)
+    OR (location_type = 'pack' AND blob_id IS NOT NULL)
+  )
+);
+CREATE INDEX IF NOT EXISTS remote_object_location_blob_range_idx
+  ON "remote_object_location"(blob_id, byte_offset);
+CREATE INDEX IF NOT EXISTS remote_object_location_storage_key_idx
+  ON "remote_object_location"(storage_key) WHERE storage_key IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS "tenant_object" (
   tenant_id text NOT NULL REFERENCES "organization"(id) ON DELETE CASCADE,

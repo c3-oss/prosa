@@ -6,7 +6,14 @@ import { FsObjectStore } from '../src/adapters/fs.js'
 import { MemoryObjectStore } from '../src/adapters/memory.js'
 import { S3ObjectStore } from '../src/adapters/s3.js'
 import { createObjectStoreFromConfig } from '../src/factory.js'
-import { artifactKey, asyncIterableToUint8Array, casObjectKey, exportKey, rawSourceKey } from '../src/types.js'
+import {
+  artifactKey,
+  asyncIterableToUint8Array,
+  casObjectKey,
+  exportKey,
+  objectPackStorageKey,
+  rawSourceKey,
+} from '../src/types.js'
 import { ObjectVerificationError, assertNoConflict, computeHashHex } from '../src/verify.js'
 
 async function* fromChunks(...chunks: Uint8Array[]): AsyncIterable<Uint8Array> {
@@ -19,6 +26,9 @@ describe('object key helpers', () => {
 
     expect(casObjectKey(hash, 'prosa')).toBe('prosa/objects/blake3/ab/cd/abcdef123456.zst')
     expect(rawSourceKey('tenant-1', 'source-1', 'prosa/')).toBe('prosa/raw/sources/tenant-1/source-1.zst')
+    expect(objectPackStorageKey({ tenantId: 'tenant-1', batchId: 'batch-1', packHash: hash })).toBe(
+      'object-packs/tenant-1/batch-1/abcdef123456.pack',
+    )
     expect(artifactKey('tenant-1', 'artifact-1', 'prosa')).toBe('prosa/artifacts/tenant-1/artifact-1')
     expect(exportKey('tenant-1', 'snapshot-1', 'sessions.parquet', 'prosa/')).toBe(
       'prosa/exports/parquet/tenant-1/snapshot-1/sessions.parquet',

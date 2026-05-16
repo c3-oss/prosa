@@ -12,6 +12,7 @@ import {
   type PutResult,
   type RemoteObjectStore,
   asyncIterableToUint8Array,
+  uint8ArrayToWebStream,
 } from '../types.js'
 import { assertNoConflict, verifyBytes } from '../verify.js'
 
@@ -116,24 +117,43 @@ export class S3ObjectStore implements RemoteObjectStore {
 
   async get(key: string): Promise<ReadableStream<Uint8Array>> {
     const response = await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: key }))
-    const body = response.Body as
-      | ReadableStream<Uint8Array>
-      | (AsyncIterable<Uint8Array> & { transformToWebStream?: () => ReadableStream<Uint8Array> })
-      | undefined
-    if (!body) throw new Error(`S3ObjectStore.get: empty response body for ${key}`)
-    if (body instanceof ReadableStream) return body
-    if (typeof body.transformToWebStream === 'function') return body.transformToWebStream()
-    const reader = body[Symbol.asyncIterator]()
-    return new ReadableStream<Uint8Array>({
-      async pull(controller) {
-        const next = await reader.next()
-        if (next.done) controller.close()
-        else controller.enqueue(next.value)
-      },
-    })
+    return bodyToWebStream(response.Body, `S3ObjectStore.get: empty response body for ${key}`)
+  }
+
+  async getRange(key: string, offset: number, length: number): Promise<ReadableStream<Uint8Array>> {
+    if (!Number.isSafeInteger(offset) || !Number.isSafeInteger(length) || offset < 0 || length < 0) {
+      throw new Error(`S3ObjectStore.getRange: invalid range for ${key}`)
+    }
+    if (length === 0) return uint8ArrayToWebStream(new Uint8Array())
+    const response = await this.client.send(
+      new GetObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+        Range: `bytes=${offset}-${offset + length - 1}`,
+      }),
+    )
+    return bodyToWebStream(response.Body, `S3ObjectStore.getRange: empty response body for ${key}`)
   }
 
   async delete(key: string): Promise<void> {
     await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }))
   }
+}
+
+function bodyToWebStream(body: unknown, emptyMessage: string): ReadableStream<Uint8Array> {
+  const typedBody = body as
+    | ReadableStream<Uint8Array>
+    | (AsyncIterable<Uint8Array> & { transformToWebStream?: () => ReadableStream<Uint8Array> })
+    | undefined
+  if (!typedBody) throw new Error(emptyMessage)
+  if (typedBody instanceof ReadableStream) return typedBody
+  if (typeof typedBody.transformToWebStream === 'function') return typedBody.transformToWebStream()
+  const reader = typedBody[Symbol.asyncIterator]()
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      const next = await reader.next()
+      if (next.done) controller.close()
+      else controller.enqueue(next.value)
+    },
+  })
 }

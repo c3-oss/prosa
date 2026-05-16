@@ -67,9 +67,34 @@ export class FsObjectStore implements RemoteObjectStore {
     return Readable.toWeb(createReadStream(absolute)) as ReadableStream<Uint8Array>
   }
 
+  async getRange(key: string, offset: number, length: number): Promise<ReadableStream<Uint8Array>> {
+    const { absolute } = this.resolveKey(key)
+    const file = await stat(absolute)
+    assertValidRange(key, file.size, offset, length)
+    if (length === 0) {
+      return new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.close()
+        },
+      })
+    }
+    return Readable.toWeb(
+      createReadStream(absolute, { start: offset, end: offset + length - 1 }),
+    ) as ReadableStream<Uint8Array>
+  }
+
   async delete(key: string): Promise<void> {
     const { absolute, metaPath } = this.resolveKey(key)
     await rm(absolute, { force: true })
     await rm(metaPath, { force: true })
+  }
+}
+
+function assertValidRange(key: string, total: number, offset: number, length: number): void {
+  if (!Number.isSafeInteger(offset) || !Number.isSafeInteger(length) || offset < 0 || length < 0) {
+    throw new Error(`FsObjectStore.getRange: invalid range for ${key}`)
+  }
+  if (offset + length > total) {
+    throw new Error(`FsObjectStore.getRange: range exceeds object length for ${key}`)
   }
 }

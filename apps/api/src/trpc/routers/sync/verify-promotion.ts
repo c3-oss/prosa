@@ -1,5 +1,6 @@
 import type { PromotionReceipt, VerifyPromotionInput, VerifyPromotionOutput } from '@c3-oss/prosa-sync'
 import type { RawExec } from '../../../db.js'
+import { hasMaterializedObject } from '../../../objects/locations.js'
 import { TRPCError } from '../../init.js'
 import { type VerificationBatchRow, markBatchFailed, requireCommittedBatchForVerification } from './batches.js'
 import {
@@ -85,13 +86,16 @@ async function verifyObjectManifest(opts: {
       'SELECT object_id FROM "tenant_object" WHERE tenant_id = $1 AND object_id = $2 LIMIT 1',
       [opts.tenantId, row.object_id],
     )
-    const head = await opts.objectStore.head(row.storage_key)
     if (
       !found[0] ||
-      !head ||
-      head.hash.toLowerCase() !== object.transportHash ||
-      head.compressedSize !== object.compressedSize ||
-      head.uncompressedSize !== object.uncompressedSize
+      !(await hasMaterializedObject({
+        rawExec: opts.rawExec,
+        objectStore: opts.objectStore,
+        object,
+        legacyStorageKey: row.storage_key,
+        tenantId: opts.tenantId,
+        verifyBytes: true,
+      }))
     ) {
       throw new TRPCError({
         code: 'PRECONDITION_FAILED',

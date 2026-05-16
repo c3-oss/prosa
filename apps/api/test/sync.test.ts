@@ -8,7 +8,7 @@ type Signup = {
   tenant: { id: string; name: string; slug: string | null }
 }
 
-async function signup(t: TestApp, email: string): Promise<Signup> {
+async function signup(t: TestApp, email: string, tenantSlug = 'acme'): Promise<Signup> {
   const response = await t.app.inject({
     method: 'POST',
     url: '/trpc/auth.signupWithTenant',
@@ -18,12 +18,25 @@ async function signup(t: TestApp, email: string): Promise<Signup> {
       password: 'correct-horse-battery',
       name: email.split('@')[0],
       tenantName: 'Acme',
-      tenantSlug: 'acme',
+      tenantSlug,
     },
   })
   expect(response.statusCode).toBe(200)
   const body = response.json() as { result: { data: Signup } }
   return body.result.data
+}
+
+function objectForBytes(bytes: Buffer) {
+  const hash = computeHashHex(bytes, 'blake3')
+  return {
+    objectId: `blake3:${hash}`,
+    hash,
+    hashAlgorithm: 'blake3' as const,
+    uncompressedSize: bytes.byteLength,
+    compressedSize: bytes.byteLength,
+    compression: 'none' as const,
+    contentType: 'text/plain',
+  }
 }
 
 async function trpc(t: TestApp, path: string, input: unknown, token: string, method: 'POST' | 'GET' = 'POST') {
@@ -213,6 +226,421 @@ describe('sync promotion protocol', () => {
       )
       const body2 = handshake2.json() as { result: { data: { promoted: boolean } } }
       expect(body2.result.data.promoted).toBe(true)
+    } finally {
+      await t.close()
+    }
+  })
+
+  it('uploads missing objects as one remote pack blob and reads them by range', async () => {
+    const t = await buildTestApp()
+    try {
+      const signupResult = await signup(t, 'sync-pack-user@example.com')
+      const handshake = await trpc(
+        t,
+        'sync.handshake',
+        {
+          cliVersion: '0.0.0-test',
+          device: { name: 'laptop-pack', platform: 'linux' },
+          store: { path: '/tmp/.prosa-pack-test', bundleVersion: '1' },
+        },
+        signupResult.token,
+      )
+      const deviceId = (handshake.json() as { result: { data: { deviceId: string } } }).result.data.deviceId
+
+      const first = Buffer.from('alpha')
+      const second = Buffer.from('beta!')
+      const firstHash = computeHashHex(first, 'blake3')
+      const secondHash = computeHashHex(second, 'blake3')
+      const firstObjectId = `blake3:${firstHash}`
+      const secondObjectId = `blake3:${secondHash}`
+      const objects = [
+        {
+          objectId: firstObjectId,
+          hash: firstHash,
+          hashAlgorithm: 'blake3' as const,
+          uncompressedSize: first.byteLength,
+          compressedSize: first.byteLength,
+          compression: 'none' as const,
+          contentType: 'text/plain',
+        },
+        {
+          objectId: secondObjectId,
+          hash: secondHash,
+          hashAlgorithm: 'blake3' as const,
+          uncompressedSize: second.byteLength,
+          compressedSize: second.byteLength,
+          compression: 'none' as const,
+          contentType: 'text/plain',
+        },
+      ]
+
+      const plan = await trpc(
+        t,
+        'sync.planUpload',
+        { deviceId, storePath: '/tmp/.prosa-pack-test', objects },
+        signupResult.token,
+      )
+      expect(plan.statusCode).toBe(200)
+      const batchId = (plan.json() as { result: { data: { batchId: string } } }).result.data.batchId
+      const packBytes = Buffer.concat([first, second])
+
+      const pack = await t.app.inject({
+        method: 'POST',
+        url: `/object-packs?batchId=${batchId}`,
+        headers: {
+          authorization: `Bearer ${signupResult.token}`,
+          'content-type': 'application/json',
+        },
+        payload: {
+          bytesBase64: packBytes.toString('base64'),
+          entries: [
+            { ...objects[0], offset: 0, length: first.byteLength },
+            { ...objects[1], offset: first.byteLength, length: second.byteLength },
+          ],
+        },
+      })
+      expect(pack.statusCode).toBe(201)
+      expect(t.objectStore.size()).toBe(1)
+
+      const commit = await trpc(
+        t,
+        'sync.commitUpload',
+        {
+          batchId,
+          deviceId,
+          storePath: '/tmp/.prosa-pack-test',
+          objects,
+          projection: {
+            sessions: [{ id: 'sess-pack-1', sourceKind: 'codex', title: 'packed session', turnCount: 1 }],
+          },
+        },
+        signupResult.token,
+      )
+      expect(commit.statusCode).toBe(200)
+
+      const verify = await trpc(
+        t,
+        'sync.verifyPromotion',
+        {
+          batchId,
+          storePath: '/tmp/.prosa-pack-test',
+          declaredObjectIds: [firstObjectId, secondObjectId],
+          declaredSessionIds: ['sess-pack-1'],
+        },
+        signupResult.token,
+      )
+      expect(verify.statusCode).toBe(200)
+
+      for (const [objectId, expected] of [
+        [firstObjectId, first],
+        [secondObjectId, second],
+      ] as const) {
+        const get = await t.app.inject({
+          method: 'GET',
+          url: `/objects/${objectId}`,
+          headers: { authorization: `Bearer ${signupResult.token}` },
+        })
+        expect(get.statusCode).toBe(200)
+        expect(get.body).toBe(expected.toString('utf8'))
+      }
+
+      const preview = await trpc(
+        t,
+        'artifacts.getText',
+        { objectId: secondObjectId, maxBytes: 1024 },
+        signupResult.token,
+        'GET',
+      )
+      expect(preview.statusCode).toBe(200)
+      const previewBody = preview.json() as { result: { data: { text: string } } }
+      expect(previewBody.result.data.text).toBe('beta!')
+    } finally {
+      await t.close()
+    }
+  })
+
+  it('does not treat another tenant packed object as present by hash alone', async () => {
+    const t = await buildTestApp()
+    try {
+      const alice = await signup(t, 'sync-pack-alice@example.com', 'alice-pack')
+      const aliceHandshake = await trpc(
+        t,
+        'sync.handshake',
+        {
+          cliVersion: '0.0.0-test',
+          device: { name: 'alice-box', platform: 'linux' },
+          store: { path: '/tmp/alice-pack', bundleVersion: '1' },
+        },
+        alice.token,
+      )
+      const aliceDeviceId = (aliceHandshake.json() as { result: { data: { deviceId: string } } }).result.data.deviceId
+      const bytes = Buffer.from('shared bytes')
+      const object = objectForBytes(bytes)
+      const alicePlan = await trpc(
+        t,
+        'sync.planUpload',
+        { deviceId: aliceDeviceId, storePath: '/tmp/alice-pack', objects: [object] },
+        alice.token,
+      )
+      const aliceBatchId = (alicePlan.json() as { result: { data: { batchId: string } } }).result.data.batchId
+      const alicePack = await t.app.inject({
+        method: 'POST',
+        url: `/object-packs?batchId=${aliceBatchId}`,
+        headers: { authorization: `Bearer ${alice.token}`, 'content-type': 'application/json' },
+        payload: {
+          bytesBase64: bytes.toString('base64'),
+          entries: [{ ...object, offset: 0, length: bytes.byteLength }],
+        },
+      })
+      expect(alicePack.statusCode).toBe(201)
+
+      const bob = await signup(t, 'sync-pack-bob@example.com', 'bob-pack')
+      const bobHandshake = await trpc(
+        t,
+        'sync.handshake',
+        {
+          cliVersion: '0.0.0-test',
+          device: { name: 'bob-box', platform: 'linux' },
+          store: { path: '/tmp/bob-pack', bundleVersion: '1' },
+        },
+        bob.token,
+      )
+      const bobDeviceId = (bobHandshake.json() as { result: { data: { deviceId: string } } }).result.data.deviceId
+      const bobPlan = await trpc(
+        t,
+        'sync.planUpload',
+        { deviceId: bobDeviceId, storePath: '/tmp/bob-pack', objects: [object] },
+        bob.token,
+      )
+      expect(bobPlan.statusCode).toBe(200)
+      const bobPlanBody = bobPlan.json() as { result: { data: { batchId: string; missingObjectIds: string[] } } }
+      expect(bobPlanBody.result.data.missingObjectIds).toEqual([object.objectId])
+
+      const bobCommit = await trpc(
+        t,
+        'sync.commitUpload',
+        {
+          batchId: bobPlanBody.result.data.batchId,
+          deviceId: bobDeviceId,
+          storePath: '/tmp/bob-pack',
+          objects: [object],
+          projection: {},
+        },
+        bob.token,
+      )
+      expect(bobCommit.statusCode).toBe(412)
+      expect(bobCommit.body).toContain('Object bytes are missing or mismatched')
+    } finally {
+      await t.close()
+    }
+  })
+
+  it('rejects object packs whose aggregate uncompressed size exceeds the route cap', async () => {
+    const t = await buildTestApp()
+    try {
+      const auth = await signup(t, 'sync-pack-dos@example.com')
+      const empty = Buffer.alloc(0)
+      const hash = computeHashHex(empty, 'blake3')
+      const overHalfLimit = 129 * 1024 * 1024
+      const response = await t.app.inject({
+        method: 'POST',
+        url: '/object-packs?batchId=batch_aggregate_dos',
+        headers: { authorization: `Bearer ${auth.token}`, 'content-type': 'application/json' },
+        payload: {
+          bytesBase64: empty.toString('base64'),
+          entries: [
+            {
+              objectId: `blake3:${hash}`,
+              hash,
+              hashAlgorithm: 'blake3',
+              compression: 'none',
+              compressedSize: 0,
+              uncompressedSize: overHalfLimit,
+              offset: 0,
+              length: 0,
+            },
+            {
+              objectId: `blake3:${hash}`,
+              hash,
+              hashAlgorithm: 'blake3',
+              compression: 'none',
+              compressedSize: 0,
+              uncompressedSize: overHalfLimit,
+              offset: 0,
+              length: 0,
+            },
+          ],
+        },
+      })
+      expect(response.statusCode).toBe(400)
+      expect(response.body).toContain('pack aggregate uncompressed size exceeds maxObjectBytes')
+    } finally {
+      await t.close()
+    }
+  })
+
+  it('fails commit when packed blob identity metadata no longer matches object storage', async () => {
+    const t = await buildTestApp()
+    try {
+      const auth = await signup(t, 'sync-pack-identity@example.com')
+      const handshake = await trpc(
+        t,
+        'sync.handshake',
+        {
+          cliVersion: '0.0.0-test',
+          device: { name: 'identity-box', platform: 'linux' },
+          store: { path: '/tmp/identity-pack', bundleVersion: '1' },
+        },
+        auth.token,
+      )
+      const deviceId = (handshake.json() as { result: { data: { deviceId: string } } }).result.data.deviceId
+      const bytes = Buffer.from('identity-check')
+      const object = objectForBytes(bytes)
+      const plan = await trpc(
+        t,
+        'sync.planUpload',
+        { deviceId, storePath: '/tmp/identity-pack', objects: [object] },
+        auth.token,
+      )
+      const batchId = (plan.json() as { result: { data: { batchId: string } } }).result.data.batchId
+      const pack = await t.app.inject({
+        method: 'POST',
+        url: `/object-packs?batchId=${batchId}`,
+        headers: { authorization: `Bearer ${auth.token}`, 'content-type': 'application/json' },
+        payload: {
+          bytesBase64: bytes.toString('base64'),
+          entries: [{ ...object, offset: 0, length: bytes.byteLength }],
+        },
+      })
+      expect(pack.statusCode).toBe(201)
+
+      await t.pglite.query('UPDATE "remote_blob" SET hash = $1', ['0'.repeat(64)])
+      const commit = await trpc(
+        t,
+        'sync.commitUpload',
+        {
+          batchId,
+          deviceId,
+          storePath: '/tmp/identity-pack',
+          objects: [object],
+          projection: {},
+        },
+        auth.token,
+      )
+      expect(commit.statusCode).toBe(412)
+      expect(commit.body).toContain('Object bytes are missing or mismatched')
+    } finally {
+      await t.close()
+    }
+  })
+
+  it('fails commit when a packed object location points at the wrong range', async () => {
+    const t = await buildTestApp()
+    try {
+      const auth = await signup(t, 'sync-pack-range@example.com')
+      const handshake = await trpc(
+        t,
+        'sync.handshake',
+        {
+          cliVersion: '0.0.0-test',
+          device: { name: 'range-box', platform: 'linux' },
+          store: { path: '/tmp/range-pack', bundleVersion: '1' },
+        },
+        auth.token,
+      )
+      const deviceId = (handshake.json() as { result: { data: { deviceId: string } } }).result.data.deviceId
+      const first = Buffer.from('first')
+      const second = Buffer.from('other')
+      const firstObject = objectForBytes(first)
+      const secondObject = objectForBytes(second)
+      const objects = [firstObject, secondObject]
+      const plan = await trpc(t, 'sync.planUpload', { deviceId, storePath: '/tmp/range-pack', objects }, auth.token)
+      const batchId = (plan.json() as { result: { data: { batchId: string } } }).result.data.batchId
+      const packBytes = Buffer.concat([first, second])
+      const pack = await t.app.inject({
+        method: 'POST',
+        url: `/object-packs?batchId=${batchId}`,
+        headers: { authorization: `Bearer ${auth.token}`, 'content-type': 'application/json' },
+        payload: {
+          bytesBase64: packBytes.toString('base64'),
+          entries: [
+            { ...firstObject, offset: 0, length: first.byteLength },
+            { ...secondObject, offset: first.byteLength, length: second.byteLength },
+          ],
+        },
+      })
+      expect(pack.statusCode).toBe(201)
+
+      await t.pglite.query('UPDATE "remote_object_location" SET byte_offset = $1 WHERE object_id = $2', [
+        first.byteLength,
+        firstObject.objectId,
+      ])
+      const commit = await trpc(
+        t,
+        'sync.commitUpload',
+        {
+          batchId,
+          deviceId,
+          storePath: '/tmp/range-pack',
+          objects,
+          projection: {},
+        },
+        auth.token,
+      )
+      expect(commit.statusCode).toBe(412)
+      expect(commit.body).toContain('Object bytes are missing or mismatched')
+    } finally {
+      await t.close()
+    }
+  })
+
+  it('rejects legacy PUT against a packed object without writing an orphan object', async () => {
+    const t = await buildTestApp()
+    try {
+      const auth = await signup(t, 'sync-pack-legacy-put@example.com')
+      const handshake = await trpc(
+        t,
+        'sync.handshake',
+        {
+          cliVersion: '0.0.0-test',
+          device: { name: 'legacy-put-box', platform: 'linux' },
+          store: { path: '/tmp/legacy-put-pack', bundleVersion: '1' },
+        },
+        auth.token,
+      )
+      const deviceId = (handshake.json() as { result: { data: { deviceId: string } } }).result.data.deviceId
+      const bytes = Buffer.from('packed then put')
+      const object = objectForBytes(bytes)
+      const plan = await trpc(
+        t,
+        'sync.planUpload',
+        { deviceId, storePath: '/tmp/legacy-put-pack', objects: [object] },
+        auth.token,
+      )
+      const batchId = (plan.json() as { result: { data: { batchId: string } } }).result.data.batchId
+      const pack = await t.app.inject({
+        method: 'POST',
+        url: `/object-packs?batchId=${batchId}`,
+        headers: { authorization: `Bearer ${auth.token}`, 'content-type': 'application/json' },
+        payload: {
+          bytesBase64: bytes.toString('base64'),
+          entries: [{ ...object, offset: 0, length: bytes.byteLength }],
+        },
+      })
+      expect(pack.statusCode).toBe(201)
+      expect(t.objectStore.size()).toBe(1)
+
+      const put = await t.app.inject({
+        method: 'PUT',
+        url:
+          `/objects/${object.objectId}?batchId=${batchId}&hash=${object.hash}` +
+          `&size=${bytes.byteLength}&uncompressed=${bytes.byteLength}&compression=none`,
+        headers: { authorization: `Bearer ${auth.token}`, 'content-type': 'application/octet-stream' },
+        payload: bytes,
+      })
+      expect(put.statusCode).toBe(409)
+      expect(put.body).toContain('conflicting remote object location')
+      expect(t.objectStore.size()).toBe(1)
     } finally {
       await t.close()
     }

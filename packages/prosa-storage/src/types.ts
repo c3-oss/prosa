@@ -30,6 +30,9 @@ export interface RemoteObjectStore {
   /** Reads bytes as a Web ReadableStream. */
   get(key: string): Promise<ReadableStream<Uint8Array>>
 
+  /** Reads a byte range as a Web ReadableStream. */
+  getRange(key: string, offset: number, length: number): Promise<ReadableStream<Uint8Array>>
+
   /** Removes the object. No-op if it does not exist. */
   delete(key: string): Promise<void>
 }
@@ -63,6 +66,10 @@ export function casObjectKey(hash: string, prefix: string): string {
 export function objectStorageKey(opts: { hash: string; compression: ObjectCompression }): string {
   const ext = opts.compression === 'zstd' ? '.zst' : '.bin'
   return `objects/blake3/${opts.hash.slice(0, 2)}/${opts.hash.slice(2, 4)}/${opts.hash}${ext}`
+}
+
+export function objectPackStorageKey(opts: { tenantId: string; batchId: string; packHash: string }): string {
+  return `object-packs/${opts.tenantId}/${opts.batchId}/${opts.packHash}.pack`
 }
 
 export function rawSourceKey(tenantId: string, sourceFileId: string, prefix: string): string {

@@ -1,5 +1,10 @@
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
+import {
+  type ObjectByteLocation,
+  readObjectByteLocation,
+  resolveObjectByteLocation,
+} from '../../../objects/locations.js'
 import { router, tenantProcedure } from '../../init.js'
 import { decompressZstdBounded, readRawBounded } from './bounded-decode.js'
 
@@ -15,7 +20,7 @@ const artifactInput = z
 
 type ResolveResult = {
   objectId: string
-  storageKey: string
+  location: ObjectByteLocation
   compression: string
   contentType: string | null
   artifactId: string | null
@@ -41,13 +46,11 @@ async function resolveArtifact(
     const rows = await ctx.rawExec<{
       id: string
       object_id: string | null
-      storage_key: string | null
       compression: string | null
       content_type: string | null
     }>(
       `SELECT a.id,
               a.object_id,
-              o.storage_key,
               o.compression,
               o.content_type
          FROM "projection_artifact" a
@@ -69,10 +72,12 @@ async function resolveArtifact(
       [ctx.tenantId, input.artifactId],
     )
     const row = rows[0]
-    if (!row || !row.object_id || !row.storage_key) return null
+    if (!row || !row.object_id) return null
+    const location = await resolveObjectByteLocation(ctx.rawExec, row.object_id, ctx.tenantId)
+    if (!location) return null
     return {
       objectId: row.object_id,
-      storageKey: row.storage_key,
+      location,
       compression: row.compression ?? 'zstd',
       contentType: row.content_type,
       artifactId: row.id,
@@ -86,11 +91,10 @@ async function resolveArtifact(
     // are never readable.
     const rows = await ctx.rawExec<{
       object_id: string
-      storage_key: string
       compression: string
       content_type: string | null
     }>(
-      `SELECT o.object_id, o.storage_key, o.compression, o.content_type
+      `SELECT o.object_id, o.compression, o.content_type
          FROM "tenant_object" tx
          JOIN "remote_object" o ON o.object_id = tx.object_id
         WHERE tx.tenant_id = $1 AND tx.object_id = $2
@@ -104,9 +108,11 @@ async function resolveArtifact(
     )
     const row = rows[0]
     if (!row) return null
+    const location = await resolveObjectByteLocation(ctx.rawExec, row.object_id, ctx.tenantId)
+    if (!location) return null
     return {
       objectId: row.object_id,
-      storageKey: row.storage_key,
+      location,
       compression: row.compression,
       contentType: row.content_type,
       artifactId: null,
@@ -137,7 +143,7 @@ export const artifactsRouter = router({
         message: 'Artifact or object is not accessible to this tenant.',
       })
     }
-    const stream = await ctx.objectStore.get(resolved.storageKey)
+    const stream = await readObjectByteLocation(ctx.objectStore, resolved.location)
     const asyncIter: AsyncIterable<Uint8Array> =
       Symbol.asyncIterator in stream ? (stream as unknown as AsyncIterable<Uint8Array>) : streamToAsyncIterable(stream)
     const { decoded, truncated } =
