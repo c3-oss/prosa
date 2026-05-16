@@ -4,7 +4,7 @@ const objectStoreDriverSchema = z.enum(['s3', 'fs', 'memory'])
 const runtimeModeSchema = z.enum(['production', 'development', 'test']).default('production')
 
 const baseSchema = z.object({
-  PROSA_API_URL: z.string().url().default('http://127.0.0.1:3000'),
+  PROSA_API_URL: z.string().url().default('http://localhost:3000'),
   PROSA_API_HOST: z.string().default('127.0.0.1'),
   PROSA_API_PORT: z.coerce.number().int().positive().default(3000),
   PROSA_LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent']).default('info'),
@@ -55,6 +55,43 @@ export type ProsaApiConfig = {
 
 export class ConfigError extends Error {
   override readonly name = 'ConfigError'
+}
+
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]'])
+
+function normalizeOrigin(input: string): string {
+  const url = new URL(input)
+  return url.origin
+}
+
+function isLoopbackHostname(hostname: string): boolean {
+  return LOOPBACK_HOSTS.has(hostname.toLowerCase())
+}
+
+function isHttpOrigin(url: URL): boolean {
+  return url.protocol === 'http:' || url.protocol === 'https:'
+}
+
+export function isLocalDevOrigin(origin: string, runtimeMode: RuntimeMode): boolean {
+  if (runtimeMode === 'production') return false
+  try {
+    const url = new URL(origin)
+    return isHttpOrigin(url) && isLoopbackHostname(url.hostname)
+  } catch {
+    return false
+  }
+}
+
+export function equivalentLoopbackOrigins(origin: string, runtimeMode: RuntimeMode): string[] {
+  if (runtimeMode === 'production') return []
+  try {
+    const url = new URL(origin)
+    if (!isHttpOrigin(url) || !isLoopbackHostname(url.hostname)) return []
+    const suffix = `${url.port ? `:${url.port}` : ''}`
+    return [`${url.protocol}//localhost${suffix}`, `${url.protocol}//127.0.0.1${suffix}`]
+  } catch {
+    return []
+  }
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ProsaApiConfig {
@@ -116,11 +153,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ProsaApiConfig
     }
   })()
 
-  const webOrigins = (v.PROSA_WEB_ORIGIN ?? '')
+  const explicitWebOrigins = (v.PROSA_WEB_ORIGIN ?? '')
     .split(',')
     .map((s) => s.trim())
     .filter((s) => s.length > 0)
-  for (const origin of webOrigins) {
+  for (const origin of explicitWebOrigins) {
     try {
       // Confirm each entry is a valid origin (URL parses, no path).
       const parsed = new URL(origin)
@@ -132,6 +169,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ProsaApiConfig
       throw new ConfigError(`PROSA_WEB_ORIGIN entry "${origin}" is not a valid origin: ${reason}`)
     }
   }
+  const webOrigins = Array.from(
+    new Set([
+      ...explicitWebOrigins.map(normalizeOrigin),
+      ...equivalentLoopbackOrigins(v.PROSA_API_URL, v.PROSA_RUNTIME_MODE),
+    ]),
+  )
 
   return {
     apiUrl: v.PROSA_API_URL,

@@ -53,6 +53,7 @@ services:
       PROSA_API_HOST: 0.0.0.0
       PROSA_API_PORT: 3000
       PROSA_API_URL: http://localhost:${PROSA_COMPOSE_API_PORT:-3000}
+      PROSA_WEB_ORIGIN: http://localhost:5173,http://127.0.0.1:5173
       PROSA_LOG_LEVEL: info
       PROSA_DATABASE_URL: postgres://prosa:prosa@postgres:5432/prosa
       PROSA_AUTH_SECRET: ${PROSA_AUTH_SECRET:-compose-development-secret-please-change}

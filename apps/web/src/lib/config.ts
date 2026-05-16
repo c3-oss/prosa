@@ -5,7 +5,7 @@ export type WebRuntimeConfig = {
   githubUrl: string | null
 }
 
-const DEFAULT_DEV_API_URL = 'http://127.0.0.1:3000'
+const DEFAULT_DEV_API_URL = 'http://localhost:3000'
 
 function readEnv(): ImportMetaEnv {
   return import.meta.env

@@ -3,7 +3,7 @@ import fastifyCors from '@fastify/cors'
 import { type FastifyTRPCPluginOptions, fastifyTRPCPlugin } from '@trpc/server/adapters/fastify'
 import Fastify, { type FastifyInstance } from 'fastify'
 import type { ProsaAuth } from './auth.js'
-import type { ProsaApiConfig } from './config.js'
+import { type ProsaApiConfig, equivalentLoopbackOrigins, isLocalDevOrigin } from './config.js'
 import type { DatabaseHandle, ProsaDatabase, RawExec } from './db.js'
 import { registerObjectRoutes } from './http/objects.js'
 import { buildCreateContext } from './trpc/context.js'
@@ -24,12 +24,17 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   const app = Fastify({
     logger: opts.loggerEnabled === false ? false : { level: opts.config.logLevel },
     genReqId: () => crypto.randomUUID(),
+    bodyLimit: 64 * 1024 * 1024,
   })
 
   // Credentialed CORS for browser-origin reads. The API URL is always
   // allowed; additional browser origins come from `PROSA_WEB_ORIGIN`. We
   // never allow `*` because credentials must be sent.
-  const allowedOrigins = new Set<string>([opts.config.apiUrl, ...opts.config.webOrigins])
+  const allowedOrigins = new Set<string>([
+    opts.config.apiUrl,
+    ...opts.config.webOrigins,
+    ...equivalentLoopbackOrigins(opts.config.apiUrl, opts.config.runtimeMode),
+  ])
   await app.register(fastifyCors, {
     credentials: true,
     methods: ['GET', 'POST', 'OPTIONS'],
@@ -39,6 +44,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
       // header; allow them to reach the API.
       if (!origin) return cb(null, true)
       if (allowedOrigins.has(origin)) return cb(null, true)
+      if (isLocalDevOrigin(origin, opts.config.runtimeMode)) return cb(null, true)
       return cb(null, false)
     },
   })
@@ -75,6 +81,15 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
           headers.set(key, String(value))
         }
       }
+      const requestOrigin = getSingleHeader(request.headers.origin)
+      const isBrowserLikeRequest = isBrowserLikeAuthRequest(request.headers)
+      if (!requestOrigin && !isBrowserLikeRequest && request.method !== 'GET') {
+        // Better Auth rejects state-changing email/password calls with a null
+        // Origin. CLI/device callers legitimately have no browser Origin, so
+        // present the API's own trusted origin only to the internal handler.
+        // Token stripping below still uses the original request headers.
+        headers.set('origin', opts.config.apiUrl)
+      }
       const body =
         request.method === 'GET' || request.body == null
           ? undefined
@@ -89,13 +104,15 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
           body,
         }),
       )
+      const setCookies = getSetCookieHeaders(response.headers)
       response.headers.forEach((value, key) => {
         if (key.toLowerCase() === 'set-cookie') {
-          reply.header('set-cookie', value)
+          if (setCookies.length === 0) reply.header('set-cookie', value)
         } else {
           reply.header(key, value)
         }
       })
+      if (setCookies.length > 0) reply.header('set-cookie', setCookies)
       reply.status(response.status)
       const responseBody = response.body ? await response.text() : ''
 
@@ -107,10 +124,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
       // response must omit the token so the bearer never reaches
       // JavaScript. The session cookie set above is the only credential
       // the browser needs.
-      const originHeader = request.headers.origin
-      const requestOrigin = Array.isArray(originHeader) ? originHeader[0] : originHeader
-      const isBrowserOrigin = typeof requestOrigin === 'string' && requestOrigin.length > 0
-      if (isBrowserOrigin && responseBody.length > 0) {
+      if (isBrowserLikeRequest && responseBody.length > 0) {
         try {
           const parsed = JSON.parse(responseBody) as unknown
           if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
@@ -157,6 +171,26 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   })
 
   return app
+}
+
+function getSingleHeader(value: string | string[] | undefined): string | undefined {
+  if (Array.isArray(value)) return value[0]
+  return value
+}
+
+function isBrowserLikeAuthRequest(headers: Record<string, string | string[] | undefined>): boolean {
+  const origin = getSingleHeader(headers.origin)
+  if (origin && origin.length > 0) return true
+  return (
+    typeof getSingleHeader(headers['sec-fetch-site']) === 'string' ||
+    typeof getSingleHeader(headers['sec-fetch-mode']) === 'string' ||
+    typeof getSingleHeader(headers['sec-fetch-dest']) === 'string'
+  )
+}
+
+function getSetCookieHeaders(headers: Headers): string[] {
+  const candidate = headers as Headers & { getSetCookie?: () => string[] }
+  return candidate.getSetCookie?.() ?? []
 }
 
 const BEARER_TOKEN_KEYS = new Set([

@@ -2,7 +2,7 @@ import { drizzleAdapter } from '@better-auth/drizzle-adapter'
 import { schema as prosaSchema } from '@c3-oss/prosa-db'
 import { betterAuth } from 'better-auth'
 import { bearer, deviceAuthorization, organization } from 'better-auth/plugins'
-import { ConfigError, type ProsaApiConfig } from './config.js'
+import { ConfigError, type ProsaApiConfig, equivalentLoopbackOrigins, isLocalDevOrigin } from './config.js'
 import type { ProsaDatabase } from './db.js'
 
 const authSchema = {
@@ -67,12 +67,22 @@ function resolveAuthSecret(config: ProsaApiConfig): string {
 export function createAuth(opts: CreateAuthOptions): ProsaAuth {
   const { config, db } = opts
   const secret = resolveAuthSecret(config)
+  const baseTrustedOrigins = Array.from(
+    new Set([config.apiUrl, ...config.webOrigins, ...equivalentLoopbackOrigins(config.apiUrl, config.runtimeMode)]),
+  )
   const instance = betterAuth({
     appName: 'prosa',
     baseURL: config.apiUrl,
     basePath: '/api/auth',
     secret,
-    trustedOrigins: [config.apiUrl, ...config.webOrigins],
+    trustedOrigins: async (request?: Request) => {
+      const origins = new Set(baseTrustedOrigins)
+      const origin = request?.headers.get('origin')
+      if (origin && isLocalDevOrigin(origin, config.runtimeMode)) {
+        origins.add(origin)
+      }
+      return Array.from(origins)
+    },
     database: drizzleAdapter(db, {
       provider: 'pg',
       usePlural: false,

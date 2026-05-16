@@ -7,7 +7,7 @@ import { Button } from '~/components/primitives/button.js'
 import { TextField } from '~/components/primitives/text-field.js'
 
 export function SignupPage() {
-  const { api } = useAppContext()
+  const { api, setTenantId } = useAppContext()
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const [name, setName] = useState('')
@@ -27,7 +27,9 @@ export function SignupPage() {
       return api.auth.signupWithTenant.mutate(payload)
     },
     onSuccess: async () => {
+      setTenantId(null)
       await queryClient.invalidateQueries({ queryKey: ['auth', 'me'] })
+      await queryClient.refetchQueries({ queryKey: ['auth', 'me'], type: 'active' })
       navigate({ to: '/console' })
     },
   })

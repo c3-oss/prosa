@@ -1,3 +1,5 @@
+import { request as httpRequest } from 'node:http'
+import { request as httpsRequest } from 'node:https'
 import type {
   CommitUploadInput,
   CommitUploadOutput,
@@ -21,20 +23,109 @@ export type ProsaApiClientOptions = {
 
 type TrpcSuccess<T> = { result: { data: T } }
 type TrpcFailure = { error: { message: string; data?: { code?: string } } }
+type PlainHttpResponse = { ok: boolean; status: number; text: string }
 
 function trimTrailingSlash(url: string): string {
   return url.endsWith('/') ? url.slice(0, -1) : url
 }
 
+function retryAfterSecondsFromMessage(message: string): number | undefined {
+  const match = /\bRetry after\s+(\d+)s\b/i.exec(message)
+  if (!match) return undefined
+  const seconds = Number(match[1])
+  return Number.isFinite(seconds) && seconds > 0 ? seconds : undefined
+}
+
+function embeddedAbsoluteUrl(value: URL): string | null {
+  const path = value.pathname.startsWith('/') ? value.pathname.slice(1) : value.pathname
+  const candidates = [path]
+  try {
+    candidates.push(decodeURIComponent(path))
+  } catch {
+    // Leave malformed escape sequences untouched.
+  }
+  for (const candidate of candidates) {
+    if (!/^https?:\/\//i.test(candidate)) continue
+    try {
+      return new URL(`${candidate}${value.search}${value.hash}`).toString()
+    } catch {
+      // Fall through to the next candidate.
+    }
+  }
+  return null
+}
+
+function normalizeDeviceUri(baseUrl: string, value: string | null): string | null {
+  if (value == null) return null
+  const trimmed = value.trim()
+  if (trimmed.length === 0) return trimmed
+  try {
+    const parsed = new URL(trimmed)
+    return embeddedAbsoluteUrl(parsed) ?? parsed.toString()
+  } catch {
+    return new URL(trimmed, `${trimTrailingSlash(baseUrl)}/`).toString()
+  }
+}
+
+async function postJsonWithoutFetchMetadata(urlString: string, body: unknown): Promise<PlainHttpResponse> {
+  const url = new URL(urlString)
+  const payload = JSON.stringify(body ?? {})
+  const request = url.protocol === 'https:' ? httpsRequest : httpRequest
+  return new Promise((resolve, reject) => {
+    const req = request(
+      {
+        protocol: url.protocol,
+        hostname: url.hostname,
+        port: url.port,
+        path: `${url.pathname}${url.search}`,
+        method: 'POST',
+        headers: {
+          accept: 'application/json',
+          'content-type': 'application/json',
+          'content-length': Buffer.byteLength(payload).toString(),
+          'user-agent': 'prosa-cli',
+        },
+      },
+      (res) => {
+        let text = ''
+        res.setEncoding('utf8')
+        res.on('data', (chunk: string) => {
+          text += chunk
+        })
+        res.on('end', () => {
+          const status = res.statusCode ?? 0
+          resolve({ ok: status >= 200 && status < 300, status, text })
+        })
+      },
+    )
+    req.on('error', reject)
+    req.end(payload)
+  })
+}
+
+export class ProsaApiError extends CliUserError {
+  readonly code: string | undefined
+  readonly retryAfterSeconds: number | undefined
+
+  constructor(path: string, message: string, opts: { code?: string; retryAfterSeconds?: number } = {}) {
+    super(`${path}: ${message}`)
+    this.name = 'ProsaApiError'
+    this.code = opts.code
+    this.retryAfterSeconds = opts.retryAfterSeconds
+  }
+}
+
 export class ProsaApiClient {
   private readonly baseUrl: string
   private readonly fetchFn: typeof fetch
+  private readonly hasInjectedFetch: boolean
   token: string | undefined
   tenantId: string | undefined
 
   constructor(opts: ProsaApiClientOptions) {
     this.baseUrl = trimTrailingSlash(opts.baseUrl)
     this.fetchFn = opts.fetch ?? globalThis.fetch
+    this.hasInjectedFetch = Boolean(opts.fetch)
     this.token = opts.token
     this.tenantId = opts.tenantId
   }
@@ -65,11 +156,33 @@ export class ProsaApiClient {
   private async parseTrpc<T>(path: string, response: Response): Promise<T> {
     const text = await response.text()
     if (!text) throw new CliUserError(`${path}: empty response (status ${response.status})`)
-    const parsed = JSON.parse(text) as TrpcSuccess<T> | TrpcFailure
+    let parsed: TrpcSuccess<T> | TrpcFailure
+    try {
+      parsed = JSON.parse(text) as TrpcSuccess<T> | TrpcFailure
+    } catch {
+      const preview = text.length > 300 ? `${text.slice(0, 300)}…` : text
+      throw new CliUserError(`${path}: non-JSON response (status ${response.status}): ${preview}`)
+    }
     if ('error' in parsed) {
-      throw new CliUserError(`${path}: ${parsed.error.message}`)
+      const message = parsed.error.message ?? `request failed with status ${response.status}`
+      throw new ProsaApiError(path, message, {
+        code: parsed.error.data?.code,
+        retryAfterSeconds: retryAfterSecondsFromMessage(message),
+      })
     }
     return parsed.result.data
+  }
+
+  private async postJsonForCliAuth(path: string, body: unknown): Promise<PlainHttpResponse> {
+    if (!this.hasInjectedFetch) {
+      return postJsonWithoutFetchMetadata(`${this.baseUrl}${path}`, body)
+    }
+    const response = await this.fetchFn(`${this.baseUrl}${path}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body ?? {}),
+    })
+    return { ok: response.ok, status: response.status, text: await response.text() }
   }
 
   // ---- auth ----
@@ -95,12 +208,11 @@ export class ProsaApiClient {
 
   /** Email/password login via Better Auth's mounted REST handler. */
   async signInEmail(input: { email: string; password: string }) {
-    const response = await this.fetchFn(`${this.baseUrl}/api/auth/sign-in/email`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ email: input.email, password: input.password }),
+    const response = await this.postJsonForCliAuth('/api/auth/sign-in/email', {
+      email: input.email,
+      password: input.password,
     })
-    const text = await response.text()
+    const text = response.text
     if (!response.ok) throw new CliUserError(`sign-in failed: ${response.status} ${text}`)
     const body = JSON.parse(text) as { token?: string; user?: { id: string; email: string; name: string } }
     if (!body.token || !body.user) {
@@ -110,7 +222,7 @@ export class ProsaApiClient {
   }
 
   async deviceCode(input: { clientId?: string } = {}) {
-    return this.trpcMutation<{
+    const result = await this.trpcMutation<{
       deviceCode: string
       userCode: string
       verificationUri: string
@@ -118,6 +230,11 @@ export class ProsaApiClient {
       expiresIn: number
       interval: number
     }>('auth.deviceCode', { clientId: input.clientId ?? 'prosa-cli' })
+    return {
+      ...result,
+      verificationUri: normalizeDeviceUri(this.baseUrl, result.verificationUri) ?? result.verificationUri,
+      verificationUriComplete: normalizeDeviceUri(this.baseUrl, result.verificationUriComplete),
+    }
   }
 
   async deviceToken(input: { deviceCode: string; clientId?: string }) {

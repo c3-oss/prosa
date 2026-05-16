@@ -1,5 +1,5 @@
 import { Command } from 'commander'
-import { ProsaApiClient } from '../auth/client.js'
+import { ProsaApiClient, ProsaApiError } from '../auth/client.js'
 import {
   type ProsaServerEntry,
   activeEntry,
@@ -19,6 +19,25 @@ function resolveServer(opts: AuthOptions): string {
 
 function resolveConfigPath(opts: AuthOptions): string {
   return opts.config ?? defaultConfigPath()
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function positiveSeconds(value: unknown): number | null {
+  const seconds = Number(value)
+  return Number.isFinite(seconds) && seconds > 0 ? seconds : null
+}
+
+function retryAfterSecondsFromError(err: unknown): number | null {
+  if (err instanceof ProsaApiError) {
+    return err.retryAfterSeconds ?? (err.code === 'TOO_MANY_REQUESTS' ? 5 : null)
+  }
+  const message = err instanceof Error ? err.message : String(err)
+  const match = /\bRetry after\s+(\d+)s\b/i.exec(message)
+  if (match) return positiveSeconds(match[1])
+  return /rate limit|too many requests/i.test(message) ? 5 : null
 }
 
 async function fetchTokenExpiresAt(client: ProsaApiClient): Promise<string | undefined> {
@@ -136,30 +155,53 @@ export function authCommand(): Command {
       const server = resolveServer(options)
       const client = new ProsaApiClient({ baseUrl: server })
       const issued = await client.deviceCode({ clientId: options.clientId })
+      const verificationUrl = issued.verificationUriComplete ?? issued.verificationUri
+      const codeHint = issued.verificationUriComplete
+        ? `If prompted, enter the code: ${issued.userCode}\n`
+        : `Enter the code: ${issued.userCode}\n`
+      const pollMaxSeconds = Math.max(60, positiveSeconds(options.pollMaxSeconds) ?? 900)
       if (!options.json) {
         process.stdout.write(
-          `Visit ${issued.verificationUri} and enter the code: ${issued.userCode}\n` +
-            `Waiting for approval (polling every ${issued.interval}s, max ${options.pollMaxSeconds}s)...\n`,
+          `Visit ${verificationUrl}\n${codeHint}` +
+            `Waiting for approval (polling every ${issued.interval}s, max ${pollMaxSeconds}s)...\n`,
         )
       } else {
         process.stdout.write(
-          `${JSON.stringify({ kind: 'device-code', userCode: issued.userCode, verificationUri: issued.verificationUri, expiresIn: issued.expiresIn, interval: issued.interval })}\n`,
+          `${JSON.stringify({
+            kind: 'device-code',
+            userCode: issued.userCode,
+            verificationUri: issued.verificationUri,
+            verificationUriComplete: issued.verificationUriComplete,
+            expiresIn: issued.expiresIn,
+            interval: issued.interval,
+          })}\n`,
         )
       }
-      const intervalMs = Math.max(1, issued.interval) * 1000
-      const deadline = Date.now() + Math.max(60, Number(options.pollMaxSeconds)) * 1000
+      let intervalMs = Math.max(1, issued.interval) * 1000
+      const deadline = Date.now() + pollMaxSeconds * 1000
       let user: { id: string; email: string; name: string } | null = null
       let token: string | null = null
       while (Date.now() < deadline) {
-        await new Promise<void>((resolve) => setTimeout(resolve, intervalMs))
-        const tokenResp = await client.deviceToken({
-          deviceCode: issued.deviceCode,
-          clientId: options.clientId,
-        })
+        await sleep(Math.min(intervalMs, Math.max(0, deadline - Date.now())))
+        if (Date.now() >= deadline) break
+        const tokenResp = await client
+          .deviceToken({
+            deviceCode: issued.deviceCode,
+            clientId: options.clientId,
+          })
+          .catch((err: unknown) => {
+            const retryAfterSeconds = retryAfterSecondsFromError(err)
+            if (retryAfterSeconds == null) throw err
+            intervalMs = Math.max(intervalMs + 5_000, retryAfterSeconds * 1000)
+            return { pending: true as const, code: 'rate_limited' }
+          })
         if (!tokenResp.pending) {
           token = tokenResp.token
           user = tokenResp.user
           break
+        }
+        if (tokenResp.code === 'slow_down') {
+          intervalMs += 5_000
         }
       }
       if (!token) {

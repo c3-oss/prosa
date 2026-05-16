@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { type ReactNode, createContext, useCallback, useContext, useMemo } from 'react'
+import { type ReactNode, createContext, useCallback, useContext, useEffect, useMemo, useRef } from 'react'
 
 import { useAppContext } from './providers.js'
 
@@ -31,6 +31,7 @@ export function useAuth(): AuthContextValue {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const { api } = useAppContext()
   const queryClient = useQueryClient()
+  const autoActivatedTenantRef = useRef<string | null>(null)
   const query = useQuery({
     queryKey: ['auth', 'me'] as const,
     staleTime: 30_000,
@@ -50,8 +51,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await queryClient.invalidateQueries({ queryKey: ['auth', 'me'] })
   }, [queryClient])
 
+  useEffect(() => {
+    const snapshot = query.data
+    if (!snapshot || snapshot.tenantId || snapshot.tenants.length !== 1) return
+
+    const tenantId = snapshot.tenants[0]?.id
+    if (!tenantId || autoActivatedTenantRef.current === tenantId) return
+
+    autoActivatedTenantRef.current = tenantId
+    let cancelled = false
+
+    api.tenant.setActive
+      .mutate({ tenantId })
+      .then(async () => {
+        if (!cancelled) await queryClient.invalidateQueries({ queryKey: ['auth', 'me'] })
+      })
+      .catch(() => {
+        if (autoActivatedTenantRef.current === tenantId) autoActivatedTenantRef.current = null
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [api, query.data, queryClient])
+
   const value = useMemo<AuthContextValue>(() => {
-    const me = query.data ?? null
+    const me = normalizeAuthSnapshot(query.data ?? null)
     const error = query.error instanceof Error ? query.error : null
     const status: AuthContextValue['status'] = query.isLoading
       ? 'pending'
@@ -64,6 +89,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [query.data, query.error, query.isLoading, refresh])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
+}
+
+function normalizeAuthSnapshot(snapshot: AuthMeSnapshot | null): AuthMeSnapshot | null {
+  if (!snapshot) return null
+
+  if (!snapshot.tenantId && snapshot.tenants.length === 1) {
+    const tenant = snapshot.tenants[0]
+    if (!tenant) return snapshot
+    return {
+      ...snapshot,
+      tenantId: tenant.id,
+      memberRole: snapshot.memberRole ?? tenant.role,
+    }
+  }
+
+  if (snapshot.tenantId && !snapshot.memberRole) {
+    const tenant = snapshot.tenants.find((candidate) => candidate.id === snapshot.tenantId)
+    if (tenant) return { ...snapshot, memberRole: tenant.role }
+  }
+
+  return snapshot
 }
 
 function isUnauthorized(err: unknown): boolean {

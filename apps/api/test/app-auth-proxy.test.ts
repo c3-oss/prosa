@@ -62,7 +62,7 @@ describe('buildApp auth proxy', () => {
       expect(response.statusCode).toBe(201)
       expect(response.body).toBe('ok')
       expect(response.headers['x-auth-result']).toBe('forwarded')
-      expect(response.headers['set-cookie']).toBe('sid=1; Path=/')
+      expect(response.headers['set-cookie']).toEqual(['sid=1; Path=/'])
       expect(handler).toHaveBeenCalledOnce()
       expect(forwarded).toEqual({
         body: '',

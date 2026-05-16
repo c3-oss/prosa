@@ -16,7 +16,7 @@ function fakeEnv(overrides: Partial<ImportMetaEnv>): ImportMetaEnv {
 describe('loadWebConfig', () => {
   it('defaults to localhost dev API when env is development and url is empty', () => {
     const config = loadWebConfig(fakeEnv({ MODE: 'development' }))
-    expect(config.apiUrl).toBe('http://127.0.0.1:3000')
+    expect(config.apiUrl).toBe('http://localhost:3000')
     expect(config.appEnv).toBe('development')
   })
 

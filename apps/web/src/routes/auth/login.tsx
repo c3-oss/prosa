@@ -7,7 +7,7 @@ import { Button } from '~/components/primitives/button.js'
 import { TextField } from '~/components/primitives/text-field.js'
 
 export function LoginPage() {
-  const { auth } = useAppContext()
+  const { auth, setTenantId } = useAppContext()
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const [email, setEmail] = useState('')
@@ -16,7 +16,9 @@ export function LoginPage() {
   const signIn = useMutation({
     mutationFn: async (payload: { email: string; password: string }) => auth.signIn(payload),
     onSuccess: async () => {
+      setTenantId(null)
       await queryClient.invalidateQueries({ queryKey: ['auth', 'me'] })
+      await queryClient.refetchQueries({ queryKey: ['auth', 'me'], type: 'active' })
       navigate({ to: '/console' })
     },
   })
