@@ -1,3 +1,5 @@
+import { Agent as HttpAgent } from 'node:http'
+import { Agent as HttpsAgent } from 'node:https'
 import {
   DeleteObjectCommand,
   GetObjectCommand,
@@ -6,6 +8,7 @@ import {
   type S3Client,
   S3Client as S3ClientCtor,
 } from '@aws-sdk/client-s3'
+import { NodeHttpHandler } from '@smithy/node-http-handler'
 import {
   type ObjectMeta,
   PUT_PREVERIFIED_BYTES,
@@ -16,6 +19,13 @@ import {
   uint8ArrayToWebStream,
 } from '../types.js'
 import { ObjectVerificationError, assertNoConflict, verifyBytes } from '../verify.js'
+
+const sharedHttpAgent = new HttpAgent({ keepAlive: true, maxSockets: 50 })
+const sharedHttpsAgent = new HttpsAgent({ keepAlive: true, maxSockets: 50 })
+const sharedRequestHandler = new NodeHttpHandler({
+  httpAgent: sharedHttpAgent,
+  httpsAgent: sharedHttpsAgent,
+})
 
 export type S3ObjectStoreOptions = {
   bucket: string
@@ -58,6 +68,7 @@ export class S3ObjectStore implements RemoteObjectStore {
           : undefined
       this.client = new S3ClientCtor({
         region: opts.region ?? 'us-east-1',
+        requestHandler: sharedRequestHandler,
         ...(opts.endpoint ? { endpoint: opts.endpoint } : {}),
         ...((opts.forcePathStyle ?? opts.endpoint) ? { forcePathStyle: true } : {}),
         ...(credentials ? { credentials } : {}),
