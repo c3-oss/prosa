@@ -7,18 +7,22 @@ import {
   type RemoteObjectStore,
   canonicalObjectId,
   computeHashHex,
+  objectPackStorageKey,
   objectStorageKey,
+  putPreverifiedIfAbsent,
 } from '@c3-oss/prosa-storage'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { DecompressStream } from 'zstd-napi'
 import type { ProsaAuth } from '../auth.js'
-import type { RawExec } from '../db.js'
+import type { DatabaseHandle, RawExec } from '../db.js'
+import { hasCompatibleObjectBytes, readObjectByteLocation, resolveObjectByteLocation } from '../objects/locations.js'
 import { readFirstHeader, requestToHeaders } from '../shared/http.js'
 import { resolveMembership } from '../trpc/context.js'
 
 export type ObjectRoutesDeps = {
   auth: ProsaAuth
   rawExec: RawExec
+  transaction?: DatabaseHandle['transaction']
   objectStore: RemoteObjectStore
   maxObjectBytes?: number
 }
@@ -49,6 +53,7 @@ async function resolveAuth(opts: ObjectRoutesDeps, req: FastifyRequest) {
 }
 
 export const DEFAULT_OBJECT_ROUTE_MAX_BYTES = 256 * 1024 * 1024
+const MAX_OBJECT_PACK_ENTRIES = 1024
 
 type AuthContext = NonNullable<Awaited<ReturnType<typeof resolveAuth>>>
 
@@ -61,6 +66,7 @@ type UploadRequest = {
   compressedSize: number
   uncompressedSize: number
   storageKey: string
+  contentType?: string
 }
 
 type BatchManifestRow = {
@@ -77,11 +83,23 @@ type RemoteObjectRow = {
   compression: string
   uncompressed_size: string | number
   compressed_size: string | number
-  storage_key: string
+  storage_key: string | null
 }
 
 type AccessibleObjectRow = RemoteObjectRow & {
   tenant: string | null
+}
+
+type ObjectPackEntry = Omit<UploadRequest, 'batchId' | 'storageKey'> & {
+  offset: number
+  length: number
+  contentType?: string
+}
+
+type ParsedObjectPack = {
+  batchId: string
+  entries: Array<ObjectPackEntry & { batchId: string; storageKey: string }>
+  bytes: Buffer
 }
 
 class ObjectRouteError extends Error {
@@ -161,6 +179,87 @@ function parseUploadRequest(req: FastifyRequest, maxObjectBytes: number): Upload
   }
 }
 
+function parseObjectPackRequest(req: FastifyRequest, maxObjectBytes: number): ParsedObjectPack {
+  const url = new URL(req.url, `http://${req.headers.host ?? 'localhost'}`)
+  const batchId = url.searchParams.get('batchId')
+  if (!batchId) fail(400, 'batchId query parameter required')
+  const body = req.body
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    fail(400, 'JSON body required')
+  }
+  const payload = body as Record<string, unknown>
+  if (!Array.isArray(payload.entries) || payload.entries.length === 0) {
+    fail(400, 'entries must be a non-empty array')
+  }
+  if (payload.entries.length > MAX_OBJECT_PACK_ENTRIES) {
+    fail(400, 'entries exceeds max object manifest count')
+  }
+  if (typeof payload.bytesBase64 !== 'string') {
+    fail(400, 'bytesBase64 is required')
+  }
+  const bytes = Buffer.from(payload.bytesBase64, 'base64')
+  if (bytes.byteLength > maxObjectBytes) {
+    fail(400, 'pack exceeds maxObjectBytes')
+  }
+  const entries = payload.entries.map((entry) => parseObjectPackEntry(entry, batchId, bytes.byteLength, maxObjectBytes))
+  const aggregateCompressedSize = entries.reduce((sum, entry) => sum + entry.compressedSize, 0)
+  const aggregateUncompressedSize = entries.reduce((sum, entry) => sum + entry.uncompressedSize, 0)
+  if (aggregateCompressedSize > maxObjectBytes) {
+    fail(400, 'pack aggregate compressed size exceeds maxObjectBytes')
+  }
+  if (aggregateUncompressedSize > maxObjectBytes) {
+    fail(400, 'pack aggregate uncompressed size exceeds maxObjectBytes')
+  }
+  return { batchId, entries, bytes }
+}
+
+function parseObjectPackEntry(
+  entry: unknown,
+  batchId: string,
+  packSize: number,
+  maxObjectBytes: number,
+): ParsedObjectPack['entries'][number] {
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) fail(400, 'pack entry must be an object')
+  const value = entry as Record<string, unknown>
+  const hash = typeof value.hash === 'string' ? value.hash.toLowerCase() : null
+  if (!hash || !BLAKE3_HEX_RE.test(hash)) fail(400, 'valid blake3 hash required for every pack entry')
+  const objectId = typeof value.objectId === 'string' ? value.objectId.toLowerCase() : ''
+  if (objectId !== canonicalObjectId(hash)) fail(400, 'pack entry objectId must be blake3:<hash>')
+  const compression = parseCompression(typeof value.compression === 'string' ? value.compression : null)
+  const transportHash =
+    typeof value.transportHash === 'string' && value.transportHash.length > 0 ? value.transportHash.toLowerCase() : hash
+  if (!BLAKE3_HEX_RE.test(transportHash)) fail(400, 'valid transportHash required for every pack entry')
+  const compressedSize = parseEntrySize(value.compressedSize, 'compressedSize', maxObjectBytes)
+  const uncompressedSize = parseEntrySize(value.uncompressedSize, 'uncompressedSize', maxObjectBytes)
+  const offset = parseEntrySize(value.offset, 'offset', maxObjectBytes)
+  const length = parseEntrySize(value.length, 'length', maxObjectBytes)
+  if (length !== compressedSize) fail(400, 'pack entry length must match compressedSize')
+  if (offset + length > packSize) fail(400, 'pack entry range exceeds pack bytes')
+  return {
+    objectId,
+    batchId,
+    hash,
+    transportHash,
+    compression,
+    compressedSize,
+    uncompressedSize,
+    storageKey: objectStorageKey({ hash, compression }),
+    offset,
+    length,
+    ...(typeof value.contentType === 'string' ? { contentType: value.contentType } : {}),
+  }
+}
+
+function parseEntrySize(value: unknown, name: string, maxObjectBytes: number): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+    fail(400, `${name} must be a nonnegative safe integer`)
+  }
+  if (value > maxObjectBytes) {
+    fail(400, `${name} exceeds maxObjectBytes`)
+  }
+  return value
+}
+
 async function decompressBody(
   body: Buffer,
   compression: ObjectCompression,
@@ -224,6 +323,27 @@ async function verifyUploadBody(body: Buffer, upload: UploadRequest, maxObjectBy
   assertCanonicalShape(plain, upload)
 }
 
+async function verifyPackBody(pack: ParsedObjectPack, maxObjectBytes: number): Promise<void> {
+  assertNonOverlappingRanges(pack.entries)
+  for (const entry of pack.entries) {
+    const slice = pack.bytes.subarray(entry.offset, entry.offset + entry.length)
+    await verifyUploadBody(slice, entry, maxObjectBytes)
+  }
+}
+
+function assertNonOverlappingRanges(entries: ObjectPackEntry[]): void {
+  const ranges = entries
+    .map((entry) => ({ start: entry.offset, end: entry.offset + entry.length, objectId: entry.objectId }))
+    .sort((a, b) => a.start - b.start)
+  for (let i = 1; i < ranges.length; i += 1) {
+    const previous = ranges[i - 1]
+    const current = ranges[i]
+    if (previous && current && current.start < previous.end) {
+      fail(400, `pack entry range overlaps for ${current.objectId}`)
+    }
+  }
+}
+
 function manifestMatches(declared: BatchManifestRow, upload: UploadRequest): boolean {
   return (
     declared.canonical_hash.toLowerCase() === upload.hash &&
@@ -269,7 +389,7 @@ function catalogMatches(existing: RemoteObjectRow, upload: UploadRequest): boole
     existing.compression === upload.compression &&
     Number(existing.uncompressed_size) === upload.uncompressedSize &&
     Number(existing.compressed_size) === upload.compressedSize &&
-    existing.storage_key === upload.storageKey
+    (existing.storage_key == null || existing.storage_key === upload.storageKey)
   )
 }
 
@@ -291,7 +411,7 @@ async function* bufferAsAsyncIterable(body: Buffer): AsyncIterable<Uint8Array> {
 
 async function putObjectBytes(deps: ObjectRoutesDeps, upload: UploadRequest, body: Buffer): Promise<PutResult> {
   try {
-    return await deps.objectStore.putIfAbsent(upload.storageKey, bufferAsAsyncIterable(body), {
+    return await putPreverifiedIfAbsent(deps.objectStore, upload.storageKey, bufferAsAsyncIterable(body), {
       hash: upload.transportHash,
       hashAlgorithm: 'blake3',
       uncompressedSize: upload.uncompressedSize,
@@ -305,10 +425,10 @@ async function putObjectBytes(deps: ObjectRoutesDeps, upload: UploadRequest, bod
   }
 }
 
-async function insertRemoteObjectCatalog(deps: ObjectRoutesDeps, upload: UploadRequest): Promise<void> {
-  await deps.rawExec(
-    `INSERT INTO "remote_object"(object_id, hash, hash_algorithm, compression, uncompressed_size, compressed_size, storage_key)
-     VALUES ($1, $2, 'blake3', $3, $4, $5, $6)
+async function insertRemoteObjectCatalog(rawExec: RawExec, ctx: AuthContext, upload: UploadRequest): Promise<void> {
+  await rawExec(
+    `INSERT INTO "remote_object"(object_id, hash, hash_algorithm, compression, uncompressed_size, compressed_size, storage_key, content_type)
+     VALUES ($1, $2, 'blake3', $3, $4, $5, $6, $7)
      ON CONFLICT (object_id) DO NOTHING`,
     [
       upload.objectId,
@@ -317,13 +437,67 @@ async function insertRemoteObjectCatalog(deps: ObjectRoutesDeps, upload: UploadR
       upload.uncompressedSize,
       upload.compressedSize,
       upload.storageKey,
+      upload.contentType ?? null,
     ],
+  )
+  await rawExec(
+    `INSERT INTO "remote_object_location"(tenant_id, object_id, batch_id, location_type, storage_key, byte_offset, byte_length)
+     VALUES ($1, $2, $3, 'object', $4, 0, $5)
+     ON CONFLICT (tenant_id, object_id) DO NOTHING`,
+    [ctx.tenantId, upload.objectId, upload.batchId, upload.storageKey, upload.compressedSize],
+  )
+  await assertObjectLocationCompatible(rawExec, ctx, upload)
+}
+
+async function assertObjectLocationCompatible(
+  rawExec: RawExec,
+  ctx: AuthContext,
+  upload: UploadRequest,
+): Promise<void> {
+  const rows = await rawExec<{
+    location_type: string
+    storage_key: string | null
+    byte_offset: string | number
+    byte_length: string | number
+  }>(
+    `SELECT location_type, storage_key, byte_offset, byte_length
+       FROM "remote_object_location"
+      WHERE tenant_id = $1 AND object_id = $2
+      LIMIT 1`,
+    [ctx.tenantId, upload.objectId],
+  )
+  const row = rows[0]
+  if (!row) fail(500, 'object location insert failed')
+  if (
+    row.location_type !== 'object' ||
+    row.storage_key !== upload.storageKey ||
+    Number(row.byte_offset) !== 0 ||
+    Number(row.byte_length) !== upload.compressedSize
+  ) {
+    fail(409, 'conflicting remote object location')
+  }
+}
+
+async function insertTenantObjectProof(rawExec: RawExec, ctx: AuthContext, upload: UploadRequest): Promise<void> {
+  await rawExec(
+    `INSERT INTO "tenant_object"(tenant_id, object_id, first_batch_id, ref_count)
+     VALUES ($1, $2, $3, 1)
+     ON CONFLICT (tenant_id, object_id) DO NOTHING`,
+    [ctx.tenantId, upload.objectId, upload.batchId],
   )
 }
 
-async function recordObjectUpload(deps: ObjectRoutesDeps, upload: UploadRequest, put: PutResult): Promise<void> {
+async function recordObjectUpload(
+  deps: ObjectRoutesDeps,
+  ctx: AuthContext,
+  upload: UploadRequest,
+  put: PutResult,
+): Promise<void> {
   try {
-    await insertRemoteObjectCatalog(deps, upload)
+    await runObjectRouteTransaction(deps, async (tx) => {
+      await insertRemoteObjectCatalog(tx, ctx, upload)
+      await insertTenantObjectProof(tx, ctx, upload)
+    })
   } catch (err) {
     // Catalog insert failed after a successful upload. If this PUT wrote new
     // bytes (rather than no-oping on a pre-existing object), best-effort
@@ -341,6 +515,145 @@ async function recordObjectUpload(deps: ObjectRoutesDeps, upload: UploadRequest,
     }
     throw err
   }
+}
+
+async function putPackBytes(
+  deps: ObjectRoutesDeps,
+  ctx: AuthContext,
+  pack: ParsedObjectPack,
+): Promise<{
+  blobId: string
+  packHash: string
+  packStorageKey: string
+  put: PutResult
+}> {
+  const tenantId = ctx.tenantId
+  if (!tenantId) fail(403, 'not a member of the requested tenant')
+  const packHash = computeHashHex(pack.bytes, 'blake3')
+  const packStorageKey = objectPackStorageKey({ tenantId, batchId: pack.batchId, packHash })
+  const put = await deps.objectStore.putIfAbsent(packStorageKey, bufferAsAsyncIterable(pack.bytes), {
+    hash: packHash,
+    hashAlgorithm: 'blake3',
+    uncompressedSize: pack.bytes.byteLength,
+    compressedSize: pack.bytes.byteLength,
+    contentType: 'application/vnd.prosa.object-pack',
+  })
+  return {
+    blobId: `object-pack:${tenantId}:${pack.batchId}:${packHash}`,
+    packHash,
+    packStorageKey,
+    put,
+  }
+}
+
+async function insertPackCatalog(opts: {
+  rawExec: RawExec
+  ctx: AuthContext
+  pack: ParsedObjectPack
+  blobId: string
+  packHash: string
+  packStorageKey: string
+}): Promise<void> {
+  await opts.rawExec(
+    `INSERT INTO "remote_blob"(id, tenant_id, batch_id, storage_key, hash, hash_algorithm, byte_size)
+     VALUES ($1, $2, $3, $4, $5, 'blake3', $6)
+     ON CONFLICT (id) DO NOTHING`,
+    [opts.blobId, opts.ctx.tenantId, opts.pack.batchId, opts.packStorageKey, opts.packHash, opts.pack.bytes.byteLength],
+  )
+  for (const entry of opts.pack.entries) {
+    await insertPackedRemoteObject(opts.rawExec, entry)
+    await insertTenantObjectProof(opts.rawExec, opts.ctx, entry)
+    await opts.rawExec(
+      `INSERT INTO "remote_object_location"(tenant_id, object_id, batch_id, location_type, blob_id, byte_offset, byte_length)
+       VALUES ($1, $2, $3, 'pack', $4, $5, $6)
+       ON CONFLICT (tenant_id, object_id) DO NOTHING`,
+      [opts.ctx.tenantId, entry.objectId, entry.batchId, opts.blobId, entry.offset, entry.length],
+    )
+    await assertPackLocationCompatible(opts.rawExec, opts.ctx, entry, opts.blobId)
+  }
+}
+
+async function insertPackedRemoteObject(rawExec: RawExec, entry: ParsedObjectPack['entries'][number]): Promise<void> {
+  await rawExec(
+    `INSERT INTO "remote_object"(object_id, hash, hash_algorithm, compression, uncompressed_size, compressed_size, storage_key, content_type)
+     VALUES ($1, $2, 'blake3', $3, $4, $5, NULL, $6)
+     ON CONFLICT (object_id) DO NOTHING`,
+    [
+      entry.objectId,
+      entry.hash,
+      entry.compression,
+      entry.uncompressedSize,
+      entry.compressedSize,
+      entry.contentType ?? null,
+    ],
+  )
+}
+
+async function assertPackLocationCompatible(
+  rawExec: RawExec,
+  ctx: AuthContext,
+  entry: ParsedObjectPack['entries'][number],
+  blobId: string,
+): Promise<void> {
+  const rows = await rawExec<{
+    location_type: string
+    blob_id: string | null
+    byte_offset: string | number
+    byte_length: string | number
+  }>(
+    `SELECT location_type, blob_id, byte_offset, byte_length
+       FROM "remote_object_location"
+      WHERE tenant_id = $1 AND object_id = $2
+      LIMIT 1`,
+    [ctx.tenantId, entry.objectId],
+  )
+  const row = rows[0]
+  if (!row) fail(500, 'pack location insert failed')
+  if (
+    row.location_type !== 'pack' ||
+    row.blob_id !== blobId ||
+    Number(row.byte_offset) !== entry.offset ||
+    Number(row.byte_length) !== entry.length
+  ) {
+    fail(409, 'conflicting remote object location')
+  }
+}
+
+async function recordObjectPack(
+  deps: ObjectRoutesDeps,
+  ctx: AuthContext,
+  pack: ParsedObjectPack,
+  blob: Awaited<ReturnType<typeof putPackBytes>>,
+): Promise<void> {
+  try {
+    await runObjectRouteTransaction(deps, async (tx) => {
+      for (const entry of pack.entries) {
+        await assertCatalogCompatible({ ...deps, rawExec: tx }, entry)
+      }
+      await insertPackCatalog({
+        rawExec: tx,
+        ctx,
+        pack,
+        blobId: blob.blobId,
+        packHash: blob.packHash,
+        packStorageKey: blob.packStorageKey,
+      })
+    })
+  } catch (err) {
+    if (!blob.put.alreadyExisted) {
+      try {
+        await deps.objectStore.delete(blob.packStorageKey)
+      } catch {
+        // Best-effort cleanup; a catalog miss still keeps packed objects unreadable.
+      }
+    }
+    throw err
+  }
+}
+
+async function runObjectRouteTransaction<T>(deps: ObjectRoutesDeps, fn: (tx: RawExec) => Promise<T>): Promise<T> {
+  if (deps.transaction) return deps.transaction(fn)
+  return fn(deps.rawExec)
 }
 
 async function findAccessibleObject(
@@ -413,14 +726,73 @@ export async function registerObjectRoutes(app: FastifyInstance, deps: ObjectRou
         const body = requireBinaryBody(request.body)
         await verifyUploadBody(body, upload, maxObjectBytes)
         await assertCatalogCompatible(deps, upload)
+        const canReuseExistingLocation = await hasCompatibleObjectBytes({
+          rawExec: deps.rawExec,
+          objectStore: deps.objectStore,
+          object: { ...upload, hashAlgorithm: 'blake3' },
+          legacyStorageKey: upload.storageKey,
+          tenantId: ctx.tenantId,
+          verifyBytes: true,
+        })
+        if (canReuseExistingLocation) {
+          await recordObjectUpload(deps, ctx, upload, {
+            alreadyExisted: true,
+            meta: {
+              storageKey: upload.storageKey,
+              hash: upload.transportHash,
+              hashAlgorithm: 'blake3',
+              uncompressedSize: upload.uncompressedSize,
+              compressedSize: upload.compressedSize,
+            },
+          })
+          reply.code(200)
+          return {
+            objectId: upload.objectId,
+            alreadyExisted: true,
+          }
+        }
         const put = await putObjectBytes(deps, upload, body)
-        await recordObjectUpload(deps, upload, put)
+        await recordObjectUpload(deps, ctx, upload, put)
 
         reply.code(put.alreadyExisted ? 200 : 201)
         // CQ-008: only return public identifiers — never the raw storage key.
         return {
           objectId: upload.objectId,
           alreadyExisted: put.alreadyExisted,
+        }
+      } catch (err) {
+        return sendObjectRouteError(reply, err)
+      }
+    },
+  })
+
+  app.route({
+    method: 'POST',
+    url: '/object-packs',
+    bodyLimit: Math.ceil(maxObjectBytes * 1.4) + 1024 * 1024,
+    handler: async (request, reply) => {
+      const ctx = await resolveAuth(deps, request)
+      if (!ctx) {
+        reply.code(401)
+        return { error: 'unauthorized' }
+      }
+      if (!ctx.tenantId) {
+        reply.code(403)
+        return { error: 'not a member of the requested tenant' }
+      }
+      try {
+        const pack = parseObjectPackRequest(request, maxObjectBytes)
+        for (const entry of pack.entries) {
+          await assertDeclaredByOpenBatch(deps, ctx, entry)
+        }
+        await verifyPackBody(pack, maxObjectBytes)
+        const blob = await putPackBytes(deps, ctx, pack)
+        await recordObjectPack(deps, ctx, pack, blob)
+        reply.code(blob.put.alreadyExisted ? 200 : 201)
+        return {
+          blobId: blob.blobId,
+          objectIds: pack.entries.map((entry) => entry.objectId),
+          alreadyExisted: blob.put.alreadyExisted,
         }
       } catch (err) {
         return sendObjectRouteError(reply, err)
@@ -451,7 +823,12 @@ export async function registerObjectRoutes(app: FastifyInstance, deps: ObjectRou
         reply.code(403)
         return { error: 'tenant has no access to this object' }
       }
-      const stream = await deps.objectStore.get(row.storage_key)
+      const location = await resolveObjectByteLocation(deps.rawExec, objectId, ctx.tenantId)
+      if (!location) {
+        reply.code(404)
+        return { error: 'not found' }
+      }
+      const stream = await readObjectByteLocation(deps.objectStore, location)
       return sendObjectStream(reply, row, stream)
     },
   })

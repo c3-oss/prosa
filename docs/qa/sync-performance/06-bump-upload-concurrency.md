@@ -2,9 +2,30 @@
 
 **Tier**: 2 · **Onde**: cliente · **Impacto estimado**: 1.5–2× na fase de bytes (quando há missing objects) · **Esforço**: XS (~5 LoC + flag)
 
+## Fact-check 2026-05-16
+
+**Veredicto**: parcialmente válida. A inconsistência é real: chunked usa
+concorrência 16, single-batch faz upload sequencial. Mas subir o default para 32
+não é só tuning cliente; o API atual bufferiza o corpo inteiro, descomprime para
+outro buffer e os adapters de storage também materializam bytes.
+
+**Correções obrigatórias**:
+
+- Aplicar a opção nos dois caminhos: `promoteChunk` e `promoteUpload`.
+- Começar com flag/configuração e benchmark antes de mudar default global.
+- Documentar que a pressão de memória é no cliente **e** no servidor.
+- Adicionar retry/backoff ou, no mínimo, deixar claro que uploads em voo podem
+  continuar enquanto `Promise.all` propaga a primeira falha.
+- Se #03 paralelizar batches, a concorrência total vira
+  `batchConcurrency * objectConcurrency`.
+
 ## Resumo
 
-Concorrência de upload de bytes está hardcoded em 16 em `apps/cli/src/cli/commands/sync.ts:92`. Benchmarks públicos (S3, MinIO, Backblaze B2) consistentemente mostram que 32–64 é o sweet-spot para uploads pequenos; 16 é conservador. Bumpar para 32 default e expor `--object-concurrency <N>` permite tuning sem custo arquitetural.
+Concorrência de upload de bytes está hardcoded em 16 no caminho chunked e o
+caminho single-batch ainda envia objetos faltantes em série. Expor
+`--object-concurrency <N>` permite tuning sem mudança arquitetural pesada. A
+mudança de default para 32 deve depender de benchmark com API + Postgres + MinIO
+reais, porque o servidor faz proxy e buffering dos uploads.
 
 ## Diagnóstico atual
 
@@ -89,7 +110,10 @@ Cenário: 100 000 CAS objects faltantes, ~10 KB cada, contra MinIO local (latên
 - **HTTP keep-alive**: o `ProsaApiClient` (`apps/cli/src/cli/auth/client.ts`) precisa ter pool de conexões habilitado (undici `Pool` ou Node fetch com keep-alive). Verificar; se não, ganho de conc=32 será comido por TCP handshake.
 - **MinIO local**: tem default `MINIO_API_REQUESTS_MAX` (~1024 simultâneos); 32 é seguro.
 - **Compartilhamento com #03**: se #03 levantar pool de batches a 6, concorrência total fica 6 × 32 = 192 PUTs simultâneos. Documentar o produto.
-- **Memória**: cada upload mantém o buffer em RAM. 32 × ~10 KB = 320 KB — irrelevante. Para objetos grandes (até 256 MB), 32 paralelos = 8 GB worst-case — flag deve permitir baixar.
+- **Memória**: cada upload mantém buffer no cliente e no servidor. O handler
+  atual usa body buffer, descompressão para buffer e storage adapters que também
+  materializam bytes. Para objetos grandes, concorrência alta é perigosa; a flag
+  deve permitir baixar e os benchmarks precisam medir RSS do API.
 
 ## Como validar
 

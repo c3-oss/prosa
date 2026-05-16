@@ -8,12 +8,14 @@ import {
 } from '@aws-sdk/client-s3'
 import {
   type ObjectMeta,
+  PUT_PREVERIFIED_BYTES,
   type PutMeta,
   type PutResult,
   type RemoteObjectStore,
   asyncIterableToUint8Array,
+  uint8ArrayToWebStream,
 } from '../types.js'
-import { assertNoConflict, verifyBytes } from '../verify.js'
+import { ObjectVerificationError, assertNoConflict, verifyBytes } from '../verify.js'
 
 export type S3ObjectStoreOptions = {
   bucket: string
@@ -86,13 +88,26 @@ export class S3ObjectStore implements RemoteObjectStore {
   }
 
   async putIfAbsent(key: string, bytes: AsyncIterable<Uint8Array>, meta: PutMeta): Promise<PutResult> {
+    return this.put(key, bytes, meta, { verify: true })
+  }
+
+  async [PUT_PREVERIFIED_BYTES](key: string, bytes: AsyncIterable<Uint8Array>, meta: PutMeta): Promise<PutResult> {
+    return this.put(key, bytes, meta, { verify: false })
+  }
+
+  private async put(
+    key: string,
+    bytes: AsyncIterable<Uint8Array>,
+    meta: PutMeta,
+    opts: { verify: boolean },
+  ): Promise<PutResult> {
     const existing = await this.head(key)
     if (existing) {
       assertNoConflict(existing, meta)
       return { meta: existing, alreadyExisted: true }
     }
     const buffer = await asyncIterableToUint8Array(bytes)
-    verifyBytes(buffer, meta)
+    if (opts.verify) verifyBytes(buffer, meta)
     const metadata: Record<string, string> = {
       [META_FIELDS.hash]: meta.hash,
       [META_FIELDS.hashAlgorithm]: meta.hashAlgorithm,
@@ -100,40 +115,69 @@ export class S3ObjectStore implements RemoteObjectStore {
       [META_FIELDS.compressedSize]: String(meta.compressedSize),
     }
     if (meta.contentType) metadata[META_FIELDS.contentType] = meta.contentType
-    await this.client.send(
-      new PutObjectCommand({
-        Bucket: this.bucket,
-        Key: key,
-        Body: buffer,
-        Metadata: metadata,
-        ContentType: meta.contentType ?? 'application/octet-stream',
-        // Conditional write for S3-compatible endpoints that support it.
-        IfNoneMatch: '*',
-      }),
-    )
+    try {
+      await this.client.send(
+        new PutObjectCommand({
+          Bucket: this.bucket,
+          Key: key,
+          Body: buffer,
+          Metadata: metadata,
+          ContentType: meta.contentType ?? 'application/octet-stream',
+          // Conditional write for S3-compatible endpoints that support it.
+          IfNoneMatch: '*',
+        }),
+      )
+    } catch (err) {
+      if (!isPreconditionFailed(err)) throw err
+      const raced = await this.head(key)
+      if (!raced) {
+        throw new ObjectVerificationError('conditional put failed but existing object metadata is missing')
+      }
+      assertNoConflict(raced, meta)
+      return { meta: raced, alreadyExisted: true }
+    }
     return { meta: { ...meta, storageKey: key }, alreadyExisted: false }
   }
 
   async get(key: string): Promise<ReadableStream<Uint8Array>> {
     const response = await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: key }))
-    const body = response.Body as
-      | ReadableStream<Uint8Array>
-      | (AsyncIterable<Uint8Array> & { transformToWebStream?: () => ReadableStream<Uint8Array> })
-      | undefined
-    if (!body) throw new Error(`S3ObjectStore.get: empty response body for ${key}`)
-    if (body instanceof ReadableStream) return body
-    if (typeof body.transformToWebStream === 'function') return body.transformToWebStream()
-    const reader = body[Symbol.asyncIterator]()
-    return new ReadableStream<Uint8Array>({
-      async pull(controller) {
-        const next = await reader.next()
-        if (next.done) controller.close()
-        else controller.enqueue(next.value)
-      },
-    })
+    return bodyToWebStream(response.Body, `S3ObjectStore.get: empty response body for ${key}`)
+  }
+
+  async getRange(key: string, offset: number, length: number): Promise<ReadableStream<Uint8Array>> {
+    if (!Number.isSafeInteger(offset) || !Number.isSafeInteger(length) || offset < 0 || length < 0) {
+      throw new Error(`S3ObjectStore.getRange: invalid range for ${key}`)
+    }
+    if (length === 0) return uint8ArrayToWebStream(new Uint8Array())
+    const response = await this.client.send(
+      new GetObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+        Range: `bytes=${offset}-${offset + length - 1}`,
+      }),
+    )
+    return bodyToWebStream(response.Body, `S3ObjectStore.getRange: empty response body for ${key}`)
   }
 
   async delete(key: string): Promise<void> {
     await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }))
   }
+}
+
+function bodyToWebStream(body: unknown, emptyMessage: string): ReadableStream<Uint8Array> {
+  const typedBody = body as
+    | ReadableStream<Uint8Array>
+    | (AsyncIterable<Uint8Array> & { transformToWebStream?: () => ReadableStream<Uint8Array> })
+    | undefined
+  if (!typedBody) throw new Error(emptyMessage)
+  if (typedBody instanceof ReadableStream) return typedBody
+  if (typeof typedBody.transformToWebStream === 'function') return typedBody.transformToWebStream()
+  const reader = typedBody[Symbol.asyncIterator]()
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      const next = await reader.next()
+      if (next.done) controller.close()
+      else controller.enqueue(next.value)
+    },
+  })
 }

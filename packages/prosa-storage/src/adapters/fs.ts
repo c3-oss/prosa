@@ -1,16 +1,19 @@
 import { randomUUID } from 'node:crypto'
-import { createReadStream, existsSync } from 'node:fs'
-import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { createReadStream } from 'node:fs'
+import { mkdir, open, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { Readable } from 'node:stream'
 import {
   type ObjectMeta,
+  PUT_PREVERIFIED_BYTES,
   type PutMeta,
   type PutResult,
   type RemoteObjectStore,
   asyncIterableToUint8Array,
 } from '../types.js'
 import { assertNoConflict, verifyBytes } from '../verify.js'
+
+const LOCK_RETRY_MS = 5
 
 /**
  * Filesystem-backed object store. Single-node, suitable for self-host or
@@ -37,28 +40,63 @@ export class FsObjectStore implements RemoteObjectStore {
 
   async head(key: string): Promise<ObjectMeta | null> {
     const { absolute, metaPath } = this.resolveKey(key)
-    if (!existsSync(absolute) || !existsSync(metaPath)) return null
-    const text = await readFile(metaPath, 'utf8')
-    const meta = JSON.parse(text) as ObjectMeta
-    return meta
+    return readExisting(absolute, metaPath)
   }
 
   async putIfAbsent(key: string, bytes: AsyncIterable<Uint8Array>, meta: PutMeta): Promise<PutResult> {
+    return this.putLocked(key, bytes, meta, { verify: true })
+  }
+
+  async [PUT_PREVERIFIED_BYTES](key: string, bytes: AsyncIterable<Uint8Array>, meta: PutMeta): Promise<PutResult> {
+    return this.putLocked(key, bytes, meta, { verify: false })
+  }
+
+  private async putLocked(
+    key: string,
+    bytes: AsyncIterable<Uint8Array>,
+    meta: PutMeta,
+    opts: { verify: boolean },
+  ): Promise<PutResult> {
     const { absolute, metaPath } = this.resolveKey(key)
-    if (existsSync(absolute) && existsSync(metaPath)) {
-      const existing = JSON.parse(await readFile(metaPath, 'utf8')) as ObjectMeta
-      assertNoConflict(existing, meta)
-      return { meta: existing, alreadyExisted: true }
-    }
-    const buffer = await asyncIterableToUint8Array(bytes)
-    verifyBytes(buffer, meta)
     await mkdir(dirname(absolute), { recursive: true })
-    const tmp = `${absolute}.${randomUUID()}.tmp`
-    await writeFile(tmp, buffer)
-    await rename(tmp, absolute)
-    const stored: ObjectMeta = { ...meta, storageKey: key }
-    await writeFile(metaPath, JSON.stringify(stored))
-    return { meta: stored, alreadyExisted: false }
+    const release = await acquireFileLock(`${absolute}.lock`)
+    let wroteFinalBytes = false
+    const metaTmp = `${metaPath}.${randomUUID()}.tmp`
+    try {
+      const existing = await readExisting(absolute, metaPath)
+      if (existing) {
+        assertNoConflict(existing, meta)
+        return { meta: existing, alreadyExisted: true }
+      }
+
+      // A previous writer may have crashed after creating bytes but before
+      // committing metadata. The sidecar is the commit marker, so discard the
+      // uncommitted bytes while holding the per-key lock.
+      await rm(absolute, { force: true })
+
+      const buffer = await asyncIterableToUint8Array(bytes)
+      if (opts.verify) verifyBytes(buffer, meta)
+      const handle = await open(absolute, 'wx')
+      try {
+        await handle.writeFile(buffer)
+      } finally {
+        await handle.close()
+      }
+      wroteFinalBytes = true
+
+      const stored: ObjectMeta = { ...meta, storageKey: key }
+      await writeFile(metaTmp, JSON.stringify(stored), { flag: 'wx' })
+      await rename(metaTmp, metaPath)
+      return { meta: stored, alreadyExisted: false }
+    } catch (err) {
+      await rm(metaTmp, { force: true })
+      if (wroteFinalBytes) {
+        await rm(absolute, { force: true })
+      }
+      throw err
+    } finally {
+      await release()
+    }
   }
 
   async get(key: string): Promise<ReadableStream<Uint8Array>> {
@@ -67,9 +105,39 @@ export class FsObjectStore implements RemoteObjectStore {
     return Readable.toWeb(createReadStream(absolute)) as ReadableStream<Uint8Array>
   }
 
+  async getRange(key: string, offset: number, length: number): Promise<ReadableStream<Uint8Array>> {
+    const { absolute } = this.resolveKey(key)
+    const file = await stat(absolute)
+    assertValidRange(key, file.size, offset, length)
+    if (length === 0) {
+      return new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.close()
+        },
+      })
+    }
+    return Readable.toWeb(
+      createReadStream(absolute, { start: offset, end: offset + length - 1 }),
+    ) as ReadableStream<Uint8Array>
+  }
+
   async delete(key: string): Promise<void> {
     const { absolute, metaPath } = this.resolveKey(key)
-    await rm(absolute, { force: true })
-    await rm(metaPath, { force: true })
+    const release = await acquireFileLock(`${absolute}.lock`)
+    try {
+      await rm(absolute, { force: true })
+      await rm(metaPath, { force: true })
+    } finally {
+      await release()
+    }
+  }
+}
+
+function assertValidRange(key: string, total: number, offset: number, length: number): void {
+  if (!Number.isSafeInteger(offset) || !Number.isSafeInteger(length) || offset < 0 || length < 0) {
+    throw new Error(`FsObjectStore.getRange: invalid range for ${key}`)
+  }
+  if (offset + length > total) {
+    throw new Error(`FsObjectStore.getRange: range exceeds object length for ${key}`)
   }
 }

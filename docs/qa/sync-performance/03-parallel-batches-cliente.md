@@ -2,9 +2,28 @@
 
 **Tier**: 1 (depois de #01 e #02) · **Onde**: cliente · **Impacto estimado**: 4–8× no tempo total · **Esforço**: S (estrutural mas localizado)
 
+## Fact-check 2026-05-16
+
+**Veredicto**: parcialmente viável, mas não pronta. O loop serial existe, porém
+paralelizar batches sem mudar a semântica de recibo/autoridade remota pode
+deixar o estado final não determinístico.
+
+**Correções obrigatórias**:
+
+- O código atual promove CAS e depois **6** fases de projeção, não 4.
+- A estimativa de “4 RTTs por batch” é imprecisa: com `missingObjects=0` não há
+  PUT; com objetos faltantes há muitos PUTs concorrentes.
+- `verifyPromotion` produz receipt **por batch** e `remote_authority` é
+  sobrescrito a cada batch verificado. Com batches paralelos, “último a
+  terminar” pode ser um batch pequeno ou CAS-only.
+- Repetir `commitUpload` no mesmo batch já committed retorna 412. Idempotency
+  key/checkpoint são pré-requisitos práticos para retries robustos.
+- `readObjectChunk` lê bytes e recalcula hashes; paralelizar leitura local
+  também aumenta I/O, CPU e memória. Limite por bytes-em-voo é necessário.
+
 ## Resumo
 
-O loop em `promoteChunkedUpload` é estritamente sequencial: nenhum batch começa antes do anterior verificar o receipt. Com #01 e #02 reduzindo o custo por batch no servidor, o gargalo passa a ser o **RTT por batch × 281 batches** em série. Paralelizar 4–8 batches em flight aproveita a CPU/IO do servidor (especialmente CAS) e divide o tempo total por ~N, com pequeno overhead.
+O loop em `promoteChunkedUpload` é estritamente sequencial: nenhum batch começa antes do anterior verificar o receipt. Com #01 e #02 reduzindo o custo por batch no servidor, o gargalo pode passar a ser a latência fixa por batch. Paralelizar batches é promissor, mas deve vir depois de: bulk/idempotência no servidor, política de receipt agregado para chunked sync e limites de bytes/conexões em voo.
 
 ## Diagnóstico atual
 
@@ -34,7 +53,7 @@ async function promoteChunkedUpload(...): Promise<SyncResult> {
       cursor = chunk.nextCursor
     }
   }
-  // 4 chamadas seriais a promoteProjectionChunks
+  // 6 chamadas seriais a promoteProjectionChunks no código atual
 }
 ```
 
@@ -91,8 +110,15 @@ Mais simples se a pré-paginação for chata: dividir CAS objects por prefixo de
 
 ## Riscos e armadilhas
 
-- **Deadlocks PG entre batches concorrentes**: dois batches contendo o mesmo `object_id` podem chamar `insertRemoteObjectIfMissing` em paralelo. Mitigação: **#02 já elimina esse SELECT+INSERT** (vira `INSERT ON CONFLICT DO NOTHING`). Por isso #03 só faz sentido após #02.
-- **Ordem de verify**: o sync atual conta com `lastReceipt` ser o último batch. Com paralelismo, "último" perde sentido — usar o receipt de qualquer batch verificado (todos contêm os mesmos invariantes globais).
+- **Deadlocks/races PG entre batches concorrentes**: dois batches contendo o
+  mesmo `object_id` podem chamar `insertRemoteObjectIfMissing` em paralelo.
+  Mitigação: #02 precisa eliminar o `SELECT -> INSERT` com bulk idempotente e
+  checagem de conflito pós-insert. Por isso #03 só faz sentido após #02.
+- **Ordem de verify / `remote_authority`**: o sync atual usa recibos por batch.
+  Com paralelismo, "último" perde sentido e "qualquer receipt" não é suficiente:
+  `verifyPromotion` valida apenas o manifesto daquele batch. É preciso serializar
+  a etapa final que grava `remote_authority` ou criar um receipt agregado de
+  sync chunked completo.
 - **`recordPromotion` no CliConfig**: hoje só single-batch grava receipt em config. Manter esse comportamento (chunked não grava) ou consolidar uma vez no fim, tanto faz para paralelização.
 - **MinIO / object store**: 6 × 32 = 192 PUTs simultâneos pode estourar `--http-max-streams` em alguns S3 endpoints. Local OK. Documentar no `--help`.
 - **Memória**: cada batch carrega `casObjects.bytes` em RAM. 6 batches × 5000 objetos × ~kB médios = ~30 MB — confortável. Cuidado se os objetos forem grandes; aplicar throttle por bytes-em-flight.

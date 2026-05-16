@@ -2,6 +2,26 @@
 
 **Tier**: 3 · **Onde**: ambos · **Impacto estimado**: robustez (zera dobra de retrabalho em retries de rede) · **Esforço**: M
 
+## Fact-check 2026-05-16
+
+**Veredicto**: parcialmente correta. A lacuna é real: não há `Idempotency-Key` e
+replay do mesmo `commitUpload` retorna 412 quando o batch já saiu de `open`.
+Mas o desenho proposto não é crash-safe porque grava o cache depois do handler.
+O registro idempotente precisa ser transacional com a mudança de status do
+batch.
+
+**Correções obrigatórias**:
+
+- O erro atual é `PRECONDITION_FAILED`/HTTP 412, não `CONFLICT`.
+- A tabela precisa de lease real: `status pending/completed`, `response_body`
+  nullable enquanto pending, `locked_until`, `completed_at`, `expires_at`.
+- A chave deve incluir `endpoint` (`tenant_id`, `endpoint`, `key`) e replay deve
+  revalidar ou escopar por `user_id`, `batch_id`, `device_id` e `store_path`.
+- `request_hash` deve cobrir input normalizado + endpoint + protocolVersion.
+  `manifestHash` não substitui isso.
+- O snippet diz UUID v7, mas `crypto.randomUUID()` gera UUID v4. Corrigir texto
+  ou escolher biblioteca/implementação v7.
+
 ## Resumo
 
 Hoje, se a resposta de `sync.commitUpload` se perder em trânsito (timeout, RST, 502), o cliente não tem como saber se o servidor processou o commit. O fluxo atual força `requireOpenBatchForCommit` (`apps/api/src/trpc/routers/sync/commit-upload.ts:78-85`) — batches em estado `committing` ou `committed` rejeitam novo commit, então o cliente precisa **criar outro batch e refazer plan + uploads + commit**. Caro. Solução padrão: header `Idempotency-Key` (Stripe-style) que faz o servidor cachear a resposta por 24 h e replicar em retries.
@@ -13,7 +33,7 @@ Hoje, se a resposta de `sync.commitUpload` se perder em trânsito (timeout, RST,
 ```ts
 // pseudocode (não inspecionado, mas o callsite implica)
 if (batch.status !== 'open') {
-  throw new TRPCError({ code: 'CONFLICT', message: 'batch already committed/failed' })
+  throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Batch is not open for commit' })
 }
 ```
 
@@ -23,7 +43,7 @@ Cenário de falha:
 2. Servidor processa: insere linhas, atualiza `status = 'committed'`, retorna `{ committedObjects, committedRows }`.
 3. **Resposta perdida** (TCP RST, proxy timeout, conexão interrompida).
 4. Cliente faz retry com mesmo body em `batch_X`.
-5. Servidor: `status = 'committed'`, rejeita com `CONFLICT`.
+5. Servidor: `status = 'committed'`, rejeita com `PRECONDITION_FAILED` / HTTP 412.
 6. Cliente: cria `batch_Y`, refaz plan + uploads + commit. **Trabalho duplicado**: até 10k linhas + N MB de bytes inúteis.
 
 A semântica do `planUpload` mitiga parcialmente (objetos já existem → `missingObjects=[]`), mas **a fase de commit em si é re-executada**, e #01/#02 ainda gastam queries.
@@ -45,7 +65,7 @@ const commit = await client.syncCommitUpload({
 }, { idempotencyKey })
 ```
 
-### Server-side cache
+### Server-side cache / lease transacional
 
 Nova tabela:
 
@@ -55,46 +75,59 @@ CREATE TABLE sync_idempotency_record (
   key         uuid       NOT NULL,
   endpoint    text       NOT NULL,  -- 'sync.commitUpload' | 'sync.verifyPromotion'
   request_hash bytea     NOT NULL,  -- sha256 do body para detectar misuse
-  response_body jsonb    NOT NULL,
+  response_body jsonb,
   status_code int        NOT NULL,
+  status      text       NOT NULL DEFAULT 'pending',
+  locked_until timestamptz,
+  completed_at timestamptz,
   created_at  timestamptz NOT NULL DEFAULT now(),
   expires_at  timestamptz NOT NULL DEFAULT now() + interval '24 hours',
-  PRIMARY KEY (tenant_id, key)
+  PRIMARY KEY (tenant_id, endpoint, key)
 );
 CREATE INDEX sync_idempotency_expires ON sync_idempotency_record (expires_at);
 ```
 
-Middleware Fastify (ou tRPC procedure wrapper):
+Middleware Fastify (ou tRPC procedure wrapper) só é suficiente se conseguir
+gravar o resultado na mesma transação que muda o batch para `committed`. Caso
+contrário, um crash depois do commit e antes do cache mantém o retry quebrado.
+Uma forma mais segura é abrir/registrar o lease antes e completar o registro
+dentro da transação de `commitUpload`.
 
 ```ts
-async function withIdempotency<T>(opts: {
-  rawExec: RawExec
-  tenantId: string
-  key: string | undefined
-  endpoint: string
-  requestBody: unknown
-  handler: () => Promise<T>
-}): Promise<T> {
-  if (!opts.key) return opts.handler()  // optional
-  const requestHash = sha256(stableJson(opts.requestBody))
+async function withCommitIdempotency(opts: CommitOpts): Promise<CommitUploadOutput> {
+  if (!opts.idempotencyKey) return commitUploadWithoutIdempotency(opts)
 
-  const existing = await opts.rawExec(
-    'SELECT request_hash, response_body, status_code FROM "sync_idempotency_record" WHERE tenant_id = $1 AND key = $2 AND expires_at > now() LIMIT 1',
-    [opts.tenantId, opts.key],
-  )
-  if (existing[0]) {
-    if (!buffersEqual(existing[0].request_hash, requestHash)) {
-      throw new TRPCError({ code: 'CONFLICT', message: 'Idempotency-Key reused with different payload' })
-    }
-    return JSON.parse(existing[0].response_body) as T  // replay
-  }
+  const requestHash = sha256(stableJson({
+    endpoint: 'sync.commitUpload',
+    protocolVersion: opts.protocolVersion,
+    input: opts.input,
+  }))
 
-  const result = await opts.handler()
-  await opts.rawExec(
-    'INSERT INTO "sync_idempotency_record"(tenant_id, key, endpoint, request_hash, response_body, status_code) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING',
-    [opts.tenantId, opts.key, opts.endpoint, requestHash, JSON.stringify(result), 200],
-  )
-  return result
+  // 1. Outside the expensive handler, acquire or observe a pending/completed lease
+  // scoped by tenant + endpoint + key. A completed lease can be replayed only
+  // after lightweight auth/batch ownership checks pass.
+  const lease = await acquireIdempotencyLease({
+    tenantId: opts.tenantId,
+    userId: opts.userId,
+    endpoint: 'sync.commitUpload',
+    key: opts.idempotencyKey,
+    requestHash,
+  })
+  if (lease.status === 'completed') return lease.responseBody
+
+  // 2. Complete the lease in the same DB transaction that transitions the batch
+  // to committed. This is the critical crash-safety property.
+  return opts.transaction(async (tx) => {
+    const result = await commitUploadInTransaction(tx, opts)
+    await completeIdempotencyLease(tx, {
+      tenantId: opts.tenantId,
+      endpoint: 'sync.commitUpload',
+      key: opts.idempotencyKey,
+      responseBody: result,
+      statusCode: 200,
+    })
+    return result
+  })
 }
 ```
 
@@ -104,7 +137,9 @@ Cron diário (ou pgBackground) que faz `DELETE FROM sync_idempotency_record WHER
 
 ### Race condition (two concurrent requests with same key)
 
-Se duas requisições idênticas chegam simultaneamente, a primeira que conseguir `INSERT … ON CONFLICT DO NOTHING` ganha; a segunda lê a resposta em cache. Para evitar ambas executarem `opts.handler()` em paralelo, usar `INSERT ... ON CONFLICT (tenant_id, key) DO NOTHING RETURNING xmin` e, se a inserção falhou, esperar (poll com backoff) até `response_body IS NOT NULL`. Padrão `lease`.
+Se duas requisições idênticas chegam simultaneamente, uma deve adquirir um lease
+`pending` e as demais devem esperar `status='completed'` ou `locked_until`
+expirar. O DDL precisa permitir `response_body IS NULL` enquanto pending.
 
 ## Impacto esperado
 
@@ -125,7 +160,7 @@ Combinado com #08 (checkpoint preserva idempotencyKey): retries cross-process ta
 ## Como validar
 
 1. **Happy path**: chamar `commitUpload` com `Idempotency-Key: K`, depois com a mesma key — segunda chamada retorna mesma resposta sem reexecutar (validar via log de queries).
-2. **Misuse**: chamar com mesma key mas body diferente → CONFLICT explicit.
+2. **Misuse**: chamar com mesma key mas body diferente → erro explícito de reuso indevido da key.
 3. **TTL**: forjar `expires_at` no passado, validar reentrada da execução real.
 4. **Concorrência**: spawn 5 requests com mesma key simultaneamente → exatamente 1 chega ao handler real.
 5. **Falha do handler**: se `handler()` lança, **não** cachear a resposta (estado consistente).

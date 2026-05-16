@@ -4,8 +4,11 @@ import { TRPCError } from '../../init.js'
 import { markBatchFailed, requireDeviceAccess, requireOpenBatchForCommit } from './batches.js'
 import {
   assertObjectManifestsMatch,
-  assertRemoteObjectCatalog,
+  assertRemoteObjectCatalogs,
+  assertUniqueObjectIds,
   loadObjectManifest,
+  mapWithConcurrency,
+  objectStoreIoConcurrency,
   requireStoredObject,
   storageKeyForObject,
   syncLimits,
@@ -14,42 +17,113 @@ import {
 import { countProjectionRows, insertProjectionRows } from './projection-upserts.js'
 import type { SyncHandlerContext } from './types.js'
 
-async function insertRemoteObjectIfMissing(opts: {
-  rawExec: RawExec
-  object: ObjectManifestEntry
-  storageKey: string
-}): Promise<boolean> {
-  const existing = await opts.rawExec('SELECT object_id FROM "remote_object" WHERE object_id = $1 LIMIT 1', [
-    opts.object.objectId,
-  ])
-  if (existing.length > 0) return false
-  await opts.rawExec(
-    'INSERT INTO "remote_object"(object_id, hash, hash_algorithm, compression, uncompressed_size, compressed_size, storage_key, content_type) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
-    [
-      opts.object.objectId,
-      opts.object.hash,
-      opts.object.hashAlgorithm,
-      opts.object.compression,
-      opts.object.uncompressedSize,
-      opts.object.compressedSize,
-      opts.storageKey,
-      opts.object.contentType ?? null,
-    ],
-  )
-  return true
+const PLAN_TRUST_WINDOW_MS = 5 * 60 * 1000
+
+type BatchObjectProofHint = {
+  plan_missing_count: number | null
+  created_at: string | Date
+  status: string
+  store_path: string
 }
 
-async function attachTenantObject(opts: {
+async function insertRemoteObjectIfMissing(opts: {
+  rawExec: RawExec
+  objects: ObjectManifestEntry[]
+}): Promise<number> {
+  if (opts.objects.length === 0) return 0
+  const rows = await opts.rawExec<{ object_id: string }>(
+    `INSERT INTO "remote_object"(
+       object_id, hash, hash_algorithm, compression, uncompressed_size,
+       compressed_size, storage_key, content_type
+     )
+     SELECT input.object_id, input.hash, input.hash_algorithm, input.compression,
+            input.uncompressed_size, input.compressed_size, input.storage_key,
+            input.content_type
+       FROM unnest(
+         $1::text[],
+         $2::text[],
+         $3::text[],
+         $4::text[],
+         $5::bigint[],
+         $6::bigint[],
+         $7::text[],
+         $8::text[]
+       ) AS input(
+         object_id, hash, hash_algorithm, compression, uncompressed_size,
+         compressed_size, storage_key, content_type
+       )
+     ON CONFLICT (object_id) DO NOTHING
+     RETURNING object_id`,
+    [
+      opts.objects.map((object) => object.objectId),
+      opts.objects.map((object) => object.hash),
+      opts.objects.map((object) => object.hashAlgorithm),
+      opts.objects.map((object) => object.compression),
+      opts.objects.map((object) => object.uncompressedSize),
+      opts.objects.map((object) => object.compressedSize),
+      opts.objects.map((object) => storageKeyForObject(object)),
+      opts.objects.map((object) => object.contentType ?? null),
+    ],
+  )
+  return rows.length
+}
+
+async function attachTenantObjects(opts: {
   rawExec: RawExec
   tenantId: string
-  objectId: string
+  objects: ObjectManifestEntry[]
   batchId: string
 }): Promise<void> {
+  if (opts.objects.length === 0) return
   await opts.rawExec(
     `INSERT INTO "tenant_object"(tenant_id, object_id, first_batch_id, ref_count)
-     VALUES ($1, $2, $3, 1)
+     SELECT $1, object_id, $2, 1
+       FROM unnest($3::text[]) AS input(object_id)
      ON CONFLICT (tenant_id, object_id) DO NOTHING`,
-    [opts.tenantId, opts.objectId, opts.batchId],
+    [opts.tenantId, opts.batchId, opts.objects.map((object) => object.objectId)],
+  )
+}
+
+async function loadBatchObjectProofHint(opts: {
+  rawExec: RawExec
+  batchId: string
+  tenantId: string
+  deviceId: string
+  userId: string
+  storePath: string
+}): Promise<BatchObjectProofHint | null> {
+  const rows = await opts.rawExec<BatchObjectProofHint>(
+    `SELECT plan_missing_count, created_at, status, store_path
+       FROM "sync_batch"
+      WHERE id = $1 AND tenant_id = $2 AND device_id = $3 AND user_id = $4
+      LIMIT 1`,
+    [opts.batchId, opts.tenantId, opts.deviceId, opts.userId],
+  )
+  const row = rows[0]
+  if (!row || row.status !== 'open' || row.store_path !== opts.storePath) return null
+  return row
+}
+
+function canTrustFreshPlanForObjects(hint: BatchObjectProofHint | null): boolean {
+  if (!hint || hint.plan_missing_count !== 0) return false
+  const createdAt = new Date(hint.created_at).getTime()
+  return Number.isFinite(createdAt) && Date.now() - createdAt <= PLAN_TRUST_WINDOW_MS
+}
+
+async function verifyCommitObjectBytes(opts: {
+  rawExec: RawExec
+  objectStore: SyncHandlerContext['objectStore']
+  objects: ObjectManifestEntry[]
+  batchId: string
+  tenantId: string
+  deviceId: string
+  userId: string
+  storePath: string
+}): Promise<void> {
+  const hint = await loadBatchObjectProofHint(opts)
+  if (canTrustFreshPlanForObjects(hint)) return
+  await mapWithConcurrency(opts.objects, objectStoreIoConcurrency, async (object) =>
+    requireStoredObject({ objectStore: opts.objectStore, object, storageKey: storageKeyForObject(object) }),
   )
 }
 
@@ -65,11 +139,29 @@ export async function commitUpload(ctx: SyncHandlerContext, input: CommitUploadI
     deviceId: input.deviceId,
   })
   const objects = input.objects.map(validateObjectManifest)
+  assertUniqueObjectIds(objects)
+
+  await verifyCommitObjectBytes({
+    rawExec: ctx.rawExec,
+    objectStore: ctx.objectStore,
+    objects,
+    batchId: input.batchId,
+    tenantId: ctx.tenantId,
+    deviceId: input.deviceId,
+    userId: ctx.user.id,
+    storePath: input.storePath,
+  })
 
   let committedObjects = 0
   for (const obj of objects) {
     const storageKey = storageKeyForObject(obj)
-    await requireStoredObject({ objectStore: ctx.objectStore, object: obj, storageKey })
+    await requireStoredObject({
+      rawExec: ctx.rawExec,
+      objectStore: ctx.objectStore,
+      object: obj,
+      storageKey,
+      tenantId: ctx.tenantId,
+    })
   }
 
   let commitStarted = false
@@ -94,19 +186,10 @@ export async function commitUpload(ctx: SyncHandlerContext, input: CommitUploadI
       ])
       commitStarted = true
 
-      for (const obj of objects) {
-        const storageKey = storageKeyForObject(obj)
-        await assertRemoteObjectCatalog({ rawExec: tx, object: obj, storageKey })
-        if (await insertRemoteObjectIfMissing({ rawExec: tx, object: obj, storageKey })) {
-          committedObjects += 1
-        }
-        await attachTenantObject({
-          rawExec: tx,
-          tenantId: ctx.tenantId,
-          objectId: obj.objectId,
-          batchId: input.batchId,
-        })
-      }
+      await assertRemoteObjectCatalogs({ rawExec: tx, objects })
+      committedObjects = await insertRemoteObjectIfMissing({ rawExec: tx, objects })
+      await assertRemoteObjectCatalogs({ rawExec: tx, objects })
+      await attachTenantObjects({ rawExec: tx, tenantId: ctx.tenantId, objects, batchId: input.batchId })
 
       await insertProjectionRows({
         rawExec: tx,

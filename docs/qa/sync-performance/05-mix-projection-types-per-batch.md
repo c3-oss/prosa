@@ -2,9 +2,34 @@
 
 **Tier**: 2 · **Onde**: cliente · **Impacto estimado**: 281 → ~167 batches (-40%) ou menos · **Esforço**: S
 
+## Fact-check 2026-05-16
+
+**Veredicto**: ideia válida, proposta não pronta. O protocolo já aceita objetos
+CAS e projeções juntos, e o caminho single-batch já faz isso. O chunked atual
+separa CAS e depois promove tipos de projeção em fases. O documento, porém,
+está desatualizado e ignora dependências entre tipos quando pais e filhos caem
+em batches diferentes.
+
+**Correções obrigatórias**:
+
+- O código atual tem **6 tipos de projeção**, não 4: `sourceFiles`,
+  `rawRecords`, `sessions`, `searchDocs`, `toolCalls`, `toolResults`.
+- Packing precisa ser topológico entre batches: `sourceFiles -> rawRecords`,
+  `sessions -> searchDocs/toolCalls`, `toolCalls -> toolResults`, e objetos CAS
+  antes das projeções que os referenciam.
+- Dentro de uma mesma transação as FKs deferrable reduzem o problema; entre
+  batches, filho antes de pai falha ou fica invisível até o pai existir.
+- Recalcular impacto com `totalRows` incluindo tool calls/results e com limite
+  de `bodyLimit` do Fastify.
+
 ## Resumo
 
-A CLI hoje envia **um único tipo de projeção por batch**: 4 chamadas seriais a `promoteProjectionChunks` (sourceFiles, rawRecords, sessions, searchDocs). Cada tipo é dividido por `ceil(count / maxRowsPerCommit)`. Resultado: rounding-up multiplicado por 4. Como o `commitUpload` no servidor já aceita um `ProjectionPayload` contendo os 4 tipos misturados, basta empacotar até `maxRowsPerCommit` rows independentemente do tipo — **e**, melhor ainda, **dentro do mesmo batch que envia CAS objects**, em vez de ter fases CAS-only seguidas de projection-only.
+A CLI hoje envia **um único tipo de projeção por batch**: sourceFiles,
+rawRecords, sessions, searchDocs, toolCalls e toolResults. Cada tipo é dividido
+por `ceil(count / maxRowsPerCommit)`. Como o `commitUpload` no servidor já aceita
+um `ProjectionPayload` contendo os 6 tipos misturados, é possível empacotar tipos
+compatíveis no mesmo commit e, quando seguro, junto dos CAS objects. O packer
+não pode ser apenas greedy: ele precisa respeitar dependências entre tipos.
 
 ## Diagnóstico atual
 
@@ -57,7 +82,10 @@ Para o `~/.prosa` do memo:
 | casObjects    | 834 333  | **167 batches**     |
 | **Total**     |          | **281 batches**     |
 
-Se misturarmos os 4 tipos no mesmo batch: `ceil(1 109 323 / 10 000) = 111` batches (-3 vs 114). Modesto.
+Se misturarmos todos os tipos de projeção no mesmo batch, o limite inferior é
+`ceil(totalRowsIncluindoTools / 10 000)`. Para os números antigos sem
+toolCalls/toolResults, isso seria `ceil(1 109 323 / 10 000) = 111` batches
+(-3 vs 114). Com o schema atual, é preciso recalcular incluindo tools.
 
 **Se também misturarmos CAS com projeção**: 167 batches CAS-bound dominam — projeção entra "de carona" até saturar `maxRowsPerCommit`. **Total: 167 batches** (-40 %).
 
@@ -65,7 +93,9 @@ Se misturarmos os 4 tipos no mesmo batch: `ceil(1 109 323 / 10 000) = 111` batch
 
 ### (a) Empacotador unificado
 
-Trocar as 4 chamadas separadas + o loop CAS por um único orquestrador que mantém 5 cursores (1 CAS + 4 projeção) e produz batches saturando os limites em paralelo.
+Trocar as chamadas separadas + o loop CAS por um único orquestrador que mantém
+7 cursores (1 CAS + 6 projeção) e produz batches saturando os limites, desde que
+respeite a ordem topológica entre tipos.
 
 ```ts
 type CursorState = {
@@ -110,7 +140,11 @@ async function packNextBatch(
 
 ### (b) Ordem de FK respeitada
 
-`sourceFile` deve preceder `rawRecord` (FK `raw_record.source_file_id`). Como o `commitUpload` aceita os 4 tipos juntos em uma única transação, o `insertProjectionRows` precisa apenas inserir na ordem correta — `apps/api/src/trpc/routers/sync/projection-upserts.ts:251-292` já faz **sessions → sourceFiles → rawRecords → searchDocs** dentro de uma única transação. ✅
+`sourceFile` deve preceder `rawRecord`; `session` deve preceder `searchDoc` e
+`toolCall`; `toolCall` deve preceder `toolResult`. Como o `commitUpload` aceita
+os 6 tipos juntos em uma única transação, o `insertProjectionRows` consegue
+inserir em ordem dentro do batch. O problema é entre batches: se um batch contém
+filhos de pais ainda não promovidos/verificados, a promoção pode falhar.
 
 ### (c) Single-batch mode reusa o packer
 
@@ -120,7 +154,7 @@ Quando `uploadLimitViolations.length === 0`, o packer só produz 1 batch — cam
 
 | Cenário                        | Batches | Round-trips (4 por batch) |
 | ------------------------------ | ------- | ------------------------- |
-| Hoje (4 tipos separados)       | 281     | 1 124                     |
+| Hoje (tipos separados; número antigo sem tools) | 281 | 1 124 |
 | Só mix de tipos de projeção    | 278     | 1 112                     |
 | Mix CAS + projeção             | **167** | **668**                   |
 

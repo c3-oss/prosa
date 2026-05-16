@@ -30,8 +30,38 @@ export interface RemoteObjectStore {
   /** Reads bytes as a Web ReadableStream. */
   get(key: string): Promise<ReadableStream<Uint8Array>>
 
+  /** Reads a byte range as a Web ReadableStream. */
+  getRange(key: string, offset: number, length: number): Promise<ReadableStream<Uint8Array>>
+
   /** Removes the object. No-op if it does not exist. */
   delete(key: string): Promise<void>
+}
+
+export const PUT_PREVERIFIED_BYTES = Symbol.for('@c3-oss/prosa-storage.putPreverifiedBytes')
+
+export type PreverifiedRemoteObjectStore = RemoteObjectStore & {
+  /**
+   * Server-internal fast path for callers that already verified byte size and
+   * hash before invoking the adapter. The public `putIfAbsent` contract still
+   * verifies all new bytes.
+   */
+  [PUT_PREVERIFIED_BYTES](key: string, bytes: AsyncIterable<Uint8Array>, meta: PutMeta): Promise<PutResult>
+}
+
+export function supportsPreverifiedPut(store: RemoteObjectStore): store is PreverifiedRemoteObjectStore {
+  return typeof (store as Partial<PreverifiedRemoteObjectStore>)[PUT_PREVERIFIED_BYTES] === 'function'
+}
+
+export function putPreverifiedIfAbsent(
+  store: RemoteObjectStore,
+  key: string,
+  bytes: AsyncIterable<Uint8Array>,
+  meta: PutMeta,
+): Promise<PutResult> {
+  if (supportsPreverifiedPut(store)) {
+    return store[PUT_PREVERIFIED_BYTES](key, bytes, meta)
+  }
+  return store.putIfAbsent(key, bytes, meta)
 }
 
 export type ObjectCompression = 'zstd' | 'none'
@@ -63,6 +93,10 @@ export function casObjectKey(hash: string, prefix: string): string {
 export function objectStorageKey(opts: { hash: string; compression: ObjectCompression }): string {
   const ext = opts.compression === 'zstd' ? '.zst' : '.bin'
   return `objects/blake3/${opts.hash.slice(0, 2)}/${opts.hash.slice(2, 4)}/${opts.hash}${ext}`
+}
+
+export function objectPackStorageKey(opts: { tenantId: string; batchId: string; packHash: string }): string {
+  return `object-packs/${opts.tenantId}/${opts.batchId}/${opts.packHash}.pack`
 }
 
 export function rawSourceKey(tenantId: string, sourceFileId: string, prefix: string): string {
