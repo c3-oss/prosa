@@ -7,6 +7,7 @@ import {
 } from '../../../objects/locations.js'
 import { router, tenantProcedure } from '../../init.js'
 import { decompressZstdBounded, readRawBounded } from './bounded-decode.js'
+import { verifiedProjectionExistsSql } from './shared.js'
 
 const artifactInput = z
   .object({
@@ -58,6 +59,7 @@ async function resolveArtifact(
            ON tx.tenant_id = a.tenant_id AND tx.object_id = a.object_id
     LEFT JOIN "remote_object" o ON o.object_id = a.object_id
         WHERE a.tenant_id = $1 AND a.id = $2
+          AND ${verifiedProjectionExistsSql('a', 'artifact')}
           AND EXISTS (
             SELECT 1 FROM "sync_batch_projection_manifest" m
             JOIN "sync_batch" b ON b.id = m.batch_id AND b.status = 'verified'

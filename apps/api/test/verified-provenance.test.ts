@@ -1,3 +1,4 @@
+import { computeHashHex } from '@c3-oss/prosa-storage'
 import { describe, expect, it } from 'vitest'
 import { type TestApp, buildTestApp } from './helpers/test-app.js'
 
@@ -27,6 +28,10 @@ async function trpcGet(t: TestApp, path: string, input: unknown, token: string) 
     url: `/trpc/${path}?input=${encodeURIComponent(JSON.stringify(input))}`,
     headers: { authorization: `Bearer ${token}` },
   })
+}
+
+async function* singleChunk(bytes: Uint8Array): AsyncIterable<Uint8Array> {
+  yield bytes
 }
 
 async function seedVerifiedSession(t: TestApp, auth: SignupResult): Promise<void> {
@@ -129,6 +134,69 @@ describe('CQ-003 — artifact/object reads must require verified object provenan
 
       const resp = await trpcGet(t, 'artifacts.getText', { artifactId: 'art-committed' }, auth.token)
       // Tenant grant exists but no verified object manifest — must refuse.
+      expect(resp.statusCode).toBe(404)
+    } finally {
+      await t.close()
+    }
+  })
+
+  it('rejects artifacts.getText by artifactId when the artifact row lacks a verified manifest entry', async () => {
+    const t = await buildTestApp()
+    try {
+      const auth = await signup(t, 'cq003-artifact-row@example.com')
+      await seedVerifiedSession(t, auth)
+
+      const bytes = Buffer.from('artifact should not leak', 'utf8')
+      const hash = computeHashHex(bytes, 'blake3')
+      const objectId = `blake3:${hash}`
+      const storageKey = 'storage/key-verified-artifact-object'
+      const batchId = 'batch-verified-object-only'
+      const deviceId = 'device-verified-object-only'
+      await t.objectStore.putIfAbsent(storageKey, singleChunk(bytes), {
+        hash,
+        hashAlgorithm: 'blake3',
+        uncompressedSize: bytes.byteLength,
+        compressedSize: bytes.byteLength,
+        contentType: 'text/plain',
+      })
+      await t.pglite.query(`INSERT INTO "device"(id, tenant_id, user_id, name) VALUES ($1, $2, $3, 'device')`, [
+        deviceId,
+        auth.tenant.id,
+        auth.user.id,
+      ])
+      await t.pglite.query(
+        `INSERT INTO "sync_batch"(id, tenant_id, device_id, user_id, store_path, status, object_count, row_count, bytes_uploaded)
+         VALUES ($1, $2, $3, $4, '/tmp/.prosa-verify-object-only', 'verified', 1, 0, $5)`,
+        [batchId, auth.tenant.id, deviceId, auth.user.id, bytes.byteLength],
+      )
+      await t.pglite.query(
+        `INSERT INTO "remote_object"(object_id, hash, hash_algorithm, compression, uncompressed_size, compressed_size, storage_key, content_type)
+         VALUES ($1, $2, 'blake3', 'none', $3, $3, $4, 'text/plain')`,
+        [objectId, hash, bytes.byteLength, storageKey],
+      )
+      await t.pglite.query(
+        `INSERT INTO "tenant_object"(tenant_id, object_id, first_batch_id, ref_count) VALUES ($1, $2, $3, 1)`,
+        [auth.tenant.id, objectId, batchId],
+      )
+      await t.pglite.query(
+        `INSERT INTO "sync_batch_object_manifest"(
+           batch_id, tenant_id, object_id, canonical_hash, transport_hash, compression,
+           uncompressed_size, compressed_size, storage_key, content_type
+         ) VALUES ($1, $2, $3, $4, $4, 'none', $5, $5, $6, 'text/plain')`,
+        [batchId, auth.tenant.id, objectId, hash, bytes.byteLength, storageKey],
+      )
+      await t.pglite.query(
+        `INSERT INTO "projection_artifact"(tenant_id, id, session_id, kind, object_id, size_bytes, metadata)
+         VALUES ($1, 'art-object-verified-row-unverified', 'sess-verified', 'text', $2, $3, NULL)`,
+        [auth.tenant.id, objectId, bytes.byteLength],
+      )
+
+      const resp = await trpcGet(
+        t,
+        'artifacts.getText',
+        { artifactId: 'art-object-verified-row-unverified' },
+        auth.token,
+      )
       expect(resp.statusCode).toBe(404)
     } finally {
       await t.close()
