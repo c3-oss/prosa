@@ -1,6 +1,32 @@
 import { describe, expect, it } from 'vitest'
 import { runReadUploadPipeline } from '../../../src/cli/sync/pipeline.js'
 
+function deferred<T = void>(): {
+  promise: Promise<T>
+  resolve: (value: T | PromiseLike<T>) => void
+  reject: (reason?: unknown) => void
+} {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return { promise, resolve, reject }
+}
+
+async function withTimeout<T>(promise: Promise<T>, ms = 500): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error('timed out waiting for pipeline')), ms)
+  })
+  try {
+    return await Promise.race([promise, timeout])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
 describe('runReadUploadPipeline', () => {
   it('processes all items when read > upload concurrency', async () => {
     const loaded: number[] = []
@@ -120,6 +146,82 @@ describe('runReadUploadPipeline', () => {
         },
       }),
     ).rejects.toThrow(`upload failed on item ${failOn}`)
+  })
+
+  it('wakes blocked readers and releases loaded items when an upload fails', async () => {
+    const loaded: number[] = []
+    const released: number[] = []
+    const allReadersLoaded = deferred()
+
+    await expect(
+      withTimeout(
+        runReadUploadPipeline<number, { id: number }>({
+          items: [0, 1, 2, 3],
+          readConcurrency: 4,
+          uploadConcurrency: 1,
+          queueBound: 1,
+          load: async (item) => {
+            loaded.push(item)
+            if (loaded.length === 4) allReadersLoaded.resolve()
+            return { id: item }
+          },
+          consume: async ({ id }) => {
+            await allReadersLoaded.promise
+            throw new Error(`upload failed on item ${id}`)
+          },
+          releaseLoaded: ({ id }) => {
+            released.push(id)
+          },
+        }),
+      ),
+    ).rejects.toThrow('upload failed on item 0')
+
+    expect(loaded.slice().sort((a, b) => a - b)).toEqual([0, 1, 2, 3])
+    expect(released.slice().sort((a, b) => a - b)).toEqual([0, 1, 2, 3])
+  })
+
+  it('wakes blocked readers and releases loaded items when a reader fails', async () => {
+    const released: number[] = []
+
+    await expect(
+      withTimeout(
+        runReadUploadPipeline<number, { id: number }>({
+          items: [0, 1, 2, 3],
+          readConcurrency: 4,
+          uploadConcurrency: 1,
+          queueBound: 1,
+          load: async (item) => {
+            if (item === 3) throw new Error('read failed on item 3')
+            return { id: item }
+          },
+          consume: async () => {},
+          releaseLoaded: ({ id }) => {
+            released.push(id)
+          },
+        }),
+      ),
+    ).rejects.toThrow('read failed on item 3')
+
+    expect(released.slice().sort((a, b) => a - b)).toEqual([0, 1, 2])
+  })
+
+  it('allows an oversized item through an empty byte-bound queue', async () => {
+    const consumed: number[] = []
+
+    await runReadUploadPipeline<number, { id: number; bytes: Uint8Array }>({
+      items: [1],
+      readConcurrency: 1,
+      uploadConcurrency: 1,
+      queueBound: 1,
+      maxBufferedBytes: 4,
+      loadedByteLength: ({ bytes }) => bytes.byteLength,
+      load: async (item) => ({ id: item, bytes: new Uint8Array(16) }),
+      consume: async ({ id }) => {
+        consumed.push(id)
+      },
+    })
+
+    expect(consumed).toEqual([1])
   })
 
   it('works correctly with a queue bound of 1 (maximum backpressure)', async () => {

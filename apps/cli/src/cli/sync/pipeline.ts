@@ -20,6 +20,13 @@ export interface PipelineOptions<TItem, TLoaded> {
    * Keeps peak memory bounded.
    */
   queueBound: number
+  /**
+   * Optional maximum number of queued loaded bytes. An item larger than this
+   * limit is still allowed through an empty queue so the pipeline cannot wedge.
+   */
+  maxBufferedBytes?: number
+  /** Returns the memory size of a loaded item when `maxBufferedBytes` is set. */
+  loadedByteLength?: (loaded: TLoaded) => number
   /** Load an item from a slow source (e.g. disk). Called by read workers. */
   load: (item: TItem) => Promise<TLoaded>
   /** Upload or otherwise consume a loaded item. Called by upload workers. */
@@ -40,68 +47,156 @@ export interface PipelineOptions<TItem, TLoaded> {
  */
 export async function runReadUploadPipeline<TItem, TLoaded>(opts: PipelineOptions<TItem, TLoaded>): Promise<void> {
   if (opts.items.length === 0) return
+  if (opts.readConcurrency < 1) throw new Error('readConcurrency must be at least 1')
+  if (opts.uploadConcurrency < 1) throw new Error('uploadConcurrency must be at least 1')
+  if (opts.queueBound < 1) throw new Error('queueBound must be at least 1')
+  if (opts.maxBufferedBytes !== undefined && opts.maxBufferedBytes < 1) {
+    throw new Error('maxBufferedBytes must be at least 1 when set')
+  }
 
   const controller = new AbortController()
   const { signal } = controller
 
   // -- Queue state ---------------------------------------------------------
 
+  type QueueEntry = {
+    loaded: TLoaded
+    bytes: number
+  }
+  type EnqueueWaiter = {
+    entry: QueueEntry
+    resolve: (accepted: boolean) => void
+  }
+
   /** Loaded items waiting to be consumed. */
-  const queue: TLoaded[] = []
+  const queue: QueueEntry[] = []
+  let queuedBytes = 0
   /** Resolvers waiting to dequeue an item (upload workers blocked on empty). */
-  const dequeueWaiters: Array<() => void> = []
+  const dequeueWaiters: Array<(loaded: TLoaded | null) => void> = []
   /** Resolvers waiting to enqueue an item (read workers blocked on full). */
-  const enqueueWaiters: Array<() => void> = []
+  const enqueueWaiters: EnqueueWaiter[] = []
 
   let producersDone = 0
   const totalProducers = Math.min(opts.readConcurrency, opts.items.length)
+  const errors: unknown[] = []
 
   // -- Queue operations ----------------------------------------------------
 
-  function notifyDequeueWaiter(): void {
-    dequeueWaiters.shift()?.()
+  function loadedByteLength(loaded: TLoaded): number {
+    if (opts.maxBufferedBytes === undefined) return 0
+    const bytes = opts.loadedByteLength?.(loaded) ?? 0
+    if (!Number.isFinite(bytes) || bytes < 0) {
+      throw new Error('loadedByteLength must return a non-negative finite number')
+    }
+    return bytes
   }
 
-  function notifyAllDequeueWaiters(): void {
-    while (dequeueWaiters.length > 0) dequeueWaiters.shift()?.()
-  }
-
-  function tryEnqueue(item: TLoaded, resolve: () => void): void {
-    if (queue.length < opts.queueBound) {
-      queue.push(item)
-      notifyDequeueWaiter()
-      resolve()
-    } else {
-      // Queue is full: retry when a slot opens.
-      enqueueWaiters.push(() => tryEnqueue(item, resolve))
+  function releaseLoaded(loaded: TLoaded): void {
+    try {
+      opts.releaseLoaded?.(loaded)
+    } catch (err) {
+      errors.push(err)
+      abortPipeline()
     }
   }
 
-  function enqueue(item: TLoaded): Promise<void> {
-    return new Promise<void>((resolve) => tryEnqueue(item, resolve))
+  function drainQueueForAbort(): void {
+    while (queue.length > 0) {
+      const entry = queue.shift() as QueueEntry
+      queuedBytes -= entry.bytes
+      releaseLoaded(entry.loaded)
+    }
+  }
+
+  function resolveAllEnqueueWaiters(accepted: boolean): void {
+    while (enqueueWaiters.length > 0) {
+      const waiter = enqueueWaiters.shift() as EnqueueWaiter
+      waiter.resolve(accepted)
+    }
+  }
+
+  function resolveAllDequeueWaiters(loaded: TLoaded | null): void {
+    while (dequeueWaiters.length > 0) {
+      const resolve = dequeueWaiters.shift() as (loaded: TLoaded | null) => void
+      resolve(loaded)
+    }
+  }
+
+  function canAccept(entry: QueueEntry): boolean {
+    if (queue.length >= opts.queueBound) return false
+    if (opts.maxBufferedBytes === undefined) return true
+    if (queuedBytes + entry.bytes <= opts.maxBufferedBytes) return true
+    // Allow a single oversized item through an empty queue to avoid deadlock.
+    return queue.length === 0
+  }
+
+  function pumpQueue(): void {
+    if (signal.aborted) {
+      drainQueueForAbort()
+      resolveAllEnqueueWaiters(false)
+      resolveAllDequeueWaiters(null)
+      return
+    }
+
+    while (true) {
+      let progressed = false
+
+      while (enqueueWaiters.length > 0 && canAccept(enqueueWaiters[0]!.entry)) {
+        const waiter = enqueueWaiters.shift() as EnqueueWaiter
+        queue.push(waiter.entry)
+        queuedBytes += waiter.entry.bytes
+        if (dequeueWaiters.length > 0) {
+          const entry = queue.shift() as QueueEntry
+          queuedBytes -= entry.bytes
+          const resolve = dequeueWaiters.shift() as (loaded: TLoaded | null) => void
+          resolve(entry.loaded)
+        }
+        waiter.resolve(true)
+        progressed = true
+      }
+
+      while (dequeueWaiters.length > 0 && queue.length > 0) {
+        const entry = queue.shift() as QueueEntry
+        queuedBytes -= entry.bytes
+        const resolve = dequeueWaiters.shift() as (loaded: TLoaded | null) => void
+        resolve(entry.loaded)
+        progressed = true
+      }
+
+      if (!progressed) break
+    }
+
+    if (producersDone === totalProducers && queue.length === 0) {
+      resolveAllDequeueWaiters(null)
+    }
+  }
+
+  function abortPipeline(): void {
+    if (!signal.aborted) controller.abort()
+    pumpQueue()
+  }
+
+  function enqueue(loaded: TLoaded): Promise<boolean> {
+    if (signal.aborted) return Promise.resolve(false)
+    const entry = { loaded, bytes: loadedByteLength(loaded) }
+    return new Promise<boolean>((resolve) => {
+      enqueueWaiters.push({ entry, resolve })
+      pumpQueue()
+    })
   }
 
   function dequeue(): Promise<TLoaded | null> {
-    const tryDequeue = (resolve: (v: TLoaded | null) => void): void => {
-      if (queue.length > 0) {
-        const item = queue.shift() as TLoaded
-        // Wake a blocked reader that was waiting for a queue slot.
-        enqueueWaiters.shift()?.()
-        resolve(item)
-      } else if (producersDone === totalProducers) {
-        resolve(null)
-      } else {
-        dequeueWaiters.push(() => tryDequeue(resolve))
-      }
-    }
-    return new Promise<TLoaded | null>((resolve) => tryDequeue(resolve))
+    if (signal.aborted) return Promise.resolve(null)
+    return new Promise<TLoaded | null>((resolve) => {
+      dequeueWaiters.push(resolve)
+      pumpQueue()
+    })
   }
 
   // -- Workers -------------------------------------------------------------
 
   // Shared work list: read workers pull from this atomically.
   let nextItemIndex = 0
-  const errors: unknown[] = []
 
   async function readWorker(): Promise<void> {
     try {
@@ -111,21 +206,20 @@ export async function runReadUploadPipeline<TItem, TLoaded>(opts: PipelineOption
         if (index >= opts.items.length) break
         const item = opts.items[index] as TItem
         const loaded = await opts.load(item)
-        if (signal.aborted) {
-          opts.releaseLoaded?.(loaded)
-          break
+        let accepted = false
+        try {
+          accepted = !signal.aborted && (await enqueue(loaded))
+        } finally {
+          if (!accepted) releaseLoaded(loaded)
         }
-        await enqueue(loaded)
+        if (!accepted) break
       }
     } catch (err) {
       errors.push(err)
-      controller.abort()
+      abortPipeline()
     } finally {
       producersDone += 1
-      if (producersDone === totalProducers) {
-        // All readers done: wake any blocked upload workers.
-        notifyAllDequeueWaiters()
-      }
+      pumpQueue()
     }
   }
 
@@ -134,18 +228,15 @@ export async function runReadUploadPipeline<TItem, TLoaded>(opts: PipelineOption
       while (true) {
         const loaded = await dequeue()
         if (loaded === null) break
-        if (signal.aborted) {
-          opts.releaseLoaded?.(loaded)
-          continue
+        try {
+          if (!signal.aborted) await opts.consume(loaded)
+        } finally {
+          releaseLoaded(loaded)
         }
-        await opts.consume(loaded)
-        opts.releaseLoaded?.(loaded)
       }
     } catch (err) {
       errors.push(err)
-      controller.abort()
-      // Drain leftover queue entries so blocked readers can unblock and exit.
-      notifyAllDequeueWaiters()
+      abortPipeline()
     }
   }
 

@@ -88,7 +88,10 @@ type SyncResult = {
 }
 
 type LocalCasObjectChunk = LocalCasObject
-type LocalCasObjectUpload = LocalCasObjectChunk & { bytes: Uint8Array }
+type LocalCasObjectUpload = {
+  object: LocalCasObjectChunk
+  bytes: Uint8Array
+}
 
 type ObjectChunk = {
   casObjects: LocalCasObjectChunk[]
@@ -240,8 +243,11 @@ async function uploadMissingCasObjectsWithReadPipeline(opts: {
   metrics: SyncMetrics
 }): Promise<{ uploadStats: Awaited<ReturnType<typeof uploadMissingCasObjects>>; bytesUploaded: number }> {
   const uploadStats = { packedObjectCount: 0, packCount: 0, putObjectCount: 0 }
-  const flushThresholdBytes = Math.max(1, opts.maxObjectPackBytes ?? DEFAULT_OBJECT_UPLOAD_BUFFER_BYTES)
-  let pendingObjects: LocalCasObjectUpload[] = []
+  const flushThresholdBytes = Math.max(
+    1,
+    Math.min(opts.maxObjectPackBytes ?? DEFAULT_OBJECT_UPLOAD_BUFFER_BYTES, DEFAULT_OBJECT_UPLOAD_BUFFER_BYTES),
+  )
+  let pendingObjects: LocalCasObjectChunk[] = []
   let pendingBytes = 0
   let bytesUploaded = 0
 
@@ -270,16 +276,21 @@ async function uploadMissingCasObjectsWithReadPipeline(opts: {
     readConcurrency: Math.min(8, opts.objectConcurrency),
     uploadConcurrency: 1,
     queueBound: 32,
+    maxBufferedBytes: DEFAULT_OBJECT_UPLOAD_BUFFER_BYTES,
+    loadedByteLength: ({ bytes }) => bytes.byteLength,
     load: async (object) => {
       const bytes = await bytesForUpload(opts.storePath, object, opts.metrics)
-      return { ...object, bytes }
+      return { object, bytes }
     },
-    consume: async (object) => {
-      pendingObjects.push(object)
-      pendingBytes += object.bytes.byteLength
+    consume: async ({ object, bytes }) => {
+      pendingObjects.push({ ...object, bytes })
+      pendingBytes += bytes.byteLength
       if (pendingObjects.length >= 1024 || pendingBytes >= flushThresholdBytes) {
         await flushPending()
       }
+    },
+    releaseLoaded: ({ object }) => {
+      object.bytes = undefined
     },
   })
   await flushPending()
