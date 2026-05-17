@@ -1,0 +1,16 @@
+results/**/*.cpuprofile
+results/**/*.heapprofile
+results/**/*.heapsnapshot
+results/**/*.svg
+results/**/*.html
+results/**/*.gc.log
+results/**/*.ndjson
+results/**/api.stdout.log
+results/**/api.gc.log
+results/**/*.trace-gc.log
+results/**/payloads/
+results/**/bundle/
+results/**/cli-config/
+results/**/auth-signup.log
+results/**/sync.stderr.log
+fixtures/_generated/

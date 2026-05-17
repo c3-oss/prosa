@@ -19,3 +19,4 @@ docs/api/
 /.prosa-smoke/
 /tmp-prosa/
 docker-compose.override.yml
+apps/cli/dist/bin/prosa.js.bak

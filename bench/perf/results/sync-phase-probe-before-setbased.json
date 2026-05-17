@@ -1,0 +1,507 @@
+{
+  "createdAt": "2026-05-17T06:18:29.267Z",
+  "options": {
+    "objects": 100,
+    "sessions": 50,
+    "objectBytes": 256,
+    "output": "/tmp/prosa-sync-phase-probe.json"
+  },
+  "rowCounts": {
+    "sourceFiles": 50,
+    "rawRecords": 50,
+    "sessions": 50,
+    "searchDocs": 50,
+    "toolCalls": 50,
+    "toolResults": 50,
+    "messages": 50,
+    "contentBlocks": 50,
+    "events": 50,
+    "artifacts": 50
+  },
+  "phases": {
+    "boot": {
+      "wallMs": 0,
+      "sqlCalls": 0,
+      "sqlMs": 0,
+      "objectStore": {},
+      "topSql": []
+    },
+    "auth": {
+      "wallMs": 107.33,
+      "sqlCalls": 0,
+      "sqlMs": 0,
+      "objectStore": {
+        "head": 0,
+        "putIfAbsent": 0,
+        "putPreverified": 0,
+        "get": 0,
+        "getRange": 0,
+        "delete": 0
+      },
+      "topSql": []
+    },
+    "handshake": {
+      "wallMs": 7.09,
+      "sqlCalls": 4,
+      "sqlMs": 2.91,
+      "objectStore": {
+        "head": 0,
+        "putIfAbsent": 0,
+        "putPreverified": 0,
+        "get": 0,
+        "getRange": 0,
+        "delete": 0
+      },
+      "topSql": [
+        {
+          "calls": 1,
+          "totalMs": 1,
+          "sql": "SELECT role FROM \"member\" WHERE organization_id = $1 AND user_id = $2 ORDER BY created_at ASC, id ASC"
+        },
+        {
+          "calls": 1,
+          "totalMs": 0.82,
+          "sql": "SELECT id FROM \"device\" WHERE tenant_id = $1 AND user_id = $2 AND name = $3 LIMIT 1"
+        },
+        {
+          "calls": 1,
+          "totalMs": 0.65,
+          "sql": "INSERT INTO \"device\"(id, tenant_id, user_id, name, platform, cli_version, store_path) VALUES ($1, $2, $3, $4, $5, $6, $7)"
+        },
+        {
+          "calls": 1,
+          "totalMs": 0.45,
+          "sql": "SELECT 1 FROM \"remote_authority\" WHERE tenant_id = $1 AND store_path = $2 LIMIT 1"
+        }
+      ]
+    },
+    "cold-plan": {
+      "wallMs": 32.95,
+      "sqlCalls": 106,
+      "sqlMs": 309.59,
+      "objectStore": {
+        "head": 0,
+        "putIfAbsent": 0,
+        "putPreverified": 0,
+        "get": 0,
+        "getRange": 0,
+        "delete": 0
+      },
+      "topSql": [
+        {
+          "calls": 100,
+          "totalMs": 303.25,
+          "sql": "SELECT object_id FROM \"tenant_object\" WHERE tenant_id = $1 AND object_id = $2 LIMIT 1"
+        },
+        {
+          "calls": 1,
+          "totalMs": 4.03,
+          "sql": "INSERT INTO \"sync_batch_object_manifest\"( batch_id, tenant_id, object_id, canonical_hash, transport_hash, compression, uncompressed_size, compressed_size, storage_key, content_type ) SELECT $1, $2, input.object_id, input.canonical_hash, input.transport_hash, input.compression, input.uncompressed_size, input.compressed_size, input.storage_key, input.content_type FROM unnest( $3::text[], $4::text[], $5::text[], $6::text[], $7::bigint[], $8::bigint[], $9::text[], $10::text[] ) AS input( object_id, canonical_hash, transport_hash, compression, uncompressed_size, compressed_size, storage_key, content_type )"
+        },
+        {
+          "calls": 1,
+          "totalMs": 0.71,
+          "sql": "INSERT INTO \"sync_batch\"(id, tenant_id, device_id, user_id, store_path, status, object_count) VALUES ($1, $2, $3, $4, $5, $6, $7)"
+        },
+        {
+          "calls": 1,
+          "totalMs": 0.63,
+          "sql": "SELECT object_id, hash, hash_algorithm, compression, uncompressed_size, compressed_size, storage_key FROM \"remote_object\" WHERE object_id = ANY($1::text[])"
+        },
+        {
+          "calls": 1,
+          "totalMs": 0.39,
+          "sql": "SELECT id FROM \"device\" WHERE id = $1 AND tenant_id = $2 AND user_id = $3 AND revoked_at IS NULL LIMIT 1"
+        },
+        {
+          "calls": 1,
+          "totalMs": 0.34,
+          "sql": "UPDATE \"sync_batch\" SET plan_missing_count = $1, updated_at = now() WHERE id = $2 AND tenant_id = $3"
+        },
+        {
+          "calls": 1,
+          "totalMs": 0.25,
+          "sql": "SELECT role FROM \"member\" WHERE organization_id = $1 AND user_id = $2 ORDER BY created_at ASC, id ASC"
+        }
+      ]
+    },
+    "cold-put": {
+      "wallMs": 393.72,
+      "sqlCalls": 900,
+      "sqlMs": 236.17,
+      "objectStore": {
+        "head": 0,
+        "putIfAbsent": 0,
+        "putPreverified": 100,
+        "get": 0,
+        "getRange": 0,
+        "delete": 0
+      },
+      "topSql": [
+        {
+          "calls": 100,
+          "totalMs": 41.06,
+          "sql": "SELECT ro.hash, ro.hash_algorithm, ro.compression, ro.uncompressed_size, ro.compressed_size, ro.storage_key AS legacy_storage_key, l.location_type, l.storage_key AS location_storage_key, b.storage_key AS blob_storage_key, b.hash AS blob_hash, b.hash_algorithm AS blob_hash_algorithm, b.byte_size AS blob_byte_size, l.byte_offset, l.byte_length FROM \"remote_object\" ro LEFT JOIN \"remote_object_location\" l ON l.object_id = ro.object_id AND l.tenant_id = $2 LEFT JOIN \"remote_blob\" b ON b.id = l.blob_id WHERE ro.object_id = $1 LIMIT 1"
+        },
+        {
+          "calls": 100,
+          "totalMs": 35.34,
+          "sql": "SELECT m.canonical_hash, m.transport_hash, m.compression, m.uncompressed_size, m.compressed_size FROM \"sync_batch_object_manifest\" m JOIN \"sync_batch\" b ON b.id = m.batch_id AND b.tenant_id = m.tenant_id AND b.status = 'open' AND b.user_id = $3 WHERE m.batch_id = $1 AND m.tenant_id = $2 AND m.object_id = $4 LIMIT 1"
+        },
+        {
+          "calls": 100,
+          "totalMs": 26.59,
+          "sql": "INSERT INTO \"remote_object_location\"(tenant_id, object_id, batch_id, location_type, storage_key, byte_offset, byte_length) VALUES ($1, $2, $3, 'object', $4, 0, $5) ON CONFLICT (tenant_id, object_id) DO NOTHING"
+        },
+        {
+          "calls": 100,
+          "totalMs": 23.71,
+          "sql": "SELECT role FROM \"member\" WHERE organization_id = $1 AND user_id = $2 ORDER BY created_at ASC, id ASC"
+        },
+        {
+          "calls": 100,
+          "totalMs": 23.4,
+          "sql": "SELECT object_id, hash, hash_algorithm, compression, uncompressed_size, compressed_size, storage_key FROM \"remote_object\" WHERE object_id = ANY($1::text[])"
+        },
+        {
+          "calls": 100,
+          "totalMs": 22.21,
+          "sql": "INSERT INTO \"remote_object\"(object_id, hash, hash_algorithm, compression, uncompressed_size, compressed_size, storage_key, content_type) VALUES ($1, $2, 'blake3', $3, $4, $5, $6, $7) ON CONFLICT (object_id) DO NOTHING"
+        },
+        {
+          "calls": 100,
+          "totalMs": 21.87,
+          "sql": "SELECT hash, hash_algorithm, compression, uncompressed_size, compressed_size, storage_key FROM \"remote_object\" WHERE object_id = $1 LIMIT 1"
+        },
+        {
+          "calls": 100,
+          "totalMs": 21.28,
+          "sql": "INSERT INTO \"tenant_object\"(tenant_id, object_id, first_batch_id, ref_count) VALUES ($1, $2, $3, 1) ON CONFLICT (tenant_id, object_id) DO NOTHING"
+        }
+      ]
+    },
+    "cold-commit": {
+      "wallMs": 397,
+      "sqlCalls": 1813,
+      "sqlMs": 1718.75,
+      "objectStore": {
+        "head": 100,
+        "putIfAbsent": 0,
+        "putPreverified": 0,
+        "get": 100,
+        "getRange": 0,
+        "delete": 0
+      },
+      "topSql": [
+        {
+          "calls": 200,
+          "totalMs": 1055.57,
+          "sql": "SELECT ro.hash, ro.hash_algorithm, ro.compression, ro.uncompressed_size, ro.compressed_size, ro.storage_key AS legacy_storage_key, l.location_type, l.storage_key AS location_storage_key, b.storage_key AS blob_storage_key, b.hash AS blob_hash, b.hash_algorithm AS blob_hash_algorithm, b.byte_size AS blob_byte_size, l.byte_offset, l.byte_length FROM \"remote_object\" ro LEFT JOIN \"remote_object_location\" l ON l.object_id = ro.object_id AND l.tenant_id = $2 LEFT JOIN \"remote_blob\" b ON b.id = l.blob_id WHERE ro.object_id = $1 LIMIT 1"
+        },
+        {
+          "calls": 100,
+          "totalMs": 394.97,
+          "sql": "SELECT object_id FROM \"tenant_object\" WHERE tenant_id = $1 AND object_id = $2 LIMIT 1"
+        },
+        {
+          "calls": 500,
+          "totalMs": 84.63,
+          "sql": "INSERT INTO \"sync_batch_projection_manifest\"(batch_id, tenant_id, entity_type, entity_id) VALUES ($1, $2, $3, $4)"
+        },
+        {
+          "calls": 50,
+          "totalMs": 9.7,
+          "sql": "INSERT INTO \"source_file\"(tenant_id, id, source_kind, path, object_id, metadata) VALUES ($1, $2, $3, $4, $5, $6::jsonb)"
+        },
+        {
+          "calls": 50,
+          "totalMs": 9.57,
+          "sql": "SELECT source_kind, project_id, title, started_at, ended_at, turn_count, metadata FROM \"projection_session\" WHERE tenant_id = $1 AND id = $2 LIMIT 1"
+        },
+        {
+          "calls": 50,
+          "totalMs": 9.43,
+          "sql": "INSERT INTO \"projection_session\"(tenant_id, id, source_kind, project_id, title, started_at, ended_at, turn_count, metadata) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)"
+        },
+        {
+          "calls": 50,
+          "totalMs": 9.38,
+          "sql": "SELECT source_kind, path, object_id, metadata FROM \"source_file\" WHERE tenant_id = $1 AND id = $2 LIMIT 1"
+        },
+        {
+          "calls": 50,
+          "totalMs": 9.13,
+          "sql": "SELECT session_id, turn_id, name, status, input_object_id, created_at FROM \"projection_tool_call\" WHERE tenant_id = $1 AND id = $2 LIMIT 1"
+        }
+      ]
+    },
+    "cold-commit-replay": {
+      "wallMs": 8.57,
+      "sqlCalls": 4,
+      "sqlMs": 1.56,
+      "objectStore": {
+        "head": 0,
+        "putIfAbsent": 0,
+        "putPreverified": 0,
+        "get": 0,
+        "getRange": 0,
+        "delete": 0
+      },
+      "topSql": [
+        {
+          "calls": 1,
+          "totalMs": 0.63,
+          "sql": "SELECT request_hash, response FROM \"sync_commit_idempotency\" WHERE tenant_id = $1 AND user_id = $2 AND idempotency_key = $3 LIMIT 1"
+        },
+        {
+          "calls": 1,
+          "totalMs": 0.36,
+          "sql": "DELETE FROM \"sync_commit_idempotency\" WHERE expires_at <= now() RETURNING idempotency_key"
+        },
+        {
+          "calls": 1,
+          "totalMs": 0.32,
+          "sql": "INSERT INTO \"sync_commit_idempotency\"( tenant_id, user_id, idempotency_key, request_hash, expires_at ) VALUES ($1, $2, $3, $4, $5::timestamptz) ON CONFLICT (tenant_id, user_id, idempotency_key) DO NOTHING RETURNING idempotency_key"
+        },
+        {
+          "calls": 1,
+          "totalMs": 0.26,
+          "sql": "SELECT role FROM \"member\" WHERE organization_id = $1 AND user_id = $2 ORDER BY created_at ASC, id ASC"
+        }
+      ]
+    },
+    "cold-verify": {
+      "wallMs": 117.63,
+      "sqlCalls": 409,
+      "sqlMs": 1599.64,
+      "objectStore": {
+        "head": 100,
+        "putIfAbsent": 0,
+        "putPreverified": 0,
+        "get": 100,
+        "getRange": 0,
+        "delete": 0
+      },
+      "topSql": [
+        {
+          "calls": 200,
+          "totalMs": 962.52,
+          "sql": "SELECT ro.hash, ro.hash_algorithm, ro.compression, ro.uncompressed_size, ro.compressed_size, ro.storage_key AS legacy_storage_key, l.location_type, l.storage_key AS location_storage_key, b.storage_key AS blob_storage_key, b.hash AS blob_hash, b.hash_algorithm AS blob_hash_algorithm, b.byte_size AS blob_byte_size, l.byte_offset, l.byte_length FROM \"remote_object\" ro LEFT JOIN \"remote_object_location\" l ON l.object_id = ro.object_id AND l.tenant_id = $2 LEFT JOIN \"remote_blob\" b ON b.id = l.blob_id WHERE ro.object_id = $1 LIMIT 1"
+        },
+        {
+          "calls": 200,
+          "totalMs": 630.63,
+          "sql": "SELECT object_id FROM \"tenant_object\" WHERE tenant_id = $1 AND object_id = $2 LIMIT 1"
+        },
+        {
+          "calls": 1,
+          "totalMs": 1.72,
+          "sql": "SELECT (SELECT count(*)::int FROM \"source_file\" WHERE tenant_id = $1 AND id = ANY($2::text[])) AS source_files, (SELECT count(*)::int FROM \"raw_record\" WHERE tenant_id = $1 AND id = ANY($3::text[])) AS raw_records, (SELECT count(*)::int FROM \"projection_session\" WHERE tenant_id = $1 AND id = ANY($4::text[])) AS sessions, (SELECT count(*)::int FROM \"search_doc\" WHERE tenant_id = $1 AND id = ANY($5::text[])) AS search_docs, (SELECT count(*)::int FROM \"projection_tool_call\" WHERE tenant_id = $1 AND id = ANY($6::text[])) AS tool_calls, (SELECT count(*)::int FROM \"projection_tool_result\" WHERE tenant_id = $1 AND id = ANY($7::text[])) AS tool_results, (SELECT count(*)::int FROM \"projection_message\" WHERE tenant_id = $1 AND id = ANY($8::text[])) AS messages, (SELECT count(*)::int FROM \"projection_content_block\" WHERE tenant_id = $1 AND id = ANY($9::text[])) AS content_blocks, (SELECT count(*)::int FROM \"projection_event\" WHERE tenant_id = $1 AND id = ANY($10::text[])) AS events, (SELECT count(*)::int FROM \"projection_artifact\" WHERE tenant_id = $1 AND id = ANY($11::text[])) AS artifacts"
+        },
+        {
+          "calls": 1,
+          "totalMs": 1.61,
+          "sql": "SELECT entity_type, entity_id FROM \"sync_batch_projection_manifest\" WHERE batch_id = $1 AND tenant_id = $2 ORDER BY entity_type, entity_id"
+        },
+        {
+          "calls": 1,
+          "totalMs": 0.98,
+          "sql": "SELECT object_id, canonical_hash, transport_hash, compression, uncompressed_size, compressed_size, storage_key, content_type FROM \"sync_batch_object_manifest\" WHERE batch_id = $1 AND tenant_id = $2 ORDER BY object_id"
+        },
+        {
+          "calls": 1,
+          "totalMs": 0.76,
+          "sql": "INSERT INTO \"remote_authority\"(tenant_id, device_id, store_path, promotion_receipt) VALUES ($1, $2, $3, $4::jsonb) ON CONFLICT (tenant_id, store_path) DO UPDATE SET promotion_receipt = EXCLUDED.promotion_receipt, promoted_at = now()"
+        },
+        {
+          "calls": 1,
+          "totalMs": 0.45,
+          "sql": "UPDATE \"sync_batch\" SET status = $1, promotion_receipt = $2::jsonb, error = NULL, updated_at = now() WHERE id = $3 AND tenant_id = $4 AND status = 'verifying' RETURNING id"
+        },
+        {
+          "calls": 1,
+          "totalMs": 0.28,
+          "sql": "SELECT id, device_id, status, user_id, store_path FROM \"sync_batch\" WHERE id = $1 AND tenant_id = $2 AND user_id = $3 FOR UPDATE"
+        }
+      ]
+    },
+    "warm-plan": {
+      "wallMs": 93.03,
+      "sqlCalls": 306,
+      "sqlMs": 1294.97,
+      "objectStore": {
+        "head": 100,
+        "putIfAbsent": 0,
+        "putPreverified": 0,
+        "get": 0,
+        "getRange": 0,
+        "delete": 0
+      },
+      "topSql": [
+        {
+          "calls": 200,
+          "totalMs": 929.95,
+          "sql": "SELECT ro.hash, ro.hash_algorithm, ro.compression, ro.uncompressed_size, ro.compressed_size, ro.storage_key AS legacy_storage_key, l.location_type, l.storage_key AS location_storage_key, b.storage_key AS blob_storage_key, b.hash AS blob_hash, b.hash_algorithm AS blob_hash_algorithm, b.byte_size AS blob_byte_size, l.byte_offset, l.byte_length FROM \"remote_object\" ro LEFT JOIN \"remote_object_location\" l ON l.object_id = ro.object_id AND l.tenant_id = $2 LEFT JOIN \"remote_blob\" b ON b.id = l.blob_id WHERE ro.object_id = $1 LIMIT 1"
+        },
+        {
+          "calls": 100,
+          "totalMs": 360.62,
+          "sql": "SELECT object_id FROM \"tenant_object\" WHERE tenant_id = $1 AND object_id = $2 LIMIT 1"
+        },
+        {
+          "calls": 1,
+          "totalMs": 2.48,
+          "sql": "INSERT INTO \"sync_batch_object_manifest\"( batch_id, tenant_id, object_id, canonical_hash, transport_hash, compression, uncompressed_size, compressed_size, storage_key, content_type ) SELECT $1, $2, input.object_id, input.canonical_hash, input.transport_hash, input.compression, input.uncompressed_size, input.compressed_size, input.storage_key, input.content_type FROM unnest( $3::text[], $4::text[], $5::text[], $6::text[], $7::bigint[], $8::bigint[], $9::text[], $10::text[] ) AS input( object_id, canonical_hash, transport_hash, compression, uncompressed_size, compressed_size, storage_key, content_type )"
+        },
+        {
+          "calls": 1,
+          "totalMs": 0.93,
+          "sql": "SELECT object_id, hash, hash_algorithm, compression, uncompressed_size, compressed_size, storage_key FROM \"remote_object\" WHERE object_id = ANY($1::text[])"
+        },
+        {
+          "calls": 1,
+          "totalMs": 0.28,
+          "sql": "INSERT INTO \"sync_batch\"(id, tenant_id, device_id, user_id, store_path, status, object_count) VALUES ($1, $2, $3, $4, $5, $6, $7)"
+        },
+        {
+          "calls": 1,
+          "totalMs": 0.26,
+          "sql": "UPDATE \"sync_batch\" SET plan_missing_count = $1, updated_at = now() WHERE id = $2 AND tenant_id = $3"
+        },
+        {
+          "calls": 1,
+          "totalMs": 0.23,
+          "sql": "SELECT id FROM \"device\" WHERE id = $1 AND tenant_id = $2 AND user_id = $3 AND revoked_at IS NULL LIMIT 1"
+        },
+        {
+          "calls": 1,
+          "totalMs": 0.21,
+          "sql": "SELECT role FROM \"member\" WHERE organization_id = $1 AND user_id = $2 ORDER BY created_at ASC, id ASC"
+        }
+      ]
+    },
+    "warm-commit": {
+      "wallMs": 274.19,
+      "sqlCalls": 1313,
+      "sqlMs": 1428.4,
+      "objectStore": {
+        "head": 100,
+        "putIfAbsent": 0,
+        "putPreverified": 0,
+        "get": 100,
+        "getRange": 0,
+        "delete": 0
+      },
+      "topSql": [
+        {
+          "calls": 200,
+          "totalMs": 899.85,
+          "sql": "SELECT ro.hash, ro.hash_algorithm, ro.compression, ro.uncompressed_size, ro.compressed_size, ro.storage_key AS legacy_storage_key, l.location_type, l.storage_key AS location_storage_key, b.storage_key AS blob_storage_key, b.hash AS blob_hash, b.hash_algorithm AS blob_hash_algorithm, b.byte_size AS blob_byte_size, l.byte_offset, l.byte_length FROM \"remote_object\" ro LEFT JOIN \"remote_object_location\" l ON l.object_id = ro.object_id AND l.tenant_id = $2 LEFT JOIN \"remote_blob\" b ON b.id = l.blob_id WHERE ro.object_id = $1 LIMIT 1"
+        },
+        {
+          "calls": 100,
+          "totalMs": 351.19,
+          "sql": "SELECT object_id FROM \"tenant_object\" WHERE tenant_id = $1 AND object_id = $2 LIMIT 1"
+        },
+        {
+          "calls": 500,
+          "totalMs": 82.08,
+          "sql": "INSERT INTO \"sync_batch_projection_manifest\"(batch_id, tenant_id, entity_type, entity_id) VALUES ($1, $2, $3, $4)"
+        },
+        {
+          "calls": 50,
+          "totalMs": 9.36,
+          "sql": "SELECT source_kind, project_id, title, started_at, ended_at, turn_count, metadata FROM \"projection_session\" WHERE tenant_id = $1 AND id = $2 LIMIT 1"
+        },
+        {
+          "calls": 50,
+          "totalMs": 9.13,
+          "sql": "SELECT source_kind, path, object_id, metadata FROM \"source_file\" WHERE tenant_id = $1 AND id = $2 LIMIT 1"
+        },
+        {
+          "calls": 50,
+          "totalMs": 9.03,
+          "sql": "SELECT source_file_id, sequence, payload, object_id FROM \"raw_record\" WHERE tenant_id = $1 AND id = $2 LIMIT 1"
+        },
+        {
+          "calls": 50,
+          "totalMs": 9.02,
+          "sql": "SELECT tool_call_id, output_object_id, status, finished_at FROM \"projection_tool_result\" WHERE tenant_id = $1 AND id = $2 LIMIT 1"
+        },
+        {
+          "calls": 50,
+          "totalMs": 8.86,
+          "sql": "SELECT session_id, kind, object_id, size_bytes, metadata FROM \"projection_artifact\" WHERE tenant_id = $1 AND id = $2 LIMIT 1"
+        }
+      ]
+    },
+    "warm-verify": {
+      "wallMs": 111.77,
+      "sqlCalls": 409,
+      "sqlMs": 1535.88,
+      "objectStore": {
+        "head": 100,
+        "putIfAbsent": 0,
+        "putPreverified": 0,
+        "get": 100,
+        "getRange": 0,
+        "delete": 0
+      },
+      "topSql": [
+        {
+          "calls": 200,
+          "totalMs": 915.29,
+          "sql": "SELECT ro.hash, ro.hash_algorithm, ro.compression, ro.uncompressed_size, ro.compressed_size, ro.storage_key AS legacy_storage_key, l.location_type, l.storage_key AS location_storage_key, b.storage_key AS blob_storage_key, b.hash AS blob_hash, b.hash_algorithm AS blob_hash_algorithm, b.byte_size AS blob_byte_size, l.byte_offset, l.byte_length FROM \"remote_object\" ro LEFT JOIN \"remote_object_location\" l ON l.object_id = ro.object_id AND l.tenant_id = $2 LEFT JOIN \"remote_blob\" b ON b.id = l.blob_id WHERE ro.object_id = $1 LIMIT 1"
+        },
+        {
+          "calls": 200,
+          "totalMs": 614.95,
+          "sql": "SELECT object_id FROM \"tenant_object\" WHERE tenant_id = $1 AND object_id = $2 LIMIT 1"
+        },
+        {
+          "calls": 1,
+          "totalMs": 1.6,
+          "sql": "SELECT entity_type, entity_id FROM \"sync_batch_projection_manifest\" WHERE batch_id = $1 AND tenant_id = $2 ORDER BY entity_type, entity_id"
+        },
+        {
+          "calls": 1,
+          "totalMs": 1.45,
+          "sql": "SELECT (SELECT count(*)::int FROM \"source_file\" WHERE tenant_id = $1 AND id = ANY($2::text[])) AS source_files, (SELECT count(*)::int FROM \"raw_record\" WHERE tenant_id = $1 AND id = ANY($3::text[])) AS raw_records, (SELECT count(*)::int FROM \"projection_session\" WHERE tenant_id = $1 AND id = ANY($4::text[])) AS sessions, (SELECT count(*)::int FROM \"search_doc\" WHERE tenant_id = $1 AND id = ANY($5::text[])) AS search_docs, (SELECT count(*)::int FROM \"projection_tool_call\" WHERE tenant_id = $1 AND id = ANY($6::text[])) AS tool_calls, (SELECT count(*)::int FROM \"projection_tool_result\" WHERE tenant_id = $1 AND id = ANY($7::text[])) AS tool_results, (SELECT count(*)::int FROM \"projection_message\" WHERE tenant_id = $1 AND id = ANY($8::text[])) AS messages, (SELECT count(*)::int FROM \"projection_content_block\" WHERE tenant_id = $1 AND id = ANY($9::text[])) AS content_blocks, (SELECT count(*)::int FROM \"projection_event\" WHERE tenant_id = $1 AND id = ANY($10::text[])) AS events, (SELECT count(*)::int FROM \"projection_artifact\" WHERE tenant_id = $1 AND id = ANY($11::text[])) AS artifacts"
+        },
+        {
+          "calls": 1,
+          "totalMs": 0.93,
+          "sql": "SELECT object_id, canonical_hash, transport_hash, compression, uncompressed_size, compressed_size, storage_key, content_type FROM \"sync_batch_object_manifest\" WHERE batch_id = $1 AND tenant_id = $2 ORDER BY object_id"
+        },
+        {
+          "calls": 1,
+          "totalMs": 0.46,
+          "sql": "UPDATE \"sync_batch\" SET status = $1, promotion_receipt = $2::jsonb, error = NULL, updated_at = now() WHERE id = $3 AND tenant_id = $4 AND status = 'verifying' RETURNING id"
+        },
+        {
+          "calls": 1,
+          "totalMs": 0.31,
+          "sql": "INSERT INTO \"remote_authority\"(tenant_id, device_id, store_path, promotion_receipt) VALUES ($1, $2, $3, $4::jsonb) ON CONFLICT (tenant_id, store_path) DO UPDATE SET promotion_receipt = EXCLUDED.promotion_receipt, promoted_at = now()"
+        },
+        {
+          "calls": 1,
+          "totalMs": 0.24,
+          "sql": "SELECT id, device_id, status, user_id, store_path FROM \"sync_batch\" WHERE id = $1 AND tenant_id = $2 AND user_id = $3 FOR UPDATE"
+        }
+      ]
+    }
+  },
+  "derived": {
+    "warmPlanMissingObjects": 0,
+    "coldCommittedRows": 500,
+    "warmCommittedRows": 500,
+    "coldSqlCallsPerObject": 32.28,
+    "coldSqlCallsPerProjectionRow": 6.46
+  },
+  "caveats": [
+    "Uses in-process Fastify inject, PGlite, and MemoryObjectStore; use Docker/Postgres/MinIO for wall-time claims.",
+    "Counts rawExec SQL used by sync/context code; Better Auth Drizzle queries are not included in sqlCalls.",
+    "Per-query sqlMs can exceed phase wallMs when concurrent requests overlap.",
+    "Synthetic projection emits all ten projection entity types per session, so row mix may differ from a real bundle."
+  ]
+}
