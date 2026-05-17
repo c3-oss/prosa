@@ -27,6 +27,7 @@ type Harness = {
     packs: number
     puts: number
   }
+  verifyRequests: { count: number }
   close: () => Promise<void>
 }
 
@@ -201,6 +202,7 @@ async function bootHarness(options: HarnessOptions = {}): Promise<Harness> {
   const storePath = path.join(tmpRoot, '.prosa')
   const commits: CommitRecord[] = []
   const objectUploads = { packs: 0, puts: 0 }
+  const verifyRequests = { count: 0 }
   const availableObjectIds = new Set<string>()
   const availableSourceFileIds = new Set<string>()
   const availableSessionIds = new Set<string>()
@@ -330,6 +332,7 @@ async function bootHarness(options: HarnessOptions = {}): Promise<Harness> {
       if (url.pathname === '/trpc/sync.verifyPromotion') {
         const input = (await readJson(req)) as VerifyPromotionInput
         verifyRequestCount += 1
+        verifyRequests.count = verifyRequestCount
         if (!failedVerify && options.failVerifyOnceAt === verifyRequestCount) {
           failedVerify = true
           writeError(res, 500, 'planned verify failure')
@@ -394,6 +397,7 @@ async function bootHarness(options: HarnessOptions = {}): Promise<Harness> {
     storePath,
     commits,
     objectUploads,
+    verifyRequests,
     close: async () => {
       await closeServer(server)
       await rm(tmpRoot, { recursive: true, force: true })
@@ -491,22 +495,17 @@ describe('CLI chunked sync batching', () => {
     ])
   })
 
-  it('does not skip a chunk whose verifyPromotion call failed', async () => {
+  it('retries a transient verifyPromotion failure before checkpointing chunks', async () => {
     await replaceHarness({ failVerifyOnceAt: 1 })
-
-    await expect(capturedRun(['sync', '--server', h.baseUrl, '--store', h.storePath, '--json'])).rejects.toThrow(
-      /planned verify failure/,
-    )
-    expect(h.commits).toEqual([{ objectCount: 2, rowCount: 2, sourceFileCount: 2, sessionCount: 0, rawRecordCount: 0 }])
 
     await capturedRun(['sync', '--server', h.baseUrl, '--store', h.storePath, '--json'])
 
     expect(h.commits).toEqual([
       { objectCount: 2, rowCount: 2, sourceFileCount: 2, sessionCount: 0, rawRecordCount: 0 },
-      { objectCount: 2, rowCount: 2, sourceFileCount: 2, sessionCount: 0, rawRecordCount: 0 },
       { objectCount: 1, rowCount: 2, sourceFileCount: 1, sessionCount: 1, rawRecordCount: 0 },
       { objectCount: 0, rowCount: 2, sourceFileCount: 0, sessionCount: 2, rawRecordCount: 0 },
     ])
+    expect(h.verifyRequests.count).toBe(4)
   })
 
   it('supports disabling and resetting chunked sync checkpoints', async () => {

@@ -51,6 +51,49 @@ export type MissingObjectUploadStats = {
   putObjectCount: number
 }
 
+export type UploadConcurrencyController = {
+  current: () => number
+}
+
+export type AdaptiveUploadConcurrencyChange = {
+  previous: number
+  current: number
+  reason: 'retry' | 'success'
+}
+
+export class AdaptiveUploadConcurrencyController implements UploadConcurrencyController {
+  private value: number
+  private successStreak = 0
+
+  constructor(
+    private readonly ceiling: number,
+    private readonly onChange?: (change: AdaptiveUploadConcurrencyChange) => void,
+  ) {
+    this.value = Math.max(1, ceiling)
+  }
+
+  current(): number {
+    return this.value
+  }
+
+  recordRetry(): void {
+    const previous = this.value
+    this.value = Math.max(1, Math.floor(this.value / 2))
+    this.successStreak = 0
+    if (this.value !== previous) this.onChange?.({ previous, current: this.value, reason: 'retry' })
+  }
+
+  recordSuccess(): void {
+    if (this.value >= this.ceiling) return
+    this.successStreak += 1
+    if (this.successStreak < 10) return
+    this.successStreak = 0
+    const previous = this.value
+    this.value = Math.min(this.ceiling, this.value + 1)
+    if (this.value !== previous) this.onChange?.({ previous, current: this.value, reason: 'success' })
+  }
+}
+
 const BLAKE3_HEX_RE = /^[0-9a-f]{64}$/i
 const OBJECT_PACK_ENTRY_LIMIT = 1024
 const DEFAULT_OBJECT_PACK_MAX_BYTES = 8 * 1024 * 1024
@@ -138,22 +181,25 @@ export async function uploadMissingCasObjects({
   batchId,
   missingObjects,
   objectConcurrency,
+  uploadConcurrency,
   maxObjectPackBytes = DEFAULT_OBJECT_PACK_MAX_BYTES,
 }: {
   client: ProsaApiClient
   batchId: string
   missingObjects: LocalCasObject[]
   objectConcurrency: number
+  uploadConcurrency?: UploadConcurrencyController
   maxObjectPackBytes?: number
 }): Promise<MissingObjectUploadStats> {
   const { packs, putObjects } = splitMissingObjectUploads(missingObjects, maxObjectPackBytes)
-  await mapConcurrent(packs, objectConcurrency, async (pack) => {
+  const concurrency = () => uploadConcurrency?.current() ?? objectConcurrency
+  await mapConcurrent(packs, concurrency(), async (pack) => {
     await client.uploadObjectPack({
       batchId,
       objects: pack.map(({ entry, bytes }) => ({ ...entry, bytes })),
     })
   })
-  await mapConcurrent(putObjects, objectConcurrency, async (object) => {
+  await mapConcurrent(putObjects, concurrency(), async (object) => {
     await uploadObjectPut(client, batchId, object)
   })
   return {

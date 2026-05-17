@@ -193,6 +193,7 @@ describe('ProsaApiClient request shaping', () => {
 
   it('falls back to JSON/base64 object packs when binary media type is unsupported', async () => {
     const captured: Array<{ url: string; init: RequestInit | undefined }> = []
+    const retryEvents: string[] = []
     const fakeFetch = async (url: string | URL | Request, init?: RequestInit) => {
       captured.push({ url: String(url), init })
       if (captured.length === 1) {
@@ -208,6 +209,7 @@ describe('ProsaApiClient request shaping', () => {
       token: 'xyz',
       tenantId: 't-123',
       fetch: fakeFetch as typeof fetch,
+      onRetry: (event) => retryEvents.push(event.operation),
     })
     const hash = 'a'.repeat(64)
 
@@ -236,6 +238,117 @@ describe('ProsaApiClient request shaping', () => {
     }
     expect(Buffer.from(fallback.bytesBase64, 'base64')).toEqual(Buffer.from([1, 2, 3]))
     expect(fallback.entries).toMatchObject([{ objectId: `blake3:${hash}`, offset: 0, length: 3 }])
+    expect(retryEvents).toEqual([])
+  })
+
+  it('retries object pack uploads on retryable network errors', async () => {
+    let calls = 0
+    const retryEvents: string[] = []
+    const fakeFetch = async () => {
+      calls += 1
+      if (calls === 1) throw new TypeError('fetch failed')
+      return new Response(
+        JSON.stringify({ blobId: 'object-pack:t:batch:hash', objectIds: ['blake3:a'], alreadyExisted: false }),
+        { status: 201, headers: { 'content-type': 'application/json' } },
+      )
+    }
+    const client = new ProsaApiClient({
+      baseUrl: 'http://example/',
+      fetch: fakeFetch as typeof fetch,
+      onRetry: (event) => retryEvents.push(event.operation),
+    })
+    const hash = 'a'.repeat(64)
+
+    await expect(
+      client.uploadObjectPack({
+        batchId: 'batch-1',
+        objects: [
+          {
+            objectId: `blake3:${hash}`,
+            hash,
+            hashAlgorithm: 'blake3',
+            compression: 'none',
+            compressedSize: 3,
+            uncompressedSize: 3,
+            transportHash: hash,
+            bytes: new Uint8Array([1, 2, 3]),
+          },
+        ],
+      }),
+    ).resolves.toMatchObject({ alreadyExisted: false })
+    expect(calls).toBe(2)
+    expect(retryEvents).toEqual(['object pack binary upload'])
+  })
+
+  it('retries object pack uploads on retryable HTTP status using Retry-After', async () => {
+    const statuses: number[] = []
+    const fakeFetch = async () => {
+      if (statuses.length === 0) {
+        statuses.push(503)
+        return new Response('busy', { status: 503, headers: { 'retry-after': '0' } })
+      }
+      statuses.push(201)
+      return new Response(
+        JSON.stringify({ blobId: 'object-pack:t:batch:hash', objectIds: ['blake3:a'], alreadyExisted: false }),
+        { status: 201, headers: { 'content-type': 'application/json' } },
+      )
+    }
+    const client = new ProsaApiClient({ baseUrl: 'http://example/', fetch: fakeFetch as typeof fetch })
+    const hash = 'a'.repeat(64)
+
+    await expect(
+      client.uploadObjectPack({
+        batchId: 'batch-1',
+        objects: [
+          {
+            objectId: `blake3:${hash}`,
+            hash,
+            hashAlgorithm: 'blake3',
+            compression: 'none',
+            compressedSize: 3,
+            uncompressedSize: 3,
+            transportHash: hash,
+            bytes: new Uint8Array([1, 2, 3]),
+          },
+        ],
+      }),
+    ).resolves.toMatchObject({ alreadyExisted: false })
+    expect(statuses).toEqual([503, 201])
+  })
+
+  it('retries sync.commitUpload with the same Idempotency-Key', async () => {
+    const capturedHeaders: Record<string, string>[] = []
+    const fakeFetch = async (_url: string | URL | Request, init?: RequestInit) => {
+      capturedHeaders.push(init?.headers as Record<string, string>)
+      if (capturedHeaders.length === 1) throw new TypeError('fetch failed')
+      return new Response(
+        JSON.stringify({ result: { data: { batchId: 'batch-1', committedObjects: 0, committedRows: 0 } } }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      )
+    }
+    const client = new ProsaApiClient({
+      baseUrl: 'http://example',
+      token: 'xyz',
+      tenantId: 't-123',
+      fetch: fakeFetch as typeof fetch,
+    })
+
+    await client.syncCommitUpload(
+      {
+        batchId: 'batch-1',
+        deviceId: 'device-1',
+        storePath: '/tmp/prosa',
+        objects: [],
+        projection: {},
+      },
+      { idempotencyKey: 'sync.commitUpload:batch-1' },
+    )
+
+    expect(capturedHeaders).toHaveLength(2)
+    expect(capturedHeaders.map((headers) => headers['idempotency-key'])).toEqual([
+      'sync.commitUpload:batch-1',
+      'sync.commitUpload:batch-1',
+    ])
   })
 
   it('retries object PUTs on retryable HTTP status using Retry-After', async () => {

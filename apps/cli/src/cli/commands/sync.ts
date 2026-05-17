@@ -53,7 +53,9 @@ import {
 } from '../sync/limits.js'
 import { runReadUploadPipeline } from '../sync/pipeline.js'
 import {
+  AdaptiveUploadConcurrencyController,
   type SyncMetrics,
+  type UploadConcurrencyController,
   emptySyncMetrics,
   mergeSyncMetrics,
   promoteUpload,
@@ -113,6 +115,7 @@ type ChunkedPromotionOptions = {
   maxRowsPerCommit: number
   maxObjectPackBytes?: number
   objectConcurrency: number
+  uploadConcurrency?: UploadConcurrencyController
   batchConcurrency: number
   verbose?: boolean
   /** Optional Ink progress sink; ignored when running headless. */
@@ -159,6 +162,7 @@ type PromoteChunkOptions = {
   label: string
   metrics: SyncMetrics
   objectConcurrency: number
+  uploadConcurrency?: UploadConcurrencyController
   maxObjectPackBytes?: number
   verbose?: boolean
   checkpoint?: SyncCheckpointHandle
@@ -239,6 +243,7 @@ async function uploadMissingCasObjectsWithReadPipeline(opts: {
   storePath: string
   missingObjects: LocalCasObjectChunk[]
   objectConcurrency: number
+  uploadConcurrency?: UploadConcurrencyController
   maxObjectPackBytes?: number
   metrics: SyncMetrics
 }): Promise<{ uploadStats: Awaited<ReturnType<typeof uploadMissingCasObjects>>; bytesUploaded: number }> {
@@ -262,6 +267,7 @@ async function uploadMissingCasObjectsWithReadPipeline(opts: {
       batchId: opts.batchId,
       missingObjects: batch,
       objectConcurrency: opts.objectConcurrency,
+      uploadConcurrency: opts.uploadConcurrency,
       ...(opts.maxObjectPackBytes ? { maxObjectPackBytes: opts.maxObjectPackBytes } : {}),
     })
     uploadStats.packedObjectCount += stats.packedObjectCount
@@ -1073,6 +1079,7 @@ async function promoteChunk({
   label,
   metrics,
   objectConcurrency,
+  uploadConcurrency,
   maxObjectPackBytes,
   verbose,
 }: PromoteChunkOptions): Promise<PromotionReceipt> {
@@ -1099,6 +1106,7 @@ async function promoteChunk({
     storePath,
     missingObjects,
     objectConcurrency,
+    uploadConcurrency,
     ...(maxObjectPackBytes ? { maxObjectPackBytes } : {}),
     metrics,
   })
@@ -1227,6 +1235,7 @@ export async function promoteChunkedUpload({
   maxRowsPerCommit,
   maxObjectPackBytes,
   objectConcurrency,
+  uploadConcurrency,
   batchConcurrency,
   verbose,
   progress,
@@ -1261,6 +1270,7 @@ export async function promoteChunkedUpload({
         projection: toProjection(chunk.rows),
         label: `${label} batch ${phaseStart + cursor.sequence}`,
         objectConcurrency,
+        uploadConcurrency,
         ...(maxObjectPackBytes ? { maxObjectPackBytes } : {}),
         verbose,
         checkpoint,
@@ -1394,6 +1404,7 @@ export async function promoteChunkedUpload({
         label: `chunk ${batchCount}`,
         metrics,
         objectConcurrency,
+        uploadConcurrency,
         ...(maxObjectPackBytes ? { maxObjectPackBytes } : {}),
         verbose,
         checkpoint,
@@ -1469,7 +1480,29 @@ export function syncCommand(): Command {
         throw new CliUserError('no active tenant. Run `prosa auth use <tenant>` first.')
       }
 
-      const client = new ProsaApiClient({ baseUrl: server, token: entry.token, tenantId: tenantHint })
+      const uploadConcurrency = new AdaptiveUploadConcurrencyController(options.objectConcurrency, (change) => {
+        if (!options.verbose) return
+        const direction = change.reason === 'retry' ? 'reduced' : 'increased'
+        process.stderr.write(
+          `adaptive object concurrency ${direction} ${change.previous}->${change.current} after ${change.reason}\n`,
+        )
+      })
+      const client = new ProsaApiClient({
+        baseUrl: server,
+        token: entry.token,
+        tenantId: tenantHint,
+        onRetry: (event) => {
+          if (event.operation.startsWith('object ')) uploadConcurrency.recordRetry()
+          if (options.verbose) {
+            process.stderr.write(
+              `retry ${event.operation} attempt=${event.attempt}/${event.maxAttempts} delayMs=${event.delayMs} reason=${event.reason}\n`,
+            )
+          }
+        },
+        onRequestSuccess: (event) => {
+          if (event.operation.startsWith('object ')) uploadConcurrency.recordSuccess()
+        },
+      })
 
       const storePath = path.resolve(options.store ?? defaultBundlePath())
       const exists = await bundleManifestExists(storePath)
@@ -1563,6 +1596,7 @@ export function syncCommand(): Command {
               maxRowsPerCommit: handshake.limits.maxRowsPerCommit,
               maxObjectPackBytes: handshake.limits.maxObjectBytes,
               objectConcurrency: options.objectConcurrency,
+              uploadConcurrency,
               batchConcurrency: options.batchConcurrency,
               verbose: options.verbose,
               progress,

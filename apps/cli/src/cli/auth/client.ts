@@ -21,6 +21,8 @@ export type ProsaApiClientOptions = {
   baseUrl: string
   token?: string
   tenantId?: string
+  onRetry?: (event: ProsaApiRetryEvent) => void
+  onRequestSuccess?: (event: ProsaApiRequestSuccessEvent) => void
   /** Optional inject point for tests. */
   fetch?: typeof fetch
 }
@@ -30,6 +32,24 @@ type TrpcFailure = { error: { message: string; data?: { code?: string } } }
 type PlainHttpResponse = { ok: boolean; status: number; text: string }
 type PreparedObjectPackUpload = { entries: ObjectPackWireEntry[]; payload: Buffer }
 type TrpcMutationOptions = { headers?: Record<string, string> }
+type RetriableFetchOptions = {
+  operation: string
+  request: () => Promise<Response>
+  parse: (response: Response) => Promise<unknown>
+}
+
+export type ProsaApiRetryEvent = {
+  operation: string
+  attempt: number
+  maxAttempts: number
+  delayMs: number
+  reason: string
+}
+
+export type ProsaApiRequestSuccessEvent = {
+  operation: string
+  attempts: number
+}
 
 export type ObjectPackUploadEntry = ObjectManifestEntry & {
   bytes: Uint8Array
@@ -41,8 +61,9 @@ export type ObjectPackUploadOutput = {
   alreadyExisted: boolean
 }
 
-const OBJECT_UPLOAD_MAX_ATTEMPTS = 4
-const OBJECT_UPLOAD_BASE_BACKOFF_MS = 250
+const OBJECT_UPLOAD_MAX_ATTEMPTS = 6
+const OBJECT_UPLOAD_BASE_BACKOFF_MS = 500
+const OBJECT_UPLOAD_MAX_BACKOFF_MS = 15_000
 
 function trimTrailingSlash(url: string): string {
   return url.endsWith('/') ? url.slice(0, -1) : url
@@ -68,7 +89,8 @@ function retryAfterMs(headers: Headers): number | undefined {
 function objectUploadBackoffMs(attempt: number, headers?: Headers): number {
   const retryAfter = headers ? retryAfterMs(headers) : undefined
   if (retryAfter !== undefined) return retryAfter
-  return OBJECT_UPLOAD_BASE_BACKOFF_MS * 2 ** attempt
+  const exponential = Math.min(OBJECT_UPLOAD_MAX_BACKOFF_MS, OBJECT_UPLOAD_BASE_BACKOFF_MS * 2 ** attempt)
+  return Math.floor(exponential + Math.random() * Math.min(250, exponential))
 }
 
 function isRetryableObjectUploadStatus(status: number): boolean {
@@ -81,7 +103,20 @@ function isRetryableNetworkError(err: unknown): boolean {
   const code =
     (err as Error & { code?: string; cause?: { code?: string } }).code ??
     (err.cause as { code?: string } | undefined)?.code
-  return code != null && ['ECONNRESET', 'ETIMEDOUT', 'EPIPE'].includes(code)
+  return (
+    code != null &&
+    ['ECONNRESET', 'ETIMEDOUT', 'EPIPE', 'ECONNREFUSED', 'UND_ERR_SOCKET', 'UND_ERR_CONNECT_TIMEOUT'].includes(code)
+  )
+}
+
+function networkErrorReason(err: unknown): string {
+  if (err instanceof Error) {
+    const code =
+      (err as Error & { code?: string; cause?: { code?: string } }).code ??
+      (err.cause as { code?: string } | undefined)?.code
+    return code ? `${err.message} (${code})` : err.message
+  }
+  return String(err)
 }
 
 function isUnsupportedBinaryObjectPackResponse(status: number, text: string): boolean {
@@ -176,6 +211,8 @@ export class ProsaApiClient {
   private readonly baseUrl: string
   private readonly fetchFn: typeof fetch
   private readonly hasInjectedFetch: boolean
+  private readonly onRetry: ((event: ProsaApiRetryEvent) => void) | undefined
+  private readonly onRequestSuccess: ((event: ProsaApiRequestSuccessEvent) => void) | undefined
   token: string | undefined
   tenantId: string | undefined
 
@@ -183,6 +220,8 @@ export class ProsaApiClient {
     this.baseUrl = trimTrailingSlash(opts.baseUrl)
     this.fetchFn = opts.fetch ?? globalThis.fetch
     this.hasInjectedFetch = Boolean(opts.fetch)
+    this.onRetry = opts.onRetry
+    this.onRequestSuccess = opts.onRequestSuccess
     this.token = opts.token
     this.tenantId = opts.tenantId
   }
@@ -208,6 +247,77 @@ export class ProsaApiClient {
       body: JSON.stringify(input ?? {}),
     })
     return this.parseTrpc<T>(path, response)
+  }
+
+  private async trpcMutationRetriable<T>(
+    path: string,
+    input: unknown,
+    opts: TrpcMutationOptions & { operation: string },
+  ): Promise<T> {
+    return this.retriableFetch<T>({
+      operation: opts.operation,
+      request: () =>
+        this.fetchFn(`${this.baseUrl}/trpc/${path}`, {
+          method: 'POST',
+          headers: this.headers({ 'content-type': 'application/json', ...opts.headers }),
+          body: JSON.stringify(input ?? {}),
+        }),
+      parse: (response) => this.parseTrpc<T>(path, response),
+    })
+  }
+
+  private async retriableFetch<T>({ operation, request, parse }: RetriableFetchOptions): Promise<T> {
+    let lastError: unknown
+    for (let attempt = 0; attempt < OBJECT_UPLOAD_MAX_ATTEMPTS; attempt += 1) {
+      let response: Response
+      try {
+        response = await request()
+      } catch (err) {
+        lastError = err
+        if (!isRetryableNetworkError(err) || attempt >= OBJECT_UPLOAD_MAX_ATTEMPTS - 1) {
+          throw this.wrapRetriedError(operation, attempt + 1, err)
+        }
+        const delayMs = objectUploadBackoffMs(attempt)
+        this.onRetry?.({
+          operation,
+          attempt: attempt + 1,
+          maxAttempts: OBJECT_UPLOAD_MAX_ATTEMPTS,
+          delayMs,
+          reason: networkErrorReason(err),
+        })
+        await sleep(delayMs)
+        continue
+      }
+
+      if (isRetryableObjectUploadStatus(response.status) && attempt < OBJECT_UPLOAD_MAX_ATTEMPTS - 1) {
+        const delayMs = objectUploadBackoffMs(attempt, response.headers)
+        this.onRetry?.({
+          operation,
+          attempt: attempt + 1,
+          maxAttempts: OBJECT_UPLOAD_MAX_ATTEMPTS,
+          delayMs,
+          reason: `HTTP ${response.status}`,
+        })
+        await response.arrayBuffer().catch(() => undefined)
+        await sleep(delayMs)
+        continue
+      }
+
+      try {
+        const parsed = (await parse(response)) as T
+        this.onRequestSuccess?.({ operation, attempts: attempt + 1 })
+        return parsed
+      } catch (err) {
+        throw this.wrapRetriedError(operation, attempt + 1, err)
+      }
+    }
+    throw this.wrapRetriedError(operation, OBJECT_UPLOAD_MAX_ATTEMPTS, lastError)
+  }
+
+  private wrapRetriedError(operation: string, attempts: number, err: unknown): Error {
+    if (attempts <= 1) return err instanceof Error ? err : new Error(String(err))
+    const reason = networkErrorReason(err)
+    return new CliUserError(`${operation} failed after ${attempts} attempts: ${reason}`)
   }
 
   private async parseTrpc<T>(path: string, response: Response): Promise<T> {
@@ -349,13 +459,16 @@ export class ProsaApiClient {
     input: CommitUploadInput,
     opts: { idempotencyKey?: string } = {},
   ): Promise<CommitUploadOutput> {
-    return this.trpcMutation<CommitUploadOutput>('sync.commitUpload', input, {
+    return this.trpcMutationRetriable<CommitUploadOutput>('sync.commitUpload', input, {
+      operation: 'sync.commitUpload',
       headers: opts.idempotencyKey ? { 'idempotency-key': opts.idempotencyKey } : undefined,
     })
   }
 
   async syncVerifyPromotion(input: VerifyPromotionInput): Promise<VerifyPromotionOutput> {
-    return this.trpcMutation<VerifyPromotionOutput>('sync.verifyPromotion', input)
+    return this.trpcMutationRetriable<VerifyPromotionOutput>('sync.verifyPromotion', input, {
+      operation: 'sync.verifyPromotion',
+    })
   }
 
   async syncAckCleanup(input: { batchId: string; storePath: string; removedPaths: string[] }) {
@@ -378,34 +491,19 @@ export class ProsaApiClient {
     uncompressedSize: number
     bytes: Uint8Array
   }): Promise<{ alreadyExisted: boolean }> {
-    let lastError: unknown
-    for (let attempt = 0; attempt < OBJECT_UPLOAD_MAX_ATTEMPTS; attempt += 1) {
-      try {
-        return await this.uploadObjectBytesOnce(input, attempt)
-      } catch (err) {
-        lastError = err
-        if (!isRetryableNetworkError(err) || attempt >= OBJECT_UPLOAD_MAX_ATTEMPTS - 1) {
-          throw err
-        }
-        await sleep(objectUploadBackoffMs(attempt))
-      }
-    }
-    throw lastError instanceof Error ? lastError : new CliUserError('object upload failed')
+    return this.uploadObjectBytesOnce(input)
   }
 
-  private async uploadObjectBytesOnce(
-    input: {
-      batchId: string
-      objectId: string
-      hash: string
-      transportHash?: string
-      compression?: 'zstd' | 'none'
-      compressedSize: number
-      uncompressedSize: number
-      bytes: Uint8Array
-    },
-    attempt: number,
-  ): Promise<{ alreadyExisted: boolean }> {
+  private async uploadObjectBytesOnce(input: {
+    batchId: string
+    objectId: string
+    hash: string
+    transportHash?: string
+    compression?: 'zstd' | 'none'
+    compressedSize: number
+    uncompressedSize: number
+    bytes: Uint8Array
+  }): Promise<{ alreadyExisted: boolean }> {
     const url = new URL(`${this.baseUrl}/objects/${input.objectId}`)
     url.searchParams.set('batchId', input.batchId)
     url.searchParams.set('hash', input.hash)
@@ -413,21 +511,23 @@ export class ProsaApiClient {
     url.searchParams.set('uncompressed', String(input.uncompressedSize))
     url.searchParams.set('compression', input.compression ?? 'zstd')
     if (input.transportHash) url.searchParams.set('transportHash', input.transportHash)
-    const response = await this.fetchFn(url.toString(), {
-      method: 'PUT',
-      headers: this.headers({ 'content-type': 'application/octet-stream' }),
-      body: input.bytes,
+    return this.retriableFetch<{ alreadyExisted: boolean }>({
+      operation: 'object PUT upload',
+      request: () =>
+        this.fetchFn(url.toString(), {
+          method: 'PUT',
+          headers: this.headers({ 'content-type': 'application/octet-stream' }),
+          body: input.bytes,
+        }),
+      parse: async (response) => {
+        const text = await response.text()
+        if (response.status >= 400) {
+          throw new CliUserError(`object upload failed: ${response.status} ${text}`)
+        }
+        const parsed = JSON.parse(text) as { alreadyExisted: boolean }
+        return { alreadyExisted: Boolean(parsed.alreadyExisted) }
+      },
     })
-    const text = await response.text()
-    if (response.status >= 400) {
-      if (isRetryableObjectUploadStatus(response.status) && attempt < OBJECT_UPLOAD_MAX_ATTEMPTS - 1) {
-        await sleep(objectUploadBackoffMs(attempt, response.headers))
-        return this.uploadObjectBytesOnce(input, attempt + 1)
-      }
-      throw new CliUserError(`object upload failed: ${response.status} ${text}`)
-    }
-    const parsed = JSON.parse(text) as { alreadyExisted: boolean }
-    return { alreadyExisted: Boolean(parsed.alreadyExisted) }
   }
 
   async uploadObjectPack(input: {
@@ -438,25 +538,33 @@ export class ProsaApiClient {
     url.searchParams.set('batchId', input.batchId)
 
     const prepared = this.prepareObjectPackUpload(input.objects)
-    const binaryResponse = await this.fetchFn(url.toString(), {
-      method: 'POST',
-      headers: this.headers({ 'content-type': OBJECT_PACK_BINARY_CONTENT_TYPE }),
-      body: encodeBinaryObjectPack({ entries: prepared.entries, payload: prepared.payload }),
+    const binary = await this.retriableFetch<{ status: number; text: string }>({
+      operation: 'object pack binary upload',
+      request: () =>
+        this.fetchFn(url.toString(), {
+          method: 'POST',
+          headers: this.headers({ 'content-type': OBJECT_PACK_BINARY_CONTENT_TYPE }),
+          body: encodeBinaryObjectPack({ entries: prepared.entries, payload: prepared.payload }),
+        }),
+      parse: async (response) => ({ status: response.status, text: await response.text() }),
     })
-    const binaryText = await binaryResponse.text()
-    if (!isUnsupportedBinaryObjectPackResponse(binaryResponse.status, binaryText)) {
-      return this.parseObjectPackUploadResponse(binaryResponse.status, binaryText)
+    if (!isUnsupportedBinaryObjectPackResponse(binary.status, binary.text)) {
+      return this.parseObjectPackUploadResponse(binary.status, binary.text)
     }
 
-    const fallbackResponse = await this.fetchFn(url.toString(), {
-      method: 'POST',
-      headers: this.headers({ 'content-type': 'application/json' }),
-      body: JSON.stringify({
-        bytesBase64: prepared.payload.toString('base64'),
-        entries: prepared.entries,
-      }),
+    return this.retriableFetch<ObjectPackUploadOutput>({
+      operation: 'object pack JSON upload',
+      request: () =>
+        this.fetchFn(url.toString(), {
+          method: 'POST',
+          headers: this.headers({ 'content-type': 'application/json' }),
+          body: JSON.stringify({
+            bytesBase64: prepared.payload.toString('base64'),
+            entries: prepared.entries,
+          }),
+        }),
+      parse: async (response) => this.parseObjectPackUploadResponse(response.status, await response.text()),
     })
-    return this.parseObjectPackUploadResponse(fallbackResponse.status, await fallbackResponse.text())
   }
 
   private prepareObjectPackUpload(objects: ObjectPackUploadEntry[]): PreparedObjectPackUpload {
