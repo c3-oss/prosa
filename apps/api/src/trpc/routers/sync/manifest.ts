@@ -8,7 +8,7 @@ import {
 } from '@c3-oss/prosa-storage'
 import type { ObjectManifestEntry } from '@c3-oss/prosa-sync'
 import type { RawExec } from '../../../db.js'
-import { hasMaterializedObject } from '../../../objects/locations.js'
+import { findMaterializedObjectIds } from '../../../objects/locations.js'
 import { TRPCError } from '../../init.js'
 
 /**
@@ -322,22 +322,40 @@ export async function requireStoredObject(opts: {
   storageKey: string
   tenantId: string
 }): Promise<void> {
-  if (
-    await hasMaterializedObject({
-      rawExec: opts.rawExec,
-      objectStore: opts.objectStore,
-      object: opts.object,
-      legacyStorageKey: opts.storageKey,
-      tenantId: opts.tenantId,
-      verifyBytes: true,
-    })
-  ) {
-    return
-  }
-  throw new TRPCError({
-    code: 'PRECONDITION_FAILED',
-    message: `Object bytes are missing or mismatched for ${opts.object.objectId}`,
+  await requireStoredObjects({
+    rawExec: opts.rawExec,
+    objectStore: opts.objectStore,
+    objects: [opts.object],
+    tenantId: opts.tenantId,
+    legacyStorageKeys: new Map([[opts.object.objectId, opts.storageKey]]),
   })
+}
+
+export async function requireStoredObjects(opts: {
+  rawExec: RawExec
+  objectStore: RemoteObjectStore
+  objects: ObjectManifestEntry[]
+  tenantId: string
+  legacyStorageKeys?: Map<string, string>
+}): Promise<void> {
+  const found = await findMaterializedObjectIds({
+    rawExec: opts.rawExec,
+    objectStore: opts.objectStore,
+    objects: opts.objects.map((object) => ({
+      object,
+      legacyStorageKey: opts.legacyStorageKeys?.get(object.objectId) ?? storageKeyForObject(object),
+    })),
+    tenantId: opts.tenantId,
+    verifyBytes: true,
+    concurrency: objectStoreIoConcurrency,
+  })
+  for (const object of opts.objects) {
+    if (found.has(object.objectId)) continue
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: `Object bytes are missing or mismatched for ${object.objectId}`,
+    })
+  }
 }
 
 export async function findMissingObjectIds(opts: {
@@ -346,22 +364,16 @@ export async function findMissingObjectIds(opts: {
   objects: ObjectManifestEntry[]
   tenantId: string
 }): Promise<string[]> {
-  const missing: string[] = []
-  for (const obj of opts.objects) {
-    const storageKey = storageKeyForObject(obj)
-    if (
-      !(await hasMaterializedObject({
-        rawExec: opts.rawExec,
-        objectStore: opts.objectStore,
-        object: obj,
-        legacyStorageKey: storageKey,
-        tenantId: opts.tenantId,
-      }))
-    ) {
-      missing.push(obj.objectId)
-    }
-  }
-  return missing
+  const found = await findMaterializedObjectIds({
+    rawExec: opts.rawExec,
+    objectStore: opts.objectStore,
+    objects: opts.objects.map((object) => {
+      return { object, legacyStorageKey: storageKeyForObject(object) }
+    }),
+    tenantId: opts.tenantId,
+    concurrency: objectStoreIoConcurrency,
+  })
+  return opts.objects.filter((object) => !found.has(object.objectId)).map((object) => object.objectId)
 }
 
 export async function loadObjectManifest(

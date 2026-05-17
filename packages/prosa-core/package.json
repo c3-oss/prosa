@@ -48,6 +48,7 @@
     "@oxdev03/node-tantivy-binding": "0.2.0",
     "better-sqlite3": "^12.10.0",
     "filtrex": "^3.1.0",
+    "hash-wasm": "^4.12.0",
     "pino": "^10.3.1",
     "zod": "^3.23.8",
     "zstd-napi": "^0.0.10"

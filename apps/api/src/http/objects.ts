@@ -86,6 +86,10 @@ type RemoteObjectRow = {
   storage_key: string | null
 }
 
+type RemoteObjectCatalogRow = RemoteObjectRow & {
+  object_id: string
+}
+
 type AccessibleObjectRow = RemoteObjectRow & {
   tenant: string | null
 }
@@ -414,6 +418,40 @@ async function assertDeclaredByOpenBatch(
   }
 }
 
+async function assertDeclaredByOpenBatchBulk(
+  deps: ObjectRoutesDeps,
+  ctx: AuthContext,
+  uploads: UploadRequest[],
+): Promise<void> {
+  if (uploads.length === 0) return
+  const batchId = uploads[0]!.batchId
+  const objectIds = uploads.map((upload) => upload.objectId)
+  const declaredRows = await deps.rawExec<BatchManifestRow>(
+    `SELECT m.object_id, m.canonical_hash, m.transport_hash, m.compression,
+            m.uncompressed_size, m.compressed_size
+       FROM "sync_batch_object_manifest" m
+       JOIN "sync_batch" b
+         ON b.id = m.batch_id
+        AND b.tenant_id = m.tenant_id
+        AND b.status = 'open'
+        AND b.user_id = $3
+      WHERE m.batch_id = $1
+        AND m.tenant_id = $2
+        AND m.object_id = ANY($4::text[])`,
+    [batchId, ctx.tenantId, ctx.user.id, objectIds],
+  )
+  const declaredById = new Map(declaredRows.map((row) => [row.object_id, row]))
+  for (const upload of uploads) {
+    const declared = declaredById.get(upload.objectId)
+    if (!declared) {
+      fail(403, 'object is not declared by an open sync batch for this tenant')
+    }
+    if (!manifestMatches(declared, upload)) {
+      fail(409, 'object upload metadata does not match the planned batch manifest')
+    }
+  }
+}
+
 function catalogMatches(existing: RemoteObjectRow, upload: UploadRequest): boolean {
   return (
     existing.hash.toLowerCase() === upload.hash &&
@@ -439,6 +477,23 @@ async function assertCatalogCompatibleByExec(rawExec: RawExec, upload: UploadReq
 
 async function assertCatalogCompatible(deps: ObjectRoutesDeps, upload: UploadRequest): Promise<void> {
   await assertCatalogCompatibleByExec(deps.rawExec, upload)
+}
+
+async function assertCatalogsCompatible(rawExec: RawExec, uploads: UploadRequest[]): Promise<void> {
+  if (uploads.length === 0) return
+  const byObjectId = new Map(uploads.map((upload) => [upload.objectId, upload]))
+  const rows = await rawExec<RemoteObjectCatalogRow>(
+    `SELECT object_id, hash, hash_algorithm, compression, uncompressed_size, compressed_size, storage_key
+       FROM "remote_object"
+      WHERE object_id = ANY($1::text[])`,
+    [uploads.map((upload) => upload.objectId)],
+  )
+  for (const row of rows) {
+    const upload = byObjectId.get(row.object_id)
+    if (upload && !catalogMatches(row, upload)) {
+      fail(409, 'conflicting remote object metadata')
+    }
+  }
 }
 
 async function* bufferAsAsyncIterable(body: Buffer): AsyncIterable<Uint8Array> {
@@ -476,7 +531,7 @@ async function insertRemoteObjectCatalog(rawExec: RawExec, ctx: AuthContext, upl
       upload.contentType ?? null,
     ],
   )
-  await assertCatalogCompatibleByExec(rawExec, upload)
+  await assertCatalogsCompatible(rawExec, [upload])
   await rawExec(
     `INSERT INTO "remote_object_location"(tenant_id, object_id, batch_id, location_type, storage_key, byte_offset, byte_length)
      VALUES ($1, $2, $3, 'object', $4, 0, $5)
@@ -597,62 +652,115 @@ async function insertPackCatalog(opts: {
      ON CONFLICT (id) DO NOTHING`,
     [opts.blobId, opts.ctx.tenantId, opts.pack.batchId, opts.packStorageKey, opts.packHash, opts.pack.bytes.byteLength],
   )
-  for (const entry of opts.pack.entries) {
-    await insertPackedRemoteObject(opts.rawExec, entry)
-    await insertTenantObjectProof(opts.rawExec, opts.ctx, entry)
-    await opts.rawExec(
-      `INSERT INTO "remote_object_location"(tenant_id, object_id, batch_id, location_type, blob_id, byte_offset, byte_length)
-       VALUES ($1, $2, $3, 'pack', $4, $5, $6)
-       ON CONFLICT (tenant_id, object_id) DO NOTHING`,
-      [opts.ctx.tenantId, entry.objectId, entry.batchId, opts.blobId, entry.offset, entry.length],
-    )
-    await assertPackLocationCompatible(opts.rawExec, opts.ctx, entry, opts.blobId)
-  }
+  await insertPackedRemoteObjects(opts.rawExec, opts.pack.entries)
+  await assertCatalogsCompatible(opts.rawExec, opts.pack.entries)
+  await insertTenantObjectProofs(opts.rawExec, opts.ctx, opts.pack.entries)
+  await insertPackLocations(opts.rawExec, opts.ctx, opts.pack.entries, opts.blobId)
+  await assertPackLocationsCompatible(opts.rawExec, opts.ctx, opts.pack.entries, opts.blobId)
 }
 
-async function insertPackedRemoteObject(rawExec: RawExec, entry: ParsedObjectPack['entries'][number]): Promise<void> {
+async function insertPackedRemoteObjects(rawExec: RawExec, entries: ParsedObjectPack['entries']): Promise<void> {
+  if (entries.length === 0) return
   await rawExec(
     `INSERT INTO "remote_object"(object_id, hash, hash_algorithm, compression, uncompressed_size, compressed_size, storage_key, content_type)
-     VALUES ($1, $2, 'blake3', $3, $4, $5, NULL, $6)
+     SELECT input.object_id, input.hash, 'blake3', input.compression,
+            input.uncompressed_size, input.compressed_size, NULL::text, input.content_type
+       FROM unnest(
+         $1::text[],
+         $2::text[],
+         $3::text[],
+         $4::bigint[],
+         $5::bigint[],
+         $6::text[]
+       ) AS input(
+         object_id, hash, compression, uncompressed_size, compressed_size, content_type
+       )
      ON CONFLICT (object_id) DO NOTHING`,
     [
-      entry.objectId,
-      entry.hash,
-      entry.compression,
-      entry.uncompressedSize,
-      entry.compressedSize,
-      entry.contentType ?? null,
+      entries.map((entry) => entry.objectId),
+      entries.map((entry) => entry.hash),
+      entries.map((entry) => entry.compression),
+      entries.map((entry) => entry.uncompressedSize),
+      entries.map((entry) => entry.compressedSize),
+      entries.map((entry) => entry.contentType ?? null),
     ],
   )
 }
 
-async function assertPackLocationCompatible(
+async function insertTenantObjectProofs(
   rawExec: RawExec,
   ctx: AuthContext,
-  entry: ParsedObjectPack['entries'][number],
+  entries: ParsedObjectPack['entries'],
+): Promise<void> {
+  if (entries.length === 0) return
+  await rawExec(
+    `INSERT INTO "tenant_object"(tenant_id, object_id, first_batch_id, ref_count)
+     SELECT $1, input.object_id, $2, 1
+       FROM unnest($3::text[]) AS input(object_id)
+     ON CONFLICT (tenant_id, object_id) DO NOTHING`,
+    [ctx.tenantId, entries[0]!.batchId, entries.map((entry) => entry.objectId)],
+  )
+}
+
+async function insertPackLocations(
+  rawExec: RawExec,
+  ctx: AuthContext,
+  entries: ParsedObjectPack['entries'],
   blobId: string,
 ): Promise<void> {
+  if (entries.length === 0) return
+  await rawExec(
+    `INSERT INTO "remote_object_location"(tenant_id, object_id, batch_id, location_type, blob_id, byte_offset, byte_length)
+     SELECT $1, input.object_id, $2, 'pack', $3, input.byte_offset, input.byte_length
+       FROM unnest(
+         $4::text[],
+         $5::bigint[],
+         $6::bigint[]
+       ) AS input(object_id, byte_offset, byte_length)
+     ON CONFLICT (tenant_id, object_id) DO NOTHING`,
+    [
+      ctx.tenantId,
+      entries[0]!.batchId,
+      blobId,
+      entries.map((entry) => entry.objectId),
+      entries.map((entry) => entry.offset),
+      entries.map((entry) => entry.length),
+    ],
+  )
+}
+
+async function assertPackLocationsCompatible(
+  rawExec: RawExec,
+  ctx: AuthContext,
+  entries: ParsedObjectPack['entries'],
+  blobId: string,
+): Promise<void> {
+  if (entries.length === 0) return
+  const byObjectId = new Map(entries.map((entry) => [entry.objectId, entry]))
   const rows = await rawExec<{
+    object_id: string
     location_type: string
     blob_id: string | null
     byte_offset: string | number
     byte_length: string | number
   }>(
-    `SELECT location_type, blob_id, byte_offset, byte_length
+    `SELECT object_id, location_type, blob_id, byte_offset, byte_length
        FROM "remote_object_location"
-      WHERE tenant_id = $1 AND object_id = $2
-      LIMIT 1`,
-    [ctx.tenantId, entry.objectId],
+      WHERE tenant_id = $1 AND object_id = ANY($2::text[])`,
+    [ctx.tenantId, entries.map((entry) => entry.objectId)],
   )
-  const row = rows[0]
-  if (!row) fail(500, 'pack location insert failed')
-  if (
-    row.location_type !== 'pack' ||
-    row.blob_id !== blobId ||
-    Number(row.byte_offset) !== entry.offset ||
-    Number(row.byte_length) !== entry.length
-  ) {
-    fail(409, 'conflicting remote object location')
+  const rowsByObjectId = new Map(rows.map((row) => [row.object_id, row]))
+  for (const [objectId, entry] of byObjectId) {
+    const row = rowsByObjectId.get(objectId)
+    if (!row) fail(500, 'pack location insert failed')
+    if (
+      row.location_type !== 'pack' ||
+      row.blob_id !== blobId ||
+      Number(row.byte_offset) !== entry.offset ||
+      Number(row.byte_length) !== entry.length
+    ) {
+      fail(409, 'conflicting remote object location')
+    }
   }
 }
 
@@ -664,9 +772,6 @@ async function recordObjectPack(
 ): Promise<void> {
   try {
     await runObjectRouteTransaction(deps, async (tx) => {
-      for (const entry of pack.entries) {
-        await assertCatalogCompatible({ ...deps, rawExec: tx }, entry)
-      }
       await insertPackCatalog({
         rawExec: tx,
         ctx,
@@ -829,9 +934,7 @@ export async function registerObjectRoutes(app: FastifyInstance, deps: ObjectRou
       }
       try {
         const pack = parseObjectPackRequest(request, maxObjectBytes)
-        for (const entry of pack.entries) {
-          await assertDeclaredByOpenBatch(deps, ctx, entry)
-        }
+        await assertDeclaredByOpenBatchBulk(deps, ctx, pack.entries)
         await verifyPackBody(pack, maxObjectBytes)
         const blob = await putPackBytes(deps, ctx, pack)
         await recordObjectPack(deps, ctx, pack, blob)

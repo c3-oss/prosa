@@ -407,6 +407,15 @@ describe('CQ-009 — artifact preview caps decoded bytes', () => {
           ],
           projection: {
             sessions: [{ id: 'sess-cq009', sourceKind: 'codex', title: 'cq009', turnCount: 1 }],
+            artifacts: [
+              {
+                id: 'art-cq009',
+                sessionId: 'sess-cq009',
+                kind: 'text/plain',
+                objectId,
+                sizeBytes: bytes.byteLength,
+              },
+            ],
             searchDocs: [],
           },
         } as never,
@@ -422,19 +431,11 @@ describe('CQ-009 — artifact preview caps decoded bytes', () => {
           storePath: '/tmp/cq009',
           declaredObjectIds: [objectId],
           declaredSessionIds: ['sess-cq009'],
+          declaredArtifactIds: ['art-cq009'],
           declaredSearchDocIds: [],
         } as never,
       })
       expect(verify.statusCode).toBe(200)
-
-      // Now insert a projection_artifact row pointing at the verified
-      // object. The tenant_object row already exists from the upload path
-      // (recordObjectUpload writes it), so the FK is satisfied.
-      await t.pglite.query(
-        `INSERT INTO "projection_artifact"(tenant_id, id, session_id, kind, object_id, size_bytes, metadata)
-         VALUES ($1, 'art-cq009', 'sess-cq009', 'text/plain', $2, $3, NULL)`,
-        [auth.tenant.id, objectId, bytes.byteLength],
-      )
 
       // Request a tiny preview. The decode pipeline must stop at maxBytes.
       const maxBytes = 1024
@@ -545,6 +546,15 @@ describe('CQ-009 — artifact preview caps decoded bytes', () => {
           ],
           projection: {
             sessions: [{ id: 'sess-cq009-zstd', sourceKind: 'codex', title: 'zstd cap', turnCount: 1 }],
+            artifacts: [
+              {
+                id: 'art-cq009-zstd',
+                sessionId: 'sess-cq009-zstd',
+                kind: 'text/plain',
+                objectId,
+                sizeBytes: uncompressed.byteLength,
+              },
+            ],
             searchDocs: [],
           },
         } as never,
@@ -560,16 +570,11 @@ describe('CQ-009 — artifact preview caps decoded bytes', () => {
           storePath: '/tmp/cq009-zstd',
           declaredObjectIds: [objectId],
           declaredSessionIds: ['sess-cq009-zstd'],
+          declaredArtifactIds: ['art-cq009-zstd'],
           declaredSearchDocIds: [],
         } as never,
       })
       expect(verify.statusCode).toBe(200)
-
-      await t.pglite.query(
-        `INSERT INTO "projection_artifact"(tenant_id, id, session_id, kind, object_id, size_bytes, metadata)
-         VALUES ($1, 'art-cq009-zstd', 'sess-cq009-zstd', 'text/plain', $2, $3, NULL)`,
-        [auth.tenant.id, objectId, uncompressed.byteLength],
-      )
 
       const maxBytes = 4096
       const resp = await t.app.inject({

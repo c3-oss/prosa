@@ -14,10 +14,15 @@ type CacheEntry = {
   expiresAt: number
 }
 
+type InFlightLoad = {
+  promise: Promise<Map<string, BatchManifestRow>>
+  token: { cancelled: boolean }
+}
+
 const TTL_MS = 60_000
 const MAX_ENTRIES = 256
 const cache = new Map<string, CacheEntry>()
-const inFlightLoads = new Map<string, Promise<Map<string, BatchManifestRow>>>()
+const inFlightLoads = new Map<string, InFlightLoad>()
 
 function keyOf(tenantId: string, batchId: string, userId: string): string {
   return `${tenantId}\0${batchId}\0${userId}`
@@ -82,18 +87,21 @@ export async function loadBatchManifest(opts: {
   if (cached) return cached
 
   const inFlight = inFlightLoads.get(key)
-  if (inFlight) return inFlight
+  if (inFlight) return inFlight.promise
 
+  const token = { cancelled: false }
   const load = (async () => {
     const manifest = await loadManifestFromDb(opts)
-    setCachedManifest(key, { manifest, expiresAt: Date.now() + TTL_MS })
+    if (!token.cancelled) {
+      setCachedManifest(key, { manifest, expiresAt: Date.now() + TTL_MS })
+    }
     return manifest
   })()
-  inFlightLoads.set(key, load)
+  inFlightLoads.set(key, { promise: load, token })
   try {
     return await load
   } finally {
-    if (inFlightLoads.get(key) === load) {
+    if (inFlightLoads.get(key)?.promise === load) {
       inFlightLoads.delete(key)
     }
   }
@@ -104,7 +112,13 @@ export function invalidateBatchManifest(opts: {
   batchId: string
   userId: string
 }): void {
-  cache.delete(keyOf(opts.tenantId, opts.batchId, opts.userId))
+  const key = keyOf(opts.tenantId, opts.batchId, opts.userId)
+  cache.delete(key)
+  const inFlight = inFlightLoads.get(key)
+  if (inFlight) {
+    inFlight.token.cancelled = true
+    inFlightLoads.delete(key)
+  }
 }
 
 export function _resetBatchManifestCache(): void {

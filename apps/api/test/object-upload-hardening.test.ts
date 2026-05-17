@@ -308,6 +308,7 @@ describe('object upload hardening', () => {
     const bytes = Buffer.from('preverified upload')
     const hash = computeHashHex(bytes, 'blake3')
     const objectId = `blake3:${hash}`
+    let insertedLocation = false
     const rawExec: RawExec = (async (sql: string, _params?: unknown[]) => {
       if (/from\s+"?member"?/i.test(sql)) return [{ role: 'member' }]
       if (/sync_batch_object_manifest/i.test(sql)) {
@@ -322,15 +323,21 @@ describe('object upload hardening', () => {
           },
         ]
       }
+      if (/insert\s+into\s+"remote_object_location"/i.test(sql)) {
+        insertedLocation = true
+        return []
+      }
       if (/from\s+"remote_object_location"/i.test(sql)) {
-        return [
-          {
-            location_type: 'object',
-            storage_key: `objects/blake3/${hash.slice(0, 2)}/${hash.slice(2, 4)}/${hash}.bin`,
-            byte_offset: 0,
-            byte_length: bytes.byteLength,
-          },
-        ]
+        return insertedLocation
+          ? [
+              {
+                location_type: 'object',
+                storage_key: `objects/blake3/${hash.slice(0, 2)}/${hash.slice(2, 4)}/${hash}.bin`,
+                byte_offset: 0,
+                byte_length: bytes.byteLength,
+              },
+            ]
+          : []
       }
       if (/^\s*select[\s\S]+from\s+"remote_object"/i.test(sql)) return []
       return []
@@ -399,12 +406,6 @@ describe('object upload hardening', () => {
       payload: bytes,
     })
     expect(put.statusCode).toBe(201)
-    await t.pglite.query(
-      `INSERT INTO "tenant_object"(tenant_id, object_id, ref_count)
-       VALUES ($1, $2, 1)
-       ON CONFLICT (tenant_id, object_id) DO NOTHING`,
-      [auth.tenant.id, objectId],
-    )
     // CQ-003: GET /objects/:objectId now requires a verified batch entry
     // for this object. Mark the batch verified so the read is authorised.
     await t.pglite.query(`UPDATE "sync_batch" SET status = 'verified' WHERE id = $1`, [batchId])
@@ -500,6 +501,7 @@ describe('object upload hardening', () => {
         if (remoteObjectSelects === 1) return []
         return [
           {
+            object_id: objectId,
             hash,
             hash_algorithm: 'blake3',
             compression: 'zstd',

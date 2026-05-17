@@ -13,24 +13,13 @@ import {
   assertRemoteObjectCatalogs,
   assertUniqueObjectIds,
   loadObjectManifest,
-  mapWithConcurrency,
-  objectStoreIoConcurrency,
-  requireStoredObject,
+  requireStoredObjects,
   storageKeyForObject,
   syncLimits,
   validateObjectManifest,
 } from './manifest.js'
 import { countProjectionRows, insertProjectionRows } from './projection-upserts.js'
 import type { SyncHandlerContext } from './types.js'
-
-const PLAN_TRUST_WINDOW_MS = 5 * 60 * 1000
-
-type BatchObjectProofHint = {
-  plan_missing_count: number | null
-  created_at: string | Date
-  status: string
-  store_path: string
-}
 
 async function insertRemoteObjectIfMissing(opts: {
   rawExec: RawExec
@@ -90,53 +79,18 @@ async function attachTenantObjects(opts: {
   )
 }
 
-async function loadBatchObjectProofHint(opts: {
-  rawExec: RawExec
-  batchId: string
-  tenantId: string
-  deviceId: string
-  userId: string
-  storePath: string
-}): Promise<BatchObjectProofHint | null> {
-  const rows = await opts.rawExec<BatchObjectProofHint>(
-    `SELECT plan_missing_count, created_at, status, store_path
-       FROM "sync_batch"
-      WHERE id = $1 AND tenant_id = $2 AND device_id = $3 AND user_id = $4
-      LIMIT 1`,
-    [opts.batchId, opts.tenantId, opts.deviceId, opts.userId],
-  )
-  const row = rows[0]
-  if (!row || row.status !== 'open' || row.store_path !== opts.storePath) return null
-  return row
-}
-
-function canTrustFreshPlanForObjects(hint: BatchObjectProofHint | null): boolean {
-  if (!hint || hint.plan_missing_count !== 0) return false
-  const createdAt = new Date(hint.created_at).getTime()
-  return Number.isFinite(createdAt) && Date.now() - createdAt <= PLAN_TRUST_WINDOW_MS
-}
-
 async function verifyCommitObjectBytes(opts: {
   rawExec: RawExec
   objectStore: SyncHandlerContext['objectStore']
   objects: ObjectManifestEntry[]
-  batchId: string
   tenantId: string
-  deviceId: string
-  userId: string
-  storePath: string
 }): Promise<void> {
-  const hint = await loadBatchObjectProofHint(opts)
-  if (canTrustFreshPlanForObjects(hint)) return
-  await mapWithConcurrency(opts.objects, objectStoreIoConcurrency, async (object) =>
-    requireStoredObject({
-      rawExec: opts.rawExec,
-      objectStore: opts.objectStore,
-      object,
-      storageKey: storageKeyForObject(object),
-      tenantId: opts.tenantId,
-    }),
-  )
+  await requireStoredObjects({
+    rawExec: opts.rawExec,
+    objectStore: opts.objectStore,
+    objects: opts.objects,
+    tenantId: opts.tenantId,
+  })
 }
 
 export async function commitUpload(ctx: SyncHandlerContext, input: CommitUploadInput): Promise<CommitUploadOutput> {
@@ -160,25 +114,10 @@ export async function commitUpload(ctx: SyncHandlerContext, input: CommitUploadI
     rawExec: ctx.rawExec,
     objectStore: ctx.objectStore,
     objects,
-    batchId: input.batchId,
     tenantId: ctx.tenantId,
-    deviceId: input.deviceId,
-    userId: ctx.user.id,
-    storePath: input.storePath,
   })
 
   let committedObjects = 0
-  for (const obj of objects) {
-    const storageKey = storageKeyForObject(obj)
-    await requireStoredObject({
-      rawExec: ctx.rawExec,
-      objectStore: ctx.objectStore,
-      object: obj,
-      storageKey,
-      tenantId: ctx.tenantId,
-    })
-  }
-
   let commitStarted = false
   try {
     await ctx.transaction(async (tx) => {
