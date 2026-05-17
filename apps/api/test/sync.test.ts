@@ -396,6 +396,44 @@ describe('sync promotion protocol', () => {
     }
   })
 
+  it('rejects object packs with incompatible catalog rows and removes uploaded pack bytes', async () => {
+    const t = await buildTestApp()
+    try {
+      const auth = await signup(t, 'sync-pack-catalog-conflict@example.com')
+      const storePath = '/tmp/.prosa-pack-catalog-conflict'
+      const deviceId = await handshakeDevice(t, auth.token, storePath, 'catalog-conflict-box')
+      const bytes = Buffer.from('catalog-conflict')
+      const object = objectForBytes(bytes)
+      const plan = await trpc(t, 'sync.planUpload', { deviceId, storePath, objects: [object] }, auth.token)
+      expect(plan.statusCode).toBe(200)
+      const batchId = (plan.json() as { result: { data: { batchId: string } } }).result.data.batchId
+
+      await t.pglite.query(
+        `INSERT INTO "remote_object"(
+           object_id, hash, hash_algorithm, compression, uncompressed_size, compressed_size, storage_key
+         )
+         VALUES ($1, $2, 'blake3', 'none', $3, $4, NULL)`,
+        [object.objectId, '0'.repeat(64), bytes.byteLength, bytes.byteLength],
+      )
+
+      const pack = await t.app.inject({
+        method: 'POST',
+        url: `/object-packs?batchId=${batchId}`,
+        headers: { authorization: `Bearer ${auth.token}`, 'content-type': 'application/json' },
+        payload: {
+          bytesBase64: bytes.toString('base64'),
+          entries: [{ ...object, offset: 0, length: bytes.byteLength }],
+        },
+      })
+
+      expect(pack.statusCode).toBe(409)
+      expect(pack.body).toContain('conflicting remote object metadata')
+      expect(t.objectStore.size()).toBe(0)
+    } finally {
+      await t.close()
+    }
+  })
+
   it('rejects malformed binary object packs', async () => {
     const t = await buildTestApp()
     try {

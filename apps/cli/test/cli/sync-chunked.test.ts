@@ -14,6 +14,7 @@ type CommitRecord = {
   rowCount: number
   sourceFileCount: number
   sessionCount: number
+  rawRecordCount: number
 }
 
 type Harness = {
@@ -22,12 +23,17 @@ type Harness = {
   stateHome: string
   storePath: string
   commits: CommitRecord[]
+  objectUploads: {
+    packs: number
+    puts: number
+  }
   close: () => Promise<void>
 }
 
 type HarnessOptions = {
   failPlanOnceAt?: number
   failVerifyOnceAt?: number
+  bundleFactory?: (storePath: string) => Promise<void>
 }
 
 function projectionRowCount(input: CommitUploadInput): number {
@@ -60,6 +66,11 @@ function writeTrpc<T>(res: ServerResponse, data: T): void {
 function writeObjectUpload(res: ServerResponse): void {
   res.writeHead(200, { 'content-type': 'application/json' })
   res.end(JSON.stringify({ alreadyExisted: false }))
+}
+
+function writeObjectPackUpload(res: ServerResponse): void {
+  res.writeHead(200, { 'content-type': 'application/json' })
+  res.end(JSON.stringify({ blobId: 'object-pack:test', objectIds: [], alreadyExisted: false }))
 }
 
 function writeError(res: ServerResponse, status: number, message: string): void {
@@ -126,29 +137,100 @@ async function createMixedBundle(storePath: string): Promise<void> {
   closeBundle(bundle)
 }
 
+async function createDependentRawRecordBundle(storePath: string): Promise<void> {
+  await mkdir(storePath, { recursive: true })
+  const bundle = await initBundle(storePath)
+  const objectIds = [
+    await putBytes(bundle, new Uint8Array([1, 1, 1])),
+    await putBytes(bundle, new Uint8Array([2, 2, 2])),
+    await putBytes(bundle, new Uint8Array([3, 3, 3])),
+    await putBytes(bundle, new Uint8Array([4, 4, 4])),
+  ].sort()
+  const rawObjectId = objectIds[0]
+  const sourceObjectId = objectIds[3]
+
+  bundle.db
+    .prepare(
+      `INSERT INTO import_batches (batch_id, parser_version, source_tool, paths, started_at, finished_at, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run('batch-dependent', 'test', 'codex', '[]', '2026-05-16T00:00:00.000Z', '2026-05-16T00:00:01.000Z', 'completed')
+  bundle.db
+    .prepare(
+      `INSERT INTO source_files (source_file_id, source_tool, path, file_kind, size_bytes, mtime, content_hash, object_id, discovered_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      'sf-dependent',
+      'codex',
+      '/source/dependent.jsonl',
+      'jsonl',
+      3,
+      '2026-05-16T00:00:00.000Z',
+      'content-hash-dependent',
+      sourceObjectId,
+      '2026-05-16T00:00:00.000Z',
+    )
+  bundle.db
+    .prepare(
+      `INSERT INTO raw_records (raw_record_id, source_file_id, source_tool, record_kind, ordinal, line_no, json_pointer, native_id, raw_object_id, decoded_json_object_id, parser_status, confidence, import_batch_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      'rr-dependent',
+      'sf-dependent',
+      'codex',
+      'message',
+      0,
+      0,
+      null,
+      'native-dependent',
+      rawObjectId,
+      null,
+      'ok',
+      'high',
+      'batch-dependent',
+    )
+  closeBundle(bundle)
+}
+
 async function bootHarness(options: HarnessOptions = {}): Promise<Harness> {
   const tmpRoot = await mkdtemp(path.join(tmpdir(), 'prosa-cli-chunked-'))
   const configPath = path.join(tmpRoot, 'config.json')
   const stateHome = path.join(tmpRoot, 'state')
   const storePath = path.join(tmpRoot, '.prosa')
   const commits: CommitRecord[] = []
+  const objectUploads = { packs: 0, puts: 0 }
   const availableObjectIds = new Set<string>()
+  const availableSourceFileIds = new Set<string>()
+  const availableSessionIds = new Set<string>()
+  const availableMessageIds = new Set<string>()
+  const availableToolCallIds = new Set<string>()
   let batchIndex = 0
   let planRequestCount = 0
   let verifyRequestCount = 0
   let failedPlan = false
   let failedVerify = false
 
-  await createMixedBundle(storePath)
+  await (options.bundleFactory ?? createMixedBundle)(storePath)
 
   const server = createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? '/', 'http://127.0.0.1')
       if (req.method === 'PUT' && url.pathname.startsWith('/objects/')) {
+        objectUploads.puts += 1
         for await (const _chunk of req) {
           // Drain the upload body so fetch can complete cleanly.
         }
         writeObjectUpload(res)
+        return
+      }
+      if (req.method === 'POST' && url.pathname === '/object-packs') {
+        objectUploads.packs += 1
+        for await (const _chunk of req) {
+          // Drain the upload body so fetch can complete cleanly.
+        }
+        writeObjectPackUpload(res)
         return
       }
       if (req.method !== 'POST') {
@@ -190,15 +272,57 @@ async function bootHarness(options: HarnessOptions = {}): Promise<Harness> {
         expect(rowCount).toBeLessThanOrEqual(2)
         const batchObjectIds = input.objects.map((object) => object.objectId)
         const objectsAvailableForCommit = new Set([...availableObjectIds, ...batchObjectIds])
+        const batchSourceFileIds = new Set(input.projection.sourceFiles.map((row) => row.id))
+        const batchSessionIds = new Set(input.projection.sessions.map((row) => row.id))
+        const batchMessageIds = new Set(input.projection.messages.map((row) => row.id))
+        const batchToolCallIds = new Set(input.projection.toolCalls.map((row) => row.id))
+        const sourceFilesAvailableForCommit = new Set([...availableSourceFileIds, ...batchSourceFileIds])
+        const sessionsAvailableForCommit = new Set([...availableSessionIds, ...batchSessionIds])
+        const messagesAvailableForCommit = new Set([...availableMessageIds, ...batchMessageIds])
+        const toolCallsAvailableForCommit = new Set([...availableToolCallIds, ...batchToolCallIds])
         for (const sourceFile of input.projection.sourceFiles) {
           expect(sourceFile.objectId == null || objectsAvailableForCommit.has(sourceFile.objectId)).toBe(true)
         }
+        for (const rawRecord of input.projection.rawRecords) {
+          expect(rawRecord.objectId == null || objectsAvailableForCommit.has(rawRecord.objectId)).toBe(true)
+          expect(sourceFilesAvailableForCommit.has(rawRecord.sourceFileId)).toBe(true)
+        }
+        for (const sessionChild of [
+          ...input.projection.messages,
+          ...input.projection.events,
+          ...input.projection.searchDocs,
+          ...input.projection.toolCalls,
+        ]) {
+          expect(sessionsAvailableForCommit.has(sessionChild.sessionId)).toBe(true)
+        }
+        for (const artifact of input.projection.artifacts) {
+          expect(artifact.objectId == null || objectsAvailableForCommit.has(artifact.objectId)).toBe(true)
+          expect(artifact.sessionId == null || sessionsAvailableForCommit.has(artifact.sessionId)).toBe(true)
+        }
+        for (const contentBlock of input.projection.contentBlocks) {
+          expect(contentBlock.objectId == null || objectsAvailableForCommit.has(contentBlock.objectId)).toBe(true)
+          expect(messagesAvailableForCommit.has(contentBlock.messageId)).toBe(true)
+        }
+        for (const toolCall of input.projection.toolCalls) {
+          expect(toolCall.inputObjectId == null || objectsAvailableForCommit.has(toolCall.inputObjectId)).toBe(true)
+        }
+        for (const toolResult of input.projection.toolResults) {
+          expect(toolResult.outputObjectId == null || objectsAvailableForCommit.has(toolResult.outputObjectId)).toBe(
+            true,
+          )
+          expect(toolCallsAvailableForCommit.has(toolResult.toolCallId)).toBe(true)
+        }
         for (const objectId of batchObjectIds) availableObjectIds.add(objectId)
+        for (const sourceFileId of batchSourceFileIds) availableSourceFileIds.add(sourceFileId)
+        for (const sessionId of batchSessionIds) availableSessionIds.add(sessionId)
+        for (const messageId of batchMessageIds) availableMessageIds.add(messageId)
+        for (const toolCallId of batchToolCallIds) availableToolCallIds.add(toolCallId)
         commits.push({
           objectCount: input.objects.length,
           rowCount,
           sourceFileCount: input.projection.sourceFiles.length,
           sessionCount: input.projection.sessions.length,
+          rawRecordCount: input.projection.rawRecords.length,
         })
         writeTrpc(res, { batchId: input.batchId, committedObjects: input.objects.length, committedRows: rowCount })
         return
@@ -269,6 +393,7 @@ async function bootHarness(options: HarnessOptions = {}): Promise<Harness> {
     stateHome,
     storePath,
     commits,
+    objectUploads,
     close: async () => {
       await closeServer(server)
       await rm(tmpRoot, { recursive: true, force: true })
@@ -320,9 +445,25 @@ describe('CLI chunked sync batching', () => {
     expect(payload.chunked).toBe(true)
     expect(payload.batchCount).toBe(3)
     expect(h.commits).toEqual([
-      { objectCount: 2, rowCount: 2, sourceFileCount: 2, sessionCount: 0 },
-      { objectCount: 1, rowCount: 2, sourceFileCount: 1, sessionCount: 1 },
-      { objectCount: 0, rowCount: 2, sourceFileCount: 0, sessionCount: 2 },
+      { objectCount: 2, rowCount: 2, sourceFileCount: 2, sessionCount: 0, rawRecordCount: 0 },
+      { objectCount: 1, rowCount: 2, sourceFileCount: 1, sessionCount: 1, rawRecordCount: 0 },
+      { objectCount: 0, rowCount: 2, sourceFileCount: 0, sessionCount: 2, rawRecordCount: 0 },
+    ])
+    expect(h.objectUploads).toEqual({ packs: 2, puts: 0 })
+  })
+
+  it('waits for parent source files before committing raw records', async () => {
+    await replaceHarness({ bundleFactory: createDependentRawRecordBundle })
+
+    const out = await capturedRun(['sync', '--server', h.baseUrl, '--store', h.storePath, '--json'])
+    const payload = JSON.parse(out.stdout) as { ok: boolean; chunked: boolean; batchCount: number }
+
+    expect(payload.ok).toBe(true)
+    expect(payload.chunked).toBe(true)
+    expect(payload.batchCount).toBe(2)
+    expect(h.commits).toEqual([
+      { objectCount: 2, rowCount: 0, sourceFileCount: 0, sessionCount: 0, rawRecordCount: 0 },
+      { objectCount: 2, rowCount: 2, sourceFileCount: 1, sessionCount: 0, rawRecordCount: 1 },
     ])
   })
 
@@ -333,8 +474,8 @@ describe('CLI chunked sync batching', () => {
       /planned test failure/,
     )
     expect(h.commits).toEqual([
-      { objectCount: 2, rowCount: 2, sourceFileCount: 2, sessionCount: 0 },
-      { objectCount: 1, rowCount: 2, sourceFileCount: 1, sessionCount: 1 },
+      { objectCount: 2, rowCount: 2, sourceFileCount: 2, sessionCount: 0, rawRecordCount: 0 },
+      { objectCount: 1, rowCount: 2, sourceFileCount: 1, sessionCount: 1, rawRecordCount: 0 },
     ])
 
     const out = await capturedRun(['sync', '--server', h.baseUrl, '--store', h.storePath, '--json'])
@@ -344,9 +485,9 @@ describe('CLI chunked sync batching', () => {
     expect(payload.chunked).toBe(true)
     expect(payload.batchCount).toBe(3)
     expect(h.commits).toEqual([
-      { objectCount: 2, rowCount: 2, sourceFileCount: 2, sessionCount: 0 },
-      { objectCount: 1, rowCount: 2, sourceFileCount: 1, sessionCount: 1 },
-      { objectCount: 0, rowCount: 2, sourceFileCount: 0, sessionCount: 2 },
+      { objectCount: 2, rowCount: 2, sourceFileCount: 2, sessionCount: 0, rawRecordCount: 0 },
+      { objectCount: 1, rowCount: 2, sourceFileCount: 1, sessionCount: 1, rawRecordCount: 0 },
+      { objectCount: 0, rowCount: 2, sourceFileCount: 0, sessionCount: 2, rawRecordCount: 0 },
     ])
   })
 
@@ -356,15 +497,15 @@ describe('CLI chunked sync batching', () => {
     await expect(capturedRun(['sync', '--server', h.baseUrl, '--store', h.storePath, '--json'])).rejects.toThrow(
       /planned verify failure/,
     )
-    expect(h.commits).toEqual([{ objectCount: 2, rowCount: 2, sourceFileCount: 2, sessionCount: 0 }])
+    expect(h.commits).toEqual([{ objectCount: 2, rowCount: 2, sourceFileCount: 2, sessionCount: 0, rawRecordCount: 0 }])
 
     await capturedRun(['sync', '--server', h.baseUrl, '--store', h.storePath, '--json'])
 
     expect(h.commits).toEqual([
-      { objectCount: 2, rowCount: 2, sourceFileCount: 2, sessionCount: 0 },
-      { objectCount: 2, rowCount: 2, sourceFileCount: 2, sessionCount: 0 },
-      { objectCount: 1, rowCount: 2, sourceFileCount: 1, sessionCount: 1 },
-      { objectCount: 0, rowCount: 2, sourceFileCount: 0, sessionCount: 2 },
+      { objectCount: 2, rowCount: 2, sourceFileCount: 2, sessionCount: 0, rawRecordCount: 0 },
+      { objectCount: 2, rowCount: 2, sourceFileCount: 2, sessionCount: 0, rawRecordCount: 0 },
+      { objectCount: 1, rowCount: 2, sourceFileCount: 1, sessionCount: 1, rawRecordCount: 0 },
+      { objectCount: 0, rowCount: 2, sourceFileCount: 0, sessionCount: 2, rawRecordCount: 0 },
     ])
   })
 
