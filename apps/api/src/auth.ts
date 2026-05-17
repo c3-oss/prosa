@@ -70,17 +70,21 @@ export function createAuth(opts: CreateAuthOptions): ProsaAuth {
   const baseTrustedOrigins = Array.from(
     new Set([config.apiUrl, ...config.webOrigins, ...equivalentLoopbackOrigins(config.apiUrl, config.runtimeMode)]),
   )
+  const session =
+    config.authCookieCacheMaxAgeSeconds > 0
+      ? {
+          cookieCache: {
+            enabled: true,
+            maxAge: config.authCookieCacheMaxAgeSeconds,
+          },
+        }
+      : undefined
   const instance = betterAuth({
     appName: 'prosa',
     baseURL: config.apiUrl,
     basePath: '/api/auth',
     secret,
-    session: {
-      cookieCache: {
-        enabled: true,
-        maxAge: 5 * 60, // seconds — 5 min window where session is read from cookie without hitting DB
-      },
-    },
+    ...(session ? { session } : {}),
     trustedOrigins: async (request?: Request) => {
       const origins = new Set(baseTrustedOrigins)
       const origin = request?.headers.get('origin')

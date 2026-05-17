@@ -11,6 +11,7 @@ const baseSchema = z.object({
   PROSA_RUNTIME_MODE: runtimeModeSchema,
   PROSA_DATABASE_URL: z.string().min(1).optional(),
   PROSA_AUTH_SECRET: z.string().min(16).optional(),
+  PROSA_AUTH_COOKIE_CACHE_MAX_AGE_SECONDS: z.coerce.number().int().min(0).max(300).default(0),
   /**
    * Comma-separated list of additional origins (in addition to PROSA_API_URL)
    * that browser apps may use to issue credentialed requests. Each entry must
@@ -37,6 +38,12 @@ export type ProsaApiConfig = {
   runtimeMode: RuntimeMode
   databaseUrl: string | null
   authSecret: string | null
+  /**
+   * Optional Better Auth cookie session cache window in seconds. Disabled by
+   * default because cached sessions have delayed revocation semantics and are
+   * not proven to optimize bearer-token CLI sync traffic.
+   */
+  authCookieCacheMaxAgeSeconds: number
   /** Additional trusted browser origins (beyond `apiUrl`) for CORS and Better Auth. */
   webOrigins: string[]
   objectStore:
@@ -184,6 +191,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ProsaApiConfig
     runtimeMode: v.PROSA_RUNTIME_MODE,
     databaseUrl: v.PROSA_DATABASE_URL ?? null,
     authSecret: v.PROSA_AUTH_SECRET ?? null,
+    authCookieCacheMaxAgeSeconds: v.PROSA_AUTH_COOKIE_CACHE_MAX_AGE_SECONDS,
     webOrigins,
     objectStore,
   }
