@@ -15,8 +15,6 @@ import { sessionCommand } from './commands/session.js'
 import { sessionsCommand } from './commands/sessions.js'
 import { syncCommand } from './commands/sync.js'
 import { tuiCommand } from './commands/tui.js'
-import { isCliUserError } from './errors.js'
-
 /**
  * Drop a leading literal `--` token from the user-args portion of argv.
  *
@@ -63,19 +61,4 @@ export async function runCli(argv: readonly string[]): Promise<void> {
   program.addCommand(syncCommand())
 
   await program.parseAsync(stripLeadingDoubleDash(argv))
-}
-
-// Auto-execute when invoked as the entry point (`node dist/cli/main.js …` or
-// via the `prosa` bin shim). Importing this file as a library still gives
-// `runCli` without side effects.
-const isEntry = import.meta.url === `file://${process.argv[1]}`
-if (isEntry) {
-  runCli(process.argv).catch((error: unknown) => {
-    if (isCliUserError(error)) {
-      process.stderr.write(`${error.message}\n`)
-      process.exit(error.exitCode)
-    }
-    process.stderr.write(`${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`)
-    process.exit(1)
-  })
 }
