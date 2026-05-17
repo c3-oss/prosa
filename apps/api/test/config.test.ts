@@ -7,6 +7,7 @@ describe('loadConfig', () => {
     expect(config.host).toBe('127.0.0.1')
     expect(config.port).toBe(3000)
     expect(config.objectStore.driver).toBe('memory')
+    expect(config.authCookieCacheMaxAgeSeconds).toBe(0)
   })
 
   it('requires PROSA_OBJECT_STORE_BUCKET when driver=s3', () => {
@@ -72,5 +73,22 @@ describe('loadConfig', () => {
       bucket: 'my-bucket',
       region: 'us-east-1',
     })
+  })
+
+  it('allows an explicit short Better Auth cookie cache window', () => {
+    const config = loadConfig({
+      PROSA_RUNTIME_MODE: 'test',
+      PROSA_AUTH_COOKIE_CACHE_MAX_AGE_SECONDS: '120',
+    } as NodeJS.ProcessEnv)
+    expect(config.authCookieCacheMaxAgeSeconds).toBe(120)
+  })
+
+  it('rejects excessive Better Auth cookie cache windows', () => {
+    expect(() =>
+      loadConfig({
+        PROSA_RUNTIME_MODE: 'test',
+        PROSA_AUTH_COOKIE_CACHE_MAX_AGE_SECONDS: '3600',
+      } as NodeJS.ProcessEnv),
+    ).toThrow(ConfigError)
   })
 })
