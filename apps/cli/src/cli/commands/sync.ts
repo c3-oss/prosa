@@ -51,6 +51,7 @@ import {
   uploadHardLimitViolations,
   uploadLimitViolations,
 } from '../sync/limits.js'
+import { runReadUploadPipeline } from '../sync/pipeline.js'
 import {
   type SyncMetrics,
   emptySyncMetrics,
@@ -87,6 +88,10 @@ type SyncResult = {
 }
 
 type LocalCasObjectChunk = LocalCasObject
+type LocalCasObjectUpload = {
+  object: LocalCasObjectChunk
+  bytes: Uint8Array
+}
 
 type ObjectChunk = {
   casObjects: LocalCasObjectChunk[]
@@ -165,6 +170,7 @@ const MAX_OBJECT_UPLOAD_CONCURRENCY = 128
 const DEFAULT_BATCH_CONCURRENCY = 4
 const MIN_BATCH_CONCURRENCY = 1
 const MAX_BATCH_CONCURRENCY = 8
+const DEFAULT_OBJECT_UPLOAD_BUFFER_BYTES = 64 * 1024 * 1024
 
 async function bundleManifestExists(storePath: string): Promise<boolean> {
   return stat(`${storePath}/manifest.json`).then(
@@ -225,6 +231,70 @@ async function bytesForUpload(
   addLocalReadMetric(metrics, Date.now() - readStart, bytes.byteLength)
   object.bytes = bytes
   return bytes
+}
+
+async function uploadMissingCasObjectsWithReadPipeline(opts: {
+  client: ProsaApiClient
+  batchId: string
+  storePath: string
+  missingObjects: LocalCasObjectChunk[]
+  objectConcurrency: number
+  maxObjectPackBytes?: number
+  metrics: SyncMetrics
+}): Promise<{ uploadStats: Awaited<ReturnType<typeof uploadMissingCasObjects>>; bytesUploaded: number }> {
+  const uploadStats = { packedObjectCount: 0, packCount: 0, putObjectCount: 0 }
+  const flushThresholdBytes = Math.max(
+    1,
+    Math.min(opts.maxObjectPackBytes ?? DEFAULT_OBJECT_UPLOAD_BUFFER_BYTES, DEFAULT_OBJECT_UPLOAD_BUFFER_BYTES),
+  )
+  let pendingObjects: LocalCasObjectChunk[] = []
+  let pendingBytes = 0
+  let bytesUploaded = 0
+
+  const flushPending = async () => {
+    if (pendingObjects.length === 0) return
+    const batch = pendingObjects
+    const batchBytes = pendingBytes
+    pendingObjects = []
+    pendingBytes = 0
+    const stats = await uploadMissingCasObjects({
+      client: opts.client,
+      batchId: opts.batchId,
+      missingObjects: batch,
+      objectConcurrency: opts.objectConcurrency,
+      ...(opts.maxObjectPackBytes ? { maxObjectPackBytes: opts.maxObjectPackBytes } : {}),
+    })
+    uploadStats.packedObjectCount += stats.packedObjectCount
+    uploadStats.packCount += stats.packCount
+    uploadStats.putObjectCount += stats.putObjectCount
+    bytesUploaded += batchBytes
+    for (const object of batch) object.bytes = undefined
+  }
+
+  await runReadUploadPipeline<LocalCasObjectChunk, LocalCasObjectUpload>({
+    items: opts.missingObjects,
+    readConcurrency: Math.min(8, opts.objectConcurrency),
+    uploadConcurrency: 1,
+    queueBound: 32,
+    maxBufferedBytes: DEFAULT_OBJECT_UPLOAD_BUFFER_BYTES,
+    loadedByteLength: ({ bytes }) => bytes.byteLength,
+    load: async (object) => {
+      const bytes = await bytesForUpload(opts.storePath, object, opts.metrics)
+      return { object, bytes }
+    },
+    consume: async ({ object, bytes }) => {
+      pendingObjects.push({ ...object, bytes })
+      pendingBytes += bytes.byteLength
+      if (pendingObjects.length >= 1024 || pendingBytes >= flushThresholdBytes) {
+        await flushPending()
+      }
+    },
+    releaseLoaded: ({ object }) => {
+      object.bytes = undefined
+    },
+  })
+  await flushPending()
+  return { uploadStats, bytesUploaded }
 }
 
 function projectionRowCount(projection: ProjectionPayload): number {
@@ -1023,18 +1093,16 @@ async function promoteChunk({
   const missingSet = new Set(plan.missingObjectIds)
   const missingObjects = casObjects.filter(({ entry }) => missingSet.has(entry.objectId))
   const uploadStart = Date.now()
-  const preparedMissingObjects = await mapConcurrentResults(missingObjects, objectConcurrency, async (object) => {
-    const bytes = await bytesForUpload(storePath, object, metrics)
-    return { ...object, bytes }
-  })
-  const uploadStats = await uploadMissingCasObjects({
+  const { uploadStats, bytesUploaded } = await uploadMissingCasObjectsWithReadPipeline({
     client,
     batchId: plan.batchId,
-    missingObjects: preparedMissingObjects,
+    storePath,
+    missingObjects,
     objectConcurrency,
     ...(maxObjectPackBytes ? { maxObjectPackBytes } : {}),
+    metrics,
   })
-  metrics.bytesUploaded += preparedMissingObjects.reduce((sum, object) => sum + object.bytes.byteLength, 0)
+  metrics.bytesUploaded += bytesUploaded
   metrics.objectsUploaded += uploadStats.packedObjectCount + uploadStats.putObjectCount
   metrics.uploadMs += Date.now() - uploadStart
   if (verbose && casObjects.length > 0) {
