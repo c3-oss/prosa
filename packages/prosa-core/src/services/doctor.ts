@@ -2,7 +2,7 @@ import { access, readFile, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { type Bundle, type BundleManifest, closeBundle, defaultBundlePath, openBundle } from '../core/bundle.js'
 import { decompressBytes } from '../core/cas/compress.js'
-import { blake3Hex } from '../core/cas/hash.js'
+import { blake3HexAsync } from '../core/cas/hash.js'
 import { getErrorMessage } from '../core/errors.js'
 import { currentSchemaVersion } from '../core/schema/migrate.js'
 import { PROSA_PARSER_VERSION, PROSA_SCHEMA_VERSION } from '../core/version.js'
@@ -890,7 +890,7 @@ async function checkCasSample(bundle: Bundle, sampleSize: number): Promise<Check
     try {
       const compressed = await readFile(abs)
       const plain = decompressBytes(compressed, row.compression)
-      const recomputed = `blake3:${blake3Hex(plain)}`
+      const recomputed = `blake3:${await blake3HexAsync(plain)}`
       if (recomputed !== row.object_id) {
         hashMismatches.push(`${row.object_id} (file decodes to ${recomputed})`)
       }
