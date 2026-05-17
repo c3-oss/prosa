@@ -43,7 +43,7 @@ import {
   resetSyncCheckpoint,
   syncChunkFingerprint,
 } from '../sync/checkpoint.js'
-import { mapConcurrent, mapConcurrentResults } from '../sync/concurrency.js'
+import { mapConcurrentResults } from '../sync/concurrency.js'
 import {
   type SyncLimits,
   type UploadCounts,
@@ -57,6 +57,7 @@ import {
   mergeSyncMetrics,
   promoteUpload,
   removeLocalBundle,
+  uploadMissingCasObjects,
 } from '../sync/promotion.js'
 
 type SyncOptions = {
@@ -105,6 +106,7 @@ type ChunkedPromotionOptions = {
   bundle: Bundle
   maxObjectsPerPlan: number
   maxRowsPerCommit: number
+  maxObjectPackBytes?: number
   objectConcurrency: number
   batchConcurrency: number
   verbose?: boolean
@@ -135,6 +137,7 @@ type PromoteChunkOptions = {
   label: string
   metrics: SyncMetrics
   objectConcurrency: number
+  maxObjectPackBytes?: number
   verbose?: boolean
   checkpoint?: SyncCheckpointHandle
 }
@@ -879,6 +882,7 @@ async function promoteChunk({
   label,
   metrics,
   objectConcurrency,
+  maxObjectPackBytes,
   verbose,
 }: PromoteChunkOptions): Promise<PromotionReceipt> {
   const objectEntries = casObjects.map((c) => c.entry)
@@ -898,23 +902,25 @@ async function promoteChunk({
   const missingSet = new Set(plan.missingObjectIds)
   const missingObjects = casObjects.filter(({ entry }) => missingSet.has(entry.objectId))
   const uploadStart = Date.now()
-  await mapConcurrent(missingObjects, objectConcurrency, async (object) => {
-    const { entry: obj } = object
+  const preparedMissingObjects = await mapConcurrentResults(missingObjects, objectConcurrency, async (object) => {
     const bytes = await bytesForUpload(storePath, object, metrics)
-    await client.uploadObjectBytes({
-      batchId: plan.batchId,
-      objectId: obj.objectId,
-      hash: obj.hash,
-      ...(obj.transportHash ? { transportHash: obj.transportHash } : {}),
-      compression: obj.compression,
-      compressedSize: obj.compressedSize,
-      uncompressedSize: obj.uncompressedSize,
-      bytes,
-    })
-    metrics.bytesUploaded += bytes.byteLength
-    metrics.objectsUploaded += 1
+    return { ...object, bytes }
   })
+  const uploadStats = await uploadMissingCasObjects({
+    client,
+    batchId: plan.batchId,
+    missingObjects: preparedMissingObjects,
+    objectConcurrency,
+    ...(maxObjectPackBytes ? { maxObjectPackBytes } : {}),
+  })
+  metrics.bytesUploaded += preparedMissingObjects.reduce((sum, object) => sum + object.bytes.byteLength, 0)
+  metrics.objectsUploaded += uploadStats.packedObjectCount + uploadStats.putObjectCount
   metrics.uploadMs += Date.now() - uploadStart
+  if (verbose && casObjects.length > 0) {
+    process.stderr.write(
+      `uploaded ${missingSet.size} CAS objects bytes=${metrics.bytesUploaded} uploadMs=${metrics.uploadMs} packs=${uploadStats.packCount} packedObjects=${uploadStats.packedObjectCount} putObjects=${uploadStats.putObjectCount}\n`,
+    )
+  }
 
   const commitStart = Date.now()
   const commit = await client.syncCommitUpload(
@@ -1030,6 +1036,7 @@ export async function promoteChunkedUpload({
   bundle,
   maxObjectsPerPlan,
   maxRowsPerCommit,
+  maxObjectPackBytes,
   objectConcurrency,
   batchConcurrency,
   verbose,
@@ -1065,6 +1072,7 @@ export async function promoteChunkedUpload({
         projection: toProjection(chunk.rows),
         label: `${label} batch ${phaseStart + cursor.sequence}`,
         objectConcurrency,
+        ...(maxObjectPackBytes ? { maxObjectPackBytes } : {}),
         verbose,
         checkpoint,
       })
@@ -1196,6 +1204,7 @@ export async function promoteChunkedUpload({
         label: `chunk ${batchCount}`,
         metrics,
         objectConcurrency,
+        ...(maxObjectPackBytes ? { maxObjectPackBytes } : {}),
         verbose,
         checkpoint,
       })
@@ -1244,7 +1253,7 @@ export function syncCommand(): Command {
     .option('--verbose', 'extra logging', false)
     .option(
       '--object-concurrency <n>',
-      `concurrent CAS object PUTs per batch (default: ${DEFAULT_OBJECT_UPLOAD_CONCURRENCY}; range ${MIN_OBJECT_UPLOAD_CONCURRENCY}-${MAX_OBJECT_UPLOAD_CONCURRENCY})`,
+      `concurrent CAS object uploads per batch (default: ${DEFAULT_OBJECT_UPLOAD_CONCURRENCY}; range ${MIN_OBJECT_UPLOAD_CONCURRENCY}-${MAX_OBJECT_UPLOAD_CONCURRENCY})`,
       parseObjectConcurrency,
       DEFAULT_OBJECT_UPLOAD_CONCURRENCY,
     )
@@ -1361,6 +1370,7 @@ export function syncCommand(): Command {
               bundle,
               maxObjectsPerPlan: handshake.limits.maxObjectsPerPlan,
               maxRowsPerCommit: handshake.limits.maxRowsPerCommit,
+              maxObjectPackBytes: handshake.limits.maxObjectBytes,
               objectConcurrency: options.objectConcurrency,
               batchConcurrency: options.batchConcurrency,
               verbose: options.verbose,
@@ -1387,6 +1397,7 @@ export function syncCommand(): Command {
             storePath,
             upload,
             objectConcurrency: options.objectConcurrency,
+            maxObjectPackBytes: handshake.limits.maxObjectBytes,
             verbose: options.verbose,
           })
           progress.setPhase({ kind: 'verify' })

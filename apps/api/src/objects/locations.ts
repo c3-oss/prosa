@@ -1,5 +1,5 @@
 import { Readable } from 'node:stream'
-import { type RemoteObjectStore, computeHashHex } from '@c3-oss/prosa-storage'
+import { type RemoteObjectStore, computeHashHex, objectStorageKey } from '@c3-oss/prosa-storage'
 import type { ObjectManifestEntry } from '@c3-oss/prosa-sync'
 import { DecompressStream } from 'zstd-napi'
 import type { RawExec } from '../db.js'
@@ -12,6 +12,7 @@ export type ObjectByteLocation = {
 }
 
 type LocationRow = {
+  object_id?: string
   hash: string
   hash_algorithm: string
   compression: string
@@ -26,6 +27,11 @@ type LocationRow = {
   blob_byte_size: string | number | null
   byte_offset: string | number | null
   byte_length: string | number | null
+}
+
+type MaterializedObjectCandidate = {
+  object: ObjectManifestEntry
+  legacyStorageKey?: string
 }
 
 export async function resolveObjectByteLocation(
@@ -58,6 +64,10 @@ export async function resolveObjectByteLocation(
   )
   const row = rows[0]
   if (!row) return null
+  return locationFromRow(row)
+}
+
+function locationFromRow(row: LocationRow): ObjectByteLocation | null {
   const compressedSize = Number(row.compressed_size)
   if (row.location_type === 'pack') {
     const storageKey = row.blob_storage_key ?? row.location_storage_key
@@ -105,6 +115,58 @@ export async function hasMaterializedObject(opts: {
   return hasCompatibleObjectBytes(opts)
 }
 
+export async function findMaterializedObjectIds(opts: {
+  rawExec: RawExec
+  objectStore: RemoteObjectStore
+  objects: MaterializedObjectCandidate[]
+  tenantId: string
+  verifyBytes?: boolean
+  concurrency?: number
+}): Promise<Set<string>> {
+  if (opts.objects.length === 0) return new Set()
+  const byObjectId = new Map<string, MaterializedObjectCandidate>()
+  for (const candidate of opts.objects) {
+    if (!byObjectId.has(candidate.object.objectId)) {
+      byObjectId.set(candidate.object.objectId, candidate)
+    }
+  }
+  const rows = await opts.rawExec<LocationRow>(
+    `SELECT ro.object_id,
+            ro.hash,
+            ro.hash_algorithm,
+            ro.compression,
+            ro.uncompressed_size,
+            ro.compressed_size,
+            ro.storage_key AS legacy_storage_key,
+            l.location_type,
+            l.storage_key AS location_storage_key,
+            b.storage_key AS blob_storage_key,
+            b.hash AS blob_hash,
+            b.hash_algorithm AS blob_hash_algorithm,
+            b.byte_size AS blob_byte_size,
+            l.byte_offset,
+            l.byte_length
+       FROM "tenant_object" to_
+       JOIN "remote_object" ro ON ro.object_id = to_.object_id
+  LEFT JOIN "remote_object_location" l ON l.object_id = ro.object_id
+                                      AND l.tenant_id = to_.tenant_id
+  LEFT JOIN "remote_blob" b ON b.id = l.blob_id
+      WHERE to_.tenant_id = $1
+        AND to_.object_id = ANY($2::text[])`,
+    [opts.tenantId, [...byObjectId.keys()]],
+  )
+  const found = new Set<string>()
+  await mapConcurrent(rows, opts.concurrency ?? 16, async (row) => {
+    if (!row.object_id) return
+    const candidate = byObjectId.get(row.object_id)
+    if (!candidate) return
+    if (await rowHasCompatibleObjectBytes(opts.objectStore, row, candidate, opts.verifyBytes ?? false)) {
+      found.add(row.object_id)
+    }
+  })
+  return found
+}
+
 export async function hasCompatibleObjectBytes(opts: {
   rawExec: RawExec
   objectStore: RemoteObjectStore
@@ -138,7 +200,7 @@ export async function hasCompatibleObjectBytes(opts: {
   )
   const row = rows[0]
   if (!row || !catalogMetadataMatches(row, opts.object)) return false
-  const location = await resolveObjectByteLocation(opts.rawExec, opts.object.objectId, opts.tenantId)
+  const location = locationFromRow(row)
   if (location) {
     if (!locationMatchesObject(location, opts.object)) return false
     const head = await opts.objectStore.head(location.storageKey)
@@ -175,6 +237,81 @@ export async function hasCompatibleObjectBytes(opts: {
       opts.object,
     ))
   )
+}
+
+async function rowHasCompatibleObjectBytes(
+  objectStore: RemoteObjectStore,
+  row: LocationRow,
+  candidate: MaterializedObjectCandidate,
+  verifyBytes: boolean,
+): Promise<boolean> {
+  const { object } = candidate
+  if (!catalogMetadataMatches(row, object)) return false
+  const location = locationFromRow(row)
+  if (location) {
+    if (!locationMatchesObject(location, object)) return false
+    const head = await objectStore.head(location.storageKey)
+    if (!head) return false
+    if (location.packed) {
+      if (!packedBlobMatches(row, head, location)) return false
+      return verifyBytes ? verifyLocationBytes(objectStore, location, object) : true
+    }
+    if (!unpackedHeadMatches(head, object)) return false
+    return !verifyBytes || (await verifyLocationBytes(objectStore, location, object))
+  }
+
+  const legacyStorageKey =
+    candidate.legacyStorageKey ?? objectStorageKey({ hash: object.hash, compression: object.compression })
+  const head = await objectStore.head(legacyStorageKey)
+  if (!unpackedHeadMatches(head, object)) return false
+  return (
+    !verifyBytes ||
+    (await verifyLocationBytes(
+      objectStore,
+      {
+        storageKey: legacyStorageKey,
+        offset: 0,
+        length: object.compressedSize,
+        packed: false,
+      },
+      object,
+    ))
+  )
+}
+
+function unpackedHeadMatches(
+  head: Awaited<ReturnType<RemoteObjectStore['head']>>,
+  object: ObjectManifestEntry,
+): boolean {
+  const transportHash = (object.transportHash ?? object.hash).toLowerCase()
+  return (
+    !!head &&
+    head.hash.toLowerCase() === transportHash &&
+    head.compressedSize === object.compressedSize &&
+    head.uncompressedSize === object.uncompressedSize
+  )
+}
+
+async function mapConcurrent<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  if (items.length === 0) return []
+  const results = new Array<R>(items.length)
+  let nextIndex = 0
+  const workerCount = Math.min(Math.max(1, concurrency), items.length)
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (true) {
+        const index = nextIndex
+        nextIndex += 1
+        if (index >= items.length) return
+        results[index] = await mapper(items[index] as T, index)
+      }
+    }),
+  )
+  return results
 }
 
 function packedBlobMatches(

@@ -92,17 +92,43 @@ export function countProjectionRows(projection: ProjectionPayload): number {
   )
 }
 
-async function insertProjectionManifest(opts: {
+type ProjectionManifestEntry = {
+  entityType: ProjectionEntityType
+  entityId: string
+}
+
+function projectionManifestEntries(projection: ProjectionPayload): ProjectionManifestEntry[] {
+  return [
+    ...projection.sessions.map((row) => ({ entityType: 'session' as const, entityId: row.id })),
+    ...projection.sourceFiles.map((row) => ({ entityType: 'source_file' as const, entityId: row.id })),
+    ...projection.rawRecords.map((row) => ({ entityType: 'raw_record' as const, entityId: row.id })),
+    ...projection.searchDocs.map((row) => ({ entityType: 'search_doc' as const, entityId: row.id })),
+    ...projection.toolCalls.map((row) => ({ entityType: 'tool_call' as const, entityId: row.id })),
+    ...projection.toolResults.map((row) => ({ entityType: 'tool_result' as const, entityId: row.id })),
+    ...projection.messages.map((row) => ({ entityType: 'message' as const, entityId: row.id })),
+    ...projection.contentBlocks.map((row) => ({ entityType: 'content_block' as const, entityId: row.id })),
+    ...projection.events.map((row) => ({ entityType: 'event' as const, entityId: row.id })),
+    ...projection.artifacts.map((row) => ({ entityType: 'artifact' as const, entityId: row.id })),
+  ]
+}
+
+async function insertProjectionManifestBulk(opts: {
   rawExec: RawExec
   tenantId: string
   batchId: string
-  entityType: ProjectionEntityType
-  entityId: string
+  entries: ProjectionManifestEntry[]
 }): Promise<void> {
+  if (opts.entries.length === 0) return
   await opts.rawExec(
     `INSERT INTO "sync_batch_projection_manifest"(batch_id, tenant_id, entity_type, entity_id)
-     VALUES ($1, $2, $3, $4)`,
-    [opts.batchId, opts.tenantId, opts.entityType, opts.entityId],
+     SELECT $1, $2, input.entity_type, input.entity_id
+       FROM unnest($3::text[], $4::text[]) AS input(entity_type, entity_id)`,
+    [
+      opts.batchId,
+      opts.tenantId,
+      opts.entries.map((entry) => entry.entityType),
+      opts.entries.map((entry) => entry.entityId),
+    ],
   )
 }
 
@@ -581,82 +607,42 @@ export async function insertProjectionRows(opts: {
   projection: ProjectionPayload
 }): Promise<void> {
   const { rawExec, tenantId, batchId, projection } = opts
+  await insertProjectionManifestBulk({
+    rawExec,
+    tenantId,
+    batchId,
+    entries: projectionManifestEntries(projection),
+  })
   for (const session of projection.sessions) {
-    await insertProjectionManifest({ rawExec, tenantId, batchId, entityType: 'session', entityId: session.id })
     await insertSessionRow({ rawExec, tenantId, session })
   }
   for (const sourceFile of projection.sourceFiles) {
-    await insertProjectionManifest({
-      rawExec,
-      tenantId,
-      batchId,
-      entityType: 'source_file',
-      entityId: sourceFile.id,
-    })
     await insertSourceFileRow({ rawExec, tenantId, sourceFile })
   }
   for (const rawRecord of projection.rawRecords) {
-    await insertProjectionManifest({
-      rawExec,
-      tenantId,
-      batchId,
-      entityType: 'raw_record',
-      entityId: rawRecord.id,
-    })
     await insertRawRecordRow({ rawExec, tenantId, rawRecord })
   }
   for (const searchDoc of projection.searchDocs) {
-    await insertProjectionManifest({
-      rawExec,
-      tenantId,
-      batchId,
-      entityType: 'search_doc',
-      entityId: searchDoc.id,
-    })
     await insertSearchDocRow({ rawExec, tenantId, searchDoc })
   }
   for (const toolCall of projection.toolCalls) {
-    await insertProjectionManifest({
-      rawExec,
-      tenantId,
-      batchId,
-      entityType: 'tool_call',
-      entityId: toolCall.id,
-    })
     await insertToolCallRow({ rawExec, tenantId, toolCall })
   }
   for (const toolResult of projection.toolResults) {
-    await insertProjectionManifest({
-      rawExec,
-      tenantId,
-      batchId,
-      entityType: 'tool_result',
-      entityId: toolResult.id,
-    })
     await insertToolResultRow({ rawExec, tenantId, toolResult })
   }
   // Insert messages BEFORE content_blocks so the (tenant_id, message_id) FK
   // resolves even with deferred constraints disabled (e.g. PGlite test paths).
   for (const message of projection.messages) {
-    await insertProjectionManifest({ rawExec, tenantId, batchId, entityType: 'message', entityId: message.id })
     await insertMessageRow({ rawExec, tenantId, message })
   }
   for (const contentBlock of projection.contentBlocks) {
-    await insertProjectionManifest({
-      rawExec,
-      tenantId,
-      batchId,
-      entityType: 'content_block',
-      entityId: contentBlock.id,
-    })
     await insertContentBlockRow({ rawExec, tenantId, contentBlock })
   }
   for (const event of projection.events) {
-    await insertProjectionManifest({ rawExec, tenantId, batchId, entityType: 'event', entityId: event.id })
     await insertEventRow({ rawExec, tenantId, event })
   }
   for (const artifact of projection.artifacts) {
-    await insertProjectionManifest({ rawExec, tenantId, batchId, entityType: 'artifact', entityId: artifact.id })
     await insertArtifactRow({ rawExec, tenantId, artifact })
   }
 }

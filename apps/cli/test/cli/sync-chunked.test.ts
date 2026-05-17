@@ -22,6 +22,10 @@ type Harness = {
   stateHome: string
   storePath: string
   commits: CommitRecord[]
+  objectUploads: {
+    packs: number
+    puts: number
+  }
   close: () => Promise<void>
 }
 
@@ -60,6 +64,11 @@ function writeTrpc<T>(res: ServerResponse, data: T): void {
 function writeObjectUpload(res: ServerResponse): void {
   res.writeHead(200, { 'content-type': 'application/json' })
   res.end(JSON.stringify({ alreadyExisted: false }))
+}
+
+function writeObjectPackUpload(res: ServerResponse): void {
+  res.writeHead(200, { 'content-type': 'application/json' })
+  res.end(JSON.stringify({ blobId: 'object-pack:test', objectIds: [], alreadyExisted: false }))
 }
 
 function writeError(res: ServerResponse, status: number, message: string): void {
@@ -132,6 +141,7 @@ async function bootHarness(options: HarnessOptions = {}): Promise<Harness> {
   const stateHome = path.join(tmpRoot, 'state')
   const storePath = path.join(tmpRoot, '.prosa')
   const commits: CommitRecord[] = []
+  const objectUploads = { packs: 0, puts: 0 }
   const availableObjectIds = new Set<string>()
   let batchIndex = 0
   let planRequestCount = 0
@@ -145,10 +155,19 @@ async function bootHarness(options: HarnessOptions = {}): Promise<Harness> {
     try {
       const url = new URL(req.url ?? '/', 'http://127.0.0.1')
       if (req.method === 'PUT' && url.pathname.startsWith('/objects/')) {
+        objectUploads.puts += 1
         for await (const _chunk of req) {
           // Drain the upload body so fetch can complete cleanly.
         }
         writeObjectUpload(res)
+        return
+      }
+      if (req.method === 'POST' && url.pathname === '/object-packs') {
+        objectUploads.packs += 1
+        for await (const _chunk of req) {
+          // Drain the upload body so fetch can complete cleanly.
+        }
+        writeObjectPackUpload(res)
         return
       }
       if (req.method !== 'POST') {
@@ -269,6 +288,7 @@ async function bootHarness(options: HarnessOptions = {}): Promise<Harness> {
     stateHome,
     storePath,
     commits,
+    objectUploads,
     close: async () => {
       await closeServer(server)
       await rm(tmpRoot, { recursive: true, force: true })
@@ -324,6 +344,7 @@ describe('CLI chunked sync batching', () => {
       { objectCount: 1, rowCount: 2, sourceFileCount: 1, sessionCount: 1 },
       { objectCount: 0, rowCount: 2, sourceFileCount: 0, sessionCount: 2 },
     ])
+    expect(h.objectUploads).toEqual({ packs: 2, puts: 0 })
   })
 
   it('resumes chunked sync by skipping chunks that already verified', async () => {

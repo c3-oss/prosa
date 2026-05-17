@@ -1,6 +1,6 @@
 import type { PromotionReceipt, VerifyPromotionInput, VerifyPromotionOutput } from '@c3-oss/prosa-sync'
 import type { RawExec } from '../../../db.js'
-import { hasMaterializedObject } from '../../../objects/locations.js'
+import { findMaterializedObjectIds } from '../../../objects/locations.js'
 import { TRPCError } from '../../init.js'
 import type { VerificationBatchRow } from './batches.js'
 import {
@@ -9,7 +9,6 @@ import {
   assertSameDeclarationSet,
   buildManifestHash,
   loadObjectManifest,
-  mapWithConcurrency,
   objectFromManifestRow,
   objectStoreIoConcurrency,
 } from './manifest.js'
@@ -126,29 +125,25 @@ async function verifyObjectManifest(opts: {
   objectManifest: BatchObjectManifestRow[]
 }): Promise<void> {
   if (opts.objectManifest.length === 0) return
-  await mapWithConcurrency(opts.objectManifest, objectStoreIoConcurrency, async (row) => {
-    const object = objectFromManifestRow(row)
-    const found = await opts.rawExec<{ object_id: string }>(
-      'SELECT object_id FROM "tenant_object" WHERE tenant_id = $1 AND object_id = $2 LIMIT 1',
-      [opts.tenantId, row.object_id],
-    )
-    if (
-      !found[0] ||
-      !(await hasMaterializedObject({
-        rawExec: opts.rawExec,
-        objectStore: opts.objectStore,
-        object,
-        legacyStorageKey: row.storage_key,
-        tenantId: opts.tenantId,
-        verifyBytes: true,
-      }))
-    ) {
+  const objects = opts.objectManifest.map((row) => {
+    return { object: objectFromManifestRow(row), legacyStorageKey: row.storage_key }
+  })
+  const found = await findMaterializedObjectIds({
+    rawExec: opts.rawExec,
+    objectStore: opts.objectStore,
+    objects,
+    tenantId: opts.tenantId,
+    verifyBytes: true,
+    concurrency: objectStoreIoConcurrency,
+  })
+  for (const row of opts.objectManifest) {
+    if (!found.has(row.object_id)) {
       throw new TRPCError({
         code: 'PRECONDITION_FAILED',
         message: `Promotion verification failed: object ${row.object_id} is missing or mismatched`,
       })
     }
-  })
+  }
 }
 
 async function countProjectionRows(opts: {
