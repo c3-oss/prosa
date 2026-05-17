@@ -78,8 +78,7 @@
       "hono": "4.12.18",
       "ip-address": "10.1.1",
       "react": "19.2.5",
-      "react-dom": "19.2.5",
-      "zod": "^3.25.76"
+      "react-dom": "19.2.5"
     }
   },
   "lint-staged": {
