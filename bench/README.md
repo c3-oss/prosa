@@ -16,6 +16,11 @@ work. Produce raw numbers cited in `docs/roadmap/*-perf.md`.
 - `bench-sync-docker.ts` — end-to-end sync timing harness for a copied local
   bundle against the Docker/API server. It records dry-run, cold sync, and warm
   re-sync JSON metrics without touching the source store.
+- `bench-sync-phase-probe.ts` — synthetic in-process API sync probe using
+  PGlite and memory storage. It records per-phase wall time, raw SQL counts,
+  top sync SQL, object-store calls, a cold promotion, an idempotent commit
+  replay, and a warm re-promotion. Use it for query-amplification visibility,
+  not final Docker/Postgres/MinIO throughput claims.
 
 ## How to run
 
@@ -31,6 +36,16 @@ work. Produce raw numbers cited in `docs/roadmap/*-perf.md`.
    node --import @swc-node/register/esm-register bench/bench-tantivy.ts
    node --import @swc-node/register/esm-register bench/bench-parquet.ts
    node --import @swc-node/register/esm-register bench/bench-parquet-read.ts
+   ```
+
+   Synthetic sync phase probe:
+
+   ```sh
+   TS_NODE_PROJECT=apps/api/tsconfig.json \
+   node --import @swc-node/register/esm-register \
+     bench/bench-sync-phase-probe.ts \
+     --objects 100 --sessions 50 \
+     --output /tmp/prosa-sync-phase-probe.json
    ```
 
    Sync benchmark against an already running API:
