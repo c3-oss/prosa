@@ -1,4 +1,4 @@
-import { computeHashHex } from '@c3-oss/prosa-storage'
+import { PUT_PREVERIFIED_BYTES, computeHashHex, objectStorageKey } from '@c3-oss/prosa-storage'
 import { OBJECT_PACK_BINARY_CONTENT_TYPE, encodeBinaryObjectPack } from '@c3-oss/prosa-sync'
 import { describe, expect, it } from 'vitest'
 import { cleanupExpiredCommitUploadIdempotency } from '../src/trpc/routers/sync/idempotency.js'
@@ -91,6 +91,10 @@ async function readStoreBytes(t: TestApp, storageKey: string): Promise<Buffer> {
     total += result.value.byteLength
   }
   return Buffer.concat(chunks, total)
+}
+
+async function* bufferChunks(bytes: Buffer): AsyncIterable<Uint8Array> {
+  yield bytes
 }
 
 describe('sync promotion protocol', () => {
@@ -263,6 +267,71 @@ describe('sync promotion protocol', () => {
       )
       const body2 = handshake2.json() as { result: { data: { promoted: boolean } } }
       expect(body2.result.data.promoted).toBe(true)
+    } finally {
+      await t.close()
+    }
+  })
+
+  it('fails commit for a fresh zero-missing plan when stored object bytes are mismatched', async () => {
+    const t = await buildTestApp()
+    try {
+      const auth = await signup(t, 'sync-zero-missing-byte-check@example.com')
+      const storePath = '/tmp/.prosa-zero-missing-byte-check'
+      const deviceId = await handshakeDevice(t, auth.token, storePath, 'zero-missing-byte-check-box')
+      const bytes = Buffer.from('commit-byte-proof')
+      const object = objectForBytes(bytes)
+
+      const firstPlan = await trpc(t, 'sync.planUpload', { deviceId, storePath, objects: [object] }, auth.token)
+      expect(firstPlan.statusCode).toBe(200)
+      const firstPlanBody = firstPlan.json() as { result: { data: { batchId: string; missingObjectIds: string[] } } }
+      expect(firstPlanBody.result.data.missingObjectIds).toEqual([object.objectId])
+
+      const put = await t.app.inject({
+        method: 'PUT',
+        url:
+          `/objects/${object.objectId}?batchId=${firstPlanBody.result.data.batchId}&hash=${object.hash}` +
+          `&size=${bytes.byteLength}&uncompressed=${bytes.byteLength}&compression=none`,
+        headers: {
+          authorization: `Bearer ${auth.token}`,
+          'content-type': 'application/octet-stream',
+        },
+        payload: bytes,
+      })
+      expect([200, 201]).toContain(put.statusCode)
+
+      const zeroMissingPlan = await trpc(t, 'sync.planUpload', { deviceId, storePath, objects: [object] }, auth.token)
+      expect(zeroMissingPlan.statusCode).toBe(200)
+      const zeroMissingPlanBody = zeroMissingPlan.json() as {
+        result: { data: { batchId: string; missingObjectIds: string[] } }
+      }
+      expect(zeroMissingPlanBody.result.data.missingObjectIds).toEqual([])
+
+      const storageKey = objectStorageKey({ hash: object.hash, compression: object.compression })
+      const wrongBytes = Buffer.alloc(bytes.byteLength, 0x78)
+      await t.objectStore.delete(storageKey)
+      await t.objectStore[PUT_PREVERIFIED_BYTES](storageKey, bufferChunks(wrongBytes), {
+        hash: object.hash,
+        hashAlgorithm: 'blake3',
+        uncompressedSize: object.uncompressedSize,
+        compressedSize: object.compressedSize,
+        contentType: object.contentType,
+      })
+
+      const commit = await trpc(
+        t,
+        'sync.commitUpload',
+        {
+          batchId: zeroMissingPlanBody.result.data.batchId,
+          deviceId,
+          storePath,
+          objects: [object],
+          projection: {},
+        },
+        auth.token,
+      )
+
+      expect(commit.statusCode).toBe(412)
+      expect(commit.body).toContain('Object bytes are missing or mismatched')
     } finally {
       await t.close()
     }
