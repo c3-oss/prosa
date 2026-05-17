@@ -1,4 +1,5 @@
 import { RouterProvider, createMemoryHistory, createRootRoute, createRoute, createRouter } from '@tanstack/react-router'
+import { waitFor } from '@testing-library/react'
 import type { ReactElement } from 'react'
 import { describe, expect, it } from 'vitest'
 
@@ -60,8 +61,10 @@ describe('SessionsTable', () => {
 
   it('renders a loading skeleton when loading and rows empty', async () => {
     const router = buildRouter(() => <SessionsTable rows={[]} loading={true} />)
-    const { findAllByText } = renderWithProviders(<RouterProvider router={router} />)
-    const cells = await findAllByText('Loading…')
-    expect(cells.length).toBeGreaterThan(0)
+    const { container } = renderWithProviders(<RouterProvider router={router} />)
+    await waitFor(() => {
+      expect(container.querySelectorAll('.console-loading-row')).toHaveLength(5)
+      expect(container.querySelectorAll('.console-skeleton-line')).toHaveLength(5)
+    })
   })
 })
