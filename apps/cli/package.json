@@ -1,6 +1,6 @@
 {
   "name": "@c3-oss/prosa",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Compile, search, and export local agent session histories (Cursor, Codex, Claude Code, Gemini CLI, Hermes) into a single canonical store.",
   "author": "Caian Ertl <hi@caian.org>",
   "license": "MIT",
