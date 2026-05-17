@@ -92,7 +92,7 @@ describe('insertProjectionRows — batch upserts', () => {
     }
   })
 
-  it('re-upsert updates a session field via ON CONFLICT DO UPDATE', async () => {
+  it('rejects divergent replay and leaves the existing session unchanged', async () => {
     const { db, pglite } = await buildDb()
     try {
       const baseProjection = {
@@ -116,23 +116,24 @@ describe('insertProjectionRows — batch upserts', () => {
       })
 
       // Re-upsert with a different title and turnCount.
-      await insertProjectionRows({
-        rawExec: db.rawExec,
-        tenantId: 'tenant-1',
-        batchId: 'batch-1',
-        projection: {
-          ...baseProjection,
-          sessions: [{ id: 'sess-1', sourceKind: 'codex', turnCount: 5, title: 'updated' }],
-        },
-      })
+      await expect(
+        insertProjectionRows({
+          rawExec: db.rawExec,
+          tenantId: 'tenant-1',
+          batchId: 'batch-1',
+          projection: {
+            ...baseProjection,
+            sessions: [{ id: 'sess-1', sourceKind: 'codex', turnCount: 5, title: 'updated' }],
+          },
+        }),
+      ).rejects.toMatchObject({ code: 'CONFLICT' })
 
       const rows = await db.rawExec<{ id: string; turn_count: number; title: string | null }>(
         `SELECT id, turn_count, title FROM "projection_session" WHERE tenant_id = $1 AND id = $2`,
         ['tenant-1', 'sess-1'],
       )
       expect(rows).toHaveLength(1)
-      // DO UPDATE must have replaced the original values.
-      expect(rows[0]).toMatchObject({ id: 'sess-1', turn_count: 5, title: 'updated' })
+      expect(rows[0]).toMatchObject({ id: 'sess-1', turn_count: 1, title: 'original' })
 
       // Manifest ON CONFLICT DO NOTHING — still 1 row (not duplicated).
       const manifest = await db.rawExec<{ entity_id: string }>(
@@ -140,6 +141,92 @@ describe('insertProjectionRows — batch upserts', () => {
         ['tenant-1', 'batch-1'],
       )
       expect(manifest).toHaveLength(1)
+    } finally {
+      await pglite.close()
+    }
+  })
+
+  it('accepts replay with equivalent null, json, and timestamp forms', async () => {
+    const { db, pglite } = await buildDb()
+    try {
+      const baseProjection = {
+        sessions: [
+          {
+            id: 'sess-normalized',
+            sourceKind: 'codex',
+            turnCount: 1,
+            startedAt: '2026-01-01T01:00:00.000+01:00',
+            metadata: { b: 2, a: { d: 4, c: 3 } },
+          },
+        ],
+        sourceFiles: [
+          { id: 'source-normalized', sourceKind: 'codex', path: '/tmp/source.jsonl', metadata: { b: 2, a: 1 } },
+        ],
+        rawRecords: [
+          {
+            id: 'raw-normalized',
+            sourceFileId: 'source-normalized',
+            sequence: 0,
+            payload: { value: 'same', importBatchId: 'volatile-a' },
+          },
+        ],
+        searchDocs: [],
+        toolCalls: [],
+        toolResults: [],
+        messages: [],
+        contentBlocks: [],
+        events: [],
+        artifacts: [],
+      }
+
+      await insertProjectionRows({
+        rawExec: db.rawExec,
+        tenantId: 'tenant-1',
+        batchId: 'batch-1',
+        projection: baseProjection,
+      })
+
+      await insertProjectionRows({
+        rawExec: db.rawExec,
+        tenantId: 'tenant-1',
+        batchId: 'batch-1',
+        projection: {
+          ...baseProjection,
+          sessions: [
+            {
+              id: 'sess-normalized',
+              sourceKind: 'codex',
+              turnCount: 1,
+              startedAt: '2026-01-01T00:00:00.000Z',
+              metadata: { a: { c: 3, d: 4 }, b: 2 },
+            },
+          ],
+          sourceFiles: [
+            {
+              id: 'source-normalized',
+              sourceKind: 'codex',
+              path: '/tmp/source.jsonl',
+              objectId: null,
+              metadata: { a: 1, b: 2 },
+            },
+          ],
+          rawRecords: [
+            {
+              id: 'raw-normalized',
+              sourceFileId: 'source-normalized',
+              sequence: 0,
+              objectId: null,
+              payload: { importBatchId: 'volatile-b', value: 'same' },
+            },
+          ],
+        },
+      })
+
+      const sessions = await db.rawExec<{ id: string }>(
+        `SELECT id FROM "projection_session" WHERE tenant_id = $1 AND id = $2`,
+        ['tenant-1', 'sess-normalized'],
+      )
+      expect(sessions).toHaveLength(1)
     } finally {
       await pglite.close()
     }
