@@ -1,5 +1,7 @@
 # 10 — Métricas por fase + progress bar fásica (UX percebida)
 
+> Status: Pending — tracked in [ROADMAP.md](../../ROADMAP.md#sync-performance). Siblings #01, #02, #04, #06, #08 e #09 já entregues (PRs #37–#47); ver git history.
+
 **Tier**: 4 (não acelera, mas muda a percepção) · **Onde**: cliente (com pequena ajuda do servidor) · **Impacto estimado**: zero de wall-clock; muito ganho de confiança e diagnóstico · **Esforço**: S-M
 
 ## Fact-check 2026-05-16

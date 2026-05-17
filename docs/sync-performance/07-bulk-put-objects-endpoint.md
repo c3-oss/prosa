@@ -1,5 +1,7 @@
 # 07 — Endpoint `POST /objects:bulk` empacotado (pack file streaming)
 
+> Status: Pending — tracked in [ROADMAP.md](../../ROADMAP.md#sync-performance). Siblings #01, #02, #04, #06, #08 e #09 já entregues (PRs #37–#47); ver git history.
+
 **Tier**: 3 (maior impacto, maior esforço — só vale após #01/#02) · **Onde**: ambos · **Impacto estimado**: 5–10× na fase de bytes quando há muitos objetos pequenos · **Esforço**: M-L
 
 ## Fact-check 2026-05-16
@@ -29,6 +31,8 @@ adapters existentes não suportam de ponta a ponta.
 ## Resumo
 
 Hoje cada CAS object faltante vai num **PUT individual** para `/objects/:objectId`. Para um sync inicial de `~/.prosa`, isso pode chegar a centenas de milhares de PUTs. A literatura (Git packfiles, Sentry chunk API, restic pack files) converge em uma resposta: **empacotar N objetos pequenos numa única requisição** colapsa overhead TCP/TLS/HTTP/Fastify. Cap típico: ~64 objetos / ~16 MB por request, com server explodindo internamente em paralelo para o object store.
+
+**Âncora empírica.** Sync completo de `~/.prosa` contra API + MinIO locais: 834 333 objetos CAS produziram ~167 ciclos plan/commit só na fase de CAS antes de qualquer linha de projeção ser promovida, e a maioria dos batches reportou `missingObjects=0` — cada um ainda paga um plan + commit round-trip fixo. Volume total observado: 3 141 sessions, 291 498 search_docs, 3 173 source_files, 811 511 raw_records, 1,1 M linhas de projeção, distribuídos em ~281 batches no modo chunked (`maxObjectsPerPlan=5000`, `maxRowsPerCommit=10 000`). É essa cardinalidade que motiva o desenho bulk-pack.
 
 ## Diagnóstico atual
 

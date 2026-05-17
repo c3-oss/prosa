@@ -1,5 +1,7 @@
 # 05 — Empacotar múltiplos tipos de projeção (e CAS objects) no mesmo batch
 
+> Status: Pending — tracked in [ROADMAP.md](../../ROADMAP.md#sync-performance). Siblings #01, #02, #04, #06, #08 e #09 já entregues (PRs #37–#47); ver git history.
+
 **Tier**: 2 · **Onde**: cliente · **Impacto estimado**: 281 → ~167 batches (-40%) ou menos · **Esforço**: S
 
 ## Fact-check 2026-05-16

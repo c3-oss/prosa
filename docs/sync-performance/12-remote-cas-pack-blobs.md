@@ -1,5 +1,7 @@
 # 12 — Remote CAS pack blobs para reduzir cardinalidade no S3
 
+> Status: Pending — tracked in [ROADMAP.md](../../ROADMAP.md#sync-performance). Siblings #01, #02, #04, #06, #08 e #09 já entregues (PRs #37–#47); ver git history.
+
 **Tier**: 2-3 (mudanca de protocolo e schema) · **Onde**: servidor,
 storage, cliente · **Impacto estimado**: alto para buckets com muitos objetos
 pequenos · **Esforco**: L

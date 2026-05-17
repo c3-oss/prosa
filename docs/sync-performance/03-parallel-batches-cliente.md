@@ -1,5 +1,7 @@
 # 03 — Paralelizar batches no cliente (`pLimit(N)` sobre o loop principal)
 
+> Status: Pending — tracked in [ROADMAP.md](../../ROADMAP.md#sync-performance). Siblings #01, #02, #04, #06, #08 e #09 já entregues (PRs #37–#47); ver git history.
+
 **Tier**: 1 (depois de #01 e #02) · **Onde**: cliente · **Impacto estimado**: 4–8× no tempo total · **Esforço**: S (estrutural mas localizado)
 
 ## Fact-check 2026-05-16

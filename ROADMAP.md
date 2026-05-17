@@ -10,6 +10,21 @@ Parquet and analytics surfaces extend the existing canonical export. SQLite and 
 - **Incremental Parquet export** — skip rewriting tables that did not change since the last export. The current export rebuilds the full Parquet directory on every run; this becomes the cost driver for large bundles.
 - **Sanitized Parquet exports** — `--sanitize {metadata|redacted|hashed|allowlist}` modes produce Parquet variants safer to share. The default export remains faithful to the bundle; sanitization is an explicit opt-in alongside it.
 
+## Sync performance
+
+Five proposals remain open after the 2026-05 perf push. Six siblings already
+shipped via PRs #37–#47 (see git history for design rationale). Empirical
+driver: a `~/.prosa` sync against local API + MinIO produced 834k CAS objects
+across ~167 plan/commit cycles in the CAS phase alone, with most batches
+reporting `missingObjects=0` but each still paying a fixed plan + commit
+round-trip.
+
+- **Parallel batch promotion (client)** — pipeline the per-batch loop in `promoteChunkedUpload` once aggregated receipts and a bytes-in-flight cap are in place. See [`docs/sync-performance/03-parallel-batches-cliente.md`](./docs/sync-performance/03-parallel-batches-cliente.md).
+- **Mixed-type batch packing** — pack multiple projection types (and optionally CAS objects) into one commit, respecting topological dependencies. See [`docs/sync-performance/05-mix-projection-types-per-batch.md`](./docs/sync-performance/05-mix-projection-types-per-batch.md).
+- **`POST /objects:bulk` pack endpoint** — replace per-object PUTs with packed multi-object uploads for missing-object batches. See [`docs/sync-performance/07-bulk-put-objects-endpoint.md`](./docs/sync-performance/07-bulk-put-objects-endpoint.md).
+- **Per-phase metrics and progress** — replace "281 commits with rows=0" UX with phase timing, throughput, and ETA. See [`docs/sync-performance/10-per-phase-metrics-progress.md`](./docs/sync-performance/10-per-phase-metrics-progress.md).
+- **Remote CAS pack blobs** — collapse per-object S3 keys into packed blobs with range-read indirection; orthogonal to client-side bulk PUT. See [`docs/sync-performance/12-remote-cas-pack-blobs.md`](./docs/sync-performance/12-remote-cas-pack-blobs.md).
+
 ## Server-sync hardening
 
 The promotion path documented in [`docs/architecture/server-sync.md`](./docs/architecture/server-sync.md) ships with known gaps. Each item below names a concrete property still missing from the code.
