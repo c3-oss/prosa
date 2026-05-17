@@ -15,23 +15,44 @@ type CacheEntry = {
 }
 
 const TTL_MS = 60_000
+const MAX_ENTRIES = 256
 const cache = new Map<string, CacheEntry>()
+const inFlightLoads = new Map<string, Promise<Map<string, BatchManifestRow>>>()
 
 function keyOf(tenantId: string, batchId: string, userId: string): string {
-  return `${tenantId} ${batchId} ${userId}`
+  return `${tenantId}\0${batchId}\0${userId}`
 }
 
-export async function loadBatchManifest(opts: {
+function getCachedManifest(key: string, now: number): Map<string, BatchManifestRow> | null {
+  const cached = cache.get(key)
+  if (!cached) return null
+  if (cached.expiresAt <= now) {
+    cache.delete(key)
+    return null
+  }
+
+  // Refresh insertion order so Map's oldest entry is the LRU victim.
+  cache.delete(key)
+  cache.set(key, cached)
+  return cached.manifest
+}
+
+function setCachedManifest(key: string, entry: CacheEntry): void {
+  cache.delete(key)
+  cache.set(key, entry)
+  while (cache.size > MAX_ENTRIES) {
+    const oldest = cache.keys().next().value as string | undefined
+    if (!oldest) return
+    cache.delete(oldest)
+  }
+}
+
+async function loadManifestFromDb(opts: {
   rawExec: RawExec
   tenantId: string
   batchId: string
   userId: string
 }): Promise<Map<string, BatchManifestRow>> {
-  const key = keyOf(opts.tenantId, opts.batchId, opts.userId)
-  const cached = cache.get(key)
-  const now = Date.now()
-  if (cached && cached.expiresAt > now) return cached.manifest
-
   const rows = await opts.rawExec<BatchManifestRow>(
     `SELECT m.object_id, m.canonical_hash, m.transport_hash, m.compression,
             m.uncompressed_size, m.compressed_size
@@ -46,8 +67,36 @@ export async function loadBatchManifest(opts: {
   )
   const manifest = new Map<string, BatchManifestRow>()
   for (const row of rows) manifest.set(row.object_id, row)
-  cache.set(key, { manifest, expiresAt: now + TTL_MS })
   return manifest
+}
+
+export async function loadBatchManifest(opts: {
+  rawExec: RawExec
+  tenantId: string
+  batchId: string
+  userId: string
+}): Promise<Map<string, BatchManifestRow>> {
+  const key = keyOf(opts.tenantId, opts.batchId, opts.userId)
+  const now = Date.now()
+  const cached = getCachedManifest(key, now)
+  if (cached) return cached
+
+  const inFlight = inFlightLoads.get(key)
+  if (inFlight) return inFlight
+
+  const load = (async () => {
+    const manifest = await loadManifestFromDb(opts)
+    setCachedManifest(key, { manifest, expiresAt: Date.now() + TTL_MS })
+    return manifest
+  })()
+  inFlightLoads.set(key, load)
+  try {
+    return await load
+  } finally {
+    if (inFlightLoads.get(key) === load) {
+      inFlightLoads.delete(key)
+    }
+  }
 }
 
 export function invalidateBatchManifest(opts: {
@@ -60,4 +109,5 @@ export function invalidateBatchManifest(opts: {
 
 export function _resetBatchManifestCache(): void {
   cache.clear()
+  inFlightLoads.clear()
 }

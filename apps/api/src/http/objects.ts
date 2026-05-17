@@ -425,8 +425,8 @@ function catalogMatches(existing: RemoteObjectRow, upload: UploadRequest): boole
   )
 }
 
-async function assertCatalogCompatible(deps: ObjectRoutesDeps, upload: UploadRequest): Promise<void> {
-  const existingRows = await deps.rawExec<RemoteObjectRow>(
+async function assertCatalogCompatibleByExec(rawExec: RawExec, upload: UploadRequest): Promise<void> {
+  const existingRows = await rawExec<RemoteObjectRow>(
     `SELECT hash, hash_algorithm, compression, uncompressed_size, compressed_size, storage_key
        FROM "remote_object" WHERE object_id = $1 LIMIT 1`,
     [upload.objectId],
@@ -435,6 +435,10 @@ async function assertCatalogCompatible(deps: ObjectRoutesDeps, upload: UploadReq
   if (existing && !catalogMatches(existing, upload)) {
     fail(409, 'conflicting remote object metadata')
   }
+}
+
+async function assertCatalogCompatible(deps: ObjectRoutesDeps, upload: UploadRequest): Promise<void> {
+  await assertCatalogCompatibleByExec(deps.rawExec, upload)
 }
 
 async function* bufferAsAsyncIterable(body: Buffer): AsyncIterable<Uint8Array> {
@@ -472,6 +476,7 @@ async function insertRemoteObjectCatalog(rawExec: RawExec, ctx: AuthContext, upl
       upload.contentType ?? null,
     ],
   )
+  await assertCatalogCompatibleByExec(rawExec, upload)
   await rawExec(
     `INSERT INTO "remote_object_location"(tenant_id, object_id, batch_id, location_type, storage_key, byte_offset, byte_length)
      VALUES ($1, $2, $3, 'object', $4, 0, $5)

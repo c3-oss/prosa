@@ -322,6 +322,16 @@ describe('object upload hardening', () => {
           },
         ]
       }
+      if (/from\s+"remote_object_location"/i.test(sql)) {
+        return [
+          {
+            location_type: 'object',
+            storage_key: `objects/blake3/${hash.slice(0, 2)}/${hash.slice(2, 4)}/${hash}.bin`,
+            byte_offset: 0,
+            byte_length: bytes.byteLength,
+          },
+        ]
+      }
       if (/^\s*select[\s\S]+from\s+"remote_object"/i.test(sql)) return []
       return []
     }) as RawExec
@@ -391,7 +401,8 @@ describe('object upload hardening', () => {
     expect(put.statusCode).toBe(201)
     await t.pglite.query(
       `INSERT INTO "tenant_object"(tenant_id, object_id, ref_count)
-       VALUES ($1, $2, 1)`,
+       VALUES ($1, $2, 1)
+       ON CONFLICT (tenant_id, object_id) DO NOTHING`,
       [auth.tenant.id, objectId],
     )
     // CQ-003: GET /objects/:objectId now requires a verified batch entry
@@ -750,5 +761,48 @@ describe('object upload hardening', () => {
     const m3 = await loadBatchManifest(opts)
     expect(queryCount).toBe(2)
     expect(m3.has(objectId)).toBe(true)
+  })
+
+  it('coalesces concurrent manifest cache misses for the same batch', async () => {
+    const { loadBatchManifest } = await import('../src/objects/manifest-cache.js')
+    const bytes = Buffer.from('cache-coalesce-object')
+    const hash = computeHashHex(bytes, 'blake3')
+    const objectId = `blake3:${hash}`
+    let queryCount = 0
+    let releaseQuery: () => void = () => {}
+    const rawExec: RawExec = (async (sql: string) => {
+      if (/sync_batch_object_manifest/i.test(sql)) {
+        queryCount += 1
+        await new Promise<void>((resolve) => {
+          releaseQuery = resolve
+        })
+        return [
+          {
+            object_id: objectId,
+            canonical_hash: hash,
+            transport_hash: hash,
+            compression: 'none',
+            uncompressed_size: bytes.byteLength,
+            compressed_size: bytes.byteLength,
+          },
+        ]
+      }
+      return []
+    }) as RawExec
+
+    const opts = { rawExec, tenantId: 'tenant-cache', batchId: 'batch-cache', userId: 'user-cache' }
+    const loads = Promise.all([loadBatchManifest(opts), loadBatchManifest(opts), loadBatchManifest(opts)])
+
+    while (queryCount === 0) {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    }
+    expect(queryCount).toBe(1)
+
+    releaseQuery()
+    const [first, second, third] = await loads
+    expect(queryCount).toBe(1)
+    expect(first).toBe(second)
+    expect(second).toBe(third)
+    expect(first.has(objectId)).toBe(true)
   })
 })
