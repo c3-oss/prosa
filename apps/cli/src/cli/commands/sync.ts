@@ -125,7 +125,24 @@ type ProjectionStream<TEntity> = {
   done: boolean
   readChunk: (afterId: string | null, limit: number) => ProjectionChunk<TEntity>
   appendRows: (projection: ProjectionPayload, rows: TEntity[]) => void
-  referencedObjectIds: (row: TEntity) => Array<string | null | undefined>
+  dependencies: (row: TEntity) => ProjectionDependencyIds
+  markRowsAvailable: (availability: ProjectionAvailability, rows: TEntity[]) => void
+}
+
+type ProjectionDependencyIds = {
+  objectIds?: Array<string | null | undefined>
+  sourceFileIds?: Array<string | null | undefined>
+  sessionIds?: Array<string | null | undefined>
+  messageIds?: Array<string | null | undefined>
+  toolCallIds?: Array<string | null | undefined>
+}
+
+type ProjectionAvailability = {
+  objectIds: Set<string>
+  sourceFileIds: Set<string>
+  sessionIds: Set<string>
+  messageIds: Set<string>
+  toolCallIds: Set<string>
 }
 
 type PromoteChunkOptions = {
@@ -232,6 +249,55 @@ function estimateMixedChunkedUploadBatches(counts: UploadCounts, limits: SyncLim
   )
 }
 
+function addDefinedIds(target: Set<string>, ids: Array<string | null | undefined>): void {
+  for (const id of ids) {
+    if (id) target.add(id)
+  }
+}
+
+function idsAvailable(target: Set<string>, ids: Array<string | null | undefined> | undefined): boolean {
+  return (ids ?? []).every((id) => id == null || target.has(id))
+}
+
+function emptyProjectionAvailability(): ProjectionAvailability {
+  return {
+    objectIds: new Set(),
+    sourceFileIds: new Set(),
+    sessionIds: new Set(),
+    messageIds: new Set(),
+    toolCallIds: new Set(),
+  }
+}
+
+function copyProjectionAvailability(source: ProjectionAvailability): ProjectionAvailability {
+  return {
+    objectIds: new Set(source.objectIds),
+    sourceFileIds: new Set(source.sourceFileIds),
+    sessionIds: new Set(source.sessionIds),
+    messageIds: new Set(source.messageIds),
+    toolCallIds: new Set(source.toolCallIds),
+  }
+}
+
+function addProjectionToAvailability(availability: ProjectionAvailability, projection: ProjectionPayload): void {
+  addDefinedIds(
+    availability.sourceFileIds,
+    projection.sourceFiles.map((row) => row.id),
+  )
+  addDefinedIds(
+    availability.sessionIds,
+    projection.sessions.map((row) => row.id),
+  )
+  addDefinedIds(
+    availability.messageIds,
+    projection.messages.map((row) => row.id),
+  )
+  addDefinedIds(
+    availability.toolCallIds,
+    projection.toolCalls.map((row) => row.id),
+  )
+}
+
 function projectionStreams(bundle: Bundle): Array<ProjectionStream<unknown>> {
   return [
     {
@@ -243,7 +309,13 @@ function projectionStreams(bundle: Bundle): Array<ProjectionStream<unknown>> {
       appendRows: (projection, rows) => {
         projection.sourceFiles.push(...(rows as SourceFileRow[]))
       },
-      referencedObjectIds: (row) => [(row as SourceFileRow).objectId],
+      dependencies: (row) => ({ objectIds: [(row as SourceFileRow).objectId] }),
+      markRowsAvailable: (availability, rows) => {
+        addDefinedIds(
+          availability.sourceFileIds,
+          (rows as SourceFileRow[]).map((row) => row.id),
+        )
+      },
     },
     {
       label: 'session',
@@ -254,7 +326,13 @@ function projectionStreams(bundle: Bundle): Array<ProjectionStream<unknown>> {
       appendRows: (projection, rows) => {
         projection.sessions.push(...(rows as ProjectionSessionRow[]))
       },
-      referencedObjectIds: () => [],
+      dependencies: () => ({}),
+      markRowsAvailable: (availability, rows) => {
+        addDefinedIds(
+          availability.sessionIds,
+          (rows as ProjectionSessionRow[]).map((row) => row.id),
+        )
+      },
     },
     {
       label: 'message',
@@ -265,7 +343,13 @@ function projectionStreams(bundle: Bundle): Array<ProjectionStream<unknown>> {
       appendRows: (projection, rows) => {
         projection.messages.push(...(rows as ProjectionMessageRow[]))
       },
-      referencedObjectIds: () => [],
+      dependencies: (row) => ({ sessionIds: [(row as ProjectionMessageRow).sessionId] }),
+      markRowsAvailable: (availability, rows) => {
+        addDefinedIds(
+          availability.messageIds,
+          (rows as ProjectionMessageRow[]).map((row) => row.id),
+        )
+      },
     },
     {
       label: 'content-block',
@@ -276,7 +360,11 @@ function projectionStreams(bundle: Bundle): Array<ProjectionStream<unknown>> {
       appendRows: (projection, rows) => {
         projection.contentBlocks.push(...(rows as ProjectionContentBlockRow[]))
       },
-      referencedObjectIds: (row) => [(row as ProjectionContentBlockRow).objectId],
+      dependencies: (row) => ({
+        objectIds: [(row as ProjectionContentBlockRow).objectId],
+        messageIds: [(row as ProjectionContentBlockRow).messageId],
+      }),
+      markRowsAvailable: () => undefined,
     },
     {
       label: 'event',
@@ -287,7 +375,8 @@ function projectionStreams(bundle: Bundle): Array<ProjectionStream<unknown>> {
       appendRows: (projection, rows) => {
         projection.events.push(...(rows as ProjectionEventRow[]))
       },
-      referencedObjectIds: () => [],
+      dependencies: (row) => ({ sessionIds: [(row as ProjectionEventRow).sessionId] }),
+      markRowsAvailable: () => undefined,
     },
     {
       label: 'artifact',
@@ -298,7 +387,11 @@ function projectionStreams(bundle: Bundle): Array<ProjectionStream<unknown>> {
       appendRows: (projection, rows) => {
         projection.artifacts.push(...(rows as ProjectionArtifactRow[]))
       },
-      referencedObjectIds: (row) => [(row as ProjectionArtifactRow).objectId],
+      dependencies: (row) => ({
+        objectIds: [(row as ProjectionArtifactRow).objectId],
+        sessionIds: [(row as ProjectionArtifactRow).sessionId],
+      }),
+      markRowsAvailable: () => undefined,
     },
     {
       label: 'raw-record',
@@ -309,7 +402,11 @@ function projectionStreams(bundle: Bundle): Array<ProjectionStream<unknown>> {
       appendRows: (projection, rows) => {
         projection.rawRecords.push(...(rows as RawRecordRow[]))
       },
-      referencedObjectIds: (row) => [(row as RawRecordRow).objectId],
+      dependencies: (row) => ({
+        objectIds: [(row as RawRecordRow).objectId],
+        sourceFileIds: [(row as RawRecordRow).sourceFileId],
+      }),
+      markRowsAvailable: () => undefined,
     },
     {
       label: 'search-doc',
@@ -320,7 +417,8 @@ function projectionStreams(bundle: Bundle): Array<ProjectionStream<unknown>> {
       appendRows: (projection, rows) => {
         projection.searchDocs.push(...(rows as SearchDocRow[]))
       },
-      referencedObjectIds: () => [],
+      dependencies: (row) => ({ sessionIds: [(row as SearchDocRow).sessionId] }),
+      markRowsAvailable: () => undefined,
     },
     {
       label: 'tool-call',
@@ -331,7 +429,16 @@ function projectionStreams(bundle: Bundle): Array<ProjectionStream<unknown>> {
       appendRows: (projection, rows) => {
         projection.toolCalls.push(...(rows as ProjectionToolCallRow[]))
       },
-      referencedObjectIds: (row) => [(row as ProjectionToolCallRow).inputObjectId],
+      dependencies: (row) => ({
+        objectIds: [(row as ProjectionToolCallRow).inputObjectId],
+        sessionIds: [(row as ProjectionToolCallRow).sessionId],
+      }),
+      markRowsAvailable: (availability, rows) => {
+        addDefinedIds(
+          availability.toolCallIds,
+          (rows as ProjectionToolCallRow[]).map((row) => row.id),
+        )
+      },
     },
     {
       label: 'tool-result',
@@ -342,7 +449,11 @@ function projectionStreams(bundle: Bundle): Array<ProjectionStream<unknown>> {
       appendRows: (projection, rows) => {
         projection.toolResults.push(...(rows as ProjectionToolResultRow[]))
       },
-      referencedObjectIds: (row) => [(row as ProjectionToolResultRow).outputObjectId],
+      dependencies: (row) => ({
+        objectIds: [(row as ProjectionToolResultRow).outputObjectId],
+        toolCallIds: [(row as ProjectionToolResultRow).toolCallId],
+      }),
+      markRowsAvailable: () => undefined,
     },
   ]
 }
@@ -350,9 +461,16 @@ function projectionStreams(bundle: Bundle): Array<ProjectionStream<unknown>> {
 function canPromoteProjectionRow(
   row: unknown,
   stream: ProjectionStream<unknown>,
-  availableObjectIds: Set<string>,
+  availability: ProjectionAvailability,
 ): boolean {
-  return stream.referencedObjectIds(row).every((objectId) => objectId == null || availableObjectIds.has(objectId))
+  const dependencies = stream.dependencies(row)
+  return (
+    idsAvailable(availability.objectIds, dependencies.objectIds) &&
+    idsAvailable(availability.sourceFileIds, dependencies.sourceFileIds) &&
+    idsAvailable(availability.sessionIds, dependencies.sessionIds) &&
+    idsAvailable(availability.messageIds, dependencies.messageIds) &&
+    idsAvailable(availability.toolCallIds, dependencies.toolCallIds)
+  )
 }
 
 function projectionStreamsDone(streams: Array<ProjectionStream<unknown>>): boolean {
@@ -361,7 +479,7 @@ function projectionStreamsDone(streams: Array<ProjectionStream<unknown>>): boole
 
 function fillProjectionBatch(
   streams: Array<ProjectionStream<unknown>>,
-  availableObjectIds: Set<string>,
+  availability: ProjectionAvailability,
   maxRows: number,
 ): ProjectionPayload {
   const projection = emptyProjection()
@@ -382,12 +500,15 @@ function fillProjectionBatch(
           stream.cursor = chunk.nextCursor
         }
         const next = stream.pending[0]
-        if (!canPromoteProjectionRow(next, stream, availableObjectIds)) break
+        if (!canPromoteProjectionRow(next, stream, availability)) break
         rows.push(stream.pending.shift() as unknown)
         remainingRows -= 1
         addedRows += 1
       }
-      if (rows.length > 0) stream.appendRows(projection, rows)
+      if (rows.length > 0) {
+        stream.appendRows(projection, rows)
+        stream.markRowsAvailable(availability, rows)
+      }
       if (remainingRows === 0) break
     }
     if (addedRows === 0) break
@@ -1171,7 +1292,7 @@ export async function promoteChunkedUpload({
     let objectCursor: string | null = null
     let objectCatalogDone = false
     const streams = projectionStreams(bundle)
-    const promotedObjectIds = new Set<string>()
+    const promotedAvailability = emptyProjectionAvailability()
 
     while (true) {
       let casObjects: LocalCasObjectChunk[] = []
@@ -1184,12 +1305,13 @@ export async function promoteChunkedUpload({
       }
 
       const batchObjectIds = casObjects.map(({ entry }) => entry.objectId)
-      const availableObjectIds = new Set([...promotedObjectIds, ...batchObjectIds])
-      const projection = fillProjectionBatch(streams, availableObjectIds, maxRowsPerCommit)
+      const availability = copyProjectionAvailability(promotedAvailability)
+      addDefinedIds(availability.objectIds, batchObjectIds)
+      const projection = fillProjectionBatch(streams, availability, maxRowsPerCommit)
       if (casObjects.length === 0 && projectionRowCount(projection) === 0) {
         if (objectCatalogDone && projectionStreamsDone(streams)) break
         throw new CliUserError(
-          'projection rows reference CAS objects that are not available in the local object catalog',
+          'projection rows reference CAS objects or parent rows that are not available in the local bundle',
         )
       }
 
@@ -1209,7 +1331,8 @@ export async function promoteChunkedUpload({
         checkpoint,
       })
       lastReceipt = promoted.receipt
-      for (const objectId of batchObjectIds) promotedObjectIds.add(objectId)
+      addDefinedIds(promotedAvailability.objectIds, batchObjectIds)
+      addProjectionToAvailability(promotedAvailability, projection)
     }
   }
 
