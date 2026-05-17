@@ -15,28 +15,6 @@ import type { RawExec } from '../../../db.js'
 import { TRPCError } from '../../init.js'
 import { type ProjectionEntityType, stableJson } from './manifest.js'
 
-function normalizeTimestamp(value: unknown): string | null {
-  if (value == null) return null
-  return new Date(String(value)).toISOString()
-}
-
-type FieldCheck =
-  | { kind: 'nullable'; label: string; existing: unknown; incoming: unknown }
-  | { kind: 'json'; label: string; existing: unknown; incoming: unknown }
-  | { kind: 'timestamp'; label: string; existing: unknown; incoming: unknown }
-
-function assertSameField(check: FieldCheck): void {
-  const match =
-    check.kind === 'json'
-      ? stableJson(check.existing ?? null) === stableJson(check.incoming ?? null)
-      : check.kind === 'timestamp'
-        ? normalizeTimestamp(check.existing) === normalizeTimestamp(check.incoming)
-        : (check.existing ?? null) === (check.incoming ?? null)
-  if (!match) {
-    throw new TRPCError({ code: 'CONFLICT', message: `Conflicting ${check.label}` })
-  }
-}
-
 function normalizeRawRecordPayload(payload: unknown): unknown {
   if (payload == null || typeof payload !== 'object' || Array.isArray(payload)) {
     return payload ?? null
@@ -45,34 +23,82 @@ function normalizeRawRecordPayload(payload: unknown): unknown {
   return stablePayload
 }
 
-/**
- * Idempotent upsert: if a row with the given primary key already exists, every
- * declared field must match (otherwise we throw CONFLICT). If no row exists,
- * the insert runs. Centralizing this lets each entity hand off its select
- * columns and equality predicates without re-implementing the dance.
- */
-async function insertOrVerifyRow<TRow extends Record<string, unknown>>(opts: {
-  rawExec: RawExec
-  table: string
-  selectColumns: string
-  tenantId: string
-  id: string
-  buildChecks: (existing: TRow) => FieldCheck[]
-  insertSql: string
-  insertParams: unknown[]
-}): Promise<void> {
-  const existing = await opts.rawExec<TRow>(
-    `SELECT ${opts.selectColumns} FROM "${opts.table}" WHERE tenant_id = $1 AND id = $2 LIMIT 1`,
-    [opts.tenantId, opts.id],
-  )
-  const row = existing[0]
-  if (row) {
-    for (const check of opts.buildChecks(row)) {
-      assertSameField(check)
+function normalizeNullable(value: unknown): string | null {
+  return value == null ? null : String(value)
+}
+
+function normalizeInteger(value: unknown): number {
+  return Number(value)
+}
+
+function normalizeBigIntString(value: unknown): string | null {
+  if (value == null) return null
+  return BigInt(value as string | number | bigint).toString()
+}
+
+function normalizeJson(value: unknown): string {
+  if (value == null) return 'null'
+  if (typeof value === 'string') {
+    try {
+      return stableJson(JSON.parse(value))
+    } catch {
+      return stableJson(value)
     }
-    return
   }
-  await opts.rawExec(opts.insertSql, opts.insertParams)
+  return stableJson(value)
+}
+
+function normalizeTimestamp(value: unknown): string | null {
+  if (value == null) return null
+  const date = value instanceof Date ? value : new Date(String(value))
+  return date.toISOString()
+}
+
+function assertProjectionRowsMatch({
+  table,
+  id,
+  actual,
+  expected,
+}: {
+  table: string
+  id: string
+  actual: Record<string, unknown> | undefined
+  expected: Record<string, unknown>
+}): void {
+  if (!actual) {
+    throw new TRPCError({ code: 'CONFLICT', message: `Projection row missing after insert: ${table}/${id}` })
+  }
+  if (stableJson(actual) !== stableJson(expected)) {
+    throw new TRPCError({
+      code: 'CONFLICT',
+      message: table === 'raw_record' ? 'Conflicting raw record payload' : `Conflicting projection row: ${table}/${id}`,
+    })
+  }
+}
+
+async function verifyProjectionRows<Row, StoredRow extends { id: string }>(opts: {
+  rawExec: RawExec
+  tenantId: string
+  table: string
+  ids: string[]
+  selectSql: string
+  expected: (row: Row) => Record<string, unknown>
+  actual: (row: StoredRow) => Record<string, unknown>
+  items: Row[]
+  itemId: (row: Row) => string
+}): Promise<void> {
+  const stored = await opts.rawExec<StoredRow>(opts.selectSql, [opts.tenantId, opts.ids])
+  const storedById = new Map(stored.map((row) => [row.id, row]))
+  for (const item of opts.items) {
+    const id = opts.itemId(item)
+    const storedRow = storedById.get(id)
+    assertProjectionRowsMatch({
+      table: opts.table,
+      id,
+      actual: storedRow ? opts.actual(storedRow) : undefined,
+      expected: opts.expected(item),
+    })
+  }
 }
 
 export function countProjectionRows(projection: ProjectionPayload): number {
@@ -92,513 +118,675 @@ export function countProjectionRows(projection: ProjectionPayload): number {
   )
 }
 
-type ProjectionManifestEntry = {
-  entityType: ProjectionEntityType
-  entityId: string
-}
+// ---------------------------------------------------------------------------
+// Bulk manifest insert
+// ---------------------------------------------------------------------------
 
-function projectionManifestEntries(projection: ProjectionPayload): ProjectionManifestEntry[] {
-  return [
-    ...projection.sessions.map((row) => ({ entityType: 'session' as const, entityId: row.id })),
-    ...projection.sourceFiles.map((row) => ({ entityType: 'source_file' as const, entityId: row.id })),
-    ...projection.rawRecords.map((row) => ({ entityType: 'raw_record' as const, entityId: row.id })),
-    ...projection.searchDocs.map((row) => ({ entityType: 'search_doc' as const, entityId: row.id })),
-    ...projection.toolCalls.map((row) => ({ entityType: 'tool_call' as const, entityId: row.id })),
-    ...projection.toolResults.map((row) => ({ entityType: 'tool_result' as const, entityId: row.id })),
-    ...projection.messages.map((row) => ({ entityType: 'message' as const, entityId: row.id })),
-    ...projection.contentBlocks.map((row) => ({ entityType: 'content_block' as const, entityId: row.id })),
-    ...projection.events.map((row) => ({ entityType: 'event' as const, entityId: row.id })),
-    ...projection.artifacts.map((row) => ({ entityType: 'artifact' as const, entityId: row.id })),
-  ]
-}
-
-async function insertProjectionManifestBulk(opts: {
+async function bulkInsertProjectionManifest(opts: {
   rawExec: RawExec
   tenantId: string
   batchId: string
-  entries: ProjectionManifestEntry[]
+  entityType: ProjectionEntityType
+  entityIds: string[]
 }): Promise<void> {
-  if (opts.entries.length === 0) return
+  if (opts.entityIds.length === 0) return
   await opts.rawExec(
     `INSERT INTO "sync_batch_projection_manifest"(batch_id, tenant_id, entity_type, entity_id)
-     SELECT $1, $2, input.entity_type, input.entity_id
-       FROM unnest($3::text[], $4::text[]) AS input(entity_type, entity_id)`,
-    [
-      opts.batchId,
-      opts.tenantId,
-      opts.entries.map((entry) => entry.entityType),
-      opts.entries.map((entry) => entry.entityId),
-    ],
+     SELECT $1, $2, $3, t.entity_id
+       FROM unnest($4::text[]) AS t(entity_id)
+     ON CONFLICT (batch_id, tenant_id, entity_type, entity_id) DO NOTHING`,
+    [opts.batchId, opts.tenantId, opts.entityType, opts.entityIds],
   )
 }
 
-async function insertSessionRow(opts: {
+// ---------------------------------------------------------------------------
+// Bulk entity row upserts
+// ---------------------------------------------------------------------------
+
+async function bulkInsertSessionRows(opts: {
   rawExec: RawExec
   tenantId: string
-  session: ProjectionSessionRow
+  items: ProjectionSessionRow[]
 }): Promise<void> {
-  const { rawExec, tenantId, session } = opts
-  await insertOrVerifyRow<{
-    source_kind: string
-    project_id: string | null
-    title: string | null
-    started_at: unknown
-    ended_at: unknown
-    turn_count: number
-    metadata: unknown
-  }>({
-    rawExec,
+  if (opts.items.length === 0) return
+  await opts.rawExec(
+    `INSERT INTO "projection_session"(tenant_id, id, source_kind, project_id, title, started_at, ended_at, turn_count, metadata)
+     SELECT $1, t.id, t.source_kind, t.project_id, t.title,
+            t.started_at::timestamptz, t.ended_at::timestamptz,
+            t.turn_count::int, t.metadata::jsonb
+       FROM unnest(
+         $2::text[],
+         $3::text[],
+         $4::text[],
+         $5::text[],
+         $6::text[],
+         $7::text[],
+         $8::int[],
+         $9::text[]
+       ) AS t(id, source_kind, project_id, title, started_at, ended_at, turn_count, metadata)
+     ON CONFLICT (tenant_id, id) DO NOTHING`,
+    [
+      opts.tenantId,
+      opts.items.map((s) => s.id),
+      opts.items.map((s) => s.sourceKind),
+      opts.items.map((s) => s.projectId ?? null),
+      opts.items.map((s) => s.title ?? null),
+      opts.items.map((s) => s.startedAt ?? null),
+      opts.items.map((s) => s.endedAt ?? null),
+      opts.items.map((s) => s.turnCount),
+      opts.items.map((s) => (s.metadata != null ? JSON.stringify(s.metadata) : null)),
+    ],
+  )
+  await verifyProjectionRows<
+    ProjectionSessionRow,
+    {
+      id: string
+      source_kind: string
+      project_id: string | null
+      title: string | null
+      started_at: Date | string | null
+      ended_at: Date | string | null
+      turn_count: string | number
+      metadata: unknown
+    }
+  >({
+    rawExec: opts.rawExec,
+    tenantId: opts.tenantId,
     table: 'projection_session',
-    selectColumns: 'source_kind, project_id, title, started_at, ended_at, turn_count, metadata',
-    tenantId,
-    id: session.id,
-    buildChecks: (row) => [
-      { kind: 'nullable', label: 'session sourceKind', existing: row.source_kind, incoming: session.sourceKind },
-      { kind: 'nullable', label: 'session projectId', existing: row.project_id, incoming: session.projectId ?? null },
-      { kind: 'nullable', label: 'session title', existing: row.title, incoming: session.title ?? null },
-      { kind: 'timestamp', label: 'session startedAt', existing: row.started_at, incoming: session.startedAt ?? null },
-      { kind: 'timestamp', label: 'session endedAt', existing: row.ended_at, incoming: session.endedAt ?? null },
-      { kind: 'nullable', label: 'session turnCount', existing: row.turn_count, incoming: session.turnCount },
-      { kind: 'json', label: 'session metadata', existing: row.metadata, incoming: session.metadata ?? null },
-    ],
-    insertSql: `INSERT INTO "projection_session"(tenant_id, id, source_kind, project_id, title, started_at, ended_at, turn_count, metadata)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)`,
-    insertParams: [
-      tenantId,
-      session.id,
-      session.sourceKind,
-      session.projectId ?? null,
-      session.title ?? null,
-      session.startedAt ?? null,
-      session.endedAt ?? null,
-      session.turnCount,
-      session.metadata ? JSON.stringify(session.metadata) : null,
-    ],
+    ids: opts.items.map((s) => s.id),
+    selectSql:
+      'SELECT id, source_kind, project_id, title, started_at, ended_at, turn_count, metadata FROM "projection_session" WHERE tenant_id = $1 AND id = ANY($2::text[])',
+    items: opts.items,
+    itemId: (s) => s.id,
+    expected: (s) => ({
+      source_kind: s.sourceKind,
+      project_id: normalizeNullable(s.projectId),
+      title: normalizeNullable(s.title),
+      started_at: normalizeTimestamp(s.startedAt),
+      ended_at: normalizeTimestamp(s.endedAt),
+      turn_count: s.turnCount,
+      metadata: normalizeJson(s.metadata),
+    }),
+    actual: (row) => ({
+      source_kind: row.source_kind,
+      project_id: normalizeNullable(row.project_id),
+      title: normalizeNullable(row.title),
+      started_at: normalizeTimestamp(row.started_at),
+      ended_at: normalizeTimestamp(row.ended_at),
+      turn_count: normalizeInteger(row.turn_count),
+      metadata: normalizeJson(row.metadata),
+    }),
   })
 }
 
-async function insertSourceFileRow(opts: {
+async function bulkInsertSourceFileRows(opts: {
   rawExec: RawExec
   tenantId: string
-  sourceFile: SourceFileRow
+  items: SourceFileRow[]
 }): Promise<void> {
-  const { rawExec, tenantId, sourceFile } = opts
-  await insertOrVerifyRow<{
-    source_kind: string
-    path: string
-    object_id: string | null
-    metadata: unknown
-  }>({
-    rawExec,
+  if (opts.items.length === 0) return
+  await opts.rawExec(
+    `INSERT INTO "source_file"(tenant_id, id, source_kind, path, object_id, metadata)
+     SELECT $1, t.id, t.source_kind, t.path, t.object_id, t.metadata::jsonb
+       FROM unnest(
+         $2::text[],
+         $3::text[],
+         $4::text[],
+         $5::text[],
+         $6::text[]
+       ) AS t(id, source_kind, path, object_id, metadata)
+     ON CONFLICT (tenant_id, id) DO NOTHING`,
+    [
+      opts.tenantId,
+      opts.items.map((f) => f.id),
+      opts.items.map((f) => f.sourceKind),
+      opts.items.map((f) => f.path),
+      opts.items.map((f) => f.objectId ?? null),
+      opts.items.map((f) => (f.metadata != null ? JSON.stringify(f.metadata) : null)),
+    ],
+  )
+  await verifyProjectionRows<
+    SourceFileRow,
+    {
+      id: string
+      source_kind: string
+      path: string
+      object_id: string | null
+      metadata: unknown
+    }
+  >({
+    rawExec: opts.rawExec,
+    tenantId: opts.tenantId,
     table: 'source_file',
-    selectColumns: 'source_kind, path, object_id, metadata',
-    tenantId,
-    id: sourceFile.id,
-    buildChecks: (row) => [
-      { kind: 'nullable', label: 'source file sourceKind', existing: row.source_kind, incoming: sourceFile.sourceKind },
-      { kind: 'nullable', label: 'source file path', existing: row.path, incoming: sourceFile.path },
-      {
-        kind: 'nullable',
-        label: 'source file objectId',
-        existing: row.object_id,
-        incoming: sourceFile.objectId ?? null,
-      },
-      { kind: 'json', label: 'source file metadata', existing: row.metadata, incoming: sourceFile.metadata ?? null },
-    ],
-    insertSql: `INSERT INTO "source_file"(tenant_id, id, source_kind, path, object_id, metadata)
-     VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,
-    insertParams: [
-      tenantId,
-      sourceFile.id,
-      sourceFile.sourceKind,
-      sourceFile.path,
-      sourceFile.objectId ?? null,
-      sourceFile.metadata ? JSON.stringify(sourceFile.metadata) : null,
-    ],
+    ids: opts.items.map((f) => f.id),
+    selectSql:
+      'SELECT id, source_kind, path, object_id, metadata FROM "source_file" WHERE tenant_id = $1 AND id = ANY($2::text[])',
+    items: opts.items,
+    itemId: (f) => f.id,
+    expected: (f) => ({
+      source_kind: f.sourceKind,
+      path: f.path,
+      object_id: normalizeNullable(f.objectId),
+      metadata: normalizeJson(f.metadata),
+    }),
+    actual: (row) => ({
+      source_kind: row.source_kind,
+      path: row.path,
+      object_id: normalizeNullable(row.object_id),
+      metadata: normalizeJson(row.metadata),
+    }),
   })
 }
 
-async function insertRawRecordRow(opts: {
+async function bulkInsertRawRecordRows(opts: {
   rawExec: RawExec
   tenantId: string
-  rawRecord: RawRecordRow
+  items: RawRecordRow[]
 }): Promise<void> {
-  const { rawExec, tenantId, rawRecord } = opts
-  const stablePayload = normalizeRawRecordPayload(rawRecord.payload ?? null)
-  await insertOrVerifyRow<{
-    source_file_id: string
-    sequence: number
-    payload: unknown
-    object_id: string | null
-  }>({
-    rawExec,
+  if (opts.items.length === 0) return
+  await opts.rawExec(
+    `INSERT INTO "raw_record"(tenant_id, id, source_file_id, sequence, payload, object_id)
+     SELECT $1, t.id, t.source_file_id, t.sequence::int, t.payload::jsonb, t.object_id
+       FROM unnest(
+         $2::text[],
+         $3::text[],
+         $4::int[],
+         $5::text[],
+         $6::text[]
+       ) AS t(id, source_file_id, sequence, payload, object_id)
+     ON CONFLICT (tenant_id, id) DO NOTHING`,
+    [
+      opts.tenantId,
+      opts.items.map((r) => r.id),
+      opts.items.map((r) => r.sourceFileId),
+      opts.items.map((r) => r.sequence),
+      opts.items.map((r) => JSON.stringify(normalizeRawRecordPayload(r.payload ?? null))),
+      opts.items.map((r) => r.objectId ?? null),
+    ],
+  )
+  await verifyProjectionRows<
+    RawRecordRow,
+    {
+      id: string
+      source_file_id: string
+      sequence: string | number
+      payload: unknown
+      object_id: string | null
+    }
+  >({
+    rawExec: opts.rawExec,
+    tenantId: opts.tenantId,
     table: 'raw_record',
-    selectColumns: 'source_file_id, sequence, payload, object_id',
-    tenantId,
-    id: rawRecord.id,
-    buildChecks: (row) => [
-      {
-        kind: 'nullable',
-        label: 'raw record sourceFileId',
-        existing: row.source_file_id,
-        incoming: rawRecord.sourceFileId,
-      },
-      { kind: 'nullable', label: 'raw record sequence', existing: row.sequence, incoming: rawRecord.sequence },
-      {
-        kind: 'json',
-        label: 'raw record payload',
-        existing: normalizeRawRecordPayload(row.payload),
-        incoming: stablePayload,
-      },
-      { kind: 'nullable', label: 'raw record objectId', existing: row.object_id, incoming: rawRecord.objectId ?? null },
-    ],
-    insertSql: `INSERT INTO "raw_record"(tenant_id, id, source_file_id, sequence, payload, object_id)
-     VALUES ($1, $2, $3, $4, $5::jsonb, $6)`,
-    insertParams: [
-      tenantId,
-      rawRecord.id,
-      rawRecord.sourceFileId,
-      rawRecord.sequence,
-      JSON.stringify(stablePayload),
-      rawRecord.objectId ?? null,
-    ],
+    ids: opts.items.map((r) => r.id),
+    selectSql:
+      'SELECT id, source_file_id, sequence, payload, object_id FROM "raw_record" WHERE tenant_id = $1 AND id = ANY($2::text[])',
+    items: opts.items,
+    itemId: (r) => r.id,
+    expected: (r) => ({
+      source_file_id: r.sourceFileId,
+      sequence: r.sequence,
+      payload: normalizeJson(normalizeRawRecordPayload(r.payload ?? null)),
+      object_id: normalizeNullable(r.objectId),
+    }),
+    actual: (row) => ({
+      source_file_id: row.source_file_id,
+      sequence: normalizeInteger(row.sequence),
+      payload: normalizeJson(normalizeRawRecordPayload(row.payload)),
+      object_id: normalizeNullable(row.object_id),
+    }),
   })
 }
 
-async function insertSearchDocRow(opts: {
+async function bulkInsertSearchDocRows(opts: {
   rawExec: RawExec
   tenantId: string
-  searchDoc: SearchDocRow
+  items: SearchDocRow[]
 }): Promise<void> {
-  const { rawExec, tenantId, searchDoc } = opts
-  await insertOrVerifyRow<{ session_id: string; kind: string; body: string }>({
-    rawExec,
+  if (opts.items.length === 0) return
+  await opts.rawExec(
+    `INSERT INTO "search_doc"(tenant_id, id, session_id, kind, body)
+     SELECT $1, t.id, t.session_id, t.kind, t.body
+       FROM unnest(
+         $2::text[],
+         $3::text[],
+         $4::text[],
+         $5::text[]
+       ) AS t(id, session_id, kind, body)
+     ON CONFLICT (tenant_id, id) DO NOTHING`,
+    [
+      opts.tenantId,
+      opts.items.map((d) => d.id),
+      opts.items.map((d) => d.sessionId),
+      opts.items.map((d) => d.kind),
+      opts.items.map((d) => d.body),
+    ],
+  )
+  await verifyProjectionRows<
+    SearchDocRow,
+    {
+      id: string
+      session_id: string
+      kind: string
+      body: string
+    }
+  >({
+    rawExec: opts.rawExec,
+    tenantId: opts.tenantId,
     table: 'search_doc',
-    selectColumns: 'session_id, kind, body',
-    tenantId,
-    id: searchDoc.id,
-    buildChecks: (row) => [
-      { kind: 'nullable', label: 'search doc sessionId', existing: row.session_id, incoming: searchDoc.sessionId },
-      { kind: 'nullable', label: 'search doc kind', existing: row.kind, incoming: searchDoc.kind },
-      { kind: 'nullable', label: 'search doc body', existing: row.body, incoming: searchDoc.body },
-    ],
-    insertSql: `INSERT INTO "search_doc"(tenant_id, id, session_id, kind, body)
-     VALUES ($1, $2, $3, $4, $5)`,
-    insertParams: [tenantId, searchDoc.id, searchDoc.sessionId, searchDoc.kind, searchDoc.body],
+    ids: opts.items.map((d) => d.id),
+    selectSql: 'SELECT id, session_id, kind, body FROM "search_doc" WHERE tenant_id = $1 AND id = ANY($2::text[])',
+    items: opts.items,
+    itemId: (d) => d.id,
+    expected: (d) => ({
+      session_id: d.sessionId,
+      kind: d.kind,
+      body: d.body,
+    }),
+    actual: (row) => ({
+      session_id: row.session_id,
+      kind: row.kind,
+      body: row.body,
+    }),
   })
 }
 
-async function insertToolCallRow(opts: {
+async function bulkInsertToolCallRows(opts: {
   rawExec: RawExec
   tenantId: string
-  toolCall: ProjectionToolCallRow
+  items: ProjectionToolCallRow[]
 }): Promise<void> {
-  const { rawExec, tenantId, toolCall } = opts
-  await insertOrVerifyRow<{
-    session_id: string
-    turn_id: string | null
-    name: string
-    status: string | null
-    input_object_id: string | null
-    created_at: unknown
-  }>({
-    rawExec,
+  if (opts.items.length === 0) return
+  await opts.rawExec(
+    `INSERT INTO "projection_tool_call"(tenant_id, id, session_id, turn_id, name, status, input_object_id, created_at)
+     SELECT $1, t.id, t.session_id, t.turn_id, t.name, t.status, t.input_object_id, t.created_at::timestamptz
+       FROM unnest(
+         $2::text[],
+         $3::text[],
+         $4::text[],
+         $5::text[],
+         $6::text[],
+         $7::text[],
+         $8::text[]
+       ) AS t(id, session_id, turn_id, name, status, input_object_id, created_at)
+     ON CONFLICT (tenant_id, id) DO NOTHING`,
+    [
+      opts.tenantId,
+      opts.items.map((tc) => tc.id),
+      opts.items.map((tc) => tc.sessionId),
+      opts.items.map((tc) => tc.turnId ?? null),
+      opts.items.map((tc) => tc.name),
+      opts.items.map((tc) => tc.status ?? null),
+      opts.items.map((tc) => tc.inputObjectId ?? null),
+      opts.items.map((tc) => tc.createdAt ?? null),
+    ],
+  )
+  await verifyProjectionRows<
+    ProjectionToolCallRow,
+    {
+      id: string
+      session_id: string
+      turn_id: string | null
+      name: string
+      status: string | null
+      input_object_id: string | null
+      created_at: Date | string | null
+    }
+  >({
+    rawExec: opts.rawExec,
+    tenantId: opts.tenantId,
     table: 'projection_tool_call',
-    selectColumns: 'session_id, turn_id, name, status, input_object_id, created_at',
-    tenantId,
-    id: toolCall.id,
-    buildChecks: (row) => [
-      { kind: 'nullable', label: 'tool call sessionId', existing: row.session_id, incoming: toolCall.sessionId },
-      { kind: 'nullable', label: 'tool call turnId', existing: row.turn_id, incoming: toolCall.turnId ?? null },
-      { kind: 'nullable', label: 'tool call name', existing: row.name, incoming: toolCall.name },
-      { kind: 'nullable', label: 'tool call status', existing: row.status, incoming: toolCall.status ?? null },
-      {
-        kind: 'nullable',
-        label: 'tool call inputObjectId',
-        existing: row.input_object_id,
-        incoming: toolCall.inputObjectId ?? null,
-      },
-      {
-        kind: 'timestamp',
-        label: 'tool call createdAt',
-        existing: row.created_at,
-        incoming: toolCall.createdAt ?? null,
-      },
-    ],
-    insertSql: `INSERT INTO "projection_tool_call"(tenant_id, id, session_id, turn_id, name, status, input_object_id, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-    insertParams: [
-      tenantId,
-      toolCall.id,
-      toolCall.sessionId,
-      toolCall.turnId ?? null,
-      toolCall.name,
-      toolCall.status ?? null,
-      toolCall.inputObjectId ?? null,
-      toolCall.createdAt ?? null,
-    ],
+    ids: opts.items.map((tc) => tc.id),
+    selectSql:
+      'SELECT id, session_id, turn_id, name, status, input_object_id, created_at FROM "projection_tool_call" WHERE tenant_id = $1 AND id = ANY($2::text[])',
+    items: opts.items,
+    itemId: (tc) => tc.id,
+    expected: (tc) => ({
+      session_id: tc.sessionId,
+      turn_id: normalizeNullable(tc.turnId),
+      name: tc.name,
+      status: normalizeNullable(tc.status),
+      input_object_id: normalizeNullable(tc.inputObjectId),
+      created_at: normalizeTimestamp(tc.createdAt),
+    }),
+    actual: (row) => ({
+      session_id: row.session_id,
+      turn_id: normalizeNullable(row.turn_id),
+      name: row.name,
+      status: normalizeNullable(row.status),
+      input_object_id: normalizeNullable(row.input_object_id),
+      created_at: normalizeTimestamp(row.created_at),
+    }),
   })
 }
 
-async function insertToolResultRow(opts: {
+async function bulkInsertToolResultRows(opts: {
   rawExec: RawExec
   tenantId: string
-  toolResult: ProjectionToolResultRow
+  items: ProjectionToolResultRow[]
 }): Promise<void> {
-  const { rawExec, tenantId, toolResult } = opts
-  await insertOrVerifyRow<{
-    tool_call_id: string
-    output_object_id: string | null
-    status: string | null
-    finished_at: unknown
-  }>({
-    rawExec,
+  if (opts.items.length === 0) return
+  await opts.rawExec(
+    `INSERT INTO "projection_tool_result"(tenant_id, id, tool_call_id, output_object_id, status, finished_at)
+     SELECT $1, t.id, t.tool_call_id, t.output_object_id, t.status, t.finished_at::timestamptz
+       FROM unnest(
+         $2::text[],
+         $3::text[],
+         $4::text[],
+         $5::text[],
+         $6::text[]
+       ) AS t(id, tool_call_id, output_object_id, status, finished_at)
+     ON CONFLICT (tenant_id, id) DO NOTHING`,
+    [
+      opts.tenantId,
+      opts.items.map((tr) => tr.id),
+      opts.items.map((tr) => tr.toolCallId),
+      opts.items.map((tr) => tr.outputObjectId ?? null),
+      opts.items.map((tr) => tr.status ?? null),
+      opts.items.map((tr) => tr.finishedAt ?? null),
+    ],
+  )
+  await verifyProjectionRows<
+    ProjectionToolResultRow,
+    {
+      id: string
+      tool_call_id: string
+      output_object_id: string | null
+      status: string | null
+      finished_at: Date | string | null
+    }
+  >({
+    rawExec: opts.rawExec,
+    tenantId: opts.tenantId,
     table: 'projection_tool_result',
-    selectColumns: 'tool_call_id, output_object_id, status, finished_at',
-    tenantId,
-    id: toolResult.id,
-    buildChecks: (row) => [
-      {
-        kind: 'nullable',
-        label: 'tool result toolCallId',
-        existing: row.tool_call_id,
-        incoming: toolResult.toolCallId,
-      },
-      {
-        kind: 'nullable',
-        label: 'tool result outputObjectId',
-        existing: row.output_object_id,
-        incoming: toolResult.outputObjectId ?? null,
-      },
-      { kind: 'nullable', label: 'tool result status', existing: row.status, incoming: toolResult.status ?? null },
-      {
-        kind: 'timestamp',
-        label: 'tool result finishedAt',
-        existing: row.finished_at,
-        incoming: toolResult.finishedAt ?? null,
-      },
-    ],
-    insertSql: `INSERT INTO "projection_tool_result"(tenant_id, id, tool_call_id, output_object_id, status, finished_at)
-     VALUES ($1, $2, $3, $4, $5, $6)`,
-    insertParams: [
-      tenantId,
-      toolResult.id,
-      toolResult.toolCallId,
-      toolResult.outputObjectId ?? null,
-      toolResult.status ?? null,
-      toolResult.finishedAt ?? null,
-    ],
+    ids: opts.items.map((tr) => tr.id),
+    selectSql:
+      'SELECT id, tool_call_id, output_object_id, status, finished_at FROM "projection_tool_result" WHERE tenant_id = $1 AND id = ANY($2::text[])',
+    items: opts.items,
+    itemId: (tr) => tr.id,
+    expected: (tr) => ({
+      tool_call_id: tr.toolCallId,
+      output_object_id: normalizeNullable(tr.outputObjectId),
+      status: normalizeNullable(tr.status),
+      finished_at: normalizeTimestamp(tr.finishedAt),
+    }),
+    actual: (row) => ({
+      tool_call_id: row.tool_call_id,
+      output_object_id: normalizeNullable(row.output_object_id),
+      status: normalizeNullable(row.status),
+      finished_at: normalizeTimestamp(row.finished_at),
+    }),
   })
 }
 
-async function insertMessageRow(opts: {
+async function bulkInsertMessageRows(opts: {
   rawExec: RawExec
   tenantId: string
-  message: ProjectionMessageRow
+  items: ProjectionMessageRow[]
 }): Promise<void> {
-  const { rawExec, tenantId, message } = opts
-  await insertOrVerifyRow<{
-    session_id: string
-    turn_id: string | null
-    role: string
-    model: string | null
-    created_at: unknown
-  }>({
-    rawExec,
+  if (opts.items.length === 0) return
+  await opts.rawExec(
+    `INSERT INTO "projection_message"(tenant_id, id, session_id, turn_id, role, model, created_at)
+     SELECT $1, t.id, t.session_id, t.turn_id, t.role, t.model, t.created_at::timestamptz
+       FROM unnest(
+         $2::text[],
+         $3::text[],
+         $4::text[],
+         $5::text[],
+         $6::text[],
+         $7::text[]
+       ) AS t(id, session_id, turn_id, role, model, created_at)
+     ON CONFLICT (tenant_id, id) DO NOTHING`,
+    [
+      opts.tenantId,
+      opts.items.map((m) => m.id),
+      opts.items.map((m) => m.sessionId),
+      opts.items.map((m) => m.turnId ?? null),
+      opts.items.map((m) => m.role),
+      opts.items.map((m) => m.model ?? null),
+      opts.items.map((m) => m.createdAt ?? null),
+    ],
+  )
+  await verifyProjectionRows<
+    ProjectionMessageRow,
+    {
+      id: string
+      session_id: string
+      turn_id: string | null
+      role: string
+      model: string | null
+      created_at: Date | string | null
+    }
+  >({
+    rawExec: opts.rawExec,
+    tenantId: opts.tenantId,
     table: 'projection_message',
-    selectColumns: 'session_id, turn_id, role, model, created_at',
-    tenantId,
-    id: message.id,
-    buildChecks: (row) => [
-      { kind: 'nullable', label: 'message sessionId', existing: row.session_id, incoming: message.sessionId },
-      { kind: 'nullable', label: 'message turnId', existing: row.turn_id, incoming: message.turnId ?? null },
-      { kind: 'nullable', label: 'message role', existing: row.role, incoming: message.role },
-      { kind: 'nullable', label: 'message model', existing: row.model, incoming: message.model ?? null },
-      {
-        kind: 'timestamp',
-        label: 'message createdAt',
-        existing: row.created_at,
-        incoming: message.createdAt ?? null,
-      },
-    ],
-    insertSql: `INSERT INTO "projection_message"(tenant_id, id, session_id, turn_id, role, model, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-    insertParams: [
-      tenantId,
-      message.id,
-      message.sessionId,
-      message.turnId ?? null,
-      message.role,
-      message.model ?? null,
-      message.createdAt ?? null,
-    ],
+    ids: opts.items.map((m) => m.id),
+    selectSql:
+      'SELECT id, session_id, turn_id, role, model, created_at FROM "projection_message" WHERE tenant_id = $1 AND id = ANY($2::text[])',
+    items: opts.items,
+    itemId: (m) => m.id,
+    expected: (m) => ({
+      session_id: m.sessionId,
+      turn_id: normalizeNullable(m.turnId),
+      role: m.role,
+      model: normalizeNullable(m.model),
+      created_at: normalizeTimestamp(m.createdAt),
+    }),
+    actual: (row) => ({
+      session_id: row.session_id,
+      turn_id: normalizeNullable(row.turn_id),
+      role: row.role,
+      model: normalizeNullable(row.model),
+      created_at: normalizeTimestamp(row.created_at),
+    }),
   })
 }
 
-async function insertContentBlockRow(opts: {
+async function bulkInsertContentBlockRows(opts: {
   rawExec: RawExec
   tenantId: string
-  contentBlock: ProjectionContentBlockRow
+  items: ProjectionContentBlockRow[]
 }): Promise<void> {
-  const { rawExec, tenantId, contentBlock } = opts
-  await insertOrVerifyRow<{
-    message_id: string
-    sequence: number
-    kind: string
-    text: string | null
-    object_id: string | null
-    metadata: unknown
-  }>({
-    rawExec,
+  if (opts.items.length === 0) return
+  await opts.rawExec(
+    `INSERT INTO "projection_content_block"(tenant_id, id, message_id, sequence, kind, text, object_id, metadata)
+     SELECT $1, t.id, t.message_id, t.sequence::int, t.kind, t.text, t.object_id, t.metadata::jsonb
+       FROM unnest(
+         $2::text[],
+         $3::text[],
+         $4::int[],
+         $5::text[],
+         $6::text[],
+         $7::text[],
+         $8::text[]
+       ) AS t(id, message_id, sequence, kind, text, object_id, metadata)
+     ON CONFLICT (tenant_id, id) DO NOTHING`,
+    [
+      opts.tenantId,
+      opts.items.map((cb) => cb.id),
+      opts.items.map((cb) => cb.messageId),
+      opts.items.map((cb) => cb.sequence),
+      opts.items.map((cb) => cb.kind),
+      opts.items.map((cb) => cb.text ?? null),
+      opts.items.map((cb) => cb.objectId ?? null),
+      opts.items.map((cb) => (cb.metadata != null ? JSON.stringify(cb.metadata) : null)),
+    ],
+  )
+  await verifyProjectionRows<
+    ProjectionContentBlockRow,
+    {
+      id: string
+      message_id: string
+      sequence: string | number
+      kind: string
+      text: string | null
+      object_id: string | null
+      metadata: unknown
+    }
+  >({
+    rawExec: opts.rawExec,
+    tenantId: opts.tenantId,
     table: 'projection_content_block',
-    selectColumns: 'message_id, sequence, kind, text, object_id, metadata',
-    tenantId,
-    id: contentBlock.id,
-    buildChecks: (row) => [
-      {
-        kind: 'nullable',
-        label: 'content block messageId',
-        existing: row.message_id,
-        incoming: contentBlock.messageId,
-      },
-      { kind: 'nullable', label: 'content block sequence', existing: row.sequence, incoming: contentBlock.sequence },
-      { kind: 'nullable', label: 'content block kind', existing: row.kind, incoming: contentBlock.kind },
-      { kind: 'nullable', label: 'content block text', existing: row.text, incoming: contentBlock.text ?? null },
-      {
-        kind: 'nullable',
-        label: 'content block objectId',
-        existing: row.object_id,
-        incoming: contentBlock.objectId ?? null,
-      },
-      {
-        kind: 'json',
-        label: 'content block metadata',
-        existing: row.metadata,
-        incoming: contentBlock.metadata ?? null,
-      },
-    ],
-    insertSql: `INSERT INTO "projection_content_block"(tenant_id, id, message_id, sequence, kind, text, object_id, metadata)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)`,
-    insertParams: [
-      tenantId,
-      contentBlock.id,
-      contentBlock.messageId,
-      contentBlock.sequence,
-      contentBlock.kind,
-      contentBlock.text ?? null,
-      contentBlock.objectId ?? null,
-      contentBlock.metadata ? JSON.stringify(contentBlock.metadata) : null,
-    ],
+    ids: opts.items.map((cb) => cb.id),
+    selectSql:
+      'SELECT id, message_id, sequence, kind, text, object_id, metadata FROM "projection_content_block" WHERE tenant_id = $1 AND id = ANY($2::text[])',
+    items: opts.items,
+    itemId: (cb) => cb.id,
+    expected: (cb) => ({
+      message_id: cb.messageId,
+      sequence: cb.sequence,
+      kind: cb.kind,
+      text: normalizeNullable(cb.text),
+      object_id: normalizeNullable(cb.objectId),
+      metadata: normalizeJson(cb.metadata),
+    }),
+    actual: (row) => ({
+      message_id: row.message_id,
+      sequence: normalizeInteger(row.sequence),
+      kind: row.kind,
+      text: normalizeNullable(row.text),
+      object_id: normalizeNullable(row.object_id),
+      metadata: normalizeJson(row.metadata),
+    }),
   })
 }
 
-async function insertEventRow(opts: {
+async function bulkInsertEventRows(opts: {
   rawExec: RawExec
   tenantId: string
-  event: ProjectionEventRow
+  items: ProjectionEventRow[]
 }): Promise<void> {
-  const { rawExec, tenantId, event } = opts
-  await insertOrVerifyRow<{
-    session_id: string
-    turn_id: string | null
-    sequence: number
-    kind: string
-    payload: unknown
-    occurred_at: unknown
-  }>({
-    rawExec,
+  if (opts.items.length === 0) return
+  await opts.rawExec(
+    `INSERT INTO "projection_event"(tenant_id, id, session_id, turn_id, sequence, kind, payload, occurred_at)
+     SELECT $1, t.id, t.session_id, t.turn_id, t.sequence::int, t.kind, t.payload::jsonb, t.occurred_at::timestamptz
+       FROM unnest(
+         $2::text[],
+         $3::text[],
+         $4::text[],
+         $5::int[],
+         $6::text[],
+         $7::text[],
+         $8::text[]
+       ) AS t(id, session_id, turn_id, sequence, kind, payload, occurred_at)
+     ON CONFLICT (tenant_id, id) DO NOTHING`,
+    [
+      opts.tenantId,
+      opts.items.map((e) => e.id),
+      opts.items.map((e) => e.sessionId),
+      opts.items.map((e) => e.turnId ?? null),
+      opts.items.map((e) => e.sequence),
+      opts.items.map((e) => e.kind),
+      opts.items.map((e) => (e.payload != null ? JSON.stringify(e.payload) : null)),
+      opts.items.map((e) => e.occurredAt ?? null),
+    ],
+  )
+  await verifyProjectionRows<
+    ProjectionEventRow,
+    {
+      id: string
+      session_id: string
+      turn_id: string | null
+      sequence: string | number
+      kind: string
+      payload: unknown
+      occurred_at: Date | string | null
+    }
+  >({
+    rawExec: opts.rawExec,
+    tenantId: opts.tenantId,
     table: 'projection_event',
-    selectColumns: 'session_id, turn_id, sequence, kind, payload, occurred_at',
-    tenantId,
-    id: event.id,
-    buildChecks: (row) => [
-      { kind: 'nullable', label: 'event sessionId', existing: row.session_id, incoming: event.sessionId },
-      { kind: 'nullable', label: 'event turnId', existing: row.turn_id, incoming: event.turnId ?? null },
-      { kind: 'nullable', label: 'event sequence', existing: row.sequence, incoming: event.sequence },
-      { kind: 'nullable', label: 'event kind', existing: row.kind, incoming: event.kind },
-      { kind: 'json', label: 'event payload', existing: row.payload, incoming: event.payload ?? null },
-      {
-        kind: 'timestamp',
-        label: 'event occurredAt',
-        existing: row.occurred_at,
-        incoming: event.occurredAt ?? null,
-      },
-    ],
-    insertSql: `INSERT INTO "projection_event"(tenant_id, id, session_id, turn_id, sequence, kind, payload, occurred_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)`,
-    insertParams: [
-      tenantId,
-      event.id,
-      event.sessionId,
-      event.turnId ?? null,
-      event.sequence,
-      event.kind,
-      event.payload != null ? JSON.stringify(event.payload) : null,
-      event.occurredAt ?? null,
-    ],
+    ids: opts.items.map((e) => e.id),
+    selectSql:
+      'SELECT id, session_id, turn_id, sequence, kind, payload, occurred_at FROM "projection_event" WHERE tenant_id = $1 AND id = ANY($2::text[])',
+    items: opts.items,
+    itemId: (e) => e.id,
+    expected: (e) => ({
+      session_id: e.sessionId,
+      turn_id: normalizeNullable(e.turnId),
+      sequence: e.sequence,
+      kind: e.kind,
+      payload: normalizeJson(e.payload),
+      occurred_at: normalizeTimestamp(e.occurredAt),
+    }),
+    actual: (row) => ({
+      session_id: row.session_id,
+      turn_id: normalizeNullable(row.turn_id),
+      sequence: normalizeInteger(row.sequence),
+      kind: row.kind,
+      payload: normalizeJson(row.payload),
+      occurred_at: normalizeTimestamp(row.occurred_at),
+    }),
   })
 }
 
-async function insertArtifactRow(opts: {
+async function bulkInsertArtifactRows(opts: {
   rawExec: RawExec
   tenantId: string
-  artifact: ProjectionArtifactRow
+  items: ProjectionArtifactRow[]
 }): Promise<void> {
-  const { rawExec, tenantId, artifact } = opts
-  await insertOrVerifyRow<{
-    session_id: string | null
-    kind: string
-    object_id: string | null
-    size_bytes: string | number | null
-    metadata: unknown
-  }>({
-    rawExec,
+  if (opts.items.length === 0) return
+  await opts.rawExec(
+    `INSERT INTO "projection_artifact"(tenant_id, id, session_id, kind, object_id, size_bytes, metadata)
+     SELECT $1, t.id, t.session_id, t.kind, t.object_id, t.size_bytes::bigint, t.metadata::jsonb
+       FROM unnest(
+         $2::text[],
+         $3::text[],
+         $4::text[],
+         $5::text[],
+         $6::bigint[],
+         $7::text[]
+       ) AS t(id, session_id, kind, object_id, size_bytes, metadata)
+     ON CONFLICT (tenant_id, id) DO NOTHING`,
+    [
+      opts.tenantId,
+      opts.items.map((a) => a.id),
+      opts.items.map((a) => a.sessionId ?? null),
+      opts.items.map((a) => a.kind),
+      opts.items.map((a) => a.objectId ?? null),
+      opts.items.map((a) => a.sizeBytes ?? null),
+      opts.items.map((a) => (a.metadata != null ? JSON.stringify(a.metadata) : null)),
+    ],
+  )
+  await verifyProjectionRows<
+    ProjectionArtifactRow,
+    {
+      id: string
+      session_id: string | null
+      kind: string
+      object_id: string | null
+      size_bytes: string | number | bigint | null
+      metadata: unknown
+    }
+  >({
+    rawExec: opts.rawExec,
+    tenantId: opts.tenantId,
     table: 'projection_artifact',
-    selectColumns: 'session_id, kind, object_id, size_bytes, metadata',
-    tenantId,
-    id: artifact.id,
-    buildChecks: (row) => [
-      {
-        kind: 'nullable',
-        label: 'artifact sessionId',
-        existing: row.session_id,
-        incoming: artifact.sessionId ?? null,
-      },
-      { kind: 'nullable', label: 'artifact kind', existing: row.kind, incoming: artifact.kind },
-      {
-        kind: 'nullable',
-        label: 'artifact objectId',
-        existing: row.object_id,
-        incoming: artifact.objectId ?? null,
-      },
-      {
-        kind: 'nullable',
-        label: 'artifact sizeBytes',
-        // Postgres returns `bigint` as a string when going through `postgres-js`,
-        // so coerce both sides to Number for the equality predicate.
-        existing: row.size_bytes != null ? Number(row.size_bytes) : null,
-        incoming: artifact.sizeBytes ?? null,
-      },
-      {
-        kind: 'json',
-        label: 'artifact metadata',
-        existing: row.metadata,
-        incoming: artifact.metadata ?? null,
-      },
-    ],
-    insertSql: `INSERT INTO "projection_artifact"(tenant_id, id, session_id, kind, object_id, size_bytes, metadata)
-     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)`,
-    insertParams: [
-      tenantId,
-      artifact.id,
-      artifact.sessionId ?? null,
-      artifact.kind,
-      artifact.objectId ?? null,
-      artifact.sizeBytes ?? null,
-      artifact.metadata ? JSON.stringify(artifact.metadata) : null,
-    ],
+    ids: opts.items.map((a) => a.id),
+    selectSql:
+      'SELECT id, session_id, kind, object_id, size_bytes, metadata FROM "projection_artifact" WHERE tenant_id = $1 AND id = ANY($2::text[])',
+    items: opts.items,
+    itemId: (a) => a.id,
+    expected: (a) => ({
+      session_id: normalizeNullable(a.sessionId),
+      kind: a.kind,
+      object_id: normalizeNullable(a.objectId),
+      size_bytes: normalizeBigIntString(a.sizeBytes),
+      metadata: normalizeJson(a.metadata),
+    }),
+    actual: (row) => ({
+      session_id: normalizeNullable(row.session_id),
+      kind: row.kind,
+      object_id: normalizeNullable(row.object_id),
+      size_bytes: normalizeBigIntString(row.size_bytes),
+      metadata: normalizeJson(row.metadata),
+    }),
   })
 }
+
+// ---------------------------------------------------------------------------
+// Public entry point
+// ---------------------------------------------------------------------------
 
 export async function insertProjectionRows(opts: {
   rawExec: RawExec
@@ -607,42 +795,96 @@ export async function insertProjectionRows(opts: {
   projection: ProjectionPayload
 }): Promise<void> {
   const { rawExec, tenantId, batchId, projection } = opts
-  await insertProjectionManifestBulk({
+
+  await bulkInsertProjectionManifest({
     rawExec,
     tenantId,
     batchId,
-    entries: projectionManifestEntries(projection),
+    entityType: 'session',
+    entityIds: projection.sessions.map((s) => s.id),
   })
-  for (const session of projection.sessions) {
-    await insertSessionRow({ rawExec, tenantId, session })
-  }
-  for (const sourceFile of projection.sourceFiles) {
-    await insertSourceFileRow({ rawExec, tenantId, sourceFile })
-  }
-  for (const rawRecord of projection.rawRecords) {
-    await insertRawRecordRow({ rawExec, tenantId, rawRecord })
-  }
-  for (const searchDoc of projection.searchDocs) {
-    await insertSearchDocRow({ rawExec, tenantId, searchDoc })
-  }
-  for (const toolCall of projection.toolCalls) {
-    await insertToolCallRow({ rawExec, tenantId, toolCall })
-  }
-  for (const toolResult of projection.toolResults) {
-    await insertToolResultRow({ rawExec, tenantId, toolResult })
-  }
+  await bulkInsertSessionRows({ rawExec, tenantId, items: projection.sessions })
+
+  await bulkInsertProjectionManifest({
+    rawExec,
+    tenantId,
+    batchId,
+    entityType: 'source_file',
+    entityIds: projection.sourceFiles.map((f) => f.id),
+  })
+  await bulkInsertSourceFileRows({ rawExec, tenantId, items: projection.sourceFiles })
+
+  await bulkInsertProjectionManifest({
+    rawExec,
+    tenantId,
+    batchId,
+    entityType: 'raw_record',
+    entityIds: projection.rawRecords.map((r) => r.id),
+  })
+  await bulkInsertRawRecordRows({ rawExec, tenantId, items: projection.rawRecords })
+
+  await bulkInsertProjectionManifest({
+    rawExec,
+    tenantId,
+    batchId,
+    entityType: 'search_doc',
+    entityIds: projection.searchDocs.map((d) => d.id),
+  })
+  await bulkInsertSearchDocRows({ rawExec, tenantId, items: projection.searchDocs })
+
+  await bulkInsertProjectionManifest({
+    rawExec,
+    tenantId,
+    batchId,
+    entityType: 'tool_call',
+    entityIds: projection.toolCalls.map((tc) => tc.id),
+  })
+  await bulkInsertToolCallRows({ rawExec, tenantId, items: projection.toolCalls })
+
+  await bulkInsertProjectionManifest({
+    rawExec,
+    tenantId,
+    batchId,
+    entityType: 'tool_result',
+    entityIds: projection.toolResults.map((tr) => tr.id),
+  })
+  await bulkInsertToolResultRows({ rawExec, tenantId, items: projection.toolResults })
+
   // Insert messages BEFORE content_blocks so the (tenant_id, message_id) FK
   // resolves even with deferred constraints disabled (e.g. PGlite test paths).
-  for (const message of projection.messages) {
-    await insertMessageRow({ rawExec, tenantId, message })
-  }
-  for (const contentBlock of projection.contentBlocks) {
-    await insertContentBlockRow({ rawExec, tenantId, contentBlock })
-  }
-  for (const event of projection.events) {
-    await insertEventRow({ rawExec, tenantId, event })
-  }
-  for (const artifact of projection.artifacts) {
-    await insertArtifactRow({ rawExec, tenantId, artifact })
-  }
+  await bulkInsertProjectionManifest({
+    rawExec,
+    tenantId,
+    batchId,
+    entityType: 'message',
+    entityIds: projection.messages.map((m) => m.id),
+  })
+  await bulkInsertMessageRows({ rawExec, tenantId, items: projection.messages })
+
+  await bulkInsertProjectionManifest({
+    rawExec,
+    tenantId,
+    batchId,
+    entityType: 'content_block',
+    entityIds: projection.contentBlocks.map((cb) => cb.id),
+  })
+  await bulkInsertContentBlockRows({ rawExec, tenantId, items: projection.contentBlocks })
+
+  await bulkInsertProjectionManifest({
+    rawExec,
+    tenantId,
+    batchId,
+    entityType: 'event',
+    entityIds: projection.events.map((e) => e.id),
+  })
+  await bulkInsertEventRows({ rawExec, tenantId, items: projection.events })
+
+  await bulkInsertProjectionManifest({
+    rawExec,
+    tenantId,
+    batchId,
+    entityType: 'artifact',
+    entityIds: projection.artifacts.map((a) => a.id),
+  })
+  await bulkInsertArtifactRows({ rawExec, tenantId, items: projection.artifacts })
 }
