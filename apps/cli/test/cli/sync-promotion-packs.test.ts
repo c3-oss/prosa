@@ -2,7 +2,11 @@ import type { ObjectManifestEntry, ProjectionPayload } from '@c3-oss/prosa-sync'
 import { describe, expect, it } from 'vitest'
 import type { ProsaApiClient } from '../../src/cli/auth/client.js'
 import type { LocalBundleUpload, LocalCasObject } from '../../src/cli/sync/bundle.js'
-import { promoteUpload, splitMissingObjectUploads } from '../../src/cli/sync/promotion.js'
+import {
+  AdaptiveUploadConcurrencyController,
+  promoteUpload,
+  splitMissingObjectUploads,
+} from '../../src/cli/sync/promotion.js'
 
 function entry(hashChar: string, size: number, overrides: Partial<ObjectManifestEntry> = {}): ObjectManifestEntry {
   const hash = hashChar.repeat(64)
@@ -42,6 +46,24 @@ function emptyProjection(): ProjectionPayload {
 }
 
 describe('CLI sync object pack uploads', () => {
+  it('adapts upload concurrency down after retries and back up after successes', () => {
+    const changes: string[] = []
+    const controller = new AdaptiveUploadConcurrencyController(8, (change) => {
+      changes.push(`${change.reason}:${change.previous}->${change.current}`)
+    })
+
+    controller.recordRetry()
+    expect(controller.current()).toBe(4)
+    controller.recordRetry()
+    expect(controller.current()).toBe(2)
+    for (let i = 0; i < 9; i += 1) controller.recordSuccess()
+    expect(controller.current()).toBe(2)
+    controller.recordSuccess()
+    expect(controller.current()).toBe(3)
+
+    expect(changes).toEqual(['retry:8->4', 'retry:4->2', 'success:2->3'])
+  })
+
   it('splits pack-compatible objects from PUT fallbacks', () => {
     const smallA = cas('a', [1, 2, 3])
     const smallB = cas('b', [4, 5])
