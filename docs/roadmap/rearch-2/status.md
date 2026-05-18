@@ -9,9 +9,9 @@ Completion signal: RALPH_DONE
 
 ## Current State
 
-Status: in-progress (Lane 0 closed; Lane 1 advancing with hardening + CQ-020..CQ-028 closed)
-Current lane: Lane 1 - Local store (partial; durability + pack-digest + zstd-frame + extended FK closures landed)
-Current HEAD: `1ae4185` (this iteration adds one more commit; see Decisions)
+Status: in-progress (correction required after Codex review)
+Current lane: corrections before further Lane 1 / any Lane 2 work
+Current HEAD: `6097f9e`
 No-change streak: 0
 Ralph active: yes
 
@@ -19,8 +19,8 @@ Ralph active: yes
 
 | Lane | Owner | Status | Commit(s) | Evidence |
 | --- | --- | --- | --- | --- |
-| 00 - Foundation | Ralph | complete | `cd845f2`, `e22ec27`, `b78b5ae`, `70b9df0`, `0e8a912`, (+this iteration's CQ-020..CQ-028 closeout) | `evidence/lane-00.md` |
-| 01 - Local store | Ralph | partial | `4f214b7`, `2b5ad1b`, `433c32f`, (+this iteration's hardening commit) | `evidence/lane-01.md` |
+| 00 - Foundation | Ralph | correction | `cd845f2`, `e22ec27`, `b78b5ae`, `70b9df0`, `0e8a912`, `a650ef8` | `evidence/lane-00.md` |
+| 01 - Local store | Ralph | partial-correction | `4f214b7`, `2b5ad1b`, `433c32f`, `a650ef8`, `6097f9e` | `evidence/lane-01.md` |
 | 02 - Importers | Ralph | blocked-on-lane-01 | | `evidence/lane-02.md` |
 | 03 - Derived layer | Ralph | blocked-on-lane-02 | | `evidence/lane-03.md` |
 | 04 - Server | Ralph | blocked-on-lane-00 | | `evidence/lane-04.md` |
@@ -35,7 +35,13 @@ Ralph active: yes
 
 | ID | Severity | Owner | Summary |
 | --- | --- | --- | --- |
-| | | | All CQ-001..CQ-028 closed; see `correction-queue.md` "Closed". |
+| CQ-029 | high | Ralph | Reconcile status, gates, and evidence with current HEAD. |
+| CQ-030 | high | Ralph | Align Lane 0 canonical rule excerpt with `CANONICAL.md`. |
+| CQ-031 | critical | Ralph | Verify registered durable refs before `sealEpoch` publishes head. |
+| CQ-032 | critical | Ralph | Separate verified CAS object inventory from raw-source inventory. |
+| CQ-033 | high | Ralph | Complete canonical FK closure including prior-epoch policy. |
+| CQ-034 | high | Ralph | Fsync durable epoch, pack, and segment files before head publish. |
+| CQ-035 | major | Ralph | Reject non-canonical pack header bytes during verification. |
 
 ## Latest Gates
 
@@ -121,3 +127,12 @@ Ralph active: yes
   pack writer pools and `1ae4185` for gitignore of session-local state while
   Codex was writing the correction queue. These commits are not yet accepted;
   the open correction queue remains the priority before any Lane 2 work.
+- 2026-05-18T17:15:49-03:00: Ralph committed `a650ef8` claiming closure of
+  `CQ-020` through `CQ-028`, then `6097f9e` for projection segment writer and
+  synthetic seal E2E. Focused gates before `6097f9e` passed for types-v2,
+  wire-v2, conformance, and bundle-v2. Codex reviewer follow-up found
+  remaining blockers: stale status/evidence, stale Lane 0 canonical-rule
+  excerpt, unverifiable durable refs in `sealEpoch`, bypassable object
+  inventory, incomplete FK closure, incomplete fsync durability, and
+  non-canonical pack header acceptance. Opened `CQ-029` through `CQ-035`;
+  Lane 2 remains blocked.

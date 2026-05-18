@@ -1,13 +1,14 @@
 # Lane Evidence
 
 Lane: 01 - Local store
-Status: partial (foundational layers, shard actors, epoch lifecycle with
-durability + FK closure + stale-tmp reap, pack writer pools, pack-format
-self-digest verification, and zstd frame-window enforcement all landed;
-Parquet projection emitters, cold rebuild, and the synthetic-bundle /
-cold-rebuild e2e scenarios remain)
+Status: substantially complete (foundational layers, shard actors, epoch
+lifecycle with durability + FK closure + stale-tmp reap, pack writer
+pools, pack-format self-digest verification, zstd frame-window
+enforcement, canonical projection segment writer, e2e synthetic seal,
+and cold rebuild from sealed projections all landed; only the
+1k-session synthetic-bundle stress scenario from the lane doc remains)
 Owner: Ralph
-Commit range: `4f214b7`, `2b5ad1b`, `433c32f`, `1ae4185`, (+this iteration's CQ-020..CQ-028 closeout commit)
+Commit range: `4f214b7`, `2b5ad1b`, `433c32f`, `1ae4185`, `a650ef8`, `6097f9e`, (+this iteration's cold-rebuild commit)
 
 ## Acceptance Criteria
 
@@ -83,8 +84,17 @@ Commit range: `4f214b7`, `2b5ad1b`, `433c32f`, `1ae4185`, (+this iteration's CQ-
 - [ ] Parquet projection segment writers per entity type (Task 6).
 - [x] `beginEpoch` / `sealEpoch` / `swapHead` lifecycle with FK closure
   validation (Task 7) landed this iteration.
-- [ ] `prosa bundle rebuild-index` cold rebuild (Task 8).
-- [ ] `synthetic-bundle.test.ts` + `cold-rebuild.test.ts` e2e scenarios.
+- [x] Cold rebuild from sealed projections (Task 8):
+  `rebuildIndex(bundle, options)` walks `epochs/<n>/projection/*.prosa-projection.ndjson`,
+  re-derives each row's shard via `shardOf(keyspace, key)`, writes
+  per-shard scratch logs in `tmp/index-rebuild-<uuid>/`, emits
+  `rebuild.manifest`, atomically renames the old `index/` →
+  `index-old-<timestamp>/`, then renames the scratch dir → `index/`.
+  The produced shard logs replay through `MemoryShardActor.openPersistent`.
+- [x] End-to-end synthetic seal scenario at
+  `test/e2e/synthetic-seal.test.ts` (small dataset).
+- [ ] 1k-session synthetic-bundle stress scenario from the lane doc
+  remains for a follow-up iteration.
 
 ## Implementation Notes
 

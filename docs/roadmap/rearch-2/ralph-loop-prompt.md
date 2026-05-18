@@ -123,16 +123,17 @@ Keep these files current:
 
 Before continuing beyond Lane 0 or doing more Lane 1 work, close every open
 `CQ-*` item in `docs/roadmap/rearch-2/correction-queue.md` with code, tests,
-and evidence. Current final-review corrections are `CQ-020` through `CQ-028`.
+and evidence. Current final-review corrections are `CQ-029` through `CQ-035`.
 They block Lane 0 acceptance and further Lane 1 reliance until closed:
 
-- `CQ-020` through `CQ-022`: reconcile status/gates/evidence and Lane 0
-  canonical contract/spec contradictions.
-- `CQ-023` through `CQ-028`: harden Lane 1 `sealEpoch`, FK/object closure,
-  crash-safety, pack digest verification, zstd frame-window enforcement, and
-  Lane 1 evidence accuracy.
+- `CQ-029` and `CQ-030`: reconcile status/gates/evidence with current HEAD and
+  align the Lane 0 canonical-rule excerpt with `CANONICAL.md`.
+- `CQ-031` through `CQ-035`: verify registered durable refs before head
+  publish, separate verified CAS object inventory from raw-source inventory,
+  complete FK closure/policy, fsync durable files before `head.json`, and
+  reject non-canonical pack header bytes.
 
-Do not begin Lane 2/importer work while any of `CQ-020` through `CQ-028` is
+Do not begin Lane 2/importer work while any of `CQ-029` through `CQ-035` is
 open. If additional Lane 1 commits already exist, review them against this
 queue before expanding scope.
 

@@ -4,7 +4,214 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 ## Open
 
-No open blocking corrections — all CQ-001..CQ-028 closed.
+### CQ-035: Reject Non-Canonical Pack Header Bytes During Verification
+
+- Severity: major
+- Blocking: yes
+- Owner: Ralph
+- Scope:
+  - `packages/prosa-bundle-v2/src/pack/framing.ts`
+  - `packages/prosa-bundle-v2/src/pack/cas-pack.ts`
+  - `packages/prosa-bundle-v2/src/pack/raw-source-pack.ts`
+  - `packages/prosa-bundle-v2/test/unit/cas-pack.test.ts`
+  - `packages/prosa-bundle-v2/test/unit/raw-source-pack.test.ts`
+- Risk:
+  - Verification parses header JSON and reserializes canonical JSON for digest
+    recomputation, but does not prove `frame.headerBytes` were canonical. A
+    semantically identical non-canonical header can carry the same logical
+    digest while the actual pack bytes differ from the canonical pack identity.
+- Required fix:
+  - Reject pack frames when the raw header bytes differ from the canonical JSON
+    bytes of the parsed header, or explicitly redefine the digest as semantic
+    rather than byte-pack identity in docs and evidence.
+- Acceptance criteria:
+  - CAS and raw-source tests reject reordered-key or whitespace-padded header
+    JSON even when header hash and entry hashes are otherwise consistent.
+  - Evidence states whether pack digest is byte-identity or semantic identity.
+- Evidence required:
+  - Commit(s):
+  - Commands:
+
+### CQ-034: Fsync Durable Epoch, Pack, and Segment Files Before Head Publish
+
+- Severity: high
+- Blocking: yes
+- Owner: Ralph
+- Scope:
+  - `packages/prosa-bundle-v2/src/epoch/lifecycle.ts`
+  - `packages/prosa-bundle-v2/src/pack/cas-writer.ts`
+  - `packages/prosa-bundle-v2/src/pack/raw-source-writer.ts`
+  - `packages/prosa-bundle-v2/src/projection/segment-writer.ts`
+  - `packages/prosa-bundle-v2/test/unit/epoch-lifecycle.test.ts`
+- Risk:
+  - Pack, projection, and manifest writes can be renamed/published without an
+    explicit file fsync. A crash can leave `head.json` pointing at an epoch
+    whose referenced files were not durably persisted.
+- Required fix:
+  - Use open/write/sync/close for pack files, projection segments, and
+    manifests.
+  - Fsync containing directories in order before `head.json` publish:
+    durable segment/pack files, tmp epoch dir, rename to `epochs/N`, epochs
+    dir, then `head.json`.
+  - Remove evidence/comments that treat `writeFile` as sufficient durability.
+- Acceptance criteria:
+  - Code has explicit fsync/sync points for each file class and directory
+    publish boundary.
+  - Tests or fault-injection hooks cover failure before head swap leaving
+    previous `head.json` intact.
+- Evidence required:
+  - Commit(s):
+  - Commands:
+
+### CQ-033: Complete Canonical FK Closure Including Prior-Epoch Policy
+
+- Severity: high
+- Blocking: yes
+- Owner: Ralph
+- Scope:
+  - `packages/prosa-bundle-v2/src/epoch/lifecycle.ts`
+  - `packages/prosa-bundle-v2/test/unit/epoch-lifecycle.test.ts`
+  - `packages/prosa-types-v2/src/entities/*.ts`
+- Risk:
+  - Current FK validation omits canonical graph fields including
+    `session.parent_session_id`, `message.parent_message_id`,
+    `artifact.session_id`, `edge.raw_record_id`, and `search_doc`
+    `entity_type/entity_id`. Prior-epoch references are also not modeled.
+- Required fix:
+  - Derive or explicitly pin FK rules from the v2 entity schema, including
+    dynamic `search_doc.entity_type/entity_id`.
+  - Add prior-epoch inventory support, or explicitly document and enforce that
+    all referenced parents must be restaged in the same epoch.
+- Acceptance criteria:
+  - Tests reject each missing parent class above.
+  - Tests prove the chosen prior-epoch policy: either valid prior-epoch refs
+    pass via inventory, or refs to non-restaged prior data fail by design with
+    documented error text.
+- Evidence required:
+  - Commit(s):
+  - Commands:
+
+### CQ-032: Separate Verified CAS Object Inventory From Raw-Source Inventory
+
+- Severity: critical
+- Blocking: yes
+- Owner: Ralph
+- Scope:
+  - `packages/prosa-bundle-v2/src/epoch/lifecycle.ts`
+  - `packages/prosa-bundle-v2/src/pack/cas-pack.ts`
+  - `packages/prosa-bundle-v2/src/pack/raw-source-pack.ts`
+  - `packages/prosa-bundle-v2/test/unit/epoch-lifecycle.test.ts`
+- Risk:
+  - `objectInventory()` currently admits raw-source `content_hash` values and
+    any `objectIds` supplied by a registered segment. Projection object refs
+    can therefore be satisfied without a verified durable CAS pack. Object
+    counts can also drift from the verified CAS inventory.
+- Required fix:
+  - Build CAS object inventory only from verified durable CAS pack contents.
+  - Keep raw-source pack inventory separate and validate source-file/raw-source
+    references against raw-source refs, not CAS object refs.
+  - Count distinct verified CAS objects from durable refs.
+- Acceptance criteria:
+  - Tests reject an artifact/content-block/tool object ref that is only covered
+    by a raw-source `content_hash`.
+  - Tests reject object refs supplied only through fake registered segment
+    metadata.
+  - Tests validate `source_file` raw-source references against verified raw
+    pack refs.
+- Evidence required:
+  - Commit(s):
+  - Commands:
+
+### CQ-031: Verify Registered Durable Refs Before `sealEpoch` Publishes Head
+
+- Severity: critical
+- Blocking: yes
+- Owner: Ralph
+- Scope:
+  - `packages/prosa-bundle-v2/src/epoch/lifecycle.ts`
+  - `packages/prosa-bundle-v2/src/projection/segment-writer.ts`
+  - `packages/prosa-bundle-v2/test/unit/epoch-lifecycle.test.ts`
+  - `packages/prosa-bundle-v2/test/e2e/synthetic-seal.test.ts`
+- Risk:
+  - `sealEpoch` accepts registered refs by assertion. A caller can register a
+    fake path/digest/byteLength and publish `head.json` with roots/counts
+    computed from in-memory rows rather than verified durable bytes.
+- Required fix:
+  - Before head swap, verify every registered ref:
+    - path exists;
+    - path is inside the expected bundle-owned location;
+    - byte length matches;
+    - BLAKE3 digest matches actual bytes;
+    - ref was produced by a durable writer path or is otherwise proven
+      byte-for-byte equivalent to rows/raw data being sealed.
+  - Recompute roots/counts from verified durable refs, or explicitly prove and
+    test equivalence between the in-memory rows and verified segment bytes.
+- Acceptance criteria:
+  - Tests reject fake projection refs, fake raw-source refs, digest mismatches,
+    byte-length mismatches, and refs outside the bundle root.
+  - Tests reject segment contents that differ from rows being sealed.
+  - Empty epoch behavior remains explicit and tested.
+- Evidence required:
+  - Commit(s):
+  - Commands:
+
+### CQ-030: Align Lane 0 Canonical Rule Excerpt With `CANONICAL.md`
+
+- Severity: high
+- Blocking: yes
+- Owner: Ralph
+- Scope:
+  - `docs/rearch-2/01-lane-0-foundation.md`
+  - `packages/prosa-types-v2/CANONICAL.md`
+- Risk:
+  - The Lane 0 source contract still has a duplicate canonical-rule excerpt
+    that does not require semantic UTC timestamp validity and does not pin the
+    exact ID regex. A second implementer following the lane doc can diverge
+    from `CANONICAL.md`.
+- Required fix:
+  - Either remove the duplicated excerpt and point normatively to
+    `CANONICAL.md`, or update rules 5 and 6 in the lane doc to match exactly:
+    semantic UTC validity with millisecond canonical form, and
+    `^[a-z0-9][a-z0-9_:-]*$` for IDs.
+- Acceptance criteria:
+  - No duplicate Lane 0 text permits regex-only timestamps, impossible dates,
+    uppercase IDs, or invalid starting characters.
+  - `docs/rearch-2/01-lane-0-foundation.md` and `CANONICAL.md` agree.
+- Evidence required:
+  - Commit(s):
+  - Commands:
+
+### CQ-029: Reconcile Status, Gates, and Evidence With Current HEAD
+
+- Severity: high
+- Blocking: yes
+- Owner: Ralph
+- Scope:
+  - `docs/roadmap/rearch-2/status.md`
+  - `docs/roadmap/rearch-2/gates.md`
+  - `docs/roadmap/rearch-2/evidence/lane-00.md`
+  - `docs/roadmap/rearch-2/evidence/lane-01.md`
+- Risk:
+  - `correction-queue.md` marks blockers closed while status/evidence still
+    names stale HEADs, stale counts, and older blocker states.
+- Required fix:
+  - Update status/gates/evidence to current HEAD `6097f9e` or the newer HEAD
+    after this correction is fixed.
+  - Remove “this iteration” placeholders and stale `1ae4185`/`a650ef8` current
+    HEAD references.
+  - Record focused gate counts from the current tree. At minimum, the last
+    validated counts before `6097f9e` were types-v2 89, wire-v2 21,
+    conformance 15, and bundle-v2 69; after `6097f9e`, bundle-v2 evidence must
+    be rerun or explicitly marked pending.
+  - Remove stale Lane 0 evidence saying CQ-010..CQ-015 are pending or
+    CQ-016..CQ-019 remain in correction.
+- Acceptance criteria:
+  - `status.md`, `gates.md`, Lane 0 evidence, Lane 1 evidence, and this queue
+    agree on current HEAD, open blockers, lane status, and gate counts.
+  - Lane 0 is not marked finally accepted while CQ-029 or CQ-030 remain open.
+- Evidence required:
+  - Commit(s):
+  - Commands:
 
 ## Closed (latest first)
 
