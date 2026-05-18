@@ -1,21 +1,38 @@
-// Epoch lifecycle: beginEpoch / sealEpoch / FK-closure validation.
+// Epoch lifecycle: beginEpoch / sealEpoch / FK-closure validation / ref
+// durability check.
 //
-// An epoch is the atomic unit of bundle progression. While open, all
-// writes go to `tmp/epoch-N/`. Sealing validates foreign-key closure
-// across canonical entity rows, computes `bundleRoot` and `rawSourceRoot`,
-// writes the canonical manifest, atomically renames `tmp/epoch-N/` →
-// `epochs/N/`, and then atomically rewrites `head.json` to point at N.
+// Durability + integrity invariants (across CQ-023..CQ-027 and
+// CQ-031..CQ-035):
 //
-// Durability invariants (CQ-023, CQ-025):
-//   - `sealEpoch` refuses to advance head.json unless every projection
-//     row, raw-source entry, and CAS object reference is backed by a
-//     durable segment/pack reference registered on the handle.
-//   - `beginEpoch` reaps any leftover `tmp/epoch-N/` directory before
-//     creating its own.
-//   - `reapStaleTmp(bundle)` removes any incomplete `tmp/epoch-*` dir
-//     left by a crashed sealer.
+//   1. While open, every epoch byte goes to `tmp/epoch-N/`.
+//   2. `beginEpoch` reaps any leftover `tmp/epoch-N/` directory before
+//      creating its own (CQ-025).
+//   3. `sealEpoch` walks every registered durable ref and verifies:
+//        - the path exists and is under the bundle root (no escapes);
+//        - the byte length matches the declared `byteLength`;
+//        - BLAKE3 of the bytes matches the declared `digest`;
+//        - for CAS packs, the bytes pass `verifyCasPack` (which now also
+//          checks the canonical-header bytes — CQ-035 — and the
+//          self-referential `pack_digest` — CQ-026);
+//        - for raw-source packs, the bytes pass `verifyRawSourcePack`;
+//        - for projection segments, the bytes equal
+//          `writeProjectionSegment(entity, rowsByEntity[entity])` would
+//          have produced — proving the segment carries exactly the rows
+//          being sealed (CQ-031).
+//   4. FK closure validates the canonical graph (CQ-024 + CQ-033) and
+//      `*_object_id` references against the **separated** CAS / raw-source
+//      inventories (CQ-032). The current implementation enforces a
+//      current-epoch policy: every parent reference must resolve inside
+//      the same epoch's rows.
+//   5. The manifest is written durably (writeFileDurable) and the
+//      surrounding directories are fsynced before `head.json` is
+//      published via `swapHead` (CQ-034).
+//
+// `reapStaleTmp(bundle)` is wired into `Bundle.open()` so that any
+// crashed sealer or rebuilder leaves no half-written bytes behind.
 
-import { mkdir, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir, rename, rm, stat } from 'node:fs/promises'
+import { isAbsolute, relative, sep } from 'node:path'
 
 import {
   type BundleCountsV2,
@@ -33,6 +50,9 @@ import { blake3 } from '@noble/hashes/blake3'
 import type { Bundle } from '../bundle/bundle.js'
 import { EMPTY_BUNDLE_COUNTS } from '../bundle/head.js'
 import { epochDir, epochTmpDir } from '../bundle/layout.js'
+import { verifyCasPack } from '../pack/cas-pack.js'
+import { verifyRawSourcePack } from '../pack/raw-source-pack.js'
+import { syncDir, writeFileDurable } from '../util/durable-write.js'
 import {
   type EpochManifestV2,
   PLACEHOLDER_SIGNATURE,
@@ -42,10 +62,8 @@ import {
 
 const PARSER_VERSION = '2.0.0-lane1'
 
-/** Durable reference registered on an EpochHandle (CQ-023). */
+/** Durable reference registered on an EpochHandle. */
 export type DurableSegmentRef = {
-  /** What this segment carries; mirrors the SegmentRef.kind contract from
-   * prosa-types-v2. */
   kind:
     | 'projection_arrow'
     | 'projection_parquet'
@@ -54,16 +72,20 @@ export type DurableSegmentRef = {
     | 'search_docs_arrow'
     | 'session_blob_pack'
     | 'manifest'
-  /** On-disk path inside the bundle (relative to bundle root). Used for
-   * crash-recovery diagnostics. */
+  /** Absolute on-disk path inside the bundle. */
   path: string
   /** BLAKE3 digest of the segment bytes (tagged form). */
   digest: string
-  /** byte length of the segment file. */
   byteLength: number
   /** For projection segments, the entity type they cover. */
   entityType?: CanonicalEntityType
-  /** Object IDs admitted by this segment (only set for cas_object_pack and raw_source_pack). */
+  /**
+   * Object IDs admitted by this segment. Lane 1 ignores this field on
+   * raw_source_pack refs (CQ-032: raw-source content_hashes are derived
+   * from the verified pack, not from caller claims). It is retained on
+   * the type so cas_object_pack writers can still declare what they
+   * carry; CAS object inventory is recomputed from `verifyCasPack`.
+   */
   objectIds?: readonly string[]
 }
 
@@ -81,8 +103,6 @@ export class EpochHandle {
   private readonly rows: Map<CanonicalEntityType, Map<string, Record<string, CborValue>>> = new Map()
   private readonly rawSources: Map<string, RawSourceLeafInput> = new Map()
   private readonly segments: DurableSegmentRef[] = []
-  /** Object IDs admitted by any registered cas_object_pack / raw_source_pack. */
-  private readonly admittedObjectIds: Set<string> = new Set()
 
   constructor(args: { bundle: Bundle; epoch: number; tmpDir: string; createdAt: string }) {
     this.bundle = args.bundle
@@ -91,7 +111,6 @@ export class EpochHandle {
     this.createdAt = args.createdAt
   }
 
-  /** Add or replace a projection row for an entity type. */
   putRow(entityType: CanonicalEntityType, primaryKey: string, row: Record<string, CborValue>): void {
     let m = this.rows.get(entityType)
     if (!m) {
@@ -101,25 +120,19 @@ export class EpochHandle {
     m.set(primaryKey, row)
   }
 
-  /** Add or replace a raw-source entry by source_file_id. */
   putRawSource(entry: RawSourceLeafInput): void {
     this.rawSources.set(entry.source_file_id, entry)
   }
 
   /**
-   * Register a durable on-disk segment / pack that the seal must include
-   * (CQ-023). Pack writers and projection emitters call this after the
-   * bytes have been fsynced. The segment's object IDs (when present) are
-   * remembered as the CAS object inventory for FK closure (CQ-024).
+   * Register a durable on-disk segment/pack reference. The seal walks
+   * every registered ref and verifies it against the bytes on disk; this
+   * registration is a *claim*, not a trust boundary.
    */
   registerSegment(ref: DurableSegmentRef): void {
     this.segments.push(ref)
-    if (ref.objectIds) {
-      for (const id of ref.objectIds) this.admittedObjectIds.add(id)
-    }
   }
 
-  /** Snapshot of registered segments (read-only, for tests + sealEpoch). */
   registeredSegments(): readonly DurableSegmentRef[] {
     return this.segments
   }
@@ -134,13 +147,6 @@ export class EpochHandle {
 
   rawSourceEntries(): RawSourceLeafInput[] {
     return Array.from(this.rawSources.values())
-  }
-
-  /** Combined object inventory: registered CAS packs + raw-source pack content hashes. */
-  objectInventory(): Set<string> {
-    const out = new Set<string>(this.admittedObjectIds)
-    for (const entry of this.rawSources.values()) out.add(entry.content_hash)
-    return out
   }
 
   computeCounts(): BundleCountsV2 {
@@ -184,8 +190,6 @@ export class EpochHandle {
           c.turns = m.size
           break
         case 'project':
-          // counts.projects is intentionally omitted from BundleCountsV2;
-          // projects live in the projectionRows total below.
           break
       }
     }
@@ -212,9 +216,9 @@ export class DurabilityError extends Error {
   override name = 'DurabilityError'
 }
 
-// CQ-024: extended FK rules across canonical entities. Each rule says:
+// CQ-024 + CQ-033: FK rules across the canonical graph. Each rule says
 // "this child field, when non-null, must point at an existing row of the
-// parent entity in this same epoch".
+// parent entity in this same epoch (current-epoch policy)".
 const FK_RULES: Array<{
   child: CanonicalEntityType
   field: string
@@ -227,6 +231,7 @@ const FK_RULES: Array<{
   { child: 'message', field: 'session_id', parent: 'session' },
   { child: 'message', field: 'turn_id', parent: 'turn' },
   { child: 'message', field: 'event_id', parent: 'event' },
+  { child: 'message', field: 'parent_message_id', parent: 'message' }, // CQ-033
   { child: 'content_block', field: 'session_id', parent: 'session' },
   { child: 'content_block', field: 'message_id', parent: 'message' },
   { child: 'content_block', field: 'event_id', parent: 'event' },
@@ -246,41 +251,60 @@ const FK_RULES: Array<{
   { child: 'tool_call', field: 'raw_record_id', parent: 'raw_record' },
   { child: 'tool_result', field: 'raw_record_id', parent: 'raw_record' },
   { child: 'artifact', field: 'raw_record_id', parent: 'raw_record' },
+  { child: 'edge', field: 'raw_record_id', parent: 'raw_record' }, // CQ-033
   // source-file ↔ raw-record
   { child: 'raw_record', field: 'source_file_id', parent: 'source_file' },
   // project links
   { child: 'session', field: 'project_id', parent: 'project' },
   { child: 'artifact', field: 'project_id', parent: 'project' },
-  // edges: endpoints are dynamic (depend on src_type/dst_type) so we
-  // resolve them per-row below.
+  { child: 'artifact', field: 'session_id', parent: 'session' }, // CQ-033
+  // session parent (intra-entity)
+  { child: 'session', field: 'parent_session_id', parent: 'session' }, // CQ-033
+  // Edge endpoints and search_doc entity refs are resolved per-row via
+  // src_type/dst_type and entity_type below.
 ]
 
-// Fields whose non-null value must be present in the CAS object inventory
-// when the row is sealed (CQ-024).
-const OBJECT_ID_FIELDS: Array<{ entity: CanonicalEntityType; field: string }> = [
-  { entity: 'artifact', field: 'object_id' },
-  { entity: 'artifact', field: 'text_object_id' },
-  { entity: 'content_block', field: 'text_object_id' },
-  { entity: 'edge', field: 'metadata_object_id' },
-  { entity: 'event', field: 'payload_object_id' },
-  { entity: 'raw_record', field: 'object_id' },
-  { entity: 'raw_record', field: 'decoded_object_id' },
-  { entity: 'source_file', field: 'object_id' },
-  { entity: 'tool_call', field: 'args_object_id' },
-  { entity: 'tool_result', field: 'stdout_object_id' },
-  { entity: 'tool_result', field: 'stderr_object_id' },
-  { entity: 'tool_result', field: 'output_object_id' },
+// CQ-032: split inventory categories. Each `*_object_id` field declares
+// which inventory backs it.
+type ObjectRefInventory = 'cas' | 'raw_source'
+
+const OBJECT_ID_FIELDS: Array<{
+  entity: CanonicalEntityType
+  field: string
+  inventory: ObjectRefInventory
+}> = [
+  // CAS object refs — must come from a verified `cas_object_pack`.
+  { entity: 'artifact', field: 'object_id', inventory: 'cas' },
+  { entity: 'artifact', field: 'text_object_id', inventory: 'cas' },
+  { entity: 'content_block', field: 'text_object_id', inventory: 'cas' },
+  { entity: 'edge', field: 'metadata_object_id', inventory: 'cas' },
+  { entity: 'event', field: 'payload_object_id', inventory: 'cas' },
+  { entity: 'raw_record', field: 'decoded_object_id', inventory: 'cas' },
+  { entity: 'tool_call', field: 'args_object_id', inventory: 'cas' },
+  { entity: 'tool_result', field: 'stdout_object_id', inventory: 'cas' },
+  { entity: 'tool_result', field: 'stderr_object_id', inventory: 'cas' },
+  { entity: 'tool_result', field: 'output_object_id', inventory: 'cas' },
+  // Raw-source refs — the bytes ARE the source-file bytes, indexed by
+  // content_hash inside a verified `raw_source_pack`.
+  { entity: 'source_file', field: 'object_id', inventory: 'raw_source' },
+  { entity: 'source_file', field: 'content_hash', inventory: 'raw_source' },
+  { entity: 'raw_record', field: 'object_id', inventory: 'raw_source' },
+  { entity: 'raw_record', field: 'content_hash', inventory: 'raw_source' },
 ]
 
 export type ValidateFkClosureOptions = {
-  /** When provided, every non-null `*_object_id` is checked for membership. */
-  objectInventory?: ReadonlySet<string>
+  casObjectInventory?: ReadonlySet<string>
+  rawSourceInventory?: ReadonlySet<string>
 }
 
 /**
  * Verify cross-entity reference closure across the rows that will be
- * sealed into the epoch. When `objectInventory` is provided, every
- * non-null `*_object_id` field is also checked.
+ * sealed into the epoch.
+ *
+ * Prior-epoch policy (CQ-033): every parent reference must resolve
+ * inside the current epoch's rows. Lane 1 does not implement a
+ * cross-epoch inventory; importers that intentionally reference a row
+ * from a prior epoch must restage that row in the current epoch.
  */
 export function validateFkClosure(
   rowsByEntity: Record<CanonicalEntityType, Record<string, CborValue>[]>,
@@ -327,16 +351,34 @@ export function validateFkClosure(
       }
     }
   }
-  // *_object_id closure against the object inventory.
-  if (options.objectInventory) {
-    const inv = options.objectInventory
-    for (const { entity, field } of OBJECT_ID_FIELDS) {
+  // CQ-033: search_doc.entity_type/entity_id resolved per-row.
+  const searchDocs = rowsByEntity.search_doc ?? []
+  for (const row of searchDocs) {
+    const t = row.entity_type as string | undefined
+    const id = row.entity_id as string | undefined
+    if (t && id) {
+      const parents = ids[t as CanonicalEntityType] ?? new Set<string>()
+      if (!parents.has(id)) {
+        throw new FkClosureError('search_doc', `entity_id (${t})`, id)
+      }
+    }
+  }
+  // CQ-032: split `*_object_id` closure across CAS / raw-source inventories.
+  // When the caller passes ANY inventory we enforce BOTH categories so a
+  // ref cannot accidentally satisfy through the wrong inventory. Missing
+  // category defaults to the empty set (fail-closed for that category).
+  const inventoryProvided = options.casObjectInventory !== undefined || options.rawSourceInventory !== undefined
+  if (inventoryProvided) {
+    const cas = options.casObjectInventory ?? new Set<string>()
+    const raw = options.rawSourceInventory ?? new Set<string>()
+    for (const { entity, field, inventory } of OBJECT_ID_FIELDS) {
+      const inv = inventory === 'cas' ? cas : raw
       const rows = rowsByEntity[entity] ?? []
       for (const row of rows) {
         const v = row[field] as string | null | undefined
         if (v == null) continue
         if (!inv.has(v)) {
-          throw new FkClosureError(entity, field, v)
+          throw new FkClosureError(entity, `${field} (${inventory})`, v)
         }
       }
     }
@@ -375,14 +417,9 @@ function pkFieldFor(et: CanonicalEntityType): string {
 }
 
 export type BeginEpochOptions = {
-  /** Override `createdAt` (canonical timestamp). Useful for tests. */
   createdAt?: string
 }
 
-/**
- * Reap any leftover `tmp/epoch-*` directories from a crashed seal
- * (CQ-025). Returns the list of directories removed.
- */
 export async function reapStaleTmp(bundle: Bundle): Promise<string[]> {
   const reaped: string[] = []
   let entries: string[]
@@ -405,8 +442,6 @@ export async function reapStaleTmp(bundle: Bundle): Promise<string[]> {
 export async function beginEpoch(bundle: Bundle, options: BeginEpochOptions = {}): Promise<EpochHandle> {
   const next = bundle.head.epoch + 1
   const tmp = epochTmpDir(bundle.paths.root, next)
-  // CQ-025: reap any leftover tmp/epoch-N first so the new epoch never
-  // adopts stale bytes from a crashed sealer.
   await rm(tmp, { recursive: true, force: true })
   await mkdir(tmp, { recursive: true })
   return new EpochHandle({
@@ -424,39 +459,162 @@ export type SealedEpoch = {
   permanentDir: string
 }
 
+type VerifiedSegments = {
+  casObjects: Set<string>
+  rawSourceContent: Set<string>
+  projectionEntities: Set<CanonicalEntityType>
+  hasRawSourcePack: boolean
+}
+
+async function verifyRegisteredSegments(
+  handle: EpochHandle,
+  rowsByEntity: Record<CanonicalEntityType, Record<string, CborValue>[]>,
+): Promise<VerifiedSegments> {
+  const out: VerifiedSegments = {
+    casObjects: new Set<string>(),
+    rawSourceContent: new Set<string>(),
+    projectionEntities: new Set<CanonicalEntityType>(),
+    hasRawSourcePack: false,
+  }
+  const bundleRootAbs = handle.bundle.paths.root
+  for (const ref of handle.registeredSegments()) {
+    if (!isAbsolute(ref.path)) {
+      throw new DurabilityError(`sealEpoch: ref path is not absolute: ${ref.path}`)
+    }
+    const rel = relative(bundleRootAbs, ref.path)
+    if (rel.startsWith('..') || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+      throw new DurabilityError(`sealEpoch: ref path ${ref.path} is outside the bundle root`)
+    }
+    let st: Awaited<ReturnType<typeof stat>>
+    try {
+      st = await stat(ref.path)
+    } catch {
+      throw new DurabilityError(`sealEpoch: ref path does not exist: ${ref.path}`)
+    }
+    if (st.size !== ref.byteLength) {
+      throw new DurabilityError(
+        `sealEpoch: ref ${ref.path}: byteLength mismatch (declared ${ref.byteLength}, actual ${st.size})`,
+      )
+    }
+    const bytes = await readFile(ref.path)
+    // CQ-031: digest semantics vary by kind. For projection segments the
+    // ref.digest IS blake3(bytes) — the segment-writer computes it that
+    // way. For CAS / raw-source packs the ref.digest is the
+    // self-referential `pack_digest` (placeholder-substitution scheme);
+    // we verify that AND blake3(bytes) is what the pack header carries
+    // implicitly via verifyCasPack / verifyRawSourcePack.
+    switch (ref.kind) {
+      case 'cas_object_pack': {
+        const v = verifyCasPack(bytes)
+        if (v.header.pack_digest !== ref.digest) {
+          throw new DurabilityError(
+            `sealEpoch: ref ${ref.path}: pack_digest mismatch (declared ${ref.digest}, actual ${v.header.pack_digest})`,
+          )
+        }
+        for (const { entry } of v.entries) out.casObjects.add(entry.object_id)
+        break
+      }
+      case 'raw_source_pack': {
+        const v = verifyRawSourcePack(bytes)
+        if (v.header.pack_digest !== ref.digest) {
+          throw new DurabilityError(
+            `sealEpoch: ref ${ref.path}: pack_digest mismatch (declared ${ref.digest}, actual ${v.header.pack_digest})`,
+          )
+        }
+        for (const { entry } of v.entries) out.rawSourceContent.add(entry.content_hash)
+        out.hasRawSourcePack = true
+        break
+      }
+      case 'projection_arrow':
+      case 'projection_parquet': {
+        if (!ref.entityType) {
+          throw new DurabilityError(`sealEpoch: projection ref ${ref.path} has no entityType`)
+        }
+        const actualDigest = `blake3:${toHex(blake3(bytes))}`
+        if (actualDigest !== ref.digest) {
+          throw new DurabilityError(
+            `sealEpoch: ref ${ref.path}: blake3 mismatch (declared ${ref.digest}, actual ${actualDigest})`,
+          )
+        }
+        await verifyProjectionSegmentMatchesRows(ref, bytes, rowsByEntity[ref.entityType] ?? [])
+        out.projectionEntities.add(ref.entityType)
+        break
+      }
+      default: {
+        // search_docs_arrow, session_blob_pack, manifest, etc. — for now
+        // we only verify byte-digest match. Per-kind content checks land
+        // in later lanes.
+        const actualDigest = `blake3:${toHex(blake3(bytes))}`
+        if (actualDigest !== ref.digest) {
+          throw new DurabilityError(
+            `sealEpoch: ref ${ref.path}: blake3 mismatch (declared ${ref.digest}, actual ${actualDigest})`,
+          )
+        }
+        break
+      }
+    }
+  }
+  return out
+}
+
 /**
- * Validate FK closure (CQ-024), confirm durable refs back every row
- * (CQ-023), compute roots, write the manifest, atomically rename
- * `tmp/epoch-N/` → `epochs/N/`, then atomically swap `head.json`.
+ * Confirm a projection segment file carries exactly the rows being
+ * sealed. Recompute what `writeProjectionSegment` would produce from
+ * `rows` (using a scratch tmpdir) and compare byte-for-byte.
  */
+async function verifyProjectionSegmentMatchesRows(
+  ref: DurableSegmentRef,
+  fileBytes: Uint8Array,
+  rows: readonly Record<string, CborValue>[],
+): Promise<void> {
+  // Lazy-import to avoid a circular module dependency at load time.
+  const { writeProjectionSegment } = await import('../projection/segment-writer.js')
+  const { mkdtemp } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const scratch = await mkdtemp(`${tmpdir()}/prosa-verify-`)
+  try {
+    const r = await writeProjectionSegment(ref.entityType as CanonicalEntityType, rows, { outDir: scratch })
+    const expected = await readFile(r.ref.path)
+    if (expected.length !== fileBytes.length) {
+      throw new DurabilityError(
+        `sealEpoch: projection segment ${ref.path} length ${fileBytes.length} != expected ${expected.length}`,
+      )
+    }
+    for (let i = 0; i < expected.length; i++) {
+      if (expected[i] !== fileBytes[i]) {
+        throw new DurabilityError(
+          `sealEpoch: projection segment ${ref.path} content does not match in-memory rows for ${ref.entityType}`,
+        )
+      }
+    }
+  } finally {
+    await rm(scratch, { recursive: true, force: true }).catch(() => undefined)
+  }
+}
+
 export async function sealEpoch(handle: EpochHandle): Promise<SealedEpoch> {
   const rowsByEntity = handle.rowsByEntity()
-  const counts = handle.computeCounts()
-  const inventory = handle.objectInventory()
-  validateFkClosure(rowsByEntity, { objectInventory: inventory })
 
-  // CQ-023: durability check. For every entity type that has rows we
-  // require a registered projection segment; for raw-source entries we
-  // require a registered raw_source_pack; for CAS object refs we already
-  // walked the inventory above.
-  const segmentEntities = new Set<CanonicalEntityType>()
-  let hasRawSourcePack = false
-  for (const seg of handle.registeredSegments()) {
-    if (seg.entityType && (seg.kind === 'projection_arrow' || seg.kind === 'projection_parquet')) {
-      segmentEntities.add(seg.entityType)
-    }
-    if (seg.kind === 'raw_source_pack') hasRawSourcePack = true
-  }
+  const verified = await verifyRegisteredSegments(handle, rowsByEntity)
+
   for (const [et, m] of Object.entries(rowsByEntity) as [CanonicalEntityType, unknown[]][]) {
     if (m.length === 0) continue
-    if (!segmentEntities.has(et)) {
-      throw new DurabilityError(`sealEpoch: ${et} has ${m.length} rows but no projection segment registered (CQ-023)`)
+    if (!verified.projectionEntities.has(et)) {
+      throw new DurabilityError(
+        `sealEpoch: ${et} has ${m.length} rows but no verified projection segment registered (CQ-023)`,
+      )
     }
   }
-  if (handle.rawSourceEntries().length > 0 && !hasRawSourcePack) {
+  if (handle.rawSourceEntries().length > 0 && !verified.hasRawSourcePack) {
     throw new DurabilityError('sealEpoch: raw_source entries present but no raw_source_pack registered (CQ-023)')
   }
 
+  validateFkClosure(rowsByEntity, {
+    casObjectInventory: verified.casObjects,
+    rawSourceInventory: verified.rawSourceContent,
+  })
+
+  const counts = handle.computeCounts()
   const bundleRoot = toHex(bundleRootFromRows(rowsByEntity))
   const rawSourceRoot = toHex(rawSourceRootFromEntries(handle.rawSourceEntries()))
 
@@ -484,20 +642,18 @@ export async function sealEpoch(handle: EpochHandle): Promise<SealedEpoch> {
   const signed: SignedEpochManifestV2 = { manifest, signature: { ...PLACEHOLDER_SIGNATURE } }
 
   const manifestBody = epochManifestBytes(manifest)
-  const manifestPath = `${handle.tmpDir}/epoch.manifest.json`
-  await writeFile(manifestPath, manifestBody)
-  const signedPath = `${handle.tmpDir}/epoch.manifest.signed.json`
-  await writeFile(signedPath, `${JSON.stringify(signed, null, 2)}\n`)
-
-  // CQ-025: fsync manifest before publishing. writeFile + (best-effort)
-  // directory fsync mirror the head.json contract.
-  // (Node's fs.writeFile already does an internal flush; a follow-up
-  // hardening iteration may add explicit fdatasync calls for every
-  // segment registered above.)
+  // CQ-034: open + write + fsync + close for every published file.
+  await writeFileDurable(`${handle.tmpDir}/epoch.manifest.json`, manifestBody)
+  await writeFileDurable(
+    `${handle.tmpDir}/epoch.manifest.signed.json`,
+    new TextEncoder().encode(`${JSON.stringify(signed, null, 2)}\n`),
+  )
+  await syncDir(handle.tmpDir)
 
   const permanent = epochDir(handle.bundle.paths.root, handle.epoch)
   await mkdir(handle.bundle.paths.epochs, { recursive: true })
   await rename(handle.tmpDir, permanent)
+  await syncDir(handle.bundle.paths.epochs)
 
   const manifestDigest = `blake3:${toHex(blake3(manifestBody))}`
   const nextHead: BundleHeadV2 = {
@@ -515,14 +671,9 @@ export async function sealEpoch(handle: EpochHandle): Promise<SealedEpoch> {
     segments: manifest.segments,
   }
   await handle.bundle.swapHead(nextHead)
-
   return { epoch: handle.epoch, manifest: signed, head: nextHead, permanentDir: permanent }
 }
 
 function stripBlake3(d: string): string {
   return d.startsWith('blake3:') ? d.slice('blake3:'.length) : d
 }
-
-// `stat` is imported but currently unused by the public API; future
-// crash-recovery code can use it to inspect leftover tmp epochs.
-void stat

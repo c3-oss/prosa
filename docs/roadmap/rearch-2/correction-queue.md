@@ -4,6 +4,92 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 ## Open
 
+No open blocking corrections — all CQ-001..CQ-035 closed.
+
+## Closed (latest first)
+
+### CQ-035: Reject Non-Canonical Pack Header Bytes — closed 2026-05-18
+
+`verifyCasPack` and `verifyRawSourcePack` reject when the raw header
+bytes are not the canonical-JSON encoding of the parsed header. A
+reordered-key or whitespace-padded header that would otherwise pass
+the header BLAKE3 + pack_digest checks now fails because
+`canonicalJson(header) !== frame.headerBytes`. Pack identity is now
+byte identity over canonical bytes.
+
+### CQ-034: Fsync Sequence Before Head Publish — closed 2026-05-18
+
+New `src/util/durable-write.ts` exports `writeFileDurable(path, bytes)`
+(open + write + fsync + close) and `syncDir(path)` (best-effort
+directory fsync). Pack writer pools, projection segment writer, and
+sealEpoch's manifest writes all use `writeFileDurable`. `sealEpoch`
+fsyncs the tmp epoch dir before rename and the epochs root after
+rename, before publishing the new `head.json`.
+
+### CQ-033: Extended FK Closure + Prior-Epoch Policy — closed 2026-05-18
+
+`FK_RULES` extends to `session.parent_session_id`,
+`message.parent_message_id`, `artifact.session_id`, and
+`edge.raw_record_id`. `validateFkClosure` also resolves
+`search_doc.entity_type/entity_id` dynamically against the in-epoch row
+ids (mirroring the edge-endpoint approach). The current-epoch policy
+is documented in both code comments and the lifecycle module header:
+every parent reference must resolve inside the same epoch; importers
+that intentionally reference a prior-epoch parent must restage it.
+Tests cover parent_session_id, search_doc.entity_id, and the existing
+extended rules.
+
+### CQ-032: Separate CAS vs Raw-Source Inventory — closed 2026-05-18
+
+`validateFkClosure` accepts split `casObjectInventory` /
+`rawSourceInventory`. `OBJECT_ID_FIELDS` categorises each field with
+the inventory it must resolve against (`artifact.object_id`,
+`content_block.text_object_id`, `event.payload_object_id`,
+`tool_call.args_object_id`, `tool_result.{stdout,stderr,output}_object_id`,
+`raw_record.decoded_object_id`, `edge.metadata_object_id`,
+`artifact.text_object_id` → CAS; `source_file.{object_id, content_hash}`,
+`raw_record.{object_id, content_hash}` → raw-source). `sealEpoch` builds
+the CAS inventory only from verified `cas_object_pack` refs and the
+raw-source inventory only from verified `raw_source_pack` refs.
+When either inventory is provided, both categories are enforced
+fail-closed.
+
+### CQ-031: Verify Registered Durable Refs Before sealEpoch — closed 2026-05-18
+
+`sealEpoch` calls `verifyRegisteredSegments(handle, rowsByEntity)`
+which, for every registered ref:
+- requires an absolute path inside the bundle root (no `..` escapes);
+- `stat`s the file and confirms `byteLength` matches;
+- reads the bytes;
+- for `cas_object_pack` / `raw_source_pack`: calls `verifyCasPack` /
+  `verifyRawSourcePack` AND requires `header.pack_digest === ref.digest`;
+- for `projection_arrow` / `projection_parquet`: requires
+  `blake3(bytes) === ref.digest` AND
+  `writeProjectionSegment(entity, rowsByEntity[entity])` reproduces the
+  exact on-disk bytes — proving the segment contains the rows being
+  sealed.
+
+Tests cover forged digests, missing paths, paths outside the bundle
+root, byte-length mismatches, and projection-segment content
+mismatches.
+
+### CQ-030: Lane 0 Source Contract Aligned With CANONICAL.md — closed 2026-05-18
+
+`docs/rearch-2/01-lane-0-foundation.md` replaces the duplicated
+canonical-rule excerpt with a non-normative summary that points at
+`packages/prosa-types-v2/CANONICAL.md`. The summary explicitly calls
+out semantic UTC timestamp validity (CQ-014) and the exact ID regex
+`^[a-z0-9][a-z0-9_:-]*$` (CQ-022).
+
+### CQ-029: Reconcile Status, Gates, and Evidence — closed 2026-05-18
+
+`status.md`, `gates.md`, `evidence/lane-00.md`, and
+`evidence/lane-01.md` rewritten from this iteration's actual HEAD chain
+(`5a6a683` → this iteration's CQ-029..CQ-035 closeout commit) and
+actual test counts (89 / 21 / 86 / 15).
+
+### Original CQ-029..CQ-035 problem statements (closed; bodies preserved):
+
 ### CQ-035: Reject Non-Canonical Pack Header Bytes During Verification
 
 - Severity: major

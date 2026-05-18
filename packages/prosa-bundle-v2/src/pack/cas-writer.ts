@@ -14,13 +14,13 @@
 // Lane 1 we keep both flavours framed identically with `PROSA_CAS_PACK_2`
 // magic; the `standalone_large_object` header flag distinguishes them.
 
-import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { blake3 } from '@noble/hashes/blake3'
 
 import { toHex } from '@c3-oss/prosa-types-v2'
 
+import { writeFileDurable } from '../util/durable-write.js'
 import { type CasPackBuilt, type CasPackInput, buildCasPack } from './cas-pack.js'
 
 export const LARGE_OBJECT_THRESHOLD_BYTES = 32 * 1024 * 1024 // 32 MiB
@@ -232,16 +232,14 @@ export class CasPackWriterPool {
   async emitSmallPack(shardId: number, inputs: readonly CasPackInput[]): Promise<CasPackEmission> {
     const built = buildCasPack(inputs, { createdAt: this.createdAt() })
     const packPath = join(this.packsDir, `pack-${stripBlake3(built.packDigest)}.prosa-cas-pack`)
-    await mkdir(this.packsDir, { recursive: true })
-    await writeFile(packPath, built.bytes)
+    await writeFileDurable(packPath, built.bytes)
     return { shardId, isLarge: false, packDigest: built.packDigest, packPath, built }
   }
 
   async emitLargePack(shardId: number, input: CasPackInput): Promise<CasPackEmission> {
     const built = buildCasPack([input], { createdAt: this.createdAt(), standaloneLargeObject: true })
     const packPath = join(this.largeDir, `pack-${stripBlake3(built.packDigest)}.prosa-cas-pack`)
-    await mkdir(this.largeDir, { recursive: true })
-    await writeFile(packPath, built.bytes)
+    await writeFileDurable(packPath, built.bytes)
     return { shardId, isLarge: true, packDigest: built.packDigest, packPath, built }
   }
 }

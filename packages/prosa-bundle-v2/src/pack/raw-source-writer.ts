@@ -5,11 +5,11 @@
 // shape governs both. Each finalized pack lands at
 // `raw_sources/packs/source-pack-<digest>.prosa-raw-pack`.
 
-import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { blake3 } from '@noble/hashes/blake3'
 
+import { writeFileDurable } from '../util/durable-write.js'
 import { type CasRolloverTriggers, DEFAULT_CAS_TRIGGERS } from './cas-writer.js'
 import { type RawSourcePackBuilt, type RawSourcePackInput, buildRawSourcePack } from './raw-source-pack.js'
 
@@ -143,8 +143,7 @@ export class RawSourcePackWriterPool {
   async emitPack(shardId: number, inputs: readonly RawSourcePackInput[]): Promise<RawSourcePackEmission> {
     const built = buildRawSourcePack(inputs, { createdAt: this.createdAt() })
     const packPath = join(this.packsDir, `source-pack-${stripBlake3(built.packDigest)}.prosa-raw-pack`)
-    await mkdir(this.packsDir, { recursive: true })
-    await writeFile(packPath, built.bytes)
+    await writeFileDurable(packPath, built.bytes)
     return { shardId, packDigest: built.packDigest, packPath, built }
   }
 }

@@ -48,51 +48,44 @@ Each task is roughly one PR.
 
 ### Canonical encoding rules (pinned, no implementer drift allowed)
 
-These rules are the authority for every Merkle leaf computation across the system. They live in `packages/prosa-types-v2/CANONICAL.md` and `packages/prosa-types-v2/src/canonical.ts`.
+The normative rules live in `packages/prosa-types-v2/CANONICAL.md` and the
+implementation in `packages/prosa-types-v2/src/canonical.ts`. CQ-030
+removed the previous duplicated excerpt from this file so that a second
+implementer following the lane doc cannot inadvertently diverge from the
+canonical spec — every rule, including the semantic UTC timestamp check
+(CQ-014) and the exact ID regex `^[a-z0-9][a-z0-9_:-]*$` (CQ-022), is
+defined exactly once.
 
-```text
-1. Field order:
-   Fields appear in schema order, not object/map iteration order.
-   The schema order is the order declared in packages/prosa-types-v2/src/entities/<name>.ts.
+Summary (non-normative — read CANONICAL.md for the binding text):
 
-2. Null:
-   Encoded as canonical CBOR null (0xf6).
-   Omitted optional fields are encoded as null.
+- Rule 1 — Field order: per `*_FIELDS` declared in
+  `packages/prosa-types-v2/src/entities/<name>.ts`.
+- Rule 2 — Null: CBOR `0xf6`; missing optional fields encode as null.
+- Rule 3 — Integers: canonical CBOR smallest representation.
+- Rule 4 — Strings: UTF-8 NFC.
+- Rule 5 — Timestamps: `YYYY-MM-DDTHH:MM:SS.sssZ`, **semantic UTC
+  validity required** (must round-trip via `Date.UTC`).
+- Rule 6 — Identifiers + hashes: exact ID regex
+  `^[a-z0-9][a-z0-9_:-]*$`; tagged-hash form `blake3:<64-hex-lower>`
+  where the named kind is tagged; bare 64-hex for `bundleRoot`,
+  `rawSourceRoot`, `objectSetRoot`. `manifestDigest` is tagged.
+- Rule 7 — Sort order: bytewise ASC on primary key within an entity;
+  alphabetical across `CanonicalEntityType`.
+- Rule 8 — Leaf: `blake3('prosa.projection.leaf.v2' || entity_type ||
+  primary_key || canonical_cbor(row))`.
+- Rule 9 — Tree: binary Merkle, BLAKE3 inner nodes, odd leaves duplicated,
+  empty subtree = 32 zero bytes.
+- Rule 10 — `bundleRoot`: cross-entity canonical projection Merkle root.
+- Rule 11 — `rawSourceRoot`: blake3 over the sorted raw-source pack
+  entries with leaf domain `prosa.rawsource.leaf.v2`.
+- Rule 12 — Receipt payload bytes + `deriveReceiptId` zeroing.
+- Rule 13 — `source_file_id` and `raw_record_id` deterministic
+  derivation.
 
-3. Integers:
-   Canonical CBOR integers (smallest representation).
-
-4. Strings:
-   UTF-8 NFC-normalized. Apply NFC before encoding.
-
-5. Timestamps:
-   UTC RFC3339 with millisecond precision.
-   Canonical form: 'YYYY-MM-DDTHH:MM:SS.sssZ' with exactly three fractional digits.
-   Sub-millisecond precision is TRUNCATED (not rounded) toward the epoch.
-   No fractional part = '.000Z'.
-
-6. Identifiers:
-   Object IDs, entity IDs, hashes use canonical lowercase string form.
-
-7. Sort order for Merkle trees:
-   Within an entity type: leaves sorted by primary_key ASCENDING bytewise.
-   Across entity types: enum order declared in CanonicalEntityType (alphabetical: artifact, content_block, edge, event, message, project, raw_record, search_doc, session, source_file, tool_call, tool_result, turn).
-
-8. Leaf computation:
-   leaf = blake3(
-     'prosa.projection.leaf.v2' ||
-     entity_type ||
-     primary_key ||
-     canonical_cbor(row_tuple)
-   )
-
-9. Tree construction:
-   Binary Merkle tree, blake3 inner nodes.
-   Odd leaves at any level: hash duplicated.
-   Empty entity type: 32 zero bytes as that type's subroot.
-```
-
-The conformance test in `test/conformance/leaves.test.ts` MUST verify byte-for-byte equality with the fixture; any drift causes CI to fail. This is the load-bearing pin from `docs/rearch/17-review-of-proposal-3.md` L15.
+The conformance test at `test/conformance/leaves.test.ts` is the
+regression contract; the hand-traceable cross-implementation contract
+lives in `packages/prosa-types-v2/test/cbor-vectors.test.ts` (CQ-018).
+Any drift in either fails CI.
 
 ### `SessionFixupV2` (lean shape)
 

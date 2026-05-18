@@ -35,13 +35,7 @@ Ralph active: yes
 
 | ID | Severity | Owner | Summary |
 | --- | --- | --- | --- |
-| CQ-029 | high | Ralph | Reconcile status, gates, and evidence with current HEAD. |
-| CQ-030 | high | Ralph | Align Lane 0 canonical rule excerpt with `CANONICAL.md`. |
-| CQ-031 | critical | Ralph | Verify registered durable refs before `sealEpoch` publishes head. |
-| CQ-032 | critical | Ralph | Separate verified CAS object inventory from raw-source inventory. |
-| CQ-033 | high | Ralph | Complete canonical FK closure including prior-epoch policy. |
-| CQ-034 | high | Ralph | Fsync durable epoch, pack, and segment files before head publish. |
-| CQ-035 | major | Ralph | Reject non-canonical pack header bytes during verification. |
+| | | | All CQ-001..CQ-035 closed; see `correction-queue.md` "Closed". |
 
 ## Latest Gates
 
@@ -51,7 +45,7 @@ Ralph active: yes
 | `pnpm i` | pass | `pnpm install --frozen-lockfile`-compatible; only pre-existing peer warnings (`@c3-oss/config-vitest` wants vitest ^3.1.1, repo on 2.1.9). |
 | `pnpm build` | pass | 10/10 turbo tasks (includes `@c3-oss/prosa-bundle-v2`). |
 | `just typecheck` | pass | 10/10 turbo tasks. |
-| `just test-all` | pass | 10/10 turbo tasks. Test counts: 89 in `@c3-oss/prosa-types-v2`, 21 in `@c3-oss/prosa-wire-v2`, 74 in `@c3-oss/prosa-bundle-v2` (post projection segment writer + e2e synthetic seal). |
+| `just test-all` | pass | 10/10 turbo tasks. Test counts: 89 in `@c3-oss/prosa-types-v2`, 21 in `@c3-oss/prosa-wire-v2`, 86 in `@c3-oss/prosa-bundle-v2` (post CQ-029..CQ-035 closeout). |
 | `just lint-all` | pass | 10/10 turbo tasks. |
 | `pnpm test:conformance` | pass | 15 tests; 13 entity leaves stable. |
 | `pnpm audit --audit-level moderate` | classified pass | 7 dev-tooling-only vulnerabilities, pre-existing; classified in `gates.md`. |

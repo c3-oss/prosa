@@ -13,7 +13,6 @@
 // can swap the bytes for Parquet while keeping the segment-writer
 // signature identical.
 
-import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { type CanonicalEntityType, type CborValue, ENTITY_PRIMARY_KEY, toHex } from '@c3-oss/prosa-types-v2'
@@ -21,6 +20,7 @@ import { blake3 } from '@noble/hashes/blake3'
 
 import type { DurableSegmentRef } from '../epoch/lifecycle.js'
 import { canonicalJsonString } from '../pack/framing.js'
+import { writeFileDurable } from '../util/durable-write.js'
 
 export type ProjectionSegmentWriteOptions = {
   /** Bundle root directory; the writer puts files under `<root>/epochs/<epoch>/projection/`.
@@ -67,10 +67,9 @@ export async function writeProjectionSegment(
   const digest = `blake3:${toHex(blake3(bytes))}`
 
   const dir = join(options.outDir, 'projection')
-  await mkdir(dir, { recursive: true })
   const filename = `${entityType}.prosa-projection.ndjson`
   const path = join(dir, filename)
-  await writeFile(path, bytes)
+  await writeFileDurable(path, bytes)
 
   const ref: DurableSegmentRef = {
     kind: 'projection_arrow',

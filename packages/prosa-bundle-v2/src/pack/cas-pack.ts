@@ -38,6 +38,14 @@ export type CasPackHeaderV2 = {
   standalone_large_object: boolean
 }
 
+function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false
+  }
+  return true
+}
+
 const PACK_DIGEST_PLACEHOLDER = `blake3:${'0'.repeat(64)}`
 
 function verifyCasPackDigest(header: CasPackHeaderV2, payload: Uint8Array): void {
@@ -208,6 +216,14 @@ export function verifyCasPack(bytes: Uint8Array): CasPackVerifyResult {
     throw new CasPackVerifyError(`version mismatch (expected ${CAS_PACK_VERSION}, got ${frame.version})`)
   }
   const header = JSON.parse(new TextDecoder().decode(frame.headerBytes)) as CasPackHeaderV2
+  // CQ-035: the header bytes must be the canonical JSON encoding of the
+  // parsed header. Otherwise a reordered-key or whitespace-padded header
+  // could carry the same logical content as the canonical encoding while
+  // differing from the pack's byte identity.
+  const canonical = canonicalJson(header)
+  if (!bytesEqual(canonical, frame.headerBytes)) {
+    throw new CasPackVerifyError('pack header bytes are not canonical JSON')
+  }
   if (header.zstd_window_log > ZSTD_MAX_WINDOW_LOG) {
     throw new CasPackVerifyError(
       `PACK_ZSTD_WINDOW_TOO_LARGE: zstd_window_log ${header.zstd_window_log} > ${ZSTD_MAX_WINDOW_LOG}`,

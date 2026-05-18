@@ -166,6 +166,14 @@ export type RawSourcePackVerifyResult = {
   entries: Array<{ entry: RawSourcePackEntryV2; uncompressed: Uint8Array }>
 }
 
+function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false
+  }
+  return true
+}
+
 const RAW_PACK_DIGEST_PLACEHOLDER = `blake3:${'0'.repeat(64)}`
 
 function verifyRawSourcePackDigest(header: RawSourcePackHeaderV2, payload: Uint8Array): void {
@@ -199,6 +207,11 @@ export function verifyRawSourcePack(bytes: Uint8Array): RawSourcePackVerifyResul
     throw new RawSourcePackVerifyError(`version mismatch (expected ${RAW_SRC_PACK_VERSION}, got ${frame.version})`)
   }
   const header = JSON.parse(new TextDecoder().decode(frame.headerBytes)) as RawSourcePackHeaderV2
+  // CQ-035: header bytes must be canonical JSON of the parsed header.
+  const canonical = canonicalJson(header)
+  if (!bytesEqual(canonical, frame.headerBytes)) {
+    throw new RawSourcePackVerifyError('pack header bytes are not canonical JSON')
+  }
   if (header.zstd_window_log > ZSTD_MAX_WINDOW_LOG) {
     throw new RawSourcePackVerifyError(`PACK_ZSTD_WINDOW_TOO_LARGE: zstd_window_log ${header.zstd_window_log}`)
   }

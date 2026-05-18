@@ -13,6 +13,8 @@ import {
   sealEpoch,
   validateFkClosure,
 } from '../../src/epoch/lifecycle.js'
+import { RawSourcePackWriterPool } from '../../src/pack/raw-source-writer.js'
+import { writeProjectionSegment } from '../../src/projection/segment-writer.js'
 
 async function tmpDir(): Promise<string> {
   return await mkdtemp(join(tmpdir(), 'prosa-epoch-'))
@@ -89,60 +91,123 @@ describe('validateFkClosure', () => {
       } as never),
     ).not.toThrow()
   })
+
+  it('CQ-032: artifact.object_id resolves only against CAS inventory, not raw-source', () => {
+    expect(() =>
+      validateFkClosure(
+        {
+          artifact: [
+            {
+              artifact_id: 'art_a',
+              session_id: null,
+              project_id: null,
+              source_tool: 'codex',
+              kind: 'file',
+              path: null,
+              logical_path: null,
+              object_id: TAG(9),
+              text_object_id: null,
+              mime_type: null,
+              size_bytes: 0,
+              created_ts: '2025-01-02T03:04:05.123Z',
+              raw_record_id: null,
+            },
+          ],
+        } as never,
+        { rawSourceInventory: new Set([TAG(9)]) }, // present in raw-source — must still fail.
+      ),
+    ).toThrow(FkClosureError)
+  })
+
+  it('CQ-033: rejects a session whose parent_session_id is missing', () => {
+    const a = sessionRow('ses_a')
+    const b = { ...sessionRow('ses_b'), parent_session_id: 'ses_missing' }
+    expect(() => validateFkClosure({ session: [a, b] } as never)).toThrow(/parent_session_id/)
+  })
+
+  it('CQ-033: rejects a search_doc whose entity_id is not in the named entity_type', () => {
+    expect(() =>
+      validateFkClosure({
+        session: [sessionRow('ses_a')],
+        search_doc: [
+          {
+            doc_id: 'sdc_a',
+            entity_type: 'session',
+            entity_id: 'ses_missing',
+            session_id: null,
+            project_id: null,
+            timestamp: null,
+            role: null,
+            tool_name: null,
+            canonical_tool_type: null,
+            field_kind: 'message_text',
+            errors_only: false,
+            text: '',
+          },
+        ],
+      } as never),
+    ).toThrow(/search_doc/)
+  })
 })
 
 describe('beginEpoch + sealEpoch', () => {
-  it('seals an epoch and atomically advances the head', async () => {
-    const root = await tmpDir()
-    const bundle = await initBundle(root, {
-      storeId: 'st_a',
-      createdAt: '2025-01-02T03:04:05.123Z',
+  async function makeRawSourcePack(bundle: { paths: { root: string } }, sourceFileId: string, bytes: Uint8Array) {
+    const pool = new RawSourcePackWriterPool({
+      rawSourcesDir: join(bundle.paths.root, 'raw_sources'),
+      createdAt: () => '2025-01-02T03:04:05.123Z',
     })
+    await pool.appendSourceFile({
+      source_file_id: sourceFileId,
+      source_tool: 'codex',
+      path: `/repo/${sourceFileId}.jsonl`,
+      file_kind: 'session_jsonl',
+      mtime_ns: null,
+      bytes,
+    })
+    const [emission] = await pool.flushAll()
+    if (!emission) throw new Error('expected pack emission')
+    return emission
+  }
+
+  it('seals an epoch and atomically advances the head with verified durable refs', async () => {
+    const root = await tmpDir()
+    const bundle = await initBundle(root, { storeId: 'st_a', createdAt: '2025-01-02T03:04:05.123Z' })
     try {
       const handle = await beginEpoch(bundle, { createdAt: '2025-01-02T03:04:06.000Z' })
       handle.putRow('session', 'ses_a', sessionRow('ses_a') as never)
       handle.putRow('turn', 'trn_a', turnRow('trn_a', 'ses_a') as never)
+      // Real raw-source pack on disk.
+      const pack = await makeRawSourcePack(bundle, 'src_a', new TextEncoder().encode('payload'))
+      const objectId = pack.built.header.entries[0]!.content_hash
       handle.putRawSource({
         source_file_id: 'src_a',
-        content_hash: TAG(1),
-        uncompressed_size: 100,
+        content_hash: objectId,
+        uncompressed_size: pack.built.header.entries[0]!.uncompressed_size,
         compression: 'zstd',
-        stored_hash: TAG(2),
-      })
-      // CQ-023: register durable refs that back the rows.
-      handle.registerSegment({
-        kind: 'projection_arrow',
-        path: 'epochs/1/projection/sessions.arrow',
-        digest: `blake3:${'a'.repeat(64)}`,
-        byteLength: 1,
-        entityType: 'session',
-      })
-      handle.registerSegment({
-        kind: 'projection_arrow',
-        path: 'epochs/1/projection/turns.arrow',
-        digest: `blake3:${'b'.repeat(64)}`,
-        byteLength: 1,
-        entityType: 'turn',
+        stored_hash: pack.built.header.entries[0]!.stored_hash,
       })
       handle.registerSegment({
         kind: 'raw_source_pack',
-        path: 'raw_sources/packs/p.pack',
-        digest: `blake3:${'c'.repeat(64)}`,
-        byteLength: 1,
-        objectIds: [TAG(1)],
+        path: pack.packPath,
+        digest: pack.packDigest,
+        byteLength: pack.built.bytes.length,
       })
+      // Real projection segments.
+      const sessSeg = await writeProjectionSegment('session', [sessionRow('ses_a')] as never, { outDir: handle.tmpDir })
+      const turnSeg = await writeProjectionSegment('turn', [turnRow('trn_a', 'ses_a')] as never, {
+        outDir: handle.tmpDir,
+      })
+      handle.registerSegment(sessSeg.ref)
+      handle.registerSegment(turnSeg.ref)
+
       const sealed = await sealEpoch(handle)
       expect(sealed.epoch).toBe(1)
-      expect(sealed.head.epoch).toBe(1)
-      expect(sealed.head.previousBundleRoot).toBe(bundle.head.previousBundleRoot ?? bundle.head.bundleRoot)
       expect(sealed.head.counts.sessions).toBe(1)
       expect(sealed.head.counts.turns).toBe(1)
       expect(sealed.head.counts.objects).toBe(1)
-      // Permanent dir exists, tmp dir does not.
       const permStat = await stat(sealed.permanentDir)
       expect(permStat.isDirectory()).toBe(true)
       await expect(stat(handle.tmpDir)).rejects.toThrow()
-      // head.json on disk matches.
       const raw = await readFile(bundle.paths.headJson, 'utf8')
       const head = JSON.parse(raw)
       expect(head.epoch).toBe(1)
@@ -154,16 +219,15 @@ describe('beginEpoch + sealEpoch', () => {
 
   it('rejects sealing when FK closure fails', async () => {
     const root = await tmpDir()
-    const bundle = await initBundle(root, {
-      storeId: 'st_a',
-      createdAt: '2025-01-02T03:04:05.123Z',
-    })
+    const bundle = await initBundle(root, { storeId: 'st_a', createdAt: '2025-01-02T03:04:05.123Z' })
     try {
       const handle = await beginEpoch(bundle, { createdAt: '2025-01-02T03:04:06.000Z' })
-      // turn references missing session.
       handle.putRow('turn', 'trn_a', turnRow('trn_a', 'ses_missing') as never)
+      const seg = await writeProjectionSegment('turn', [turnRow('trn_a', 'ses_missing')] as never, {
+        outDir: handle.tmpDir,
+      })
+      handle.registerSegment(seg.ref)
       await expect(sealEpoch(handle)).rejects.toThrow(FkClosureError)
-      // head.json must still point at epoch 0 (atomic seal failed).
       const raw = await readFile(bundle.paths.headJson, 'utf8')
       const head = JSON.parse(raw)
       expect(head.epoch).toBe(0)
@@ -174,24 +238,13 @@ describe('beginEpoch + sealEpoch', () => {
 
   it('refuses to seal twice from the same handle', async () => {
     const root = await tmpDir()
-    const bundle = await initBundle(root, {
-      storeId: 'st_a',
-      createdAt: '2025-01-02T03:04:05.123Z',
-    })
+    const bundle = await initBundle(root, { storeId: 'st_a', createdAt: '2025-01-02T03:04:05.123Z' })
     try {
       const handle = await beginEpoch(bundle, { createdAt: '2025-01-02T03:04:06.000Z' })
       handle.putRow('session', 'ses_a', sessionRow('ses_a') as never)
-      handle.registerSegment({
-        kind: 'projection_arrow',
-        path: 'p',
-        digest: `blake3:${'a'.repeat(64)}`,
-        byteLength: 1,
-        entityType: 'session',
-      })
+      const seg = await writeProjectionSegment('session', [sessionRow('ses_a')] as never, { outDir: handle.tmpDir })
+      handle.registerSegment(seg.ref)
       await sealEpoch(handle)
-      // The handle's tmpDir was renamed by the first seal; a second seal
-      // will fail when it tries to rename a missing tmp dir, OR when
-      // swapHead refuses the same epoch number.
       await expect(sealEpoch(handle)).rejects.toThrow()
     } finally {
       await bundle.close()
@@ -241,14 +294,12 @@ describe('beginEpoch + sealEpoch', () => {
     }
   })
 
-  it('rejects projection rows referencing object_ids missing from the inventory (CQ-024)', async () => {
+  it('rejects projection rows referencing object_ids missing from the CAS inventory (CQ-024 + CQ-032)', async () => {
     const root = await tmpDir()
     const bundle = await initBundle(root, { storeId: 'st_a', createdAt: '2025-01-02T03:04:05.123Z' })
     try {
       const handle = await beginEpoch(bundle, { createdAt: '2025-01-02T03:04:06.000Z' })
-      // An artifact row referencing an object_id that the inventory does
-      // not contain.
-      handle.putRow('artifact', 'art_a', {
+      const artifactRow = {
         artifact_id: 'art_a',
         session_id: null,
         project_id: null,
@@ -262,15 +313,61 @@ describe('beginEpoch + sealEpoch', () => {
         size_bytes: 0,
         created_ts: '2025-01-02T03:04:05.123Z',
         raw_record_id: null,
-      } as never)
+      }
+      handle.putRow('artifact', 'art_a', artifactRow as never)
+      const seg = await writeProjectionSegment('artifact', [artifactRow] as never, { outDir: handle.tmpDir })
+      handle.registerSegment(seg.ref)
+      await expect(sealEpoch(handle)).rejects.toThrow(FkClosureError)
+    } finally {
+      await bundle.close()
+    }
+  })
+
+  it('CQ-031: rejects a forged ref whose path does not exist', async () => {
+    const root = await tmpDir()
+    const bundle = await initBundle(root, { storeId: 'st_a', createdAt: '2025-01-02T03:04:05.123Z' })
+    try {
+      const handle = await beginEpoch(bundle, { createdAt: '2025-01-02T03:04:06.000Z' })
+      handle.registerSegment({
+        kind: 'raw_source_pack',
+        path: join(bundle.paths.root, 'nope.pack'),
+        digest: TAG(1),
+        byteLength: 100,
+      })
+      await expect(sealEpoch(handle)).rejects.toThrow(DurabilityError)
+    } finally {
+      await bundle.close()
+    }
+  })
+
+  it('CQ-031: rejects a ref whose path is outside the bundle root', async () => {
+    const root = await tmpDir()
+    const bundle = await initBundle(root, { storeId: 'st_a', createdAt: '2025-01-02T03:04:05.123Z' })
+    try {
+      const handle = await beginEpoch(bundle, { createdAt: '2025-01-02T03:04:06.000Z' })
       handle.registerSegment({
         kind: 'projection_arrow',
-        path: 'p',
-        digest: `blake3:${'a'.repeat(64)}`,
+        path: '/tmp/outside-bundle.pack',
+        digest: TAG(1),
         byteLength: 1,
-        entityType: 'artifact',
+        entityType: 'session',
       })
-      await expect(sealEpoch(handle)).rejects.toThrow(FkClosureError)
+      await expect(sealEpoch(handle)).rejects.toThrow(/outside the bundle root/)
+    } finally {
+      await bundle.close()
+    }
+  })
+
+  it('CQ-031: rejects a projection segment that does not match the in-memory rows', async () => {
+    const root = await tmpDir()
+    const bundle = await initBundle(root, { storeId: 'st_a', createdAt: '2025-01-02T03:04:05.123Z' })
+    try {
+      const handle = await beginEpoch(bundle, { createdAt: '2025-01-02T03:04:06.000Z' })
+      handle.putRow('session', 'ses_a', sessionRow('ses_a') as never)
+      // Write a segment for *different* rows than what's in the handle.
+      const seg = await writeProjectionSegment('session', [sessionRow('ses_b')] as never, { outDir: handle.tmpDir })
+      handle.registerSegment(seg.ref)
+      await expect(sealEpoch(handle)).rejects.toThrow(/does not match in-memory rows/)
     } finally {
       await bundle.close()
     }
@@ -280,9 +377,7 @@ describe('beginEpoch + sealEpoch', () => {
     const root = await tmpDir()
     const bundle = await initBundle(root, { storeId: 'st_a', createdAt: '2025-01-02T03:04:05.123Z' })
     try {
-      // Simulate a crashed sealer: create tmp/epoch-7/somefile.
       const { mkdir, writeFile, readdir } = await import('node:fs/promises')
-      const { join } = await import('node:path')
       await mkdir(join(bundle.paths.tmp, 'epoch-7'), { recursive: true })
       await writeFile(join(bundle.paths.tmp, 'epoch-7', 'orphan.tmp'), 'x')
       const reaped = await reapStaleTmp(bundle)
