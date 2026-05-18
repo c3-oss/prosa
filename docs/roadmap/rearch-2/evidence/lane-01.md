@@ -1,11 +1,12 @@
 # Lane Evidence
 
 Lane: 01 - Local store
-Status: partial (foundational pieces landed; RocksDB shards, cold rebuild,
-Parquet emitters, FK closure, and the synthetic-bundle / cold-rebuild
-e2e scenarios remain for a follow-up iteration)
+Status: partial (foundational pieces + shard-actor command vocabulary +
+beginEpoch/sealEpoch landed; 8+2 CAS writer rollover, sharded raw-source
+writer pool, Parquet emitters, cold rebuild, and the synthetic-bundle /
+cold-rebuild e2e scenarios remain)
 Owner: Ralph
-Commit range: this iteration
+Commit range: `4f214b7`, (+this iteration's shard-actor + epoch-lifecycle commit)
 
 ## Acceptance Criteria
 
@@ -29,8 +30,8 @@ Commit range: this iteration
   (`epochManifestBytes`) ready for the per-bundle Ed25519 signer to sign
   in a follow-up iteration.
 - [x] `pnpm --filter @c3-oss/prosa-bundle-v2 typecheck` clean.
-- [x] `pnpm --filter @c3-oss/prosa-bundle-v2 test` passes (28 tests / 6
-  files).
+- [x] `pnpm --filter @c3-oss/prosa-bundle-v2 test` passes (46 tests / 9
+  files post shard-actor + epoch-lifecycle landing).
 - [x] `pnpm --filter @c3-oss/prosa-bundle-v2 build` emits dist/.
 - [x] `pnpm --filter @c3-oss/prosa-bundle-v2 lint` clean.
 - [x] Workspace gates `pnpm build`, `just typecheck`, `just test-all`,
@@ -38,8 +39,24 @@ Commit range: this iteration
   (10/10 turbo tasks each).
 - [x] No code in `apps/cli` or `apps/api` imports `@c3-oss/prosa-bundle-v2`
   yet (lane 1 gate item #5).
-- [ ] 4 RocksDB shards with worker actor model (Task 2 of the lane doc) —
-  **not started**; large enough to warrant its own iteration.
+- [x] Shard actor command vocabulary (`PutIfAbsent`, `Reserve`,
+  `CommitReservation`, `Get`) + `Keyspace` enum + `ShardActor` interface.
+- [x] `shardOf(keyspace, canonicalKey)` deterministic sharding function
+  (`blake3('prosa.shardkey.v2' || keyspace || canonicalKey)[0:8] mod 4`,
+  big-endian) with 4 unit tests including distribution.
+- [x] `MemoryShardActor` in-memory + append-log persistent
+  implementation satisfying the same `ShardActor` interface (RocksDB
+  backend swappable later without consumer changes). 8 unit tests cover
+  the four ops including Reserve TTL extension/expiry, persistence
+  across reopen, and "not found".
+- [x] `beginEpoch` / `sealEpoch` lifecycle with FK closure validation,
+  atomic `tmp/epoch-N/` → `epochs/N/` rename, and `swapHead` to advance
+  `head.json`. `FkClosureError` thrown when references resolve to
+  missing parents; 6 unit tests including the failed-seal-leaves-head
+  case.
+- [ ] 4 RocksDB shards backing the `ShardActor` interface (Task 2 of
+  the lane doc explicitly names RocksDB). Deferred — the `MemoryShardActor`
+  is a drop-in replacement for now.
 - [ ] 8 CAS pack writers (small) + 2 large-object writers with pack
   rollover (Tasks 3-4) — pack format landed; the writer/rotor
   infrastructure is the next-iteration scope.
@@ -47,10 +64,8 @@ Commit range: this iteration
   mod 4` (Task 5) — pack format landed; sharded writer pool is the
   next-iteration scope.
 - [ ] Parquet projection segment writers per entity type (Task 6).
-- [ ] `beginEpoch` / `sealEpoch` / `swapHead` lifecycle with FK closure
-  validation (Task 7) — `swapHead` lands here with monotonic-epoch
-  enforcement; `beginEpoch`/`sealEpoch` and FK closure are
-  next-iteration scope.
+- [x] `beginEpoch` / `sealEpoch` / `swapHead` lifecycle with FK closure
+  validation (Task 7) landed this iteration.
 - [ ] `prosa bundle rebuild-index` cold rebuild (Task 8).
 - [ ] `synthetic-bundle.test.ts` + `cold-rebuild.test.ts` e2e scenarios.
 

@@ -159,3 +159,7 @@ pnpm generate:canonical-fixture                       # non-authoritative helper
     failures kept only as dated notes.
 - Codex will re-review after the CQ-010..CQ-015 closeout commit; new
   findings will surface as fresh `CQ-NNN` entries before Lane 1 begins.
+- Codex final re-review after `b78b5ae`/`70b9df0` opened `CQ-016` through
+  `CQ-019` for wire timestamp semantics, remaining spec contradictions,
+  conformance fixture independence, and evidence/worktree consistency. Lane 0
+  remains in correction while those are open.

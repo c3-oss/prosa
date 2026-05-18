@@ -9,9 +9,9 @@ Completion signal: RALPH_DONE
 
 ## Current State
 
-Status: in-progress (Lane 0 closed; Lane 1 partial landed this iteration)
-Current lane: Lane 1 - Local store (partial; remaining tasks in next iteration)
-Current HEAD: `70b9df0` (this iteration adds a commit for partial Lane 1)
+Status: in-progress (Lane 0 closed; Lane 1 partial advancing)
+Current lane: Lane 1 - Local store (partial; this iteration adds shard-actor command vocabulary + beginEpoch/sealEpoch + closes CQ-016..CQ-019)
+Current HEAD: `4f214b7` (this iteration adds one more commit; see Decisions for the closing hash)
 No-change streak: 0
 Ralph active: yes
 
@@ -19,8 +19,8 @@ Ralph active: yes
 
 | Lane | Owner | Status | Commit(s) | Evidence |
 | --- | --- | --- | --- | --- |
-| 00 - Foundation | Ralph | complete | `cd845f2`, `e22ec27`, `b78b5ae`, `70b9df0` | `evidence/lane-00.md` |
-| 01 - Local store | Ralph | partial (this iteration) | (this iteration) | `evidence/lane-01.md` |
+| 00 - Foundation | Ralph | complete | `cd845f2`, `e22ec27`, `b78b5ae`, `70b9df0`, (+this iteration's CQ-016..CQ-019 closeout) | `evidence/lane-00.md` |
+| 01 - Local store | Ralph | partial | `4f214b7`, (+this iteration's shard-actor + epoch-lifecycle commit) | `evidence/lane-01.md` |
 | 02 - Importers | Ralph | blocked-on-lane-01 | | `evidence/lane-02.md` |
 | 03 - Derived layer | Ralph | blocked-on-lane-02 | | `evidence/lane-03.md` |
 | 04 - Server | Ralph | blocked-on-lane-00 | | `evidence/lane-04.md` |
@@ -35,7 +35,7 @@ Ralph active: yes
 
 | ID | Severity | Owner | Summary |
 | --- | --- | --- | --- |
-| | | | All CQ-001..CQ-015 closed; see `correction-queue.md` "Closed". |
+| | | | All CQ-001..CQ-019 closed; see `correction-queue.md` "Closed". |
 
 ## Latest Gates
 
@@ -43,10 +43,10 @@ Ralph active: yes
 | --- | --- | --- |
 | `git status --short --branch` | pass | `## feature/rearch...origin/feature/rearch`. |
 | `pnpm i` | pass | `pnpm install --frozen-lockfile`-compatible; only pre-existing peer warnings (`@c3-oss/config-vitest` wants vitest ^3.1.1, repo on 2.1.9). |
-| `pnpm build` | pass | 9/9 turbo tasks, 4.8s (incremental cache hit on existing packages). |
-| `just typecheck` | pass | 9/9 turbo tasks, 3.2s. |
-| `just test-all` | pass | 9/9 turbo tasks. Lane 0 packages post CQ-010..CQ-015 closeout: 77 tests in types-v2, 18 in wire-v2. |
-| `just lint-all` | pass | 9/9 turbo tasks, 478ms. |
+| `pnpm build` | pass | 10/10 turbo tasks (includes `@c3-oss/prosa-bundle-v2`). |
+| `just typecheck` | pass | 10/10 turbo tasks. |
+| `just test-all` | pass | 10/10 turbo tasks. Post-CQ-016..CQ-019 test counts: 89 in `@c3-oss/prosa-types-v2`, 21 in `@c3-oss/prosa-wire-v2`, 46 in `@c3-oss/prosa-bundle-v2`. |
+| `just lint-all` | pass | 10/10 turbo tasks. |
 | `pnpm test:conformance` | pass | 15 tests; 13 entity leaves stable. |
 | `pnpm audit --audit-level moderate` | classified pass | 7 dev-tooling-only vulnerabilities, pre-existing; classified in `gates.md`. |
 | `git diff --check` | pass | No whitespace or conflict markers. |
@@ -103,3 +103,7 @@ Ralph active: yes
 - 2026-05-18T16:20:36-03:00: Final Lane 0 reviewers found remaining blockers
   after `cd845f2`/`e22ec27`. Opened `CQ-010` through `CQ-015`; Lane 1 must stay
   blocked until these are closed with code, tests, and consistent evidence.
+- 2026-05-18T16:47:42-03:00: Final Lane 0 reviewers found remaining blockers
+  after `b78b5ae`/`70b9df0` and while `4f214b7` Lane 1 partial exists. Opened
+  `CQ-016` through `CQ-019`; Lane 0 remains in correction and Lane 1 remains
+  blocked.

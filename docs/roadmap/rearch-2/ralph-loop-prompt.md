@@ -125,7 +125,8 @@ Before continuing beyond Lane 0 or doing more Lane 1 work, close every open
 `CQ-*` item in `docs/roadmap/rearch-2/correction-queue.md` with code, tests,
 and evidence. Current final-review corrections cover canonical CAS object
 references, receipt ID/payload binding, transport hash modeling, spec hash-form
-contradictions, semantic timestamp validation, and gate evidence consistency.
+contradictions, semantic timestamp validation, conformance independence, and
+gate evidence consistency.
 
 ## Implementation Rules
 
