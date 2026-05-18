@@ -7,7 +7,7 @@
 | `pnpm i` | yes | pass | `pnpm install --frozen-lockfile`-compatible. Pre-existing peer warning: `@c3-oss/config-vitest@0.3.0` wants vitest ^3.1.1, repo on 2.1.9. |
 | `pnpm build` | yes | pass | 10/10 turbo tasks (now includes `@c3-oss/prosa-bundle-v2`). |
 | `just typecheck` | yes | pass | 10/10 turbo tasks. |
-| `just test-all` | yes | pass | 12/12 turbo at HEAD post-CQ-060..CQ-061. Focused counts: `@c3-oss/prosa-types-v2` 89, `@c3-oss/prosa-wire-v2` 21, conformance 15, `@c3-oss/prosa-bundle-v2` **113** (Lane 1 hardening: CQ-042 x2 + CQ-043 x1 + CQ-046 x4 + CQ-047 x2 + CQ-048 x3 + CQ-049 x2 + CQ-050 x2 + CQ-053 x2 + CQ-054 x1 + CQ-056 x2 + CQ-057 x1 + CQ-058 x1 + CQ-060 x1 + CQ-061 x1), `@c3-oss/prosa-importers-v2` 8 (out-of-sequence WIP, CQ-044), `@c3-oss/prosa-db-v2` 6 (out-of-sequence WIP, CQ-044). |
+| `just test-all` | yes | pass | 12/12 turbo at HEAD post-CQ-063. Focused counts: `@c3-oss/prosa-types-v2` 89, `@c3-oss/prosa-wire-v2` 21, conformance 15, `@c3-oss/prosa-bundle-v2` **114** (Lane 1 hardening: CQ-042 x2 + CQ-043 x1 + CQ-046 x4 + CQ-047 x2 + CQ-048 x3 + CQ-049 x2 + CQ-050 x2 + CQ-053 x2 + CQ-054 x1 + CQ-056 x2 + CQ-057 x1 + CQ-058 x1 + CQ-060 x1 + CQ-061 x1 + CQ-063 x1), `@c3-oss/prosa-importers-v2` 8 (out-of-sequence WIP, CQ-044), `@c3-oss/prosa-db-v2` 6 (out-of-sequence WIP, CQ-044). |
 | `just lint-all` | yes | pass | 10/10 turbo tasks. |
 | `pnpm audit --audit-level moderate` | yes | classified pass | 8 vulnerabilities found (1 low / 6 moderate / 1 high). All pre-existing on `master`. See "Audit Classification". |
 | `git diff --check` | yes | pass | No whitespace or conflict markers. |

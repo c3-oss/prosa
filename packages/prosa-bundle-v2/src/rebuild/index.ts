@@ -299,10 +299,11 @@ export async function rebuildIndex(bundle: Bundle, options: RebuildIndexOptions 
   } catch (installErr) {
     if (archivedAt) {
       try {
-        // The rollback intentionally bypasses the injected impl —
-        // a fault-injection test that breaks the install rename should
-        // not also break recovery.
-        await rename(archivedAt, bundle.paths.index)
+        // Rollback also goes through `renameImpl` so the
+        // double-failure case (install fails AND rollback fails) is
+        // testable. Production callers pass no override, so both
+        // calls resolve to `fs.rename` and behave atomically.
+        await renameImpl(archivedAt, bundle.paths.index)
         await syncDir(dirname(bundle.paths.index))
         throw new RebuildInstallError(
           `rebuildIndex: install rename failed; rolled archive back to ${bundle.paths.index} (CQ-061): ${(installErr as Error).message}`,
@@ -386,9 +387,9 @@ async function buildEpochAuthorityChain(bundle: Bundle): Promise<Map<number, str
         `rebuildIndex: epoch ${n} manifest.bundleRoot does not match expected chain anchor (manifest=${String(parsed.bundleRoot)}, expected=${expectedAtNext}) (CQ-060)`,
       )
     }
-    // Move the anchor down to epoch n-1.
+    // Move the anchor down to epoch n-1. The for-loop guard already
+    // restricts n to >= 2 so this is always a real prior epoch.
     const prev = parsed.previousBundleRoot
-    if (n === 1) break
     if (typeof prev !== 'string' || prev.length === 0) {
       throw new RebuildIntegrityError(
         `rebuildIndex: epoch ${n} manifest.previousBundleRoot is missing — chain breaks before epoch 1 (CQ-060)`,

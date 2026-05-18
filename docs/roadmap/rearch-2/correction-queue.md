@@ -45,6 +45,26 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 ## Closed (latest first)
 
+### CQ-063: Cover Rollback-Also-Fails Branch + Remove Dead Chain Guard — closed 2026-05-18
+
+Reviewer-found follow-ups to CQ-060/CQ-061: (1) the
+`for (n = head.epoch; n >= 2; n--)` loop in
+`buildEpochAuthorityChain` carried a dead `if (n === 1) break` guard
+that the loop bound made unreachable. Removed and replaced with a
+clarifying comment. (2) The CQ-061 install-rollback path had only
+one test (rollback succeeds); the `rolledBack: false` branch
+(install fails AND rollback fails) was reachable in production but
+uncovered. Production-side change: rollback now goes through
+`renameImpl` too so tests can inject the double-failure. Production
+callers pass no override, so both calls resolve to `fs.rename` and
+behave atomically. Added test
+`CQ-061: when rollback also fails, throws RebuildInstallError with
+archivedAt set and rolledBack=false` which fails calls 2 and 3 of
+the injected rename, captures the thrown `RebuildInstallError`,
+and asserts `rolledBack === false`, `archivedAt` matches
+`/index-old-/`, the carried archive path actually exists on disk,
+and the archive set grew by exactly one entry.
+
 ### CQ-062: Reconcile Governance Artifacts After `aecc9af` — closed 2026-05-18
 
 status.md / gates.md / evidence/lane-01.md / ralph-loop-prompt.md

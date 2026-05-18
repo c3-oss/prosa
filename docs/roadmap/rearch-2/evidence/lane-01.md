@@ -147,7 +147,7 @@ Focused gates for `@c3-oss/prosa-bundle-v2`:
 
 ```text
 pnpm --filter @c3-oss/prosa-bundle-v2 typecheck     # clean
-pnpm --filter @c3-oss/prosa-bundle-v2 test          # 113 tests, 15 files
+pnpm --filter @c3-oss/prosa-bundle-v2 test          # 114 tests, 15 files
 ```
 
 Integrity tests added during Lane 1 hardening (correction → tests):
@@ -166,6 +166,7 @@ Integrity tests added during Lane 1 hardening (correction → tests):
 - CQ-058: symlinked-bundle-root CAS pack happy-path seal (x1)
 - CQ-060: lockstep tamper of non-head epoch projection + manifest pair (x1)
 - CQ-061: install rename failure rolls archive back to index/ (x1)
+- CQ-063: rollback-also-fails surfaces RebuildInstallError with archive path (x1)
 
 ## Data / Security Evidence
 

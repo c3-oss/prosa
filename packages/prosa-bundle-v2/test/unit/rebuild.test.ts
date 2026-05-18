@@ -532,6 +532,55 @@ describe('rebuildIndex', () => {
     }
   })
 
+  it('CQ-061: when rollback also fails, throws RebuildInstallError with archivedAt set and rolledBack=false', async () => {
+    const root = await tmp()
+    const bundle = await initBundle(root, { storeId: 'st_install_double_fail', createdAt: '2025-01-02T03:04:05.123Z' })
+    try {
+      const handle = await beginEpoch(bundle, { createdAt: '2025-01-02T03:04:06.000Z' })
+      handle.putRow('session', 'ses_a', sessionRow('ses_a') as never)
+      const seg = await writeProjectionSegment('session', [sessionRow('ses_a')] as never, { outDir: handle.tmpDir })
+      handle.registerSegment(seg.ref)
+      await sealEpoch(handle)
+      await rebuildIndex(bundle, { uuid: 'baseline_double' })
+      const { readdir } = await import('node:fs/promises')
+      const rootBefore = await readdir(bundle.paths.root)
+      const archivesBefore = rootBefore.filter((n) => n.startsWith('index-old-')).sort()
+
+      const fsp = await import('node:fs/promises')
+      let calls = 0
+      // Fail both call 2 (install) AND call 3 (rollback). Call 1
+      // (archive) still succeeds so the bundle ends up with the old
+      // index sitting in `index-old-*` and no active `index/`.
+      const renameImpl = async (from: string, to: string): Promise<void> => {
+        calls++
+        if (calls === 2) throw new Error('simulated install rename EIO')
+        if (calls === 3) throw new Error('simulated rollback rename EIO')
+        await fsp.rename(from, to)
+      }
+      let captured: unknown
+      try {
+        await rebuildIndex(bundle, { uuid: 'install_double_fail1', _renameImpl: renameImpl })
+      } catch (e) {
+        captured = e
+      }
+      const { RebuildInstallError } = await import('../../src/rebuild/index.js')
+      expect(captured).toBeInstanceOf(RebuildInstallError)
+      const err = captured as InstanceType<typeof RebuildInstallError>
+      expect(err.rolledBack).toBe(false)
+      expect(err.archivedAt).toMatch(/index-old-/)
+      // Stat the carried archive path to confirm it really exists.
+      const { stat: statFn } = await import('node:fs/promises')
+      const archiveStat = await statFn(err.archivedAt as string)
+      expect(archiveStat.isDirectory()).toBe(true)
+      // A NEW archive directory now exists (the one CQ-061 abandoned).
+      const rootAfter = await readdir(bundle.paths.root)
+      const archivesAfter = rootAfter.filter((n) => n.startsWith('index-old-')).sort()
+      expect(archivesAfter.length).toBe(archivesBefore.length + 1)
+    } finally {
+      await bundle.close()
+    }
+  })
+
   it('CQ-046: rejects a missing manifest pair (no silent skip)', async () => {
     const root = await tmp()
     const bundle = await initBundle(root, { storeId: 'st_missing', createdAt: '2025-01-02T03:04:05.123Z' })

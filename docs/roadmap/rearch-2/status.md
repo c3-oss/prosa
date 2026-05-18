@@ -54,7 +54,7 @@ is accepted by Codex.
 | `pnpm i` | pass | `pnpm install --frozen-lockfile`-compatible; only pre-existing peer warnings (`@c3-oss/config-vitest` wants vitest ^3.1.1, repo on 2.1.9). |
 | `pnpm build` | pass | 10/10 turbo tasks (includes `@c3-oss/prosa-bundle-v2`). |
 | `just typecheck` | pass | 10/10 turbo tasks. |
-| `just test-all` | pass | 12/12 turbo (`pnpm test` proxy). Focused counts after CQ-060..CQ-061: types-v2 89, wire-v2 21, conformance 15, bundle-v2 **113** (+CQ-060 lockstep-tamper x1, +CQ-061 install-rename-fault x1), importers-v2 8, db-v2 6. |
+| `just test-all` | pass | 12/12 turbo (`pnpm test` proxy). Focused counts after CQ-063: types-v2 89, wire-v2 21, conformance 15, bundle-v2 **114** (+CQ-060 lockstep-tamper x1, +CQ-061 install-rename-fault x1, +CQ-063 rollback-also-fails x1), importers-v2 8, db-v2 6. |
 | `just lint-all` | pass | 10/10 turbo tasks. |
 | `pnpm test:conformance` | pass | 15 tests; 13 entity leaves stable. |
 | `pnpm audit --audit-level moderate` | classified pass | 8 findings (1 low / 6 moderate / 1 high), all pre-existing on `master`; only `apps__cli>ink>ws` touches a non-dev path. Classified in `gates.md`. |
