@@ -1,9 +1,14 @@
 # Lane Evidence
 
 Lane: 00 - Foundation
-Status: complete (pending Codex re-review of CQ-010..CQ-015 closeout)
+Status: complete (Lane 0 integrity corrections CQ-001..CQ-019 all
+closed; Codex's Lane 1 re-review is the gating action for the final
+Lane 0/1 acceptance via CQ-044).
 Owner: Ralph
-Commit range: `cd845f2`, `e22ec27`, and this iteration's CQ-010..CQ-015 closeout commit
+Commit range: `cd845f2`, `e22ec27`, `b78b5ae`, `70b9df0`, `0e8a912`,
+`a650ef8`, `2809d21` (Lane 0 hardening chain through CQ-001..CQ-019;
+later Lane 1 commits also touch `packages/prosa-types-v2/CANONICAL.md`
+governance text per CQ-036 / CQ-052 / CQ-055).
 
 ## Acceptance Criteria
 
@@ -64,30 +69,39 @@ Commit range: `cd845f2`, `e22ec27`, and this iteration's CQ-010..CQ-015 closeout
 
 ## Commands Run
 
+Latest focused gates at HEAD `1e81888` (post Lane 0 CQ-001..CQ-019 +
+Lane 1 hardening chain through CQ-053..CQ-055):
+
 ```text
 # Per-package
 pnpm --filter @c3-oss/prosa-types-v2 typecheck      # clean
-pnpm --filter @c3-oss/prosa-types-v2 test           # 75 tests, 8 files
+pnpm --filter @c3-oss/prosa-types-v2 test           # 89 tests, 8 files
 pnpm --filter @c3-oss/prosa-types-v2 build          # dist/ emitted
 pnpm --filter @c3-oss/prosa-types-v2 lint           # clean
 pnpm --filter @c3-oss/prosa-wire-v2 typecheck       # clean
-pnpm --filter @c3-oss/prosa-wire-v2 test            # 14 tests pass
+pnpm --filter @c3-oss/prosa-wire-v2 test            # 21 tests pass
 pnpm --filter @c3-oss/prosa-wire-v2 build           # dist/ emitted
 pnpm --filter @c3-oss/prosa-wire-v2 lint            # clean
 
-# Workspace gates
+# Workspace gates (12 packages: Lane 0 + Lane 1 + out-of-sequence Lane 2/4 WIP)
 pnpm install --frozen-lockfile                       # clean
-pnpm build                                            # 9/9 turbo, 4.8s
-just typecheck                                        # 9/9 turbo, 3.2s
-just test-all                                         # 9/9 turbo, 3.1s
-just lint-all                                         # 9/9 turbo, 478ms
+pnpm build                                            # 12/12 turbo (FULL TURBO)
+pnpm typecheck                                        # 12/12 turbo
+pnpm test                                             # 12/12 turbo
+pnpm lint                                             # 12/12 turbo
 pnpm test:conformance                                 # 15 tests pass
-pnpm audit --audit-level moderate                     # see gates.md (dev-only)
+pnpm audit --audit-level moderate                     # 8 findings classified in gates.md
 git diff --check                                      # clean
 
 # CQ artifacts
 pnpm generate:canonical-fixture                       # non-authoritative helper
 ```
+
+Lane 0 test count grew from 75 → 89 across the CQ-010..CQ-019
+closeout chain (BLAKE3 spec vectors, expanded timestamp/normalization,
+extended-field-kind tests). Lane 0 `prosa-wire-v2` grew from 14 → 21
+across the same chain (CQ-011 receiptId binding, CQ-012 transportHash,
+CQ-017 receipt-id zeroing).
 
 ## Data / Security Evidence
 
