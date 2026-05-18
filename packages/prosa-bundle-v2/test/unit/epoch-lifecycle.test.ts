@@ -5,7 +5,14 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import { initBundle } from '../../src/bundle/bundle.js'
-import { FkClosureError, beginEpoch, sealEpoch, validateFkClosure } from '../../src/epoch/lifecycle.js'
+import {
+  DurabilityError,
+  FkClosureError,
+  beginEpoch,
+  reapStaleTmp,
+  sealEpoch,
+  validateFkClosure,
+} from '../../src/epoch/lifecycle.js'
 
 async function tmpDir(): Promise<string> {
   return await mkdtemp(join(tmpdir(), 'prosa-epoch-'))
@@ -102,6 +109,28 @@ describe('beginEpoch + sealEpoch', () => {
         compression: 'zstd',
         stored_hash: TAG(2),
       })
+      // CQ-023: register durable refs that back the rows.
+      handle.registerSegment({
+        kind: 'projection_arrow',
+        path: 'epochs/1/projection/sessions.arrow',
+        digest: `blake3:${'a'.repeat(64)}`,
+        byteLength: 1,
+        entityType: 'session',
+      })
+      handle.registerSegment({
+        kind: 'projection_arrow',
+        path: 'epochs/1/projection/turns.arrow',
+        digest: `blake3:${'b'.repeat(64)}`,
+        byteLength: 1,
+        entityType: 'turn',
+      })
+      handle.registerSegment({
+        kind: 'raw_source_pack',
+        path: 'raw_sources/packs/p.pack',
+        digest: `blake3:${'c'.repeat(64)}`,
+        byteLength: 1,
+        objectIds: [TAG(1)],
+      })
       const sealed = await sealEpoch(handle)
       expect(sealed.epoch).toBe(1)
       expect(sealed.head.epoch).toBe(1)
@@ -152,11 +181,114 @@ describe('beginEpoch + sealEpoch', () => {
     try {
       const handle = await beginEpoch(bundle, { createdAt: '2025-01-02T03:04:06.000Z' })
       handle.putRow('session', 'ses_a', sessionRow('ses_a') as never)
+      handle.registerSegment({
+        kind: 'projection_arrow',
+        path: 'p',
+        digest: `blake3:${'a'.repeat(64)}`,
+        byteLength: 1,
+        entityType: 'session',
+      })
       await sealEpoch(handle)
       // The handle's tmpDir was renamed by the first seal; a second seal
-      // will fail when it tries to mkdir/rename a missing tmp dir, OR
-      // when swapHead refuses the same epoch number.
+      // will fail when it tries to rename a missing tmp dir, OR when
+      // swapHead refuses the same epoch number.
       await expect(sealEpoch(handle)).rejects.toThrow()
+    } finally {
+      await bundle.close()
+    }
+  })
+
+  it('seals an empty epoch without durable refs (CQ-023)', async () => {
+    const root = await tmpDir()
+    const bundle = await initBundle(root, { storeId: 'st_a', createdAt: '2025-01-02T03:04:05.123Z' })
+    try {
+      const handle = await beginEpoch(bundle, { createdAt: '2025-01-02T03:04:06.000Z' })
+      const sealed = await sealEpoch(handle)
+      expect(sealed.epoch).toBe(1)
+      expect(sealed.head.counts.projectionRows).toBe(0)
+    } finally {
+      await bundle.close()
+    }
+  })
+
+  it('rejects sealing rows without a registered projection segment (CQ-023)', async () => {
+    const root = await tmpDir()
+    const bundle = await initBundle(root, { storeId: 'st_a', createdAt: '2025-01-02T03:04:05.123Z' })
+    try {
+      const handle = await beginEpoch(bundle, { createdAt: '2025-01-02T03:04:06.000Z' })
+      handle.putRow('session', 'ses_a', sessionRow('ses_a') as never)
+      await expect(sealEpoch(handle)).rejects.toThrow(DurabilityError)
+    } finally {
+      await bundle.close()
+    }
+  })
+
+  it('rejects sealing raw_source entries without a raw_source_pack (CQ-023)', async () => {
+    const root = await tmpDir()
+    const bundle = await initBundle(root, { storeId: 'st_a', createdAt: '2025-01-02T03:04:05.123Z' })
+    try {
+      const handle = await beginEpoch(bundle, { createdAt: '2025-01-02T03:04:06.000Z' })
+      handle.putRawSource({
+        source_file_id: 'src_a',
+        content_hash: TAG(1),
+        uncompressed_size: 100,
+        compression: 'zstd',
+        stored_hash: TAG(2),
+      })
+      await expect(sealEpoch(handle)).rejects.toThrow(DurabilityError)
+    } finally {
+      await bundle.close()
+    }
+  })
+
+  it('rejects projection rows referencing object_ids missing from the inventory (CQ-024)', async () => {
+    const root = await tmpDir()
+    const bundle = await initBundle(root, { storeId: 'st_a', createdAt: '2025-01-02T03:04:05.123Z' })
+    try {
+      const handle = await beginEpoch(bundle, { createdAt: '2025-01-02T03:04:06.000Z' })
+      // An artifact row referencing an object_id that the inventory does
+      // not contain.
+      handle.putRow('artifact', 'art_a', {
+        artifact_id: 'art_a',
+        session_id: null,
+        project_id: null,
+        source_tool: 'codex',
+        kind: 'file',
+        path: null,
+        logical_path: null,
+        object_id: TAG(9),
+        text_object_id: null,
+        mime_type: null,
+        size_bytes: 0,
+        created_ts: '2025-01-02T03:04:05.123Z',
+        raw_record_id: null,
+      } as never)
+      handle.registerSegment({
+        kind: 'projection_arrow',
+        path: 'p',
+        digest: `blake3:${'a'.repeat(64)}`,
+        byteLength: 1,
+        entityType: 'artifact',
+      })
+      await expect(sealEpoch(handle)).rejects.toThrow(FkClosureError)
+    } finally {
+      await bundle.close()
+    }
+  })
+
+  it('reapStaleTmp drops leftover tmp/epoch-N from a crashed sealer (CQ-025)', async () => {
+    const root = await tmpDir()
+    const bundle = await initBundle(root, { storeId: 'st_a', createdAt: '2025-01-02T03:04:05.123Z' })
+    try {
+      // Simulate a crashed sealer: create tmp/epoch-7/somefile.
+      const { mkdir, writeFile, readdir } = await import('node:fs/promises')
+      const { join } = await import('node:path')
+      await mkdir(join(bundle.paths.tmp, 'epoch-7'), { recursive: true })
+      await writeFile(join(bundle.paths.tmp, 'epoch-7', 'orphan.tmp'), 'x')
+      const reaped = await reapStaleTmp(bundle)
+      expect(reaped.some((p) => p.endsWith('epoch-7'))).toBe(true)
+      const after = await readdir(bundle.paths.tmp).catch(() => [] as string[])
+      expect(after.some((e) => e.startsWith('epoch-'))).toBe(false)
     } finally {
       await bundle.close()
     }

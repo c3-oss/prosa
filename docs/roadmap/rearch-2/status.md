@@ -9,9 +9,9 @@ Completion signal: RALPH_DONE
 
 ## Current State
 
-Status: in-progress (Lane 0 closed; Lane 1 partial advancing)
-Current lane: Lane 1 - Local store (partial; this iteration adds shard-actor command vocabulary + beginEpoch/sealEpoch + closes CQ-016..CQ-019)
-Current HEAD: `4f214b7` (this iteration adds one more commit; see Decisions for the closing hash)
+Status: in-progress (Lane 0 closed; Lane 1 advancing with hardening + CQ-020..CQ-028 closed)
+Current lane: Lane 1 - Local store (partial; durability + pack-digest + zstd-frame + extended FK closures landed)
+Current HEAD: `1ae4185` (this iteration adds one more commit; see Decisions)
 No-change streak: 0
 Ralph active: yes
 
@@ -19,8 +19,8 @@ Ralph active: yes
 
 | Lane | Owner | Status | Commit(s) | Evidence |
 | --- | --- | --- | --- | --- |
-| 00 - Foundation | Ralph | complete | `cd845f2`, `e22ec27`, `b78b5ae`, `70b9df0`, (+this iteration's CQ-016..CQ-019 closeout) | `evidence/lane-00.md` |
-| 01 - Local store | Ralph | partial | `4f214b7`, `2b5ad1b`, (+this iteration's pack-writer-pool commit) | `evidence/lane-01.md` |
+| 00 - Foundation | Ralph | complete | `cd845f2`, `e22ec27`, `b78b5ae`, `70b9df0`, `0e8a912`, (+this iteration's CQ-020..CQ-028 closeout) | `evidence/lane-00.md` |
+| 01 - Local store | Ralph | partial | `4f214b7`, `2b5ad1b`, `433c32f`, (+this iteration's hardening commit) | `evidence/lane-01.md` |
 | 02 - Importers | Ralph | blocked-on-lane-01 | | `evidence/lane-02.md` |
 | 03 - Derived layer | Ralph | blocked-on-lane-02 | | `evidence/lane-03.md` |
 | 04 - Server | Ralph | blocked-on-lane-00 | | `evidence/lane-04.md` |
@@ -35,7 +35,7 @@ Ralph active: yes
 
 | ID | Severity | Owner | Summary |
 | --- | --- | --- | --- |
-| | | | All CQ-001..CQ-019 closed; see `correction-queue.md` "Closed". |
+| | | | All CQ-001..CQ-028 closed; see `correction-queue.md` "Closed". |
 
 ## Latest Gates
 
@@ -45,7 +45,7 @@ Ralph active: yes
 | `pnpm i` | pass | `pnpm install --frozen-lockfile`-compatible; only pre-existing peer warnings (`@c3-oss/config-vitest` wants vitest ^3.1.1, repo on 2.1.9). |
 | `pnpm build` | pass | 10/10 turbo tasks (includes `@c3-oss/prosa-bundle-v2`). |
 | `just typecheck` | pass | 10/10 turbo tasks. |
-| `just test-all` | pass | 10/10 turbo tasks. Test counts: 89 in `@c3-oss/prosa-types-v2`, 21 in `@c3-oss/prosa-wire-v2`, 58 in `@c3-oss/prosa-bundle-v2` (post pack-writer-pool). |
+| `just test-all` | pass | 10/10 turbo tasks. Test counts: 89 in `@c3-oss/prosa-types-v2`, 21 in `@c3-oss/prosa-wire-v2`, 69 in `@c3-oss/prosa-bundle-v2` (post CQ-023..CQ-027 hardening). |
 | `just lint-all` | pass | 10/10 turbo tasks. |
 | `pnpm test:conformance` | pass | 15 tests; 13 entity leaves stable. |
 | `pnpm audit --audit-level moderate` | classified pass | 7 dev-tooling-only vulnerabilities, pre-existing; classified in `gates.md`. |
@@ -107,3 +107,17 @@ Ralph active: yes
   after `b78b5ae`/`70b9df0` and while `4f214b7` Lane 1 partial exists. Opened
   `CQ-016` through `CQ-019`; Lane 0 remains in correction and Lane 1 remains
   blocked.
+- 2026-05-18T16:58:34-03:00: Ralph committed `0e8a912` for `CQ-016` through
+  `CQ-019` and `2b5ad1b` for Lane 1 shard actors / epoch lifecycle. Focused
+  gates passed: `prosa-types-v2` 89 tests, `prosa-wire-v2` 21 tests,
+  conformance 15 tests, `prosa-bundle-v2` 46 tests, and `git diff --check`.
+- 2026-05-18T17:04:00-03:00: Codex reviewers found new blocking corrections.
+  `CQ-020` through `CQ-022` block Lane 0 acceptance because durable contract
+  and evidence artifacts are stale or contradictory. `CQ-023` through `CQ-028`
+  block further Lane 1 reliance because `sealEpoch`, FK/object closure,
+  crash-safety, pack digest verification, zstd verification, and Lane 1
+  evidence are not yet safe enough for downstream lanes.
+- 2026-05-18T17:05:00-03:00: Ralph also committed `433c32f` for CAS/raw-source
+  pack writer pools and `1ae4185` for gitignore of session-local state while
+  Codex was writing the correction queue. These commits are not yet accepted;
+  the open correction queue remains the priority before any Lane 2 work.

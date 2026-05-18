@@ -15,7 +15,14 @@ Nothing. This is the entry point.
 - New package `packages/prosa-types-v2` exporting all canonical entity types (`SessionV2`, `MessageV2`, etc.) and segment / pack / receipt types.
 - New package `packages/prosa-wire-v2` exporting Zod schemas for the four-call promotion protocol and `PROTOCOL_VERSION_V2 = 2`.
 - One reference doc `packages/prosa-types-v2/CANONICAL.md` pinning the encoding rules.
-- Cross-implementation conformance test fixture under `test/fixtures/canonical-leaves/` with hand-computed expected Merkle leaves.
+- Cross-implementation conformance test fixture under
+  `test/fixtures/canonical-leaves/` with committed expected Merkle leaves
+  (CQ-018: the per-entity leaves are produced by the current TS encoder
+  and pinned; the cross-implementation contract is backed by 12
+  hand-traceable canonical-CBOR vectors plus 2 BLAKE3 spec test vectors in
+  `packages/prosa-types-v2/test/cbor-vectors.test.ts` — an independent
+  implementation must reproduce those before reaching the projection-leaf
+  fixture).
 - CI pipeline updated to run typecheck + test on the new packages.
 
 ## Tasks
@@ -24,7 +31,15 @@ Nothing. This is the entry point.
 2. **Create `packages/prosa-wire-v2`** with Zod schemas: `BeginPromotionRequest/Response`, `UploadSegmentRequest`, `UploadObjectPackHeader`, `SealPromotionRequest/Response`, `GetReceiptRequest/Response`. Export the constant `PROTOCOL_VERSION_V2 = 2`.
 3. **Write `packages/prosa-types-v2/CANONICAL.md`** pinning the encoding rules (see "Concrete types and schemas" below).
 4. **Implement `packages/prosa-types-v2/src/canonical.ts`** with `canonicalCbor`, `merkleLeaf`, `merkleRoot` exported as pure functions. Take an arbitrary entity row tuple and produce the 32-byte BLAKE3 leaf.
-5. **Write the conformance test fixture** at `test/fixtures/canonical-leaves/*.json` with hand-computed expected leaves for one row of each entity type. Add `test/conformance/leaves.test.ts` that loads the fixture and asserts equality.
+5. **Write the conformance test fixture** at
+   `test/fixtures/canonical-leaves/*.json` with committed expected leaves
+   for one row of each entity type — produced by the TS encoder and
+   pinned as the regression contract. Add `test/conformance/leaves.test.ts`
+   that loads the fixture and asserts equality. Add
+   `packages/prosa-types-v2/test/cbor-vectors.test.ts` with 12+
+   hand-traceable canonical-CBOR byte vectors and 2 BLAKE3 spec test
+   vectors so the cross-implementation contract is actually independent
+   (CQ-018).
 6. **Update CI** (`.github/workflows/ci.yml`, or equivalent) to run typecheck and test on the new packages on every PR.
 
 Each task is roughly one PR.
@@ -116,7 +131,16 @@ export type BundleHeadV2 = {
   previousBundleRoot: string | null
 
   // Lean: two Merkle roots, not six.
-  bundleRoot: string               // Merkle root over the epoch manifest
+  // CQ-021: `bundleRoot` is the cross-entity canonical projection Merkle
+  // root (CANONICAL.md rule 10) — NOT a Merkle root over the manifest
+  // bytes. The manifest's own content address is `manifestDigest` (the
+  // separate tagged BLAKE3 digest on the line below).
+  bundleRoot: string               // cross-entity canonical projection Merkle root
+  // BLAKE3 over the manifest's serialized bytes (tagged form). Distinct
+  // from `bundleRoot`; changing segments or pack ordering changes this
+  // digest without changing `bundleRoot` when canonical projection rows
+  // are unchanged.
+  manifestDigest: string           // 'blake3:<hex>'
   rawSourceRoot: string            // Merkle root over preserved source-file bytes
 
   counts: {
@@ -243,7 +267,7 @@ export const beginPromotionResponseSchema = z.discriminatedUnion('status', [
 | `packages/prosa-types-v2/test/canonical-encoding.test.ts` | Each rule from `CANONICAL.md` holds. Truncation (not rounding). NFC. CBOR canonical form. |
 | `packages/prosa-types-v2/test/merkle-leaf.test.ts` | `merkleLeaf(entityType, row)` is deterministic and byte-stable. |
 | `packages/prosa-types-v2/test/merkle-root.test.ts` | Binary Merkle tree construction. Odd-leaf duplication. Empty subtree = 32 zero bytes. |
-| `test/conformance/leaves.test.ts` | Loads fixtures from `test/fixtures/canonical-leaves/*.json` (hand-computed). Asserts every fixture matches. **This is the implementer-drift catcher.** |
+| `test/conformance/leaves.test.ts` | Loads fixtures from `test/fixtures/canonical-leaves/*.json` (committed regression contract; see CQ-018). Asserts every fixture matches. The independent cross-implementation drift catcher lives in `packages/prosa-types-v2/test/cbor-vectors.test.ts` (hand-traceable CBOR vectors + BLAKE3 spec vectors). |
 | `packages/prosa-wire-v2/test/schemas.test.ts` | Every Zod schema parses fixture payloads round-trip. Rejects malformed payloads with specific error codes. |
 
 ## Gate
@@ -252,7 +276,7 @@ The lane is complete when **all** of the following hold:
 
 1. `pnpm typecheck` clean across `packages/prosa-types-v2` and `packages/prosa-wire-v2`.
 2. `pnpm test --filter @prosa/types-v2 --filter @prosa/wire-v2` passes.
-3. `test/conformance/leaves.test.ts` passes against at least one hand-computed fixture per entity type (13 entity types total).
+3. `test/conformance/leaves.test.ts` passes against at least one committed fixture per entity type (13 entity types total), AND `packages/prosa-types-v2/test/cbor-vectors.test.ts` passes with hand-traceable CBOR + BLAKE3 spec vectors (CQ-018).
 4. No production code in `apps/` or other `packages/` imports from `prosa-types-v2` or `prosa-wire-v2` yet. (This lane only ships types; consumers come in later lanes.)
 5. CI configured to run typecheck + test on these packages on every PR going forward.
 

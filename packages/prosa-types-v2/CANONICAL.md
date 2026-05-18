@@ -41,25 +41,37 @@ UTF-8 with NFC normalization applied before encoding. The encoder normalizes
 inputs so producers cannot drift; producers should still NFC-normalize at
 ingest to avoid downstream surprises.
 
-## 5. Timestamps (CQ-002)
+## 5. Timestamps (CQ-002, CQ-014, CQ-022)
 
 UTC RFC3339 with millisecond precision. Canonical form:
 `YYYY-MM-DDTHH:MM:SS.sssZ` with **exactly three** fractional digits.
 Sub-millisecond precision is **truncated** (not rounded) toward the epoch.
 No fractional part = `.000Z`.
 
+Semantic UTC validity is required: the regex shape alone is not
+sufficient. A canonical timestamp must round-trip through `Date.UTC`
+(or an equivalent calendar-component check) — month 1–12, day 1–31,
+hour ≤ 23, minute ≤ 59, second ≤ 59, AND the component tuple must form
+a real UTC instant (so Feb 30, hour 24, etc. are rejected).
+Implementations expose this via `isValidCanonicalTimestamp(input)` in
+`canonical.ts`.
+
 `merkleLeaf` validates every timestamp-typed field (per the entity's
-`FIELD_KIND` metadata) against the canonical regex. Non-canonical timestamps
-are **rejected**, not silently normalized — silent normalization would let
-two producers compute different leaves from the same logical input.
-Producers must canonicalize via `canonicalTimestamp(input)` at ingest.
+`FIELD_KIND` metadata) using the semantic check above. Non-canonical
+timestamps are **rejected**, not silently normalized — silent
+normalization would let two producers compute different leaves from the
+same logical input. Producers must canonicalize via
+`canonicalTimestamp(input)` at ingest.
 
 ## 6. Identifiers and hashes (CQ-002, CQ-004)
 
 `merkleLeaf` rejects non-canonical identifier and hash inputs:
 
-- **Object IDs, entity IDs**: lowercase, no whitespace, matching
-  `^[A-Za-z0-9_:-]+$`. Uppercase is **rejected** (not normalized).
+- **Object IDs, entity IDs**: lowercase, no whitespace, must match
+  the exact implementation regex `^[a-z0-9][a-z0-9_:-]*$` — IDs start
+  with a lowercase letter or digit, and the rest may add `_`, `:`, or
+  `-`. Uppercase, leading punctuation, and any other character are
+  **rejected** (not normalized). CQ-022.
 - **Tagged hashes** (e.g. `blake3:<hex>`, `pack_digest`, `object_id` when
   expressed as a tagged hash): match `^blake3:[0-9a-f]{64}$`. Uppercase hex
   and missing algorithm prefix are **rejected**.

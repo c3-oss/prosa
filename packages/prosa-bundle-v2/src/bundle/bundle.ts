@@ -111,7 +111,16 @@ export class Bundle {
     }
     try {
       const head = await readHead(paths.headJson)
-      return new Bundle(paths, head, lock)
+      const bundle = new Bundle(paths, head, lock)
+      // CQ-025: on every writer open, drop any leftover `tmp/epoch-*` or
+      // `tmp/index-rebuild-*` from a crashed sealer/rebuilder before any
+      // new lifecycle call touches `tmp/`. Read-only callers skip the
+      // cleanup so they cannot mutate the bundle.
+      if (!options.readOnly) {
+        const { reapStaleTmp } = await import('../epoch/lifecycle.js')
+        await reapStaleTmp(bundle)
+      }
+      return bundle
     } catch (err) {
       if (lock) await lock.release()
       throw err

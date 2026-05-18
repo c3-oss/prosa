@@ -166,6 +166,30 @@ export type RawSourcePackVerifyResult = {
   entries: Array<{ entry: RawSourcePackEntryV2; uncompressed: Uint8Array }>
 }
 
+const RAW_PACK_DIGEST_PLACEHOLDER = `blake3:${'0'.repeat(64)}`
+
+function verifyRawSourcePackDigest(header: RawSourcePackHeaderV2, payload: Uint8Array): void {
+  const declared = header.pack_digest
+  if (!/^blake3:[0-9a-f]{64}$/u.test(declared)) {
+    throw new RawSourcePackVerifyError(`pack_digest ${declared} not in canonical 'blake3:<64-hex>' form`)
+  }
+  const placeholderHeader: RawSourcePackHeaderV2 = {
+    ...header,
+    pack_digest: RAW_PACK_DIGEST_PLACEHOLDER,
+  }
+  const placeholderBytes = canonicalJson(placeholderHeader)
+  const placeholderFrame = encodePackFrame({
+    magic: RAW_SRC_PACK_MAGIC,
+    version: RAW_SRC_PACK_VERSION,
+    headerBytes: placeholderBytes,
+    payload,
+  })
+  const recomputed = `blake3:${toHex(blake3(placeholderFrame))}`
+  if (recomputed !== declared) {
+    throw new RawSourcePackVerifyError(`pack_digest mismatch: declared ${declared}, recomputed ${recomputed}`)
+  }
+}
+
 export function verifyRawSourcePack(bytes: Uint8Array): RawSourcePackVerifyResult {
   const frame: PackFraming = decodePackFrame(bytes)
   if (frame.magic !== RAW_SRC_PACK_MAGIC) {
@@ -181,6 +205,8 @@ export function verifyRawSourcePack(bytes: Uint8Array): RawSourcePackVerifyResul
   if (header.entry_count !== header.entries.length) {
     throw new RawSourcePackVerifyError(`entry_count ${header.entry_count} != entries.length ${header.entries.length}`)
   }
+  // CQ-026: re-derive the self-referential pack_digest.
+  verifyRawSourcePackDigest(header, frame.payload)
   // Confirm entries are sorted by source_file_id ASC (canonical pin).
   for (let i = 1; i < header.entries.length; i++) {
     const prev = header.entries[i - 1] as RawSourcePackEntryV2

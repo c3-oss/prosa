@@ -38,6 +38,27 @@ export type CasPackHeaderV2 = {
   standalone_large_object: boolean
 }
 
+const PACK_DIGEST_PLACEHOLDER = `blake3:${'0'.repeat(64)}`
+
+function verifyCasPackDigest(header: CasPackHeaderV2, payload: Uint8Array): void {
+  const declared = header.pack_digest
+  if (!/^blake3:[0-9a-f]{64}$/u.test(declared)) {
+    throw new CasPackVerifyError(`pack_digest ${declared} not in canonical 'blake3:<64-hex>' form`)
+  }
+  const placeholderHeader: CasPackHeaderV2 = { ...header, pack_digest: PACK_DIGEST_PLACEHOLDER }
+  const placeholderBytes = canonicalJson(placeholderHeader)
+  const placeholderFrame = encodePackFrame({
+    magic: CAS_PACK_MAGIC,
+    version: CAS_PACK_VERSION,
+    headerBytes: placeholderBytes,
+    payload,
+  })
+  const recomputed = `blake3:${toHex(blake3(placeholderFrame))}`
+  if (recomputed !== declared) {
+    throw new CasPackVerifyError(`pack_digest mismatch: declared ${declared}, recomputed ${recomputed}`)
+  }
+}
+
 export type CasPackInput = {
   /** Raw object bytes (uncompressed). The pack assigns offsets. */
   bytes: Uint8Array
@@ -173,6 +194,7 @@ export function buildCasPack(inputs: readonly CasPackInput[], options: CasPackBu
  * Decode and verify a CAS pack. Throws on:
  * - magic / version mismatch,
  * - header BLAKE3 mismatch (caught by the framing layer),
+ * - self-referential `pack_digest` mismatch (CQ-026),
  * - entry stored_hash mismatch,
  * - entry uncompressed_hash mismatch,
  * - declared zstd_window_log exceeding the canonical max.
@@ -194,6 +216,10 @@ export function verifyCasPack(bytes: Uint8Array): CasPackVerifyResult {
   if (header.entry_count !== header.entries.length) {
     throw new CasPackVerifyError(`entry_count ${header.entry_count} != entries.length ${header.entries.length}`)
   }
+  // CQ-026: re-derive the self-referential pack_digest. The build path
+  // hashes the framed bytes with the digest field replaced by the
+  // placeholder; verify reproduces the same substitution.
+  verifyCasPackDigest(header, frame.payload)
   const out: CasPackVerifyResult = { header, entries: [] }
   for (const entry of header.entries) {
     const slice = frame.payload.slice(entry.stored_offset, entry.stored_offset + entry.stored_length)

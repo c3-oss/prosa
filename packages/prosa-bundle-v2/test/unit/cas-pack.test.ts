@@ -81,6 +81,36 @@ describe('CAS pack (build/verify)', () => {
     expect(() => verifyCasPack(tampered)).toThrow(CasPackVerifyError)
   })
 
+  it('rejects a forged pack_digest (CQ-026)', async () => {
+    const built = buildCasPack([{ bytes: bytes('cq-026') }], { createdAt: '2025-01-02T03:04:05.123Z' })
+    // Mutate the pack_digest hex inside the JSON header, then re-frame.
+    const buf = new Uint8Array(built.bytes)
+    const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength)
+    const headerLen = view.getUint32(20, true)
+    const headerStart = 56
+    const headerBytes = buf.subarray(headerStart, headerStart + headerLen)
+    const json = new TextDecoder().decode(headerBytes)
+    // Flip the last hex digit of the digest so the byte length stays the
+    // same; this preserves all entry hashes and the canonical-JSON shape.
+    const mutatedJson = json.replace(/"pack_digest":"blake3:([0-9a-f]{63})([0-9a-f])"/, (_m, p1, last) => {
+      const flipped = last === 'f' ? '0' : 'f'
+      return `"pack_digest":"blake3:${p1}${flipped}"`
+    })
+    expect(mutatedJson).not.toBe(json)
+    const newHeader = new TextEncoder().encode(mutatedJson)
+    expect(newHeader.length).toBe(headerBytes.length)
+    // Replace header bytes in place (also need to re-fix the header
+    // blake3 in the prefix or the framing layer will reject first).
+    const newBuf = new Uint8Array(buf)
+    newBuf.set(newHeader, headerStart)
+    // Recompute header_blake3 so the framing layer is satisfied; the
+    // pack_digest re-derivation should still fail.
+    const { blake3 } = await import('@noble/hashes/blake3')
+    const newHeaderHash = blake3(newHeader)
+    newBuf.set(newHeaderHash, 24)
+    expect(() => verifyCasPack(newBuf)).toThrow(/pack_digest mismatch/)
+  })
+
   it('deduplicates: identical bytes produce identical object_id across runs', () => {
     const a = buildCasPack([{ bytes: bytes('same') }], { createdAt: '2025-01-02T03:04:05.123Z' })
     const b = buildCasPack([{ bytes: bytes('same') }], { createdAt: '2025-01-02T03:04:05.123Z' })

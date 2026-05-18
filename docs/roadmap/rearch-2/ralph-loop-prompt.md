@@ -123,10 +123,18 @@ Keep these files current:
 
 Before continuing beyond Lane 0 or doing more Lane 1 work, close every open
 `CQ-*` item in `docs/roadmap/rearch-2/correction-queue.md` with code, tests,
-and evidence. Current final-review corrections cover canonical CAS object
-references, receipt ID/payload binding, transport hash modeling, spec hash-form
-contradictions, semantic timestamp validation, conformance independence, and
-gate evidence consistency.
+and evidence. Current final-review corrections are `CQ-020` through `CQ-028`.
+They block Lane 0 acceptance and further Lane 1 reliance until closed:
+
+- `CQ-020` through `CQ-022`: reconcile status/gates/evidence and Lane 0
+  canonical contract/spec contradictions.
+- `CQ-023` through `CQ-028`: harden Lane 1 `sealEpoch`, FK/object closure,
+  crash-safety, pack digest verification, zstd frame-window enforcement, and
+  Lane 1 evidence accuracy.
+
+Do not begin Lane 2/importer work while any of `CQ-020` through `CQ-028` is
+open. If additional Lane 1 commits already exist, review them against this
+queue before expanding scope.
 
 ## Implementation Rules
 

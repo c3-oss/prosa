@@ -1,12 +1,13 @@
 # Lane Evidence
 
 Lane: 01 - Local store
-Status: partial (foundational pieces + shard-actor command vocabulary +
-beginEpoch/sealEpoch landed; 8+2 CAS writer rollover, sharded raw-source
-writer pool, Parquet emitters, cold rebuild, and the synthetic-bundle /
+Status: partial (foundational layers, shard actors, epoch lifecycle with
+durability + FK closure + stale-tmp reap, pack writer pools, pack-format
+self-digest verification, and zstd frame-window enforcement all landed;
+Parquet projection emitters, cold rebuild, and the synthetic-bundle /
 cold-rebuild e2e scenarios remain)
 Owner: Ralph
-Commit range: `4f214b7`, (+this iteration's shard-actor + epoch-lifecycle commit)
+Commit range: `4f214b7`, `2b5ad1b`, `433c32f`, `1ae4185`, (+this iteration's CQ-020..CQ-028 closeout commit)
 
 ## Acceptance Criteria
 
@@ -30,8 +31,24 @@ Commit range: `4f214b7`, (+this iteration's shard-actor + epoch-lifecycle commit
   (`epochManifestBytes`) ready for the per-bundle Ed25519 signer to sign
   in a follow-up iteration.
 - [x] `pnpm --filter @c3-oss/prosa-bundle-v2 typecheck` clean.
-- [x] `pnpm --filter @c3-oss/prosa-bundle-v2 test` passes (46 tests / 9
-  files post shard-actor + epoch-lifecycle landing).
+- [x] `pnpm --filter @c3-oss/prosa-bundle-v2 test` passes (69 tests / 12
+  files post CQ-023..CQ-027 hardening).
+- [x] Pack format self-digest verification: `verifyCasPack` /
+  `verifyRawSourcePack` re-derive `pack_digest` and refuse forged
+  values (CQ-026).
+- [x] Zstd frame-window enforcement: `parseZstdFrameWindowLog` reads
+  the actual zstd frame header and `zstdDecompress` refuses any frame
+  whose effective window > 23 (CQ-027).
+- [x] Crash safety: `Bundle.open()` calls `reapStaleTmp(bundle)`, and
+  `beginEpoch` drops any pre-existing `tmp/epoch-N` before creating
+  its own (CQ-025).
+- [x] Durability gate on seal: `EpochHandle.registerSegment(ref)` is
+  the only path from pack writers / projection emitters into the
+  sealed manifest; `sealEpoch` refuses to publish a head whose rows or
+  raw-source entries are not backed by a registered durable ref
+  (CQ-023).
+- [x] Full FK closure across the canonical graph + `*_object_id`
+  membership check against the registered object inventory (CQ-024).
 - [x] `pnpm --filter @c3-oss/prosa-bundle-v2 build` emits dist/.
 - [x] `pnpm --filter @c3-oss/prosa-bundle-v2 lint` clean.
 - [x] Workspace gates `pnpm build`, `just typecheck`, `just test-all`,
@@ -105,7 +122,7 @@ Commit range: `4f214b7`, (+this iteration's shard-actor + epoch-lifecycle commit
 
 ```text
 pnpm --filter @c3-oss/prosa-bundle-v2 typecheck     # clean
-pnpm --filter @c3-oss/prosa-bundle-v2 test          # 28 tests, 6 files
+pnpm --filter @c3-oss/prosa-bundle-v2 test          # 69 tests, 12 files
 pnpm --filter @c3-oss/prosa-bundle-v2 build         # dist/ emitted
 pnpm --filter @c3-oss/prosa-bundle-v2 lint          # clean
 

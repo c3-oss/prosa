@@ -4,7 +4,354 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 ## Open
 
-No open blocking corrections — all CQ-001..CQ-019 closed.
+No open blocking corrections — all CQ-001..CQ-028 closed.
+
+## Closed (latest first)
+
+### CQ-028: Correct Lane 1 Evidence Overclaims and Stale Counts — closed 2026-05-18
+
+Lane 1 evidence rewritten to honestly reflect what is implemented vs.
+deferred: shard actors, sharding function, epoch lifecycle with FK
+closure + durability + stale-tmp reap, pack writer pools, pack-format
+self-digest verification, and zstd frame-window enforcement are
+present and tested. Parquet emitters, cold rebuild, and the e2e
+synthetic-bundle / cold-rebuild scenarios remain. Test count refreshed
+to 69 across 12 files.
+
+### CQ-027: Enforce Actual Zstd Frame Window — closed 2026-05-18
+
+`packages/prosa-bundle-v2/src/pack/zstd.ts` adds `parseZstdFrameWindowLog`
+that reads the zstd frame header (RFC 8478 Frame_Header_Descriptor +
+Window_Descriptor or FCS for Single_Segment frames). `zstdDecompress`
+calls it and rejects any frame whose effective `windowLog > 23`, so a
+malicious pack cannot declare a small `zstd_window_log` while embedding
+a frame that demands a larger window at decode time. Tests
+(`test/unit/zstd-frame.test.ts`) include a synthetic frame with
+Window_Descriptor=30 and confirm decompression refuses it.
+
+### CQ-026: Self-Referential Pack Digest Verification — closed 2026-05-18
+
+`verifyCasPack` and `verifyRawSourcePack` now re-derive the
+self-referential `pack_digest` using the placeholder-substitution
+scheme (`pack_digest := 'blake3:' + '0'*64` in the header, hash the
+framed bytes, compare against the declared digest). A test forges the
+digest bytes inside the header, recomputes the header BLAKE3 (so
+framing accepts), and asserts `verifyCasPack` raises `pack_digest
+mismatch`.
+
+### CQ-025: Crash-Safe Epoch Lifecycle — closed 2026-05-18
+
+`reapStaleTmp(bundle)` is exported and called from `Bundle.open()` (when
+not read-only). `beginEpoch` also `rm`s any pre-existing `tmp/epoch-N`
+before re-creating it so a crashed sealer's bytes never bleed into a
+new epoch. A test seeds a leftover `tmp/epoch-7/orphan.tmp` and
+confirms it is reaped.
+
+### CQ-024: Complete FK and Object Closure Validation — closed 2026-05-18
+
+`FK_RULES` now covers the full canonical graph: session-graph parents
+(session/turn/event/message/content_block/tool_call/tool_result), raw
+record back-references for every entity, source_file ↔ raw_record,
+project links, and edge endpoints resolved per-row via src_type /
+dst_type. `validateFkClosure` also accepts an `objectInventory` set;
+when supplied, every `*_object_id` field is checked for membership.
+Test rejects an artifact row pointing at an unknown object_id.
+
+### CQ-023: Fail Closed When Sealing Non-Durable Epoch Data — closed 2026-05-18
+
+`EpochHandle.registerSegment(ref)` records durable on-disk
+projection/CAS/raw-source/manifest references. `sealEpoch` walks every
+entity that has rows and refuses to publish a new head unless a
+matching `projection_*` segment was registered, AND refuses to seal
+raw-source entries without a `raw_source_pack` registration. Tests
+cover the empty-epoch happy path, rows-without-segment rejection, and
+raw-source-without-pack rejection.
+
+### CQ-022: Canonical Rule Contradictions Removed — closed 2026-05-18
+
+`CANONICAL.md` rule 5 documents semantic UTC validity (Date.UTC
+round-trip), not just regex shape. Rule 6 documents the exact ID regex
+`^[a-z0-9][a-z0-9_:-]*$` matching the implementation.
+
+### CQ-021: Lane 0 Source Contract Aligned With Accepted Design — closed 2026-05-18
+
+`docs/rearch-2/01-lane-0-foundation.md` now defines `bundleRoot` as the
+cross-entity canonical projection Merkle root (matching CANONICAL.md
+rule 10), adds `manifestDigest` to the `BundleHeadV2` sketch, and
+reconciles the fixture-authority language with the CQ-018 outcome:
+the implementation-derived projection-leaf fixture is the regression
+contract, and the hand-traceable independent contract lives in
+`packages/prosa-types-v2/test/cbor-vectors.test.ts`.
+
+### CQ-020: Roadmap Status and Gate Evidence Reconciled — closed 2026-05-18
+
+`status.md`, `gates.md`, and `evidence/lane-0{0,1}.md` rewritten from
+this iteration's actual `git log` (HEADs include `0e8a912`, `2b5ad1b`,
+`433c32f`, `1ae4185`) and actual test counts (89 / 21 / 69 / 15).
+`.claude/ralph-loop.local.md` is now gitignored so the worktree state
+is unambiguous.
+
+### Original CQ-020..CQ-028 problem statements (closed; bodies preserved for traceability):
+
+### CQ-028: Correct Lane 1 Evidence Overclaims and Stale Counts
+
+- Severity: major
+- Blocking: yes
+- Owner: Ralph
+- Scope:
+  - `docs/roadmap/rearch-2/evidence/lane-01.md`
+  - `docs/roadmap/rearch-2/status.md`
+  - `docs/roadmap/rearch-2/gates.md`
+- Risk:
+  - Lane 1 evidence currently overstates safety properties and carries stale
+    command output, which can let later lanes build on a false storage contract.
+- Required fix:
+  - Refresh Lane 1 evidence against current HEAD and actual command results.
+  - Remove or downgrade claims that are not true yet:
+    - pack digest verification,
+    - actual zstd frame-window enforcement,
+    - full FK closure,
+    - shard actors being absent after they landed.
+  - Record the actual current result for
+    `pnpm --filter @c3-oss/prosa-bundle-v2 test`; after `433c32f` the expected
+    count may be newer than the previous 46 tests / 9 files.
+- Acceptance criteria:
+  - Lane 1 evidence clearly distinguishes implemented, partial, deferred, and
+    failed-closed behavior.
+  - `status.md`, `gates.md`, and `evidence/lane-01.md` agree on current HEAD,
+    commit IDs, open blockers, and test counts.
+- Evidence required:
+  - Commit(s):
+  - Commands:
+
+### CQ-027: Enforce Actual Zstd Frame Window, Not Only Header Claims
+
+- Severity: high
+- Blocking: yes
+- Owner: Ralph
+- Scope:
+  - `packages/prosa-bundle-v2/src/pack/zstd.ts`
+  - `packages/prosa-bundle-v2/src/pack/cas-pack.ts`
+  - `packages/prosa-bundle-v2/test/unit/cas-pack.test.ts`
+- Risk:
+  - A pack can declare an allowed `zstd_window_log` while embedding a larger
+    zstd frame, bypassing the Lane 0/L7 memory-safety pin.
+- Required fix:
+  - Inspect and enforce the actual zstd frame window during verification, or
+    use a decompressor path with a hard max-window setting.
+  - Reject any compressed entry whose frame requires `windowLog > 23` even if
+    the pack header declares a smaller value.
+- Acceptance criteria:
+  - Tests include a malicious/mismatched fixture where the header says an
+    allowed window and the actual frame requires too much memory.
+  - CAS pack verification fails closed for the mismatched frame.
+  - Raw-source pack verification is covered if raw-source entries can be
+    compressed independently.
+- Evidence required:
+  - Commit(s):
+  - Commands:
+
+### CQ-026: Verify Self-Referential Pack Digests for CAS and Raw-Source Packs
+
+- Severity: high
+- Blocking: yes
+- Owner: Ralph
+- Scope:
+  - `packages/prosa-bundle-v2/src/pack/cas-pack.ts`
+  - `packages/prosa-bundle-v2/src/pack/raw-source-pack.ts`
+  - `packages/prosa-bundle-v2/test/unit/cas-pack.test.ts`
+  - `packages/prosa-bundle-v2/test/unit/raw-source-pack.test.ts`
+- Risk:
+  - A pack can carry valid entries under a forged `pack_digest`, breaking pack
+    refs, GC, replay, and promotion manifest integrity.
+- Required fix:
+  - Pin the self-referential digest algorithm in code/docs and verify it for
+    both CAS and raw-source packs.
+  - Reject any pack where the declared digest does not match the canonical
+    recomputation.
+- Acceptance criteria:
+  - CAS tests reject a forged `pack_digest` while all entry hashes still match.
+  - Raw-source tests reject a forged `pack_digest` while
+    `raw_source_root` and entry hashes still match.
+  - Evidence explains the placeholder-digest or equivalent recomputation
+    algorithm.
+- Evidence required:
+  - Commit(s):
+  - Commands:
+
+### CQ-025: Make Epoch Lifecycle Crash-Safe Before Head Swap
+
+- Severity: high
+- Blocking: yes
+- Owner: Ralph
+- Scope:
+  - `packages/prosa-bundle-v2/src/epoch/lifecycle.ts`
+  - `packages/prosa-bundle-v2/src/bundle/bundle.ts`
+  - `packages/prosa-bundle-v2/test/unit/epoch-lifecycle.test.ts`
+- Risk:
+  - A crash can leave `head.json` pointing at an epoch whose manifest or
+    segments were not durably persisted, or stale `tmp/epoch-N` contents can be
+    swept into a later epoch.
+- Required fix:
+  - Reject or reap stale `tmp/epoch-N` directories before `beginEpoch`.
+  - Fsync manifest files, durable segment/pack files, and containing
+    directories before `swapHead`.
+  - Validate/reap incomplete tmp epochs on open.
+- Acceptance criteria:
+  - Tests cover stale tmp reuse rejection/reap.
+  - Tests cover failure before head swap leaving previous `head.json` intact.
+  - Code paths document and enforce the fsync order before publishing a new
+    head.
+- Evidence required:
+  - Commit(s):
+  - Commands:
+
+### CQ-024: Complete FK and Object Closure Validation Before Epoch Seal
+
+- Severity: critical
+- Blocking: yes
+- Owner: Ralph
+- Scope:
+  - `packages/prosa-bundle-v2/src/epoch/lifecycle.ts`
+  - `packages/prosa-bundle-v2/test/unit/epoch-lifecycle.test.ts`
+- Risk:
+  - Malformed projection roots can seal with orphaned rows or object
+    references, then fail remote materialization or promote incomplete data.
+- Required fix:
+  - Validate source-file/raw-record closure, `raw_record_id` references,
+    session parent/project links, turn/message/event/tool-call/tool-result
+    links, edge endpoints, and every `*_object_id` against the object
+    inventory before head swap.
+  - The validation must cover both current-epoch rows and any already committed
+    prior-epoch inventory model available to the bundle.
+- Acceptance criteria:
+  - Tests reject missing source files for raw records.
+  - Tests reject missing required raw records and missing session/project/turn/
+    message/event/tool-call references.
+  - Tests reject projection object references missing from the CAS object
+    inventory.
+  - Error messages identify the child entity, field, and missing value.
+- Evidence required:
+  - Commit(s):
+  - Commands:
+
+### CQ-023: Fail Closed When Sealing Non-Durable Epoch Data
+
+- Severity: critical
+- Blocking: yes
+- Owner: Ralph
+- Scope:
+  - `packages/prosa-bundle-v2/src/epoch/lifecycle.ts`
+  - `packages/prosa-bundle-v2/src/epoch/manifest.ts`
+  - `packages/prosa-bundle-v2/test/unit/epoch-lifecycle.test.ts`
+- Risk:
+  - `sealEpoch` can publish an authoritative `head.json` with roots/counts for
+    in-memory rows and raw-source entries while the durable manifest/head carry
+    `segments: []` and no pack/object inventory refs. Later promotion could
+    accept authority for data that cannot replace the local source.
+- Required fix:
+  - `sealEpoch` must fail closed for non-empty rows, raw-source entries, or
+    object references unless durable projection segments, raw-source packs, CAS
+    packs/object inventory, and manifest/head refs exist and have been fsynced.
+  - Counts and roots must be recomputed from durable refs, not only in-memory
+    accumulators.
+- Acceptance criteria:
+  - Tests reject sealing non-empty projection rows without durable projection
+    segment refs.
+  - Tests reject sealing source/raw rows without durable raw-source pack refs.
+  - Tests reject sealing object references without durable CAS inventory refs.
+  - Empty epoch behavior remains explicit and tested.
+- Evidence required:
+  - Commit(s):
+  - Commands:
+
+### CQ-022: Remove Remaining Canonical Rule Contradictions
+
+- Severity: high
+- Blocking: yes
+- Owner: Ralph
+- Scope:
+  - `packages/prosa-types-v2/CANONICAL.md`
+  - `packages/prosa-types-v2/src/canonical.ts`
+  - `packages/prosa-types-v2/test/normalization.test.ts`
+- Risk:
+  - Independent implementations can follow the canonical spec and accept
+    timestamps/IDs that the implementation rejects, or derive incompatible
+    roots from invalid data.
+- Required fix:
+  - Update the timestamp rule to require semantic UTC validity, including the
+    Date.UTC round-trip or equivalent real-instant validation, not regex-only
+    shape.
+  - Update the ID rule to match implementation exactly:
+    `^[a-z0-9][a-z0-9_:-]*$`.
+- Acceptance criteria:
+  - `CANONICAL.md` and implementation agree on timestamp and ID rules.
+  - Existing tests remain green; add/adjust tests if needed to pin uppercase
+    and invalid-start ID rejection.
+- Evidence required:
+  - Commit(s):
+  - Commands:
+
+### CQ-021: Reconcile Lane 0 Source Contract With Accepted Canonical Design
+
+- Severity: high
+- Blocking: yes
+- Owner: Ralph
+- Scope:
+  - `docs/rearch-2/01-lane-0-foundation.md`
+  - `packages/prosa-types-v2/CANONICAL.md`
+  - `docs/roadmap/rearch-2/evidence/lane-00.md`
+- Risk:
+  - Future lanes or second implementations can follow the lane contract and
+    produce the wrong `bundleRoot` or rely on a fixture authority model that
+    no longer matches the accepted design.
+- Required fix:
+  - Update the Lane 0 contract to define `bundleRoot` as the cross-entity
+    canonical projection root.
+  - Add/tag `manifestDigest` as the separate tagged BLAKE3 digest for manifest
+    bytes.
+  - Reconcile the "hand-computed expected leaves" language with the accepted
+    CQ-018 model: implementation-derived projection leaves backed by
+    hand-traceable CBOR and BLAKE3 vectors, or replace the fixture with truly
+    hand-computed 13 entity leaves.
+- Acceptance criteria:
+  - `docs/rearch-2/01-lane-0-foundation.md`, `CANONICAL.md`, and Lane 0
+    evidence describe the same root/hash/fixture authority model.
+  - No remaining text says `bundleRoot` is a Merkle root over the epoch
+    manifest.
+- Evidence required:
+  - Commit(s):
+  - Commands:
+
+### CQ-020: Reconcile Roadmap Status and Gate Evidence With Current HEAD
+
+- Severity: high
+- Blocking: yes
+- Owner: Ralph
+- Scope:
+  - `docs/roadmap/rearch-2/status.md`
+  - `docs/roadmap/rearch-2/gates.md`
+  - `docs/roadmap/rearch-2/evidence/lane-00.md`
+  - `docs/roadmap/rearch-2/evidence/lane-01.md`
+- Risk:
+  - Lane completion can be accepted against stale or contradictory evidence.
+- Required fix:
+  - Update status/gates/evidence to current HEAD `1ae4185` or the newer HEAD
+    after this correction is fixed.
+  - List `0e8a912`, `2b5ad1b`, `433c32f`, and `1ae4185` explicitly where
+    relevant.
+  - Record the real worktree state, including untracked
+    `.claude/ralph-loop.local.md` if it remains.
+  - Replace stale references to `CQ-001..CQ-015`, `CQ-010..CQ-015 pending`,
+    `4f214b7` as current HEAD, and old 77/18 test counts.
+- Acceptance criteria:
+  - `status.md`, `gates.md`, Lane 0 evidence, Lane 1 evidence, and this queue
+    agree on open blockers, current HEAD, lane status, and focused gate counts.
+  - Lane 0 is not marked accepted until CQ-020 through CQ-022 are closed and
+    Codex re-review completes.
+- Evidence required:
+  - Commit(s):
+  - Commands:
 
 ## Closed (latest first)
 

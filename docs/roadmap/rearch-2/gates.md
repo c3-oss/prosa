@@ -7,7 +7,7 @@
 | `pnpm i` | yes | pass | `pnpm install --frozen-lockfile`-compatible. Pre-existing peer warning: `@c3-oss/config-vitest@0.3.0` wants vitest ^3.1.1, repo on 2.1.9. |
 | `pnpm build` | yes | pass | 10/10 turbo tasks (now includes `@c3-oss/prosa-bundle-v2`). |
 | `just typecheck` | yes | pass | 10/10 turbo tasks. |
-| `just test-all` | yes | pass | 10/10 turbo tasks. Lane 0 packages: 89 tests in `@c3-oss/prosa-types-v2`, 21 in `@c3-oss/prosa-wire-v2`. Lane 1 partial: 58 tests in `@c3-oss/prosa-bundle-v2` (post pack-writer-pool). |
+| `just test-all` | yes | pass | 10/10 turbo tasks. Lane 0 packages: 89 tests in `@c3-oss/prosa-types-v2`, 21 in `@c3-oss/prosa-wire-v2`. Lane 1 partial: 69 tests in `@c3-oss/prosa-bundle-v2` (post CQ-023..CQ-027 hardening). |
 | `just lint-all` | yes | pass | 10/10 turbo tasks. |
 | `pnpm audit --audit-level moderate` | yes | classified pass | 7 dev-tooling-only vulnerabilities, pre-existing on `master`. See "Audit Classification". |
 | `git diff --check` | yes | pass | No whitespace or conflict markers. |
@@ -33,7 +33,7 @@ a `just` wrapper fails for environmental reasons.
 | 00 | `pnpm --filter @c3-oss/prosa-wire-v2 typecheck` | yes | pass | |
 | 00 | `pnpm --filter @c3-oss/prosa-wire-v2 test` | yes | pass | 18 tests including CQ-011 receiptId binding and CQ-012 transportHash. |
 | 00 | `pnpm test:conformance` | yes | pass | 15 tests; 13 entity leaves stable. |
-| 01 | `pnpm --filter @c3-oss/prosa-bundle-v2 test` | yes | partial-pass | 58 tests across 11 files (head, lock, bundle-init, cas-pack, raw-source-pack, cas-dedup, sharding, shard-actor, epoch-lifecycle, cas-writer, raw-source-writer). Parquet projection emitters, cold rebuild, and the synthetic-bundle / cold-rebuild e2e scenarios remain for the next Lane 1 iteration. |
+| 01 | `pnpm --filter @c3-oss/prosa-bundle-v2 test` | yes | partial-pass | 69 tests across 12 files (head, lock, bundle-init, cas-pack with CQ-026 forged-digest rejection, raw-source-pack, cas-dedup, sharding, shard-actor, epoch-lifecycle with CQ-023/CQ-024/CQ-025 durability + FK closure + stale-tmp reap, cas-writer, raw-source-writer, zstd-frame with CQ-027 window enforcement). Parquet projection emitters, cold rebuild, and the synthetic-bundle / cold-rebuild e2e scenarios remain for the next Lane 1 iteration. |
 | 01 | `pnpm test packages/prosa-bundle-v2/test/e2e/synthetic-bundle.test.ts` | yes | not-run | Synthetic bundle scenario (requires shard actors + pack writers + epoch lifecycle). |
 | 01 | `pnpm test packages/prosa-bundle-v2/test/e2e/cold-rebuild.test.ts` | yes | not-run | Cold rebuild scenario (requires RocksDB rebuild from manifests). |
 | 02 | `pnpm --filter @c3-oss/prosa-importers-v2 test` | yes | not-run | Provider, idempotency, graph resolver tests. |
