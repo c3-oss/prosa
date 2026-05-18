@@ -272,6 +272,122 @@ describe('sync promotion protocol', () => {
     }
   })
 
+  it('sanitizes NUL bytes in promoted projection text and JSON payloads', async () => {
+    const t = await buildTestApp()
+    try {
+      const auth = await signup(t, 'sync-nul-projection@example.com')
+      const storePath = '/tmp/.prosa-nul-projection-test'
+      const deviceId = await handshakeDevice(t, auth.token, storePath, 'nul-projection-box')
+
+      const plan = await trpc(t, 'sync.planUpload', { deviceId, storePath, objects: [] }, auth.token)
+      expect(plan.statusCode).toBe(200)
+      const batchId = (plan.json() as { result: { data: { batchId: string } } }).result.data.batchId
+
+      const commit = await trpc(
+        t,
+        'sync.commitUpload',
+        {
+          batchId,
+          deviceId,
+          storePath,
+          objects: [],
+          projection: {
+            sourceFiles: [
+              {
+                id: 'source-nul',
+                sourceKind: 'codex',
+                path: '/tmp/source.jsonl',
+                metadata: { label: 'source\u0000metadata' },
+              },
+            ],
+            rawRecords: [
+              {
+                id: 'raw-nul',
+                sourceFileId: 'source-nul',
+                sequence: 0,
+                payload: { text: 'raw\u0000payload' },
+              },
+            ],
+            sessions: [
+              {
+                id: 'sess-nul',
+                sourceKind: 'codex',
+                title: 'title\u0000nul',
+                turnCount: 1,
+                metadata: { title: 'session\u0000metadata' },
+              },
+            ],
+            searchDocs: [{ id: 'doc-nul', sessionId: 'sess-nul', kind: 'session', body: 'hello\u0000world' }],
+            messages: [{ id: 'msg-nul', sessionId: 'sess-nul', role: 'assistant', model: 'model\u0000nul' }],
+            contentBlocks: [
+              {
+                id: 'block-nul',
+                messageId: 'msg-nul',
+                sequence: 0,
+                kind: 'text',
+                text: 'block\u0000text',
+                metadata: { nested: ['block\u0000metadata'] },
+              },
+            ],
+            events: [
+              {
+                id: 'event-nul',
+                sessionId: 'sess-nul',
+                sequence: 0,
+                kind: 'event',
+                payload: { value: 'event\u0000payload' },
+              },
+            ],
+            artifacts: [
+              {
+                id: 'artifact-nul',
+                sessionId: 'sess-nul',
+                kind: 'file',
+                metadata: { path: '/tmp/artifact\u0000name' },
+              },
+            ],
+          },
+        },
+        auth.token,
+      )
+
+      expect(commit.statusCode).toBe(200)
+      const sessions = await t.pglite.query<{ title: string; metadata: { title: string } }>(
+        'SELECT title, metadata FROM "projection_session" WHERE tenant_id = $1 AND id = $2',
+        [auth.tenant.id, 'sess-nul'],
+      )
+      expect(sessions.rows[0]?.title).toBe('title\uFFFDnul')
+      expect(sessions.rows[0]?.metadata.title).toBe('session\uFFFDmetadata')
+
+      const searchDocs = await t.pglite.query<{ body: string }>(
+        'SELECT body FROM "search_doc" WHERE tenant_id = $1 AND id = $2',
+        [auth.tenant.id, 'doc-nul'],
+      )
+      expect(searchDocs.rows[0]?.body).toBe('hello\uFFFDworld')
+
+      const rawRecords = await t.pglite.query<{ payload: { text: string } }>(
+        'SELECT payload FROM "raw_record" WHERE tenant_id = $1 AND id = $2',
+        [auth.tenant.id, 'raw-nul'],
+      )
+      expect(rawRecords.rows[0]?.payload.text).toBe('raw\uFFFDpayload')
+
+      const blocks = await t.pglite.query<{ text: string; metadata: { nested: string[] } }>(
+        'SELECT text, metadata FROM "projection_content_block" WHERE tenant_id = $1 AND id = $2',
+        [auth.tenant.id, 'block-nul'],
+      )
+      expect(blocks.rows[0]?.text).toBe('block\uFFFDtext')
+      expect(blocks.rows[0]?.metadata.nested).toEqual(['block\uFFFDmetadata'])
+
+      const events = await t.pglite.query<{ payload: { value: string } }>(
+        'SELECT payload FROM "projection_event" WHERE tenant_id = $1 AND id = $2',
+        [auth.tenant.id, 'event-nul'],
+      )
+      expect(events.rows[0]?.payload.value).toBe('event\uFFFDpayload')
+    } finally {
+      await t.close()
+    }
+  })
+
   it('fails commit for a fresh zero-missing plan when stored object bytes are mismatched', async () => {
     const t = await buildTestApp()
     try {

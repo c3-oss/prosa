@@ -351,6 +351,37 @@ describe('ProsaApiClient request shaping', () => {
     ])
   })
 
+  it('does not retry structured tRPC application errors from sync.commitUpload', async () => {
+    let calls = 0
+    const fakeFetch = async () => {
+      calls += 1
+      return new Response(
+        JSON.stringify({
+          error: {
+            message: 'Batch is not open for commit',
+            data: { code: 'PRECONDITION_FAILED' },
+          },
+        }),
+        { status: 500, headers: { 'content-type': 'application/json' } },
+      )
+    }
+    const client = new ProsaApiClient({ baseUrl: 'http://example', fetch: fakeFetch as typeof fetch })
+
+    await expect(
+      client.syncCommitUpload(
+        {
+          batchId: 'batch-1',
+          deviceId: 'device-1',
+          storePath: '/tmp/prosa',
+          objects: [],
+          projection: {},
+        },
+        { idempotencyKey: 'sync.commitUpload:batch-1' },
+      ),
+    ).rejects.toThrow(/Batch is not open for commit/)
+    expect(calls).toBe(1)
+  })
+
   it('retries object PUTs on retryable HTTP status using Retry-After', async () => {
     const calls: string[] = []
     const fakeFetch = async (url: string | URL | Request) => {

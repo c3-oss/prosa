@@ -15,16 +15,36 @@ import type { RawExec } from '../../../db.js'
 import { TRPCError } from '../../init.js'
 import { type ProjectionEntityType, stableJson } from './manifest.js'
 
+const POSTGRES_TEXT_REPLACEMENT = '\uFFFD'
+
+function sanitizePostgresText(value: string): string {
+  return value.includes('\0') ? value.replaceAll('\0', POSTGRES_TEXT_REPLACEMENT) : value
+}
+
+function sanitizePostgresValue(value: unknown): unknown {
+  if (typeof value === 'string') return sanitizePostgresText(value)
+  if (Array.isArray(value)) return value.map((item) => sanitizePostgresValue(item))
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, entry]) => [
+        sanitizePostgresText(key),
+        sanitizePostgresValue(entry),
+      ]),
+    )
+  }
+  return value
+}
+
 function normalizeRawRecordPayload(payload: unknown): unknown {
   if (payload == null || typeof payload !== 'object' || Array.isArray(payload)) {
-    return payload ?? null
+    return sanitizePostgresValue(payload ?? null)
   }
   const { importBatchId: _importBatchId, ...stablePayload } = payload as Record<string, unknown>
-  return stablePayload
+  return sanitizePostgresValue(stablePayload)
 }
 
 function normalizeNullable(value: unknown): string | null {
-  return value == null ? null : String(value)
+  return value == null ? null : sanitizePostgresText(String(value))
 }
 
 function normalizeInteger(value: unknown): number {
@@ -40,12 +60,12 @@ function normalizeJson(value: unknown): string {
   if (value == null) return 'null'
   if (typeof value === 'string') {
     try {
-      return stableJson(JSON.parse(value))
+      return stableJson(sanitizePostgresValue(JSON.parse(value)))
     } catch {
-      return stableJson(value)
+      return stableJson(sanitizePostgresText(value))
     }
   }
-  return stableJson(value)
+  return stableJson(sanitizePostgresValue(value))
 }
 
 function normalizeTimestamp(value: unknown): string | null {
@@ -167,14 +187,14 @@ async function bulkInsertSessionRows(opts: {
      ON CONFLICT (tenant_id, id) DO NOTHING`,
     [
       opts.tenantId,
-      opts.items.map((s) => s.id),
-      opts.items.map((s) => s.sourceKind),
-      opts.items.map((s) => s.projectId ?? null),
-      opts.items.map((s) => s.title ?? null),
+      opts.items.map((s) => sanitizePostgresText(s.id)),
+      opts.items.map((s) => sanitizePostgresText(s.sourceKind)),
+      opts.items.map((s) => normalizeNullable(s.projectId)),
+      opts.items.map((s) => normalizeNullable(s.title)),
       opts.items.map((s) => s.startedAt ?? null),
       opts.items.map((s) => s.endedAt ?? null),
       opts.items.map((s) => s.turnCount),
-      opts.items.map((s) => (s.metadata != null ? JSON.stringify(s.metadata) : null)),
+      opts.items.map((s) => (s.metadata != null ? normalizeJson(s.metadata) : null)),
     ],
   )
   await verifyProjectionRows<
@@ -199,7 +219,7 @@ async function bulkInsertSessionRows(opts: {
     items: opts.items,
     itemId: (s) => s.id,
     expected: (s) => ({
-      source_kind: s.sourceKind,
+      source_kind: sanitizePostgresText(s.sourceKind),
       project_id: normalizeNullable(s.projectId),
       title: normalizeNullable(s.title),
       started_at: normalizeTimestamp(s.startedAt),
@@ -238,11 +258,11 @@ async function bulkInsertSourceFileRows(opts: {
      ON CONFLICT (tenant_id, id) DO NOTHING`,
     [
       opts.tenantId,
-      opts.items.map((f) => f.id),
-      opts.items.map((f) => f.sourceKind),
-      opts.items.map((f) => f.path),
-      opts.items.map((f) => f.objectId ?? null),
-      opts.items.map((f) => (f.metadata != null ? JSON.stringify(f.metadata) : null)),
+      opts.items.map((f) => sanitizePostgresText(f.id)),
+      opts.items.map((f) => sanitizePostgresText(f.sourceKind)),
+      opts.items.map((f) => sanitizePostgresText(f.path)),
+      opts.items.map((f) => normalizeNullable(f.objectId)),
+      opts.items.map((f) => (f.metadata != null ? normalizeJson(f.metadata) : null)),
     ],
   )
   await verifyProjectionRows<
@@ -264,8 +284,8 @@ async function bulkInsertSourceFileRows(opts: {
     items: opts.items,
     itemId: (f) => f.id,
     expected: (f) => ({
-      source_kind: f.sourceKind,
-      path: f.path,
+      source_kind: sanitizePostgresText(f.sourceKind),
+      path: sanitizePostgresText(f.path),
       object_id: normalizeNullable(f.objectId),
       metadata: normalizeJson(f.metadata),
     }),
@@ -297,11 +317,11 @@ async function bulkInsertRawRecordRows(opts: {
      ON CONFLICT (tenant_id, id) DO NOTHING`,
     [
       opts.tenantId,
-      opts.items.map((r) => r.id),
-      opts.items.map((r) => r.sourceFileId),
+      opts.items.map((r) => sanitizePostgresText(r.id)),
+      opts.items.map((r) => sanitizePostgresText(r.sourceFileId)),
       opts.items.map((r) => r.sequence),
-      opts.items.map((r) => JSON.stringify(normalizeRawRecordPayload(r.payload ?? null))),
-      opts.items.map((r) => r.objectId ?? null),
+      opts.items.map((r) => normalizeJson(normalizeRawRecordPayload(r.payload ?? null))),
+      opts.items.map((r) => normalizeNullable(r.objectId)),
     ],
   )
   await verifyProjectionRows<
@@ -323,7 +343,7 @@ async function bulkInsertRawRecordRows(opts: {
     items: opts.items,
     itemId: (r) => r.id,
     expected: (r) => ({
-      source_file_id: r.sourceFileId,
+      source_file_id: sanitizePostgresText(r.sourceFileId),
       sequence: r.sequence,
       payload: normalizeJson(normalizeRawRecordPayload(r.payload ?? null)),
       object_id: normalizeNullable(r.objectId),
@@ -355,10 +375,10 @@ async function bulkInsertSearchDocRows(opts: {
      ON CONFLICT (tenant_id, id) DO NOTHING`,
     [
       opts.tenantId,
-      opts.items.map((d) => d.id),
-      opts.items.map((d) => d.sessionId),
-      opts.items.map((d) => d.kind),
-      opts.items.map((d) => d.body),
+      opts.items.map((d) => sanitizePostgresText(d.id)),
+      opts.items.map((d) => sanitizePostgresText(d.sessionId)),
+      opts.items.map((d) => sanitizePostgresText(d.kind)),
+      opts.items.map((d) => sanitizePostgresText(d.body)),
     ],
   )
   await verifyProjectionRows<
@@ -378,9 +398,9 @@ async function bulkInsertSearchDocRows(opts: {
     items: opts.items,
     itemId: (d) => d.id,
     expected: (d) => ({
-      session_id: d.sessionId,
-      kind: d.kind,
-      body: d.body,
+      session_id: sanitizePostgresText(d.sessionId),
+      kind: sanitizePostgresText(d.kind),
+      body: sanitizePostgresText(d.body),
     }),
     actual: (row) => ({
       session_id: row.session_id,
@@ -411,12 +431,12 @@ async function bulkInsertToolCallRows(opts: {
      ON CONFLICT (tenant_id, id) DO NOTHING`,
     [
       opts.tenantId,
-      opts.items.map((tc) => tc.id),
-      opts.items.map((tc) => tc.sessionId),
-      opts.items.map((tc) => tc.turnId ?? null),
-      opts.items.map((tc) => tc.name),
-      opts.items.map((tc) => tc.status ?? null),
-      opts.items.map((tc) => tc.inputObjectId ?? null),
+      opts.items.map((tc) => sanitizePostgresText(tc.id)),
+      opts.items.map((tc) => sanitizePostgresText(tc.sessionId)),
+      opts.items.map((tc) => normalizeNullable(tc.turnId)),
+      opts.items.map((tc) => sanitizePostgresText(tc.name)),
+      opts.items.map((tc) => normalizeNullable(tc.status)),
+      opts.items.map((tc) => normalizeNullable(tc.inputObjectId)),
       opts.items.map((tc) => tc.createdAt ?? null),
     ],
   )
@@ -441,9 +461,9 @@ async function bulkInsertToolCallRows(opts: {
     items: opts.items,
     itemId: (tc) => tc.id,
     expected: (tc) => ({
-      session_id: tc.sessionId,
+      session_id: sanitizePostgresText(tc.sessionId),
       turn_id: normalizeNullable(tc.turnId),
-      name: tc.name,
+      name: sanitizePostgresText(tc.name),
       status: normalizeNullable(tc.status),
       input_object_id: normalizeNullable(tc.inputObjectId),
       created_at: normalizeTimestamp(tc.createdAt),
@@ -478,10 +498,10 @@ async function bulkInsertToolResultRows(opts: {
      ON CONFLICT (tenant_id, id) DO NOTHING`,
     [
       opts.tenantId,
-      opts.items.map((tr) => tr.id),
-      opts.items.map((tr) => tr.toolCallId),
-      opts.items.map((tr) => tr.outputObjectId ?? null),
-      opts.items.map((tr) => tr.status ?? null),
+      opts.items.map((tr) => sanitizePostgresText(tr.id)),
+      opts.items.map((tr) => sanitizePostgresText(tr.toolCallId)),
+      opts.items.map((tr) => normalizeNullable(tr.outputObjectId)),
+      opts.items.map((tr) => normalizeNullable(tr.status)),
       opts.items.map((tr) => tr.finishedAt ?? null),
     ],
   )
@@ -504,7 +524,7 @@ async function bulkInsertToolResultRows(opts: {
     items: opts.items,
     itemId: (tr) => tr.id,
     expected: (tr) => ({
-      tool_call_id: tr.toolCallId,
+      tool_call_id: sanitizePostgresText(tr.toolCallId),
       output_object_id: normalizeNullable(tr.outputObjectId),
       status: normalizeNullable(tr.status),
       finished_at: normalizeTimestamp(tr.finishedAt),
@@ -538,11 +558,11 @@ async function bulkInsertMessageRows(opts: {
      ON CONFLICT (tenant_id, id) DO NOTHING`,
     [
       opts.tenantId,
-      opts.items.map((m) => m.id),
-      opts.items.map((m) => m.sessionId),
-      opts.items.map((m) => m.turnId ?? null),
-      opts.items.map((m) => m.role),
-      opts.items.map((m) => m.model ?? null),
+      opts.items.map((m) => sanitizePostgresText(m.id)),
+      opts.items.map((m) => sanitizePostgresText(m.sessionId)),
+      opts.items.map((m) => normalizeNullable(m.turnId)),
+      opts.items.map((m) => sanitizePostgresText(m.role)),
+      opts.items.map((m) => normalizeNullable(m.model)),
       opts.items.map((m) => m.createdAt ?? null),
     ],
   )
@@ -566,9 +586,9 @@ async function bulkInsertMessageRows(opts: {
     items: opts.items,
     itemId: (m) => m.id,
     expected: (m) => ({
-      session_id: m.sessionId,
+      session_id: sanitizePostgresText(m.sessionId),
       turn_id: normalizeNullable(m.turnId),
-      role: m.role,
+      role: sanitizePostgresText(m.role),
       model: normalizeNullable(m.model),
       created_at: normalizeTimestamp(m.createdAt),
     }),
@@ -603,13 +623,13 @@ async function bulkInsertContentBlockRows(opts: {
      ON CONFLICT (tenant_id, id) DO NOTHING`,
     [
       opts.tenantId,
-      opts.items.map((cb) => cb.id),
-      opts.items.map((cb) => cb.messageId),
+      opts.items.map((cb) => sanitizePostgresText(cb.id)),
+      opts.items.map((cb) => sanitizePostgresText(cb.messageId)),
       opts.items.map((cb) => cb.sequence),
-      opts.items.map((cb) => cb.kind),
-      opts.items.map((cb) => cb.text ?? null),
-      opts.items.map((cb) => cb.objectId ?? null),
-      opts.items.map((cb) => (cb.metadata != null ? JSON.stringify(cb.metadata) : null)),
+      opts.items.map((cb) => sanitizePostgresText(cb.kind)),
+      opts.items.map((cb) => normalizeNullable(cb.text)),
+      opts.items.map((cb) => normalizeNullable(cb.objectId)),
+      opts.items.map((cb) => (cb.metadata != null ? normalizeJson(cb.metadata) : null)),
     ],
   )
   await verifyProjectionRows<
@@ -633,9 +653,9 @@ async function bulkInsertContentBlockRows(opts: {
     items: opts.items,
     itemId: (cb) => cb.id,
     expected: (cb) => ({
-      message_id: cb.messageId,
+      message_id: sanitizePostgresText(cb.messageId),
       sequence: cb.sequence,
-      kind: cb.kind,
+      kind: sanitizePostgresText(cb.kind),
       text: normalizeNullable(cb.text),
       object_id: normalizeNullable(cb.objectId),
       metadata: normalizeJson(cb.metadata),
@@ -672,12 +692,12 @@ async function bulkInsertEventRows(opts: {
      ON CONFLICT (tenant_id, id) DO NOTHING`,
     [
       opts.tenantId,
-      opts.items.map((e) => e.id),
-      opts.items.map((e) => e.sessionId),
-      opts.items.map((e) => e.turnId ?? null),
+      opts.items.map((e) => sanitizePostgresText(e.id)),
+      opts.items.map((e) => sanitizePostgresText(e.sessionId)),
+      opts.items.map((e) => normalizeNullable(e.turnId)),
       opts.items.map((e) => e.sequence),
-      opts.items.map((e) => e.kind),
-      opts.items.map((e) => (e.payload != null ? JSON.stringify(e.payload) : null)),
+      opts.items.map((e) => sanitizePostgresText(e.kind)),
+      opts.items.map((e) => (e.payload != null ? normalizeJson(e.payload) : null)),
       opts.items.map((e) => e.occurredAt ?? null),
     ],
   )
@@ -702,10 +722,10 @@ async function bulkInsertEventRows(opts: {
     items: opts.items,
     itemId: (e) => e.id,
     expected: (e) => ({
-      session_id: e.sessionId,
+      session_id: sanitizePostgresText(e.sessionId),
       turn_id: normalizeNullable(e.turnId),
       sequence: e.sequence,
-      kind: e.kind,
+      kind: sanitizePostgresText(e.kind),
       payload: normalizeJson(e.payload),
       occurred_at: normalizeTimestamp(e.occurredAt),
     }),
@@ -740,12 +760,12 @@ async function bulkInsertArtifactRows(opts: {
      ON CONFLICT (tenant_id, id) DO NOTHING`,
     [
       opts.tenantId,
-      opts.items.map((a) => a.id),
-      opts.items.map((a) => a.sessionId ?? null),
-      opts.items.map((a) => a.kind),
-      opts.items.map((a) => a.objectId ?? null),
+      opts.items.map((a) => sanitizePostgresText(a.id)),
+      opts.items.map((a) => normalizeNullable(a.sessionId)),
+      opts.items.map((a) => sanitizePostgresText(a.kind)),
+      opts.items.map((a) => normalizeNullable(a.objectId)),
       opts.items.map((a) => a.sizeBytes ?? null),
-      opts.items.map((a) => (a.metadata != null ? JSON.stringify(a.metadata) : null)),
+      opts.items.map((a) => (a.metadata != null ? normalizeJson(a.metadata) : null)),
     ],
   )
   await verifyProjectionRows<
@@ -769,7 +789,7 @@ async function bulkInsertArtifactRows(opts: {
     itemId: (a) => a.id,
     expected: (a) => ({
       session_id: normalizeNullable(a.sessionId),
-      kind: a.kind,
+      kind: sanitizePostgresText(a.kind),
       object_id: normalizeNullable(a.objectId),
       size_bytes: normalizeBigIntString(a.sizeBytes),
       metadata: normalizeJson(a.metadata),

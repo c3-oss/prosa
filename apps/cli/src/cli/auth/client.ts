@@ -31,11 +31,17 @@ type TrpcSuccess<T> = { result: { data: T } }
 type TrpcFailure = { error: { message: string; data?: { code?: string } } }
 type PlainHttpResponse = { ok: boolean; status: number; text: string }
 type PreparedObjectPackUpload = { entries: ObjectPackWireEntry[]; payload: Buffer }
-type TrpcMutationOptions = { headers?: Record<string, string> }
+type TrpcMutationOptions = {
+  headers?: Record<string, string>
+  retryStructuredErrorsOnRetryableStatus?: boolean
+}
 type RetriableFetchOptions = {
   operation: string
   request: () => Promise<Response>
   parse: (response: Response) => Promise<unknown>
+  retryHttpStatusBeforeParse?: boolean
+  retryParseErrorsOnRetryableStatus?: boolean
+  retryStructuredErrorsOnRetryableStatus?: boolean
 }
 
 export type ProsaApiRetryEvent = {
@@ -256,6 +262,9 @@ export class ProsaApiClient {
   ): Promise<T> {
     return this.retriableFetch<T>({
       operation: opts.operation,
+      retryHttpStatusBeforeParse: false,
+      retryParseErrorsOnRetryableStatus: true,
+      retryStructuredErrorsOnRetryableStatus: opts.retryStructuredErrorsOnRetryableStatus,
       request: () =>
         this.fetchFn(`${this.baseUrl}/trpc/${path}`, {
           method: 'POST',
@@ -266,7 +275,8 @@ export class ProsaApiClient {
     })
   }
 
-  private async retriableFetch<T>({ operation, request, parse }: RetriableFetchOptions): Promise<T> {
+  private async retriableFetch<T>(opts: RetriableFetchOptions): Promise<T> {
+    const { operation, request, parse } = opts
     let lastError: unknown
     for (let attempt = 0; attempt < OBJECT_UPLOAD_MAX_ATTEMPTS; attempt += 1) {
       let response: Response
@@ -289,7 +299,11 @@ export class ProsaApiClient {
         continue
       }
 
-      if (isRetryableObjectUploadStatus(response.status) && attempt < OBJECT_UPLOAD_MAX_ATTEMPTS - 1) {
+      if (
+        opts.retryHttpStatusBeforeParse !== false &&
+        isRetryableObjectUploadStatus(response.status) &&
+        attempt < OBJECT_UPLOAD_MAX_ATTEMPTS - 1
+      ) {
         const delayMs = objectUploadBackoffMs(attempt, response.headers)
         this.onRetry?.({
           operation,
@@ -308,6 +322,23 @@ export class ProsaApiClient {
         this.onRequestSuccess?.({ operation, attempts: attempt + 1 })
         return parsed
       } catch (err) {
+        if (
+          opts.retryParseErrorsOnRetryableStatus &&
+          (opts.retryStructuredErrorsOnRetryableStatus !== false || !(err instanceof ProsaApiError)) &&
+          isRetryableObjectUploadStatus(response.status) &&
+          attempt < OBJECT_UPLOAD_MAX_ATTEMPTS - 1
+        ) {
+          const delayMs = objectUploadBackoffMs(attempt, response.headers)
+          this.onRetry?.({
+            operation,
+            attempt: attempt + 1,
+            maxAttempts: OBJECT_UPLOAD_MAX_ATTEMPTS,
+            delayMs,
+            reason: `HTTP ${response.status}: ${networkErrorReason(err)}`,
+          })
+          await sleep(delayMs)
+          continue
+        }
         throw this.wrapRetriedError(operation, attempt + 1, err)
       }
     }
@@ -315,6 +346,7 @@ export class ProsaApiClient {
   }
 
   private wrapRetriedError(operation: string, attempts: number, err: unknown): Error {
+    if (err instanceof ProsaApiError) return err
     if (attempts <= 1) return err instanceof Error ? err : new Error(String(err))
     const reason = networkErrorReason(err)
     return new CliUserError(`${operation} failed after ${attempts} attempts: ${reason}`)
@@ -462,6 +494,7 @@ export class ProsaApiClient {
     return this.trpcMutationRetriable<CommitUploadOutput>('sync.commitUpload', input, {
       operation: 'sync.commitUpload',
       headers: opts.idempotencyKey ? { 'idempotency-key': opts.idempotencyKey } : undefined,
+      retryStructuredErrorsOnRetryableStatus: false,
     })
   }
 
