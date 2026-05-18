@@ -1,5 +1,13 @@
 # @c3-oss/prosa
 
+## 0.8.1
+
+### Patch Changes
+
+- e9e11da: Fix chunked sync when remote PostgreSQL projections contain NUL bytes and avoid retrying structured commit errors that are not transient.
+- 10b40d1: Harden chunked sync uploads with retries and adaptive object upload concurrency.
+  - @c3-oss/prosa-core@0.8.1
+
 ## 0.8.0
 
 ### Minor Changes
