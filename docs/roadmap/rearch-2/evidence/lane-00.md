@@ -1,9 +1,9 @@
 # Lane Evidence
 
 Lane: 00 - Foundation
-Status: complete (pending commit on `feature/rearch`)
+Status: complete on `feature/rearch`
 Owner: Ralph
-Commit range: this iteration
+Commit range: `cd845f2`
 
 ## Acceptance Criteria
 

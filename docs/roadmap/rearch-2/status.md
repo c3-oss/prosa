@@ -9,9 +9,9 @@ Completion signal: RALPH_DONE
 
 ## Current State
 
-Status: in-progress (Lane 0 complete pending commit)
+Status: in-progress (Lane 0 complete and committed)
 Current lane: Lane 1 - Local store (next iteration)
-Current HEAD: `cd81dc1`
+Current HEAD: `cd845f2`
 No-change streak: 0
 Ralph active: yes
 
@@ -19,8 +19,8 @@ Ralph active: yes
 
 | Lane | Owner | Status | Commit(s) | Evidence |
 | --- | --- | --- | --- | --- |
-| 00 - Foundation | Ralph | complete (pending commit) | (this iteration) | `evidence/lane-00.md` |
-| 01 - Local store | Ralph | blocked-on-lane-00-commit | | `evidence/lane-01.md` |
+| 00 - Foundation | Ralph | complete | `cd845f2` | `evidence/lane-00.md` |
+| 01 - Local store | Ralph | open (next iteration) | | `evidence/lane-01.md` |
 | 02 - Importers | Ralph | blocked-on-lane-01 | | `evidence/lane-02.md` |
 | 03 - Derived layer | Ralph | blocked-on-lane-02 | | `evidence/lane-03.md` |
 | 04 - Server | Ralph | blocked-on-lane-00 | | `evidence/lane-04.md` |
