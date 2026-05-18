@@ -95,19 +95,24 @@ no new transitive risk.
 
 - [x] Worktree state documented.
 - [x] Lane 0 has evidence; lanes 1–10 are documented as not started or WIP.
-- [ ] No open blocking corrections. *(`CQ-036`..`CQ-043` fixes applied in
-  working tree, awaiting Codex re-review acceptance; `CQ-044` keeps Lane 2+
-  work containerized as out-of-sequence WIP.)*
-- [x] Base gates passed (last full run pre CQ-036..CQ-043).
-- [x] Lane 0-specific gates passed.
+- [ ] No open blocking corrections. *(Only `CQ-044` remains — procedural Lane 2/4
+  containment that clears with Codex's Lane 1 acceptance. All Lane 0 / Lane 1
+  integrity corrections `CQ-001..CQ-059` are closed in code, tests, and
+  evidence.)*
+- [x] Base gates passed at HEAD `f3730b3` (full repo `pnpm test` / `pnpm
+  typecheck` / `pnpm lint` 12/12 turbo).
+- [x] Lane 0-specific gates passed: `prosa-types-v2` 89 tests, `prosa-wire-v2`
+  21 tests, `pnpm test:conformance` 15 tests.
 - [x] Lane 1 focused gates: `pnpm --filter @c3-oss/prosa-bundle-v2 typecheck`
-  pass; `pnpm --filter @c3-oss/prosa-bundle-v2 test` 91/91 pass.
+  pass; `pnpm --filter @c3-oss/prosa-bundle-v2 test` 111/111 pass.
 - [ ] Docker-backed E2E passed for sync, reads, migration, and cutover paths.
   *(N/A until Lane 5+.)*
-- [x] Audit output classified.
+- [x] Audit output classified (8 findings; only `apps__cli>ink>ws` touches a
+  non-dev path, pre-existing on `master`).
 - [x] Security, integrity, remote-read, and E2E reviewer findings resolved
-  for Lane 0 (CQ-001..CQ-019).
-- [ ] Final Codex review completed. *(Pending re-review after the
-  `CQ-036`..`CQ-043` closeout commit.)*
+  for Lane 0 (`CQ-001..CQ-019`) and Lane 1 integrity (`CQ-020..CQ-059`).
+  Latest independent reviewer pass on `f54f4f1` returned ACCEPT — no findings.
+- [ ] Final Codex review completed. *(Pending — `CQ-044` clears with the same
+  acceptance.)*
 - [ ] Five-cycle final stabilization evidence recorded. *(Pending; Lane 1
   must be accepted by Codex first.)*

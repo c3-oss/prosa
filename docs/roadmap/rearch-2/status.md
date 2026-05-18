@@ -11,8 +11,8 @@ Completion signal: RALPH_DONE
 
 Status: awaiting Codex Lane 1 acceptance (no open integrity blockers)
 Current lane: corrections before further Lane 1 / any Lane 2 work
-Current HEAD: `f54f4f1`
-No-change streak: 1 (after independent reviewer returned ACCEPT — no findings on `f54f4f1`)
+Current HEAD: `f3730b3`
+No-change streak: 2 (last code-touching commit was `f54f4f1`; `f3730b3` and this iteration's commit are docs-only governance refreshes)
 Ralph active: yes
 
 ## Lane Status
