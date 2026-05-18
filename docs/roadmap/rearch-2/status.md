@@ -9,9 +9,10 @@ Completion signal: RALPH_DONE
 
 ## Current State
 
-Status: in-progress (correction required after Codex review)
+Status: in-progress (CQ-036..CQ-043 fixes applied locally, pending Codex re-review)
 Current lane: corrections before further Lane 1 / any Lane 2 work
-Current HEAD: `6097f9e`
+Current HEAD: `004107c` (working tree carries CQ-036..CQ-043 fixes + uncommitted Lane 4 db-v2 scaffold)
+Pending commit: `fix(core): close lane 0+1 corrections cq-036..cq-043`
 No-change streak: 0
 Ralph active: yes
 
@@ -19,8 +20,8 @@ Ralph active: yes
 
 | Lane | Owner | Status | Commit(s) | Evidence |
 | --- | --- | --- | --- | --- |
-| 00 - Foundation | Ralph | correction | `cd845f2`, `e22ec27`, `b78b5ae`, `70b9df0`, `0e8a912`, `a650ef8` | `evidence/lane-00.md` |
-| 01 - Local store | Ralph | partial-correction | `4f214b7`, `2b5ad1b`, `433c32f`, `a650ef8`, `6097f9e` | `evidence/lane-01.md` |
+| 00 - Foundation | Ralph | correction | `cd845f2`, `e22ec27`, `b78b5ae`, `70b9df0`, `0e8a912`, `a650ef8`, `2809d21` | `evidence/lane-00.md` |
+| 01 - Local store | Ralph | partial-correction | `4f214b7`, `2b5ad1b`, `433c32f`, `a650ef8`, `6097f9e`, `5a6a683`, `2809d21` | `evidence/lane-01.md` |
 | 02 - Importers | Ralph | blocked-on-lane-01 | | `evidence/lane-02.md` |
 | 03 - Derived layer | Ralph | blocked-on-lane-02 | | `evidence/lane-03.md` |
 | 04 - Server | Ralph | blocked-on-lane-00 | | `evidence/lane-04.md` |
@@ -35,7 +36,11 @@ Ralph active: yes
 
 | ID | Severity | Owner | Summary |
 | --- | --- | --- | --- |
-| | | | All CQ-001..CQ-035 closed; see `correction-queue.md` "Closed". |
+| CQ-044 | high | Ralph | Contain out-of-sequence Lane 2+ work until Lane 1 acceptance. |
+
+CQ-036 through CQ-043 are now in the **Closed** section of
+`correction-queue.md`. Their fixes are present in the working tree and
+land with the next closeout commit. Codex re-review is pending.
 
 ## Latest Gates
 
@@ -45,7 +50,7 @@ Ralph active: yes
 | `pnpm i` | pass | `pnpm install --frozen-lockfile`-compatible; only pre-existing peer warnings (`@c3-oss/config-vitest` wants vitest ^3.1.1, repo on 2.1.9). |
 | `pnpm build` | pass | 10/10 turbo tasks (includes `@c3-oss/prosa-bundle-v2`). |
 | `just typecheck` | pass | 10/10 turbo tasks. |
-| `just test-all` | pass | 10/10 turbo tasks. Test counts: 89 in `@c3-oss/prosa-types-v2`, 21 in `@c3-oss/prosa-wire-v2`, 86 in `@c3-oss/prosa-bundle-v2` (post CQ-029..CQ-035 closeout). |
+| `just test-all` | pending | Pre-CQ-036..CQ-043 closeout counts: types-v2 89, wire-v2 21, bundle-v2 86. Post-CQ-036..CQ-043 working-tree focused counts: bundle-v2 **91** (added CQ-042 canonical-header tests x2, CQ-043 rebuild-drift test x1). Full `just test-all` re-run will land with the closeout commit. |
 | `just lint-all` | pass | 10/10 turbo tasks. |
 | `pnpm test:conformance` | pass | 15 tests; 13 entity leaves stable. |
 | `pnpm audit --audit-level moderate` | classified pass | 7 dev-tooling-only vulnerabilities, pre-existing; classified in `gates.md`. |
@@ -130,3 +135,52 @@ Ralph active: yes
   inventory, incomplete FK closure, incomplete fsync durability, and
   non-canonical pack header acceptance. Opened `CQ-029` through `CQ-035`;
   Lane 2 remains blocked.
+- 2026-05-18T17:49:05-03:00: Ralph committed `2809d21` claiming closure of
+  `CQ-029` through `CQ-035`. Focused gates passed: types-v2 89,
+  wire-v2 21, conformance 15, bundle-v2 86, bundle-v2 typecheck/lint, and
+  `git diff --check`. Codex reviewers found `CQ-029` still stale and
+  remaining Lane 1 integrity blockers: raw-source pack/source-row mismatch
+  risk, insufficient kind-specific/realpath durable-ref containment, missing
+  registered-ref parent directory fsync, CAS object count drift,
+  incomplete `search_doc` FK closure, missing non-canonical header tests, and
+  cold rebuild durability/verification gaps. Opened `CQ-036` through `CQ-043`;
+  Lane 2 remains blocked. `packages/prosa-importers-v2/` appeared untracked
+  and is not accepted.
+- 2026-05-18T18:01:27-03:00: Active check found new commit `004107c`
+  (`feat(core): begin lane 2 — importer contract, GraphResolver,
+  orchestrator`) plus untracked `packages/prosa-db-v2/` and lockfile changes
+  while `CQ-036` through `CQ-043` remain open. Opened `CQ-044` to contain
+  out-of-sequence Lane 2+ work and keep it out of acceptance until Lane 1
+  passes Codex re-review.
+- 2026-05-18 (this iteration): Applied CQ-036..CQ-043 fixes in the working
+  tree against HEAD `004107c`:
+  - CQ-037: `sealEpoch` now builds a verified raw-source inventory from
+    `raw_source_pack` refs and enforces per-source_file_id equivalence
+    against staged `source_file` rows (`content_hash`, `object_id`,
+    `size_bytes`, `pack_digest`, `stored_offset`, `stored_length`,
+    `compression`). Duplicate `source_file_id` across packs and orphaned
+    pack entries are rejected.
+  - CQ-038: lifecycle adds `lstat`-based symlink rejection, `realpath`
+    bundle-root containment, and a kind-specific containment check
+    (`enforceKindContainment`) pinning projection refs under the epoch
+    tmp/permanent `projection/` dir, CAS refs under `cas/packs`/`cas/large`,
+    raw-source refs under `raw_sources/packs`, and manifest refs under
+    the epoch tmp/permanent dirs.
+  - CQ-039: `sealEpoch` fsyncs every unique parent directory of registered
+    refs before the epoch-dir rename.
+  - CQ-040: `counts.objects` is now the verified CAS inventory size only,
+    decoupled from raw-source entry count.
+  - CQ-041: `FK_RULES` extended with `search_doc.session_id → session` and
+    `search_doc.project_id → project`.
+  - CQ-042: added canonical-header rejection tests for both CAS and
+    raw-source packs (reordered keys + extra whitespace, with recomputed
+    `header_blake3`).
+  - CQ-043: `rebuildIndex` now loads the signed epoch manifest, verifies
+    each projection segment's `blake3(file)` matches the declared digest
+    (`RebuildIntegrityError`), uses `writeFileDurable`/`syncDir` for
+    shard logs and `rebuild.manifest`, and fsyncs the parent dir after
+    both the archive rename and the install rename.
+  - Bundle-v2 focused gates: typecheck pass, **91/91 tests** pass
+    (added 3 tests across cas-pack, raw-source-pack, rebuild).
+  - CQ-036: governance reconciled in this entry; will be marked closed
+    when the commit lands.

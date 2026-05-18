@@ -68,20 +68,30 @@ function rawRecordRow(id: string, srcFile: string, objectId: string) {
   }
 }
 
-function sourceFileRow(id: string, packDigest: string, objectId: string) {
+function sourceFileRow(
+  id: string,
+  packDigest: string,
+  objectId: string,
+  entry: {
+    uncompressed_size: number
+    stored_offset: number
+    stored_length: number
+    compression: 'zstd' | 'none'
+  },
+) {
   return {
     source_file_id: id,
     source_tool: 'codex',
     path: `/repo/${id}.jsonl`,
     file_kind: 'session_jsonl',
-    size_bytes: 32,
+    size_bytes: entry.uncompressed_size,
     mtime_ns: null,
     content_hash: objectId,
     object_id: objectId,
     pack_digest: packDigest,
-    stored_offset: 0,
-    stored_length: 32,
-    compression: 'zstd',
+    stored_offset: entry.stored_offset,
+    stored_length: entry.stored_length,
+    compression: entry.compression,
     last_seen_epoch: 1,
   }
 }
@@ -137,12 +147,10 @@ describe('e2e synthetic seal', () => {
       // 2. The raw-source content hashes also act as projection
       // `*_object_id` references; populate sessions / raw_records /
       // source_files / raw-source-entries that point at them.
-      const srcAObjectId = rawEmissions
-        .flatMap((e) => e.built.header.entries)
-        .find((x) => x.source_file_id === 'src_a')!.object_id
-      const srcBObjectId = rawEmissions
-        .flatMap((e) => e.built.header.entries)
-        .find((x) => x.source_file_id === 'src_b')!.object_id
+      const entryA = rawEmissions.flatMap((e) => e.built.header.entries).find((x) => x.source_file_id === 'src_a')!
+      const entryB = rawEmissions.flatMap((e) => e.built.header.entries).find((x) => x.source_file_id === 'src_b')!
+      const srcAObjectId = entryA.object_id
+      const srcBObjectId = entryB.object_id
       const packAForA = rawEmissions.find((e) =>
         e.built.header.entries.some((x) => x.source_file_id === 'src_a'),
       )!.packDigest
@@ -150,8 +158,8 @@ describe('e2e synthetic seal', () => {
         e.built.header.entries.some((x) => x.source_file_id === 'src_b'),
       )!.packDigest
 
-      handle.putRow('source_file', 'src_a', sourceFileRow('src_a', packAForA, srcAObjectId) as never)
-      handle.putRow('source_file', 'src_b', sourceFileRow('src_b', packAForB, srcBObjectId) as never)
+      handle.putRow('source_file', 'src_a', sourceFileRow('src_a', packAForA, srcAObjectId, entryA) as never)
+      handle.putRow('source_file', 'src_b', sourceFileRow('src_b', packAForB, srcBObjectId, entryB) as never)
       handle.putRow('raw_record', 'raw_a', rawRecordRow('raw_a', 'src_a', srcAObjectId) as never)
       handle.putRow('raw_record', 'raw_b', rawRecordRow('raw_b', 'src_b', srcBObjectId) as never)
       handle.putRow('session', 'ses_a', sessionRow('ses_a', 'raw_a') as never)
@@ -188,7 +196,9 @@ describe('e2e synthetic seal', () => {
       expect(sealed.head.counts.sessions).toBe(2)
       expect(sealed.head.counts.rawRecords).toBe(2)
       expect(sealed.head.counts.sourceFiles).toBe(2)
-      expect(sealed.head.counts.objects).toBe(2)
+      // CQ-040: counts.objects reflects verified CAS inventory only; this
+      // synthetic epoch registers only raw-source packs, so CAS == 0.
+      expect(sealed.head.counts.objects).toBe(0)
       expect(sealed.head.counts.projectionRows).toBe(6)
       // CQ-026: pack writers exist, head includes them via segments[].
       expect(sealed.head.segments.length).toBeGreaterThan(0)

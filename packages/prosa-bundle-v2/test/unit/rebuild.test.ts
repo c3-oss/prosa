@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, readdir, stat } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest'
 import { initBundle } from '../../src/bundle/bundle.js'
 import { beginEpoch, sealEpoch } from '../../src/epoch/lifecycle.js'
 import { writeProjectionSegment } from '../../src/projection/segment-writer.js'
-import { rebuildIndex } from '../../src/rebuild/index.js'
+import { RebuildIntegrityError, rebuildIndex } from '../../src/rebuild/index.js'
 import { MemoryShardActor } from '../../src/shard/memory-actor.js'
 
 async function tmp(): Promise<string> {
@@ -137,6 +137,27 @@ describe('rebuildIndex', () => {
       expect(parsed.perShardCounts.length).toBe(4)
       // Suppress unused variable lints.
       expect(typeof r.manifest.rebuiltAt).toBe('string')
+    } finally {
+      await bundle.close()
+    }
+  })
+
+  it('CQ-043: rejects a drifted projection segment (digest mismatch vs manifest)', async () => {
+    const root = await tmp()
+    const bundle = await initBundle(root, { storeId: 'st_drift', createdAt: '2025-01-02T03:04:05.123Z' })
+    try {
+      const handle = await beginEpoch(bundle, { createdAt: '2025-01-02T03:04:06.000Z' })
+      handle.putRow('session', 'ses_a', sessionRow('ses_a') as never)
+      const seg = await writeProjectionSegment('session', [sessionRow('ses_a')] as never, { outDir: handle.tmpDir })
+      handle.registerSegment(seg.ref)
+      await sealEpoch(handle)
+      // Tamper with the sealed projection file post-seal.
+      const segPath = join(bundle.paths.root, 'epochs', '1', 'projection', 'session.prosa-projection.ndjson')
+      const raw = await readFile(segPath)
+      const tampered = new Uint8Array(raw)
+      tampered[tampered.length - 2] = (tampered[tampered.length - 2] as number) ^ 0xff
+      await writeFile(segPath, tampered)
+      await expect(rebuildIndex(bundle, { uuid: 'drift1' })).rejects.toThrow(RebuildIntegrityError)
     } finally {
       await bundle.close()
     }

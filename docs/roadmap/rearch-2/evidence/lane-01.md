@@ -130,20 +130,27 @@ Commit range: `4f214b7`, `2b5ad1b`, `433c32f`, `1ae4185`, `a650ef8`, `6097f9e`, 
 
 ## Commands Run
 
+Latest focused run after CQ-036..CQ-043 fixes were applied to the working tree
+(pending closeout commit):
+
 ```text
 pnpm --filter @c3-oss/prosa-bundle-v2 typecheck     # clean
-pnpm --filter @c3-oss/prosa-bundle-v2 test          # 69 tests, 12 files
-pnpm --filter @c3-oss/prosa-bundle-v2 build         # dist/ emitted
-pnpm --filter @c3-oss/prosa-bundle-v2 lint          # clean
+pnpm --filter @c3-oss/prosa-bundle-v2 test          # 91 tests, 15 files
+```
 
+Last full repo gate run, pre CQ-036..CQ-043 closeout (at HEAD `2809d21`):
+
+```text
 pnpm install                                          # clean
 pnpm build                                            # 10/10 turbo
 just typecheck                                        # 10/10 turbo
-just test-all                                         # 10/10 turbo
+just test-all                                         # 10/10 turbo (bundle-v2 86)
 just lint-all                                         # 10/10 turbo
 pnpm test:conformance                                 # 15 tests pass
 git diff --check                                      # clean
 ```
+
+Full repo gate re-run will land with the CQ-036..CQ-043 closeout commit.
 
 ## Data / Security Evidence
 

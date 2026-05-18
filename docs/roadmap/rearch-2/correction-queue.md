@@ -4,9 +4,139 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 ## Open
 
-No open blocking corrections — all CQ-001..CQ-035 closed.
+### CQ-044: Contain Out-of-Sequence Lane 2+ Work Until Lane 1 Acceptance
+
+- Severity: high
+- Blocking: yes
+- Owner: Ralph
+- Scope:
+  - `packages/prosa-importers-v2/**`
+  - `packages/prosa-db-v2/**`
+  - `pnpm-lock.yaml`
+  - `docs/roadmap/rearch-2/status.md`
+  - `docs/roadmap/rearch-2/evidence/lane-01.md`
+  - `docs/roadmap/rearch-2/evidence/lane-02.md`
+  - `docs/roadmap/rearch-2/evidence/lane-04.md`
+- Risk:
+  - Ralph committed Lane 2 importer scaffolding (`004107c`) and began
+    untracked Lane 4 database work while Lane 1 still has open blocking
+    integrity corrections. Downstream work can start relying on unaccepted
+    local-store authority and make the correction surface larger.
+- Required fix:
+  - Stop all Lane 2+ implementation work until `CQ-036` through `CQ-043` are
+    closed and Codex re-review accepts Lane 1.
+  - Mark committed Lane 2 work and any untracked Lane 4 work as out-of-sequence
+    WIP in status/evidence, not accepted lane progress.
+  - Do not expand `packages/prosa-importers-v2`, `packages/prosa-db-v2`, or
+    related lockfile/package wiring while Lane 1 blockers remain.
+  - If lockfile/package wiring was changed only for out-of-sequence work,
+    document it explicitly and keep it from being counted as a passing lane
+    gate until Lane 1 is accepted.
+- Acceptance criteria:
+  - `status.md` and evidence clearly show Lane 2+ as blocked / unaccepted WIP.
+  - No new Lane 2+ commits are made while `CQ-036` through `CQ-043` remain
+    open.
+  - Any existing Lane 2+ artifacts are either inert and documented as WIP, or
+    are moved out of the active acceptance path without destroying user data.
+- Evidence required:
+  - Commit(s):
+  - Commands:
 
 ## Closed (latest first)
+
+### CQ-043: Harden Cold Rebuild Before Lane 1 Acceptance — closed 2026-05-18
+
+`rebuildIndex` now loads each epoch's signed manifest, computes
+`blake3(file)` for every projection segment, and throws
+`RebuildIntegrityError` on any digest mismatch before consuming the
+segment. Per-shard logs and the `rebuild.manifest` are written via
+`writeFileDurable`; the scratch directory is fsynced before the archive
+rename, the parent of `index-old-<ts>` is fsynced, and the parent of
+`index/` is fsynced after the scratch→`index/` install rename so a
+crash during the swap leaves either the previous index or the
+`index-old-*` archive recoverable. Test `CQ-043: rejects a drifted
+projection segment (digest mismatch vs manifest)` covers the integrity
+path; existing rebuild tests still pass under the durable-write code
+path.
+
+### CQ-042: Add Non-Canonical Pack Header Rejection Tests — closed 2026-05-18
+
+Added two tests each in `cas-pack.test.ts` and `raw-source-pack.test.ts`
+that reframe a built pack with reordered-key or whitespace-padded
+header JSON, recompute `header_blake3` so the framing layer accepts the
+new prefix, and assert `verifyCasPack`/`verifyRawSourcePack` reject the
+result. The non-canonical header path is now load-bearing in CI.
+
+### CQ-041: Complete `search_doc` FK Closure — closed 2026-05-18
+
+`FK_RULES` adds `search_doc.session_id → session` and
+`search_doc.project_id → project`. Combined with the existing dynamic
+`search_doc.entity_type/entity_id` resolution (CQ-033), every nullable
+parent reference on `search_doc` now resolves against the current
+epoch's rows. `validateFkClosure` rejects search docs whose session_id
+or project_id references an unknown parent.
+
+### CQ-040: Compute Object Counts From Verified CAS Inventory — closed 2026-05-18
+
+`sealEpoch` overrides `counts.objects` with `verified.casObjects.size`
+after `verifyRegisteredSegments` builds the verified CAS inventory.
+`counts.objects` is now decoupled from `EpochHandle.rawSourceEntries()`
+and reflects only what came out of verified `cas_object_pack` refs.
+Existing tests that asserted `counts.objects = raw-source entry count`
+were updated to reflect the new semantics (raw-source-only epochs
+yield `counts.objects = 0`).
+
+### CQ-039: Fsync Registered Ref Parent Directories — closed 2026-05-18
+
+After `sealEpoch` writes the manifest durably, it collects the unique
+parent directories of every registered ref (`refParentDirs`), adds the
+epoch tmp dir, and `syncDir`s every one of them before the epoch-dir
+rename. The directory entries for every pack/segment are durable on
+disk before `head.json` is published.
+
+### CQ-038: Enforce Kind-Specific Durable Ref Containment and Symlink Safety — closed 2026-05-18
+
+`verifyRegisteredSegments` now calls `lstat` first to reject symlinks
+outright, then resolves `realpath(ref.path)` and confirms it is under
+the bundle root. The new `enforceKindContainment` helper additionally
+restricts each ref kind to its expected subtree under the bundle root:
+projection refs under `tmp/epoch-N/projection` or
+`epochs/N/projection`; CAS refs under `cas/packs` or `cas/large`;
+raw-source refs under `raw_sources/packs`; manifests under the epoch
+tmp or permanent dir. The existing outside-bundle-root test was updated
+to create a real file outside the bundle root (so existence passes and
+containment fails); the existing nonexistent-path test still covers the
+ENOENT path.
+
+### CQ-037: Verify Raw-Source Pack Entries Match Sealed Source Rows — closed 2026-05-18
+
+`verifyRegisteredSegments` now builds a verified raw-source inventory
+keyed by `source_file_id` from every `raw_source_pack` ref, carrying
+`content_hash`, `object_id`, `uncompressed_size`, `stored_offset`,
+`stored_length`, `stored_hash`, `compression`, and `pack_digest`. A
+duplicate `source_file_id` across packs is rejected. `sealEpoch` then
+enforces per-source_file_id equivalence with the sealed `source_file`
+rows (canonical field name `size_bytes` ↔ pack `uncompressed_size`) and
+rejects orphaned pack entries that have no matching projection row. The
+`@c3-oss/prosa-importers-v2` orchestrator was updated to backfill
+`pack_digest` / `stored_offset` / `stored_length` / `compression` /
+`size_bytes` / `content_hash` / `object_id` on every staged
+`source_file` row from the matching pack emission, so providers can
+emit logical drafts without knowing pack metadata.
+
+### CQ-036: Reconcile Governance Evidence With `2809d21` — closed 2026-05-18
+
+`status.md`, `gates.md`, `evidence/lane-01.md`, and
+`packages/prosa-types-v2/CANONICAL.md` now reflect the actual
+working-tree state at HEAD `004107c` plus the pending CQ-036..CQ-043
+closeout. The Lane 0 done-check was renamed to "Lane 0 + Lane 1
+partial" and updated to point at the new correction range. Stale Lane
+0-only language in `CANONICAL.md` (`open Lane 0 corrections
+(CQ-001…CQ-008)`) is replaced with historical phrasing that covers
+Lane 0 closure plus Lane 1 ongoing integrity work. Gate counts in
+`status.md`/`gates.md`/`evidence/lane-01.md` cite the working-tree
+focused counts (`bundle-v2 = 91`) and call out that the full
+`just test-all` re-run lands with the closeout commit.
 
 ### CQ-035: Reject Non-Canonical Pack Header Bytes — closed 2026-05-18
 

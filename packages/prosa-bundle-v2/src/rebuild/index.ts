@@ -21,20 +21,23 @@
 // (already wired into `Bundle.open()`).
 
 import { randomBytes } from 'node:crypto'
-import { mkdir, readFile, readdir, rename, stat, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { mkdir, readFile, readdir, rename, stat } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
 
 import {
   type CanonicalEntityType,
   ENTITY_PRIMARY_KEY,
   base32LowerNoPad,
   canonicalTimestamp,
+  toHex,
 } from '@c3-oss/prosa-types-v2'
+import { blake3 } from '@noble/hashes/blake3'
 
 import type { Bundle } from '../bundle/bundle.js'
 import { indexOldDir, indexRebuildDir } from '../bundle/layout.js'
 import type { Keyspace } from '../shard/commands.js'
 import { SHARD_COUNT, shardOf } from '../shard/sharding.js'
+import { syncDir, writeFileDurable } from '../util/durable-write.js'
 
 // Entity types that map to a shard keyspace. Other entity types
 // (turn / event / message / content_block / tool_call / tool_result /
@@ -74,6 +77,10 @@ export type RebuildIndexResult = {
   archivedAt: string | null
 }
 
+export class RebuildIntegrityError extends Error {
+  override name = 'RebuildIntegrityError'
+}
+
 /**
  * Reconstruct the per-shard append-log index from sealed epoch
  * projection segments. The resulting `index/` contains
@@ -105,6 +112,10 @@ export async function rebuildIndex(bundle: Bundle, options: RebuildIndexOptions 
   const epochs = await listSealedEpochs(bundle)
 
   for (const epoch of epochs) {
+    // CQ-043: load the epoch manifest so we can verify segment digests
+    // before consuming them. A drifted projection file would otherwise
+    // corrupt the rebuilt index silently.
+    const expectedDigests = await loadProjectionDigests(bundle, epoch)
     const projDir = join(bundle.paths.root, 'epochs', String(epoch), 'projection')
     let segments: string[]
     try {
@@ -119,7 +130,19 @@ export async function rebuildIndex(bundle: Bundle, options: RebuildIndexOptions 
       const keyspace = KEYSPACE_FOR_ENTITY[entityType]
       if (!keyspace) continue
       const pkField = ENTITY_PRIMARY_KEY[entityType]
-      const raw = await readFile(join(projDir, filename), 'utf8')
+      const segPath = join(projDir, filename)
+      const rawBytes = await readFile(segPath)
+      // CQ-043: blake3(file) must match the manifest's declared digest.
+      const expected = expectedDigests.get(entityType)
+      if (expected !== undefined) {
+        const actual = `blake3:${toHex(blake3(rawBytes))}`
+        if (actual !== expected) {
+          throw new RebuildIntegrityError(
+            `rebuildIndex: epoch ${epoch} segment ${filename} digest mismatch (declared ${expected}, actual ${actual})`,
+          )
+        }
+      }
+      const raw = new TextDecoder().decode(rawBytes)
       const lines = raw.split('\n').filter((l) => l.length > 0)
       // First line is the header; skip it.
       for (let i = 1; i < lines.length; i++) {
@@ -133,10 +156,14 @@ export async function rebuildIndex(bundle: Bundle, options: RebuildIndexOptions 
 
   // Write per-shard scratch logs.
   const perShardCounts: number[] = Array.from({ length: SHARD_COUNT }, () => 0)
+  const enc = new TextEncoder()
   for (let shard = 0; shard < SHARD_COUNT; shard++) {
     const lines = shardLines.get(shard) ?? []
     const path = join(scratch, `shard-${String(shard).padStart(2, '0')}.log`)
-    await writeFile(path, lines.length === 0 ? '' : `${lines.join('\n')}\n`)
+    const body = lines.length === 0 ? '' : `${lines.join('\n')}\n`
+    // CQ-043: durable per-shard writes so a crash mid-rebuild can never
+    // leave a half-written log under `tmp/index-rebuild-*`.
+    await writeFileDurable(path, enc.encode(body))
     perShardCounts[shard] = lines.length
   }
 
@@ -151,19 +178,52 @@ export async function rebuildIndex(bundle: Bundle, options: RebuildIndexOptions 
     totalRowsByKeyspace: counts,
     perShardCounts,
   }
-  await writeFile(join(scratch, 'rebuild.manifest'), `${JSON.stringify(manifest, null, 2)}\n`)
+  // CQ-043: the rebuild manifest is the "I am complete" marker; write
+  // it last and durably so `reapStaleTmp` can use its presence as the
+  // commit indicator.
+  await writeFileDurable(join(scratch, 'rebuild.manifest'), enc.encode(`${JSON.stringify(manifest, null, 2)}\n`))
+  await syncDir(scratch)
 
   // Atomic install: rename old index/ → index-old-<ts>/ (if any), then
-  // rename scratch → index/.
+  // rename scratch → index/. fsync the containing dir after every rename
+  // so a crash before the next step does not lose the directory entry.
   let archivedAt: string | null = null
   const indexStat = await stat(bundle.paths.index).catch(() => null)
   if (indexStat?.isDirectory()) {
     const stamp = rebuiltAt.replace(/[:.]/g, '-')
     archivedAt = indexOldDir(bundle.paths.root, stamp)
     await rename(bundle.paths.index, archivedAt)
+    await syncDir(dirname(archivedAt))
   }
   await rename(scratch, bundle.paths.index)
+  await syncDir(dirname(bundle.paths.index))
   return { manifest, newIndexDir: bundle.paths.index, archivedAt }
+}
+
+/**
+ * Read the signed manifest for one epoch and return a map of
+ * entityType → declared digest for each projection segment listed there.
+ */
+async function loadProjectionDigests(bundle: Bundle, epoch: number): Promise<Map<CanonicalEntityType, string>> {
+  const out = new Map<CanonicalEntityType, string>()
+  const path = join(bundle.paths.root, 'epochs', String(epoch), 'epoch.manifest.signed.json')
+  let raw: string
+  try {
+    raw = await readFile(path, 'utf8')
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return out
+    throw err
+  }
+  const parsed = JSON.parse(raw) as {
+    manifest?: { segments?: Array<{ kind?: string; entityType?: string; digest?: string }> }
+  }
+  const segments = parsed.manifest?.segments ?? []
+  for (const s of segments) {
+    if ((s.kind === 'projection_arrow' || s.kind === 'projection_parquet') && s.entityType && s.digest) {
+      out.set(s.entityType as CanonicalEntityType, s.digest)
+    }
+  }
+  return out
 }
 
 async function listSealedEpochs(bundle: Bundle): Promise<number[]> {

@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, stat } from 'node:fs/promises'
+import { mkdtemp, readFile, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -204,7 +204,9 @@ describe('beginEpoch + sealEpoch', () => {
       expect(sealed.epoch).toBe(1)
       expect(sealed.head.counts.sessions).toBe(1)
       expect(sealed.head.counts.turns).toBe(1)
-      expect(sealed.head.counts.objects).toBe(1)
+      // CQ-040: counts.objects reflects verified CAS inventory only;
+      // this epoch has no CAS pack registered, just a raw-source pack.
+      expect(sealed.head.counts.objects).toBe(0)
       const permStat = await stat(sealed.permanentDir)
       expect(permStat.isDirectory()).toBe(true)
       await expect(stat(handle.tmpDir)).rejects.toThrow()
@@ -343,11 +345,16 @@ describe('beginEpoch + sealEpoch', () => {
   it('CQ-031: rejects a ref whose path is outside the bundle root', async () => {
     const root = await tmpDir()
     const bundle = await initBundle(root, { storeId: 'st_a', createdAt: '2025-01-02T03:04:05.123Z' })
+    // Create a real file outside the bundle root so existence passes
+    // but containment fails.
+    const outsideDir = await mkdtemp(join(tmpdir(), 'prosa-outside-'))
+    const outsidePath = join(outsideDir, 'outside-bundle.pack')
+    await writeFile(outsidePath, new Uint8Array([1]))
     try {
       const handle = await beginEpoch(bundle, { createdAt: '2025-01-02T03:04:06.000Z' })
       handle.registerSegment({
         kind: 'projection_arrow',
-        path: '/tmp/outside-bundle.pack',
+        path: outsidePath,
         digest: TAG(1),
         byteLength: 1,
         entityType: 'session',

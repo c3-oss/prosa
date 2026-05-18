@@ -209,6 +209,54 @@ export async function runCompileImports(options: RunCompileImportsOptions): Prom
     })
   }
 
+  // Backfill the pack-derived columns on every staged source_file row.
+  // Providers cannot know the final pack_digest / stored_offset /
+  // stored_length until the raw-source pool flushes; CQ-037 demands
+  // equivalence between source_file rows and verified pack entries, so
+  // the orchestrator owns the rewrite.
+  const packEntriesById = new Map<
+    string,
+    {
+      pack_digest: string
+      stored_offset: number
+      stored_length: number
+      compression: 'zstd' | 'none'
+      uncompressed_size: number
+      content_hash: string
+      object_id: string
+      stored_hash: string
+    }
+  >()
+  for (const e of rawEmissions) {
+    for (const entry of e.built.header.entries) {
+      packEntriesById.set(entry.source_file_id, {
+        pack_digest: e.packDigest,
+        stored_offset: entry.stored_offset,
+        stored_length: entry.stored_length,
+        compression: entry.compression,
+        uncompressed_size: entry.uncompressed_size,
+        content_hash: entry.content_hash,
+        object_id: entry.object_id,
+        stored_hash: entry.stored_hash,
+      })
+    }
+  }
+  const stagedSourceFiles = (handle.rowsByEntity().source_file ?? []) as Array<Record<string, CborValue>>
+  for (const row of stagedSourceFiles) {
+    const sfid = row.source_file_id as string | undefined
+    if (!sfid) continue
+    const entry = packEntriesById.get(sfid)
+    if (!entry) continue
+    row.pack_digest = entry.pack_digest
+    row.stored_offset = entry.stored_offset
+    row.stored_length = entry.stored_length
+    row.compression = entry.compression
+    row.size_bytes = entry.uncompressed_size
+    row.content_hash = entry.content_hash
+    row.object_id = entry.object_id
+    handle.putRow('source_file', sfid, row)
+  }
+
   // GraphResolver: parent_session_id back-fill + cross-epoch fixups.
   const rowsByEntity = handle.rowsByEntity()
   const sessions = (rowsByEntity.session ?? []) as unknown as SessionV2[]

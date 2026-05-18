@@ -113,6 +113,77 @@ describe('raw source pack (build/verify)', () => {
     expect(() => recoverSourceFile(built.bytes, 'src_missing')).toThrow(/not found/)
   })
 
+  it('CQ-042: rejects header bytes with reordered keys (canonical-JSON pin)', async () => {
+    const built = buildRawSourcePack(
+      [
+        {
+          source_file_id: 'src_a',
+          source_tool: 'codex',
+          path: '/x',
+          file_kind: 'session_jsonl',
+          mtime_ns: null,
+          bytes: bytes('reorder-payload'),
+        },
+      ],
+      { createdAt: created },
+    )
+    const buf = new Uint8Array(built.bytes)
+    const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength)
+    const headerLen = view.getUint32(20, true)
+    const headerStart = 56
+    const headerBytes = buf.subarray(headerStart, headerStart + headerLen)
+    const json = new TextDecoder().decode(headerBytes)
+    const parsed = JSON.parse(json)
+    const keys = Object.keys(parsed)
+    // Move the first canonical key to the end → non-canonical order.
+    const reordered: Record<string, unknown> = {}
+    for (const k of keys.slice(1)) reordered[k] = parsed[k]
+    reordered[keys[0]!] = parsed[keys[0]!]
+    const reorderedJson = JSON.stringify(reordered)
+    const newBuf = new Uint8Array(headerStart + reorderedJson.length + (buf.byteLength - headerStart - headerLen))
+    newBuf.set(buf.subarray(0, headerStart))
+    new TextEncoder().encodeInto(reorderedJson, newBuf.subarray(headerStart))
+    newBuf.set(buf.subarray(headerStart + headerLen), headerStart + reorderedJson.length)
+    const dv = new DataView(newBuf.buffer, newBuf.byteOffset, newBuf.byteLength)
+    dv.setUint32(20, reorderedJson.length, true)
+    const { blake3 } = await import('@noble/hashes/blake3')
+    newBuf.set(blake3(new TextEncoder().encode(reorderedJson)), 24)
+    expect(() => verifyRawSourcePack(newBuf)).toThrow(RawSourcePackVerifyError)
+  })
+
+  it('CQ-042: rejects header bytes with extra whitespace (canonical-JSON pin)', async () => {
+    const built = buildRawSourcePack(
+      [
+        {
+          source_file_id: 'src_a',
+          source_tool: 'codex',
+          path: '/x',
+          file_kind: 'session_jsonl',
+          mtime_ns: null,
+          bytes: bytes('whitespace-payload'),
+        },
+      ],
+      { createdAt: created },
+    )
+    const buf = new Uint8Array(built.bytes)
+    const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength)
+    const headerLen = view.getUint32(20, true)
+    const headerStart = 56
+    const headerBytes = buf.subarray(headerStart, headerStart + headerLen)
+    const json = new TextDecoder().decode(headerBytes)
+    const padded = json.replace(/^\{/, '{ ')
+    expect(padded.length).toBe(json.length + 1)
+    const newBuf = new Uint8Array(buf.byteLength + 1)
+    newBuf.set(buf.subarray(0, headerStart))
+    new TextEncoder().encodeInto(padded, newBuf.subarray(headerStart))
+    newBuf.set(buf.subarray(headerStart + headerLen), headerStart + padded.length)
+    const dv = new DataView(newBuf.buffer, newBuf.byteOffset, newBuf.byteLength)
+    dv.setUint32(20, padded.length, true)
+    const { blake3 } = await import('@noble/hashes/blake3')
+    newBuf.set(blake3(new TextEncoder().encode(padded)), 24)
+    expect(() => verifyRawSourcePack(newBuf)).toThrow(RawSourcePackVerifyError)
+  })
+
   it('is idempotent: same inputs produce identical pack bytes', () => {
     const inputs = [
       {

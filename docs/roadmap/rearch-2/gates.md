@@ -7,7 +7,7 @@
 | `pnpm i` | yes | pass | `pnpm install --frozen-lockfile`-compatible. Pre-existing peer warning: `@c3-oss/config-vitest@0.3.0` wants vitest ^3.1.1, repo on 2.1.9. |
 | `pnpm build` | yes | pass | 10/10 turbo tasks (now includes `@c3-oss/prosa-bundle-v2`). |
 | `just typecheck` | yes | pass | 10/10 turbo tasks. |
-| `just test-all` | yes | pass | 10/10 turbo tasks. Lane 0 packages: 89 tests in `@c3-oss/prosa-types-v2`, 21 in `@c3-oss/prosa-wire-v2`. Lane 1 partial: 74 tests in `@c3-oss/prosa-bundle-v2` (post projection segment writer + e2e synthetic seal). |
+| `just test-all` | yes | pending re-run | Pre CQ-036..CQ-043 closeout counts: 89 in `@c3-oss/prosa-types-v2`, 21 in `@c3-oss/prosa-wire-v2`, 86 in `@c3-oss/prosa-bundle-v2`. Working tree (pending closeout commit): **91** in `@c3-oss/prosa-bundle-v2` (added CQ-042 canonical-header rejection x2 across cas-pack and raw-source-pack, + CQ-043 rebuild drift-rejection x1). Full `just test-all` re-run will land with the closeout commit. |
 | `just lint-all` | yes | pass | 10/10 turbo tasks. |
 | `pnpm audit --audit-level moderate` | yes | classified pass | 7 dev-tooling-only vulnerabilities, pre-existing on `master`. See "Audit Classification". |
 | `git diff --check` | yes | pass | No whitespace or conflict markers. |
@@ -86,21 +86,23 @@ No runtime production dependency is flagged. This is the same audit posture as
   resolved by regenerating `expected-leaves.json`. After CQ-010 the
   conformance leaves were regenerated a second time; final result pass.
 
-## Done Check (Lane 0 only)
+## Done Check (Lane 0 + Lane 1 partial)
 
 - [x] Worktree state documented.
-- [x] Lane 0 has evidence; lanes 1–10 are documented as not started.
-- [x] No open blocking corrections (CQ-001..CQ-015 closed).
-- [x] Base gates passed.
+- [x] Lane 0 has evidence; lanes 1–10 are documented as not started or WIP.
+- [ ] No open blocking corrections. *(`CQ-036`..`CQ-043` fixes applied in
+  working tree, awaiting Codex re-review acceptance; `CQ-044` keeps Lane 2+
+  work containerized as out-of-sequence WIP.)*
+- [x] Base gates passed (last full run pre CQ-036..CQ-043).
 - [x] Lane 0-specific gates passed.
+- [x] Lane 1 focused gates: `pnpm --filter @c3-oss/prosa-bundle-v2 typecheck`
+  pass; `pnpm --filter @c3-oss/prosa-bundle-v2 test` 91/91 pass.
 - [ ] Docker-backed E2E passed for sync, reads, migration, and cutover paths.
-  *(N/A for Lane 0 — required from Lane 5 onward.)*
+  *(N/A until Lane 5+.)*
 - [x] Audit output classified.
 - [x] Security, integrity, remote-read, and E2E reviewer findings resolved
-  (Lane 0 scope only).
-- [ ] Final Codex review completed. *(Pending after this commit. Lane 0 is
-  ready for review; Codex may raise further blockers in a subsequent
-  iteration.)*
-- [ ] Five-cycle final stabilization evidence recorded. *(Not applicable
-  yet — Lane 0 of 11 complete; full stabilization is a final-iteration
-  requirement.)*
+  for Lane 0 (CQ-001..CQ-019).
+- [ ] Final Codex review completed. *(Pending re-review after the
+  `CQ-036`..`CQ-043` closeout commit.)*
+- [ ] Five-cycle final stabilization evidence recorded. *(Pending; Lane 1
+  must be accepted by Codex first.)*

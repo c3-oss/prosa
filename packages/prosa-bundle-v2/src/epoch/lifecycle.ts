@@ -31,8 +31,8 @@
 // `reapStaleTmp(bundle)` is wired into `Bundle.open()` so that any
 // crashed sealer or rebuilder leaves no half-written bytes behind.
 
-import { mkdir, readFile, readdir, rename, rm, stat } from 'node:fs/promises'
-import { isAbsolute, relative, sep } from 'node:path'
+import { lstat, mkdir, readFile, readdir, realpath, rename, rm, stat } from 'node:fs/promises'
+import { dirname, isAbsolute, relative, sep } from 'node:path'
 
 import {
   type BundleCountsV2,
@@ -260,6 +260,9 @@ const FK_RULES: Array<{
   { child: 'artifact', field: 'session_id', parent: 'session' }, // CQ-033
   // session parent (intra-entity)
   { child: 'session', field: 'parent_session_id', parent: 'session' }, // CQ-033
+  // CQ-041: search_doc nullable parent refs.
+  { child: 'search_doc', field: 'session_id', parent: 'session' },
+  { child: 'search_doc', field: 'project_id', parent: 'project' },
   // Edge endpoints and search_doc entity refs are resolved per-row via
   // src_type/dst_type and entity_type below.
 ]
@@ -459,9 +462,24 @@ export type SealedEpoch = {
   permanentDir: string
 }
 
+export type VerifiedRawSourceEntry = {
+  source_file_id: string
+  content_hash: string
+  object_id: string
+  uncompressed_size: number
+  stored_offset: number
+  stored_length: number
+  stored_hash: string
+  compression: 'zstd' | 'none'
+  pack_digest: string
+}
+
 type VerifiedSegments = {
   casObjects: Set<string>
+  /** content_hashes admitted by verified raw_source_pack refs. */
   rawSourceContent: Set<string>
+  /** Full verified raw-source inventory keyed by source_file_id (CQ-037). */
+  rawSourceInventory: Map<string, VerifiedRawSourceEntry>
   projectionEntities: Set<CanonicalEntityType>
   hasRawSourcePack: boolean
 }
@@ -473,18 +491,42 @@ async function verifyRegisteredSegments(
   const out: VerifiedSegments = {
     casObjects: new Set<string>(),
     rawSourceContent: new Set<string>(),
+    rawSourceInventory: new Map<string, VerifiedRawSourceEntry>(),
     projectionEntities: new Set<CanonicalEntityType>(),
     hasRawSourcePack: false,
   }
-  const bundleRootAbs = handle.bundle.paths.root
+  const bundleRootAbs = await realpath(handle.bundle.paths.root)
   for (const ref of handle.registeredSegments()) {
     if (!isAbsolute(ref.path)) {
       throw new DurabilityError(`sealEpoch: ref path is not absolute: ${ref.path}`)
     }
-    const rel = relative(bundleRootAbs, ref.path)
+    // CQ-038: reject symlinks. `lstat` reveals the symlink itself
+    // without following; if it's a symlink we refuse.
+    let ls: Awaited<ReturnType<typeof lstat>>
+    try {
+      ls = await lstat(ref.path)
+    } catch {
+      throw new DurabilityError(`sealEpoch: ref path does not exist: ${ref.path}`)
+    }
+    if (ls.isSymbolicLink()) {
+      throw new DurabilityError(`sealEpoch: ref ${ref.path} is a symlink — refused`)
+    }
+    // Resolve via realpath to neutralise any indirect symlink in the
+    // path and confirm it lives under the bundle root.
+    let realPath: string
+    try {
+      realPath = await realpath(ref.path)
+    } catch {
+      throw new DurabilityError(`sealEpoch: ref path does not exist: ${ref.path}`)
+    }
+    const rel = relative(bundleRootAbs, realPath)
     if (rel.startsWith('..') || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
       throw new DurabilityError(`sealEpoch: ref path ${ref.path} is outside the bundle root`)
     }
+    // CQ-038: kind-specific containment. Each ref kind has an expected
+    // location under the bundle root; a CAS pack inside the projection
+    // dir (or anywhere else) is refused.
+    enforceKindContainment(ref, realPath, handle, bundleRootAbs)
     let st: Awaited<ReturnType<typeof stat>>
     try {
       st = await stat(ref.path)
@@ -521,7 +563,26 @@ async function verifyRegisteredSegments(
             `sealEpoch: ref ${ref.path}: pack_digest mismatch (declared ${ref.digest}, actual ${v.header.pack_digest})`,
           )
         }
-        for (const { entry } of v.entries) out.rawSourceContent.add(entry.content_hash)
+        for (const { entry } of v.entries) {
+          out.rawSourceContent.add(entry.content_hash)
+          // CQ-037: build the verified inventory keyed by source_file_id.
+          if (out.rawSourceInventory.has(entry.source_file_id)) {
+            throw new DurabilityError(
+              `sealEpoch: raw-source source_file_id ${entry.source_file_id} appears in multiple verified packs`,
+            )
+          }
+          out.rawSourceInventory.set(entry.source_file_id, {
+            source_file_id: entry.source_file_id,
+            content_hash: entry.content_hash,
+            object_id: entry.object_id,
+            uncompressed_size: entry.uncompressed_size,
+            stored_offset: entry.stored_offset,
+            stored_length: entry.stored_length,
+            stored_hash: entry.stored_hash,
+            compression: entry.compression,
+            pack_digest: v.header.pack_digest,
+          })
+        }
         out.hasRawSourcePack = true
         break
       }
@@ -555,6 +616,57 @@ async function verifyRegisteredSegments(
     }
   }
   return out
+}
+
+/**
+ * CQ-038: kind-specific containment. Each ref kind has an expected
+ * subtree under the bundle root; refs outside that subtree (even if
+ * still under the bundle root) are refused so a malicious or buggy
+ * writer cannot publish a CAS pack from inside the projection dir, or
+ * vice-versa.
+ */
+function enforceKindContainment(
+  ref: DurableSegmentRef,
+  realPath: string,
+  handle: EpochHandle,
+  bundleRootAbs: string,
+): void {
+  const paths = handle.bundle.paths
+  const epochTmpAbs = handle.tmpDir
+  const epochPermanentAbs = epochDir(bundleRootAbs, handle.epoch)
+  const allowed: string[] = []
+  switch (ref.kind) {
+    case 'projection_arrow':
+    case 'projection_parquet':
+      allowed.push(`${epochTmpAbs}${sep}projection`)
+      allowed.push(`${epochPermanentAbs}${sep}projection`)
+      break
+    case 'cas_object_pack':
+      allowed.push(paths.casPacks)
+      allowed.push(paths.casLarge)
+      break
+    case 'raw_source_pack':
+      allowed.push(paths.rawSourcePacks)
+      break
+    case 'manifest':
+      allowed.push(epochTmpAbs)
+      allowed.push(epochPermanentAbs)
+      break
+    case 'search_docs_arrow':
+    case 'session_blob_pack':
+      // Lane 1 does not pin a sub-location for these kinds yet; require
+      // they live under the bundle root (already enforced above).
+      return
+  }
+  for (const dir of allowed) {
+    const rel = relative(dir, realPath)
+    if (!rel.startsWith('..') && !rel.startsWith(`..${sep}`) && !isAbsolute(rel)) {
+      return
+    }
+  }
+  throw new DurabilityError(
+    `sealEpoch: ref ${ref.path} (kind=${ref.kind}) is not inside any expected location [${allowed.join(', ')}]`,
+  )
 }
 
 /**
@@ -614,7 +726,72 @@ export async function sealEpoch(handle: EpochHandle): Promise<SealedEpoch> {
     rawSourceInventory: verified.rawSourceContent,
   })
 
+  // CQ-037: enforce raw-source equivalence. Every source_file row must
+  // be backed by a verified raw-source pack entry whose key fields
+  // (content_hash, object_id, uncompressed_size, stored_*) match, and
+  // every verified entry must correspond to either a sealed source_file
+  // row or a handle.rawSourceEntries() entry with matching content.
+  const sourceRows = (rowsByEntity.source_file ?? []) as Array<Record<string, CborValue>>
+  for (const row of sourceRows) {
+    const sfid = row.source_file_id as string | undefined
+    if (!sfid) continue
+    const inv = verified.rawSourceInventory.get(sfid)
+    if (!inv) {
+      throw new DurabilityError(`sealEpoch: source_file ${sfid} has no verified raw-source pack entry (CQ-037)`)
+    }
+    // Field name on the canonical source_file row is `size_bytes`;
+    // the pack entry surfaces it as `uncompressed_size`.
+    const checks: Array<[string, unknown, unknown]> = [
+      ['content_hash', row.content_hash, inv.content_hash],
+      ['object_id', row.object_id, inv.object_id],
+      ['size_bytes', row.size_bytes, inv.uncompressed_size],
+      ['pack_digest', row.pack_digest, inv.pack_digest],
+      ['stored_offset', row.stored_offset, inv.stored_offset],
+      ['stored_length', row.stored_length, inv.stored_length],
+      ['compression', row.compression, inv.compression],
+    ]
+    for (const [field, rowVal, invVal] of checks) {
+      if (rowVal !== invVal) {
+        throw new DurabilityError(
+          `sealEpoch: source_file ${sfid} ${field} mismatch (row=${String(rowVal)}, pack=${String(invVal)}) (CQ-037)`,
+        )
+      }
+    }
+  }
+  const sourceRowIds = new Set<string>()
+  for (const row of sourceRows) {
+    const sfid = row.source_file_id as string | undefined
+    if (sfid) sourceRowIds.add(sfid)
+  }
+  for (const handleEntry of handle.rawSourceEntries()) {
+    const inv = verified.rawSourceInventory.get(handleEntry.source_file_id)
+    if (!inv) {
+      throw new DurabilityError(
+        `sealEpoch: raw-source entry ${handleEntry.source_file_id} not present in any verified raw-source pack (CQ-037)`,
+      )
+    }
+    if (inv.content_hash !== handleEntry.content_hash) {
+      throw new DurabilityError(
+        `sealEpoch: raw-source entry ${handleEntry.source_file_id} content_hash mismatch (handle=${handleEntry.content_hash}, pack=${inv.content_hash}) (CQ-037)`,
+      )
+    }
+  }
+  for (const sfid of verified.rawSourceInventory.keys()) {
+    if (sourceRowIds.size > 0 && !sourceRowIds.has(sfid)) {
+      // Allow: verified pack carries an entry that was not staged as a
+      // source_file row this epoch *only* if no source_file rows were
+      // staged at all (rare, e.g. CAS-only epoch). When source_file
+      // rows are present, every verified entry must correspond to one.
+      throw new DurabilityError(
+        `sealEpoch: raw-source pack entry ${sfid} has no matching source_file row in this epoch (CQ-037)`,
+      )
+    }
+  }
+
   const counts = handle.computeCounts()
+  // CQ-040: counts.objects is the verified CAS inventory size, not the
+  // raw-source entry count.
+  counts.objects = verified.casObjects.size
   const bundleRoot = toHex(bundleRootFromRows(rowsByEntity))
   const rawSourceRoot = toHex(rawSourceRootFromEntries(handle.rawSourceEntries()))
 
@@ -648,7 +825,17 @@ export async function sealEpoch(handle: EpochHandle): Promise<SealedEpoch> {
     `${handle.tmpDir}/epoch.manifest.signed.json`,
     new TextEncoder().encode(`${JSON.stringify(signed, null, 2)}\n`),
   )
-  await syncDir(handle.tmpDir)
+  // CQ-039: fsync every unique parent directory that owns a registered
+  // ref so the directory entry for each pack/segment is durable before
+  // we publish the manifest via the epoch-dir rename.
+  const refParentDirs = new Set<string>()
+  for (const ref of handle.registeredSegments()) {
+    refParentDirs.add(dirname(ref.path))
+  }
+  refParentDirs.add(handle.tmpDir)
+  for (const dir of refParentDirs) {
+    await syncDir(dir)
+  }
 
   const permanent = epochDir(handle.bundle.paths.root, handle.epoch)
   await mkdir(handle.bundle.paths.epochs, { recursive: true })

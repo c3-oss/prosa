@@ -123,17 +123,18 @@ Keep these files current:
 
 Before continuing beyond Lane 0 or doing more Lane 1 work, close every open
 `CQ-*` item in `docs/roadmap/rearch-2/correction-queue.md` with code, tests,
-and evidence. Current final-review corrections are `CQ-029` through `CQ-035`.
+and evidence. Current final-review corrections are `CQ-036` through `CQ-044`.
 They block Lane 0 acceptance and further Lane 1 reliance until closed:
 
-- `CQ-029` and `CQ-030`: reconcile status/gates/evidence with current HEAD and
-  align the Lane 0 canonical-rule excerpt with `CANONICAL.md`.
-- `CQ-031` through `CQ-035`: verify registered durable refs before head
-  publish, separate verified CAS object inventory from raw-source inventory,
-  complete FK closure/policy, fsync durable files before `head.json`, and
-  reject non-canonical pack header bytes.
+- `CQ-036`: reconcile status/gates/evidence with the actual correction HEAD and
+  focused gate counts.
+- `CQ-037` through `CQ-043`: close the remaining raw-source, durable-ref
+  containment, fsync, CAS count, `search_doc` FK, non-canonical header test,
+  and cold-rebuild integrity gaps.
+- `CQ-044`: contain out-of-sequence Lane 2+ work (`packages/prosa-importers-v2`,
+  `packages/prosa-db-v2`, and related wiring) until Lane 1 is accepted.
 
-Do not begin Lane 2/importer work while any of `CQ-029` through `CQ-035` is
+Do not begin Lane 2/importer work while any of `CQ-036` through `CQ-044` is
 open. If additional Lane 1 commits already exist, review them against this
 queue before expanding scope.
 

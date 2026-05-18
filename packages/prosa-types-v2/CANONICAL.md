@@ -8,9 +8,11 @@ conformance fixture (CQ-008), writing a Lane 0 ADR, and re-verifying every
 downstream lane that already depends on the prior leaves.**
 
 See `docs/rearch/17-review-of-proposal-3.md` L15 for the load-bearing pin
-this file enforces, and the open Lane 0 corrections in
-`docs/roadmap/rearch-2/correction-queue.md` (CQ-001…CQ-008) for the
-rationale behind each rule.
+this file enforces. The Lane 0 correction history (CQ-001…CQ-019) and the
+ongoing Lane 1 integrity corrections (CQ-020 onward) in
+`docs/roadmap/rearch-2/correction-queue.md` carry the rationale behind
+each rule and behind every refinement that has landed since the initial
+Lane 0 commit.
 
 ## 1. Field order
 
