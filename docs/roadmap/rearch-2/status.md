@@ -56,7 +56,7 @@ acceptance).
 | `just test-all` | pass | 12/12 turbo (`pnpm test` proxy). Focused counts after CQ-053/CQ-054: types-v2 89, wire-v2 21, conformance 15, bundle-v2 **107** (+CQ-053 missing-head-epoch / missing-projection-dir x2, +CQ-054 symlinked-bundle-root happy-path x1), importers-v2 8, db-v2 6. |
 | `just lint-all` | pass | 10/10 turbo tasks. |
 | `pnpm test:conformance` | pass | 15 tests; 13 entity leaves stable. |
-| `pnpm audit --audit-level moderate` | classified pass | 7 dev-tooling-only vulnerabilities, pre-existing; classified in `gates.md`. |
+| `pnpm audit --audit-level moderate` | classified pass | 8 findings (1 low / 6 moderate / 1 high), all pre-existing on `master`; only `apps__cli>ink>ws` touches a non-dev path. Classified in `gates.md`. |
 | `git diff --check` | pass | No whitespace or conflict markers. |
 
 ## Decisions

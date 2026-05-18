@@ -475,6 +475,13 @@ describe('beginEpoch + sealEpoch', () => {
     await symlink(realRoot, symlinkRoot)
     const bundle = await initBundle(symlinkRoot, { storeId: 'st_symroot', createdAt: '2025-01-02T03:04:05.123Z' })
     try {
+      // CQ-054: lock the invariant that `bundle.paths.root` is still
+      // the symlinked path. If a future refactor pre-resolves it via
+      // `realpath` inside `bundlePaths`/`initBundle`, this test would
+      // silently degenerate into trivial equality (both sides of the
+      // containment check would already be on the realpath prefix)
+      // and the CQ-051 fix would no longer be load-bearing here.
+      expect(bundle.paths.root).toBe(symlinkRoot)
       const handle = await beginEpoch(bundle, { createdAt: '2025-01-02T03:04:06.000Z' })
       handle.putRow('session', 'ses_a', sessionRow('ses_a') as never)
       handle.putRow('turn', 'trn_a', turnRow('trn_a', 'ses_a') as never)

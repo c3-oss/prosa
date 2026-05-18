@@ -9,7 +9,7 @@
 | `just typecheck` | yes | pass | 10/10 turbo tasks. |
 | `just test-all` | yes | pass | 12/12 turbo at HEAD post-CQ-053/CQ-054. Focused counts: `@c3-oss/prosa-types-v2` 89, `@c3-oss/prosa-wire-v2` 21, conformance 15, `@c3-oss/prosa-bundle-v2` **107** (Lane 1 hardening: CQ-042 x2 + CQ-043 x1 + CQ-046 x4 + CQ-047 x2 + CQ-048 x3 + CQ-049 x2 + CQ-050 x2 + CQ-053 x2 + CQ-054 x1), `@c3-oss/prosa-importers-v2` 8 (out-of-sequence WIP, CQ-044), `@c3-oss/prosa-db-v2` 6 (out-of-sequence WIP, CQ-044). |
 | `just lint-all` | yes | pass | 10/10 turbo tasks. |
-| `pnpm audit --audit-level moderate` | yes | classified pass | 7 dev-tooling-only vulnerabilities, pre-existing on `master`. See "Audit Classification". |
+| `pnpm audit --audit-level moderate` | yes | classified pass | 8 vulnerabilities found (1 low / 6 moderate / 1 high). All pre-existing on `master`. See "Audit Classification". |
 | `git diff --check` | yes | pass | No whitespace or conflict markers. |
 
 ## Repo Fallback Commands
@@ -59,16 +59,21 @@ a `just` wrapper fails for environmental reasons.
 
 ## Audit Classification
 
-Last run: this iteration (`pnpm audit --audit-level moderate`).
+Last run: this iteration (`pnpm audit --audit-level moderate`). Total: 8
+findings (1 low / 6 moderate / 1 high), all pre-existing on `master`.
 
 | Package | Severity | Path | Classification | Notes |
 | --- | --- | --- | --- | --- |
-| `lodash` | moderate | `.>commitizen>lodash` | dev-only | Interactive commit helper. Tracked for upgrade via `commitizen`. |
-| `vite` | moderate | `.>vitest>vite` | dev-only | Pre-existing; upgrade blocked by `@c3-oss/config-vitest@0.3.0` peer pin to vitest 2.1.9. |
-| (other 5) | low / moderate / high | (dev-only paths) | dev-only / build-tooling | None affect production runtime. |
+| `lodash` (×3) | 1 high + 2 moderate | `.>commitizen>lodash` | dev-only | Interactive commit helper. Tracked for upgrade via `commitizen`. |
+| `esbuild` | moderate | `.>vitest>vite>esbuild`, `apps__api>drizzle-kit>@esbuild-kit/esm-loader>@esbuild-kit/core-utils>esbuild` | dev-only / build-tooling | Pre-existing; vitest path blocked by `@c3-oss/config-vitest@0.3.0` peer pin to vitest 2.1.9; drizzle-kit is a dev/migration tool. |
+| `vite` | moderate | `.>vitest>vite` | dev-only | Same peer-pin block as above. |
+| `ws` | moderate | `apps__cli>ink>ws` | runtime-tooling | CLI TUI dependency via `ink`. Affects the CLI's interactive surface, not server/library code paths. Tracked for upgrade via `ink`. |
+| (low/extra) | low | (dev path) | dev-only | One additional low-severity finding on a dev path. |
 
-No runtime production dependency is flagged. This is the same audit posture as
-`master`; Lane 0 introduces no new transitive risk.
+`ws` via `apps__cli>ink>ws` is the only finding on a non-dev path
+(CLI runtime tooling). No server/library production runtime path is
+flagged. This is the same audit posture as `master`; Lane 0/1 introduce
+no new transitive risk.
 
 ## Historical Failures (kept as dated notes, not "Last Result")
 
