@@ -77,7 +77,8 @@ Hash-typed fields are distinguished by semantics, not by name:
 | `ObjectSetRoot` | BLAKE3 Merkle root over the sorted set of `ObjectId`s inside a pack. Cross-implementation verifiable. | `PackRef.object_set_root`. Bare 64-char hex. |
 | `BundleRoot` | The cross-entity canonical projection Merkle root (rule 9 + rule 10). | `BundleHeadV2.bundleRoot`, `PromotionReceiptV2.bundleRoot`. Bare 64-char hex. |
 | `RawSourceRoot` | Merkle root over preserved source-file bytes (rule 11). | `BundleHeadV2.rawSourceRoot`, `PromotionReceiptV2.rawSourceRoot`. Bare 64-char hex. |
-| `ManifestDigest` | BLAKE3 over the manifest's serialized bytes. Distinct from `BundleRoot`; used as the local manifest's content address only. | `BundleHeadV2.manifestDigest`. Tagged-hash form. |
+| `ManifestDigest` | BLAKE3 over the manifest's serialized bytes. Distinct from `BundleRoot`; used as the local manifest's content address only. Tagged-hash form `blake3:<hex>` everywhere (CQ-013). | `BundleHeadV2.manifestDigest`. |
+| `TransportHash` | BLAKE3 over the bytes observed on the upload transport (chunked or not). Distinct from `PackDigest`: a retried/recompressed upload may keep the same `PackDigest` but produce a different `TransportHash`. Tagged-hash form. | Wire envelope only — not stored in the bundle (CQ-012). |
 
 Zod schemas in `prosa-wire-v2` use the matching tagged-hash or bare-hex
 regex per concept. Any wire payload that conflates these is rejected.
@@ -153,10 +154,10 @@ raw_source_leaf = blake3(
   'prosa.rawsource.leaf.v2'   // ASCII, 23 bytes, no NUL terminator
   || source_file_id           // UTF-8
   || canonical_cbor([
-       content_hash,           // ObjectId (BLAKE3 of uncompressed bytes), bare hex
+       content_hash,           // ObjectId (BLAKE3 of uncompressed bytes), tagged form 'blake3:<hex>'
        uncompressed_size,      // integer
        compression,            // 'zstd' | 'none'
-       stored_hash,            // StoredHash, tagged-hash form
+       stored_hash,            // StoredHash, tagged-hash form 'blake3:<hex>'
      ])
 )
 

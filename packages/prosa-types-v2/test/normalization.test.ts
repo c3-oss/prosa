@@ -51,6 +51,43 @@ describe('CQ-002: merkleLeaf normalization enforcement', () => {
     expect(() => merkleLeaf('session', row as never)).toThrow(/non-canonical timestamp/)
   })
 
+  it('rejects impossible dates/times (CQ-014)', () => {
+    const cases = [
+      '2025-13-01T00:00:00.000Z',
+      '2025-99-99T99:99:99.000Z',
+      '2025-02-30T00:00:00.000Z',
+      '2025-01-01T24:00:00.000Z',
+      '2025-01-01T00:60:00.000Z',
+      '2025-01-01T00:00:60.000Z',
+    ]
+    for (const ts of cases) {
+      const row = { ...baselineSession(), start_ts: ts }
+      expect(() => merkleLeaf('session', row as never), `expected reject for ${ts}`).toThrow(/non-canonical timestamp/)
+    }
+  })
+
+  it('rejects non-canonical CAS object references in projection rows (CQ-010)', () => {
+    const cases = ['obj_a01', 'not-a-hash', 'blake3:UPPERHEX', '0'.repeat(64)]
+    for (const obj of cases) {
+      const row = {
+        artifact_id: 'art_001',
+        session_id: 'ses_001',
+        project_id: null,
+        source_tool: 'codex',
+        kind: 'file_write',
+        path: '/tmp/x',
+        logical_path: null,
+        object_id: obj,
+        text_object_id: null,
+        mime_type: null,
+        size_bytes: 0,
+        created_ts: '2025-01-02T03:04:05.123Z',
+        raw_record_id: 'raw_001',
+      }
+      expect(() => merkleLeaf('artifact', row as never), `expected reject for ${obj}`).toThrow(/tagged_hash|object_id/)
+    }
+  })
+
   it('accepts the output of canonicalTimestamp() for any RFC3339 input', () => {
     const cases = [
       '2025-01-02T03:04:05Z',

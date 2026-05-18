@@ -1,9 +1,9 @@
 # Lane Evidence
 
 Lane: 00 - Foundation
-Status: complete on `feature/rearch`
+Status: complete (pending Codex re-review of CQ-010..CQ-015 closeout)
 Owner: Ralph
-Commit range: `cd845f2`
+Commit range: `cd845f2`, `e22ec27`, and this iteration's CQ-010..CQ-015 closeout commit
 
 ## Acceptance Criteria
 
@@ -131,9 +131,31 @@ pnpm generate:canonical-fixture                       # non-authoritative helper
 ## Reviewer Notes
 
 - `prosa-architect` and `ralph-loop-promotion-integrity-reviewer` raised
-  CQ-001…CQ-008 on 2026-05-18.
-- Codex re-review on 2026-05-18T16:02–16:09 added CQ-009 (CI coverage).
-- All nine corrections are now closed in `correction-queue.md` with
-  commit-aligned evidence in this lane's gates and per-CQ tests.
-- Codex will re-review after the upcoming commit; any new findings will
-  surface as fresh `CQ-NNN` entries before Lane 1 begins.
+  CQ-001…CQ-008 on 2026-05-18; CQ-009 added by Codex re-review.
+- Codex final re-review after `cd845f2`/`e22ec27` opened CQ-010 through
+  CQ-015. This iteration closed all six:
+  - CQ-010 — every CAS object reference field in `ENTITY_FIELD_KINDS` is
+    now `tagged_hash`; fixture rows updated; `expected-leaves.json`
+    regenerated; tests reject `obj_xxx`-style and bare hex; CQ-010 test
+    case in `normalization.test.ts`.
+  - CQ-011 — `promotionReceiptV2Schema.superRefine` enforces
+    `payload.receiptId === deriveReceiptId(payload)`; `GetReceiptRequest`
+    and `not_found` response use `receiptIdSchema`; new tests in
+    `schemas.test.ts`.
+  - CQ-012 — `transportHashSchema` exported; `transportHash` mandatory on
+    `uploadSegmentRequestSchema` and `uploadObjectPackHeaderSchema`;
+    `CANONICAL.md` rule 6 hash-kind table includes a `TransportHash` row;
+    schema tests reject missing/malformed values.
+  - CQ-013 — `CANONICAL.md` rule 11 calls out `content_hash` /
+    `stored_hash` as tagged-hash form, matching the helper signatures and
+    Zod schemas; the hash-kind table also pins `ManifestDigest` as
+    tagged-hash form everywhere.
+  - CQ-014 — `isValidCanonicalTimestamp` round-trips via `Date.UTC`;
+    `canonicalTimestamp` rejects component bounds violations and
+    impossible calendar dates (Feb 30); `normalization.test.ts` covers
+    month 13/99, Feb 30, hour 24, minute 60, second 60.
+  - CQ-015 — `gates.md`, `status.md`, and this evidence file rewritten
+    from this iteration's actual final command outputs; historical
+    failures kept only as dated notes.
+- Codex will re-review after the CQ-010..CQ-015 closeout commit; new
+  findings will surface as fresh `CQ-NNN` entries before Lane 1 begins.

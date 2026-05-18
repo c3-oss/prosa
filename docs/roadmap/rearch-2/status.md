@@ -9,9 +9,9 @@ Completion signal: RALPH_DONE
 
 ## Current State
 
-Status: in-progress (Lane 0 complete and committed)
+Status: in-progress (Lane 0 complete pending Codex re-review of CQ-010..CQ-015 closeout)
 Current lane: Lane 1 - Local store (next iteration)
-Current HEAD: `cd845f2`
+Current HEAD: `e22ec27` (this iteration adds another commit closing CQ-010..CQ-015)
 No-change streak: 0
 Ralph active: yes
 
@@ -19,7 +19,7 @@ Ralph active: yes
 
 | Lane | Owner | Status | Commit(s) | Evidence |
 | --- | --- | --- | --- | --- |
-| 00 - Foundation | Ralph | complete | `cd845f2` | `evidence/lane-00.md` |
+| 00 - Foundation | Ralph | complete (pending Codex re-review) | `cd845f2`, `e22ec27`, (+this iteration) | `evidence/lane-00.md` |
 | 01 - Local store | Ralph | open (next iteration) | | `evidence/lane-01.md` |
 | 02 - Importers | Ralph | blocked-on-lane-01 | | `evidence/lane-02.md` |
 | 03 - Derived layer | Ralph | blocked-on-lane-02 | | `evidence/lane-03.md` |
@@ -35,7 +35,7 @@ Ralph active: yes
 
 | ID | Severity | Owner | Summary |
 | --- | --- | --- | --- |
-| | | | All CQ-001 through CQ-009 closed; see `correction-queue.md` "Closed". |
+| | | | All CQ-001..CQ-015 closed; see `correction-queue.md` "Closed". |
 
 ## Latest Gates
 
@@ -45,7 +45,7 @@ Ralph active: yes
 | `pnpm i` | pass | `pnpm install --frozen-lockfile`-compatible; only pre-existing peer warnings (`@c3-oss/config-vitest` wants vitest ^3.1.1, repo on 2.1.9). |
 | `pnpm build` | pass | 9/9 turbo tasks, 4.8s (incremental cache hit on existing packages). |
 | `just typecheck` | pass | 9/9 turbo tasks, 3.2s. |
-| `just test-all` | pass | 9/9 turbo tasks, 3.1s. Lane 0 packages: 75 tests in types-v2, 14 in wire-v2. |
+| `just test-all` | pass | 9/9 turbo tasks. Lane 0 packages post CQ-010..CQ-015 closeout: 77 tests in types-v2, 18 in wire-v2. |
 | `just lint-all` | pass | 9/9 turbo tasks, 478ms. |
 | `pnpm test:conformance` | pass | 15 tests; 13 entity leaves stable. |
 | `pnpm audit --audit-level moderate` | classified pass | 7 dev-tooling-only vulnerabilities, pre-existing; classified in `gates.md`. |
@@ -100,3 +100,6 @@ Ralph active: yes
 - 2026-05-18 (this iteration): Lane 0 conformance test runs from the
   workspace root via `vitest.config.ts` + `pnpm test:conformance`; CI hits
   the same target.
+- 2026-05-18T16:20:36-03:00: Final Lane 0 reviewers found remaining blockers
+  after `cd845f2`/`e22ec27`. Opened `CQ-010` through `CQ-015`; Lane 1 must stay
+  blocked until these are closed with code, tests, and consistent evidence.

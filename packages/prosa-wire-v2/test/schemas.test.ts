@@ -1,3 +1,4 @@
+import { deriveReceiptId } from '@c3-oss/prosa-types-v2'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -5,6 +6,7 @@ import {
   beginPromotionRequestSchema,
   beginPromotionResponseSchema,
   bundleHeadV2Schema,
+  getReceiptRequestSchema,
   getReceiptResponseSchema,
   promotionReceiptV2Schema,
   sealPromotionResponseSchema,
@@ -55,10 +57,13 @@ const bundleHead = {
   segments: [],
 }
 
-const receipt = {
-  payload: {
+function makeReceipt() {
+  // Build the payload with a placeholder receiptId, then ask the canonical
+  // helper to compute the canonical one. CQ-011: the schema verifies
+  // payload.receiptId === deriveReceiptId(payload).
+  const payloadSeed = {
     receiptVersion: 2 as const,
-    receiptId: 'rcpt_aaaabbbb',
+    receiptId: '',
     protocolVersion: 2 as const,
     tenantId: 't_a',
     storeId: 'store_1',
@@ -99,13 +104,19 @@ const receipt = {
       backgroundAuditEligible: true as const,
     },
     clientSignatureStatus: 'absent_v2_0' as const,
-  },
-  signature: {
-    alg: 'Ed25519' as const,
-    keyId: 'key_1',
-    sig: 'sig-bytes-base64url',
-  },
+  }
+  const receiptId = deriveReceiptId(payloadSeed)
+  return {
+    payload: { ...payloadSeed, receiptId },
+    signature: {
+      alg: 'Ed25519' as const,
+      keyId: 'key_1',
+      sig: 'sig-bytes-base64url',
+    },
+  }
 }
+
+const receipt = makeReceipt()
 
 describe('wire schemas', () => {
   it('exports PROTOCOL_VERSION_V2 = 2', () => {
@@ -131,9 +142,9 @@ describe('wire schemas', () => {
     }
   })
 
-  it('round-trips a PromotionReceiptV2', () => {
+  it('round-trips a PromotionReceiptV2 with derived receiptId', () => {
     const parsed = promotionReceiptV2Schema.parse(receipt)
-    expect(parsed.payload.receiptId).toBe('rcpt_aaaabbbb')
+    expect(parsed.payload.receiptId).toMatch(/^rcpt_[a-z2-7]+$/)
   })
 
   it('rejects a receipt with an invalid receiptId prefix', () => {
@@ -142,6 +153,20 @@ describe('wire schemas', () => {
       payload: { ...receipt.payload, receiptId: 'rec_abc' },
     }
     expect(promotionReceiptV2Schema.safeParse(bad).success).toBe(false)
+  })
+
+  it('rejects a receipt whose payload was changed without recomputing receiptId (CQ-011)', () => {
+    const bad = {
+      ...receipt,
+      payload: { ...receipt.payload, tenantId: 't_other' },
+    }
+    const result = promotionReceiptV2Schema.safeParse(bad)
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(
+        result.error.issues.some((i) => i.path.join('.') === 'payload.receiptId' && /does not match/.test(i.message)),
+      ).toBe(true)
+    }
   })
 
   it('parses BeginPromotionRequest', () => {
@@ -193,12 +218,13 @@ describe('wire schemas', () => {
     expect(beginPromotionResponseSchema.safeParse({ status: 'wat' }).success).toBe(false)
   })
 
-  it('parses UploadSegmentRequest and UploadObjectPackHeader', () => {
+  it('parses UploadSegmentRequest and UploadObjectPackHeader with transportHash (CQ-012)', () => {
     expect(
       uploadSegmentRequestSchema.parse({
         protocolVersion: 2,
         promotionId: 'pro_1',
         segment: inventorySegment('seg_a'),
+        transportHash: taggedHash('e'),
       }).promotionId,
     ).toBe('pro_1')
 
@@ -207,12 +233,36 @@ describe('wire schemas', () => {
         protocolVersion: 2,
         promotionId: 'pro_1',
         packDigest: taggedHash('c'),
+        transportHash: taggedHash('f'),
         byteLength: 4096,
         objectCount: 2,
         objectSetRoot: hash64('d'),
         standaloneLargeObject: false,
       }).objectCount,
     ).toBe(2)
+  })
+
+  it('rejects UploadObjectPackHeader missing transportHash (CQ-012)', () => {
+    const result = uploadObjectPackHeaderSchema.safeParse({
+      protocolVersion: 2,
+      promotionId: 'pro_1',
+      packDigest: taggedHash('c'),
+      byteLength: 4096,
+      objectCount: 2,
+      objectSetRoot: hash64('d'),
+      standaloneLargeObject: false,
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects UploadSegmentRequest with malformed transportHash', () => {
+    const result = uploadSegmentRequestSchema.safeParse({
+      protocolVersion: 2,
+      promotionId: 'pro_1',
+      segment: inventorySegment('seg_a'),
+      transportHash: 'not-a-hash',
+    })
+    expect(result.success).toBe(false)
   })
 
   it('rejects bundleHead with manifestDigest in bare-hex form (CQ-004)', () => {
@@ -237,8 +287,19 @@ describe('wire schemas', () => {
     )
   })
 
-  it('parses GetReceiptResponse discriminated union', () => {
+  it('GetReceiptRequest uses canonical receipt id (CQ-011)', () => {
+    expect(getReceiptRequestSchema.parse({ protocolVersion: 2, receiptId: receipt.payload.receiptId }).receiptId).toBe(
+      receipt.payload.receiptId,
+    )
+    expect(getReceiptRequestSchema.safeParse({ protocolVersion: 2, receiptId: 'rcpt_BAD!' }).success).toBe(false)
+  })
+
+  it('parses GetReceiptResponse discriminated union (CQ-011)', () => {
     expect(getReceiptResponseSchema.parse({ status: 'found', receipt }).status).toBe('found')
-    expect(getReceiptResponseSchema.parse({ status: 'not_found', receiptId: 'rcpt_x' }).status).toBe('not_found')
+    expect(getReceiptResponseSchema.parse({ status: 'not_found', receiptId: receipt.payload.receiptId }).status).toBe(
+      'not_found',
+    )
+    // not_found id must satisfy canonical receiptIdSchema.
+    expect(getReceiptResponseSchema.safeParse({ status: 'not_found', receiptId: 'rcpt_UPPER' }).success).toBe(false)
   })
 })

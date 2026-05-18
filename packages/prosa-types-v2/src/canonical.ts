@@ -26,11 +26,49 @@ const ZERO_HASH = new Uint8Array(32)
 
 const TIMESTAMP_LOOSE_RE = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?(Z|[+-]\d{2}:\d{2})$/
 
-const TIMESTAMP_CANONICAL_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
+const TIMESTAMP_CANONICAL_RE = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})\.(\d{3})Z$/
+
+/**
+ * Semantic check: confirm that a candidate canonical timestamp string
+ * represents a real UTC instant. Returns true only when Date.UTC round-trips
+ * the component values.
+ *
+ * CQ-014: regex shape alone is insufficient — impossible dates/times like
+ * `2025-99-99T99:99:99.000Z` must be rejected before canonical encoding.
+ */
+export function isValidCanonicalTimestamp(input: string): boolean {
+  const m = TIMESTAMP_CANONICAL_RE.exec(input)
+  if (!m) return false
+  const y = Number(m[1])
+  const mo = Number(m[2])
+  const d = Number(m[3])
+  const h = Number(m[4])
+  const mi = Number(m[5])
+  const s = Number(m[6])
+  const ms = Number(m[7])
+  if (mo < 1 || mo > 12) return false
+  if (d < 1 || d > 31) return false
+  if (h > 23) return false
+  if (mi > 59) return false
+  if (s > 59) return false
+  const epoch = Date.UTC(y, mo - 1, d, h, mi, s, ms)
+  if (!Number.isFinite(epoch)) return false
+  const back = new Date(epoch)
+  return (
+    back.getUTCFullYear() === y &&
+    back.getUTCMonth() === mo - 1 &&
+    back.getUTCDate() === d &&
+    back.getUTCHours() === h &&
+    back.getUTCMinutes() === mi &&
+    back.getUTCSeconds() === s &&
+    back.getUTCMilliseconds() === ms
+  )
+}
 
 /**
  * Canonicalize an RFC3339 timestamp to UTC with exactly millisecond precision,
- * truncating sub-ms fractional digits toward the epoch.
+ * truncating sub-ms fractional digits toward the epoch. Rejects inputs whose
+ * component values do not form a real UTC instant (CQ-014).
  */
 export function canonicalTimestamp(input: string): string {
   const m = TIMESTAMP_LOOSE_RE.exec(input)
@@ -39,13 +77,35 @@ export function canonicalTimestamp(input: string): string {
   }
   const [, y, mo, d, h, mi, s, frac = '', off = 'Z'] = m
   const ms = `${frac}000`.slice(0, 3)
+  const yN = Number(y)
+  const moN = Number(mo)
+  const dN = Number(d)
+  const hN = Number(h)
+  const miN = Number(mi)
+  const sN = Number(s)
+  const msN = Number(ms)
+  // Semantic component check (CQ-014).
+  if (moN < 1 || moN > 12) throw new Error(`canonicalTimestamp: month out of range: ${input}`)
+  if (dN < 1 || dN > 31) throw new Error(`canonicalTimestamp: day out of range: ${input}`)
+  if (hN > 23) throw new Error(`canonicalTimestamp: hour out of range: ${input}`)
+  if (miN > 59) throw new Error(`canonicalTimestamp: minute out of range: ${input}`)
+  if (sN > 59) throw new Error(`canonicalTimestamp: second out of range: ${input}`)
+  const base = Date.UTC(yN, moN - 1, dN, hN, miN, sN, msN)
+  if (!Number.isFinite(base)) throw new Error(`canonicalTimestamp: invalid epoch: ${input}`)
+  // Round-trip validate: e.g. Feb 30 would land on Mar 1 after Date.UTC.
+  const baseDate = new Date(base)
+  if (baseDate.getUTCFullYear() !== yN || baseDate.getUTCMonth() !== moN - 1 || baseDate.getUTCDate() !== dN) {
+    throw new Error(`canonicalTimestamp: not a real calendar date: ${input}`)
+  }
   if (off === 'Z') {
     return `${y}-${mo}-${d}T${h}:${mi}:${s}.${ms}Z`
   }
-  const base = Date.UTC(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(s), 0)
   const sign = off[0] === '-' ? -1 : 1
   const offHours = Number(off.slice(1, 3))
   const offMinutes = Number(off.slice(4, 6))
+  if (offHours > 23 || offMinutes > 59) {
+    throw new Error(`canonicalTimestamp: invalid offset: ${off}`)
+  }
   const offsetMs = sign * (offHours * 60 + offMinutes) * 60_000
   const date = new Date(base - offsetMs)
   const Y = String(date.getUTCFullYear()).padStart(4, '0')
@@ -82,9 +142,9 @@ export function validateFieldValue(
       if (typeof value !== 'string') {
         throw new Error(`merkleLeaf: ${entityType}.${field}: timestamp must be string`)
       }
-      if (!TIMESTAMP_CANONICAL_RE.test(value)) {
+      if (!isValidCanonicalTimestamp(value)) {
         throw new Error(
-          `merkleLeaf: ${entityType}.${field}: non-canonical timestamp ${JSON.stringify(value)}; use canonicalTimestamp() at ingest`,
+          `merkleLeaf: ${entityType}.${field}: non-canonical timestamp ${JSON.stringify(value)}; must match 'YYYY-MM-DDTHH:MM:SS.sssZ' AND be a real UTC instant`,
         )
       }
       return

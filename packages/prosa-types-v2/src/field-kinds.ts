@@ -3,25 +3,23 @@
 //
 // Kinds:
 //   - 'timestamp'  : RFC3339 UTC ms-precision; matches `canonicalTimestamp`'s
-//                    output regex. Non-canonical inputs are rejected.
-//   - 'id'         : opaque lowercase identifier, [A-Za-z0-9_:-]+. Uppercase
-//                    or whitespace is rejected. (We allow upper letters in
-//                    the regex only for legacy identifiers; new IDs MUST be
-//                    lowercase. See note below.)
-//   - 'tagged_hash': `blake3:<64-hex-lower>`. Used for *_object_id, *_hash
-//                    when the importer emits the algorithm-tagged form, and
-//                    for raw-record content/object identity.
-//   - 'hex_hash'   : bare 64-char lowercase hex. Used for Merkle roots.
+//                    output regex and must round-trip via Date.UTC (semantic
+//                    validation, CQ-014).
+//   - 'id'         : lowercase opaque identifier, `[a-z0-9][a-z0-9_:-]*`.
+//                    Uppercase or whitespace is rejected.
+//   - 'tagged_hash': `blake3:<64-hex-lower>`. Used for every CAS object
+//                    reference (`*_object_id`, content hashes, pack digests).
+//   - 'hex_hash'   : bare 64-char lowercase hex. Used for Merkle roots
+//                    (`bundleRoot`, `rawSourceRoot`).
 //   - 'enum'       : free string from a small enumeration; validated as
 //                    plain string (kind kept for documentation).
 //   - 'string'     : free string; encoded with NFC normalization only.
 //   - 'integer'    : safe integer or bigint.
 //   - 'boolean'    : true/false.
 //
-// Note: existing fixture identifiers contain `_` and lowercase letters, e.g.
-// `ses_0001`. The id regex below accepts those. We do NOT silently lowercase
-// — IDs are rejected if they contain an uppercase ASCII letter, so producers
-// must canonicalize at ingest.
+// Per CQ-010, every CAS object reference field is `tagged_hash`. Importers
+// must populate them with `blake3:<hex>` strings derived from the
+// uncompressed bytes of the referenced object.
 
 import type { CanonicalEntityType } from './common.js'
 
@@ -40,8 +38,8 @@ export const ENTITY_FIELD_KINDS: Record<CanonicalEntityType, EntityFieldKindMap>
     kind: 'enum',
     path: 'string',
     logical_path: 'string',
-    object_id: 'id',
-    text_object_id: 'id',
+    object_id: 'tagged_hash', // CAS object identity (CQ-010)
+    text_object_id: 'tagged_hash',
     mime_type: 'string',
     size_bytes: 'integer',
     created_ts: 'timestamp',
@@ -54,7 +52,7 @@ export const ENTITY_FIELD_KINDS: Record<CanonicalEntityType, EntityFieldKindMap>
     session_id: 'id',
     ordinal: 'integer',
     block_type: 'enum',
-    text_object_id: 'id',
+    text_object_id: 'tagged_hash', // CAS object identity (CQ-010)
     text_inline: 'string',
     mime_type: 'string',
     token_count: 'integer',
@@ -73,7 +71,7 @@ export const ENTITY_FIELD_KINDS: Record<CanonicalEntityType, EntityFieldKindMap>
     confidence: 'enum',
     source: 'enum',
     raw_record_id: 'id',
-    metadata_object_id: 'id',
+    metadata_object_id: 'tagged_hash', // CAS object identity (CQ-010)
   },
   event: {
     event_id: 'id',
@@ -86,7 +84,7 @@ export const ENTITY_FIELD_KINDS: Record<CanonicalEntityType, EntityFieldKindMap>
     timestamp: 'timestamp',
     ordinal: 'integer',
     actor: 'enum',
-    payload_object_id: 'id',
+    payload_object_id: 'tagged_hash', // CAS object identity (CQ-010)
     raw_record_id: 'id',
     confidence: 'enum',
     is_derived: 'boolean',
@@ -110,7 +108,7 @@ export const ENTITY_FIELD_KINDS: Record<CanonicalEntityType, EntityFieldKindMap>
   project: {
     project_id: 'id',
     canonical_path: 'string',
-    path_hash: 'string',
+    path_hash: 'tagged_hash', // BLAKE3 of canonical path (CQ-010, CQ-013)
     source_tool: 'enum',
     source_project_id: 'id',
     display_name: 'string',
@@ -129,8 +127,8 @@ export const ENTITY_FIELD_KINDS: Record<CanonicalEntityType, EntityFieldKindMap>
     parser_status: 'enum',
     confidence: 'enum',
     content_hash: 'tagged_hash',
-    object_id: 'id',
-    decoded_object_id: 'id',
+    object_id: 'tagged_hash', // CAS object identity (CQ-010)
+    decoded_object_id: 'tagged_hash', // CAS object identity (CQ-010)
     created_at: 'timestamp',
   },
   search_doc: {
@@ -177,7 +175,7 @@ export const ENTITY_FIELD_KINDS: Record<CanonicalEntityType, EntityFieldKindMap>
     size_bytes: 'integer',
     mtime_ns: 'integer',
     content_hash: 'tagged_hash',
-    object_id: 'id',
+    object_id: 'tagged_hash', // CAS object identity (CQ-010)
     pack_digest: 'tagged_hash',
     stored_offset: 'integer',
     stored_length: 'integer',
@@ -193,7 +191,7 @@ export const ENTITY_FIELD_KINDS: Record<CanonicalEntityType, EntityFieldKindMap>
     source_call_id: 'id',
     tool_name: 'string',
     canonical_tool_type: 'enum',
-    args_object_id: 'id',
+    args_object_id: 'tagged_hash', // CAS object identity (CQ-010)
     command: 'string',
     cwd: 'string',
     path: 'string',
@@ -214,9 +212,9 @@ export const ENTITY_FIELD_KINDS: Record<CanonicalEntityType, EntityFieldKindMap>
     is_error: 'boolean',
     exit_code: 'integer',
     duration_ms: 'integer',
-    stdout_object_id: 'id',
-    stderr_object_id: 'id',
-    output_object_id: 'id',
+    stdout_object_id: 'tagged_hash', // CAS object identity (CQ-010)
+    stderr_object_id: 'tagged_hash',
+    output_object_id: 'tagged_hash',
     preview: 'string',
     raw_record_id: 'id',
   },

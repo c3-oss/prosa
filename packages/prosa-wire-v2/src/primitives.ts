@@ -1,4 +1,4 @@
-import { CANONICAL_ENTITY_TYPES } from '@c3-oss/prosa-types-v2'
+import { CANONICAL_ENTITY_TYPES, deriveReceiptId } from '@c3-oss/prosa-types-v2'
 import { z } from 'zod'
 
 export const PROTOCOL_VERSION_V2 = 2 as const
@@ -40,6 +40,7 @@ export const objectSetRootSchema = hexHashSchema // Merkle root over a pack's so
 export const bundleRootSchema = hexHashSchema // cross-entity canonical projection root (CQ-001)
 export const rawSourceRootSchema = hexHashSchema // raw-source Merkle root (CQ-003)
 export const manifestDigestSchema = taggedHashSchema // BLAKE3 over the manifest's serialized bytes
+export const transportHashSchema = taggedHashSchema // CQ-012: BLAKE3 over bytes observed on the upload transport
 
 // Canonical id form: starts with letter/digit, then [a-z0-9_:-]*. Uppercase
 // is rejected (CQ-002).
@@ -177,14 +178,40 @@ export const promotionReceiptV2PayloadSchema = z.object({
   clientSignatureStatus: z.literal('absent_v2_0'),
 })
 
-export const promotionReceiptV2Schema = z.object({
-  payload: promotionReceiptV2PayloadSchema,
-  signature: z.object({
-    alg: z.literal('Ed25519'),
-    keyId: z.string(),
-    sig: z.string(),
-  }),
-})
+// CQ-011: bind the receipt schema to the canonical receipt ID. After
+// `promotionReceiptV2PayloadSchema` passes, we require
+// `payload.receiptId === deriveReceiptId(payload)`. A schema-only check
+// would let a producer cache or sign a payload whose declared id is not
+// the canonical hash of its bytes.
+export const promotionReceiptV2Schema = z
+  .object({
+    payload: promotionReceiptV2PayloadSchema,
+    signature: z.object({
+      alg: z.literal('Ed25519'),
+      keyId: z.string(),
+      sig: z.string(),
+    }),
+  })
+  .superRefine((data, ctx) => {
+    let expected: string
+    try {
+      expected = deriveReceiptId(data.payload)
+    } catch (err) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['payload'],
+        message: `deriveReceiptId failed: ${(err as Error).message}`,
+      })
+      return
+    }
+    if (data.payload.receiptId !== expected) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['payload', 'receiptId'],
+        message: `receiptId ${data.payload.receiptId} does not match deriveReceiptId(payload)=${expected}`,
+      })
+    }
+  })
 
 export type SegmentRefWire = z.infer<typeof segmentRefSchema>
 export type PackRefWire = z.infer<typeof packRefSchema>

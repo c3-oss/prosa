@@ -4,12 +4,68 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 ## Open
 
-No open blocking corrections — all CQ-001 through CQ-009 closed in this
-iteration. New reviewer findings will be appended here.
+No open blocking corrections — all CQ-001..CQ-015 closed. New reviewer
+findings will be appended here.
 
-## Closed
+## Closed (latest first)
 
-### CQ-001: Pin `bundleRoot` Semantics — closed 2026-05-18
+### CQ-015: Make Gate Artifacts Match Actual Lane 0 Validation — closed 2026-05-18
+
+`gates.md`, `status.md`, and `evidence/lane-00.md` rewritten from this
+iteration's actual command results. Historical failed results moved to a
+dated "Historical Failures" section. Done check now reflects Lane 0 scope
+only and explicitly defers the project-wide stabilization wait.
+
+### CQ-014: Validate Timestamp Semantics, Not Only Timestamp Shape — closed 2026-05-18
+
+`canonicalTimestamp()` and the new `isValidCanonicalTimestamp()` perform
+component bounds checks (month 1–12, day 1–31, hour ≤ 23, minute ≤ 59,
+second ≤ 59) AND a `Date.UTC` round-trip to reject impossible calendar
+dates like Feb 30. `merkleLeaf` uses `isValidCanonicalTimestamp` instead
+of regex-only. Tests in `normalization.test.ts` exercise month 13/99,
+Feb 30, hour 24, minute 60, second 60.
+
+### CQ-013: Reconcile Canonical Spec Hash Forms With Implementation — closed 2026-05-18
+
+`CANONICAL.md` rule 11 now states `content_hash` and `stored_hash` are
+tagged-hash form (matching `rawSourceLeaf` and `rawSourcePackEntrySchema`).
+The hash-kind table explicitly calls out `ManifestDigest` as tagged-hash
+everywhere. `TransportHash` row added for CQ-012. All bare-hex vs
+tagged-hash assignments now agree across docs, types, helpers, and Zod
+schemas.
+
+### CQ-012: Model Transport Hash Separately From Pack Identity — closed 2026-05-18
+
+Added `transportHashSchema` in `prosa-wire-v2`. Made `transportHash`
+required on `uploadSegmentRequestSchema` and `uploadObjectPackHeaderSchema`.
+Documented in `CANONICAL.md` rule 6 hash-kind table. Tests reject missing
+and malformed `transportHash`.
+
+### CQ-011: Bind Receipt Schema to Canonical Receipt ID and Payload Bytes — closed 2026-05-18
+
+`promotionReceiptV2Schema` is now `z.object(...).superRefine(...)` that
+calls `deriveReceiptId(payload)` and rejects when
+`payload.receiptId !== deriveReceiptId(payload)`. `getReceiptRequestSchema`
+and the `not_found` branch of `getReceiptResponseSchema` now use the
+canonical `receiptIdSchema`. Tests prove a payload mutation without
+recomputing the id is rejected, and that a payload's derived id round-trips.
+
+### CQ-010: Enforce Canonical CAS Object References in Projection Rows — closed 2026-05-18
+
+Every CAS object reference field in `ENTITY_FIELD_KINDS` is now
+`tagged_hash`: `artifact.{object_id, text_object_id}`,
+`content_block.text_object_id`, `edge.metadata_object_id`,
+`event.payload_object_id`, `raw_record.{object_id, decoded_object_id}`,
+`source_file.object_id`, `tool_call.args_object_id`,
+`tool_result.{stdout_object_id, stderr_object_id, output_object_id}`,
+plus `project.path_hash`. Fixture rows updated to canonical `blake3:<hex>`
+values; `expected-leaves.json` regenerated. Test rejects `obj_a01`-style
+placeholder strings, bare hex, and uppercase tagged hashes for every
+object-reference field. The Lane 5 pack-upload server lane will diff
+the projection's referenced object IDs against the object inventory the
+client uploaded before issuing a receipt — implemented when Lane 5 lands.
+
+### CQ-001: Pin `bundleRoot` Semantics — closed 2026-05-18 (earlier in iteration)
 
 `bundleRoot` is now pinned as the cross-entity canonical projection Merkle
 root. Manifest-byte content is carried separately in `BundleHeadV2.manifestDigest`
