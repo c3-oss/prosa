@@ -47,7 +47,6 @@
   },
   "dependencies": {
     "@c3-oss/prosa-core": "workspace:^",
-    "@c3-oss/prosa-sync": "workspace:^",
     "@inkjs/ui": "^2.0.0",
     "commander": "^12.1.0",
     "ink": "^7.0.1",
@@ -64,6 +63,7 @@
     "@c3-oss/prosa-api": "workspace:^",
     "@c3-oss/prosa-db": "workspace:^",
     "@c3-oss/prosa-storage": "workspace:^",
+    "@c3-oss/prosa-sync": "workspace:^",
     "@electric-sql/pglite": "^0.4.5",
     "postgres": "^3.4.9",
     "@types/better-sqlite3": "^7.6.12",

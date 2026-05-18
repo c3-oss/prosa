@@ -154,9 +154,6 @@ importers:
       '@c3-oss/prosa-core':
         specifier: workspace:^
         version: link:../../packages/prosa-core
-      '@c3-oss/prosa-sync':
-        specifier: workspace:^
-        version: link:../../packages/prosa-sync
       '@inkjs/ui':
         specifier: ^2.0.0
         version: 2.0.0(ink@7.0.1(@types/react@19.2.14)(react@19.2.5))
@@ -200,6 +197,9 @@ importers:
       '@c3-oss/prosa-storage':
         specifier: workspace:^
         version: link:../../packages/prosa-storage
+      '@c3-oss/prosa-sync':
+        specifier: workspace:^
+        version: link:../../packages/prosa-sync
       '@electric-sql/pglite':
         specifier: ^0.4.5
         version: 0.4.5
