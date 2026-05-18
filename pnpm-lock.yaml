@@ -151,6 +151,9 @@ importers:
 
   apps/cli:
     dependencies:
+      '@c3-oss/prosa-bundle-v2':
+        specifier: workspace:^
+        version: link:../../packages/prosa-bundle-v2
       '@c3-oss/prosa-core':
         specifier: workspace:^
         version: link:../../packages/prosa-core

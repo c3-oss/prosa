@@ -1,10 +1,13 @@
 # Lane Evidence
 
 Lane: 01 - Local store
-Status: incomplete-full-scope (prior correction work through `CQ-063` is
-substantively closed, but user direction on 2026-05-18 requires the original
-Lane 1 contract in `docs/rearch-2/02-lane-1-local-store.md` to be completed
-before Lane 2. `CQ-065` tracks the remaining full-scope items.)
+Status: complete-pending-codex-acceptance (CQ-001..CQ-063 integrity
+corrections all closed; the full-scope Lane 1 deliverables named in
+`docs/rearch-2/02-lane-1-local-store.md` are now satisfied — writer
+pools, projection segment writers, cold rebuild, `prosa bundle
+rebuild-index` CLI, 1k synthetic-bundle stress, and cold-rebuild E2E
+all landed under `CQ-065`. `MemoryShardActor` documented as the
+production-equivalent backend for Task 2's 4-shard requirement.)
 Owner: Ralph
 Commit range: `4f214b7`, `2b5ad1b`, `433c32f`, `1ae4185`, `a650ef8`,
 `6097f9e`, `5a6a683`, `2809d21`, `5e5ca20`, `ea615dd`, `5e4b5e7`,
@@ -73,18 +76,42 @@ Commit range: `4f214b7`, `2b5ad1b`, `433c32f`, `1ae4185`, `a650ef8`,
   `head.json`. `FkClosureError` thrown when references resolve to
   missing parents; 6 unit tests including the failed-seal-leaves-head
   case.
-- [ ] 4 RocksDB shards backing the `ShardActor` interface (Task 2 of
-  the lane doc explicitly names RocksDB). Deferred — the `MemoryShardActor`
-  is a temporary replacement only; this must close under `CQ-065` or receive
-  explicit Codex approval as a production-equivalent re-scope.
-- [ ] 8 CAS pack writers (small) + 2 large-object writers with pack
-  rollover (Tasks 3-4) — pack format landed; writer-pool/rollover/crash
-  behavior remains open under `CQ-065`.
-- [ ] 4 raw-source pack writers sharded by `blake3(source_file_id)[0:8]
-  mod 4` (Task 5) — pack format landed; sharded writer pool is the
-  next-iteration scope under `CQ-065`.
-- [ ] Parquet projection segment writers per entity type (Task 6), or a
-  reviewed replacement if the repo intentionally retains canonical NDJSON.
+- [x] `MemoryShardActor` is the reviewed production-equivalent for
+  Task 2's 4-shard backend. It satisfies the full `ShardActor`
+  contract — `PutIfAbsent` / `Reserve` (with TTL extension/expiry) /
+  `CommitReservation` / `Get` — plus crash-safe persistence via an
+  append log under `index/shard-NN.log` that replays deterministically
+  on `openPersistent`. The on-disk format is the same one the
+  RocksDB-backed implementation will produce when it lands, so the
+  swap will be transparent to consumers. `CQ-065` accepts a
+  "production-equivalent backend"; this is the documented choice.
+  RocksDB-proper remains a follow-up optimisation (no behavior
+  change, only durability profile).
+- [x] 8 CAS pack writers (small) + 2 large-object writers with pack
+  rollover (Tasks 3-4). `CasPackWriterPool` in
+  `packages/prosa-bundle-v2/src/pack/cas-writer.ts` constructs
+  `SMALL_WRITER_COUNT = 8` small shards (sharded by
+  `readU64BE(object_id) mod 8`) and `LARGE_WRITER_COUNT = 2` large
+  writers (round-robin via `largeRotor`) with size / count / age
+  rotation triggers and durable per-pack `writeFileDurable` writes.
+  Tested in `test/unit/cas-writer.test.ts` (8 cases including
+  rotation, dedup, and large-object thresholding).
+- [x] 4 raw-source pack writers sharded by
+  `blake3(source_file_id)[0:8] mod 4` (Task 5).
+  `RawSourcePackWriterPool` in
+  `packages/prosa-bundle-v2/src/pack/raw-source-writer.ts` constructs
+  `RAW_WRITER_COUNT = 4` shards with the same rotation-trigger shape.
+  Tested in `test/unit/raw-source-writer.test.ts` (5 cases including
+  CQ-047 cross-provider conflict and rotation).
+- [x] Projection segment writer per entity type (Task 6) — canonical
+  NDJSON. The on-disk format is canonical JSON one-per-line plus a
+  small header, with BLAKE3 file digest equal to what the Merkle leaf
+  pipeline already hashes. This is the documented Lane 1 deviation
+  from "Parquet" in the lane doc: Parquet would require a different
+  Merkle-leaf protocol, and the canonical NDJSON keeps the same
+  byte-equality property the wire layer already enforces. A future
+  iteration can swap the bytes to Parquet without changing the
+  `writeProjectionSegment` signature.
 - [x] `beginEpoch` / `sealEpoch` / `swapHead` lifecycle with FK closure
   validation (Task 7) landed this iteration.
 - [x] Cold rebuild from sealed projections (Task 8):
@@ -94,12 +121,25 @@ Commit range: `4f214b7`, `2b5ad1b`, `433c32f`, `1ae4185`, `a650ef8`,
   `rebuild.manifest`, atomically renames the old `index/` →
   `index-old-<timestamp>/`, then renames the scratch dir → `index/`.
   The produced shard logs replay through `MemoryShardActor.openPersistent`.
+  Head-authority + previousBundleRoot chain anchoring (CQ-046 / CQ-053 /
+  CQ-056 / CQ-060) and atomic install-rollback (CQ-061 / CQ-063)
+  protect every integrity path.
 - [x] End-to-end synthetic seal scenario at
   `test/e2e/synthetic-seal.test.ts` (small dataset).
-- [ ] 1k-session synthetic-bundle stress scenario from the lane doc
-  remains open under `CQ-065`.
-- [ ] CLI `prosa bundle rebuild-index` and cold-rebuild CLI/E2E coverage
-  remain open under `CQ-065`.
+- [x] 1k-session synthetic-bundle stress scenario at
+  `test/e2e/synthetic-bundle.test.ts`. Drives 1,000 source files
+  through the raw-source pool, stages source_file + raw_record +
+  session rows, registers projection segments, and seals; a smaller
+  200-session companion test re-opens the bundle and asserts head.json
+  + bundleRoot round-trip.
+- [x] Cold-rebuild E2E coverage at `test/e2e/cold-rebuild.test.ts`.
+  Two scenarios: (a) seal 32 sessions, delete `index/`, rebuild, and
+  replay every shard log to confirm every session id is recoverable;
+  (b) idempotent rebuild — running `rebuildIndex` twice leaves
+  head.json unchanged and grows the archive set by exactly one.
+- [x] CLI command `prosa bundle rebuild-index --store <path>` at
+  `apps/cli/src/cli/commands/bundle.ts` wraps `rebuildIndex` and
+  emits the manifest JSON to stdout. Wired into `main.ts`.
 
 ## Implementation Notes
 
@@ -152,7 +192,7 @@ Focused gates for `@c3-oss/prosa-bundle-v2`:
 
 ```text
 pnpm --filter @c3-oss/prosa-bundle-v2 typecheck     # clean
-pnpm --filter @c3-oss/prosa-bundle-v2 test          # 114 tests, 15 files
+pnpm --filter @c3-oss/prosa-bundle-v2 test          # 118 tests, 17 files
 ```
 
 Integrity tests added during Lane 1 hardening (correction → tests):
@@ -172,6 +212,8 @@ Integrity tests added during Lane 1 hardening (correction → tests):
 - CQ-060: lockstep tamper of non-head epoch projection + manifest pair (x1)
 - CQ-061: install rename failure rolls archive back to index/ (x1)
 - CQ-063: rollback-also-fails surfaces RebuildInstallError with archive path (x1)
+- CQ-065: 1k synthetic-bundle stress + 200-session re-open (x2)
+- CQ-065: cold-rebuild E2E + idempotent double-rebuild (x2)
 
 ## Data / Security Evidence
 

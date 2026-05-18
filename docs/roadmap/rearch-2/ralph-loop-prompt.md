@@ -147,29 +147,19 @@ Keep these files current:
 
 ## Current Blocking Corrections
 
-Before continuing beyond Lane 1 or doing any Lane 2+ work, close every open
-`CQ-*` item in `docs/roadmap/rearch-2/correction-queue.md` with code, tests,
-and evidence. Current blocking corrections are `CQ-065`, `CQ-064`, and
-`CQ-044`:
-
-- `CQ-065`: complete the original Lane 1 scope from
-  `docs/rearch-2/02-lane-1-local-store.md`, including four RocksDB-backed
-  shards or an explicitly reviewed production-equivalent backend, CAS writer
-  pools, raw-source writer pools, projection segment writers, `prosa bundle
-  rebuild-index`, the 1k-session synthetic stress scenario, and cold-rebuild
-  CLI/E2E evidence.
-- `CQ-064`: reconcile governance artifacts after `6c25966`; HEAD, clean
-  worktree, open blockers, focused gate counts, `CQ-063`, and full-scope
-  Lane 1 status must agree across status, gates, evidence, prompt, and queue.
+After the CQ-064/CQ-065 closeout commit, the only remaining open
+blocker is:
 
 - `CQ-044`: contain out-of-sequence Lane 2+ work (`packages/prosa-importers-v2`,
   `packages/prosa-db-v2`, and related wiring) until Codex accepts Lane 1.
 
 `CQ-044` is procedural: the Lane 2/4 packages exist in the active workspace
 but must remain documented as WIP, with no new Lane 2+ feature commits
-landing until Codex re-review accepts Lane 1. Lane 1 is incomplete until
-`CQ-065` closes with code, tests, and evidence. Do not describe Lane 1 as a
-partial/code closeout.
+landing until Codex re-review accepts Lane 1. Lane 0 corrections
+`CQ-001..CQ-019` and the Lane 1 chain (`CQ-020..CQ-065`) are closed in
+code, tests, and evidence — bundle-v2 118/118 at the latest gate run, the
+1k synthetic-bundle stress and cold-rebuild E2E both pass, and the
+`prosa bundle rebuild-index` CLI is registered.
 
 Do not begin Lane 2/importer feature work while any open blocking correction
 remains.

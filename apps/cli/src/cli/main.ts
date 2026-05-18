@@ -3,6 +3,7 @@ import { PROSA_PARSER_VERSION } from '@c3-oss/prosa-core'
 import { Command } from 'commander'
 import { analyticsCommand } from './commands/analytics.js'
 import { authCommand } from './commands/auth.js'
+import { bundleCommand } from './commands/bundle.js'
 import { compileAllCommand, compileCommand } from './commands/compile.js'
 import { doctorCommand } from './commands/doctor.js'
 import { exportCommand } from './commands/export.js'
@@ -59,6 +60,7 @@ export async function runCli(argv: readonly string[]): Promise<void> {
   program.addCommand(tuiCommand())
   program.addCommand(authCommand())
   program.addCommand(syncCommand())
+  program.addCommand(bundleCommand())
 
   await program.parseAsync(stripLeadingDoubleDash(argv))
 }
