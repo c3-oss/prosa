@@ -124,24 +124,33 @@ export async function rebuildIndex(bundle: Bundle, options: RebuildIndexOptions 
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') continue
       throw err
     }
+    // CQ-046 step 1: verify every projection segment file against the
+    // manifest's declared digest. An extra segment file not declared
+    // in the manifest is rejected. An indexed (keyspace) segment is
+    // also replayed into the per-shard log; non-keyspace segments are
+    // verified only.
     for (const filename of segments) {
       if (!filename.endsWith('.prosa-projection.ndjson')) continue
       const entityType = filename.replace(/\.prosa-projection\.ndjson$/u, '') as CanonicalEntityType
+      const segPath = join(projDir, filename)
+      const rawBytes = await readFile(segPath)
+      const expected = expectedDigests.get(entityType)
+      if (expected === undefined) {
+        throw new RebuildIntegrityError(
+          `rebuildIndex: epoch ${epoch} carries projection segment ${filename} that is not declared in the manifest (CQ-046)`,
+        )
+      }
+      const actual = `blake3:${toHex(blake3(rawBytes))}`
+      if (actual !== expected) {
+        throw new RebuildIntegrityError(
+          `rebuildIndex: epoch ${epoch} segment ${filename} digest mismatch (declared ${expected}, actual ${actual})`,
+        )
+      }
+      expectedDigests.delete(entityType)
+
       const keyspace = KEYSPACE_FOR_ENTITY[entityType]
       if (!keyspace) continue
       const pkField = ENTITY_PRIMARY_KEY[entityType]
-      const segPath = join(projDir, filename)
-      const rawBytes = await readFile(segPath)
-      // CQ-043: blake3(file) must match the manifest's declared digest.
-      const expected = expectedDigests.get(entityType)
-      if (expected !== undefined) {
-        const actual = `blake3:${toHex(blake3(rawBytes))}`
-        if (actual !== expected) {
-          throw new RebuildIntegrityError(
-            `rebuildIndex: epoch ${epoch} segment ${filename} digest mismatch (declared ${expected}, actual ${actual})`,
-          )
-        }
-      }
       const raw = new TextDecoder().decode(rawBytes)
       const lines = raw.split('\n').filter((l) => l.length > 0)
       // First line is the header; skip it.
@@ -151,6 +160,15 @@ export async function rebuildIndex(bundle: Bundle, options: RebuildIndexOptions 
         if (typeof key !== 'string' || key.length === 0) continue
         recordEntry(keyspace, key, row)
       }
+    }
+    // CQ-046 step 2: every projection segment declared in the
+    // manifest must exist on disk. A missing declared segment is a
+    // hard error.
+    if (expectedDigests.size > 0) {
+      const missing = Array.from(expectedDigests.keys()).join(', ')
+      throw new RebuildIntegrityError(
+        `rebuildIndex: epoch ${epoch} manifest declares projection segments that are not on disk: ${missing} (CQ-046)`,
+      )
     }
   }
 
@@ -201,20 +219,76 @@ export async function rebuildIndex(bundle: Bundle, options: RebuildIndexOptions 
 }
 
 /**
- * Read the signed manifest for one epoch and return a map of
- * entityType → declared digest for each projection segment listed there.
+ * Read the signed manifest for one epoch, verify its body matches the
+ * unsigned `epoch.manifest.json` (canonical byte equality), and — for
+ * the current head epoch — verify the unsigned bytes match
+ * `head.json`'s `manifestDigest`. Return a map of entityType →
+ * declared digest for each projection segment.
+ *
+ * CQ-046: a tampered signed manifest with rewritten segment digests
+ * would otherwise be trusted blindly. The dual-file cross-check + the
+ * head.json pin close the obvious tampering paths until full Ed25519
+ * signing lands.
  */
 async function loadProjectionDigests(bundle: Bundle, epoch: number): Promise<Map<CanonicalEntityType, string>> {
   const out = new Map<CanonicalEntityType, string>()
-  const path = join(bundle.paths.root, 'epochs', String(epoch), 'epoch.manifest.signed.json')
-  let raw: string
+  const epochRoot = join(bundle.paths.root, 'epochs', String(epoch))
+  const signedPath = join(epochRoot, 'epoch.manifest.signed.json')
+  const unsignedPath = join(epochRoot, 'epoch.manifest.json')
+
+  let signedBytes: Uint8Array
+  let unsignedBytes: Uint8Array
   try {
-    raw = await readFile(path, 'utf8')
+    signedBytes = await readFile(signedPath)
+    unsignedBytes = await readFile(unsignedPath)
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return out
+    const e = err as NodeJS.ErrnoException
+    if (e.code === 'ENOENT') {
+      // CQ-046: a sealed epoch dir without a manifest is itself an
+      // integrity failure — refuse to fall through to "skip digest
+      // checks" silently.
+      throw new RebuildIntegrityError(
+        `rebuildIndex: epoch ${epoch} has no manifest pair (${e.path ?? signedPath}) — refusing to trust segments`,
+      )
+    }
     throw err
   }
-  const parsed = JSON.parse(raw) as {
+
+  // Verify the signed manifest's `manifest` body matches the unsigned
+  // file byte-for-byte under canonical JSON encoding. Anything else
+  // means one of the two files has drifted.
+  const signed = JSON.parse(new TextDecoder().decode(signedBytes)) as {
+    manifest?: unknown
+    signature?: unknown
+  }
+  if (!signed.manifest || typeof signed.manifest !== 'object') {
+    throw new RebuildIntegrityError(`rebuildIndex: epoch ${epoch} signed manifest is missing the manifest body`)
+  }
+  // Re-encode the signed manifest's body canonically and compare to
+  // the unsigned bytes. `epochManifestBytes` is the same canonical
+  // encoder used at seal time.
+  const { epochManifestBytes } = await import('../epoch/manifest.js')
+  const reEncoded = epochManifestBytes(signed.manifest as Parameters<typeof epochManifestBytes>[0])
+  if (!bytesEqual(reEncoded, unsignedBytes)) {
+    throw new RebuildIntegrityError(
+      `rebuildIndex: epoch ${epoch} signed manifest body does not canonical-encode to epoch.manifest.json bytes`,
+    )
+  }
+
+  // For the current head epoch, also pin the unsigned bytes against
+  // head.json's manifestDigest. Older epochs lack a stored
+  // authoritative digest at this stage; the previousBundleRoot chain
+  // is the longer-term anchor.
+  if (epoch === bundle.head.epoch && bundle.head.manifestDigest) {
+    const actual = `blake3:${toHex(blake3(unsignedBytes))}`
+    if (actual !== bundle.head.manifestDigest) {
+      throw new RebuildIntegrityError(
+        `rebuildIndex: epoch ${epoch} manifest blake3 ${actual} does not match head.json manifestDigest ${bundle.head.manifestDigest}`,
+      )
+    }
+  }
+
+  const parsed = signed as {
     manifest?: { segments?: Array<{ kind?: string; entityType?: string; digest?: string }> }
   }
   const segments = parsed.manifest?.segments ?? []
@@ -224,6 +298,14 @@ async function loadProjectionDigests(bundle: Bundle, epoch: number): Promise<Map
     }
   }
   return out
+}
+
+function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false
+  }
+  return true
 }
 
 async function listSealedEpochs(bundle: Bundle): Promise<number[]> {

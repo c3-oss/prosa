@@ -15,6 +15,19 @@ import { type RawSourcePackBuilt, type RawSourcePackInput, buildRawSourcePack } 
 
 export const RAW_WRITER_COUNT = 4
 
+export class RawSourcePoolConflictError extends Error {
+  override name = 'RawSourcePoolConflictError'
+  constructor(
+    public readonly source_file_id: string,
+    public readonly firstHash: string,
+    public readonly secondHash: string,
+  ) {
+    super(
+      `raw-source pool: source_file_id ${source_file_id} appended twice with different content (first=${firstHash}, second=${secondHash}) — refusing to silently dedup mismatched bytes`,
+    )
+  }
+}
+
 export type RawSourcePoolOptions = {
   /** Root directory of `raw_sources/`. */
   rawSourcesDir: string
@@ -91,7 +104,13 @@ export class RawSourcePackWriterPool {
   readonly now: () => number
 
   private readonly writers: RawShardWriter[]
-  private readonly seenSourceFileIds: Set<string> = new Set()
+  /**
+   * Tracks the BLAKE3 of bytes previously appended under each
+   * source_file_id so re-appending the same id with *different* bytes
+   * is surfaced as a hard error instead of silently winning to the
+   * first writer (CQ-047 / reviewer-F2).
+   */
+  private readonly seenSourceFileIds: Map<string, string> = new Map()
 
   constructor(options: RawSourcePoolOptions) {
     this.rawSourcesDir = options.rawSourcesDir
@@ -107,13 +126,21 @@ export class RawSourcePackWriterPool {
    * append closes a pack, the finalized pack metadata.
    *
    * Dedup is enforced at the `source_file_id` level: re-appending the
-   * same source_file_id is a no-op.
+   * same source_file_id with identical bytes is a no-op. Re-appending
+   * with *different* bytes is rejected (CQ-047): silently keeping the
+   * first writer would otherwise hide a cross-provider source-byte
+   * disagreement and let the orchestrator backfill paper over it.
    */
   async appendSourceFile(input: RawSourcePackInput): Promise<RawSourcePoolAppendResult> {
-    if (this.seenSourceFileIds.has(input.source_file_id)) {
+    const incomingHash = `blake3:${Buffer.from(blake3(input.bytes)).toString('hex')}`
+    const seen = this.seenSourceFileIds.get(input.source_file_id)
+    if (seen !== undefined) {
+      if (seen !== incomingHash) {
+        throw new RawSourcePoolConflictError(input.source_file_id, seen, incomingHash)
+      }
       return { source_file_id: input.source_file_id, shardId: -1, packDigest: null, packPath: null }
     }
-    this.seenSourceFileIds.add(input.source_file_id)
+    this.seenSourceFileIds.set(input.source_file_id, incomingHash)
     const shardId = Number(readU64BE(blake3(new TextEncoder().encode(input.source_file_id))) % BigInt(RAW_WRITER_COUNT))
     const writer = this.writers[shardId] as RawShardWriter
     const emission = await writer.append(input)

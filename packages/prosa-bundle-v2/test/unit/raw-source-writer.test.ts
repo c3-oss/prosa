@@ -63,12 +63,21 @@ describe('RawSourcePackWriterPool', () => {
     expect(files.length).toBe(emissions.length)
   })
 
-  it('dedupes by source_file_id', async () => {
+  it('dedupes by source_file_id when bytes match', async () => {
+    const dir = await tmp()
+    const pool = new RawSourcePackWriterPool({ rawSourcesDir: dir, createdAt: created })
+    await pool.appendSourceFile(input('src_a', 'identical-bytes'))
+    const r = await pool.appendSourceFile(input('src_a', 'identical-bytes'))
+    expect(r.shardId).toBe(-1)
+    expect(pool.bufferedCount()).toBe(1)
+  })
+
+  it('CQ-047: rejects re-append of source_file_id with different bytes', async () => {
     const dir = await tmp()
     const pool = new RawSourcePackWriterPool({ rawSourcesDir: dir, createdAt: created })
     await pool.appendSourceFile(input('src_a', 'first'))
-    const r = await pool.appendSourceFile(input('src_a', 'second'))
-    expect(r.shardId).toBe(-1)
+    await expect(pool.appendSourceFile(input('src_a', 'second'))).rejects.toThrow(/different content/)
+    // Buffered state remains coherent (only the first append landed).
     expect(pool.bufferedCount()).toBe(1)
   })
 

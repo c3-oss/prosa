@@ -776,14 +776,15 @@ export async function sealEpoch(handle: EpochHandle): Promise<SealedEpoch> {
       )
     }
   }
+  // CQ-047 / CQ-048: every verified raw-source pack entry must
+  // correspond to a sealed `source_file` row in this epoch. Raw bytes
+  // that are not represented in the canonical projection cannot be
+  // published. `putRawSource()` entries alone are not enough — the
+  // projection row is the authoritative record.
   for (const sfid of verified.rawSourceInventory.keys()) {
-    if (sourceRowIds.size > 0 && !sourceRowIds.has(sfid)) {
-      // Allow: verified pack carries an entry that was not staged as a
-      // source_file row this epoch *only* if no source_file rows were
-      // staged at all (rare, e.g. CAS-only epoch). When source_file
-      // rows are present, every verified entry must correspond to one.
+    if (!sourceRowIds.has(sfid)) {
       throw new DurabilityError(
-        `sealEpoch: raw-source pack entry ${sfid} has no matching source_file row in this epoch (CQ-037)`,
+        `sealEpoch: raw-source pack entry ${sfid} has no matching source_file row in this epoch (CQ-047)`,
       )
     }
   }

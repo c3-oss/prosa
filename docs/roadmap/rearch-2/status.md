@@ -9,10 +9,9 @@ Completion signal: RALPH_DONE
 
 ## Current State
 
-Status: in-progress (CQ-036..CQ-043 fixes applied locally, pending Codex re-review)
+Status: in-progress (correction required after Codex review)
 Current lane: corrections before further Lane 1 / any Lane 2 work
-Current HEAD: `004107c` (working tree carries CQ-036..CQ-043 fixes + uncommitted Lane 4 db-v2 scaffold)
-Pending commit: `fix(core): close lane 0+1 corrections cq-036..cq-043`
+Current HEAD: `5e5ca20`
 No-change streak: 0
 Ralph active: yes
 
@@ -21,8 +20,8 @@ Ralph active: yes
 | Lane | Owner | Status | Commit(s) | Evidence |
 | --- | --- | --- | --- | --- |
 | 00 - Foundation | Ralph | correction | `cd845f2`, `e22ec27`, `b78b5ae`, `70b9df0`, `0e8a912`, `a650ef8`, `2809d21` | `evidence/lane-00.md` |
-| 01 - Local store | Ralph | partial-correction | `4f214b7`, `2b5ad1b`, `433c32f`, `a650ef8`, `6097f9e`, `5a6a683`, `2809d21` | `evidence/lane-01.md` |
-| 02 - Importers | Ralph | blocked-on-lane-01 | | `evidence/lane-02.md` |
+| 01 - Local store | Ralph | partial-correction | `4f214b7`, `2b5ad1b`, `433c32f`, `a650ef8`, `6097f9e`, `5a6a683`, `2809d21`, `5e5ca20` | `evidence/lane-01.md` |
+| 02 - Importers | Ralph | blocked-on-lane-01 | `004107c` (out-of-sequence WIP, unaccepted) | `evidence/lane-02.md` |
 | 03 - Derived layer | Ralph | blocked-on-lane-02 | | `evidence/lane-03.md` |
 | 04 - Server | Ralph | blocked-on-lane-00 | | `evidence/lane-04.md` |
 | 05 - Sync protocol | Ralph | blocked-on-lane-04 | | `evidence/lane-05.md` |
@@ -38,9 +37,11 @@ Ralph active: yes
 | --- | --- | --- | --- |
 | CQ-044 | high | Ralph | Contain out-of-sequence Lane 2+ work until Lane 1 acceptance. |
 
-CQ-036 through CQ-043 are now in the **Closed** section of
-`correction-queue.md`. Their fixes are present in the working tree and
-land with the next closeout commit. Codex re-review is pending.
+CQ-036..CQ-043 closed at `5e5ca20`. CQ-045..CQ-049 closed in the
+working tree (pending closeout commit; addresses Codex's follow-up
+findings on CQ-037 / CQ-038 / CQ-041 / CQ-043 + reviewer findings on
+manifest-tampering, cross-provider source-byte disagreement, and
+canonical-header test scope).
 
 ## Latest Gates
 
@@ -50,7 +51,7 @@ land with the next closeout commit. Codex re-review is pending.
 | `pnpm i` | pass | `pnpm install --frozen-lockfile`-compatible; only pre-existing peer warnings (`@c3-oss/config-vitest` wants vitest ^3.1.1, repo on 2.1.9). |
 | `pnpm build` | pass | 10/10 turbo tasks (includes `@c3-oss/prosa-bundle-v2`). |
 | `just typecheck` | pass | 10/10 turbo tasks. |
-| `just test-all` | pending | Pre-CQ-036..CQ-043 closeout counts: types-v2 89, wire-v2 21, bundle-v2 86. Post-CQ-036..CQ-043 working-tree focused counts: bundle-v2 **91** (added CQ-042 canonical-header tests x2, CQ-043 rebuild-drift test x1). Full `just test-all` re-run will land with the closeout commit. |
+| `just test-all` | pass | 12/12 turbo (`pnpm test` proxy). Working-tree focused counts post CQ-045..CQ-049: types-v2 89, wire-v2 21, conformance 15, bundle-v2 **102** (added CQ-046 x4, CQ-047 x1, CQ-048 x3, CQ-049 x2, plus CQ-042/CQ-043 close-out tests), importers-v2 8, db-v2 6. Full re-run will land with the closeout commit. |
 | `just lint-all` | pass | 10/10 turbo tasks. |
 | `pnpm test:conformance` | pass | 15 tests; 13 entity leaves stable. |
 | `pnpm audit --audit-level moderate` | classified pass | 7 dev-tooling-only vulnerabilities, pre-existing; classified in `gates.md`. |

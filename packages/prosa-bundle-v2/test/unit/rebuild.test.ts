@@ -142,6 +142,89 @@ describe('rebuildIndex', () => {
     }
   })
 
+  it('CQ-046: rejects a tampered signed manifest (segment digest rewrite)', async () => {
+    const root = await tmp()
+    const bundle = await initBundle(root, { storeId: 'st_tamper', createdAt: '2025-01-02T03:04:05.123Z' })
+    try {
+      const handle = await beginEpoch(bundle, { createdAt: '2025-01-02T03:04:06.000Z' })
+      handle.putRow('session', 'ses_a', sessionRow('ses_a') as never)
+      const seg = await writeProjectionSegment('session', [sessionRow('ses_a')] as never, { outDir: handle.tmpDir })
+      handle.registerSegment(seg.ref)
+      await sealEpoch(handle)
+      // Tamper the signed manifest to declare a fake segment digest
+      // while leaving epoch.manifest.json (unsigned) untouched. The
+      // dual-file cross-check must fire.
+      const signedPath = join(bundle.paths.root, 'epochs', '1', 'epoch.manifest.signed.json')
+      const raw = JSON.parse(await readFile(signedPath, 'utf8'))
+      raw.manifest.segments[0].digest = 'blake3:0000000000000000000000000000000000000000000000000000000000000001'
+      await writeFile(signedPath, `${JSON.stringify(raw, null, 2)}\n`)
+      await expect(rebuildIndex(bundle, { uuid: 'tamper1' })).rejects.toThrow(RebuildIntegrityError)
+    } finally {
+      await bundle.close()
+    }
+  })
+
+  it('CQ-046: rejects an extra projection segment not declared in the manifest', async () => {
+    const root = await tmp()
+    const bundle = await initBundle(root, { storeId: 'st_extra', createdAt: '2025-01-02T03:04:05.123Z' })
+    try {
+      const handle = await beginEpoch(bundle, { createdAt: '2025-01-02T03:04:06.000Z' })
+      handle.putRow('session', 'ses_a', sessionRow('ses_a') as never)
+      const seg = await writeProjectionSegment('session', [sessionRow('ses_a')] as never, { outDir: handle.tmpDir })
+      handle.registerSegment(seg.ref)
+      await sealEpoch(handle)
+      // Drop an extra projection file into the sealed epoch's
+      // projection dir; rebuild must refuse.
+      const extra = join(bundle.paths.root, 'epochs', '1', 'projection', 'project.prosa-projection.ndjson')
+      await writeFile(
+        extra,
+        new TextEncoder().encode(
+          '{"bundleFormat":2,"segmentKind":"projection_ndjson","entityType":"project","rowCount":0}\n',
+        ),
+      )
+      await expect(rebuildIndex(bundle, { uuid: 'extra1' })).rejects.toThrow(RebuildIntegrityError)
+    } finally {
+      await bundle.close()
+    }
+  })
+
+  it('CQ-046: rejects when manifest declares a projection segment missing from disk', async () => {
+    const root = await tmp()
+    const bundle = await initBundle(root, { storeId: 'st_miss', createdAt: '2025-01-02T03:04:05.123Z' })
+    try {
+      const handle = await beginEpoch(bundle, { createdAt: '2025-01-02T03:04:06.000Z' })
+      handle.putRow('session', 'ses_a', sessionRow('ses_a') as never)
+      const seg = await writeProjectionSegment('session', [sessionRow('ses_a')] as never, { outDir: handle.tmpDir })
+      handle.registerSegment(seg.ref)
+      await sealEpoch(handle)
+      const segPath = join(bundle.paths.root, 'epochs', '1', 'projection', 'session.prosa-projection.ndjson')
+      const { rm } = await import('node:fs/promises')
+      await rm(segPath)
+      await expect(rebuildIndex(bundle, { uuid: 'miss1' })).rejects.toThrow(RebuildIntegrityError)
+    } finally {
+      await bundle.close()
+    }
+  })
+
+  it('CQ-046: rejects a missing manifest pair (no silent skip)', async () => {
+    const root = await tmp()
+    const bundle = await initBundle(root, { storeId: 'st_missing', createdAt: '2025-01-02T03:04:05.123Z' })
+    try {
+      const handle = await beginEpoch(bundle, { createdAt: '2025-01-02T03:04:06.000Z' })
+      handle.putRow('session', 'ses_a', sessionRow('ses_a') as never)
+      const seg = await writeProjectionSegment('session', [sessionRow('ses_a')] as never, { outDir: handle.tmpDir })
+      handle.registerSegment(seg.ref)
+      await sealEpoch(handle)
+      // Remove the signed manifest; rebuild must refuse rather than
+      // silently skip digest checks for this epoch.
+      const { rm } = await import('node:fs/promises')
+      await rm(join(bundle.paths.root, 'epochs', '1', 'epoch.manifest.signed.json'))
+      await expect(rebuildIndex(bundle, { uuid: 'missing1' })).rejects.toThrow(RebuildIntegrityError)
+    } finally {
+      await bundle.close()
+    }
+  })
+
   it('CQ-043: rejects a drifted projection segment (digest mismatch vs manifest)', async () => {
     const root = await tmp()
     const bundle = await initBundle(root, { storeId: 'st_drift', createdAt: '2025-01-02T03:04:05.123Z' })

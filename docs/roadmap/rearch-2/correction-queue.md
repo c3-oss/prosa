@@ -19,14 +19,15 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
   - `docs/roadmap/rearch-2/evidence/lane-04.md`
 - Risk:
   - Ralph committed Lane 2 importer scaffolding (`004107c`) and began
-    untracked Lane 4 database work while Lane 1 still has open blocking
-    integrity corrections. Downstream work can start relying on unaccepted
+    Lane 4 database work while Lane 1 still has open blocking integrity
+    corrections. Those packages are now tracked workspace packages and can
+    participate in gates. Downstream work can start relying on unaccepted
     local-store authority and make the correction surface larger.
 - Required fix:
-  - Stop all Lane 2+ implementation work until `CQ-036` through `CQ-043` are
-    closed and Codex re-review accepts Lane 1.
-  - Mark committed Lane 2 work and any untracked Lane 4 work as out-of-sequence
-    WIP in status/evidence, not accepted lane progress.
+  - Stop all Lane 2+ implementation work until the current Lane 1 integrity
+    follow-ups are closed and Codex re-review accepts Lane 1.
+  - Mark committed Lane 2 work and Lane 4 work as out-of-sequence WIP in
+    status/evidence, not accepted lane progress.
   - Do not expand `packages/prosa-importers-v2`, `packages/prosa-db-v2`, or
     related lockfile/package wiring while Lane 1 blockers remain.
   - If lockfile/package wiring was changed only for out-of-sequence work,
@@ -34,7 +35,7 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
     gate until Lane 1 is accepted.
 - Acceptance criteria:
   - `status.md` and evidence clearly show Lane 2+ as blocked / unaccepted WIP.
-  - No new Lane 2+ commits are made while `CQ-036` through `CQ-043` remain
+  - No new Lane 2+ commits are made while Lane 1 or governance blockers remain
     open.
   - Any existing Lane 2+ artifacts are either inert and documented as WIP, or
     are moved out of the active acceptance path without destroying user data.
@@ -43,6 +44,74 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
   - Commands:
 
 ## Closed (latest first)
+
+### CQ-049: Add Durable Ref Symlink and Kind-Containment Rejection Coverage — closed 2026-05-18
+
+Added two targeted rejection tests in
+`packages/prosa-bundle-v2/test/unit/epoch-lifecycle.test.ts`:
+`CQ-049: rejects a symlink ref under the bundle root` (creates a real
+symlink under `tmp/epoch-N/projection/` pointing outside the bundle
+and confirms `sealEpoch` rejects with `/symlink/`) and
+`CQ-049: rejects a CAS pack registered under projection/` (builds a
+real CAS pack via `CasPackWriterPool`, renames it under
+`tmp/epoch-N/projection/`, and confirms `enforceKindContainment`
+rejects with `/not inside any expected location/`). Existing
+outside-bundle-root and nonexistent-ref tests still pass.
+
+### CQ-048: Add Targeted `search_doc` Session and Project FK Tests — closed 2026-05-18
+
+Added three tests in
+`packages/prosa-bundle-v2/test/unit/epoch-lifecycle.test.ts`:
+`CQ-048: rejects a search_doc whose session_id references no session
+row`, `CQ-048: rejects a search_doc whose project_id references no
+project row`, and `CQ-048: accepts a search_doc with null session_id
+and null project_id`. The CQ-041 FK_RULES additions are now
+load-bearing in CI; the nullable path remains accepted.
+
+### CQ-047: Enforce Raw-Source Pack and `source_file` Row Bijection — closed 2026-05-18
+
+`sealEpoch` now requires every verified raw-source pack entry to
+correspond to a sealed `source_file` row in this epoch (previous
+implementation allowed pack entries when only `handle.rawSourceEntries()`
+matched, or when no source_file rows existed at all). Raw bytes that
+are not represented in the canonical projection cannot be published.
+`RawSourcePackWriterPool.appendSourceFile` now tracks the BLAKE3 of
+bytes per `source_file_id` and throws
+`RawSourcePoolConflictError` when a second append carries different
+content (previously silently kept the first writer's bytes, masking
+cross-provider source-byte disagreement). The earlier orchestrator
+backfill now rejects cleanly instead of papering over the conflict.
+Added tests
+`CQ-047: rejects re-append of source_file_id with different bytes`
+and `CQ-048: rejects a raw-source pack with orphan entries`.
+
+### CQ-046: Fail Cold Rebuild on Missing or Unmanifested Projection Data — closed 2026-05-18
+
+`loadProjectionDigests` (in `packages/prosa-bundle-v2/src/rebuild/index.ts`)
+now (a) reads both `epoch.manifest.json` and `epoch.manifest.signed.json`
+and throws `RebuildIntegrityError` when either is missing, (b)
+canonical-encodes the signed manifest's `manifest` body and asserts
+byte equality against the unsigned manifest bytes (catches segment
+digest rewrites), and (c) for the current head epoch, verifies
+`blake3(epoch.manifest.json) === head.json.manifestDigest`. The
+rebuild walk now (a) throws if any projection file on disk is not
+declared in the manifest, and (b) throws if the manifest declares a
+projection segment that is missing on disk. Added tests
+`CQ-046: rejects a tampered signed manifest (segment digest rewrite)`,
+`CQ-046: rejects an extra projection segment not declared in the manifest`,
+`CQ-046: rejects when manifest declares a projection segment missing from disk`,
+and `CQ-046: rejects a missing manifest pair (no silent skip)`. Older
+non-head epoch chain anchoring (Merkle via `previousBundleRoot`) and
+full Ed25519 wiring remain follow-up scope.
+
+### CQ-045: Reconcile Closeout Evidence With `5e5ca20` — closed 2026-05-18
+
+Status/gates/evidence updated to reflect the new HEAD landing this
+correction range, working-tree state, focused gate counts
+(`@c3-oss/prosa-bundle-v2` 102/102, root `pnpm test` 12/12 turbo,
+`pnpm typecheck` 12/12, `pnpm lint` 12/12), and the open status of
+`CQ-044`. The "pending closeout commit" wording from the previous
+closeout is removed.
 
 ### CQ-043: Harden Cold Rebuild Before Lane 1 Acceptance — closed 2026-05-18
 

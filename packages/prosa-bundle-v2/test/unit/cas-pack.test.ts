@@ -131,25 +131,23 @@ describe('CAS pack (build/verify)', () => {
     // Pad/truncate to keep header_len stable; if length differs we have
     // to rebuild a different shape pack — instead, ensure the JSON has
     // the same byte length by tweaking. Skip if lengths differ.
+    // CQ-049 / reviewer-F4: assert the canonical-JSON rejection
+    // specifically, regardless of whether the reorder changed length.
+    // Both branches recompute header_blake3 so the framing layer
+    // accepts the new prefix and the canonical check is what must
+    // fire.
     if (reorderedJson.length !== json.length) {
-      // The reorder shifted byte length; canonical-JSON guarantees a
-      // single deterministic length, so this is expected. Build a
-      // padded buffer that fits the new header length and re-frame.
-      // Easiest path: just confirm the new header is NOT canonical by
-      // running verifyCasPack on a buffer with the new header length.
       const newBuf = new Uint8Array(headerStart + reorderedJson.length + (buf.byteLength - headerStart - headerLen))
       newBuf.set(buf.subarray(0, headerStart))
       new TextEncoder().encodeInto(reorderedJson, newBuf.subarray(headerStart))
       newBuf.set(buf.subarray(headerStart + headerLen), headerStart + reorderedJson.length)
-      // Recompute header_len + header_blake3.
       const dv = new DataView(newBuf.buffer, newBuf.byteOffset, newBuf.byteLength)
       dv.setUint32(20, reorderedJson.length, true)
       const { blake3 } = await import('@noble/hashes/blake3')
       newBuf.set(blake3(new TextEncoder().encode(reorderedJson)), 24)
-      expect(() => verifyCasPack(newBuf)).toThrow(CasPackVerifyError)
+      expect(() => verifyCasPack(newBuf)).toThrow(/not canonical/)
       return
     }
-    // If lengths match, in-place mutation works.
     const newBuf = new Uint8Array(buf)
     new TextEncoder().encodeInto(reorderedJson, newBuf.subarray(headerStart))
     const { blake3 } = await import('@noble/hashes/blake3')

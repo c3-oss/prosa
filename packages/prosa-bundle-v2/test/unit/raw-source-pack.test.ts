@@ -148,7 +148,9 @@ describe('raw source pack (build/verify)', () => {
     dv.setUint32(20, reorderedJson.length, true)
     const { blake3 } = await import('@noble/hashes/blake3')
     newBuf.set(blake3(new TextEncoder().encode(reorderedJson)), 24)
-    expect(() => verifyRawSourcePack(newBuf)).toThrow(RawSourcePackVerifyError)
+    // CQ-049 / reviewer-F4: assert the canonical-JSON rejection
+    // specifically, not just any verify error.
+    expect(() => verifyRawSourcePack(newBuf)).toThrow(/not canonical/)
   })
 
   it('CQ-042: rejects header bytes with extra whitespace (canonical-JSON pin)', async () => {
