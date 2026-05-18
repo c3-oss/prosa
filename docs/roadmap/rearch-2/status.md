@@ -37,11 +37,11 @@ Ralph active: yes
 | --- | --- | --- | --- |
 | CQ-044 | high | Ralph | Contain out-of-sequence Lane 2+ work until Lane 1 acceptance. |
 
-CQ-036..CQ-043 closed at `5e5ca20`. CQ-045..CQ-049 closed in the
-working tree (pending closeout commit; addresses Codex's follow-up
-findings on CQ-037 / CQ-038 / CQ-041 / CQ-043 + reviewer findings on
-manifest-tampering, cross-provider source-byte disagreement, and
-canonical-header test scope).
+CQ-036..CQ-043 closed at `5e5ca20`. CQ-045..CQ-049 closed at
+`ea615dd`. CQ-050..CQ-051 closed in the working tree (pending
+closeout commit; addresses reviewer-F2 head.json digest pin
+strip-bypass + reviewer-F4 symlinked-bundle-root false-positive in
+kind containment).
 
 ## Latest Gates
 

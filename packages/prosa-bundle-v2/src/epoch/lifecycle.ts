@@ -32,7 +32,7 @@
 // crashed sealer or rebuilder leaves no half-written bytes behind.
 
 import { lstat, mkdir, readFile, readdir, realpath, rename, rm, stat } from 'node:fs/promises'
-import { dirname, isAbsolute, relative, sep } from 'node:path'
+import { dirname, isAbsolute, join, relative, sep } from 'node:path'
 
 import {
   type BundleCountsV2,
@@ -631,22 +631,28 @@ function enforceKindContainment(
   handle: EpochHandle,
   bundleRootAbs: string,
 ): void {
-  const paths = handle.bundle.paths
-  const epochTmpAbs = handle.tmpDir
+  // CQ-051 (reviewer-F4): build allowed dirs from the realpath'd
+  // bundle root so callers that opened the bundle via a symlink
+  // (e.g. /var → /private/var on macOS, or symlinked deploy roots)
+  // get consistent realpath comparisons. Previously the allowed
+  // dirs were derived from `bundle.paths.X` (raw paths), so a
+  // legitimate pack in `cas/packs/` could be rejected because
+  // realPath had been resolved but the allowed dir hadn't.
   const epochPermanentAbs = epochDir(bundleRootAbs, handle.epoch)
+  const epochTmpAbs = join(bundleRootAbs, 'tmp', `epoch-${handle.epoch}`)
   const allowed: string[] = []
   switch (ref.kind) {
     case 'projection_arrow':
     case 'projection_parquet':
-      allowed.push(`${epochTmpAbs}${sep}projection`)
-      allowed.push(`${epochPermanentAbs}${sep}projection`)
+      allowed.push(join(epochTmpAbs, 'projection'))
+      allowed.push(join(epochPermanentAbs, 'projection'))
       break
     case 'cas_object_pack':
-      allowed.push(paths.casPacks)
-      allowed.push(paths.casLarge)
+      allowed.push(join(bundleRootAbs, 'cas', 'packs'))
+      allowed.push(join(bundleRootAbs, 'cas', 'large'))
       break
     case 'raw_source_pack':
-      allowed.push(paths.rawSourcePacks)
+      allowed.push(join(bundleRootAbs, 'raw_sources', 'packs'))
       break
     case 'manifest':
       allowed.push(epochTmpAbs)

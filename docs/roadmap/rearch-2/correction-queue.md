@@ -4,6 +4,54 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 ## Open
 
+### CQ-050: Reconcile Governance Artifacts After `ea615dd`
+
+- Severity: high
+- Blocking: yes
+- Owner: Ralph
+- Scope:
+  - `docs/roadmap/rearch-2/status.md`
+  - `docs/roadmap/rearch-2/gates.md`
+  - `docs/roadmap/rearch-2/evidence/lane-00.md`
+  - `docs/roadmap/rearch-2/evidence/lane-01.md`
+  - `docs/roadmap/rearch-2/evidence/lane-02.md`
+  - `docs/roadmap/rearch-2/evidence/lane-04.md`
+  - `docs/roadmap/rearch-2/ralph-loop-prompt.md`
+  - `docs/roadmap/rearch-2/correction-queue.md`
+- Risk:
+  - `ea615dd` marks `CQ-045` through `CQ-049` closed, and Codex review found
+    the code/test fixes for `CQ-046` through `CQ-049` substantively closed.
+    But durable governance artifacts still describe pre-`ea615dd` state:
+    `status.md` says HEAD `5e5ca20`, `status.md` / `gates.md` /
+    `lane-01.md` still mention pending closeout or working-tree fixes, and
+    `ralph-loop-prompt.md` still says `CQ-044` through `CQ-049` are current
+    blockers.
+  - Lane 2 and Lane 4 evidence also still present out-of-sequence packages as
+    landed progress in some places instead of unaccepted WIP under `CQ-044`.
+- Required fix:
+  - Update all scoped artifacts to actual HEAD `ea615dd` or the newer
+    correction HEAD.
+  - Remove all stale "pending closeout commit", "working tree fixes", and
+    pre-`ea615dd` focused-count language.
+  - Record current open blockers as `CQ-044` and `CQ-050` until this item is
+    closed.
+  - Record Codex focused gates after `ea615dd`: bundle-v2 102, types-v2 89,
+    wire-v2 21, conformance 15, importers-v2 8, db-v2 6, bundle-v2
+    typecheck/lint, and `git diff --check`.
+  - Mark Lane 2 importer and Lane 4 DB packages consistently as
+    out-of-sequence, active workspace WIP, not accepted lane progress.
+- Acceptance criteria:
+  - `status.md`, `gates.md`, lane evidence, prompt, and correction queue agree
+    on HEAD, clean worktree, open blockers, focused gate counts, and
+    out-of-sequence Lane 2/4 status.
+  - No artifact claims `CQ-045` through `CQ-049` are pending-local after they
+    are committed.
+  - `CQ-044` remains open until Lane 2/4 containment evidence is consistent
+    and Codex accepts Lane 1.
+- Evidence required:
+  - Commit(s):
+  - Commands:
+
 ### CQ-044: Contain Out-of-Sequence Lane 2+ Work Until Lane 1 Acceptance
 
 - Severity: high
@@ -44,6 +92,35 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
   - Commands:
 
 ## Closed (latest first)
+
+### CQ-051: Realpath Allowed Dirs in enforceKindContainment — closed 2026-05-18
+
+Reviewer-F4: `enforceKindContainment` compared the realpath'd ref
+path against allowed dirs derived from the **raw** `bundle.paths.*`
+(non-realpath'd). In symlinked-bundle-root environments
+(`/var → /private/var` on macOS, deploy-symlink layouts) this
+produced spurious `DurabilityError`s on legitimate packs. Fixed by
+constructing allowed dirs from `bundleRootAbs` (the realpath'd
+bundle root) — `join(bundleRootAbs, 'cas', 'packs')` etc — so both
+sides of the `relative()` comparison live on the same realpath
+prefix. Same fix applied to `epochTmpAbs`.
+
+### CQ-050: Require Non-Empty head.json.manifestDigest for Current Head Epoch — closed 2026-05-18
+
+Reviewer-F2: the previous CQ-046 guard
+`if (bundle.head.manifestDigest)` silently skipped the pin when the
+field was missing/empty (an attacker controlling head.json could
+strip the field to disable the check). Now rebuild throws
+`RebuildIntegrityError` if `manifestDigest` is undefined/null/empty
+for the current head epoch. Added tests
+`CQ-050: rejects a tampered unsigned manifest (head.json digest pin)`
+(re-encodes both signed+unsigned in lockstep so the dual-file
+equality check passes, then asserts the head pin catches the tamper)
+and `CQ-050: rejects when head.json.manifestDigest is missing for
+the current head epoch`. The orphan-pack test's regex was also
+tightened (it was matching on the fixture id `src_orphan` rather
+than the actual CQ-047 error text); now uses `src_x` and asserts
+`/no matching source_file row in this epoch.*CQ-047/i`.
 
 ### CQ-049: Add Durable Ref Symlink and Kind-Containment Rejection Coverage — closed 2026-05-18
 

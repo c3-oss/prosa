@@ -275,15 +275,26 @@ async function loadProjectionDigests(bundle: Bundle, epoch: number): Promise<Map
     )
   }
 
-  // For the current head epoch, also pin the unsigned bytes against
+  // For the current head epoch, pin the unsigned bytes against
   // head.json's manifestDigest. Older epochs lack a stored
   // authoritative digest at this stage; the previousBundleRoot chain
   // is the longer-term anchor.
-  if (epoch === bundle.head.epoch && bundle.head.manifestDigest) {
-    const actual = `blake3:${toHex(blake3(unsignedBytes))}`
-    if (actual !== bundle.head.manifestDigest) {
+  //
+  // CQ-050 (reviewer-F2): require `manifestDigest` to be a non-empty
+  // tagged-hash string for the current head. A missing field
+  // (undefined/null/'') is itself an integrity failure — an attacker
+  // could otherwise strip it to silently disable the pin check.
+  if (epoch === bundle.head.epoch) {
+    const declared = bundle.head.manifestDigest
+    if (typeof declared !== 'string' || declared.length === 0) {
       throw new RebuildIntegrityError(
-        `rebuildIndex: epoch ${epoch} manifest blake3 ${actual} does not match head.json manifestDigest ${bundle.head.manifestDigest}`,
+        `rebuildIndex: epoch ${epoch} is current head but head.json.manifestDigest is missing or empty`,
+      )
+    }
+    const actual = `blake3:${toHex(blake3(unsignedBytes))}`
+    if (actual !== declared) {
+      throw new RebuildIntegrityError(
+        `rebuildIndex: epoch ${epoch} manifest blake3 ${actual} does not match head.json manifestDigest ${declared}`,
       )
     }
   }

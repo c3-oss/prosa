@@ -312,14 +312,17 @@ describe('beginEpoch + sealEpoch', () => {
     }
   })
 
-  it('CQ-048: rejects a raw-source pack with orphan entries (no source_file row and no putRawSource)', async () => {
+  it('CQ-047: rejects a raw-source pack with orphan entries (no source_file row, no putRawSource)', async () => {
     const root = await tmpDir()
     const bundle = await initBundle(root, { storeId: 'st_orphan', createdAt: '2025-01-02T03:04:05.123Z' })
     try {
       const handle = await beginEpoch(bundle, { createdAt: '2025-01-02T03:04:06.000Z' })
       // Register a real raw-source pack with one entry but do NOT
       // call handle.putRawSource() and do NOT putRow('source_file').
-      const pack = await makeRawSourcePack(bundle, 'src_orphan', new TextEncoder().encode('orphan-bytes'))
+      // The fixture id deliberately contains none of the regex
+      // alternatives below so the assertion only matches the real
+      // CQ-047 error text.
+      const pack = await makeRawSourcePack(bundle, 'src_x', new TextEncoder().encode('orphan-bytes'))
       handle.registerSegment({
         kind: 'raw_source_pack',
         path: pack.packPath,
@@ -332,7 +335,7 @@ describe('beginEpoch + sealEpoch', () => {
       handle.putRow('session', 'ses_a', sessionRow('ses_a') as never)
       const sessSeg = await writeProjectionSegment('session', [sessionRow('ses_a')] as never, { outDir: handle.tmpDir })
       handle.registerSegment(sessSeg.ref)
-      await expect(sealEpoch(handle)).rejects.toThrow(/CQ-048|orphan|no matching source_file row or handle/i)
+      await expect(sealEpoch(handle)).rejects.toThrow(/no matching source_file row in this epoch.*CQ-047/i)
     } finally {
       await bundle.close()
     }

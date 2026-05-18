@@ -206,6 +206,74 @@ describe('rebuildIndex', () => {
     }
   })
 
+  it('CQ-050: rejects a tampered unsigned manifest (head.json digest pin)', async () => {
+    const root = await tmp()
+    const bundle = await initBundle(root, { storeId: 'st_unsigned_tamper', createdAt: '2025-01-02T03:04:05.123Z' })
+    try {
+      const handle = await beginEpoch(bundle, { createdAt: '2025-01-02T03:04:06.000Z' })
+      handle.putRow('session', 'ses_a', sessionRow('ses_a') as never)
+      const seg = await writeProjectionSegment('session', [sessionRow('ses_a')] as never, { outDir: handle.tmpDir })
+      handle.registerSegment(seg.ref)
+      await sealEpoch(handle)
+      // Tamper epoch.manifest.json + the signed manifest body in
+      // lockstep so the dual-file equality check still passes; the
+      // head.json.manifestDigest pin must fire.
+      const unsignedPath = join(bundle.paths.root, 'epochs', '1', 'epoch.manifest.json')
+      const signedPath = join(bundle.paths.root, 'epochs', '1', 'epoch.manifest.signed.json')
+      const unsigned = JSON.parse(await readFile(unsignedPath, 'utf8'))
+      unsigned.segments[0].digest = 'blake3:0000000000000000000000000000000000000000000000000000000000000002'
+      const canon = (v: unknown): string => {
+        if (v === null) return 'null'
+        if (typeof v === 'boolean') return v ? 'true' : 'false'
+        if (typeof v === 'number') return String(v)
+        if (typeof v === 'string') return JSON.stringify(v)
+        if (Array.isArray(v)) return `[${v.map(canon).join(',')}]`
+        if (typeof v === 'object') {
+          const o = v as Record<string, unknown>
+          const ks = Object.keys(o).sort()
+          return `{${ks.map((k) => `${JSON.stringify(k)}:${canon(o[k])}`).join(',')}}`
+        }
+        throw new Error('canon: unsupported')
+      }
+      await writeFile(unsignedPath, canon(unsigned))
+      const signed = JSON.parse(await readFile(signedPath, 'utf8'))
+      signed.manifest = unsigned
+      await writeFile(signedPath, `${JSON.stringify(signed, null, 2)}\n`)
+      await expect(rebuildIndex(bundle, { uuid: 'unsigned1' })).rejects.toThrow(/manifestDigest/)
+    } finally {
+      await bundle.close()
+    }
+  })
+
+  it('CQ-050: rejects when head.json.manifestDigest is missing for the current head epoch', async () => {
+    const root = await tmp()
+    const bundle = await initBundle(root, { storeId: 'st_strip_digest', createdAt: '2025-01-02T03:04:05.123Z' })
+    try {
+      const handle = await beginEpoch(bundle, { createdAt: '2025-01-02T03:04:06.000Z' })
+      handle.putRow('session', 'ses_a', sessionRow('ses_a') as never)
+      const seg = await writeProjectionSegment('session', [sessionRow('ses_a')] as never, { outDir: handle.tmpDir })
+      handle.registerSegment(seg.ref)
+      await sealEpoch(handle)
+      const headPath = bundle.paths.headJson
+      await bundle.close()
+      const head = JSON.parse(await readFile(headPath, 'utf8'))
+      head.manifestDigest = ''
+      await writeFile(headPath, `${JSON.stringify(head, null, 2)}\n`)
+      const { openBundle } = await import('../../src/bundle/bundle.js')
+      const reopened = await openBundle(root)
+      try {
+        await expect(rebuildIndex(reopened, { uuid: 'stripdigest1' })).rejects.toThrow(
+          /manifestDigest is missing or empty/,
+        )
+      } finally {
+        await reopened.close()
+      }
+    } catch (e) {
+      await bundle.close().catch(() => undefined)
+      throw e
+    }
+  })
+
   it('CQ-046: rejects a missing manifest pair (no silent skip)', async () => {
     const root = await tmp()
     const bundle = await initBundle(root, { storeId: 'st_missing', createdAt: '2025-01-02T03:04:05.123Z' })
