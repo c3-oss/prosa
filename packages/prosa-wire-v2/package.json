@@ -1,0 +1,47 @@
+{
+  "name": "@c3-oss/prosa-wire-v2",
+  "version": "0.1.0",
+  "description": "Zod wire schemas for the prosa v2 four-call promotion protocol.",
+  "author": "Caian Ertl <hi@caian.org>",
+  "license": "MIT",
+  "type": "module",
+  "private": true,
+  "homepage": "https://github.com/c3-oss/prosa#readme",
+  "bugs": {
+    "url": "https://github.com/c3-oss/prosa/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/c3-oss/prosa.git",
+    "directory": "packages/prosa-wire-v2"
+  },
+  "files": ["dist"],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "prosa-dev": "./src/index.ts",
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "lint": "biome check .",
+    "lint:fix": "biome check --fix .",
+    "clean": "rm -rf dist coverage .turbo"
+  },
+  "dependencies": {
+    "@c3-oss/prosa-types-v2": "workspace:*",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@c3-oss/config-biome": "^0.3.1",
+    "@c3-oss/config-tsup": "^0.2.0",
+    "@c3-oss/config-typescript": "^0.1.0",
+    "@c3-oss/config-vitest": "^0.3.0"
+  }
+}

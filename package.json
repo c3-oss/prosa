@@ -26,6 +26,8 @@
     "format": "biome format --write .",
     "test": "turbo test",
     "test:coverage": "turbo test:coverage",
+    "test:conformance": "vitest run",
+    "generate:canonical-fixture": "tsx test/conformance/generate-expected.ts",
     "typecheck": "turbo typecheck",
     "docs": "typedoc --options typedoc.json",
     "docs:check": "typedoc --options typedoc.json --emit none",
