@@ -111,13 +111,32 @@ export async function rebuildIndex(bundle: Bundle, options: RebuildIndexOptions 
 
   const epochs = await listSealedEpochs(bundle)
 
-  // CQ-053: when head.epoch > 0 the current head epoch directory must
-  // exist on disk; rebuilding without it would silently install an
-  // empty index and bypass every downstream integrity check (including
-  // the head.json.manifestDigest pin in loadProjectionDigests).
-  if (bundle.head.epoch > 0 && !epochs.includes(bundle.head.epoch)) {
+  // CQ-053 + CQ-056: head.json is authoritative for the epoch set.
+  // The on-disk `epochs/` directory must equal exactly the contiguous
+  // range `[1..head.epoch]`. Any stray epoch directory > head.epoch is
+  // refused (stray content with no head authority). Any missing
+  // epoch <= head.epoch is refused (silent gap that would otherwise
+  // install an index missing prior epoch data). Empty bundles
+  // (head.epoch === 0) require zero epoch directories.
+  const expectedEpochs = new Set<number>()
+  for (let n = 1; n <= bundle.head.epoch; n++) expectedEpochs.add(n)
+  const onDiskEpochs = new Set(epochs)
+  const stray: number[] = []
+  for (const n of onDiskEpochs) {
+    if (!expectedEpochs.has(n)) stray.push(n)
+  }
+  if (stray.length > 0) {
     throw new RebuildIntegrityError(
-      `rebuildIndex: head.json declares epoch ${bundle.head.epoch} but epochs/${bundle.head.epoch}/ is missing (CQ-053)`,
+      `rebuildIndex: head.json declares epoch ${bundle.head.epoch} but epochs/ contains stray directories not under head authority: ${stray.sort((a, b) => a - b).join(', ')} (CQ-056)`,
+    )
+  }
+  const missing: number[] = []
+  for (const n of expectedEpochs) {
+    if (!onDiskEpochs.has(n)) missing.push(n)
+  }
+  if (missing.length > 0) {
+    throw new RebuildIntegrityError(
+      `rebuildIndex: head.json declares epoch ${bundle.head.epoch} but the contiguous epoch range is missing: ${missing.sort((a, b) => a - b).join(', ')} (CQ-053 / CQ-056)`,
     )
   }
 

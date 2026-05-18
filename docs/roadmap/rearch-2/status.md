@@ -11,7 +11,7 @@ Completion signal: RALPH_DONE
 
 Status: in-progress (correction required after Codex review)
 Current lane: corrections before further Lane 1 / any Lane 2 work
-Current HEAD: `ecc80a3`
+Current HEAD: `1e81888`
 No-change streak: 0
 Ralph active: yes
 
@@ -20,7 +20,7 @@ Ralph active: yes
 | Lane | Owner | Status | Commit(s) | Evidence |
 | --- | --- | --- | --- | --- |
 | 00 - Foundation | Ralph | correction | `cd845f2`, `e22ec27`, `b78b5ae`, `70b9df0`, `0e8a912`, `a650ef8`, `2809d21` | `evidence/lane-00.md` |
-| 01 - Local store | Ralph | partial-correction | `4f214b7`, `2b5ad1b`, `433c32f`, `a650ef8`, `6097f9e`, `5a6a683`, `2809d21`, `5e5ca20`, `ea615dd`, `5e4b5e7`, `ecc80a3`, plus pending CQ-053..CQ-055 commit | `evidence/lane-01.md` |
+| 01 - Local store | Ralph | partial-correction | `4f214b7`, `2b5ad1b`, `433c32f`, `a650ef8`, `6097f9e`, `5a6a683`, `2809d21`, `5e5ca20`, `ea615dd`, `5e4b5e7`, `ecc80a3`, `1419d92`, `1e81888`, `adee042`, plus pending CQ-056..CQ-059 commit | `evidence/lane-01.md` |
 | 02 - Importers | Ralph | blocked-on-lane-01 | `004107c` (out-of-sequence WIP, unaccepted) | `evidence/lane-02.md` |
 | 03 - Derived layer | Ralph | blocked-on-lane-02 | | `evidence/lane-03.md` |
 | 04 - Server | Ralph | blocked-on-lane-00 | | `evidence/lane-04.md` |
@@ -38,12 +38,13 @@ Ralph active: yes
 | CQ-044 | high | Ralph | Contain out-of-sequence Lane 2+ work until Lane 1 acceptance. |
 
 CQ-036..CQ-043 closed at `5e5ca20`. CQ-045..CQ-049 closed at
-`ea615dd`. CQ-050..CQ-052 closed by `5e4b5e7` / `ecc80a3`.
-CQ-053..CQ-055 closed in the pending closeout commit (rebuild
-fails closed on missing head/projection dirs, symlinked-bundle-root
-happy-path test, governance reconciliation). Only `CQ-044` remains
-open (procedural Lane 2/4 containment, clears with Codex's Lane 1
-acceptance).
+`ea615dd`. CQ-050..CQ-055 closed by `5e4b5e7` / `ecc80a3` /
+`1419d92` / `1e81888`. Lane 0 evidence refreshed in `adee042`.
+CQ-056..CQ-059 closed in the pending closeout commit (head.json
+authority over the on-disk epoch set, atomic-rebuild proof, positive
+CAS containment under symlinked root, governance reconcile). `CQ-044`
+remains open until Lane 1 is accepted by Codex and Lane 2/4 work is
+formally accepted into the active acceptance path.
 
 ## Latest Gates
 
@@ -53,7 +54,7 @@ acceptance).
 | `pnpm i` | pass | `pnpm install --frozen-lockfile`-compatible; only pre-existing peer warnings (`@c3-oss/config-vitest` wants vitest ^3.1.1, repo on 2.1.9). |
 | `pnpm build` | pass | 10/10 turbo tasks (includes `@c3-oss/prosa-bundle-v2`). |
 | `just typecheck` | pass | 10/10 turbo tasks. |
-| `just test-all` | pass | 12/12 turbo (`pnpm test` proxy). Focused counts after CQ-053/CQ-054: types-v2 89, wire-v2 21, conformance 15, bundle-v2 **107** (+CQ-053 missing-head-epoch / missing-projection-dir x2, +CQ-054 symlinked-bundle-root happy-path x1), importers-v2 8, db-v2 6. |
+| `just test-all` | pass | 12/12 turbo (`pnpm test` proxy). Focused counts after CQ-056..CQ-058: types-v2 89, wire-v2 21, conformance 15, bundle-v2 **111** (+CQ-056 head-authority stray/gap x2, +CQ-057 atomic-rebuild x1, +CQ-058 symlinked-root CAS x1), importers-v2 8, db-v2 6. |
 | `just lint-all` | pass | 10/10 turbo tasks. |
 | `pnpm test:conformance` | pass | 15 tests; 13 entity leaves stable. |
 | `pnpm audit --audit-level moderate` | classified pass | 8 findings (1 low / 6 moderate / 1 high), all pre-existing on `master`; only `apps__cli>ink>ws` touches a non-dev path. Classified in `gates.md`. |

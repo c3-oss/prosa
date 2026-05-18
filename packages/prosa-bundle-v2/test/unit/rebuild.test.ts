@@ -311,6 +311,90 @@ describe('rebuildIndex', () => {
     }
   })
 
+  it('CQ-056: rejects rebuild when an epoch directory greater than head.epoch is present', async () => {
+    const root = await tmp()
+    const bundle = await initBundle(root, { storeId: 'st_stray_epoch', createdAt: '2025-01-02T03:04:05.123Z' })
+    try {
+      const handle = await beginEpoch(bundle, { createdAt: '2025-01-02T03:04:06.000Z' })
+      handle.putRow('session', 'ses_a', sessionRow('ses_a') as never)
+      const seg = await writeProjectionSegment('session', [sessionRow('ses_a')] as never, { outDir: handle.tmpDir })
+      handle.registerSegment(seg.ref)
+      await sealEpoch(handle)
+      // head.epoch is 1; create a stray epochs/2 directory.
+      const { mkdir } = await import('node:fs/promises')
+      await mkdir(join(bundle.paths.root, 'epochs', '2'), { recursive: true })
+      await expect(rebuildIndex(bundle, { uuid: 'stray1' })).rejects.toThrow(/CQ-056/)
+    } finally {
+      await bundle.close()
+    }
+  })
+
+  it('CQ-056: rejects rebuild when a non-contiguous epoch directory below head is missing', async () => {
+    const root = await tmp()
+    const bundle = await initBundle(root, { storeId: 'st_gap_epoch', createdAt: '2025-01-02T03:04:05.123Z' })
+    try {
+      // Seal epoch 1 then epoch 2.
+      const h1 = await beginEpoch(bundle, { createdAt: '2025-01-02T03:04:06.000Z' })
+      h1.putRow('session', 'ses_a', sessionRow('ses_a') as never)
+      const s1 = await writeProjectionSegment('session', [sessionRow('ses_a')] as never, { outDir: h1.tmpDir })
+      h1.registerSegment(s1.ref)
+      await sealEpoch(h1)
+      const h2 = await beginEpoch(bundle, { createdAt: '2025-01-02T03:04:07.000Z' })
+      h2.putRow('session', 'ses_b', sessionRow('ses_b') as never)
+      const s2 = await writeProjectionSegment('session', [sessionRow('ses_b')] as never, { outDir: h2.tmpDir })
+      h2.registerSegment(s2.ref)
+      await sealEpoch(h2)
+      // Delete epochs/1 to create a gap; head.epoch is still 2.
+      const { rm } = await import('node:fs/promises')
+      await rm(join(bundle.paths.root, 'epochs', '1'), { recursive: true, force: true })
+      await expect(rebuildIndex(bundle, { uuid: 'gap1' })).rejects.toThrow(/CQ-056|CQ-053/)
+    } finally {
+      await bundle.close()
+    }
+  })
+
+  it('CQ-057: failed rebuild does not replace or archive existing index/', async () => {
+    const root = await tmp()
+    const bundle = await initBundle(root, { storeId: 'st_atomic_fail', createdAt: '2025-01-02T03:04:05.123Z' })
+    try {
+      const handle = await beginEpoch(bundle, { createdAt: '2025-01-02T03:04:06.000Z' })
+      handle.putRow('session', 'ses_a', sessionRow('ses_a') as never)
+      const seg = await writeProjectionSegment('session', [sessionRow('ses_a')] as never, { outDir: handle.tmpDir })
+      handle.registerSegment(seg.ref)
+      await sealEpoch(handle)
+      // First rebuild to install a recognizable index/ marker file.
+      await rebuildIndex(bundle, { uuid: 'baseline' })
+      const { mkdir, readdir, readFile } = await import('node:fs/promises')
+      const indexBefore = await readdir(bundle.paths.index)
+      indexBefore.sort()
+      const baselineManifest = await readFile(join(bundle.paths.index, 'rebuild.manifest'), 'utf8')
+      const headBefore = await readFile(bundle.paths.headJson, 'utf8')
+      const rootBefore = await readdir(bundle.paths.root)
+      const oldIndexBefore = rootBefore.filter((n) => n.startsWith('index-old-')).sort()
+      // Now break the bundle so the next rebuild fails: add a stray epoch
+      // directory greater than head.epoch.
+      await mkdir(join(bundle.paths.root, 'epochs', '99'), { recursive: true })
+      await expect(rebuildIndex(bundle, { uuid: 'fail1' })).rejects.toThrow(/CQ-056/)
+      const indexAfter = await readdir(bundle.paths.index)
+      indexAfter.sort()
+      const headAfter = await readFile(bundle.paths.headJson, 'utf8')
+      const manifestAfter = await readFile(join(bundle.paths.index, 'rebuild.manifest'), 'utf8')
+      const rootAfter = await readdir(bundle.paths.root)
+      const oldIndexAfter = rootAfter.filter((n) => n.startsWith('index-old-')).sort()
+      // Existing index/ contents unchanged.
+      expect(indexAfter).toEqual(indexBefore)
+      // rebuild.manifest body is the same baseline (failed rebuild
+      // never overwrote it).
+      expect(manifestAfter).toBe(baselineManifest)
+      // head.json untouched.
+      expect(headAfter).toBe(headBefore)
+      // No new index-old-* archive directory.
+      expect(oldIndexAfter).toEqual(oldIndexBefore)
+    } finally {
+      await bundle.close()
+    }
+  })
+
   it('CQ-046: rejects a missing manifest pair (no silent skip)', async () => {
     const root = await tmp()
     const bundle = await initBundle(root, { storeId: 'st_missing', createdAt: '2025-01-02T03:04:05.123Z' })

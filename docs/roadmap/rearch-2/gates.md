@@ -7,7 +7,7 @@
 | `pnpm i` | yes | pass | `pnpm install --frozen-lockfile`-compatible. Pre-existing peer warning: `@c3-oss/config-vitest@0.3.0` wants vitest ^3.1.1, repo on 2.1.9. |
 | `pnpm build` | yes | pass | 10/10 turbo tasks (now includes `@c3-oss/prosa-bundle-v2`). |
 | `just typecheck` | yes | pass | 10/10 turbo tasks. |
-| `just test-all` | yes | pass | 12/12 turbo at HEAD post-CQ-053/CQ-054. Focused counts: `@c3-oss/prosa-types-v2` 89, `@c3-oss/prosa-wire-v2` 21, conformance 15, `@c3-oss/prosa-bundle-v2` **107** (Lane 1 hardening: CQ-042 x2 + CQ-043 x1 + CQ-046 x4 + CQ-047 x2 + CQ-048 x3 + CQ-049 x2 + CQ-050 x2 + CQ-053 x2 + CQ-054 x1), `@c3-oss/prosa-importers-v2` 8 (out-of-sequence WIP, CQ-044), `@c3-oss/prosa-db-v2` 6 (out-of-sequence WIP, CQ-044). |
+| `just test-all` | yes | pass | 12/12 turbo at HEAD post-CQ-056..CQ-058. Focused counts: `@c3-oss/prosa-types-v2` 89, `@c3-oss/prosa-wire-v2` 21, conformance 15, `@c3-oss/prosa-bundle-v2` **111** (Lane 1 hardening: CQ-042 x2 + CQ-043 x1 + CQ-046 x4 + CQ-047 x2 + CQ-048 x3 + CQ-049 x2 + CQ-050 x2 + CQ-053 x2 + CQ-054 x1 + CQ-056 x2 + CQ-057 x1 + CQ-058 x1), `@c3-oss/prosa-importers-v2` 8 (out-of-sequence WIP, CQ-044), `@c3-oss/prosa-db-v2` 6 (out-of-sequence WIP, CQ-044). |
 | `just lint-all` | yes | pass | 10/10 turbo tasks. |
 | `pnpm audit --audit-level moderate` | yes | classified pass | 8 vulnerabilities found (1 low / 6 moderate / 1 high). All pre-existing on `master`. See "Audit Classification". |
 | `git diff --check` | yes | pass | No whitespace or conflict markers. |
@@ -33,7 +33,7 @@ a `just` wrapper fails for environmental reasons.
 | 00 | `pnpm --filter @c3-oss/prosa-wire-v2 typecheck` | yes | pass | |
 | 00 | `pnpm --filter @c3-oss/prosa-wire-v2 test` | yes | pass | 18 tests including CQ-011 receiptId binding and CQ-012 transportHash. |
 | 00 | `pnpm test:conformance` | yes | pass | 15 tests; 13 entity leaves stable. |
-| 01 | `pnpm --filter @c3-oss/prosa-bundle-v2 test` | yes | pass | 107 tests across 15 files (head, lock, bundle-init, cas-pack with CQ-026 forged-digest + CQ-042 canonical-header rejections, raw-source-pack, cas-dedup, sharding, shard-actor, epoch-lifecycle with CQ-023..CQ-027 durability + CQ-032/CQ-033/CQ-037/CQ-041/CQ-047/CQ-048 FK closure + CQ-038/CQ-049/CQ-051/CQ-054 containment + CQ-039 fsync + CQ-040 CAS counts, cas-writer, raw-source-writer with CQ-047 conflict, zstd-frame, projection-segment, rebuild with CQ-043/CQ-046/CQ-050/CQ-053 integrity, e2e/synthetic-seal). |
+| 01 | `pnpm --filter @c3-oss/prosa-bundle-v2 test` | yes | pass | 111 tests across 15 files (head, lock, bundle-init, cas-pack with CQ-026 forged-digest + CQ-042 canonical-header rejections, raw-source-pack, cas-dedup, sharding, shard-actor, epoch-lifecycle with CQ-023..CQ-027 durability + CQ-032/CQ-033/CQ-037/CQ-041/CQ-047/CQ-048 FK closure + CQ-038/CQ-049/CQ-051/CQ-054/CQ-058 containment + CQ-039 fsync + CQ-040 CAS counts, cas-writer, raw-source-writer with CQ-047 conflict, zstd-frame, projection-segment, rebuild with CQ-043/CQ-046/CQ-050/CQ-053/CQ-056/CQ-057 integrity, e2e/synthetic-seal). |
 | 01 | `pnpm test packages/prosa-bundle-v2/test/e2e/synthetic-bundle.test.ts` | yes | not-run | Synthetic bundle scenario (requires shard actors + pack writers + epoch lifecycle). |
 | 01 | `pnpm test packages/prosa-bundle-v2/test/e2e/cold-rebuild.test.ts` | yes | not-run | Cold rebuild scenario (requires RocksDB rebuild from manifests). |
 | 02 | `pnpm --filter @c3-oss/prosa-importers-v2 test` | yes | not-run | Provider, idempotency, graph resolver tests. |

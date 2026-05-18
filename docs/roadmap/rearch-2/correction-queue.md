@@ -45,6 +45,53 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 ## Closed (latest first)
 
+### CQ-059: Reconcile Governance Artifacts After `1e81888` — closed 2026-05-18
+
+`status.md` HEAD pin updated to the post-CQ-056..CQ-058 closeout
+commit; lane-01 commit chain extended; open-blocker list shrunk back
+to `CQ-044` only. `gates.md` lane-commands table refreshed to
+`prosa-bundle-v2` 111 (post +CQ-056 x2 + CQ-057 x1 + CQ-058 x1 on top
+of 107). `evidence/lane-01.md` test-count map extended with the four
+new tests.
+
+### CQ-058: Prove CAS Pack Positive Containment Under Symlinked Bundle Root — closed 2026-05-18
+
+Added `CQ-058: seals a legitimate CAS pack under a symlinked bundle
+root` in `packages/prosa-bundle-v2/test/unit/epoch-lifecycle.test.ts`.
+The test opens a bundle via a symlinked path, builds a real CAS pack
+through `CasPackWriterPool` (so the file lands in `cas/packs/`),
+registers it on the EpochHandle, adds a session projection segment,
+and confirms `sealEpoch` succeeds. The CAS-specific branch of
+`enforceKindContainment` (`cas/packs`, `cas/large`) is now proven not
+to false-reject in symlinked-bundle-root deployments — distinct from
+the raw-source / projection branches CQ-054 already covered.
+
+### CQ-057: Prove Failed Rebuild Does Not Replace Existing Index — closed 2026-05-18
+
+Added `CQ-057: failed rebuild does not replace or archive existing
+index/` in `packages/prosa-bundle-v2/test/unit/rebuild.test.ts`. The
+test does a baseline rebuild to install a recognizable `index/` with
+a known `rebuild.manifest`, then introduces a stray `epochs/99/`
+directory so the CQ-056 validation throws. Asserts that the `index/`
+directory listing is unchanged, `rebuild.manifest` bytes match the
+baseline, `head.json` is unchanged, and no new `index-old-*` archive
+directory was created. The CQ-056 validation now happens strictly
+before any rename, so a rebuild failure cannot replace or archive a
+valid existing index.
+
+### CQ-056: Enforce Rebuild Epoch Set Authority Against `head.json` — closed 2026-05-18
+
+`rebuildIndex` now treats `head.json.epoch` as authoritative for the
+on-disk epoch set: the contents of `epochs/` must equal exactly
+`[1..head.epoch]`. Any stray epoch directory greater than head.epoch
+is refused (stray content with no head authority); any missing
+epoch ≤ head.epoch is refused (silent gap that would otherwise
+install an index missing prior epoch data); empty bundles
+(`head.epoch === 0`) require zero epoch directories. Two tests:
+`CQ-056: rejects rebuild when an epoch directory greater than
+head.epoch is present` and `CQ-056: rejects rebuild when a
+non-contiguous epoch directory below head is missing`.
+
 ### CQ-055: Reconcile Governance Artifacts After `ecc80a3` — closed 2026-05-18
 
 `status.md` HEAD pin and lane-01 commit chain refreshed to the

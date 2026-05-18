@@ -534,6 +534,52 @@ describe('beginEpoch + sealEpoch', () => {
     }
   })
 
+  it('CQ-058: seals a legitimate CAS pack under a symlinked bundle root', async () => {
+    // CAS pack containment uses its own allowed-dir branch
+    // (cas/packs, cas/large) — distinct from the raw-source/projection
+    // branches CQ-054 already covers. Prove the realpath rebase in
+    // enforceKindContainment does not false-reject CAS packs in
+    // symlinked-bundle-root deployments either.
+    const realRoot = await tmpDir()
+    const linkParent = await mkdtemp(join(tmpdir(), 'prosa-symlink-cas-parent-'))
+    const symlinkRoot = join(linkParent, 'bundle-via-link')
+    const { symlink } = await import('node:fs/promises')
+    await symlink(realRoot, symlinkRoot)
+    const bundle = await initBundle(symlinkRoot, { storeId: 'st_symcas', createdAt: '2025-01-02T03:04:05.123Z' })
+    try {
+      expect(bundle.paths.root).toBe(symlinkRoot)
+      const handle = await beginEpoch(bundle, { createdAt: '2025-01-02T03:04:06.000Z' })
+      handle.putRow('session', 'ses_a', sessionRow('ses_a') as never)
+      const { CasPackWriterPool } = await import('../../src/pack/cas-writer.js')
+      const pool = new CasPackWriterPool({
+        casDir: join(bundle.paths.root, 'cas'),
+        createdAt: () => '2025-01-02T03:04:05.123Z',
+      })
+      await pool.appendObject({ bytes: new TextEncoder().encode('cas-payload-symroot') })
+      const emissions = await pool.flushAll()
+      const packPath = emissions[0]?.packPath
+      if (!packPath) throw new Error('expected a CAS pack emission')
+      const { readFile: rf } = await import('node:fs/promises')
+      const bytes = await rf(packPath)
+      const { verifyCasPack: vcp } = await import('../../src/pack/cas-pack.js')
+      const v = vcp(bytes)
+      handle.registerSegment({
+        kind: 'cas_object_pack',
+        path: packPath,
+        digest: v.header.pack_digest,
+        byteLength: bytes.length,
+      })
+      const sessSeg = await writeProjectionSegment('session', [sessionRow('ses_a')] as never, { outDir: handle.tmpDir })
+      handle.registerSegment(sessSeg.ref)
+      // Containment must accept the CAS pack via the cas/packs branch
+      // even though the bundle was opened through a symlink.
+      const sealed = await sealEpoch(handle)
+      expect(sealed.epoch).toBe(1)
+    } finally {
+      await bundle.close()
+    }
+  })
+
   it('CQ-049: rejects a symlink ref under the bundle root', async () => {
     const root = await tmpDir()
     const bundle = await initBundle(root, { storeId: 'st_link', createdAt: '2025-01-02T03:04:05.123Z' })
