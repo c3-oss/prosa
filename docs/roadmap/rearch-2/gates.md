@@ -31,9 +31,9 @@ a `just` wrapper fails for environmental reasons.
 | 00 | `pnpm --filter @c3-oss/prosa-types-v2 build` | yes | pass | |
 | 00 | `pnpm --filter @c3-oss/prosa-types-v2 test` | yes | pass | 89 tests across 8 files (canonical-encoding, merkle-leaf, merkle-root, bundle-root, raw-source, receipt-payload, derive-ids, normalization; +CQ-018 BLAKE3 spec vectors + CQ-014/CQ-022 timestamp/normalization). |
 | 00 | `pnpm --filter @c3-oss/prosa-wire-v2 typecheck` | yes | pass | |
-| 00 | `pnpm --filter @c3-oss/prosa-wire-v2 test` | yes | pass | 18 tests including CQ-011 receiptId binding and CQ-012 transportHash. |
+| 00 | `pnpm --filter @c3-oss/prosa-wire-v2 test` | yes | pass | 21 tests including CQ-011 receiptId binding and CQ-012 transportHash. |
 | 00 | `pnpm test:conformance` | yes | pass | 15 tests; 13 entity leaves stable. |
-| 01 | `pnpm --filter @c3-oss/prosa-bundle-v2 test` | yes | pass | 113 tests across 15 files (head, lock, bundle-init, cas-pack with CQ-026 forged-digest + CQ-042 canonical-header rejections, raw-source-pack, cas-dedup, sharding, shard-actor, epoch-lifecycle with CQ-023..CQ-027 durability + CQ-032/CQ-033/CQ-037/CQ-041/CQ-047/CQ-048 FK closure + CQ-038/CQ-049/CQ-051/CQ-054/CQ-058 containment + CQ-039 fsync + CQ-040 CAS counts, cas-writer, raw-source-writer with CQ-047 conflict, zstd-frame, projection-segment, rebuild with CQ-043/CQ-046/CQ-050/CQ-053/CQ-056/CQ-057/CQ-060/CQ-061 integrity, e2e/synthetic-seal). |
+| 01 | `pnpm --filter @c3-oss/prosa-bundle-v2 test` | yes | pass | 114 tests across 15 files (head, lock, bundle-init, cas-pack with CQ-026 forged-digest + CQ-042 canonical-header rejections, raw-source-pack, cas-dedup, sharding, shard-actor, epoch-lifecycle with CQ-023..CQ-027 durability + CQ-032/CQ-033/CQ-037/CQ-041/CQ-047/CQ-048 FK closure + CQ-038/CQ-049/CQ-051/CQ-054/CQ-058 containment + CQ-039 fsync + CQ-040 CAS counts, cas-writer, raw-source-writer with CQ-047 conflict, zstd-frame, projection-segment, rebuild with CQ-043/CQ-046/CQ-050/CQ-053/CQ-056/CQ-057/CQ-060/CQ-061/CQ-063 integrity, e2e/synthetic-seal). |
 | 01 | `pnpm test packages/prosa-bundle-v2/test/e2e/synthetic-bundle.test.ts` | yes | not-run | Synthetic bundle scenario (requires shard actors + pack writers + epoch lifecycle). |
 | 01 | `pnpm test packages/prosa-bundle-v2/test/e2e/cold-rebuild.test.ts` | yes | not-run | Cold rebuild scenario (requires RocksDB rebuild from manifests). |
 | 02 | `pnpm --filter @c3-oss/prosa-importers-v2 test` | yes | not-run | Provider, idempotency, graph resolver tests. |
@@ -91,28 +91,30 @@ no new transitive risk.
   resolved by regenerating `expected-leaves.json`. After CQ-010 the
   conformance leaves were regenerated a second time; final result pass.
 
-## Done Check (Lane 0 + Lane 1 partial)
+## Done Check (Lane 0 + Lane 1 Full Scope)
 
 - [x] Worktree state documented.
-- [x] Lane 0 has evidence; lanes 1–10 are documented as not started or WIP.
-- [ ] No open blocking corrections. *(Only `CQ-044` remains — procedural Lane 2/4
-  containment that clears with Codex's Lane 1 acceptance. All Lane 0 / Lane 1
-  integrity corrections `CQ-001..CQ-059` are closed in code, tests, and
-  evidence.)*
-- [x] Base gates passed at HEAD `f3730b3` (full repo `pnpm test` / `pnpm
+- [x] Lane 0 has evidence; lanes 2–10 are documented as blocked or WIP.
+- [ ] No open blocking corrections. *(`CQ-065`, `CQ-064`, and `CQ-044` are
+  open. User direction on 2026-05-18 requires full Lane 1 completion against
+  `docs/rearch-2/02-lane-1-local-store.md` before Lane 2+ work can continue.)*
+- [x] Base gates passed at HEAD `6c25966` (full repo `pnpm test` / `pnpm
   typecheck` / `pnpm lint` 12/12 turbo).
 - [x] Lane 0-specific gates passed: `prosa-types-v2` 89 tests, `prosa-wire-v2`
   21 tests, `pnpm test:conformance` 15 tests.
-- [x] Lane 1 focused gates: `pnpm --filter @c3-oss/prosa-bundle-v2 typecheck`
-  pass; `pnpm --filter @c3-oss/prosa-bundle-v2 test` 111/111 pass.
+- [ ] Lane 1 focused gates all passed. Current focused gates pass for the
+  existing implementation (`pnpm --filter @c3-oss/prosa-bundle-v2 test` 114
+  tests), but original Lane 1 gates remain incomplete: 1k synthetic bundle
+  stress and cold-rebuild CLI/E2E coverage must be added under `CQ-065`.
 - [ ] Docker-backed E2E passed for sync, reads, migration, and cutover paths.
   *(N/A until Lane 5+.)*
 - [x] Audit output classified (8 findings; only `apps__cli>ink>ws` touches a
   non-dev path, pre-existing on `master`).
-- [x] Security, integrity, remote-read, and E2E reviewer findings resolved
-  for Lane 0 (`CQ-001..CQ-019`) and Lane 1 integrity (`CQ-020..CQ-059`).
-  Latest independent reviewer pass on `f54f4f1` returned ACCEPT — no findings.
-- [ ] Final Codex review completed. *(Pending — `CQ-044` clears with the same
-  acceptance.)*
+- [ ] Security, integrity, remote-read, and E2E reviewer findings resolved
+  for Lane 0 and Lane 1. Lane 0 and prior Lane 1 integrity corrections through
+  `CQ-063` are closed; full Lane 1 scope still requires `CQ-065` and a fresh
+  Codex review.
+- [ ] Final Codex review completed. *(Pending — `CQ-065`, `CQ-064`, and
+  `CQ-044` must close first.)*
 - [ ] Five-cycle final stabilization evidence recorded. *(Pending; Lane 1
   must be accepted by Codex first.)*

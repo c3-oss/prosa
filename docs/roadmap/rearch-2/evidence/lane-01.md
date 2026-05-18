@@ -1,14 +1,15 @@
 # Lane Evidence
 
 Lane: 01 - Local store
-Status: substantially complete (foundational layers, shard actors, epoch
-lifecycle with durability + FK closure + stale-tmp reap, pack writer
-pools, pack-format self-digest verification, zstd frame-window
-enforcement, canonical projection segment writer, e2e synthetic seal,
-and cold rebuild from sealed projections all landed; only the
-1k-session synthetic-bundle stress scenario from the lane doc remains)
+Status: incomplete-full-scope (prior correction work through `CQ-063` is
+substantively closed, but user direction on 2026-05-18 requires the original
+Lane 1 contract in `docs/rearch-2/02-lane-1-local-store.md` to be completed
+before Lane 2. `CQ-065` tracks the remaining full-scope items.)
 Owner: Ralph
-Commit range: `4f214b7`, `2b5ad1b`, `433c32f`, `1ae4185`, `a650ef8`, `6097f9e`, (+this iteration's cold-rebuild commit)
+Commit range: `4f214b7`, `2b5ad1b`, `433c32f`, `1ae4185`, `a650ef8`,
+`6097f9e`, `5a6a683`, `2809d21`, `5e5ca20`, `ea615dd`, `5e4b5e7`,
+`ecc80a3`, `1419d92`, `1e81888`, `adee042`, `f54f4f1`, `f3730b3`,
+`aecc9af`, `b970437`, `6c25966`
 
 ## Acceptance Criteria
 
@@ -74,14 +75,16 @@ Commit range: `4f214b7`, `2b5ad1b`, `433c32f`, `1ae4185`, `a650ef8`, `6097f9e`, 
   case.
 - [ ] 4 RocksDB shards backing the `ShardActor` interface (Task 2 of
   the lane doc explicitly names RocksDB). Deferred — the `MemoryShardActor`
-  is a drop-in replacement for now.
+  is a temporary replacement only; this must close under `CQ-065` or receive
+  explicit Codex approval as a production-equivalent re-scope.
 - [ ] 8 CAS pack writers (small) + 2 large-object writers with pack
-  rollover (Tasks 3-4) — pack format landed; the writer/rotor
-  infrastructure is the next-iteration scope.
+  rollover (Tasks 3-4) — pack format landed; writer-pool/rollover/crash
+  behavior remains open under `CQ-065`.
 - [ ] 4 raw-source pack writers sharded by `blake3(source_file_id)[0:8]
   mod 4` (Task 5) — pack format landed; sharded writer pool is the
-  next-iteration scope.
-- [ ] Parquet projection segment writers per entity type (Task 6).
+  next-iteration scope under `CQ-065`.
+- [ ] Parquet projection segment writers per entity type (Task 6), or a
+  reviewed replacement if the repo intentionally retains canonical NDJSON.
 - [x] `beginEpoch` / `sealEpoch` / `swapHead` lifecycle with FK closure
   validation (Task 7) landed this iteration.
 - [x] Cold rebuild from sealed projections (Task 8):
@@ -94,7 +97,9 @@ Commit range: `4f214b7`, `2b5ad1b`, `433c32f`, `1ae4185`, `a650ef8`, `6097f9e`, 
 - [x] End-to-end synthetic seal scenario at
   `test/e2e/synthetic-seal.test.ts` (small dataset).
 - [ ] 1k-session synthetic-bundle stress scenario from the lane doc
-  remains for a follow-up iteration.
+  remains open under `CQ-065`.
+- [ ] CLI `prosa bundle rebuild-index` and cold-rebuild CLI/E2E coverage
+  remain open under `CQ-065`.
 
 ## Implementation Notes
 
@@ -195,19 +200,15 @@ Integrity tests added during Lane 1 hardening (correction → tests):
   next-iteration shard-actor infrastructure must reap unreferenced pack
   files on open.
 - The shard actor command vocabulary (`PutIfAbsent`, `Reserve`,
-  `CommitReservation`, `Get`) is declared in
-  `docs/rearch-2/02-lane-1-local-store.md` but no implementation exists
-  in this iteration. Lane 2 importers cannot land until those actors
-  exist.
+  `CommitReservation`, `Get`) exists with a memory/append-log backend, but the
+  lane document requires four RocksDB-backed shards or a reviewed
+  production-equivalent replacement before Lane 1 can be accepted.
 - `epoch.manifest.cbor` is described as CBOR in the lane doc but the
   package emits canonical JSON bytes. This is intentional pending an
   ADR on encoder scope (see Implementation Notes).
 
 ## Reviewer Notes
 
-- This iteration intentionally ships a **partial Lane 1** with the
-  foundational on-disk pieces (layout, lock, head atomic swap, both pack
-  formats, epoch manifest types) so Lanes 2-onwards can begin reasoning
-  against concrete types and helpers.
-- Codex / `prosa-architect` review of the partial deliverable will
-  surface any blockers that must close before the rest of Lane 1.
+- User direction on 2026-05-18: Lane 1 is not accepted as a partial
+  deliverable. `CQ-065` must close the original Lane 1 scope, then Codex will
+  re-review the complete Lane 1 implementation before Lane 2+ can proceed.

@@ -11,10 +11,36 @@ through `correction-queue.md`, `gates.md`, and updates to this prompt. Those
 review findings are part of the implementation contract, not optional advice.
 Expect Codex to reject `RALPH_DONE` if subagent findings remain open.
 
-This is a very large feature. Work strictly lane by lane. If one Ralph Loop
-iteration cannot complete the entire roadmap, leave accurate status and evidence
-for the completed partial lane work. Do not output `RALPH_DONE` unless every
-lane below is complete and all required gates and stabilization steps have run.
+This is a very large feature. Work strictly lane by lane. User direction on
+2026-05-18: Lane 1 must be completely complete against
+`docs/rearch-2/02-lane-1-local-store.md` before Lane 2 or later work can
+continue. Do not treat the existing Lane 1 code as a partial acceptance. If one
+Ralph Loop iteration cannot complete the entire roadmap, leave accurate status
+and evidence for completed work, but do not mark Lane 1 accepted until its
+original scope is complete. Do not output `RALPH_DONE` unless every lane below
+is complete and all required gates and stabilization steps have run.
+
+## Invocation Contract
+
+This prompt is intentionally self-contained. When Ralph is launched with
+`/ralph-loop:ralph-loop @docs/roadmap/rearch-2/ralph-loop-prompt.md`, treat this
+section as the full restart instruction:
+
+- Read this prompt, `docs/roadmap/rearch-2/correction-queue.md`,
+  `docs/roadmap/rearch-2/gates.md`, `docs/roadmap/rearch-2/status.md`, and
+  `docs/rearch-2/02-lane-1-local-store.md`.
+- User direction: Lane 1 must be fully complete against the original Lane 1
+  contract before Lane 2+ may continue.
+- Close blocking corrections `CQ-065`, `CQ-064`, and `CQ-044` with code, tests,
+  and evidence.
+- Do not do new Lane 2/importer/server work while any blocker remains.
+- Do not count existing Lane 2/4 WIP as accepted progress while any blocker
+  remains.
+- If no blocking correction remains, run the mandatory final stabilization
+  wait: five clean cycles of sleep 180 seconds, then reread correction queue,
+  gates, status, git status, and recent commits.
+- Output `RALPH_DONE` only after all lanes are complete, all blockers are
+  closed, required gates pass or are classified, and the five cycles stay clean.
 
 ## Read First
 
@@ -121,22 +147,32 @@ Keep these files current:
 
 ## Current Blocking Corrections
 
-Before continuing beyond Lane 0 or doing more Lane 1 work, close every open
+Before continuing beyond Lane 1 or doing any Lane 2+ work, close every open
 `CQ-*` item in `docs/roadmap/rearch-2/correction-queue.md` with code, tests,
-and evidence. After the CQ-060..CQ-062 closeout commit the only remaining
-open blocker is:
+and evidence. Current blocking corrections are `CQ-065`, `CQ-064`, and
+`CQ-044`:
+
+- `CQ-065`: complete the original Lane 1 scope from
+  `docs/rearch-2/02-lane-1-local-store.md`, including four RocksDB-backed
+  shards or an explicitly reviewed production-equivalent backend, CAS writer
+  pools, raw-source writer pools, projection segment writers, `prosa bundle
+  rebuild-index`, the 1k-session synthetic stress scenario, and cold-rebuild
+  CLI/E2E evidence.
+- `CQ-064`: reconcile governance artifacts after `6c25966`; HEAD, clean
+  worktree, open blockers, focused gate counts, `CQ-063`, and full-scope
+  Lane 1 status must agree across status, gates, evidence, prompt, and queue.
 
 - `CQ-044`: contain out-of-sequence Lane 2+ work (`packages/prosa-importers-v2`,
   `packages/prosa-db-v2`, and related wiring) until Codex accepts Lane 1.
 
 `CQ-044` is procedural: the Lane 2/4 packages exist in the active workspace
 but must remain documented as WIP, with no new Lane 2+ feature commits
-landing until Codex re-review accepts Lane 1. Lane 0 corrections
-`CQ-001..CQ-019` and Lane 1 integrity corrections `CQ-020..CQ-062` are
-closed in code, tests, and evidence (bundle-v2 113/113 at the latest
-gate run).
+landing until Codex re-review accepts Lane 1. Lane 1 is incomplete until
+`CQ-065` closes with code, tests, and evidence. Do not describe Lane 1 as a
+partial/code closeout.
 
-Do not begin Lane 2/importer feature work while `CQ-044` is open.
+Do not begin Lane 2/importer feature work while any open blocking correction
+remains.
 
 ## Implementation Rules
 

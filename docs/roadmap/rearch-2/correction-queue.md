@@ -4,6 +4,105 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 ## Open
 
+### CQ-065: Complete Lane 1 Original Scope Before Lane 2
+
+- Severity: high
+- Blocking: yes
+- Owner: Ralph
+- Scope:
+  - `packages/prosa-bundle-v2/**`
+  - `apps/cli/**`
+  - `docs/roadmap/rearch-2/status.md`
+  - `docs/roadmap/rearch-2/gates.md`
+  - `docs/roadmap/rearch-2/evidence/lane-01.md`
+  - `docs/roadmap/rearch-2/ralph-loop-prompt.md`
+  - `docs/roadmap/rearch-2/correction-queue.md`
+- Risk:
+  - Codex and user decision: Lane 1 must be complete against
+    `docs/rearch-2/02-lane-1-local-store.md`, not merely accepted as a
+    partial/code closeout. Lane 2 and later lanes must remain blocked until the
+    original Lane 1 deliverables and gates are actually complete.
+- Required fix:
+  - Implement 4 RocksDB-backed shards behind the `ShardActor` interface, or
+    explicitly add and justify the production-equivalent backend if RocksDB is
+    unavailable in this repo.
+  - Complete CAS writer pools: 8 small-object writers, 2 large-object writer
+    concurrency lanes, rollover thresholds, and crash/orphan handling.
+  - Complete raw-source writer pool sharded by
+    `blake3(source_file_id)[0:8] mod 4` with recovery/index behavior matching
+    the lane contract.
+  - Implement Parquet projection segment writers per canonical entity type, or
+    document and implement a reviewed replacement if the repo intentionally
+    keeps canonical NDJSON instead.
+  - Add the `prosa bundle rebuild-index` CLI surface required by Lane 1, wired
+    to the hardened `rebuildIndex` core.
+  - Add/complete the 1k-session synthetic bundle stress scenario:
+    1,000 sessions, 100,000 raw records, 200,000 objects, concurrent producers,
+    seal, reopen, and count verification.
+  - Add/complete the cold-rebuild E2E/CLI scenario that deletes `index/`, runs
+    the rebuild command, and verifies rebuilt shard contents.
+  - Update Lane 1 evidence and gates so no original Lane 1 acceptance item is
+    unchecked unless Codex explicitly approves a formal re-scope.
+- Acceptance criteria:
+  - `docs/roadmap/rearch-2/evidence/lane-01.md` marks all original Lane 1
+    acceptance criteria complete with concrete commit IDs and command output.
+  - Lane 1 gates from `docs/rearch-2/02-lane-1-local-store.md` pass, including
+    synthetic-bundle stress and cold-rebuild scenarios.
+  - No downstream Lane 2/4 work is counted as accepted progress while this
+    correction remains open.
+  - Codex read-only reviewers accept the final Lane 1 implementation and
+    evidence before `CQ-044` can close.
+- Evidence required:
+  - Commit(s):
+  - Commands:
+
+### CQ-064: Reconcile Governance Artifacts After `6c25966`
+
+- Severity: high
+- Blocking: yes
+- Owner: Ralph
+- Scope:
+  - `docs/roadmap/rearch-2/status.md`
+  - `docs/roadmap/rearch-2/gates.md`
+  - `docs/roadmap/rearch-2/evidence/lane-00.md`
+  - `docs/roadmap/rearch-2/evidence/lane-01.md`
+  - `docs/roadmap/rearch-2/evidence/lane-02.md`
+  - `docs/roadmap/rearch-2/evidence/lane-04.md`
+  - `docs/roadmap/rearch-2/ralph-loop-prompt.md`
+  - `docs/roadmap/rearch-2/correction-queue.md`
+- Risk:
+  - Code/integrity review accepts `CQ-060`, `CQ-061`, and `CQ-063` as
+    substantively closed, but active governance artifacts still point at stale
+    HEADs, pending closeout language, mixed focused gate counts (`113` vs
+    `114`), and prompt/status text that stops before `CQ-063`.
+  - Lane 1 evidence still describes unfinished lane-doc tasks. By user
+    direction, Lane 1 must now be completed against the original lane contract,
+    not accepted as a partial/code closeout.
+- Required fix:
+  - Update all scoped artifacts to actual HEAD `6c25966` or the newer
+    correction HEAD.
+  - Record current open blockers as `CQ-044`, `CQ-064`, and `CQ-065` until
+    those items are closed.
+  - Reconcile focused gate counts: bundle-v2 114, types-v2 89, wire-v2 21,
+    conformance 15, importers-v2 8, db-v2 6, bundle-v2 typecheck/lint, and
+    `git diff --check`; update if newer gates are run.
+  - Remove stale pending-closeout language and mixed historical counts from
+    active status/gate summaries.
+  - Explicitly label Lane 1 as incomplete until `CQ-065` completes the original
+    Lane 1 acceptance items.
+  - Keep Lane 2/4 packages marked as out-of-sequence active workspace WIP, not
+    accepted lane progress; align Lane 4 status with `CQ-044` / Lane 1 gating.
+- Acceptance criteria:
+  - Status, gates, lane evidence, prompt, and queue agree on HEAD, clean
+    worktree, open blockers, closed correction IDs, focused gate counts, final
+    review/stabilization state, and out-of-sequence Lane 2/4 status.
+  - No artifact claims full Lane 1 completion until `CQ-065` is closed.
+  - `CQ-044` remains open until `CQ-065` closes and Codex explicitly accepts
+    full Lane 1 completion plus downstream WIP containment.
+- Evidence required:
+  - Commit(s):
+  - Commands:
+
 ### CQ-044: Contain Out-of-Sequence Lane 2+ Work Until Lane 1 Acceptance
 
 - Severity: high

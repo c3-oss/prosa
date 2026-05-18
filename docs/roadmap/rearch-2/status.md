@@ -9,10 +9,10 @@ Completion signal: RALPH_DONE
 
 ## Current State
 
-Status: in-progress (correction required after Codex review)
-Current lane: corrections before further Lane 1 / any Lane 2 work
-Current HEAD: `aecc9af`
-No-change streak: 2 (last code-touching commit was `f54f4f1`; `f3730b3` and this iteration's commit are docs-only governance refreshes)
+Status: in-progress (Lane 1 original scope incomplete; correction required)
+Current lane: Lane 1 full-scope completion before any Lane 2+ work
+Current HEAD: `6c25966`
+No-change streak: 2 (latest committed code-touching closeout is `6c25966`; current workspace has governance steering edits for `CQ-064`/`CQ-065`)
 Ralph active: yes
 
 ## Lane Status
@@ -20,10 +20,10 @@ Ralph active: yes
 | Lane | Owner | Status | Commit(s) | Evidence |
 | --- | --- | --- | --- | --- |
 | 00 - Foundation | Ralph | awaiting-codex-acceptance | `cd845f2`, `e22ec27`, `b78b5ae`, `70b9df0`, `0e8a912`, `a650ef8`, `2809d21` (Lane 0 CQ-001..CQ-019 closed; later commits also touch `CANONICAL.md` governance) | `evidence/lane-00.md` |
-| 01 - Local store | Ralph | awaiting-codex-acceptance | `4f214b7`, `2b5ad1b`, `433c32f`, `a650ef8`, `6097f9e`, `5a6a683`, `2809d21`, `5e5ca20`, `ea615dd`, `5e4b5e7`, `ecc80a3`, `1419d92`, `1e81888`, `adee042`, `f54f4f1`, `f3730b3`, `aecc9af`, plus pending CQ-060..CQ-062 commit | `evidence/lane-01.md` |
+| 01 - Local store | Ralph | incomplete-full-scope | `4f214b7`, `2b5ad1b`, `433c32f`, `a650ef8`, `6097f9e`, `5a6a683`, `2809d21`, `5e5ca20`, `ea615dd`, `5e4b5e7`, `ecc80a3`, `1419d92`, `1e81888`, `adee042`, `f54f4f1`, `f3730b3`, `aecc9af`, `b970437`, `6c25966` | `evidence/lane-01.md` |
 | 02 - Importers | Ralph | blocked-on-lane-01 | `004107c` (out-of-sequence WIP, unaccepted) | `evidence/lane-02.md` |
 | 03 - Derived layer | Ralph | blocked-on-lane-02 | | `evidence/lane-03.md` |
-| 04 - Server | Ralph | blocked-on-lane-00 | | `evidence/lane-04.md` |
+| 04 - Server | Ralph | blocked-on-lane-01 | out-of-sequence WIP only; unaccepted under `CQ-044` | `evidence/lane-04.md` |
 | 05 - Sync protocol | Ralph | blocked-on-lane-04 | | `evidence/lane-05.md` |
 | 06 - Read API | Ralph | blocked-on-lane-05 | | `evidence/lane-06.md` |
 | 07 - CLI and MCP | Ralph | blocked-on-lane-06 | | `evidence/lane-07.md` |
@@ -35,22 +35,28 @@ Ralph active: yes
 
 | ID | Severity | Owner | Summary |
 | --- | --- | --- | --- |
+| CQ-065 | high | Ralph | Complete Lane 1 original scope before Lane 2: RocksDB shards or approved equivalent, CAS/raw writer pools, projection segment writers, rebuild CLI, 1k stress gate, and cold-rebuild CLI/E2E. |
+| CQ-064 | high | Ralph | Reconcile governance artifacts after `6c25966`. |
 | CQ-044 | high | Ralph | Contain out-of-sequence Lane 2+ work until Lane 1 acceptance. |
 
 CQ-036..CQ-043 closed at `5e5ca20`. CQ-045..CQ-049 closed at
 `ea615dd`. CQ-050..CQ-055 closed by `5e4b5e7` / `ecc80a3` /
 `1419d92` / `1e81888`. Lane 0 evidence refreshed in `adee042`.
 CQ-056..CQ-059 closed by `f54f4f1` / `f3730b3` / `aecc9af`.
-CQ-060..CQ-062 closed in the pending closeout commit (non-head
-epoch authority via previousBundleRoot chain, install-failure
-rollback, governance reconcile). `CQ-044` remains open until Lane 1
-is accepted by Codex.
+CQ-060..CQ-063 closed by `b970437` / `6c25966`; Codex integrity review
+found those code/test fixes substantively closed for the previous correction
+set. User direction on 2026-05-18 supersedes any partial-acceptance framing:
+Lane 1 must be fully complete against `docs/rearch-2/02-lane-1-local-store.md`.
+`CQ-065` is the active blocker for the remaining original Lane 1 scope, and
+`CQ-044` remains open until Codex accepts that full Lane 1 implementation.
+Governance remains under `CQ-064` until the artifacts agree on `6c25966`,
+bundle-v2 114, and this full-scope Lane 1 status.
 
 ## Latest Gates
 
 | Command | Result | Notes |
 | --- | --- | --- |
-| `git status --short --branch` | pass | `## feature/rearch...origin/feature/rearch`. |
+| `git status --short --branch` | pending-restart | Governance steering for `CQ-065` prepared for commit before Ralph restart. |
 | `pnpm i` | pass | `pnpm install --frozen-lockfile`-compatible; only pre-existing peer warnings (`@c3-oss/config-vitest` wants vitest ^3.1.1, repo on 2.1.9). |
 | `pnpm build` | pass | 10/10 turbo tasks (includes `@c3-oss/prosa-bundle-v2`). |
 | `just typecheck` | pass | 10/10 turbo tasks. |
@@ -68,6 +74,10 @@ is accepted by Codex.
   blocking corrections taking precedence over new implementation work.
 - 2026-05-18T15:30:01-03:00: Require final five-cycle stabilization before
   accepting `RALPH_DONE`.
+- 2026-05-18 (user direction): Lane 1 must be completely complete against
+  `docs/rearch-2/02-lane-1-local-store.md`; no partial/code closeout is
+  accepted, and Lane 2+ remains blocked until `CQ-065`, `CQ-064`, and `CQ-044`
+  close with evidence.
 - 2026-05-18T15:34:46-03:00: Created Vikunja project `Prosa` (id 4) and task
   `Run Ralph Loop for Prosa rearch-2` (id 45) for the kickoff action.
 - 2026-05-18T15:42:30-03:00: Active check 2 found new untracked
