@@ -1,6 +1,6 @@
 {
   "name": "@c3-oss/prosa-api",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Multi-tenant HTTP/tRPC server for prosa sync and remote reads.",
   "author": "Caian Ertl <hi@caian.org>",
   "license": "MIT",

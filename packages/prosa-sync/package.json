@@ -1,13 +1,15 @@
 {
   "name": "@c3-oss/prosa-sync",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Shared Zod schemas and types for the prosa one-way promotion protocol.",
   "author": "Caian Ertl <hi@caian.org>",
   "license": "MIT",
   "type": "module",
   "private": true,
   "homepage": "https://github.com/c3-oss/prosa#readme",
-  "bugs": { "url": "https://github.com/c3-oss/prosa/issues" },
+  "bugs": {
+    "url": "https://github.com/c3-oss/prosa/issues"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/c3-oss/prosa.git",

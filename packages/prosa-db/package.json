@@ -1,6 +1,6 @@
 {
   "name": "@c3-oss/prosa-db",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Shared Drizzle ORM schema for the prosa server (auth, tenancy, sync, projections).",
   "author": "Caian Ertl <hi@caian.org>",
   "license": "MIT",

@@ -1,6 +1,6 @@
 {
   "name": "@c3-oss/prosa-web",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Browser console and public site for the prosa web platform.",
   "author": "Caian Ertl <hi@caian.org>",
   "license": "MIT",

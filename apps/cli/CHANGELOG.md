@@ -1,5 +1,16 @@
 # @c3-oss/prosa
 
+## 0.9.0
+
+### Minor Changes
+
+- Dashboard improvements
+
+### Patch Changes
+
+- Updated dependencies
+  - @c3-oss/prosa-core@0.9.0
+
 ## 0.8.2
 
 ### Patch Changes
