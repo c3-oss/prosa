@@ -9,18 +9,18 @@ Completion signal: RALPH_DONE
 
 ## Current State
 
-Status: in-progress (correction required after Codex review)
+Status: awaiting Codex Lane 1 acceptance (no open integrity blockers)
 Current lane: corrections before further Lane 1 / any Lane 2 work
-Current HEAD: `1e81888`
-No-change streak: 0
+Current HEAD: `f54f4f1`
+No-change streak: 1 (after independent reviewer returned ACCEPT — no findings on `f54f4f1`)
 Ralph active: yes
 
 ## Lane Status
 
 | Lane | Owner | Status | Commit(s) | Evidence |
 | --- | --- | --- | --- | --- |
-| 00 - Foundation | Ralph | correction | `cd845f2`, `e22ec27`, `b78b5ae`, `70b9df0`, `0e8a912`, `a650ef8`, `2809d21` | `evidence/lane-00.md` |
-| 01 - Local store | Ralph | partial-correction | `4f214b7`, `2b5ad1b`, `433c32f`, `a650ef8`, `6097f9e`, `5a6a683`, `2809d21`, `5e5ca20`, `ea615dd`, `5e4b5e7`, `ecc80a3`, `1419d92`, `1e81888`, `adee042`, plus pending CQ-056..CQ-059 commit | `evidence/lane-01.md` |
+| 00 - Foundation | Ralph | awaiting-codex-acceptance | `cd845f2`, `e22ec27`, `b78b5ae`, `70b9df0`, `0e8a912`, `a650ef8`, `2809d21` (Lane 0 CQ-001..CQ-019 closed; later commits also touch `CANONICAL.md` governance) | `evidence/lane-00.md` |
+| 01 - Local store | Ralph | awaiting-codex-acceptance | `4f214b7`, `2b5ad1b`, `433c32f`, `a650ef8`, `6097f9e`, `5a6a683`, `2809d21`, `5e5ca20`, `ea615dd`, `5e4b5e7`, `ecc80a3`, `1419d92`, `1e81888`, `adee042`, `f54f4f1` | `evidence/lane-01.md` |
 | 02 - Importers | Ralph | blocked-on-lane-01 | `004107c` (out-of-sequence WIP, unaccepted) | `evidence/lane-02.md` |
 | 03 - Derived layer | Ralph | blocked-on-lane-02 | | `evidence/lane-03.md` |
 | 04 - Server | Ralph | blocked-on-lane-00 | | `evidence/lane-04.md` |
