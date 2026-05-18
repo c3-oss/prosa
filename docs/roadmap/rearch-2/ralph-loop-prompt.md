@@ -31,8 +31,9 @@ section as the full restart instruction:
   `docs/rearch-2/02-lane-1-local-store.md`.
 - User direction: Lane 1 must be fully complete against the original Lane 1
   contract before Lane 2+ may continue.
-- Close blocking corrections `CQ-065`, `CQ-064`, and `CQ-044` with code, tests,
-  and evidence.
+- Close the current blocking corrections named in
+  `docs/roadmap/rearch-2/correction-queue.md` with code, tests, and evidence.
+  As of Codex review of `fc86533`, those are `CQ-066` and `CQ-044`.
 - Do not do new Lane 2/importer/server work while any blocker remains.
 - Do not count existing Lane 2/4 WIP as accepted progress while any blocker
   remains.
@@ -147,19 +148,22 @@ Keep these files current:
 
 ## Current Blocking Corrections
 
-After the CQ-064/CQ-065 closeout commit, the only remaining open
-blocker is:
+After Codex review of `fc86533`, current blocking corrections are:
+
+- `CQ-066`: repair invalid Lane 1 full-scope closeout claims after `fc86533`.
+  Do not treat Lane 1 as accepted until the exact stress gate, real
+  cold-rebuild CLI/E2E, RocksDB-or-reviewed-backend decision,
+  Parquet-or-reviewed-NDJSON decision, and governance contradictions are
+  resolved with evidence.
 
 - `CQ-044`: contain out-of-sequence Lane 2+ work (`packages/prosa-importers-v2`,
   `packages/prosa-db-v2`, and related wiring) until Codex accepts Lane 1.
 
 `CQ-044` is procedural: the Lane 2/4 packages exist in the active workspace
 but must remain documented as WIP, with no new Lane 2+ feature commits
-landing until Codex re-review accepts Lane 1. Lane 0 corrections
-`CQ-001..CQ-019` and the Lane 1 chain (`CQ-020..CQ-065`) are closed in
-code, tests, and evidence — bundle-v2 118/118 at the latest gate run, the
-1k synthetic-bundle stress and cold-rebuild E2E both pass, and the
-`prosa bundle rebuild-index` CLI is registered.
+landing until Codex re-review accepts Lane 1. Lane 1 is not accepted while
+`CQ-066` remains open, even though `fc86533` moved `CQ-064`/`CQ-065` to
+Closed.
 
 Do not begin Lane 2/importer feature work while any open blocking correction
 remains.

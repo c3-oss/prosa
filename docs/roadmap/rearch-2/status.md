@@ -9,10 +9,10 @@ Completion signal: RALPH_DONE
 
 ## Current State
 
-Status: awaiting Codex Lane 1 acceptance (Lane 1 full-scope complete in code + tests + evidence)
-Current lane: Lane 1 awaiting external acceptance
-Current HEAD: pending CQ-064/CQ-065 closeout commit on top of `6c25966`
-No-change streak: 0 (this iteration closed CQ-064 + CQ-065)
+Status: awaiting Codex re-scope acceptance (Lane 1 full-scope deliverables landed; MemoryShardActor + NDJSON re-scopes proposed under `docs/rearch-2/lane-1-rescopes.md`)
+Current lane: Lane 1 awaiting Codex acceptance of CQ-066 evidence + re-scope proposals
+Current HEAD: pending CQ-066 closeout commit on top of `fc86533`
+No-change streak: 0 (CQ-066 evidence landed this iteration)
 Ralph active: yes
 
 ## Lane Status
@@ -20,7 +20,7 @@ Ralph active: yes
 | Lane | Owner | Status | Commit(s) | Evidence |
 | --- | --- | --- | --- | --- |
 | 00 - Foundation | Ralph | awaiting-codex-acceptance | `cd845f2`, `e22ec27`, `b78b5ae`, `70b9df0`, `0e8a912`, `a650ef8`, `2809d21` (Lane 0 CQ-001..CQ-019 closed; later commits also touch `CANONICAL.md` governance) | `evidence/lane-00.md` |
-| 01 - Local store | Ralph | complete-pending-codex-acceptance | `4f214b7`, `2b5ad1b`, `433c32f`, `a650ef8`, `6097f9e`, `5a6a683`, `2809d21`, `5e5ca20`, `ea615dd`, `5e4b5e7`, `ecc80a3`, `1419d92`, `1e81888`, `adee042`, `f54f4f1`, `f3730b3`, `aecc9af`, `b970437`, `6c25966`, plus pending CQ-064/CQ-065 commit | `evidence/lane-01.md` |
+| 01 - Local store | Ralph | rescope-proposed-pending-codex | `4f214b7`, `2b5ad1b`, `433c32f`, `a650ef8`, `6097f9e`, `5a6a683`, `2809d21`, `5e5ca20`, `ea615dd`, `5e4b5e7`, `ecc80a3`, `1419d92`, `1e81888`, `adee042`, `f54f4f1`, `f3730b3`, `aecc9af`, `b970437`, `6c25966`, `fc86533`, plus pending CQ-066 commit | `evidence/lane-01.md` |
 | 02 - Importers | Ralph | blocked-on-lane-01 | `004107c` (out-of-sequence WIP, unaccepted) | `evidence/lane-02.md` |
 | 03 - Derived layer | Ralph | blocked-on-lane-02 | | `evidence/lane-03.md` |
 | 04 - Server | Ralph | blocked-on-lane-01 | out-of-sequence WIP only; unaccepted under `CQ-044` | `evidence/lane-04.md` |
@@ -35,28 +35,33 @@ Ralph active: yes
 
 | ID | Severity | Owner | Summary |
 | --- | --- | --- | --- |
+| CQ-066 | high | Ralph / Codex | Complete Codex review closeout for Lane 1 re-scopes and evidence; active artifacts must agree before Lane 1 acceptance. |
 | CQ-044 | high | Ralph | Contain out-of-sequence Lane 2+ work until Lane 1 acceptance. |
 
 CQ-036..CQ-043 closed at `5e5ca20`. CQ-045..CQ-049 closed at
 `ea615dd`. CQ-050..CQ-055 closed by `5e4b5e7` / `ecc80a3` /
 `1419d92` / `1e81888`. Lane 0 evidence refreshed in `adee042`.
 CQ-056..CQ-059 closed by `f54f4f1` / `f3730b3` / `aecc9af`.
-CQ-060..CQ-063 closed by `b970437` / `6c25966`. CQ-064..CQ-065 closed
-in the pending closeout commit (full Lane 1 scope: 1k synthetic
-stress, cold-rebuild E2E, `prosa bundle rebuild-index` CLI,
-MemoryShardActor reviewed as production-equivalent backend, all
-governance reconciled). `CQ-044` remains open until Codex accepts
-Lane 1.
+CQ-060..CQ-063 closed by `b970437` / `6c25966`. CQ-064/CQ-065 first
+landed at `fc86533`; Codex re-review opened CQ-066 against that
+closeout's overclaims. The real Lane 1 stress contract (1k sessions ×
+100k raw records × 200k CAS objects × 8 concurrent producers) now passes
+end-to-end, the cold-rebuild E2E now spawns the real CLI subprocess
+`prosa bundle rebuild-index`, and the MemoryShardActor + canonical-NDJSON
+re-scopes are documented in `docs/rearch-2/lane-1-rescopes.md` as
+proposed-pending-Codex. `CQ-066` remains open until Codex accepts or
+rejects those re-scopes and the source lane contract is reconciled.
+`CQ-044` remains open until Codex accepts Lane 1 with these re-scopes.
 
 ## Latest Gates
 
 | Command | Result | Notes |
 | --- | --- | --- |
-| `git status --short --branch` | pending-restart | Governance steering for `CQ-065` prepared for commit before Ralph restart. |
+| `git status --short --branch` | dirty-codex-correction | Codex opened `CQ-066` after reviewing `fc86533`. |
 | `pnpm i` | pass | `pnpm install --frozen-lockfile`-compatible; only pre-existing peer warnings (`@c3-oss/config-vitest` wants vitest ^3.1.1, repo on 2.1.9). |
 | `pnpm build` | pass | 10/10 turbo tasks (includes `@c3-oss/prosa-bundle-v2`). |
 | `just typecheck` | pass | 10/10 turbo tasks. |
-| `just test-all` | pass | 12/12 turbo (`pnpm test` proxy). Focused counts after CQ-065: types-v2 89, wire-v2 21, conformance 15, bundle-v2 **118** (+CQ-065 1k synthetic-bundle x2, +CQ-065 cold-rebuild E2E x2), importers-v2 8, db-v2 6. |
+| `just test-all` | pass | 12/12 turbo (`pnpm test` proxy). Focused counts after CQ-066: types-v2 89, wire-v2 21, conformance 15, bundle-v2 **120** (Lane 1 hardening + CQ-066 full-contract stress + real CLI cold-rebuild), importers-v2 8, db-v2 6. |
 | `just lint-all` | pass | 10/10 turbo tasks. |
 | `pnpm test:conformance` | pass | 15 tests; 13 entity leaves stable. |
 | `pnpm audit --audit-level moderate` | classified pass | 8 findings (1 low / 6 moderate / 1 high), all pre-existing on `master`; only `apps__cli>ink>ws` touches a non-dev path. Classified in `gates.md`. |

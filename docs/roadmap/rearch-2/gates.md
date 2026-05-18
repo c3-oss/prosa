@@ -7,7 +7,7 @@
 | `pnpm i` | yes | pass | `pnpm install --frozen-lockfile`-compatible. Pre-existing peer warning: `@c3-oss/config-vitest@0.3.0` wants vitest ^3.1.1, repo on 2.1.9. |
 | `pnpm build` | yes | pass | 10/10 turbo tasks (now includes `@c3-oss/prosa-bundle-v2`). |
 | `just typecheck` | yes | pass | 10/10 turbo tasks. |
-| `just test-all` | yes | pass | 12/12 turbo at HEAD post-CQ-065. Focused counts: `@c3-oss/prosa-types-v2` 89, `@c3-oss/prosa-wire-v2` 21, conformance 15, `@c3-oss/prosa-bundle-v2` **118** (Lane 1 hardening + CQ-065 full scope: prior 114 + CQ-065 1k synthetic-bundle x2 + CQ-065 cold-rebuild E2E x2), `@c3-oss/prosa-importers-v2` 8 (out-of-sequence WIP, CQ-044), `@c3-oss/prosa-db-v2` 6 (out-of-sequence WIP, CQ-044). |
+| `just test-all` | yes | pass | 12/12 turbo at HEAD post-CQ-066. Focused counts: `@c3-oss/prosa-types-v2` 89, `@c3-oss/prosa-wire-v2` 21, conformance 15, `@c3-oss/prosa-bundle-v2` **120** (prior 118 + CQ-066 full-contract stress 1k×100k×200k x1 + CQ-066 real CLI cold-rebuild x1), `@c3-oss/prosa-importers-v2` 8 (out-of-sequence WIP, CQ-044), `@c3-oss/prosa-db-v2` 6 (out-of-sequence WIP, CQ-044). |
 | `just lint-all` | yes | pass | 10/10 turbo tasks. |
 | `pnpm audit --audit-level moderate` | yes | classified pass | 8 vulnerabilities found (1 low / 6 moderate / 1 high). All pre-existing on `master`. See "Audit Classification". |
 | `git diff --check` | yes | pass | No whitespace or conflict markers. |
@@ -33,10 +33,10 @@ a `just` wrapper fails for environmental reasons.
 | 00 | `pnpm --filter @c3-oss/prosa-wire-v2 typecheck` | yes | pass | |
 | 00 | `pnpm --filter @c3-oss/prosa-wire-v2 test` | yes | pass | 21 tests including CQ-011 receiptId binding and CQ-012 transportHash. |
 | 00 | `pnpm test:conformance` | yes | pass | 15 tests; 13 entity leaves stable. |
-| 01 | `pnpm --filter @c3-oss/prosa-bundle-v2 test` | yes | pass | 118 tests across 17 files (prior 114 + CQ-065 full-scope: synthetic-bundle x2 + cold-rebuild x2). |
-| 01 | `pnpm test packages/prosa-bundle-v2/test/e2e/synthetic-bundle.test.ts` | yes | pass | 2 tests: 1k-session full seal + 200-session re-open round-trip. |
-| 01 | `pnpm test packages/prosa-bundle-v2/test/e2e/cold-rebuild.test.ts` | yes | pass | 2 tests: index/-delete-then-rebuild replay + idempotent double-rebuild. |
-| 01 | `pnpm dev -- bundle rebuild-index --help` | yes | pass | CLI command registered in `apps/cli/src/cli/main.ts` and wired to `rebuildIndex`. |
+| 01 | `pnpm --filter @c3-oss/prosa-bundle-v2 test` | yes | pass | 120 tests across 17 files (prior 118 + CQ-066 full-contract stress + real CLI cold-rebuild). |
+| 01 | `pnpm test packages/prosa-bundle-v2/test/e2e/synthetic-bundle.test.ts` | yes | pass | 3 tests: CQ-066 full-contract 1k×100k×200k stress with 8 concurrent producers (~28s) + 1k-session full seal + 200-session re-open round-trip. |
+| 01 | `pnpm test packages/prosa-bundle-v2/test/e2e/cold-rebuild.test.ts` | yes | pass | 3 tests: CQ-066 real CLI subprocess (spawns `prosa bundle rebuild-index --store <path>` via `swc-node`) + index/-delete-then-rebuild replay + idempotent double-rebuild. |
+| 01 | `pnpm dev -- bundle rebuild-index --store <path> --uuid <uuid>` | yes | pass | CLI command exercises `rebuildIndex` end-to-end and emits manifest JSON to stdout; covered by the real-subprocess E2E above. |
 | 02 | `pnpm --filter @c3-oss/prosa-importers-v2 test` | yes | not-run | Provider, idempotency, graph resolver tests. |
 | 02 | `pnpm dev -- compile-all-v2 --help` | yes | not-run | CLI command presence smoke until fixture gate exists. |
 | 03 | `pnpm --filter @c3-oss/prosa-derived-v2 test` | yes | not-run | Tantivy, session blob, analytics, compaction tests. |
@@ -96,26 +96,23 @@ no new transitive risk.
 
 - [x] Worktree state documented.
 - [x] Lane 0 has evidence; lanes 2–10 are documented as blocked or WIP.
-- [ ] No open blocking corrections. *(`CQ-065`, `CQ-064`, and `CQ-044` are
-  open. User direction on 2026-05-18 requires full Lane 1 completion against
-  `docs/rearch-2/02-lane-1-local-store.md` before Lane 2+ work can continue.)*
+- [ ] No open blocking corrections. *(`CQ-066` and `CQ-044` are open after
+  Codex review of `fc86533`; Lane 1 is not accepted while `CQ-066` remains.)*
 - [x] Base gates passed at HEAD `6c25966` (full repo `pnpm test` / `pnpm
   typecheck` / `pnpm lint` 12/12 turbo).
 - [x] Lane 0-specific gates passed: `prosa-types-v2` 89 tests, `prosa-wire-v2`
   21 tests, `pnpm test:conformance` 15 tests.
-- [ ] Lane 1 focused gates all passed. Current focused gates pass for the
-  existing implementation (`pnpm --filter @c3-oss/prosa-bundle-v2 test` 114
-  tests), but original Lane 1 gates remain incomplete: 1k synthetic bundle
-  stress and cold-rebuild CLI/E2E coverage must be added under `CQ-065`.
+- [ ] Lane 1 focused gates all passed. Current bundle-v2 focused tests pass at
+  118 tests, but `CQ-066` found the stress and cold-rebuild CLI/E2E acceptance
+  mapping is still incomplete or overclaimed.
 - [ ] Docker-backed E2E passed for sync, reads, migration, and cutover paths.
   *(N/A until Lane 5+.)*
 - [x] Audit output classified (8 findings; only `apps__cli>ink>ws` touches a
   non-dev path, pre-existing on `master`).
 - [ ] Security, integrity, remote-read, and E2E reviewer findings resolved
   for Lane 0 and Lane 1. Lane 0 and prior Lane 1 integrity corrections through
-  `CQ-063` are closed; full Lane 1 scope still requires `CQ-065` and a fresh
-  Codex review.
-- [ ] Final Codex review completed. *(Pending — `CQ-065`, `CQ-064`, and
-  `CQ-044` must close first.)*
+  `CQ-063` are closed; `CQ-066` remains open after `fc86533`.
+- [ ] Final Codex review completed. *(Pending — `CQ-066` and `CQ-044` must
+  close first.)*
 - [ ] Five-cycle final stabilization evidence recorded. *(Pending; Lane 1
   must be accepted by Codex first.)*

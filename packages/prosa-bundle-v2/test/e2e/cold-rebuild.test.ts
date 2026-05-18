@@ -48,7 +48,80 @@ function sessionRow(id: string) {
   }
 }
 
-describe('e2e cold rebuild (CQ-065 task 8)', () => {
+describe('e2e cold rebuild (CQ-065 task 8 / CQ-066)', () => {
+  it('CQ-066: real CLI cold rebuild — spawns `prosa bundle rebuild-index --store <path>` and verifies shard contents', async () => {
+    const root = await tmp()
+    const ids = Array.from({ length: 16 }, (_, i) => `ses_cli_${i.toString().padStart(3, '0')}`)
+    const bundle = await initBundle(root, { storeId: 'st_cli_cold', createdAt: '2025-01-02T03:04:05.123Z' })
+    try {
+      const handle = await beginEpoch(bundle, { createdAt: '2025-01-02T03:04:06.000Z' })
+      for (const id of ids) handle.putRow('session', id, sessionRow(id) as never)
+      const seg = await writeProjectionSegment('session', ids.map(sessionRow) as never, { outDir: handle.tmpDir })
+      handle.registerSegment(seg.ref)
+      await sealEpoch(handle)
+    } finally {
+      await bundle.close()
+    }
+
+    // Delete index/ and rebuild via the real CLI subprocess.
+    await rm(join(root, 'index'), { recursive: true, force: true })
+
+    const { spawnSync } = await import('node:child_process')
+    // Resolve `prosa` CLI via the workspace's dev runner so we
+    // don't depend on a built dist.
+    const cliEntry = join(__dirname, '..', '..', '..', '..', 'apps', 'cli', 'src', 'bin', 'prosa.ts')
+    const result = spawnSync(
+      'node',
+      [
+        '--conditions=prosa-dev',
+        '--import',
+        '@swc-node/register/esm-register',
+        cliEntry,
+        'bundle',
+        'rebuild-index',
+        '--store',
+        root,
+        '--uuid',
+        'cli-e2e-1',
+      ],
+      { encoding: 'utf8', timeout: 60_000 },
+    )
+    if (result.status !== 0) {
+      throw new Error(`prosa CLI exited ${result.status}: ${result.stderr}`)
+    }
+    // The command writes a manifest JSON blob to stdout; parse and
+    // assert it covers epoch 1 with the sealed sessions.
+    const manifest = JSON.parse(result.stdout) as {
+      epochsWalked: number[]
+      totalRowsByKeyspace: Record<string, number>
+      uuid: string
+      newIndexDir: string
+    }
+    expect(manifest.uuid).toBe('cli-e2e-1')
+    expect(manifest.epochsWalked).toEqual([1])
+    expect(manifest.totalRowsByKeyspace.session).toBe(ids.length)
+    // Re-open the bundle and replay every shard log via the
+    // MemoryShardActor, confirming each id is recoverable.
+    const reopened = await openBundle(root)
+    try {
+      const recovered = new Set<string>()
+      for (let i = 0; i < 4; i++) {
+        const path = join(reopened.paths.index, `shard-${String(i).padStart(2, '0')}.log`)
+        const actor = await MemoryShardActor.openPersistent(i, path)
+        const snap = await actor.snapshot()
+        for (const [, kv] of snap.entries) {
+          for (const [keyHex] of kv) {
+            recovered.add(Buffer.from(keyHex, 'hex').toString('utf8'))
+          }
+        }
+        await actor.close()
+      }
+      for (const id of ids) expect(recovered.has(id)).toBe(true)
+    } finally {
+      await reopened.close()
+    }
+  }, 60_000)
+
   it('reconstructs per-shard logs after `index/` is deleted, and replay matches sealed rows', async () => {
     const root = await tmp()
     const bundle = await initBundle(root, { storeId: 'st_cold', createdAt: '2025-01-02T03:04:05.123Z' })

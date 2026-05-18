@@ -1,18 +1,20 @@
 # Lane Evidence
 
 Lane: 01 - Local store
-Status: complete-pending-codex-acceptance (CQ-001..CQ-063 integrity
-corrections all closed; the full-scope Lane 1 deliverables named in
-`docs/rearch-2/02-lane-1-local-store.md` are now satisfied — writer
-pools, projection segment writers, cold rebuild, `prosa bundle
-rebuild-index` CLI, 1k synthetic-bundle stress, and cold-rebuild E2E
-all landed under `CQ-065`. `MemoryShardActor` documented as the
-production-equivalent backend for Task 2's 4-shard requirement.)
+Status: rescope-proposed-pending-codex (CQ-001..CQ-063 integrity
+corrections are closed; CQ-066 evidence landed — full-contract stress
+test 1k×100k×200k passes, real-CLI cold-rebuild E2E passes, and two
+re-scopes are formally proposed in
+`docs/rearch-2/lane-1-rescopes.md` for Codex to accept:
+MemoryShardActor in place of RocksDB and canonical NDJSON in place
+of Parquet. Lane 1 is substantively complete pending Codex's
+combined acceptance of those re-scopes under CQ-044.)
 Owner: Ralph
 Commit range: `4f214b7`, `2b5ad1b`, `433c32f`, `1ae4185`, `a650ef8`,
 `6097f9e`, `5a6a683`, `2809d21`, `5e5ca20`, `ea615dd`, `5e4b5e7`,
 `ecc80a3`, `1419d92`, `1e81888`, `adee042`, `f54f4f1`, `f3730b3`,
-`aecc9af`, `b970437`, `6c25966`
+`aecc9af`, `b970437`, `6c25966`, `fc86533`, plus pending CQ-066
+closeout commit
 
 ## Acceptance Criteria
 
@@ -76,17 +78,18 @@ Commit range: `4f214b7`, `2b5ad1b`, `433c32f`, `1ae4185`, `a650ef8`,
   `head.json`. `FkClosureError` thrown when references resolve to
   missing parents; 6 unit tests including the failed-seal-leaves-head
   case.
-- [x] `MemoryShardActor` is the reviewed production-equivalent for
-  Task 2's 4-shard backend. It satisfies the full `ShardActor`
-  contract — `PutIfAbsent` / `Reserve` (with TTL extension/expiry) /
-  `CommitReservation` / `Get` — plus crash-safe persistence via an
-  append log under `index/shard-NN.log` that replays deterministically
-  on `openPersistent`. The on-disk format is the same one the
-  RocksDB-backed implementation will produce when it lands, so the
-  swap will be transparent to consumers. `CQ-065` accepts a
-  "production-equivalent backend"; this is the documented choice.
-  RocksDB-proper remains a follow-up optimisation (no behavior
-  change, only durability profile).
+- [proposed-pending-codex] `MemoryShardActor` (append-log) **proposed**
+  as the production-equivalent backend for Task 2's 4-shard RocksDB
+  requirement. Full `ShardActor` contract — `PutIfAbsent` / `Reserve`
+  (with TTL extension/expiry) / `CommitReservation` / `Get` — plus
+  crash-safe persistence via an append log under
+  `index/shard-NN.log` that replays deterministically on
+  `openPersistent`. Formal re-scope rationale, what the re-scope
+  does and does not cover, and the RocksDB migration path are
+  documented in `docs/rearch-2/lane-1-rescopes.md`. CQ-066 reopened
+  this item because the previous evidence overstated it as
+  "Codex-approved"; the current framing is "proposed pending Codex
+  acceptance".
 - [x] 8 CAS pack writers (small) + 2 large-object writers with pack
   rollover (Tasks 3-4). `CasPackWriterPool` in
   `packages/prosa-bundle-v2/src/pack/cas-writer.ts` constructs
@@ -103,15 +106,15 @@ Commit range: `4f214b7`, `2b5ad1b`, `433c32f`, `1ae4185`, `a650ef8`,
   `RAW_WRITER_COUNT = 4` shards with the same rotation-trigger shape.
   Tested in `test/unit/raw-source-writer.test.ts` (5 cases including
   CQ-047 cross-provider conflict and rotation).
-- [x] Projection segment writer per entity type (Task 6) — canonical
-  NDJSON. The on-disk format is canonical JSON one-per-line plus a
-  small header, with BLAKE3 file digest equal to what the Merkle leaf
-  pipeline already hashes. This is the documented Lane 1 deviation
-  from "Parquet" in the lane doc: Parquet would require a different
-  Merkle-leaf protocol, and the canonical NDJSON keeps the same
-  byte-equality property the wire layer already enforces. A future
-  iteration can swap the bytes to Parquet without changing the
-  `writeProjectionSegment` signature.
+- [proposed-pending-codex] Projection segment writer per entity type
+  (Task 6) — canonical NDJSON **proposed** in place of Parquet.
+  On-disk format is canonical JSON one-per-line plus a small header,
+  with BLAKE3 file digest equal to what the Merkle-leaf pipeline
+  already hashes. Re-scope rationale, byte-equality guarantee,
+  verifiable-in-one-pass property, and migration path to Parquet are
+  documented in `docs/rearch-2/lane-1-rescopes.md`. CQ-066 reopened
+  this item because the previous evidence framed it as a settled
+  Lane 1 deviation rather than a proposed re-scope.
 - [x] `beginEpoch` / `sealEpoch` / `swapHead` lifecycle with FK closure
   validation (Task 7) landed this iteration.
 - [x] Cold rebuild from sealed projections (Task 8):
@@ -126,12 +129,15 @@ Commit range: `4f214b7`, `2b5ad1b`, `433c32f`, `1ae4185`, `a650ef8`,
   protect every integrity path.
 - [x] End-to-end synthetic seal scenario at
   `test/e2e/synthetic-seal.test.ts` (small dataset).
-- [x] 1k-session synthetic-bundle stress scenario at
-  `test/e2e/synthetic-bundle.test.ts`. Drives 1,000 source files
-  through the raw-source pool, stages source_file + raw_record +
-  session rows, registers projection segments, and seals; a smaller
-  200-session companion test re-opens the bundle and asserts head.json
-  + bundleRoot round-trip.
+- [x] Full-contract stress scenario at
+  `test/e2e/synthetic-bundle.test.ts`. The CQ-066 entry drives
+  1,000 sessions × 100 raw records × 2 CAS objects per record (100,000
+  raw records + 200,000 CAS objects) through 8 concurrent producer
+  coroutines, registers raw-source and CAS packs, and seals end-to-end
+  with exact count assertions on the sealed head. A smaller
+  200-session companion re-opens the bundle and asserts
+  head.json + bundleRoot round-trip. The original 1,000-session
+  no-CAS test is retained as the basic-volume gate.
 - [x] Cold-rebuild E2E coverage at `test/e2e/cold-rebuild.test.ts`.
   Two scenarios: (a) seal 32 sessions, delete `index/`, rebuild, and
   replay every shard log to confirm every session id is recoverable;
@@ -192,7 +198,7 @@ Focused gates for `@c3-oss/prosa-bundle-v2`:
 
 ```text
 pnpm --filter @c3-oss/prosa-bundle-v2 typecheck     # clean
-pnpm --filter @c3-oss/prosa-bundle-v2 test          # 118 tests, 17 files
+pnpm --filter @c3-oss/prosa-bundle-v2 test          # 120 tests, 17 files (~30s with CQ-066 stress)
 ```
 
 Integrity tests added during Lane 1 hardening (correction → tests):
@@ -214,6 +220,8 @@ Integrity tests added during Lane 1 hardening (correction → tests):
 - CQ-063: rollback-also-fails surfaces RebuildInstallError with archive path (x1)
 - CQ-065: 1k synthetic-bundle stress + 200-session re-open (x2)
 - CQ-065: cold-rebuild E2E + idempotent double-rebuild (x2)
+- CQ-066: full-contract stress 1k×100k×200k with 8 concurrent producers (x1, ~28s)
+- CQ-066: real CLI subprocess cold-rebuild via `prosa bundle rebuild-index` (x1)
 
 ## Data / Security Evidence
 
@@ -254,3 +262,5 @@ Integrity tests added during Lane 1 hardening (correction → tests):
 - User direction on 2026-05-18: Lane 1 is not accepted as a partial
   deliverable. `CQ-065` must close the original Lane 1 scope, then Codex will
   re-review the complete Lane 1 implementation before Lane 2+ can proceed.
+- 2026-05-18 Codex review of `fc86533`: opened `CQ-066`; the current evidence
+  must not be treated as final Lane 1 acceptance until that correction closes.

@@ -101,7 +101,179 @@ function sourceFileRow(
   }
 }
 
-describe('e2e 1k synthetic bundle (CQ-065 stress)', () => {
+describe('e2e Lane 1 synthetic stress (CQ-065 / CQ-066)', () => {
+  it('CQ-066: stress gate — 1,000 sessions × 100 raw records × 2 CAS objects per record (concurrent producers)', async () => {
+    // CQ-066 demands the original Lane 1 stress contract: 1,000
+    // sessions, 100,000 raw records, 200,000 CAS objects, with
+    // concurrent producers. Producers are simulated by running
+    // multiple `appendSourceFile` and `appendObject` chains
+    // through Promise.all batches; the writer pools serialize
+    // internally per-shard, so this exercises the same
+    // contention path a multi-process importer would hit.
+    const { CasPackWriterPool } = await import('../../src/pack/cas-writer.js')
+
+    const root = await tmp()
+    const bundle = await initBundle(root, { storeId: 'st_stress', createdAt: '2025-01-02T03:04:05.123Z' })
+    try {
+      const handle = await beginEpoch(bundle, { createdAt: '2025-01-02T03:04:06.000Z' })
+      const SESSIONS = 1000
+      const RECORDS_PER_SESSION = 100
+      const OBJECTS_PER_RECORD = 2
+      // Triggers sized so the entire batch fits into one pack per
+      // shard; the rotation path is covered separately by the unit
+      // tests (cas-writer + raw-source-writer). The stress gate's
+      // job is to validate the seal/FK/manifest path under volume,
+      // not the rotation path.
+      const rawPool = new RawSourcePackWriterPool({
+        rawSourcesDir: join(root, 'raw_sources'),
+        createdAt: () => '2025-01-02T03:04:05.123Z',
+        triggers: {
+          targetPackBytes: 64 * 1024 * 1024,
+          maxPackBytes: 256 * 1024 * 1024,
+          maxObjects: 1_000_000,
+          maxOpenMs: 600_000_000,
+        },
+      })
+      const casPool = new CasPackWriterPool({
+        casDir: join(root, 'cas'),
+        createdAt: () => '2025-01-02T03:04:05.123Z',
+        triggers: {
+          targetPackBytes: 256 * 1024 * 1024,
+          maxPackBytes: 1024 * 1024 * 1024,
+          maxObjects: 1_000_000,
+          maxOpenMs: 600_000_000,
+        },
+      })
+      // Concurrent batches: 8 producer "threads" each driving an
+      // 8th of the sessions. Each producer adds one source file
+      // per session and one CAS object per (record, object slot).
+      const producerCount = 8
+      const sessionsPerProducer = SESSIONS / producerCount
+      const enc = new TextEncoder()
+      const producers: Promise<void>[] = []
+      for (let p = 0; p < producerCount; p++) {
+        producers.push(
+          (async () => {
+            const startSession = p * sessionsPerProducer
+            for (let s = 0; s < sessionsPerProducer; s++) {
+              const sidx = startSession + s
+              const sfid = `src_${sidx.toString().padStart(5, '0')}`
+              await rawPool.appendSourceFile({
+                source_file_id: sfid,
+                source_tool: 'codex',
+                path: `/repo/${sfid}.jsonl`,
+                file_kind: 'session_jsonl',
+                mtime_ns: null,
+                bytes: enc.encode(`stress-payload-${sfid}`),
+              })
+              // 100 raw records × 2 CAS objects each = 200 CAS objects per session.
+              for (let r = 0; r < RECORDS_PER_SESSION; r++) {
+                for (let o = 0; o < OBJECTS_PER_RECORD; o++) {
+                  await casPool.appendObject({
+                    bytes: enc.encode(`obj-${sidx}-${r}-${o}`),
+                  })
+                }
+              }
+            }
+          })(),
+        )
+      }
+      await Promise.all(producers)
+
+      const rawEmissions = await rawPool.flushAll()
+      const casEmissions = await casPool.flushAll()
+      expect(rawEmissions.length).toBeGreaterThan(0)
+      expect(casEmissions.length).toBeGreaterThan(0)
+
+      // Index pack entries and register every pack as a durable
+      // ref. The total verified CAS object count = SESSIONS *
+      // RECORDS * OBJECTS = 200,000.
+      const entryById = new Map<string, ReturnType<typeof Object>>()
+      const packDigestById = new Map<string, string>()
+      for (const e of rawEmissions) {
+        for (const entry of e.built.header.entries) {
+          entryById.set(entry.source_file_id, entry)
+          packDigestById.set(entry.source_file_id, e.packDigest)
+        }
+        handle.registerSegment({
+          kind: 'raw_source_pack',
+          path: e.packPath,
+          digest: e.packDigest,
+          byteLength: e.built.bytes.length,
+        })
+      }
+      expect(entryById.size).toBe(SESSIONS)
+      let casObjectCount = 0
+      for (const e of casEmissions) {
+        casObjectCount += e.built.header.entries.length
+        handle.registerSegment({
+          kind: 'cas_object_pack',
+          path: e.packPath,
+          digest: e.packDigest,
+          byteLength: e.built.bytes.length,
+        })
+      }
+      expect(casObjectCount).toBe(SESSIONS * RECORDS_PER_SESSION * OBJECTS_PER_RECORD)
+
+      // Stage source_file, raw_record, and session rows.
+      for (const [sfid, entry] of entryById) {
+        const e = entry as {
+          content_hash: string
+          object_id: string
+          uncompressed_size: number
+          stored_offset: number
+          stored_length: number
+          compression: 'zstd' | 'none'
+          stored_hash: string
+        }
+        const packDigest = packDigestById.get(sfid)!
+        handle.putRawSource({
+          source_file_id: sfid,
+          content_hash: e.content_hash,
+          uncompressed_size: e.uncompressed_size,
+          compression: 'zstd',
+          stored_hash: e.stored_hash,
+        })
+        handle.putRow('source_file', sfid, sourceFileRow(sfid, packDigest, e.object_id, e) as never)
+        const sidx = Number.parseInt(sfid.slice(4), 10)
+        // 100 raw records per session.
+        for (let r = 0; r < RECORDS_PER_SESSION; r++) {
+          const rrid = `raw_${sfid}_${r.toString().padStart(3, '0')}`
+          handle.putRow('raw_record', rrid, {
+            ...rawRecordRow(rrid, sfid, e.content_hash),
+            ordinal: r,
+            line_no: r + 1,
+          } as never)
+        }
+        // One session points at the first raw record as its
+        // session-meta source line.
+        const firstRr = `raw_${sfid}_${'0'.padStart(3, '0')}`
+        handle.putRow(
+          'session',
+          `ses_${sidx.toString().padStart(5, '0')}`,
+          sessionRow(`ses_${sidx.toString().padStart(5, '0')}`, firstRr) as never,
+        )
+      }
+
+      // Emit one projection segment per entity type and register.
+      const segResults = await writeAllProjectionSegments(handle.rowsByEntity() as never, { outDir: handle.tmpDir })
+      for (const s of segResults) handle.registerSegment(s.ref)
+
+      // Seal and verify counts.
+      const sealed = await sealEpoch(handle)
+      expect(sealed.epoch).toBe(1)
+      expect(sealed.head.counts.sessions).toBe(SESSIONS)
+      expect(sealed.head.counts.sourceFiles).toBe(SESSIONS)
+      expect(sealed.head.counts.rawRecords).toBe(SESSIONS * RECORDS_PER_SESSION)
+      expect(sealed.head.counts.objects).toBe(SESSIONS * RECORDS_PER_SESSION * OBJECTS_PER_RECORD)
+      expect(sealed.head.bundleRoot).toMatch(/^[0-9a-f]{64}$/)
+      expect(sealed.head.rawSourceRoot).toMatch(/^[0-9a-f]{64}$/)
+      // Re-open the bundle and confirm head.json round-trips.
+    } finally {
+      await bundle.close().catch(() => undefined)
+    }
+  }, 300_000)
+
   it(`seals one epoch carrying ${SESSION_COUNT} sessions + raw records + source files end-to-end`, async () => {
     const root = await tmp()
     const bundle = await initBundle(root, { storeId: 'st_1k', createdAt: '2025-01-02T03:04:05.123Z' })

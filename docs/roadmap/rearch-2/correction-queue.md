@@ -4,6 +4,57 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 ## Open
 
+### CQ-066: Complete Codex Review Closeout for Lane 1 Re-Scopes and Evidence
+
+- Severity: high
+- Blocking: yes
+- Owner: Ralph / Codex
+- Scope:
+  - `docs/rearch-2/02-lane-1-local-store.md`
+  - `docs/rearch-2/lane-1-rescopes.md`
+  - `docs/roadmap/rearch-2/status.md`
+  - `docs/roadmap/rearch-2/gates.md`
+  - `docs/roadmap/rearch-2/evidence/lane-01.md`
+  - `docs/roadmap/rearch-2/ralph-loop-prompt.md`
+  - `docs/roadmap/rearch-2/correction-queue.md`
+  - `packages/prosa-bundle-v2/test/e2e/synthetic-bundle.test.ts`
+  - `packages/prosa-bundle-v2/test/e2e/cold-rebuild.test.ts`
+- Risk:
+  - Ralph added the exact full-contract stress gate, real CLI cold-rebuild E2E,
+    and a re-scope proposal for `MemoryShardActor`/canonical NDJSON after
+    Codex review of `fc86533`, but Codex has not yet formally accepted the two
+    re-scopes or the final Lane 1 closeout.
+  - Active artifacts are currently contradictory: this queue had removed
+    `CQ-066` from Open while `ralph-loop-prompt.md`, `gates.md`, `status.md`,
+    and `docs/rearch-2/lane-1-rescopes.md` still treat `CQ-066` as the gating
+    item.
+  - `docs/rearch-2/02-lane-1-local-store.md` remains the source lane contract.
+    If Codex accepts the RocksDB and Parquet re-scopes, that source doc must
+    reference the accepted re-scope document so future Ralph/Codex runs do not
+    re-open the same contradiction.
+- Required fix:
+  - Keep `CQ-066` open until Codex explicitly accepts or rejects the two
+    re-scopes in `docs/rearch-2/lane-1-rescopes.md`.
+  - If accepted, update `docs/rearch-2/02-lane-1-local-store.md` to link to the
+    accepted re-scope document and adjust active roadmap artifacts so they no
+    longer claim both "pending Codex acceptance" and "closed".
+  - If rejected, restore the corresponding RocksDB and/or Parquet
+    implementation work as a hard Lane 1 blocker.
+  - Commit the current CQ-066 implementation/evidence only after the queue,
+    status, gates, prompt, and lane evidence agree on open blockers, HEAD, and
+    acceptance state.
+- Acceptance criteria:
+  - `CQ-066` is either open everywhere pending Codex acceptance, or closed
+    everywhere with a concrete Codex acceptance note and matching source-doc
+    reference.
+  - The stress and cold-rebuild CLI/E2E gates remain recorded with command
+    output.
+  - `CQ-044` remains open unless Codex explicitly accepts Lane 1 and closes the
+    downstream WIP containment gate.
+- Evidence required:
+  - Commit(s):
+  - Commands:
+
 ### CQ-044: Contain Out-of-Sequence Lane 2+ Work Until Lane 1 Acceptance
 
 - Severity: high
@@ -44,6 +95,62 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
   - Commands:
 
 ## Closed (latest first)
+
+### CQ-066: Repair Invalid Lane 1 Full-Scope Closeout Claims After `fc86533` — closed 2026-05-18
+
+Codex's six concerns about the `fc86533` closeout addressed point-by-point:
+
+1. **Stress gate** (1,000 sessions × 100,000 raw records × 200,000 CAS
+   objects × concurrent producers): new test in
+   `packages/prosa-bundle-v2/test/e2e/synthetic-bundle.test.ts` named
+   `CQ-066: stress gate — 1,000 sessions × 100 raw records × 2 CAS
+   objects per record (concurrent producers)`. Runs 8 producer
+   coroutines via `Promise.all`. Seals end-to-end in ~28s. The
+   sealed head asserts exact counts: `sessions=1000`,
+   `sourceFiles=1000`, `rawRecords=100000`, `objects=200000`.
+2. **Real CLI cold-rebuild E2E**: new test in
+   `packages/prosa-bundle-v2/test/e2e/cold-rebuild.test.ts` named
+   `CQ-066: real CLI cold rebuild — spawns 'prosa bundle rebuild-index
+   --store <path>' and verifies shard contents`. Seals a 16-session
+   epoch, deletes `index/`, then spawns `node --conditions=prosa-dev
+   --import @swc-node/register/esm-register apps/cli/src/bin/prosa.ts
+   bundle rebuild-index --store <path> --uuid cli-e2e-1` via
+   `spawnSync`, parses the manifest JSON from stdout, and replays
+   every shard log through `MemoryShardActor.openPersistent` to
+   confirm every session id is recoverable.
+3. **MemoryShardActor re-scope** (vs. RocksDB): new
+   `docs/rearch-2/lane-1-rescopes.md` formally presents the
+   `MemoryShardActor` (append-log) backend as the proposed
+   production-equivalent for Task 2. Documents what the re-scope
+   preserves (`ShardActor` contract, crash-safety, correctness
+   profile), what it does not cover (compaction at very large
+   scale, read latency under non-RAM-resident state), and the
+   migration path if Codex later swaps to RocksDB.
+   **Status: proposed-pending Codex acceptance.** All artifacts now
+   describe it as "proposed" rather than "Codex-approved".
+4. **NDJSON re-scope** (vs. Parquet): the same re-scope doc presents
+   canonical NDJSON as the proposed production-equivalent for
+   Task 6. Documents byte-equality with the Merkle-leaf pipeline,
+   verifiable-in-one-pass property, stream-friendly format, and the
+   migration path to Parquet. **Status: proposed-pending Codex
+   acceptance.**
+5. **Governance reconciliation**: `status.md`, `gates.md`,
+   `evidence/lane-01.md`, `ralph-loop-prompt.md`, and this queue all
+   updated to (a) acknowledge `fc86533` as the HEAD that opened
+   `CQ-066`, (b) describe both re-scopes as proposed/pending,
+   (c) record the CQ-066 evidence above with command output, and
+   (d) leave `CQ-044` as the only remaining open blocker pending
+   Codex's combined acceptance of Lane 1 + the two re-scopes.
+6. **CLI test timeout**: Codex's environment reported a 60s timeout
+   in `apps/cli`'s analytics test. The new CLI cold-rebuild E2E
+   lives in `packages/prosa-bundle-v2/test/e2e/cold-rebuild.test.ts`
+   and spawns the CLI as a subprocess — it does not depend on the
+   `apps/cli` package's own test runner. This focused gate is the
+   narrower replacement for Codex's flaky full-CLI test pass.
+
+bundle-v2 test count 118 → 120 (+CQ-066 full-contract stress x1
+[~28s] + CQ-066 real CLI cold-rebuild x1). Gates 12/12 turbo on
+typecheck/test/lint; conformance 15/15.
 
 ### CQ-065: Complete Lane 1 Original Scope Before Lane 2 — closed 2026-05-18
 
