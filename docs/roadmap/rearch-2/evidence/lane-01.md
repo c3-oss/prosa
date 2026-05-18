@@ -130,27 +130,35 @@ Commit range: `4f214b7`, `2b5ad1b`, `433c32f`, `1ae4185`, `a650ef8`, `6097f9e`, 
 
 ## Commands Run
 
-Latest focused run after CQ-036..CQ-043 fixes were applied to the working tree
-(pending closeout commit):
-
-```text
-pnpm --filter @c3-oss/prosa-bundle-v2 typecheck     # clean
-pnpm --filter @c3-oss/prosa-bundle-v2 test          # 91 tests, 15 files
-```
-
-Last full repo gate run, pre CQ-036..CQ-043 closeout (at HEAD `2809d21`):
+Latest full repo gate run at HEAD `5e4b5e7` (after the
+CQ-036..CQ-043 / CQ-045..CQ-049 / CQ-050..CQ-053 closeout chain):
 
 ```text
 pnpm install                                          # clean
-pnpm build                                            # 10/10 turbo
-just typecheck                                        # 10/10 turbo
-just test-all                                         # 10/10 turbo (bundle-v2 86)
-just lint-all                                         # 10/10 turbo
+pnpm build                                            # 12/12 turbo (FULL TURBO)
+pnpm typecheck                                        # 12/12 turbo
+pnpm test                                             # 12/12 turbo
+pnpm lint                                             # 12/12 turbo
 pnpm test:conformance                                 # 15 tests pass
 git diff --check                                      # clean
 ```
 
-Full repo gate re-run will land with the CQ-036..CQ-043 closeout commit.
+Focused gates for `@c3-oss/prosa-bundle-v2`:
+
+```text
+pnpm --filter @c3-oss/prosa-bundle-v2 typecheck     # clean
+pnpm --filter @c3-oss/prosa-bundle-v2 test          # 104 tests, 15 files
+```
+
+Integrity tests added during Lane 1 hardening (correction → tests):
+
+- CQ-042: `cas-pack` + `raw-source-pack` canonical-header rejection (x2)
+- CQ-043: rebuild drift-rejection (x1)
+- CQ-046: tampered signed manifest, extra segment, missing declared segment, missing manifest pair (x4)
+- CQ-047: source_file_id re-append conflict, orphan pack entry (x2)
+- CQ-048: search_doc.session_id / project_id rejection + nullable accept (x3)
+- CQ-049: symlink ref rejection, CAS pack under `projection/` rejection (x2)
+- CQ-050: tampered unsigned manifest, head.json digest strip (x2)
 
 ## Data / Security Evidence
 

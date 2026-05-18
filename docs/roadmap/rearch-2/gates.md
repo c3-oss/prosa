@@ -7,7 +7,7 @@
 | `pnpm i` | yes | pass | `pnpm install --frozen-lockfile`-compatible. Pre-existing peer warning: `@c3-oss/config-vitest@0.3.0` wants vitest ^3.1.1, repo on 2.1.9. |
 | `pnpm build` | yes | pass | 10/10 turbo tasks (now includes `@c3-oss/prosa-bundle-v2`). |
 | `just typecheck` | yes | pass | 10/10 turbo tasks. |
-| `just test-all` | yes | pending re-run | Pre CQ-036..CQ-043 closeout counts: 89 in `@c3-oss/prosa-types-v2`, 21 in `@c3-oss/prosa-wire-v2`, 86 in `@c3-oss/prosa-bundle-v2`. Working tree (pending closeout commit): **91** in `@c3-oss/prosa-bundle-v2` (added CQ-042 canonical-header rejection x2 across cas-pack and raw-source-pack, + CQ-043 rebuild drift-rejection x1). Full `just test-all` re-run will land with the closeout commit. |
+| `just test-all` | yes | pass | 12/12 turbo at HEAD `5e4b5e7`. Focused counts: `@c3-oss/prosa-types-v2` 89, `@c3-oss/prosa-wire-v2` 21, conformance 15, `@c3-oss/prosa-bundle-v2` **104** (CQ-042 x2 + CQ-043 x1 + CQ-046 x4 + CQ-047 x2 + CQ-048 x3 + CQ-049 x2 + CQ-050 x2 since the start of Lane 1 hardening), `@c3-oss/prosa-importers-v2` 8 (out-of-sequence WIP, CQ-044), `@c3-oss/prosa-db-v2` 6 (out-of-sequence WIP, CQ-044). |
 | `just lint-all` | yes | pass | 10/10 turbo tasks. |
 | `pnpm audit --audit-level moderate` | yes | classified pass | 7 dev-tooling-only vulnerabilities, pre-existing on `master`. See "Audit Classification". |
 | `git diff --check` | yes | pass | No whitespace or conflict markers. |

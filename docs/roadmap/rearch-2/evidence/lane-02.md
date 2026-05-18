@@ -1,13 +1,16 @@
 # Lane Evidence
 
 Lane: 02 - Importers
-Status: partial (LogicalImportUnit contract, GraphResolver, and
-runCompileImports orchestrator landed and tested through a mock
-provider; each per-provider importer — Codex, Claude Code, Cursor,
-Gemini, Hermes — remains as its own follow-up iteration since their
-parsing logic is provider-specific and not shareable)
+Status: out-of-sequence WIP (unaccepted; tracked by CQ-044). The
+`LogicalImportUnit` contract, `GraphResolver`, and `runCompileImports`
+orchestrator landed at `004107c` while Lane 1 still had open
+blocking integrity corrections. The package now passes its focused
+gates (8 tests) at `5e4b5e7` but is **not** counted as accepted lane
+progress. Each per-provider importer — Codex, Claude Code, Cursor,
+Gemini, Hermes — remains its own follow-up iteration. No new Lane 2
+feature work is allowed until Codex re-review accepts Lane 1.
 Owner: Ralph
-Commit range: this iteration
+Commit range: `004107c` (out-of-sequence) + later CQ-047 backfill in `5e5ca20`
 
 ## Acceptance Criteria
 

@@ -1,9 +1,17 @@
 # Lane Evidence
 
 Lane: 04 - Server
-Status: blocked-on-lane-00
+Status: out-of-sequence WIP (unaccepted; tracked by CQ-044). The
+`packages/prosa-db-v2` scaffold (devices / promotion / packs /
+projection / search DDL + apply / assert helpers + 6 pglite-backed
+tests) landed alongside the Lane 1 CQ-036..CQ-043 closeout in
+`5e5ca20`. It passes its focused gates at `5e4b5e7` but is **not**
+counted as accepted Lane 4 progress. The API server, KMS signing,
+sync routes, audit/GC cron, and streaming validation remain
+unstarted. No new Lane 4 feature work is allowed until Codex
+re-review accepts Lane 1.
 Owner: Ralph
-Commit range:
+Commit range: `5e5ca20` (out-of-sequence scaffold; `packages/prosa-db-v2/**` only)
 
 ## Acceptance Criteria
 

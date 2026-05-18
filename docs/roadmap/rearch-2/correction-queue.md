@@ -4,54 +4,6 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 ## Open
 
-### CQ-050: Reconcile Governance Artifacts After `ea615dd`
-
-- Severity: high
-- Blocking: yes
-- Owner: Ralph
-- Scope:
-  - `docs/roadmap/rearch-2/status.md`
-  - `docs/roadmap/rearch-2/gates.md`
-  - `docs/roadmap/rearch-2/evidence/lane-00.md`
-  - `docs/roadmap/rearch-2/evidence/lane-01.md`
-  - `docs/roadmap/rearch-2/evidence/lane-02.md`
-  - `docs/roadmap/rearch-2/evidence/lane-04.md`
-  - `docs/roadmap/rearch-2/ralph-loop-prompt.md`
-  - `docs/roadmap/rearch-2/correction-queue.md`
-- Risk:
-  - `ea615dd` marks `CQ-045` through `CQ-049` closed, and Codex review found
-    the code/test fixes for `CQ-046` through `CQ-049` substantively closed.
-    But durable governance artifacts still describe pre-`ea615dd` state:
-    `status.md` says HEAD `5e5ca20`, `status.md` / `gates.md` /
-    `lane-01.md` still mention pending closeout or working-tree fixes, and
-    `ralph-loop-prompt.md` still says `CQ-044` through `CQ-049` are current
-    blockers.
-  - Lane 2 and Lane 4 evidence also still present out-of-sequence packages as
-    landed progress in some places instead of unaccepted WIP under `CQ-044`.
-- Required fix:
-  - Update all scoped artifacts to actual HEAD `ea615dd` or the newer
-    correction HEAD.
-  - Remove all stale "pending closeout commit", "working tree fixes", and
-    pre-`ea615dd` focused-count language.
-  - Record current open blockers as `CQ-044` and `CQ-050` until this item is
-    closed.
-  - Record Codex focused gates after `ea615dd`: bundle-v2 102, types-v2 89,
-    wire-v2 21, conformance 15, importers-v2 8, db-v2 6, bundle-v2
-    typecheck/lint, and `git diff --check`.
-  - Mark Lane 2 importer and Lane 4 DB packages consistently as
-    out-of-sequence, active workspace WIP, not accepted lane progress.
-- Acceptance criteria:
-  - `status.md`, `gates.md`, lane evidence, prompt, and correction queue agree
-    on HEAD, clean worktree, open blockers, focused gate counts, and
-    out-of-sequence Lane 2/4 status.
-  - No artifact claims `CQ-045` through `CQ-049` are pending-local after they
-    are committed.
-  - `CQ-044` remains open until Lane 2/4 containment evidence is consistent
-    and Codex accepts Lane 1.
-- Evidence required:
-  - Commit(s):
-  - Commands:
-
 ### CQ-044: Contain Out-of-Sequence Lane 2+ Work Until Lane 1 Acceptance
 
 - Severity: high
@@ -92,6 +44,18 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
   - Commands:
 
 ## Closed (latest first)
+
+### CQ-052: Reconcile Governance Artifacts After `5e4b5e7` — closed 2026-05-18
+
+`status.md`, `gates.md`, `evidence/lane-01.md`, `evidence/lane-02.md`,
+`evidence/lane-04.md`, and `ralph-loop-prompt.md` updated to reflect
+HEAD `5e4b5e7` and the closed status of `CQ-045..CQ-051`. Stale
+"pending closeout commit" / "working tree fixes" language removed.
+Open blocker reduced to `CQ-044` (procedural Lane 2/4 containment).
+Lane 0/1 done-check counts updated to post-`5e4b5e7` focused gates:
+types-v2 89, wire-v2 21, conformance 15, bundle-v2 104, importers-v2 8
+(out-of-sequence WIP), db-v2 6 (out-of-sequence WIP). Lane 2 and Lane 4
+evidence reframed as out-of-sequence WIP with explicit `CQ-044` linkage.
 
 ### CQ-051: Realpath Allowed Dirs in enforceKindContainment — closed 2026-05-18
 

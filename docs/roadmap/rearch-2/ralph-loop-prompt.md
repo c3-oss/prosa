@@ -123,25 +123,20 @@ Keep these files current:
 
 Before continuing beyond Lane 0 or doing more Lane 1 work, close every open
 `CQ-*` item in `docs/roadmap/rearch-2/correction-queue.md` with code, tests,
-and evidence. Current final-review corrections are `CQ-044` through `CQ-049`.
-They block Lane 0 acceptance and further Lane 1 reliance until closed:
+and evidence. After the closeout chain through `5e4b5e7`, the only remaining
+open blocker is:
 
 - `CQ-044`: contain out-of-sequence Lane 2+ work (`packages/prosa-importers-v2`,
-  `packages/prosa-db-v2`, and related wiring) until Lane 1 is accepted.
-- `CQ-045`: reconcile status/gates/evidence/correction queue after commit
-  `5e5ca20`; no artifact may describe `CQ-036` through `CQ-043` as
-  pending-local if they are already committed.
-- `CQ-046`: fail cold rebuild when manifest authority is missing or projection
-  data is unmanifested.
-- `CQ-047`: enforce exact raw-source pack to `source_file` row bijection,
-  including the zero-source-row case.
-- `CQ-048`: add targeted `search_doc.session_id` and `search_doc.project_id`
-  FK rejection tests.
-- `CQ-049`: add symlink and wrong-kind durable-ref containment rejection tests.
+  `packages/prosa-db-v2`, and related wiring) until Codex accepts Lane 1.
 
-Do not begin Lane 2/importer work while any open blocking correction remains.
-If additional Lane 1 commits already exist, review them against this queue
-before expanding scope.
+`CQ-044` is procedural: the Lane 2/4 packages exist in the active workspace
+but must remain documented as WIP, with no new Lane 2+ feature commits
+landing until Codex re-review accepts Lane 1. Lane 0 corrections
+`CQ-001..CQ-019` and Lane 1 integrity corrections `CQ-020..CQ-053`
+(skipping `CQ-051` which was renumbered to `CQ-053`) are closed in code,
+tests, and evidence.
+
+Do not begin Lane 2/importer feature work while `CQ-044` is open.
 
 ## Implementation Rules
 

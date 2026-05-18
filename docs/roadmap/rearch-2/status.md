@@ -11,7 +11,7 @@ Completion signal: RALPH_DONE
 
 Status: in-progress (correction required after Codex review)
 Current lane: corrections before further Lane 1 / any Lane 2 work
-Current HEAD: `5e5ca20`
+Current HEAD: `5e4b5e7`
 No-change streak: 0
 Ralph active: yes
 
@@ -20,7 +20,7 @@ Ralph active: yes
 | Lane | Owner | Status | Commit(s) | Evidence |
 | --- | --- | --- | --- | --- |
 | 00 - Foundation | Ralph | correction | `cd845f2`, `e22ec27`, `b78b5ae`, `70b9df0`, `0e8a912`, `a650ef8`, `2809d21` | `evidence/lane-00.md` |
-| 01 - Local store | Ralph | partial-correction | `4f214b7`, `2b5ad1b`, `433c32f`, `a650ef8`, `6097f9e`, `5a6a683`, `2809d21`, `5e5ca20` | `evidence/lane-01.md` |
+| 01 - Local store | Ralph | partial-correction | `4f214b7`, `2b5ad1b`, `433c32f`, `a650ef8`, `6097f9e`, `5a6a683`, `2809d21`, `5e5ca20`, `ea615dd`, `5e4b5e7` | `evidence/lane-01.md` |
 | 02 - Importers | Ralph | blocked-on-lane-01 | `004107c` (out-of-sequence WIP, unaccepted) | `evidence/lane-02.md` |
 | 03 - Derived layer | Ralph | blocked-on-lane-02 | | `evidence/lane-03.md` |
 | 04 - Server | Ralph | blocked-on-lane-00 | | `evidence/lane-04.md` |
@@ -38,10 +38,11 @@ Ralph active: yes
 | CQ-044 | high | Ralph | Contain out-of-sequence Lane 2+ work until Lane 1 acceptance. |
 
 CQ-036..CQ-043 closed at `5e5ca20`. CQ-045..CQ-049 closed at
-`ea615dd`. CQ-050..CQ-051 closed in the working tree (pending
-closeout commit; addresses reviewer-F2 head.json digest pin
-strip-bypass + reviewer-F4 symlinked-bundle-root false-positive in
-kind containment).
+`ea615dd`. CQ-050..CQ-053 closed at `5e4b5e7`. CQ-052 (governance
+reconcile after `5e4b5e7`) closed in this iteration. All Lane 0 and
+Lane 1 integrity corrections are now closed in code, tests, and
+evidence; only `CQ-044` (procedural containment of out-of-sequence
+Lane 2/4 work) remains open pending Codex's Lane 1 acceptance.
 
 ## Latest Gates
 
@@ -51,7 +52,7 @@ kind containment).
 | `pnpm i` | pass | `pnpm install --frozen-lockfile`-compatible; only pre-existing peer warnings (`@c3-oss/config-vitest` wants vitest ^3.1.1, repo on 2.1.9). |
 | `pnpm build` | pass | 10/10 turbo tasks (includes `@c3-oss/prosa-bundle-v2`). |
 | `just typecheck` | pass | 10/10 turbo tasks. |
-| `just test-all` | pass | 12/12 turbo (`pnpm test` proxy). Working-tree focused counts post CQ-045..CQ-049: types-v2 89, wire-v2 21, conformance 15, bundle-v2 **102** (added CQ-046 x4, CQ-047 x1, CQ-048 x3, CQ-049 x2, plus CQ-042/CQ-043 close-out tests), importers-v2 8, db-v2 6. Full re-run will land with the closeout commit. |
+| `just test-all` | pass | 12/12 turbo (`pnpm test` proxy). Focused counts after `5e4b5e7`: types-v2 89, wire-v2 21, conformance 15, bundle-v2 **104** (+CQ-050 manifest tamper / digest strip), importers-v2 8, db-v2 6. |
 | `just lint-all` | pass | 10/10 turbo tasks. |
 | `pnpm test:conformance` | pass | 15 tests; 13 entity leaves stable. |
 | `pnpm audit --audit-level moderate` | classified pass | 7 dev-tooling-only vulnerabilities, pre-existing; classified in `gates.md`. |
