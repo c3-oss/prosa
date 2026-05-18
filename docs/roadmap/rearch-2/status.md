@@ -9,9 +9,9 @@ Completion signal: RALPH_DONE
 
 ## Current State
 
-Status: in-progress (Lane 0 complete pending Codex re-review of CQ-010..CQ-015 closeout)
-Current lane: Lane 1 - Local store (next iteration)
-Current HEAD: `e22ec27` (this iteration adds another commit closing CQ-010..CQ-015)
+Status: in-progress (Lane 0 closed; Lane 1 partial landed this iteration)
+Current lane: Lane 1 - Local store (partial; remaining tasks in next iteration)
+Current HEAD: `70b9df0` (this iteration adds a commit for partial Lane 1)
 No-change streak: 0
 Ralph active: yes
 
@@ -19,8 +19,8 @@ Ralph active: yes
 
 | Lane | Owner | Status | Commit(s) | Evidence |
 | --- | --- | --- | --- | --- |
-| 00 - Foundation | Ralph | complete (pending Codex re-review) | `cd845f2`, `e22ec27`, (+this iteration) | `evidence/lane-00.md` |
-| 01 - Local store | Ralph | open (next iteration) | | `evidence/lane-01.md` |
+| 00 - Foundation | Ralph | complete | `cd845f2`, `e22ec27`, `b78b5ae`, `70b9df0` | `evidence/lane-00.md` |
+| 01 - Local store | Ralph | partial (this iteration) | (this iteration) | `evidence/lane-01.md` |
 | 02 - Importers | Ralph | blocked-on-lane-01 | | `evidence/lane-02.md` |
 | 03 - Derived layer | Ralph | blocked-on-lane-02 | | `evidence/lane-03.md` |
 | 04 - Server | Ralph | blocked-on-lane-00 | | `evidence/lane-04.md` |

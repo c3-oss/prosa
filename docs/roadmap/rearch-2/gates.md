@@ -5,10 +5,10 @@
 | Command | Required | Last Result | Notes |
 | --- | --- | --- | --- |
 | `pnpm i` | yes | pass | `pnpm install --frozen-lockfile`-compatible. Pre-existing peer warning: `@c3-oss/config-vitest@0.3.0` wants vitest ^3.1.1, repo on 2.1.9. |
-| `pnpm build` | yes | pass | 9/9 turbo tasks. |
-| `just typecheck` | yes | pass | 9/9 turbo tasks. |
-| `just test-all` | yes | pass | 9/9 turbo tasks. Lane 0 packages: 77 tests in `@c3-oss/prosa-types-v2`, 18 in `@c3-oss/prosa-wire-v2` (post CQ-010..CQ-015 closeout). |
-| `just lint-all` | yes | pass | 9/9 turbo tasks. |
+| `pnpm build` | yes | pass | 10/10 turbo tasks (now includes `@c3-oss/prosa-bundle-v2`). |
+| `just typecheck` | yes | pass | 10/10 turbo tasks. |
+| `just test-all` | yes | pass | 10/10 turbo tasks. Lane 0 packages: 77 tests in `@c3-oss/prosa-types-v2`, 18 in `@c3-oss/prosa-wire-v2`. Lane 1 partial: 28 tests in `@c3-oss/prosa-bundle-v2`. |
+| `just lint-all` | yes | pass | 10/10 turbo tasks. |
 | `pnpm audit --audit-level moderate` | yes | classified pass | 7 dev-tooling-only vulnerabilities, pre-existing on `master`. See "Audit Classification". |
 | `git diff --check` | yes | pass | No whitespace or conflict markers. |
 
@@ -33,9 +33,9 @@ a `just` wrapper fails for environmental reasons.
 | 00 | `pnpm --filter @c3-oss/prosa-wire-v2 typecheck` | yes | pass | |
 | 00 | `pnpm --filter @c3-oss/prosa-wire-v2 test` | yes | pass | 18 tests including CQ-011 receiptId binding and CQ-012 transportHash. |
 | 00 | `pnpm test:conformance` | yes | pass | 15 tests; 13 entity leaves stable. |
-| 01 | `pnpm --filter @c3-oss/prosa-bundle-v2 test` | yes | not-run | Package to be added in a Lane 1 iteration. |
-| 01 | `pnpm test packages/prosa-bundle-v2/test/e2e/synthetic-bundle.test.ts` | yes | not-run | Synthetic bundle scenario. |
-| 01 | `pnpm test packages/prosa-bundle-v2/test/e2e/cold-rebuild.test.ts` | yes | not-run | Cold rebuild scenario. |
+| 01 | `pnpm --filter @c3-oss/prosa-bundle-v2 test` | yes | partial-pass | 28 tests across 6 files (head, lock, bundle-init, cas-pack, raw-source-pack, cas-dedup). RocksDB shards, FK closure, and the e2e scenarios remain for the next Lane 1 iteration. |
+| 01 | `pnpm test packages/prosa-bundle-v2/test/e2e/synthetic-bundle.test.ts` | yes | not-run | Synthetic bundle scenario (requires shard actors + pack writers + epoch lifecycle). |
+| 01 | `pnpm test packages/prosa-bundle-v2/test/e2e/cold-rebuild.test.ts` | yes | not-run | Cold rebuild scenario (requires RocksDB rebuild from manifests). |
 | 02 | `pnpm --filter @c3-oss/prosa-importers-v2 test` | yes | not-run | Provider, idempotency, graph resolver tests. |
 | 02 | `pnpm dev -- compile-all-v2 --help` | yes | not-run | CLI command presence smoke until fixture gate exists. |
 | 03 | `pnpm --filter @c3-oss/prosa-derived-v2 test` | yes | not-run | Tantivy, session blob, analytics, compaction tests. |
