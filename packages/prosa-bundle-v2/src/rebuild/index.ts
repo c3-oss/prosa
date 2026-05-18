@@ -56,6 +56,12 @@ export type RebuildIndexOptions = {
   uuid?: string
   /** Override `Date.now` for the index-old timestamp (tests). */
   now?: () => Date
+  /**
+   * Internal fault-injection hook for `node:fs/promises` `rename`.
+   * Tests use this to exercise the CQ-061 archive-rollback path
+   * without monkey-patching ES module exports.
+   */
+  _renameImpl?: (from: string, to: string) => Promise<void>
 }
 
 export type RebuildManifest = {
@@ -82,6 +88,22 @@ export class RebuildIntegrityError extends Error {
 }
 
 /**
+ * Thrown when the scratch→`index/` rename fails after the old index was
+ * already archived. Carries the archive location (when rollback failed)
+ * so callers can restore service manually. CQ-061.
+ */
+export class RebuildInstallError extends Error {
+  override name = 'RebuildInstallError'
+  readonly archivedAt: string | null
+  readonly rolledBack: boolean
+  constructor(message: string, info: { archivedAt: string | null; rolledBack: boolean; cause: Error }) {
+    super(message, { cause: info.cause })
+    this.archivedAt = info.archivedAt
+    this.rolledBack = info.rolledBack
+  }
+}
+
+/**
  * Reconstruct the per-shard append-log index from sealed epoch
  * projection segments. The resulting `index/` contains
  * `shard-NN.log` files compatible with `MemoryShardActor.openPersistent`.
@@ -89,6 +111,7 @@ export class RebuildIntegrityError extends Error {
 export async function rebuildIndex(bundle: Bundle, options: RebuildIndexOptions = {}): Promise<RebuildIndexResult> {
   const uuid = options.uuid ?? base32LowerNoPad(randomBytes(8))
   const scratch = indexRebuildDir(bundle.paths.root, uuid)
+  const renameImpl = options._renameImpl ?? rename
   await mkdir(scratch, { recursive: true })
 
   // Lazy per-shard write buffer.
@@ -140,11 +163,23 @@ export async function rebuildIndex(bundle: Bundle, options: RebuildIndexOptions 
     )
   }
 
+  // CQ-060: anchor every non-head epoch to current head authority via
+  // the `previousBundleRoot` chain. head.json.manifestDigest pins the
+  // current head's unsigned manifest body; that body declares both the
+  // head's `bundleRoot` and its `previousBundleRoot`. Walking the chain
+  // backward gives us the expected `bundleRoot` for every prior epoch,
+  // rejecting lockstep tampering of an older epoch's projection + both
+  // manifest files.
+  const expectedBundleRootByEpoch = await buildEpochAuthorityChain(bundle)
+
   for (const epoch of epochs) {
-    // CQ-043: load the epoch manifest so we can verify segment digests
-    // before consuming them. A drifted projection file would otherwise
-    // corrupt the rebuilt index silently.
-    const expectedDigests = await loadProjectionDigests(bundle, epoch)
+    // CQ-043 + CQ-060: load the epoch manifest, verify the digest pin
+    // (head.json for the current head epoch, the `previousBundleRoot`
+    // chain for prior epochs), and return the manifest's segment
+    // digest map. A drifted projection file or a tampered older epoch
+    // would otherwise corrupt the rebuilt index silently.
+    const expectedBundleRoot = expectedBundleRootByEpoch.get(epoch)
+    const expectedDigests = await loadProjectionDigests(bundle, epoch, expectedBundleRoot)
     const projDir = join(bundle.paths.root, 'epochs', String(epoch), 'projection')
     let segments: string[]
     try {
@@ -245,15 +280,44 @@ export async function rebuildIndex(bundle: Bundle, options: RebuildIndexOptions 
   // Atomic install: rename old index/ → index-old-<ts>/ (if any), then
   // rename scratch → index/. fsync the containing dir after every rename
   // so a crash before the next step does not lose the directory entry.
+  //
+  // CQ-061: if the scratch→index rename fails after the old index was
+  // archived, attempt to roll the archive back to `index/`. If the
+  // rollback itself fails, surface a `RebuildInstallError` that carries
+  // the archive path so the caller can recover manually instead of
+  // silently losing the active index.
   let archivedAt: string | null = null
   const indexStat = await stat(bundle.paths.index).catch(() => null)
   if (indexStat?.isDirectory()) {
     const stamp = rebuiltAt.replace(/[:.]/g, '-')
     archivedAt = indexOldDir(bundle.paths.root, stamp)
-    await rename(bundle.paths.index, archivedAt)
+    await renameImpl(bundle.paths.index, archivedAt)
     await syncDir(dirname(archivedAt))
   }
-  await rename(scratch, bundle.paths.index)
+  try {
+    await renameImpl(scratch, bundle.paths.index)
+  } catch (installErr) {
+    if (archivedAt) {
+      try {
+        // The rollback intentionally bypasses the injected impl —
+        // a fault-injection test that breaks the install rename should
+        // not also break recovery.
+        await rename(archivedAt, bundle.paths.index)
+        await syncDir(dirname(bundle.paths.index))
+        throw new RebuildInstallError(
+          `rebuildIndex: install rename failed; rolled archive back to ${bundle.paths.index} (CQ-061): ${(installErr as Error).message}`,
+          { archivedAt: null, rolledBack: true, cause: installErr as Error },
+        )
+      } catch (rollbackErr) {
+        if (rollbackErr instanceof RebuildInstallError) throw rollbackErr
+        throw new RebuildInstallError(
+          `rebuildIndex: install rename failed AND archive rollback failed; active index is at ${archivedAt} (CQ-061): install=${(installErr as Error).message}; rollback=${(rollbackErr as Error).message}`,
+          { archivedAt, rolledBack: false, cause: installErr as Error },
+        )
+      }
+    }
+    throw installErr
+  }
   await syncDir(dirname(bundle.paths.index))
   return { manifest, newIndexDir: bundle.paths.index, archivedAt }
 }
@@ -270,7 +334,77 @@ export async function rebuildIndex(bundle: Bundle, options: RebuildIndexOptions 
  * head.json pin close the obvious tampering paths until full Ed25519
  * signing lands.
  */
-async function loadProjectionDigests(bundle: Bundle, epoch: number): Promise<Map<CanonicalEntityType, string>> {
+/**
+ * CQ-060: walk the previousBundleRoot chain from current head back to
+ * epoch 1 and return the expected `bundleRoot` for each epoch on disk.
+ * Head's manifest body is already pinned by head.json.manifestDigest;
+ * older epochs anchor to head transitively via the chain.
+ *
+ * Each epoch N's manifest carries `previousBundleRoot` which, when
+ * non-null, must equal epoch (N-1)'s `bundleRoot`. We read head's
+ * manifest first (pinned), record its `bundleRoot`, then walk backward
+ * recording each previousBundleRoot as the expected `bundleRoot` of
+ * the next-older epoch.
+ */
+async function buildEpochAuthorityChain(bundle: Bundle): Promise<Map<number, string>> {
+  const out = new Map<number, string>()
+  if (bundle.head.epoch === 0) return out
+
+  // head.json.bundleRoot is the canonical pin for the current head.
+  const headBundleRoot = bundle.head.bundleRoot
+  if (typeof headBundleRoot !== 'string' || headBundleRoot.length === 0) {
+    throw new RebuildIntegrityError(
+      'rebuildIndex: head.json.bundleRoot is missing or empty — cannot anchor non-head epochs (CQ-060)',
+    )
+  }
+  out.set(bundle.head.epoch, headBundleRoot)
+
+  // Walk backward by reading each manifest's previousBundleRoot.
+  let expectedAtNext: string = headBundleRoot
+  for (let n = bundle.head.epoch; n >= 2; n--) {
+    const epochRoot = join(bundle.paths.root, 'epochs', String(n))
+    const unsignedPath = join(epochRoot, 'epoch.manifest.json')
+    let bytes: Uint8Array
+    try {
+      bytes = await readFile(unsignedPath)
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        throw new RebuildIntegrityError(
+          `rebuildIndex: epoch ${n} has no manifest pair; cannot build authority chain (CQ-060 / CQ-046)`,
+        )
+      }
+      throw err
+    }
+    const parsed = JSON.parse(new TextDecoder().decode(bytes)) as {
+      bundleRoot?: unknown
+      previousBundleRoot?: unknown
+    }
+    // Confirm this epoch's own `bundleRoot` matches what the chain
+    // expects (set by the prior iteration / head pin).
+    if (parsed.bundleRoot !== expectedAtNext) {
+      throw new RebuildIntegrityError(
+        `rebuildIndex: epoch ${n} manifest.bundleRoot does not match expected chain anchor (manifest=${String(parsed.bundleRoot)}, expected=${expectedAtNext}) (CQ-060)`,
+      )
+    }
+    // Move the anchor down to epoch n-1.
+    const prev = parsed.previousBundleRoot
+    if (n === 1) break
+    if (typeof prev !== 'string' || prev.length === 0) {
+      throw new RebuildIntegrityError(
+        `rebuildIndex: epoch ${n} manifest.previousBundleRoot is missing — chain breaks before epoch 1 (CQ-060)`,
+      )
+    }
+    out.set(n - 1, prev)
+    expectedAtNext = prev
+  }
+  return out
+}
+
+async function loadProjectionDigests(
+  bundle: Bundle,
+  epoch: number,
+  expectedBundleRoot: string | undefined,
+): Promise<Map<CanonicalEntityType, string>> {
   const out = new Map<CanonicalEntityType, string>()
   const epochRoot = join(bundle.paths.root, 'epochs', String(epoch))
   const signedPath = join(epochRoot, 'epoch.manifest.signed.json')
@@ -335,6 +469,22 @@ async function loadProjectionDigests(bundle: Bundle, epoch: number): Promise<Map
     if (actual !== declared) {
       throw new RebuildIntegrityError(
         `rebuildIndex: epoch ${epoch} manifest blake3 ${actual} does not match head.json manifestDigest ${declared}`,
+      )
+    }
+  }
+
+  // CQ-060: every walked epoch must match the bundleRoot anchor
+  // derived from head.json (current head) or the previousBundleRoot
+  // chain (older epochs). The chain was already cross-checked in
+  // `buildEpochAuthorityChain`; here we additionally pin the
+  // signed-manifest body's own `bundleRoot` field to the expected
+  // anchor so a tamper that changes both manifest files in lockstep
+  // is rejected when the chain expects a different anchor.
+  if (expectedBundleRoot !== undefined) {
+    const manifestBundleRoot = (signed.manifest as { bundleRoot?: unknown }).bundleRoot
+    if (manifestBundleRoot !== expectedBundleRoot) {
+      throw new RebuildIntegrityError(
+        `rebuildIndex: epoch ${epoch} manifest.bundleRoot does not match head-authority chain (manifest=${String(manifestBundleRoot)}, expected=${expectedBundleRoot}) (CQ-060)`,
       )
     }
   }

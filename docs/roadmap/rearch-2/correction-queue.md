@@ -45,6 +45,49 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 ## Closed (latest first)
 
+### CQ-062: Reconcile Governance Artifacts After `aecc9af` — closed 2026-05-18
+
+status.md / gates.md / evidence/lane-01.md / ralph-loop-prompt.md
+refreshed to the post-CQ-060..CQ-061 closeout commit. bundle-v2 test
+count updated 111 → 113 (+CQ-060 lockstep tamper, +CQ-061 install
+rename fault). Open-blocker list shrunk back to `CQ-044`.
+
+### CQ-061: Make Rebuild Install Failure Recoverable Without Losing Active Index — closed 2026-05-18
+
+`rebuildIndex` now wraps the scratch→`index/` install rename in a
+try/catch. If the install rename fails after the old index was
+archived, the function attempts to rollback by renaming the archive
+back to `index/`. If the rollback succeeds, it throws a typed
+`RebuildInstallError` with `rolledBack: true` so callers know the
+service is back. If the rollback itself fails, the same error is
+thrown with `rolledBack: false` and `archivedAt` set to the archive
+location so callers can recover manually. Fault injection is
+exposed via a hidden `_renameImpl` test hook on
+`RebuildIndexOptions` (chosen after ES-module export monkey-patching
+proved infeasible). Added test
+`CQ-061: install rename failure rolls archive back to index/` which
+injects a failure on the second rename call and asserts `index/`
+contents, `rebuild.manifest`, and the archive set are all restored
+to their pre-rebuild state.
+
+### CQ-060: Anchor Non-Head Epoch Manifests to Current Head Authority — closed 2026-05-18
+
+`rebuildIndex` now derives a per-epoch `expectedBundleRoot` map by
+walking the `previousBundleRoot` chain from current head back to
+epoch 1. `head.json.bundleRoot` pins the head's `bundleRoot`; each
+non-head epoch's expected `bundleRoot` is the prior step's
+`previousBundleRoot`. `loadProjectionDigests` then verifies that
+each walked manifest's `bundleRoot` field matches the expected
+anchor — rejecting lockstep tampering of an older epoch's
+projection segment + both manifest files. Added test
+`CQ-060: rejects lockstep tamper of a non-head epoch projection +
+manifest pair` which seals two epochs, rewrites epoch 1's segment
+and both manifest files with a forged `bundleRoot`, and confirms
+rebuild refuses and leaves `index/` + `head.json` unchanged. Deeper
+defenses (recomputing `bundleRoot` from segment content at rebuild
+time) remain follow-up scope; this commit closes the explicit
+acceptance criterion.
+
 ### CQ-059: Reconcile Governance Artifacts After `1e81888` — closed 2026-05-18
 
 `status.md` HEAD pin updated to the post-CQ-056..CQ-058 closeout

@@ -353,6 +353,94 @@ describe('rebuildIndex', () => {
     }
   })
 
+  it('CQ-060: rejects lockstep tamper of a non-head epoch projection + manifest pair', async () => {
+    const root = await tmp()
+    const bundle = await initBundle(root, { storeId: 'st_chain_tamper', createdAt: '2025-01-02T03:04:05.123Z' })
+    try {
+      // Seal two epochs.
+      const h1 = await beginEpoch(bundle, { createdAt: '2025-01-02T03:04:06.000Z' })
+      h1.putRow('session', 'ses_a', sessionRow('ses_a') as never)
+      const s1 = await writeProjectionSegment('session', [sessionRow('ses_a')] as never, { outDir: h1.tmpDir })
+      h1.registerSegment(s1.ref)
+      await sealEpoch(h1)
+      const h2 = await beginEpoch(bundle, { createdAt: '2025-01-02T03:04:07.000Z' })
+      h2.putRow('session', 'ses_b', sessionRow('ses_b') as never)
+      const s2 = await writeProjectionSegment('session', [sessionRow('ses_b')] as never, { outDir: h2.tmpDir })
+      h2.registerSegment(s2.ref)
+      await sealEpoch(h2)
+
+      // Baseline rebuild should succeed.
+      await rebuildIndex(bundle, { uuid: 'baseline_chain' })
+
+      // Tamper epoch 1: replace session.ses_a's payload, recompute the
+      // segment digest, and rewrite BOTH unsigned + signed manifests in
+      // lockstep so the dual-file equality check passes. head.json is
+      // unchanged. Without CQ-060's chain anchor, rebuild would silently
+      // install the tampered row.
+      const e1Dir = join(bundle.paths.root, 'epochs', '1')
+      const segPath = join(e1Dir, 'projection', 'session.prosa-projection.ndjson')
+      const unsignedPath = join(e1Dir, 'epoch.manifest.json')
+      const signedPath = join(e1Dir, 'epoch.manifest.signed.json')
+      const tamperedRow = { ...sessionRow('ses_a'), title: 'TAMPERED' }
+      // Rewrite the segment via writeProjectionSegment to produce a
+      // legitimate-shape file with a different digest.
+      const scratch = await mkdtemp(join(tmpdir(), 'prosa-tamper-'))
+      const rewritten = await writeProjectionSegment('session', [tamperedRow] as never, { outDir: scratch })
+      const { readFile: rf2, writeFile: wf, rm: rm2 } = await import('node:fs/promises')
+      const newSegBytes = await rf2(rewritten.ref.path)
+      await wf(segPath, newSegBytes)
+      // Patch both manifests to declare the new segment digest, then
+      // canonical-re-encode both so the dual-file equality check passes.
+      const unsigned = JSON.parse(await rf2(unsignedPath, 'utf8')) as {
+        segments: Array<Record<string, unknown>>
+        bundleRoot: string
+      }
+      unsigned.segments[0]!.digest = rewritten.ref.digest
+      // A coherent lockstep tamper updates the manifest's bundleRoot
+      // to match the new content. With the original bundleRoot kept,
+      // the manifest would be internally inconsistent; updating it
+      // makes the dual-file check pass — and then the CQ-060 chain
+      // anchor catches the mismatch against head epoch 2's
+      // previousBundleRoot.
+      unsigned.bundleRoot = `${'0'.repeat(63)}1`
+      const canon = (v: unknown): string => {
+        if (v === null) return 'null'
+        if (typeof v === 'boolean') return v ? 'true' : 'false'
+        if (typeof v === 'number') return String(v)
+        if (typeof v === 'string') return JSON.stringify(v)
+        if (Array.isArray(v)) return `[${v.map(canon).join(',')}]`
+        if (typeof v === 'object') {
+          const o = v as Record<string, unknown>
+          const ks = Object.keys(o).sort()
+          return `{${ks.map((k) => `${JSON.stringify(k)}:${canon(o[k])}`).join(',')}}`
+        }
+        throw new Error('canon: unsupported')
+      }
+      await wf(unsignedPath, canon(unsigned))
+      const signed = JSON.parse(await rf2(signedPath, 'utf8')) as { manifest: unknown }
+      signed.manifest = unsigned
+      await wf(signedPath, `${JSON.stringify(signed, null, 2)}\n`)
+      await rm2(scratch, { recursive: true, force: true })
+
+      // Capture pre-rebuild index state.
+      const { readdir } = await import('node:fs/promises')
+      const indexBefore = await readdir(bundle.paths.index)
+      indexBefore.sort()
+      const headBefore = await rf2(bundle.paths.headJson, 'utf8')
+      // Rebuild must refuse — head epoch 2's manifest declares
+      // previousBundleRoot = epoch 1's original bundleRoot, but
+      // epoch 1's manifest now carries a different bundleRoot.
+      await expect(rebuildIndex(bundle, { uuid: 'chain_tamper1' })).rejects.toThrow(/CQ-060/)
+      // index/ and head.json unchanged.
+      const indexAfter = await readdir(bundle.paths.index)
+      indexAfter.sort()
+      expect(indexAfter).toEqual(indexBefore)
+      expect(await rf2(bundle.paths.headJson, 'utf8')).toBe(headBefore)
+    } finally {
+      await bundle.close()
+    }
+  })
+
   it('CQ-057: failed rebuild does not replace or archive existing index/', async () => {
     const root = await tmp()
     const bundle = await initBundle(root, { storeId: 'st_atomic_fail', createdAt: '2025-01-02T03:04:05.123Z' })
@@ -390,6 +478,55 @@ describe('rebuildIndex', () => {
       expect(headAfter).toBe(headBefore)
       // No new index-old-* archive directory.
       expect(oldIndexAfter).toEqual(oldIndexBefore)
+    } finally {
+      await bundle.close()
+    }
+  })
+
+  it('CQ-061: install rename failure rolls archive back to index/', async () => {
+    const root = await tmp()
+    const bundle = await initBundle(root, { storeId: 'st_install_fail', createdAt: '2025-01-02T03:04:05.123Z' })
+    try {
+      const handle = await beginEpoch(bundle, { createdAt: '2025-01-02T03:04:06.000Z' })
+      handle.putRow('session', 'ses_a', sessionRow('ses_a') as never)
+      const seg = await writeProjectionSegment('session', [sessionRow('ses_a')] as never, { outDir: handle.tmpDir })
+      handle.registerSegment(seg.ref)
+      await sealEpoch(handle)
+      // Baseline rebuild to install a recognizable index/.
+      await rebuildIndex(bundle, { uuid: 'baseline_install' })
+      const { readdir, readFile: rf3 } = await import('node:fs/promises')
+      const indexBefore = await readdir(bundle.paths.index)
+      indexBefore.sort()
+      const baselineManifest = await rf3(join(bundle.paths.index, 'rebuild.manifest'), 'utf8')
+      const rootBefore = await readdir(bundle.paths.root)
+      const archivesBefore = rootBefore.filter((n) => n.startsWith('index-old-')).sort()
+
+      // Inject a fault into the install rename: the first call
+      // (archive) succeeds, the second (scratch→index) throws.
+      const fsp = await import('node:fs/promises')
+      let calls = 0
+      await expect(
+        rebuildIndex(bundle, {
+          uuid: 'install_fail1',
+          _renameImpl: async (from, to) => {
+            calls++
+            if (calls === 2) throw new Error('simulated EIO during install rename')
+            await fsp.rename(from, to)
+          },
+        }),
+      ).rejects.toThrow(/CQ-061/)
+      // The archive rollback should have restored index/. Confirm
+      // index/ is intact and no index-old-* remains.
+      const indexAfter = await readdir(bundle.paths.index)
+      indexAfter.sort()
+      expect(indexAfter).toEqual(indexBefore)
+      const manifestAfter = await rf3(join(bundle.paths.index, 'rebuild.manifest'), 'utf8')
+      expect(manifestAfter).toBe(baselineManifest)
+      // No NEW archive directory created by the failed install
+      // (rollback returned the archive contents to `index/`).
+      const rootAfter = await readdir(bundle.paths.root)
+      const archivesAfter = rootAfter.filter((n) => n.startsWith('index-old-')).sort()
+      expect(archivesAfter).toEqual(archivesBefore)
     } finally {
       await bundle.close()
     }
