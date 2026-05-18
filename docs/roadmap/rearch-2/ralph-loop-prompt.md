@@ -121,12 +121,11 @@ Keep these files current:
 
 ## Current Blocking Corrections
 
-Before continuing beyond Lane 0, close every open `CQ-*` item in
-`docs/roadmap/rearch-2/correction-queue.md` with code, tests, and evidence.
-The initial Lane 0 review opened corrections for bundle/root semantics,
-canonical normalization, raw-source roots, pack/transport hash separation,
-receipt payload canonical bytes, source/raw idempotency keys, package
-compile-clean status, and independent conformance fixtures.
+Before continuing beyond Lane 0 or doing more Lane 1 work, close every open
+`CQ-*` item in `docs/roadmap/rearch-2/correction-queue.md` with code, tests,
+and evidence. Current final-review corrections cover canonical CAS object
+references, receipt ID/payload binding, transport hash modeling, spec hash-form
+contradictions, semantic timestamp validation, and gate evidence consistency.
 
 ## Implementation Rules
 
