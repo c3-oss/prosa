@@ -1,6 +1,6 @@
 {
   "name": "@c3-oss/prosa-core",
-  "version": "0.8.1",
+  "version": "0.8.2",
   "description": "Core storage, import, search, export, analytics, and MCP APIs for prosa.",
   "author": "Caian Ertl <hi@caian.org>",
   "license": "MIT",

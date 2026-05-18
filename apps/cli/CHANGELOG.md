@@ -1,5 +1,12 @@
 # @c3-oss/prosa
 
+## 0.8.2
+
+### Patch Changes
+
+- 104439b: Fix global npm installs by keeping the private sync workspace package out of published runtime dependencies.
+  - @c3-oss/prosa-core@0.8.2
+
 ## 0.8.1
 
 ### Patch Changes
