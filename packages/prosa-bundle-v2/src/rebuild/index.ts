@@ -111,6 +111,16 @@ export async function rebuildIndex(bundle: Bundle, options: RebuildIndexOptions 
 
   const epochs = await listSealedEpochs(bundle)
 
+  // CQ-053: when head.epoch > 0 the current head epoch directory must
+  // exist on disk; rebuilding without it would silently install an
+  // empty index and bypass every downstream integrity check (including
+  // the head.json.manifestDigest pin in loadProjectionDigests).
+  if (bundle.head.epoch > 0 && !epochs.includes(bundle.head.epoch)) {
+    throw new RebuildIntegrityError(
+      `rebuildIndex: head.json declares epoch ${bundle.head.epoch} but epochs/${bundle.head.epoch}/ is missing (CQ-053)`,
+    )
+  }
+
   for (const epoch of epochs) {
     // CQ-043: load the epoch manifest so we can verify segment digests
     // before consuming them. A drifted projection file would otherwise
@@ -121,7 +131,18 @@ export async function rebuildIndex(bundle: Bundle, options: RebuildIndexOptions 
     try {
       segments = await readdir(projDir)
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') continue
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        // CQ-053: if the manifest declares projection segments but the
+        // projection/ dir is missing, fail closed. A manifest with zero
+        // projection segments (CAS-only epoch) is still allowed.
+        if (expectedDigests.size > 0) {
+          const missing = Array.from(expectedDigests.keys()).join(', ')
+          throw new RebuildIntegrityError(
+            `rebuildIndex: epoch ${epoch} manifest declares projection segments [${missing}] but epochs/${epoch}/projection/ is missing (CQ-053)`,
+          )
+        }
+        continue
+      }
       throw err
     }
     // CQ-046 step 1: verify every projection segment file against the

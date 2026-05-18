@@ -147,7 +147,7 @@ Focused gates for `@c3-oss/prosa-bundle-v2`:
 
 ```text
 pnpm --filter @c3-oss/prosa-bundle-v2 typecheck     # clean
-pnpm --filter @c3-oss/prosa-bundle-v2 test          # 104 tests, 15 files
+pnpm --filter @c3-oss/prosa-bundle-v2 test          # 107 tests, 15 files
 ```
 
 Integrity tests added during Lane 1 hardening (correction → tests):
@@ -159,6 +159,8 @@ Integrity tests added during Lane 1 hardening (correction → tests):
 - CQ-048: search_doc.session_id / project_id rejection + nullable accept (x3)
 - CQ-049: symlink ref rejection, CAS pack under `projection/` rejection (x2)
 - CQ-050: tampered unsigned manifest, head.json digest strip (x2)
+- CQ-053: missing-current-head-epoch-dir, missing-projection-dir (x2)
+- CQ-054: symlinked-bundle-root happy-path seal (x1)
 
 ## Data / Security Evidence
 

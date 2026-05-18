@@ -464,6 +464,69 @@ describe('beginEpoch + sealEpoch', () => {
     }
   })
 
+  it('CQ-054: seals successfully when the bundle root is opened via a symlink (no false-reject)', async () => {
+    // Open the bundle through a symlinked alias of its real path and
+    // confirm legitimate packs/segments inside cas/packs, raw_sources/
+    // packs, and tmp/epoch-N/projection still pass containment.
+    const realRoot = await tmpDir()
+    const linkParent = await mkdtemp(join(tmpdir(), 'prosa-symlink-parent-'))
+    const symlinkRoot = join(linkParent, 'bundle-via-link')
+    const { symlink } = await import('node:fs/promises')
+    await symlink(realRoot, symlinkRoot)
+    const bundle = await initBundle(symlinkRoot, { storeId: 'st_symroot', createdAt: '2025-01-02T03:04:05.123Z' })
+    try {
+      const handle = await beginEpoch(bundle, { createdAt: '2025-01-02T03:04:06.000Z' })
+      handle.putRow('session', 'ses_a', sessionRow('ses_a') as never)
+      handle.putRow('turn', 'trn_a', turnRow('trn_a', 'ses_a') as never)
+      // Real raw-source pack on disk (under raw_sources/packs).
+      const pack = await makeRawSourcePack(bundle, 'src_a', new TextEncoder().encode('payload-symroot'))
+      const entry = pack.built.header.entries[0]!
+      handle.putRawSource({
+        source_file_id: 'src_a',
+        content_hash: entry.content_hash,
+        uncompressed_size: entry.uncompressed_size,
+        compression: 'zstd',
+        stored_hash: entry.stored_hash,
+      })
+      const srcFileRow: Record<string, unknown> = {
+        source_file_id: 'src_a',
+        source_tool: 'codex',
+        path: '/repo/src_a.jsonl',
+        file_kind: 'session_jsonl',
+        size_bytes: entry.uncompressed_size,
+        mtime_ns: null,
+        content_hash: entry.content_hash,
+        object_id: entry.object_id,
+        pack_digest: pack.packDigest,
+        stored_offset: entry.stored_offset,
+        stored_length: entry.stored_length,
+        compression: entry.compression,
+        last_seen_epoch: 1,
+      }
+      handle.putRow('source_file', 'src_a', srcFileRow as never)
+      handle.registerSegment({
+        kind: 'raw_source_pack',
+        path: pack.packPath,
+        digest: pack.packDigest,
+        byteLength: pack.built.bytes.length,
+      })
+      const sessSeg = await writeProjectionSegment('session', [sessionRow('ses_a')] as never, { outDir: handle.tmpDir })
+      const turnSeg = await writeProjectionSegment('turn', [turnRow('trn_a', 'ses_a')] as never, {
+        outDir: handle.tmpDir,
+      })
+      const sfSeg = await writeProjectionSegment('source_file', [srcFileRow] as never, { outDir: handle.tmpDir })
+      handle.registerSegment(sessSeg.ref)
+      handle.registerSegment(turnSeg.ref)
+      handle.registerSegment(sfSeg.ref)
+      // Containment must not false-reject just because the bundle was
+      // opened via a symlinked path.
+      const sealed = await sealEpoch(handle)
+      expect(sealed.epoch).toBe(1)
+    } finally {
+      await bundle.close()
+    }
+  })
+
   it('CQ-049: rejects a symlink ref under the bundle root', async () => {
     const root = await tmpDir()
     const bundle = await initBundle(root, { storeId: 'st_link', createdAt: '2025-01-02T03:04:05.123Z' })

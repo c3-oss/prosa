@@ -123,8 +123,8 @@ Keep these files current:
 
 Before continuing beyond Lane 0 or doing more Lane 1 work, close every open
 `CQ-*` item in `docs/roadmap/rearch-2/correction-queue.md` with code, tests,
-and evidence. After the closeout chain through `5e4b5e7`, the only remaining
-open blocker is:
+and evidence. After the CQ-053/CQ-054/CQ-055 closeout commit the only
+remaining open blocker is:
 
 - `CQ-044`: contain out-of-sequence Lane 2+ work (`packages/prosa-importers-v2`,
   `packages/prosa-db-v2`, and related wiring) until Codex accepts Lane 1.
@@ -132,9 +132,8 @@ open blocker is:
 `CQ-044` is procedural: the Lane 2/4 packages exist in the active workspace
 but must remain documented as WIP, with no new Lane 2+ feature commits
 landing until Codex re-review accepts Lane 1. Lane 0 corrections
-`CQ-001..CQ-019` and Lane 1 integrity corrections `CQ-020..CQ-053`
-(skipping `CQ-051` which was renumbered to `CQ-053`) are closed in code,
-tests, and evidence.
+`CQ-001..CQ-019` and Lane 1 integrity corrections `CQ-020..CQ-055` are
+closed in code, tests, and evidence.
 
 Do not begin Lane 2/importer feature work while `CQ-044` is open.
 

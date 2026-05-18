@@ -274,6 +274,43 @@ describe('rebuildIndex', () => {
     }
   })
 
+  it('CQ-053: rejects rebuild when head.epoch > 0 but the head epoch directory is missing', async () => {
+    const root = await tmp()
+    const bundle = await initBundle(root, { storeId: 'st_no_epoch_dir', createdAt: '2025-01-02T03:04:05.123Z' })
+    try {
+      const handle = await beginEpoch(bundle, { createdAt: '2025-01-02T03:04:06.000Z' })
+      handle.putRow('session', 'ses_a', sessionRow('ses_a') as never)
+      const seg = await writeProjectionSegment('session', [sessionRow('ses_a')] as never, { outDir: handle.tmpDir })
+      handle.registerSegment(seg.ref)
+      await sealEpoch(handle)
+      // Remove the entire epochs/1 dir while head.json still points at
+      // epoch 1. Rebuild must refuse rather than silently install an
+      // empty index that bypasses every per-epoch integrity check.
+      const { rm } = await import('node:fs/promises')
+      await rm(join(bundle.paths.root, 'epochs', '1'), { recursive: true, force: true })
+      await expect(rebuildIndex(bundle, { uuid: 'no_epoch1' })).rejects.toThrow(/CQ-053/)
+    } finally {
+      await bundle.close()
+    }
+  })
+
+  it('CQ-053: rejects rebuild when manifest declares projection segments but projection/ is missing', async () => {
+    const root = await tmp()
+    const bundle = await initBundle(root, { storeId: 'st_no_proj_dir', createdAt: '2025-01-02T03:04:05.123Z' })
+    try {
+      const handle = await beginEpoch(bundle, { createdAt: '2025-01-02T03:04:06.000Z' })
+      handle.putRow('session', 'ses_a', sessionRow('ses_a') as never)
+      const seg = await writeProjectionSegment('session', [sessionRow('ses_a')] as never, { outDir: handle.tmpDir })
+      handle.registerSegment(seg.ref)
+      await sealEpoch(handle)
+      const { rm } = await import('node:fs/promises')
+      await rm(join(bundle.paths.root, 'epochs', '1', 'projection'), { recursive: true, force: true })
+      await expect(rebuildIndex(bundle, { uuid: 'no_proj1' })).rejects.toThrow(/CQ-053/)
+    } finally {
+      await bundle.close()
+    }
+  })
+
   it('CQ-046: rejects a missing manifest pair (no silent skip)', async () => {
     const root = await tmp()
     const bundle = await initBundle(root, { storeId: 'st_missing', createdAt: '2025-01-02T03:04:05.123Z' })

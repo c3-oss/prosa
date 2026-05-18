@@ -45,6 +45,46 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 ## Closed (latest first)
 
+### CQ-055: Reconcile Governance Artifacts After `ecc80a3` — closed 2026-05-18
+
+`status.md` HEAD pin and lane-01 commit chain refreshed to the
+post-CQ-053/CQ-054 closeout commit. `gates.md` lane-commands table
+updated: `prosa-types-v2` count corrected from a stale `77 tests / 8
+files` to `89 tests`, `prosa-bundle-v2` row updated to 107
+(post-CQ-053 x2 + CQ-054 x1 on top of 104). Open-blocker list
+shrunk to `CQ-044`. `evidence/lane-01.md` commit range extended;
+test-count map updated. Lane 2/4 evidence remains framed as
+out-of-sequence WIP.
+
+### CQ-054: Prove Symlinked Bundle Root Containment Does Not False-Reject — closed 2026-05-18
+
+Added `CQ-054: seals successfully when the bundle root is opened
+via a symlink (no false-reject)` in
+`packages/prosa-bundle-v2/test/unit/epoch-lifecycle.test.ts`. The
+test creates a real symlink to a tmp dir, calls `initBundle` against
+the symlinked path, registers a real raw-source pack
+(under `raw_sources/packs`), a `source_file` row, plus three
+projection segments (`session`, `turn`, `source_file`), and
+confirms `sealEpoch` succeeds. This proves the CQ-051 realpath
+rebase in `enforceKindContainment` does not false-reject legitimate
+refs in symlinked-bundle-root environments while the existing CQ-049
+symlink-ref and wrong-kind tests still fail closed.
+
+### CQ-053: Fail Rebuild on Missing Current Head Epoch or Projection Directory — closed 2026-05-18
+
+`rebuildIndex` now (a) refuses when `bundle.head.epoch > 0` but the
+corresponding `epochs/<n>/` directory is missing from
+`listSealedEpochs` (would otherwise silently bypass every per-epoch
+integrity check including the head.json.manifestDigest pin), and
+(b) refuses when the manifest declares projection segments but
+`epochs/<n>/projection/` is missing (the previous ENOENT path
+silently `continue`d, skipping both the digest verification and the
+declared-but-missing check). A manifest with zero projection
+segments (CAS-only epoch) is still allowed. Added two tests:
+`CQ-053: rejects rebuild when head.epoch > 0 but the head epoch
+directory is missing` and `CQ-053: rejects rebuild when manifest
+declares projection segments but projection/ is missing`.
+
 ### CQ-052: Reconcile Governance Artifacts After `5e4b5e7` — closed 2026-05-18
 
 `status.md`, `gates.md`, `evidence/lane-01.md`, `evidence/lane-02.md`,
