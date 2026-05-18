@@ -19,3 +19,6 @@ docs/api/
 /.prosa-smoke/
 /tmp-prosa/
 docker-compose.override.yml
+
+# Ralph Loop session-local state (do not commit)
+.claude/ralph-loop.local.md
