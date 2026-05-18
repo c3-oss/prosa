@@ -1,4 +1,4 @@
-import { CANONICAL_ENTITY_TYPES, deriveReceiptId } from '@c3-oss/prosa-types-v2'
+import { CANONICAL_ENTITY_TYPES, deriveReceiptId, isValidCanonicalTimestamp } from '@c3-oss/prosa-types-v2'
 import { z } from 'zod'
 
 export const PROTOCOL_VERSION_V2 = 2 as const
@@ -46,10 +46,12 @@ export const transportHashSchema = taggedHashSchema // CQ-012: BLAKE3 over bytes
 // is rejected (CQ-002).
 export const canonicalIdSchema = z.string().regex(/^[a-z0-9][a-z0-9_:-]*$/u, 'expected lowercase canonical id')
 
-// Canonical RFC3339 UTC ms-precision timestamp.
+// Canonical RFC3339 UTC ms-precision timestamp with semantic validation
+// (CQ-016). Regex shape AND Date.UTC round-trip both required so impossible
+// dates like 2025-02-30T00:00:00.000Z are rejected.
 export const canonicalTimestampSchema = z
   .string()
-  .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u, 'expected canonical RFC3339 UTC ms')
+  .refine(isValidCanonicalTimestamp, 'expected canonical RFC3339 UTC ms instant')
 
 // Receipt id form: `rcpt_<base32-lower-no-pad>`.
 export const receiptIdSchema = z.string().regex(/^rcpt_[a-z2-7]+$/u, 'expected rcpt_<base32-lower-no-pad>')
@@ -65,8 +67,8 @@ export const segmentRefSchema = z.object({
   rowCount: z.number().int().nonnegative().optional(),
   minKey: z.string().optional(),
   maxKey: z.string().optional(),
-  minTimestamp: z.string().nullable().optional(),
-  maxTimestamp: z.string().nullable().optional(),
+  minTimestamp: canonicalTimestampSchema.nullable().optional(),
+  maxTimestamp: canonicalTimestampSchema.nullable().optional(),
   objectCount: z.number().int().nonnegative().optional(),
   objectSetRoot: objectSetRootSchema.optional(),
 })

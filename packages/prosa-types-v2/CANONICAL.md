@@ -63,8 +63,10 @@ Producers must canonicalize via `canonicalTimestamp(input)` at ingest.
 - **Tagged hashes** (e.g. `blake3:<hex>`, `pack_digest`, `object_id` when
   expressed as a tagged hash): match `^blake3:[0-9a-f]{64}$`. Uppercase hex
   and missing algorithm prefix are **rejected**.
-- **Bare hex hashes** (`bundleRoot`, `rawSourceRoot`, `manifestDigest`,
-  `objectSetRoot`): match `^[0-9a-f]{64}$` (lowercase only).
+- **Bare hex hashes** (`bundleRoot`, `rawSourceRoot`, `objectSetRoot`):
+  match `^[0-9a-f]{64}$` (lowercase only). `manifestDigest` is **not**
+  bare hex — it carries the tagged form `blake3:<hex>` everywhere
+  (CQ-013 / CQ-017).
 
 Hash-typed fields are distinguished by semantics, not by name:
 
@@ -186,9 +188,19 @@ materialization, verification) are encoded as fixed-order arrays using
 their own `*_FIELDS` tuples. `rowCountsByEntity` is encoded as the
 `CANONICAL_ENTITY_TYPES`-ordered array of integers (no map encoding).
 
+**Receipt-id zeroing rule (normative, CQ-017).** When deriving the
+canonical `receiptId` from a payload, the `receiptId` field on the
+payload MUST be encoded as the empty string `""` before
+`receiptPayloadBytes(payload)` is computed. Otherwise the hash would
+include whatever placeholder value the producer wrote, and two
+implementations could not agree on the canonical id. The implementation
+in `deriveReceiptId(payload)` enforces this by cloning the payload with
+`receiptId = ''` before encoding.
+
 ```text
+seed     = { ...payload, receiptId: '' }
 receiptId = 'rcpt_' + base32_lower(
-  blake3(receiptPayloadBytes(payload))
+  blake3(receiptPayloadBytes(seed))
 )
 ```
 

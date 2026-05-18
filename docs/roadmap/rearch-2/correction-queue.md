@@ -4,10 +4,65 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 ## Open
 
-No open blocking corrections — all CQ-001..CQ-015 closed. New reviewer
-findings will be appended here.
+No open blocking corrections — all CQ-001..CQ-019 closed.
 
 ## Closed (latest first)
+
+### CQ-019: Reconcile Lane 0 Gate Evidence With Current HEAD and Worktree — closed 2026-05-18
+
+`status.md`, `gates.md`, and `evidence/lane-00.md` rewritten from this
+iteration's actual `git rev-parse HEAD` value, actual test counts (89
+in types-v2, 21 in wire-v2, 46 in bundle-v2, 15 conformance), and the
+current worktree state. Lane 0 evidence explicitly separates the
+already-committed acceptance evidence from any in-flight Lane 1 work.
+
+### CQ-018: Resolve Conformance Fixture Independence Gap — closed 2026-05-18
+
+Added `packages/prosa-types-v2/test/cbor-vectors.test.ts` — 12 vectors
+that are individually hand-traceable from RFC 8949 §4.2.1 (canonical
+CBOR) and the canonical encoding rules in `CANONICAL.md`:
+
+- `[null]`, `[true, false]`, `[0]`, integer width boundaries
+  (23 → inline, 24 → 1-byte arg, 256 → 2-byte arg, 65536 → 4-byte arg),
+- negative integer width boundaries (-1, -24, -25, -256, -257),
+- `["a"]`, `["hello, world"]`, NFC normalization (`'é'` NFD vs NFC),
+- `[]`, mixed `[1, "x"]`.
+
+Each test comment documents the step-by-step byte derivation.
+Additionally, two BLAKE3 test vectors from the BLAKE3 spec
+(`blake3("")` and `blake3([0x00])`) are pinned to prove the underlying
+hash library matches the spec — if those vectors ever drift, every
+prosa Merkle leaf is suspect.
+
+Evidence is honest about the remaining work: the projection-leaf fixture
+in `test/fixtures/canonical-leaves/expected-leaves.json` is still
+implementation-derived (i.e. produced once by the current TS encoder
+and committed). The cross-implementation contract is now:
+- the CBOR encoder reproduces the hand-traceable vectors above
+  bit-for-bit, and
+- the BLAKE3 library reproduces the spec test vectors.
+A second-implementation drift would have to flip at least one of those
+14 assertions before reaching the projection-leaf fixture.
+
+### CQ-017: Remove Remaining Hash-Form Contradictions From Canonical Spec — closed 2026-05-18
+
+`CANONICAL.md` rule 6 now lists `manifestDigest` only under the tagged
+form and explicitly removes it from the bare-hex set (with a
+back-reference to CQ-017). Rule 12 adds a normative paragraph stating
+that `payload.receiptId` MUST be encoded as `""` when computing
+`receiptPayloadBytes(payload)` for the receiptId derivation hash, with
+the seed-form pseudocode (`seed = { ...payload, receiptId: '' }`).
+
+### CQ-016: Apply Semantic Timestamp Validation in Wire Schemas — closed 2026-05-18
+
+`prosa-wire-v2/src/primitives.ts`: `canonicalTimestampSchema` now uses
+`.refine(isValidCanonicalTimestamp, ...)` instead of regex-only. This
+schema is reused by `bundleHeadV2Schema.createdAt`,
+`promotionReceiptV2PayloadSchema.issuedAt`, and
+`segmentRefSchema.{minTimestamp, maxTimestamp}` (which were previously
+loose `z.string()`). New `schemas.test.ts` cases reject Feb 30, month
+99 in `bundleHead.createdAt`, and a Feb 30 in `segmentRef.minTimestamp`.
+
 
 ### CQ-015: Make Gate Artifacts Match Actual Lane 0 Validation — closed 2026-05-18
 

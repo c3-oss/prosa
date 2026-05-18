@@ -294,6 +294,21 @@ describe('wire schemas', () => {
     expect(getReceiptRequestSchema.safeParse({ protocolVersion: 2, receiptId: 'rcpt_BAD!' }).success).toBe(false)
   })
 
+  it('rejects bundleHead with an impossible date in createdAt (CQ-016)', () => {
+    const bad = { ...bundleHead, createdAt: '2025-02-30T00:00:00.000Z' }
+    expect(bundleHeadV2Schema.safeParse(bad).success).toBe(false)
+  })
+
+  it('rejects bundleHead with month 99 in createdAt (CQ-016)', () => {
+    const bad = { ...bundleHead, createdAt: '2025-99-01T00:00:00.000Z' }
+    expect(bundleHeadV2Schema.safeParse(bad).success).toBe(false)
+  })
+
+  it('rejects segmentRef with an impossible date in minTimestamp (CQ-016)', () => {
+    const bad = { ...inventorySegment('seg_a'), minTimestamp: '2025-02-30T00:00:00.000Z' }
+    expect(segmentRefSchema.safeParse(bad).success).toBe(false)
+  })
+
   it('parses GetReceiptResponse discriminated union (CQ-011)', () => {
     expect(getReceiptResponseSchema.parse({ status: 'found', receipt }).status).toBe('found')
     expect(getReceiptResponseSchema.parse({ status: 'not_found', receiptId: receipt.payload.receiptId }).status).toBe(
