@@ -333,11 +333,20 @@ CREATE TABLE IF NOT EXISTS "projection_session" (
   started_at timestamptz,
   ended_at timestamptz,
   turn_count integer NOT NULL DEFAULT 0,
+  parent_session_id text,
+  is_subagent integer NOT NULL DEFAULT 0,
+  agent_role text,
+  agent_nickname text,
   metadata jsonb,
   PRIMARY KEY (tenant_id, id)
 );
+ALTER TABLE "projection_session" ADD COLUMN IF NOT EXISTS parent_session_id text;
+ALTER TABLE "projection_session" ADD COLUMN IF NOT EXISTS is_subagent integer NOT NULL DEFAULT 0;
+ALTER TABLE "projection_session" ADD COLUMN IF NOT EXISTS agent_role text;
+ALTER TABLE "projection_session" ADD COLUMN IF NOT EXISTS agent_nickname text;
 CREATE INDEX IF NOT EXISTS projection_session_started_idx ON "projection_session"(tenant_id, started_at);
 CREATE INDEX IF NOT EXISTS projection_session_source_idx ON "projection_session"(tenant_id, source_kind);
+CREATE INDEX IF NOT EXISTS projection_session_subagent_idx ON "projection_session"(tenant_id, is_subagent, started_at);
 
 CREATE TABLE IF NOT EXISTS "projection_turn" (
   tenant_id text NOT NULL REFERENCES "organization"(id) ON DELETE CASCADE,
@@ -387,6 +396,7 @@ CREATE TABLE IF NOT EXISTS "projection_content_block" (
   sequence integer NOT NULL,
   kind text NOT NULL,
   text text,
+  token_count integer,
   object_id text,
   metadata jsonb,
   PRIMARY KEY (tenant_id, id),
@@ -395,6 +405,7 @@ CREATE TABLE IF NOT EXISTS "projection_content_block" (
   FOREIGN KEY (tenant_id, object_id)
     REFERENCES "tenant_object"(tenant_id, object_id) ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED
 );
+ALTER TABLE "projection_content_block" ADD COLUMN IF NOT EXISTS token_count integer;
 CREATE INDEX IF NOT EXISTS projection_content_block_message_idx ON "projection_content_block"(tenant_id, message_id, sequence);
 
 CREATE TABLE IF NOT EXISTS "projection_tool_call" (
@@ -463,6 +474,15 @@ CREATE TABLE IF NOT EXISTS "search_doc" (
     REFERENCES "projection_session"(tenant_id, id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
 );
 CREATE INDEX IF NOT EXISTS search_doc_session_idx ON "search_doc"(tenant_id, session_id);
+
+CREATE TABLE IF NOT EXISTS "user_pref" (
+  user_id text NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+  tenant_id text NOT NULL REFERENCES "organization"(id) ON DELETE CASCADE,
+  key text NOT NULL,
+  value jsonb NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, tenant_id, key)
+);
 `
 
 export type ExecutableSqlClient = {

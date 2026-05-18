@@ -1,0 +1,294 @@
+/*
+ * Dashboard grid — customizable widget canvas.
+ *
+ * 12-column CSS Grid. Each widget renders inside a draggable card whose span
+ * (w/h) is persisted per-user via tRPC. Below the mobile breakpoint the grid
+ * collapses to a single column and drag/resize are disabled.
+ */
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  grid-auto-rows: minmax(180px, auto);
+  gap: var(--space-4);
+  width: 100%;
+}
+
+@media (max-width: 767px) {
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.dashboard-widget {
+  position: relative;
+  grid-column: span var(--w, 6);
+  grid-row: span var(--h, 1);
+  min-height: 220px;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-panel);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  overflow: hidden;
+  transition: box-shadow 120ms ease, border-color 120ms ease;
+}
+
+@media (max-width: 767px) {
+  .dashboard-widget {
+    grid-column: 1 / -1;
+    grid-row: span 1;
+  }
+}
+
+.dashboard-widget[data-dragging="true"] {
+  z-index: 2;
+  box-shadow: 0 14px 32px rgba(36, 31, 24, 0.24);
+  border-color: var(--color-accent);
+}
+
+.dashboard-widget[data-resizing="true"] {
+  border-color: var(--color-accent);
+}
+
+.dashboard-widget-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: color-mix(
+    in srgb,
+    var(--color-panel) 90%,
+    var(--color-bg-elevated) 10%
+  );
+}
+
+.dashboard-widget-title {
+  font-family: var(--font-display);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  margin: 0;
+}
+
+.dashboard-widget-handle {
+  cursor: grab;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-faint);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--font-size-xs);
+}
+
+.dashboard-widget-handle:hover {
+  color: var(--color-text);
+  background: var(--color-sidebar-accent);
+}
+
+.dashboard-widget[data-dragging="true"] .dashboard-widget-handle {
+  cursor: grabbing;
+}
+
+.dashboard-widget-body {
+  position: relative;
+  flex: 1 1 auto;
+  padding: var(--space-3) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.dashboard-widget-resize {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 18px;
+  height: 18px;
+  cursor: se-resize;
+  background: linear-gradient(
+    135deg,
+    transparent 50%,
+    var(--color-border) 50%,
+    var(--color-border) 60%,
+    transparent 60%,
+    transparent 75%,
+    var(--color-border) 75%,
+    var(--color-border) 85%,
+    transparent 85%
+  );
+  border-bottom-right-radius: var(--radius-md);
+  opacity: 0.6;
+}
+
+.dashboard-widget-resize:hover,
+.dashboard-widget[data-resizing="true"] .dashboard-widget-resize {
+  opacity: 1;
+}
+
+@media (max-width: 767px) {
+  .dashboard-widget-resize {
+    display: none;
+  }
+}
+
+.dashboard-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.dashboard-toolbar-info {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-faint);
+}
+
+.dashboard-toolbar-button {
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-elevated);
+  color: var(--color-text-muted);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+}
+
+.dashboard-toolbar-button:hover {
+  color: var(--color-text);
+  border-color: var(--color-accent);
+}
+
+.dashboard-heatmap svg {
+  width: 100%;
+  height: auto;
+}
+
+.dashboard-heatmap .react-calendar-heatmap-month-label,
+.dashboard-heatmap .react-calendar-heatmap-weekday-label {
+  font-size: var(--font-size-xs);
+  fill: var(--color-text-faint);
+}
+
+.dashboard-heatmap rect.color-empty {
+  fill: var(--color-code-bg);
+}
+.dashboard-heatmap rect.color-scale-1 {
+  fill: color-mix(in srgb, var(--color-accent) 25%, var(--color-code-bg));
+}
+.dashboard-heatmap rect.color-scale-2 {
+  fill: color-mix(in srgb, var(--color-accent) 50%, var(--color-code-bg));
+}
+.dashboard-heatmap rect.color-scale-3 {
+  fill: color-mix(in srgb, var(--color-accent) 75%, var(--color-code-bg));
+}
+.dashboard-heatmap rect.color-scale-4 {
+  fill: var(--color-accent-strong);
+}
+
+.dashboard-heatmap-legend {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-faint);
+}
+
+.dashboard-heatmap-legend-cells {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.dashboard-heatmap-legend-cell {
+  width: 11px;
+  height: 11px;
+  border-radius: 2px;
+}
+
+.dashboard-chart-wrapper {
+  flex: 1 1 auto;
+  min-height: 200px;
+  min-width: 0;
+  width: 100%;
+}
+
+.dashboard-window-toggle {
+  display: inline-flex;
+  gap: 2px;
+  background: var(--color-code-bg);
+  padding: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.dashboard-window-toggle button {
+  border: 0;
+  background: transparent;
+  color: var(--color-text-muted);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-xs);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+}
+
+.dashboard-window-toggle button[data-active="true"] {
+  background: var(--color-bg-elevated);
+  color: var(--color-text);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.04);
+}
+
+.dashboard-ratio-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.dashboard-ratio-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--space-2);
+  min-height: 0;
+}
+
+.dashboard-ratio-cell-label {
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-faint);
+}
+
+.dashboard-ratio-cell-value {
+  font-family: var(--font-display);
+  font-size: var(--font-size-lg);
+  color: var(--color-text);
+}
+
+.dashboard-ratio-legend {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-3);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  margin-top: var(--space-1);
+}
+
+.dashboard-ratio-legend-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 4px;
+  vertical-align: middle;
+}

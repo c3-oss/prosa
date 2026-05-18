@@ -70,6 +70,10 @@ export const projectionSessionRowSchema = z.object({
   startedAt: z.string().datetime().nullable().optional(),
   endedAt: z.string().datetime().nullable().optional(),
   turnCount: z.number().int().nonnegative().default(0),
+  parentSessionId: z.string().min(1).nullable().optional(),
+  isSubagent: z.boolean().nullable().optional(),
+  agentRole: z.string().nullable().optional(),
+  agentNickname: z.string().nullable().optional(),
   metadata: z.record(z.unknown()).nullable().optional(),
 })
 export type ProjectionSessionRow = z.infer<typeof projectionSessionRowSchema>
@@ -120,6 +124,7 @@ export const projectionContentBlockRowSchema = z.object({
   sequence: z.number().int().nonnegative(),
   kind: z.string().min(1),
   text: z.string().nullable().optional(),
+  tokenCount: z.number().int().nonnegative().nullable().optional(),
   objectId: z.string().min(1).nullable().optional(),
   metadata: z.record(z.unknown()).nullable().optional(),
 })

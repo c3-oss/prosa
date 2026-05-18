@@ -50,6 +50,7 @@ function readSessionsForUpload(bundle: Bundle): ProjectionSessionRow[] {
   const rows = bundle.db
     .prepare(
       `SELECT s.session_id, s.source_tool, s.project_id, s.title, s.start_ts, s.end_ts,
+              s.parent_session_id, s.is_subagent, s.agent_role, s.agent_nickname,
               COALESCE(tc.cnt, 0) AS turn_count
          FROM sessions s
          LEFT JOIN (SELECT session_id, COUNT(*) AS cnt FROM turns GROUP BY session_id) tc
@@ -64,6 +65,10 @@ function readSessionsForUpload(bundle: Bundle): ProjectionSessionRow[] {
     title: string | null
     start_ts: string | null
     end_ts: string | null
+    parent_session_id: string | null
+    is_subagent: number | null
+    agent_role: string | null
+    agent_nickname: string | null
     turn_count: number
   }>
   return rows.map((row) => ({
@@ -74,6 +79,10 @@ function readSessionsForUpload(bundle: Bundle): ProjectionSessionRow[] {
     startedAt: row.start_ts,
     endedAt: row.end_ts,
     turnCount: row.turn_count,
+    parentSessionId: row.parent_session_id,
+    isSubagent: row.is_subagent === 1,
+    agentRole: row.agent_role,
+    agentNickname: row.agent_nickname,
   }))
 }
 
@@ -276,10 +285,10 @@ function readContentBlocksForUpload(bundle: Bundle): ProjectionContentBlockRow[]
     sequence: row.ordinal,
     kind: row.block_type,
     text: row.text_inline,
+    tokenCount: row.token_count,
     objectId: row.text_object_id,
     metadata: {
       mimeType: row.mime_type,
-      tokenCount: row.token_count,
       isError: row.is_error === 1,
       isRedacted: row.is_redacted === 1,
       visibility: row.visibility,

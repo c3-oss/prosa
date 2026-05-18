@@ -5,6 +5,7 @@ import { authRouter } from './routers/auth.js'
 import { analyticsRouter, artifactsRouter, searchRouter, sessionsRouter, toolCallsRouter } from './routers/reads.js'
 import { syncRouter } from './routers/sync.js'
 import { tenantRouter } from './routers/tenant.js'
+import { userPrefsRouter } from './routers/user-prefs.js'
 
 const healthRouter = router({
   ping: publicProcedure.query(() => ({ ok: true as const, version: readPackageVersion() })),
@@ -27,6 +28,7 @@ export const appRouter = router({
   toolCalls: toolCallsRouter,
   artifacts: artifactsRouter,
   analytics: analyticsRouter,
+  userPrefs: userPrefsRouter,
 })
 
 export type AppRouter = typeof appRouter

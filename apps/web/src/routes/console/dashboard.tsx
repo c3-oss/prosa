@@ -2,8 +2,8 @@ import { useQuery } from '@tanstack/react-query'
 
 import { useAuth } from '~/app/auth-context.js'
 import { useAppContext } from '~/app/providers.js'
+import { DashboardGrid } from '~/components/console/dashboard/dashboard-grid.js'
 import { MetricCardGrid } from '~/components/console/metric-card-grid.js'
-import { SourceBreakdown } from '~/components/console/source-breakdown.js'
 import { EmptyState } from '~/components/primitives/empty-state.js'
 import { queryKeys } from '~/lib/query-keys.js'
 
@@ -47,14 +47,15 @@ export function ConsoleDashboard() {
         ) : (
           <>
             <MetricCardGrid summary={summary.data ?? null} isLoading={summary.isLoading} />
-            <SourceBreakdown sources={summary.data?.sources ?? []} />
             {empty ? (
               <EmptyState
                 title="No promoted sessions yet"
                 description="Run the CLI on each device that owns agent history, then push to this tenant to populate the console."
                 code="prosa auth login && prosa sync push"
               />
-            ) : null}
+            ) : (
+              <DashboardGrid tenantId={tenantId} />
+            )}
           </>
         )}
       </div>

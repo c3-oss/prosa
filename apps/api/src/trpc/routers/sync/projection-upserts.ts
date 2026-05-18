@@ -170,10 +170,13 @@ async function bulkInsertSessionRows(opts: {
 }): Promise<void> {
   if (opts.items.length === 0) return
   await opts.rawExec(
-    `INSERT INTO "projection_session"(tenant_id, id, source_kind, project_id, title, started_at, ended_at, turn_count, metadata)
+    `INSERT INTO "projection_session"(tenant_id, id, source_kind, project_id, title, started_at, ended_at, turn_count,
+                                       parent_session_id, is_subagent, agent_role, agent_nickname, metadata)
      SELECT $1, t.id, t.source_kind, t.project_id, t.title,
             t.started_at::timestamptz, t.ended_at::timestamptz,
-            t.turn_count::int, t.metadata::jsonb
+            t.turn_count::int, t.parent_session_id,
+            COALESCE(t.is_subagent::int, 0), t.agent_role, t.agent_nickname,
+            t.metadata::jsonb
        FROM unnest(
          $2::text[],
          $3::text[],
@@ -182,8 +185,13 @@ async function bulkInsertSessionRows(opts: {
          $6::text[],
          $7::text[],
          $8::int[],
-         $9::text[]
-       ) AS t(id, source_kind, project_id, title, started_at, ended_at, turn_count, metadata)
+         $9::text[],
+         $10::int[],
+         $11::text[],
+         $12::text[],
+         $13::text[]
+       ) AS t(id, source_kind, project_id, title, started_at, ended_at, turn_count,
+              parent_session_id, is_subagent, agent_role, agent_nickname, metadata)
      ON CONFLICT (tenant_id, id) DO NOTHING`,
     [
       opts.tenantId,
@@ -194,6 +202,10 @@ async function bulkInsertSessionRows(opts: {
       opts.items.map((s) => s.startedAt ?? null),
       opts.items.map((s) => s.endedAt ?? null),
       opts.items.map((s) => s.turnCount),
+      opts.items.map((s) => normalizeNullable(s.parentSessionId)),
+      opts.items.map((s) => (s.isSubagent === true ? 1 : 0)),
+      opts.items.map((s) => normalizeNullable(s.agentRole)),
+      opts.items.map((s) => normalizeNullable(s.agentNickname)),
       opts.items.map((s) => (s.metadata != null ? normalizeJson(s.metadata) : null)),
     ],
   )
@@ -207,6 +219,10 @@ async function bulkInsertSessionRows(opts: {
       started_at: Date | string | null
       ended_at: Date | string | null
       turn_count: string | number
+      parent_session_id: string | null
+      is_subagent: string | number
+      agent_role: string | null
+      agent_nickname: string | null
       metadata: unknown
     }
   >({
@@ -215,7 +231,7 @@ async function bulkInsertSessionRows(opts: {
     table: 'projection_session',
     ids: opts.items.map((s) => s.id),
     selectSql:
-      'SELECT id, source_kind, project_id, title, started_at, ended_at, turn_count, metadata FROM "projection_session" WHERE tenant_id = $1 AND id = ANY($2::text[])',
+      'SELECT id, source_kind, project_id, title, started_at, ended_at, turn_count, parent_session_id, is_subagent, agent_role, agent_nickname, metadata FROM "projection_session" WHERE tenant_id = $1 AND id = ANY($2::text[])',
     items: opts.items,
     itemId: (s) => s.id,
     expected: (s) => ({
@@ -225,6 +241,10 @@ async function bulkInsertSessionRows(opts: {
       started_at: normalizeTimestamp(s.startedAt),
       ended_at: normalizeTimestamp(s.endedAt),
       turn_count: s.turnCount,
+      parent_session_id: normalizeNullable(s.parentSessionId),
+      is_subagent: s.isSubagent === true ? 1 : 0,
+      agent_role: normalizeNullable(s.agentRole),
+      agent_nickname: normalizeNullable(s.agentNickname),
       metadata: normalizeJson(s.metadata),
     }),
     actual: (row) => ({
@@ -234,6 +254,10 @@ async function bulkInsertSessionRows(opts: {
       started_at: normalizeTimestamp(row.started_at),
       ended_at: normalizeTimestamp(row.ended_at),
       turn_count: normalizeInteger(row.turn_count),
+      parent_session_id: normalizeNullable(row.parent_session_id),
+      is_subagent: normalizeInteger(row.is_subagent),
+      agent_role: normalizeNullable(row.agent_role),
+      agent_nickname: normalizeNullable(row.agent_nickname),
       metadata: normalizeJson(row.metadata),
     }),
   })
@@ -609,17 +633,18 @@ async function bulkInsertContentBlockRows(opts: {
 }): Promise<void> {
   if (opts.items.length === 0) return
   await opts.rawExec(
-    `INSERT INTO "projection_content_block"(tenant_id, id, message_id, sequence, kind, text, object_id, metadata)
-     SELECT $1, t.id, t.message_id, t.sequence::int, t.kind, t.text, t.object_id, t.metadata::jsonb
+    `INSERT INTO "projection_content_block"(tenant_id, id, message_id, sequence, kind, text, token_count, object_id, metadata)
+     SELECT $1, t.id, t.message_id, t.sequence::int, t.kind, t.text, t.token_count::int, t.object_id, t.metadata::jsonb
        FROM unnest(
          $2::text[],
          $3::text[],
          $4::int[],
          $5::text[],
          $6::text[],
-         $7::text[],
-         $8::text[]
-       ) AS t(id, message_id, sequence, kind, text, object_id, metadata)
+         $7::int[],
+         $8::text[],
+         $9::text[]
+       ) AS t(id, message_id, sequence, kind, text, token_count, object_id, metadata)
      ON CONFLICT (tenant_id, id) DO NOTHING`,
     [
       opts.tenantId,
@@ -628,6 +653,7 @@ async function bulkInsertContentBlockRows(opts: {
       opts.items.map((cb) => cb.sequence),
       opts.items.map((cb) => sanitizePostgresText(cb.kind)),
       opts.items.map((cb) => normalizeNullable(cb.text)),
+      opts.items.map((cb) => (typeof cb.tokenCount === 'number' ? cb.tokenCount : null)),
       opts.items.map((cb) => normalizeNullable(cb.objectId)),
       opts.items.map((cb) => (cb.metadata != null ? normalizeJson(cb.metadata) : null)),
     ],
@@ -640,6 +666,7 @@ async function bulkInsertContentBlockRows(opts: {
       sequence: string | number
       kind: string
       text: string | null
+      token_count: string | number | null
       object_id: string | null
       metadata: unknown
     }
@@ -649,7 +676,7 @@ async function bulkInsertContentBlockRows(opts: {
     table: 'projection_content_block',
     ids: opts.items.map((cb) => cb.id),
     selectSql:
-      'SELECT id, message_id, sequence, kind, text, object_id, metadata FROM "projection_content_block" WHERE tenant_id = $1 AND id = ANY($2::text[])',
+      'SELECT id, message_id, sequence, kind, text, token_count, object_id, metadata FROM "projection_content_block" WHERE tenant_id = $1 AND id = ANY($2::text[])',
     items: opts.items,
     itemId: (cb) => cb.id,
     expected: (cb) => ({
@@ -657,6 +684,7 @@ async function bulkInsertContentBlockRows(opts: {
       sequence: cb.sequence,
       kind: sanitizePostgresText(cb.kind),
       text: normalizeNullable(cb.text),
+      token_count: typeof cb.tokenCount === 'number' ? cb.tokenCount : null,
       object_id: normalizeNullable(cb.objectId),
       metadata: normalizeJson(cb.metadata),
     }),
@@ -665,6 +693,7 @@ async function bulkInsertContentBlockRows(opts: {
       sequence: normalizeInteger(row.sequence),
       kind: row.kind,
       text: normalizeNullable(row.text),
+      token_count: row.token_count == null ? null : normalizeInteger(row.token_count),
       object_id: normalizeNullable(row.object_id),
       metadata: normalizeJson(row.metadata),
     }),

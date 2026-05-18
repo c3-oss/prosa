@@ -751,12 +751,14 @@ function readSessionChunk(
 ): ProjectionChunk<ProjectionSessionRow> {
   const sql = afterId
     ? `SELECT s.session_id, s.source_tool, s.project_id, s.title, s.start_ts, s.end_ts,
+              s.parent_session_id, s.is_subagent, s.agent_role, s.agent_nickname,
               (SELECT COUNT(*) FROM turns t WHERE t.session_id = s.session_id) AS turn_count
          FROM sessions s
          WHERE s.session_id > ?
          ORDER BY s.session_id
          LIMIT ?`
     : `SELECT s.session_id, s.source_tool, s.project_id, s.title, s.start_ts, s.end_ts,
+              s.parent_session_id, s.is_subagent, s.agent_role, s.agent_nickname,
               (SELECT COUNT(*) FROM turns t WHERE t.session_id = s.session_id) AS turn_count
          FROM sessions s
          ORDER BY s.session_id
@@ -768,6 +770,10 @@ function readSessionChunk(
     title: string | null
     start_ts: string | null
     end_ts: string | null
+    parent_session_id: string | null
+    is_subagent: number | null
+    agent_role: string | null
+    agent_nickname: string | null
     turn_count: number
   }>
   return {
@@ -779,6 +785,10 @@ function readSessionChunk(
       startedAt: row.start_ts,
       endedAt: row.end_ts,
       turnCount: row.turn_count,
+      parentSessionId: row.parent_session_id,
+      isSubagent: row.is_subagent === 1,
+      agentRole: row.agent_role,
+      agentNickname: row.agent_nickname,
     })),
     nextCursor: rows.length > 0 ? (rows[rows.length - 1]?.session_id ?? null) : null,
   }
@@ -971,10 +981,10 @@ function readContentBlockChunk(
       sequence: row.ordinal,
       kind: row.block_type,
       text: row.text_inline,
+      tokenCount: row.token_count,
       objectId: row.text_object_id,
       metadata: {
         mimeType: row.mime_type,
-        tokenCount: row.token_count,
         isError: row.is_error === 1,
         isRedacted: row.is_redacted === 1,
         visibility: row.visibility,

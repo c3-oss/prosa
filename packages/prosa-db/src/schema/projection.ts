@@ -91,12 +91,17 @@ export const session = pgTable(
     startedAt: timestamp('started_at', { withTimezone: true }),
     endedAt: timestamp('ended_at', { withTimezone: true }),
     turnCount: integer('turn_count').notNull().default(0),
+    parentSessionId: text('parent_session_id'),
+    isSubagent: integer('is_subagent').notNull().default(0),
+    agentRole: text('agent_role'),
+    agentNickname: text('agent_nickname'),
     metadata: jsonb('metadata'),
   },
   (table) => ({
     pk: primaryKey({ columns: [table.tenantId, table.id] }),
     startedIdx: index('projection_session_started_idx').on(table.tenantId, table.startedAt),
     sourceIdx: index('projection_session_source_idx').on(table.tenantId, table.sourceKind),
+    subagentIdx: index('projection_session_subagent_idx').on(table.tenantId, table.isSubagent, table.startedAt),
   }),
 )
 
@@ -165,6 +170,7 @@ export const contentBlock = pgTable(
     sequence: integer('sequence').notNull(),
     kind: text('kind').notNull(),
     text: text('text'),
+    tokenCount: integer('token_count'),
     objectId: text('object_id').references(() => remoteObject.objectId, { onDelete: 'set null' }),
     metadata: jsonb('metadata'),
   },

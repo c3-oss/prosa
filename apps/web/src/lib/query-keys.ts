@@ -16,5 +16,11 @@ export const queryKeys = {
   searchQuery: (tenantId: string, params: unknown) => ['search', 'query', tenantId, params] as const,
   toolCallsList: (tenantId: string, params: unknown) => ['toolCalls', 'list', tenantId, params] as const,
   analyticsReport: (tenantId: string, params: unknown) => ['analytics', 'report', tenantId, params] as const,
+  analyticsActivity: (tenantId: string, days: number) => ['analytics', 'activity', tenantId, days] as const,
+  analyticsDailyTokensByAgent: (tenantId: string, days: number) =>
+    ['analytics', 'dailyTokensByAgent', tenantId, days] as const,
+  analyticsAgentVsSubagent: (tenantId: string, days: number) =>
+    ['analytics', 'agentVsSubagent', tenantId, days] as const,
   artifactText: (tenantId: string, ref: unknown) => ['artifacts', 'getText', tenantId, ref] as const,
+  userPref: (tenantId: string, userId: string, key: string) => ['userPref', tenantId, userId, key] as const,
 } as const
