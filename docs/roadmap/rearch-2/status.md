@@ -20,7 +20,7 @@ Ralph active: yes
 | Lane | Owner | Status | Commit(s) | Evidence |
 | --- | --- | --- | --- | --- |
 | 00 - Foundation | Ralph | complete | `cd845f2`, `e22ec27`, `b78b5ae`, `70b9df0`, (+this iteration's CQ-016..CQ-019 closeout) | `evidence/lane-00.md` |
-| 01 - Local store | Ralph | partial | `4f214b7`, (+this iteration's shard-actor + epoch-lifecycle commit) | `evidence/lane-01.md` |
+| 01 - Local store | Ralph | partial | `4f214b7`, `2b5ad1b`, (+this iteration's pack-writer-pool commit) | `evidence/lane-01.md` |
 | 02 - Importers | Ralph | blocked-on-lane-01 | | `evidence/lane-02.md` |
 | 03 - Derived layer | Ralph | blocked-on-lane-02 | | `evidence/lane-03.md` |
 | 04 - Server | Ralph | blocked-on-lane-00 | | `evidence/lane-04.md` |
@@ -45,7 +45,7 @@ Ralph active: yes
 | `pnpm i` | pass | `pnpm install --frozen-lockfile`-compatible; only pre-existing peer warnings (`@c3-oss/config-vitest` wants vitest ^3.1.1, repo on 2.1.9). |
 | `pnpm build` | pass | 10/10 turbo tasks (includes `@c3-oss/prosa-bundle-v2`). |
 | `just typecheck` | pass | 10/10 turbo tasks. |
-| `just test-all` | pass | 10/10 turbo tasks. Post-CQ-016..CQ-019 test counts: 89 in `@c3-oss/prosa-types-v2`, 21 in `@c3-oss/prosa-wire-v2`, 46 in `@c3-oss/prosa-bundle-v2`. |
+| `just test-all` | pass | 10/10 turbo tasks. Test counts: 89 in `@c3-oss/prosa-types-v2`, 21 in `@c3-oss/prosa-wire-v2`, 58 in `@c3-oss/prosa-bundle-v2` (post pack-writer-pool). |
 | `just lint-all` | pass | 10/10 turbo tasks. |
 | `pnpm test:conformance` | pass | 15 tests; 13 entity leaves stable. |
 | `pnpm audit --audit-level moderate` | classified pass | 7 dev-tooling-only vulnerabilities, pre-existing; classified in `gates.md`. |
