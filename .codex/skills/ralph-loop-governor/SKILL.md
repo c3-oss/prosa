@@ -32,7 +32,9 @@ $ralph-loop-governor implemente <goal>
 Do not require the user to ask for lanes, prompts, status files, correction
 queues, gates, evidence templates, subagents, or Claude commands. Infer and
 create those artifacts from the feature request, then return the exact Claude
-`/ralph-loop:ralph-loop` command to run.
+`/ralph-loop:ralph-loop` command to run. The command must reference the prompt
+file only; put every natural-language execution instruction inside
+`ralph-loop-prompt.md`, not inside the shell/chat command.
 
 If the request is too vague to produce safe lanes, ask one concise clarifying
 question. Otherwise, make conservative assumptions and proceed.
@@ -80,16 +82,24 @@ references belong in `docs/architecture/` and should be linked from the Ralph
 prompt rather than duplicated.
 
 3. Generate a Ralph kickoff prompt from `assets/ralph-loop-prompt-template.md`.
-4. Give the user an exact Claude command. Quote any natural-language prompt:
+   The prompt must be self-contained: include the current objective, read-first
+   files, open corrections, lane blocking rules, required gates, and completion
+   stabilization instructions. Any restart-specific guidance belongs in the
+   prompt file as an "Invocation Contract" or equivalent section.
+4. Give the user an exact Claude command that contains only the prompt file
+   reference and flags. Do not embed natural-language operational instructions
+   in the command:
 
 ```text
-/ralph-loop:ralph-loop "@docs/roadmap/<feature>/ralph-loop-prompt.md" --max-iterations 30 --completion-promise RALPH_DONE
+/ralph-loop:ralph-loop @docs/roadmap/<feature>/ralph-loop-prompt.md --max-iterations 30 --completion-promise RALPH_DONE
 ```
 
-5. If restarting Ralph to consume corrections, use a quoted prompt:
+5. If restarting Ralph to consume corrections, first update
+   `ralph-loop-prompt.md` so it names the files to read, the blocking
+   corrections to close, and the stabilization rule. Then give a terse command:
 
 ```text
-/ralph-loop:ralph-loop "Read @docs/roadmap/<feature>/ralph-loop-prompt.md, @docs/roadmap/<feature>/correction-queue.md, and @docs/roadmap/<feature>/gates.md. Close every blocking correction with code, tests, and evidence. If no blocking correction remains, run the mandatory final stabilization wait: five clean cycles of sleep 180 seconds, then reread correction queue, gates, status, git status, and recent commits. Any change, open blocker, failed gate, or stale evidence resets the five-cycle count to zero. Output RALPH_DONE only after all five cycles stay clean." --max-iterations 20 --completion-promise RALPH_DONE
+/ralph-loop:ralph-loop @docs/roadmap/<feature>/ralph-loop-prompt.md --max-iterations 20 --completion-promise RALPH_DONE
 ```
 
 For server-sync follow-up work, a good terse user prompt is:

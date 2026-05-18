@@ -10,6 +10,25 @@ through `correction-queue.md`, `gates.md`, and updates to this prompt. Those
 review findings are part of the implementation contract, not optional advice.
 Expect Codex to reject `RALPH_DONE` if subagent findings remain open.
 
+## Invocation Contract
+
+This prompt is intentionally self-contained. When Ralph is launched with
+`/ralph-loop:ralph-loop @docs/roadmap/<feature>/ralph-loop-prompt.md`, treat
+this section as the full kickoff/restart instruction:
+
+- Read this prompt, `docs/roadmap/<feature>/correction-queue.md`,
+  `docs/roadmap/<feature>/gates.md`, `docs/roadmap/<feature>/status.md`, and
+  every feature source document listed below.
+- Close every blocking correction with code, tests, and evidence before
+  starting new lane work.
+- Do not count out-of-sequence or downstream WIP as accepted progress while any
+  prerequisite lane or correction remains open.
+- If no blocking correction remains, run the mandatory final stabilization
+  wait: five clean cycles of sleep 180 seconds, then reread correction queue,
+  gates, status, git status, and recent commits.
+- Output `RALPH_DONE` only after all lanes are complete, all blockers are
+  closed, required gates pass or are classified, and the five cycles stay clean.
+
 ## Read First
 
 - AGENTS.md
