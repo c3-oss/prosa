@@ -4,9 +4,72 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 ## Open
 
-(none — `CQ-091`..`CQ-103` are all closed.)
+(none — `CQ-091`..`CQ-104` are all closed.)
 
 ## Closed (latest first)
+
+### CQ-104: `derivedLayerEpochsTouched` Must Count Artifacts, Not Empty SessionBlob Epoch Dirs — closed 2026-05-19
+
+Status: closed
+Severity: medium
+Blocking: yes
+Owner: Ralph
+Opened: 2026-05-19
+Closed: 2026-05-19
+Lane: 3 - Derived layer
+
+Finding:
+
+The current `derivedLayerEpochsTouched(bundleRoot)` WIP documents its
+result as "every epoch number where the bundle's derived layer has at
+least one artifact — a SessionBlob pack or a Parquet projection
+segment." The implementation built the SessionBlob side from
+`listSessionBlobEpochs(bundleRoot)`, but that helper enumerates
+canonical epoch directories and can include epochs with no `.pack`
+files. `bundleDerivedStatus.session_blob_epochs` already documents
+that empty writer-created epoch dirs may appear there.
+
+Risk:
+
+The new helper is framed as an audit/GC keep-set primitive. Counting an
+empty SessionBlob epoch directory as an artifact-bearing epoch
+overstates what must survive a prune and contradicts the "pack or
+projection segment" contract. It can also mask future bugs where an
+epoch directory is created but no derived payload is written.
+
+Resolution:
+
+Switched `derivedLayerEpochsTouched()` to enumerate only epochs with
+actual SessionBlob `.pack` files plus Parquet projection segments.
+The SessionBlob side now feeds candidate epochs from
+`listSessionBlobEpochs(bundleRoot)` through
+`listSessionBlobSessions({ bundleRoot, epoch })` and only includes
+epochs whose listing returns at least one session; empty
+writer-created epoch dirs no longer over-report the keep-set.
+Deterministic sorted/deduplicated output and containment
+propagation (CQ-098 parent + CQ-098 per-epoch + epochs/-symlink)
+are preserved.
+
+Acceptance criteria — all met:
+
+- ✅ Regression added: empty `derived/session-blob/epoch-<n>/`
+  directories alongside a real pack at a different epoch result
+  in the epochs-touched set containing only the pack-bearing
+  epoch (`bundle-status.test.ts > derivedLayerEpochsTouched >
+  CQ-104: empty SessionBlob epoch directories do NOT contribute`).
+- ✅ Regression added: pack-bearing SessionBlob epoch is returned
+  (pre-existing test still passes after the fix).
+- ✅ Projection-only, deduplicated union, and symlink propagation
+  tests continue to pass.
+- ✅ Focused gates pass:
+  - `pnpm --filter @c3-oss/prosa-derived-v2 test` — 400 tests / 34 files
+  - `pnpm --filter @c3-oss/prosa-derived-v2 typecheck` — clean
+  - `pnpm --filter @c3-oss/prosa-derived-v2 lint` — clean
+  - `git diff --check` — clean
+  - Full repo `pnpm turbo run test` — 13/13 turbo
+- ✅ `docs/roadmap/rearch-2/evidence/lane-03.md`, `gates.md`,
+  `status.md`, and `ralph-loop-prompt.md` updated as part of the
+  closeout commit pair.
 
 ### CQ-103: Tantivy Checkpoint Reads Must Reject Symlink Escapes — closed 2026-05-19
 

@@ -27,7 +27,7 @@
 // convenience for "give me everything" inventory views.
 
 import { listProjectionSegments } from './compaction/segments.js'
-import { listSessionBlobEpochs } from './session-blob/listing.js'
+import { listSessionBlobEpochs, listSessionBlobSessions } from './session-blob/listing.js'
 import { type SessionBlobSummary, listSessionBlobSummaries } from './session-blob/summary.js'
 import { type TantivyIndexStatus, tantivyIndexStatus } from './tantivy/status.js'
 
@@ -85,11 +85,20 @@ export async function bundleDerivedStatus(bundleRoot: string): Promise<BundleDer
 
 /**
  * Sorted ascending set of every epoch number where the bundle's
- * derived layer has at least one artifact — a SessionBlob pack or
- * a Parquet projection segment. Composes
- * `listSessionBlobEpochs(bundleRoot)` with the projection-segment
- * listing's per-segment epoch values; the result is the
- * deduplicated union.
+ * derived layer has at least one artifact — meaning at least one
+ * SessionBlob `.pack` file actually lives in `epoch-<n>/`, or at
+ * least one Parquet projection segment lives in
+ * `epochs/<n>/projection/`. The result is the deduplicated union
+ * of those two sets.
+ *
+ * CQ-104: only epochs with a concrete artifact contribute. An
+ * empty `epoch-<n>/` directory (e.g. one the writer created but
+ * has not populated with any session pack yet) is NOT counted —
+ * the audit/GC keep-set must reflect what is actually on disk.
+ * `listSessionBlobEpochs` alone would over-report by returning
+ * candidate epoch directories regardless of pack presence; the
+ * composition below filters those out via
+ * `listSessionBlobSessions(epoch)` per candidate.
  *
  * Use cases:
  *
@@ -104,16 +113,21 @@ export async function bundleDerivedStatus(bundleRoot: string): Promise<BundleDer
  *
  * Containment + validation are inherited from the composed
  * surfaces. A symlinked `<bundleRoot>/derived/session-blob` throws
- * via `listSessionBlobEpochs`; a symlinked
+ * via `listSessionBlobEpochs`; a per-epoch CQ-098 violation
+ * throws via `listSessionBlobSessions`; a symlinked
  * `<bundleRoot>/epochs` throws via `listProjectionSegments`.
  * Returns `[]` on a fresh bundle.
  */
 export async function derivedLayerEpochsTouched(bundleRoot: string): Promise<number[]> {
-  const [sessionBlobEpochs, projectionSegments] = await Promise.all([
+  const [sessionBlobCandidateEpochs, projectionSegments] = await Promise.all([
     listSessionBlobEpochs(bundleRoot),
     listProjectionSegments(bundleRoot),
   ])
-  const touched = new Set<number>(sessionBlobEpochs)
+  const touched = new Set<number>()
+  for (const epoch of sessionBlobCandidateEpochs) {
+    const sessions = await listSessionBlobSessions({ bundleRoot, epoch })
+    if (sessions.length > 0) touched.add(epoch)
+  }
   for (const segment of projectionSegments) {
     touched.add(segment.epoch)
   }

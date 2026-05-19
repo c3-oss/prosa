@@ -237,6 +237,30 @@ describe('derivedLayerEpochsTouched', () => {
     }
   })
 
+  it('CQ-104: empty SessionBlob epoch directories do NOT contribute (only real packs count)', async () => {
+    // Plant epoch-1/ and epoch-3/ as empty directories — the writer created
+    // them but no session has ever shipped a pack there. Audit/GC must not
+    // see these as "touched" epochs.
+    await mkdir(sessionBlobEpochDir(bundleRoot, 1), { recursive: true })
+    await mkdir(sessionBlobEpochDir(bundleRoot, 3), { recursive: true })
+    // Plant a real pack at epoch 2 — that one MUST be counted.
+    await writePack(bundleRoot, 'ses_real', 2, 1)
+
+    expect(await derivedLayerEpochsTouched(bundleRoot)).toEqual([2])
+  })
+
+  it('CQ-104: empty SessionBlob epoch dirs do not mask projection-only epochs', async () => {
+    // Empty SessionBlob epoch-5 alongside a projection segment at epoch 5.
+    // The projection side must still surface the epoch even though the
+    // SessionBlob side filtered it out.
+    await mkdir(sessionBlobEpochDir(bundleRoot, 5), { recursive: true })
+    const dir = join(bundleRoot, 'epochs', '5', 'projection')
+    await mkdir(dir, { recursive: true })
+    await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(100))
+
+    expect(await derivedLayerEpochsTouched(bundleRoot)).toEqual([5])
+  })
+
   it('propagates the projection-listing symlink-epochs rejection', async () => {
     const external = await mkdtemp(join(tmpdir(), 'prosa-derived-touched-epochs-sym-'))
     try {

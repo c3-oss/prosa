@@ -575,16 +575,24 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
   the parent-throw via the composed listing).
 - [x] Cross-subsystem epoch touched-set
   (`derivedLayerEpochsTouched(bundleRoot)`) returns the sorted
-  deduplicated union of SessionBlob pack epochs and Parquet
-  projection segment epochs. Pairs with audit/GC planning ("which
-  epochs have any derived artifact?"). Composes
-  `listSessionBlobEpochs` with `listProjectionSegments`'s
-  per-segment epoch values; inherits both surfaces' containment
-  (CQ-098 + epochs/-symlink throws propagate). 6 tests cover:
-  fresh-bundle [], SessionBlob-only, projection-only, deduplicated
-  union across both subsystems with overlap, CQ-098 propagation
-  from SessionBlob listing, and epochs/-symlink rejection from
-  projection listing.
+  deduplicated union of epochs that actually have a SessionBlob
+  `.pack` file or a Parquet projection segment on disk. Pairs with
+  audit/GC planning ("which epochs have any derived artifact?").
+  CQ-104 fix: the SessionBlob side filters
+  `listSessionBlobEpochs` candidates through
+  `listSessionBlobSessions(epoch)` so empty `epoch-<n>/`
+  directories — created by the writer but not yet populated with a
+  pack — do not over-report the keep-set; only epochs with at
+  least one real pack contribute. Inherits both surfaces'
+  containment (CQ-098 parent + CQ-098 per-epoch +
+  epochs/-symlink throws propagate). 8 tests cover: fresh-bundle
+  [], SessionBlob-only, projection-only, deduplicated union
+  across both subsystems with overlap, CQ-098 propagation from
+  SessionBlob listing, epochs/-symlink rejection from projection
+  listing, CQ-104 empty-SessionBlob-epoch-dir exclusion, and
+  CQ-104 empty-SessionBlob-epoch-dir + projection-overlap
+  (projection-only epoch still surfaces even when an empty
+  SessionBlob dir exists for the same epoch).
 - [x] Bundle-level derived-layer status aggregator
   (`bundleDerivedStatus(bundleRoot)`) composes `tantivyIndexStatus`
   + `listSessionBlobSummaries` + `listSessionBlobEpochs` into one
@@ -744,7 +752,7 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
 ```text
 pnpm install --prefer-offline                       # registers @c3-oss/prosa-derived-v2 in pnpm-lock.yaml
 pnpm --filter @c3-oss/prosa-derived-v2 typecheck    # clean
-pnpm --filter @c3-oss/prosa-derived-v2 test         # 398 tests / 34 files (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 13 incl. CQ-101 + CQ-102 containment regressions, compaction executor-plan 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9, reader-iterator 7, tantivy checkpoint-store 21 (11 prior + 4 write CQ-096 + 6 read CQ-103), analytics executor-plan 9, tantivy index-dir probe 17, tantivy plan-bundle orchestration 9, tantivy status 10, analytics descriptor 8, bundle status 14 (8 prior + 6 derivedLayerEpochsTouched), compaction segments 22 (9 listing + 7 summary + 6 containment), derived-layout 27, tantivy clear-index-dir 10, session-blob loader 11, session-blob zstd 5, session-blob listing 27 (19 prior + 8 listAllSessionBlobSessions cross-epoch union), session-blob latest 11 incl. CQ-100, session-blob transcript-from-bundle 8, session-blob iterate-from-bundle 9, session-blob header 10, session-blob exists 11, session-blob latest-epoch 11, session-blob summary 19 (11 single + 8 bulk listing), integration sessionblob-end-to-end 12, integration compaction-end-to-end 8, integration tantivy-end-to-end 8)
+pnpm --filter @c3-oss/prosa-derived-v2 test         # 400 tests / 34 files (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 13 incl. CQ-101 + CQ-102 containment regressions, compaction executor-plan 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9, reader-iterator 7, tantivy checkpoint-store 21 (11 prior + 4 write CQ-096 + 6 read CQ-103), analytics executor-plan 9, tantivy index-dir probe 17, tantivy plan-bundle orchestration 9, tantivy status 10, analytics descriptor 8, bundle status 16 (8 prior aggregator + 8 derivedLayerEpochsTouched incl. CQ-104 empty-epoch-dir regressions), compaction segments 22 (9 listing + 7 summary + 6 containment), derived-layout 27, tantivy clear-index-dir 10, session-blob loader 11, session-blob zstd 5, session-blob listing 27 (19 prior + 8 listAllSessionBlobSessions cross-epoch union), session-blob latest 11 incl. CQ-100, session-blob transcript-from-bundle 8, session-blob iterate-from-bundle 9, session-blob header 10, session-blob exists 11, session-blob latest-epoch 11, session-blob summary 19 (11 single + 8 bulk listing), integration sessionblob-end-to-end 12, integration compaction-end-to-end 8, integration tantivy-end-to-end 8)
 pnpm --filter @c3-oss/prosa-derived-v2 lint         # clean
 pnpm build                                          # 13/13 turbo
 pnpm typecheck                                      # 13/13 turbo

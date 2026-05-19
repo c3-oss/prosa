@@ -56,8 +56,13 @@ section as the full restart instruction:
   `summariseProjectionSegments` rollup (`15a975a`), SessionBlob
   read-side end-to-end integration test (`aac58e9`), compaction
   read-side end-to-end integration test (`447f60c`), Tantivy
-  read-side end-to-end integration test (`784c1e0`), plus
-  the prior scaffold
+  read-side end-to-end integration test (`784c1e0`),
+  projection-segments preemptive containment hardening + CQ-101
+  planner-refactor closeout (`668f473`), CQ-102 planner/execution
+  containment evidence + `index.ts` public-API docs (`c467d40`),
+  CQ-103 Tantivy checkpoint read/write symlink containment
+  (`8c241a4`), `derivedLayerEpochsTouched` cross-subsystem epoch
+  union (`60cae8a`), plus the prior scaffold
   (`bb76006`), SessionBlobPackV2 byte layout (`ba87f05`), Parquet
   compaction planner (`ea8c1a8`), DuckDB analytics view shape contract
   + compacted-overlay binding (`cff3670` / `e35f844`), Tantivy schema
@@ -193,15 +198,16 @@ Keep these files current:
 
 ## Current Blocking Corrections
 
-Current open corrections: none — `CQ-091`..`CQ-103` are all closed.
-`CQ-103` closeout: `readIndexCheckpoint` now calls
-`detectDerivedTantivyIntermediateSymlink` first and `lstat`s the final
-`checkpoint.json`, throwing on symlinks at any managed intermediate or
-the final path. `readIndexCheckpointOrEmpty` inherits the refusal
-transitively. `writeIndexCheckpoint` got the matching intermediate
-guard in the same slice. Fresh-bundle null/EMPTY behavior preserved;
-symlinked bundle-root alias still supported. 10 regression tests
-(4 write + 6 read).
+Current open corrections: `CQ-104` is open and blocking for Lane 3.
+Close it before `RALPH_DONE`.
+
+`CQ-104` applies to the current `derivedLayerEpochsTouched()` WIP. The helper
+claims to return epochs with SessionBlob packs or Parquet projection segments,
+but the SessionBlob side currently uses `listSessionBlobEpochs()`, which can
+include empty epoch directories. For audit/GC keep-set semantics, return only
+artifact-bearing epochs (preferred) or explicitly re-scope/rename the helper as
+directory-touched. Add the empty-SessionBlob-epoch regression and reconcile
+Lane 3 evidence/gates/status before closing.
 
 Lane 2 is accepted by Codex/governor as of 2026-05-19; do not ask again for
 Lane 2 external acceptance and do not block Lane 3 on it. Lane 3 forward work
