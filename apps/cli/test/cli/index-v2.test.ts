@@ -60,6 +60,7 @@ describe('prosa index-v2 CLI', () => {
     expect(r.stdout).toContain('compaction-execution-plan')
     expect(r.stdout).toContain('compacted-outputs')
     expect(r.stdout).toContain('gc-plan')
+    expect(r.stdout).toContain('gc-execution-plan')
     expect(r.stdout).toContain('superseded-segments')
     expect(r.stdout).toContain('verify-packs')
     expect(r.stdout).toContain('transcript-header')
@@ -1054,6 +1055,85 @@ describe('prosa index-v2 CLI', () => {
 
   it('`index-v2 gc-plan` fails when --store is missing', async () => {
     const r = runCli(['index-v2', 'gc-plan'])
+    expect(r.status).not.toBe(0)
+    expect(r.stderr).toMatch(/required option.*--store/i)
+  })
+
+  it('`index-v2 gc-execution-plan --help` documents --store and the unlink-step shape', async () => {
+    const r = runCli(['index-v2', 'gc-execution-plan', '--help'])
+    expect(r.status).toBe(0)
+    expect(r.stdout).toContain('GC execution plan')
+    expect(r.stdout).toContain('--store')
+  })
+
+  it('`index-v2 gc-execution-plan` returns `{ empty: true, total_bytes: 0, steps: [] }` for a fresh bundle', async () => {
+    const storeRoot = join(await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-')), 'never-initialised')
+    const r = runCli(['index-v2', 'gc-execution-plan', '--store', storeRoot])
+    expect(r.status).toBe(0)
+    expect(JSON.parse(r.stdout)).toEqual({ empty: true, total_bytes: 0, steps: [] })
+  })
+
+  it('`index-v2 gc-execution-plan` returns empty when the only persisted manifest is inconsistent (all candidates blocked)', async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    for (let epoch = 1; epoch <= 17; epoch++) {
+      const dir = join(storeRoot, 'epochs', String(epoch), 'projection')
+      await mkdir(dir, { recursive: true })
+      await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(1024))
+    }
+    runCli([
+      'index-v2',
+      'compaction-manifest',
+      '--store',
+      storeRoot,
+      '--write',
+      '--generated-at',
+      '2026-05-19T12:00:00.000Z',
+    ])
+    const r = runCli(['index-v2', 'gc-execution-plan', '--store', storeRoot])
+    expect(r.status).toBe(0)
+    expect(JSON.parse(r.stdout)).toEqual({ empty: true, total_bytes: 0, steps: [] })
+  })
+
+  it('`index-v2 gc-execution-plan` emits one step per safe-to-delete candidate once the compacted output is planted', async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    for (let epoch = 1; epoch <= 17; epoch++) {
+      const dir = join(storeRoot, 'epochs', String(epoch), 'projection')
+      await mkdir(dir, { recursive: true })
+      await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(1024))
+    }
+    runCli([
+      'index-v2',
+      'compaction-manifest',
+      '--store',
+      storeRoot,
+      '--write',
+      '--generated-at',
+      '2026-05-19T12:00:00.000Z',
+    ])
+    const compactedDir = join(storeRoot, 'epochs', 'compact-0001', 'projection')
+    await mkdir(compactedDir, { recursive: true })
+    await writeFile(join(compactedDir, 'sessions.compacted.parquet'), Buffer.alloc(2048))
+
+    const r = runCli(['index-v2', 'gc-execution-plan', '--store', storeRoot])
+    expect(r.status).toBe(0)
+    const plan = JSON.parse(r.stdout) as {
+      empty: boolean
+      total_bytes: number
+      steps: Array<{ path: string; byte_length: number; epoch: number; entity_type: string; compaction_seq: number }>
+    }
+    expect(plan.empty).toBe(false)
+    expect(plan.total_bytes).toBe(17 * 1024)
+    expect(plan.steps).toHaveLength(17)
+    expect(plan.steps.every((s) => s.entity_type === 'sessions')).toBe(true)
+    expect(plan.steps.every((s) => s.compaction_seq === 1)).toBe(true)
+    expect(plan.steps.every((s) => s.byte_length === 1024)).toBe(true)
+    expect(plan.steps.map((s) => s.epoch).sort((a, b) => a - b)).toEqual([
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
+    ])
+  })
+
+  it('`index-v2 gc-execution-plan` fails when --store is missing', async () => {
+    const r = runCli(['index-v2', 'gc-execution-plan'])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/required option.*--store/i)
   })

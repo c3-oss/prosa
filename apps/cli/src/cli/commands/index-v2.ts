@@ -39,6 +39,7 @@ import {
   planAnalyticsExecution,
   planCompaction,
   planCompactionExecution,
+  planGcExecution,
   planSupersededCleanup,
   planTantivyRebuildFromBundle,
   readCompactManifestV2,
@@ -293,6 +294,18 @@ export function indexV2Command(): Command {
     .action(async (options: { store: string }) => {
       const storePath = resolvePath(options.store)
       const plan = await planSupersededCleanup(storePath)
+      process.stdout.write(`${JSON.stringify(plan, null, 2)}\n`)
+    })
+
+  root
+    .command('gc-execution-plan')
+    .description(
+      'Print the GC execution plan — the deterministic ordered list of unlink steps for every safe-to-delete segment. Drops blocked rows; emits one step per safe candidate with `path`, `byte_length`, `epoch`, `entity_type`, `compaction_seq`. Returns `{ empty: true, total_bytes: 0, steps: [] }` when nothing is safe to reclaim. Pure-read; this is the audit/dry-run counterpart to the eventual runtime GC executor.',
+    )
+    .requiredOption('--store <path>', 'bundle directory')
+    .action(async (options: { store: string }) => {
+      const storePath = resolvePath(options.store)
+      const plan = await planGcExecution(storePath)
       process.stdout.write(`${JSON.stringify(plan, null, 2)}\n`)
     })
 
