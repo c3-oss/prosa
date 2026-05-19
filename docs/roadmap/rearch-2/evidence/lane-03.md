@@ -58,7 +58,19 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
   - Identity compressor/decompressor pair lets tests exercise the
     layout independently of zstd; production callers will plug in
     `zstdCompress` / `zstdDecompress` from `@c3-oss/prosa-bundle-v2`.
-- [ ] DuckDB analytics view definitions (5 fixed reports) — pending.
+- [x] DuckDB analytics view definitions (5 fixed reports) — SQL
+  bodies and column-shape contract land in
+  `src/analytics/views.ts`. `ANALYTICS_VIEW_NAMES` /
+  `ANALYTICS_VIEW_COLUMNS` lock the canonical names + ordered
+  column lists; `analyticsViewSql(name)` returns the DuckDB
+  `CREATE OR REPLACE VIEW ... AS ...` body; `parquetReadFor` and
+  `analyticsParquetPreamble` build the Parquet-source temp views
+  the runtime binds before executing the view bodies. Each body
+  is a DuckDB port of the v1 statement: `julianday` → `EPOCH(::TIMESTAMP)`,
+  `is_error = 1` → `is_error` boolean, `CAST(x AS TEXT)` removed
+  where unnecessary. The runtime executor that actually opens a
+  DuckDB connection and runs the SQL lands in a follow-up when
+  `@duckdb/node-api` is wired into the package.
 - [ ] Runtime Parquet compaction worker invoking the policy at the
   end of compile — pending.
 - [ ] `prosa index-v2 tantivy`, `prosa index-v2 status`, and `prosa
@@ -81,7 +93,7 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
 ```text
 pnpm install --prefer-offline                       # registers @c3-oss/prosa-derived-v2 in pnpm-lock.yaml
 pnpm --filter @c3-oss/prosa-derived-v2 typecheck    # clean
-pnpm --filter @c3-oss/prosa-derived-v2 test         # 44 tests / 5 files (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 8)
+pnpm --filter @c3-oss/prosa-derived-v2 test         # 53 tests / 6 files (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 8, analytics views 9)
 pnpm --filter @c3-oss/prosa-derived-v2 lint         # clean
 pnpm build                                          # 13/13 turbo
 pnpm typecheck                                      # 13/13 turbo
