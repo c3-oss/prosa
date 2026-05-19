@@ -65,6 +65,7 @@ describe('prosa index-v2 CLI', () => {
     expect(r.stdout).toContain('compaction-history')
     expect(r.stdout).toContain('footprint')
     expect(r.stdout).toContain('capabilities')
+    expect(r.stdout).toContain('snapshot')
     expect(r.stdout).toContain('superseded-segments')
     expect(r.stdout).toContain('verify-packs')
     expect(r.stdout).toContain('transcript-header')
@@ -1418,6 +1419,53 @@ describe('prosa index-v2 CLI', () => {
     expect(a.status).toBe(0)
     expect(b.status).toBe(0)
     expect(JSON.parse(a.stdout)).toEqual(JSON.parse(b.stdout))
+  })
+
+  it('`index-v2 snapshot --help` documents --store and the bulk-read contract', async () => {
+    const r = runCli(['index-v2', 'snapshot', '--help'])
+    expect(r.status).toBe(0)
+    expect(r.stdout).toContain('bulk read')
+    expect(r.stdout).toContain('--store')
+  })
+
+  it('`index-v2 snapshot` emits maintenance + recommendations + footprint + capabilities for a fresh bundle', async () => {
+    const storeRoot = join(await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-')), 'never-initialised')
+    const r = runCli(['index-v2', 'snapshot', '--store', storeRoot])
+    expect(r.status).toBe(0)
+    const snap = JSON.parse(r.stdout) as {
+      maintenance: { compaction: { empty: boolean } }
+      recommendations: unknown[]
+      footprint: { total_bytes: number }
+      capabilities: { schema_ids: { compact_manifest: string } }
+    }
+    expect(snap.maintenance.compaction.empty).toBe(true)
+    expect(snap.recommendations).toEqual([])
+    expect(snap.footprint.total_bytes).toBe(0)
+    expect(snap.capabilities.schema_ids.compact_manifest).toBe('prosa.compact-manifest.v2')
+  })
+
+  it('`index-v2 snapshot` recommendations are coherent with the surfaced maintenance (fired planner → run_compaction)', async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    for (let epoch = 1; epoch <= 17; epoch++) {
+      const dir = join(storeRoot, 'epochs', String(epoch), 'projection')
+      await mkdir(dir, { recursive: true })
+      await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(1024))
+    }
+    const r = runCli(['index-v2', 'snapshot', '--store', storeRoot])
+    expect(r.status).toBe(0)
+    const snap = JSON.parse(r.stdout) as {
+      maintenance: { compaction: { empty: boolean; reasons: string[] } }
+      recommendations: Array<{ kind: string }>
+    }
+    expect(snap.maintenance.compaction.empty).toBe(false)
+    expect(snap.maintenance.compaction.reasons).toEqual(['low_count_byte_ceiling'])
+    expect(snap.recommendations.map((r) => r.kind)).toEqual(['run_compaction'])
+  })
+
+  it('`index-v2 snapshot` fails when --store is missing', async () => {
+    const r = runCli(['index-v2', 'snapshot'])
+    expect(r.status).not.toBe(0)
+    expect(r.stderr).toMatch(/required option.*--store/i)
   })
 
   it('`index-v2 compacted-outputs --help` documents --store', async () => {

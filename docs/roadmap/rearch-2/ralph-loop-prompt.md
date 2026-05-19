@@ -130,7 +130,9 @@ section as the full restart instruction:
   rollup + `prosa index-v2 footprint` CLI subcommand
   (`4169477`), `derivedLayerCapabilities` content-free
   introspection composer + `prosa index-v2 capabilities` CLI
-  subcommand (`7a4bcb4`), plus the prior scaffold
+  subcommand (`7a4bcb4`), `derivedLayerSnapshot` MCP-friendly
+  bulk read + `prosa index-v2 snapshot` CLI subcommand (pending
+  commit), plus the prior scaffold
   (`bb76006`), SessionBlobPackV2 byte layout (`ba87f05`), Parquet
   compaction planner (`ea8c1a8`), DuckDB analytics view shape contract
   + compacted-overlay binding (`cff3670` / `e35f844`), Tantivy schema
@@ -145,7 +147,11 @@ section as the full restart instruction:
   `clearTantivyIndexDir` reset helper (`257a176`), CQ-096
   intermediate-symlink containment (`3be300f`), and SessionBlob
   pack-path resolver + CQ-097 textual-source cleanup (`d798b15`).
-  All `CQ-074..CQ-112` are closed. `CQ-112` closeout pushed the
+  All `CQ-074..CQ-112` are closed. `CQ-113` is open and blocking:
+  fix the `derivedLayerSnapshot()` WIP test that plants malformed
+  Tantivy checkpoint JSON while expecting the snapshot to succeed.
+  All focused snapshot gates must pass before the slice is committed.
+  `CQ-112` closeout pushed the
   top-level `derived/` scan to enumerate every direct child, route
   unknown regular files into `other`, and refuse unknown top-level
   symlinks with a deterministic `(CQ-112)` error before returning.
@@ -270,9 +276,9 @@ Keep these files current:
 
 ## Current Blocking Corrections
 
-Current open corrections: `CQ-112` — footprint must account for or
-refuse every top-level `derived/` entry before the footprint slice can
-be accepted. `CQ-091`..`CQ-111` are all closed.
+Current open corrections: `CQ-113` — snapshot WIP must not plant
+malformed Tantivy checkpoint JSON in a test that expects
+`derivedLayerSnapshot()` to succeed. `CQ-091`..`CQ-112` are all closed.
 `CQ-104` closeout: `derivedLayerEpochsTouched()` now filters SessionBlob
 candidate epochs through `listSessionBlobSessions({ bundleRoot, epoch })` and
 counts only epochs with actual packs, while projection segment epochs still come

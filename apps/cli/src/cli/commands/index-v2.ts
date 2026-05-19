@@ -29,6 +29,7 @@ import {
   derivedLayerCapabilities,
   derivedLayerEpochsTouched,
   derivedLayerMaintenanceSummary,
+  derivedLayerSnapshot,
   formatTranscriptMarkdownV2,
   formatTranscriptTextV2,
   getSessionBlobSummary,
@@ -299,6 +300,18 @@ export function indexV2Command(): Command {
       const storePath = resolvePath(options.store)
       const plan = await planSupersededCleanup(storePath)
       process.stdout.write(`${JSON.stringify(plan, null, 2)}\n`)
+    })
+
+  root
+    .command('snapshot')
+    .description(
+      'One-call bulk read combining maintenance + recommendations + footprint + capabilities into a single JSON object. Internally coherent: recommendations are derived from the same maintenance summary surfaced here. Pure-read. Saves downstream tools (MCP servers, dashboards) the four round-trips.',
+    )
+    .requiredOption('--store <path>', 'bundle directory')
+    .action(async (options: { store: string }) => {
+      const storePath = resolvePath(options.store)
+      const snapshot = await derivedLayerSnapshot(storePath)
+      process.stdout.write(`${JSON.stringify(snapshot, null, 2)}\n`)
     })
 
   root
