@@ -41,9 +41,10 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
   Parquet merge (runtime worker) still lands in a follow-up
   iteration when a Parquet writer is wired up.
 - [/] Tantivy generation writer + incremental rebuild — schema +
-  fingerprint + rebuild planner + checkpoint state-machine landed
-  in `src/tantivy/{schema,rebuild-plan}.ts`. The actual Tantivy
-  writer that opens the on-disk index (via
+  fingerprint + rebuild planner + checkpoint state-machine +
+  checkpoint persistence landed in
+  `src/tantivy/{schema,rebuild-plan,checkpoint-store}.ts`. The
+  actual Tantivy writer that opens the on-disk index (via
   `@oxdev03/node-tantivy-binding`) lands when the native dep is
   added to the workspace allowlist. `currentTantivySchemaFingerprint()`
   is `blake3` (v2 hash convention) over the pinned field/tokenizer
@@ -56,6 +57,15 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
   `already_indexed_up_to_date` (skip).
   `checkpointAfterRebuild` / `checkpointAfterFailure` return a new
   `IndexCheckpointV2` without mutating prior state.
+  `readIndexCheckpoint` / `writeIndexCheckpoint` /
+  `readIndexCheckpointOrEmpty` persist that state at
+  `<bundleRoot>/derived/tantivy/checkpoint.json` as canonical JSON
+  (sorted keys, no whitespace) via the bundle-v2
+  `writeFileDurable` + `syncDir` pair so two equivalent
+  checkpoints write byte-identical files and a partial write
+  cannot survive a crash. Read-side validates field types and
+  rejects unexpected `status` values rather than papering over
+  corrupt state with the empty checkpoint.
 - [x] SessionBlobPackV2 projection-to-input bridge
   (`projectionToSessionBlobInputs`) converts a session's canonical
   `MessageV2[]` + `ContentBlockV2[]` (+ optional `ToolCallV2[]`)
@@ -146,7 +156,7 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
 ```text
 pnpm install --prefer-offline                       # registers @c3-oss/prosa-derived-v2 in pnpm-lock.yaml
 pnpm --filter @c3-oss/prosa-derived-v2 typecheck    # clean
-pnpm --filter @c3-oss/prosa-derived-v2 test         # 88 tests / 10 files (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9 — 7 baseline + 2 CQ-091 UTF-8-byte regressions, reader-iterator 7 — empty/single-page/multi-page/fragment-coalesce/range/lazy/tamper)
+pnpm --filter @c3-oss/prosa-derived-v2 test         # 98 tests / 11 files (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9, reader-iterator 7, tantivy checkpoint-store 10 — null/empty-fallback/populated-roundtrip/empty-roundtrip/canonical-byte-identity/atomic-overwrite/malformed/array/wrong-type/bad-status)
 pnpm --filter @c3-oss/prosa-derived-v2 lint         # clean
 pnpm build                                          # 13/13 turbo
 pnpm typecheck                                      # 13/13 turbo
