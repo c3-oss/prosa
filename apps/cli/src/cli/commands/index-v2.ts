@@ -29,6 +29,7 @@ import {
   loadTranscriptFromBundle,
   planAnalyticsExecution,
   planCompaction,
+  planCompactionExecution,
   planTantivyRebuildFromBundle,
   summariseProjectionSegments,
 } from '@c3-oss/prosa-derived-v2'
@@ -163,6 +164,19 @@ export function indexV2Command(): Command {
       const storePath = resolvePath(options.store)
       const plan = await planCompaction(storePath)
       process.stdout.write(`${JSON.stringify(plan, null, 2)}\n`)
+    })
+
+  root
+    .command('compaction-execution-plan')
+    .description(
+      "Print the ordered DuckDB COPY statement sequence the runtime worker would issue to materialise the Parquet compaction plan for a bundle v2 store. Composes planCompaction + planCompactionExecution so the caller doesn't need both flags.",
+    )
+    .requiredOption('--store <path>', 'bundle directory')
+    .action(async (options: { store: string }) => {
+      const storePath = resolvePath(options.store)
+      const plan = await planCompaction(storePath)
+      const execution = planCompactionExecution({ bundleRoot: storePath, plan })
+      process.stdout.write(`${JSON.stringify(execution, null, 2)}\n`)
     })
 
   root

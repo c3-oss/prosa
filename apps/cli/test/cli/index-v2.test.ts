@@ -41,7 +41,7 @@ interface StatusSnapshot {
 }
 
 describe('prosa index-v2 CLI', () => {
-  it('`index-v2 --help` lists all nine subcommands (status, sessions, epochs, analytics-views, analytics-execution-plan, projection-segments, tantivy-rebuild-plan, compaction-plan, transcript)', async () => {
+  it('`index-v2 --help` lists all ten subcommands (status, sessions, epochs, analytics-views, analytics-execution-plan, projection-segments, tantivy-rebuild-plan, compaction-plan, compaction-execution-plan, transcript)', async () => {
     const r = runCli(['index-v2', '--help'])
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('Bundle v2 derived-layer index commands')
@@ -53,6 +53,7 @@ describe('prosa index-v2 CLI', () => {
     expect(r.stdout).toContain('projection-segments')
     expect(r.stdout).toContain('tantivy-rebuild-plan')
     expect(r.stdout).toContain('compaction-plan')
+    expect(r.stdout).toContain('compaction-execution-plan')
     expect(r.stdout).toContain('transcript')
   })
 
@@ -542,6 +543,67 @@ describe('prosa index-v2 CLI', () => {
 
   it('`index-v2 compaction-plan` fails when --store is missing', async () => {
     const r = runCli(['index-v2', 'compaction-plan'])
+    expect(r.status).not.toBe(0)
+    expect(r.stderr).toMatch(/required option.*--store/i)
+  })
+
+  it('`index-v2 compaction-execution-plan --help` documents --store', async () => {
+    const r = runCli(['index-v2', 'compaction-execution-plan', '--help'])
+    expect(r.status).toBe(0)
+    expect(r.stdout).toContain('ordered DuckDB COPY statement sequence')
+    expect(r.stdout).toContain('--store')
+  })
+
+  it('`index-v2 compaction-execution-plan` against a fresh bundle returns empty plan + no statements', async () => {
+    const storeRoot = join(await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-')), 'never-initialised')
+    const r = runCli(['index-v2', 'compaction-execution-plan', '--store', storeRoot])
+    expect(r.status).toBe(0)
+    const execution = JSON.parse(r.stdout) as {
+      plan: { empty: boolean; entities: unknown[] }
+      statements: unknown[]
+    }
+    expect(execution.plan.empty).toBe(true)
+    expect(execution.plan.entities).toEqual([])
+    expect(execution.statements).toEqual([])
+  })
+
+  it('`index-v2 compaction-execution-plan` emits one COPY statement per entity when the trigger fires', async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    // Plant 17 tiny `sessions.parquet` segments → low_count_byte_ceiling fires.
+    for (let epoch = 1; epoch <= 17; epoch++) {
+      const dir = join(storeRoot, 'epochs', String(epoch), 'projection')
+      await mkdir(dir, { recursive: true })
+      await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(1024))
+    }
+
+    const r = runCli(['index-v2', 'compaction-execution-plan', '--store', storeRoot])
+    expect(r.status).toBe(0)
+    const execution = JSON.parse(r.stdout) as {
+      plan: { empty: boolean; entities: Array<{ entityType: string; reason: string }> }
+      statements: Array<{
+        entityType: string
+        outputAbsPath: string
+        outputDir: string
+        sql: string
+      }>
+    }
+    expect(execution.plan.empty).toBe(false)
+    expect(execution.plan.entities).toHaveLength(1)
+    expect(execution.statements).toHaveLength(1)
+    const [stmt] = execution.statements
+    expect(stmt?.entityType).toBe('sessions')
+    expect(stmt?.outputAbsPath).toContain(storeRoot)
+    expect(stmt?.outputDir).toContain(storeRoot)
+    expect(stmt?.sql).toMatch(/^COPY \(SELECT \* FROM read_parquet\(\[/)
+    expect(stmt?.sql).toMatch(/FORMAT 'parquet', CODEC 'zstd'\);$/)
+    // All 17 source segments are referenced inside the read_parquet array.
+    for (let epoch = 1; epoch <= 17; epoch++) {
+      expect(stmt?.sql).toContain(join(storeRoot, 'epochs', String(epoch), 'projection', 'sessions.parquet'))
+    }
+  })
+
+  it('`index-v2 compaction-execution-plan` fails when --store is missing', async () => {
+    const r = runCli(['index-v2', 'compaction-execution-plan'])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/required option.*--store/i)
   })
