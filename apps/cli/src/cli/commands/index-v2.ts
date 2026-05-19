@@ -30,6 +30,7 @@ import {
   formatTranscriptMarkdownV2,
   formatTranscriptTextV2,
   getSessionBlobSummary,
+  listCompactedOutputs,
   listProjectionSegments,
   listSessionBlobSummaries,
   listSupersededSegmentsFromManifests,
@@ -253,6 +254,18 @@ export function indexV2Command(): Command {
       const plan = await planCompaction(storePath)
       const execution = planCompactionExecution({ bundleRoot: storePath, plan })
       process.stdout.write(`${JSON.stringify(execution, null, 2)}\n`)
+    })
+
+  root
+    .command('compacted-outputs')
+    .description(
+      'Audit every persisted `compact.manifest.json` against the on-disk presence of the entity output Parquet files it claims. Reports per-compaction-seq `consistent: true|false` so audit/GC workflows can spot mid-merge crashes (manifest present, outputs missing).',
+    )
+    .requiredOption('--store <path>', 'bundle directory')
+    .action(async (options: { store: string }) => {
+      const storePath = resolvePath(options.store)
+      const result = await listCompactedOutputs(storePath)
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
     })
 
   root

@@ -56,6 +56,7 @@ describe('prosa index-v2 CLI', () => {
     expect(r.stdout).toContain('compaction-plan')
     expect(r.stdout).toContain('compaction-manifest')
     expect(r.stdout).toContain('compaction-execution-plan')
+    expect(r.stdout).toContain('compacted-outputs')
     expect(r.stdout).toContain('superseded-segments')
     expect(r.stdout).toContain('verify-packs')
     expect(r.stdout).toContain('transcript-header')
@@ -769,6 +770,88 @@ describe('prosa index-v2 CLI', () => {
     const r = runCli(['index-v2', 'compaction-manifest', '--store', storeRoot, '--read', '--compaction-seq', '99'])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/ENOENT|compact-0099/)
+  })
+
+  it('`index-v2 compacted-outputs --help` documents --store', async () => {
+    const r = runCli(['index-v2', 'compacted-outputs', '--help'])
+    expect(r.status).toBe(0)
+    expect(r.stdout).toContain('Audit every persisted')
+    expect(r.stdout).toContain('--store')
+  })
+
+  it('`index-v2 compacted-outputs` against a fresh bundle prints []', async () => {
+    const storeRoot = join(await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-')), 'never-initialised')
+    const r = runCli(['index-v2', 'compacted-outputs', '--store', storeRoot])
+    expect(r.status).toBe(0)
+    expect(JSON.parse(r.stdout)).toEqual([])
+  })
+
+  it('`index-v2 compacted-outputs` after --write but no compacted file reports `consistent: false`', async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    for (let epoch = 1; epoch <= 17; epoch++) {
+      const dir = join(storeRoot, 'epochs', String(epoch), 'projection')
+      await mkdir(dir, { recursive: true })
+      await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(1024))
+    }
+    runCli([
+      'index-v2',
+      'compaction-manifest',
+      '--store',
+      storeRoot,
+      '--write',
+      '--generated-at',
+      '2026-05-19T12:00:00.000Z',
+    ])
+    const r = runCli(['index-v2', 'compacted-outputs', '--store', storeRoot])
+    expect(r.status).toBe(0)
+    const rows = JSON.parse(r.stdout) as Array<{
+      compaction_seq: number
+      consistent: boolean
+      entity_outputs: Array<{ entity_type: string; exists: boolean; byte_length: number | null }>
+    }>
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.compaction_seq).toBe(1)
+    expect(rows[0]?.consistent).toBe(false)
+    expect(rows[0]?.entity_outputs[0]?.entity_type).toBe('sessions')
+    expect(rows[0]?.entity_outputs[0]?.exists).toBe(false)
+  })
+
+  it('`index-v2 compacted-outputs` reports consistent=true when the compacted file is planted alongside', async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    for (let epoch = 1; epoch <= 17; epoch++) {
+      const dir = join(storeRoot, 'epochs', String(epoch), 'projection')
+      await mkdir(dir, { recursive: true })
+      await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(1024))
+    }
+    runCli([
+      'index-v2',
+      'compaction-manifest',
+      '--store',
+      storeRoot,
+      '--write',
+      '--generated-at',
+      '2026-05-19T12:00:00.000Z',
+    ])
+    // Plant the would-be compacted output to simulate a successful run.
+    const compactedDir = join(storeRoot, 'epochs', 'compact-0001', 'projection')
+    await mkdir(compactedDir, { recursive: true })
+    await writeFile(join(compactedDir, 'sessions.compacted.parquet'), Buffer.alloc(2048))
+
+    const r = runCli(['index-v2', 'compacted-outputs', '--store', storeRoot])
+    expect(r.status).toBe(0)
+    const rows = JSON.parse(r.stdout) as Array<{
+      consistent: boolean
+      entity_outputs: Array<{ exists: boolean; byte_length: number | null }>
+    }>
+    expect(rows[0]?.consistent).toBe(true)
+    expect(rows[0]?.entity_outputs[0]?.exists).toBe(true)
+    expect(rows[0]?.entity_outputs[0]?.byte_length).toBe(2048)
+  })
+
+  it('`index-v2 compacted-outputs` fails when --store is missing', async () => {
+    const r = runCli(['index-v2', 'compacted-outputs'])
+    expect(r.status).not.toBe(0)
+    expect(r.stderr).toMatch(/required option.*--store/i)
   })
 
   it('`index-v2 superseded-segments --help` documents --store + --summary', async () => {
