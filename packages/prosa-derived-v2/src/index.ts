@@ -83,6 +83,7 @@
 
 export * from './bundle-status.js'
 export * from './maintenance.js'
+export * from './recommendations.js'
 export * from './derived-layout.js'
 export * from './session-blob/types.js'
 export * from './session-blob/writer-policy.js'

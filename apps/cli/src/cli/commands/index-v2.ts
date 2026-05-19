@@ -43,6 +43,7 @@ import {
   planTantivyRebuildFromBundle,
   readCompactManifestV2,
   readSessionBlobHeader,
+  recommendMaintenanceActions,
   summariseProjectionSegments,
   summariseSupersededSegments,
   verifyAllSessionBlobPacks,
@@ -78,6 +79,19 @@ export function indexV2Command(): Command {
       const storePath = resolvePath(options.store)
       const summary = await derivedLayerMaintenanceSummary(storePath)
       process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`)
+    })
+
+  root
+    .command('next-action')
+    .description(
+      'Prescriptive layer over `maintenance`: returns the ordered list of recommended next actions (resume_compaction → gc_superseded → run_compaction). Returns [] when the bundle is idle. Use to drive operator scripts that branch on the next required step.',
+    )
+    .requiredOption('--store <path>', 'bundle directory')
+    .action(async (options: { store: string }) => {
+      const storePath = resolvePath(options.store)
+      const summary = await derivedLayerMaintenanceSummary(storePath)
+      const actions = recommendMaintenanceActions(summary)
+      process.stdout.write(`${JSON.stringify(actions, null, 2)}\n`)
     })
 
   root

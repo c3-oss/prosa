@@ -4,9 +4,65 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 ## Open
 
-(none — `CQ-091`..`CQ-110` are all closed.)
+_(none)_
 
 ## Closed (latest first)
+
+### CQ-111: Do Not Recommend GC While Any Persisted Compaction Is Inconsistent — closed 2026-05-19
+
+Status: closed
+Severity: medium
+Blocking: yes
+Owner: Ralph
+Opened: 2026-05-19
+Closed: 2026-05-19
+Lane: 3 - Derived layer
+
+Finding:
+
+The new `recommendMaintenanceActions()` WIP documented the right
+priority rule: a mid-merge crash / inconsistent persisted compaction
+must be resolved before any safe-to-delete GC runs, because resuming
+the merge may still need superseded sources. However, the
+implementation still emitted `gc_superseded` whenever
+`summary.gc.safe_to_delete.count > 0`, even when
+`summary.persisted_compactions.inconsistent_count > 0`. The original
+"all three" test locked in the unsafe ordering.
+
+Risk:
+
+The recommendation list drives UI/operator prompts. Emitting a GC
+action while the bundle has an inconsistent compaction state weakens
+the fail-safe rule and could lead an operator or future automation
+to delete sources before the crashed merge had been reconciled.
+
+Fix:
+
+`packages/prosa-derived-v2/src/recommendations.ts:73-83` now gates
+the `gc_superseded` push on
+`summary.persisted_compactions.inconsistent_count === 0` in addition
+to `summary.gc.safe_to_delete.count > 0`. The
+`recommendMaintenanceActions` doc comment names CQ-111 and explains
+why suppression is correctness-first, not a missed signal. The
+"every condition present" test (renamed to "CQ-111: suppresses
+`gc_superseded` whenever any persisted compaction is inconsistent")
+now asserts `['resume_compaction', 'run_compaction']`, and a new
+"CQ-111: emits `gc_superseded` only when every persisted compaction
+is consistent" test pins the positive case where all-consistent
++ safe candidates + a fired planner produces
+`['gc_superseded', 'run_compaction']`.
+
+Verification:
+
+- `pnpm --filter @c3-oss/prosa-derived-v2 typecheck` — clean.
+- `pnpm --filter @c3-oss/prosa-derived-v2 lint:fix` — no fixes.
+- `pnpm --filter @c3-oss/prosa-derived-v2 exec vitest run test/recommendations.test.ts` — 8 tests pass.
+- `pnpm --filter @c3-oss/prosa-derived-v2 test` — 493 tests across 43 files.
+- `pnpm --filter @c3-oss/prosa exec vitest run test/cli/index-v2.test.ts` —
+  98 tests pass (the "collapses to gc_superseded" planted-output test
+  still passes because planting the output flips `inconsistent_count`
+  to 0, satisfying the new gate).
+
 
 ### CQ-110: Reconcile Index-V2 Subcommand Count in Gate Evidence — closed 2026-05-19
 

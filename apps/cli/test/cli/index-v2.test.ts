@@ -46,6 +46,7 @@ describe('prosa index-v2 CLI', () => {
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('Bundle v2 derived-layer index commands')
     expect(r.stdout).toContain('maintenance')
+    expect(r.stdout).toContain('next-action')
     expect(r.stdout).toContain('status')
     expect(r.stdout).toContain('sessions')
     expect(r.stdout).toContain('epochs')
@@ -161,6 +162,101 @@ describe('prosa index-v2 CLI', () => {
 
   it('`index-v2 maintenance` fails when --store is missing', async () => {
     const r = runCli(['index-v2', 'maintenance'])
+    expect(r.status).not.toBe(0)
+    expect(r.stderr).toMatch(/required option.*--store/i)
+  })
+
+  it('`index-v2 next-action --help` documents --store and the prescriptive layer', async () => {
+    const r = runCli(['index-v2', 'next-action', '--help'])
+    expect(r.status).toBe(0)
+    expect(r.stdout).toContain('Prescriptive layer')
+    expect(r.stdout).toContain('--store')
+  })
+
+  it('`index-v2 next-action` against an idle bundle returns []', async () => {
+    const storeRoot = join(await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-')), 'never-initialised')
+    const r = runCli(['index-v2', 'next-action', '--store', storeRoot])
+    expect(r.status).toBe(0)
+    expect(JSON.parse(r.stdout)).toEqual([])
+  })
+
+  it('`index-v2 next-action` emits `run_compaction` once the planner fires (no persisted manifest yet)', async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    for (let epoch = 1; epoch <= 17; epoch++) {
+      const dir = join(storeRoot, 'epochs', String(epoch), 'projection')
+      await mkdir(dir, { recursive: true })
+      await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(1024))
+    }
+    const r = runCli(['index-v2', 'next-action', '--store', storeRoot])
+    expect(r.status).toBe(0)
+    const actions = JSON.parse(r.stdout) as Array<{ kind: string; entity_count?: number; reasons?: string[] }>
+    expect(actions.map((a) => a.kind)).toEqual(['run_compaction'])
+    expect(actions[0].entity_count).toBe(1)
+    expect(actions[0].reasons).toEqual(['low_count_byte_ceiling'])
+  })
+
+  it('`index-v2 next-action` reorders to resume_compaction → run_compaction when a manifest is persisted without compacted output', async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    for (let epoch = 1; epoch <= 17; epoch++) {
+      const dir = join(storeRoot, 'epochs', String(epoch), 'projection')
+      await mkdir(dir, { recursive: true })
+      await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(1024))
+    }
+    runCli([
+      'index-v2',
+      'compaction-manifest',
+      '--store',
+      storeRoot,
+      '--write',
+      '--generated-at',
+      '2026-05-19T12:00:00.000Z',
+    ])
+
+    const r = runCli(['index-v2', 'next-action', '--store', storeRoot])
+    expect(r.status).toBe(0)
+    const actions = JSON.parse(r.stdout) as Array<{ kind: string; inconsistent_count?: number }>
+    // resume first (mid-merge crash takes precedence), then run_compaction.
+    // No safe-to-delete row because the manifest is inconsistent.
+    expect(actions.map((a) => a.kind)).toEqual(['resume_compaction', 'run_compaction'])
+    expect(actions[0].inconsistent_count).toBe(1)
+  })
+
+  it('`index-v2 next-action` collapses to gc_superseded once the compacted output is planted', async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    for (let epoch = 1; epoch <= 17; epoch++) {
+      const dir = join(storeRoot, 'epochs', String(epoch), 'projection')
+      await mkdir(dir, { recursive: true })
+      await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(1024))
+    }
+    runCli([
+      'index-v2',
+      'compaction-manifest',
+      '--store',
+      storeRoot,
+      '--write',
+      '--generated-at',
+      '2026-05-19T12:00:00.000Z',
+    ])
+    // Plant the compacted output — flips consistency + GC partition.
+    const compactedDir = join(storeRoot, 'epochs', 'compact-0001', 'projection')
+    await mkdir(compactedDir, { recursive: true })
+    await writeFile(join(compactedDir, 'sessions.compacted.parquet'), Buffer.alloc(2048))
+
+    const r = runCli(['index-v2', 'next-action', '--store', storeRoot])
+    expect(r.status).toBe(0)
+    const actions = JSON.parse(r.stdout) as Array<{ kind: string; safe_count?: number }>
+    // gc_superseded surfaces; run_compaction stays off because the
+    // planner no longer sees source segments under the threshold
+    // (the compaction-plan reads from on-disk segments, which are
+    // still present, so it may still fire — assert membership not
+    // exact equality).
+    expect(actions.some((a) => a.kind === 'gc_superseded')).toBe(true)
+    const gc = actions.find((a) => a.kind === 'gc_superseded')
+    expect(gc?.safe_count).toBe(17)
+  })
+
+  it('`index-v2 next-action` fails when --store is missing', async () => {
+    const r = runCli(['index-v2', 'next-action'])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/required option.*--store/i)
   })

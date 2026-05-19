@@ -619,13 +619,20 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
   encoder for free-form maps lands in `@c3-oss/prosa-types-v2`,
   matching Lane 1's `epoch.manifest.json` decision.
 - [x] `prosa index-v2` CLI group (`apps/cli/src/cli/commands/index-v2.ts`)
-  shipping eighteen pure-read subcommands. `maintenance` wires
+  shipping nineteen pure-read subcommands. `maintenance` wires
   `derivedLayerMaintenanceSummary(--store)` — the one-call
   dashboard read that composes `bundleDerivedStatus` +
   `summariseProjectionSegments` + `planCompaction` +
   `listCompactedOutputs` + `planSupersededCleanup` into one
   JSON snapshot (status + projection + compaction-plan +
-  persisted-compactions consistency + GC partition); `status`
+  persisted-compactions consistency + GC partition);
+  `next-action` is the prescriptive layer over the same
+  summary — wires `recommendMaintenanceActions(summary)` to
+  return the ordered list of recommended next actions
+  (`resume_compaction` first when an inconsistent persisted
+  compaction would block GC, then `gc_superseded` when safe
+  candidates exist, then `run_compaction` when the planner
+  would fire; `[]` when the bundle is idle); `status`
   wires `bundleDerivedStatus(--store)`; `sessions` wires
   `listSessionBlobSummaries(--store)` by default and
   `getSessionBlobSummary({ bundleRoot: --store, sessionId:
@@ -780,15 +787,20 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
   bearing epochs (CQ-104), compaction-plan segments come from
   epochs the projection listing reports, transcript's latest
   epoch equals the session summary's `latest_epoch`, etc.).
-  92 subprocess tests (`apps/cli/test/cli/index-v2.test.ts`) cover:
-  parent `--help` listing all eighteen subcommands,
+  98 subprocess tests (`apps/cli/test/cli/index-v2.test.ts`) cover:
+  parent `--help` listing all nineteen subcommands,
   `maintenance --help` + fresh-bundle zero-state snapshot +
   fired compaction-plan reflected in `compaction.{empty,
   entity_count, reasons}` + post-`--write` reports `{ count: 1,
   consistent_count: 0, inconsistent_count: 1 }` with GC
   partition entirely blocked + planted compacted output flips
   to `{ consistent_count: 1 }` with GC fully safe_to_delete +
-  missing-`--store` failure (5); `status`
+  missing-`--store` failure (5); `next-action --help` + idle
+  bundle `[]` + fired planner only → `[run_compaction]` +
+  persisted-manifest-without-output → `[resume_compaction,
+  run_compaction]` (correctness-first priority) + planted
+  compacted output → includes `gc_superseded` with
+  `safe_count: 17` + missing-`--store` failure (6); `status`
   `--help` + fresh-bundle empty snapshot + SessionBlob-populated
   snapshot + missing-`--store` (4); `sessions --help` +
   fresh-bundle `[]` + multi-session multi-epoch inventory (alpha
@@ -1081,7 +1093,7 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
 pnpm install --prefer-offline                       # registers @c3-oss/prosa-derived-v2 in pnpm-lock.yaml
 pnpm --filter @c3-oss/prosa-derived-v2 typecheck    # clean
 pnpm --filter @c3-oss/prosa-derived-v2 test         # 485 tests / 42 files (+5 derivedLayerMaintenanceSummary: fresh-bundle zero rollup, SessionBlob+projection state without compaction, fired-plan detection, persisted-compactions consistency + GC partition before/after planted output, dedup of compaction fire reasons across multiple entities)
-pnpm --filter @c3-oss/prosa exec vitest run test/cli/index-v2.test.ts  # 92 subprocess-spawned tests
+pnpm --filter @c3-oss/prosa exec vitest run test/cli/index-v2.test.ts  # 98 subprocess-spawned tests
 pnpm --filter @c3-oss/prosa exec vitest run test/cli/index-v2-compaction-lifecycle.test.ts  # 1 end-to-end compaction-lifecycle test (8 subprocess invocations across plan → manifest write/read → superseded → compacted-outputs → gc-plan, before + after planting the simulated compacted output)
 pnpm --filter @c3-oss/prosa exec vitest run test/cli/index-v2-coherence.test.ts  # 2 cross-subcommand coherence tests (read-side surface composition + maintenance-dashboard ↔ discrete-subcommand rollup equality) for index-v2 status + sessions + epochs + analytics-views + analytics-execution-plan + projection-segments + tantivy-rebuild-plan + compaction-plan + compaction-execution-plan + transcript-header + transcript (incl. CQ-105 --format pre-read validation, --format markdown, --start-ordinal/--end-ordinal filtering, inverted-range rejection, --epoch historical pack + missing-epoch ENOENT) (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 13 incl. CQ-101 + CQ-102 containment regressions, compaction executor-plan 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9, reader-iterator 7, tantivy checkpoint-store 21 (11 prior + 4 write CQ-096 + 6 read CQ-103), analytics executor-plan 9, tantivy index-dir probe 17, tantivy plan-bundle orchestration 9, tantivy status 10, analytics descriptor 8, bundle status 16 (8 prior aggregator + 8 derivedLayerEpochsTouched incl. CQ-104 empty-epoch-dir regressions), compaction segments 22 (9 listing + 7 summary + 6 containment), derived-layout 27, tantivy clear-index-dir 10, session-blob loader 11, session-blob zstd 5, session-blob listing 27 (19 prior + 8 listAllSessionBlobSessions cross-epoch union), session-blob latest 11 incl. CQ-100, session-blob transcript-from-bundle 8, session-blob iterate-from-bundle 9, session-blob header 10, session-blob exists 11, session-blob latest-epoch 11, session-blob summary 19 (11 single + 8 bulk listing), integration sessionblob-end-to-end 12, integration compaction-end-to-end 8, integration tantivy-end-to-end 8)
 pnpm --filter @c3-oss/prosa-derived-v2 lint         # clean
