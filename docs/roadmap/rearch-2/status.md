@@ -9,10 +9,10 @@ Completion signal: RALPH_DONE
 
 ## Current State
 
-Status: Lane 1 accepted; Lane 2 active — CodexProvider full per-record projection landed (canonical-field tool rows, no `as never` casts)
+Status: Lane 1 accepted; Lane 2 active — CodexProvider + ClaudeProvider both ship full per-record projection (canonical-field tool rows, no `as never` casts)
 Current lane: Lane 2 — provider importers (Codex, Claude, Cursor, Gemini, Hermes)
-Current HEAD: `58cca83` (next commit pending: Codex full projection + CQ-075/CQ-076 closeout)
-No-change streak: 0 (CQ-074 open: continuing full projection on Claude/Gemini/Hermes/Cursor + fixtures + cross-provider idempotency conformance)
+Current HEAD: `d302bc6` (Claude full projection commit pending)
+No-change streak: 0 (CQ-074 open: continuing full projection on Gemini/Hermes/Cursor + fixtures + cross-provider idempotency conformance)
 Ralph active: yes
 
 ## Lane Status
@@ -37,11 +37,14 @@ Ralph active: yes
 
 The user explicitly rejected the Lane 2 re-scope and asked for full per-record
 projection across all 5 providers + fixture corpora + cross-provider
-idempotency conformance. CodexProvider is now fully projected and committed in
-this iteration (TurnV2 + MessageV2 + ContentBlockV2 + ToolCallV2 + ToolResultV2
-+ EventV2 on canonical schema fields). Claude/Cursor/Gemini/Hermes still need
-their full projection passes, plus the shared fixture corpora and the
-cross-provider idempotency conformance gate before CQ-074 can close.
+idempotency conformance. CodexProvider was fully projected at `d302bc6`.
+**This iteration** ships ClaudeProvider full per-record projection
+(MessageV2 + ContentBlockV2 + ToolCallV2 + ToolResultV2 + EventV2 on canonical
+schema fields; user messages with only tool_result blocks re-classified as
+role `tool`; the spawned-edge CQ-068 path still works through `GraphResolver`).
+Cursor/Gemini/Hermes still need their full projection passes, plus the shared
+fixture corpora and the cross-provider idempotency conformance gate before
+CQ-074 can close.
 
 ## Latest Gates
 

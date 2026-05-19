@@ -34,12 +34,11 @@ section as the full restart instruction:
 - `CQ-074` blocks Lane 2 acceptance, Lane 3 start, and `RALPH_DONE`. The user
   rejected the Lane 2 re-scope and directed full per-record projection across
   all 5 providers + fixture corpora + cross-provider idempotency conformance.
-- `CQ-075` and `CQ-076` are closed by the CodexProvider full per-record
-  projection landing (TurnV2 + MessageV2 + ContentBlockV2 + ToolCallV2 +
-  ToolResultV2 + EventV2 on canonical schema fields, no `as never` casts).
-  Continue Lane 2 by porting the same full per-record projection to
-  Claude / Gemini / Hermes / Cursor, then add fixture corpora and the
-  cross-provider idempotency conformance.
+- CodexProvider full per-record projection landed at `d302bc6` (closed
+  CQ-075/CQ-076). ClaudeProvider full per-record projection lands in this
+  iteration. Continue Lane 2 by porting the same full per-record projection to
+  Gemini / Hermes / Cursor, then add fixture corpora and the cross-provider
+  idempotency conformance.
 - If a correction needs a Codex/governor decision, ask one clear binary
   accept/reject question with a safe default. Do not loop on "external
   acceptance" as if Codex were unavailable.
@@ -160,8 +159,8 @@ Current open correction:
 - `CQ-074`: implement the full Lane 2 importer contract (per-record projection
   across Codex/Claude/Cursor/Gemini/Hermes + fixture corpora +
   cross-provider idempotency conformance). Blocks Lane 2 acceptance, Lane 3
-  start, and `RALPH_DONE`. CodexProvider full per-record projection landed in
-  this iteration; Claude/Gemini/Hermes/Cursor still pending.
+  start, and `RALPH_DONE`. CodexProvider + ClaudeProvider full per-record
+  projection now landed; Gemini/Hermes/Cursor still pending.
 
 Lane 0 + Lane 1 are accepted by the project owner on 2026-05-18, including the
 two re-scopes in `docs/rearch-2/lane-1-rescopes.md`.
@@ -171,12 +170,14 @@ Lane 2 (importers) is the active lane. The orchestrator,
 `fc66925` landed a minimal CodexProvider, `8c0ba5f` landed a minimal
 ClaudeProvider, `aa88079` landed Claude spawned edges plus a minimal
 CursorProvider, `c496bac` landed minimal Gemini/Hermes providers plus the
-Cursor logical-key fix, and `58cca83` landed the CLI help-smoke closeout.
-**This iteration** ships CodexProvider full per-record projection (TurnV2 +
-MessageV2 + ContentBlockV2 + ToolCallV2 + ToolResultV2 + EventV2 on canonical
-schema fields). Claude / Cursor / Gemini / Hermes still need their full
-projection passes plus the shared fixture corpora and the cross-provider
-idempotency conformance before Lane 2 can be accepted.
+Cursor logical-key fix, `58cca83` landed the CLI help-smoke closeout, and
+`d302bc6` landed CodexProvider full per-record projection. **This iteration**
+ships ClaudeProvider full per-record projection (MessageV2 + ContentBlockV2
+incl. `thinking`/`hidden_by_default`; ToolCallV2 from `tool_use` blocks;
+ToolResultV2 linked by `source_call_id`; EventV2 from operational records).
+Cursor / Gemini / Hermes still need their full projection passes plus the
+shared fixture corpora and the cross-provider idempotency conformance before
+Lane 2 can be accepted.
 
 Subsequent lanes (3 derived layer, 4 server beyond DB scaffold,
 5 sync protocol, 6 read API, 7 CLI+MCP, 8 audit+GC, 9 migration,

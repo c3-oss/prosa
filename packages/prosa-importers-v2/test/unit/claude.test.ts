@@ -198,6 +198,104 @@ describe('ClaudeProvider', () => {
     }
   })
 
+  it('CQ-074: full Claude projection emits MessageV2 + ContentBlockV2 + ToolCallV2 + ToolResultV2 + EventV2', async () => {
+    const FULL_LINES = [
+      {
+        type: 'user',
+        uuid: 'u1',
+        parentUuid: null,
+        sessionId: 'sess_full',
+        timestamp: '2025-01-02T03:04:05.123Z',
+        cwd: '/repo',
+        gitBranch: 'main',
+        message: { role: 'user', content: [{ type: 'text', text: 'list the files' }] },
+      },
+      {
+        type: 'assistant',
+        uuid: 'a1',
+        parentUuid: 'u1',
+        sessionId: 'sess_full',
+        timestamp: '2025-01-02T03:04:06.000Z',
+        message: {
+          role: 'assistant',
+          model: 'claude-opus-4-7',
+          content: [
+            { type: 'thinking', thinking: 'I should look at the repo root' },
+            { type: 'text', text: "I'll run ls" },
+            { type: 'tool_use', id: 'tu_1', name: 'Bash', input: { command: 'ls /repo' } },
+          ],
+        },
+      },
+      {
+        type: 'user',
+        uuid: 'u2',
+        parentUuid: 'a1',
+        sessionId: 'sess_full',
+        timestamp: '2025-01-02T03:04:07.000Z',
+        message: {
+          role: 'user',
+          content: [{ type: 'tool_result', tool_use_id: 'tu_1', content: 'file1\nfile2\n' }],
+        },
+      },
+      {
+        type: 'system',
+        uuid: 'sys1',
+        sessionId: 'sess_full',
+        subtype: 'hook',
+        timestamp: '2025-01-02T03:04:08.000Z',
+      },
+    ]
+    const root = await tmp()
+    await mkdir(join(root, 'demo'), { recursive: true })
+    await writeFile(join(root, 'demo', 'sess_full.jsonl'), jsonlBytes(FULL_LINES))
+    const provider = new ClaudeProvider()
+    const [file] = await provider.discover(root)
+    if (!file) throw new Error('expected one file')
+    const id = await provider.cheapIdentify(file)
+    const r = await provider.parseAndProject({
+      files: [file],
+      identification: id,
+      createdAt: '2025-01-02T03:04:05.123Z',
+    })
+    const p = r.unit.projection
+    // 3 messages: user, assistant, user (tool-result-only → role 'tool').
+    expect(p.messages.length).toBe(3)
+    expect(p.messages.map((m) => m.role)).toEqual(['user', 'assistant', 'tool'])
+    expect(p.messages[1]!.model).toBe('claude-opus-4-7')
+    expect(p.messages[1]!.parent_message_id).toBe(p.messages[0]!.message_id)
+    expect(p.messages[2]!.parent_message_id).toBe(p.messages[1]!.message_id)
+    // Content blocks: 1 user-text + 3 assistant blocks (thinking, text, tool_use) + 1 tool_result = 5.
+    expect(p.content_blocks.length).toBe(5)
+    const reasoning = p.content_blocks.find((b) => b.block_type === 'thinking')
+    expect(reasoning?.visibility).toBe('hidden_by_default')
+    expect(reasoning?.text_inline).toBe('I should look at the repo root')
+    const toolUseBlock = p.content_blocks.find((b) => b.block_type === 'tool_use')
+    expect(toolUseBlock).toBeDefined()
+    expect(toolUseBlock?.text_inline).toBeNull()
+    // 1 tool_call from the tool_use block.
+    expect(p.tool_calls.length).toBe(1)
+    expect(p.tool_calls[0]!.tool_name).toBe('Bash')
+    expect(p.tool_calls[0]!.canonical_tool_type).toBe('shell')
+    expect(p.tool_calls[0]!.source_call_id).toBe('tu_1')
+    expect(p.tool_calls[0]!.command).toBe('ls /repo')
+    expect(p.tool_calls[0]!.args_object_id).toBeNull()
+    // 1 tool_result linked back to that tool_call by source_call_id.
+    expect(p.tool_results.length).toBe(1)
+    expect(p.tool_results[0]!.tool_call_id).toBe(p.tool_calls[0]!.tool_call_id)
+    expect(p.tool_results[0]!.source_call_id).toBe('tu_1')
+    expect(p.tool_results[0]!.preview).toBe('file1\nfile2\n')
+    expect(p.tool_results[0]!.output_object_id).toBeNull()
+    expect(p.tool_results[0]!.is_error).toBe(false)
+    expect(p.tool_results[0]!.status).toBe('success')
+    // 1 EventV2 from the `system` record.
+    expect(p.events.length).toBe(1)
+    expect(p.events[0]!.event_type).toBe('system_operational')
+    expect(p.events[0]!.subtype).toBe('hook')
+    // Session model accumulated across the per-record pass.
+    expect(p.sessions[0]!.model_first).toBe('claude-opus-4-7')
+    expect(p.sessions[0]!.model_last).toBe('claude-opus-4-7')
+  })
+
   it('runCompileImports orchestrates Claude through a real bundle seal', async () => {
     const bundleRoot = await tmp()
     const discoveryRoot = await tmp()
