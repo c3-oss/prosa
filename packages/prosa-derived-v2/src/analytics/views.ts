@@ -179,10 +179,35 @@ export const ANALYTICS_ENTITY_TABLES = [
 
 export type AnalyticsEntityTable = (typeof ANALYTICS_ENTITY_TABLES)[number]
 
-/** Build a Parquet read glob for a canonical entity table. */
+/**
+ * Build a Parquet read for a canonical entity table that overlays
+ * live epoch segments with any compacted outputs from the
+ * compaction planner. Live files at
+ * `epochs/<n>/projection/<entity>.parquet` are read first, then any
+ * compacted overlays at
+ * `epochs/compact-<NNNN>/projection/<entity>.compacted.parquet` are
+ * unioned in. Both globs are passed as an array to a single
+ * `read_parquet()` call so DuckDB applies `union_by_name => true`
+ * consistently and an empty match for either glob does not error
+ * (`file_row_number => false`, `filename => false` defaults are
+ * fine).
+ *
+ * CQ-089: the compacted overlay glob is part of the canonical
+ * binding so the analytics views see the post-compaction row set
+ * the planner intends.
+ */
 export function parquetReadFor(bundleRoot: string, entity: AnalyticsEntityTable): string {
-  // The glob covers both live epochs and any compacted overlays.
-  return `read_parquet('${bundleRoot}/epochs/*/projection/${entity}.parquet', union_by_name => true)`
+  const liveGlob = `${bundleRoot}/epochs/*/projection/${entity}.parquet`
+  const compactGlob = `${bundleRoot}/epochs/compact-*/projection/${entity}.compacted.parquet`
+  return `read_parquet([${quoteForSql(liveGlob)}, ${quoteForSql(compactGlob)}], union_by_name => true)`
+}
+
+function quoteForSql(value: string): string {
+  // Single-quote the path, escape any embedded single quotes per
+  // standard SQL doubling. Glob paths constructed from `bundleRoot`
+  // will only contain quotes if the caller built a pathological
+  // bundle root, but defensive escaping keeps the SQL safe.
+  return `'${value.replace(/'/g, "''")}'`
 }
 
 /** SQL preamble that defines the v2 entity CTEs from the Parquet

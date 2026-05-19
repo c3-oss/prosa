@@ -41,7 +41,7 @@ a `just` wrapper fails for environmental reasons.
 | 02 | `pnpm --filter @c3-oss/prosa-importers-v2 test` | yes | pass | 40 tests / 7 files (GraphResolver 5, orchestrator 3, CodexProvider 7, ClaudeProvider 7 incl. CQ-068 spawned-edge tests, CursorProvider 5 incl. CQ-070 stable-key fix + CQ-074 full-projection assertions over a real SQLite store, GeminiProvider 6, HermesProvider 7). |
 | 02 | `pnpm --filter @c3-oss/prosa exec vitest run test/cli/compile-v2.test.ts` | yes | pass | 5 subprocess-spawned tests: `compile-v2 codex` happy path + invalid-provider rejection + `compile-all-v2` against all 5 providers + CQ-072 `--help` smokes for both commands. |
 | 02 | `pnpm --filter @c3-oss/prosa lint` | yes | pass | CQ-073: formatting issue auto-fixed by `biome check --fix`; lane-02 CLI lint clean. |
-| 03 | `pnpm --filter @c3-oss/prosa-derived-v2 test` | yes | pass | **53 tests** / 6 files: SessionBlobPackV2 joint-constraint policy (11) + Parquet compaction trigger policy (6) + framing tests (8; CQ-084) + writer/reader round-trip (11; CQ-085) + Parquet compaction planner (8) + DuckDB analytics views shape contract (9: 5 canonical view names in order, column-shape lock for `session_facts`, no duplicate columns per view, every body is `CREATE OR REPLACE VIEW … AS …;`, no SQLite-only syntax leftover, FROM/JOIN targets restricted to canonical entity tables + CTE aliases, `parquetReadFor` + `analyticsParquetPreamble` build stable Parquet-source temp views). Tantivy writer + runtime Parquet merge still pending; the DuckDB runtime executor that opens a connection and runs these views lands when `@duckdb/node-api` is wired in. |
+| 03 | `pnpm --filter @c3-oss/prosa-derived-v2 test` | yes | pass | **55 tests** / 6 files: SessionBlobPackV2 joint-constraint policy (11) + Parquet compaction trigger policy (6) + framing tests (8; CQ-084) + writer/reader round-trip (11; CQ-085) + Parquet compaction planner (8) + DuckDB analytics views shape contract (11: 5 canonical view names in order, column-shape lock for `session_facts`, no duplicate columns per view, every body is `CREATE OR REPLACE VIEW … AS …;`, no SQLite-only syntax leftover, FROM/JOIN targets restricted to canonical entity tables + CTE aliases, `parquetReadFor` + `analyticsParquetPreamble` build stable Parquet-source temp views, **CQ-089: every entity binding includes both live `epochs/*/projection/<entity>.parquet` and compacted-overlay `epochs/compact-*/projection/<entity>.compacted.parquet` globs in a single `read_parquet([...])` call**). Tantivy writer + DuckDB runtime executor + runtime Parquet merge still pending. |
 | 03 | `pnpm dev -- index-v2 status --help` | yes | not-run | CLI command presence smoke until fixture gate exists. |
 | 04 | `pnpm --filter @c3-oss/prosa-db-v2 test` | yes | not-run | Postgres v2 schema and migration tests. |
 | 04 | `pnpm test apps/api/test/v2` | yes | not-run | API v2 schema, auth, signing, validation tests. |
@@ -98,8 +98,9 @@ no new transitive risk.
 
 - [x] Worktree state documented.
 - [x] Lane 0 has evidence; lanes 2–10 are documented as blocked or WIP.
-- [ ] No open blocking corrections. *(`CQ-088` is open; it blocks final
-  stabilization until the roadmap-only `CQ-087` reconciliation is committed.)*
+- [ ] No open blocking corrections. *(`CQ-089` is open; it blocks accepting the
+  analytics view-definition WIP until compacted overlay Parquet files are read
+  alongside live epoch files.)*
 - [x] Base gates passed at HEAD `6c25966` (full repo `pnpm test` / `pnpm
   typecheck` / `pnpm lint` 12/12 turbo).
 - [x] Lane 0-specific gates passed: `prosa-types-v2` 89 tests, `prosa-wire-v2`
@@ -113,8 +114,8 @@ no new transitive risk.
 - [ ] Security, integrity, remote-read, and E2E reviewer findings resolved
   for Lane 0 and Lane 1. Lane 0 and Lane 1 corrections through `CQ-066` are
   closed; Lane 2 closeout (`CQ-074..CQ-082`) and Lane 3 byte layout +
-  planner (`CQ-083..CQ-087`) are closed; `CQ-088` tracks the current
-  roadmap-only reconciliation blocker.
+  planner (`CQ-083..CQ-088`) are closed; `CQ-089` tracks the current analytics
+  view-definition blocker.
 - [ ] Final Codex review completed. *(Pending — Lane 3 remainder (Tantivy
   writer, DuckDB views, runtime Parquet merge) plus Lanes 4–10 still
   unstarted/incomplete.)*

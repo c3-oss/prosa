@@ -4,10 +4,39 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 ## Open
 
-(none — `CQ-074..CQ-088` are all closed. Lane 2 acceptance still
+(none — `CQ-074..CQ-089` are all closed. Lane 2 acceptance still
 requires Codex/governor/user sign-off.)
 
 ## Closed (latest first)
+
+### CQ-089: Analytics Parquet Reads Must Include Compacted Overlays — closed 2026-05-19
+
+Fix landed in this iteration:
+
+- `parquetReadFor(bundleRoot, entity)` now passes BOTH globs to a
+  single `read_parquet([...])` call:
+  - `'<bundleRoot>/epochs/*/projection/<entity>.parquet'` (live)
+  - `'<bundleRoot>/epochs/compact-*/projection/<entity>.compacted.parquet'`
+    (compaction-planner overlays)
+  with `union_by_name => true` so a missing glob match does not
+  error and the row-set union stays consistent.
+- A `quoteForSql` helper SQL-doubles any single quotes inside the
+  bundle root, so adversarial paths cannot break the generated SQL.
+- Two new tests in `test/analytics/views.test.ts` (now 11 cases)
+  assert the generated SQL includes both globs for every canonical
+  entity table, both at the `parquetReadFor` and the
+  `analyticsParquetPreamble` levels.
+
+Gates after the change:
+
+- `pnpm --filter @c3-oss/prosa-derived-v2 typecheck`: pass.
+- `pnpm --filter @c3-oss/prosa-derived-v2 test`: pass, 55 tests / 6
+  files.
+- `pnpm --filter @c3-oss/prosa-derived-v2 lint`: pass.
+- Full repo `pnpm build` / `pnpm typecheck` / `pnpm test` / `pnpm
+  lint`: 13/13 turbo.
+- `pnpm test:conformance`: pass, 26 tests / 2 files.
+- `git diff --check`: pass.
 
 ### CQ-088: Commit Roadmap Reconciliation for CQ-087 Closeout — closed 2026-05-19
 

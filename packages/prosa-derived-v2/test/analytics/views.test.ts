@@ -142,8 +142,30 @@ describe('analytics view shape contract', () => {
   it('parquetReadFor builds a stable, union-tolerant read for each entity table', () => {
     for (const entity of ANALYTICS_ENTITY_TABLES) {
       const sql = parquetReadFor('/tmp/bundle', entity)
-      expect(sql).toContain(`read_parquet('/tmp/bundle/epochs/*/projection/${entity}.parquet'`)
+      expect(sql).toContain(`'/tmp/bundle/epochs/*/projection/${entity}.parquet'`)
       expect(sql).toContain('union_by_name => true')
+    }
+  })
+
+  it('CQ-089: parquetReadFor includes both live epoch and compacted overlay globs', () => {
+    for (const entity of ANALYTICS_ENTITY_TABLES) {
+      const sql = parquetReadFor('/tmp/bundle', entity)
+      // Live epoch segments.
+      expect(sql).toContain(`'/tmp/bundle/epochs/*/projection/${entity}.parquet'`)
+      // Compacted overlays from the planner's output dir.
+      expect(sql).toContain(`'/tmp/bundle/epochs/compact-*/projection/${entity}.compacted.parquet'`)
+      // Both globs land in a single `read_parquet([...])` call so a
+      // missing match for either glob does not surface as an error
+      // and `union_by_name` applies consistently.
+      expect(sql.startsWith('read_parquet([')).toBe(true)
+    }
+  })
+
+  it('CQ-089: the preamble bound to each entity table reads both live and compacted globs', () => {
+    const preamble = analyticsParquetPreamble('/tmp/bundle')
+    for (const entity of ANALYTICS_ENTITY_TABLES) {
+      expect(preamble).toContain(`'/tmp/bundle/epochs/*/projection/${entity}.parquet'`)
+      expect(preamble).toContain(`'/tmp/bundle/epochs/compact-*/projection/${entity}.compacted.parquet'`)
     }
   })
 

@@ -9,9 +9,9 @@ Completion signal: RALPH_DONE
 
 ## Current State
 
-Status: Lane 1 accepted; Lane 2 implementation contract complete; Lane 3 derived-layer scaffold (`bb76006`) + SessionBlobPackV2 byte layout (`ba87f05`) + Parquet compaction planner (`ea8c1a8`) + DuckDB analytics view shape contract committed in this iteration.
-Current lane: Lane 3 — remaining surfaces are Tantivy generation writer and the runtime executors that bind DuckDB / Parquet merge to the live derived layer.
-Current HEAD: `16985b4` (CQ-088 closeout); DuckDB analytics-views commit pending in this iteration.
+Status: Lane 1 accepted; Lane 2 implementation contract complete; Lane 3 derived-layer scaffold (`bb76006`) + SessionBlobPackV2 byte layout (`ba87f05`) + Parquet compaction planner (`ea8c1a8`) + DuckDB analytics view shape contract (`cff3670`) + CQ-089 compacted-overlay fix all committed.
+Current lane: Lane 3 — remaining surfaces are the Tantivy generation writer and the DuckDB / Parquet runtime executors.
+Current HEAD: `cff3670` (analytics shape contract); CQ-089 compacted-overlay fix commit pending in this iteration.
 No-change streak: 0 (no open blocking corrections; Lane 2 acceptance still requires Codex/governor/user sign-off)
 Ralph active: yes
 
@@ -33,10 +33,8 @@ Ralph active: yes
 
 ## Open Blocking Corrections
 
-(none — `CQ-074..CQ-088` are all closed. `CQ-088` was satisfied by
-commit `76128fa`, which committed the roadmap-only reconciliation
-naming `ea8c1a8` as the Parquet compaction planner HEAD. Lane 2
-acceptance still requires Codex/governor/user sign-off.)
+(none — `CQ-074..CQ-089` are all closed. Lane 2 acceptance still
+requires Codex/governor/user sign-off.)
 
 ## Latest Gates
 

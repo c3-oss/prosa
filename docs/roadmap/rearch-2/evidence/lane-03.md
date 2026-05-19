@@ -93,7 +93,7 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
 ```text
 pnpm install --prefer-offline                       # registers @c3-oss/prosa-derived-v2 in pnpm-lock.yaml
 pnpm --filter @c3-oss/prosa-derived-v2 typecheck    # clean
-pnpm --filter @c3-oss/prosa-derived-v2 test         # 53 tests / 6 files (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 8, analytics views 9)
+pnpm --filter @c3-oss/prosa-derived-v2 test         # 55 tests / 6 files (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 8, analytics views 11 — includes CQ-089 live + compacted Parquet overlay binding)
 pnpm --filter @c3-oss/prosa-derived-v2 lint         # clean
 pnpm build                                          # 13/13 turbo
 pnpm typecheck                                      # 13/13 turbo
