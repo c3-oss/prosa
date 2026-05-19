@@ -130,6 +130,26 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
   - Identity compressor/decompressor pair lets tests exercise the
     layout independently of zstd; production callers will plug in
     `zstdCompress` / `zstdDecompress` from `@c3-oss/prosa-bundle-v2`.
+- [x] Analytics execution-plan composer
+  (`planAnalyticsExecution(input)`) returns the ordered statement
+  sequence a runtime DuckDB executor consumes to materialise an
+  analytics view and run a report query against it. The plan
+  ships:
+  - `view` + `columns` locked to `ANALYTICS_VIEW_COLUMNS[view]` so
+    the runtime cannot drift from the column-shape contract;
+  - one `CREATE OR REPLACE TEMP VIEW` per `ANALYTICS_ENTITY_TABLES`
+    binding the live + compacted-overlay Parquet read;
+  - the `CREATE OR REPLACE VIEW <view> AS ...` body from
+    `analyticsViewSql(view)`, terminated with a single `;`;
+  - a default `reportQuery` of `SELECT * FROM <view>;`, replaceable
+    verbatim by the caller for ad-hoc reports.
+  Pure composition — no DuckDB connection opens; the runtime
+  executor lands separately when `@duckdb/node-api` is wired into
+  the package. 9 tests cover column-shape contract, preamble entity
+  order, view-body terminator handling, default + custom report
+  queries, bundle-root binding across both Parquet globs, unknown
+  view rejection, determinism, and single-quote escaping in the
+  bundle root.
 - [x] DuckDB analytics view definitions (5 fixed reports) — SQL
   bodies and column-shape contract land in
   `src/analytics/views.ts`. `ANALYTICS_VIEW_NAMES` /
@@ -165,7 +185,7 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
 ```text
 pnpm install --prefer-offline                       # registers @c3-oss/prosa-derived-v2 in pnpm-lock.yaml
 pnpm --filter @c3-oss/prosa-derived-v2 typecheck    # clean
-pnpm --filter @c3-oss/prosa-derived-v2 test         # 99 tests / 11 files (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9, reader-iterator 7, tantivy checkpoint-store 11 — null/empty-fallback/populated-roundtrip/empty-roundtrip/canonical-byte-identity/rename-based-atomic-replacement/malformed/array/wrong-type/bad-status/CQ-093-stale-temp-preserves-prior-good)
+pnpm --filter @c3-oss/prosa-derived-v2 test         # 108 tests / 12 files (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9, reader-iterator 7, tantivy checkpoint-store 11, analytics executor-plan 9)
 pnpm --filter @c3-oss/prosa-derived-v2 lint         # clean
 pnpm build                                          # 13/13 turbo
 pnpm typecheck                                      # 13/13 turbo
