@@ -19,6 +19,7 @@
 import { resolve as resolvePath } from 'node:path'
 
 import {
+  analyticsViewsDescriptor,
   bundleDerivedStatus,
   derivedLayerEpochsTouched,
   listSessionBlobSummaries,
@@ -62,6 +63,16 @@ export function indexV2Command(): Command {
       const storePath = resolvePath(options.store)
       const epochs = await derivedLayerEpochsTouched(storePath)
       process.stdout.write(`${JSON.stringify(epochs, null, 2)}\n`)
+    })
+
+  root
+    .command('analytics-views')
+    .description(
+      'Print the analytics-view catalog (per-view name + columns + DuckDB SQL body) for the bundle v2 derived layer. Takes no --store; the catalog is content-free.',
+    )
+    .action(() => {
+      const catalog = analyticsViewsDescriptor()
+      process.stdout.write(`${JSON.stringify(catalog, null, 2)}\n`)
     })
 
   root

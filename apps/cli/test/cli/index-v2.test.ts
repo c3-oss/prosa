@@ -41,13 +41,14 @@ interface StatusSnapshot {
 }
 
 describe('prosa index-v2 CLI', () => {
-  it('`index-v2 --help` lists status + sessions + epochs + compaction-plan + transcript subcommands', async () => {
+  it('`index-v2 --help` lists status + sessions + epochs + analytics-views + compaction-plan + transcript subcommands', async () => {
     const r = runCli(['index-v2', '--help'])
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('Bundle v2 derived-layer index commands')
     expect(r.stdout).toContain('status')
     expect(r.stdout).toContain('sessions')
     expect(r.stdout).toContain('epochs')
+    expect(r.stdout).toContain('analytics-views')
     expect(r.stdout).toContain('compaction-plan')
     expect(r.stdout).toContain('transcript')
   })
@@ -247,6 +248,40 @@ describe('prosa index-v2 CLI', () => {
     const r = runCli(['index-v2', 'epochs'])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/required option.*--store/i)
+  })
+
+  it('`index-v2 analytics-views --help` documents the catalog and takes no --store option', async () => {
+    const r = runCli(['index-v2', 'analytics-views', '--help'])
+    expect(r.status).toBe(0)
+    expect(r.stdout).toContain('analytics-view catalog')
+    // No `--store <path>` option line should appear in the Options block.
+    // (The description does mention "--store" prose-style; what we are
+    // really asserting is that this subcommand does not require one.)
+    expect(r.stdout).not.toMatch(/--store\s+<path>/)
+  })
+
+  it('`index-v2 analytics-views` prints the five canonical view descriptors', async () => {
+    const r = runCli(['index-v2', 'analytics-views'])
+    expect(r.status).toBe(0)
+    const catalog = JSON.parse(r.stdout) as Array<{
+      name: string
+      columns: string[]
+      sql: string
+    }>
+    expect(catalog.map((v) => v.name)).toEqual([
+      'session_facts',
+      'tool_usage_facts',
+      'error_facts',
+      'model_usage',
+      'project_activity',
+    ])
+    for (const view of catalog) {
+      expect(Array.isArray(view.columns)).toBe(true)
+      expect(view.columns.length).toBeGreaterThan(0)
+      expect(typeof view.sql).toBe('string')
+      expect(view.sql).toMatch(/CREATE OR REPLACE VIEW/i)
+      expect(view.sql).toContain(view.name)
+    }
   })
 
   it('`index-v2 compaction-plan --help` documents --store', async () => {
