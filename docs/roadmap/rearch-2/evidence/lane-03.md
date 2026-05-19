@@ -476,6 +476,25 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
   non-strings, 200-char boundary acceptance + 201-char rejection,
   and `epoch` negative / non-integer / NaN / Infinity / non-number
   rejection.
+- [x] Parquet projection segment listing
+  (`listProjectionSegments(bundleRoot)`) enumerates every
+  `epochs/<n>/projection/*.parquet` file as a flat
+  `ProjectionSegment[]` (entity type, epoch, relative + absolute
+  paths, byte length). Mirrors the compaction planner's filtering
+  rules (digit-prefixed epoch dirs only; `compact-<NNNN>` skipped;
+  non-`.parquet` files dropped; ENOENT-tolerant) but does not
+  apply the compaction-policy decision. Suitable for CLI
+  inventory ("N segments across M epochs"), audit tools, and the
+  future Parquet merge worker (currently blocked behind
+  `@duckdb/node-api` allowlist) that needs to enumerate inputs.
+  Returns sorted by `(epoch, entityType)` ascending for
+  deterministic output. 9 tests cover: fresh-bundle [],
+  empty-epoch-dirs [], every `.parquet` across multiple epochs,
+  full ProjectionSegment shape with `path` / `absPath` /
+  `byteLength`, `compact-<NNNN>` dirs skipped (no relist of
+  compacted output), non-numeric epoch dirs ignored, non-
+  `.parquet` files dropped, multi-epoch sorted ordering, and
+  single-epoch many-segments deterministic order.
 - [x] Bundle-level derived-layer status aggregator
   (`bundleDerivedStatus(bundleRoot)`) composes `tantivyIndexStatus`
   + `listSessionBlobSummaries` + `listSessionBlobEpochs` into one
@@ -635,7 +654,7 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
 ```text
 pnpm install --prefer-offline                       # registers @c3-oss/prosa-derived-v2 in pnpm-lock.yaml
 pnpm --filter @c3-oss/prosa-derived-v2 typecheck    # clean
-pnpm --filter @c3-oss/prosa-derived-v2 test         # 327 tests / 30 files (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 8, compaction executor-plan 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9, reader-iterator 7, tantivy checkpoint-store 11, analytics executor-plan 9, tantivy index-dir probe 17, tantivy plan-bundle orchestration 9, tantivy status 10, analytics descriptor 8, bundle status 8, derived-layout 27, tantivy clear-index-dir 10, session-blob loader 11, session-blob zstd 5, session-blob listing 27 (19 prior + 8 listAllSessionBlobSessions cross-epoch union), session-blob latest 11 incl. CQ-100, session-blob transcript-from-bundle 8, session-blob iterate-from-bundle 9, session-blob header 10, session-blob exists 11, session-blob latest-epoch 11, session-blob summary 19 (11 single + 8 bulk listing))
+pnpm --filter @c3-oss/prosa-derived-v2 test         # 336 tests / 31 files (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 8, compaction executor-plan 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9, reader-iterator 7, tantivy checkpoint-store 11, analytics executor-plan 9, tantivy index-dir probe 17, tantivy plan-bundle orchestration 9, tantivy status 10, analytics descriptor 8, bundle status 8, compaction segments 9, derived-layout 27, tantivy clear-index-dir 10, session-blob loader 11, session-blob zstd 5, session-blob listing 27 (19 prior + 8 listAllSessionBlobSessions cross-epoch union), session-blob latest 11 incl. CQ-100, session-blob transcript-from-bundle 8, session-blob iterate-from-bundle 9, session-blob header 10, session-blob exists 11, session-blob latest-epoch 11, session-blob summary 19 (11 single + 8 bulk listing))
 pnpm --filter @c3-oss/prosa-derived-v2 lint         # clean
 pnpm build                                          # 13/13 turbo
 pnpm typecheck                                      # 13/13 turbo
