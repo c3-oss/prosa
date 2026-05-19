@@ -343,6 +343,73 @@ describe('writeCompactManifestV2 + readCompactManifestV2 round-trip', () => {
     )
   })
 
+  it('CQ-109: readCompactManifestV2 rejects an absolute entity.output_path', async () => {
+    const plan = planWithEntity()
+    const manifest = buildCompactManifestV2({ plan, generatedAt: GENERATED_AT })
+    const path = await writeCompactManifestV2(bundleRoot, manifest)
+    const { writeFile: write } = await import('node:fs/promises')
+    const corrupted = {
+      ...manifest,
+      entities: [{ ...manifest.entities[0], output_path: '/etc/passwd' }],
+    }
+    await write(path, JSON.stringify(corrupted))
+    await expect(readCompactManifestV2(bundleRoot, manifest.compaction_seq)).rejects.toThrow(/output_path.*CQ-109/i)
+  })
+
+  it('CQ-109: readCompactManifestV2 rejects entity.output_path containing `..` traversal segments', async () => {
+    const plan = planWithEntity()
+    const manifest = buildCompactManifestV2({ plan, generatedAt: GENERATED_AT })
+    const path = await writeCompactManifestV2(bundleRoot, manifest)
+    const { writeFile: write } = await import('node:fs/promises')
+    const corrupted = {
+      ...manifest,
+      entities: [{ ...manifest.entities[0], output_path: 'epochs/compact-0001/../../../escape.parquet' }],
+    }
+    await write(path, JSON.stringify(corrupted))
+    await expect(readCompactManifestV2(bundleRoot, manifest.compaction_seq)).rejects.toThrow(/output_path.*CQ-109/i)
+  })
+
+  it('CQ-109: readCompactManifestV2 rejects superseded[].path with `..` traversal segments', async () => {
+    const plan = planWithEntity()
+    const manifest = buildCompactManifestV2({ plan, generatedAt: GENERATED_AT })
+    const path = await writeCompactManifestV2(bundleRoot, manifest)
+    const { writeFile: write } = await import('node:fs/promises')
+    const corrupted = {
+      ...manifest,
+      entities: [
+        {
+          ...manifest.entities[0],
+          superseded: [{ epoch: 1, path: '../../../etc/passwd', byte_length: 0 }],
+        },
+      ],
+    }
+    await write(path, JSON.stringify(corrupted))
+    await expect(readCompactManifestV2(bundleRoot, manifest.compaction_seq)).rejects.toThrow(
+      /superseded\[0\]\.path.*CQ-109/i,
+    )
+  })
+
+  it('CQ-109: readCompactManifestV2 rejects a Windows-style absolute output_path', async () => {
+    const plan = planWithEntity()
+    const manifest = buildCompactManifestV2({ plan, generatedAt: GENERATED_AT })
+    const path = await writeCompactManifestV2(bundleRoot, manifest)
+    const { writeFile: write } = await import('node:fs/promises')
+    const corrupted = {
+      ...manifest,
+      entities: [{ ...manifest.entities[0], output_path: 'C:\\Users\\victim\\rogue.parquet' }],
+    }
+    await write(path, JSON.stringify(corrupted))
+    await expect(readCompactManifestV2(bundleRoot, manifest.compaction_seq)).rejects.toThrow(/output_path.*CQ-109/i)
+  })
+
+  it('CQ-109: readCompactManifestV2 accepts normal bundle-relative paths', async () => {
+    const plan = planWithEntity()
+    const manifest = buildCompactManifestV2({ plan, generatedAt: GENERATED_AT })
+    await writeCompactManifestV2(bundleRoot, manifest)
+    const result = await readCompactManifestV2(bundleRoot, manifest.compaction_seq)
+    expect(result.entities[0]?.output_path).toBe(manifest.entities[0]?.output_path)
+  })
+
   it('readCompactManifestV2 rejects a manifest with a wrong schema discriminator', async () => {
     const plan = planWithEntity()
     const manifest = buildCompactManifestV2({ plan, generatedAt: GENERATED_AT })

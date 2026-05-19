@@ -604,7 +604,12 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
   `total_bytes_in`, array `superseded`; every superseded
   segment must have non-negative integer `epoch`, non-empty
   `path`, non-negative integer `byte_length`; and
-  `compaction_seq` must match the requested seq). Bytes are canonical
+  `compaction_seq` must match the requested seq) + path safety
+  (CQ-109: both `output_path` and every `superseded[].path`
+  rejected when absolute (POSIX or Windows) or containing `..`
+  traversal segments — the manifest is the persisted audit/GC
+  boundary and a corrupted manifest must not steer audit/GC
+  helpers outside the bundle). Bytes are canonical
   JSON (sorted keys, deterministic) so re-writes of the same
   manifest produce byte-identical files. Refuses to write/read
   when `<bundleRoot>/epochs`, `compact-<NNNN>/`, or the final
@@ -1024,7 +1029,7 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
 ```text
 pnpm install --prefer-offline                       # registers @c3-oss/prosa-derived-v2 in pnpm-lock.yaml
 pnpm --filter @c3-oss/prosa-derived-v2 typecheck    # clean
-pnpm --filter @c3-oss/prosa-derived-v2 test         # 470 tests / 40 files (+7 listCompactedOutputs: fresh-bundle, manifest-without-output (consistent=false), planted-output (consistent=true with byte_length), symlinked-output reported not-existing, multi-seq ascending sort with mixed consistent values, missing-manifest skip, symlinked-compact-dir propagation)
+pnpm --filter @c3-oss/prosa-derived-v2 test         # 475 tests / 40 files (+5 CQ-109 path-safety regressions in manifest.test.ts: absolute output_path, `..` in output_path, `..` in superseded[].path, Windows-style absolute output_path, happy-path round-trip)
 pnpm --filter @c3-oss/prosa exec vitest run test/cli/index-v2.test.ts  # 82 subprocess-spawned tests
 pnpm --filter @c3-oss/prosa exec vitest run test/cli/index-v2-coherence.test.ts  # 1 cross-subcommand coherence test for index-v2 status + sessions + epochs + analytics-views + analytics-execution-plan + projection-segments + tantivy-rebuild-plan + compaction-plan + compaction-execution-plan + transcript-header + transcript (incl. CQ-105 --format pre-read validation, --format markdown, --start-ordinal/--end-ordinal filtering, inverted-range rejection, --epoch historical pack + missing-epoch ENOENT) (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 13 incl. CQ-101 + CQ-102 containment regressions, compaction executor-plan 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9, reader-iterator 7, tantivy checkpoint-store 21 (11 prior + 4 write CQ-096 + 6 read CQ-103), analytics executor-plan 9, tantivy index-dir probe 17, tantivy plan-bundle orchestration 9, tantivy status 10, analytics descriptor 8, bundle status 16 (8 prior aggregator + 8 derivedLayerEpochsTouched incl. CQ-104 empty-epoch-dir regressions), compaction segments 22 (9 listing + 7 summary + 6 containment), derived-layout 27, tantivy clear-index-dir 10, session-blob loader 11, session-blob zstd 5, session-blob listing 27 (19 prior + 8 listAllSessionBlobSessions cross-epoch union), session-blob latest 11 incl. CQ-100, session-blob transcript-from-bundle 8, session-blob iterate-from-bundle 9, session-blob header 10, session-blob exists 11, session-blob latest-epoch 11, session-blob summary 19 (11 single + 8 bulk listing), integration sessionblob-end-to-end 12, integration compaction-end-to-end 8, integration tantivy-end-to-end 8)
 pnpm --filter @c3-oss/prosa-derived-v2 lint         # clean

@@ -123,7 +123,7 @@ section as the full restart instruction:
   `clearTantivyIndexDir` reset helper (`257a176`), CQ-096
   intermediate-symlink containment (`3be300f`), and SessionBlob
   pack-path resolver + CQ-097 textual-source cleanup (`d798b15`).
-  All `CQ-074..CQ-108` are closed; no open blocking corrections.
+  All `CQ-074..CQ-109` are closed; no open blocking corrections.
   There is no remaining Lane 2 external-acceptance blocker; do not
   output `RALPH_DONE` yet because Lane 3 remainder (Tantivy native
   writer, DuckDB runtime executor, runtime Parquet merge) plus

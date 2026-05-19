@@ -4,9 +4,68 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 ## Open
 
-(none — `CQ-091`..`CQ-108` are all closed.)
+(none — `CQ-091`..`CQ-109` are all closed.)
 
 ## Closed (latest first)
+
+### CQ-109: Compact Manifest Paths Must Be Bundle-Relative and Traversal-Free — closed 2026-05-19
+
+Status: closed
+Severity: medium
+Blocking: yes
+Owner: Ralph
+Opened: 2026-05-19
+Closed: 2026-05-19
+Lane: 3 - Derived layer
+
+Finding:
+
+The compact-manifest reader now deep-validates shape, but it still
+accepted `entity.output_path` and `superseded[].path` as any
+non-empty string. The new `listCompactedOutputs()` WIP then
+derived an absolute filesystem target with `join(bundleRoot,
+entity.output_path)` and `lstat`'d it. A persisted manifest with
+an absolute path or `..` segments could make audit/read-side
+code inspect paths outside the bundle root.
+
+Risk:
+
+The compact manifest is a persisted audit/GC boundary. Even if
+the current writer emits safe bundle-relative paths, corrupted,
+manually edited, or third-party manifests must not be able to
+steer audit/GC helpers outside the bundle. Future GC code may
+also consume `superseded[].path` for deletion, so accepting
+traversal-bearing paths at the reader boundary was too weak.
+
+Resolution:
+
+Added `isBundleRelativeSafePath(value)` helper in
+`compaction/manifest.ts` that rejects:
+
+  - POSIX absolute paths (starts with `/`),
+  - Windows-style absolute paths (`\`-prefixed or `[A-Za-z]:/\`),
+  - any `..` segment under either separator.
+
+Both `assertEntityShape.output_path` and
+`assertSupersededShape.path` now invoke the helper and throw a
+clear error tagging `(CQ-109)`. The writer already emits
+`epochs/<n>/projection/<file>` and
+`epochs/compact-<NNNN>/projection/<entity>.compacted.parquet`
+relative paths, so the existing happy-path tests continue to
+pass unchanged.
+
+Acceptance criteria — all met:
+
+- ✅ `pnpm --filter @c3-oss/prosa-derived-v2 exec vitest run
+  test/compaction/manifest.test.ts test/compaction/outputs.test.ts
+  test/compaction/superseded.test.ts` passes (5 new CQ-109
+  regressions in manifest.test.ts: absolute `output_path`, `..`
+  in `output_path`, `..` in `superseded[].path`, Windows-style
+  absolute `output_path`, plus the happy-path round-trip).
+- ✅ `pnpm --filter @c3-oss/prosa-derived-v2 typecheck` clean.
+- ✅ `pnpm --filter @c3-oss/prosa-derived-v2 lint` clean.
+- ✅ `git diff --check` clean.
+- ✅ Full repo `pnpm turbo run test` 13/13 turbo.
 
 ### CQ-108: Fix Superseded Compact-Manifest WIP Typecheck/Lint Failures — closed 2026-05-19
 

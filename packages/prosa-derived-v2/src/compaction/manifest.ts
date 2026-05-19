@@ -268,6 +268,25 @@ function manifestToCanonicalShape(m: CompactManifestV2): Record<string, unknown>
 
 const VALID_REASONS: ReadonlySet<CompactionFireReason> = new Set(['file_count_trigger', 'low_count_byte_ceiling'])
 
+/**
+ * CQ-109: reject any path that is not a safe bundle-relative path.
+ * Audit/GC code joins persisted `entity.output_path` and every
+ * `superseded[].path` against `bundleRoot` before stat/read/eventual-
+ * delete. A corrupted or third-party manifest with an absolute path
+ * (`/etc/passwd`, `C:\Users\...`) or a `..` traversal segment would
+ * steer those helpers outside the bundle. Only paths composed of
+ * `/`- or `\`-separated non-`..` segments are accepted.
+ */
+function isBundleRelativeSafePath(value: string): boolean {
+  if (value.startsWith('/')) return false
+  if (value.startsWith('\\')) return false
+  if (/^[A-Za-z]:[\\/]/.test(value)) return false
+  for (const segment of value.split(/[\\/]/)) {
+    if (segment === '..') return false
+  }
+  return true
+}
+
 function assertManifestShape(value: unknown, path: string): CompactManifestV2 {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new Error(`readCompactManifestV2: ${path} is not a JSON object`)
@@ -319,6 +338,11 @@ function assertEntityShape(value: unknown, path: string, index: number): Compact
   if (typeof obj.output_path !== 'string' || obj.output_path.length === 0) {
     throw new Error(`readCompactManifestV2: ${path} ${where}.output_path is not a non-empty string`)
   }
+  if (!isBundleRelativeSafePath(obj.output_path)) {
+    throw new Error(
+      `readCompactManifestV2: ${path} ${where}.output_path ${JSON.stringify(obj.output_path)} is not a bundle-relative path without traversal (CQ-109)`,
+    )
+  }
   if (typeof obj.total_bytes_in !== 'number' || !Number.isInteger(obj.total_bytes_in) || obj.total_bytes_in < 0) {
     throw new Error(
       `readCompactManifestV2: ${path} ${where}.total_bytes_in ${JSON.stringify(obj.total_bytes_in)} is not a non-negative integer`,
@@ -356,6 +380,11 @@ function assertSupersededShape(
   }
   if (typeof obj.path !== 'string' || obj.path.length === 0) {
     throw new Error(`readCompactManifestV2: ${path} ${where}.path is not a non-empty string`)
+  }
+  if (!isBundleRelativeSafePath(obj.path)) {
+    throw new Error(
+      `readCompactManifestV2: ${path} ${where}.path ${JSON.stringify(obj.path)} is not a bundle-relative path without traversal (CQ-109)`,
+    )
   }
   if (typeof obj.byte_length !== 'number' || !Number.isInteger(obj.byte_length) || obj.byte_length < 0) {
     throw new Error(
