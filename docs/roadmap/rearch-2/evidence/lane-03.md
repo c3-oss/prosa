@@ -1,7 +1,7 @@
 # Lane Evidence
 
 Lane: 03 - Derived layer
-Status: blocked-on-lane-02
+Status: blocked-on-cq-083
 Owner: Ralph
 Commit range:
 
@@ -18,6 +18,9 @@ Commit range:
 ## Implementation Notes
 
 - Source contract: `docs/rearch-2/04-lane-3-derived-layer.md`.
+- Lane 3 must not be committed while `CQ-083` is open. Untracked
+  `packages/prosa-derived-v2/` work, if present, remains unaccepted WIP and
+  must not be mixed into the Lane 2 closeout commit.
 
 ## Commands Run
 

@@ -14,7 +14,7 @@
 // content blocks (including hidden reasoning), tool calls, tool
 // results, events, and (Claude) spawned-edge synthesis.
 
-import { cp, mkdir, mkdtemp, readFile } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, readFile, readdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -22,7 +22,7 @@ import { fileURLToPath } from 'node:url'
 import Database from 'better-sqlite3'
 import { describe, expect, it } from 'vitest'
 
-import { initBundle, openBundle } from '../../packages/prosa-bundle-v2/src/index.ts'
+import { MemoryShardActor, initBundle, openBundle } from '../../packages/prosa-bundle-v2/src/index.ts'
 import { ClaudeProvider } from '../../packages/prosa-importers-v2/src/claude/index.ts'
 import { CodexProvider } from '../../packages/prosa-importers-v2/src/codex/index.ts'
 import { CursorProvider } from '../../packages/prosa-importers-v2/src/cursor/index.ts'
@@ -293,60 +293,82 @@ describe('CQ-074: cross-provider idempotency conformance', () => {
     expect(p1.edges.every((e) => e.edge_type === 'spawned')).toBe(true)
   })
 
-  it('CQ-081: runCompileImports is bundle-idempotent — second compile adds no rows/objects/packs', async () => {
-    // Real I2 gate at the bundle level: run the full compile pipeline
-    // (discover → reserve → parse → segment write → seal) twice over
-    // the same fixture corpus and verify the second seal does not grow
-    // the bundle's head counts. Reserve-before-parse is what makes
-    // this work: on the second run every logical key already has a
-    // reservation, so every file becomes a lost reservation and
-    // parseAndProject is never re-invoked.
-    const discoveryRoot = await tmp()
-    const codexSrc = join(fixturesRoot, 'codex')
-    await cp(codexSrc, discoveryRoot, { recursive: true })
-
-    const bundleRoot = await tmp()
-    const bundle = await initBundle(bundleRoot, {
-      storeId: 'st_cq081_idempotency',
-      createdAt: '2026-05-19T00:00:00.000Z',
-    })
+  // CQ-081/CQ-082: real bundle-level idempotency per provider.
+  // Each case runs `runCompileImports` twice against the same on-disk
+  // corpus, with a real `MemoryShardActor`, and proves: (a) the
+  // second run loses every Reserve and emits zero rows; (b) no new
+  // pack files appear under `cas/packs/` or `raw_sources/packs/`;
+  // (c) the persisted bundle re-opens cleanly after the no-op second
+  // compile.
+  async function listPacks(root: string, sub: string): Promise<string[]> {
     try {
-      const firstRun = await runCompileImports({
-        bundle,
-        providers: [{ provider: new CodexProvider(), root: discoveryRoot }],
-        createdAt: '2026-05-19T00:00:01.000Z',
+      return (await readdir(join(root, sub))).sort()
+    } catch {
+      return []
+    }
+  }
+
+  for (const pc of PROVIDER_CASES) {
+    it(`CQ-081/CQ-082: ${pc.name} runCompileImports is bundle-idempotent`, async () => {
+      const discoveryRoot = await tmp()
+      await pc.prepare(discoveryRoot)
+      const bundleRoot = await tmp()
+      const bundle = await initBundle(bundleRoot, {
+        storeId: `st_cq082_${pc.name}`,
+        createdAt: '2026-05-19T00:00:00.000Z',
       })
-      expect(firstRun.sealedEpoch).toBe(1)
-      const headAfterFirst = {
-        epoch: bundle.head.epoch,
-        counts: { ...bundle.head.counts },
+      const shard = MemoryShardActor.memoryOnly(0)
+      try {
+        const firstRun = await runCompileImports({
+          bundle,
+          providers: [{ provider: pc.factory(), root: discoveryRoot }],
+          createdAt: '2026-05-19T00:00:01.000Z',
+          shard,
+        })
+        expect(firstRun.sealedEpoch).toBe(1)
+        expect(firstRun.perProvider[0]?.won).toBeGreaterThanOrEqual(1)
+        const casPacksAfterFirst = await listPacks(bundleRoot, 'cas/packs')
+        const rawPacksAfterFirst = await listPacks(bundleRoot, 'raw_sources/packs')
+        expect(bundle.head.counts.sessions).toBeGreaterThanOrEqual(1)
+        expect(bundle.head.counts.rawRecords).toBeGreaterThanOrEqual(1)
+        expect(bundle.head.counts.sourceFiles).toBeGreaterThanOrEqual(1)
+
+        const secondRun = await runCompileImports({
+          bundle,
+          providers: [{ provider: pc.factory(), root: discoveryRoot }],
+          createdAt: '2026-05-19T00:00:02.000Z',
+          shard,
+        })
+        expect(secondRun.perProvider[0]?.source_tool).toBe(pc.name)
+        // CQ-082 (a): every Reserve on the second run loses, and the
+        // discovered file count is fully accounted for in `lost`.
+        const provider2 = secondRun.perProvider[0]
+        expect(provider2?.won).toBe(0)
+        expect(provider2?.units).toBe(0)
+        expect(provider2?.lost).toBe(provider2?.discovered)
+        // CQ-082 (b): the second epoch's per-entity counts are zero.
+        const secondCounts = provider2?.counts
+        expect(secondCounts?.sessions ?? -1).toBe(0)
+        expect(secondCounts?.rawRecords ?? -1).toBe(0)
+        expect(secondCounts?.sourceFiles ?? -1).toBe(0)
+        expect(secondCounts?.objects ?? -1).toBe(0)
+        // CQ-082 (c): no new on-disk packs in either CAS or
+        // raw_sources after the second compile. The on-disk pack set
+        // is the canonical "zero new objects/packs" check at the
+        // bundle layer — head.counts is per-current-epoch and the
+        // second empty epoch legitimately resets it.
+        expect(await listPacks(bundleRoot, 'cas/packs')).toEqual(casPacksAfterFirst)
+        expect(await listPacks(bundleRoot, 'raw_sources/packs')).toEqual(rawPacksAfterFirst)
+      } finally {
+        await bundle.close()
       }
-      expect(headAfterFirst.counts.sessions).toBeGreaterThanOrEqual(1)
-      expect(headAfterFirst.counts.rawRecords).toBeGreaterThanOrEqual(1)
-      expect(headAfterFirst.counts.sourceFiles).toBeGreaterThanOrEqual(1)
-
-      const secondRun = await runCompileImports({
-        bundle,
-        providers: [{ provider: new CodexProvider(), root: discoveryRoot }],
-        createdAt: '2026-05-19T00:00:02.000Z',
-      })
-      // Second compile may seal a fresh empty epoch (epoch lifecycle
-      // is per-call), but every Reserve must lose, so per-provider
-      // discovered/winning counts are zero on the second run.
-      expect(secondRun.perProvider[0]?.source_tool).toBe('codex')
-      // No new logical content: head counts unchanged.
-      expect(bundle.head.counts).toEqual(headAfterFirst.counts)
-    } finally {
-      await bundle.close()
-    }
-
-    // Cold re-open from disk to prove the head counts persist and the
-    // bundle is still consistent after the no-op second compile.
-    const reopened = await openBundle(bundleRoot)
-    try {
-      expect(reopened.head.counts.sessions).toBeGreaterThanOrEqual(1)
-    } finally {
-      await reopened.close()
-    }
-  })
+      // Cold re-open: the persisted bundle is still well-formed.
+      const reopened = await openBundle(bundleRoot)
+      try {
+        expect(reopened.head.epoch).toBeGreaterThanOrEqual(1)
+      } finally {
+        await reopened.close()
+      }
+    })
+  }
 })

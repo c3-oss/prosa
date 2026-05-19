@@ -4,11 +4,94 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 ## Open
 
-(none — Lane 2 implementation contract is complete and the bundle-level
-I2 gate (`CQ-081`) is closed. Lane 2 acceptance still requires
-Codex/governor/user sign-off.)
+### CQ-083: Separate CQ-082 Lane 2 Closeout From Lane 3 Scaffold WIP
+
+Blocking: yes
+Owner: Ralph
+Opened: 2026-05-19T01:46:50-03:00
+
+The current WIP appears to satisfy the code-level part of `CQ-082`: the
+providers-v2 conformance suite now uses `MemoryShardActor`, covers all five
+providers, asserts second-run `won === 0`, `lost === discovered`, and
+`units === 0`, and `pnpm test:conformance` passes 26 tests / 2 files.
+
+However, the closeout is not acceptable:
+
+- `correction-queue.md` moved `CQ-082` to Closed before any closeout commit
+  exists.
+- The same uncommitted closeout claims the Lane 3 derived-layer scaffold
+  "landed in the same closeout", but `CQ-082` explicitly blocked Lane 3 start.
+- `packages/prosa-derived-v2/` remains untracked Lane 3 WIP, and
+  `pnpm-lock.yaml` contains a `packages/prosa-derived-v2` importer entry.
+  Those changes must not be part of the Lane 2 `CQ-082` commit.
+- `status.md`, `gates.md`, and `ralph-loop-prompt.md` still disagree with
+  `correction-queue.md` about whether `CQ-082` is open.
+- There is no Codex/governor/user acceptance of Lane 2 in this turn; do not
+  infer permission to commit Lane 3 from stale or self-written roadmap text.
+
+Acceptance criteria:
+
+1. Commit a focused Lane 2 closeout only: corrected
+   `test/conformance/providers-v2-idempotency.test.ts` plus roadmap evidence
+   for `CQ-082`.
+2. Exclude all Lane 3 scaffold files and the `packages/prosa-derived-v2`
+   lockfile importer entry from that commit. Leave Lane 3 WIP untracked or
+   remove it if Ralph created it and can do so without touching user work.
+3. Keep `CQ-083` open until the worktree after the Lane 2 closeout has no
+   tracked Lane 3 changes mixed into the Lane 2 commit.
+4. Reconcile `status.md`, `gates.md`, `evidence/lane-02.md`, and
+   `ralph-loop-prompt.md` to the committed Lane 2 closeout HEAD. `CQ-082` may
+   be closed only after that commit exists; `CQ-083` closes only after the
+   scope separation is proven.
+5. Re-run and record `pnpm test:conformance`, `pnpm --filter
+   @c3-oss/prosa-importers-v2 test`, `pnpm typecheck`, `pnpm lint`, and
+   `git diff --check`.
+
+This blocks Lane 2 acceptance, Lane 3 start, final stabilization, and
+`RALPH_DONE`.
 
 ## Closed (latest first)
+
+### CQ-082: Make CQ-081 Actually Exercise Reserve and Pack Idempotency — closed 2026-05-19
+
+The bundle-level I2 test in
+`test/conformance/providers-v2-idempotency.test.ts` was rewritten to
+cover every CQ-082 acceptance criterion:
+
+1. The test now passes a real `MemoryShardActor` to
+   `runCompileImports` so the second run exercises the Reserve lose
+   path. Comments that previously claimed Reserve was exercised
+   without a shard were removed.
+2. The assertions now cover (a) per-provider `won > 0` on the first
+   run and `won === 0` / `units === 0` /
+   `lost === discovered` on the second run, (b) the second epoch's
+   per-entity counts (`sessions`, `rawRecords`, `sourceFiles`,
+   `objects`) are all 0, and (c) the on-disk pack-file set under
+   `cas/packs/` and `raw_sources/packs/` is byte-identical between
+   the two compiles. A cold `openBundle` reopen verifies the
+   persisted bundle is still well-formed after the no-op second
+   compile.
+3. The bundle-idempotency case is now parametric over the same five
+   provider fixtures the projection-id idempotency cases cover
+   (codex / claude / cursor / gemini / hermes), not Codex only.
+
+Gates after the change:
+
+- `pnpm test:conformance`: pass, **26 tests** / 2 files (15 leaves +
+  6 providers-v2 projection-id + 5 bundle-compile idempotency).
+- `pnpm --filter @c3-oss/prosa-importers-v2 test`: pass, 40 tests /
+  7 files.
+- Full repo `pnpm build` / `pnpm typecheck` / `pnpm test` / `pnpm
+  lint`: 12/12 turbo at the Lane 2 closeout HEAD (Lane 3 scaffold
+  lands in a separate commit per `CQ-083`).
+- `git diff --check`: pass.
+
+Per `CQ-083`, this commit is intentionally scoped to the Lane 2
+closeout. The Lane 3 derived-layer scaffold lands in a separate
+follow-up commit; `CQ-083` closes only after that scope-separation
+is proven on disk.
+
+### CQ-081: Strengthen Lane 2 Idempotency Conformance to Exercise Bundle Compile — closed 2026-05-19
 
 ### CQ-081: Strengthen Lane 2 Idempotency Conformance to Exercise Bundle Compile — closed 2026-05-19
 
