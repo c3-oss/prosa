@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { bundleDerivedStatus } from '../src/bundle-status.js'
+import { bundleDerivedStatus, derivedLayerEpochsTouched } from '../src/bundle-status.js'
 import { sessionBlobEpochDir, sessionBlobPackPath } from '../src/derived-layout.js'
 import { identityCompressor } from '../src/session-blob/reader.js'
 import { type BlobMessageInput, writeSessionBlobPack } from '../src/session-blob/writer.js'
@@ -176,5 +176,77 @@ describe('bundleDerivedStatus', () => {
   it('exposes the current Tantivy schema fingerprint in the result', async () => {
     const status = await bundleDerivedStatus(bundleRoot)
     expect(status.tantivy.current_schema_fingerprint).toBe(currentTantivySchemaFingerprint())
+  })
+})
+
+describe('derivedLayerEpochsTouched', () => {
+  let bundleRoot: string
+
+  beforeEach(async () => {
+    bundleRoot = await mkdtemp(join(tmpdir(), 'prosa-derived-touched-epochs-'))
+  })
+
+  afterEach(async () => {
+    await rm(bundleRoot, { recursive: true, force: true })
+  })
+
+  it('returns [] on a fresh bundle (no derived artifacts anywhere)', async () => {
+    expect(await derivedLayerEpochsTouched(bundleRoot)).toEqual([])
+  })
+
+  it('returns only SessionBlob epochs when no projection segments exist', async () => {
+    await writePack(bundleRoot, 'ses_a', 1, 1)
+    await writePack(bundleRoot, 'ses_b', 4, 1)
+    expect(await derivedLayerEpochsTouched(bundleRoot)).toEqual([1, 4])
+  })
+
+  it('returns only projection epochs when no SessionBlob packs exist', async () => {
+    // Plant Parquet projection segments without any SessionBlob packs.
+    for (const epoch of [2, 5]) {
+      const dir = join(bundleRoot, 'epochs', String(epoch), 'projection')
+      await mkdir(dir, { recursive: true })
+      await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(100))
+    }
+    expect(await derivedLayerEpochsTouched(bundleRoot)).toEqual([2, 5])
+  })
+
+  it('returns the deduplicated sorted union of both subsystems', async () => {
+    // SessionBlob: epochs 1, 4
+    await writePack(bundleRoot, 'ses_a', 1, 1)
+    await writePack(bundleRoot, 'ses_b', 4, 1)
+    // Projection: epochs 2, 4 (4 overlaps with SessionBlob)
+    for (const epoch of [2, 4]) {
+      const dir = join(bundleRoot, 'epochs', String(epoch), 'projection')
+      await mkdir(dir, { recursive: true })
+      await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(100))
+    }
+
+    expect(await derivedLayerEpochsTouched(bundleRoot)).toEqual([1, 2, 4])
+  })
+
+  it('propagates CQ-098 intermediate-symlink rejection from the SessionBlob listing', async () => {
+    const external = await mkdtemp(join(tmpdir(), 'prosa-derived-touched-cq098-'))
+    try {
+      await mkdir(join(external, 'epoch-1'), { recursive: true })
+      await mkdir(join(bundleRoot, 'derived'), { recursive: true })
+      await symlink(external, join(bundleRoot, 'derived', 'session-blob'))
+
+      await expect(derivedLayerEpochsTouched(bundleRoot)).rejects.toThrow(/CQ-098|intermediate/i)
+    } finally {
+      await rm(external, { recursive: true, force: true })
+    }
+  })
+
+  it('propagates the projection-listing symlink-epochs rejection', async () => {
+    const external = await mkdtemp(join(tmpdir(), 'prosa-derived-touched-epochs-sym-'))
+    try {
+      await mkdir(join(external, '1', 'projection'), { recursive: true })
+      await writeFile(join(external, '1', 'projection', 'sessions.parquet'), Buffer.alloc(100))
+      await symlink(external, join(bundleRoot, 'epochs'))
+
+      await expect(derivedLayerEpochsTouched(bundleRoot)).rejects.toThrow(/symlink|epochs/i)
+    } finally {
+      await rm(external, { recursive: true, force: true })
+    }
   })
 })

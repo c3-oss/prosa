@@ -26,6 +26,7 @@
 // per-subsystem reader directly; this aggregator is the
 // convenience for "give me everything" inventory views.
 
+import { listProjectionSegments } from './compaction/segments.js'
 import { listSessionBlobEpochs } from './session-blob/listing.js'
 import { type SessionBlobSummary, listSessionBlobSummaries } from './session-blob/summary.js'
 import { type TantivyIndexStatus, tantivyIndexStatus } from './tantivy/status.js'
@@ -80,4 +81,41 @@ export async function bundleDerivedStatus(bundleRoot: string): Promise<BundleDer
     session_count: sessionSummaries.length,
     session_blob_epochs: sessionBlobEpochs,
   }
+}
+
+/**
+ * Sorted ascending set of every epoch number where the bundle's
+ * derived layer has at least one artifact — a SessionBlob pack or
+ * a Parquet projection segment. Composes
+ * `listSessionBlobEpochs(bundleRoot)` with the projection-segment
+ * listing's per-segment epoch values; the result is the
+ * deduplicated union.
+ *
+ * Use cases:
+ *
+ *   - Audit reports: "this bundle has derived artifacts for epochs
+ *     [0, 1, 3, 5, 7]" — the auditor wants the union, not the
+ *     per-subsystem split.
+ *   - GC planning: every epoch returned has at least one derived
+ *     file that needs to survive the next prune; missing epochs
+ *     are safe to omit from the keep set.
+ *   - Health probes: a bundle with zero touched epochs has no
+ *     derived layer to read from.
+ *
+ * Containment + validation are inherited from the composed
+ * surfaces. A symlinked `<bundleRoot>/derived/session-blob` throws
+ * via `listSessionBlobEpochs`; a symlinked
+ * `<bundleRoot>/epochs` throws via `listProjectionSegments`.
+ * Returns `[]` on a fresh bundle.
+ */
+export async function derivedLayerEpochsTouched(bundleRoot: string): Promise<number[]> {
+  const [sessionBlobEpochs, projectionSegments] = await Promise.all([
+    listSessionBlobEpochs(bundleRoot),
+    listProjectionSegments(bundleRoot),
+  ])
+  const touched = new Set<number>(sessionBlobEpochs)
+  for (const segment of projectionSegments) {
+    touched.add(segment.epoch)
+  }
+  return [...touched].sort((a, b) => a - b)
 }
