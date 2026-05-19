@@ -13,10 +13,10 @@ Expect Codex to reject `RALPH_DONE` if subagent findings remain open.
 
 This is a very large feature. Work strictly lane by lane. Lane 1 is accepted
 with the re-scopes recorded in `docs/rearch-2/lane-1-rescopes.md`; Lane 2 is
-implementation-complete and Lane 3 is active. If one Ralph Loop iteration cannot complete the entire roadmap,
-leave accurate status and evidence for completed work. Do not output
-`RALPH_DONE` unless every lane below is complete and all required gates and
-stabilization steps have run.
+accepted by Codex/governor as of 2026-05-19; Lane 3 is active. If one Ralph
+Loop iteration cannot complete the entire roadmap, leave accurate status and
+evidence for completed work. Do not output `RALPH_DONE` unless every lane below
+is complete and all required gates and stabilization steps have run.
 
 ## Invocation Contract
 
@@ -27,21 +27,30 @@ section as the full restart instruction:
 - Read this prompt, `docs/roadmap/rearch-2/correction-queue.md`,
   `docs/roadmap/rearch-2/gates.md`, `docs/roadmap/rearch-2/status.md`, and
   `docs/rearch-2/03-lane-2-importers.md`.
-- User direction: Lane 1 is accepted. Lane 2 implementation contract is
-  complete (5 providers + fixture corpora + projection-id idempotency +
+- User direction: Lane 1 is accepted. Lane 2 is formally accepted by
+  Codex/governor. Its implementation contract is complete (5 providers
+  + fixture corpora + projection-id idempotency +
   per-provider bundle-compile idempotency that exercises Reserve and
   asserts on-disk pack stability). Lane 3 derived-layer scaffold has
   landed in its own focused commit on top of the Lane 2 closeout per
   `CQ-083`.
-- All `CQ-074..CQ-090` are closed. Lane 3 progress: scaffold
+- All `CQ-074..CQ-095` are closed. Lane 3 progress includes scaffold
   (`bb76006`), SessionBlobPackV2 byte layout (`ba87f05`), Parquet
-  compaction planner (`ea8c1a8`), DuckDB analytics view shape
-  contract + compacted-overlay binding (`cff3670` / `e35f844`),
-  Tantivy schema + rebuild planner state machine (`509e1f1`). Lane
-  2 acceptance still requires Codex/governor/user sign-off; do not
-  output `RALPH_DONE` yet because Lane 3 remainder (Tantivy native
-  writer, DuckDB runtime executor, runtime Parquet merge) plus
-  Lanes 4–10 are still incomplete.
+  compaction planner (`ea8c1a8`), DuckDB analytics view shape contract
+  + compacted-overlay binding (`cff3670` / `e35f844`), Tantivy schema
+  + rebuild planner state machine (`509e1f1`), SessionBlob projection
+  bridge / transcript iterator (`585a456` / `c7e027d`), Tantivy
+  checkpoint persistence + atomic replacement (`9ebbd07` / `734b958`),
+  analytics execution-plan composer (`3f54ca6`), Tantivy index-dir
+  probe + symlink rejection (`8d45fbb` / `2c97eca`), and
+  bundle-aware Tantivy rebuild orchestration (`fa49eb2`) with roadmap
+  reconciliation at `e1e432d`, and compaction execution-plan composer
+  (`87bacb0`). There is no remaining Lane 2 external-acceptance
+  blocker; do not output `RALPH_DONE` yet because Lane 3 remainder
+  (Tantivy native writer, DuckDB runtime executor, runtime Parquet
+  merge) plus Lanes 4–10 are still incomplete.
+- Continue from the first incomplete Lane 3 surface after `87bacb0`.
+  Do not restart an already completed lane.
 - If a correction needs a Codex/governor decision, ask one clear binary
   accept/reject question with a safe default. Do not loop on "external
   acceptance" as if Codex were unavailable.
@@ -161,14 +170,15 @@ Current open corrections: none. `CQ-091`..`CQ-095` are all closed.
 `CQ-095` closed in this iteration: roadmap artifacts (`status.md`,
 `gates.md`, `evidence/lane-03.md`, this prompt) all now agree on
 `fa49eb2` as the committed `planTantivyRebuildFromBundle` slice. Lane 2
-acceptance still requires Codex/governor/user sign-off; Lane 3 forward
+is accepted by Codex/governor as of 2026-05-19; do not ask again for
+Lane 2 external acceptance and do not block Lane 3 on it. Lane 3 forward
 work continues on the remaining surfaces (Tantivy native writer, DuckDB
 runtime executor, Parquet merge worker).
 
 Lane 0 + Lane 1 are accepted by the project owner on 2026-05-18, including the
 two re-scopes in `docs/rearch-2/lane-1-rescopes.md`.
 
-Lane 2 (importers) implementation is complete. The orchestrator,
+Lane 2 (importers) is accepted. The orchestrator,
 `GraphResolver`, and mock-provider tests landed at `004107c`. Minimal
 provider slices: `fc66925` (Codex), `8c0ba5f` (Claude), `aa88079`
 (Claude spawned edges + Cursor), `c496bac` (Gemini + Hermes + Cursor
@@ -179,8 +189,9 @@ iteration** lands the Lane 2 closeout: shared fixture corpora under
 `test/fixtures/providers-v2/` and the cross-provider idempotency
 conformance suite at `test/conformance/providers-v2-idempotency.test.ts`,
 plus the root `better-sqlite3` / `@types/better-sqlite3` devDependency
-the conformance test needs. Closes `CQ-074` + `CQ-079` + `CQ-080`. Lane
-2 acceptance still requires Codex/governor/user sign-off.
+the conformance test needs. Closes `CQ-074` + `CQ-079` + `CQ-080`. This
+lane is accepted and no longer has a pending Codex/governor/user
+sign-off gate.
 
 Lane 3 (derived layer) is the active lane. The scaffold commit on top
 of the Lane 2 closeout adds `packages/prosa-derived-v2/` with the

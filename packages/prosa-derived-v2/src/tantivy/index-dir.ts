@@ -21,18 +21,19 @@
 // must fail closed before the native writer lands.
 
 import { lstat, readFile } from 'node:fs/promises'
-import { join } from 'node:path'
+
+import { derivedPaths } from '../derived-layout.js'
 
 /** Canonical on-disk path of the Tantivy index directory inside a
  *  bundle. The native writer creates `meta.json` plus the segment
  *  files under this path. */
 export function tantivyIndexDir(bundleRoot: string): string {
-  return join(bundleRoot, 'derived', 'tantivy', 'index')
+  return derivedPaths(bundleRoot).tantivyIndex
 }
 
 /** Canonical path of the Tantivy `meta.json` manifest. */
 export function tantivyMetaPath(bundleRoot: string): string {
-  return join(tantivyIndexDir(bundleRoot), 'meta.json')
+  return derivedPaths(bundleRoot).tantivyMeta
 }
 
 /**

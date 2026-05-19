@@ -1,7 +1,7 @@
 # Lane Evidence
 
 Lane: 02 - Importers
-Status: active WIP. The user rejected the Lane 2 re-scope and directed full
+Status: accepted by Codex/governor on 2026-05-19. The user rejected the Lane 2 re-scope and directed full
 per-record projection across all 5 providers + fixture corpora +
 cross-provider idempotency conformance. CodexProvider at `d302bc6`,
 ClaudeProvider at `7eaed27`, GeminiProvider at `b660f44`, HermesProvider
@@ -47,8 +47,7 @@ floor row counts also enforced so an empty projection cannot silently
 pass). `pnpm test:conformance` runs 22 tests / 2 files (15 leaves +
 6 providers-v2 projection-id idempotency + 1 CQ-081 bundle-compile
 idempotency case). `CQ-074`, `CQ-079`, `CQ-080`, and `CQ-081` are all
-closed; Lane 2 implementation contract is complete and Lane 2
-acceptance is pending Codex/governor/user sign-off.
+closed; Lane 2 implementation contract is complete and formally accepted.
 Owner: Ralph
 Commit range: `004107c` (orchestrator + GraphResolver), `4792457`
 (Lane 1 acceptance / `CQ-044` lifted), `fc66925` (minimal

@@ -4,8 +4,8 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 ## Open
 
-(none — `CQ-091`..`CQ-095` are all closed. Lane 2 acceptance still
-requires Codex/governor/user sign-off.)
+(none — `CQ-091`..`CQ-095` are all closed. Lane 2 is formally accepted
+by Codex/governor as of 2026-05-19.)
 
 ## Closed (latest first)
 
@@ -466,8 +466,8 @@ Gates after the change:
   12/12 turbo.
 - `git diff --check`: pass.
 
-Lane 2 implementation contract is complete; Lane 2 acceptance is still
-the project owner's / Codex's call.
+Lane 2 implementation contract is complete. Superseded 2026-05-19:
+Lane 2 is accepted by Codex/governor.
 
 ### CQ-080: Commit Providers-v2 Conformance Closeout Before Acceptance — closed 2026-05-19
 
@@ -491,7 +491,7 @@ Gates after the commit:
   12/12 turbo.
 - `git diff --check`: pass.
 
-Lane 2 acceptance remains the project owner's / Codex's call.
+Superseded 2026-05-19: Lane 2 is accepted by Codex/governor.
 
 ### CQ-074: Reconcile Post-`58cca83` State and Implement Full Lane 2 Importer Contract — closed 2026-05-19
 
@@ -524,7 +524,7 @@ Focused gates:
 - Full repo `pnpm build` / `pnpm typecheck` / `pnpm test` / `pnpm lint`:
   12/12 turbo green.
 
-Lane 2 acceptance remains the project owner's / Codex's call —
+Superseded 2026-05-19: Lane 2 is accepted by Codex/governor;
 implementation is complete against
 `docs/rearch-2/03-lane-2-importers.md`.
 

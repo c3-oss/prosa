@@ -165,6 +165,20 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
   integrity checks remain the native writer's responsibility; the
   probe is deliberately ENOENT-tolerant and cheap so the planner
   can keep its decision pure-TS.
+- [x] Derived-layer directory-layout module (`derivedPaths(root)`,
+  `derivedRoot(root)`) centralises the on-disk layout under
+  `<bundleRoot>/derived/` so every Lane 3 surface reads paths from
+  a single typed object. Mirrors the bundle-v2 `bundlePaths(root)`
+  pattern. The existing per-feature getters (`tantivyIndexDir`,
+  `tantivyMetaPath`, `tantivyCheckpointPath`) now delegate to
+  `derivedPaths` rather than hardcoding the relative segments, so
+  the layout has a single source of truth and a single edit point
+  when future features (session-blob packs, analytics runtime
+  scratch, runtime Parquet merge) need new directories. 7 tests
+  pin every canonical path, assert `derivedRoot` parity, assert
+  the three Tantivy delegates do not drift from the typed layout,
+  and verify relative bundle roots are composed without
+  `path.resolve()`.
 - [x] Compaction execution-plan composer
   (`planCompactionExecution({ bundleRoot, plan })`) turns a
   `CompactionPlan` from `planCompaction()` into the ordered DuckDB
@@ -237,7 +251,7 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
 ```text
 pnpm install --prefer-offline                       # registers @c3-oss/prosa-derived-v2 in pnpm-lock.yaml
 pnpm --filter @c3-oss/prosa-derived-v2 typecheck    # clean
-pnpm --filter @c3-oss/prosa-derived-v2 test         # 139 tests / 15 files (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 8, compaction executor-plan 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9, reader-iterator 7, tantivy checkpoint-store 11, analytics executor-plan 9, tantivy index-dir probe 14, tantivy plan-bundle orchestration 9)
+pnpm --filter @c3-oss/prosa-derived-v2 test         # 146 tests / 16 files (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 8, compaction executor-plan 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9, reader-iterator 7, tantivy checkpoint-store 11, analytics executor-plan 9, tantivy index-dir probe 14, tantivy plan-bundle orchestration 9, derived-layout 7)
 pnpm --filter @c3-oss/prosa-derived-v2 lint         # clean
 pnpm build                                          # 13/13 turbo
 pnpm typecheck                                      # 13/13 turbo

@@ -19,9 +19,10 @@
 // and a diff tool can compare two runs.
 
 import { mkdir, open, readFile, rename, unlink } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { dirname } from 'node:path'
 import { syncDir } from '@c3-oss/prosa-bundle-v2'
 
+import { derivedPaths } from '../derived-layout.js'
 import { canonicalJsonBytes } from '../session-blob/framing.js'
 
 import { EMPTY_INDEX_CHECKPOINT, type IndexCheckpointV2 } from './rebuild-plan.js'
@@ -30,7 +31,7 @@ const VALID_STATUSES = new Set<IndexCheckpointV2['status']>(['idle', 'building',
 
 /** Canonical on-disk path of the Tantivy checkpoint inside a bundle. */
 export function tantivyCheckpointPath(bundleRoot: string): string {
-  return join(bundleRoot, 'derived', 'tantivy', 'checkpoint.json')
+  return derivedPaths(bundleRoot).tantivyCheckpoint
 }
 
 /**
