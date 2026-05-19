@@ -7,13 +7,17 @@
 // rejection at `derived` / `derived/session-blob` / `epoch-<n>`,
 // bundle-root-alias acceptance, and synchronous input validation.
 
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { sessionBlobEpochDir, sessionBlobPackPath } from '../../src/derived-layout.js'
-import { listSessionBlobEpochs, listSessionBlobSessions } from '../../src/session-blob/listing.js'
+import {
+  listAllSessionBlobSessions,
+  listSessionBlobEpochs,
+  listSessionBlobSessions,
+} from '../../src/session-blob/listing.js'
 
 describe('listSessionBlobEpochs', () => {
   let bundleRoot: string
@@ -259,5 +263,132 @@ describe('listSessionBlobSessions', () => {
 
   it('rejects a negative epoch synchronously (input validation delegation)', async () => {
     await expect(listSessionBlobSessions({ bundleRoot, epoch: -1 })).rejects.toThrow(/non-negative safe integer/)
+  })
+})
+
+describe('listAllSessionBlobSessions', () => {
+  let bundleRoot: string
+
+  beforeEach(async () => {
+    bundleRoot = await mkdtemp(join(tmpdir(), 'prosa-derived-list-all-'))
+  })
+
+  afterEach(async () => {
+    await rm(bundleRoot, { recursive: true, force: true })
+  })
+
+  it('returns [] on a fresh bundle (no epochs)', async () => {
+    expect(await listAllSessionBlobSessions(bundleRoot)).toEqual([])
+  })
+
+  it('returns [] when epochs exist but every epoch directory is empty', async () => {
+    await mkdir(sessionBlobEpochDir(bundleRoot, 0), { recursive: true })
+    await mkdir(sessionBlobEpochDir(bundleRoot, 3), { recursive: true })
+    expect(await listAllSessionBlobSessions(bundleRoot)).toEqual([])
+  })
+
+  it('returns the deduplicated sorted union across every epoch', async () => {
+    // Epoch 1: alpha, bravo
+    // Epoch 3: bravo, charlie
+    // Epoch 7: alpha, delta
+    // Expected union: [alpha, bravo, charlie, delta] (each once, sorted)
+    for (const [epoch, ids] of [
+      [1, ['ses_alpha', 'ses_bravo']],
+      [3, ['ses_bravo', 'ses_charlie']],
+      [7, ['ses_alpha', 'ses_delta']],
+    ] as const) {
+      const dir = sessionBlobEpochDir(bundleRoot, epoch)
+      await mkdir(dir, { recursive: true })
+      for (const id of ids) await writeFile(join(dir, `${id}.pack`), 'fake')
+    }
+
+    expect(await listAllSessionBlobSessions(bundleRoot)).toEqual(['ses_alpha', 'ses_bravo', 'ses_charlie', 'ses_delta'])
+  })
+
+  it('mixes epochs containing valid packs with epochs containing only invalid filenames', async () => {
+    // Epoch 1: only invalid files (no ids in result)
+    // Epoch 2: real session
+    const dir1 = sessionBlobEpochDir(bundleRoot, 1)
+    await mkdir(dir1, { recursive: true })
+    await writeFile(join(dir1, '.pack'), 'fake') // CQ-099: dropped
+    await writeFile(join(dir1, 'README.md'), 'docs') // non-`.pack`: dropped
+    const dir2 = sessionBlobEpochDir(bundleRoot, 2)
+    await mkdir(dir2, { recursive: true })
+    await writeFile(join(dir2, 'ses_real.pack'), 'fake')
+
+    expect(await listAllSessionBlobSessions(bundleRoot)).toEqual(['ses_real'])
+  })
+
+  it('silently drops a symlinked `epoch-<n>` entry (per-entry symlink filter inherited from listSessionBlobEpochs)', async () => {
+    // A symlinked epoch directory under `derived/session-blob/`
+    // never appears in `listSessionBlobEpochs`'s output (per-entry
+    // `Dirent.isSymbolicLink()` filter), so the union iterator
+    // never asks for the symlinked epoch's sessions. The real
+    // epoch survives. Security boundary is preserved elsewhere:
+    // any caller that explicitly invokes
+    // `loadSessionBlobPack({ epoch: <symlinked> })` still hits the
+    // CQ-098 intermediate-symlink throw via the loader.
+    const dir1 = sessionBlobEpochDir(bundleRoot, 1)
+    await mkdir(dir1, { recursive: true })
+    await writeFile(join(dir1, 'ses_real.pack'), 'fake')
+    const external = await mkdtemp(join(tmpdir(), 'prosa-derived-list-all-cq098-'))
+    try {
+      await writeFile(join(external, 'ses_external.pack'), 'fake')
+      await symlink(external, sessionBlobEpochDir(bundleRoot, 3))
+
+      expect(await listAllSessionBlobSessions(bundleRoot)).toEqual(['ses_real'])
+      // External target survives unchanged.
+      const linkStat = await lstat(sessionBlobEpochDir(bundleRoot, 3))
+      expect(linkStat.isSymbolicLink()).toBe(true)
+    } finally {
+      await rm(external, { recursive: true, force: true })
+    }
+  })
+
+  it('propagates parent CQ-098 rejection when `derived/session-blob` itself is a symlink', async () => {
+    const external = await mkdtemp(join(tmpdir(), 'prosa-derived-list-all-parent-'))
+    try {
+      await mkdir(join(external, 'epoch-1'), { recursive: true })
+      await mkdir(join(bundleRoot, 'derived'), { recursive: true })
+      await symlink(external, join(bundleRoot, 'derived', 'session-blob'))
+
+      await expect(listAllSessionBlobSessions(bundleRoot)).rejects.toThrow(/CQ-098|intermediate/i)
+    } finally {
+      await rm(external, { recursive: true, force: true })
+    }
+  })
+
+  it('accepts a symlinked bundle-root alias when the SessionBlob tree is real', async () => {
+    const dir = sessionBlobEpochDir(bundleRoot, 5)
+    await mkdir(dir, { recursive: true })
+    await writeFile(join(dir, 'ses_aliased.pack'), 'fake')
+
+    const aliasParent = await mkdtemp(join(tmpdir(), 'prosa-derived-list-all-alias-'))
+    try {
+      const aliasRoot = join(aliasParent, 'bundle-alias')
+      await symlink(bundleRoot, aliasRoot)
+      expect(await listAllSessionBlobSessions(aliasRoot)).toEqual(['ses_aliased'])
+    } finally {
+      await rm(aliasParent, { recursive: true, force: true })
+    }
+  })
+
+  it('result is suitable for round-trip through sessionBlobPackPath (CQ-099 inherited)', async () => {
+    // Mix valid + invalid filenames across multiple epochs; the
+    // union must still pass the resolver invariant.
+    const dir1 = sessionBlobEpochDir(bundleRoot, 1)
+    await mkdir(dir1, { recursive: true })
+    await writeFile(join(dir1, 'ses_alpha.pack'), 'fake')
+    await writeFile(join(dir1, '.pack'), 'fake')
+    const dir2 = sessionBlobEpochDir(bundleRoot, 2)
+    await mkdir(dir2, { recursive: true })
+    await writeFile(join(dir2, 'ses_bravo.pack'), 'fake')
+    await writeFile(join(dir2, '..pack'), 'fake')
+
+    const all = await listAllSessionBlobSessions(bundleRoot)
+    expect(all).toEqual(['ses_alpha', 'ses_bravo'])
+    for (const id of all) {
+      expect(() => sessionBlobPackPath(bundleRoot, id, 0)).not.toThrow()
+    }
   })
 })

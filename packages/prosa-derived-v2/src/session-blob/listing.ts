@@ -161,3 +161,37 @@ export async function listSessionBlobSessions(input: ListSessionBlobSessionsInpu
   }
   return [...sessions].sort()
 }
+
+/**
+ * Cross-epoch enumeration: returns the sorted ascending set of unique
+ * session ids that have a pack in any epoch under
+ * `<bundleRoot>/derived/session-blob/`. Composes
+ * `listSessionBlobEpochs` with a per-epoch `listSessionBlobSessions`
+ * union; the result is the deduplicated set across every epoch the
+ * SessionBlob writer has emitted to.
+ *
+ * Pairs naturally with `loadLatestSessionBlobPack` for "list every
+ * session in this bundle, then render each one's latest transcript"
+ * workflows (CLI inventory commands, MCP `list_sessions`, web
+ * dashboards).
+ *
+ * Containment + per-entry symlink + resolver-parity guarantees are
+ * inherited from `listSessionBlobEpochs` (CQ-098 parent check) +
+ * `listSessionBlobSessions` (CQ-098 per-epoch check, per-entry
+ * symlink drop, CQ-099 resolver-parity). A symlinked managed
+ * intermediate at the parent throws before any per-epoch walk;
+ * a per-epoch symlink violation throws and aborts the union build.
+ *
+ * Fresh bundle (no epochs) yields `[]`. Empty epoch directories
+ * contribute nothing. Sessions appearing in multiple epochs surface
+ * exactly once.
+ */
+export async function listAllSessionBlobSessions(bundleRoot: string): Promise<string[]> {
+  const epochs = await listSessionBlobEpochs(bundleRoot)
+  const sessions = new Set<string>()
+  for (const epoch of epochs) {
+    const perEpoch = await listSessionBlobSessions({ bundleRoot, epoch })
+    for (const id of perEpoch) sessions.add(id)
+  }
+  return [...sessions].sort()
+}
