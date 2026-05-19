@@ -41,7 +41,7 @@ interface StatusSnapshot {
 }
 
 describe('prosa index-v2 CLI', () => {
-  it('`index-v2 --help` lists every subcommand (status, sessions, epochs, analytics-views, analytics-execution-plan, projection-segments, tantivy-rebuild-plan, compaction-plan, compaction-manifest, compaction-execution-plan, transcript-header, transcript)', async () => {
+  it('`index-v2 --help` lists every subcommand (status, sessions, epochs, analytics-views, analytics-execution-plan, projection-segments, tantivy-rebuild-plan, compaction-plan, compaction-manifest, compaction-execution-plan, verify-packs, transcript-header, transcript)', async () => {
     const r = runCli(['index-v2', '--help'])
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('Bundle v2 derived-layer index commands')
@@ -55,6 +55,7 @@ describe('prosa index-v2 CLI', () => {
     expect(r.stdout).toContain('compaction-plan')
     expect(r.stdout).toContain('compaction-manifest')
     expect(r.stdout).toContain('compaction-execution-plan')
+    expect(r.stdout).toContain('verify-packs')
     expect(r.stdout).toContain('transcript-header')
     expect(r.stdout).toContain('transcript')
   })
@@ -711,6 +712,100 @@ describe('prosa index-v2 CLI', () => {
     const r = runCli(['index-v2', 'compaction-execution-plan'])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/required option.*--store/i)
+  })
+
+  it('`index-v2 verify-packs --help` documents --store', async () => {
+    const r = runCli(['index-v2', 'verify-packs', '--help'])
+    expect(r.status).toBe(0)
+    expect(r.stdout).toContain('Verify every SessionBlob pack')
+    expect(r.stdout).toContain('--store')
+  })
+
+  it('`index-v2 verify-packs` on a clean bundle returns verified rows with exit 0', async () => {
+    const { writeSessionBlobPack, identityCompressor } = await import('@c3-oss/prosa-derived-v2')
+    const { sessionBlobEpochDir, sessionBlobPackPath } = await import('@c3-oss/prosa-derived-v2')
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    for (const sessionId of ['ses_alpha', 'ses_bravo']) {
+      const messages = [
+        {
+          message_id: 'msg_000000',
+          ordinal: 0,
+          role: 'user' as const,
+          timestamp: '2026-05-19T00:00:00.000Z',
+          turn_id: 'tur_0',
+          blocks: [
+            {
+              block_id: 'blk_0_0',
+              block_type: 'text',
+              body: { kind: 'inline' as const, text: 'hi', byte_length: 2 },
+            },
+          ],
+        },
+      ]
+      const result = writeSessionBlobPack({ session_id: sessionId, epoch: 1, messages }, identityCompressor)
+      await mkdir(sessionBlobEpochDir(storeRoot, 1), { recursive: true })
+      await writeFile(sessionBlobPackPath(storeRoot, sessionId, 1), result.pack)
+    }
+
+    const r = runCli(['index-v2', 'verify-packs', '--store', storeRoot])
+    expect(r.status).toBe(0)
+    const out = JSON.parse(r.stdout) as {
+      verified: Array<{ session_id: string; epoch: number; pack_digest: string }>
+      failed: unknown[]
+    }
+    expect(out.verified.map((r) => r.session_id)).toEqual(['ses_alpha', 'ses_bravo'])
+    expect(out.failed).toEqual([])
+  })
+
+  it('`index-v2 verify-packs` exits non-zero when a pack is corrupted', async () => {
+    const { writeSessionBlobPack, identityCompressor } = await import('@c3-oss/prosa-derived-v2')
+    const { sessionBlobEpochDir, sessionBlobPackPath } = await import('@c3-oss/prosa-derived-v2')
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    const messages = [
+      {
+        message_id: 'msg_000000',
+        ordinal: 0,
+        role: 'user' as const,
+        timestamp: '2026-05-19T00:00:00.000Z',
+        turn_id: 'tur_0',
+        blocks: [
+          {
+            block_id: 'blk_0_0',
+            block_type: 'text',
+            body: { kind: 'inline' as const, text: 'hi', byte_length: 2 },
+          },
+        ],
+      },
+    ]
+    const result = writeSessionBlobPack({ session_id: 'ses_alpha', epoch: 1, messages }, identityCompressor)
+    await mkdir(sessionBlobEpochDir(storeRoot, 1), { recursive: true })
+    const packPath = sessionBlobPackPath(storeRoot, 'ses_alpha', 1)
+    await writeFile(packPath, result.pack)
+    // Corrupt the pack so verifyPackDigest will mismatch.
+    const { readFile } = await import('node:fs/promises')
+    const bytes = new Uint8Array(await readFile(packPath))
+    bytes[bytes.length - 16] = (bytes[bytes.length - 16] ?? 0) ^ 0xff
+    await writeFile(packPath, bytes)
+
+    const r = runCli(['index-v2', 'verify-packs', '--store', storeRoot])
+    expect(r.status).toBe(1)
+    const out = JSON.parse(r.stdout) as {
+      verified: unknown[]
+      failed: Array<{ session_id: string; epoch: number; error: string }>
+    }
+    expect(out.verified).toEqual([])
+    expect(out.failed).toHaveLength(1)
+    expect(out.failed[0]?.session_id).toBe('ses_alpha')
+    expect(out.failed[0]?.epoch).toBe(1)
+  })
+
+  it('`index-v2 verify-packs` on a fresh bundle returns empty arrays with exit 0', async () => {
+    const storeRoot = join(await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-')), 'never-initialised')
+    const r = runCli(['index-v2', 'verify-packs', '--store', storeRoot])
+    expect(r.status).toBe(0)
+    const out = JSON.parse(r.stdout) as { verified: unknown[]; failed: unknown[] }
+    expect(out.verified).toEqual([])
+    expect(out.failed).toEqual([])
   })
 
   it('`index-v2 transcript-header --help` documents --store, --session-id, --epoch', async () => {

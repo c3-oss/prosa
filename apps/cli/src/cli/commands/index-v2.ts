@@ -37,6 +37,7 @@ import {
   planTantivyRebuildFromBundle,
   readSessionBlobHeader,
   summariseProjectionSegments,
+  verifyAllSessionBlobPacks,
 } from '@c3-oss/prosa-derived-v2'
 import { Command } from 'commander'
 
@@ -205,6 +206,19 @@ export function indexV2Command(): Command {
       const plan = await planCompaction(storePath)
       const execution = planCompactionExecution({ bundleRoot: storePath, plan })
       process.stdout.write(`${JSON.stringify(execution, null, 2)}\n`)
+    })
+
+  root
+    .command('verify-packs')
+    .description(
+      "Verify every SessionBlob pack under <store>/derived/session-blob/. Each pack's verifyPackDigest mismatch lands in `failed[]`; clean packs land in `verified[]`. Exits non-zero when any failure is captured so audit scripts can branch on `$?`.",
+    )
+    .requiredOption('--store <path>', 'bundle directory')
+    .action(async (options: { store: string }) => {
+      const storePath = resolvePath(options.store)
+      const result = await verifyAllSessionBlobPacks(storePath)
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
+      if (result.failed.length > 0) process.exit(1)
     })
 
   root
