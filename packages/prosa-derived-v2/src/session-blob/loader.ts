@@ -14,14 +14,57 @@
 // subtree; an external-target symlink would otherwise let the loader
 // read bytes outside the bundle.
 //
+// CQ-098: the same symlink-rejection contract extends to managed
+// intermediate components (`<bundleRoot>/derived`,
+// `<bundleRoot>/derived/session-blob`, and
+// `<bundleRoot>/derived/session-blob/epoch-<n>`). Without the
+// intermediate check, a symlink at any of those positions would let
+// `lstat(packPath)` observe an external pack file and the loader would
+// read bytes outside the bundle. The bundle root itself is NOT
+// validated: opening the bundle through a symlinked alias is a
+// supported deployment pattern. Mirrors the CQ-096 fix for the Tantivy
+// derived path chain.
+//
 // Input validation (sessionId grammar, epoch range) is delegated to
 // `sessionBlobPackPath` which throws on invalid inputs.
 
 import { lstat, readFile } from 'node:fs/promises'
 
-import { sessionBlobPackPath } from '../derived-layout.js'
+import { derivedPaths, sessionBlobEpochDir, sessionBlobPackPath } from '../derived-layout.js'
 
 import { type DecodedSessionBlobPack, decodeSessionBlobPack, verifyPackDigest } from './reader.js'
+
+/**
+ * CQ-098 containment probe for the SessionBlob loader path chain.
+ * Walks the managed intermediate components outermost → innermost
+ * (`derived`, `derived/session-blob`, `derived/session-blob/epoch-<n>`)
+ * and reports the first symlink found. Mirrors the CQ-096 Tantivy
+ * helper in shape and policy:
+ *
+ *   - Missing intermediates resolve to `escape: false` (the outer
+ *     `lstat(packPath)` will surface a clean ENOENT for the caller).
+ *   - A non-symlink intermediate (regular dir / file) is fine here;
+ *     the outer `lstat(packPath)` handles non-directory-at-pack-path.
+ *   - Order matters: outermost first, so the error message names the
+ *     highest escape point (most useful operator signal).
+ */
+async function detectSessionBlobIntermediateSymlink(
+  bundleRoot: string,
+  epoch: number,
+): Promise<{ escape: false } | { escape: true; path: string }> {
+  const paths = derivedPaths(bundleRoot)
+  const epochDir = sessionBlobEpochDir(bundleRoot, epoch)
+  for (const path of [paths.derived, paths.sessionBlob, epochDir]) {
+    try {
+      const st = await lstat(path)
+      if (st.isSymbolicLink()) return { escape: true, path }
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') continue
+      throw err
+    }
+  }
+  return { escape: false }
+}
 
 export interface LoadSessionBlobPackInput {
   /** Absolute bundle root. */
@@ -66,6 +109,17 @@ export interface LoadedSessionBlobPack extends DecodedSessionBlobPack {
  */
 export async function loadSessionBlobPack(input: LoadSessionBlobPackInput): Promise<LoadedSessionBlobPack> {
   const path = sessionBlobPackPath(input.bundleRoot, input.sessionId, input.epoch)
+  // CQ-098: refuse to read when any managed intermediate component
+  // (`derived`, `derived/session-blob`, `derived/session-blob/epoch-<n>`)
+  // is a symlink. Without this, `lstat(packPath)` could observe a
+  // pack file outside the bundle and the loader would happily read +
+  // verify it.
+  const intermediate = await detectSessionBlobIntermediateSymlink(input.bundleRoot, input.epoch)
+  if (intermediate.escape) {
+    throw new Error(
+      `loadSessionBlobPack: refusing to read ${path} — intermediate path ${intermediate.path} is a symlink (CQ-098). Resolve the symlink configuration manually before retrying.`,
+    )
+  }
   const st = await lstat(path)
   if (st.isSymbolicLink()) {
     throw new Error(`loadSessionBlobPack: refusing to read ${path} — path is a symlink (CQ-094).`)

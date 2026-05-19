@@ -8,7 +8,7 @@
 // non-regular-file rejection), tamper detection (corrupted bytes),
 // missing file (ENOENT), and input-validation delegation.
 
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -104,6 +104,89 @@ describe('loadSessionBlobPack', () => {
       )
     } finally {
       await rm(external, { recursive: true, force: true })
+    }
+  })
+
+  it('CQ-098: refuses when `derived/session-blob` is a symlink to an external dir with a valid pack', async () => {
+    // Plant a real external pack so `lstat(packPath)` would see a
+    // valid file without the intermediate-symlink check. The loader
+    // must reject before the outer `lstat` walks through the symlink.
+    const messages = [mkMessage(0, [inlineBlock('blk_0_0', 'text', 'external')])]
+    const external = await mkdtemp(join(tmpdir(), 'prosa-derived-loader-cq098-sb-'))
+    try {
+      const result = writeSessionBlobPack({ session_id: SESSION_ID, epoch: EPOCH, messages }, identityCompressor)
+      const externalEpochDir = join(external, `epoch-${EPOCH}`)
+      await mkdir(externalEpochDir, { recursive: true })
+      await writeFile(join(externalEpochDir, `${SESSION_ID}.pack`), result.pack)
+      await mkdir(join(bundleRoot, 'derived'), { recursive: true })
+      await symlink(external, join(bundleRoot, 'derived', 'session-blob'))
+
+      await expect(loadSessionBlobPack({ bundleRoot, sessionId: SESSION_ID, epoch: EPOCH })).rejects.toThrow(
+        /CQ-098|intermediate/i,
+      )
+      // External pack survives unchanged.
+      const linkStat = await lstat(join(bundleRoot, 'derived', 'session-blob'))
+      expect(linkStat.isSymbolicLink()).toBe(true)
+    } finally {
+      await rm(external, { recursive: true, force: true })
+    }
+  })
+
+  it('CQ-098: refuses when `derived/session-blob/epoch-<n>` is a symlink to an external dir with a valid pack', async () => {
+    const messages = [mkMessage(0, [inlineBlock('blk_0_0', 'text', 'external')])]
+    const external = await mkdtemp(join(tmpdir(), 'prosa-derived-loader-cq098-epoch-'))
+    try {
+      const result = writeSessionBlobPack({ session_id: SESSION_ID, epoch: EPOCH, messages }, identityCompressor)
+      await writeFile(join(external, `${SESSION_ID}.pack`), result.pack)
+      await mkdir(join(bundleRoot, 'derived', 'session-blob'), { recursive: true })
+      await symlink(external, sessionBlobEpochDir(bundleRoot, EPOCH))
+
+      await expect(loadSessionBlobPack({ bundleRoot, sessionId: SESSION_ID, epoch: EPOCH })).rejects.toThrow(
+        /CQ-098|intermediate/i,
+      )
+      const linkStat = await lstat(sessionBlobEpochDir(bundleRoot, EPOCH))
+      expect(linkStat.isSymbolicLink()).toBe(true)
+    } finally {
+      await rm(external, { recursive: true, force: true })
+    }
+  })
+
+  it('CQ-098: refuses when `derived` is a symlink to an external tree (outermost)', async () => {
+    const messages = [mkMessage(0, [inlineBlock('blk_0_0', 'text', 'external')])]
+    const external = await mkdtemp(join(tmpdir(), 'prosa-derived-loader-cq098-derived-'))
+    try {
+      const result = writeSessionBlobPack({ session_id: SESSION_ID, epoch: EPOCH, messages }, identityCompressor)
+      const externalEpochDir = join(external, 'session-blob', `epoch-${EPOCH}`)
+      await mkdir(externalEpochDir, { recursive: true })
+      await writeFile(join(externalEpochDir, `${SESSION_ID}.pack`), result.pack)
+      await symlink(external, join(bundleRoot, 'derived'))
+
+      await expect(loadSessionBlobPack({ bundleRoot, sessionId: SESSION_ID, epoch: EPOCH })).rejects.toThrow(
+        /CQ-098|intermediate/i,
+      )
+    } finally {
+      await rm(external, { recursive: true, force: true })
+    }
+  })
+
+  it('CQ-098: succeeds when the bundle root itself is a symlinked alias and the SessionBlob tree is real', async () => {
+    // Bundle-root-alias deployment pattern: operator opens the bundle
+    // through a symlinked alias. The containment check targets
+    // symlinks *inside* the managed derived tree, not the caller's
+    // bundle root.
+    const messages = [mkMessage(0, [inlineBlock('blk_0_0', 'text', 'aliased')])]
+    await writePackToDisk(bundleRoot, messages)
+    const aliasParent = await mkdtemp(join(tmpdir(), 'prosa-derived-loader-alias-'))
+    try {
+      const aliasRoot = join(aliasParent, 'bundle-alias')
+      await symlink(bundleRoot, aliasRoot)
+
+      const loaded = await loadSessionBlobPack({ bundleRoot: aliasRoot, sessionId: SESSION_ID, epoch: EPOCH })
+
+      expect(loaded.header.epoch).toBe(EPOCH)
+      expect(loaded.path).toBe(sessionBlobPackPath(aliasRoot, SESSION_ID, EPOCH))
+    } finally {
+      await rm(aliasParent, { recursive: true, force: true })
     }
   })
 

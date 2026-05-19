@@ -4,9 +4,116 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 ## Open
 
-(none — `CQ-091`..`CQ-097` are all closed.)
+(none — `CQ-091`..`CQ-098` are all closed.)
 
 ## Closed (latest first)
+
+### CQ-098: Reject Intermediate Symlink Escapes in SessionBlob Pack Loader — closed 2026-05-19
+
+Status: closed
+Severity: high
+Blocking: yes
+Owner: Ralph
+Opened: 2026-05-19
+Closed: 2026-05-19
+Lane: 3 - Derived layer
+
+Finding:
+
+The current `loadSessionBlobPack()` WIP rejects a symlink at the final
+pack file path with `lstat(packPath)`, but it still follows symlinks in
+intermediate components. If
+`<bundleRoot>/derived/session-blob` or
+`<bundleRoot>/derived/session-blob/epoch-<n>` is a symlink to an
+external directory, `lstat(<...>/<session_id>.pack)` observes the
+external file rather than rejecting the escape. The loader can then
+read and verify a valid external pack while appearing to use canonical
+derived paths.
+
+Risk:
+
+Lane 3 derived artifacts must remain confined to the bundle. A
+symlinked intermediate SessionBlob directory can make future read paths
+load bytes outside `<bundleRoot>/derived/session-blob/`, undermining
+the same containment invariant enforced for Tantivy by `CQ-096`.
+
+Required fix:
+
+- Add containment validation for the SessionBlob pack path chain used
+  by `loadSessionBlobPack()`.
+- The check must reject symlinks in managed intermediate components
+  such as `<bundleRoot>/derived`,
+  `<bundleRoot>/derived/session-blob`, and
+  `<bundleRoot>/derived/session-blob/epoch-<n>`, not only the final
+  `<session_id>.pack` file.
+- Preserve the accepted symlinked-bundle-root deployment pattern when
+  the bundle itself is opened through a symlinked alias; the rejection
+  target is symlinks inside the managed derived tree, not the caller's
+  root path.
+- Keep input validation delegated to `sessionBlobPackPath()` and keep
+  ENOENT propagation for a genuinely missing pack.
+
+Acceptance criteria:
+
+- Add regression tests covering at least:
+  - `derived/session-blob -> <external>` with an otherwise valid
+    external `epoch-<n>/<session_id>.pack`: loader rejects before
+    reading the external pack.
+  - `derived/session-blob/epoch-<n> -> <external>` with an otherwise
+    valid external `<session_id>.pack`: loader rejects.
+  - A bundle opened via a symlinked root still loads successfully when
+    the managed SessionBlob path itself is a real directory under that
+    root.
+  - The existing final-component symlink rejection remains covered.
+- Focused gates pass:
+  - `pnpm --filter @c3-oss/prosa-derived-v2 test`
+  - `pnpm --filter @c3-oss/prosa-derived-v2 typecheck`
+  - `pnpm --filter @c3-oss/prosa-derived-v2 lint`
+  - `git diff --check`
+- Update `docs/roadmap/rearch-2/evidence/lane-03.md`, `gates.md`,
+  `status.md`, and `ralph-loop-prompt.md` with the fix commit and
+  gate evidence before closing this correction.
+
+Closure note:
+
+Fix lands in this iteration as a slice on top of the
+`loadSessionBlobPack` commit (`eb88037`):
+
+- Private helper `detectSessionBlobIntermediateSymlink(bundleRoot,
+  epoch)` walks `<bundleRoot>/derived`,
+  `<bundleRoot>/derived/session-blob`, and
+  `<bundleRoot>/derived/session-blob/epoch-<n>` outermost →
+  innermost, `lstat`s each, and reports the first symlink found.
+  Mirrors the CQ-096 `detectDerivedTantivyIntermediateSymlink` in
+  shape and policy. Missing intermediates resolve to
+  `escape: false`; ENOENT propagation at the final `lstat(packPath)`
+  step is preserved.
+- `loadSessionBlobPack()` calls the helper before the final `lstat`
+  and throws with the offending intermediate path quoted.
+- Bundle-root containment is **not** validated — the symlinked
+  bundle-root alias deployment pattern remains supported.
+
+Regression coverage (4 new tests in
+`packages/prosa-derived-v2/test/session-blob/loader.test.ts`):
+
+- `CQ-098: refuses when derived/session-blob is a symlink to an
+  external dir with a valid pack`.
+- `CQ-098: refuses when derived/session-blob/epoch-<n> is a symlink
+  to an external dir with a valid pack`.
+- `CQ-098: refuses when derived is a symlink to an external tree
+  (outermost)`.
+- `CQ-098: succeeds when the bundle root itself is a symlinked
+  alias and the SessionBlob tree is real`.
+
+Gates after the change:
+
+- `pnpm --filter @c3-oss/prosa-derived-v2 typecheck`: pass.
+- `pnpm --filter @c3-oss/prosa-derived-v2 test`: pass, 190 tests / 18
+  files.
+- `pnpm --filter @c3-oss/prosa-derived-v2 lint`: pass.
+- Full repo `pnpm build` / `pnpm test` / `pnpm lint`: 13/13 turbo.
+- `pnpm test:conformance`: pass, 26 / 2.
+- `git diff --check`: pass.
 
 ### CQ-097: Keep SessionBlob Layout Tests Textual and Reconcile WIP Evidence — closed 2026-05-19
 

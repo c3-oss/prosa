@@ -34,9 +34,10 @@ section as the full restart instruction:
   asserts on-disk pack stability). Lane 3 derived-layer scaffold has
   landed in its own focused commit on top of the Lane 2 closeout per
   `CQ-083`.
-- All `CQ-074..CQ-097` are closed. Lane 3 progress includes the
-  `loadSessionBlobPack` on-disk loader landing in this iteration,
-  plus the prior scaffold
+- All `CQ-074..CQ-098` are closed. Lane 3 progress includes the
+  `loadSessionBlobPack` on-disk loader (`eb88037`) with CQ-098
+  intermediate-symlink containment landing in this iteration, plus
+  the prior scaffold
   (`bb76006`), SessionBlobPackV2 byte layout (`ba87f05`), Parquet
   compaction planner (`ea8c1a8`), DuckDB analytics view shape contract
   + compacted-overlay binding (`cff3670` / `e35f844`), Tantivy schema
@@ -56,8 +57,7 @@ section as the full restart instruction:
   writer, DuckDB runtime executor, runtime Parquet merge) plus
   Lanes 4–10 are still incomplete.
 - Continue from the first incomplete Lane 3 surface after the
-  `loadSessionBlobPack` commit. Do not restart an already completed
-  lane.
+  CQ-098 fix commit. Do not restart an already completed lane.
 - If a correction needs a Codex/governor decision, ask one clear binary
   accept/reject question with a safe default. Do not loop on "external
   acceptance" as if Codex were unavailable.
