@@ -9,9 +9,9 @@ Completion signal: RALPH_DONE
 
 ## Current State
 
-Status: Lane 1 accepted; Lane 2 accepted by Codex/governor on 2026-05-19; Lane 3 progress: scaffold (`bb76006`), SessionBlobPackV2 byte layout (`ba87f05`), Parquet compaction planner (`ea8c1a8`), DuckDB analytics view shape contract (`cff3670`), CQ-089 compacted-overlay fix (`e35f844`), Tantivy schema + rebuild planner (`509e1f1`), CAS-ref UTF-8 byte accounting (`585a456`), SessionBlob cross-page transcript iterator (`c7e027d`), Tantivy IndexCheckpointV2 persistence (`9ebbd07`), CQ-093 atomic checkpoint replacement (`734b958`), analytics execution-plan composer (`3f54ca6`), Tantivy index-dir probe (`8d45fbb`), CQ-094 symlink rejection (`2c97eca`), `planTantivyRebuildFromBundle` orchestration (`fa49eb2`), CQ-095 roadmap reconciliation (`e1e432d`), compaction execution-plan composer (`87bacb0`), `derivedPaths` centralised layout (`d3811b4`), `clearTantivyIndexDir` reset helper (`257a176`), prompt hash pin (`3b9f79e`), CQ-096 intermediate symlink containment landing in this iteration.
+Status: Lane 1 accepted; Lane 2 accepted by Codex/governor on 2026-05-19; Lane 3 progress: scaffold (`bb76006`), SessionBlobPackV2 byte layout (`ba87f05`), Parquet compaction planner (`ea8c1a8`), DuckDB analytics view shape contract (`cff3670`), CQ-089 compacted-overlay fix (`e35f844`), Tantivy schema + rebuild planner (`509e1f1`), CAS-ref UTF-8 byte accounting (`585a456`), SessionBlob cross-page transcript iterator (`c7e027d`), Tantivy IndexCheckpointV2 persistence (`9ebbd07`), CQ-093 atomic checkpoint replacement (`734b958`), analytics execution-plan composer (`3f54ca6`), Tantivy index-dir probe (`8d45fbb`), CQ-094 symlink rejection (`2c97eca`), `planTantivyRebuildFromBundle` orchestration (`fa49eb2`), CQ-095 roadmap reconciliation (`e1e432d`), compaction execution-plan composer (`87bacb0`), `derivedPaths` centralised layout (`d3811b4`), `clearTantivyIndexDir` reset helper (`257a176`), prompt hash pin (`3b9f79e`), CQ-096 intermediate symlink containment (`3be300f`).
 Current lane: Lane 3 — remaining surfaces are the Tantivy native writer (needs `@oxdev03/node-tantivy-binding` workspace allowlist) and the DuckDB / Parquet runtime executors.
-Current HEAD: pending CQ-096 fix commit (after `3b9f79e`).
+Current HEAD: `3be300f` (CQ-096 fix).
 No-change streak: 0
 Ralph active: yes
 
