@@ -41,7 +41,7 @@ a `just` wrapper fails for environmental reasons.
 | 02 | `pnpm --filter @c3-oss/prosa-importers-v2 test` | yes | pass | 40 tests / 7 files (GraphResolver 5, orchestrator 3, CodexProvider 7, ClaudeProvider 7 incl. CQ-068 spawned-edge tests, CursorProvider 5 incl. CQ-070 stable-key fix + CQ-074 full-projection assertions over a real SQLite store, GeminiProvider 6, HermesProvider 7). |
 | 02 | `pnpm --filter @c3-oss/prosa exec vitest run test/cli/compile-v2.test.ts` | yes | pass | 5 subprocess-spawned tests: `compile-v2 codex` happy path + invalid-provider rejection + `compile-all-v2` against all 5 providers + CQ-072 `--help` smokes for both commands. |
 | 02 | `pnpm --filter @c3-oss/prosa lint` | yes | pass | CQ-073: formatting issue auto-fixed by `biome check --fix`; lane-02 CLI lint clean. |
-| 03 | `pnpm --filter @c3-oss/prosa-derived-v2 test` | yes | pass | **17 tests** / 2 files at the scaffold commit: SessionBlobPackV2 joint-constraint policy (11 cases incl. a 5,000-message simulation that never overflows the 1 MiB page payload or 256 hard message cap) + Parquet compaction trigger policy (6 cases incl. file-count + low-count-byte-ceiling). Tantivy writer, DuckDB analytics views, and pack byte layout pending in follow-up iterations. |
+| 03 | `pnpm --filter @c3-oss/prosa-derived-v2 test` | yes | pass | **36 tests** / 4 files: SessionBlobPackV2 joint-constraint policy (11) + Parquet compaction trigger policy (6) + framing round-trip / hash binding / boundary-condition tests (8; CQ-084) + writer/reader round-trip + atomic-fragment + pack_digest-recomputation + adversarial-single-message-over-1MiB + page-byte-cap tests (11; CQ-085). Tantivy writer, DuckDB analytics views, and runtime compaction worker pending. |
 | 03 | `pnpm dev -- index-v2 status --help` | yes | not-run | CLI command presence smoke until fixture gate exists. |
 | 04 | `pnpm --filter @c3-oss/prosa-db-v2 test` | yes | not-run | Postgres v2 schema and migration tests. |
 | 04 | `pnpm test apps/api/test/v2` | yes | not-run | API v2 schema, auth, signing, validation tests. |
@@ -98,10 +98,9 @@ no new transitive risk.
 
 - [x] Worktree state documented.
 - [x] Lane 0 has evidence; lanes 2–10 are documented as blocked or WIP.
-- [ ] No open blocking corrections. *(`CQ-083` is open; it blocks Lane 2
-  acceptance, Lane 3 start, final stabilization, and `RALPH_DONE` until the
-  corrected `CQ-082` Lane 2 closeout is committed separately from Lane 3
-  scaffold WIP.)*
+- [ ] No open blocking corrections. *(`CQ-086` is open; it blocks accepting the
+  SessionBlobPackV2 byte-layout closeout until the `CQ-084`/`CQ-085` WIP is
+  committed and reconciled to HEAD.)*
 - [x] Base gates passed at HEAD `6c25966` (full repo `pnpm test` / `pnpm
   typecheck` / `pnpm lint` 12/12 turbo).
 - [x] Lane 0-specific gates passed: `prosa-types-v2` 89 tests, `prosa-wire-v2`
@@ -114,8 +113,8 @@ no new transitive risk.
   non-dev path, pre-existing on `master`).
 - [ ] Security, integrity, remote-read, and E2E reviewer findings resolved
   for Lane 0 and Lane 1. Lane 0 and Lane 1 corrections through `CQ-066` are
-  closed; `CQ-083` tracks the current mixed-scope Lane 2/Lane 3 closeout.
-- [ ] Final Codex review completed. *(Pending — Lane 2+ work and `CQ-083`
-  remain open.)*
+  closed; `CQ-086` tracks the current Lane 3 SessionBlob closeout blocker.
+- [ ] Final Codex review completed. *(Pending — Lane 3+ work and
+  `CQ-086` remain open.)*
 - [ ] Five-cycle final stabilization evidence recorded. *(Pending; Lane 1
   must be accepted by Codex first.)*

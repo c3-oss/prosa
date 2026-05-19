@@ -33,11 +33,11 @@ section as the full restart instruction:
   asserts on-disk pack stability). Lane 3 derived-layer scaffold has
   landed in its own focused commit on top of the Lane 2 closeout per
   `CQ-083`.
-- All `CQ-074..CQ-083` are closed. There are no open blocking corrections.
-  Lane 2 acceptance is the project owner's / Codex's call. Lane 3 is the
-  active lane; subsequent iterations land the Tantivy generation writer,
-  SessionBlobPackV2 byte layout, DuckDB analytics views, and the runtime
-  compaction worker.
+- All `CQ-074..CQ-086` are closed. SessionBlobPackV2 byte layout
+  (framing + writer + reader + verifier) lands in this iteration on
+  top of the Lane 3 scaffold `bb76006`. Lane 2 acceptance still
+  requires Codex/governor/user sign-off; do not output `RALPH_DONE`
+  yet because Lanes 4–10 remain.
 - If a correction needs a Codex/governor decision, ask one clear binary
   accept/reject question with a safe default. Do not loop on "external
   acceptance" as if Codex were unavailable.
@@ -155,12 +155,11 @@ Keep these files current:
 
 Current open correction:
 
-(none — `CQ-074..CQ-083` are all closed. Lane 2 implementation
-contract is complete; Lane 2 acceptance is the project owner's /
-Codex's call. Lane 3 derived-layer scaffold has landed in its own
-focused commit per `CQ-083`. Subsequent Lane 3 iterations bring the
-Tantivy writer, SessionBlobPackV2 byte layout, DuckDB analytics
-views, and the runtime compaction worker.)
+(none — `CQ-074..CQ-086` are all closed. The SessionBlobPackV2 byte-
+layout slice landing in this iteration covers framing + writer +
+reader + verifier + 36 derived-v2 tests. Next Lane 3 surfaces:
+Tantivy generation writer, DuckDB analytics views, runtime Parquet
+compaction worker.)
 
 Lane 0 + Lane 1 are accepted by the project owner on 2026-05-18, including the
 two re-scopes in `docs/rearch-2/lane-1-rescopes.md`.

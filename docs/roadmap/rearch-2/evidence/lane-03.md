@@ -1,12 +1,13 @@
 # Lane Evidence
 
 Lane: 03 - Derived layer
-Status: active WIP — scaffold + writer/compaction policies landed; Tantivy
-writer, SessionBlobPackV2 byte layout, DuckDB analytics view definitions,
+Status: active WIP — scaffold (`bb76006`) + SessionBlobPackV2 byte layout
+(framing + writer + reader + verifier) landing in this iteration close
+`CQ-084` and `CQ-085`. Tantivy writer, DuckDB analytics view definitions,
 and the runtime compaction worker still pending.
 Owner: Ralph
-Commit range: Lane 3 scaffold lands on top of the Lane 2 `CQ-082` closeout
-(`3eb1c08`) in a separate commit per `CQ-083`.
+Commit range: Lane 3 scaffold (`bb76006`) + SessionBlobPackV2 byte-layout
+slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
 
 ## Acceptance Criteria
 
@@ -30,8 +31,23 @@ Commit range: Lane 3 scaffold lands on top of the Lane 2 `CQ-082` closeout
     256 MiB total. Large (≥ 32 MiB) segments are excluded from the
     "small" count.
 - [ ] Tantivy generation writer + incremental rebuild — pending.
-- [ ] SessionBlobPackV2 byte layout (writer + reader emitting and
-  parsing the actual `.prosa-session-blob` pack format) — pending.
+- [x] SessionBlobPackV2 byte layout (writer + reader emitting and
+  parsing the actual pack format) implemented and tested:
+  - 16-byte framing magic `PROSA_SESS_PACK2` mirroring the
+    `prosa-bundle-v2` `PROSA_CAS_PACK_2` / `PROSA_RAW_SRC_V2`
+    convention; canonical-JSON header bound by blake3.
+  - `writeSessionBlobPack` paginates per the joint constraint,
+    keeps multi-block messages atomic on a single page when they
+    fit, and falls back to fragment mode for adversarial
+    single-message-too-large inputs while preserving every block id.
+  - `pack_digest` is defined as `blake3(canonical(header_without_pack_digest_field) || payload)`;
+    `verifyPackDigest()` recomputes it from the bytes alone for
+    tamper detection.
+  - `loadTranscriptPage` validates both `stored_hash` (compressed)
+    and `uncompressed_hash` before returning the parsed body.
+  - Identity compressor/decompressor pair lets tests exercise the
+    layout independently of zstd; production callers will plug in
+    `zstdCompress` / `zstdDecompress` from `@c3-oss/prosa-bundle-v2`.
 - [ ] DuckDB analytics view definitions (5 fixed reports) — pending.
 - [ ] Runtime Parquet compaction worker invoking the policy at the
   end of compile — pending.
@@ -55,7 +71,7 @@ Commit range: Lane 3 scaffold lands on top of the Lane 2 `CQ-082` closeout
 ```text
 pnpm install --prefer-offline                       # registers @c3-oss/prosa-derived-v2 in pnpm-lock.yaml
 pnpm --filter @c3-oss/prosa-derived-v2 typecheck    # clean
-pnpm --filter @c3-oss/prosa-derived-v2 test         # 17 tests / 2 files (writer-policy 11, compaction 6)
+pnpm --filter @c3-oss/prosa-derived-v2 test         # 36 tests / 4 files (writer-policy 11, compaction 6, framing 8, writer/reader 11)
 pnpm --filter @c3-oss/prosa-derived-v2 lint         # clean
 pnpm build                                          # 13/13 turbo
 pnpm typecheck                                      # 13/13 turbo

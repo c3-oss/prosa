@@ -4,12 +4,116 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 ## Open
 
-(none — `CQ-074..CQ-083` are all closed. Lane 2 implementation
-contract is complete; Lane 2 acceptance still requires
-Codex/governor/user sign-off. Lane 3 derived-layer scaffold has
-landed in its own focused commit on top of the Lane 2 closeout.)
+(none — `CQ-074..CQ-086` are all closed by the SessionBlobPackV2
+byte-layout closeout commit landing in this iteration.)
 
 ## Closed (latest first)
+
+### CQ-086: Commit and Reconcile SessionBlobPackV2 CQ-084/CQ-085 Closeout — closed 2026-05-19
+
+Closeout committed in this iteration:
+
+- `packages/prosa-derived-v2/src/session-blob/{framing,writer,reader}.ts`
+  + tests + `index.ts` exports are tracked.
+- Roadmap artifacts (`correction-queue.md`, `status.md`,
+  `gates.md`, `evidence/lane-03.md`, `ralph-loop-prompt.md`)
+  reconciled to the committed HEAD. `CQ-084`, `CQ-085`, and
+  `CQ-086` are all closed.
+
+Gates at the committed HEAD:
+
+- `pnpm --filter @c3-oss/prosa-derived-v2 typecheck`: pass.
+- `pnpm --filter @c3-oss/prosa-derived-v2 test`: pass, 36 tests /
+  4 files.
+- `pnpm --filter @c3-oss/prosa-derived-v2 lint`: pass.
+- Full repo `pnpm build` / `pnpm typecheck` / `pnpm test` / `pnpm
+  lint`: 13/13 turbo.
+- `pnpm test:conformance`: pass, 26 tests / 2 files.
+- `git diff --check`: pass.
+
+### CQ-085: Make SessionBlob Writer/Reader Preserve Data and Bind the Final Pack Digest — closed 2026-05-19
+
+All three CQ-085 defects are fixed:
+
+1. **`pack_digest` contract clarified.** The digest is now defined as
+   `blake3(canonical_json(header_without_pack_digest_field) || payload)`.
+   Readers can recompute it from the bytes alone (via the new
+   `verifyPackDigest()` helper) without trusting the header field.
+   `header.pack_digest` and the returned `pack_digest` are equal by
+   construction; `verifyPackDigest()` agrees with both. The
+   self-referential-header case is documented in code comments so
+   future readers don't misread the contract as "blake3 over the
+   framed pack bytes".
+2. **Multi-block messages no longer drop blocks across a split.**
+   When `decideBlock` returns `split_page` mid-staging, the writer
+   moves the *entire* current message onto a fresh page and re-stages
+   from block 0 (atomic-message contract). If the message is so
+   large that even a fresh empty page cannot hold all its blocks,
+   the writer falls back to fragment mode: the staged blocks land on
+   the current page as a `message_id`-tagged fragment, then a new
+   page opens for the remaining blocks. Every input block survives
+   in exactly one fragment.
+3. **Writer-internal effective budget keeps serialized pages under
+   the cap.** A new `EFFECTIVE_PAGE_BUDGET = 0.75 * MAX` is enforced
+   in the writer in addition to `decideBlock`. The per-block JSON
+   overhead estimate is bumped to 256 bytes (was 128) and per-message
+   to 256 (was 192) so the rough estimates always cover the actual
+   serialized JSON cost.
+
+Tests in `test/session-blob/writer-reader.test.ts` (11 cases incl.
+6 from this iteration):
+
+- Small-session round-trip exercises framing + canonical-JSON
+  serialization + identity compressor decompression.
+- 1,000-message pagination respects both the message-count and byte
+  caps; offsets are monotonic and contiguous.
+- Empty session emits `page_count: 0`.
+- CAS-ref bodies pass through the pack body without inlining.
+- Byte-identical pack output for identical input.
+- Out-of-range page index is rejected.
+- **CQ-085 (1):** `pack_digest` is recomputable from header-without-
+  digest + payload; `verifyPackDigest()` agrees.
+- **CQ-085 (1):** `verifyPackDigest()` rejects payload tampering.
+- **CQ-085 (2):** single message with 400 inline 3 KiB blocks
+  (cumulative ~1.2 MiB) is split into fragments preserving every
+  block id; every page's `uncompressed_length` stays at or below
+  `MAX_PAGE_UNCOMPRESSED_BYTES`.
+- **CQ-085 (2):** mixed multi-block messages across the corpus —
+  union of block_ids across pages equals the input set with no
+  duplicates and no missing entries.
+- **CQ-085 (4):** 800 messages × 3 KiB blocks — every page's
+  actual serialized `uncompressed_length` stays at or below the
+  1 MiB cap.
+
+Gates after the change:
+
+- `pnpm --filter @c3-oss/prosa-derived-v2 typecheck`: pass.
+- `pnpm --filter @c3-oss/prosa-derived-v2 test`: pass, 36 tests / 4
+  files (writer-policy 11, compaction 6, framing 8, writer/reader
+  11).
+- `pnpm --filter @c3-oss/prosa-derived-v2 lint`: pass.
+- Full repo `pnpm build` / `pnpm typecheck` / `pnpm test` / `pnpm
+  lint`: 13/13 turbo.
+- `pnpm test:conformance`: pass, 26 tests / 2 files.
+- `git diff --check`: pass.
+
+### CQ-084: Fix SessionBlobPackV2 Framing Magic Round-Trip Before Commit — closed 2026-05-19
+
+The framing-magic length defect is fixed:
+
+- `SESSION_BLOB_MAGIC` is now `'PROSA_SESS_PACK2'` (16 bytes),
+  matching the bundle-v2 convention (`PROSA_CAS_PACK_2`,
+  `PROSA_RAW_SRC_V2`). `encodeInto` no longer truncates the magic,
+  so `decodeSessionBlobFrame` accepts its own output.
+- Focused tests in `test/session-blob/framing.test.ts` (8 cases):
+  round-trip preserves header bytes / payload / flags; header
+  tampering rejected via the blake3 binding; too-short buffers and
+  truncated header_len rejected; unexpected magic rejected;
+  `canonicalJsonBytes` emits stable key ordering and drops
+  `undefined` while preserving `null`.
+- Framing helpers + writer/reader + identity compressor pair
+  exported from `packages/prosa-derived-v2/src/index.ts` as the
+  Lane 3 public surface.
 
 ### CQ-083: Separate CQ-082 Lane 2 Closeout From Lane 3 Scaffold WIP — closed 2026-05-19
 

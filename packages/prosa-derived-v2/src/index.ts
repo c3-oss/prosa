@@ -17,4 +17,7 @@
 
 export * from './session-blob/types.js'
 export * from './session-blob/writer-policy.js'
+export * from './session-blob/framing.js'
+export * from './session-blob/writer.js'
+export * from './session-blob/reader.js'
 export * from './compaction/policy.js'
