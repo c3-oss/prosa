@@ -7,7 +7,7 @@
 | `pnpm i` | yes | pass | `pnpm install --frozen-lockfile`-compatible. Pre-existing peer warning: `@c3-oss/config-vitest@0.3.0` wants vitest ^3.1.1, repo on 2.1.9. |
 | `pnpm build` | yes | pass | 10/10 turbo tasks (now includes `@c3-oss/prosa-bundle-v2`). |
 | `just typecheck` | yes | pass | 10/10 turbo tasks. |
-| `just test-all` | yes | pass | 12/12 turbo at HEAD post-CQ-068/CQ-069. Focused counts: `@c3-oss/prosa-types-v2` 89, `@c3-oss/prosa-wire-v2` 21, conformance 15, `@c3-oss/prosa-bundle-v2` **120**, `@c3-oss/prosa-importers-v2` **24** (+ CQ-068 spawned-edge x2 + CursorProvider x4), `@c3-oss/prosa-db-v2` 6. |
+| `just test-all` | yes | pass | 12/12 turbo at HEAD post-CQ-070 + Gemini + Hermes. Focused counts: `@c3-oss/prosa-types-v2` 89, `@c3-oss/prosa-wire-v2` 21, conformance 15, `@c3-oss/prosa-bundle-v2` **120**, `@c3-oss/prosa-importers-v2` **35** (CursorProvider 4 + GeminiProvider 5 + HermesProvider 6 on top of prior 24), `@c3-oss/prosa-db-v2` 6. |
 | `just lint-all` | yes | pass | 10/10 turbo tasks. |
 | `pnpm audit --audit-level moderate` | yes | classified pass | 8 vulnerabilities found (1 low / 6 moderate / 1 high). All pre-existing on `master`. See "Audit Classification". |
 | `git diff --check` | yes | pass | No whitespace or conflict markers. |
@@ -37,7 +37,7 @@ a `just` wrapper fails for environmental reasons.
 | 01 | `pnpm test packages/prosa-bundle-v2/test/e2e/synthetic-bundle.test.ts` | yes | pass | 3 tests: CQ-066 full-contract 1k×100k×200k stress with 8 concurrent producers (~28s) + 1k-session full seal + 200-session re-open round-trip. |
 | 01 | `pnpm test packages/prosa-bundle-v2/test/e2e/cold-rebuild.test.ts` | yes | pass | 3 tests: CQ-066 real CLI subprocess (spawns `prosa bundle rebuild-index --store <path>` via `swc-node`) + index/-delete-then-rebuild replay + idempotent double-rebuild. |
 | 01 | `pnpm dev -- bundle rebuild-index --store <path> --uuid <uuid>` | yes | pass | CLI command exercises `rebuildIndex` end-to-end and emits manifest JSON to stdout; covered by the real-subprocess E2E above. |
-| 02 | `pnpm --filter @c3-oss/prosa-importers-v2 test` | yes | pass | 24 tests / 5 files (GraphResolver 5, orchestrator 3, CodexProvider 6, ClaudeProvider 6 incl. CQ-068 spawned-edge tests, CursorProvider 4). |
+| 02 | `pnpm --filter @c3-oss/prosa-importers-v2 test` | yes | pass | 35 tests / 7 files (GraphResolver 5, orchestrator 3, CodexProvider 6, ClaudeProvider 6 incl. CQ-068 spawned-edge tests, CursorProvider 4 incl. CQ-070 stable-key fix, GeminiProvider 5, HermesProvider 6). |
 | 02 | `pnpm dev -- compile-all-v2 --help` | yes | not-run | CLI command presence smoke until fixture gate exists. |
 | 03 | `pnpm --filter @c3-oss/prosa-derived-v2 test` | yes | not-run | Tantivy, session blob, analytics, compaction tests. |
 | 03 | `pnpm dev -- index-v2 status --help` | yes | not-run | CLI command presence smoke until fixture gate exists. |
@@ -96,9 +96,9 @@ no new transitive risk.
 
 - [x] Worktree state documented.
 - [x] Lane 0 has evidence; lanes 2–10 are documented as blocked or WIP.
-- [ ] No open blocking corrections. *(`CQ-068` and `CQ-069` are open after
-  Codex review of `8c0ba5f` and current Cursor WIP; they block provider/Lane 2
-  acceptance and `RALPH_DONE`, not independent non-conflicting provider work.)*
+- [ ] No open blocking corrections. *(`CQ-070` is open after Codex review of
+  `aa88079`; it blocks Cursor provider acceptance, Lane 2 acceptance, and
+  `RALPH_DONE`, not independent Gemini/Hermes provider work.)*
 - [x] Base gates passed at HEAD `6c25966` (full repo `pnpm test` / `pnpm
   typecheck` / `pnpm lint` 12/12 turbo).
 - [x] Lane 0-specific gates passed: `prosa-types-v2` 89 tests, `prosa-wire-v2`
@@ -111,9 +111,8 @@ no new transitive risk.
   non-dev path, pre-existing on `master`).
 - [ ] Security, integrity, remote-read, and E2E reviewer findings resolved
   for Lane 0 and Lane 1. Lane 0 and Lane 1 corrections through `CQ-066` are
-  closed; `CQ-068` and `CQ-069` track Lane 2 Claude/gov and Cursor WIP drift.
+  closed; `CQ-070` tracks Lane 2 Cursor logical-key drift after `aa88079`.
 - [ ] Final Codex review completed. *(Pending — Lane 2+ work and
-  `CQ-068`/`CQ-069`
-  remain open.)*
+  `CQ-070` remain open.)*
 - [ ] Five-cycle final stabilization evidence recorded. *(Pending; Lane 1
   must be accepted by Codex first.)*

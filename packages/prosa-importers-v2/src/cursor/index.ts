@@ -60,19 +60,19 @@ export class CursorProvider implements Provider {
   }
 
   async cheapIdentify(file: DiscoveredSourceFile): Promise<CheapIdentification> {
-    // The (workspace, agent) pair is the canonical logical
-    // identifier for a Cursor session — no embedded session_id
-    // exists in the path or in the discover hint we exposed
-    // through the Provider interface. Two databases with identical
-    // bytes at different paths still get distinct source_file_ids
-    // (deriveSourceFileId includes the path), so the logical key
-    // can safely use the content_hash.
-    const bytes = file.bytes ?? (await readFile(file.path))
-    const contentHash = `blake3:${toHex(blake3(bytes))}`
+    // CQ-070: the (workspace, agent) pair is the canonical logical
+    // identifier for a Cursor session. Use exactly the same string
+    // for the Reserve key AND the SessionV2 derivation
+    // (`parseAndProject` recomputes `cursor:<ws>:<agent>` to derive
+    // the session row id). Including `contentHash` in the logical
+    // key would let a changed `store.db` for the same workspace/agent
+    // bypass the old reservation while still targeting the same
+    // session row.
     const enriched = file as DiscoveredCursorFile
-    const wsAgent = `${enriched.workspace_id ?? 'unknown-ws'}/${enriched.agent_id ?? 'unknown-agent'}`
+    const ws = enriched.workspace_id ?? 'unknown-ws'
+    const agent = enriched.agent_id ?? 'unknown-agent'
     return {
-      logicalKey: new TextEncoder().encode(`cursor:${wsAgent}:${contentHash}`),
+      logicalKey: new TextEncoder().encode(`cursor:${ws}:${agent}`),
       unit_id: `unit_${file.source_file_id}`,
       logical_kind: 'session',
     }

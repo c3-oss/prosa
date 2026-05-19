@@ -46,7 +46,7 @@ describe('CursorProvider', () => {
     }
   })
 
-  it('cheap-identify includes workspace/agent in the logical key (cross-discovery stable)', async () => {
+  it('CQ-070: cheap-identify uses stable cursor:<workspace>:<agent> as Reserve key (no content hash)', async () => {
     const root = await tmp()
     await mkdir(join(root, 'ws-1', 'agent-a'), { recursive: true })
     await writeFile(join(root, 'ws-1', 'agent-a', 'store.db'), fakeStoreDb('a'))
@@ -54,8 +54,16 @@ describe('CursorProvider', () => {
     const [file] = await provider.discover(root)
     if (!file) throw new Error('expected one file')
     const id = await provider.cheapIdentify(file)
-    const decoded = new TextDecoder().decode(id.logicalKey)
-    expect(decoded.startsWith('cursor:ws-1/agent-a:blake3:')).toBe(true)
+    expect(new TextDecoder().decode(id.logicalKey)).toBe('cursor:ws-1:agent-a')
+    // Logical key matches the source_session_id `parseAndProject`
+    // assigns: a changed `store.db` for the same (ws, agent) will
+    // still Reserve the same row and dedupe correctly.
+    const result = await provider.parseAndProject({
+      files: [file],
+      identification: id,
+      createdAt: '2025-01-02T03:04:05.123Z',
+    })
+    expect(result.unit.projection.sessions[0]!.source_session_id).toBe('cursor:ws-1:agent-a')
   })
 
   it('parseAndProject emits 1 session + 1 source_file + 1 raw_record (binary_only) per store.db', async () => {

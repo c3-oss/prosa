@@ -8,6 +8,43 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 ## Closed (latest first)
 
+### CQ-070: Reconcile Post-`aa88079` Governance and Cursor Logical-Key Drift — closed 2026-05-18
+
+CursorProvider.cheapIdentify previously returned
+`cursor:<ws>/<agent>:<contentHash>` as the Reserve key while
+parseAndProject derived the session row id from `cursor:<ws>:<agent>`
+without the content hash. A changed `store.db` for the same
+(ws, agent) pair would Reserve a different key while still targeting
+the same session row — losing idempotency. Aligned both paths to
+`cursor:<ws>:<agent>`. The Cursor test was rewritten:
+`CQ-070: cheap-identify uses stable cursor:<workspace>:<agent> as
+Reserve key (no content hash)` now asserts the logical key matches
+exactly the `source_session_id` that `parseAndProject` assigns.
+
+Governance reconciled (status / gates / lane-02 / prompt updated to
+post-`aa88079` state). GeminiProvider + HermesProvider landed in
+the same commit (independent of CQ-070):
+
+- `GeminiProvider`: walks `<root>/<projectDir>/chats/session-*.json`;
+  cheap-identifies by `sessionId`; parseAndProject emits one
+  `RawRecordV2` per `messages[]` entry (with
+  `json_pointer: /messages/<i>`) plus one whole-doc record when the
+  snapshot has no messages array. Session start_ts/end_ts/summary/
+  model_first/model_last derived from the snapshot fields. Five
+  unit tests cover discover, cheap-identify, projection (happy +
+  corrupt), and an end-to-end `runCompileImports` + `sealEpoch`.
+- `HermesProvider`: walks `<root>` for `*.jsonl` + `session_*.json`
+  files (skips `sessions.json` index, defers SQLite state.db and
+  the hermes_sqlite_plus_jsonl merge strategy to follow-ups);
+  cheap-identifies by `session_id`/`sessionId`/`id` with filename
+  fallback; parseAndProject handles both file kinds. Six unit
+  tests cover discover, both cheap-identify paths, both projection
+  paths, and a mixed-file orchestrator run.
+
+importers-v2 test count 24 → 35 (+ CQ-070 Cursor test rewrite
+without changing count, + Gemini x5, + Hermes x6). Gates: pnpm
+typecheck 12/12, pnpm test 12/12, pnpm lint 12/12, all FULL TURBO.
+
 ### CQ-069: Fix Cursor WIP Typecheck Before Cursor Provider Acceptance — closed 2026-05-18
 
 Cursor WIP typecheck restored:
