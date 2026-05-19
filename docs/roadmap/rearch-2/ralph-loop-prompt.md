@@ -92,7 +92,9 @@ section as the full restart instruction:
   --session-id <id>` single-session filter via
   `getSessionBlobSummary` (`5020c3e`),
   `apps/cli/test/cli/index-v2-coherence.test.ts` cross-subcommand
-  coherence test (`1dff6ab`), plus the prior scaffold
+  coherence test (`1dff6ab`), `buildCompactManifestV2` + `prosa
+  index-v2 compaction-manifest` Lane 3 `compact.manifest.cbor`
+  deliverable (`f39d1da`), plus the prior scaffold
   (`bb76006`), SessionBlobPackV2 byte layout (`ba87f05`), Parquet
   compaction planner (`ea8c1a8`), DuckDB analytics view shape contract
   + compacted-overlay binding (`cff3670` / `e35f844`), Tantivy schema
