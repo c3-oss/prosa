@@ -98,8 +98,9 @@ no new transitive risk.
 
 - [x] Worktree state documented.
 - [x] Lane 0 has evidence; lanes 2–10 are documented as blocked or WIP.
-- [ ] No open blocking corrections. *(`CQ-091` closed; Lane 2 acceptance still
-  pending Codex/governor/user sign-off.)*
+- [ ] No open blocking corrections. *(`CQ-091` and `CQ-092` closed at
+  `585a456` + this iteration's reconciliation commit; Lane 2 acceptance
+  still pending Codex/governor/user sign-off.)*
 - [x] Base gates passed at HEAD `6c25966` (full repo `pnpm test` / `pnpm
   typecheck` / `pnpm lint` 12/12 turbo).
 - [x] Lane 0-specific gates passed: `prosa-types-v2` 89 tests, `prosa-wire-v2`
@@ -114,8 +115,9 @@ no new transitive risk.
   for Lane 0 and Lane 1. Lane 0 / Lane 1 corrections through `CQ-066` are
   closed; Lane 2 closeout (`CQ-074..CQ-082`) and Lane 3 byte layout +
   planner / analytics / Tantivy-planner corrections (`CQ-083..CQ-090`) are
-  closed; `CQ-091` closed (SessionBlob projection-bridge UTF-8 byte
-  accounting).
+  closed; `CQ-091` closed at `585a456` (SessionBlob projection-bridge
+  UTF-8 byte accounting); `CQ-092` closed by this iteration's roadmap
+  reconciliation commit.
 - [ ] Final Codex review completed. *(Pending — Lane 3 remainder (Tantivy
   writer, DuckDB views, runtime Parquet merge) plus Lanes 4–10 still
   unstarted/incomplete.)*

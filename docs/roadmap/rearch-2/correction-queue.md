@@ -4,10 +4,33 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 ## Open
 
-(none — `CQ-074..CQ-091` are all closed. Lane 2 acceptance still
+(none — `CQ-091` and `CQ-092` are both closed. Lane 2 acceptance still
 requires Codex/governor/user sign-off.)
 
 ## Closed (latest first)
+
+### CQ-092: Commit and Reconcile SessionBlob Projection Bridge CQ-091 Closeout — closed 2026-05-19
+
+Closure note: the `CQ-091` byte-accounting fix and the governance
+reconciliation it required already landed together in `585a456`
+(`fix(infra): utf-8 byte accounting in session-blob projection bridge`).
+The commit ships: projection-bridge implementation, writer CAS-ref byte
+accounting, two regression tests (UTF-8 cap + many-multibyte page-size
+cap), the package export, and reconciled
+`correction-queue.md` / `status.md` / `gates.md` / `evidence/lane-03.md` /
+`ralph-loop-prompt.md`. Codex opened `CQ-092` while that commit was
+racing in, and re-asserts the same reconciliation requirement; this
+follow-up commit re-syncs the docs that Codex re-edited after
+`585a456` landed.
+
+Gates after `585a456`:
+
+- `pnpm --filter @c3-oss/prosa-derived-v2 typecheck`: pass.
+- `pnpm --filter @c3-oss/prosa-derived-v2 test`: pass, 81 tests / 9
+  files.
+- `pnpm --filter @c3-oss/prosa-derived-v2 lint`: pass.
+- `git status --short`: clean (before this reconciliation commit).
+- `git diff --check`: pass.
 
 ### CQ-091: Enforce CAS Preview Byte Accounting in SessionBlob Projection Bridge — closed 2026-05-19
 
