@@ -7,7 +7,7 @@
 | `pnpm i` | yes | pass | `pnpm install --frozen-lockfile`-compatible. Pre-existing peer warning: `@c3-oss/config-vitest@0.3.0` wants vitest ^3.1.1, repo on 2.1.9. |
 | `pnpm build` | yes | pass | 10/10 turbo tasks (now includes `@c3-oss/prosa-bundle-v2`). |
 | `just typecheck` | yes | pass | 10/10 turbo tasks. |
-| `just test-all` | yes | pass | 12/12 turbo at HEAD post-CQ-066. Focused counts: `@c3-oss/prosa-types-v2` 89, `@c3-oss/prosa-wire-v2` 21, conformance 15, `@c3-oss/prosa-bundle-v2` **120** (prior 118 + CQ-066 full-contract stress 1k×100k×200k x1 + CQ-066 real CLI cold-rebuild x1), `@c3-oss/prosa-importers-v2` 8 (out-of-sequence WIP, CQ-044), `@c3-oss/prosa-db-v2` 6 (out-of-sequence WIP, CQ-044). |
+| `just test-all` | yes | pass | 12/12 turbo at HEAD post-Claude. Focused counts: `@c3-oss/prosa-types-v2` 89, `@c3-oss/prosa-wire-v2` 21, conformance 15, `@c3-oss/prosa-bundle-v2` **120**, `@c3-oss/prosa-importers-v2` **18** (+4 ClaudeProvider), `@c3-oss/prosa-db-v2` 6. |
 | `just lint-all` | yes | pass | 10/10 turbo tasks. |
 | `pnpm audit --audit-level moderate` | yes | classified pass | 8 vulnerabilities found (1 low / 6 moderate / 1 high). All pre-existing on `master`. See "Audit Classification". |
 | `git diff --check` | yes | pass | No whitespace or conflict markers. |
@@ -37,7 +37,7 @@ a `just` wrapper fails for environmental reasons.
 | 01 | `pnpm test packages/prosa-bundle-v2/test/e2e/synthetic-bundle.test.ts` | yes | pass | 3 tests: CQ-066 full-contract 1k×100k×200k stress with 8 concurrent producers (~28s) + 1k-session full seal + 200-session re-open round-trip. |
 | 01 | `pnpm test packages/prosa-bundle-v2/test/e2e/cold-rebuild.test.ts` | yes | pass | 3 tests: CQ-066 real CLI subprocess (spawns `prosa bundle rebuild-index --store <path>` via `swc-node`) + index/-delete-then-rebuild replay + idempotent double-rebuild. |
 | 01 | `pnpm dev -- bundle rebuild-index --store <path> --uuid <uuid>` | yes | pass | CLI command exercises `rebuildIndex` end-to-end and emits manifest JSON to stdout; covered by the real-subprocess E2E above. |
-| 02 | `pnpm --filter @c3-oss/prosa-importers-v2 test` | yes | not-run | Provider, idempotency, graph resolver tests. |
+| 02 | `pnpm --filter @c3-oss/prosa-importers-v2 test` | yes | pass | 18 tests / 4 files (GraphResolver 5, orchestrator 3, minimal CodexProvider 6, minimal ClaudeProvider 4). |
 | 02 | `pnpm dev -- compile-all-v2 --help` | yes | not-run | CLI command presence smoke until fixture gate exists. |
 | 03 | `pnpm --filter @c3-oss/prosa-derived-v2 test` | yes | not-run | Tantivy, session blob, analytics, compaction tests. |
 | 03 | `pnpm dev -- index-v2 status --help` | yes | not-run | CLI command presence smoke until fixture gate exists. |
@@ -96,23 +96,23 @@ no new transitive risk.
 
 - [x] Worktree state documented.
 - [x] Lane 0 has evidence; lanes 2–10 are documented as blocked or WIP.
-- [ ] No open blocking corrections. *(`CQ-066` and `CQ-044` are open after
-  Codex review of `fc86533`; Lane 1 is not accepted while `CQ-066` remains.)*
+- [ ] No open blocking corrections. *(`CQ-067` is open after Codex review of
+  `fc66925`; it blocks Lane 2 acceptance and `RALPH_DONE`, not independent
+  provider implementation.)*
 - [x] Base gates passed at HEAD `6c25966` (full repo `pnpm test` / `pnpm
   typecheck` / `pnpm lint` 12/12 turbo).
 - [x] Lane 0-specific gates passed: `prosa-types-v2` 89 tests, `prosa-wire-v2`
   21 tests, `pnpm test:conformance` 15 tests.
-- [ ] Lane 1 focused gates all passed. Current bundle-v2 focused tests pass at
-  118 tests, but `CQ-066` found the stress and cold-rebuild CLI/E2E acceptance
-  mapping is still incomplete or overclaimed.
+- [x] Lane 1 focused gates all passed. Current bundle-v2 focused tests pass at
+  120 tests after the CQ-066 stress and real CLI cold-rebuild additions.
 - [ ] Docker-backed E2E passed for sync, reads, migration, and cutover paths.
   *(N/A until Lane 5+.)*
 - [x] Audit output classified (8 findings; only `apps__cli>ink>ws` touches a
   non-dev path, pre-existing on `master`).
 - [ ] Security, integrity, remote-read, and E2E reviewer findings resolved
-  for Lane 0 and Lane 1. Lane 0 and prior Lane 1 integrity corrections through
-  `CQ-063` are closed; `CQ-066` remains open after `fc86533`.
-- [ ] Final Codex review completed. *(Pending — `CQ-066` and `CQ-044` must
-  close first.)*
+  for Lane 0 and Lane 1. Lane 0 and Lane 1 corrections through `CQ-066` are
+  closed; `CQ-067` tracks Lane 2 governance drift after `fc66925`.
+- [ ] Final Codex review completed. *(Pending — Lane 2+ work and `CQ-067`
+  remain open.)*
 - [ ] Five-cycle final stabilization evidence recorded. *(Pending; Lane 1
   must be accepted by Codex first.)*

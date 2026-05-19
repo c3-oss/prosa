@@ -11,14 +11,12 @@ through `correction-queue.md`, `gates.md`, and updates to this prompt. Those
 review findings are part of the implementation contract, not optional advice.
 Expect Codex to reject `RALPH_DONE` if subagent findings remain open.
 
-This is a very large feature. Work strictly lane by lane. User direction on
-2026-05-18: Lane 1 must be completely complete against
-`docs/rearch-2/02-lane-1-local-store.md` before Lane 2 or later work can
-continue. Do not treat the existing Lane 1 code as a partial acceptance. If one
-Ralph Loop iteration cannot complete the entire roadmap, leave accurate status
-and evidence for completed work, but do not mark Lane 1 accepted until its
-original scope is complete. Do not output `RALPH_DONE` unless every lane below
-is complete and all required gates and stabilization steps have run.
+This is a very large feature. Work strictly lane by lane. Lane 1 is accepted
+with the re-scopes recorded in `docs/rearch-2/lane-1-rescopes.md`; Lane 2 is
+now active. If one Ralph Loop iteration cannot complete the entire roadmap,
+leave accurate status and evidence for completed work. Do not output
+`RALPH_DONE` unless every lane below is complete and all required gates and
+stabilization steps have run.
 
 ## Invocation Contract
 
@@ -28,15 +26,17 @@ section as the full restart instruction:
 
 - Read this prompt, `docs/roadmap/rearch-2/correction-queue.md`,
   `docs/roadmap/rearch-2/gates.md`, `docs/roadmap/rearch-2/status.md`, and
-  `docs/rearch-2/02-lane-1-local-store.md`.
-- User direction: Lane 1 must be fully complete against the original Lane 1
-  contract before Lane 2+ may continue.
+  `docs/rearch-2/03-lane-2-importers.md`.
+- User direction: Lane 1 is accepted. Continue Lane 2 provider-importer work.
 - Close the current blocking corrections named in
   `docs/roadmap/rearch-2/correction-queue.md` with code, tests, and evidence.
-  As of Codex review of `fc86533`, those are `CQ-066` and `CQ-044`.
-- Do not do new Lane 2/importer/server work while any blocker remains.
-- Do not count existing Lane 2/4 WIP as accepted progress while any blocker
-  remains.
+  As of Codex review of `fc66925`, that is `CQ-067`.
+- `CQ-067` blocks Lane 2 acceptance and `RALPH_DONE`, but does not block
+  independent Claude/Cursor/Gemini/Hermes provider implementation. Reconcile
+  the governance artifacts while continuing non-conflicting Lane 2 work.
+- If a correction needs a Codex/governor decision, ask one clear binary
+  accept/reject question with a safe default. Do not loop on "external
+  acceptance" as if Codex were unavailable.
 - If no blocking correction remains, run the mandatory final stabilization
   wait: five clean cycles of sleep 180 seconds, then reread correction queue,
   gates, status, git status, and recent commits.
@@ -122,7 +122,8 @@ At the start of each iteration:
 - inspect `git status --short --branch`;
 - identify the first incomplete lane or open correction;
 - reread `correction-queue.md` and treat every `Blocking: yes` correction as
-  higher priority than new feature work;
+  higher priority than new feature work unless that correction explicitly
+  permits independent non-conflicting progress;
 - continue from the first incomplete lane without restarting completed work;
 - preserve user changes and unrelated agent changes;
 - do not touch generated directories by hand.
@@ -148,13 +149,21 @@ Keep these files current:
 
 ## Current Blocking Corrections
 
-*(none — Lane 0 + Lane 1 accepted by the project owner on 2026-05-18,
-including the two re-scopes in `docs/rearch-2/lane-1-rescopes.md`.)*
+Current open correction:
+
+- `CQ-067`: reconcile Lane 2 governance after `fc66925`. This blocks Lane 2
+  acceptance and `RALPH_DONE`, but does **not** block independent
+  provider-importer implementation.
+
+Lane 0 + Lane 1 are accepted by the project owner on 2026-05-18, including the
+two re-scopes in `docs/rearch-2/lane-1-rescopes.md`.
 
 Lane 2 (importers) is the active lane. The orchestrator,
-`GraphResolver`, and mock-provider tests already landed at `004107c`;
-per-provider importers (Codex, Claude Code, Cursor, Gemini, Hermes)
-remain to implement.
+`GraphResolver`, and mock-provider tests already landed at `004107c`.
+`fc66925` landed a minimal CodexProvider that projects session/source-file/raw
+record rows from Codex JSONL; do not overclaim it as the complete Codex
+transcript/event/tool-call importer. Continue with the Claude Code provider
+next, while also closing `CQ-067` in the governance artifacts.
 
 Subsequent lanes (3 derived layer, 4 server beyond DB scaffold,
 5 sync protocol, 6 read API, 7 CLI+MCP, 8 audit+GC, 9 migration,

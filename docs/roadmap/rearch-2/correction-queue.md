@@ -4,10 +4,34 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 ## Open
 
-*(none — all Lane 0/1 blocking corrections closed. Lanes 2–10 work
-continues as separate planning, not as open corrections.)*
+*(none)*
 
 ## Closed (latest first)
+
+### CQ-067: Reconcile Lane 2 Governance After `fc66925` — closed 2026-05-18
+
+Active artifacts reconciled to HEAD post-CodexProvider landing:
+
+- `status.md`: HEAD pinned to `fc66925`; Lane 2 status updated to
+  `in-progress`; Lane 4 status moved from `out-of-sequence WIP` to
+  `scaffold-landed`; focused gate counts confirmed
+  (`prosa-importers-v2` 14, `prosa-bundle-v2` 120).
+- `gates.md`: lane-02 row updated from "not-run" → "pass — 14 tests
+  / 3 files". Done Check no longer points at closed CQ-044.
+- `evidence/lane-02.md`: status reframed as active WIP; commit
+  range includes `fc66925`; CodexProvider explicitly described as
+  a minimal raw-record + session/source-file slice, not a complete
+  Codex transcript/event projection.
+- `evidence/lane-04.md`: status changed from "out-of-sequence WIP
+  (unaccepted; tracked by CQ-044)" to "scaffold-landed". Note that
+  Lane 1 acceptance lifted the CQ-044 containment gate.
+- `evidence/lane-00.md`: workspace gate banner updated from
+  "out-of-sequence Lane 2/4 WIP" to "Lane 2 + Lane 4 scaffolds".
+- `ralph-loop-prompt.md`: confirmed Lane 1 acceptance + Lane 2
+  active framing; no stale "no new Lane 2 work" language remains.
+
+No code change. Gates: pnpm typecheck 12/12, pnpm test 12/12,
+pnpm lint 12/12, all FULL TURBO.
 
 ### CQ-066: Complete Codex Review Closeout for Lane 1 Re-Scopes and Evidence — closed 2026-05-18
 

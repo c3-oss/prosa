@@ -1,16 +1,20 @@
 # Lane Evidence
 
 Lane: 02 - Importers
-Status: out-of-sequence WIP (unaccepted; tracked by CQ-044). The
-`LogicalImportUnit` contract, `GraphResolver`, and `runCompileImports`
-orchestrator landed at `004107c` while Lane 1 still had open
-blocking integrity corrections. The package now passes its focused
-gates (8 tests) at `5e4b5e7` but is **not** counted as accepted lane
-progress. Each per-provider importer — Codex, Claude Code, Cursor,
-Gemini, Hermes — remains its own follow-up iteration. No new Lane 2
-feature work is allowed until Codex re-review accepts Lane 1.
+Status: active WIP (Codex + Claude minimal providers landed; Cursor,
+Gemini, Hermes pending). The `LogicalImportUnit` contract,
+`GraphResolver`, and `runCompileImports` orchestrator landed at
+`004107c`. Lane 1 was later accepted at `4792457`, lifting the
+`CQ-044` containment gate. `fc66925` landed the first per-provider
+slice (minimal CodexProvider). The pending commit adds CQ-067
+governance reconcile + minimal ClaudeProvider that projects sessions
+(including subagent sessions with `is_subagent: true`), source files,
+and raw-record rows from Claude Code JSONL files (main + subagent).
+Focused gates pass at 18 tests across 4 files.
 Owner: Ralph
-Commit range: `004107c` (out-of-sequence) + later CQ-047 backfill in `5e5ca20`
+Commit range: `004107c` (orchestrator + GraphResolver), `4792457`
+(Lane 1 acceptance / `CQ-044` lifted), `fc66925` (minimal
+CodexProvider), plus pending CQ-067 + ClaudeProvider commit
 
 ## Acceptance Criteria
 
@@ -38,10 +42,11 @@ Commit range: `004107c` (out-of-sequence) + later CQ-047 backfill in `5e5ca20`
   end-to-end with a mock provider (`@c3-oss/prosa-importers-v2`: 8
   tests / 2 files).
 - [ ] **Per-provider importers (codex, claude, cursor, gemini, hermes)
-  not yet implemented.** Each provider has its own discovery + parse
-  surface (Codex JSONL, Claude JSONL, Cursor SQLite, Gemini protobuf,
-  Hermes SQLite+JSONL merge); none of that logic is shared, and each
-  is its own substantial port from v1. Tracked as follow-up iterations.
+  remain partial.** Codex and Claude Code now have minimal raw-record +
+  session/source-file provider slices (one `SourceFileV2` + one
+  `SessionV2` + one `RawRecordV2` per JSONL line); full
+  transcript/event/tool-call/message projection remains pending.
+  Cursor, Gemini, and Hermes remain unstarted.
 - [ ] `apps/cli/test/compile-v2.test.ts` (cross-provider parity with v1)
   pending the per-provider importer landings.
 - [ ] Invariants I2 (idempotency) and I3 (canonical graph) not yet
@@ -73,8 +78,8 @@ Commit range: `004107c` (out-of-sequence) + later CQ-047 backfill in `5e5ca20`
 
 ```text
 pnpm install
-pnpm --filter @c3-oss/prosa-importers-v2 typecheck    # clean
-pnpm --filter @c3-oss/prosa-importers-v2 test         # 8 tests / 2 files
+pnpm --filter @c3-oss/prosa-importers-v2 typecheck    # clean after ClaudeProvider
+pnpm --filter @c3-oss/prosa-importers-v2 test         # 18 tests / 4 files (GraphResolver + orchestrator + CodexProvider + ClaudeProvider)
 pnpm --filter @c3-oss/prosa-importers-v2 build        # dist/ emitted
 pnpm --filter @c3-oss/prosa-importers-v2 lint         # clean
 
@@ -100,9 +105,9 @@ git diff --check                                        # clean
 
 ## Known Risks
 
-- Real provider importers are not yet present; the per-provider
-  parsing logic for Codex/Claude/Cursor/Gemini/Hermes will need
-  separate iterations and per-provider fixture corpora.
+- Real provider importers remain partial. Codex has a minimal slice; the full
+  Codex transcript/event/tool-call projection plus Claude/Cursor/Gemini/Hermes
+  parsing logic still need separate iterations and per-provider fixture corpora.
 - Idempotency (I2) is provable only against real importers; the mock
   test asserts the orchestrator shape, not the deduplication property.
 - Cross-epoch session fixups are emitted but Lane 1 has no

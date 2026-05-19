@@ -83,7 +83,7 @@ pnpm --filter @c3-oss/prosa-wire-v2 test            # 21 tests pass
 pnpm --filter @c3-oss/prosa-wire-v2 build           # dist/ emitted
 pnpm --filter @c3-oss/prosa-wire-v2 lint            # clean
 
-# Workspace gates (12 packages: Lane 0 + Lane 1 + out-of-sequence Lane 2/4 WIP)
+# Workspace gates (12 packages: Lane 0 + Lane 1 + Lane 2 + Lane 4 scaffolds)
 pnpm install --frozen-lockfile                       # clean
 pnpm build                                            # 12/12 turbo (FULL TURBO)
 pnpm typecheck                                        # 12/12 turbo
