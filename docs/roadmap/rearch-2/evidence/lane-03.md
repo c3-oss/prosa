@@ -40,7 +40,22 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
   non-numeric epoch entries are ignored. The actual row-preserving
   Parquet merge (runtime worker) still lands in a follow-up
   iteration when a Parquet writer is wired up.
-- [ ] Tantivy generation writer + incremental rebuild — pending.
+- [/] Tantivy generation writer + incremental rebuild — schema +
+  fingerprint + rebuild planner + checkpoint state-machine landed
+  in `src/tantivy/{schema,rebuild-plan}.ts`. The actual Tantivy
+  writer that opens the on-disk index (via
+  `@oxdev03/node-tantivy-binding`) lands when the native dep is
+  added to the workspace allowlist. `currentTantivySchemaFingerprint()`
+  is `blake3` (v2 hash convention) over the pinned field/tokenizer
+  list. `planTantivyRebuild` decides `skip` / `incremental` /
+  `full` purely from inputs, never touches the filesystem;
+  reasons are enumerated: `no_prior_index`,
+  `fingerprint_mismatch`, `caller_requested_overwrite`,
+  `index_dir_invalid`, `prior_run_failed` (full),
+  `fingerprint_match_with_new_rows` (incremental),
+  `already_indexed_up_to_date` (skip).
+  `checkpointAfterRebuild` / `checkpointAfterFailure` return a new
+  `IndexCheckpointV2` without mutating prior state.
 - [x] SessionBlobPackV2 byte layout (writer + reader emitting and
   parsing the actual pack format) implemented and tested:
   - 16-byte framing magic `PROSA_SESS_PACK2` mirroring the
@@ -93,7 +108,7 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
 ```text
 pnpm install --prefer-offline                       # registers @c3-oss/prosa-derived-v2 in pnpm-lock.yaml
 pnpm --filter @c3-oss/prosa-derived-v2 typecheck    # clean
-pnpm --filter @c3-oss/prosa-derived-v2 test         # 55 tests / 6 files (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 8, analytics views 11 — includes CQ-089 live + compacted Parquet overlay binding)
+pnpm --filter @c3-oss/prosa-derived-v2 test         # 72 tests / 8 files (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10)
 pnpm --filter @c3-oss/prosa-derived-v2 lint         # clean
 pnpm build                                          # 13/13 turbo
 pnpm typecheck                                      # 13/13 turbo
