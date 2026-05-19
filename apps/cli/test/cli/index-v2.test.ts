@@ -56,6 +56,7 @@ describe('prosa index-v2 CLI', () => {
     expect(r.stdout).toContain('compaction-plan')
     expect(r.stdout).toContain('compaction-manifest')
     expect(r.stdout).toContain('compaction-execution-plan')
+    expect(r.stdout).toContain('superseded-segments')
     expect(r.stdout).toContain('verify-packs')
     expect(r.stdout).toContain('transcript-header')
     expect(r.stdout).toContain('transcript')
@@ -768,6 +769,93 @@ describe('prosa index-v2 CLI', () => {
     const r = runCli(['index-v2', 'compaction-manifest', '--store', storeRoot, '--read', '--compaction-seq', '99'])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/ENOENT|compact-0099/)
+  })
+
+  it('`index-v2 superseded-segments --help` documents --store + --summary', async () => {
+    const r = runCli(['index-v2', 'superseded-segments', '--help'])
+    expect(r.status).toBe(0)
+    expect(r.stdout).toContain('superseded')
+    expect(r.stdout).toContain('--store')
+    expect(r.stdout).toContain('--summary')
+  })
+
+  it('`index-v2 superseded-segments` against a fresh bundle prints []', async () => {
+    const storeRoot = join(await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-')), 'never-initialised')
+    const r = runCli(['index-v2', 'superseded-segments', '--store', storeRoot])
+    expect(r.status).toBe(0)
+    expect(JSON.parse(r.stdout)).toEqual([])
+  })
+
+  it('`index-v2 superseded-segments` after --write returns the rows the manifest recorded', async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    for (let epoch = 1; epoch <= 17; epoch++) {
+      const dir = join(storeRoot, 'epochs', String(epoch), 'projection')
+      await mkdir(dir, { recursive: true })
+      await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(1024))
+    }
+    const writeResult = runCli([
+      'index-v2',
+      'compaction-manifest',
+      '--store',
+      storeRoot,
+      '--write',
+      '--generated-at',
+      '2026-05-19T12:00:00.000Z',
+    ])
+    expect(writeResult.status).toBe(0)
+
+    const r = runCli(['index-v2', 'superseded-segments', '--store', storeRoot])
+    expect(r.status).toBe(0)
+    const rows = JSON.parse(r.stdout) as Array<{
+      path: string
+      epoch: number
+      byte_length: number
+      entity_type: string
+      compaction_seq: number
+    }>
+    expect(rows).toHaveLength(17)
+    expect(rows.every((row) => row.entity_type === 'sessions')).toBe(true)
+    expect(rows.every((row) => row.compaction_seq === 1)).toBe(true)
+    expect(rows.every((row) => row.byte_length === 1024)).toBe(true)
+    expect(rows.map((r) => r.epoch)).toEqual(Array.from({ length: 17 }, (_, i) => i + 1))
+  })
+
+  it('`index-v2 superseded-segments --summary` rolls up totals per-entity and per-compaction-seq', async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    for (let epoch = 1; epoch <= 17; epoch++) {
+      const dir = join(storeRoot, 'epochs', String(epoch), 'projection')
+      await mkdir(dir, { recursive: true })
+      await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(1024))
+    }
+    const writeResult = runCli([
+      'index-v2',
+      'compaction-manifest',
+      '--store',
+      storeRoot,
+      '--write',
+      '--generated-at',
+      '2026-05-19T12:00:00.000Z',
+    ])
+    expect(writeResult.status).toBe(0)
+
+    const r = runCli(['index-v2', 'superseded-segments', '--store', storeRoot, '--summary'])
+    expect(r.status).toBe(0)
+    const rollup = JSON.parse(r.stdout) as {
+      total_segments: number
+      total_bytes: number
+      by_entity: Record<string, { count: number; bytes: number }>
+      by_compaction_seq: Record<string, { count: number; bytes: number }>
+    }
+    expect(rollup.total_segments).toBe(17)
+    expect(rollup.total_bytes).toBe(17 * 1024)
+    expect(rollup.by_entity.sessions).toEqual({ count: 17, bytes: 17 * 1024 })
+    expect(rollup.by_compaction_seq['1']).toEqual({ count: 17, bytes: 17 * 1024 })
+  })
+
+  it('`index-v2 superseded-segments` fails when --store is missing', async () => {
+    const r = runCli(['index-v2', 'superseded-segments'])
+    expect(r.status).not.toBe(0)
+    expect(r.stderr).toMatch(/required option.*--store/i)
   })
 
   it('`index-v2 compaction-execution-plan --help` documents --store', async () => {

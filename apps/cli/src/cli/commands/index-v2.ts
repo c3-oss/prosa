@@ -32,6 +32,7 @@ import {
   getSessionBlobSummary,
   listProjectionSegments,
   listSessionBlobSummaries,
+  listSupersededSegmentsFromManifests,
   loadTranscriptFromBundle,
   planAnalyticsExecution,
   planCompaction,
@@ -40,6 +41,7 @@ import {
   readCompactManifestV2,
   readSessionBlobHeader,
   summariseProjectionSegments,
+  summariseSupersededSegments,
   verifyAllSessionBlobPacks,
   writeCompactManifestV2,
 } from '@c3-oss/prosa-derived-v2'
@@ -251,6 +253,21 @@ export function indexV2Command(): Command {
       const plan = await planCompaction(storePath)
       const execution = planCompactionExecution({ bundleRoot: storePath, plan })
       process.stdout.write(`${JSON.stringify(execution, null, 2)}\n`)
+    })
+
+  root
+    .command('superseded-segments')
+    .description(
+      'Print every superseded epoch segment recorded across persisted `compact.manifest.json` files under <store>/epochs/compact-<NNNN>/. Audit/GC primitive: every row is a file that has already been merged into a compacted output and is safe to remove. Add --summary for the per-entity / per-compaction-seq byte+count rollup.',
+    )
+    .requiredOption('--store <path>', 'bundle directory')
+    .option('--summary', 'emit the summariseSupersededSegments rollup instead of the flat listing', false)
+    .action(async (options: { store: string; summary: boolean }) => {
+      const storePath = resolvePath(options.store)
+      const result = options.summary
+        ? await summariseSupersededSegments(storePath)
+        : await listSupersededSegmentsFromManifests(storePath)
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
     })
 
   root
