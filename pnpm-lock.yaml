@@ -468,6 +468,31 @@ importers:
         specifier: ^0.4.5
         version: 0.4.5
 
+  packages/prosa-derived-v2:
+    dependencies:
+      '@c3-oss/prosa-bundle-v2':
+        specifier: workspace:*
+        version: link:../prosa-bundle-v2
+      '@c3-oss/prosa-types-v2':
+        specifier: workspace:*
+        version: link:../prosa-types-v2
+      '@noble/hashes':
+        specifier: ^1.7.0
+        version: 1.8.0
+    devDependencies:
+      '@c3-oss/config-biome':
+        specifier: ^0.3.1
+        version: 0.3.1(@biomejs/biome@1.9.4)
+      '@c3-oss/config-tsup':
+        specifier: ^0.2.0
+        version: 0.2.0(@swc/core@1.15.33)(jiti@2.6.1)(postcss@8.5.13)(tsx@4.22.0)(typescript@5.9.3)(yaml@2.8.4)
+      '@c3-oss/config-typescript':
+        specifier: ^0.1.0
+        version: 0.1.0(typescript@5.9.3)
+      '@c3-oss/config-vitest':
+        specifier: ^0.3.0
+        version: 0.3.0(vitest@2.1.9(@types/node@22.19.17)(jsdom@25.0.1)(terser@5.47.1))
+
   packages/prosa-importers-v2:
     dependencies:
       '@c3-oss/prosa-bundle-v2':

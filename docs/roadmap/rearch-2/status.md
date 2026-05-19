@@ -9,10 +9,10 @@ Completion signal: RALPH_DONE
 
 ## Current State
 
-Status: Lane 1 accepted; Lane 2 closeout WIP appears code-level complete, but is not accepted until `CQ-083` separates it from Lane 3 scaffold WIP and commits the Lane 2 evidence cleanly.
-Current lane: Lane 2 CQ-083 closeout. Lane 3 remains blocked until the focused Lane 2 commit exists and the worktree proves no tracked Lane 3 changes were mixed into that commit.
-Current HEAD: `15194b5` (CQ-082/CQ-083 closeout commit pending)
-No-change streak: 0 (`CQ-083` is open; Lane 2 acceptance still requires Codex/governor/user sign-off after the focused closeout commit)
+Status: Lane 1 accepted; Lane 2 implementation contract complete (5 providers + fixture corpora + projection-id idempotency + per-provider bundle-compile idempotency exercising Reserve and on-disk pack stability); Lane 3 derived-layer scaffold has landed in its own focused commit per `CQ-083`.
+Current lane: Lane 3 — derived layer (Tantivy + SessionBlobPackV2 + DuckDB analytics)
+Current HEAD: `3eb1c08` (Lane 2 closeout) + Lane 3 scaffold commit pending in this iteration
+No-change streak: 0 (no open blocking corrections; Lane 2 acceptance still requires Codex/governor/user sign-off)
 Ralph active: yes
 
 ## Lane Status
@@ -21,8 +21,8 @@ Ralph active: yes
 | --- | --- | --- | --- | --- |
 | 00 - Foundation | Ralph | accepted | `cd845f2`, `e22ec27`, `b78b5ae`, `70b9df0`, `0e8a912`, `a650ef8`, `2809d21` (Lane 0 CQ-001..CQ-019 closed; later commits also touch `CANONICAL.md` governance) | `evidence/lane-00.md` |
 | 01 - Local store | Ralph | accepted (with re-scopes per `docs/rearch-2/lane-1-rescopes.md`) | `4f214b7`, `2b5ad1b`, `433c32f`, `a650ef8`, `6097f9e`, `5a6a683`, `2809d21`, `5e5ca20`, `ea615dd`, `5e4b5e7`, `ecc80a3`, `1419d92`, `1e81888`, `adee042`, `f54f4f1`, `f3730b3`, `aecc9af`, `b970437`, `6c25966`, `fc86533`, `a187a74`, `4792457` | `evidence/lane-01.md` |
-| 02 - Importers | Ralph | full provider implementation landed; CQ-083 closeout separation pending | `004107c`, `fc66925`, `8c0ba5f`, `aa88079`, `c496bac`, `8247a4c`, `58cca83`, `d302bc6`, `7eaed27`, `b660f44`, `8c1714f`, `af27eba`, `7a06c89`, `15194b5` | `evidence/lane-02.md` |
-| 03 - Derived layer | Ralph | blocked-on-cq-083 | | `evidence/lane-03.md` |
+| 02 - Importers | Ralph | full provider implementation landed; CQ-082 closeout committed at `3eb1c08`; Lane 2 acceptance pending Codex/governor/user sign-off | `004107c`, `fc66925`, `8c0ba5f`, `aa88079`, `c496bac`, `8247a4c`, `58cca83`, `d302bc6`, `7eaed27`, `b660f44`, `8c1714f`, `af27eba`, `7a06c89`, `15194b5`, `3eb1c08` | `evidence/lane-02.md` |
+| 03 - Derived layer | Ralph | scaffold-landed (writer/compaction policies only; Tantivy + DuckDB views + pack byte-layout pending) | (this iteration) | `evidence/lane-03.md` |
 | 04 - Server | Ralph | scaffold-landed | `5e5ca20` (`packages/prosa-db-v2/` Postgres DDL + pglite tests) | `evidence/lane-04.md` |
 | 05 - Sync protocol | Ralph | blocked-on-lane-04 | | `evidence/lane-05.md` |
 | 06 - Read API | Ralph | blocked-on-lane-05 | | `evidence/lane-06.md` |
@@ -33,9 +33,9 @@ Ralph active: yes
 
 ## Open Blocking Corrections
 
-- `CQ-083`: separate the corrected Lane 2 `CQ-082` closeout from Lane 3
-  scaffold WIP. This blocks Lane 2 acceptance, Lane 3 start, final
-  stabilization, and `RALPH_DONE`.
+(none — `CQ-074..CQ-083` are all closed. Lane 2 implementation
+contract is complete; Lane 2 acceptance is the project owner's /
+Codex's call. Lane 3 derived-layer scaffold has landed.)
 
 ## Latest Gates
 

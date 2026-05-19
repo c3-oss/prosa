@@ -27,22 +27,17 @@ section as the full restart instruction:
 - Read this prompt, `docs/roadmap/rearch-2/correction-queue.md`,
   `docs/roadmap/rearch-2/gates.md`, `docs/roadmap/rearch-2/status.md`, and
   `docs/rearch-2/03-lane-2-importers.md`.
-- User direction: Lane 1 is accepted. Lane 2 remains active after Codex review
-  of `15194b5`; the bundle-compile idempotency smoke does not yet prove
-  Reserve/pack idempotency.
-- `CQ-083` is open. It blocks Lane 2 acceptance, Lane 3 start, final
-  stabilization, and `RALPH_DONE`.
-- CodexProvider full per-record projection landed at `d302bc6` (closed
-  CQ-075/CQ-076). ClaudeProvider at `7eaed27`. GeminiProvider at `b660f44`.
-  HermesProvider at `8c1714f`. CursorProvider at `af27eba` (closed
-  CQ-077/CQ-078). The Lane 2 closeout commit on top of this iteration adds
-  the shared fixture corpora + providers-v2 idempotency conformance suite +
-  root `better-sqlite3` / `@types/better-sqlite3` devDependency, and closes
-  `CQ-074` + `CQ-079` + `CQ-080`. A follow-up commit attempted to close
-  `CQ-081`; the current WIP appears to fix that by using `MemoryShardActor`
-  across all five providers, but it incorrectly mixes Lane 3 scaffold files and
-  a `packages/prosa-derived-v2` lockfile entry into the Lane 2 closeout.
-  `CQ-083` must separate the scopes before Lane 2 acceptance.
+- User direction: Lane 1 is accepted. Lane 2 implementation contract is
+  complete (5 providers + fixture corpora + projection-id idempotency +
+  per-provider bundle-compile idempotency that exercises Reserve and
+  asserts on-disk pack stability). Lane 3 derived-layer scaffold has
+  landed in its own focused commit on top of the Lane 2 closeout per
+  `CQ-083`.
+- All `CQ-074..CQ-083` are closed. There are no open blocking corrections.
+  Lane 2 acceptance is the project owner's / Codex's call. Lane 3 is the
+  active lane; subsequent iterations land the Tantivy generation writer,
+  SessionBlobPackV2 byte layout, DuckDB analytics views, and the runtime
+  compaction worker.
 - If a correction needs a Codex/governor decision, ask one clear binary
   accept/reject question with a safe default. Do not loop on "external
   acceptance" as if Codex were unavailable.
@@ -160,11 +155,12 @@ Keep these files current:
 
 Current open correction:
 
-- `CQ-083`: separate the corrected `CQ-082` Lane 2 closeout from Lane 3 WIP.
-  Commit only the conformance-test/evidence fix for Lane 2. Do not include
-  `packages/prosa-derived-v2/` or the `packages/prosa-derived-v2` lockfile
-  importer entry in that closeout. Do not start or commit Lane 3 until this
-  blocker is closed and Lane 2 is accepted.
+(none — `CQ-074..CQ-083` are all closed. Lane 2 implementation
+contract is complete; Lane 2 acceptance is the project owner's /
+Codex's call. Lane 3 derived-layer scaffold has landed in its own
+focused commit per `CQ-083`. Subsequent Lane 3 iterations bring the
+Tantivy writer, SessionBlobPackV2 byte layout, DuckDB analytics
+views, and the runtime compaction worker.)
 
 Lane 0 + Lane 1 are accepted by the project owner on 2026-05-18, including the
 two re-scopes in `docs/rearch-2/lane-1-rescopes.md`.
@@ -183,11 +179,15 @@ plus the root `better-sqlite3` / `@types/better-sqlite3` devDependency
 the conformance test needs. Closes `CQ-074` + `CQ-079` + `CQ-080`. Lane
 2 acceptance still requires Codex/governor/user sign-off.
 
-Lane 3 (derived layer) is blocked while `CQ-083` is open. The untracked
-`packages/prosa-derived-v2/` WIP must remain unaccepted and should not be
-expanded until Lane 2 idempotency is corrected. Subsequent lanes (4 server beyond DB scaffold, 5 sync
-protocol, 6 read API, 7 CLI+MCP, 8 audit+GC, 9 migration, 10 cutover)
-remain unstarted.
+Lane 3 (derived layer) is the active lane. The scaffold commit on top
+of the Lane 2 closeout adds `packages/prosa-derived-v2/` with the
+SessionBlobPackV2 joint-constraint policy and the Parquet compaction
+trigger policy plus 17 focused unit tests; subsequent iterations
+bring the Tantivy generation writer, SessionBlobPackV2 byte layout
+(writer + reader), DuckDB analytics view definitions, and the
+runtime compaction worker. Subsequent lanes (4 server beyond DB
+scaffold, 5 sync protocol, 6 read API, 7 CLI+MCP, 8 audit+GC, 9
+migration, 10 cutover) remain unstarted.
 
 ## Implementation Rules
 
