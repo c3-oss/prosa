@@ -30,6 +30,16 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
     `low_count_byte_ceiling` when 17–32 small files weigh under
     256 MiB total. Large (≥ 32 MiB) segments are excluded from the
     "small" count.
+- [x] Parquet compaction planner: `planCompaction(bundleRoot)` walks
+  `epochs/<n>/projection/*.parquet`, groups segments per canonical
+  entity name, applies `compactionDecision`, and emits a deterministic
+  `CompactionPlan` naming exactly which segments would be merged into
+  `epochs/compact-<NNNN>/projection/<entity>.compacted.parquet`.
+  Already-compacted directories are skipped on re-run, sequence
+  numbers auto-discover from existing `compact-NNNN/`, and
+  non-numeric epoch entries are ignored. The actual row-preserving
+  Parquet merge (runtime worker) still lands in a follow-up
+  iteration when a Parquet writer is wired up.
 - [ ] Tantivy generation writer + incremental rebuild — pending.
 - [x] SessionBlobPackV2 byte layout (writer + reader emitting and
   parsing the actual pack format) implemented and tested:
@@ -71,7 +81,7 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
 ```text
 pnpm install --prefer-offline                       # registers @c3-oss/prosa-derived-v2 in pnpm-lock.yaml
 pnpm --filter @c3-oss/prosa-derived-v2 typecheck    # clean
-pnpm --filter @c3-oss/prosa-derived-v2 test         # 36 tests / 4 files (writer-policy 11, compaction 6, framing 8, writer/reader 11)
+pnpm --filter @c3-oss/prosa-derived-v2 test         # 44 tests / 5 files (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 8)
 pnpm --filter @c3-oss/prosa-derived-v2 lint         # clean
 pnpm build                                          # 13/13 turbo
 pnpm typecheck                                      # 13/13 turbo
