@@ -39,8 +39,8 @@ section as the full restart instruction:
   intermediate-symlink containment (`ea5f5d1`), production zstd
   codec (`62550e1`), SessionBlob listing helpers + shared
   containment refactor + CQ-099 resolver-parity (`f8a2b7a`),
-  `loadLatestSessionBlobPack` latest-epoch loader landing in this
-  iteration, plus the prior scaffold
+  `loadLatestSessionBlobPack` latest-epoch loader (`f0a6ba7`), plus
+  the prior scaffold
   (`bb76006`), SessionBlobPackV2 byte layout (`ba87f05`), Parquet
   compaction planner (`ea8c1a8`), DuckDB analytics view shape contract
   + compacted-overlay binding (`cff3670` / `e35f844`), Tantivy schema
@@ -59,9 +59,8 @@ section as the full restart instruction:
   output `RALPH_DONE` yet because Lane 3 remainder (Tantivy native
   writer, DuckDB runtime executor, runtime Parquet merge) plus
   Lanes 4–10 are still incomplete.
-- Continue from the first incomplete Lane 3 surface after the
-  `loadLatestSessionBlobPack` commit. Do not restart an already
-  completed lane.
+- Continue from the first incomplete Lane 3 surface after `f0a6ba7`.
+  Do not restart an already completed lane.
 - If a correction needs a Codex/governor decision, ask one clear binary
   accept/reject question with a safe default. Do not loop on "external
   acceptance" as if Codex were unavailable.
