@@ -77,7 +77,9 @@ section as the full restart instruction:
   analytics-execution-plan` DuckDB statement-sequence
   subcommand (`5842aa0`), `prosa index-v2
   compaction-execution-plan` Parquet COPY-statement subcommand
-  (`a0ac05b`), plus the prior scaffold
+  (`a0ac05b`), `prosa index-v2 transcript-header` SessionBlob
+  header-only probe subcommand (`278b4a1`), plus the prior
+  scaffold
   (`bb76006`), SessionBlobPackV2 byte layout (`ba87f05`), Parquet
   compaction planner (`ea8c1a8`), DuckDB analytics view shape contract
   + compacted-overlay binding (`cff3670` / `e35f844`), Tantivy schema
