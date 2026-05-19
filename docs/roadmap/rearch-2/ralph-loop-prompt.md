@@ -64,7 +64,8 @@ section as the full restart instruction:
   (`8c241a4`), `derivedLayerEpochsTouched` cross-subsystem epoch
   union (`60cae8a`), CQ-104 artifact-bearing-epoch filter
   closeout (`8330d82`), `prosa index-v2 status` CLI surface
-  (`17243a1`), plus the prior scaffold
+  (`17243a1`), `prosa index-v2 sessions` inventory subcommand
+  (`30a1d80`), plus the prior scaffold
   (`bb76006`), SessionBlobPackV2 byte layout (`ba87f05`), Parquet
   compaction planner (`ea8c1a8`), DuckDB analytics view shape contract
   + compacted-overlay binding (`cff3670` / `e35f844`), Tantivy schema
