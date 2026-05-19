@@ -9,10 +9,10 @@ Completion signal: RALPH_DONE
 
 ## Current State
 
-Status: Lane 1 accepted; Lane 2 active — Codex + Claude + Gemini providers all ship full per-record projection (canonical-field tool rows, no `as never` casts)
+Status: Lane 1 accepted; Lane 2 active — Codex + Claude + Gemini + Hermes providers all ship full per-record projection (canonical-field tool rows, no `as never` casts)
 Current lane: Lane 2 — provider importers (Codex, Claude, Cursor, Gemini, Hermes)
-Current HEAD: `7eaed27` (Gemini full projection commit pending)
-No-change streak: 0 (CQ-074 open: continuing full projection on Hermes/Cursor + fixtures + cross-provider idempotency conformance)
+Current HEAD: `b660f44` (Hermes full projection commit pending)
+No-change streak: 0 (CQ-074 open: continuing full projection on Cursor + fixtures + cross-provider idempotency conformance)
 Ralph active: yes
 
 ## Lane Status
@@ -38,15 +38,17 @@ Ralph active: yes
 The user explicitly rejected the Lane 2 re-scope and asked for full per-record
 projection across all 5 providers + fixture corpora + cross-provider
 idempotency conformance. CodexProvider was fully projected at `d302bc6`;
-ClaudeProvider at `7eaed27`. **This iteration** ships GeminiProvider full
-per-record projection (per-message MessageV2 + ContentBlockV2 from
-`messages[].content`; `thoughts[]` mapped to hidden_by_default `thinking`
-blocks; ToolCallV2 from each `toolCalls[]` entry with Gemini-specific
-canonical_tool_type mapping; ToolResultV2 linked by `source_call_id` with
-bounded `preview` rendered from `result[]`; EventV2 for `info`/`error`/unknown
-record kinds). Cursor/Hermes still need their full projection passes, plus the
-shared fixture corpora and the cross-provider idempotency conformance gate
-before CQ-074 can close.
+ClaudeProvider at `7eaed27`; GeminiProvider at `b660f44`. **This iteration**
+ships HermesProvider full per-record projection (per-envelope MessageV2 +
+ContentBlockV2 across both JSONL files and JSON snapshots; `session_meta`
+envelopes mapped to EventV2; hidden reasoning content stored as
+`hidden_by_default` blocks for `reasoning`, `reasoning_content`,
+`reasoning_details`, `codex_reasoning_items`, `codex_message_items`; ToolCallV2
+from each `tool_calls[]` entry on the same envelope; ToolResultV2 emitted for
+`role: 'tool'` envelopes linked back by `tool_call_id`). Cursor still needs
+its full projection pass (requires a SQLite parser dep), plus the shared
+fixture corpora and the cross-provider idempotency conformance gate before
+CQ-074 can close.
 
 ## Latest Gates
 

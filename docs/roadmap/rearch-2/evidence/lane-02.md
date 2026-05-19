@@ -3,26 +3,28 @@
 Lane: 02 - Importers
 Status: active WIP. The user rejected the Lane 2 re-scope and directed full
 per-record projection across all 5 providers + fixture corpora +
-cross-provider idempotency conformance. CodexProvider full per-record
-projection landed at `d302bc6`. ClaudeProvider at `7eaed27`. **This
-iteration** lands GeminiProvider full per-record projection: MessageV2 +
-ContentBlockV2 (per-`messages[].content` string or array; `thoughts[]`
-projected as extra `thinking` blocks at `hidden_by_default` visibility);
-ToolCallV2 from `toolCalls[]` entries with Gemini-specific
-`canonical_tool_type` mapping (`run_shell_command` → `shell`, `read_file`
-→ `read_file`, `replace` → `edit_file`, etc.) and inferred
-`command`/`cwd`/`path`/`query` from `args`; ToolResultV2 linked back by
-`source_call_id` with bounded `preview` rendered from `result[]` (text +
-`functionResponse.response.output`/`error`); EventV2 from `info` (→
-`system_operational`), `error` (→ `error`), and unknown records. The
-`LogicalImportUnit` contract, `GraphResolver`, and `runCompileImports`
-orchestrator landed at `004107c`. Lane 1 was accepted at `4792457`, lifting
-the `CQ-044` containment gate. `fc66925`/`8c0ba5f`/`aa88079`/`c496bac` landed
-minimal slices. `58cca83` landed CQ-072/CQ-073 CLI help-smoke closeout.
-`d302bc6` landed Codex full per-record projection + closed CQ-075/CQ-076.
-`7eaed27` landed Claude full per-record projection. Focused importer gates
-pass at 38 tests / 7 files. `CQ-074` remains open because the same
-full-projection work still has to land for Cursor/Hermes plus fixture
+cross-provider idempotency conformance. CodexProvider at `d302bc6`,
+ClaudeProvider at `7eaed27`, GeminiProvider at `b660f44`. **This iteration**
+lands HermesProvider full per-record projection: MessageV2 per envelope
+(role normalised via `mapHermesRole`); `session_meta` envelopes emit
+EventV2 instead; ContentBlockV2 for rendered text content plus hidden
+(`hidden_by_default`) blocks for `reasoning`/`reasoning_content`/
+`reasoning_details`/`codex_reasoning_items`/`codex_message_items`;
+ToolCallV2 from each parsed `tool_calls[]` entry on the same envelope
+(`canonical_tool_type` via substring heuristics, command/cwd/path/query
+inferred from arguments); ToolResultV2 emitted for `role: 'tool'`
+envelopes linked back by the envelope's `tool_call_id`. Both `.jsonl`
+and `session_*.json` snapshot files share the same per-envelope
+projection helper. The `LogicalImportUnit` contract, `GraphResolver`,
+and `runCompileImports` orchestrator landed at `004107c`. Lane 1 was
+accepted at `4792457`, lifting the `CQ-044` containment gate.
+`fc66925`/`8c0ba5f`/`aa88079`/`c496bac` landed minimal slices. `58cca83`
+landed CQ-072/CQ-073 CLI help-smoke closeout. `d302bc6` landed Codex
+full per-record projection + closed CQ-075/CQ-076. `7eaed27` landed
+Claude full per-record projection. `b660f44` landed Gemini full
+per-record projection. Focused importer gates pass at 39 tests / 7
+files. `CQ-074` remains open because Cursor still needs its full
+projection pass (requires SQLite parser dep), plus fixture
 corpora and the cross-provider idempotency conformance.
 Owner: Ralph
 Commit range: `004107c` (orchestrator + GraphResolver), `4792457`
@@ -57,8 +59,8 @@ CodexProvider), `8c0ba5f` (minimal ClaudeProvider + CQ-067 closeout),
   end-to-end with a mock provider (`@c3-oss/prosa-importers-v2`: 8
   tests / 2 files).
 - [ ] **Per-provider importers (codex, claude, cursor, gemini, hermes).**
-  CodexProvider, ClaudeProvider, and GeminiProvider all ship **full
-  per-record projection**.
+  CodexProvider, ClaudeProvider, GeminiProvider, and HermesProvider all ship
+  **full per-record projection**.
   - Codex: TurnV2 (from `turn_context`), MessageV2 + ContentBlockV2 (from
     `response_item:message`), ToolCallV2 (from `response_item:function_call`,
     with command/cwd/path/query inferred from arguments), ToolResultV2 (from
@@ -79,8 +81,18 @@ CodexProvider), `8c0ba5f` (minimal ClaudeProvider + CQ-067 closeout),
     covers `run_shell_command`/`read_file`/`replace`/etc.), ToolResultV2
     linked back by `source_call_id` with bounded `preview` rendered from
     the call's `result[]`, EventV2 (from `info`/`error`/unknown records).
-  - Cursor is opaque-bytes only. Hermes has a minimal slice. Full projection
-    still pending across Cursor/Hermes.
+  - Hermes: MessageV2 per envelope (`mapHermesRole` normalises `role` to
+    `user`/`assistant`/`tool`/`system_prompt`/`developer`/`operational`;
+    `session_meta` envelopes emit EventV2 instead of MessageV2); ContentBlockV2
+    for rendered text plus hidden reasoning blocks (`reasoning` /
+    `reasoning_content` / `reasoning_details` / `codex_reasoning_items` /
+    `codex_message_items`); ToolCallV2 from each parsed `tool_calls[]` entry
+    on the envelope; ToolResultV2 for `role: 'tool'` envelopes linked back
+    by `tool_call_id` (the envelope's source_call_id). Both `.jsonl` and
+    `session_*.json` snapshot files run through the same per-envelope
+    projection helper.
+  - Cursor is opaque-bytes only. Full projection still pending for Cursor
+    (requires a SQLite parser dependency).
 - [ ] `apps/cli/test/cli/compile-v2.test.ts` exists with subprocess tests for
   successful single-provider execution, bad-provider rejection, and
   `compile-all-v2` execution. The CQ-072 WIP adds `compile-v2 --help` and
@@ -116,8 +128,8 @@ CodexProvider), `8c0ba5f` (minimal ClaudeProvider + CQ-067 closeout),
 
 ```text
 pnpm install
-pnpm --filter @c3-oss/prosa-importers-v2 typecheck    # clean (Codex + Claude + Gemini full per-record projection)
-pnpm --filter @c3-oss/prosa-importers-v2 test         # 38 tests / 7 files (GraphResolver 5, orchestrator 3, CodexProvider 7 incl. CQ-074 full-projection assertions, ClaudeProvider 7 incl. CQ-068 spawned edges + CQ-074 full-projection assertions, CursorProvider 4, GeminiProvider 6 incl. CQ-074 Gemini full-projection assertions, HermesProvider 6)
+pnpm --filter @c3-oss/prosa-importers-v2 typecheck    # clean (Codex + Claude + Gemini + Hermes full per-record projection)
+pnpm --filter @c3-oss/prosa-importers-v2 test         # 39 tests / 7 files (GraphResolver 5, orchestrator 3, CodexProvider 7 incl. CQ-074 full-projection assertions, ClaudeProvider 7 incl. CQ-068 spawned edges + CQ-074 full-projection assertions, CursorProvider 4, GeminiProvider 6 incl. CQ-074 full-projection assertions, HermesProvider 7 incl. CQ-074 full-projection assertions)
 pnpm --filter @c3-oss/prosa-importers-v2 build        # dist/ emitted
 pnpm --filter @c3-oss/prosa-importers-v2 lint         # clean
 pnpm --filter @c3-oss/prosa lint                      # pass after CQ-073 closeout

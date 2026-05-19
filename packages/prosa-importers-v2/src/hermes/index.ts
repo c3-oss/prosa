@@ -1,23 +1,38 @@
-// Hermes Provider (v2) — minimal first iteration.
+// Hermes Provider (v2).
 //
-// Scope (intentionally minimal):
-//   - Discover `*.jsonl` and `session_*.json` files under the sessions
-//     directory.
-//   - Cheap-identify by the first `session_id`-bearing field; fall back
-//     to filename-derived id if absent.
-//   - Emit one `SessionV2` + one `SourceFileV2` per file, plus one
-//     `RawRecordV2` per JSONL line (or per messages[] entry for JSON
-//     snapshots, or one whole-doc raw_record when the snapshot has no
-//     messages array).
+// Discovers `*.jsonl` and `session_*.json` files under the sessions
+// directory, cheap-identifies by the first `session_id`-bearing field
+// (with filename fallback), and emits:
 //
-// Out of scope: SQLite `state.db` cross-reference, `sessions.json`
-// index merging (hermes_sqlite_plus_jsonl merge strategy),
-// per-message turn/message/tool-call projection.
+//   - one SessionV2 + one SourceFileV2 per file;
+//   - one RawRecordV2 per JSONL line, or per `messages[]` entry for JSON
+//     snapshots (with `json_pointer: /messages/<i>`), or one whole-doc
+//     RawRecordV2 when the snapshot has no `messages` array;
+//   - one MessageV2 per envelope with a normalized `role` (`user`,
+//     `assistant`, `tool`, `system_prompt`, `developer`, `operational`);
+//     `session_meta` envelopes emit EventV2 instead;
+//   - one ContentBlockV2 per message for the rendered text content
+//     (string, list of `{text}` / `{content}` items, or JSON-stringified
+//     fallback);
+//   - extra `reasoning` / `reasoning_content` / `reasoning_details` /
+//     `codex_reasoning_items` / `codex_message_items` content blocks
+//     tagged `hidden_by_default`;
+//   - one ToolCallV2 per parsed `tool_calls[]` entry on the same envelope
+//     (canonical_tool_type inferred from the tool name; `command` / `path` /
+//     `query` inferred from arguments);
+//   - one ToolResultV2 per `role: 'tool'` envelope linked back to the
+//     matching ToolCallV2 by `source_call_id` (the envelope's
+//     `tool_call_id`).
+//
+// SQLite `state.db` cross-reference and `sessions.json` index merging
+// (the full `hermes_sqlite_plus_jsonl` strategy) stay deferred to a
+// follow-up.
 
 import { readFile } from 'node:fs/promises'
 import { basename, normalize } from 'node:path'
 
 import {
+  type MessageRole,
   canonicalTimestamp,
   deriveRawRecordId,
   deriveSourceFileId,
@@ -27,6 +42,7 @@ import {
 import { blake3 } from '@noble/hashes/blake3'
 
 import {
+  type CanonicalProjectionDraft,
   type CheapIdentification,
   type DiscoveredSourceFile,
   type LogicalImportUnit,
@@ -38,6 +54,7 @@ import {
 import { type HermesFileKind, discoverHermesFiles } from './discover.js'
 
 const SOURCE_TOOL = 'hermes' as const
+const PREVIEW_MAX = 4096
 
 interface DiscoveredHermesFile extends DiscoveredSourceFile {
   hermes_kind: HermesFileKind
@@ -52,6 +69,16 @@ interface HermesEnvelope {
   role?: string
   model?: string
   content?: unknown
+  tool_call_id?: string
+  tool_calls?: unknown
+  tool_name?: string
+  token_count?: number
+  finish_reason?: string
+  reasoning?: unknown
+  reasoning_content?: unknown
+  reasoning_details?: unknown
+  codex_reasoning_items?: unknown
+  codex_message_items?: unknown
 }
 
 interface HermesJsonSnapshot {
@@ -63,6 +90,287 @@ interface HermesJsonSnapshot {
   model?: string
   summary?: string
   messages?: HermesEnvelope[]
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function decodeMaybeJson(value: unknown): unknown {
+  if (typeof value !== 'string') return value
+  try {
+    return JSON.parse(value)
+  } catch {
+    return value
+  }
+}
+
+function renderContentText(value: unknown): string {
+  if (value === null || value === undefined) return ''
+  if (typeof value === 'string') return value
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => {
+        if (typeof item === 'string') return item
+        if (isRecord(item)) {
+          if (typeof item.text === 'string') return item.text
+          if (typeof item.content === 'string') return item.content
+        }
+        try {
+          return JSON.stringify(item)
+        } catch {
+          return ''
+        }
+      })
+      .filter(Boolean)
+      .join('\n')
+  }
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return ''
+  }
+}
+
+function mapHermesRole(role: string | undefined): MessageRole {
+  if (role === 'user' || role === 'assistant' || role === 'tool') return role
+  if (role === 'system' || role === 'system_prompt') return 'system_prompt'
+  if (role === 'developer') return 'developer'
+  return 'operational'
+}
+
+function canonicalToolTypeHermes(toolName: string): string {
+  const lowered = toolName.toLowerCase()
+  if (lowered.includes('shell') || lowered.includes('bash') || lowered.includes('terminal')) return 'shell'
+  if (lowered.includes('read')) return 'read_file'
+  if (lowered.includes('write')) return 'write_file'
+  if (lowered.includes('edit') || lowered.includes('patch')) return 'edit_file'
+  if (lowered.includes('search') || lowered.includes('grep') || lowered.includes('glob')) return 'search_file'
+  if (lowered.includes('web')) return 'web_search'
+  if (lowered.includes('mcp')) return 'mcp'
+  if (lowered.includes('delegate') || lowered.includes('agent')) return 'subagent'
+  return 'other'
+}
+
+function parseToolCalls(value: unknown): Record<string, unknown>[] {
+  const decoded = decodeMaybeJson(value)
+  if (Array.isArray(decoded)) return decoded.filter(isRecord)
+  if (isRecord(decoded)) return [decoded]
+  return []
+}
+
+function stringField(record: Record<string, unknown> | null, key: string): string | null {
+  if (!record) return null
+  const v = record[key]
+  return typeof v === 'string' && v.length > 0 ? v : null
+}
+
+function getToolCallSourceId(call: Record<string, unknown>, fallback: string): string {
+  return stringField(call, 'id') ?? stringField(call, 'call_id') ?? stringField(call, 'tool_call_id') ?? fallback
+}
+
+function getToolName(call: Record<string, unknown>, fallback: string | null): string {
+  const fn = isRecord(call.function) ? call.function : null
+  return stringField(fn, 'name') ?? stringField(call, 'name') ?? stringField(call, 'tool_name') ?? fallback ?? 'unknown'
+}
+
+function getToolArgs(call: Record<string, unknown>): Record<string, unknown> | null {
+  const fn = isRecord(call.function) ? call.function : null
+  const args = fn?.arguments ?? call.args ?? call.input
+  if (isRecord(args)) return args
+  if (typeof args === 'string') {
+    const parsed = decodeMaybeJson(args)
+    if (isRecord(parsed)) return parsed
+    return { value: args }
+  }
+  return null
+}
+
+function rowIdFromKey(prefix: string, key: string): string {
+  return `${prefix}_${toHex(blake3(new TextEncoder().encode(key))).slice(0, 32)}`
+}
+
+interface ParsedEnvelope {
+  env: HermesEnvelope
+  rawRecordId: string
+  ordinal: number
+}
+
+/**
+ * Per-envelope projection — emits MessageV2 / ContentBlockV2 /
+ * ToolCallV2 / ToolResultV2 / EventV2 for one envelope. Shared by the
+ * JSONL and JSON-snapshot paths.
+ */
+function projectHermesEnvelope(
+  draft: CanonicalProjectionDraft,
+  sessionRowId: string,
+  p: ParsedEnvelope,
+  counters: { messageOrdinal: number; eventOrdinal: number },
+  toolCallBySourceId: Map<string, string>,
+): { modelSeen: string | null } {
+  const env = p.env
+  const ts =
+    typeof env.timestamp === 'string' && isValidCanonicalTimestamp(env.timestamp)
+      ? canonicalTimestamp(env.timestamp)
+      : null
+  if (env.role === 'session_meta') {
+    const eventRowId =
+      typeof env.id === 'string' && env.id.length > 0
+        ? rowIdFromKey('evt', `hermes:evt:${sessionRowId}:${env.id}`)
+        : rowIdFromKey('evt', `hermes:evt:${sessionRowId}:ord:${p.ordinal}`)
+    draft.events.push({
+      event_id: eventRowId,
+      session_id: sessionRowId,
+      turn_id: null,
+      source_event_id: typeof env.id === 'string' ? env.id : null,
+      event_type: 'system_operational',
+      source_type: 'session_meta',
+      subtype: null,
+      timestamp: ts,
+      ordinal: counters.eventOrdinal,
+      actor: 'system',
+      payload_object_id: null,
+      raw_record_id: p.rawRecordId,
+      confidence: 'high',
+      is_derived: false,
+    })
+    counters.eventOrdinal += 1
+    return { modelSeen: null }
+  }
+  const role = mapHermesRole(env.role)
+  const sourceMessageId = typeof env.id === 'string' && env.id.length > 0 ? env.id : null
+  const messageRowId =
+    sourceMessageId !== null
+      ? rowIdFromKey('msg', `hermes:msg:${sessionRowId}:${sourceMessageId}`)
+      : rowIdFromKey('msg', `hermes:msg:${sessionRowId}:ord:${p.ordinal}`)
+  const modelSeen = role === 'assistant' && typeof env.model === 'string' ? env.model : null
+  draft.messages.push({
+    message_id: messageRowId,
+    session_id: sessionRowId,
+    turn_id: null,
+    event_id: null,
+    source_message_id: sourceMessageId,
+    role,
+    author_name: null,
+    model: modelSeen,
+    timestamp: ts,
+    ordinal: counters.messageOrdinal,
+    parent_message_id: null,
+    request_id: null,
+    status: typeof env.finish_reason === 'string' ? env.finish_reason : null,
+    raw_record_id: p.rawRecordId,
+  })
+  counters.messageOrdinal += 1
+
+  // Default content block.
+  const text = renderContentText(env.content)
+  let blockOrdinal = 0
+  if (text.length > 0) {
+    draft.content_blocks.push({
+      block_id: rowIdFromKey('blk', `hermes:blk:${messageRowId}:${blockOrdinal}`),
+      message_id: messageRowId,
+      event_id: null,
+      session_id: sessionRowId,
+      ordinal: blockOrdinal,
+      block_type: 'text',
+      text_object_id: null,
+      text_inline: text.slice(0, PREVIEW_MAX),
+      mime_type: 'text/plain',
+      token_count: typeof env.token_count === 'number' ? env.token_count : null,
+      is_error: false,
+      is_redacted: false,
+      visibility: 'default',
+      raw_record_id: p.rawRecordId,
+    })
+    blockOrdinal += 1
+  }
+  // Hidden reasoning / Codex passthrough blocks.
+  const hidden: Array<[string, unknown]> = [
+    ['reasoning', env.reasoning],
+    ['reasoning_content', env.reasoning_content],
+    ['reasoning_details', env.reasoning_details],
+    ['codex_reasoning_items', env.codex_reasoning_items],
+    ['codex_message_items', env.codex_message_items],
+  ]
+  for (const [kind, raw] of hidden) {
+    const decoded = decodeMaybeJson(raw)
+    const ht = renderContentText(decoded)
+    if (ht.length === 0) continue
+    draft.content_blocks.push({
+      block_id: rowIdFromKey('blk', `hermes:blk:${messageRowId}:${kind}`),
+      message_id: messageRowId,
+      event_id: null,
+      session_id: sessionRowId,
+      ordinal: blockOrdinal,
+      block_type: kind,
+      text_object_id: null,
+      text_inline: ht.slice(0, PREVIEW_MAX),
+      mime_type: 'text/plain',
+      token_count: null,
+      is_error: false,
+      is_redacted: false,
+      visibility: 'hidden_by_default',
+      raw_record_id: p.rawRecordId,
+    })
+    blockOrdinal += 1
+  }
+
+  // Tool calls inline on this envelope.
+  const calls = parseToolCalls(env.tool_calls)
+  for (let i = 0; i < calls.length; i++) {
+    const call = calls[i]
+    if (!call) continue
+    const sourceCallId = getToolCallSourceId(call, `${messageRowId}:tc:${i}`)
+    const toolName = getToolName(call, env.tool_name ?? null)
+    const args = getToolArgs(call)
+    const toolCallRowId = rowIdFromKey('tcl', `hermes:tcl:${sessionRowId}:${sourceCallId}`)
+    toolCallBySourceId.set(sourceCallId, toolCallRowId)
+    draft.tool_calls.push({
+      tool_call_id: toolCallRowId,
+      session_id: sessionRowId,
+      turn_id: null,
+      message_id: messageRowId,
+      event_id: null,
+      source_call_id: sourceCallId,
+      tool_name: toolName,
+      canonical_tool_type: canonicalToolTypeHermes(toolName),
+      args_object_id: null,
+      command: stringField(args, 'command'),
+      cwd: stringField(args, 'cwd'),
+      path: stringField(args, 'path') ?? stringField(args, 'file_path'),
+      query: stringField(args, 'query'),
+      timestamp_start: ts,
+      timestamp_end: null,
+      status: typeof env.finish_reason === 'string' ? env.finish_reason : 'started',
+      raw_record_id: p.rawRecordId,
+    })
+  }
+
+  // Tool result: a `role: 'tool'` envelope with a `tool_call_id` is the
+  // canonical output of a prior `tool_calls[]` entry.
+  if (role === 'tool' && typeof env.tool_call_id === 'string' && env.tool_call_id.length > 0) {
+    const sourceCallId = env.tool_call_id
+    const matchedToolCallId = toolCallBySourceId.get(sourceCallId) ?? null
+    const isError = env.finish_reason === 'error'
+    draft.tool_results.push({
+      tool_result_id: rowIdFromKey('tre', `hermes:tre:${sessionRowId}:${sourceCallId}`),
+      tool_call_id: matchedToolCallId,
+      session_id: sessionRowId,
+      message_id: messageRowId,
+      event_id: null,
+      source_call_id: sourceCallId,
+      status: isError ? 'error' : matchedToolCallId !== null ? 'success' : null,
+      is_error: isError,
+      exit_code: null,
+      duration_ms: null,
+      stdout_object_id: null,
+      stderr_object_id: null,
+      output_object_id: null,
+      preview: text.length > 0 ? text.slice(0, PREVIEW_MAX) : null,
+      raw_record_id: p.rawRecordId,
+    })
+  }
+  return { modelSeen }
 }
 
 function pickSessionId(env: HermesEnvelope | HermesJsonSnapshot | null): string | null {
@@ -151,6 +459,7 @@ export class HermesProvider implements Provider {
     let modelFirst: string | null = null
     let modelLast: string | null = null
     let summary: string | null = null
+    const parsedEnvelopes: ParsedEnvelope[] = []
 
     if (enriched.hermes_kind === 'session_jsonl') {
       const text = new TextDecoder().decode(bytes)
@@ -211,6 +520,7 @@ export class HermesProvider implements Provider {
           decoded_object_id: null,
           created_at: input.createdAt,
         })
+        if (env) parsedEnvelopes.push({ env, rawRecordId, ordinal })
         ordinal += 1
         logicalOffset += byteLength + 1
       }
@@ -265,6 +575,7 @@ export class HermesProvider implements Provider {
             decoded_object_id: null,
             created_at: input.createdAt,
           })
+          if (m) parsedEnvelopes.push({ env: m, rawRecordId, ordinal: i })
         }
       } else {
         const rawRecordId = deriveRawRecordId({
@@ -334,6 +645,25 @@ export class HermesProvider implements Provider {
       timeline_confidence: 'high',
       raw_record_id: rawRecordIds[0] ?? null,
     })
+
+    // CQ-074: per-envelope projection. Run after the session row is in
+    // place so projectHermesEnvelope can attach ids to a single
+    // session_id. Accumulates additional model_first/last observations
+    // from assistant envelopes that may post-date the first-pass scan.
+    const counters = { messageOrdinal: 0, eventOrdinal: 0 }
+    const toolCallBySourceId = new Map<string, string>()
+    for (const p of parsedEnvelopes) {
+      const { modelSeen } = projectHermesEnvelope(draft, sessionRowId, p, counters, toolCallBySourceId)
+      if (modelSeen !== null) {
+        if (modelFirst === null) modelFirst = modelSeen
+        modelLast = modelSeen
+      }
+    }
+    const lastSession = draft.sessions[draft.sessions.length - 1]
+    if (lastSession) {
+      lastSession.model_first = modelFirst
+      lastSession.model_last = modelLast
+    }
 
     const unit: LogicalImportUnit = {
       unit_id: input.identification.unit_id,
