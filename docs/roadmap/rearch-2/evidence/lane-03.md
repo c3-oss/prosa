@@ -56,6 +56,29 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
   `already_indexed_up_to_date` (skip).
   `checkpointAfterRebuild` / `checkpointAfterFailure` return a new
   `IndexCheckpointV2` without mutating prior state.
+- [x] SessionBlobPackV2 projection-to-input bridge
+  (`projectionToSessionBlobInputs`) converts a session's canonical
+  `MessageV2[]` + `ContentBlockV2[]` (+ optional `ToolCallV2[]`)
+  rows into the ordered `BlobMessageInput[]` shape the writer
+  consumes. Pure-TypeScript glue: deterministic sort by
+  (`ordinal`, secondary id), session_id filtering so cross-session
+  leakage is dropped, `text_object_id` → `cas_ref` body /
+  `text_inline` → `inline` body classification, `is_tool_call`
+  flag tagging from `ToolCallV2.message_id` back-reference. Round-
+  trips through `writeSessionBlobPack` end-to-end with the
+  identity compressor. CAS-ref previews are truncated by UTF-8
+  byte length (CQ-091): `truncateToUtf8Bytes` uses
+  `TextEncoder.encodeInto` so multibyte scalars are never split
+  and the returned `byte_length` matches the truncated preview's
+  actual UTF-8 size. The writer's CAS-ref `bodyByteCost` matches:
+  `utf8ByteLength(body.preview)` × 1.1 + 128 + JSON overhead. Two
+  regression tests guard the property: (a) a 4096-emoji
+  `text_inline` paired with `text_object_id` caps the emitted
+  preview to ≤ `CAS_REF_PREVIEW_MAX_BYTES` UTF-8 bytes; (b) 128
+  multibyte CAS-ref blocks never produce a page with
+  `uncompressed_length > MAX_PAGE_UNCOMPRESSED_BYTES`. The
+  runtime derived layer plugs this bridge between Lane 2's
+  per-epoch projection and Lane 3's session-blob writer.
 - [x] SessionBlobPackV2 byte layout (writer + reader emitting and
   parsing the actual pack format) implemented and tested:
   - 16-byte framing magic `PROSA_SESS_PACK2` mirroring the
@@ -108,7 +131,7 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
 ```text
 pnpm install --prefer-offline                       # registers @c3-oss/prosa-derived-v2 in pnpm-lock.yaml
 pnpm --filter @c3-oss/prosa-derived-v2 typecheck    # clean
-pnpm --filter @c3-oss/prosa-derived-v2 test         # 72 tests / 8 files (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10)
+pnpm --filter @c3-oss/prosa-derived-v2 test         # 81 tests / 9 files (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9 — 7 baseline + 2 CQ-091 UTF-8-byte regressions)
 pnpm --filter @c3-oss/prosa-derived-v2 lint         # clean
 pnpm build                                          # 13/13 turbo
 pnpm typecheck                                      # 13/13 turbo

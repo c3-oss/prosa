@@ -4,10 +4,45 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 ## Open
 
-(none — `CQ-074..CQ-090` are all closed. Lane 2 acceptance still
+(none — `CQ-074..CQ-091` are all closed. Lane 2 acceptance still
 requires Codex/governor/user sign-off.)
 
 ## Closed (latest first)
+
+### CQ-091: Enforce CAS Preview Byte Accounting in SessionBlob Projection Bridge — closed 2026-05-19
+
+Fix lands in this iteration:
+
+- `projectionToSessionBlobInputs()` now truncates CAS-ref previews
+  by UTF-8 byte length (`truncateToUtf8Bytes` uses
+  `TextEncoder.encodeInto`, which stops on the last complete code
+  point that fits the byte budget). Returned `byte_length` matches
+  the truncated preview's UTF-8 length.
+- `writeSessionBlobPack()`'s CAS-ref `bodyByteCost` now uses
+  `utf8ByteLength(body.preview)` instead of `body.preview.length`
+  (UTF-16 code units), with the same 1.1x inflation + 128-byte
+  object-id overhead the writer applies to inline blocks.
+- Two new regression tests in
+  `test/session-blob/projection-bridge.test.ts`:
+  - A `text_object_id` with a 4096-emoji `text_inline` is capped
+    to ≤ `CAS_REF_PREVIEW_MAX_BYTES` UTF-8 bytes and never splits
+    a surrogate pair (preview length is exactly
+    `floor(CAS_REF_PREVIEW_MAX_BYTES / 4)` emoji).
+  - 128 multibyte CAS-ref previews routed through
+    `writeSessionBlobPack` produce no
+    `SessionBlobPageRefV2.uncompressed_length` above
+    `MAX_PAGE_UNCOMPRESSED_BYTES`.
+
+Gates after the change:
+
+- `pnpm --filter @c3-oss/prosa-derived-v2 typecheck`: pass.
+- `pnpm --filter @c3-oss/prosa-derived-v2 test`: pass, 81 tests / 9
+  files.
+- `pnpm --filter @c3-oss/prosa-derived-v2 lint`: pass.
+- Full repo `pnpm build` / `pnpm typecheck` / `pnpm test` / `pnpm
+  lint`: 13/13 turbo.
+- `pnpm test:conformance`: pass, 26 tests / 2 files.
+- `git diff --check`: pass.
 
 ### CQ-090: Reconcile Tantivy Planner Closeout Evidence Before Acceptance — closed 2026-05-19
 

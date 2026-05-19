@@ -135,7 +135,9 @@ const EFFECTIVE_PAGE_BUDGET = Math.floor(0.75 * 1024 * 1024)
 /**
  * Compute the in-pack byte cost of a content body. Inline text costs
  * its UTF-8 length plus the block JSON overhead; CAS refs cost the
- * preview length plus block + object_id wrapper overhead.
+ * preview's UTF-8 byte length plus block + object_id wrapper
+ * overhead. Note `body.preview.length` is UTF-16 code units, which
+ * undercounts multibyte text — use a UTF-8 byte-length helper.
  */
 function bodyByteCost(body: TranscriptTextBodyV2): number {
   if (body.kind === 'inline') {
@@ -144,9 +146,14 @@ function bodyByteCost(body: TranscriptTextBodyV2): number {
     // text. Use 1.1x with a small floor to stay conservative.
     return Math.ceil(body.byte_length * 1.1) + BLOCK_JSON_OVERHEAD_BYTES
   }
-  // CAS ref body: object id (~70 chars) + bounded preview + JSON
-  // overhead.
-  return Math.min(body.preview.length, CAS_REF_PREVIEW_MAX_BYTES) + BLOCK_JSON_OVERHEAD_BYTES + 128
+  // CAS ref body: object id (~70 chars) + bounded preview (UTF-8
+  // byte-counted) + JSON overhead.
+  const previewBytes = Math.min(utf8ByteLength(body.preview), CAS_REF_PREVIEW_MAX_BYTES)
+  return Math.ceil(previewBytes * 1.1) + BLOCK_JSON_OVERHEAD_BYTES + 128
+}
+
+function utf8ByteLength(text: string): number {
+  return new TextEncoder().encode(text).length
 }
 
 function messageByteCost(message: BlobMessageInput): number {

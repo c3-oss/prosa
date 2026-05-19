@@ -157,15 +157,13 @@ Keep these files current:
 
 ## Current Blocking Corrections
 
-Current open correction:
-
-(none — `CQ-074..CQ-090` are all closed. Lane 3 progress: scaffold
-(`bb76006`), SessionBlobPackV2 byte layout (`ba87f05`), Parquet
-compaction planner (`ea8c1a8`), DuckDB analytics view shape
-contract + compacted-overlay binding (`cff3670` / `e35f844`),
-Tantivy schema + rebuild planner (`509e1f1`). Remaining Lane 3
-surfaces — Tantivy native writer, DuckDB runtime executor, runtime
-Parquet merge — are ordinary forward work, not corrections.)
+Current open corrections: none. `CQ-091` closed in the most recent
+iteration (SessionBlob projection-bridge CAS-ref previews now truncated
+by UTF-8 byte length via `TextEncoder.encodeInto`; writer's CAS-ref
+`bodyByteCost` uses `utf8ByteLength(body.preview)`; two regression tests
+guard the property). Lane 2 acceptance still requires Codex/governor/user
+sign-off; Lane 3 forward work continues on the remaining surfaces
+(Tantivy native writer, DuckDB runtime executor, Parquet merge worker).
 
 Lane 0 + Lane 1 are accepted by the project owner on 2026-05-18, including the
 two re-scopes in `docs/rearch-2/lane-1-rescopes.md`.
