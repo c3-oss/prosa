@@ -133,16 +133,21 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
 - [x] Tantivy index-dir best-effort probe
   (`tantivyIndexDir(bundleRoot)`, `tantivyMetaPath(bundleRoot)`,
   `tantivyIndexDirIsValid(bundleRoot)`) is the filesystem side of
-  the rebuild planner's `indexDirValid` boolean. The probe
-  returns `true` only when the canonical
-  `<bundleRoot>/derived/tantivy/index` directory exists, contains a
-  `meta.json` regular file, and that file parses as a JSON object
-  with an array-typed `segments` field. Every other state — ENOENT,
-  file-not-dir, malformed JSON, JSON-array root, missing
-  `segments`, non-array `segments`, dangling symlink — returns
-  `false`. Deeper integrity checks remain the native writer's
-  responsibility; the probe is deliberately ENOENT-tolerant and
-  cheap so the planner can keep its decision pure-TS.
+  the rebuild planner's `indexDirValid` boolean. The probe uses
+  `lstat()` on both the directory and `meta.json` so a symlink at
+  either path is rejected unconditionally regardless of the link
+  target (CQ-094) — a planted
+  `derived/tantivy/index -> /etc/passwd.d` cannot be reported as a
+  recoverable index. It returns `true` only when the canonical
+  `<bundleRoot>/derived/tantivy/index` is a real directory
+  containing a real regular `meta.json` that parses as a JSON
+  object with an array-typed `segments` field. Every other state
+  — ENOENT, file-not-dir, malformed JSON, JSON-array root, missing
+  `segments`, non-array `segments`, dangling symlink, escape-path
+  symlinks at either index or meta — returns `false`. Deeper
+  integrity checks remain the native writer's responsibility; the
+  probe is deliberately ENOENT-tolerant and cheap so the planner
+  can keep its decision pure-TS.
 - [x] Analytics execution-plan composer
   (`planAnalyticsExecution(input)`) returns the ordered statement
   sequence a runtime DuckDB executor consumes to materialise an
@@ -198,7 +203,7 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
 ```text
 pnpm install --prefer-offline                       # registers @c3-oss/prosa-derived-v2 in pnpm-lock.yaml
 pnpm --filter @c3-oss/prosa-derived-v2 typecheck    # clean
-pnpm --filter @c3-oss/prosa-derived-v2 test         # 120 tests / 13 files (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9, reader-iterator 7, tantivy checkpoint-store 11, analytics executor-plan 9, tantivy index-dir probe 12)
+pnpm --filter @c3-oss/prosa-derived-v2 test         # 122 tests / 13 files (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9, reader-iterator 7, tantivy checkpoint-store 11, analytics executor-plan 9, tantivy index-dir probe 14 — incl. 2 CQ-094 escape-symlink regressions)
 pnpm --filter @c3-oss/prosa-derived-v2 lint         # clean
 pnpm build                                          # 13/13 turbo
 pnpm typecheck                                      # 13/13 turbo

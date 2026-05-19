@@ -4,10 +4,43 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 ## Open
 
-(none — `CQ-091`, `CQ-092`, and `CQ-093` are all closed. Lane 2
-acceptance still requires Codex/governor/user sign-off.)
+(none — `CQ-091`..`CQ-094` are all closed. Lane 2 acceptance still
+requires Codex/governor/user sign-off.)
 
 ## Closed (latest first)
+
+### CQ-094: Tantivy Index-Dir Probe Must Reject Symlink Escape Paths — closed 2026-05-19
+
+Fix lands in this iteration:
+
+- `tantivyIndexDirIsValid()` now uses `lstat()` (not `stat()`) on both
+  the index directory and `meta.json`. When either path is a symbolic
+  link the probe returns `false` immediately, regardless of whether
+  the link target exists or would have satisfied the validity check.
+- Module-level docstring updated to document the symlink-rejection
+  contract and reference CQ-094.
+- Two new regression tests cover the escape paths CQ-094 calls out:
+  - index dir is a symlink to an existing external directory
+    containing a plausible `meta.json` — probe must reject.
+  - `meta.json` itself is a symlink to an existing external file
+    whose contents would otherwise satisfy the JSON check — probe
+    must reject.
+- The existing dangling-symlink, malformed-JSON, JSON-array,
+  missing-segments, non-array-segments, and happy-path tests still
+  pass without modification; the dangling-symlink comment was updated
+  to describe the new `lstat`-based rejection path rather than the
+  old `stat`-resolved ENOENT path.
+
+Gates after the change:
+
+- `pnpm --filter @c3-oss/prosa-derived-v2 typecheck`: pass.
+- `pnpm --filter @c3-oss/prosa-derived-v2 test`: pass, 122 tests / 13
+  files.
+- `pnpm --filter @c3-oss/prosa-derived-v2 lint`: pass.
+- Full repo `pnpm build` / `pnpm typecheck` / `pnpm test` / `pnpm
+  lint`: 13/13 turbo.
+- `pnpm test:conformance`: pass, 26 tests / 2 files.
+- `git diff --check`: pass.
 
 ### CQ-093: Make Tantivy Checkpoint Writes Actually Atomic — closed 2026-05-19
 

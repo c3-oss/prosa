@@ -86,11 +86,46 @@ describe('tantivyIndexDirIsValid', () => {
   })
 
   it('returns false when the index path is a dangling symlink', async () => {
-    // Plant a symlink whose target does not exist; `stat` follows
-    // links, so this returns ENOENT and the probe must report false.
+    // Plant a symlink whose target does not exist. With `lstat` the
+    // probe rejects symlinks unconditionally — CQ-094 — and the
+    // dangling target never gets resolved.
     await mkdir(join(bundleRoot, 'derived', 'tantivy'), { recursive: true })
     await symlink(join(bundleRoot, 'derived', 'tantivy', 'no-such-target'), tantivyIndexDir(bundleRoot))
     expect(await tantivyIndexDirIsValid(bundleRoot)).toBe(false)
+  })
+
+  it('CQ-094: returns false when the index dir is a symlink to a valid external directory', async () => {
+    // Plant a real directory outside the bundle root with a
+    // plausible `meta.json`. If the probe followed the symlink, it
+    // would report `true` even though the index path escapes the
+    // bundle. With `lstat`, the symlink at the index path is
+    // rejected unconditionally.
+    const external = await mkdtemp(join(tmpdir(), 'prosa-derived-tantivy-ext-'))
+    try {
+      await writeFile(join(external, 'meta.json'), JSON.stringify({ segments: [] }))
+      await mkdir(join(bundleRoot, 'derived', 'tantivy'), { recursive: true })
+      await symlink(external, tantivyIndexDir(bundleRoot))
+      expect(await tantivyIndexDirIsValid(bundleRoot)).toBe(false)
+    } finally {
+      await rm(external, { recursive: true, force: true })
+    }
+  })
+
+  it('CQ-094: returns false when meta.json is a symlink to a valid external file', async () => {
+    // The directory is real, but meta.json is a symlink to an
+    // external file whose contents would otherwise satisfy the
+    // validity check. Rejected unconditionally — a future writer
+    // must not silently truncate or rewrite the external target.
+    const external = await mkdtemp(join(tmpdir(), 'prosa-derived-tantivy-ext-'))
+    try {
+      const externalMeta = join(external, 'meta.json')
+      await writeFile(externalMeta, JSON.stringify({ segments: [] }))
+      await mkdir(tantivyIndexDir(bundleRoot), { recursive: true })
+      await symlink(externalMeta, tantivyMetaPath(bundleRoot))
+      expect(await tantivyIndexDirIsValid(bundleRoot)).toBe(false)
+    } finally {
+      await rm(external, { recursive: true, force: true })
+    }
   })
 })
 
