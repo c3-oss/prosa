@@ -114,8 +114,9 @@ section as the full restart instruction:
   `apps/cli/test/cli/index-v2-compaction-lifecycle.test.ts`
   end-to-end compaction-lifecycle audit test (`55b435f`),
   `derivedLayerMaintenanceSummary` + `prosa index-v2
-  maintenance` one-call dashboard read (`64e1d4e`), plus the
-  prior scaffold
+  maintenance` one-call dashboard read (`64e1d4e`),
+  maintenance ↔ discrete-subcommand rollup-equality coherence
+  test (`20687c9`), plus the prior scaffold
   (`bb76006`), SessionBlobPackV2 byte layout (`ba87f05`), Parquet
   compaction planner (`ea8c1a8`), DuckDB analytics view shape contract
   + compacted-overlay binding (`cff3670` / `e35f844`), Tantivy schema
