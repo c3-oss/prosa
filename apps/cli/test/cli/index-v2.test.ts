@@ -57,6 +57,7 @@ describe('prosa index-v2 CLI', () => {
     expect(r.stdout).toContain('compaction-manifest')
     expect(r.stdout).toContain('compaction-execution-plan')
     expect(r.stdout).toContain('compacted-outputs')
+    expect(r.stdout).toContain('gc-plan')
     expect(r.stdout).toContain('superseded-segments')
     expect(r.stdout).toContain('verify-packs')
     expect(r.stdout).toContain('transcript-header')
@@ -770,6 +771,94 @@ describe('prosa index-v2 CLI', () => {
     const r = runCli(['index-v2', 'compaction-manifest', '--store', storeRoot, '--read', '--compaction-seq', '99'])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/ENOENT|compact-0099/)
+  })
+
+  it('`index-v2 gc-plan --help` documents --store', async () => {
+    const r = runCli(['index-v2', 'gc-plan', '--help'])
+    expect(r.status).toBe(0)
+    expect(r.stdout).toContain('GC plan')
+    expect(r.stdout).toContain('--store')
+  })
+
+  it('`index-v2 gc-plan` against a fresh bundle prints an empty plan', async () => {
+    const storeRoot = join(await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-')), 'never-initialised')
+    const r = runCli(['index-v2', 'gc-plan', '--store', storeRoot])
+    expect(r.status).toBe(0)
+    expect(JSON.parse(r.stdout)).toEqual({
+      candidates: [],
+      safe_to_delete: { count: 0, bytes: 0 },
+      blocked: { count: 0, bytes: 0 },
+    })
+  })
+
+  it('`index-v2 gc-plan` flags every superseded segment as blocked when no compacted output exists', async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    for (let epoch = 1; epoch <= 17; epoch++) {
+      const dir = join(storeRoot, 'epochs', String(epoch), 'projection')
+      await mkdir(dir, { recursive: true })
+      await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(1024))
+    }
+    runCli([
+      'index-v2',
+      'compaction-manifest',
+      '--store',
+      storeRoot,
+      '--write',
+      '--generated-at',
+      '2026-05-19T12:00:00.000Z',
+    ])
+
+    const r = runCli(['index-v2', 'gc-plan', '--store', storeRoot])
+    expect(r.status).toBe(0)
+    const plan = JSON.parse(r.stdout) as {
+      candidates: Array<{ safe_to_delete: boolean; blocked_reason: string | null }>
+      safe_to_delete: { count: number; bytes: number }
+      blocked: { count: number; bytes: number }
+    }
+    expect(plan.candidates).toHaveLength(17)
+    expect(plan.candidates.every((c) => !c.safe_to_delete)).toBe(true)
+    expect(plan.candidates.every((c) => c.blocked_reason === 'output_missing')).toBe(true)
+    expect(plan.safe_to_delete).toEqual({ count: 0, bytes: 0 })
+    expect(plan.blocked).toEqual({ count: 17, bytes: 17 * 1024 })
+  })
+
+  it('`index-v2 gc-plan` flips all candidates to safe_to_delete once the compacted output is planted', async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    for (let epoch = 1; epoch <= 17; epoch++) {
+      const dir = join(storeRoot, 'epochs', String(epoch), 'projection')
+      await mkdir(dir, { recursive: true })
+      await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(1024))
+    }
+    runCli([
+      'index-v2',
+      'compaction-manifest',
+      '--store',
+      storeRoot,
+      '--write',
+      '--generated-at',
+      '2026-05-19T12:00:00.000Z',
+    ])
+    const compactedDir = join(storeRoot, 'epochs', 'compact-0001', 'projection')
+    await mkdir(compactedDir, { recursive: true })
+    await writeFile(join(compactedDir, 'sessions.compacted.parquet'), Buffer.alloc(64))
+
+    const r = runCli(['index-v2', 'gc-plan', '--store', storeRoot])
+    expect(r.status).toBe(0)
+    const plan = JSON.parse(r.stdout) as {
+      candidates: Array<{ safe_to_delete: boolean; blocked_reason: string | null }>
+      safe_to_delete: { count: number; bytes: number }
+      blocked: { count: number; bytes: number }
+    }
+    expect(plan.candidates.every((c) => c.safe_to_delete)).toBe(true)
+    expect(plan.candidates.every((c) => c.blocked_reason === null)).toBe(true)
+    expect(plan.safe_to_delete).toEqual({ count: 17, bytes: 17 * 1024 })
+    expect(plan.blocked).toEqual({ count: 0, bytes: 0 })
+  })
+
+  it('`index-v2 gc-plan` fails when --store is missing', async () => {
+    const r = runCli(['index-v2', 'gc-plan'])
+    expect(r.status).not.toBe(0)
+    expect(r.stderr).toMatch(/required option.*--store/i)
   })
 
   it('`index-v2 compacted-outputs --help` documents --store', async () => {

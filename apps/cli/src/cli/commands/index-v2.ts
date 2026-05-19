@@ -38,6 +38,7 @@ import {
   planAnalyticsExecution,
   planCompaction,
   planCompactionExecution,
+  planSupersededCleanup,
   planTantivyRebuildFromBundle,
   readCompactManifestV2,
   readSessionBlobHeader,
@@ -254,6 +255,18 @@ export function indexV2Command(): Command {
       const plan = await planCompaction(storePath)
       const execution = planCompactionExecution({ bundleRoot: storePath, plan })
       process.stdout.write(`${JSON.stringify(execution, null, 2)}\n`)
+    })
+
+  root
+    .command('gc-plan')
+    .description(
+      'Print the GC plan for persisted compactions: every superseded epoch segment tagged with `safe_to_delete: true|false` (true iff the declaring compaction-seq is in a consistent post-merge state). Composes `superseded-segments` + `compacted-outputs` so callers do not need to cross-reference. Pure-read; the planner never deletes anything.',
+    )
+    .requiredOption('--store <path>', 'bundle directory')
+    .action(async (options: { store: string }) => {
+      const storePath = resolvePath(options.store)
+      const plan = await planSupersededCleanup(storePath)
+      process.stdout.write(`${JSON.stringify(plan, null, 2)}\n`)
     })
 
   root

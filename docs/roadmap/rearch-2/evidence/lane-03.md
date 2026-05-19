@@ -619,7 +619,7 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
   encoder for free-form maps lands in `@c3-oss/prosa-types-v2`,
   matching Lane 1's `epoch.manifest.json` decision.
 - [x] `prosa index-v2` CLI group (`apps/cli/src/cli/commands/index-v2.ts`)
-  shipping sixteen pure-read subcommands. `status` wires
+  shipping seventeen pure-read subcommands. `status` wires
   `bundleDerivedStatus(--store)`; `sessions` wires
   `listSessionBlobSummaries(--store)` by default and
   `getSessionBlobSummary({ bundleRoot: --store, sessionId:
@@ -656,7 +656,13 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
   `summariseSupersededSegments(--store)` (with `--summary`)
   — the audit/GC primitive that aggregates every superseded
   epoch segment recorded across persisted
-  `compact.manifest.json` files; `compacted-outputs` wires
+  `compact.manifest.json` files; `gc-plan` wires
+  `planSupersededCleanup(--store)`: composes
+  `superseded-segments` + `compacted-outputs` to produce one
+  row per superseded segment tagged `safe_to_delete: true|false`
+  (true iff the declaring compaction-seq is in a consistent
+  post-merge state); pure-read, the planner never deletes;
+  `compacted-outputs` wires
   `listCompactedOutputs(--store)`: per-compaction-seq audit of
   manifest-vs-on-disk consistency, returning `{ compaction_seq,
   manifest_path, entity_outputs: [{ entity_type, output_path,
@@ -672,7 +678,7 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
   --store, sessionId: --session-id, epoch: --epoch })` for a
   header-only probe (no page decompression); `transcript`
   wires `loadTranscriptFromBundle({ bundleRoot: --store,
-  sessionId: --session-id })`. All sixteen print pretty JSON to
+  sessionId: --session-id })`. All seventeen print pretty JSON to
   stdout — no native bindings, no filesystem mutation. The
   `index-v2` parent command is the eventual home for `tantivy`
   (blocked on the native binding); `status`, `sessions`,
@@ -744,8 +750,8 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
   bearing epochs (CQ-104), compaction-plan segments come from
   epochs the projection listing reports, transcript's latest
   epoch equals the session summary's `latest_epoch`, etc.).
-  82 subprocess tests (`apps/cli/test/cli/index-v2.test.ts`) cover:
-  parent `--help` listing all sixteen subcommands, `status`
+  87 subprocess tests (`apps/cli/test/cli/index-v2.test.ts`) cover:
+  parent `--help` listing all seventeen subcommands, `status`
   `--help` + fresh-bundle empty snapshot + SessionBlob-populated
   snapshot + missing-`--store` (4); `sessions --help` +
   fresh-bundle `[]` + multi-session multi-epoch inventory (alpha
@@ -819,6 +825,14 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
   the persisted manifest byte-equivalent + `--read` without
   `--compaction-seq` rejected + `--read --write` mutual
   exclusion + `--read` for missing seq surfaces ENOENT (8);
+  `gc-plan --help` documenting `--store` + fresh-bundle empty
+  plan + post-`--write` without compacted output → all
+  candidates `safe_to_delete: false, blocked_reason:
+  'output_missing'` with the rollup totaling 17×1024 in
+  `blocked` + planting the compacted output flips every
+  candidate to `safe_to_delete: true, blocked_reason: null`
+  with totals moving to `safe_to_delete` + missing-`--store`
+  failure (5);
   `compacted-outputs --help` documenting `--store` +
   fresh-bundle `[]` + after `--write` but with no compacted
   Parquet file on disk returns `consistent: false` +
@@ -1029,8 +1043,8 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
 ```text
 pnpm install --prefer-offline                       # registers @c3-oss/prosa-derived-v2 in pnpm-lock.yaml
 pnpm --filter @c3-oss/prosa-derived-v2 typecheck    # clean
-pnpm --filter @c3-oss/prosa-derived-v2 test         # 475 tests / 40 files (+5 CQ-109 path-safety regressions in manifest.test.ts: absolute output_path, `..` in output_path, `..` in superseded[].path, Windows-style absolute output_path, happy-path round-trip)
-pnpm --filter @c3-oss/prosa exec vitest run test/cli/index-v2.test.ts  # 82 subprocess-spawned tests
+pnpm --filter @c3-oss/prosa-derived-v2 test         # 480 tests / 41 files (+5 planSupersededCleanup: empty bundle, all-safe partition when seq is consistent, all-blocked when seq is inconsistent, mixed partition across seqs, metadata preservation on every row)
+pnpm --filter @c3-oss/prosa exec vitest run test/cli/index-v2.test.ts  # 87 subprocess-spawned tests
 pnpm --filter @c3-oss/prosa exec vitest run test/cli/index-v2-coherence.test.ts  # 1 cross-subcommand coherence test for index-v2 status + sessions + epochs + analytics-views + analytics-execution-plan + projection-segments + tantivy-rebuild-plan + compaction-plan + compaction-execution-plan + transcript-header + transcript (incl. CQ-105 --format pre-read validation, --format markdown, --start-ordinal/--end-ordinal filtering, inverted-range rejection, --epoch historical pack + missing-epoch ENOENT) (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 13 incl. CQ-101 + CQ-102 containment regressions, compaction executor-plan 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9, reader-iterator 7, tantivy checkpoint-store 21 (11 prior + 4 write CQ-096 + 6 read CQ-103), analytics executor-plan 9, tantivy index-dir probe 17, tantivy plan-bundle orchestration 9, tantivy status 10, analytics descriptor 8, bundle status 16 (8 prior aggregator + 8 derivedLayerEpochsTouched incl. CQ-104 empty-epoch-dir regressions), compaction segments 22 (9 listing + 7 summary + 6 containment), derived-layout 27, tantivy clear-index-dir 10, session-blob loader 11, session-blob zstd 5, session-blob listing 27 (19 prior + 8 listAllSessionBlobSessions cross-epoch union), session-blob latest 11 incl. CQ-100, session-blob transcript-from-bundle 8, session-blob iterate-from-bundle 9, session-blob header 10, session-blob exists 11, session-blob latest-epoch 11, session-blob summary 19 (11 single + 8 bulk listing), integration sessionblob-end-to-end 12, integration compaction-end-to-end 8, integration tantivy-end-to-end 8)
 pnpm --filter @c3-oss/prosa-derived-v2 lint         # clean
 pnpm build                                          # 13/13 turbo
