@@ -103,7 +103,10 @@ section as the full restart instruction:
   (`09737e9`), CQ-107 deep-validation closeout on the
   manifest reader (`1568e1c`), `prosa index-v2
   compaction-manifest --write` / `--read` CLI surface
-  (`ed379a1`), plus the prior scaffold
+  (`ed379a1`), `listSupersededSegmentsFromManifests` +
+  `summariseSupersededSegments` + `prosa index-v2
+  superseded-segments` audit/GC primitive (`633ee9b`), plus
+  the prior scaffold
   (`bb76006`), SessionBlobPackV2 byte layout (`ba87f05`), Parquet
   compaction planner (`ea8c1a8`), DuckDB analytics view shape contract
   + compacted-overlay binding (`cff3670` / `e35f844`), Tantivy schema
