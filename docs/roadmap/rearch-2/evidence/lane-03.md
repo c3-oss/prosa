@@ -3,12 +3,12 @@
 Lane: 03 - Derived layer
 Status: active WIP — scaffold (`bb76006`) + SessionBlobPackV2 byte layout
 (framing + writer + reader + verifier) close `CQ-084` and `CQ-085`;
-additional Lane 3 planner/helper slices landed through `0b3dfd0`.
+additional Lane 3 planner/helper slices landed through `d798b15`.
 `CQ-096` intermediate symlink containment landed at `3be300f`.
-`CQ-097` SessionBlob layout textual-source cleanup landing in the
-SessionBlob pack-path resolver commit this iteration. Tantivy writer,
-DuckDB analytics view definitions, and the runtime compaction worker
-still pending.
+`CQ-097` SessionBlob layout textual-source cleanup landed at
+`d798b15` (paired with the SessionBlob pack-path resolver in the
+same slice). Tantivy writer, DuckDB analytics view definitions, and
+the runtime compaction worker still pending.
 Owner: Ralph
 Commit range: Lane 3 scaffold (`bb76006`) + SessionBlobPackV2 byte-layout
 slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
