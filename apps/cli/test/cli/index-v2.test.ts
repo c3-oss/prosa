@@ -41,7 +41,7 @@ interface StatusSnapshot {
 }
 
 describe('prosa index-v2 CLI', () => {
-  it('`index-v2 --help` lists every subcommand (status, sessions, epochs, analytics-views, analytics-execution-plan, projection-segments, tantivy-rebuild-plan, compaction-plan, compaction-execution-plan, transcript-header, transcript)', async () => {
+  it('`index-v2 --help` lists every subcommand (status, sessions, epochs, analytics-views, analytics-execution-plan, projection-segments, tantivy-rebuild-plan, compaction-plan, compaction-manifest, compaction-execution-plan, transcript-header, transcript)', async () => {
     const r = runCli(['index-v2', '--help'])
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('Bundle v2 derived-layer index commands')
@@ -53,6 +53,7 @@ describe('prosa index-v2 CLI', () => {
     expect(r.stdout).toContain('projection-segments')
     expect(r.stdout).toContain('tantivy-rebuild-plan')
     expect(r.stdout).toContain('compaction-plan')
+    expect(r.stdout).toContain('compaction-manifest')
     expect(r.stdout).toContain('compaction-execution-plan')
     expect(r.stdout).toContain('transcript-header')
     expect(r.stdout).toContain('transcript')
@@ -595,6 +596,60 @@ describe('prosa index-v2 CLI', () => {
     const r = runCli(['index-v2', 'compaction-plan'])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/required option.*--store/i)
+  })
+
+  it('`index-v2 compaction-manifest --help` documents --store and --generated-at', async () => {
+    const r = runCli(['index-v2', 'compaction-manifest', '--help'])
+    expect(r.status).toBe(0)
+    expect(r.stdout).toContain('compact.manifest.cbor')
+    expect(r.stdout).toContain('--store')
+    expect(r.stdout).toContain('--generated-at')
+  })
+
+  it('`index-v2 compaction-manifest` emits the manifest for a fired plan', async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    for (let epoch = 1; epoch <= 17; epoch++) {
+      const dir = join(storeRoot, 'epochs', String(epoch), 'projection')
+      await mkdir(dir, { recursive: true })
+      await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(1024))
+    }
+    const r = runCli([
+      'index-v2',
+      'compaction-manifest',
+      '--store',
+      storeRoot,
+      '--generated-at',
+      '2026-05-19T12:00:00.000Z',
+    ])
+    expect(r.status).toBe(0)
+    const manifest = JSON.parse(r.stdout) as {
+      schema: string
+      compaction_seq: number
+      generated_at: string
+      entities: Array<{
+        entity_type: string
+        reason: string
+        output_path: string
+        total_bytes_in: number
+        superseded: Array<{ epoch: number; byte_length: number }>
+      }>
+    }
+    expect(manifest.schema).toBe('prosa.compact-manifest.v2')
+    expect(manifest.compaction_seq).toBe(1)
+    expect(manifest.generated_at).toBe('2026-05-19T12:00:00.000Z')
+    expect(manifest.entities).toHaveLength(1)
+    expect(manifest.entities[0]?.entity_type).toBe('sessions')
+    expect(manifest.entities[0]?.reason).toBe('low_count_byte_ceiling')
+    expect(manifest.entities[0]?.superseded).toHaveLength(17)
+    expect(manifest.entities[0]?.total_bytes_in).toBe(17 * 1024)
+    expect(manifest.entities[0]?.superseded.map((s) => s.epoch)).toEqual(Array.from({ length: 17 }, (_, i) => i + 1))
+  })
+
+  it('`index-v2 compaction-manifest` refuses to emit a manifest for an empty plan', async () => {
+    const storeRoot = join(await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-')), 'never-initialised')
+    const r = runCli(['index-v2', 'compaction-manifest', '--store', storeRoot])
+    expect(r.status).not.toBe(0)
+    expect(r.stderr).toMatch(/empty plan/i)
   })
 
   it('`index-v2 compaction-execution-plan --help` documents --store', async () => {

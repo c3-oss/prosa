@@ -22,6 +22,7 @@ import {
   ANALYTICS_VIEW_NAMES,
   type AnalyticsViewName,
   analyticsViewsDescriptor,
+  buildCompactManifestV2,
   bundleDerivedStatus,
   derivedLayerEpochsTouched,
   formatTranscriptMarkdownV2,
@@ -176,6 +177,21 @@ export function indexV2Command(): Command {
       const storePath = resolvePath(options.store)
       const plan = await planCompaction(storePath)
       process.stdout.write(`${JSON.stringify(plan, null, 2)}\n`)
+    })
+
+  root
+    .command('compaction-manifest')
+    .description(
+      "Print the `compact.manifest.cbor` shape the runtime worker would persist for the current Parquet compaction plan. Records each entity's superseded epoch segments so audit/GC workflows can recover the pre-compaction layout. Returns an error when the plan is empty.",
+    )
+    .requiredOption('--store <path>', 'bundle directory')
+    .option('--generated-at <iso>', 'ISO-8601 UTC timestamp to embed as `generated_at`; defaults to the current time')
+    .action(async (options: { store: string; generatedAt?: string }) => {
+      const storePath = resolvePath(options.store)
+      const plan = await planCompaction(storePath)
+      const generatedAt = options.generatedAt ?? new Date().toISOString()
+      const manifest = buildCompactManifestV2({ plan, generatedAt })
+      process.stdout.write(`${JSON.stringify(manifest, null, 2)}\n`)
     })
 
   root
