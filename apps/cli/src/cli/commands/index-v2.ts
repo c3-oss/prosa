@@ -32,6 +32,7 @@ import {
   formatTranscriptTextV2,
   getSessionBlobSummary,
   listCompactedOutputs,
+  listCompactionHistory,
   listProjectionSegments,
   listSessionBlobSummaries,
   listSupersededSegmentsFromManifests,
@@ -296,6 +297,18 @@ export function indexV2Command(): Command {
       const storePath = resolvePath(options.store)
       const plan = await planSupersededCleanup(storePath)
       process.stdout.write(`${JSON.stringify(plan, null, 2)}\n`)
+    })
+
+  root
+    .command('compaction-history')
+    .description(
+      'Print the per-manifest compaction timeline: one row per persisted `compact.manifest.json` with `compaction_seq`, `generated_at` (verbatim from the manifest), `consistent`, `entity_count`, `superseded_segment_count`, and `manifest_path`. Sorted by `compaction_seq` ascending — also chronological in practice. Pure-read; the audit view that answers "when did each compaction run?".',
+    )
+    .requiredOption('--store <path>', 'bundle directory')
+    .action(async (options: { store: string }) => {
+      const storePath = resolvePath(options.store)
+      const history = await listCompactionHistory(storePath)
+      process.stdout.write(`${JSON.stringify(history, null, 2)}\n`)
     })
 
   root

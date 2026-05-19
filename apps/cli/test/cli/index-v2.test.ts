@@ -62,6 +62,7 @@ describe('prosa index-v2 CLI', () => {
     expect(r.stdout).toContain('gc-plan')
     expect(r.stdout).toContain('gc-execution-plan')
     expect(r.stdout).toContain('compaction-effectiveness')
+    expect(r.stdout).toContain('compaction-history')
     expect(r.stdout).toContain('superseded-segments')
     expect(r.stdout).toContain('verify-packs')
     expect(r.stdout).toContain('transcript-header')
@@ -1255,6 +1256,69 @@ describe('prosa index-v2 CLI', () => {
 
   it('`index-v2 compaction-effectiveness` fails when --store is missing', async () => {
     const r = runCli(['index-v2', 'compaction-effectiveness'])
+    expect(r.status).not.toBe(0)
+    expect(r.stderr).toMatch(/required option.*--store/i)
+  })
+
+  it('`index-v2 compaction-history --help` documents --store and the timeline shape', async () => {
+    const r = runCli(['index-v2', 'compaction-history', '--help'])
+    expect(r.status).toBe(0)
+    expect(r.stdout).toContain('compaction timeline')
+    expect(r.stdout).toContain('--store')
+  })
+
+  it('`index-v2 compaction-history` against a fresh bundle returns []', async () => {
+    const storeRoot = join(await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-')), 'never-initialised')
+    const r = runCli(['index-v2', 'compaction-history', '--store', storeRoot])
+    expect(r.status).toBe(0)
+    expect(JSON.parse(r.stdout)).toEqual([])
+  })
+
+  it('`index-v2 compaction-history` emits one row per persisted manifest with verbatim generated_at and the audit consistency flag', async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    for (let epoch = 1; epoch <= 17; epoch++) {
+      const dir = join(storeRoot, 'epochs', String(epoch), 'projection')
+      await mkdir(dir, { recursive: true })
+      await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(1024))
+    }
+    runCli([
+      'index-v2',
+      'compaction-manifest',
+      '--store',
+      storeRoot,
+      '--write',
+      '--generated-at',
+      '2026-05-19T12:00:00.000Z',
+    ])
+
+    const beforePlant = runCli(['index-v2', 'compaction-history', '--store', storeRoot])
+    expect(beforePlant.status).toBe(0)
+    const beforeRows = JSON.parse(beforePlant.stdout) as Array<{
+      compaction_seq: number
+      generated_at: string
+      consistent: boolean
+      entity_count: number
+      superseded_segment_count: number
+    }>
+    expect(beforeRows).toHaveLength(1)
+    expect(beforeRows[0]!.compaction_seq).toBe(1)
+    expect(beforeRows[0]!.generated_at).toBe('2026-05-19T12:00:00.000Z')
+    expect(beforeRows[0]!.consistent).toBe(false)
+    expect(beforeRows[0]!.entity_count).toBe(1)
+    expect(beforeRows[0]!.superseded_segment_count).toBe(17)
+
+    const compactedDir = join(storeRoot, 'epochs', 'compact-0001', 'projection')
+    await mkdir(compactedDir, { recursive: true })
+    await writeFile(join(compactedDir, 'sessions.compacted.parquet'), Buffer.alloc(2048))
+
+    const afterPlant = runCli(['index-v2', 'compaction-history', '--store', storeRoot])
+    expect(afterPlant.status).toBe(0)
+    const afterRows = JSON.parse(afterPlant.stdout) as Array<{ consistent: boolean }>
+    expect(afterRows[0]!.consistent).toBe(true)
+  })
+
+  it('`index-v2 compaction-history` fails when --store is missing', async () => {
+    const r = runCli(['index-v2', 'compaction-history'])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/required option.*--store/i)
   })
