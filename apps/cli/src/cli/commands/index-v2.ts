@@ -26,6 +26,7 @@ import {
   derivedLayerEpochsTouched,
   formatTranscriptMarkdownV2,
   formatTranscriptTextV2,
+  getSessionBlobSummary,
   listProjectionSegments,
   listSessionBlobSummaries,
   loadTranscriptFromBundle,
@@ -68,10 +69,18 @@ export function indexV2Command(): Command {
 
   root
     .command('sessions')
-    .description('Print the SessionBlob inventory (one summary row per session) for a bundle v2 store.')
+    .description(
+      'Print the SessionBlob inventory (one summary row per session) for a bundle v2 store. Pass --session-id <id> to filter to a single row (returns [] if the session has no packs).',
+    )
     .requiredOption('--store <path>', 'bundle directory')
-    .action(async (options: { store: string }) => {
+    .option('--session-id <id>', 'filter to a single session via getSessionBlobSummary')
+    .action(async (options: { store: string; sessionId?: string }) => {
       const storePath = resolvePath(options.store)
+      if (options.sessionId !== undefined) {
+        const summary = await getSessionBlobSummary({ bundleRoot: storePath, sessionId: options.sessionId })
+        process.stdout.write(`${JSON.stringify(summary === null ? [] : [summary], null, 2)}\n`)
+        return
+      }
       const summaries = await listSessionBlobSummaries(storePath)
       process.stdout.write(`${JSON.stringify(summaries, null, 2)}\n`)
     })

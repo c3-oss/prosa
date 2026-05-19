@@ -193,6 +193,55 @@ describe('prosa index-v2 CLI', () => {
     expect(r.stderr).toMatch(/required option.*--store/i)
   })
 
+  it('`index-v2 sessions --session-id <id>` filters to a single session summary', async () => {
+    const { writeSessionBlobPack, identityCompressor } = await import('@c3-oss/prosa-derived-v2')
+    const { sessionBlobEpochDir, sessionBlobPackPath } = await import('@c3-oss/prosa-derived-v2')
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    async function writePack(sessionId: string, epoch: number) {
+      const messages = [
+        {
+          message_id: 'msg_000000',
+          ordinal: 0,
+          role: 'user' as const,
+          timestamp: '2026-05-19T00:00:00.000Z',
+          turn_id: 'tur_0',
+          blocks: [
+            {
+              block_id: 'blk_0_0',
+              block_type: 'text',
+              body: { kind: 'inline' as const, text: 'hi', byte_length: 2 },
+            },
+          ],
+        },
+      ]
+      const result = writeSessionBlobPack({ session_id: sessionId, epoch, messages }, identityCompressor)
+      await mkdir(sessionBlobEpochDir(storeRoot, epoch), { recursive: true })
+      await writeFile(sessionBlobPackPath(storeRoot, sessionId, epoch), result.pack)
+    }
+    await writePack('ses_alpha', 1)
+    await writePack('ses_bravo', 1)
+    await writePack('ses_alpha', 3)
+
+    const r = runCli(['index-v2', 'sessions', '--store', storeRoot, '--session-id', 'ses_alpha'])
+    expect(r.status).toBe(0)
+    const summaries = JSON.parse(r.stdout) as Array<{
+      session_id: string
+      epochs: number[]
+      latest_epoch: number
+    }>
+    expect(summaries).toHaveLength(1)
+    expect(summaries[0]?.session_id).toBe('ses_alpha')
+    expect(summaries[0]?.epochs).toEqual([1, 3])
+    expect(summaries[0]?.latest_epoch).toBe(3)
+  })
+
+  it('`index-v2 sessions --session-id <missing>` returns [] when the session has no packs', async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    const r = runCli(['index-v2', 'sessions', '--store', storeRoot, '--session-id', 'ses_missing'])
+    expect(r.status).toBe(0)
+    expect(JSON.parse(r.stdout)).toEqual([])
+  })
+
   it('`index-v2 epochs --help` documents --store', async () => {
     const r = runCli(['index-v2', 'epochs', '--help'])
     expect(r.status).toBe(0)
