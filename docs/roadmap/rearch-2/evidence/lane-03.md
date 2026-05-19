@@ -79,6 +79,21 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
   `uncompressed_length > MAX_PAGE_UNCOMPRESSED_BYTES`. The
   runtime derived layer plugs this bridge between Lane 2's
   per-epoch projection and Lane 3's session-blob writer.
+- [x] SessionBlobPackV2 cross-page transcript iterator
+  (`iterateTranscript` + `loadTranscript`) walks every message in a
+  pack in canonical ordinal order, coalescing fragments that share
+  `(message_id, ordinal)` across adjacent pages back into a single
+  `TranscriptMessage` so callers see whole messages even for
+  adversarial single-message-too-large input. Pages outside the
+  caller's `[startOrdinal, endOrdinal]` window are skipped without
+  decompression; per-page hashes are verified via
+  `loadTranscriptPage`. The generator form supports early
+  termination so paged-render flows do not pay for unread pages.
+  7 tests cover empty pack, single-page ordinal walk, multi-page
+  ordinal walk, fragment-mode coalescing on the CQ-085 400-block
+  fixture (block-id order end-to-end), range filters (head /
+  middle / tail / empty-window-above-last-ordinal), lazy
+  termination, and tampered-payload hash rejection.
 - [x] SessionBlobPackV2 byte layout (writer + reader emitting and
   parsing the actual pack format) implemented and tested:
   - 16-byte framing magic `PROSA_SESS_PACK2` mirroring the
@@ -131,7 +146,7 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
 ```text
 pnpm install --prefer-offline                       # registers @c3-oss/prosa-derived-v2 in pnpm-lock.yaml
 pnpm --filter @c3-oss/prosa-derived-v2 typecheck    # clean
-pnpm --filter @c3-oss/prosa-derived-v2 test         # 81 tests / 9 files (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9 — 7 baseline + 2 CQ-091 UTF-8-byte regressions)
+pnpm --filter @c3-oss/prosa-derived-v2 test         # 88 tests / 10 files (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9 — 7 baseline + 2 CQ-091 UTF-8-byte regressions, reader-iterator 7 — empty/single-page/multi-page/fragment-coalesce/range/lazy/tamper)
 pnpm --filter @c3-oss/prosa-derived-v2 lint         # clean
 pnpm build                                          # 13/13 turbo
 pnpm typecheck                                      # 13/13 turbo

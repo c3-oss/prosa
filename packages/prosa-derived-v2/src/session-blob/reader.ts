@@ -107,6 +107,107 @@ export function loadTranscriptPage(
 export const identityCompressor = (b: Uint8Array): Uint8Array => b
 export const identityDecompressor = (b: Uint8Array): Uint8Array => b
 
+export interface TranscriptMessage {
+  message_id: string
+  ordinal: number
+  role: string
+  timestamp: string | null
+  turn_id: string | null
+  blocks: Array<{
+    block_id: string
+    block_type: string
+    body: TranscriptTextBodyV2
+  }>
+  /** Page indices that contributed blocks to this message. Length > 1
+   *  iff the message was fragmented across pages (adversarial
+   *  single-message-too-large input). */
+  page_indices: number[]
+}
+
+export interface TranscriptIteratorOptions {
+  /** Inclusive lower ordinal bound. Pages whose
+   *  `message_ordinal_end < startOrdinal` are skipped without
+   *  decompression. */
+  startOrdinal?: number
+  /** Inclusive upper ordinal bound. Pages whose
+   *  `message_ordinal_start > endOrdinal` are skipped without
+   *  decompression. */
+  endOrdinal?: number
+}
+
+/**
+ * Iterate every message in the pack in canonical ordinal order,
+ * coalescing fragments that share `(message_id, ordinal)` across
+ * adjacent pages back into a single `TranscriptMessage`. Each page
+ * is decompressed at most once, and pages outside the requested
+ * `[startOrdinal, endOrdinal]` range are skipped without
+ * decompression. Hashes are verified through `loadTranscriptPage`.
+ *
+ * Range filtering is applied after coalescing: a fragmented message
+ * whose ordinal falls outside the range is dropped entirely, but a
+ * fragment whose page intersects the range still triggers
+ * decompression of that page.
+ */
+export function* iterateTranscript(
+  pack: Uint8Array,
+  decompress: SessionBlobDecompressor,
+  options?: TranscriptIteratorOptions,
+): Generator<TranscriptMessage, void, void> {
+  const decoded = decodeSessionBlobPack(pack)
+  const startOrdinal = options?.startOrdinal ?? Number.NEGATIVE_INFINITY
+  const endOrdinal = options?.endOrdinal ?? Number.POSITIVE_INFINITY
+
+  let pending: TranscriptMessage | null = null
+
+  const emit = function* (message: TranscriptMessage): Generator<TranscriptMessage, void, void> {
+    if (message.ordinal >= startOrdinal && message.ordinal <= endOrdinal) yield message
+  }
+
+  for (let i = 0; i < decoded.header.pages.length; i++) {
+    const pageRef = decoded.header.pages[i]!
+    // Skip pages that fall entirely below the requested window — but
+    // only when no pending fragment from a prior page is still open
+    // (a fragmented message may straddle the boundary).
+    if (pending === null && pageRef.message_ordinal_end < startOrdinal) continue
+    // Skip pages that fall entirely above the requested window.
+    if (pageRef.message_ordinal_start > endOrdinal) break
+
+    const body = loadTranscriptPage(pack, i, decompress)
+    for (const msg of body.messages) {
+      const sameAsPending = pending !== null && pending.message_id === msg.message_id && pending.ordinal === msg.ordinal
+      if (sameAsPending) {
+        pending!.blocks.push(...msg.blocks)
+        pending!.page_indices.push(i)
+        continue
+      }
+      if (pending !== null) yield* emit(pending)
+      pending = {
+        message_id: msg.message_id,
+        ordinal: msg.ordinal,
+        role: msg.role,
+        timestamp: msg.timestamp,
+        turn_id: msg.turn_id,
+        blocks: msg.blocks.slice(),
+        page_indices: [i],
+      }
+    }
+  }
+  if (pending !== null) yield* emit(pending)
+}
+
+/**
+ * Collect-all helper for `iterateTranscript`. Use only when the
+ * full transcript is known to fit in memory; the generator form is
+ * preferred for paged-render flows.
+ */
+export function loadTranscript(
+  pack: Uint8Array,
+  decompress: SessionBlobDecompressor,
+  options?: TranscriptIteratorOptions,
+): TranscriptMessage[] {
+  return Array.from(iterateTranscript(pack, decompress, options))
+}
+
 /**
  * Recompute the `pack_digest` from the framed pack bytes and verify
  * it matches the value carried in `header.pack_digest`. Returns the

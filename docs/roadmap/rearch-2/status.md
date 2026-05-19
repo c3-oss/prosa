@@ -9,9 +9,9 @@ Completion signal: RALPH_DONE
 
 ## Current State
 
-Status: Lane 1 accepted; Lane 2 implementation contract complete; Lane 3 progress: scaffold (`bb76006`), SessionBlobPackV2 byte layout (`ba87f05`), Parquet compaction planner (`ea8c1a8`), DuckDB analytics view shape contract (`cff3670`), CQ-089 compacted-overlay fix (`e35f844`), Tantivy schema + rebuild planner (`509e1f1`), CAS-ref UTF-8 byte accounting (CQ-091 closeout).
-Current lane: Lane 3 — remaining surfaces are the SessionBlob projection bridge (now passing CQ-091 regression), Tantivy native writer (needs `@oxdev03/node-tantivy-binding` workspace allowlist), and the DuckDB / Parquet runtime executors.
-Current HEAD: `585a456` (SessionBlob projection-bridge CQ-091 fix + roadmap reconciliation, all governance synced).
+Status: Lane 1 accepted; Lane 2 implementation contract complete; Lane 3 progress: scaffold (`bb76006`), SessionBlobPackV2 byte layout (`ba87f05`), Parquet compaction planner (`ea8c1a8`), DuckDB analytics view shape contract (`cff3670`), CQ-089 compacted-overlay fix (`e35f844`), Tantivy schema + rebuild planner (`509e1f1`), CAS-ref UTF-8 byte accounting (`585a456`), SessionBlob cross-page transcript iterator (this iteration).
+Current lane: Lane 3 — remaining surfaces are the Tantivy native writer (needs `@oxdev03/node-tantivy-binding` workspace allowlist) and the DuckDB / Parquet runtime executors.
+Current HEAD: pending cross-page transcript iterator commit (after `9294e37`).
 No-change streak: 0
 Ralph active: yes
 
