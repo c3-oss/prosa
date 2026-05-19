@@ -261,6 +261,25 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
   from the epoch listing, CQ-094 non-ENOENT failure propagation
   (does NOT mask via fallback), and pageBytes parity with
   `header.pages[*].stored_length`.
+- [x] SessionBlobPackV2 aggregate summary
+  (`getSessionBlobSummary({ bundleRoot, sessionId })`) returns a
+  single inventory row that combines the full list of epochs that
+  have a pack, the latest epoch's identity (path, digest), and
+  header-level aggregates (message / turn / tool-call counts,
+  ordinal range, page count). Returns `null` when no epoch has a
+  pack. Composes `listSessionBlobEpochs` + per-epoch
+  `sessionBlobPackExists` + `readSessionBlobHeader` (on the latest
+  epoch only). No pages are decompressed; counts come from the
+  header. Use case: MCP `list_sessions` row shape, CLI / web
+  inventory listings — one call replaces three. 10 tests cover:
+  fresh-bundle `null`, all-epochs-without-this-session `null`,
+  single-epoch aggregate with header equality, multi-epoch
+  enumeration with latest = highest, drop-epochs-without-this-
+  session, per-page-counts sum from header (messages/turns/
+  tool-calls), sync sessionId rejection (forward-slash / `..` /
+  empty), parent-CQ-098 propagation when `derived/session-blob`
+  is a symlink, per-epoch CQ-094 skip-and-fallback, bundle-root-
+  alias acceptance, and tamper detection on the latest pack.
 - [x] SessionBlobPackV2 latest-epoch lookup
   (`latestEpochForSession({ bundleRoot, sessionId })`) returns the
   newest epoch number that has a pack for the session, or `null`
@@ -541,7 +560,7 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
 ```text
 pnpm install --prefer-offline                       # registers @c3-oss/prosa-derived-v2 in pnpm-lock.yaml
 pnpm --filter @c3-oss/prosa-derived-v2 typecheck    # clean
-pnpm --filter @c3-oss/prosa-derived-v2 test         # 282 tests / 26 files (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 8, compaction executor-plan 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9, reader-iterator 7, tantivy checkpoint-store 11, analytics executor-plan 9, tantivy index-dir probe 17, tantivy plan-bundle orchestration 9, derived-layout 27, tantivy clear-index-dir 10, session-blob loader 11, session-blob zstd 5, session-blob listing 27 (19 prior + 8 listAllSessionBlobSessions cross-epoch union), session-blob latest 11 incl. CQ-100, session-blob transcript-from-bundle 8, session-blob iterate-from-bundle 9, session-blob header 10, session-blob exists 11, session-blob latest-epoch 11)
+pnpm --filter @c3-oss/prosa-derived-v2 test         # 293 tests / 27 files (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 8, compaction executor-plan 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9, reader-iterator 7, tantivy checkpoint-store 11, analytics executor-plan 9, tantivy index-dir probe 17, tantivy plan-bundle orchestration 9, derived-layout 27, tantivy clear-index-dir 10, session-blob loader 11, session-blob zstd 5, session-blob listing 27 (19 prior + 8 listAllSessionBlobSessions cross-epoch union), session-blob latest 11 incl. CQ-100, session-blob transcript-from-bundle 8, session-blob iterate-from-bundle 9, session-blob header 10, session-blob exists 11, session-blob latest-epoch 11, session-blob summary 11)
 pnpm --filter @c3-oss/prosa-derived-v2 lint         # clean
 pnpm build                                          # 13/13 turbo
 pnpm typecheck                                      # 13/13 turbo
