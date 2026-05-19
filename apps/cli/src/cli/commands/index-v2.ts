@@ -18,7 +18,7 @@
 
 import { resolve as resolvePath } from 'node:path'
 
-import { bundleDerivedStatus, listSessionBlobSummaries } from '@c3-oss/prosa-derived-v2'
+import { bundleDerivedStatus, listSessionBlobSummaries, loadTranscriptFromBundle } from '@c3-oss/prosa-derived-v2'
 import { Command } from 'commander'
 
 export function indexV2Command(): Command {
@@ -44,6 +44,22 @@ export function indexV2Command(): Command {
       const storePath = resolvePath(options.store)
       const summaries = await listSessionBlobSummaries(storePath)
       process.stdout.write(`${JSON.stringify(summaries, null, 2)}\n`)
+    })
+
+  root
+    .command('transcript')
+    .description(
+      "Print a session's latest-epoch transcript (epoch + pack_digest + messages) as JSON from a bundle v2 store.",
+    )
+    .requiredOption('--store <path>', 'bundle directory')
+    .requiredOption('--session-id <id>', 'canonical session_id (matches `index-v2 sessions` rows)')
+    .action(async (options: { store: string; sessionId: string }) => {
+      const storePath = resolvePath(options.store)
+      const transcript = await loadTranscriptFromBundle({
+        bundleRoot: storePath,
+        sessionId: options.sessionId,
+      })
+      process.stdout.write(`${JSON.stringify(transcript, null, 2)}\n`)
     })
 
   return root

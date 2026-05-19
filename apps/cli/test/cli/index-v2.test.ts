@@ -41,12 +41,13 @@ interface StatusSnapshot {
 }
 
 describe('prosa index-v2 CLI', () => {
-  it('`index-v2 --help` lists the status + sessions subcommands', async () => {
+  it('`index-v2 --help` lists status + sessions + transcript subcommands', async () => {
     const r = runCli(['index-v2', '--help'])
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('Bundle v2 derived-layer index commands')
     expect(r.stdout).toContain('status')
     expect(r.stdout).toContain('sessions')
+    expect(r.stdout).toContain('transcript')
   })
 
   it('`index-v2 status --help` documents --store', async () => {
@@ -182,5 +183,84 @@ describe('prosa index-v2 CLI', () => {
     const r = runCli(['index-v2', 'sessions'])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/required option.*--store/i)
+  })
+
+  it('`index-v2 transcript --help` documents --store and --session-id', async () => {
+    const r = runCli(['index-v2', 'transcript', '--help'])
+    expect(r.status).toBe(0)
+    expect(r.stdout).toContain("Print a session's latest-epoch transcript")
+    expect(r.stdout).toContain('--store')
+    expect(r.stdout).toContain('--session-id')
+  })
+
+  it('`index-v2 transcript` round-trips a real zstd-compressed pack and prints the messages', async () => {
+    const { writeSessionBlobPack, zstdSessionBlobCompressor } = await import('@c3-oss/prosa-derived-v2')
+    const { sessionBlobEpochDir, sessionBlobPackPath } = await import('@c3-oss/prosa-derived-v2')
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+
+    const messages = [
+      {
+        message_id: 'msg_000000',
+        ordinal: 0,
+        role: 'user' as const,
+        timestamp: '2026-05-19T00:00:00.000Z',
+        turn_id: 'tur_0',
+        blocks: [
+          {
+            block_id: 'blk_0_0',
+            block_type: 'text',
+            body: { kind: 'inline' as const, text: 'hello world', byte_length: 11 },
+          },
+        ],
+      },
+      {
+        message_id: 'msg_000001',
+        ordinal: 1,
+        role: 'assistant' as const,
+        timestamp: '2026-05-19T00:00:01.000Z',
+        turn_id: 'tur_0',
+        blocks: [
+          {
+            block_id: 'blk_1_0',
+            block_type: 'text',
+            body: { kind: 'inline' as const, text: 'hi there', byte_length: 8 },
+          },
+        ],
+      },
+    ]
+    // Use the production zstd compressor since the CLI command's
+    // loadTranscriptFromBundle defaults to the matching decompressor.
+    const result = writeSessionBlobPack({ session_id: 'ses_alpha', epoch: 2, messages }, zstdSessionBlobCompressor)
+    await mkdir(sessionBlobEpochDir(storeRoot, 2), { recursive: true })
+    await writeFile(sessionBlobPackPath(storeRoot, 'ses_alpha', 2), result.pack)
+
+    const r = runCli(['index-v2', 'transcript', '--store', storeRoot, '--session-id', 'ses_alpha'])
+    expect(r.status).toBe(0)
+    const transcript = JSON.parse(r.stdout) as {
+      epoch: number
+      path: string
+      pack_digest: string
+      messages: Array<{ message_id: string; ordinal: number; role: string }>
+    }
+    expect(transcript.epoch).toBe(2)
+    expect(typeof transcript.pack_digest).toBe('string')
+    expect(transcript.pack_digest.length).toBeGreaterThan(0)
+    expect(transcript.messages.map((m) => m.message_id)).toEqual(['msg_000000', 'msg_000001'])
+    expect(transcript.messages.map((m) => m.ordinal)).toEqual([0, 1])
+    expect(transcript.messages.map((m) => m.role)).toEqual(['user', 'assistant'])
+  })
+
+  it('`index-v2 transcript` fails on an unknown session_id', async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    const r = runCli(['index-v2', 'transcript', '--store', storeRoot, '--session-id', 'ses_missing'])
+    expect(r.status).not.toBe(0)
+    expect(r.stderr.length).toBeGreaterThan(0)
+  })
+
+  it('`index-v2 transcript` fails when --session-id is missing', async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    const r = runCli(['index-v2', 'transcript', '--store', storeRoot])
+    expect(r.status).not.toBe(0)
+    expect(r.stderr).toMatch(/required option.*--session-id/i)
   })
 })
