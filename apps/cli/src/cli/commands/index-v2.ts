@@ -22,9 +22,11 @@ import {
   analyticsViewsDescriptor,
   bundleDerivedStatus,
   derivedLayerEpochsTouched,
+  listProjectionSegments,
   listSessionBlobSummaries,
   loadTranscriptFromBundle,
   planCompaction,
+  summariseProjectionSegments,
 } from '@c3-oss/prosa-derived-v2'
 import { Command } from 'commander'
 
@@ -73,6 +75,21 @@ export function indexV2Command(): Command {
     .action(() => {
       const catalog = analyticsViewsDescriptor()
       process.stdout.write(`${JSON.stringify(catalog, null, 2)}\n`)
+    })
+
+  root
+    .command('projection-segments')
+    .description(
+      'Print the list of Parquet projection segments under <store>/epochs/<n>/projection/. Add --summary for the per-entity / per-epoch byte+count rollup instead of the flat listing.',
+    )
+    .requiredOption('--store <path>', 'bundle directory')
+    .option('--summary', 'emit the summariseProjectionSegments rollup instead of the flat listing', false)
+    .action(async (options: { store: string; summary: boolean }) => {
+      const storePath = resolvePath(options.store)
+      const result = options.summary
+        ? await summariseProjectionSegments(storePath)
+        : await listProjectionSegments(storePath)
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
     })
 
   root

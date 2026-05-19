@@ -594,28 +594,34 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
   (projection-only epoch still surfaces even when an empty
   SessionBlob dir exists for the same epoch).
 - [x] `prosa index-v2` CLI group (`apps/cli/src/cli/commands/index-v2.ts`)
-  shipping six pure-read subcommands. `status` wires
+  shipping seven pure-read subcommands. `status` wires
   `bundleDerivedStatus(--store)`; `sessions` wires
   `listSessionBlobSummaries(--store)`; `epochs` wires
   `derivedLayerEpochsTouched(--store)`; `analytics-views` wires
   `analyticsViewsDescriptor()` (content-free, takes no `--store`);
-  `compaction-plan` wires `planCompaction(--store)`; `transcript`
-  wires `loadTranscriptFromBundle({ bundleRoot: --store,
-  sessionId: --session-id })`. All six print pretty JSON to
-  stdout — no native bindings, no filesystem mutation. The
+  `projection-segments` wires `listProjectionSegments(--store)` by
+  default and `summariseProjectionSegments(--store)` with
+  `--summary`; `compaction-plan` wires `planCompaction(--store)`;
+  `transcript` wires `loadTranscriptFromBundle({ bundleRoot:
+  --store, sessionId: --session-id })`. All seven print pretty
+  JSON to stdout — no native bindings, no filesystem mutation. The
   `index-v2` parent command is the eventual home for `tantivy`
   (blocked on the native binding); `status`, `sessions`,
-  `epochs`, `analytics-views`, `compaction-plan`, and
-  `transcript` ship now and stand in for the JSON-form path of
-  gate criterion 3 (`prosa session show <id>` against a v2
-  bundle — v1-renderer parity output is a follow-up).
-  `compaction-plan` also gives the scripted-scenario inspection
-  surface for gate criterion 5 (compaction trigger validation)
-  without needing the runtime executor. `analytics-views` ships
-  the canonical view-shape contract to MCP / web / scripted
-  consumers ahead of the DuckDB runtime executor landing.
-  23 subprocess tests (`apps/cli/test/cli/index-v2.test.ts`) cover:
-  parent `--help` listing all six subcommands, `status`
+  `epochs`, `analytics-views`, `projection-segments`,
+  `compaction-plan`, and `transcript` ship now and stand in for
+  the JSON-form path of gate criterion 3 (`prosa session show
+  <id>` against a v2 bundle — v1-renderer parity output is a
+  follow-up). `compaction-plan` also gives the scripted-scenario
+  inspection surface for gate criterion 5 (compaction trigger
+  validation) without needing the runtime executor.
+  `analytics-views` ships the canonical view-shape contract to
+  MCP / web / scripted consumers ahead of the DuckDB runtime
+  executor landing. `projection-segments` (flat + `--summary`
+  rollup) is the per-segment counterpart to `epochs` /
+  `compaction-plan` and pairs with audit reports that want the
+  raw layout, not just the trigger decision.
+  28 subprocess tests (`apps/cli/test/cli/index-v2.test.ts`) cover:
+  parent `--help` listing all seven subcommands, `status`
   `--help` + fresh-bundle empty snapshot + SessionBlob-populated
   snapshot + missing-`--store` (4); `sessions --help` +
   fresh-bundle `[]` + multi-session multi-epoch inventory (alpha
@@ -629,6 +635,13 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
   `tool_usage_facts`, `error_facts`, `model_usage`,
   `project_activity`) each with non-empty columns and a SQL
   body containing `CREATE OR REPLACE VIEW` and the view name (2);
+  `projection-segments --help` documenting `--store` and
+  `--summary` + fresh-bundle `[]` + flat listing (planted
+  `sessions.parquet` at epoch 1 + `messages.parquet` at epoch 2
+  surfaces as the expected two `ProjectionSegment` rows in
+  `(epoch, entityType)` sort order) + `--summary` rollup
+  (3-segment / 700-byte total split across `by_entity` and
+  `by_epoch`) + missing-`--store` (5);
   `compaction-plan --help` + fresh-bundle empty plan +
   17-small-segments `low_count_byte_ceiling` trigger firing for
   the `sessions` entity (asserting `entities[0].reason`,
@@ -800,7 +813,7 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
 pnpm install --prefer-offline                       # registers @c3-oss/prosa-derived-v2 in pnpm-lock.yaml
 pnpm --filter @c3-oss/prosa-derived-v2 typecheck    # clean
 pnpm --filter @c3-oss/prosa-derived-v2 test         # 400 tests / 34 files
-pnpm --filter @c3-oss/prosa exec vitest run test/cli/index-v2.test.ts  # 23 subprocess-spawned tests for index-v2 status + sessions + epochs + analytics-views + compaction-plan + transcript (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 13 incl. CQ-101 + CQ-102 containment regressions, compaction executor-plan 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9, reader-iterator 7, tantivy checkpoint-store 21 (11 prior + 4 write CQ-096 + 6 read CQ-103), analytics executor-plan 9, tantivy index-dir probe 17, tantivy plan-bundle orchestration 9, tantivy status 10, analytics descriptor 8, bundle status 16 (8 prior aggregator + 8 derivedLayerEpochsTouched incl. CQ-104 empty-epoch-dir regressions), compaction segments 22 (9 listing + 7 summary + 6 containment), derived-layout 27, tantivy clear-index-dir 10, session-blob loader 11, session-blob zstd 5, session-blob listing 27 (19 prior + 8 listAllSessionBlobSessions cross-epoch union), session-blob latest 11 incl. CQ-100, session-blob transcript-from-bundle 8, session-blob iterate-from-bundle 9, session-blob header 10, session-blob exists 11, session-blob latest-epoch 11, session-blob summary 19 (11 single + 8 bulk listing), integration sessionblob-end-to-end 12, integration compaction-end-to-end 8, integration tantivy-end-to-end 8)
+pnpm --filter @c3-oss/prosa exec vitest run test/cli/index-v2.test.ts  # 28 subprocess-spawned tests for index-v2 status + sessions + epochs + analytics-views + projection-segments + compaction-plan + transcript (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 13 incl. CQ-101 + CQ-102 containment regressions, compaction executor-plan 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9, reader-iterator 7, tantivy checkpoint-store 21 (11 prior + 4 write CQ-096 + 6 read CQ-103), analytics executor-plan 9, tantivy index-dir probe 17, tantivy plan-bundle orchestration 9, tantivy status 10, analytics descriptor 8, bundle status 16 (8 prior aggregator + 8 derivedLayerEpochsTouched incl. CQ-104 empty-epoch-dir regressions), compaction segments 22 (9 listing + 7 summary + 6 containment), derived-layout 27, tantivy clear-index-dir 10, session-blob loader 11, session-blob zstd 5, session-blob listing 27 (19 prior + 8 listAllSessionBlobSessions cross-epoch union), session-blob latest 11 incl. CQ-100, session-blob transcript-from-bundle 8, session-blob iterate-from-bundle 9, session-blob header 10, session-blob exists 11, session-blob latest-epoch 11, session-blob summary 19 (11 single + 8 bulk listing), integration sessionblob-end-to-end 12, integration compaction-end-to-end 8, integration tantivy-end-to-end 8)
 pnpm --filter @c3-oss/prosa-derived-v2 lint         # clean
 pnpm build                                          # 13/13 turbo
 pnpm typecheck                                      # 13/13 turbo

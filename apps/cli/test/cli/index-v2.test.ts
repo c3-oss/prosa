@@ -41,7 +41,7 @@ interface StatusSnapshot {
 }
 
 describe('prosa index-v2 CLI', () => {
-  it('`index-v2 --help` lists status + sessions + epochs + analytics-views + compaction-plan + transcript subcommands', async () => {
+  it('`index-v2 --help` lists all subcommands (status, sessions, epochs, analytics-views, projection-segments, compaction-plan, transcript)', async () => {
     const r = runCli(['index-v2', '--help'])
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('Bundle v2 derived-layer index commands')
@@ -49,6 +49,7 @@ describe('prosa index-v2 CLI', () => {
     expect(r.stdout).toContain('sessions')
     expect(r.stdout).toContain('epochs')
     expect(r.stdout).toContain('analytics-views')
+    expect(r.stdout).toContain('projection-segments')
     expect(r.stdout).toContain('compaction-plan')
     expect(r.stdout).toContain('transcript')
   })
@@ -282,6 +283,84 @@ describe('prosa index-v2 CLI', () => {
       expect(view.sql).toMatch(/CREATE OR REPLACE VIEW/i)
       expect(view.sql).toContain(view.name)
     }
+  })
+
+  it('`index-v2 projection-segments --help` documents --store and --summary', async () => {
+    const r = runCli(['index-v2', 'projection-segments', '--help'])
+    expect(r.status).toBe(0)
+    expect(r.stdout).toContain('Parquet projection segments')
+    expect(r.stdout).toContain('--store')
+    expect(r.stdout).toContain('--summary')
+  })
+
+  it('`index-v2 projection-segments` against a fresh bundle prints []', async () => {
+    const storeRoot = join(await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-')), 'never-initialised')
+    const r = runCli(['index-v2', 'projection-segments', '--store', storeRoot])
+    expect(r.status).toBe(0)
+    expect(JSON.parse(r.stdout)).toEqual([])
+  })
+
+  it('`index-v2 projection-segments` reflects planted Parquet segments across epochs', async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    // Plant two segments across two epochs: epoch 1 sessions.parquet (100B),
+    // epoch 2 messages.parquet (300B). The listing returns one ProjectionSegment
+    // per file with `{ entityType, epoch, path, byteLength }`.
+    for (const [epoch, file, size] of [
+      [1, 'sessions.parquet', 100],
+      [2, 'messages.parquet', 300],
+    ] as const) {
+      const dir = join(storeRoot, 'epochs', String(epoch), 'projection')
+      await mkdir(dir, { recursive: true })
+      await writeFile(join(dir, file), Buffer.alloc(size))
+    }
+
+    const r = runCli(['index-v2', 'projection-segments', '--store', storeRoot])
+    expect(r.status).toBe(0)
+    const segments = JSON.parse(r.stdout) as Array<{
+      entityType: string
+      epoch: number
+      path: string
+      byteLength: number
+    }>
+    expect(segments).toHaveLength(2)
+    expect(segments.map((s) => ({ entityType: s.entityType, epoch: s.epoch, byteLength: s.byteLength }))).toEqual([
+      { entityType: 'sessions', epoch: 1, byteLength: 100 },
+      { entityType: 'messages', epoch: 2, byteLength: 300 },
+    ])
+  })
+
+  it('`index-v2 projection-segments --summary` emits the byte+count rollup', async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    for (const [epoch, file, size] of [
+      [1, 'sessions.parquet', 100],
+      [1, 'messages.parquet', 200],
+      [2, 'sessions.parquet', 400],
+    ] as const) {
+      const dir = join(storeRoot, 'epochs', String(epoch), 'projection')
+      await mkdir(dir, { recursive: true })
+      await writeFile(join(dir, file), Buffer.alloc(size))
+    }
+
+    const r = runCli(['index-v2', 'projection-segments', '--store', storeRoot, '--summary'])
+    expect(r.status).toBe(0)
+    const summary = JSON.parse(r.stdout) as {
+      total_bytes: number
+      total_segments: number
+      by_entity: Record<string, { count: number; bytes: number }>
+      by_epoch: Record<string, { count: number; bytes: number }>
+    }
+    expect(summary.total_segments).toBe(3)
+    expect(summary.total_bytes).toBe(700)
+    expect(summary.by_entity.sessions).toEqual({ count: 2, bytes: 500 })
+    expect(summary.by_entity.messages).toEqual({ count: 1, bytes: 200 })
+    expect(summary.by_epoch['1']).toEqual({ count: 2, bytes: 300 })
+    expect(summary.by_epoch['2']).toEqual({ count: 1, bytes: 400 })
+  })
+
+  it('`index-v2 projection-segments` fails when --store is missing', async () => {
+    const r = runCli(['index-v2', 'projection-segments'])
+    expect(r.status).not.toBe(0)
+    expect(r.stderr).toMatch(/required option.*--store/i)
   })
 
   it('`index-v2 compaction-plan --help` documents --store', async () => {
