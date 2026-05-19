@@ -111,6 +111,58 @@ describe('tantivyIndexDirIsValid', () => {
     }
   })
 
+  it('CQ-096: returns false when `derived/tantivy` is a symlink to an external directory with a valid index/meta.json', async () => {
+    // Plant a fully valid external `tantivy` tree: real `index`
+    // directory + plausible `meta.json`. Without intermediate
+    // containment, `lstat(<bundle>/derived/tantivy/index)` would
+    // observe the external `index` (intermediate symlinks resolve
+    // transparently) and report it as recoverable.
+    const external = await mkdtemp(join(tmpdir(), 'prosa-derived-tantivy-ext-mid-'))
+    try {
+      await mkdir(join(external, 'index'), { recursive: true })
+      await writeFile(join(external, 'index', 'meta.json'), JSON.stringify({ segments: [] }))
+      await mkdir(join(bundleRoot, 'derived'), { recursive: true })
+      await symlink(external, join(bundleRoot, 'derived', 'tantivy'))
+      expect(await tantivyIndexDirIsValid(bundleRoot)).toBe(false)
+    } finally {
+      await rm(external, { recursive: true, force: true })
+    }
+  })
+
+  it('CQ-096: returns false when `derived` is a symlink to an external directory with a valid tantivy/index/meta.json', async () => {
+    // Same shape but the symlink lands one level higher in the
+    // chain. The probe must reject before walking any deeper.
+    const external = await mkdtemp(join(tmpdir(), 'prosa-derived-tantivy-ext-derived-'))
+    try {
+      const externalIndex = join(external, 'tantivy', 'index')
+      await mkdir(externalIndex, { recursive: true })
+      await writeFile(join(externalIndex, 'meta.json'), JSON.stringify({ segments: [] }))
+      await symlink(external, join(bundleRoot, 'derived'))
+      expect(await tantivyIndexDirIsValid(bundleRoot)).toBe(false)
+    } finally {
+      await rm(external, { recursive: true, force: true })
+    }
+  })
+
+  it('CQ-096: returns true when the bundle root itself is opened via a symlinked alias and the derived tree is a real directory', async () => {
+    // Deployment pattern: the operator opens the bundle through a
+    // symlinked alias (e.g. `/opt/prosa/current -> /opt/prosa/v123`).
+    // The containment check must NOT reject this — it targets
+    // symlinks *inside* the managed derived tree, not the caller's
+    // root.
+    const aliasParent = await mkdtemp(join(tmpdir(), 'prosa-derived-tantivy-alias-'))
+    try {
+      // Build a real index under the real bundle root.
+      await writeMeta(bundleRoot, JSON.stringify({ segments: [] }))
+      // Now expose that bundle through a symlinked alias.
+      const aliasRoot = join(aliasParent, 'bundle-alias')
+      await symlink(bundleRoot, aliasRoot)
+      expect(await tantivyIndexDirIsValid(aliasRoot)).toBe(true)
+    } finally {
+      await rm(aliasParent, { recursive: true, force: true })
+    }
+  })
+
   it('CQ-094: returns false when meta.json is a symlink to a valid external file', async () => {
     // The directory is real, but meta.json is a symlink to an
     // external file whose contents would otherwise satisfy the

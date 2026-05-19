@@ -34,7 +34,7 @@ section as the full restart instruction:
   asserts on-disk pack stability). Lane 3 derived-layer scaffold has
   landed in its own focused commit on top of the Lane 2 closeout per
   `CQ-083`.
-- All `CQ-074..CQ-095` are closed. Lane 3 progress includes scaffold
+- All `CQ-074..CQ-096` are closed. Lane 3 progress includes scaffold
   (`bb76006`), SessionBlobPackV2 byte layout (`ba87f05`), Parquet
   compaction planner (`ea8c1a8`), DuckDB analytics view shape contract
   + compacted-overlay binding (`cff3670` / `e35f844`), Tantivy schema
@@ -42,17 +42,18 @@ section as the full restart instruction:
   bridge / transcript iterator (`585a456` / `c7e027d`), Tantivy
   checkpoint persistence + atomic replacement (`9ebbd07` / `734b958`),
   analytics execution-plan composer (`3f54ca6`), Tantivy index-dir
-  probe + symlink rejection (`8d45fbb` / `2c97eca`), and
+  probe + final-component symlink rejection (`8d45fbb` / `2c97eca`),
   bundle-aware Tantivy rebuild orchestration (`fa49eb2`) with roadmap
   reconciliation at `e1e432d`, compaction execution-plan composer
-  (`87bacb0`), `derivedPaths` centralised layout (`d3811b4`), and
-  `clearTantivyIndexDir` reset helper (`257a176`). There is no
-  remaining Lane 2 external-acceptance blocker; do not output
+  (`87bacb0`), `derivedPaths` centralised layout (`d3811b4`),
+  `clearTantivyIndexDir` reset helper (`257a176`), and CQ-096
+  intermediate-symlink containment landing in this iteration. There
+  is no remaining Lane 2 external-acceptance blocker; do not output
   `RALPH_DONE` yet because Lane 3 remainder (Tantivy native writer,
   DuckDB runtime executor, runtime Parquet merge) plus Lanes 4–10
   are still incomplete.
-- Continue from the first incomplete Lane 3 surface after `257a176`.
-  Do not restart an already completed lane.
+- Continue from the first incomplete Lane 3 surface after the CQ-096
+  containment commit. Do not restart an already completed lane.
 - If a correction needs a Codex/governor decision, ask one clear binary
   accept/reject question with a safe default. Do not loop on "external
   acceptance" as if Codex were unavailable.

@@ -26,10 +26,61 @@
 // must wipe the index directory before the native writer opens it.
 // That removal MUST refuse to traverse a symlink at the index path,
 // or `rm -rf` could delete an arbitrary external directory.
+//
+// CQ-096: the same symlink-rejection contract must extend to
+// intermediate path components inside the managed derived tree —
+// `<bundleRoot>/derived` and `<bundleRoot>/derived/tantivy`. Without
+// the intermediate check, a symlink at `derived/tantivy` would let
+// `lstat(<bundleRoot>/derived/tantivy/index)` observe an external
+// `index` path (the `lstat` final-component-only contract resolves
+// intermediate symlinks transparently). The bundle root itself is
+// deliberately NOT validated: deployment topologies sometimes open
+// the bundle through a symlinked alias and that pattern is supported.
+// The rejection target is symlinks *inside* the derived tree.
 
 import { lstat, mkdir, readFile, rm } from 'node:fs/promises'
 
 import { derivedPaths } from '../derived-layout.js'
+
+/**
+ * CQ-096 containment probe for the Tantivy derived path chain. Walks
+ * the intermediate components `<bundleRoot>/derived` and
+ * `<bundleRoot>/derived/tantivy` and reports whether either is a
+ * symlink. Callers that need a boolean failure mode (the probe) use
+ * the `escape` flag; callers that need to throw (the clear helper)
+ * use the `path` field to format an error message.
+ *
+ * Missing intermediates resolve to `escape: false` (no symlink to
+ * traverse): the upstream caller falls through to its existing
+ * ENOENT-tolerant flow, which routes a fresh bundle to `full` /
+ * `mkdir` as expected. A non-directory intermediate (regular file
+ * where the directory should be) is also reported as `escape: false`
+ * here; the existing final-component checks already detect those.
+ */
+async function detectDerivedTantivyIntermediateSymlink(
+  bundleRoot: string,
+): Promise<{ escape: false } | { escape: true; path: string }> {
+  const paths = derivedPaths(bundleRoot)
+  // Order matters: walk outermost → innermost so the error message
+  // identifies the highest escape point, which is the most useful
+  // signal for an operator (a symlink at `derived/` shadows every
+  // descendant; reporting the innermost would be misleading).
+  for (const path of [paths.derived, paths.tantivy]) {
+    try {
+      const st = await lstat(path)
+      if (st.isSymbolicLink()) return { escape: true, path }
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') {
+        // Missing intermediate is not an escape — the bundle simply
+        // does not have a derived tree yet. The outer caller's
+        // existing ENOENT handling resolves the fresh-bundle path.
+        continue
+      }
+      throw err
+    }
+  }
+  return { escape: false }
+}
 
 /** Canonical on-disk path of the Tantivy index directory inside a
  *  bundle. The native writer creates `meta.json` plus the segment
@@ -47,6 +98,10 @@ export function tantivyMetaPath(bundleRoot: string): string {
  * Fast best-effort probe answering: should the planner treat the
  * on-disk Tantivy index as recoverable? Returns `true` when:
  *
+ *   - `<bundleRoot>/derived` and `<bundleRoot>/derived/tantivy` are
+ *     not symlinks (CQ-096) — a symlinked intermediate would let
+ *     `lstat` observe an external `index` directory and report it
+ *     as recoverable;
  *   - `<bundleRoot>/derived/tantivy/index` is a real directory
  *     (not a symlink — CQ-094);
  *   - `<bundleRoot>/derived/tantivy/index/meta.json` is a real
@@ -55,15 +110,28 @@ export function tantivyMetaPath(bundleRoot: string): string {
  *     `segments` field that is an array (even an empty one).
  *
  * Returns `false` on any negative result, including ENOENT, a
- * symlink at either path (even one pointing at a valid target), a
- * file where the directory should be, malformed JSON, or a missing
- * / non-array `segments` field. The native writer will still
- * re-validate the on-disk index when it opens it; this probe is
- * intentionally cheap and lets the planner decide between `full`
- * (no/garbage index) and `incremental` (recoverable index) without
- * paying for the native binding.
+ * symlink at any path inside the managed derived tree (even one
+ * pointing at a valid target), a file where the directory should
+ * be, malformed JSON, or a missing / non-array `segments` field.
+ * The bundle root itself is NOT validated — opening a bundle
+ * through a symlinked root alias is a supported deployment
+ * pattern. The native writer will still re-validate the on-disk
+ * index when it opens it; this probe is intentionally cheap and
+ * lets the planner decide between `full` (no/garbage index) and
+ * `incremental` (recoverable index) without paying for the native
+ * binding.
  */
 export async function tantivyIndexDirIsValid(bundleRoot: string): Promise<boolean> {
+  try {
+    const intermediate = await detectDerivedTantivyIntermediateSymlink(bundleRoot)
+    if (intermediate.escape) return false
+  } catch {
+    // An unexpected error during the containment walk (EACCES,
+    // EIO, etc.) is treated as not-recoverable: the planner falls
+    // back to `full`, the writer then sees the same failure when
+    // it tries to open the index.
+    return false
+  }
   const dir = tantivyIndexDir(bundleRoot)
   try {
     const dirStat = await lstat(dir)
@@ -131,6 +199,17 @@ export async function tantivyIndexDirIsValid(bundleRoot: string): Promise<boolea
  * missing so a fresh bundle does not trip the writer's open path.
  */
 export async function clearTantivyIndexDir(bundleRoot: string): Promise<void> {
+  // CQ-096: refuse to operate when any intermediate component
+  // (`<bundleRoot>/derived`, `<bundleRoot>/derived/tantivy`) is a
+  // symlink. Without this, a `mkdir(<bundleRoot>/derived/tantivy/index)`
+  // on a fresh reset could resolve `tantivy` through the symlink and
+  // create `<external>/index` outside the bundle.
+  const intermediate = await detectDerivedTantivyIntermediateSymlink(bundleRoot)
+  if (intermediate.escape) {
+    throw new Error(
+      `clearTantivyIndexDir: refusing to operate — intermediate path ${intermediate.path} is a symlink (CQ-096). Resolve the symlink configuration manually before retrying.`,
+    )
+  }
   const dir = tantivyIndexDir(bundleRoot)
   let exists = true
   try {

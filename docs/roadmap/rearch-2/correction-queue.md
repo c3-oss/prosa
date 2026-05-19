@@ -4,10 +4,122 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 ## Open
 
-(none — `CQ-091`..`CQ-095` are all closed. Lane 2 is formally accepted
-by Codex/governor as of 2026-05-19.)
+(none — `CQ-091`..`CQ-096` are all closed.)
 
 ## Closed (latest first)
+
+### CQ-096: Reject Intermediate Symlink Escapes in Derived Tantivy Paths — closed 2026-05-19
+
+Status: closed
+Severity: high
+Blocking: yes
+Owner: Ralph
+Opened: 2026-05-19
+Closed: 2026-05-19
+Lane: 3 - Derived layer
+
+Fix lands in this iteration:
+
+- New private helper `detectDerivedTantivyIntermediateSymlink(bundleRoot)`
+  in `packages/prosa-derived-v2/src/tantivy/index-dir.ts` walks the
+  derived path chain outermost → innermost (`<bundleRoot>/derived`
+  then `<bundleRoot>/derived/tantivy`), `lstat`s each, and reports
+  `{ escape: true, path }` on the first symlink it finds.
+- `tantivyIndexDirIsValid(bundleRoot)` calls the helper first; an
+  intermediate symlink resolves the probe to `false` so the planner
+  routes to `full` and never reports an externally-rooted index as
+  recoverable. An unexpected error during the walk (EACCES, EIO)
+  also yields `false`; the writer surfaces the underlying failure
+  when it opens the index.
+- `clearTantivyIndexDir(bundleRoot)` calls the helper first; an
+  intermediate symlink throws with the offending path quoted, before
+  the existing `mkdir(<index>)` could resolve through the symlink
+  and create `<external>/index`.
+- Bundle-root containment is **not** validated: opening a bundle
+  through a symlinked alias (e.g. `/opt/prosa/current ->
+  /opt/prosa/v123`) remains a supported deployment pattern. The
+  rejection target is symlinks *inside* the managed derived tree.
+
+Regression coverage (6 new tests across the two existing files):
+
+- `index-dir.test.ts` — `CQ-096: returns false when derived/tantivy
+  is a symlink to an external directory with a valid index/meta.json`,
+  `... when derived is a symlink ...`, and `... returns true when the
+  bundle root itself is opened via a symlinked alias and the derived
+  tree is a real directory`.
+- `clear-index-dir.test.ts` — `CQ-096: refuses to operate when
+  derived/tantivy is a symlink with no index yet (must not create
+  <external>/index)`, `... when derived is a symlink (must not mutate
+  the external tree)`, and `... clears successfully when bundle root
+  is opened via a symlinked alias and the derived tree is a real
+  directory`.
+
+Gates after the change:
+
+- `pnpm --filter @c3-oss/prosa-derived-v2 typecheck`: pass.
+- `pnpm --filter @c3-oss/prosa-derived-v2 test`: pass, 159 tests / 17
+  files.
+- `pnpm --filter @c3-oss/prosa-derived-v2 lint`: pass.
+- Full repo `pnpm build` / `pnpm test` / `pnpm lint`: 13/13 turbo.
+- `pnpm test:conformance`: pass, 26 / 2.
+- `git diff --check`: pass.
+
+Finding:
+
+`CQ-094` hardened `tantivyIndexDirIsValid()` and
+`clearTantivyIndexDir()` against symlinks at the final `index` and
+`meta.json` path components, but both helpers still follow symlinks in
+intermediate components. For example, if
+`<bundleRoot>/derived/tantivy` is a symlink to an external directory,
+then `lstat(<bundleRoot>/derived/tantivy/index)` observes the external
+`index` path rather than rejecting the escape. The probe can therefore
+report an external index as recoverable, and the reset helper can
+create or clear `<external>/index` on a fresh/full rebuild.
+
+Risk:
+
+Lane 3 derived artifacts must remain confined to the bundle. Following
+an intermediate symlink in `derived/` or `derived/tantivy/` can make the
+future native writer read, create, or remove files outside the bundle
+root while still appearing to use canonical derived paths.
+
+Required fix:
+
+- Add containment validation for the Tantivy derived path chain used by
+  `tantivyIndexDirIsValid()` and `clearTantivyIndexDir()`.
+- The check must reject symlinks in intermediate components such as
+  `<bundleRoot>/derived` and `<bundleRoot>/derived/tantivy`, not only
+  the final `index` and `meta.json` components.
+- Preserve the accepted symlinked-bundle-root deployment pattern when
+  the bundle itself is opened through a symlinked alias; the rejection
+  target is symlinks inside the managed derived tree, not the caller's
+  root path.
+- Ensure a fresh reset does not create `<external>/index` when
+  `derived/tantivy` is a symlink, and an existing external index is not
+  treated as valid by the probe.
+- Keep the fix scoped to the derived/Tantivy filesystem helpers unless
+  a small shared helper is needed for clarity.
+
+Acceptance criteria:
+
+- Add regression tests covering at least:
+  - `derived/tantivy -> <external>` with an otherwise valid external
+    `index/meta.json`: `tantivyIndexDirIsValid()` returns `false`.
+  - `derived/tantivy -> <external>` with no `index` yet:
+    `clearTantivyIndexDir()` rejects and does not create
+    `<external>/index`.
+  - `derived -> <external>` is also rejected before probe/reset can
+    validate or mutate the external tree.
+  - A bundle opened via a symlinked root still works when the managed
+    `derived/tantivy/index` path itself is a real directory under that
+    root.
+- Focused gates pass:
+  - `pnpm --filter @c3-oss/prosa-derived-v2 test`
+  - `pnpm --filter @c3-oss/prosa-derived-v2 typecheck`
+  - `pnpm --filter @c3-oss/prosa-derived-v2 lint`
+  - `git diff --check`
+- Update `docs/roadmap/rearch-2/evidence/lane-03.md`, `gates.md`, and
+  `status.md` with the fix commit and gate evidence.
 
 ### CQ-095: Reconcile Plan-Bundle Commit Evidence Before Further Acceptance — closed 2026-05-19
 

@@ -2,9 +2,11 @@
 
 Lane: 03 - Derived layer
 Status: active WIP — scaffold (`bb76006`) + SessionBlobPackV2 byte layout
-(framing + writer + reader + verifier) landing in this iteration close
-`CQ-084` and `CQ-085`. Tantivy writer, DuckDB analytics view definitions,
-and the runtime compaction worker still pending.
+(framing + writer + reader + verifier) close `CQ-084` and `CQ-085`;
+additional Lane 3 planner/helper slices landed through `3b9f79e`.
+`CQ-096` intermediate symlink containment landing in this iteration.
+Tantivy writer, DuckDB analytics view definitions, and the runtime
+compaction worker still pending.
 Owner: Ralph
 Commit range: Lane 3 scaffold (`bb76006`) + SessionBlobPackV2 byte-layout
 slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
@@ -155,16 +157,30 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
   either path is rejected unconditionally regardless of the link
   target (CQ-094) — a planted
   `derived/tantivy/index -> /etc/passwd.d` cannot be reported as a
-  recoverable index. It returns `true` only when the canonical
-  `<bundleRoot>/derived/tantivy/index` is a real directory
-  containing a real regular `meta.json` that parses as a JSON
-  object with an array-typed `segments` field. Every other state
-  — ENOENT, file-not-dir, malformed JSON, JSON-array root, missing
-  `segments`, non-array `segments`, dangling symlink, escape-path
-  symlinks at either index or meta — returns `false`. Deeper
-  integrity checks remain the native writer's responsibility; the
-  probe is deliberately ENOENT-tolerant and cheap so the planner
-  can keep its decision pure-TS.
+  recoverable index. CQ-096 extends the symlink-rejection contract
+  to intermediate components: `<bundleRoot>/derived` and
+  `<bundleRoot>/derived/tantivy` are also walked with `lstat()` and
+  a symlink at either resolves the probe to `false`. The shared
+  helper `detectDerivedTantivyIntermediateSymlink(bundleRoot)`
+  encapsulates the intermediate walk; it is also consumed by
+  `clearTantivyIndexDir` so the probe and the reset agree on what
+  counts as containment. Bundle-root containment is **not**
+  validated — opening a bundle through a symlinked alias remains a
+  supported deployment pattern. The probe returns `true` only when
+  the canonical `<bundleRoot>/derived/tantivy/index` is a real
+  directory containing a real regular `meta.json` that parses as a
+  JSON object with an array-typed `segments` field. Every other
+  state — ENOENT, file-not-dir, malformed JSON, JSON-array root,
+  missing `segments`, non-array `segments`, dangling symlink,
+  escape-path symlinks at the final or any intermediate component —
+  returns `false`. Deeper integrity checks remain the native
+  writer's responsibility; the probe is deliberately ENOENT-tolerant
+  and cheap so the planner can keep its decision pure-TS. CQ-096
+  regression coverage adds three tests on top of the CQ-094 set:
+  `derived/tantivy` symlinked to an external dir with a valid
+  index/meta returns `false`; `derived` symlinked similarly returns
+  `false`; bundle opened via a symlinked alias with a real derived
+  tree returns `true`.
 - [x] Derived-layer directory-layout module (`derivedPaths(root)`,
   `derivedRoot(root)`) centralises the on-disk layout under
   `<bundleRoot>/derived/` so every Lane 3 surface reads paths from
@@ -191,13 +207,24 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
   directory it recursively removes contents (`fs.rm` with
   `recursive: true` does not follow symlinks — symlinked children
   unlink in place) and recreates the empty directory so the writer can
-  open it immediately. 7 tests cover: fresh-bundle idempotency,
-  repeated invocation idempotency, recursive removal of stale segments
-  + meta, CQ-094 refusal on symlinked index dir (external target
-  unchanged, symlink left in place for operator), refusal on regular
-  file at index path, symlinked-children unlink semantics (target
-  survives), and sibling-surface preservation (`derived/analytics`
-  intact after reset).
+  open it immediately. CQ-096 extends the symlink-rejection contract
+  to intermediate components (`<bundleRoot>/derived`,
+  `<bundleRoot>/derived/tantivy`): the helper rejects before the
+  fresh-reset `mkdir` could resolve through a symlinked intermediate
+  and create `<external>/index` outside the bundle. Bundle-root
+  containment is **not** validated — opening a bundle through a
+  symlinked alias remains a supported deployment pattern. 10 tests
+  cover: fresh-bundle idempotency, repeated-invocation idempotency,
+  recursive removal of stale segments + meta, CQ-094 refusal on
+  symlinked index dir (external target unchanged, symlink left in
+  place for operator), CQ-096 refusal when `derived/tantivy` is a
+  symlink with no `index` yet (external dir not mutated), CQ-096
+  refusal when `derived` is a symlink (external sentinel preserved),
+  CQ-096 success when bundle root opened via a symlinked alias and
+  derived tree is real, refusal on regular file at index path,
+  symlinked-children unlink semantics (target survives), and
+  sibling-surface preservation (`derived/analytics` intact after
+  reset).
 - [x] Compaction execution-plan composer
   (`planCompactionExecution({ bundleRoot, plan })`) turns a
   `CompactionPlan` from `planCompaction()` into the ordered DuckDB
@@ -270,7 +297,7 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
 ```text
 pnpm install --prefer-offline                       # registers @c3-oss/prosa-derived-v2 in pnpm-lock.yaml
 pnpm --filter @c3-oss/prosa-derived-v2 typecheck    # clean
-pnpm --filter @c3-oss/prosa-derived-v2 test         # 153 tests / 17 files (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 8, compaction executor-plan 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9, reader-iterator 7, tantivy checkpoint-store 11, analytics executor-plan 9, tantivy index-dir probe 14, tantivy plan-bundle orchestration 9, derived-layout 7, tantivy clear-index-dir 7)
+pnpm --filter @c3-oss/prosa-derived-v2 test         # 159 tests / 17 files (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 8, compaction executor-plan 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9, reader-iterator 7, tantivy checkpoint-store 11, analytics executor-plan 9, tantivy index-dir probe 17 (incl. CQ-096 intermediate + bundle-root-alias), tantivy plan-bundle orchestration 9, derived-layout 7, tantivy clear-index-dir 10 (incl. CQ-096 intermediate + bundle-root-alias))
 pnpm --filter @c3-oss/prosa-derived-v2 lint         # clean
 pnpm build                                          # 13/13 turbo
 pnpm typecheck                                      # 13/13 turbo
