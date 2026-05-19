@@ -35,7 +35,7 @@
 //     touch.
 
 import { loadLatestSessionBlobPack } from './latest.js'
-import { type TranscriptIteratorOptions, type TranscriptMessage, loadTranscript } from './reader.js'
+import { type TranscriptIteratorOptions, type TranscriptMessage, iterateTranscript, loadTranscript } from './reader.js'
 import { zstdSessionBlobDecompressor } from './zstd.js'
 
 import type { SessionBlobDecompressor } from './reader.js'
@@ -100,5 +100,64 @@ export async function loadTranscriptFromBundle(
     path: pack.path,
     pack_digest: pack.pack_digest,
     messages,
+  }
+}
+
+export interface IterableTranscriptFromBundle {
+  /** Epoch the pack came from (= newest epoch that has a pack for
+   *  this session). */
+  epoch: number
+  /** Resolved on-disk pack path. */
+  path: string
+  /** Pack digest recomputed from the bytes alone (re-verified by
+   *  `loadLatestSessionBlobPack`). */
+  pack_digest: string
+  /** Lazy generator yielding `TranscriptMessage` records in canonical
+   *  ordinal order, after multi-page fragment coalescing + range
+   *  filtering. Pages outside the requested range are not
+   *  decompressed; consumers may `break` early without paying for
+   *  the remaining pages. */
+  messages: Generator<TranscriptMessage, void, void>
+}
+
+/**
+ * Streaming counterpart of `loadTranscriptFromBundle`. Same surface:
+ *
+ *   `(bundleRoot, sessionId) → { epoch, path, pack_digest, messages }`
+ *
+ * except `messages` is a pull-based generator instead of a fully
+ * materialised array. Use this when paged-render flows (TUI scrolling,
+ * MCP streaming responses, web pagination) only render a slice of the
+ * transcript and would otherwise pay decompression cost for pages
+ * they never display.
+ *
+ * The pack is loaded + verified eagerly (one full read + `verifyPackDigest`
+ * pass), but per-page decompression is deferred to the generator:
+ *
+ *   const { epoch, messages } = await iterateTranscriptFromBundle({...})
+ *   for (const msg of messages) {
+ *     if (renderBudgetReached) break          // no decompression of remaining pages
+ *     render(msg)
+ *   }
+ *
+ * Failure semantics, validation, containment, and tamper detection
+ * match `loadTranscriptFromBundle` exactly because both share the
+ * same composed surfaces. Synchronous `sessionId` validation happens
+ * inside `loadLatestSessionBlobPack` (CQ-100) before any filesystem
+ * read.
+ */
+export async function iterateTranscriptFromBundle(
+  input: LoadTranscriptFromBundleInput,
+): Promise<IterableTranscriptFromBundle> {
+  const pack = await loadLatestSessionBlobPack({
+    bundleRoot: input.bundleRoot,
+    sessionId: input.sessionId,
+  })
+  const decompress = input.decompress ?? zstdSessionBlobDecompressor
+  return {
+    epoch: pack.epoch,
+    path: pack.path,
+    pack_digest: pack.pack_digest,
+    messages: iterateTranscript(pack.bytes, decompress, input.range),
   }
 }

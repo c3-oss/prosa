@@ -204,6 +204,24 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
   the three Tantivy delegates do not drift from the typed layout,
   and verify relative bundle roots are composed without
   `path.resolve()`.
+- [x] SessionBlobPackV2 streaming end-to-end transcript loader
+  (`iterateTranscriptFromBundle({ bundleRoot, sessionId, range?,
+  decompress? })`) parallels the collect-all `loadTranscriptFromBundle`
+  but returns a pull-based `Generator<TranscriptMessage>` instead
+  of a fully materialised array. Same surface
+  (`{ epoch, path, pack_digest, messages }`), same validation +
+  containment + tamper-detection guarantees. Pack load + digest
+  verification happen eagerly; per-page decompression is deferred to
+  the generator so paged-render flows (TUI scrolling, MCP streaming
+  responses, web pagination) can `break` after the rendered slice
+  without paying decompression cost for unread pages. 9 tests cover:
+  streaming round-trip with the production zstd default, newest-wins
+  selection, ordinal range filter applied lazily, lazy termination
+  via early break (500-message pack consumed after 5 yields),
+  ENOENT propagation, CQ-100 sync invalid-sessionId rejection,
+  custom decompressor override (identity), CQ-098 intermediate-
+  symlink propagation, and metadata-shape parity with the collect-
+  all loader.
 - [x] SessionBlobPackV2 end-to-end transcript loader
   (`loadTranscriptFromBundle({ bundleRoot, sessionId, range?,
   decompress? })`) gives CLI/MCP/web read surfaces a one-call read
@@ -447,7 +465,7 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
 ```text
 pnpm install --prefer-offline                       # registers @c3-oss/prosa-derived-v2 in pnpm-lock.yaml
 pnpm --filter @c3-oss/prosa-derived-v2 typecheck    # clean
-pnpm --filter @c3-oss/prosa-derived-v2 test         # 233 tests / 22 files (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 8, compaction executor-plan 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9, reader-iterator 7, tantivy checkpoint-store 11, analytics executor-plan 9, tantivy index-dir probe 17, tantivy plan-bundle orchestration 9, derived-layout 27, tantivy clear-index-dir 10, session-blob loader 11, session-blob zstd 5, session-blob listing 19, session-blob latest 11 incl. CQ-100, session-blob transcript-from-bundle 8)
+pnpm --filter @c3-oss/prosa-derived-v2 test         # 242 tests / 23 files (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 8, compaction executor-plan 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9, reader-iterator 7, tantivy checkpoint-store 11, analytics executor-plan 9, tantivy index-dir probe 17, tantivy plan-bundle orchestration 9, derived-layout 27, tantivy clear-index-dir 10, session-blob loader 11, session-blob zstd 5, session-blob listing 19, session-blob latest 11 incl. CQ-100, session-blob transcript-from-bundle 8, session-blob iterate-from-bundle 9)
 pnpm --filter @c3-oss/prosa-derived-v2 lint         # clean
 pnpm build                                          # 13/13 turbo
 pnpm typecheck                                      # 13/13 turbo
