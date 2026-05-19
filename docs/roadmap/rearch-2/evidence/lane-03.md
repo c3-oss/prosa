@@ -10,9 +10,9 @@ additional Lane 3 planner/helper slices landed through `d798b15`.
 same slice). `loadSessionBlobPack` landed at `eb88037` with the CQ-098
 intermediate-symlink containment fix at `ea5f5d1`.
 Production zstd landed at `62550e1`. SessionBlob listing helpers +
-shared containment refactor + CQ-099 resolver-parity landing in
-this iteration. Tantivy writer, DuckDB analytics view definitions,
-and the runtime compaction worker still pending.
+shared containment refactor + CQ-099 resolver-parity landed at
+`f8a2b7a`. Tantivy writer, DuckDB analytics view definitions, and
+the runtime compaction worker still pending.
 Owner: Ralph
 Commit range: Lane 3 scaffold (`bb76006`) + SessionBlobPackV2 byte-layout
 slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
