@@ -45,6 +45,7 @@ import {
   readCompactManifestV2,
   readSessionBlobHeader,
   recommendMaintenanceActions,
+  summariseCompactionEffectiveness,
   summariseProjectionSegments,
   summariseSupersededSegments,
   verifyAllSessionBlobPacks,
@@ -295,6 +296,18 @@ export function indexV2Command(): Command {
       const storePath = resolvePath(options.store)
       const plan = await planSupersededCleanup(storePath)
       process.stdout.write(`${JSON.stringify(plan, null, 2)}\n`)
+    })
+
+  root
+    .command('compaction-effectiveness')
+    .description(
+      'Print the per-compaction-seq effectiveness rollup: bytes-in (sum of `superseded[].byte_length` across the manifest) vs bytes-out (sum of on-disk output byte lengths), reduction ratio, and totals across the consistent subset. Inconsistent rows surface in the listing (with `bytes_out: null`) but are excluded from top-level totals. Pure-read; complements `compaction-execution-plan` (how to run it) with the post-hoc "was it worth it?" view.',
+    )
+    .requiredOption('--store <path>', 'bundle directory')
+    .action(async (options: { store: string }) => {
+      const storePath = resolvePath(options.store)
+      const summary = await summariseCompactionEffectiveness(storePath)
+      process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`)
     })
 
   root

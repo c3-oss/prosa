@@ -61,6 +61,7 @@ describe('prosa index-v2 CLI', () => {
     expect(r.stdout).toContain('compacted-outputs')
     expect(r.stdout).toContain('gc-plan')
     expect(r.stdout).toContain('gc-execution-plan')
+    expect(r.stdout).toContain('compaction-effectiveness')
     expect(r.stdout).toContain('superseded-segments')
     expect(r.stdout).toContain('verify-packs')
     expect(r.stdout).toContain('transcript-header')
@@ -1134,6 +1135,126 @@ describe('prosa index-v2 CLI', () => {
 
   it('`index-v2 gc-execution-plan` fails when --store is missing', async () => {
     const r = runCli(['index-v2', 'gc-execution-plan'])
+    expect(r.status).not.toBe(0)
+    expect(r.stderr).toMatch(/required option.*--store/i)
+  })
+
+  it('`index-v2 compaction-effectiveness --help` documents --store and the rollup contract', async () => {
+    const r = runCli(['index-v2', 'compaction-effectiveness', '--help'])
+    expect(r.status).toBe(0)
+    expect(r.stdout).toContain('effectiveness rollup')
+    expect(r.stdout).toContain('--store')
+  })
+
+  it('`index-v2 compaction-effectiveness` against a fresh bundle returns the zero-state summary', async () => {
+    const storeRoot = join(await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-')), 'never-initialised')
+    const r = runCli(['index-v2', 'compaction-effectiveness', '--store', storeRoot])
+    expect(r.status).toBe(0)
+    expect(JSON.parse(r.stdout)).toEqual({
+      rows: [],
+      totals: {
+        consistent_count: 0,
+        inconsistent_count: 0,
+        bytes_in_consistent: 0,
+        bytes_out: 0,
+        bytes_saved: 0,
+        reduction_ratio: 0,
+      },
+    })
+  })
+
+  it('`index-v2 compaction-effectiveness` reports the inconsistent row with bytes_out === null when no output is planted', async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    for (let epoch = 1; epoch <= 17; epoch++) {
+      const dir = join(storeRoot, 'epochs', String(epoch), 'projection')
+      await mkdir(dir, { recursive: true })
+      await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(1024))
+    }
+    runCli([
+      'index-v2',
+      'compaction-manifest',
+      '--store',
+      storeRoot,
+      '--write',
+      '--generated-at',
+      '2026-05-19T12:00:00.000Z',
+    ])
+    const r = runCli(['index-v2', 'compaction-effectiveness', '--store', storeRoot])
+    expect(r.status).toBe(0)
+    const summary = JSON.parse(r.stdout) as {
+      rows: Array<{
+        compaction_seq: number
+        consistent: boolean
+        bytes_in: number
+        bytes_out: number | null
+        bytes_saved: number | null
+        reduction_ratio: number | null
+        missing_output_count: number
+      }>
+      totals: {
+        consistent_count: number
+        inconsistent_count: number
+        bytes_in_consistent: number
+        bytes_out: number
+        bytes_saved: number
+        reduction_ratio: number
+      }
+    }
+    expect(summary.rows).toHaveLength(1)
+    expect(summary.rows[0]!.consistent).toBe(false)
+    expect(summary.rows[0]!.bytes_in).toBe(17 * 1024)
+    expect(summary.rows[0]!.bytes_out).toBeNull()
+    expect(summary.rows[0]!.missing_output_count).toBe(1)
+    expect(summary.totals.consistent_count).toBe(0)
+    expect(summary.totals.inconsistent_count).toBe(1)
+    expect(summary.totals.bytes_in_consistent).toBe(0)
+  })
+
+  it('`index-v2 compaction-effectiveness` reports a consistent row with a real reduction ratio once the compacted output is planted', async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    for (let epoch = 1; epoch <= 17; epoch++) {
+      const dir = join(storeRoot, 'epochs', String(epoch), 'projection')
+      await mkdir(dir, { recursive: true })
+      await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(1024))
+    }
+    runCli([
+      'index-v2',
+      'compaction-manifest',
+      '--store',
+      storeRoot,
+      '--write',
+      '--generated-at',
+      '2026-05-19T12:00:00.000Z',
+    ])
+    const compactedDir = join(storeRoot, 'epochs', 'compact-0001', 'projection')
+    await mkdir(compactedDir, { recursive: true })
+    await writeFile(join(compactedDir, 'sessions.compacted.parquet'), Buffer.alloc(2048))
+
+    const r = runCli(['index-v2', 'compaction-effectiveness', '--store', storeRoot])
+    expect(r.status).toBe(0)
+    const summary = JSON.parse(r.stdout) as {
+      rows: Array<{
+        consistent: boolean
+        bytes_in: number
+        bytes_out: number
+        bytes_saved: number
+        reduction_ratio: number
+      }>
+      totals: { reduction_ratio: number; bytes_out: number; bytes_in_consistent: number }
+    }
+    expect(summary.rows).toHaveLength(1)
+    const row = summary.rows[0]!
+    expect(row.consistent).toBe(true)
+    expect(row.bytes_in).toBe(17 * 1024)
+    expect(row.bytes_out).toBe(2048)
+    expect(row.bytes_saved).toBe(17 * 1024 - 2048)
+    expect(row.reduction_ratio).toBeCloseTo((17 * 1024 - 2048) / (17 * 1024), 6)
+    expect(summary.totals.bytes_in_consistent).toBe(17 * 1024)
+    expect(summary.totals.bytes_out).toBe(2048)
+  })
+
+  it('`index-v2 compaction-effectiveness` fails when --store is missing', async () => {
+    const r = runCli(['index-v2', 'compaction-effectiveness'])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/required option.*--store/i)
   })
