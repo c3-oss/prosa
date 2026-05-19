@@ -169,4 +169,25 @@ describe('loadTranscriptFromBundle', () => {
     // Same blake3 prefix the writer/reader use throughout.
     expect(result.pack_digest).toMatch(/^blake3:[0-9a-f]{64}$/)
   })
+
+  it('reads a specific historical epoch when `epoch` is provided', async () => {
+    await writeZstdPack(bundleRoot, SESSION_ID, 1, 2)
+    await writeZstdPack(bundleRoot, SESSION_ID, 4, 3)
+    await writeZstdPack(bundleRoot, SESSION_ID, 9, 7)
+
+    const result = await loadTranscriptFromBundle({ bundleRoot, sessionId: SESSION_ID, epoch: 4 })
+
+    expect(result.epoch).toBe(4)
+    expect(result.messages).toHaveLength(3)
+    expect(result.path).toMatch(/epoch-4/)
+    expect(result.pack_digest).toMatch(/^blake3:/)
+  })
+
+  it('surfaces ENOENT when the requested epoch has no pack for the session', async () => {
+    await writeZstdPack(bundleRoot, SESSION_ID, 1, 2)
+
+    await expect(loadTranscriptFromBundle({ bundleRoot, sessionId: SESSION_ID, epoch: 42 })).rejects.toThrow(
+      /ENOENT|epoch-42/,
+    )
+  })
 })

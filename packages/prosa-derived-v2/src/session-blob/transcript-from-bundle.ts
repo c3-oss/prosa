@@ -35,6 +35,7 @@
 //     touch.
 
 import { loadLatestSessionBlobPack } from './latest.js'
+import { loadSessionBlobPack } from './loader.js'
 import { type TranscriptIteratorOptions, type TranscriptMessage, iterateTranscript, loadTranscript } from './reader.js'
 import { zstdSessionBlobDecompressor } from './zstd.js'
 
@@ -45,6 +46,13 @@ export interface LoadTranscriptFromBundleInput {
   bundleRoot: string
   /** Canonical session id (validated by `sessionBlobPackPath`). */
   sessionId: string
+  /** Optional non-negative safe-integer epoch. When omitted, the
+   *  newest epoch with a pack for this session is selected via
+   *  `loadLatestSessionBlobPack`. When provided, that specific
+   *  epoch's pack is loaded via `loadSessionBlobPack`; an ENOENT
+   *  there means the caller asked for an epoch with no pack and
+   *  surfaces unchanged. */
+  epoch?: number
   /** Optional inclusive ordinal range; out-of-range pages are
    *  skipped without decompression by `iterateTranscript`. */
   range?: TranscriptIteratorOptions
@@ -89,18 +97,20 @@ export interface LoadedTranscriptFromBundle {
 export async function loadTranscriptFromBundle(
   input: LoadTranscriptFromBundleInput,
 ): Promise<LoadedTranscriptFromBundle> {
-  const pack = await loadLatestSessionBlobPack({
+  if (input.epoch === undefined) {
+    const pack = await loadLatestSessionBlobPack({ bundleRoot: input.bundleRoot, sessionId: input.sessionId })
+    const decompress = input.decompress ?? zstdSessionBlobDecompressor
+    const messages = loadTranscript(pack.bytes, decompress, input.range)
+    return { epoch: pack.epoch, path: pack.path, pack_digest: pack.pack_digest, messages }
+  }
+  const pack = await loadSessionBlobPack({
     bundleRoot: input.bundleRoot,
     sessionId: input.sessionId,
+    epoch: input.epoch,
   })
   const decompress = input.decompress ?? zstdSessionBlobDecompressor
   const messages = loadTranscript(pack.bytes, decompress, input.range)
-  return {
-    epoch: pack.epoch,
-    path: pack.path,
-    pack_digest: pack.pack_digest,
-    messages,
-  }
+  return { epoch: input.epoch, path: pack.path, pack_digest: pack.pack_digest, messages }
 }
 
 export interface IterableTranscriptFromBundle {

@@ -209,6 +209,7 @@ export function indexV2Command(): Command {
     .requiredOption('--store <path>', 'bundle directory')
     .requiredOption('--session-id <id>', 'canonical session_id (matches `index-v2 sessions` rows)')
     .option('--format <fmt>', 'output format: json|text|markdown (default: json)', 'json')
+    .option('--epoch <n>', 'specific epoch to read instead of the latest pack')
     .option(
       '--start-ordinal <n>',
       'inclusive lower bound on message ordinal (skips pages whose ordinal range falls below)',
@@ -219,6 +220,7 @@ export function indexV2Command(): Command {
         store: string
         sessionId: string
         format: string
+        epoch?: string
         startOrdinal?: string
         endOrdinal?: string
       }) => {
@@ -228,6 +230,7 @@ export function indexV2Command(): Command {
         if (options.format !== 'json' && options.format !== 'text' && options.format !== 'markdown') {
           throw new Error(`invalid --format: ${options.format} (expected json|text|markdown)`)
         }
+        const epoch = options.epoch !== undefined ? parseNonNegativeInteger('--epoch', options.epoch) : undefined
         const startOrdinal =
           options.startOrdinal !== undefined
             ? parseNonNegativeInteger('--start-ordinal', options.startOrdinal)
@@ -242,6 +245,7 @@ export function indexV2Command(): Command {
         const transcript = await loadTranscriptFromBundle({
           bundleRoot: storePath,
           sessionId: options.sessionId,
+          epoch,
           range,
         })
         if (options.format === 'text') {

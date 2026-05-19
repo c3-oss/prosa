@@ -979,6 +979,86 @@ describe('prosa index-v2 CLI', () => {
     expect(r.stderr).toMatch(/invalid range.*start-ordinal.*5.*end-ordinal.*2/i)
   })
 
+  it('`index-v2 transcript --epoch <n>` reads a specific historical epoch instead of the latest', async () => {
+    const { writeSessionBlobPack, zstdSessionBlobCompressor } = await import('@c3-oss/prosa-derived-v2')
+    const { sessionBlobEpochDir, sessionBlobPackPath } = await import('@c3-oss/prosa-derived-v2')
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+
+    async function plant(epoch: number, count: number) {
+      const messages = Array.from({ length: count }, (_, i) => ({
+        message_id: `msg_e${epoch}_${i}`,
+        ordinal: i,
+        role: 'user' as const,
+        timestamp: '2026-05-19T00:00:00.000Z',
+        turn_id: 'tur_0',
+        blocks: [
+          {
+            block_id: `blk_${i}_0`,
+            block_type: 'text',
+            body: { kind: 'inline' as const, text: `epoch ${epoch} msg ${i}`, byte_length: 16 },
+          },
+        ],
+      }))
+      const result = writeSessionBlobPack({ session_id: 'ses_alpha', epoch, messages }, zstdSessionBlobCompressor)
+      await mkdir(sessionBlobEpochDir(storeRoot, epoch), { recursive: true })
+      await writeFile(sessionBlobPackPath(storeRoot, 'ses_alpha', epoch), result.pack)
+    }
+    await plant(1, 2)
+    await plant(4, 3)
+    await plant(9, 7)
+
+    // Default (no --epoch) returns the latest pack (epoch 9, 7 messages).
+    const rLatest = runCli(['index-v2', 'transcript', '--store', storeRoot, '--session-id', 'ses_alpha'])
+    expect(rLatest.status).toBe(0)
+    const latest = JSON.parse(rLatest.stdout) as { epoch: number; messages: unknown[] }
+    expect(latest.epoch).toBe(9)
+    expect(latest.messages).toHaveLength(7)
+
+    // `--epoch 4` returns the historical pack (epoch 4, 3 messages).
+    const rOlder = runCli(['index-v2', 'transcript', '--store', storeRoot, '--session-id', 'ses_alpha', '--epoch', '4'])
+    expect(rOlder.status).toBe(0)
+    const older = JSON.parse(rOlder.stdout) as { epoch: number; path: string; messages: unknown[] }
+    expect(older.epoch).toBe(4)
+    expect(older.messages).toHaveLength(3)
+    expect(older.path).toMatch(/epoch-4/)
+  })
+
+  it('`index-v2 transcript --epoch <n>` surfaces ENOENT when the epoch has no pack', async () => {
+    const { writeSessionBlobPack, zstdSessionBlobCompressor } = await import('@c3-oss/prosa-derived-v2')
+    const { sessionBlobEpochDir, sessionBlobPackPath } = await import('@c3-oss/prosa-derived-v2')
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    const result = writeSessionBlobPack(
+      {
+        session_id: 'ses_alpha',
+        epoch: 1,
+        messages: [
+          {
+            message_id: 'msg_000000',
+            ordinal: 0,
+            role: 'user' as const,
+            timestamp: null,
+            turn_id: null,
+            blocks: [
+              {
+                block_id: 'blk_0_0',
+                block_type: 'text',
+                body: { kind: 'inline' as const, text: 'x', byte_length: 1 },
+              },
+            ],
+          },
+        ],
+      },
+      zstdSessionBlobCompressor,
+    )
+    await mkdir(sessionBlobEpochDir(storeRoot, 1), { recursive: true })
+    await writeFile(sessionBlobPackPath(storeRoot, 'ses_alpha', 1), result.pack)
+
+    const r = runCli(['index-v2', 'transcript', '--store', storeRoot, '--session-id', 'ses_alpha', '--epoch', '99'])
+    expect(r.status).not.toBe(0)
+    // The library propagates the original ENOENT / path error verbatim.
+    expect(r.stderr).toMatch(/epoch-99|ENOENT/)
+  })
+
   it('`index-v2 transcript` rejects a negative ordinal', async () => {
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
     const r = runCli([
