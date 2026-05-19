@@ -33,11 +33,12 @@ section as the full restart instruction:
   asserts on-disk pack stability). Lane 3 derived-layer scaffold has
   landed in its own focused commit on top of the Lane 2 closeout per
   `CQ-083`.
-- All `CQ-074..CQ-086` are closed. SessionBlobPackV2 byte layout
-  (framing + writer + reader + verifier) lands in this iteration on
-  top of the Lane 3 scaffold `bb76006`. Lane 2 acceptance still
-  requires Codex/governor/user sign-off; do not output `RALPH_DONE`
-  yet because Lanes 4–10 remain.
+- `CQ-088` is open. Commit the roadmap-only reconciliation that closes
+  `CQ-087` and names `ea8c1a8` as the Parquet compaction planner HEAD before
+  treating the queue as empty. Lane 2 acceptance still requires
+  Codex/governor/user sign-off; do not output `RALPH_DONE` yet because Lane 3
+  remainder (Tantivy writer, DuckDB analytics views, runtime Parquet merge)
+  plus Lanes 4–10 are still incomplete.
 - If a correction needs a Codex/governor decision, ask one clear binary
   accept/reject question with a safe default. Do not loop on "external
   acceptance" as if Codex were unavailable.
@@ -155,11 +156,8 @@ Keep these files current:
 
 Current open correction:
 
-(none — `CQ-074..CQ-086` are all closed. The SessionBlobPackV2 byte-
-layout slice landing in this iteration covers framing + writer +
-reader + verifier + 36 derived-v2 tests. Next Lane 3 surfaces:
-Tantivy generation writer, DuckDB analytics views, runtime Parquet
-compaction worker.)
+- `CQ-088`: commit the roadmap-only reconciliation that closes `CQ-087`; do
+  not claim the queue is empty while these roadmap docs are dirty.
 
 Lane 0 + Lane 1 are accepted by the project owner on 2026-05-18, including the
 two re-scopes in `docs/rearch-2/lane-1-rescopes.md`.

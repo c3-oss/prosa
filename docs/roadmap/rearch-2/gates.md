@@ -98,9 +98,8 @@ no new transitive risk.
 
 - [x] Worktree state documented.
 - [x] Lane 0 has evidence; lanes 2–10 are documented as blocked or WIP.
-- [ ] No open blocking corrections. *(`CQ-086` is open; it blocks accepting the
-  SessionBlobPackV2 byte-layout closeout until the `CQ-084`/`CQ-085` WIP is
-  committed and reconciled to HEAD.)*
+- [ ] No open blocking corrections. *(`CQ-088` is open; it blocks final
+  stabilization until the roadmap-only `CQ-087` reconciliation is committed.)*
 - [x] Base gates passed at HEAD `6c25966` (full repo `pnpm test` / `pnpm
   typecheck` / `pnpm lint` 12/12 turbo).
 - [x] Lane 0-specific gates passed: `prosa-types-v2` 89 tests, `prosa-wire-v2`
@@ -113,8 +112,11 @@ no new transitive risk.
   non-dev path, pre-existing on `master`).
 - [ ] Security, integrity, remote-read, and E2E reviewer findings resolved
   for Lane 0 and Lane 1. Lane 0 and Lane 1 corrections through `CQ-066` are
-  closed; `CQ-086` tracks the current Lane 3 SessionBlob closeout blocker.
-- [ ] Final Codex review completed. *(Pending — Lane 3+ work and
-  `CQ-086` remain open.)*
+  closed; Lane 2 closeout (`CQ-074..CQ-082`) and Lane 3 byte layout +
+  planner (`CQ-083..CQ-087`) are closed; `CQ-088` tracks the current
+  roadmap-only reconciliation blocker.
+- [ ] Final Codex review completed. *(Pending — Lane 3 remainder (Tantivy
+  writer, DuckDB views, runtime Parquet merge) plus Lanes 4–10 still
+  unstarted/incomplete.)*
 - [ ] Five-cycle final stabilization evidence recorded. *(Pending; Lane 1
   must be accepted by Codex first.)*

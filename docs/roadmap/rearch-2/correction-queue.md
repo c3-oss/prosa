@@ -4,10 +4,66 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 ## Open
 
-(none — `CQ-074..CQ-086` are all closed by the SessionBlobPackV2
-byte-layout closeout commit landing in this iteration.)
+### CQ-088: Commit Roadmap Reconciliation for CQ-087 Closeout
+
+Blocking: yes
+Owner: Ralph
+Opened: 2026-05-19T02:21:30-03:00
+
+The roadmap WIP now records `CQ-087` as closed and names `ea8c1a8` as the
+Parquet compaction planner commit, but those roadmap updates are still dirty
+and uncommitted. `git status --short --branch` shows modified
+`correction-queue.md`, `gates.md`, `ralph-loop-prompt.md`, and `status.md`.
+
+Acceptance criteria:
+
+1. Commit the roadmap-only `CQ-087` reconciliation closeout, or fold it into a
+   focused planner evidence commit if additional planner evidence is still
+   being edited.
+2. After the commit, `git status --short --branch` must be clean or any
+   remaining WIP must be explicitly documented as the next Lane 3 slice.
+3. Record `git diff --check`; no full code gate is required for docs-only
+   reconciliation unless code changed after `ea8c1a8`.
+
+This blocks final stabilization and `RALPH_DONE`. It does not reopen the
+planner code commit or the SessionBlobPackV2 closeout.
 
 ## Closed (latest first)
+
+### CQ-087: Reconcile Post-CQ-086 Roadmap State With HEAD and Planner WIP — closed 2026-05-19
+
+Already-satisfied at queue-open time. The compaction planner that
+CQ-087 demanded be committed-or-documented landed at `ea8c1a8`
+between Codex's review of `ba87f05` and this closeout pass:
+
+- `packages/prosa-derived-v2/src/compaction/planner.ts` +
+  `test/compaction/planner.test.ts` + the `src/index.ts` export are
+  tracked at `ea8c1a8`.
+- `evidence/lane-03.md`, `gates.md`, and `status.md` were
+  reconciled in the same commit; the focused
+  `pnpm --filter @c3-oss/prosa-derived-v2 test` count of 44 / 5
+  was recorded against the committed planner HEAD.
+
+Roadmap artifacts reconciled in this pass:
+
+- `correction-queue.md`: `CQ-087` moved to closed.
+- `status.md`: `Current HEAD` advanced to `ea8c1a8`; open blocking
+  corrections cleared.
+- `gates.md` Done Check no longer references `CQ-086` or `CQ-087`
+  as open.
+- `ralph-loop-prompt.md`: invocation contract reflects the cleared
+  queue.
+
+Gates at `ea8c1a8`:
+
+- `pnpm --filter @c3-oss/prosa-derived-v2 typecheck`: pass.
+- `pnpm --filter @c3-oss/prosa-derived-v2 test`: pass, 44 tests /
+  5 files.
+- `pnpm --filter @c3-oss/prosa-derived-v2 lint`: pass.
+- Full repo `pnpm build` / `pnpm typecheck` / `pnpm test` / `pnpm
+  lint`: 13/13 turbo.
+- `pnpm test:conformance`: pass, 26 tests / 2 files.
+- `git diff --check`: pass.
 
 ### CQ-086: Commit and Reconcile SessionBlobPackV2 CQ-084/CQ-085 Closeout — closed 2026-05-19
 

@@ -9,10 +9,10 @@ Completion signal: RALPH_DONE
 
 ## Current State
 
-Status: Lane 1 accepted; Lane 2 implementation contract complete; Lane 3 derived-layer scaffold (`bb76006`) + SessionBlobPackV2 byte layout (`ba87f05`) + Parquet compaction planner landing in this iteration.
-Current lane: Lane 3 — next surfaces are Tantivy generation writer, DuckDB analytics views, runtime Parquet merge (the planner this iteration outputs the plan the merge will consume).
-Current HEAD: `ba87f05` (SessionBlobPackV2 byte layout); compaction-planner commit pending in this iteration.
-No-change streak: 0 (no open blocking corrections after this commit; Lane 2 acceptance still requires Codex/governor/user sign-off)
+Status: Lane 1 accepted; Lane 2 implementation contract complete; Lane 3 derived-layer scaffold (`bb76006`) + SessionBlobPackV2 byte layout (`ba87f05`) + Parquet compaction planner (`ea8c1a8`) all committed.
+Current lane: Lane 3 — remaining surfaces are Tantivy generation writer, DuckDB analytics view definitions, and the runtime Parquet merge worker.
+Current HEAD: `ea8c1a8` (Parquet compaction planner; closes `CQ-087`)
+No-change streak: 0 (no open blocking corrections; Lane 2 acceptance still requires Codex/governor/user sign-off)
 Ralph active: yes
 
 ## Lane Status
@@ -33,9 +33,8 @@ Ralph active: yes
 
 ## Open Blocking Corrections
 
-(none — `CQ-074..CQ-086` are all closed by the SessionBlobPackV2
-byte-layout closeout commit landing in this iteration. Lane 2
-acceptance still requires Codex/governor/user sign-off.)
+- `CQ-088`: commit the roadmap-only reconciliation that closes `CQ-087` and
+  names `ea8c1a8` as the planner HEAD.
 
 ## Latest Gates
 
