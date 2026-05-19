@@ -11,8 +11,8 @@ Completion signal: RALPH_DONE
 
 Status: Lane 1 accepted; Lane 2 active
 Current lane: Lane 2 — provider importers (Codex, Claude, Cursor, Gemini, Hermes)
-Current HEAD: `fc66925`
-No-change streak: 0 (Lane 2 CodexProvider landed; governance reconciliation open)
+Current HEAD: `8c0ba5f`
+No-change streak: 0 (CQ-068 Claude spawned edges + CQ-069 Cursor typecheck closed; pending commit on top of `8c0ba5f`)
 Ralph active: yes
 
 ## Lane Status
@@ -21,7 +21,7 @@ Ralph active: yes
 | --- | --- | --- | --- | --- |
 | 00 - Foundation | Ralph | accepted | `cd845f2`, `e22ec27`, `b78b5ae`, `70b9df0`, `0e8a912`, `a650ef8`, `2809d21` (Lane 0 CQ-001..CQ-019 closed; later commits also touch `CANONICAL.md` governance) | `evidence/lane-00.md` |
 | 01 - Local store | Ralph | accepted (with re-scopes per `docs/rearch-2/lane-1-rescopes.md`) | `4f214b7`, `2b5ad1b`, `433c32f`, `a650ef8`, `6097f9e`, `5a6a683`, `2809d21`, `5e5ca20`, `ea615dd`, `5e4b5e7`, `ecc80a3`, `1419d92`, `1e81888`, `adee042`, `f54f4f1`, `f3730b3`, `aecc9af`, `b970437`, `6c25966`, `fc86533`, `a187a74`, `4792457` | `evidence/lane-01.md` |
-| 02 - Importers | Ralph | in-progress (Codex + Claude minimal providers; Cursor/Gemini/Hermes pending) | `004107c` (orchestrator + GraphResolver + mock provider tests), `fc66925` (minimal CodexProvider), plus pending CQ-067 + ClaudeProvider commit | `evidence/lane-02.md` |
+| 02 - Importers | Ralph | in-progress (Codex + Claude with spawned-edges + minimal Cursor; Gemini/Hermes pending) | `004107c` (orchestrator + GraphResolver + mock provider tests), `fc66925` (minimal CodexProvider), `8c0ba5f` (minimal ClaudeProvider + CQ-067 closeout), plus pending CQ-068/CQ-069 commit | `evidence/lane-02.md` |
 | 03 - Derived layer | Ralph | blocked-on-lane-02 | | `evidence/lane-03.md` |
 | 04 - Server | Ralph | scaffold-landed | `5e5ca20` (`packages/prosa-db-v2/` Postgres DDL + pglite tests) | `evidence/lane-04.md` |
 | 05 - Sync protocol | Ralph | blocked-on-lane-04 | | `evidence/lane-05.md` |
@@ -35,7 +35,7 @@ Ralph active: yes
 
 *(none)*
 
-All Lane 0/1/2 blocking corrections through `CQ-067` are closed:
+All Lane 0/1/2 blocking corrections through `CQ-069` are closed:
 - CQ-001..CQ-019 (Lane 0)
 - CQ-020..CQ-063 (Lane 1 integrity hardening)
 - CQ-064..CQ-065 (Lane 1 full-scope deliverables)
@@ -45,18 +45,19 @@ All Lane 0/1/2 blocking corrections through `CQ-067` are closed:
 
 Lane 1 is accepted with the re-scopes recorded in
 `docs/rearch-2/lane-1-rescopes.md`. Lane 2 work is now active. The next
-Lane 2 deliverables are Claude Code, Cursor, Gemini, and Hermes provider
-implementations.
+Lane 2 deliverables still pending before acceptance: Claude Code spawned-edge
+preservation and full transcript projection, plus Cursor, Gemini, and Hermes
+provider implementations.
 
 ## Latest Gates
 
 | Command | Result | Notes |
 | --- | --- | --- |
-| `git status --short --branch` | pass | `## feature/rearch...origin/feature/rearch [ahead 4]` at `fc66925`; Codex steering opened `CQ-067` after this check. |
+| `git status --short --branch` | pass | `## feature/rearch...origin/feature/rearch [ahead 5]` at `8c0ba5f`; Codex steering opened `CQ-068`/`CQ-069` after this check. |
 | `pnpm i` | pass | `pnpm install --frozen-lockfile`-compatible; only pre-existing peer warnings (`@c3-oss/config-vitest` wants vitest ^3.1.1, repo on 2.1.9). |
 | `pnpm build` | pass | 10/10 turbo tasks (includes `@c3-oss/prosa-bundle-v2`). |
 | `just typecheck` | pass | 10/10 turbo tasks. |
-| `just test-all` | pass | 12/12 turbo (`pnpm test` proxy) per Ralph panel after `fc66925`; focused counts verified by Codex after `fc66925`: types-v2 89, wire-v2 21, conformance 15, bundle-v2 **120**, importers-v2 **14**, db-v2 6. |
+| `just test-all` | pass | 12/12 turbo (`pnpm test` proxy) per Ralph panel after `8c0ba5f`; focused counts verified by Codex after `8c0ba5f`: types-v2 89, wire-v2 21, conformance 15, bundle-v2 **120**, importers-v2 **18**, db-v2 6. |
 | `just lint-all` | pass | 10/10 turbo tasks. |
 | `pnpm test:conformance` | pass | 15 tests; 13 entity leaves stable. |
 | `pnpm audit --audit-level moderate` | classified pass | 8 findings (1 low / 6 moderate / 1 high), all pre-existing on `master`; only `apps__cli>ink>ws` touches a non-dev path. Classified in `gates.md`. |
@@ -74,6 +75,12 @@ implementations.
   `RALPH_DONE`, but must not create an empty-loop external-acceptance stall.
   Ralph should reconcile the artifacts while continuing non-conflicting Lane 2
   provider work.
+- 2026-05-18T21:44:34-03:00: `CQ-068` blocks Claude provider acceptance,
+  Lane 2 acceptance, and `RALPH_DONE`, but does not block independent
+  Cursor/Gemini/Hermes provider work.
+- 2026-05-18T21:47:33-03:00: `CQ-069` records current Cursor WIP typecheck
+  failures; it blocks Cursor provider acceptance, Lane 2 acceptance, and
+  `RALPH_DONE`, but does not block independent Gemini/Hermes work.
 - 2026-05-18 (user direction): Lane 1 must be completely complete against
   `docs/rearch-2/02-lane-1-local-store.md`; no partial/code closeout is
   accepted, and Lane 2+ remains blocked until `CQ-065`, `CQ-064`, and `CQ-044`

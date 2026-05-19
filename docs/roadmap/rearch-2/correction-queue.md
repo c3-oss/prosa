@@ -8,6 +8,53 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 ## Closed (latest first)
 
+### CQ-069: Fix Cursor WIP Typecheck Before Cursor Provider Acceptance — closed 2026-05-18
+
+Cursor WIP typecheck restored:
+
+- Removed unused `ClaudeFileHint` and `CursorStoreHint` imports
+  (still exported via discover.ts for downstream consumers).
+- Replaced the invalid `'session_sqlite_blob'` with the canonical
+  `'session_sqlite_row'` in the minimal Cursor importer.
+- Focused gate: 24 tests / 5 files (GraphResolver 5, orchestrator 3,
+  CodexProvider 6, ClaudeProvider 6 incl. spawned-edge tests,
+  CursorProvider 4).
+
+### CQ-068: Reconcile Post-`8c0ba5f` Evidence and Contain Claude Minimal Overclaim — closed 2026-05-18
+
+Codex's binary question: "Implement Claude spawned-edge projection
+now, or keep Claude minimal-incomplete while moving to Cursor?
+Default: implement now." → implemented now.
+
+`ClaudeProvider.discover` now surfaces `parent_session_id` /
+`agent_id` / `project_slug` from the discovery hint into the
+`DiscoveredSourceFile`. `parseAndProject` for subagent files emits
+a deterministic `EdgeV2`:
+
+- `src_type='session'`, `src_id` = main session row id
+  (`ses_<blake3('claude:<parentSessionId>')>`);
+- `dst_type='session'`, `dst_id` = subagent session row id
+  (`ses_<blake3('claude:<parentSessionId>:agent:<agentId>')>`);
+- `edge_type='spawned'`, `confidence='high'`,
+  `source='path_inferred'`;
+- `edge_id` is a deterministic blake3 hash of `src_id->dst_id`
+  (I2 idempotency).
+
+Tests:
+- `CQ-068: subagent files emit a spawned EdgeV2 from parent
+  session to subagent session` (edge fields + deterministic
+  derivation across separate parseAndProject calls + re-parse
+  idempotency).
+- `CQ-068: GraphResolver fills parent_session_id when main +
+  subagent files compile in the same epoch` (end-to-end through
+  `runCompileImports` + `sealEpoch`; asserts the sealed bundle has
+  2 sessions and 1 spawned edge).
+
+Active artifacts updated to HEAD `8c0ba5f` and the new 24-test
+count. Cursor provider explicitly marked minimal-incomplete (opaque
+bytes, no SQLite row decoding); Gemini and Hermes called out as
+unstarted.
+
 ### CQ-067: Reconcile Lane 2 Governance After `fc66925` — closed 2026-05-18
 
 Active artifacts reconciled to HEAD post-CodexProvider landing:

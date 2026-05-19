@@ -1,20 +1,23 @@
 # Lane Evidence
 
 Lane: 02 - Importers
-Status: active WIP (Codex + Claude minimal providers landed; Cursor,
-Gemini, Hermes pending). The `LogicalImportUnit` contract,
-`GraphResolver`, and `runCompileImports` orchestrator landed at
-`004107c`. Lane 1 was later accepted at `4792457`, lifting the
-`CQ-044` containment gate. `fc66925` landed the first per-provider
-slice (minimal CodexProvider). The pending commit adds CQ-067
-governance reconcile + minimal ClaudeProvider that projects sessions
-(including subagent sessions with `is_subagent: true`), source files,
-and raw-record rows from Claude Code JSONL files (main + subagent).
-Focused gates pass at 18 tests across 4 files.
+Status: active WIP (Codex minimal + Claude with spawned-edges + minimal
+Cursor providers landed; Gemini and Hermes pending). The
+`LogicalImportUnit` contract, `GraphResolver`, and `runCompileImports`
+orchestrator landed at `004107c`. Lane 1 was later accepted at
+`4792457`, lifting the `CQ-044` containment gate. `fc66925` landed
+the first per-provider slice (minimal CodexProvider). `8c0ba5f`
+added CQ-067 governance reconcile and a minimal ClaudeProvider.
+The pending CQ-068/CQ-069 closeout commit adds Claude subagent
+spawned-edge projection (with deterministic edge_ids and an
+end-to-end test through `runCompileImports` + `sealEpoch`) and a
+minimal CursorProvider (opaque-bytes slice; one SourceFileV2 + one
+binary-only RawRecordV2 + one SessionV2 per `store.db`). Focused
+gates pass at 24 tests across 5 files.
 Owner: Ralph
 Commit range: `004107c` (orchestrator + GraphResolver), `4792457`
 (Lane 1 acceptance / `CQ-044` lifted), `fc66925` (minimal
-CodexProvider), plus pending CQ-067 + ClaudeProvider commit
+CodexProvider), `8c0ba5f` (minimal ClaudeProvider + CQ-067 closeout)
 
 ## Acceptance Criteria
 
@@ -42,11 +45,13 @@ CodexProvider), plus pending CQ-067 + ClaudeProvider commit
   end-to-end with a mock provider (`@c3-oss/prosa-importers-v2`: 8
   tests / 2 files).
 - [ ] **Per-provider importers (codex, claude, cursor, gemini, hermes)
-  remain partial.** Codex and Claude Code now have minimal raw-record +
-  session/source-file provider slices (one `SourceFileV2` + one
-  `SessionV2` + one `RawRecordV2` per JSONL line); full
-  transcript/event/tool-call/message projection remains pending.
-  Cursor, Gemini, and Hermes remain unstarted.
+  remain partial.** Codex, Claude Code, and Cursor now have minimal
+  slices. Claude Code additionally preserves subagent spawned edges
+  (CQ-068) with deterministic edge_ids and an end-to-end test through
+  the orchestrator + sealEpoch. Cursor is opaque-bytes only (no
+  SQLite row decoding yet). Full transcript/event/tool-call/message
+  projection remains pending across all providers. Gemini and Hermes
+  remain unstarted.
 - [ ] `apps/cli/test/compile-v2.test.ts` (cross-provider parity with v1)
   pending the per-provider importer landings.
 - [ ] Invariants I2 (idempotency) and I3 (canonical graph) not yet
@@ -78,8 +83,8 @@ CodexProvider), plus pending CQ-067 + ClaudeProvider commit
 
 ```text
 pnpm install
-pnpm --filter @c3-oss/prosa-importers-v2 typecheck    # clean after ClaudeProvider
-pnpm --filter @c3-oss/prosa-importers-v2 test         # 18 tests / 4 files (GraphResolver + orchestrator + CodexProvider + ClaudeProvider)
+pnpm --filter @c3-oss/prosa-importers-v2 typecheck    # clean after CQ-068/CQ-069 closeout
+pnpm --filter @c3-oss/prosa-importers-v2 test         # 24 tests / 5 files (GraphResolver + orchestrator + CodexProvider + ClaudeProvider w/ spawned edges + CursorProvider)
 pnpm --filter @c3-oss/prosa-importers-v2 build        # dist/ emitted
 pnpm --filter @c3-oss/prosa-importers-v2 lint         # clean
 

@@ -30,10 +30,16 @@ section as the full restart instruction:
 - User direction: Lane 1 is accepted. Continue Lane 2 provider-importer work.
 - Close the current blocking corrections named in
   `docs/roadmap/rearch-2/correction-queue.md` with code, tests, and evidence.
-  As of Codex review of `fc66925`, that is `CQ-067`.
-- `CQ-067` blocks Lane 2 acceptance and `RALPH_DONE`, but does not block
-  independent Claude/Cursor/Gemini/Hermes provider implementation. Reconcile
-  the governance artifacts while continuing non-conflicting Lane 2 work.
+  As of Codex review of `8c0ba5f` plus current Cursor WIP, those are `CQ-068`
+  and `CQ-069`.
+- `CQ-068` blocks Claude provider acceptance, Lane 2 acceptance, and
+  `RALPH_DONE`, but does not block independent Cursor/Gemini/Hermes provider
+  implementation. Reconcile the governance artifacts while continuing
+  non-conflicting Lane 2 work.
+- `CQ-069` blocks Cursor provider acceptance, Lane 2 acceptance, and
+  `RALPH_DONE`, but does not block independent Gemini/Hermes work. Fix the
+  focused `@c3-oss/prosa-importers-v2` typecheck failure before committing
+  Cursor as accepted.
 - If a correction needs a Codex/governor decision, ask one clear binary
   accept/reject question with a safe default. Do not loop on "external
   acceptance" as if Codex were unavailable.
@@ -151,19 +157,24 @@ Keep these files current:
 
 Current open correction:
 
-- `CQ-067`: reconcile Lane 2 governance after `fc66925`. This blocks Lane 2
-  acceptance and `RALPH_DONE`, but does **not** block independent
-  provider-importer implementation.
+- `CQ-068`: reconcile post-`8c0ba5f` evidence and contain Claude minimal
+  overclaim. This blocks Claude provider acceptance, Lane 2 acceptance, and
+  `RALPH_DONE`, but does **not** block independent Cursor/Gemini/Hermes
+  provider implementation.
+- `CQ-069`: fix Cursor WIP typecheck before Cursor provider acceptance. This
+  blocks Cursor provider acceptance, Lane 2 acceptance, and `RALPH_DONE`, but
+  does **not** block independent Gemini/Hermes provider work.
 
 Lane 0 + Lane 1 are accepted by the project owner on 2026-05-18, including the
 two re-scopes in `docs/rearch-2/lane-1-rescopes.md`.
 
 Lane 2 (importers) is the active lane. The orchestrator,
 `GraphResolver`, and mock-provider tests already landed at `004107c`.
-`fc66925` landed a minimal CodexProvider that projects session/source-file/raw
-record rows from Codex JSONL; do not overclaim it as the complete Codex
-transcript/event/tool-call importer. Continue with the Claude Code provider
-next, while also closing `CQ-067` in the governance artifacts.
+`fc66925` landed a minimal CodexProvider, and `8c0ba5f` landed a minimal
+ClaudeProvider. Do not overclaim either as complete transcript/event/tool-call
+importers. For Claude, either implement spawned-edge projection for subagent
+JSONL files now, or keep Claude explicitly marked `minimal-incomplete` while
+continuing Cursor/Gemini/Hermes work. Close `CQ-068` with code/tests/evidence.
 
 Subsequent lanes (3 derived layer, 4 server beyond DB scaffold,
 5 sync protocol, 6 read API, 7 CLI+MCP, 8 audit+GC, 9 migration,

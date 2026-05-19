@@ -1,5 +1,6 @@
 export * from './claude/index.js'
 export * from './codex/index.js'
+export * from './cursor/index.js'
 export * from './graph-resolver.js'
 export * from './orchestrator.js'
 export * from './types.js'

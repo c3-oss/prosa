@@ -39,6 +39,24 @@ import {
 import { discoverClaudeFiles } from './discover.js'
 import type { ClaudeRecord } from './types.js'
 
+/** A Claude DiscoveredSourceFile carries the parent-session id and agent
+ *  id from the discovery walk so `parseAndProject` can synthesise the
+ *  spawned-edge for subagent files. */
+interface DiscoveredClaudeFile extends DiscoveredSourceFile {
+  parent_session_id: string | null
+  agent_id: string | null
+  project_slug: string
+}
+
+/** Deterministic session row id from a Claude logical key (matches the
+ *  hashing inside `parseAndProject` so a spawned-edge from a subagent
+ *  unit references the main session's row id even when the two files
+ *  land in different `parseAndProject` calls within the same epoch). */
+function claudeSessionRowId(args: { sessionId: string; agentId: string | null }): string {
+  const material = args.agentId !== null ? `claude:${args.sessionId}:agent:${args.agentId}` : `claude:${args.sessionId}`
+  return `ses_${toHex(blake3(new TextEncoder().encode(material))).slice(0, 32)}`
+}
+
 const SOURCE_TOOL = 'claude' as const
 const FILE_KIND = 'session_jsonl'
 
@@ -56,7 +74,7 @@ export class ClaudeProvider implements Provider {
   readonly source_tool = SOURCE_TOOL
 
   async discover(root: string): Promise<DiscoveredSourceFile[]> {
-    const out: DiscoveredSourceFile[] = []
+    const out: DiscoveredClaudeFile[] = []
     for await (const hint of discoverClaudeFiles(root)) {
       const bytes = await readFile(hint.filePath)
       const contentHash = `blake3:${toHex(blake3(bytes))}`
@@ -66,9 +84,12 @@ export class ClaudeProvider implements Provider {
         source_tool: SOURCE_TOOL,
         file_kind: hint.isSubagent ? 'session_jsonl_subagent' : FILE_KIND,
         bytes,
+        parent_session_id: hint.parentSessionId,
+        agent_id: hint.agentId,
+        project_slug: hint.projectSlug,
       })
     }
-    return out
+    return out as DiscoveredSourceFile[]
   }
 
   async cheapIdentify(file: DiscoveredSourceFile): Promise<CheapIdentification> {
@@ -200,9 +221,7 @@ export class ClaudeProvider implements Provider {
     const sessionLogicalId = sessionId ?? input.identification.unit_id
     // For subagent files, include the agentId so the same parent
     // sessionId across main + subagent files derives a distinct session.
-    const sessionKeyMaterial =
-      agentId !== null ? `claude:${sessionLogicalId}:agent:${agentId}` : `claude:${sessionLogicalId}`
-    const sessionRowId = `ses_${toHex(blake3(new TextEncoder().encode(sessionKeyMaterial))).slice(0, 32)}`
+    const sessionRowId = claudeSessionRowId({ sessionId: sessionLogicalId, agentId })
     const firstRawRecordId = rawRecordIds[0] ?? null
     draft.sessions.push({
       session_id: sessionRowId,
@@ -210,7 +229,7 @@ export class ClaudeProvider implements Provider {
       source_session_id: sessionLogicalId,
       project_id: null,
       parent_session_id: null,
-      parent_resolution: isSubagent ? 'unresolved' : 'unresolved',
+      parent_resolution: 'unresolved',
       is_subagent: isSubagent,
       agent_role: null,
       agent_nickname: null,
@@ -226,6 +245,39 @@ export class ClaudeProvider implements Provider {
       timeline_confidence: 'high',
       raw_record_id: firstRawRecordId,
     })
+
+    // CQ-068: subagent files emit a `spawned` Edge from the parent
+    // session row to this subagent session row. GraphResolver picks
+    // this up in the same epoch and sets parent_session_id +
+    // parent_resolution='edge_derived' on the subagent's session row.
+    // Without this edge, the orchestrator leaves parent_session_id
+    // null for every subagent — losing the Lane 2 acceptance
+    // criterion that "spawned edges from Codex/Claude subagents are
+    // preserved as canonical EdgeV2 rows".
+    const claudeFile = file as DiscoveredClaudeFile
+    const parentSidFromHint = claudeFile.parent_session_id ?? null
+    if (isSubagent && parentSidFromHint !== null) {
+      const parentRowId = claudeSessionRowId({ sessionId: parentSidFromHint, agentId: null })
+      // Deterministic edge id so re-importing the same pair yields
+      // the same row (I2 idempotency).
+      const edgeKey = `claude:edge:${parentRowId}->${sessionRowId}`
+      const edgeId = `edg_${toHex(blake3(new TextEncoder().encode(edgeKey))).slice(0, 32)}`
+      draft.edges.push({
+        edge_id: edgeId,
+        src_type: 'session',
+        src_id: parentRowId,
+        dst_type: 'session',
+        dst_id: sessionRowId,
+        edge_type: 'spawned',
+        confidence: 'high',
+        // Directory layout (`<sid>/subagents/agent-<aid>.jsonl`) is the
+        // explicit evidence; the subagent file path is the source of
+        // truth for the parent linkage.
+        source: 'path_inferred',
+        metadata_object_id: null,
+        raw_record_id: firstRawRecordId,
+      })
+    }
 
     const unit: LogicalImportUnit = {
       unit_id: input.identification.unit_id,
