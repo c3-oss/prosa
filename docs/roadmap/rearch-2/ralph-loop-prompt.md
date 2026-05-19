@@ -146,7 +146,7 @@ section as the full restart instruction:
   parity assertion in the coherence test (`ec6bd67`),
   snapshot corruption-gate integration test (planted
   overlapping manifests → `recommendations: [resolve_overlap]`)
-  (pending commit), plus the prior scaffold
+  (`ac35b6d`), plus the prior scaffold
   (`bb76006`), SessionBlobPackV2 byte layout (`ba87f05`), Parquet
   compaction planner (`ea8c1a8`), DuckDB analytics view shape contract
   + compacted-overlay binding (`cff3670` / `e35f844`), Tantivy schema
