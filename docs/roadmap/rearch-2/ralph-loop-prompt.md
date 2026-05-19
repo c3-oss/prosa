@@ -143,7 +143,7 @@ section as the full restart instruction:
   summary and adding the highest-priority `resolve_overlap`
   recommendation that short-circuits every other action +
   CQ-114 closeout (`755a854`), maintenance ↔ compaction-overlaps
-  parity assertion in the coherence test (pending commit),
+  parity assertion in the coherence test (`ec6bd67`),
   plus the prior scaffold
   (`bb76006`), SessionBlobPackV2 byte layout (`ba87f05`), Parquet
   compaction planner (`ea8c1a8`), DuckDB analytics view shape contract
