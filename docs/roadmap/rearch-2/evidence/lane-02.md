@@ -44,11 +44,11 @@ cross-provider idempotency conformance suite at
 cases asserting byte-identical projection ids across two runs against
 the same on-disk layout, plus 1 Claude spawned-edge idempotency case;
 floor row counts also enforced so an empty projection cannot silently
-pass). `pnpm test:conformance` runs 21 tests / 2 files (15 leaves +
-6 providers-v2 idempotency). `CQ-074`, `CQ-079`, and `CQ-080` are all
-closed together with that commit; Lane 2 implementation contract is
-complete and Lane 2 acceptance is pending Codex/governor/user
-sign-off.
+pass). `pnpm test:conformance` runs 22 tests / 2 files (15 leaves +
+6 providers-v2 projection-id idempotency + 1 CQ-081 bundle-compile
+idempotency case). `CQ-074`, `CQ-079`, `CQ-080`, and `CQ-081` are all
+closed; Lane 2 implementation contract is complete and Lane 2
+acceptance is pending Codex/governor/user sign-off.
 Owner: Ralph
 Commit range: `004107c` (orchestrator + GraphResolver), `4792457`
 (Lane 1 acceptance / `CQ-044` lifted), `fc66925` (minimal
@@ -141,7 +141,7 @@ CodexProvider), `8c0ba5f` (minimal ClaudeProvider + CQ-067 closeout),
   asserts byte-identical projection ids per entity type (sessions, turns,
   messages, content_blocks, tool_calls, tool_results, events, edges,
   raw_records, source_files). Floor row counts also enforced so an empty
-  projection cannot silently pass. `pnpm test:conformance` reports 21 tests
+  projection cannot silently pass. `pnpm test:conformance` reports 22 tests
   / 2 files.
 - [ ] Invariant I3 (canonical graph) — preserved via deterministic
   `EdgeV2.edge_id` derivation for Claude spawned edges, with one

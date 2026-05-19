@@ -32,7 +32,7 @@ a `just` wrapper fails for environmental reasons.
 | 00 | `pnpm --filter @c3-oss/prosa-types-v2 test` | yes | pass | 89 tests across 8 files (canonical-encoding, merkle-leaf, merkle-root, bundle-root, raw-source, receipt-payload, derive-ids, normalization; +CQ-018 BLAKE3 spec vectors + CQ-014/CQ-022 timestamp/normalization). |
 | 00 | `pnpm --filter @c3-oss/prosa-wire-v2 typecheck` | yes | pass | |
 | 00 | `pnpm --filter @c3-oss/prosa-wire-v2 test` | yes | pass | 21 tests including CQ-011 receiptId binding and CQ-012 transportHash. |
-| 00 | `pnpm test:conformance` | yes | pass | **21 tests** / 2 files: 15 canonical leaves (Lane 0) + 6 providers-v2 idempotency cases (CQ-074 closeout — one per provider asserting byte-identical projection on re-import, plus Claude spawned-edge idempotency). |
+| 00 | `pnpm test:conformance` | yes | pass | **22 tests** / 2 files: 15 canonical leaves (Lane 0) + 6 providers-v2 projection-id idempotency cases + 1 CQ-081 bundle-compile idempotency case (second `runCompileImports` over the same fixture corpus produces zero new rows / objects / packs at the `bundle.head.counts` level). |
 | 01 | `pnpm --filter @c3-oss/prosa-bundle-v2 test` | yes | pass | 120 tests across 17 files (prior 118 + CQ-066 full-contract stress + real CLI cold-rebuild). |
 | 01 | `pnpm test packages/prosa-bundle-v2/test/e2e/synthetic-bundle.test.ts` | yes | pass | 3 tests: CQ-066 full-contract 1k×100k×200k stress with 8 concurrent producers (~28s) + 1k-session full seal + 200-session re-open round-trip. |
 | 01 | `pnpm test packages/prosa-bundle-v2/test/e2e/cold-rebuild.test.ts` | yes | pass | 3 tests: CQ-066 real CLI subprocess (spawns `prosa bundle rebuild-index --store <path>` via `swc-node`) + index/-delete-then-rebuild replay + idempotent double-rebuild. |
@@ -98,11 +98,10 @@ no new transitive risk.
 
 - [x] Worktree state documented.
 - [x] Lane 0 has evidence; lanes 2–10 are documented as blocked or WIP.
-- [ ] No open blocking corrections. *(`CQ-080` is open; it blocks Lane 2
-  acceptance, Lane 3 start, final stabilization, and `RALPH_DONE` until the
-  passing providers-v2 fixture/idempotency closeout is committed and roadmap
-  artifacts are reconciled to that committed HEAD. `CQ-074` and `CQ-079` are
-  not accepted as closed until `CQ-080` closes.)*
+- [ ] No open blocking corrections. *(`CQ-081` is open; it blocks Lane 2
+  acceptance, Lane 3 start, final stabilization, and `RALPH_DONE` until I2 is
+  covered at the real bundle compile layer, not only provider parse/projection
+  ID determinism.)*
 - [x] Base gates passed at HEAD `6c25966` (full repo `pnpm test` / `pnpm
   typecheck` / `pnpm lint` 12/12 turbo).
 - [x] Lane 0-specific gates passed: `prosa-types-v2` 89 tests, `prosa-wire-v2`
@@ -115,9 +114,8 @@ no new transitive risk.
   non-dev path, pre-existing on `master`).
 - [ ] Security, integrity, remote-read, and E2E reviewer findings resolved
   for Lane 0 and Lane 1. Lane 0 and Lane 1 corrections through `CQ-066` are
-  closed; `CQ-080` tracks the current uncommitted providers-v2
-  fixture/idempotency closeout.
-- [ ] Final Codex review completed. *(Pending — Lane 2+ work and `CQ-080`
+  closed; `CQ-081` tracks the remaining Lane 2 bundle-level idempotency gap.
+- [ ] Final Codex review completed. *(Pending — Lane 2+ work and `CQ-081`
   remain open.)*
 - [ ] Five-cycle final stabilization evidence recorded. *(Pending; Lane 1
   must be accepted by Codex first.)*

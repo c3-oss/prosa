@@ -9,10 +9,10 @@ Completion signal: RALPH_DONE
 
 ## Current State
 
-Status: Lane 1 accepted; Lane 2 implementation contract complete (all 5 providers ship full per-record projection on canonical schema fields + shared fixture corpora + cross-provider idempotency conformance). Lane 2 acceptance still requires Codex/governor/user sign-off.
-Current lane: Lane 2 — awaiting acceptance review
-Current HEAD: `af27eba` (Cursor) + CQ-074/CQ-079/CQ-080 closeout commit pending in this iteration
-No-change streak: 0 (no open blocking corrections after this commit lands; awaiting acceptance review)
+Status: Lane 1 accepted; Lane 2 implementation contract complete (5 providers + fixture corpora + projection-id conformance + bundle-compile idempotency). Lane 2 acceptance still requires Codex/governor/user sign-off; user direction is to start Lane 3 now.
+Current lane: Lane 3 — derived layer (Tantivy + SessionBlobPackV2 + DuckDB analytics)
+Current HEAD: `7a06c89` (CQ-081 closeout commit pending)
+No-change streak: 0 (no open blocking corrections; user directed to start Lane 3 — see Decisions)
 Ralph active: yes
 
 ## Lane Status
@@ -33,10 +33,10 @@ Ralph active: yes
 
 ## Open Blocking Corrections
 
-(none — Lane 2 implementation contract is complete. `CQ-074`,
-`CQ-075`, `CQ-076`, `CQ-077`, `CQ-078`, `CQ-079`, and `CQ-080` are
-all closed. Lane 2 acceptance is still pending Codex/governor/user
-sign-off.)
+(none — `CQ-074`, `CQ-075`, `CQ-076`, `CQ-077`, `CQ-078`, `CQ-079`,
+`CQ-080`, and `CQ-081` are all closed. Lane 2 acceptance is the
+project owner's / Codex's call. The user explicitly directed the loop
+to start Lane 3 in parallel with that acceptance review.)
 
 ## Latest Gates
 
@@ -54,6 +54,11 @@ sign-off.)
 
 ## Decisions
 
+- 2026-05-19 (user direction): With `CQ-074`/`CQ-081` closed and all Lane 2
+  implementation deliverables committed, the user directed the Ralph Loop to
+  start Lane 3 (derived layer — Tantivy + SessionBlobPackV2 + DuckDB
+  analytics) now rather than block on a separate Lane 2 acceptance
+  ceremony. Lane 2 acceptance review continues in parallel.
 - 2026-05-18T15:30:01-03:00: Use `docs/rearch-2/` as the source of truth for
   lane contracts and `docs/roadmap/rearch-2/` for active Ralph Loop artifacts.
 - 2026-05-18T15:30:01-03:00: Treat the run as sequential by lane, with open

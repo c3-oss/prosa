@@ -27,22 +27,26 @@ section as the full restart instruction:
 - Read this prompt, `docs/roadmap/rearch-2/correction-queue.md`,
   `docs/roadmap/rearch-2/gates.md`, `docs/roadmap/rearch-2/status.md`, and
   `docs/rearch-2/03-lane-2-importers.md`.
-- User direction: Lane 1 is accepted. The Lane 2 implementation contract is
-  now complete: all 5 providers ship full per-record projection on canonical
-  schema fields + shared fixture corpora under
-  `test/fixtures/providers-v2/` + cross-provider idempotency conformance at
-  `test/conformance/providers-v2-idempotency.test.ts`.
-- `CQ-074`, `CQ-075`, `CQ-076`, `CQ-077`, `CQ-078`, `CQ-079`, and `CQ-080`
-  are all closed. There are no open blocking corrections. Lane 2 acceptance
-  still requires Codex/governor/user sign-off.
+- User direction: Lane 1 is accepted. Lane 2 implementation contract is
+  complete (5 providers + fixture corpora + projection-id idempotency +
+  bundle-compile idempotency). Lane 2 acceptance is still the project
+  owner's / Codex's call, but the user explicitly directed the loop to
+  start Lane 3 (derived layer) in parallel with that acceptance review
+  (see `status.md` Decisions, 2026-05-19).
+- All `CQ-074..CQ-081` are closed. There are no open blocking corrections.
+  Lane 3 (`docs/rearch-2/04-lane-3-derived-layer.md`) is the active lane.
 - CodexProvider full per-record projection landed at `d302bc6` (closed
   CQ-075/CQ-076). ClaudeProvider at `7eaed27`. GeminiProvider at `b660f44`.
   HermesProvider at `8c1714f`. CursorProvider at `af27eba` (closed
   CQ-077/CQ-078). The Lane 2 closeout commit on top of this iteration adds
   the shared fixture corpora + providers-v2 idempotency conformance suite +
   root `better-sqlite3` / `@types/better-sqlite3` devDependency, and closes
-  `CQ-074` + `CQ-079` + `CQ-080`. `pnpm test:conformance` reports 21 tests
-  / 2 files (15 leaves + 6 providers-v2 idempotency cases).
+  `CQ-074` + `CQ-079` + `CQ-080`. A follow-up commit then closes `CQ-081`
+  by adding a bundle-level I2 case that runs `runCompileImports` twice
+  over the same corpus and asserts the second seal does not grow
+  `bundle.head.counts`. `pnpm test:conformance` reports 22 tests / 2
+  files (15 leaves + 6 providers-v2 projection-id + 1 bundle-compile
+  idempotency).
 - If a correction needs a Codex/governor decision, ask one clear binary
   accept/reject question with a safe default. Do not loop on "external
   acceptance" as if Codex were unavailable.
@@ -161,10 +165,10 @@ Keep these files current:
 Current open correction:
 
 (none — `CQ-074`, `CQ-075`, `CQ-076`, `CQ-077`, `CQ-078`, `CQ-079`,
-and `CQ-080` are all closed. Lane 2 implementation contract is
-complete; Lane 2 acceptance is pending Codex/governor/user sign-off.
-Next: enter the mandatory five-cycle final stabilization wait once
-Codex confirms acceptance, then proceed to Lane 3.)
+`CQ-080`, and `CQ-081` are all closed. Lane 2 implementation contract
+is complete; Lane 2 acceptance is the project owner's / Codex's call.
+The user explicitly directed the loop to start Lane 3 in parallel
+with that acceptance review.)
 
 Lane 0 + Lane 1 are accepted by the project owner on 2026-05-18, including the
 two re-scopes in `docs/rearch-2/lane-1-rescopes.md`.
@@ -183,9 +187,10 @@ plus the root `better-sqlite3` / `@types/better-sqlite3` devDependency
 the conformance test needs. Closes `CQ-074` + `CQ-079` + `CQ-080`. Lane
 2 acceptance still requires Codex/governor/user sign-off.
 
-Subsequent lanes (3 derived layer, 4 server beyond DB scaffold,
-5 sync protocol, 6 read API, 7 CLI+MCP, 8 audit+GC, 9 migration,
-10 cutover) are unstarted.
+Lane 3 (derived layer) is the active lane after user direction
+2026-05-19. Subsequent lanes (4 server beyond DB scaffold, 5 sync
+protocol, 6 read API, 7 CLI+MCP, 8 audit+GC, 9 migration, 10 cutover)
+remain unstarted.
 
 ## Implementation Rules
 

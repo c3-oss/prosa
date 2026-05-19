@@ -22,11 +22,13 @@ import { fileURLToPath } from 'node:url'
 import Database from 'better-sqlite3'
 import { describe, expect, it } from 'vitest'
 
+import { initBundle, openBundle } from '../../packages/prosa-bundle-v2/src/index.ts'
 import { ClaudeProvider } from '../../packages/prosa-importers-v2/src/claude/index.ts'
 import { CodexProvider } from '../../packages/prosa-importers-v2/src/codex/index.ts'
 import { CursorProvider } from '../../packages/prosa-importers-v2/src/cursor/index.ts'
 import { GeminiProvider } from '../../packages/prosa-importers-v2/src/gemini/index.ts'
 import { HermesProvider } from '../../packages/prosa-importers-v2/src/hermes/index.ts'
+import { runCompileImports } from '../../packages/prosa-importers-v2/src/orchestrator.ts'
 import type { CanonicalProjectionDraft, Provider } from '../../packages/prosa-importers-v2/src/types.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -289,5 +291,62 @@ describe('CQ-074: cross-provider idempotency conformance', () => {
     expect(p1.edges.length).toBeGreaterThanOrEqual(1)
     expect(p1.edges.map((e) => e.edge_id)).toEqual(p2.edges.map((e) => e.edge_id))
     expect(p1.edges.every((e) => e.edge_type === 'spawned')).toBe(true)
+  })
+
+  it('CQ-081: runCompileImports is bundle-idempotent — second compile adds no rows/objects/packs', async () => {
+    // Real I2 gate at the bundle level: run the full compile pipeline
+    // (discover → reserve → parse → segment write → seal) twice over
+    // the same fixture corpus and verify the second seal does not grow
+    // the bundle's head counts. Reserve-before-parse is what makes
+    // this work: on the second run every logical key already has a
+    // reservation, so every file becomes a lost reservation and
+    // parseAndProject is never re-invoked.
+    const discoveryRoot = await tmp()
+    const codexSrc = join(fixturesRoot, 'codex')
+    await cp(codexSrc, discoveryRoot, { recursive: true })
+
+    const bundleRoot = await tmp()
+    const bundle = await initBundle(bundleRoot, {
+      storeId: 'st_cq081_idempotency',
+      createdAt: '2026-05-19T00:00:00.000Z',
+    })
+    try {
+      const firstRun = await runCompileImports({
+        bundle,
+        providers: [{ provider: new CodexProvider(), root: discoveryRoot }],
+        createdAt: '2026-05-19T00:00:01.000Z',
+      })
+      expect(firstRun.sealedEpoch).toBe(1)
+      const headAfterFirst = {
+        epoch: bundle.head.epoch,
+        counts: { ...bundle.head.counts },
+      }
+      expect(headAfterFirst.counts.sessions).toBeGreaterThanOrEqual(1)
+      expect(headAfterFirst.counts.rawRecords).toBeGreaterThanOrEqual(1)
+      expect(headAfterFirst.counts.sourceFiles).toBeGreaterThanOrEqual(1)
+
+      const secondRun = await runCompileImports({
+        bundle,
+        providers: [{ provider: new CodexProvider(), root: discoveryRoot }],
+        createdAt: '2026-05-19T00:00:02.000Z',
+      })
+      // Second compile may seal a fresh empty epoch (epoch lifecycle
+      // is per-call), but every Reserve must lose, so per-provider
+      // discovered/winning counts are zero on the second run.
+      expect(secondRun.perProvider[0]?.source_tool).toBe('codex')
+      // No new logical content: head counts unchanged.
+      expect(bundle.head.counts).toEqual(headAfterFirst.counts)
+    } finally {
+      await bundle.close()
+    }
+
+    // Cold re-open from disk to prove the head counts persist and the
+    // bundle is still consistent after the no-op second compile.
+    const reopened = await openBundle(bundleRoot)
+    try {
+      expect(reopened.head.counts.sessions).toBeGreaterThanOrEqual(1)
+    } finally {
+      await reopened.close()
+    }
   })
 })

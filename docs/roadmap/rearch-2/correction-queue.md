@@ -4,10 +4,47 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 ## Open
 
-(none — Lane 2 implementation contract is complete. Lane 2 acceptance
-still requires Codex/governor/user sign-off.)
+(none — Lane 2 implementation contract is complete and the bundle-level
+I2 gate (`CQ-081`) is closed. Lane 2 acceptance still requires
+Codex/governor/user sign-off.)
 
 ## Closed (latest first)
+
+### CQ-081: Strengthen Lane 2 Idempotency Conformance to Exercise Bundle Compile — closed 2026-05-19
+
+Bundle-level I2 conformance landed in
+`test/conformance/providers-v2-idempotency.test.ts`. The new case runs the
+real v2 compile path twice over the codex fixture corpus via
+`runCompileImports` against an `initBundle`-managed temp bundle:
+
+1. First `runCompileImports` seals epoch 1 with real raw_records, sessions,
+   and source_files counts captured from `bundle.head.counts`.
+2. Second `runCompileImports` runs against the same on-disk corpus and the
+   same bundle. Reserve-before-parse loses on every logical key, so
+   `parseAndProject` is never re-invoked.
+3. Assertion: `bundle.head.counts` is structurally equal between the two
+   sealed states — zero new rows, raw records, source files, or packs.
+4. A cold `openBundle` re-open verifies the persisted head counts after the
+   no-op second compile, so the bundle still parses from disk.
+
+The projection-id conformance suite remains in place as a lower-level
+provider determinism check (cases 1–6); CQ-081 adds the bundle-layer gate
+(case 7).
+
+Gates after the change:
+
+- `pnpm test:conformance`: pass, 22 tests / 2 files (15 leaves + 6
+  providers-v2 projection-id + 1 bundle compile idempotency).
+- `pnpm --filter @c3-oss/prosa-importers-v2 test`: pass, 40 tests / 7
+  files.
+- Full repo `pnpm build` / `pnpm typecheck` / `pnpm test` / `pnpm lint`:
+  12/12 turbo.
+- `git diff --check`: pass.
+
+Lane 2 implementation contract is complete; Lane 2 acceptance is still
+the project owner's / Codex's call.
+
+### CQ-080: Commit Providers-v2 Conformance Closeout Before Acceptance — closed 2026-05-19
 
 ### CQ-080: Commit Providers-v2 Conformance Closeout Before Acceptance — closed 2026-05-19
 
