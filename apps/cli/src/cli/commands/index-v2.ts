@@ -26,9 +26,18 @@ import {
   listSessionBlobSummaries,
   loadTranscriptFromBundle,
   planCompaction,
+  planTantivyRebuildFromBundle,
   summariseProjectionSegments,
 } from '@c3-oss/prosa-derived-v2'
 import { Command } from 'commander'
+
+function parseNonNegativeInteger(label: string, raw: string): number {
+  const n = Number.parseInt(raw, 10)
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0 || String(n) !== raw) {
+    throw new Error(`invalid ${label}: ${raw} (expected non-negative integer)`)
+  }
+  return n
+}
 
 export function indexV2Command(): Command {
   const root = new Command('index-v2').description(
@@ -89,6 +98,28 @@ export function indexV2Command(): Command {
       const result = options.summary
         ? await summariseProjectionSegments(storePath)
         : await listProjectionSegments(storePath)
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
+    })
+
+  root
+    .command('tantivy-rebuild-plan')
+    .description(
+      'Print the Tantivy rebuild plan (skip/incremental/full + reason + fingerprint) the runtime writer would apply for the given current max search_docs.rowid.',
+    )
+    .requiredOption('--store <path>', 'bundle directory')
+    .requiredOption(
+      '--current-max-rowid <n>',
+      'highest rowid in the current search_docs projection (pass 0 to force full/no_prior_index)',
+    )
+    .option('--overwrite', 'request a full rebuild regardless of checkpoint state', false)
+    .action(async (options: { store: string; currentMaxRowid: string; overwrite: boolean }) => {
+      const storePath = resolvePath(options.store)
+      const currentMaxRowid = parseNonNegativeInteger('--current-max-rowid', options.currentMaxRowid)
+      const result = await planTantivyRebuildFromBundle({
+        bundleRoot: storePath,
+        currentMaxRowid,
+        overwriteRequested: options.overwrite,
+      })
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
     })
 

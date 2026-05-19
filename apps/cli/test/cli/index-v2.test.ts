@@ -41,7 +41,7 @@ interface StatusSnapshot {
 }
 
 describe('prosa index-v2 CLI', () => {
-  it('`index-v2 --help` lists all subcommands (status, sessions, epochs, analytics-views, projection-segments, compaction-plan, transcript)', async () => {
+  it('`index-v2 --help` lists all subcommands (status, sessions, epochs, analytics-views, projection-segments, tantivy-rebuild-plan, compaction-plan, transcript)', async () => {
     const r = runCli(['index-v2', '--help'])
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('Bundle v2 derived-layer index commands')
@@ -50,6 +50,7 @@ describe('prosa index-v2 CLI', () => {
     expect(r.stdout).toContain('epochs')
     expect(r.stdout).toContain('analytics-views')
     expect(r.stdout).toContain('projection-segments')
+    expect(r.stdout).toContain('tantivy-rebuild-plan')
     expect(r.stdout).toContain('compaction-plan')
     expect(r.stdout).toContain('transcript')
   })
@@ -361,6 +362,68 @@ describe('prosa index-v2 CLI', () => {
     const r = runCli(['index-v2', 'projection-segments'])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/required option.*--store/i)
+  })
+
+  it('`index-v2 tantivy-rebuild-plan --help` documents --store, --current-max-rowid, --overwrite', async () => {
+    const r = runCli(['index-v2', 'tantivy-rebuild-plan', '--help'])
+    expect(r.status).toBe(0)
+    expect(r.stdout).toContain('Tantivy rebuild plan')
+    expect(r.stdout).toContain('--store')
+    expect(r.stdout).toContain('--current-max-rowid')
+    expect(r.stdout).toContain('--overwrite')
+  })
+
+  it('`index-v2 tantivy-rebuild-plan` on a fresh bundle returns full / index_dir_invalid', async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    const r = runCli(['index-v2', 'tantivy-rebuild-plan', '--store', storeRoot, '--current-max-rowid', '0'])
+    expect(r.status).toBe(0)
+    const result = JSON.parse(r.stdout) as {
+      plan: { kind: string; reason: string; fingerprint: string; currentMaxRowid: number }
+      checkpoint: { last_indexed_rowid: number | null; schema_fingerprint: string | null; status: string | null }
+      indexDirValid: boolean
+    }
+    expect(result.plan.kind).toBe('full')
+    expect(result.plan.reason).toBe('index_dir_invalid')
+    expect(result.plan.currentMaxRowid).toBe(0)
+    expect(typeof result.plan.fingerprint).toBe('string')
+    expect(result.plan.fingerprint.length).toBeGreaterThan(0)
+    expect(result.indexDirValid).toBe(false)
+    expect(result.checkpoint.last_indexed_rowid).toBe(null)
+    expect(result.checkpoint.status).toBe(null)
+  })
+
+  it('`index-v2 tantivy-rebuild-plan --overwrite` forces caller_requested_overwrite', async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    const r = runCli([
+      'index-v2',
+      'tantivy-rebuild-plan',
+      '--store',
+      storeRoot,
+      '--current-max-rowid',
+      '42',
+      '--overwrite',
+    ])
+    expect(r.status).toBe(0)
+    const result = JSON.parse(r.stdout) as {
+      plan: { kind: string; reason: string; currentMaxRowid: number }
+    }
+    expect(result.plan.kind).toBe('full')
+    expect(result.plan.reason).toBe('caller_requested_overwrite')
+    expect(result.plan.currentMaxRowid).toBe(42)
+  })
+
+  it('`index-v2 tantivy-rebuild-plan` rejects a negative --current-max-rowid', async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    const r = runCli(['index-v2', 'tantivy-rebuild-plan', '--store', storeRoot, '--current-max-rowid', '-5'])
+    expect(r.status).not.toBe(0)
+    expect(r.stderr).toMatch(/invalid --current-max-rowid/i)
+  })
+
+  it('`index-v2 tantivy-rebuild-plan` fails when --current-max-rowid is missing', async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    const r = runCli(['index-v2', 'tantivy-rebuild-plan', '--store', storeRoot])
+    expect(r.status).not.toBe(0)
+    expect(r.stderr).toMatch(/required option.*--current-max-rowid/i)
   })
 
   it('`index-v2 compaction-plan --help` documents --store', async () => {
