@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { listProjectionSegments } from '../../src/compaction/segments.js'
+import { listProjectionSegments, summariseProjectionSegments } from '../../src/compaction/segments.js'
 
 async function plantSegment(bundleRoot: string, epoch: number, entityType: string, bytes: number) {
   const dir = join(bundleRoot, 'epochs', String(epoch), 'projection')
@@ -128,5 +128,108 @@ describe('listProjectionSegments', () => {
     }
     const segments = await listProjectionSegments(bundleRoot)
     expect(segments.map((s) => s.entityType)).toEqual(['artifacts', 'messages', 'sessions', 'tool_calls', 'turns'])
+  })
+})
+
+describe('summariseProjectionSegments', () => {
+  let bundleRoot: string
+
+  beforeEach(async () => {
+    bundleRoot = await mkdtemp(join(tmpdir(), 'prosa-derived-segments-summary-'))
+  })
+
+  afterEach(async () => {
+    await rm(bundleRoot, { recursive: true, force: true })
+  })
+
+  it('returns zero-rollup on a fresh bundle', async () => {
+    const summary = await summariseProjectionSegments(bundleRoot)
+    expect(summary.total_bytes).toBe(0)
+    expect(summary.total_segments).toBe(0)
+    expect(summary.by_entity).toEqual({})
+    expect(summary.by_epoch).toEqual({})
+  })
+
+  it('totals byte length and segment count across every segment', async () => {
+    await plantSegment(bundleRoot, 1, 'sessions', 100)
+    await plantSegment(bundleRoot, 1, 'messages', 250)
+    await plantSegment(bundleRoot, 3, 'tool_calls', 400)
+
+    const summary = await summariseProjectionSegments(bundleRoot)
+    expect(summary.total_segments).toBe(3)
+    expect(summary.total_bytes).toBe(750)
+  })
+
+  it('rolls up per entity across epochs', async () => {
+    // sessions appears in epoch 1 (100 B) and epoch 3 (200 B) →
+    // entity rollup: { count: 2, bytes: 300 }.
+    await plantSegment(bundleRoot, 1, 'sessions', 100)
+    await plantSegment(bundleRoot, 3, 'sessions', 200)
+    // messages only in epoch 1.
+    await plantSegment(bundleRoot, 1, 'messages', 50)
+
+    const summary = await summariseProjectionSegments(bundleRoot)
+    expect(summary.by_entity).toEqual({
+      sessions: { count: 2, bytes: 300 },
+      messages: { count: 1, bytes: 50 },
+    })
+  })
+
+  it('rolls up per epoch across entities', async () => {
+    // Epoch 1: two segments totalling 150 B.
+    await plantSegment(bundleRoot, 1, 'sessions', 100)
+    await plantSegment(bundleRoot, 1, 'messages', 50)
+    // Epoch 7: one segment of 300 B.
+    await plantSegment(bundleRoot, 7, 'tool_calls', 300)
+
+    const summary = await summariseProjectionSegments(bundleRoot)
+    expect(summary.by_epoch).toEqual({
+      '1': { count: 2, bytes: 150 },
+      '7': { count: 1, bytes: 300 },
+    })
+  })
+
+  it('uses stringified epoch keys for JSON serializability', async () => {
+    await plantSegment(bundleRoot, 0, 'sessions', 10)
+    await plantSegment(bundleRoot, 12, 'sessions', 20)
+
+    const summary = await summariseProjectionSegments(bundleRoot)
+    // Keys are strings.
+    expect(Object.keys(summary.by_epoch).sort()).toEqual(['0', '12'])
+    // Round-trips through JSON without loss.
+    const roundTripped = JSON.parse(JSON.stringify(summary))
+    expect(roundTripped.by_epoch).toEqual(summary.by_epoch)
+  })
+
+  it('inherits the listing filters (compact-<NNNN> skipped from summary too)', async () => {
+    await plantSegment(bundleRoot, 1, 'sessions', 100)
+    const compactDir = join(bundleRoot, 'epochs', 'compact-0001', 'projection')
+    await mkdir(compactDir, { recursive: true })
+    await writeFile(join(compactDir, 'sessions.compacted.parquet'), Buffer.alloc(99999, 0))
+
+    const summary = await summariseProjectionSegments(bundleRoot)
+    // Compacted output not counted.
+    expect(summary.total_segments).toBe(1)
+    expect(summary.total_bytes).toBe(100)
+    expect(summary.by_epoch).toEqual({ '1': { count: 1, bytes: 100 } })
+  })
+
+  it('counts every segment exactly once across the by_entity and by_epoch rollups', async () => {
+    await plantSegment(bundleRoot, 1, 'sessions', 100)
+    await plantSegment(bundleRoot, 1, 'messages', 50)
+    await plantSegment(bundleRoot, 3, 'sessions', 200)
+    await plantSegment(bundleRoot, 3, 'tool_calls', 75)
+
+    const summary = await summariseProjectionSegments(bundleRoot)
+
+    const entityCounts = Object.values(summary.by_entity).reduce((acc, r) => acc + r.count, 0)
+    const epochCounts = Object.values(summary.by_epoch).reduce((acc, r) => acc + r.count, 0)
+    expect(entityCounts).toBe(summary.total_segments)
+    expect(epochCounts).toBe(summary.total_segments)
+
+    const entityBytes = Object.values(summary.by_entity).reduce((acc, r) => acc + r.bytes, 0)
+    const epochBytes = Object.values(summary.by_epoch).reduce((acc, r) => acc + r.bytes, 0)
+    expect(entityBytes).toBe(summary.total_bytes)
+    expect(epochBytes).toBe(summary.total_bytes)
   })
 })

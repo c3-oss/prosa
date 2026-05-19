@@ -110,3 +110,59 @@ export async function listProjectionSegments(bundleRoot: string): Promise<Projec
   }
   return segments
 }
+
+export interface ProjectionSegmentRollup {
+  /** Number of segments contributing to this rollup row. */
+  count: number
+  /** Total `byteLength` summed across those segments. */
+  bytes: number
+}
+
+export interface ProjectionSegmentsSummary {
+  /** Total `byteLength` summed across every segment in the bundle. */
+  total_bytes: number
+  /** Total segment count. */
+  total_segments: number
+  /** Per-entity rollup, keyed by `entityType`. Includes every entity
+   *  that has at least one segment in any epoch. */
+  by_entity: Record<string, ProjectionSegmentRollup>
+  /** Per-epoch rollup, keyed by the numeric epoch (stringified for
+   *  JSON serializability). Includes every epoch that has at least
+   *  one segment under `projection/`. */
+  by_epoch: Record<string, ProjectionSegmentRollup>
+}
+
+/**
+ * Roll up `listProjectionSegments(bundleRoot)` into total /
+ * per-entity / per-epoch byte and count stats. Suitable for CLI
+ * inventory rows ("12 segments / 318 MiB across 3 epochs and 5
+ * entity types") and audit reports without forcing the caller to
+ * re-fold the flat list.
+ *
+ * Empty bundle yields `{ total_bytes: 0, total_segments: 0,
+ * by_entity: {}, by_epoch: {} }`. Inherits the listing's filtering
+ * (digit-prefixed epoch dirs, `.parquet` files, `compact-<NNNN>`
+ * skipped) — what the listing reports is what the summary rolls up.
+ */
+export async function summariseProjectionSegments(bundleRoot: string): Promise<ProjectionSegmentsSummary> {
+  const segments = await listProjectionSegments(bundleRoot)
+  const summary: ProjectionSegmentsSummary = {
+    total_bytes: 0,
+    total_segments: segments.length,
+    by_entity: {},
+    by_epoch: {},
+  }
+  for (const segment of segments) {
+    summary.total_bytes += segment.byteLength
+    const entityRollup = summary.by_entity[segment.entityType] ?? { count: 0, bytes: 0 }
+    entityRollup.count += 1
+    entityRollup.bytes += segment.byteLength
+    summary.by_entity[segment.entityType] = entityRollup
+    const epochKey = String(segment.epoch)
+    const epochRollup = summary.by_epoch[epochKey] ?? { count: 0, bytes: 0 }
+    epochRollup.count += 1
+    epochRollup.bytes += segment.byteLength
+    summary.by_epoch[epochKey] = epochRollup
+  }
+  return summary
+}

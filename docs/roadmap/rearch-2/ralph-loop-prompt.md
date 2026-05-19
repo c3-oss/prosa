@@ -53,6 +53,7 @@ section as the full restart instruction:
   `analyticsViewsDescriptor` catalog packager (`09ca11e`),
   `bundleDerivedStatus` top-level aggregator (`1cf6c95`),
   `listProjectionSegments` Parquet segment listing (`50c901e`),
+  `summariseProjectionSegments` rollup landing in this iteration,
   plus
   the prior scaffold
   (`bb76006`), SessionBlobPackV2 byte layout (`ba87f05`), Parquet
@@ -73,8 +74,9 @@ section as the full restart instruction:
   output `RALPH_DONE` yet because Lane 3 remainder (Tantivy native
   writer, DuckDB runtime executor, runtime Parquet merge) plus
   Lanes 4–10 are still incomplete.
-- Continue from the first incomplete Lane 3 surface after `50c901e`.
-  Do not restart an already completed lane.
+- Continue from the first incomplete Lane 3 surface after the
+  `summariseProjectionSegments` commit. Do not restart an already
+  completed lane.
 - If a correction needs a Codex/governor decision, ask one clear binary
   accept/reject question with a safe default. Do not loop on "external
   acceptance" as if Codex were unavailable.
