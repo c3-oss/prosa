@@ -49,7 +49,8 @@ section as the full restart instruction:
   `latestEpochForSession` epoch-only lookup (`85931e2`),
   `getSessionBlobSummary` aggregate inventory row (`21ce057`),
   `listSessionBlobSummaries` bulk inventory listing (`d8e1e5c`),
-  plus
+  `tantivyIndexStatus` read-only status snapshot landing in this
+  iteration, plus
   the prior scaffold
   (`bb76006`), SessionBlobPackV2 byte layout (`ba87f05`), Parquet
   compaction planner (`ea8c1a8`), DuckDB analytics view shape contract
@@ -69,8 +70,9 @@ section as the full restart instruction:
   output `RALPH_DONE` yet because Lane 3 remainder (Tantivy native
   writer, DuckDB runtime executor, runtime Parquet merge) plus
   Lanes 4–10 are still incomplete.
-- Continue from the first incomplete Lane 3 surface after `d8e1e5c`.
-  Do not restart an already completed lane.
+- Continue from the first incomplete Lane 3 surface after the
+  `tantivyIndexStatus` commit. Do not restart an already completed
+  lane.
 - If a correction needs a Codex/governor decision, ask one clear binary
   accept/reject question with a safe default. Do not loop on "external
   acceptance" as if Codex were unavailable.

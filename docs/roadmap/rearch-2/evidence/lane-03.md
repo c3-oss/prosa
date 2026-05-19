@@ -289,7 +289,7 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
   `sessionBlobPackExists` + `readSessionBlobHeader` (on the latest
   epoch only). No pages are decompressed; counts come from the
   header. Use case: MCP `list_sessions` row shape, CLI / web
-  inventory listings — one call replaces three. 10 tests cover:
+  inventory listings — one call replaces three. 11 tests cover:
   fresh-bundle `null`, all-epochs-without-this-session `null`,
   single-epoch aggregate with header equality, multi-epoch
   enumeration with latest = highest, drop-epochs-without-this-
@@ -476,6 +476,30 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
   non-strings, 200-char boundary acceptance + 201-char rejection,
   and `epoch` negative / non-integer / NaN / Infinity / non-number
   rejection.
+- [x] Tantivy index status reader
+  (`tantivyIndexStatus(bundleRoot)`) aggregates the existing
+  `readIndexCheckpoint` + `tantivyIndexDirIsValid` +
+  `currentTantivySchemaFingerprint` into one CLI/MCP-friendly
+  status snapshot:
+  `{ checkpoint_present, index_dir_valid, checkpoint,
+  current_schema_fingerprint, schema_fingerprint_match,
+  ready_for_read }`. `ready_for_read` is `true` only when every
+  gate passes (checkpoint present, status='ready', no
+  error_message, index dir valid per CQ-094/CQ-096 probe,
+  fingerprint matches the pinned schema). Pure read path — no
+  filesystem writes, no native binding. Suitable for
+  `prosa index-v2 status` CLI and MCP `read_index_status` without
+  requiring `@oxdev03/node-tantivy-binding` allowlist expansion.
+  10 tests cover: fresh-bundle all-false snapshot, index-dir
+  valid without checkpoint, checkpoint-present surfaces snapshot,
+  stale-fingerprint detection (`schema_fingerprint_match: false`,
+  `ready_for_read: false`), fully-ready gate (all five pass),
+  `ready_for_read: false` when status='building',
+  `ready_for_read: false` when status='failed' with error
+  message, `ready_for_read: false` when index dir is missing even
+  with a ready checkpoint, current-fingerprint-shape invariant
+  (`/^blake3:[0-9a-f]{64}$/`), and propagation of malformed-
+  checkpoint corruption errors (does not silently mask).
 - [x] Tantivy index-dir reset helper (`clearTantivyIndexDir(bundleRoot)`)
   for the `full`-rebuild path. The planner returns `kind: 'full'` when
   the prior index is unrecoverable; before the native writer opens a
@@ -578,7 +602,7 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
 ```text
 pnpm install --prefer-offline                       # registers @c3-oss/prosa-derived-v2 in pnpm-lock.yaml
 pnpm --filter @c3-oss/prosa-derived-v2 typecheck    # clean
-pnpm --filter @c3-oss/prosa-derived-v2 test         # 301 tests / 27 files (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 8, compaction executor-plan 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9, reader-iterator 7, tantivy checkpoint-store 11, analytics executor-plan 9, tantivy index-dir probe 17, tantivy plan-bundle orchestration 9, derived-layout 27, tantivy clear-index-dir 10, session-blob loader 11, session-blob zstd 5, session-blob listing 27 (19 prior + 8 listAllSessionBlobSessions cross-epoch union), session-blob latest 11 incl. CQ-100, session-blob transcript-from-bundle 8, session-blob iterate-from-bundle 9, session-blob header 10, session-blob exists 11, session-blob latest-epoch 11, session-blob summary 19 (11 single + 8 bulk listing))
+pnpm --filter @c3-oss/prosa-derived-v2 test         # 311 tests / 28 files (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 8, compaction executor-plan 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9, reader-iterator 7, tantivy checkpoint-store 11, analytics executor-plan 9, tantivy index-dir probe 17, tantivy plan-bundle orchestration 9, tantivy status 10, derived-layout 27, tantivy clear-index-dir 10, session-blob loader 11, session-blob zstd 5, session-blob listing 27 (19 prior + 8 listAllSessionBlobSessions cross-epoch union), session-blob latest 11 incl. CQ-100, session-blob transcript-from-bundle 8, session-blob iterate-from-bundle 9, session-blob header 10, session-blob exists 11, session-blob latest-epoch 11, session-blob summary 19 (11 single + 8 bulk listing))
 pnpm --filter @c3-oss/prosa-derived-v2 lint         # clean
 pnpm build                                          # 13/13 turbo
 pnpm typecheck                                      # 13/13 turbo
