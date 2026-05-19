@@ -23,6 +23,7 @@ import {
   derivedLayerEpochsTouched,
   listSessionBlobSummaries,
   loadTranscriptFromBundle,
+  planCompaction,
 } from '@c3-oss/prosa-derived-v2'
 import { Command } from 'commander'
 
@@ -61,6 +62,18 @@ export function indexV2Command(): Command {
       const storePath = resolvePath(options.store)
       const epochs = await derivedLayerEpochsTouched(storePath)
       process.stdout.write(`${JSON.stringify(epochs, null, 2)}\n`)
+    })
+
+  root
+    .command('compaction-plan')
+    .description(
+      'Print the Parquet compaction plan (which projection segments would be merged per entity type) for a bundle v2 store.',
+    )
+    .requiredOption('--store <path>', 'bundle directory')
+    .action(async (options: { store: string }) => {
+      const storePath = resolvePath(options.store)
+      const plan = await planCompaction(storePath)
+      process.stdout.write(`${JSON.stringify(plan, null, 2)}\n`)
     })
 
   root

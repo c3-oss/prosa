@@ -41,13 +41,14 @@ interface StatusSnapshot {
 }
 
 describe('prosa index-v2 CLI', () => {
-  it('`index-v2 --help` lists status + sessions + epochs + transcript subcommands', async () => {
+  it('`index-v2 --help` lists status + sessions + epochs + compaction-plan + transcript subcommands', async () => {
     const r = runCli(['index-v2', '--help'])
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('Bundle v2 derived-layer index commands')
     expect(r.stdout).toContain('status')
     expect(r.stdout).toContain('sessions')
     expect(r.stdout).toContain('epochs')
+    expect(r.stdout).toContain('compaction-plan')
     expect(r.stdout).toContain('transcript')
   })
 
@@ -244,6 +245,62 @@ describe('prosa index-v2 CLI', () => {
 
   it('`index-v2 epochs` fails when --store is missing', async () => {
     const r = runCli(['index-v2', 'epochs'])
+    expect(r.status).not.toBe(0)
+    expect(r.stderr).toMatch(/required option.*--store/i)
+  })
+
+  it('`index-v2 compaction-plan --help` documents --store', async () => {
+    const r = runCli(['index-v2', 'compaction-plan', '--help'])
+    expect(r.status).toBe(0)
+    expect(r.stdout).toContain('Parquet compaction plan')
+    expect(r.stdout).toContain('--store')
+  })
+
+  it('`index-v2 compaction-plan` against a fresh bundle prints an empty plan', async () => {
+    const storeRoot = join(await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-')), 'never-initialised')
+    const r = runCli(['index-v2', 'compaction-plan', '--store', storeRoot])
+    expect(r.status).toBe(0)
+    const plan = JSON.parse(r.stdout) as { empty: boolean; entities: unknown[] }
+    expect(plan.empty).toBe(true)
+    expect(plan.entities).toEqual([])
+  })
+
+  it('`index-v2 compaction-plan` fires when 17 small projection segments exist for an entity', async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    // Plant 17 tiny `sessions.parquet` segments across 17 epochs — each
+    // <32 MiB ("small") + total <256 MiB → fires the `low_count_byte_ceiling`
+    // trigger (>16 small files AND smallTotalBytes < 256 MiB).
+    for (let epoch = 1; epoch <= 17; epoch++) {
+      const dir = join(storeRoot, 'epochs', String(epoch), 'projection')
+      await mkdir(dir, { recursive: true })
+      await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(1024))
+    }
+
+    const r = runCli(['index-v2', 'compaction-plan', '--store', storeRoot])
+    expect(r.status).toBe(0)
+    const plan = JSON.parse(r.stdout) as {
+      empty: boolean
+      entities: Array<{
+        entityType: string
+        reason: string
+        segmentsToMerge: Array<{ path: string; byteLength: number; epoch: number }>
+        outputPath: string
+        totalBytesIn: number
+      }>
+    }
+    expect(plan.empty).toBe(false)
+    expect(plan.entities).toHaveLength(1)
+    const [sessionsPlan] = plan.entities
+    expect(sessionsPlan?.entityType).toBe('sessions')
+    expect(sessionsPlan?.reason).toBe('low_count_byte_ceiling')
+    expect(sessionsPlan?.segmentsToMerge).toHaveLength(17)
+    expect(sessionsPlan?.totalBytesIn).toBe(17 * 1024)
+    expect(typeof sessionsPlan?.outputPath).toBe('string')
+    expect(sessionsPlan?.outputPath.length).toBeGreaterThan(0)
+  })
+
+  it('`index-v2 compaction-plan` fails when --store is missing', async () => {
+    const r = runCli(['index-v2', 'compaction-plan'])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/required option.*--store/i)
   })
