@@ -72,7 +72,8 @@ section as the full restart instruction:
   (`379004f`), `prosa index-v2 analytics-views` view-catalog
   subcommand (`a557453`), `prosa index-v2 projection-segments`
   Parquet segments listing + summary subcommand (`018f4c6`),
-  plus the prior scaffold
+  `prosa index-v2 tantivy-rebuild-plan` rebuild-state-machine
+  subcommand (`cb30640`), plus the prior scaffold
   (`bb76006`), SessionBlobPackV2 byte layout (`ba87f05`), Parquet
   compaction planner (`ea8c1a8`), DuckDB analytics view shape contract
   + compacted-overlay binding (`cff3670` / `e35f844`), Tantivy schema
