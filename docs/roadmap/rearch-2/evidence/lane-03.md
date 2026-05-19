@@ -476,6 +476,29 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
   non-strings, 200-char boundary acceptance + 201-char rejection,
   and `epoch` negative / non-integer / NaN / Infinity / non-number
   rejection.
+- [x] SessionBlob read-side end-to-end integration test
+  (`test/integration/sessionblob-end-to-end.test.ts`) wires every
+  public read surface together against one realistic multi-session
+  multi-epoch zstd-encoded fixture (3 sessions × up to 3 epochs).
+  Catches drift between layers without re-testing each unit. 12
+  test cases exercise: listing surfaces (per-epoch + cross-epoch)
+  report the expected epoch + session sets,
+  `sessionBlobPackExists` consistent with the listing across every
+  (session × epoch) pair,
+  `latestEpochForSession` returns the highest emission per session,
+  `loadSessionBlobPack` exposes the writer-emitted `pack_digest`
+  verbatim for every (session, epoch),
+  `loadLatestSessionBlobPack` matches the per-session newest
+  emission, `readSessionBlobHeader` (omitted epoch) agrees with
+  the latest loader on identity, per-session `getSessionBlobSummary`
+  matches the latest header counts (including ordinal range),
+  bulk `listSessionBlobSummaries` equals per-session
+  `getSessionBlobSummary` row-by-row,
+  `loadTranscriptFromBundle` returns canonical-order messages with
+  the right body content, streaming
+  `iterateTranscriptFromBundle` with range filter matches the
+  collect-all form, and `bundleDerivedStatus` aggregates exactly
+  what the individual surfaces report.
 - [x] Parquet projection segment summary
   (`summariseProjectionSegments(bundleRoot)`) rolls up the flat
   `listProjectionSegments` output into total / per-entity / per-
@@ -671,7 +694,7 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
 ```text
 pnpm install --prefer-offline                       # registers @c3-oss/prosa-derived-v2 in pnpm-lock.yaml
 pnpm --filter @c3-oss/prosa-derived-v2 typecheck    # clean
-pnpm --filter @c3-oss/prosa-derived-v2 test         # 343 tests / 31 files (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 8, compaction executor-plan 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9, reader-iterator 7, tantivy checkpoint-store 11, analytics executor-plan 9, tantivy index-dir probe 17, tantivy plan-bundle orchestration 9, tantivy status 10, analytics descriptor 8, bundle status 8, compaction segments 16 (9 listing + 7 summary), derived-layout 27, tantivy clear-index-dir 10, session-blob loader 11, session-blob zstd 5, session-blob listing 27 (19 prior + 8 listAllSessionBlobSessions cross-epoch union), session-blob latest 11 incl. CQ-100, session-blob transcript-from-bundle 8, session-blob iterate-from-bundle 9, session-blob header 10, session-blob exists 11, session-blob latest-epoch 11, session-blob summary 19 (11 single + 8 bulk listing))
+pnpm --filter @c3-oss/prosa-derived-v2 test         # 355 tests / 32 files (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 8, compaction executor-plan 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9, reader-iterator 7, tantivy checkpoint-store 11, analytics executor-plan 9, tantivy index-dir probe 17, tantivy plan-bundle orchestration 9, tantivy status 10, analytics descriptor 8, bundle status 8, compaction segments 16 (9 listing + 7 summary), derived-layout 27, tantivy clear-index-dir 10, session-blob loader 11, session-blob zstd 5, session-blob listing 27 (19 prior + 8 listAllSessionBlobSessions cross-epoch union), session-blob latest 11 incl. CQ-100, session-blob transcript-from-bundle 8, session-blob iterate-from-bundle 9, session-blob header 10, session-blob exists 11, session-blob latest-epoch 11, session-blob summary 19 (11 single + 8 bulk listing), integration sessionblob-end-to-end 12)
 pnpm --filter @c3-oss/prosa-derived-v2 lint         # clean
 pnpm build                                          # 13/13 turbo
 pnpm typecheck                                      # 13/13 turbo
