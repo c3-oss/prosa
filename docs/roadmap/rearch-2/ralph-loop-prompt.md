@@ -62,7 +62,8 @@ section as the full restart instruction:
   containment evidence + `index.ts` public-API docs (`c467d40`),
   CQ-103 Tantivy checkpoint read/write symlink containment
   (`8c241a4`), `derivedLayerEpochsTouched` cross-subsystem epoch
-  union (`60cae8a`), plus the prior scaffold
+  union (`60cae8a`), CQ-104 artifact-bearing-epoch filter
+  closeout (`8330d82`), plus the prior scaffold
   (`bb76006`), SessionBlobPackV2 byte layout (`ba87f05`), Parquet
   compaction planner (`ea8c1a8`), DuckDB analytics view shape contract
   + compacted-overlay binding (`cff3670` / `e35f844`), Tantivy schema
