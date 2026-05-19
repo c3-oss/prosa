@@ -108,8 +108,10 @@ section as the full restart instruction:
   superseded-segments` audit/GC primitive (`633ee9b`),
   `listCompactedOutputs` + `prosa index-v2 compacted-outputs`
   manifest-vs-on-disk consistency audit (`6b36ff1`), CQ-109
-  compact-manifest path-safety closeout (`4f91cfb`), plus
-  the prior scaffold
+  compact-manifest path-safety closeout (`4f91cfb`),
+  `planSupersededCleanup` + `prosa index-v2 gc-plan`
+  safe-to-delete GC planner (`14c98cb`), plus the prior
+  scaffold
   (`bb76006`), SessionBlobPackV2 byte layout (`ba87f05`), Parquet
   compaction planner (`ea8c1a8`), DuckDB analytics view shape contract
   + compacted-overlay binding (`cff3670` / `e35f844`), Tantivy schema
