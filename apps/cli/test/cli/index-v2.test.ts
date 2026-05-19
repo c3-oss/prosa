@@ -63,6 +63,7 @@ describe('prosa index-v2 CLI', () => {
     expect(r.stdout).toContain('gc-execution-plan')
     expect(r.stdout).toContain('compaction-effectiveness')
     expect(r.stdout).toContain('compaction-history')
+    expect(r.stdout).toContain('footprint')
     expect(r.stdout).toContain('superseded-segments')
     expect(r.stdout).toContain('verify-packs')
     expect(r.stdout).toContain('transcript-header')
@@ -1319,6 +1320,57 @@ describe('prosa index-v2 CLI', () => {
 
   it('`index-v2 compaction-history` fails when --store is missing', async () => {
     const r = runCli(['index-v2', 'compaction-history'])
+    expect(r.status).not.toBe(0)
+    expect(r.stderr).toMatch(/required option.*--store/i)
+  })
+
+  it('`index-v2 footprint --help` documents --store and the per-subsystem breakdown', async () => {
+    const r = runCli(['index-v2', 'footprint', '--help'])
+    expect(r.status).toBe(0)
+    expect(r.stdout).toContain('derived/ subtree')
+    expect(r.stdout).toContain('--store')
+  })
+
+  it('`index-v2 footprint` against a fresh bundle returns the all-zero shape', async () => {
+    const storeRoot = join(await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-')), 'never-initialised')
+    const r = runCli(['index-v2', 'footprint', '--store', storeRoot])
+    expect(r.status).toBe(0)
+    expect(JSON.parse(r.stdout)).toEqual({
+      total_bytes: 0,
+      session_blob: { byte_count: 0, file_count: 0, present: false },
+      tantivy: { byte_count: 0, file_count: 0, present: false },
+      analytics: { byte_count: 0, file_count: 0, present: false },
+      other: { byte_count: 0, file_count: 0, present: false },
+    })
+  })
+
+  it('`index-v2 footprint` aggregates session-blob packs + tantivy index files into total_bytes', async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    await mkdir(join(storeRoot, 'derived', 'session-blob', 'epoch-1'), { recursive: true })
+    await writeFile(join(storeRoot, 'derived', 'session-blob', 'epoch-1', 'alpha.pack'), Buffer.alloc(1024))
+    await writeFile(join(storeRoot, 'derived', 'session-blob', 'epoch-1', 'bravo.pack'), Buffer.alloc(2048))
+    await mkdir(join(storeRoot, 'derived', 'tantivy', 'index'), { recursive: true })
+    await writeFile(join(storeRoot, 'derived', 'tantivy', 'checkpoint.json'), 'x'.repeat(100))
+    await writeFile(join(storeRoot, 'derived', 'tantivy', 'index', 'segment-0.idx'), Buffer.alloc(4096))
+
+    const r = runCli(['index-v2', 'footprint', '--store', storeRoot])
+    expect(r.status).toBe(0)
+    const footprint = JSON.parse(r.stdout) as {
+      total_bytes: number
+      session_blob: { byte_count: number; file_count: number; present: boolean }
+      tantivy: { byte_count: number; file_count: number; present: boolean }
+      analytics: { present: boolean }
+      other: { present: boolean }
+    }
+    expect(footprint.session_blob).toEqual({ byte_count: 3072, file_count: 2, present: true })
+    expect(footprint.tantivy).toEqual({ byte_count: 100 + 4096, file_count: 2, present: true })
+    expect(footprint.analytics.present).toBe(false)
+    expect(footprint.other.present).toBe(false)
+    expect(footprint.total_bytes).toBe(3072 + 100 + 4096)
+  })
+
+  it('`index-v2 footprint` fails when --store is missing', async () => {
+    const r = runCli(['index-v2', 'footprint'])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/required option.*--store/i)
   })

@@ -125,7 +125,10 @@ section as the full restart instruction:
   bytes-out rollup + `prosa index-v2 compaction-effectiveness`
   CLI subcommand (`d471467`), `listCompactionHistory`
   per-manifest timeline + `prosa index-v2 compaction-history`
-  CLI subcommand (`b07a36c`), plus the prior scaffold
+  CLI subcommand (`b07a36c`),
+  `summariseDerivedLayerFootprint` per-subsystem byte/file
+  rollup + `prosa index-v2 footprint` CLI subcommand (pending
+  commit), plus the prior scaffold
   (`bb76006`), SessionBlobPackV2 byte layout (`ba87f05`), Parquet
   compaction planner (`ea8c1a8`), DuckDB analytics view shape contract
   + compacted-overlay binding (`cff3670` / `e35f844`), Tantivy schema
@@ -140,7 +143,11 @@ section as the full restart instruction:
   `clearTantivyIndexDir` reset helper (`257a176`), CQ-096
   intermediate-symlink containment (`3be300f`), and SessionBlob
   pack-path resolver + CQ-097 textual-source cleanup (`d798b15`).
-  All `CQ-074..CQ-111` are closed; no open blocking corrections.
+  All `CQ-074..CQ-111` are closed. `CQ-112` is open and blocking:
+  fix `summariseDerivedLayerFootprint()` so every direct child of
+  `<bundleRoot>/derived/` is either accounted for or refused. Unknown
+  top-level regular files must count in `other`; unknown top-level
+  symlinks must fail closed instead of being silently ignored.
   There is no remaining Lane 2 external-acceptance blocker; do not
   output `RALPH_DONE` yet because Lane 3 remainder (Tantivy native
   writer, DuckDB runtime executor, runtime Parquet merge) plus
@@ -262,7 +269,9 @@ Keep these files current:
 
 ## Current Blocking Corrections
 
-Current open corrections: none — `CQ-091`..`CQ-104` are all closed.
+Current open corrections: `CQ-112` — footprint must account for or
+refuse every top-level `derived/` entry before the footprint slice can
+be accepted. `CQ-091`..`CQ-111` are all closed.
 `CQ-104` closeout: `derivedLayerEpochsTouched()` now filters SessionBlob
 candidate epochs through `listSessionBlobSessions({ bundleRoot, epoch })` and
 counts only epochs with actual packs, while projection segment epochs still come

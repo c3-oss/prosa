@@ -47,6 +47,7 @@ import {
   readSessionBlobHeader,
   recommendMaintenanceActions,
   summariseCompactionEffectiveness,
+  summariseDerivedLayerFootprint,
   summariseProjectionSegments,
   summariseSupersededSegments,
   verifyAllSessionBlobPacks,
@@ -297,6 +298,18 @@ export function indexV2Command(): Command {
       const storePath = resolvePath(options.store)
       const plan = await planSupersededCleanup(storePath)
       process.stdout.write(`${JSON.stringify(plan, null, 2)}\n`)
+    })
+
+  root
+    .command('footprint')
+    .description(
+      'Print the disk footprint of the derived/ subtree, broken down by subsystem (session-blob, tantivy, analytics, other). Each subsystem reports `{ byte_count, file_count, present }`. Walks `<bundleRoot>/derived/` only; per-epoch projection segments + compaction outputs are reported via `projection-segments --summary` / `compacted-outputs`. Refuses to follow symlinks (CQ-094 parallel).',
+    )
+    .requiredOption('--store <path>', 'bundle directory')
+    .action(async (options: { store: string }) => {
+      const storePath = resolvePath(options.store)
+      const footprint = await summariseDerivedLayerFootprint(storePath)
+      process.stdout.write(`${JSON.stringify(footprint, null, 2)}\n`)
     })
 
   root
