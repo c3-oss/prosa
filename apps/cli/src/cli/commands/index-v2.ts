@@ -18,7 +18,12 @@
 
 import { resolve as resolvePath } from 'node:path'
 
-import { bundleDerivedStatus, listSessionBlobSummaries, loadTranscriptFromBundle } from '@c3-oss/prosa-derived-v2'
+import {
+  bundleDerivedStatus,
+  derivedLayerEpochsTouched,
+  listSessionBlobSummaries,
+  loadTranscriptFromBundle,
+} from '@c3-oss/prosa-derived-v2'
 import { Command } from 'commander'
 
 export function indexV2Command(): Command {
@@ -44,6 +49,18 @@ export function indexV2Command(): Command {
       const storePath = resolvePath(options.store)
       const summaries = await listSessionBlobSummaries(storePath)
       process.stdout.write(`${JSON.stringify(summaries, null, 2)}\n`)
+    })
+
+  root
+    .command('epochs')
+    .description(
+      'Print the sorted set of epoch numbers that have at least one derived artifact (SessionBlob pack or Parquet projection segment) for a bundle v2 store.',
+    )
+    .requiredOption('--store <path>', 'bundle directory')
+    .action(async (options: { store: string }) => {
+      const storePath = resolvePath(options.store)
+      const epochs = await derivedLayerEpochsTouched(storePath)
+      process.stdout.write(`${JSON.stringify(epochs, null, 2)}\n`)
     })
 
   root

@@ -41,12 +41,13 @@ interface StatusSnapshot {
 }
 
 describe('prosa index-v2 CLI', () => {
-  it('`index-v2 --help` lists status + sessions + transcript subcommands', async () => {
+  it('`index-v2 --help` lists status + sessions + epochs + transcript subcommands', async () => {
     const r = runCli(['index-v2', '--help'])
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('Bundle v2 derived-layer index commands')
     expect(r.stdout).toContain('status')
     expect(r.stdout).toContain('sessions')
+    expect(r.stdout).toContain('epochs')
     expect(r.stdout).toContain('transcript')
   })
 
@@ -181,6 +182,68 @@ describe('prosa index-v2 CLI', () => {
 
   it('`index-v2 sessions` fails when --store is missing', async () => {
     const r = runCli(['index-v2', 'sessions'])
+    expect(r.status).not.toBe(0)
+    expect(r.stderr).toMatch(/required option.*--store/i)
+  })
+
+  it('`index-v2 epochs --help` documents --store', async () => {
+    const r = runCli(['index-v2', 'epochs', '--help'])
+    expect(r.status).toBe(0)
+    expect(r.stdout).toContain('sorted set of epoch numbers')
+    expect(r.stdout).toContain('--store')
+  })
+
+  it('`index-v2 epochs` against a fresh bundle prints []', async () => {
+    const storeRoot = join(await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-')), 'never-initialised')
+    const r = runCli(['index-v2', 'epochs', '--store', storeRoot])
+    expect(r.status).toBe(0)
+    expect(JSON.parse(r.stdout)).toEqual([])
+  })
+
+  it('`index-v2 epochs` returns the sorted deduplicated union of SessionBlob + projection epochs', async () => {
+    const { writeSessionBlobPack, identityCompressor } = await import('@c3-oss/prosa-derived-v2')
+    const { sessionBlobEpochDir, sessionBlobPackPath } = await import('@c3-oss/prosa-derived-v2')
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+
+    // SessionBlob packs at epochs 1, 4
+    for (const [sessionId, epoch] of [
+      ['ses_alpha', 1],
+      ['ses_bravo', 4],
+    ] as const) {
+      const messages = [
+        {
+          message_id: 'msg_000000',
+          ordinal: 0,
+          role: 'user' as const,
+          timestamp: '2026-05-19T00:00:00.000Z',
+          turn_id: 'tur_0',
+          blocks: [
+            {
+              block_id: 'blk_0_0',
+              block_type: 'text',
+              body: { kind: 'inline' as const, text: 'hi', byte_length: 2 },
+            },
+          ],
+        },
+      ]
+      const result = writeSessionBlobPack({ session_id: sessionId, epoch, messages }, identityCompressor)
+      await mkdir(sessionBlobEpochDir(storeRoot, epoch), { recursive: true })
+      await writeFile(sessionBlobPackPath(storeRoot, sessionId, epoch), result.pack)
+    }
+    // Projection segments at epochs 2, 4 (4 overlaps)
+    for (const epoch of [2, 4]) {
+      const dir = join(storeRoot, 'epochs', String(epoch), 'projection')
+      await mkdir(dir, { recursive: true })
+      await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(100))
+    }
+
+    const r = runCli(['index-v2', 'epochs', '--store', storeRoot])
+    expect(r.status).toBe(0)
+    expect(JSON.parse(r.stdout)).toEqual([1, 2, 4])
+  })
+
+  it('`index-v2 epochs` fails when --store is missing', async () => {
+    const r = runCli(['index-v2', 'epochs'])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/required option.*--store/i)
   })
