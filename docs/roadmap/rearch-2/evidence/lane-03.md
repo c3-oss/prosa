@@ -130,6 +130,23 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
   - Identity compressor/decompressor pair lets tests exercise the
     layout independently of zstd; production callers will plug in
     `zstdCompress` / `zstdDecompress` from `@c3-oss/prosa-bundle-v2`.
+- [x] Tantivy rebuild orchestration helper
+  (`planTantivyRebuildFromBundle({ bundleRoot, currentMaxRowid,
+  overwriteRequested? })`) wraps the two filesystem reads
+  (`readIndexCheckpointOrEmpty` + `tantivyIndexDirIsValid`) and the
+  pure planner (`planTantivyRebuild`) into one async call.
+  Returns `{ plan, checkpoint, indexDirValid }` so callers can
+  chain `checkpointAfterRebuild` / `checkpointAfterFailure`
+  without re-reading state. No writes; corrupt-checkpoint errors
+  from `readIndexCheckpointOrEmpty` propagate unchanged so the
+  planner cannot paper over corruption with
+  `EMPTY_INDEX_CHECKPOINT`. 9 tests cover every reachable planner
+  branch through the orchestration path: fresh bundle (no
+  checkpoint, no dir), valid dir + no checkpoint
+  (`no_prior_index`), `skip` / `incremental` / `fingerprint_mismatch`,
+  `caller_requested_overwrite`, `index_dir_invalid` (checkpoint
+  exists but dir is gone), `prior_run_failed`, and corrupt-checkpoint
+  error propagation.
 - [x] Tantivy index-dir best-effort probe
   (`tantivyIndexDir(bundleRoot)`, `tantivyMetaPath(bundleRoot)`,
   `tantivyIndexDirIsValid(bundleRoot)`) is the filesystem side of
@@ -203,7 +220,7 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
 ```text
 pnpm install --prefer-offline                       # registers @c3-oss/prosa-derived-v2 in pnpm-lock.yaml
 pnpm --filter @c3-oss/prosa-derived-v2 typecheck    # clean
-pnpm --filter @c3-oss/prosa-derived-v2 test         # 122 tests / 13 files (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9, reader-iterator 7, tantivy checkpoint-store 11, analytics executor-plan 9, tantivy index-dir probe 14 — incl. 2 CQ-094 escape-symlink regressions)
+pnpm --filter @c3-oss/prosa-derived-v2 test         # 131 tests / 14 files (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9, reader-iterator 7, tantivy checkpoint-store 11, analytics executor-plan 9, tantivy index-dir probe 14, tantivy plan-bundle orchestration 9)
 pnpm --filter @c3-oss/prosa-derived-v2 lint         # clean
 pnpm build                                          # 13/13 turbo
 pnpm typecheck                                      # 13/13 turbo
