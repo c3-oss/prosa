@@ -88,7 +88,9 @@ section as the full restart instruction:
   (`2c37af6`), `loadTranscriptFromBundle({ epoch })` + `prosa
   index-v2 transcript --epoch <n>` historical-pack selector
   (`f890091`), `iterateTranscriptFromBundle({ epoch })`
-  streaming-side symmetry (`dcad4d7`), plus the prior scaffold
+  streaming-side symmetry (`dcad4d7`), `prosa index-v2 sessions
+  --session-id <id>` single-session filter via
+  `getSessionBlobSummary` (`5020c3e`), plus the prior scaffold
   (`bb76006`), SessionBlobPackV2 byte layout (`ba87f05`), Parquet
   compaction planner (`ea8c1a8`), DuckDB analytics view shape contract
   + compacted-overlay binding (`cff3670` / `e35f844`), Tantivy schema
