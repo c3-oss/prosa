@@ -8,6 +8,68 @@ _(none)_
 
 ## Closed (latest first)
 
+### CQ-114: Overlap Recommendations WIP Must Restore Typecheck and Pin Suppression Semantics — closed 2026-05-19
+
+Status: closed
+Severity: high
+Blocking: yes
+Owner: Ralph
+Opened: 2026-05-19
+Closed: 2026-05-19
+Lane: 3 - Derived layer
+
+Finding:
+
+The active maintenance/recommendations WIP added
+`DerivedLayerMaintenanceSummary.overlaps` and taught
+`recommendMaintenanceActions()` to return `resolve_overlap` before
+any other action. The `recommendations.test.ts` helper was missing
+the new field, breaking the derived-v2 typecheck:
+
+```text
+test/recommendations.test.ts(9,3): error TS2322:
+Types of property 'overlaps' are incompatible.
+Type '{ count: number; paths: string[]; } | undefined' is not
+assignable to type '{ count: number; paths: string[]; }'.
+```
+
+Risk:
+
+Red typecheck blocks the slice. The new highest-priority
+`resolve_overlap` recommendation is a correctness gate: when
+overlaps exist, GC, resume, and new compaction recommendations
+must be suppressed. That precedence needs direct unit coverage.
+
+Fix:
+
+Both of Codex's acceptance items were already in the uncommitted
+WIP when the CQ was opened:
+
+- `packages/prosa-derived-v2/test/recommendations.test.ts` line 31
+  adds `overlaps: { count: 0, paths: [] }` to the `summary()`
+  helper's healthy default.
+- A focused test "emits `resolve_overlap` as the SOLE
+  recommendation when cross-seq overlaps exist (corruption
+  gate)" exercises the exact scenario Codex called out: inconsistent
+  persisted compactions + safe-to-delete GC candidates + fired
+  compaction plan + overlaps.count > 0, asserting the result is
+  exactly one `resolve_overlap` row with the expected
+  `overlap_count` and `paths`.
+- Two more tests pin: every overlapping path surfaces verbatim;
+  the normal ordered list returns once overlaps clear
+  (`overlaps.count === 0`).
+
+Verification:
+
+- `pnpm --filter @c3-oss/prosa-derived-v2 typecheck` — clean.
+- `pnpm --filter @c3-oss/prosa-derived-v2 lint:fix` — formatting only.
+- `pnpm --filter @c3-oss/prosa-derived-v2 test` — 540 tests / 50 files.
+- `pnpm --filter @c3-oss/prosa exec vitest run test/cli/index-v2.test.ts -t maintenance`
+  — 5 maintenance + 2 snapshot tests pass (existing CLI tests
+  inherit the new `overlaps` field through the maintenance shape).
+- Coherence + lifecycle CLI tests still pass.
+
+
 ### CQ-113: Snapshot WIP Must Not Plant Malformed Tantivy Checkpoint Fixture — closed 2026-05-19
 
 Status: closed

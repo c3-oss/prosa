@@ -28,6 +28,7 @@ function summary(overrides: Partial<DerivedLayerMaintenanceSummary> = {}): Deriv
     compaction: { empty: true, entity_count: 0, reasons: [] },
     persisted_compactions: { count: 0, consistent_count: 0, inconsistent_count: 0 },
     gc: { candidate_count: 0, safe_to_delete: { count: 0, bytes: 0 }, blocked: { count: 0, bytes: 0 } },
+    overlaps: { count: 0, paths: [] },
     ...overrides,
   }
 }
@@ -117,5 +118,51 @@ describe('recommendMaintenanceActions', () => {
       }),
     )
     expect(actions.map((a) => a.kind)).toEqual(['gc_superseded', 'run_compaction'])
+  })
+
+  it('emits `resolve_overlap` as the SOLE recommendation when cross-seq overlaps exist (corruption gate)', () => {
+    // Overlap is the highest-priority correctness signal. Even
+    // when every other condition is also true, the recommender
+    // must emit ONLY the resolve_overlap row and stop — running
+    // GC or resuming a merge would compound the damage.
+    const actions = recommendMaintenanceActions(
+      summary({
+        persisted_compactions: { count: 2, consistent_count: 1, inconsistent_count: 1 },
+        gc: { candidate_count: 17, safe_to_delete: { count: 17, bytes: 17 * 1024 }, blocked: { count: 0, bytes: 0 } },
+        compaction: { empty: false, entity_count: 1, reasons: ['low_count_byte_ceiling'] },
+        overlaps: { count: 1, paths: ['epochs/2/projection/sessions.parquet'] },
+      }),
+    )
+    expect(actions).toHaveLength(1)
+    expect(actions[0]).toEqual({
+      kind: 'resolve_overlap',
+      overlap_count: 1,
+      paths: ['epochs/2/projection/sessions.parquet'],
+    })
+  })
+
+  it('emits `resolve_overlap` with every overlapping path surfaced verbatim', () => {
+    const paths = [
+      'epochs/2/projection/messages.parquet',
+      'epochs/5/projection/sessions.parquet',
+      'epochs/9/projection/sessions.parquet',
+    ]
+    const actions = recommendMaintenanceActions(summary({ overlaps: { count: paths.length, paths } }))
+    expect(actions).toHaveLength(1)
+    expect((actions[0] as { kind: string; paths: string[] }).paths).toEqual(paths)
+  })
+
+  it('returns the normal ordered list once overlaps clear (overlap.count === 0)', () => {
+    // When overlaps.count is zero, the resolve_overlap branch
+    // must NOT short-circuit; the remaining priority order kicks
+    // back in.
+    const actions = recommendMaintenanceActions(
+      summary({
+        overlaps: { count: 0, paths: [] },
+        persisted_compactions: { count: 1, consistent_count: 0, inconsistent_count: 1 },
+        compaction: { empty: false, entity_count: 1, reasons: ['low_count_byte_ceiling'] },
+      }),
+    )
+    expect(actions.map((a) => a.kind)).toEqual(['resume_compaction', 'run_compaction'])
   })
 })

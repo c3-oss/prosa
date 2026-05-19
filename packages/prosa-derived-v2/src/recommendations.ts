@@ -20,6 +20,17 @@
 import type { DerivedLayerMaintenanceSummary } from './maintenance.js'
 
 export type DerivedLayerRecommendation =
+  /** One or more source segments are claimed by multiple persisted
+   *  compactions (cross-seq overlap). This is the highest-priority
+   *  correctness signal: GC must NOT run, resume MUST NOT run
+   *  blindly. The operator has to inspect the overlapping paths
+   *  and decide which manifest is authoritative before anything
+   *  else proceeds. */
+  | {
+      kind: 'resolve_overlap'
+      overlap_count: number
+      paths: string[]
+    }
   /** A persisted compaction-seq has an inconsistent post-merge
    *  state — runtime worker likely crashed mid-merge. Resume that
    *  specific seq before doing anything else. */
@@ -50,20 +61,39 @@ export type DerivedLayerRecommendation =
  *
  * Priority order, highest first:
  *
- *   1. `resume_compaction` — inconsistent persisted compactions
+ *   1. `resolve_overlap` — cross-seq overlap means a source segment
+ *      is claimed by multiple manifests. The bundle is in a real
+ *      corruption state and the operator must decide which manifest
+ *      is authoritative. We refuse to surface ANY other
+ *      recommendation while overlaps exist — running GC, resuming
+ *      a merge, or compacting again would all compound the damage.
+ *   2. `resume_compaction` — inconsistent persisted compactions
  *      must be resolved first; their superseded sources may still
  *      be needed for re-execution.
- *   2. `gc_superseded` — once everything is consistent, safe
+ *   3. `gc_superseded` — once everything is consistent, safe
  *      candidates can be reclaimed. CQ-111: this slot is suppressed
  *      whenever any persisted compaction is inconsistent, even if
  *      `gc-plan` independently classified some rows as safe. A
  *      resuming merge may still need its superseded sources; we
  *      must not let the operator delete them before the resume
  *      runs.
- *   3. `run_compaction` — defer last; small-file pressure is a
+ *   4. `run_compaction` — defer last; small-file pressure is a
  *      performance concern, not a correctness one.
  */
 export function recommendMaintenanceActions(summary: DerivedLayerMaintenanceSummary): DerivedLayerRecommendation[] {
+  // When the bundle is in a corruption state (cross-seq overlap),
+  // every other action is unsafe. Emit the one resolve_overlap
+  // signal and stop — the operator must resolve it manually.
+  if (summary.overlaps.count > 0) {
+    return [
+      {
+        kind: 'resolve_overlap',
+        overlap_count: summary.overlaps.count,
+        paths: summary.overlaps.paths,
+      },
+    ]
+  }
+
   const recommendations: DerivedLayerRecommendation[] = []
 
   if (summary.persisted_compactions.inconsistent_count > 0) {

@@ -18,6 +18,7 @@
 import { bundleDerivedStatus } from './bundle-status.js'
 import { planSupersededCleanup } from './compaction/gc-plan.js'
 import { listCompactedOutputs } from './compaction/outputs.js'
+import { detectCompactionOverlaps } from './compaction/overlaps.js'
 import { planCompaction } from './compaction/planner.js'
 import { summariseProjectionSegments } from './compaction/segments.js'
 
@@ -64,6 +65,19 @@ export interface DerivedLayerMaintenanceSummary {
      *  — runtime worker may need to re-execute). */
     blocked: { count: number; bytes: number }
   }
+  /** Cross-seq overlap audit from `detectCompactionOverlaps`. A
+   *  non-zero `count` is a real correctness violation — the same
+   *  source segment is claimed by more than one persisted
+   *  manifest's `superseded[]`. The bundle is unsafe to GC until
+   *  the operator resolves the duplicate claim. */
+  overlaps: {
+    /** Number of distinct bundle-relative paths claimed by more
+     *  than one compaction. `0` in the healthy case. */
+    count: number
+    /** The overlapping paths themselves, sorted ascending. Empty
+     *  when `count === 0`. */
+    paths: string[]
+  }
 }
 
 /**
@@ -76,12 +90,13 @@ export interface DerivedLayerMaintenanceSummary {
  * Empty bundles return zero rollups for every subsystem.
  */
 export async function derivedLayerMaintenanceSummary(bundleRoot: string): Promise<DerivedLayerMaintenanceSummary> {
-  const [status, projection, compactionPlan, compactedOutputs, gcPlan] = await Promise.all([
+  const [status, projection, compactionPlan, compactedOutputs, gcPlan, overlapRows] = await Promise.all([
     bundleDerivedStatus(bundleRoot),
     summariseProjectionSegments(bundleRoot),
     planCompaction(bundleRoot),
     listCompactedOutputs(bundleRoot),
     planSupersededCleanup(bundleRoot),
+    detectCompactionOverlaps(bundleRoot),
   ])
 
   const reasonsSet = new Set<string>()
@@ -109,6 +124,10 @@ export async function derivedLayerMaintenanceSummary(bundleRoot: string): Promis
       candidate_count: gcPlan.candidates.length,
       safe_to_delete: gcPlan.safe_to_delete,
       blocked: gcPlan.blocked,
+    },
+    overlaps: {
+      count: overlapRows.length,
+      paths: overlapRows.map((r) => r.path),
     },
   }
 }

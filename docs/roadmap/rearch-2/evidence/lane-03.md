@@ -719,7 +719,15 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
   `{ path, claimed_by: [{ compaction_seq, entity_type }, ...] }`
   sorted by `compaction_seq` ascending. The audit closes a gap
   the per-seq GC planner cannot see (it processes one seq at a
-  time).
+  time). Now wired into `derivedLayerMaintenanceSummary` as a
+  top-level `overlaps: { count, paths }` field, and the
+  `recommendMaintenanceActions` prescriptive layer emits a new
+  highest-priority `resolve_overlap` recommendation that
+  SHORT-CIRCUITS every other action: when overlaps exist, GC /
+  resume / compaction are all unsafe, so the recommender refuses
+  to surface them and emits only the `resolve_overlap` signal
+  with `{ overlap_count, paths }` so the operator can resolve
+  the duplicate claim manually.
   `compaction-history` wires `listCompactionHistory(--store)`:
   per-manifest timeline emitting `{ compaction_seq, manifest_path,
   generated_at, consistent, entity_count,

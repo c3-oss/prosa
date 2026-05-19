@@ -138,7 +138,11 @@ section as the full restart instruction:
   introspection subcommand (`2a5a99f`),
   `detectCompactionOverlaps` cross-seq correctness audit +
   `prosa index-v2 compaction-overlaps` CLI subcommand
-  (`9033b5b`), plus the prior scaffold
+  (`9033b5b`), maintenance + recommendations corruption gate
+  wiring `overlaps: { count, paths }` into the maintenance
+  summary and adding the highest-priority `resolve_overlap`
+  recommendation that short-circuits every other action
+  (pending commit), plus the prior scaffold
   (`bb76006`), SessionBlobPackV2 byte layout (`ba87f05`), Parquet
   compaction planner (`ea8c1a8`), DuckDB analytics view shape contract
   + compacted-overlay binding (`cff3670` / `e35f844`), Tantivy schema
@@ -153,7 +157,7 @@ section as the full restart instruction:
   `clearTantivyIndexDir` reset helper (`257a176`), CQ-096
   intermediate-symlink containment (`3be300f`), and SessionBlob
   pack-path resolver + CQ-097 textual-source cleanup (`d798b15`).
-  All `CQ-074..CQ-113` are closed. `CQ-113` closeout split the
+  All `CQ-074..CQ-114` are closed. `CQ-113` closeout split the
   snapshot composition test from the malformed-checkpoint
   fail-closed assertion: the positive test plants two valid
   Tantivy segment files; a new negative test pins
