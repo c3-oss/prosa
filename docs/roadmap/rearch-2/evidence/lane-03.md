@@ -197,6 +197,27 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
   the three Tantivy delegates do not drift from the typed layout,
   and verify relative bundle roots are composed without
   `path.resolve()`.
+- [x] SessionBlobPackV2 on-disk loader
+  (`loadSessionBlobPack({ bundleRoot, sessionId, epoch })`) pairs the
+  pack-path resolver with the existing reader: it resolves the
+  canonical path (delegating input validation to
+  `sessionBlobPackPath`), `lstat`s the path and refuses on symlinks
+  (CQ-094 final-component hardening) or non-regular files, reads
+  the bytes, re-verifies `pack_digest` from the bytes alone via
+  `verifyPackDigest` (so the header field is never trusted for
+  identity), decodes the framed pack exactly once, and returns
+  `{ path, bytes, header, pageBytes, pack_digest }` ready to feed
+  into `loadTranscriptPage` / `iterateTranscript` without
+  re-reading. ENOENT propagates so callers can distinguish a
+  missing pack from a corrupt one. 7 tests cover: write-then-load
+  round-trip with byte-identity, ENOENT propagation, symlink
+  refusal (planting an external pack that would otherwise decode),
+  non-regular-file refusal (directory at the pack path), tamper
+  detection (byte mutation deep in the payload triggers
+  digest/length mismatch), input-validation delegation
+  (forward-slash, `..`, negative epoch all surface synchronous
+  errors before touching the filesystem), and `pageBytes` length
+  parity with `header.pages[*].stored_length`.
 - [x] SessionBlobPackV2 on-disk path resolver
   (`sessionBlobEpochDir(bundleRoot, epoch)`,
   `sessionBlobPackPath(bundleRoot, sessionId, epoch)`) pins the
@@ -323,7 +344,7 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
 ```text
 pnpm install --prefer-offline                       # registers @c3-oss/prosa-derived-v2 in pnpm-lock.yaml
 pnpm --filter @c3-oss/prosa-derived-v2 typecheck    # clean
-pnpm --filter @c3-oss/prosa-derived-v2 test         # 179 tests / 17 files (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 8, compaction executor-plan 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9, reader-iterator 7, tantivy checkpoint-store 11, analytics executor-plan 9, tantivy index-dir probe 17 (incl. CQ-096 intermediate + bundle-root-alias), tantivy plan-bundle orchestration 9, derived-layout 27 (7 canonical + 5 sessionBlobEpochDir + 15 sessionBlobPackPath), tantivy clear-index-dir 10 (incl. CQ-096 intermediate + bundle-root-alias))
+pnpm --filter @c3-oss/prosa-derived-v2 test         # 186 tests / 18 files (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 8, compaction executor-plan 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9, reader-iterator 7, tantivy checkpoint-store 11, analytics executor-plan 9, tantivy index-dir probe 17 (incl. CQ-096 intermediate + bundle-root-alias), tantivy plan-bundle orchestration 9, derived-layout 27 (7 canonical + 5 sessionBlobEpochDir + 15 sessionBlobPackPath), tantivy clear-index-dir 10 (incl. CQ-096 intermediate + bundle-root-alias), session-blob loader 7)
 pnpm --filter @c3-oss/prosa-derived-v2 lint         # clean
 pnpm build                                          # 13/13 turbo
 pnpm typecheck                                      # 13/13 turbo
