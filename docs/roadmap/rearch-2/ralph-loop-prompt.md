@@ -141,8 +141,8 @@ section as the full restart instruction:
   (`9033b5b`), maintenance + recommendations corruption gate
   wiring `overlaps: { count, paths }` into the maintenance
   summary and adding the highest-priority `resolve_overlap`
-  recommendation that short-circuits every other action
-  (pending commit), plus the prior scaffold
+  recommendation that short-circuits every other action +
+  CQ-114 closeout (`755a854`), plus the prior scaffold
   (`bb76006`), SessionBlobPackV2 byte layout (`ba87f05`), Parquet
   compaction planner (`ea8c1a8`), DuckDB analytics view shape contract
   + compacted-overlay binding (`cff3670` / `e35f844`), Tantivy schema
