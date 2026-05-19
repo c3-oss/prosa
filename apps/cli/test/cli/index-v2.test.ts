@@ -722,12 +722,13 @@ describe('prosa index-v2 CLI', () => {
     expect(r.stderr).toMatch(/invalid --epoch/i)
   })
 
-  it('`index-v2 transcript --help` documents --store and --session-id', async () => {
+  it('`index-v2 transcript --help` documents --store, --session-id, and --format', async () => {
     const r = runCli(['index-v2', 'transcript', '--help'])
     expect(r.status).toBe(0)
     expect(r.stdout).toContain("Print a session's latest-epoch transcript")
     expect(r.stdout).toContain('--store')
     expect(r.stdout).toContain('--session-id')
+    expect(r.stdout).toContain('--format')
   })
 
   it('`index-v2 transcript` round-trips a real zstd-compressed pack and prints the messages', async () => {
@@ -799,5 +800,80 @@ describe('prosa index-v2 CLI', () => {
     const r = runCli(['index-v2', 'transcript', '--store', storeRoot])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/required option.*--session-id/i)
+  })
+
+  it('`index-v2 transcript --format text` renders a plain-text transcript with header', async () => {
+    const { writeSessionBlobPack, zstdSessionBlobCompressor } = await import('@c3-oss/prosa-derived-v2')
+    const { sessionBlobEpochDir, sessionBlobPackPath } = await import('@c3-oss/prosa-derived-v2')
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    const messages = [
+      {
+        message_id: 'msg_000000',
+        ordinal: 0,
+        role: 'user' as const,
+        timestamp: '2026-05-19T00:00:00.000Z',
+        turn_id: 'tur_0',
+        blocks: [
+          {
+            block_id: 'blk_0_0',
+            block_type: 'text',
+            body: { kind: 'inline' as const, text: 'hello', byte_length: 5 },
+          },
+        ],
+      },
+    ]
+    const result = writeSessionBlobPack({ session_id: 'ses_alpha', epoch: 2, messages }, zstdSessionBlobCompressor)
+    await mkdir(sessionBlobEpochDir(storeRoot, 2), { recursive: true })
+    await writeFile(sessionBlobPackPath(storeRoot, 'ses_alpha', 2), result.pack)
+
+    const r = runCli(['index-v2', 'transcript', '--store', storeRoot, '--session-id', 'ses_alpha', '--format', 'text'])
+    expect(r.status).toBe(0)
+    expect(r.stdout).toContain('epoch:        2')
+    expect(r.stdout).toContain('pack_digest:')
+    expect(r.stdout).toContain('message_count: 1')
+    expect(r.stdout).toContain('[#0] user @ 2026-05-19T00:00:00.000Z (turn: tur_0)')
+    expect(r.stdout).toContain('blk_0_0 | text | inline (5 bytes)')
+    expect(r.stdout).toContain('  hello')
+  })
+
+  it('`index-v2 transcript --format json` is the default behaviour', async () => {
+    const { writeSessionBlobPack, zstdSessionBlobCompressor } = await import('@c3-oss/prosa-derived-v2')
+    const { sessionBlobEpochDir, sessionBlobPackPath } = await import('@c3-oss/prosa-derived-v2')
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    const messages = [
+      {
+        message_id: 'msg_000000',
+        ordinal: 0,
+        role: 'user' as const,
+        timestamp: '2026-05-19T00:00:00.000Z',
+        turn_id: 'tur_0',
+        blocks: [
+          {
+            block_id: 'blk_0_0',
+            block_type: 'text',
+            body: { kind: 'inline' as const, text: 'hi', byte_length: 2 },
+          },
+        ],
+      },
+    ]
+    const result = writeSessionBlobPack({ session_id: 'ses_alpha', epoch: 1, messages }, zstdSessionBlobCompressor)
+    await mkdir(sessionBlobEpochDir(storeRoot, 1), { recursive: true })
+    await writeFile(sessionBlobPackPath(storeRoot, 'ses_alpha', 1), result.pack)
+
+    const r = runCli(['index-v2', 'transcript', '--store', storeRoot, '--session-id', 'ses_alpha', '--format', 'json'])
+    expect(r.status).toBe(0)
+    const out = JSON.parse(r.stdout) as { epoch: number }
+    expect(out.epoch).toBe(1)
+  })
+
+  it('CQ-105: `index-v2 transcript --format yaml` rejects unknown formats BEFORE any bundle read', async () => {
+    // Point at a never-initialised store so a load attempt would fail with
+    // "no pack found" / ENOENT. The format validation must run first so the
+    // user sees "invalid --format" instead of a misleading bundle-read error.
+    const storeRoot = join(await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-')), 'never-initialised')
+    const r = runCli(['index-v2', 'transcript', '--store', storeRoot, '--session-id', 'ses_alpha', '--format', 'yaml'])
+    expect(r.status).not.toBe(0)
+    expect(r.stderr).toMatch(/invalid --format/i)
+    expect(r.stderr).not.toMatch(/loadLatestSessionBlobPack|no pack found/i)
   })
 })

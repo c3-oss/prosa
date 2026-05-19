@@ -646,12 +646,19 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
   `planCompactionExecution` so the auditor sees the exact
   `COPY (SELECT ... FROM read_parquet([...])) TO ...` statements
   the runtime worker would issue per entity.
+  `transcript` accepts `--format json` (default) or `--format text`
+  for a plain-text rendering of the v2 transcript via
+  `formatTranscriptTextV2`, with a metadata header (epoch /
+  pack_digest / path / message_count) preceding the messages.
+  CQ-105: the format flag is validated synchronously before any
+  bundle read so an invalid format surfaces `invalid --format`
+  rather than a misleading missing-session error.
   `transcript-header` exposes the SessionBlob header (per-page
   message/turn/tool-call counts, ordinal ranges, stored +
   uncompressed page lengths) without decompressing any page —
   cheap probe surface for dashboards that want pack-level
   aggregates only.
-  46 subprocess tests (`apps/cli/test/cli/index-v2.test.ts`) cover:
+  49 subprocess tests (`apps/cli/test/cli/index-v2.test.ts`) cover:
   parent `--help` listing all eleven subcommands, `status`
   `--help` + fresh-bundle empty snapshot + SessionBlob-populated
   snapshot + missing-`--store` (4); `sessions --help` +
@@ -711,10 +718,15 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
   specific-`--epoch` selection (epochs 1 and 4 planted; default
   returns epoch 4, `--epoch 1` returns epoch 1) +
   negative-`--epoch` rejected synchronously (4);
-  `transcript --help` documenting `--store` and `--session-id` +
-  real zstd-compressed pack round-trip with
+  `transcript --help` documenting `--store` + `--session-id` +
+  `--format` + real zstd-compressed pack round-trip with
   epoch/pack_digest/messages fields + unknown-session failure +
-  missing-`--session-id` failure (4). Apps/cli typecheck +
+  missing-`--session-id` failure + `--format text` rendered with
+  the metadata header + `[#0] role @ ts (turn: id)` line +
+  `  blk_id | type | inline (N bytes)` line + indented body +
+  `--format json` explicit + CQ-105 `--format yaml` rejected
+  BEFORE any bundle read (stderr matches `invalid --format` and
+  does not mention `loadLatestSessionBlobPack`) (7). Apps/cli typecheck +
   lint clean; pulled in `@c3-oss/prosa-derived-v2` as a
   workspace dependency.
 - [x] Bundle-level derived-layer status aggregator
@@ -876,8 +888,8 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
 ```text
 pnpm install --prefer-offline                       # registers @c3-oss/prosa-derived-v2 in pnpm-lock.yaml
 pnpm --filter @c3-oss/prosa-derived-v2 typecheck    # clean
-pnpm --filter @c3-oss/prosa-derived-v2 test         # 400 tests / 34 files
-pnpm --filter @c3-oss/prosa exec vitest run test/cli/index-v2.test.ts  # 46 subprocess-spawned tests for index-v2 status + sessions + epochs + analytics-views + analytics-execution-plan + projection-segments + tantivy-rebuild-plan + compaction-plan + compaction-execution-plan + transcript-header + transcript (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 13 incl. CQ-101 + CQ-102 containment regressions, compaction executor-plan 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9, reader-iterator 7, tantivy checkpoint-store 21 (11 prior + 4 write CQ-096 + 6 read CQ-103), analytics executor-plan 9, tantivy index-dir probe 17, tantivy plan-bundle orchestration 9, tantivy status 10, analytics descriptor 8, bundle status 16 (8 prior aggregator + 8 derivedLayerEpochsTouched incl. CQ-104 empty-epoch-dir regressions), compaction segments 22 (9 listing + 7 summary + 6 containment), derived-layout 27, tantivy clear-index-dir 10, session-blob loader 11, session-blob zstd 5, session-blob listing 27 (19 prior + 8 listAllSessionBlobSessions cross-epoch union), session-blob latest 11 incl. CQ-100, session-blob transcript-from-bundle 8, session-blob iterate-from-bundle 9, session-blob header 10, session-blob exists 11, session-blob latest-epoch 11, session-blob summary 19 (11 single + 8 bulk listing), integration sessionblob-end-to-end 12, integration compaction-end-to-end 8, integration tantivy-end-to-end 8)
+pnpm --filter @c3-oss/prosa-derived-v2 test         # 409 tests / 35 files (+9 formatTranscriptTextV2)
+pnpm --filter @c3-oss/prosa exec vitest run test/cli/index-v2.test.ts  # 49 subprocess-spawned tests for index-v2 status + sessions + epochs + analytics-views + analytics-execution-plan + projection-segments + tantivy-rebuild-plan + compaction-plan + compaction-execution-plan + transcript-header + transcript (incl. CQ-105 --format pre-read validation) (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 13 incl. CQ-101 + CQ-102 containment regressions, compaction executor-plan 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9, reader-iterator 7, tantivy checkpoint-store 21 (11 prior + 4 write CQ-096 + 6 read CQ-103), analytics executor-plan 9, tantivy index-dir probe 17, tantivy plan-bundle orchestration 9, tantivy status 10, analytics descriptor 8, bundle status 16 (8 prior aggregator + 8 derivedLayerEpochsTouched incl. CQ-104 empty-epoch-dir regressions), compaction segments 22 (9 listing + 7 summary + 6 containment), derived-layout 27, tantivy clear-index-dir 10, session-blob loader 11, session-blob zstd 5, session-blob listing 27 (19 prior + 8 listAllSessionBlobSessions cross-epoch union), session-blob latest 11 incl. CQ-100, session-blob transcript-from-bundle 8, session-blob iterate-from-bundle 9, session-blob header 10, session-blob exists 11, session-blob latest-epoch 11, session-blob summary 19 (11 single + 8 bulk listing), integration sessionblob-end-to-end 12, integration compaction-end-to-end 8, integration tantivy-end-to-end 8)
 pnpm --filter @c3-oss/prosa-derived-v2 lint         # clean
 pnpm build                                          # 13/13 turbo
 pnpm typecheck                                      # 13/13 turbo

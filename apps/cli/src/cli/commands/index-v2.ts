@@ -24,6 +24,7 @@ import {
   analyticsViewsDescriptor,
   bundleDerivedStatus,
   derivedLayerEpochsTouched,
+  formatTranscriptTextV2,
   listProjectionSegments,
   listSessionBlobSummaries,
   loadTranscriptFromBundle,
@@ -202,16 +203,27 @@ export function indexV2Command(): Command {
   root
     .command('transcript')
     .description(
-      "Print a session's latest-epoch transcript (epoch + pack_digest + messages) as JSON from a bundle v2 store.",
+      "Print a session's latest-epoch transcript (epoch + pack_digest + messages) from a bundle v2 store. Default format is JSON; pass --format text for a plain-text render with a metadata header.",
     )
     .requiredOption('--store <path>', 'bundle directory')
     .requiredOption('--session-id <id>', 'canonical session_id (matches `index-v2 sessions` rows)')
-    .action(async (options: { store: string; sessionId: string }) => {
+    .option('--format <fmt>', 'output format: json|text (default: json)', 'json')
+    .action(async (options: { store: string; sessionId: string; format: string }) => {
+      // CQ-105: validate `--format` synchronously before any bundle read so
+      // invalid formats fail with `invalid --format` regardless of whether the
+      // requested session exists or the store is reachable.
+      if (options.format !== 'json' && options.format !== 'text') {
+        throw new Error(`invalid --format: ${options.format} (expected json|text)`)
+      }
       const storePath = resolvePath(options.store)
       const transcript = await loadTranscriptFromBundle({
         bundleRoot: storePath,
         sessionId: options.sessionId,
       })
+      if (options.format === 'text') {
+        process.stdout.write(formatTranscriptTextV2(transcript, { includeHeader: true }))
+        return
+      }
       process.stdout.write(`${JSON.stringify(transcript, null, 2)}\n`)
     })
 

@@ -4,9 +4,61 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 ## Open
 
-(none — `CQ-091`..`CQ-104` are all closed.)
+(none — `CQ-091`..`CQ-105` are all closed.)
 
 ## Closed (latest first)
+
+### CQ-105: Validate `index-v2 transcript --format` Before Bundle Reads — closed 2026-05-19
+
+Status: closed
+Severity: medium
+Blocking: yes
+Owner: Ralph
+Opened: 2026-05-19
+Closed: 2026-05-19
+Lane: 3 - Derived layer
+
+Finding:
+
+The first `index-v2 transcript --format text|json` slice validated
+`--format` after `loadTranscriptFromBundle()` had already read the
+bundle. An invalid format failed with an unrelated session/bundle
+error before the CLI reported the bad option. Codex confirmed this
+with `corepack pnpm --filter @c3-oss/prosa exec vitest run
+test/cli/index-v2.test.ts -t "format yaml"`, which surfaced
+`Error: loadLatestSessionBlobPack: no pack found for session
+"ses_alpha"` instead of `/invalid --format/i`.
+
+Risk:
+
+CLI option validation becomes data-dependent. Users who typo
+`--format` would get a misleading missing-session or bundle error,
+and automation could not rely on a stable invalid-option failure
+before I/O.
+
+Resolution:
+
+Moved the `options.format !== 'json' && options.format !== 'text'`
+check to the very top of the `transcript` action, before
+`resolvePath` or `loadTranscriptFromBundle`. Default JSON output and
+`--format text` output are preserved. The regression test was
+strengthened to (a) point at a never-initialised store so the load
+would otherwise throw and (b) assert that stderr does NOT mention
+`loadLatestSessionBlobPack` / `no pack found`, ensuring the
+format check fires first.
+
+Acceptance criteria — all met:
+
+- ✅ `corepack pnpm --filter @c3-oss/prosa exec vitest run
+  test/cli/index-v2.test.ts -t "format yaml"` passes (the renamed
+  `CQ-105: \`index-v2 transcript --format yaml\` rejects unknown
+  formats BEFORE any bundle read` regression).
+- ✅ Full `corepack pnpm --filter @c3-oss/prosa exec vitest run
+  test/cli/index-v2.test.ts` passes (49 tests / 1 file).
+- ✅ `corepack pnpm --filter @c3-oss/prosa typecheck` passes.
+- ✅ `corepack pnpm --filter @c3-oss/prosa lint` passes.
+- ✅ `git diff --check` passes.
+- ✅ Full repo `pnpm turbo run test` — 13/13 turbo.
 
 ### CQ-104: `derivedLayerEpochsTouched` Must Count Artifacts, Not Empty SessionBlob Epoch Dirs — closed 2026-05-19
 
