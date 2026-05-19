@@ -105,7 +105,9 @@ section as the full restart instruction:
   compaction-manifest --write` / `--read` CLI surface
   (`ed379a1`), `listSupersededSegmentsFromManifests` +
   `summariseSupersededSegments` + `prosa index-v2
-  superseded-segments` audit/GC primitive (`633ee9b`), plus
+  superseded-segments` audit/GC primitive (`633ee9b`),
+  `listCompactedOutputs` + `prosa index-v2 compacted-outputs`
+  manifest-vs-on-disk consistency audit (`6b36ff1`), plus
   the prior scaffold
   (`bb76006`), SessionBlobPackV2 byte layout (`ba87f05`), Parquet
   compaction planner (`ea8c1a8`), DuckDB analytics view shape contract
