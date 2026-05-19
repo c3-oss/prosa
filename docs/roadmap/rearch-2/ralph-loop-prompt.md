@@ -118,8 +118,8 @@ section as the full restart instruction:
   maintenance ↔ discrete-subcommand rollup-equality coherence
   test (`20687c9`), `recommendMaintenanceActions` prescriptive
   layer + `prosa index-v2 next-action` CLI subcommand + CQ-111
-  GC-suppress-when-inconsistent safety closeout (pending
-  commit), plus the prior scaffold
+  GC-suppress-when-inconsistent safety closeout (`c61be83`),
+  plus the prior scaffold
   (`bb76006`), SessionBlobPackV2 byte layout (`ba87f05`), Parquet
   compaction planner (`ea8c1a8`), DuckDB analytics view shape contract
   + compacted-overlay binding (`cff3670` / `e35f844`), Tantivy schema
