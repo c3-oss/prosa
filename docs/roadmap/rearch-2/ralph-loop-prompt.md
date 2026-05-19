@@ -143,11 +143,10 @@ section as the full restart instruction:
   `clearTantivyIndexDir` reset helper (`257a176`), CQ-096
   intermediate-symlink containment (`3be300f`), and SessionBlob
   pack-path resolver + CQ-097 textual-source cleanup (`d798b15`).
-  All `CQ-074..CQ-111` are closed. `CQ-112` is open and blocking:
-  fix `summariseDerivedLayerFootprint()` so every direct child of
-  `<bundleRoot>/derived/` is either accounted for or refused. Unknown
-  top-level regular files must count in `other`; unknown top-level
-  symlinks must fail closed instead of being silently ignored.
+  All `CQ-074..CQ-112` are closed. `CQ-112` closeout pushed the
+  top-level `derived/` scan to enumerate every direct child, route
+  unknown regular files into `other`, and refuse unknown top-level
+  symlinks with a deterministic `(CQ-112)` error before returning.
   There is no remaining Lane 2 external-acceptance blocker; do not
   output `RALPH_DONE` yet because Lane 3 remainder (Tantivy native
   writer, DuckDB runtime executor, runtime Parquet merge) plus

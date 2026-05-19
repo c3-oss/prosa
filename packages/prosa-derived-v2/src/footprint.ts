@@ -137,21 +137,31 @@ const KNOWN_SUBSYSTEM_NAMES = new Set(['session-blob', 'tantivy', 'analytics'])
 export async function summariseDerivedLayerFootprint(bundleRoot: string): Promise<DerivedLayerFootprint> {
   const paths = derivedPaths(bundleRoot)
 
-  let derivedEntries: string[]
+  // CQ-112: enumerate EVERY direct child of `derived/`, not only
+  // directories. We must either account for it (in `other`) or
+  // refuse it (symlink). Silently ignoring entries — files or
+  // unknown symlinks — would let the footprint under-report disk
+  // usage and would let a top-level symlink escape the audit.
+  let derivedDirEntries: Array<{ name: string; isDirectory: boolean; isFile: boolean; isSymbolicLink: boolean }>
   try {
     const st = await lstat(paths.derived)
     if (st.isSymbolicLink()) {
       throw new Error(`summariseDerivedLayerFootprint: refusing to follow ${paths.derived} symlink (CQ-094 parallel).`)
     }
     if (!st.isDirectory()) {
-      derivedEntries = []
+      derivedDirEntries = []
     } else {
       const direntries = await readdir(paths.derived, { withFileTypes: true })
-      derivedEntries = direntries.filter((d) => d.isDirectory()).map((d) => d.name)
+      derivedDirEntries = direntries.map((d) => ({
+        name: d.name,
+        isDirectory: d.isDirectory(),
+        isFile: d.isFile(),
+        isSymbolicLink: d.isSymbolicLink(),
+      }))
     }
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-      derivedEntries = []
+      derivedDirEntries = []
     } else {
       throw err
     }
@@ -164,14 +174,39 @@ export async function summariseDerivedLayerFootprint(bundleRoot: string): Promis
   ])
 
   const other: SubsystemFootprint = { byte_count: 0, file_count: 0, present: false }
-  for (const name of derivedEntries) {
-    if (KNOWN_SUBSYSTEM_NAMES.has(name)) continue
-    const sub = await subsystemFootprint(join(paths.derived, name))
-    if (sub.present) {
-      other.present = true
-      other.byte_count += sub.byte_count
-      other.file_count += sub.file_count
+  for (const entry of derivedDirEntries) {
+    if (KNOWN_SUBSYSTEM_NAMES.has(entry.name)) continue
+    const child = join(paths.derived, entry.name)
+    // CQ-112: refuse top-level symlinks just like every level
+    // below. The readdir Dirent's `isSymbolicLink()` only reports
+    // the immediate symlink state without dereferencing — exactly
+    // what we want here. Use lstat to confirm before erroring so
+    // a race-condition swap-after-readdir still triggers the same
+    // safety path.
+    const childSt = await lstat(child)
+    if (childSt.isSymbolicLink() || entry.isSymbolicLink) {
+      throw new Error(
+        `summariseDerivedLayerFootprint: refusing to follow top-level symlink at ${child} (CQ-112; resolve the symlink configuration manually).`,
+      )
     }
+    if (childSt.isDirectory()) {
+      const sub = await subsystemFootprint(child)
+      if (sub.present) {
+        other.present = true
+        other.byte_count += sub.byte_count
+        other.file_count += sub.file_count
+      }
+    } else if (childSt.isFile()) {
+      // CQ-112: top-level regular files under `derived/` are
+      // unknown but legitimate — count them toward `other` so the
+      // total stays accurate.
+      other.present = true
+      other.byte_count += childSt.size
+      other.file_count += 1
+    }
+    // Other entry kinds (sockets, fifos, devices) are silently
+    // skipped — they cannot legitimately occur inside a bundle and
+    // there is no sensible way to "count" them.
   }
 
   const totalBytes = sessionBlob.byte_count + tantivy.byte_count + analytics.byte_count + other.byte_count

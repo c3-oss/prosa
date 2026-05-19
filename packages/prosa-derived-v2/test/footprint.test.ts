@@ -106,6 +106,34 @@ describe('summariseDerivedLayerFootprint', () => {
     }
   })
 
+  it('CQ-112: counts a top-level regular file under derived/ toward `other` rather than silently ignoring it', async () => {
+    // Forward-compatible layout additions — a stray top-level file
+    // (e.g. a future `derived/version` marker) must contribute to
+    // the total instead of being silently dropped.
+    await mkdir(join(bundleRoot, 'derived', 'session-blob'), { recursive: true })
+    await writeFile(join(bundleRoot, 'derived', 'session-blob', 'a.pack'), Buffer.alloc(500))
+    await writeFile(join(bundleRoot, 'derived', 'unknown-top-level-file.bin'), Buffer.alloc(123))
+
+    const footprint = await summariseDerivedLayerFootprint(bundleRoot)
+    expect(footprint.other).toEqual({ byte_count: 123, file_count: 1, present: true })
+    expect(footprint.session_blob.byte_count).toBe(500)
+    expect(footprint.total_bytes).toBe(500 + 123)
+  })
+
+  it('CQ-112: refuses a top-level symlink under derived/ whose name is not a known subsystem', async () => {
+    // A top-level symlink that does not match a known subsystem
+    // root must fail closed instead of being silently ignored.
+    // Mirrors the symlink-at-known-subsystem-root rejection above.
+    const offBundleTarget = await mkdtemp(join(tmpdir(), 'prosa-footprint-target-'))
+    try {
+      await mkdir(join(bundleRoot, 'derived'), { recursive: true })
+      await symlink(offBundleTarget, join(bundleRoot, 'derived', 'rogue-link'), 'dir')
+      await expect(summariseDerivedLayerFootprint(bundleRoot)).rejects.toThrow(/CQ-112/)
+    } finally {
+      await rm(offBundleTarget, { recursive: true, force: true })
+    }
+  })
+
   it('refuses to follow a symlink at the derived/ root itself', async () => {
     const offBundleTarget = await mkdtemp(join(tmpdir(), 'prosa-footprint-target-'))
     try {

@@ -8,6 +8,87 @@ _(none)_
 
 ## Closed (latest first)
 
+### CQ-112: Footprint Must Account for or Refuse Every Top-Level `derived/` Entry — closed 2026-05-19
+
+Status: closed
+Severity: medium
+Blocking: yes
+Owner: Ralph
+Opened: 2026-05-19
+Closed: 2026-05-19
+Lane: 3 - Derived layer
+
+Finding:
+
+The initial `summariseDerivedLayerFootprint()` documented that it
+walked `<bundleRoot>/derived/`, refused symlinks under that tree,
+and reported unknown layout additions through `other`. However,
+the top-level `derived/` scan filtered to directories only:
+
+```ts
+derivedEntries = direntries.filter((d) => d.isDirectory()).map((d) => d.name)
+```
+
+That silently ignored regular files directly under `derived/` and
+silently ignored top-level symlinks whose names were not one of
+the known subsystem roots. Those entries were neither counted in
+`other` nor refused, contradicting the total-footprint and
+symlink containment contract.
+
+Risk:
+
+An operator-facing footprint summary could under-report disk
+usage for forward-compatible top-level files under `derived/`, and
+a malicious or accidental top-level symlink could be hidden from
+the audit instead of failing closed.
+
+Fix:
+
+`packages/prosa-derived-v2/src/footprint.ts` now enumerates every
+direct child of `derived/` (not only directories):
+
+- Top-level regular files count toward
+  `other.byte_count`/`other.file_count`/`other.present` and
+  therefore `total_bytes`.
+- Top-level symlinks whose names are not a known subsystem root
+  are refused with a deterministic
+  `... refusing to follow top-level symlink ... (CQ-112)` error
+  before any partial footprint is returned.
+- Known subsystem behavior is unchanged: known subsystem
+  directories are still counted via `subsystemFootprint`, missing
+  ones report `present: false`, and symlinks at known subsystem
+  roots or below them are still refused.
+- The implementation also re-`lstat`s the child before reading,
+  so a race-condition swap-after-readdir still triggers the
+  refusal path.
+
+Tests:
+
+`packages/prosa-derived-v2/test/footprint.test.ts` adds two
+focused cases:
+
+- "CQ-112: counts a top-level regular file under derived/ toward
+  `other` rather than silently ignoring it" — verifies a
+  `derived/unknown-top-level-file.bin` of 123 bytes pushes
+  `other` to `{ byte_count: 123, file_count: 1, present: true }`
+  and bumps `total_bytes`.
+- "CQ-112: refuses a top-level symlink under derived/ whose name
+  is not a known subsystem" — verifies `derived/rogue-link`
+  pointing off-bundle throws `/CQ-112/` before any footprint is
+  returned.
+
+Verification:
+
+- `pnpm --filter @c3-oss/prosa-derived-v2 typecheck` — clean.
+- `pnpm --filter @c3-oss/prosa-derived-v2 lint:fix` — no fixes.
+- `pnpm --filter @c3-oss/prosa-derived-v2 exec vitest run test/footprint.test.ts` — 10 tests pass.
+- `pnpm --filter @c3-oss/prosa-derived-v2 test` — 520 tests / 47 files.
+- `pnpm --filter @c3-oss/prosa exec vitest run test/cli/index-v2.test.ts -t footprint`
+  — 4 CLI footprint tests pass.
+- `pnpm turbo run test` — 13/13 packages green.
+- `git diff --check` — clean.
+
+
 ### CQ-111: Do Not Recommend GC While Any Persisted Compaction Is Inconsistent — closed 2026-05-19
 
 Status: closed
