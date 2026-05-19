@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { sessionBlobEpochDir, sessionBlobPackPath } from '../../src/derived-layout.js'
 import { identityCompressor } from '../../src/session-blob/reader.js'
-import { getSessionBlobSummary } from '../../src/session-blob/summary.js'
+import { getSessionBlobSummary, listSessionBlobSummaries } from '../../src/session-blob/summary.js'
 import { type BlobMessageInput, writeSessionBlobPack } from '../../src/session-blob/writer.js'
 
 const SESSION_ID = 'ses_summary_demo'
@@ -194,3 +194,116 @@ describe('getSessionBlobSummary', () => {
     )
   })
 })
+
+describe('listSessionBlobSummaries', () => {
+  let bundleRoot: string
+
+  beforeEach(async () => {
+    bundleRoot = await mkdtemp(join(tmpdir(), 'prosa-derived-summaries-'))
+  })
+
+  afterEach(async () => {
+    await rm(bundleRoot, { recursive: true, force: true })
+  })
+
+  it('returns [] on a fresh bundle (no epochs)', async () => {
+    expect(await listSessionBlobSummaries(bundleRoot)).toEqual([])
+  })
+
+  it('returns [] when epochs exist but no `.pack` files are present', async () => {
+    await mkdir(sessionBlobEpochDir(bundleRoot, 1), { recursive: true })
+    await mkdir(sessionBlobEpochDir(bundleRoot, 3), { recursive: true })
+    expect(await listSessionBlobSessionsToSummaries(bundleRoot)).toEqual([])
+  })
+
+  it('returns one summary per session, sorted by session_id ascending', async () => {
+    await writePack(bundleRoot, 'ses_charlie', 2, 4)
+    await writePack(bundleRoot, 'ses_alpha', 1, 2)
+    await writePack(bundleRoot, 'ses_bravo', 3, 6)
+
+    const summaries = await listSessionBlobSummaries(bundleRoot)
+
+    expect(summaries.map((s) => s.session_id)).toEqual(['ses_alpha', 'ses_bravo', 'ses_charlie'])
+    expect(summaries.map((s) => s.message_count)).toEqual([2, 6, 4])
+  })
+
+  it('produces one row per cross-epoch session even when the session appears in many epochs', async () => {
+    // ses_alpha appears in epochs 1, 3, 5 — the bulk listing
+    // should still surface exactly one row, with the latest epoch
+    // (5) winning the aggregate counts.
+    await writePack(bundleRoot, 'ses_alpha', 1, 1)
+    await writePack(bundleRoot, 'ses_alpha', 3, 3)
+    await writePack(bundleRoot, 'ses_alpha', 5, 7)
+    await writePack(bundleRoot, 'ses_bravo', 3, 2)
+
+    const summaries = await listSessionBlobSummaries(bundleRoot)
+
+    expect(summaries.map((s) => s.session_id)).toEqual(['ses_alpha', 'ses_bravo'])
+    const alpha = summaries.find((s) => s.session_id === 'ses_alpha')!
+    expect(alpha.epochs).toEqual([1, 3, 5])
+    expect(alpha.latest_epoch).toBe(5)
+    expect(alpha.message_count).toBe(7)
+  })
+
+  it('skips packs that the listing surface would not enumerate (CQ-099 / non-`.pack`)', async () => {
+    await writePack(bundleRoot, 'ses_real', 1, 1)
+    // Plant a CQ-099-rejected filename and a non-`.pack` file.
+    await writeFile(sessionBlobPackPath(bundleRoot, 'ses_real', 1).replace('ses_real.pack', '.pack'), 'fake')
+    await writeFile(join(sessionBlobEpochDir(bundleRoot, 1), 'README.md'), 'docs')
+
+    const summaries = await listSessionBlobSummaries(bundleRoot)
+    expect(summaries.map((s) => s.session_id)).toEqual(['ses_real'])
+  })
+
+  it('propagates parent CQ-098 rejection when `derived/session-blob` is a symlink', async () => {
+    const external = await mkdtemp(join(tmpdir(), 'prosa-derived-summaries-cq098-'))
+    try {
+      await mkdir(join(external, 'epoch-1'), { recursive: true })
+      await mkdir(join(bundleRoot, 'derived'), { recursive: true })
+      await symlink(external, join(bundleRoot, 'derived', 'session-blob'))
+
+      await expect(listSessionBlobSummaries(bundleRoot)).rejects.toThrow(/CQ-098|intermediate/i)
+    } finally {
+      await rm(external, { recursive: true, force: true })
+    }
+  })
+
+  it('accepts a symlinked bundle-root alias when the SessionBlob tree is real', async () => {
+    await writePack(bundleRoot, 'ses_real', 2, 3)
+    const aliasParent = await mkdtemp(join(tmpdir(), 'prosa-derived-summaries-alias-'))
+    try {
+      const aliasRoot = join(aliasParent, 'bundle-alias')
+      await symlink(bundleRoot, aliasRoot)
+      const summaries = await listSessionBlobSummaries(aliasRoot)
+      expect(summaries.map((s) => s.session_id)).toEqual(['ses_real'])
+      expect(summaries[0]!.message_count).toBe(3)
+    } finally {
+      await rm(aliasParent, { recursive: true, force: true })
+    }
+  })
+
+  it('every summary in the result has populated metadata (no null slots)', async () => {
+    await writePack(bundleRoot, 'ses_a', 1, 2)
+    await writePack(bundleRoot, 'ses_b', 1, 5)
+    await writePack(bundleRoot, 'ses_c', 2, 1)
+
+    const summaries = await listSessionBlobSummaries(bundleRoot)
+
+    expect(summaries).toHaveLength(3)
+    for (const summary of summaries) {
+      expect(summary.session_id).toBeTruthy()
+      expect(summary.epochs.length).toBeGreaterThan(0)
+      expect(summary.latest_epoch).toBe(summary.epochs.at(-1))
+      expect(summary.message_count).toBeGreaterThan(0)
+      expect(summary.latest_pack_digest).toMatch(/^blake3:[0-9a-f]{64}$/)
+    }
+  })
+})
+
+// `listSessionBlobSummaries` returns [] on empty-epoch-dirs because
+// `listAllSessionBlobSessions` returns [] when no `.pack` files are
+// found; this small alias exists only to keep the test phrasing
+// honest about the composed surface.
+async function listSessionBlobSessionsToSummaries(bundleRoot: string) {
+  return listSessionBlobSummaries(bundleRoot)
+}

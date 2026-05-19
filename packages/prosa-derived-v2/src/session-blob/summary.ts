@@ -34,7 +34,7 @@ import { sessionBlobPackPath } from '../derived-layout.js'
 
 import { sessionBlobPackExists } from './exists.js'
 import { readSessionBlobHeader } from './header.js'
-import { listSessionBlobEpochs } from './listing.js'
+import { listAllSessionBlobSessions, listSessionBlobEpochs } from './listing.js'
 
 export interface GetSessionBlobSummaryInput {
   /** Absolute bundle root. */
@@ -139,4 +139,51 @@ export async function getSessionBlobSummary(input: GetSessionBlobSummaryInput): 
     ordinal_start: ordinalStart,
     ordinal_end: ordinalEnd,
   }
+}
+
+/**
+ * Bulk counterpart of `getSessionBlobSummary`: returns one summary
+ * row per session that has a pack in any epoch under the bundle.
+ * The result is sorted by `session_id` ascending and contains
+ * exactly the same per-row shape as `getSessionBlobSummary`. Pairs
+ * with MCP `list_sessions`, CLI inventory tables, and web dashboards
+ * that paint a row per session.
+ *
+ * Composes `listAllSessionBlobSessions` (the deduplicated set of
+ * session ids across every epoch) with `getSessionBlobSummary` per
+ * session. The implementation is sequential — the per-session
+ * summary already runs one listing + N existence probes + one
+ * header read per call, so concurrency would just amplify
+ * filesystem contention without changing the I/O budget.
+ *
+ * Containment and validation inherit transparently:
+ *
+ *   - `listAllSessionBlobSessions` enforces the CQ-098 parent
+ *     containment check; a violation throws before any per-session
+ *     summary runs.
+ *   - Per-session `getSessionBlobSummary` re-runs the chain checks
+ *     and `readSessionBlobHeader` verifies `pack_digest` on the
+ *     latest pack for each session.
+ *   - Per-epoch CQ-094 / CQ-098 / non-regular-file outcomes collapse
+ *     to "skip this epoch" inside the existence probe (the summary
+ *     already drops epochs without a pack).
+ *
+ * Returns `[]` on a fresh bundle. A `null` summary slot is never
+ * produced — the listing only enumerates sessions that have at
+ * least one pack, so every per-session call resolves to a real
+ * `SessionBlobSummary` value.
+ */
+export async function listSessionBlobSummaries(bundleRoot: string): Promise<SessionBlobSummary[]> {
+  const sessionIds = await listAllSessionBlobSessions(bundleRoot)
+  const summaries: SessionBlobSummary[] = []
+  for (const sessionId of sessionIds) {
+    const summary = await getSessionBlobSummary({ bundleRoot, sessionId })
+    // `listAllSessionBlobSessions` enumerated this id from a pack
+    // file we just discovered, so the per-session summary should
+    // never resolve to `null` here. Be defensive: if some race
+    // makes the pack vanish between the listing and the per-session
+    // probe, drop the row rather than crashing the bulk operation.
+    if (summary !== null) summaries.push(summary)
+  }
+  return summaries
 }
