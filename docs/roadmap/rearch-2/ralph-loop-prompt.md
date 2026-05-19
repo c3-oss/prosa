@@ -97,8 +97,10 @@ section as the full restart instruction:
   deliverable (`f39d1da`), `verifyAllSessionBlobPacks` + `prosa
   index-v2 verify-packs` bundle-wide integrity audit
   (`d5ea090`), `prosa index-v2 tantivy-schema`
-  schema-introspection subcommand (`343e148`), plus the prior
-  scaffold
+  schema-introspection subcommand (`343e148`),
+  `writeCompactManifestV2` + `readCompactManifestV2` +
+  `compactManifestPath` on-disk manifest persistence
+  (`09737e9`), plus the prior scaffold
   (`bb76006`), SessionBlobPackV2 byte layout (`ba87f05`), Parquet
   compaction planner (`ea8c1a8`), DuckDB analytics view shape contract
   + compacted-overlay binding (`cff3670` / `e35f844`), Tantivy schema
