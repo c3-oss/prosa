@@ -98,7 +98,7 @@ no new transitive risk.
 
 - [x] Worktree state documented.
 - [x] Lane 0 has evidence; lanes 2–10 are documented as blocked or WIP.
-- [ ] No open blocking corrections. *(`CQ-091`..`CQ-094` are all closed;
+- [ ] No open blocking corrections. *(`CQ-091`..`CQ-095` are all closed;
   Lane 2 acceptance still pending Codex/governor/user sign-off.)*
 - [x] Base gates passed at HEAD `6c25966` (full repo `pnpm test` / `pnpm
   typecheck` / `pnpm lint` 12/12 turbo).
@@ -118,7 +118,8 @@ no new transitive risk.
   UTF-8 byte accounting); `CQ-092` closed by this iteration's roadmap
   reconciliation commit; `CQ-093` closed by this iteration's rename-based
   checkpoint replacement; `CQ-094` closed by this iteration's lstat-based
-  symlink rejection in the Tantivy index-dir probe.
+  symlink rejection in the Tantivy index-dir probe; `CQ-095` closed by
+  this iteration's roadmap reconciliation commit for `fa49eb2`.
 - [ ] Final Codex review completed. *(Pending — Lane 3 remainder (Tantivy
   writer, DuckDB views, runtime Parquet merge) plus Lanes 4–10 still
   unstarted/incomplete.)*

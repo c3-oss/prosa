@@ -4,8 +4,26 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 ## Open
 
-(none — `CQ-091`..`CQ-094` are all closed. Lane 2 acceptance still
+(none — `CQ-091`..`CQ-095` are all closed. Lane 2 acceptance still
 requires Codex/governor/user sign-off.)
+
+## Closed (latest first)
+
+### CQ-095: Reconcile Plan-Bundle Commit Evidence Before Further Acceptance — closed 2026-05-19
+
+Closure note: the four roadmap artifacts now agree on `fa49eb2` as
+the committed plan-bundle orchestration slice. The reconciliation
+removes the stale "pending plan-bundle orchestration commit" status
+language, clears the open-blocker mentions of `CQ-095` from
+`status.md` / `gates.md` / `ralph-loop-prompt.md`, and confirms
+`evidence/lane-03.md` already lists the orchestration helper as
+landed. No code change was required.
+
+Validation:
+
+- `git status --short --branch`: clean (after the reconciliation
+  commit).
+- `git diff --check`: pass.
 
 ## Closed (latest first)
 

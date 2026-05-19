@@ -157,14 +157,13 @@ Keep these files current:
 
 ## Current Blocking Corrections
 
-Current open corrections: none. `CQ-094` closed in this iteration:
-`tantivyIndexDirIsValid()` now uses `lstat()` on both the index directory
-and `meta.json`, rejecting symlinks at either position regardless of
-target. Two regression tests cover the escape paths
-(`derived/tantivy/index` → external dir, `meta.json` → external file).
-Lane 2 acceptance still requires Codex/governor/user sign-off; Lane 3
-forward work continues on the remaining surfaces (Tantivy native writer,
-DuckDB runtime executor, Parquet merge worker).
+Current open corrections: none. `CQ-091`..`CQ-095` are all closed.
+`CQ-095` closed in this iteration: roadmap artifacts (`status.md`,
+`gates.md`, `evidence/lane-03.md`, this prompt) all now agree on
+`fa49eb2` as the committed `planTantivyRebuildFromBundle` slice. Lane 2
+acceptance still requires Codex/governor/user sign-off; Lane 3 forward
+work continues on the remaining surfaces (Tantivy native writer, DuckDB
+runtime executor, Parquet merge worker).
 
 Lane 0 + Lane 1 are accepted by the project owner on 2026-05-18, including the
 two re-scopes in `docs/rearch-2/lane-1-rescopes.md`.
