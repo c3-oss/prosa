@@ -33,7 +33,7 @@ Ralph active: yes
 
 ## Open Blocking Corrections
 
-(none — `CQ-091`..`CQ-109` are all closed.)
+(none — `CQ-091`..`CQ-110` are all closed.)
 
 ## Latest Gates
 

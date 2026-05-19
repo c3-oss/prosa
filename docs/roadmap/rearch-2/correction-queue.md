@@ -4,9 +4,54 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 ## Open
 
-(none — `CQ-091`..`CQ-109` are all closed.)
+(none — `CQ-091`..`CQ-110` are all closed.)
 
 ## Closed (latest first)
+
+### CQ-110: Reconcile Index-V2 Subcommand Count in Gate Evidence — closed 2026-05-19
+
+Status: closed
+Severity: low
+Blocking: yes
+Owner: Ralph
+Opened: 2026-05-19
+Closed: 2026-05-19
+Lane: 3 - Derived layer
+
+Finding:
+
+The `gc-plan` closeout updated Lane 3 evidence from sixteen to
+seventeen pure-read `index-v2` subcommands, but committed
+`docs/roadmap/rearch-2/gates.md` still contained a stale
+long-form coverage sentence saying the parent `--help` lists
+"all eleven subcommands". The surrounding evidence and CLI
+tests already covered the larger surface, so the stale count
+made the gate evidence internally inconsistent.
+
+Risk:
+
+Not a code correctness issue, but it weakened the Ralph/Codex
+acceptance trail. Final lane acceptance and `RALPH_DONE` rely
+on the roadmap artifacts being coherent and current.
+
+Resolution:
+
+Replaced the lone `all eleven subcommands` reference in
+`docs/roadmap/rearch-2/gates.md` line 45 with `all seventeen
+subcommands` to match the current CLI surface (status,
+sessions, epochs, analytics-views, analytics-execution-plan,
+projection-segments, tantivy-schema, tantivy-rebuild-plan,
+compaction-plan, compaction-manifest, compaction-execution-plan,
+superseded-segments, compacted-outputs, gc-plan, verify-packs,
+transcript-header, transcript). The evidence + status counts
+were already current at seventeen.
+
+Acceptance criteria — all met:
+
+- ✅ `grep -nE "all (eleven|twelve|thirteen|fourteen|fifteen|sixteen)"
+  docs/roadmap/rearch-2/{gates.md,evidence/lane-03.md,status.md}`
+  returns no stale references.
+- ✅ `git diff --check` clean.
 
 ### CQ-109: Compact Manifest Paths Must Be Bundle-Relative and Traversal-Free — closed 2026-05-19
 
