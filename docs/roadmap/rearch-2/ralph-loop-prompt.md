@@ -110,8 +110,10 @@ section as the full restart instruction:
   manifest-vs-on-disk consistency audit (`6b36ff1`), CQ-109
   compact-manifest path-safety closeout (`4f91cfb`),
   `planSupersededCleanup` + `prosa index-v2 gc-plan`
-  safe-to-delete GC planner (`14c98cb`), plus the prior
-  scaffold
+  safe-to-delete GC planner (`14c98cb`),
+  `apps/cli/test/cli/index-v2-compaction-lifecycle.test.ts`
+  end-to-end compaction-lifecycle audit test (`55b435f`), plus
+  the prior scaffold
   (`bb76006`), SessionBlobPackV2 byte layout (`ba87f05`), Parquet
   compaction planner (`ea8c1a8`), DuckDB analytics view shape contract
   + compacted-overlay binding (`cff3670` / `e35f844`), Tantivy schema
