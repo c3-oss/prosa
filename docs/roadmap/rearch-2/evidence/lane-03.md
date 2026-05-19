@@ -476,6 +476,21 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
   non-strings, 200-char boundary acceptance + 201-char rejection,
   and `epoch` negative / non-integer / NaN / Infinity / non-number
   rejection.
+- [x] Tantivy read-side end-to-end integration test
+  (`test/integration/tantivy-end-to-end.test.ts`) walks the full
+  read-side lifecycle a runtime writer would follow:
+  fresh-bundle → plan (full/index_dir_invalid) →
+  plant-valid-dir + write-checkpoint → plan (skip) → simulate
+  new rows → plan (incremental with lastIndexedRowid +
+  currentMaxRowid) → tamper fingerprint → plan
+  (full/fingerprint_mismatch) → record prior failure → plan
+  (full/prior_run_failed) → clearTantivyIndexDir reset → plan
+  (full/index_dir_invalid post-reset) → caller-requested
+  overwrite forces full. Also asserts checkpoint writes round-
+  trip atomically (CQ-093) and leave no stale temps. 8 test
+  cases. Cross-surface parity: the pure `planTantivyRebuild`
+  agrees with `planTantivyRebuildFromBundle` for every state;
+  `tantivyIndexStatus` mirrors the read surfaces.
 - [x] Compaction read-side end-to-end integration test
   (`test/integration/compaction-end-to-end.test.ts`) wires the
   listing + summary + planner + executor-plan composer against
@@ -707,7 +722,7 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
 ```text
 pnpm install --prefer-offline                       # registers @c3-oss/prosa-derived-v2 in pnpm-lock.yaml
 pnpm --filter @c3-oss/prosa-derived-v2 typecheck    # clean
-pnpm --filter @c3-oss/prosa-derived-v2 test         # 363 tests / 33 files (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 8, compaction executor-plan 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9, reader-iterator 7, tantivy checkpoint-store 11, analytics executor-plan 9, tantivy index-dir probe 17, tantivy plan-bundle orchestration 9, tantivy status 10, analytics descriptor 8, bundle status 8, compaction segments 16 (9 listing + 7 summary), derived-layout 27, tantivy clear-index-dir 10, session-blob loader 11, session-blob zstd 5, session-blob listing 27 (19 prior + 8 listAllSessionBlobSessions cross-epoch union), session-blob latest 11 incl. CQ-100, session-blob transcript-from-bundle 8, session-blob iterate-from-bundle 9, session-blob header 10, session-blob exists 11, session-blob latest-epoch 11, session-blob summary 19 (11 single + 8 bulk listing), integration sessionblob-end-to-end 12, integration compaction-end-to-end 8)
+pnpm --filter @c3-oss/prosa-derived-v2 test         # 371 tests / 34 files (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 8, compaction executor-plan 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9, reader-iterator 7, tantivy checkpoint-store 11, analytics executor-plan 9, tantivy index-dir probe 17, tantivy plan-bundle orchestration 9, tantivy status 10, analytics descriptor 8, bundle status 8, compaction segments 16 (9 listing + 7 summary), derived-layout 27, tantivy clear-index-dir 10, session-blob loader 11, session-blob zstd 5, session-blob listing 27 (19 prior + 8 listAllSessionBlobSessions cross-epoch union), session-blob latest 11 incl. CQ-100, session-blob transcript-from-bundle 8, session-blob iterate-from-bundle 9, session-blob header 10, session-blob exists 11, session-blob latest-epoch 11, session-blob summary 19 (11 single + 8 bulk listing), integration sessionblob-end-to-end 12, integration compaction-end-to-end 8, integration tantivy-end-to-end 8)
 pnpm --filter @c3-oss/prosa-derived-v2 lint         # clean
 pnpm build                                          # 13/13 turbo
 pnpm typecheck                                      # 13/13 turbo
