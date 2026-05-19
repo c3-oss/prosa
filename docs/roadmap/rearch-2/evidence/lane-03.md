@@ -56,8 +56,9 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
   checkpoint persistence landed in
   `src/tantivy/{schema,rebuild-plan,checkpoint-store}.ts`. The
   actual Tantivy writer that opens the on-disk index (via
-  `@oxdev03/node-tantivy-binding`) lands when the native dep is
-  added to the workspace allowlist. `currentTantivySchemaFingerprint()`
+  `@oxdev03/node-tantivy-binding`) is unbuilt (the native binding
+  itself is runtime-available — see status.md 2026-05-19
+  correction; the work is implementation, not allowlist). `currentTantivySchemaFingerprint()`
   is `blake3` (v2 hash convention) over the pinned field/tokenizer
   list. `planTantivyRebuild` decides `skip` / `incremental` /
   `full` purely from inputs, never touches the filesystem;
@@ -553,7 +554,9 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
   non-`.parquet` files dropped; ENOENT-tolerant) but does not
   apply the compaction-policy decision. Suitable for CLI
   inventory, audit tools, and the future Parquet merge worker
-  (currently blocked behind `@duckdb/node-api` allowlist).
+  (unbuilt; `@duckdb/node-api` is runtime-available — see
+  `status.md` "Current State" note dated 2026-05-19 for the
+  allowBuilds misclassification correction).
   Returns sorted by `(epoch, entityType)` ascending. Includes
   preemptive containment hardening matching the CQ-094/CQ-096
   pattern applied to the `derived/` tree: `<bundleRoot>/epochs`
@@ -1102,8 +1105,10 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
   and web "available analytics" panels. The per-view descriptor
   throws on unknown names so misspellings surface immediately
   rather than producing a descriptor with `undefined` fields. Pure
-  read path — no filesystem, no DuckDB; ships independent of the
-  `@duckdb/node-api` allowlist. 8 tests cover: per-view descriptor
+  read path — no filesystem, no DuckDB; ships independent of any
+  runtime executor (see status.md 2026-05-19 note: `@duckdb/node-api`
+  itself is runtime-available, the runtime executor is just
+  unbuilt). 8 tests cover: per-view descriptor
   has name/columns/sql matching canonical exports, unknown-name
   rejection, fresh-object-per-call (no shared mutable state), bulk
   result one-per-view in canonical order, every descriptor has
@@ -1123,7 +1128,9 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
   fingerprint matches the pinned schema). Pure read path — no
   filesystem writes, no native binding. Suitable for
   `prosa index-v2 status` CLI and MCP `read_index_status` without
-  requiring `@oxdev03/node-tantivy-binding` allowlist expansion.
+  loading `@oxdev03/node-tantivy-binding` at all (the native
+  binding itself is runtime-available per the 2026-05-19
+  status.md correction; this read path simply doesn't need it).
   10 tests cover: fresh-bundle all-false snapshot, index-dir
   valid without checkpoint, checkpoint-present surfaces snapshot,
   stale-fingerprint detection (`schema_fingerprint_match: false`,
