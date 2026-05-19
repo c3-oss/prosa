@@ -64,6 +64,7 @@ describe('prosa index-v2 CLI', () => {
     expect(r.stdout).toContain('compaction-effectiveness')
     expect(r.stdout).toContain('compaction-history')
     expect(r.stdout).toContain('footprint')
+    expect(r.stdout).toContain('capabilities')
     expect(r.stdout).toContain('superseded-segments')
     expect(r.stdout).toContain('verify-packs')
     expect(r.stdout).toContain('transcript-header')
@@ -1373,6 +1374,50 @@ describe('prosa index-v2 CLI', () => {
     const r = runCli(['index-v2', 'footprint'])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/required option.*--store/i)
+  })
+
+  it('`index-v2 capabilities --help` documents the content-free introspection contract and takes no --store', async () => {
+    const r = runCli(['index-v2', 'capabilities', '--help'])
+    expect(r.status).toBe(0)
+    expect(r.stdout).toContain('capability snapshot')
+    // Content-free: should NOT advertise --store.
+    expect(r.stdout).not.toMatch(/--store <path>/)
+  })
+
+  it('`index-v2 capabilities` emits the schema discriminators, compaction policy, analytics view set, and tantivy schema', async () => {
+    const r = runCli(['index-v2', 'capabilities'])
+    expect(r.status).toBe(0)
+    const caps = JSON.parse(r.stdout) as {
+      schema_ids: { compact_manifest: string }
+      compaction: {
+        fire_reasons: string[]
+        small_segment_bytes: number
+        file_count_trigger: number
+        low_count_trigger: number
+        low_count_byte_ceiling: number
+      }
+      analytics: { entity_tables: string[]; view_names: string[] }
+      tantivy: { schema_fingerprint: string; field_names: string[]; fields: unknown[] }
+    }
+    expect(caps.schema_ids.compact_manifest).toBe('prosa.compact-manifest.v2')
+    expect(caps.compaction.fire_reasons).toEqual(['file_count_trigger', 'low_count_byte_ceiling'])
+    expect(caps.compaction.small_segment_bytes).toBe(32 * 1024 * 1024)
+    expect(caps.compaction.file_count_trigger).toBe(32)
+    expect(caps.compaction.low_count_trigger).toBe(16)
+    expect(caps.compaction.low_count_byte_ceiling).toBe(256 * 1024 * 1024)
+    expect(caps.analytics.view_names.length).toBeGreaterThan(0)
+    expect(caps.analytics.entity_tables.length).toBeGreaterThan(0)
+    expect(caps.tantivy.schema_fingerprint).toMatch(/^blake3:/)
+    expect(caps.tantivy.field_names.length).toBeGreaterThan(0)
+    expect(caps.tantivy.fields.length).toBe(caps.tantivy.field_names.length)
+  })
+
+  it('`index-v2 capabilities` is deterministic across invocations (same JSON output)', async () => {
+    const a = runCli(['index-v2', 'capabilities'])
+    const b = runCli(['index-v2', 'capabilities'])
+    expect(a.status).toBe(0)
+    expect(b.status).toBe(0)
+    expect(JSON.parse(a.stdout)).toEqual(JSON.parse(b.stdout))
   })
 
   it('`index-v2 compacted-outputs --help` documents --store', async () => {

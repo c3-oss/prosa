@@ -82,6 +82,7 @@
 // and `@duckdb/node-api` enter `pnpm-workspace.yaml`'s `allowBuilds`.
 
 export * from './bundle-status.js'
+export * from './capabilities.js'
 export * from './footprint.js'
 export * from './maintenance.js'
 export * from './recommendations.js'

@@ -26,6 +26,7 @@ import {
   buildCompactManifestV2,
   bundleDerivedStatus,
   currentTantivySchemaFingerprint,
+  derivedLayerCapabilities,
   derivedLayerEpochsTouched,
   derivedLayerMaintenanceSummary,
   formatTranscriptMarkdownV2,
@@ -298,6 +299,16 @@ export function indexV2Command(): Command {
       const storePath = resolvePath(options.store)
       const plan = await planSupersededCleanup(storePath)
       process.stdout.write(`${JSON.stringify(plan, null, 2)}\n`)
+    })
+
+  root
+    .command('capabilities')
+    .description(
+      'Print the derived-layer capability snapshot: schema discriminators, compaction fire-reasons + policy thresholds, analytics entity tables + view names, Tantivy schema fingerprint + field list. Content-free, takes no `--store`. Pure introspection — downstream tools / MCP servers / parsers use this to discover what shapes to expect.',
+    )
+    .action(async () => {
+      const caps = derivedLayerCapabilities()
+      process.stdout.write(`${JSON.stringify(caps, null, 2)}\n`)
     })
 
   root
