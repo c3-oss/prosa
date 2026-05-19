@@ -78,8 +78,10 @@ section as the full restart instruction:
   subcommand (`5842aa0`), `prosa index-v2
   compaction-execution-plan` Parquet COPY-statement subcommand
   (`a0ac05b`), `prosa index-v2 transcript-header` SessionBlob
-  header-only probe subcommand (`278b4a1`), plus the prior
-  scaffold
+  header-only probe subcommand (`278b4a1`),
+  `formatTranscriptTextV2` v2 text renderer + `prosa index-v2
+  transcript --format text|json` flag + CQ-105 pre-read format
+  validation (`4a754ad`), plus the prior scaffold
   (`bb76006`), SessionBlobPackV2 byte layout (`ba87f05`), Parquet
   compaction planner (`ea8c1a8`), DuckDB analytics view shape contract
   + compacted-overlay binding (`cff3670` / `e35f844`), Tantivy schema
@@ -94,6 +96,7 @@ section as the full restart instruction:
   `clearTantivyIndexDir` reset helper (`257a176`), CQ-096
   intermediate-symlink containment (`3be300f`), and SessionBlob
   pack-path resolver + CQ-097 textual-source cleanup (`d798b15`).
+  All `CQ-074..CQ-105` are closed; no open blocking corrections.
   There is no remaining Lane 2 external-acceptance blocker; do not
   output `RALPH_DONE` yet because Lane 3 remainder (Tantivy native
   writer, DuckDB runtime executor, runtime Parquet merge) plus
