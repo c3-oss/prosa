@@ -736,6 +736,19 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
   uncompressed page lengths) without decompressing any page —
   cheap probe surface for dashboards that want pack-level
   aggregates only.
+  Compaction-lifecycle end-to-end is asserted in
+  `apps/cli/test/cli/index-v2-compaction-lifecycle.test.ts`: a
+  single test walks plant-segments → `compaction-plan` fires →
+  `compaction-manifest --write` persists → `--read` round-trips
+  → `superseded-segments` lists the 17 sources →
+  `compacted-outputs` reports `consistent: false` →
+  `gc-plan` partitions everything as blocked → plant compacted
+  output file (simulating runtime worker) → `compacted-outputs`
+  flips to `consistent: true` → `gc-plan` flips every candidate
+  to `safe_to_delete: true` with rollup totals moving from
+  blocked to safe. Catches cross-subcommand drift in the full
+  audit chain (manifest persistence → consistency → GC
+  partition) that single-subcommand tests cannot.
   Cross-subcommand coherence is asserted independently in
   `apps/cli/test/cli/index-v2-coherence.test.ts`: a single
   realistic-bundle test populates SessionBlob packs (ses_alpha
@@ -1045,6 +1058,7 @@ pnpm install --prefer-offline                       # registers @c3-oss/prosa-de
 pnpm --filter @c3-oss/prosa-derived-v2 typecheck    # clean
 pnpm --filter @c3-oss/prosa-derived-v2 test         # 480 tests / 41 files (+5 planSupersededCleanup: empty bundle, all-safe partition when seq is consistent, all-blocked when seq is inconsistent, mixed partition across seqs, metadata preservation on every row)
 pnpm --filter @c3-oss/prosa exec vitest run test/cli/index-v2.test.ts  # 87 subprocess-spawned tests
+pnpm --filter @c3-oss/prosa exec vitest run test/cli/index-v2-compaction-lifecycle.test.ts  # 1 end-to-end compaction-lifecycle test (8 subprocess invocations across plan → manifest write/read → superseded → compacted-outputs → gc-plan, before + after planting the simulated compacted output)
 pnpm --filter @c3-oss/prosa exec vitest run test/cli/index-v2-coherence.test.ts  # 1 cross-subcommand coherence test for index-v2 status + sessions + epochs + analytics-views + analytics-execution-plan + projection-segments + tantivy-rebuild-plan + compaction-plan + compaction-execution-plan + transcript-header + transcript (incl. CQ-105 --format pre-read validation, --format markdown, --start-ordinal/--end-ordinal filtering, inverted-range rejection, --epoch historical pack + missing-epoch ENOENT) (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 13 incl. CQ-101 + CQ-102 containment regressions, compaction executor-plan 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9, reader-iterator 7, tantivy checkpoint-store 21 (11 prior + 4 write CQ-096 + 6 read CQ-103), analytics executor-plan 9, tantivy index-dir probe 17, tantivy plan-bundle orchestration 9, tantivy status 10, analytics descriptor 8, bundle status 16 (8 prior aggregator + 8 derivedLayerEpochsTouched incl. CQ-104 empty-epoch-dir regressions), compaction segments 22 (9 listing + 7 summary + 6 containment), derived-layout 27, tantivy clear-index-dir 10, session-blob loader 11, session-blob zstd 5, session-blob listing 27 (19 prior + 8 listAllSessionBlobSessions cross-epoch union), session-blob latest 11 incl. CQ-100, session-blob transcript-from-bundle 8, session-blob iterate-from-bundle 9, session-blob header 10, session-blob exists 11, session-blob latest-epoch 11, session-blob summary 19 (11 single + 8 bulk listing), integration sessionblob-end-to-end 12, integration compaction-end-to-end 8, integration tantivy-end-to-end 8)
 pnpm --filter @c3-oss/prosa-derived-v2 lint         # clean
 pnpm build                                          # 13/13 turbo
