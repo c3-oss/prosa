@@ -116,4 +116,17 @@ describe('derivedLayerSnapshot', () => {
     // snapshot still emits it alongside the footprint.
     expect(snapshot.maintenance.status.tantivy).toBeDefined()
   })
+
+  it('CQ-113: snapshot fails closed when the Tantivy checkpoint JSON is malformed (inherits maintenance fail-closed semantics)', async () => {
+    // The snapshot composes `derivedLayerMaintenanceSummary`,
+    // which reads Tantivy status through the checkpoint reader.
+    // The reader fails closed on malformed checkpoint JSON, so
+    // the snapshot must propagate that failure rather than
+    // returning a partial result. This is the negative
+    // counterpart to the positive composition test above.
+    await mkdir(join(bundleRoot, 'derived', 'tantivy'), { recursive: true })
+    await writeFile(join(bundleRoot, 'derived', 'tantivy', 'checkpoint.json'), 'xxxxxxx not json xxxxxxx')
+
+    await expect(derivedLayerSnapshot(bundleRoot)).rejects.toThrow(/readIndexCheckpoint.*malformed JSON/)
+  })
 })

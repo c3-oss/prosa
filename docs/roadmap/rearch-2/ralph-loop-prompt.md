@@ -131,8 +131,10 @@ section as the full restart instruction:
   (`4169477`), `derivedLayerCapabilities` content-free
   introspection composer + `prosa index-v2 capabilities` CLI
   subcommand (`7a4bcb4`), `derivedLayerSnapshot` MCP-friendly
-  bulk read + `prosa index-v2 snapshot` CLI subcommand (pending
-  commit), plus the prior scaffold
+  bulk read + `prosa index-v2 snapshot` CLI subcommand
+  (`ad8d227`), CQ-113 closeout (snapshot test split: positive
+  composition + explicit malformed-checkpoint fail-closed) is
+  pending commit, plus the prior scaffold
   (`bb76006`), SessionBlobPackV2 byte layout (`ba87f05`), Parquet
   compaction planner (`ea8c1a8`), DuckDB analytics view shape contract
   + compacted-overlay binding (`cff3670` / `e35f844`), Tantivy schema
@@ -147,11 +149,11 @@ section as the full restart instruction:
   `clearTantivyIndexDir` reset helper (`257a176`), CQ-096
   intermediate-symlink containment (`3be300f`), and SessionBlob
   pack-path resolver + CQ-097 textual-source cleanup (`d798b15`).
-  All `CQ-074..CQ-112` are closed. `CQ-113` is open and blocking:
-  fix the `derivedLayerSnapshot()` WIP test that plants malformed
-  Tantivy checkpoint JSON while expecting the snapshot to succeed.
-  All focused snapshot gates must pass before the slice is committed.
-  `CQ-112` closeout pushed the
+  All `CQ-074..CQ-113` are closed. `CQ-113` closeout split the
+  snapshot composition test from the malformed-checkpoint
+  fail-closed assertion: the positive test plants two valid
+  Tantivy segment files; a new negative test pins
+  `/readIndexCheckpoint.*malformed JSON/`. `CQ-112` closeout pushed the
   top-level `derived/` scan to enumerate every direct child, route
   unknown regular files into `other`, and refuse unknown top-level
   symlinks with a deterministic `(CQ-112)` error before returning.

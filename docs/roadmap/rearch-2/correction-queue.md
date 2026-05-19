@@ -8,6 +8,60 @@ _(none)_
 
 ## Closed (latest first)
 
+### CQ-113: Snapshot WIP Must Not Plant Malformed Tantivy Checkpoint Fixture — closed 2026-05-19
+
+Status: closed
+Severity: medium
+Blocking: yes
+Owner: Ralph
+Opened: 2026-05-19
+Closed: 2026-05-19
+Lane: 3 - Derived layer
+
+Finding:
+
+The `derivedLayerSnapshot()` WIP had a focused test that planted
+`derived/tantivy/checkpoint.json` with invalid JSON bytes. The
+snapshot composes `derivedLayerMaintenanceSummary()`, which reads
+Tantivy status through the checkpoint reader. That reader fails
+closed on malformed checkpoint JSON, so the focused gate failed
+during the slice.
+
+Risk:
+
+A red focused gate in the active slice; the test mixed two
+contracts (positive composition coverage and malformed-input
+rejection) into one assertion.
+
+Fix:
+
+The "footprint and maintenance read the same bundle in
+parallel" test in
+`packages/prosa-derived-v2/test/snapshot.test.ts` was already
+corrected before the slice was committed (commit `ad8d227`) to
+plant two valid tantivy segment files (`segment-0.idx`,
+`segment-1.idx`) under `derived/tantivy/index/` instead of a
+malformed checkpoint, so the positive composition assertion
+passes.
+
+A new explicit negative test "CQ-113: snapshot fails closed when
+the Tantivy checkpoint JSON is malformed (inherits maintenance
+fail-closed semantics)" pins the fail-closed semantics
+separately: planting malformed bytes at
+`derived/tantivy/checkpoint.json` and asserting
+`derivedLayerSnapshot()` rejects with
+`/readIndexCheckpoint.*malformed JSON/`. The two contracts are
+now isolated.
+
+Verification:
+
+- `pnpm --filter @c3-oss/prosa-derived-v2 typecheck` — clean.
+- `pnpm --filter @c3-oss/prosa-derived-v2 lint` — clean.
+- `pnpm --filter @c3-oss/prosa-derived-v2 exec vitest run test/snapshot.test.ts`
+  — 6 tests pass (5 positive + 1 CQ-113 negative).
+- `git diff --check` — clean.
+
+
 ### CQ-112: Footprint Must Account for or Refuse Every Top-Level `derived/` Entry — closed 2026-05-19
 
 Status: closed
