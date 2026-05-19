@@ -212,6 +212,7 @@ describe('prosa index-v2 cross-subcommand coherence', () => {
       compaction: { empty: boolean; entity_count: number }
       persisted_compactions: { count: number; consistent_count: number; inconsistent_count: number }
       gc: { candidate_count: number; safe_to_delete: { count: number }; blocked: { count: number } }
+      overlaps: { count: number; paths: string[] }
     }
 
     // Cross-reference each rollup against the corresponding
@@ -234,6 +235,9 @@ describe('prosa index-v2 cross-subcommand coherence', () => {
       safe_to_delete: { count: number }
       blocked: { count: number }
     }
+    const overlaps = JSON.parse(runCli(['index-v2', 'compaction-overlaps', '--store', storeRoot]).stdout) as Array<{
+      path: string
+    }>
 
     expect(maintenance.status.session_count).toBe(status.session_count)
     expect(maintenance.projection.total_segments).toBe(projection.total_segments)
@@ -248,5 +252,11 @@ describe('prosa index-v2 cross-subcommand coherence', () => {
     expect(maintenance.gc.candidate_count).toBe(gcPlan.candidates.length)
     expect(maintenance.gc.safe_to_delete.count).toBe(gcPlan.safe_to_delete.count)
     expect(maintenance.gc.blocked.count).toBe(gcPlan.blocked.count)
+    // Overlap audit ↔ maintenance corruption-gate parity: the
+    // maintenance summary's `overlaps.count` and `overlaps.paths`
+    // must equal what `compaction-overlaps` independently
+    // surfaces. Healthy bundle in this scenario: count === 0.
+    expect(maintenance.overlaps.count).toBe(overlaps.length)
+    expect(maintenance.overlaps.paths).toEqual(overlaps.map((o) => o.path))
   }, 120_000)
 })

@@ -849,10 +849,14 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
   second asserts the `maintenance` dashboard rollups
   byte-for-byte match the totals reported by the discrete
   `status` / `projection-segments --summary` /
-  `compaction-plan` / `compacted-outputs` / `gc-plan` commands
-  on the same populated bundle. The maintenance rollup cannot
-  drift from the discrete reads without the coherence test
-  failing. a single
+  `compaction-plan` / `compacted-outputs` / `gc-plan` /
+  `compaction-overlaps` commands on the same populated bundle.
+  The maintenance rollup cannot drift from the discrete reads
+  without the coherence test failing. In particular,
+  `maintenance.overlaps.count` and `maintenance.overlaps.paths`
+  are now asserted equal to the `compaction-overlaps` output,
+  pinning the corruption-gate parity contract for the
+  recommendations layer. a single
   realistic-bundle test populates SessionBlob packs (ses_alpha
   at epochs 1+3, ses_bravo at epoch 1) + projection segments
   (messages.parquet at epochs 2+3 + 17 small sessions.parquet
