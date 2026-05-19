@@ -476,6 +476,19 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
   non-strings, 200-char boundary acceptance + 201-char rejection,
   and `epoch` negative / non-integer / NaN / Infinity / non-number
   rejection.
+- [x] Compaction read-side end-to-end integration test
+  (`test/integration/compaction-end-to-end.test.ts`) wires the
+  listing + summary + planner + executor-plan composer against
+  one realistic multi-epoch Parquet fixture (33 small `sessions`
+  segments to trigger `file_count_trigger`, 1 `messages` segment
+  to verify no false-fire). Asserts cross-surface invariants:
+  every segment the planner merges appears in the listing's
+  per-entity set; the summary's per-entity bytes are an upper
+  bound on the planner's `totalBytesIn` (planner only merges
+  small files); the executor-plan composer emits one COPY
+  statement per fired entity in plan order with each statement's
+  SQL referencing the input segment paths; and on a fresh bundle
+  every surface collapses to empty/zero. 8 test cases.
 - [x] SessionBlob read-side end-to-end integration test
   (`test/integration/sessionblob-end-to-end.test.ts`) wires every
   public read surface together against one realistic multi-session
@@ -694,7 +707,7 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
 ```text
 pnpm install --prefer-offline                       # registers @c3-oss/prosa-derived-v2 in pnpm-lock.yaml
 pnpm --filter @c3-oss/prosa-derived-v2 typecheck    # clean
-pnpm --filter @c3-oss/prosa-derived-v2 test         # 355 tests / 32 files (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 8, compaction executor-plan 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9, reader-iterator 7, tantivy checkpoint-store 11, analytics executor-plan 9, tantivy index-dir probe 17, tantivy plan-bundle orchestration 9, tantivy status 10, analytics descriptor 8, bundle status 8, compaction segments 16 (9 listing + 7 summary), derived-layout 27, tantivy clear-index-dir 10, session-blob loader 11, session-blob zstd 5, session-blob listing 27 (19 prior + 8 listAllSessionBlobSessions cross-epoch union), session-blob latest 11 incl. CQ-100, session-blob transcript-from-bundle 8, session-blob iterate-from-bundle 9, session-blob header 10, session-blob exists 11, session-blob latest-epoch 11, session-blob summary 19 (11 single + 8 bulk listing), integration sessionblob-end-to-end 12)
+pnpm --filter @c3-oss/prosa-derived-v2 test         # 363 tests / 33 files (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 8, compaction executor-plan 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9, reader-iterator 7, tantivy checkpoint-store 11, analytics executor-plan 9, tantivy index-dir probe 17, tantivy plan-bundle orchestration 9, tantivy status 10, analytics descriptor 8, bundle status 8, compaction segments 16 (9 listing + 7 summary), derived-layout 27, tantivy clear-index-dir 10, session-blob loader 11, session-blob zstd 5, session-blob listing 27 (19 prior + 8 listAllSessionBlobSessions cross-epoch union), session-blob latest 11 incl. CQ-100, session-blob transcript-from-bundle 8, session-blob iterate-from-bundle 9, session-blob header 10, session-blob exists 11, session-blob latest-epoch 11, session-blob summary 19 (11 single + 8 bulk listing), integration sessionblob-end-to-end 12, integration compaction-end-to-end 8)
 pnpm --filter @c3-oss/prosa-derived-v2 lint         # clean
 pnpm build                                          # 13/13 turbo
 pnpm typecheck                                      # 13/13 turbo
