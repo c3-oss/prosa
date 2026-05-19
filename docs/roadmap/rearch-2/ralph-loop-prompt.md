@@ -125,7 +125,7 @@ section as the full restart instruction:
   bytes-out rollup + `prosa index-v2 compaction-effectiveness`
   CLI subcommand (`d471467`), `listCompactionHistory`
   per-manifest timeline + `prosa index-v2 compaction-history`
-  CLI subcommand (pending commit), plus the prior scaffold
+  CLI subcommand (`b07a36c`), plus the prior scaffold
   (`bb76006`), SessionBlobPackV2 byte layout (`ba87f05`), Parquet
   compaction planner (`ea8c1a8`), DuckDB analytics view shape contract
   + compacted-overlay binding (`cff3670` / `e35f844`), Tantivy schema
