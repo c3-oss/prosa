@@ -67,7 +67,9 @@ section as the full restart instruction:
   (`17243a1`), `prosa index-v2 sessions` inventory subcommand
   (`30a1d80`), `prosa index-v2 transcript` JSON-form transcript
   subcommand (`5530de1`), `prosa index-v2 epochs` audit/GC
-  epochs-touched subcommand (`e33d63a`), plus the prior scaffold
+  epochs-touched subcommand (`e33d63a`), `prosa index-v2
+  compaction-plan` Parquet compaction planner subcommand
+  (`379004f`), plus the prior scaffold
   (`bb76006`), SessionBlobPackV2 byte layout (`ba87f05`), Parquet
   compaction planner (`ea8c1a8`), DuckDB analytics view shape contract
   + compacted-overlay binding (`cff3670` / `e35f844`), Tantivy schema
