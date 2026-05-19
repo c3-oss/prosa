@@ -139,6 +139,27 @@ describe('loadLatestSessionBlobPack', () => {
     await expect(loadLatestSessionBlobPack({ bundleRoot, sessionId: '' })).rejects.toThrow(/non-empty string/)
   })
 
+  it('CQ-100: invalid sessionId on a fresh bundle throws resolver error, NOT fresh-bundle ENOENT', async () => {
+    // Without the CQ-100 validation-before-listing, an empty bundle
+    // would let the listing return [], the loop would never run, and
+    // the synthetic "no pack found across 0 epochs" ENOENT would
+    // mask the real fault (invalid `sessionId`). The fix validates
+    // synchronously via `sessionBlobPackPath` before the listing.
+    // A bundle with no epochs is verified by `listSessionBlobEpochs`
+    // returning `[]` separately.
+    await expect(loadLatestSessionBlobPack({ bundleRoot, sessionId: 'ses/escape' })).rejects.toThrow(
+      /characters outside/,
+    )
+    await expect(loadLatestSessionBlobPack({ bundleRoot, sessionId: '..' })).rejects.toThrow(/'\.\.' segments/)
+    await expect(loadLatestSessionBlobPack({ bundleRoot, sessionId: '.' })).rejects.toThrow(
+      /'\.\.' segments|characters outside/,
+    )
+    await expect(loadLatestSessionBlobPack({ bundleRoot, sessionId: '' })).rejects.toThrow(/non-empty string/)
+    await expect(loadLatestSessionBlobPack({ bundleRoot, sessionId: 'a'.repeat(201) })).rejects.toThrow(
+      /exceeds 200 chars/,
+    )
+  })
+
   it('propagates CQ-098 intermediate-symlink rejection from the epoch listing', async () => {
     // `derived/session-blob` symlinked → `listSessionBlobEpochs`
     // throws synchronously; the latest loader bubbles the error up

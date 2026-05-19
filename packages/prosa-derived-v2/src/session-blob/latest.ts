@@ -32,6 +32,8 @@
 // epoch sequence are tolerated — the loop only counts epochs the
 // `listSessionBlobEpochs` listing already accepted.
 
+import { sessionBlobPackPath } from '../derived-layout.js'
+
 import { listSessionBlobEpochs } from './listing.js'
 import { type LoadedSessionBlobPack, loadSessionBlobPack } from './loader.js'
 
@@ -69,6 +71,16 @@ export interface LoadedLatestSessionBlobPack extends LoadedSessionBlobPack {
 export async function loadLatestSessionBlobPack(
   input: LoadLatestSessionBlobPackInput,
 ): Promise<LoadedLatestSessionBlobPack> {
+  // CQ-100: validate `sessionId` synchronously before any
+  // filesystem read. Without this, an invalid id paired with a
+  // fresh bundle would surface as a synthetic ENOENT ("no pack
+  // found across 0 epochs") instead of the precise resolver-grammar
+  // error, hiding the real fault from callers. `sessionBlobPackPath`
+  // is pure and validates both `sessionId` and the integer-shape of
+  // `epoch`; we pass a sentinel `0` epoch to exercise the path-build
+  // and surface the validation error. The epoch listing run after
+  // this point only sees inputs the resolver has already accepted.
+  sessionBlobPackPath(input.bundleRoot, input.sessionId, 0)
   const epochs = await listSessionBlobEpochs(input.bundleRoot)
   for (let i = epochs.length - 1; i >= 0; i--) {
     const epoch = epochs[i]!

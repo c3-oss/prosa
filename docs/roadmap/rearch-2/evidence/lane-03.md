@@ -11,8 +11,11 @@ same slice). `loadSessionBlobPack` landed at `eb88037` with the CQ-098
 intermediate-symlink containment fix at `ea5f5d1`.
 Production zstd landed at `62550e1`. SessionBlob listing helpers +
 shared containment refactor + CQ-099 resolver-parity landed at
-`f8a2b7a`. Tantivy writer, DuckDB analytics view definitions, and
-the runtime compaction worker still pending.
+`f8a2b7a`. `loadLatestSessionBlobPack` landed at `f0a6ba7`.
+`loadTranscriptFromBundle` end-to-end loader + CQ-100
+input-validation-before-listing fix landing in this iteration.
+Tantivy writer, DuckDB analytics view definitions, and the runtime
+compaction worker still pending.
 Owner: Ralph
 Commit range: Lane 3 scaffold (`bb76006`) + SessionBlobPackV2 byte-layout
 slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
@@ -201,6 +204,24 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
   the three Tantivy delegates do not drift from the typed layout,
   and verify relative bundle roots are composed without
   `path.resolve()`.
+- [x] SessionBlobPackV2 end-to-end transcript loader
+  (`loadTranscriptFromBundle({ bundleRoot, sessionId, range?,
+  decompress? })`) gives CLI/MCP/web read surfaces a one-call read
+  path from `(bundleRoot, sessionId)` → `TranscriptMessage[]`. It
+  composes `loadLatestSessionBlobPack` (newest-epoch selection +
+  pack-digest re-verification) with `loadTranscript` (per-page
+  hash verification + multi-page fragment coalescing + optional
+  ordinal range filter) and defaults the decompressor to the
+  production `zstdSessionBlobDecompressor`. Result exposes
+  `{ epoch, path, pack_digest, messages }`. Callers may pass a
+  custom decompressor for non-zstd packs (tests use the identity
+  pair); range filtering keeps out-of-range pages from being
+  decompressed. 8 tests cover: small zstd round-trip,
+  newest-wins selection across [1, 4, 9], ordinal range filter
+  yielding only the intersecting slice, session-not-found
+  ENOENT, custom decompressor override (identity), sync sessionId
+  validation, CQ-098 propagation from the latest loader, and the
+  `pack_digest` field shape (`/^blake3:[0-9a-f]{64}$/`).
 - [x] SessionBlobPackV2 latest-epoch loader
   (`loadLatestSessionBlobPack({ bundleRoot, sessionId })`) gives the
   CLI/MCP/web read surfaces a single-call materialisation path that
@@ -426,7 +447,7 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
 ```text
 pnpm install --prefer-offline                       # registers @c3-oss/prosa-derived-v2 in pnpm-lock.yaml
 pnpm --filter @c3-oss/prosa-derived-v2 typecheck    # clean
-pnpm --filter @c3-oss/prosa-derived-v2 test         # 224 tests / 21 files (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 8, compaction executor-plan 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9, reader-iterator 7, tantivy checkpoint-store 11, analytics executor-plan 9, tantivy index-dir probe 17, tantivy plan-bundle orchestration 9, derived-layout 27, tantivy clear-index-dir 10, session-blob loader 11, session-blob zstd 5, session-blob listing 19, session-blob latest 10)
+pnpm --filter @c3-oss/prosa-derived-v2 test         # 233 tests / 22 files (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 8, compaction executor-plan 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9, reader-iterator 7, tantivy checkpoint-store 11, analytics executor-plan 9, tantivy index-dir probe 17, tantivy plan-bundle orchestration 9, derived-layout 27, tantivy clear-index-dir 10, session-blob loader 11, session-blob zstd 5, session-blob listing 19, session-blob latest 11 incl. CQ-100, session-blob transcript-from-bundle 8)
 pnpm --filter @c3-oss/prosa-derived-v2 lint         # clean
 pnpm build                                          # 13/13 turbo
 pnpm typecheck                                      # 13/13 turbo

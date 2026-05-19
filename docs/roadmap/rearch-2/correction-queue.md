@@ -4,9 +4,89 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 ## Open
 
-(none — `CQ-091`..`CQ-099` are all closed.)
+(none — `CQ-091`..`CQ-100` are all closed.)
 
 ## Closed (latest first)
+
+### CQ-100: Validate Latest SessionBlob Loader Input Before Epoch Listing — closed 2026-05-19
+
+Status: closed
+Severity: medium
+Blocking: yes
+Owner: Ralph
+Opened: 2026-05-19
+Closed: 2026-05-19
+Lane: 3 - Derived layer
+
+Finding:
+
+`loadLatestSessionBlobPack({ bundleRoot, sessionId })` delegates
+`sessionId` validation to the first per-epoch `loadSessionBlobPack()`
+call. That works only when at least one epoch exists. On a fresh bundle
+where `listSessionBlobEpochs(bundleRoot)` returns `[]`, an invalid
+`sessionId` such as `ses/escape`, `..`, or empty string skips the
+per-epoch load entirely and is reported as "not found" (`code:
+'ENOENT'`) rather than a validation error.
+
+Risk:
+
+Read surfaces can misclassify invalid user input as an absent session.
+That weakens the resolver contract established by
+`sessionBlobPackPath()` and makes CLI/MCP error behavior dependent on
+whether the bundle happens to contain any SessionBlob epochs.
+
+Required fix:
+
+- Validate `sessionId` unconditionally before calling
+  `listSessionBlobEpochs()`.
+- Reuse the canonical resolver validation rather than duplicating the
+  grammar; for example, call the pure `sessionBlobPackPath()` with a
+  safe dummy epoch (`0`) and discard the result, or add a small shared
+  validator if cleaner.
+- Preserve the existing "no pack anywhere" `ENOENT` behavior for
+  valid session IDs on empty/fresh bundles.
+
+Acceptance criteria:
+
+- Add regression tests proving invalid `sessionId` values are rejected
+  even when the bundle has no SessionBlob epochs.
+- Existing fresh-bundle `ENOENT` behavior remains for a valid session
+  id.
+- Focused gates pass:
+  - `pnpm --filter @c3-oss/prosa-derived-v2 test`
+  - `pnpm --filter @c3-oss/prosa-derived-v2 typecheck`
+  - `pnpm --filter @c3-oss/prosa-derived-v2 lint`
+  - `git diff --check`
+- Update `docs/roadmap/rearch-2/evidence/lane-03.md`, `gates.md`,
+  `status.md`, and `ralph-loop-prompt.md` with the fix commit and
+  gate evidence before closing this correction.
+
+Closure note:
+
+Fix lands in this iteration alongside `loadTranscriptFromBundle`:
+`loadLatestSessionBlobPack` now calls `sessionBlobPackPath(bundleRoot,
+sessionId, 0)` synchronously before any filesystem read. The
+resolver throws on every invalid id (forward-slash, `..`, `.`,
+empty, too-long, control chars, ...) before `listSessionBlobEpochs`
+runs, so an empty bundle no longer masks the validation failure
+behind a synthetic ENOENT. The sentinel `0` epoch is purely to
+drive the path-build; no side effect persists. Regression
+`CQ-100: invalid sessionId on a fresh bundle throws resolver
+error, NOT fresh-bundle ENOENT` plants no pack and asserts the
+resolver message surfaces for the full invalid-id family. Existing
+fresh-bundle ENOENT behavior for valid session ids is preserved
+(covered by the existing `throws with code=ENOENT on a fresh
+bundle (no epochs at all)` test).
+
+Validation:
+
+- `pnpm --filter @c3-oss/prosa-derived-v2 typecheck`: pass.
+- `pnpm --filter @c3-oss/prosa-derived-v2 test`: pass, 233 tests / 22
+  files.
+- `pnpm --filter @c3-oss/prosa-derived-v2 lint`: pass.
+- Full repo `pnpm build` / `pnpm test` / `pnpm lint`: 13/13 turbo.
+- `pnpm test:conformance`: pass, 26 / 2.
+- `git diff --check`: pass.
 
 ### CQ-099: SessionBlob Session Listing Must Not Return Resolver-Invalid IDs — closed 2026-05-19
 
