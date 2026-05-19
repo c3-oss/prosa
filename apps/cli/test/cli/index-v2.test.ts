@@ -1399,13 +1399,17 @@ describe('prosa index-v2 CLI', () => {
     expect(r.stderr).toMatch(/invalid --epoch/i)
   })
 
-  it('`index-v2 transcript --help` documents --store, --session-id, and --format', async () => {
+  it('`index-v2 transcript --help` documents --store, --session-id, --format, --epoch, --start-ordinal/--end-ordinal', async () => {
     const r = runCli(['index-v2', 'transcript', '--help'])
     expect(r.status).toBe(0)
-    expect(r.stdout).toContain("Print a session's latest-epoch transcript")
+    expect(r.stdout).toContain("Print a session's transcript")
     expect(r.stdout).toContain('--store')
     expect(r.stdout).toContain('--session-id')
     expect(r.stdout).toContain('--format')
+    expect(r.stdout).toContain('--epoch')
+    expect(r.stdout).toContain('--start-ordinal')
+    expect(r.stdout).toContain('--end-ordinal')
+    expect(r.stdout).toContain('json|text|markdown')
   })
 
   it('`index-v2 transcript` round-trips a real zstd-compressed pack and prints the messages', async () => {

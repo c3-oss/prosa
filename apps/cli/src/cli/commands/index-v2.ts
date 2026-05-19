@@ -344,7 +344,7 @@ export function indexV2Command(): Command {
   root
     .command('transcript')
     .description(
-      "Print a session's latest-epoch transcript (epoch + pack_digest + messages) from a bundle v2 store. Default format is JSON; pass --format text for a plain-text render with a metadata header.",
+      "Print a session's transcript (epoch + pack_digest + messages) from a bundle v2 store. Defaults to the latest pack; pass --epoch <n> to read a specific historical pack. Output format defaults to JSON; pass --format text|markdown for human-readable rendering with a metadata header. Optional --start-ordinal/--end-ordinal bounds page through long transcripts without decompressing out-of-range pages.",
     )
     .requiredOption('--store <path>', 'bundle directory')
     .requiredOption('--session-id <id>', 'canonical session_id (matches `index-v2 sessions` rows)')
