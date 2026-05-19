@@ -15,6 +15,7 @@
 // modules; the Tantivy writer, DuckDB views, and the SessionBlob
 // pack-format byte layout land in follow-up commits.
 
+export * from './bundle-status.js'
 export * from './derived-layout.js'
 export * from './session-blob/types.js'
 export * from './session-blob/writer-policy.js'
