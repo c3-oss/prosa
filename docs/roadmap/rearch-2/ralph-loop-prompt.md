@@ -120,7 +120,7 @@ section as the full restart instruction:
   layer + `prosa index-v2 next-action` CLI subcommand + CQ-111
   GC-suppress-when-inconsistent safety closeout (`c61be83`),
   `planGcExecution` GC execution-plan composer + `prosa
-  index-v2 gc-execution-plan` CLI subcommand (pending commit),
+  index-v2 gc-execution-plan` CLI subcommand (`a2d711c`),
   plus the prior scaffold
   (`bb76006`), SessionBlobPackV2 byte layout (`ba87f05`), Parquet
   compaction planner (`ea8c1a8`), DuckDB analytics view shape contract
