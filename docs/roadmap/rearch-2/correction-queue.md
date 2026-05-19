@@ -8,6 +8,29 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 ## Closed (latest first)
 
+### CQ-071: Reconcile Post-`c496bac` Governance and Harden `compile-v2` CLI WIP — closed 2026-05-18
+
+Lane 2 CLI surface hardened:
+
+- New `apps/cli/src/cli/commands/compile-v2.ts` exports
+  `compileV2Command()` and `compileAllV2Command()`. Both wrap
+  `runCompileImports` against the five real providers. Discovery
+  roots default to per-provider `$HOME` conventions with per-flag
+  overrides. `openOrInit` falls back to `initBundle` when
+  `head.json` is missing.
+- Wired into `apps/cli/src/cli/main.ts` alongside v1.
+- `apps/cli/package.json` adds `@c3-oss/prosa-importers-v2` as a
+  workspace dependency.
+- New `apps/cli/test/cli/compile-v2.test.ts` — 3 tests spawning
+  the real CLI via swc-node:
+  - `compile-v2 codex` against a synthetic Codex rollout seals
+    one epoch.
+  - `compile-v2` rejects unknown provider names with exit code 2.
+  - `compile-all-v2` runs every provider and seals one epoch with
+    all 5 sessions.
+- Lint clean after auto-fix. Active artifacts pinned and gates
+  updated.
+
 ### CQ-070: Reconcile Post-`aa88079` Governance and Cursor Logical-Key Drift — closed 2026-05-18
 
 CursorProvider.cheapIdentify previously returned

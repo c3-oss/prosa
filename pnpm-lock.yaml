@@ -157,6 +157,9 @@ importers:
       '@c3-oss/prosa-core':
         specifier: workspace:^
         version: link:../../packages/prosa-core
+      '@c3-oss/prosa-importers-v2':
+        specifier: workspace:^
+        version: link:../../packages/prosa-importers-v2
       '@inkjs/ui':
         specifier: ^2.0.0
         version: 2.0.0(ink@7.0.1(@types/react@19.2.14)(react@19.2.5))

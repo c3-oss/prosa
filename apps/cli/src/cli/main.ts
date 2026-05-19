@@ -4,6 +4,7 @@ import { Command } from 'commander'
 import { analyticsCommand } from './commands/analytics.js'
 import { authCommand } from './commands/auth.js'
 import { bundleCommand } from './commands/bundle.js'
+import { compileAllV2Command, compileV2Command } from './commands/compile-v2.js'
 import { compileAllCommand, compileCommand } from './commands/compile.js'
 import { doctorCommand } from './commands/doctor.js'
 import { exportCommand } from './commands/export.js'
@@ -61,6 +62,8 @@ export async function runCli(argv: readonly string[]): Promise<void> {
   program.addCommand(authCommand())
   program.addCommand(syncCommand())
   program.addCommand(bundleCommand())
+  program.addCommand(compileV2Command())
+  program.addCommand(compileAllV2Command())
 
   await program.parseAsync(stripLeadingDoubleDash(argv))
 }

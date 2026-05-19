@@ -1,27 +1,24 @@
 # Lane Evidence
 
 Lane: 02 - Importers
-Status: active WIP (Codex minimal + Claude with spawned-edges + minimal
-Cursor providers landed; Cursor stable logical-key fix plus Gemini and Hermes
+Status: active WIP (minimal provider stubs for Codex, Claude, Cursor, Gemini,
+and Hermes landed; CLI WIP under `CQ-071`; full transcript projection
 pending). The
 `LogicalImportUnit` contract, `GraphResolver`, and `runCompileImports`
 orchestrator landed at `004107c`. Lane 1 was later accepted at
 `4792457`, lifting the `CQ-044` containment gate. `fc66925` landed
 the first per-provider slice (minimal CodexProvider). `8c0ba5f`
 added CQ-067 governance reconcile and a minimal ClaudeProvider.
-`aa88079` adds Claude subagent
-spawned-edge projection (with deterministic edge_ids and an
-end-to-end test through `runCompileImports` + `sealEpoch`) and a
-minimal CursorProvider (opaque-bytes slice; one SourceFileV2 + one
-binary-only RawRecordV2 + one SessionV2 per `store.db`). Focused
-gates pass at 24 tests across 5 files. `CQ-070` remains open because Cursor's
-Reserve logical key currently includes content bytes while the canonical
-session identity does not.
+`aa88079` added Claude subagent spawned-edge projection and a minimal
+CursorProvider. `c496bac` fixed Cursor's stable logical key and added minimal
+GeminiProvider and HermesProvider slices. Focused importer gates pass at 35
+tests across 7 files. `CQ-071` remains open for the `compile-v2` CLI WIP.
 Owner: Ralph
 Commit range: `004107c` (orchestrator + GraphResolver), `4792457`
 (Lane 1 acceptance / `CQ-044` lifted), `fc66925` (minimal
 CodexProvider), `8c0ba5f` (minimal ClaudeProvider + CQ-067 closeout),
-`aa88079` (Claude spawned edges + minimal Cursor + CQ-068/CQ-069 closeout)
+`aa88079` (Claude spawned edges + minimal Cursor + CQ-068/CQ-069 closeout),
+`c496bac` (Cursor stable key + minimal Gemini/Hermes + CQ-070 closeout)
 
 ## Acceptance Criteria
 

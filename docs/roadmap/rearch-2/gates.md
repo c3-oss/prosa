@@ -38,7 +38,7 @@ a `just` wrapper fails for environmental reasons.
 | 01 | `pnpm test packages/prosa-bundle-v2/test/e2e/cold-rebuild.test.ts` | yes | pass | 3 tests: CQ-066 real CLI subprocess (spawns `prosa bundle rebuild-index --store <path>` via `swc-node`) + index/-delete-then-rebuild replay + idempotent double-rebuild. |
 | 01 | `pnpm dev -- bundle rebuild-index --store <path> --uuid <uuid>` | yes | pass | CLI command exercises `rebuildIndex` end-to-end and emits manifest JSON to stdout; covered by the real-subprocess E2E above. |
 | 02 | `pnpm --filter @c3-oss/prosa-importers-v2 test` | yes | pass | 35 tests / 7 files (GraphResolver 5, orchestrator 3, CodexProvider 6, ClaudeProvider 6 incl. CQ-068 spawned-edge tests, CursorProvider 4 incl. CQ-070 stable-key fix, GeminiProvider 5, HermesProvider 6). |
-| 02 | `pnpm dev -- compile-all-v2 --help` | yes | not-run | CLI command presence smoke until fixture gate exists. |
+| 02 | `pnpm --filter @c3-oss/prosa test test/cli/compile-v2.test.ts` | yes | pass | 3 subprocess-spawned tests covering `compile-v2 codex` + invalid-provider rejection + `compile-all-v2` against all 5 providers. |
 | 03 | `pnpm --filter @c3-oss/prosa-derived-v2 test` | yes | not-run | Tantivy, session blob, analytics, compaction tests. |
 | 03 | `pnpm dev -- index-v2 status --help` | yes | not-run | CLI command presence smoke until fixture gate exists. |
 | 04 | `pnpm --filter @c3-oss/prosa-db-v2 test` | yes | not-run | Postgres v2 schema and migration tests. |
@@ -96,9 +96,9 @@ no new transitive risk.
 
 - [x] Worktree state documented.
 - [x] Lane 0 has evidence; lanes 2–10 are documented as blocked or WIP.
-- [ ] No open blocking corrections. *(`CQ-070` is open after Codex review of
-  `aa88079`; it blocks Cursor provider acceptance, Lane 2 acceptance, and
-  `RALPH_DONE`, not independent Gemini/Hermes provider work.)*
+- [ ] No open blocking corrections. *(`CQ-071` is open after Codex review of
+  `c496bac` plus current CLI WIP; it blocks Lane 2 CLI acceptance, Lane 2
+  acceptance, and `RALPH_DONE`.)*
 - [x] Base gates passed at HEAD `6c25966` (full repo `pnpm test` / `pnpm
   typecheck` / `pnpm lint` 12/12 turbo).
 - [x] Lane 0-specific gates passed: `prosa-types-v2` 89 tests, `prosa-wire-v2`
@@ -111,8 +111,8 @@ no new transitive risk.
   non-dev path, pre-existing on `master`).
 - [ ] Security, integrity, remote-read, and E2E reviewer findings resolved
   for Lane 0 and Lane 1. Lane 0 and Lane 1 corrections through `CQ-066` are
-  closed; `CQ-070` tracks Lane 2 Cursor logical-key drift after `aa88079`.
+  closed; `CQ-071` tracks Lane 2 CLI WIP after `c496bac`.
 - [ ] Final Codex review completed. *(Pending — Lane 2+ work and
-  `CQ-070` remain open.)*
+  `CQ-071` remain open.)*
 - [ ] Five-cycle final stabilization evidence recorded. *(Pending; Lane 1
   must be accepted by Codex first.)*

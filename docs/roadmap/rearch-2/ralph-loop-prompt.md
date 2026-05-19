@@ -30,11 +30,10 @@ section as the full restart instruction:
 - User direction: Lane 1 is accepted. Continue Lane 2 provider-importer work.
 - Close the current blocking corrections named in
   `docs/roadmap/rearch-2/correction-queue.md` with code, tests, and evidence.
-  As of Codex review of `aa88079`, that is `CQ-070`.
-- `CQ-070` blocks Cursor provider acceptance, Lane 2 acceptance, and
-  `RALPH_DONE`, but does not block independent Gemini/Hermes work. Reconcile
-  active artifacts to `aa88079` and align Cursor's Reserve logical key with its
-  stable canonical session identity.
+  As of Codex review of `c496bac` plus current CLI WIP, that is `CQ-071`.
+- `CQ-071` blocks Lane 2 CLI acceptance, Lane 2 acceptance, and `RALPH_DONE`.
+  Reconcile active artifacts to `c496bac`, fix the `compile-v2` CLI lint
+  failure, and add focused CLI tests/smokes before committing the CLI surface.
 - If a correction needs a Codex/governor decision, ask one clear binary
   accept/reject question with a safe default. Do not loop on "external
   acceptance" as if Codex were unavailable.
@@ -152,9 +151,8 @@ Keep these files current:
 
 Current open correction:
 
-- `CQ-070`: reconcile post-`aa88079` governance and Cursor logical-key drift.
-  This blocks Cursor provider acceptance, Lane 2 acceptance, and `RALPH_DONE`,
-  but does **not** block independent Gemini/Hermes provider work.
+- `CQ-071`: reconcile post-`c496bac` governance and harden `compile-v2` CLI
+  WIP. This blocks Lane 2 CLI acceptance, Lane 2 acceptance, and `RALPH_DONE`.
 
 Lane 0 + Lane 1 are accepted by the project owner on 2026-05-18, including the
 two re-scopes in `docs/rearch-2/lane-1-rescopes.md`.
@@ -162,10 +160,11 @@ two re-scopes in `docs/rearch-2/lane-1-rescopes.md`.
 Lane 2 (importers) is the active lane. The orchestrator,
 `GraphResolver`, and mock-provider tests already landed at `004107c`.
 `fc66925` landed a minimal CodexProvider, `8c0ba5f` landed a minimal
-ClaudeProvider, and `aa88079` landed Claude spawned edges plus a minimal
-CursorProvider. Do not overclaim any of these as complete transcript/event/
-tool-call importers. Close `CQ-070` with code/tests/evidence, then continue
-Gemini and Hermes provider work.
+ClaudeProvider, `aa88079` landed Claude spawned edges plus a minimal
+CursorProvider, and `c496bac` landed minimal Gemini/Hermes providers plus the
+Cursor logical-key fix. Do not overclaim these as complete transcript/event/
+tool-call importers. Close `CQ-071` with code/tests/evidence before accepting
+the Lane 2 CLI surface.
 
 Subsequent lanes (3 derived layer, 4 server beyond DB scaffold,
 5 sync protocol, 6 read API, 7 CLI+MCP, 8 audit+GC, 9 migration,
