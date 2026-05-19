@@ -694,6 +694,82 @@ describe('prosa index-v2 CLI', () => {
     expect(r.stderr).toMatch(/empty plan/i)
   })
 
+  it('`index-v2 compaction-manifest --write` persists the manifest and returns the path', async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    for (let epoch = 1; epoch <= 17; epoch++) {
+      const dir = join(storeRoot, 'epochs', String(epoch), 'projection')
+      await mkdir(dir, { recursive: true })
+      await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(1024))
+    }
+    const r = runCli([
+      'index-v2',
+      'compaction-manifest',
+      '--store',
+      storeRoot,
+      '--write',
+      '--generated-at',
+      '2026-05-19T12:00:00.000Z',
+    ])
+    expect(r.status).toBe(0)
+    const out = JSON.parse(r.stdout) as {
+      manifest: { compaction_seq: number; schema: string }
+      persisted_path: string
+    }
+    expect(out.manifest.schema).toBe('prosa.compact-manifest.v2')
+    expect(out.manifest.compaction_seq).toBe(1)
+    expect(out.persisted_path).toContain('compact-0001')
+    expect(out.persisted_path).toContain('compact.manifest.json')
+    const { stat } = await import('node:fs/promises')
+    const st = await stat(out.persisted_path)
+    expect(st.isFile()).toBe(true)
+    expect(st.size).toBeGreaterThan(0)
+  })
+
+  it('`index-v2 compaction-manifest --read --compaction-seq <n>` round-trips a persisted manifest', async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    for (let epoch = 1; epoch <= 17; epoch++) {
+      const dir = join(storeRoot, 'epochs', String(epoch), 'projection')
+      await mkdir(dir, { recursive: true })
+      await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(1024))
+    }
+    const written = runCli([
+      'index-v2',
+      'compaction-manifest',
+      '--store',
+      storeRoot,
+      '--write',
+      '--generated-at',
+      '2026-05-19T12:00:00.000Z',
+    ])
+    expect(written.status).toBe(0)
+    const persistedManifest = (JSON.parse(written.stdout) as { manifest: unknown }).manifest
+
+    const read = runCli(['index-v2', 'compaction-manifest', '--store', storeRoot, '--read', '--compaction-seq', '1'])
+    expect(read.status).toBe(0)
+    expect(JSON.parse(read.stdout)).toEqual(persistedManifest)
+  })
+
+  it('`index-v2 compaction-manifest --read` requires --compaction-seq', async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    const r = runCli(['index-v2', 'compaction-manifest', '--store', storeRoot, '--read'])
+    expect(r.status).not.toBe(0)
+    expect(r.stderr).toMatch(/--read requires --compaction-seq/i)
+  })
+
+  it('`index-v2 compaction-manifest --read --write` is rejected', async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    const r = runCli(['index-v2', 'compaction-manifest', '--store', storeRoot, '--read', '--write'])
+    expect(r.status).not.toBe(0)
+    expect(r.stderr).toMatch(/mutually exclusive/i)
+  })
+
+  it('`index-v2 compaction-manifest --read --compaction-seq <missing>` surfaces ENOENT', async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    const r = runCli(['index-v2', 'compaction-manifest', '--store', storeRoot, '--read', '--compaction-seq', '99'])
+    expect(r.status).not.toBe(0)
+    expect(r.stderr).toMatch(/ENOENT|compact-0099/)
+  })
+
   it('`index-v2 compaction-execution-plan --help` documents --store', async () => {
     const r = runCli(['index-v2', 'compaction-execution-plan', '--help'])
     expect(r.status).toBe(0)

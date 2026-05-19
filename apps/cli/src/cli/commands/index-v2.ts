@@ -37,9 +37,11 @@ import {
   planCompaction,
   planCompactionExecution,
   planTantivyRebuildFromBundle,
+  readCompactManifestV2,
   readSessionBlobHeader,
   summariseProjectionSegments,
   verifyAllSessionBlobPacks,
+  writeCompactManifestV2,
 } from '@c3-oss/prosa-derived-v2'
 import { Command } from 'commander'
 
@@ -198,17 +200,45 @@ export function indexV2Command(): Command {
   root
     .command('compaction-manifest')
     .description(
-      "Print the `compact.manifest.cbor` shape the runtime worker would persist for the current Parquet compaction plan. Records each entity's superseded epoch segments so audit/GC workflows can recover the pre-compaction layout. Returns an error when the plan is empty.",
+      "Print, persist, or read back the `compact.manifest.cbor` shape that records each entity's superseded epoch segments. Default mode generates from the current Parquet compaction plan and prints to stdout. Pass --write to atomically persist the generated manifest to `epochs/compact-<NNNN>/compact.manifest.json` (CQ-093 atomic-rename + parent-fsync + symlink containment). Pass --read --compaction-seq <n> to read back a previously persisted manifest.",
     )
     .requiredOption('--store <path>', 'bundle directory')
     .option('--generated-at <iso>', 'ISO-8601 UTC timestamp to embed as `generated_at`; defaults to the current time')
-    .action(async (options: { store: string; generatedAt?: string }) => {
-      const storePath = resolvePath(options.store)
-      const plan = await planCompaction(storePath)
-      const generatedAt = options.generatedAt ?? new Date().toISOString()
-      const manifest = buildCompactManifestV2({ plan, generatedAt })
-      process.stdout.write(`${JSON.stringify(manifest, null, 2)}\n`)
-    })
+    .option('--write', 'persist the generated manifest to disk via writeCompactManifestV2', false)
+    .option('--read', 'read a previously persisted manifest from disk (requires --compaction-seq)', false)
+    .option('--compaction-seq <n>', 'compaction sequence to read with --read')
+    .action(
+      async (options: {
+        store: string
+        generatedAt?: string
+        write: boolean
+        read: boolean
+        compactionSeq?: string
+      }) => {
+        if (options.read && options.write) {
+          throw new Error('invalid flags: --read and --write are mutually exclusive')
+        }
+        const storePath = resolvePath(options.store)
+        if (options.read) {
+          if (options.compactionSeq === undefined) {
+            throw new Error('--read requires --compaction-seq <n>')
+          }
+          const compactionSeq = parseNonNegativeInteger('--compaction-seq', options.compactionSeq)
+          const manifest = await readCompactManifestV2(storePath, compactionSeq)
+          process.stdout.write(`${JSON.stringify(manifest, null, 2)}\n`)
+          return
+        }
+        const plan = await planCompaction(storePath)
+        const generatedAt = options.generatedAt ?? new Date().toISOString()
+        const manifest = buildCompactManifestV2({ plan, generatedAt })
+        if (options.write) {
+          const path = await writeCompactManifestV2(storePath, manifest)
+          process.stdout.write(`${JSON.stringify({ manifest, persisted_path: path }, null, 2)}\n`)
+          return
+        }
+        process.stdout.write(`${JSON.stringify(manifest, null, 2)}\n`)
+      },
+    )
 
   root
     .command('compaction-execution-plan')
