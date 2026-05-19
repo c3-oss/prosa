@@ -127,8 +127,8 @@ section as the full restart instruction:
   per-manifest timeline + `prosa index-v2 compaction-history`
   CLI subcommand (`b07a36c`),
   `summariseDerivedLayerFootprint` per-subsystem byte/file
-  rollup + `prosa index-v2 footprint` CLI subcommand (pending
-  commit), plus the prior scaffold
+  rollup + `prosa index-v2 footprint` CLI subcommand
+  (`4169477`), plus the prior scaffold
   (`bb76006`), SessionBlobPackV2 byte layout (`ba87f05`), Parquet
   compaction planner (`ea8c1a8`), DuckDB analytics view shape contract
   + compacted-overlay binding (`cff3670` / `e35f844`), Tantivy schema
