@@ -4,9 +4,55 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 ## Open
 
-(none — `CQ-091`..`CQ-107` are all closed.)
+(none — `CQ-091`..`CQ-108` are all closed.)
 
 ## Closed (latest first)
+
+### CQ-108: Fix Superseded Compact-Manifest WIP Typecheck/Lint Failures — closed 2026-05-19
+
+Status: closed
+Severity: medium
+Blocking: yes
+Owner: Ralph
+Opened: 2026-05-19
+Closed: 2026-05-19
+Lane: 3 - Derived layer
+
+Finding:
+
+The new `packages/prosa-derived-v2/src/compaction/superseded.ts`
+WIP tests pass, but the package is not currently buildable:
+
+- `corepack pnpm --filter @c3-oss/prosa-derived-v2 typecheck`
+  fails because `Dirent` is imported from `node:fs/promises`, where
+  it is not exported, and because `CompactManifestEntityV2` is an
+  unused import.
+- `corepack pnpm --filter @c3-oss/prosa-derived-v2 lint` fails on
+  `rollup.by_entity[...] ??= ...` and
+  `rollup.by_compaction_seq[...] ??= ...` assignments embedded in
+  expressions (`lint/suspicious/noAssignInExpressions`).
+
+Risk:
+
+Committing the superseded-manifest audit surface in this state would
+break the derived-v2 package typecheck/lint gates even though the
+focused test file passes.
+
+Required fix:
+
+- Import the `Dirent` type from the correct module (or avoid the
+  explicit annotation) and remove unused imports.
+- Rewrite the rollup initialization without assignment-in-expression.
+- Preserve the current `listSupersededSegmentsFromManifests()` and
+  `summariseSupersededSegments()` behavior and tests.
+
+Acceptance criteria:
+
+- ✅ `corepack pnpm --filter @c3-oss/prosa-derived-v2 exec vitest run
+  test/compaction/superseded.test.ts` passes.
+- ✅ `corepack pnpm --filter @c3-oss/prosa-derived-v2 typecheck` passes.
+- ✅ `corepack pnpm --filter @c3-oss/prosa-derived-v2 lint` passes.
+- ✅ `git diff --check` passes.
 
 ### CQ-107: Validate Persisted Compact Manifest Entity Shape on Read — closed 2026-05-19
 

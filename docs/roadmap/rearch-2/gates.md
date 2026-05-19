@@ -98,7 +98,7 @@ no new transitive risk.
 
 - [x] Worktree state documented.
 - [x] Lane 0 has evidence; lanes 2–10 are documented as blocked or WIP.
-- [x] No open blocking corrections. *(`CQ-091`..`CQ-107` are all closed.)*
+- [x] No open blocking corrections. *(`CQ-091`..`CQ-108` are all closed.)*
 - [x] Base gates passed at HEAD `6c25966` (full repo `pnpm test` / `pnpm
   typecheck` / `pnpm lint` 12/12 turbo).
 - [x] Lane 0-specific gates passed: `prosa-types-v2` 89 tests, `prosa-wire-v2`
