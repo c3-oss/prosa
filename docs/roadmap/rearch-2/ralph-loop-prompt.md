@@ -123,7 +123,7 @@ section as the full restart instruction:
   index-v2 gc-execution-plan` CLI subcommand (`a2d711c`),
   `summariseCompactionEffectiveness` per-seq bytes-in vs
   bytes-out rollup + `prosa index-v2 compaction-effectiveness`
-  CLI subcommand (pending commit), plus the prior scaffold
+  CLI subcommand (`d471467`), plus the prior scaffold
   (`bb76006`), SessionBlobPackV2 byte layout (`ba87f05`), Parquet
   compaction planner (`ea8c1a8`), DuckDB analytics view shape contract
   + compacted-overlay binding (`cff3670` / `e35f844`), Tantivy schema
