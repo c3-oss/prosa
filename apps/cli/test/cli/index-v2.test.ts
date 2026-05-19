@@ -63,6 +63,7 @@ describe('prosa index-v2 CLI', () => {
     expect(r.stdout).toContain('gc-execution-plan')
     expect(r.stdout).toContain('compaction-effectiveness')
     expect(r.stdout).toContain('compaction-history')
+    expect(r.stdout).toContain('compaction-overlaps')
     expect(r.stdout).toContain('footprint')
     expect(r.stdout).toContain('capabilities')
     expect(r.stdout).toContain('snapshot')
@@ -1323,6 +1324,47 @@ describe('prosa index-v2 CLI', () => {
 
   it('`index-v2 compaction-history` fails when --store is missing', async () => {
     const r = runCli(['index-v2', 'compaction-history'])
+    expect(r.status).not.toBe(0)
+    expect(r.stderr).toMatch(/required option.*--store/i)
+  })
+
+  it('`index-v2 compaction-overlaps --help` documents --store and the correctness-audit contract', async () => {
+    const r = runCli(['index-v2', 'compaction-overlaps', '--help'])
+    expect(r.status).toBe(0)
+    expect(r.stdout).toContain('correctness violation')
+    expect(r.stdout).toContain('--store')
+  })
+
+  it('`index-v2 compaction-overlaps` returns `[]` for a fresh bundle (healthy case)', async () => {
+    const storeRoot = join(await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-')), 'never-initialised')
+    const r = runCli(['index-v2', 'compaction-overlaps', '--store', storeRoot])
+    expect(r.status).toBe(0)
+    expect(JSON.parse(r.stdout)).toEqual([])
+  })
+
+  it('`index-v2 compaction-overlaps` returns `[]` for a bundle with one well-formed manifest (no cross-seq overlap possible)', async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    for (let epoch = 1; epoch <= 17; epoch++) {
+      const dir = join(storeRoot, 'epochs', String(epoch), 'projection')
+      await mkdir(dir, { recursive: true })
+      await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(1024))
+    }
+    runCli([
+      'index-v2',
+      'compaction-manifest',
+      '--store',
+      storeRoot,
+      '--write',
+      '--generated-at',
+      '2026-05-19T12:00:00.000Z',
+    ])
+    const r = runCli(['index-v2', 'compaction-overlaps', '--store', storeRoot])
+    expect(r.status).toBe(0)
+    expect(JSON.parse(r.stdout)).toEqual([])
+  })
+
+  it('`index-v2 compaction-overlaps` fails when --store is missing', async () => {
+    const r = runCli(['index-v2', 'compaction-overlaps'])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/required option.*--store/i)
   })

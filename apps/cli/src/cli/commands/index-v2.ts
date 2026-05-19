@@ -31,6 +31,7 @@ import {
   derivedLayerMaintenanceSummary,
   derivedLayerSnapshot,
   derivedPaths,
+  detectCompactionOverlaps,
   formatTranscriptMarkdownV2,
   formatTranscriptTextV2,
   getSessionBlobSummary,
@@ -347,6 +348,18 @@ export function indexV2Command(): Command {
       const storePath = resolvePath(options.store)
       const footprint = await summariseDerivedLayerFootprint(storePath)
       process.stdout.write(`${JSON.stringify(footprint, null, 2)}\n`)
+    })
+
+  root
+    .command('compaction-overlaps')
+    .description(
+      'Audit every persisted manifest for source segments claimed by more than one compaction (a real correctness violation: each source can be superseded by AT MOST one compaction). Returns `[]` when healthy. Any non-empty result names the bundle-relative `path` and every `{ compaction_seq, entity_type }` that claims it. Pure-read.',
+    )
+    .requiredOption('--store <path>', 'bundle directory')
+    .action(async (options: { store: string }) => {
+      const storePath = resolvePath(options.store)
+      const overlaps = await detectCompactionOverlaps(storePath)
+      process.stdout.write(`${JSON.stringify(overlaps, null, 2)}\n`)
     })
 
   root
