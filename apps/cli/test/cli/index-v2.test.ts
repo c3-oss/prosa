@@ -45,6 +45,7 @@ describe('prosa index-v2 CLI', () => {
     const r = runCli(['index-v2', '--help'])
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('Bundle v2 derived-layer index commands')
+    expect(r.stdout).toContain('maintenance')
     expect(r.stdout).toContain('status')
     expect(r.stdout).toContain('sessions')
     expect(r.stdout).toContain('epochs')
@@ -62,6 +63,106 @@ describe('prosa index-v2 CLI', () => {
     expect(r.stdout).toContain('verify-packs')
     expect(r.stdout).toContain('transcript-header')
     expect(r.stdout).toContain('transcript')
+  })
+
+  it('`index-v2 maintenance --help` documents --store', async () => {
+    const r = runCli(['index-v2', 'maintenance', '--help'])
+    expect(r.status).toBe(0)
+    expect(r.stdout).toContain('One-call dashboard read')
+    expect(r.stdout).toContain('--store')
+  })
+
+  it('`index-v2 maintenance` against a fresh bundle returns the zero-state snapshot', async () => {
+    const storeRoot = join(await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-')), 'never-initialised')
+    const r = runCli(['index-v2', 'maintenance', '--store', storeRoot])
+    expect(r.status).toBe(0)
+    const summary = JSON.parse(r.stdout) as {
+      status: { session_count: number; tantivy: { ready_for_read: boolean } }
+      projection: { total_segments: number; total_bytes: number }
+      compaction: { empty: boolean; entity_count: number; reasons: string[] }
+      persisted_compactions: { count: number; consistent_count: number; inconsistent_count: number }
+      gc: {
+        candidate_count: number
+        safe_to_delete: { count: number; bytes: number }
+        blocked: { count: number; bytes: number }
+      }
+    }
+    expect(summary.status.session_count).toBe(0)
+    expect(summary.status.tantivy.ready_for_read).toBe(false)
+    expect(summary.projection.total_segments).toBe(0)
+    expect(summary.compaction.empty).toBe(true)
+    expect(summary.compaction.entity_count).toBe(0)
+    expect(summary.persisted_compactions).toEqual({ count: 0, consistent_count: 0, inconsistent_count: 0 })
+    expect(summary.gc.candidate_count).toBe(0)
+  })
+
+  it('`index-v2 maintenance` flags a fired compaction-plan once projection segments cross the threshold', async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    for (let epoch = 1; epoch <= 17; epoch++) {
+      const dir = join(storeRoot, 'epochs', String(epoch), 'projection')
+      await mkdir(dir, { recursive: true })
+      await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(1024))
+    }
+    const r = runCli(['index-v2', 'maintenance', '--store', storeRoot])
+    expect(r.status).toBe(0)
+    const summary = JSON.parse(r.stdout) as {
+      projection: { total_segments: number }
+      compaction: { empty: boolean; entity_count: number; reasons: string[] }
+    }
+    expect(summary.projection.total_segments).toBe(17)
+    expect(summary.compaction.empty).toBe(false)
+    expect(summary.compaction.entity_count).toBe(1)
+    expect(summary.compaction.reasons).toEqual(['low_count_byte_ceiling'])
+  })
+
+  it('`index-v2 maintenance` reports persisted-compaction consistency + GC partition after --write', async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    for (let epoch = 1; epoch <= 17; epoch++) {
+      const dir = join(storeRoot, 'epochs', String(epoch), 'projection')
+      await mkdir(dir, { recursive: true })
+      await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(1024))
+    }
+    runCli([
+      'index-v2',
+      'compaction-manifest',
+      '--store',
+      storeRoot,
+      '--write',
+      '--generated-at',
+      '2026-05-19T12:00:00.000Z',
+    ])
+
+    const beforeOutput = runCli(['index-v2', 'maintenance', '--store', storeRoot])
+    expect(beforeOutput.status).toBe(0)
+    const before = JSON.parse(beforeOutput.stdout) as {
+      persisted_compactions: { count: number; consistent_count: number; inconsistent_count: number }
+      gc: { candidate_count: number; safe_to_delete: { count: number }; blocked: { count: number } }
+    }
+    expect(before.persisted_compactions).toEqual({ count: 1, consistent_count: 0, inconsistent_count: 1 })
+    expect(before.gc.candidate_count).toBe(17)
+    expect(before.gc.blocked.count).toBe(17)
+    expect(before.gc.safe_to_delete.count).toBe(0)
+
+    // Plant the compacted output — flips consistency + GC partition.
+    const compactedDir = join(storeRoot, 'epochs', 'compact-0001', 'projection')
+    await mkdir(compactedDir, { recursive: true })
+    await writeFile(join(compactedDir, 'sessions.compacted.parquet'), Buffer.alloc(2048))
+
+    const afterOutput = runCli(['index-v2', 'maintenance', '--store', storeRoot])
+    expect(afterOutput.status).toBe(0)
+    const after = JSON.parse(afterOutput.stdout) as {
+      persisted_compactions: { count: number; consistent_count: number; inconsistent_count: number }
+      gc: { candidate_count: number; safe_to_delete: { count: number }; blocked: { count: number } }
+    }
+    expect(after.persisted_compactions).toEqual({ count: 1, consistent_count: 1, inconsistent_count: 0 })
+    expect(after.gc.safe_to_delete.count).toBe(17)
+    expect(after.gc.blocked.count).toBe(0)
+  })
+
+  it('`index-v2 maintenance` fails when --store is missing', async () => {
+    const r = runCli(['index-v2', 'maintenance'])
+    expect(r.status).not.toBe(0)
+    expect(r.stderr).toMatch(/required option.*--store/i)
   })
 
   it('`index-v2 status --help` documents --store', async () => {

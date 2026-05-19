@@ -27,6 +27,7 @@ import {
   bundleDerivedStatus,
   currentTantivySchemaFingerprint,
   derivedLayerEpochsTouched,
+  derivedLayerMaintenanceSummary,
   formatTranscriptMarkdownV2,
   formatTranscriptTextV2,
   getSessionBlobSummary,
@@ -66,6 +67,18 @@ export function indexV2Command(): Command {
   const root = new Command('index-v2').description(
     'Bundle v2 derived-layer index commands (Tantivy + SessionBlob + analytics).',
   )
+
+  root
+    .command('maintenance')
+    .description(
+      'One-call dashboard read: composes status + projection rollup + compaction-plan + persisted-compactions consistency + gc-plan partition into a single JSON snapshot. Use before deciding whether to compile, compact, or GC.',
+    )
+    .requiredOption('--store <path>', 'bundle directory')
+    .action(async (options: { store: string }) => {
+      const storePath = resolvePath(options.store)
+      const summary = await derivedLayerMaintenanceSummary(storePath)
+      process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`)
+    })
 
   root
     .command('status')
