@@ -189,4 +189,28 @@ describe('iterateTranscriptFromBundle', () => {
     expect(result.path).toBe(sessionBlobPackPath(bundleRoot, SESSION_ID, 4))
     expect(result.pack_digest).toMatch(/^blake3:[0-9a-f]{64}$/)
   })
+
+  it('reads a specific historical epoch when `epoch` is provided (mirrors loadTranscriptFromBundle)', async () => {
+    await writeZstdPack(bundleRoot, SESSION_ID, 1, 2)
+    await writeZstdPack(bundleRoot, SESSION_ID, 4, 3)
+    await writeZstdPack(bundleRoot, SESSION_ID, 9, 7)
+
+    const result = await iterateTranscriptFromBundle({ bundleRoot, sessionId: SESSION_ID, epoch: 4 })
+
+    expect(result.epoch).toBe(4)
+    expect(result.path).toBe(sessionBlobPackPath(bundleRoot, SESSION_ID, 4))
+    expect(result.pack_digest).toMatch(/^blake3:/)
+    // Generator yields the 3 messages from epoch 4, not the 7 from epoch 9.
+    const ordinals: number[] = []
+    for (const message of result.messages) ordinals.push(message.ordinal)
+    expect(ordinals).toEqual([0, 1, 2])
+  })
+
+  it('surfaces ENOENT when the requested epoch has no pack for the session', async () => {
+    await writeZstdPack(bundleRoot, SESSION_ID, 1, 1)
+
+    await expect(iterateTranscriptFromBundle({ bundleRoot, sessionId: SESSION_ID, epoch: 99 })).rejects.toThrow(
+      /ENOENT|epoch-99/,
+    )
+  })
 })

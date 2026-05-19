@@ -159,13 +159,27 @@ export interface IterableTranscriptFromBundle {
 export async function iterateTranscriptFromBundle(
   input: LoadTranscriptFromBundleInput,
 ): Promise<IterableTranscriptFromBundle> {
-  const pack = await loadLatestSessionBlobPack({
+  if (input.epoch === undefined) {
+    const pack = await loadLatestSessionBlobPack({
+      bundleRoot: input.bundleRoot,
+      sessionId: input.sessionId,
+    })
+    const decompress = input.decompress ?? zstdSessionBlobDecompressor
+    return {
+      epoch: pack.epoch,
+      path: pack.path,
+      pack_digest: pack.pack_digest,
+      messages: iterateTranscript(pack.bytes, decompress, input.range),
+    }
+  }
+  const pack = await loadSessionBlobPack({
     bundleRoot: input.bundleRoot,
     sessionId: input.sessionId,
+    epoch: input.epoch,
   })
   const decompress = input.decompress ?? zstdSessionBlobDecompressor
   return {
-    epoch: pack.epoch,
+    epoch: input.epoch,
     path: pack.path,
     pack_digest: pack.pack_digest,
     messages: iterateTranscript(pack.bytes, decompress, input.range),
