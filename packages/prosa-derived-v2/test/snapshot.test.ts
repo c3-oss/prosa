@@ -117,6 +117,64 @@ describe('derivedLayerSnapshot', () => {
     expect(snapshot.maintenance.status.tantivy).toBeDefined()
   })
 
+  it('corruption gate: overlapping manifests produce `recommendations: [resolve_overlap]` as the sole signal', async () => {
+    // Plant projection segments at epochs 1..3 for two entities,
+    // then write two manifests that both claim
+    // `epochs/2/projection/sessions.parquet` in their superseded
+    // arrays. This is the cross-seq overlap corruption signal.
+    // Through the snapshot we expect:
+    //   - maintenance.overlaps.count === 1
+    //   - recommendations === [{ kind: 'resolve_overlap', ... }]
+    // Even though one manifest is inconsistent and the planner
+    // would otherwise want to fire, the corruption gate
+    // short-circuits everything to just the resolve_overlap row.
+    for (let epoch = 1; epoch <= 3; epoch++) {
+      const dir = join(bundleRoot, 'epochs', String(epoch), 'projection')
+      await mkdir(dir, { recursive: true })
+      await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(1024))
+    }
+    const planA: CompactionPlan = {
+      empty: false,
+      entities: [
+        {
+          entityType: 'sessions',
+          reason: 'low_count_byte_ceiling',
+          outputPath: 'epochs/compact-0001/projection/sessions.compacted.parquet',
+          totalBytesIn: 2048,
+          segmentsToMerge: [
+            { epoch: 1, path: 'epochs/1/projection/sessions.parquet', byteLength: 1024 },
+            { epoch: 2, path: 'epochs/2/projection/sessions.parquet', byteLength: 1024 },
+          ],
+        },
+      ],
+    }
+    const planB: CompactionPlan = {
+      empty: false,
+      entities: [
+        {
+          entityType: 'sessions',
+          reason: 'low_count_byte_ceiling',
+          outputPath: 'epochs/compact-0002/projection/sessions.compacted.parquet',
+          totalBytesIn: 2048,
+          segmentsToMerge: [
+            // Same path as planA — cross-seq overlap.
+            { epoch: 2, path: 'epochs/2/projection/sessions.parquet', byteLength: 1024 },
+            { epoch: 3, path: 'epochs/3/projection/sessions.parquet', byteLength: 1024 },
+          ],
+        },
+      ],
+    }
+    await writeCompactManifestV2(bundleRoot, buildCompactManifestV2({ plan: planA, generatedAt: GENERATED_AT }))
+    await writeCompactManifestV2(bundleRoot, buildCompactManifestV2({ plan: planB, generatedAt: GENERATED_AT }))
+
+    const snapshot = await derivedLayerSnapshot(bundleRoot)
+    expect(snapshot.maintenance.overlaps.count).toBe(1)
+    expect(snapshot.maintenance.overlaps.paths).toEqual(['epochs/2/projection/sessions.parquet'])
+    expect(snapshot.recommendations).toHaveLength(1)
+    expect(snapshot.recommendations[0]!.kind).toBe('resolve_overlap')
+    expect((snapshot.recommendations[0] as { overlap_count: number }).overlap_count).toBe(1)
+  })
+
   it('CQ-113: snapshot fails closed when the Tantivy checkpoint JSON is malformed (inherits maintenance fail-closed semantics)', async () => {
     // The snapshot composes `derivedLayerMaintenanceSummary`,
     // which reads Tantivy status through the checkpoint reader.

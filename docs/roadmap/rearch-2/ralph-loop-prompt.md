@@ -144,7 +144,9 @@ section as the full restart instruction:
   recommendation that short-circuits every other action +
   CQ-114 closeout (`755a854`), maintenance ↔ compaction-overlaps
   parity assertion in the coherence test (`ec6bd67`),
-  plus the prior scaffold
+  snapshot corruption-gate integration test (planted
+  overlapping manifests → `recommendations: [resolve_overlap]`)
+  (pending commit), plus the prior scaffold
   (`bb76006`), SessionBlobPackV2 byte layout (`ba87f05`), Parquet
   compaction planner (`ea8c1a8`), DuckDB analytics view shape contract
   + compacted-overlay binding (`cff3670` / `e35f844`), Tantivy schema
