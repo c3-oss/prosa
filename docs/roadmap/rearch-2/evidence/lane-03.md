@@ -60,12 +60,21 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
   `readIndexCheckpoint` / `writeIndexCheckpoint` /
   `readIndexCheckpointOrEmpty` persist that state at
   `<bundleRoot>/derived/tantivy/checkpoint.json` as canonical JSON
-  (sorted keys, no whitespace) via the bundle-v2
-  `writeFileDurable` + `syncDir` pair so two equivalent
-  checkpoints write byte-identical files and a partial write
-  cannot survive a crash. Read-side validates field types and
-  rejects unexpected `status` values rather than papering over
-  corrupt state with the empty checkpoint.
+  (sorted keys, no whitespace). Writes are rename-based atomic
+  (CQ-093): canonical bytes go to a same-directory temp file
+  (`checkpoint.json.tmp.<pid>.<rand>`), the file is fsynced, then
+  `rename(tmp, checkpoint.json)` (POSIX atomic on the same
+  filesystem) is followed by `syncDir(dirname(path))` so the
+  rename survives a crash. A torn write cannot leave the final
+  path partially written; readers always observe either the
+  prior good checkpoint or the new one. Two equivalent
+  checkpoints still write byte-identical files because the bytes
+  are canonical JSON. Read-side validates field types and rejects
+  unexpected `status` values rather than papering over corrupt
+  state with the empty checkpoint. CQ-093 regression coverage
+  plants a stale `.tmp.*` from a simulated interrupted prior
+  update and asserts both the prior good checkpoint and the
+  follow-up write are readable without temp-file leaks.
 - [x] SessionBlobPackV2 projection-to-input bridge
   (`projectionToSessionBlobInputs`) converts a session's canonical
   `MessageV2[]` + `ContentBlockV2[]` (+ optional `ToolCallV2[]`)
@@ -156,7 +165,7 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
 ```text
 pnpm install --prefer-offline                       # registers @c3-oss/prosa-derived-v2 in pnpm-lock.yaml
 pnpm --filter @c3-oss/prosa-derived-v2 typecheck    # clean
-pnpm --filter @c3-oss/prosa-derived-v2 test         # 98 tests / 11 files (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9, reader-iterator 7, tantivy checkpoint-store 10 — null/empty-fallback/populated-roundtrip/empty-roundtrip/canonical-byte-identity/atomic-overwrite/malformed/array/wrong-type/bad-status)
+pnpm --filter @c3-oss/prosa-derived-v2 test         # 99 tests / 11 files (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9, reader-iterator 7, tantivy checkpoint-store 11 — null/empty-fallback/populated-roundtrip/empty-roundtrip/canonical-byte-identity/rename-based-atomic-replacement/malformed/array/wrong-type/bad-status/CQ-093-stale-temp-preserves-prior-good)
 pnpm --filter @c3-oss/prosa-derived-v2 lint         # clean
 pnpm build                                          # 13/13 turbo
 pnpm typecheck                                      # 13/13 turbo

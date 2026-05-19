@@ -4,10 +4,51 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 ## Open
 
-(none — `CQ-091` and `CQ-092` are both closed. Lane 2 acceptance still
-requires Codex/governor/user sign-off.)
+(none — `CQ-091`, `CQ-092`, and `CQ-093` are all closed. Lane 2
+acceptance still requires Codex/governor/user sign-off.)
 
 ## Closed (latest first)
+
+### CQ-093: Make Tantivy Checkpoint Writes Actually Atomic — closed 2026-05-19
+
+Fix lands in this iteration:
+
+- `writeIndexCheckpoint()` now opens a unique same-directory temp at
+  `<checkpoint.json>.tmp.<pid>.<rand>`, writes the canonical-JSON
+  bytes, fsyncs the file handle, `rename(tmp, checkpoint.json)`
+  (POSIX atomic on the same filesystem), then `syncDir(dirname(path))`
+  so the rename survives a crash. Mirrors the `head.json` pattern in
+  `prosa-bundle-v2`.
+- On rename failure the temp is unlinked best-effort; the final
+  `checkpoint.json` is never touched outside the rename, so the prior
+  good checkpoint always survives a failed update.
+- Module-level docstring updated to describe "rename-based atomic
+  replacement" (not the misleading "newest write wins"), and the
+  prior test was renamed to "replaces a prior checkpoint via rename,
+  leaving no stale temp behind" — it now asserts only
+  `checkpoint.json` survives in the directory after the rename.
+- New regression test "CQ-093: a stale `.tmp.*` file from an
+  interrupted prior update does not corrupt the next read":
+  - Plants a garbage-content `checkpoint.json.tmp.999999.deadbeef`
+    next to a known-good `checkpoint.json` (simulating the crash
+    state CQ-093 contemplates).
+  - Asserts the read still returns the prior good checkpoint.
+  - Performs a fresh write, asserts the read now returns the new
+    checkpoint.
+  - Asserts no fresh-iteration temp file leaks into the directory.
+- `writeFileDurable` is no longer imported into checkpoint-store; the
+  module now uses `open` + `rename` + `syncDir` directly.
+
+Gates after the change:
+
+- `pnpm --filter @c3-oss/prosa-derived-v2 typecheck`: pass.
+- `pnpm --filter @c3-oss/prosa-derived-v2 test`: pass, 99 tests / 11
+  files.
+- `pnpm --filter @c3-oss/prosa-derived-v2 lint`: pass.
+- Full repo `pnpm build` / `pnpm typecheck` / `pnpm test` / `pnpm
+  lint`: 13/13 turbo.
+- `pnpm test:conformance`: pass, 26 tests / 2 files.
+- `git diff --check`: pass.
 
 ### CQ-092: Commit and Reconcile SessionBlob Projection Bridge CQ-091 Closeout — closed 2026-05-19
 

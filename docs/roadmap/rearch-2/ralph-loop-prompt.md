@@ -157,14 +157,15 @@ Keep these files current:
 
 ## Current Blocking Corrections
 
-Current open corrections: none. `CQ-091` closed at `585a456` (SessionBlob
-projection-bridge CAS-ref previews truncated by UTF-8 byte length via
-`TextEncoder.encodeInto`; writer's CAS-ref `bodyByteCost` uses
-`utf8ByteLength(body.preview)`; two regression tests guard the property).
-`CQ-092` closed by this iteration's roadmap-reconciliation commit. Lane 2
-acceptance still requires Codex/governor/user sign-off; Lane 3 forward
-work continues on the remaining surfaces (Tantivy native writer, DuckDB
-runtime executor, Parquet merge worker).
+Current open corrections: none. `CQ-093` closed in this iteration:
+`writeIndexCheckpoint()` now performs a rename-based atomic replacement
+(same-directory temp file → `fsync` → `rename(tmp, checkpoint.json)` →
+`syncDir(parent)`), and a new regression test plants a stale `.tmp.*`
+from a simulated interrupted prior update and proves both the prior
+good checkpoint and the follow-up write are readable without temp-file
+leaks. Lane 2 acceptance still requires Codex/governor/user sign-off;
+Lane 3 forward work continues on the remaining surfaces (Tantivy native
+writer, DuckDB runtime executor, Parquet merge worker).
 
 Lane 0 + Lane 1 are accepted by the project owner on 2026-05-18, including the
 two re-scopes in `docs/rearch-2/lane-1-rescopes.md`.

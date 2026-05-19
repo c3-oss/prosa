@@ -2,18 +2,25 @@
 //
 // The rebuild planner decides between `skip` / `incremental` / `full`
 // from an `IndexCheckpointV2` value. This module is the on-disk side:
-// it loads the prior checkpoint from `<bundleRoot>/derived/tantivy/checkpoint.json`
-// (or returns null when missing) and writes the post-run checkpoint
-// using the bundle-v2 durable-write helper (write → fsync → close, then
-// fsync the parent dir).
+// it loads the prior checkpoint from
+// `<bundleRoot>/derived/tantivy/checkpoint.json` (or returns null when
+// missing) and writes the post-run checkpoint atomically.
+//
+// "Atomic" here means: write the new bytes to a same-directory temp
+// file, fsync the file, `rename(tmp, checkpoint.json)` (POSIX atomic
+// on the same filesystem), then fsync the parent directory so the
+// rename survives a crash. A torn write cannot leave a partially
+// written `checkpoint.json` because the final path is only ever
+// updated via rename — mirroring the `head.json` pattern in
+// `prosa-bundle-v2`. CQ-093.
 //
 // The on-disk representation is canonical JSON (sorted keys, no
 // whitespace) so the same checkpoint always produces the same bytes
 // and a diff tool can compare two runs.
 
-import { readFile } from 'node:fs/promises'
+import { mkdir, open, readFile, rename, unlink } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import { syncDir, writeFileDurable } from '@c3-oss/prosa-bundle-v2'
+import { syncDir } from '@c3-oss/prosa-bundle-v2'
 
 import { canonicalJsonBytes } from '../session-blob/framing.js'
 
@@ -54,16 +61,51 @@ export async function readIndexCheckpoint(bundleRoot: string): Promise<IndexChec
 }
 
 /**
- * Persist a post-run checkpoint. Writes canonical JSON via the bundle
- * durable-write helper, then fsyncs the parent directory so the file
- * survives a power loss between write and rename. Overwrites any prior
- * checkpoint atomically.
+ * Persist a post-run checkpoint atomically: write canonical JSON to a
+ * same-directory temp file, fsync the file, rename onto the final
+ * `checkpoint.json` path (POSIX atomic on the same filesystem), then
+ * fsync the parent directory so the rename survives a crash. A torn
+ * write cannot corrupt the final path; readers always see either the
+ * prior good checkpoint or the new one. On rename failure the temp
+ * file is unlinked best-effort. CQ-093.
  */
 export async function writeIndexCheckpoint(bundleRoot: string, checkpoint: IndexCheckpointV2): Promise<void> {
   const path = tantivyCheckpointPath(bundleRoot)
+  const dir = dirname(path)
   const bytes = canonicalJsonBytes(checkpointToCanonicalShape(checkpoint))
-  await writeFileDurable(path, bytes)
-  await syncDir(dirname(path))
+  // Same-directory temp; suffix is unique per call so concurrent
+  // writers cannot collide on the same temp path (the planner
+  // contract is single-writer per bundle, but the temp suffix is
+  // cheap and removes a foot-gun).
+  const tmp = `${path}.tmp.${process.pid}.${randomSuffix()}`
+  await mkdir(dir, { recursive: true })
+  const handle = await open(tmp, 'w')
+  try {
+    await handle.writeFile(bytes)
+    await handle.sync()
+  } finally {
+    await handle.close()
+  }
+  try {
+    await rename(tmp, path)
+  } catch (err) {
+    // Best-effort cleanup so a failed rename does not leave a stale
+    // temp behind. Never touch the final path: the prior good
+    // checkpoint is still there.
+    try {
+      await unlink(tmp)
+    } catch {
+      // ignore
+    }
+    throw err
+  }
+  await syncDir(dir)
+}
+
+function randomSuffix(): string {
+  return Math.floor(Math.random() * 0xffffffff)
+    .toString(16)
+    .padStart(8, '0')
 }
 
 /**

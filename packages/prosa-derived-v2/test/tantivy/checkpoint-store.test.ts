@@ -6,7 +6,7 @@
 // canonical JSON (sorted keys) so two equivalent checkpoints always
 // produce byte-identical files.
 
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -93,7 +93,7 @@ describe('IndexCheckpointV2 persistence', () => {
     }
   })
 
-  it('overwrites a prior checkpoint atomically (newest write wins)', async () => {
+  it('replaces a prior checkpoint via rename, leaving no stale temp behind', async () => {
     const first = checkpointAfterRebuild({
       prior: EMPTY_INDEX_CHECKPOINT,
       fingerprint: `blake3:${'a'.repeat(64)}`,
@@ -112,6 +112,62 @@ describe('IndexCheckpointV2 persistence', () => {
     })
     await writeIndexCheckpoint(bundleRoot, second)
     expect(await readIndexCheckpoint(bundleRoot)).toEqual(second)
+    // After a successful write there must be exactly one file in the
+    // checkpoint directory: the final `checkpoint.json`. No `.tmp.*`
+    // siblings may survive the rename path.
+    const entries = await readdir(join(bundleRoot, 'derived', 'tantivy'))
+    expect(entries).toEqual(['checkpoint.json'])
+  })
+
+  it('CQ-093: a stale `.tmp.*` file from an interrupted prior update does not corrupt the next read', async () => {
+    // Simulate a previous run that crashed between writing the temp
+    // file and the rename: the prior good `checkpoint.json` is still
+    // on disk, and a leftover `.tmp.<pid>.<rand>` sits beside it.
+    const good = checkpointAfterRebuild({
+      prior: EMPTY_INDEX_CHECKPOINT,
+      fingerprint: `blake3:${'a'.repeat(64)}`,
+      newMaxRowid: 42,
+      indexedDocCount: 5,
+      sourceDocCount: 5,
+    })
+    await writeIndexCheckpoint(bundleRoot, good)
+    expect(await readIndexCheckpoint(bundleRoot)).toEqual(good)
+    const path = tantivyCheckpointPath(bundleRoot)
+    const dir = join(bundleRoot, 'derived', 'tantivy')
+    // Plant a stale temp file with garbage bytes — what a crash
+    // mid-write would leave behind.
+    const stalePath = `${path}.tmp.999999.deadbeef`
+    await writeFile(stalePath, 'partial-write-garbage')
+    // Reads must still return the prior good checkpoint — the temp
+    // file does not shadow the final path.
+    expect(await readIndexCheckpoint(bundleRoot)).toEqual(good)
+    // The next successful write must replace `checkpoint.json` via a
+    // fresh rename, must not touch the stale temp, and must leave the
+    // final path readable as the new checkpoint.
+    const next = checkpointAfterRebuild({
+      prior: good,
+      fingerprint: `blake3:${'a'.repeat(64)}`,
+      newMaxRowid: 100,
+      indexedDocCount: 10,
+      sourceDocCount: 10,
+    })
+    await writeIndexCheckpoint(bundleRoot, next)
+    expect(await readIndexCheckpoint(bundleRoot)).toEqual(next)
+    // The stale temp from the simulated prior crash is still there
+    // (we deliberately do not delete files we did not create), but
+    // it must not have been swapped onto the final path.
+    const entries = (await readdir(dir)).sort()
+    expect(entries).toContain('checkpoint.json')
+    expect(entries).toContain('checkpoint.json.tmp.999999.deadbeef')
+    // The new write's own temp file is gone — proof the rename path
+    // cleaned up after itself.
+    for (const entry of entries) {
+      if (entry === 'checkpoint.json.tmp.999999.deadbeef') continue
+      if (entry === 'checkpoint.json') continue
+      // Any other entry would be a fresh stale temp, which would
+      // signal a bug in the rename cleanup.
+      throw new Error(`unexpected entry in checkpoint dir after rename: ${entry}`)
+    }
   })
 
   it('rejects malformed JSON with a useful error', async () => {

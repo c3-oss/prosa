@@ -7,7 +7,7 @@
 | `pnpm i` | yes | pass | `pnpm install --frozen-lockfile`-compatible. Pre-existing peer warning: `@c3-oss/config-vitest@0.3.0` wants vitest ^3.1.1, repo on 2.1.9. |
 | `pnpm build` | yes | pass | 13/13 turbo tasks (now includes `@c3-oss/prosa-derived-v2` Lane 3 scaffold). |
 | `just typecheck` | yes | pass | 13/13 turbo tasks. |
-| `just test-all` | yes | pass | **13/13** turbo at HEAD post-Tantivy checkpoint persistence landing. Focused counts: `@c3-oss/prosa-types-v2` 89, `@c3-oss/prosa-wire-v2` 21, conformance **26** (15 leaves + 6 providers-v2 projection-id + 5 bundle-compile idempotency), `@c3-oss/prosa-bundle-v2` **120**, `@c3-oss/prosa-importers-v2` **40**, `@c3-oss/prosa-derived-v2` **98** (Lane 3: scaffold policies + SessionBlobPackV2 byte layout + Parquet compaction planner + DuckDB analytics view shape contract + Tantivy schema/rebuild planner + projection-bridge with CQ-091 multibyte-preview coverage + cross-page transcript iterator with fragment coalescing + IndexCheckpointV2 canonical-JSON persistence), `@c3-oss/prosa-db-v2` 6. |
+| `just test-all` | yes | pass | **13/13** turbo at HEAD post-CQ-093 rename-based atomic checkpoint replacement. Focused counts: `@c3-oss/prosa-types-v2` 89, `@c3-oss/prosa-wire-v2` 21, conformance **26** (15 leaves + 6 providers-v2 projection-id + 5 bundle-compile idempotency), `@c3-oss/prosa-bundle-v2` **120**, `@c3-oss/prosa-importers-v2` **40**, `@c3-oss/prosa-derived-v2` **99** (Lane 3: scaffold policies + SessionBlobPackV2 byte layout + Parquet compaction planner + DuckDB analytics view shape contract + Tantivy schema/rebuild planner + projection-bridge with CQ-091 multibyte-preview coverage + cross-page transcript iterator with fragment coalescing + IndexCheckpointV2 canonical-JSON persistence with CQ-093 rename-based atomic replacement), `@c3-oss/prosa-db-v2` 6. |
 | `just lint-all` | yes | pass | 10/10 turbo tasks. |
 | `pnpm audit --audit-level moderate` | yes | classified pass | 8 vulnerabilities found (1 low / 6 moderate / 1 high). All pre-existing on `master`. See "Audit Classification". |
 | `git diff --check` | yes | pass | No whitespace or conflict markers. |
@@ -41,7 +41,7 @@ a `just` wrapper fails for environmental reasons.
 | 02 | `pnpm --filter @c3-oss/prosa-importers-v2 test` | yes | pass | 40 tests / 7 files (GraphResolver 5, orchestrator 3, CodexProvider 7, ClaudeProvider 7 incl. CQ-068 spawned-edge tests, CursorProvider 5 incl. CQ-070 stable-key fix + CQ-074 full-projection assertions over a real SQLite store, GeminiProvider 6, HermesProvider 7). |
 | 02 | `pnpm --filter @c3-oss/prosa exec vitest run test/cli/compile-v2.test.ts` | yes | pass | 5 subprocess-spawned tests: `compile-v2 codex` happy path + invalid-provider rejection + `compile-all-v2` against all 5 providers + CQ-072 `--help` smokes for both commands. |
 | 02 | `pnpm --filter @c3-oss/prosa lint` | yes | pass | CQ-073: formatting issue auto-fixed by `biome check --fix`; lane-02 CLI lint clean. |
-| 03 | `pnpm --filter @c3-oss/prosa-derived-v2 test` | yes | pass | **98 tests** / 11 files: SessionBlobPackV2 joint-constraint policy (11) + Parquet compaction trigger policy (6) + framing tests (8; CQ-084) + writer/reader round-trip (11; CQ-085) + Parquet compaction planner (8) + DuckDB analytics views shape contract incl. CQ-089 live+compacted overlay (11) + Tantivy schema/fingerprint (7) + Tantivy rebuild-plan state machine (10) + SessionBlobPackV2 projection-to-input bridge (9: 7 baseline + 2 CQ-091 UTF-8-byte regressions) + SessionBlobPackV2 cross-page transcript iterator (7: empty pack, single/multi-page ordinal walk, fragment coalescing, range filters, lazy termination, tamper rejection) + IndexCheckpointV2 persistence (10: missing-file null, missing-file empty fallback, populated round-trip, empty round-trip, canonical-JSON byte-identity across bundles, atomic overwrite, malformed-JSON rejection, JSON-array rejection, wrong-typed numeric rejection, unexpected-status rejection). Tantivy native binding + DuckDB runtime executor + runtime Parquet merge still pending. |
+| 03 | `pnpm --filter @c3-oss/prosa-derived-v2 test` | yes | pass | **99 tests** / 11 files: SessionBlobPackV2 joint-constraint policy (11) + Parquet compaction trigger policy (6) + framing tests (8; CQ-084) + writer/reader round-trip (11; CQ-085) + Parquet compaction planner (8) + DuckDB analytics views shape contract incl. CQ-089 live+compacted overlay (11) + Tantivy schema/fingerprint (7) + Tantivy rebuild-plan state machine (10) + SessionBlobPackV2 projection-to-input bridge (9: 7 baseline + 2 CQ-091 UTF-8-byte regressions) + SessionBlobPackV2 cross-page transcript iterator (7) + IndexCheckpointV2 persistence (11: missing-file null, missing-file empty fallback, populated round-trip, empty round-trip, canonical-JSON byte-identity across bundles, rename-based atomic replacement, malformed-JSON rejection, JSON-array rejection, wrong-typed numeric rejection, unexpected-status rejection, CQ-093 stale-temp + interrupted-update preservation). Tantivy native binding + DuckDB runtime executor + runtime Parquet merge still pending. |
 | 03 | `pnpm dev -- index-v2 status --help` | yes | not-run | CLI command presence smoke until fixture gate exists. |
 | 04 | `pnpm --filter @c3-oss/prosa-db-v2 test` | yes | not-run | Postgres v2 schema and migration tests. |
 | 04 | `pnpm test apps/api/test/v2` | yes | not-run | API v2 schema, auth, signing, validation tests. |
@@ -98,9 +98,9 @@ no new transitive risk.
 
 - [x] Worktree state documented.
 - [x] Lane 0 has evidence; lanes 2–10 are documented as blocked or WIP.
-- [ ] No open blocking corrections. *(`CQ-091` and `CQ-092` closed at
-  `585a456` + this iteration's reconciliation commit; Lane 2 acceptance
-  still pending Codex/governor/user sign-off.)*
+- [ ] No open blocking corrections. *(`CQ-091`, `CQ-092`, and `CQ-093` are
+  all closed at HEAD; Lane 2 acceptance still pending Codex/governor/user
+  sign-off.)*
 - [x] Base gates passed at HEAD `6c25966` (full repo `pnpm test` / `pnpm
   typecheck` / `pnpm lint` 12/12 turbo).
 - [x] Lane 0-specific gates passed: `prosa-types-v2` 89 tests, `prosa-wire-v2`
@@ -117,7 +117,8 @@ no new transitive risk.
   planner / analytics / Tantivy-planner corrections (`CQ-083..CQ-090`) are
   closed; `CQ-091` closed at `585a456` (SessionBlob projection-bridge
   UTF-8 byte accounting); `CQ-092` closed by this iteration's roadmap
-  reconciliation commit.
+  reconciliation commit; `CQ-093` closed by this iteration's rename-based
+  atomic-replacement fix for the Tantivy checkpoint store.
 - [ ] Final Codex review completed. *(Pending — Lane 3 remainder (Tantivy
   writer, DuckDB views, runtime Parquet merge) plus Lanes 4–10 still
   unstarted/incomplete.)*
