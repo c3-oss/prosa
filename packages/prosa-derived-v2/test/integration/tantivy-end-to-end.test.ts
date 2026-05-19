@@ -217,10 +217,13 @@ describe('Tantivy read-side end-to-end pipeline', () => {
     expect(await tantivyIndexDirIsValid(bundleRoot)).toBe(false)
 
     // A subsequent plan therefore falls back to `full` /
-    // `index_dir_invalid` (no prior checkpoint here, so the actual
-    // reason from the empty fixture is `no_prior_index`).
+    // `index_dir_invalid`; the planner checks the on-disk probe
+    // before the empty-checkpoint state.
     const result = await planTantivyRebuildFromBundle({ bundleRoot, currentMaxRowid: 100 })
     expect(result.plan.kind).toBe('full')
+    if (result.plan.kind === 'full') {
+      expect(result.plan.reason).toBe('index_dir_invalid')
+    }
   })
 
   it('caller-requested overwrite: pure planner returns full with caller_requested_overwrite', async () => {
