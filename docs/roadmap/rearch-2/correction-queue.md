@@ -8,6 +8,31 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 ## Closed (latest first)
 
+### CQ-073: Close CQ-072 Only After Formatting Gate and Commit — closed 2026-05-18
+
+CQ-072 was moved to Closed while one Biome formatting issue
+remained on the help-smoke WIP. Auto-fix via
+`pnpm --filter @c3-oss/prosa lint:fix` cleared it (one trailing
+whitespace inside the describe block). Both CQ-072 and CQ-073 land
+in the same closeout commit so queue/status/gates/evidence stay
+coherent. Focused gates pass 12/12 turbo after the fix.
+
+### CQ-072: Repair Premature CQ-071 Closeout and Add CLI Help Smokes — closed 2026-05-18
+
+CQ-072 was opened while the CQ-071 closeout commit (`8247a4c`) was
+still in flight. By review time the CLI surface had already landed
+and the focused gates passed at 12/12. The remaining CQ-072 ask was
+`compile-v2 --help` / `compile-all-v2 --help` smokes; those land
+here.
+
+- Two new tests in `apps/cli/test/cli/compile-v2.test.ts`:
+  - `CQ-072: 'compile-v2 --help' prints the usage banner and exits 0`
+    — asserts synopsis text + key flags.
+  - `CQ-072: 'compile-all-v2 --help' prints the usage banner and
+    exits 0` — asserts all five `--<provider>-root` flags appear.
+- CLI test count 3 → 5.
+- Status / gates / lane-02 evidence pinned to actual HEAD `8247a4c`.
+
 ### CQ-071: Reconcile Post-`c496bac` Governance and Harden `compile-v2` CLI WIP — closed 2026-05-18
 
 Lane 2 CLI surface hardened:

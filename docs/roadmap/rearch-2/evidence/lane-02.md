@@ -2,7 +2,7 @@
 
 Lane: 02 - Importers
 Status: active WIP (minimal provider stubs for Codex, Claude, Cursor, Gemini,
-and Hermes landed; CLI WIP under `CQ-071`; full transcript projection
+and Hermes landed; CLI closeout under `CQ-073`; full transcript projection
 pending). The
 `LogicalImportUnit` contract, `GraphResolver`, and `runCompileImports`
 orchestrator landed at `004107c`. Lane 1 was later accepted at
@@ -12,7 +12,9 @@ added CQ-067 governance reconcile and a minimal ClaudeProvider.
 `aa88079` added Claude subagent spawned-edge projection and a minimal
 CursorProvider. `c496bac` fixed Cursor's stable logical key and added minimal
 GeminiProvider and HermesProvider slices. Focused importer gates pass at 35
-tests across 7 files. `CQ-071` remains open for the `compile-v2` CLI WIP.
+tests across 7 files. `CQ-073` remains open because the CQ-072 help-smoke WIP
+is uncommitted and `pnpm --filter @c3-oss/prosa lint` still fails on one
+formatting issue.
 Owner: Ralph
 Commit range: `004107c` (orchestrator + GraphResolver), `4792457`
 (Lane 1 acceptance / `CQ-044` lifted), `fc66925` (minimal
@@ -46,15 +48,17 @@ CodexProvider), `8c0ba5f` (minimal ClaudeProvider + CQ-067 closeout),
   end-to-end with a mock provider (`@c3-oss/prosa-importers-v2`: 8
   tests / 2 files).
 - [ ] **Per-provider importers (codex, claude, cursor, gemini, hermes)
-  remain partial.** Codex, Claude Code, and Cursor now have minimal
-  slices. Claude Code additionally preserves subagent spawned edges
-  (CQ-068) with deterministic edge_ids and an end-to-end test through
-  the orchestrator + sealEpoch. Cursor is opaque-bytes only (no
-  SQLite row decoding yet). Full transcript/event/tool-call/message
-  projection remains pending across all providers. Gemini and Hermes
-  remain unstarted.
-- [ ] `apps/cli/test/compile-v2.test.ts` (cross-provider parity with v1)
-  pending the per-provider importer landings.
+  remain partial.** All five providers now have minimal slices. Claude Code
+  additionally preserves subagent spawned edges (CQ-068) with deterministic
+  edge_ids and an end-to-end test through the orchestrator + sealEpoch. Cursor
+  is opaque-bytes only (no SQLite row decoding yet). Full
+  transcript/event/tool-call/message projection remains pending across all
+  providers.
+- [ ] `apps/cli/test/cli/compile-v2.test.ts` exists with subprocess tests for
+  successful single-provider execution, bad-provider rejection, and
+  `compile-all-v2` execution. The CQ-072 WIP adds `compile-v2 --help` and
+  `compile-all-v2 --help` smokes, but `CQ-073` still requires formatting,
+  focused gates, and a commit before the CLI surface is accepted.
 - [ ] Invariants I2 (idempotency) and I3 (canonical graph) not yet
   validated against real fixture corpora — pending per-provider work.
 
@@ -88,6 +92,10 @@ pnpm --filter @c3-oss/prosa-importers-v2 typecheck    # clean after CQ-068/CQ-06
 pnpm --filter @c3-oss/prosa-importers-v2 test         # 24 tests / 5 files (GraphResolver + orchestrator + CodexProvider + ClaudeProvider w/ spawned edges + CursorProvider)
 pnpm --filter @c3-oss/prosa-importers-v2 build        # dist/ emitted
 pnpm --filter @c3-oss/prosa-importers-v2 lint         # clean
+pnpm --filter @c3-oss/prosa lint                      # fail: one CQ-072 test formatting issue remains
+pnpm --filter @c3-oss/prosa typecheck                 # pass after current CLI WIP
+pnpm --filter @c3-oss/prosa exec vitest run test/cli/compile-v2.test.ts
+                                                          # pass, 5 tests including CQ-072 help smokes
 
 pnpm build                                              # 11/11 turbo
 just typecheck                                          # 11/11 turbo

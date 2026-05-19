@@ -55,6 +55,25 @@ const HERMES_LINE = {
 }
 
 describe('prosa compile-v2 / compile-all-v2 CLI', () => {
+  it('CQ-072: `compile-v2 --help` prints the usage banner and exits 0', async () => {
+    const r = runCli(['compile-v2', '--help'])
+    expect(r.status).toBe(0)
+    expect(r.stdout).toContain('Compile a single provider into a bundle v2 store')
+    expect(r.stdout).toContain('<provider>')
+    expect(r.stdout).toContain('--store')
+  })
+
+  it('CQ-072: `compile-all-v2 --help` prints the usage banner and exits 0', async () => {
+    const r = runCli(['compile-all-v2', '--help'])
+    expect(r.status).toBe(0)
+    expect(r.stdout).toContain('Compile every supported provider')
+    expect(r.stdout).toContain('--codex-root')
+    expect(r.stdout).toContain('--claude-root')
+    expect(r.stdout).toContain('--cursor-root')
+    expect(r.stdout).toContain('--gemini-root')
+    expect(r.stdout).toContain('--hermes-root')
+  })
+
   it('compile-v2 codex against a synthetic Codex rollout seals one epoch', async () => {
     const storeRoot = await tmp()
     const codexRoot = await tmp()

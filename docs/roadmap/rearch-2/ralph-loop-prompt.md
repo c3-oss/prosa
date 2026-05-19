@@ -30,10 +30,12 @@ section as the full restart instruction:
 - User direction: Lane 1 is accepted. Continue Lane 2 provider-importer work.
 - Close the current blocking corrections named in
   `docs/roadmap/rearch-2/correction-queue.md` with code, tests, and evidence.
-  As of Codex review of `c496bac` plus current CLI WIP, that is `CQ-071`.
-- `CQ-071` blocks Lane 2 CLI acceptance, Lane 2 acceptance, and `RALPH_DONE`.
-  Reconcile active artifacts to `c496bac`, fix the `compile-v2` CLI lint
-  failure, and add focused CLI tests/smokes before committing the CLI surface.
+  As of Codex review of the premature `CQ-072` closeout, that is `CQ-073`.
+- `CQ-073` blocks Lane 2 CLI acceptance, Lane 2 acceptance, Lane 3 start, and
+  `RALPH_DONE`. Fix the remaining Biome formatting issue in
+  `apps/cli/test/cli/compile-v2.test.ts`, keep the 5-test CLI focused suite
+  passing, reconcile active artifacts, run the focused gates listed in the
+  correction, and commit the CLI surface before accepting the Lane 2 CLI work.
 - If a correction needs a Codex/governor decision, ask one clear binary
   accept/reject question with a safe default. Do not loop on "external
   acceptance" as if Codex were unavailable.
@@ -151,8 +153,9 @@ Keep these files current:
 
 Current open correction:
 
-- `CQ-071`: reconcile post-`c496bac` governance and harden `compile-v2` CLI
-  WIP. This blocks Lane 2 CLI acceptance, Lane 2 acceptance, and `RALPH_DONE`.
+- `CQ-073`: close `CQ-072` only after the formatting gate and commit. This
+  blocks Lane 2 CLI acceptance, Lane 2 acceptance, Lane 3 start, and
+  `RALPH_DONE`.
 
 Lane 0 + Lane 1 are accepted by the project owner on 2026-05-18, including the
 two re-scopes in `docs/rearch-2/lane-1-rescopes.md`.
@@ -163,7 +166,7 @@ Lane 2 (importers) is the active lane. The orchestrator,
 ClaudeProvider, `aa88079` landed Claude spawned edges plus a minimal
 CursorProvider, and `c496bac` landed minimal Gemini/Hermes providers plus the
 Cursor logical-key fix. Do not overclaim these as complete transcript/event/
-tool-call importers. Close `CQ-071` with code/tests/evidence before accepting
+tool-call importers. Close `CQ-073` with code/tests/evidence before accepting
 the Lane 2 CLI surface.
 
 Subsequent lanes (3 derived layer, 4 server beyond DB scaffold,

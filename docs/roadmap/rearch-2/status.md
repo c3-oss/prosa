@@ -11,8 +11,8 @@ Completion signal: RALPH_DONE
 
 Status: Lane 1 accepted; Lane 2 active
 Current lane: Lane 2 — provider importers (Codex, Claude, Cursor, Gemini, Hermes)
-Current HEAD: `c496bac`
-No-change streak: 0 (CQ-071 closed with the compile-v2 / compile-all-v2 CLI commit)
+Current HEAD: `8247a4c`
+No-change streak: 0 (CQ-072 + CQ-073 closed in this iteration; pending commit on top of `8247a4c`)
 Ralph active: yes
 
 ## Lane Status
@@ -21,7 +21,7 @@ Ralph active: yes
 | --- | --- | --- | --- | --- |
 | 00 - Foundation | Ralph | accepted | `cd845f2`, `e22ec27`, `b78b5ae`, `70b9df0`, `0e8a912`, `a650ef8`, `2809d21` (Lane 0 CQ-001..CQ-019 closed; later commits also touch `CANONICAL.md` governance) | `evidence/lane-00.md` |
 | 01 - Local store | Ralph | accepted (with re-scopes per `docs/rearch-2/lane-1-rescopes.md`) | `4f214b7`, `2b5ad1b`, `433c32f`, `a650ef8`, `6097f9e`, `5a6a683`, `2809d21`, `5e5ca20`, `ea615dd`, `5e4b5e7`, `ecc80a3`, `1419d92`, `1e81888`, `adee042`, `f54f4f1`, `f3730b3`, `aecc9af`, `b970437`, `6c25966`, `fc86533`, `a187a74`, `4792457` | `evidence/lane-01.md` |
-| 02 - Importers | Ralph | minimal providers + CLI complete; full transcript projection deferred | `004107c`, `fc66925`, `8c0ba5f`, `aa88079`, `c496bac`, plus pending CQ-071 commit | `evidence/lane-02.md` |
+| 02 - Importers | Ralph | minimal providers + CLI (incl. `--help` smokes) complete; full transcript projection deferred | `004107c`, `fc66925`, `8c0ba5f`, `aa88079`, `c496bac`, `8247a4c`, plus pending CQ-072/CQ-073 commit | `evidence/lane-02.md` |
 | 03 - Derived layer | Ralph | blocked-on-lane-02 | | `evidence/lane-03.md` |
 | 04 - Server | Ralph | scaffold-landed | `5e5ca20` (`packages/prosa-db-v2/` Postgres DDL + pglite tests) | `evidence/lane-04.md` |
 | 05 - Sync protocol | Ralph | blocked-on-lane-04 | | `evidence/lane-05.md` |
@@ -35,15 +35,11 @@ Ralph active: yes
 
 *(none)*
 
-All Lane 0/1/2 blocking corrections through `CQ-071` are closed.
-All five per-provider Lane 2 importer slices are in place
-(Codex / Claude with spawned-edges / Cursor with stable Reserve key /
-Gemini / Hermes), plus the `prosa compile-v2` / `compile-all-v2` CLI
-surface with subprocess-spawned tests. Lane 1 accepted with the
-re-scopes recorded in `docs/rearch-2/lane-1-rescopes.md`. The next
-work is per-provider full transcript/event/tool-call projection
-(incremental refinement) or starting Lane 3 (derived layer) /
-Lane 4 server beyond the DB scaffold.
+All Lane 0/1/2 blocking corrections through `CQ-073` are closed.
+The Lane 2 CLI surface has 5 subprocess-spawned tests including
+`--help` smokes for both `compile-v2` and `compile-all-v2`, plus
+clean lint and typecheck. Next active surface: Lane 3 (derived
+layer) or Lane 4 server beyond the DB scaffold.
 
 ## Latest Gates
 
@@ -77,6 +73,10 @@ Lane 4 server beyond the DB scaffold.
 - 2026-05-18T21:47:33-03:00: `CQ-069` records current Cursor WIP typecheck
   failures; it blocks Cursor provider acceptance, Lane 2 acceptance, and
   `RALPH_DONE`, but does not block independent Gemini/Hermes work.
+- 2026-05-18T22:30:41-03:00: `CQ-072` records premature `CQ-071` closeout:
+  the CLI WIP is still uncommitted and missing `--help` smokes. It blocks
+  Lane 2 CLI acceptance, Lane 2 acceptance, Lane 3 start, and `RALPH_DONE`,
+  but does not block implementing the listed CLI test/evidence fixes.
 - 2026-05-18 (user direction): Lane 1 must be completely complete against
   `docs/rearch-2/02-lane-1-local-store.md`; no partial/code closeout is
   accepted, and Lane 2+ remains blocked until `CQ-065`, `CQ-064`, and `CQ-044`
