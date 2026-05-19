@@ -4,9 +4,104 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 ## Open
 
-(none — `CQ-091`..`CQ-100` are all closed.)
+(none — `CQ-091`..`CQ-101` are all closed.)
 
 ## Closed (latest first)
+
+### CQ-101: Apply Projection-Segment Symlink Containment to Compaction Planner — closed 2026-05-19
+
+Status: closed
+Severity: high
+Blocking: yes
+Owner: Ralph
+Opened: 2026-05-19
+Closed: 2026-05-19
+Lane: 3 - Derived layer
+
+Finding:
+
+The current WIP hardens `listProjectionSegments(bundleRoot)` by
+`lstat`ing the projection segment chain and rejecting symlinks at
+`<bundleRoot>/epochs`, `epochs/<n>`, `epochs/<n>/projection`, and
+the final `.parquet` file. However, `planCompaction(bundleRoot)`
+still performs its own independent walk using `stat()` and therefore
+still follows symlinks in the same managed projection tree.
+
+Risk:
+
+The future Parquet merge worker consumes `planCompaction()` /
+`planCompactionExecution()`, not only the read-only listing helper.
+If the planner follows a symlinked epoch/projection directory or
+symlinked `.parquet` file to an external target, the resulting plan
+can include external input paths and later merge bytes outside the
+bundle while appearing to operate on canonical
+`epochs/<n>/projection/*.parquet` segments. This breaks the same
+containment invariant already enforced for Tantivy and SessionBlob
+read paths.
+
+Required fix:
+
+- Make `planCompaction()` use the same projection-segment containment
+  rules as `listProjectionSegments()`.
+- Prefer a shared helper so listing and planner cannot drift again.
+- Preserve existing behavior for a fresh bundle and missing
+  per-epoch `projection/` directories.
+- Keep the supported symlinked-bundle-root deployment pattern; the
+  rejection target is symlinks inside the managed `epochs/` tree.
+
+Acceptance criteria:
+
+- Regression tests prove `planCompaction()` refuses or drops:
+  - symlinked `<bundleRoot>/epochs`;
+  - symlinked `epochs/<n>`;
+  - symlinked `epochs/<n>/projection`;
+  - symlinked final `.parquet` files.
+- `planCompactionExecution()` never receives external paths from
+  those symlinked cases.
+- Focused gates pass:
+  - `pnpm --filter @c3-oss/prosa-derived-v2 test`
+  - `pnpm --filter @c3-oss/prosa-derived-v2 typecheck`
+  - `pnpm --filter @c3-oss/prosa-derived-v2 lint`
+  - `git diff --check`
+- Update `docs/roadmap/rearch-2/evidence/lane-03.md`, `gates.md`,
+  `status.md`, and `ralph-loop-prompt.md` with the fix commit and
+  gate evidence before closing this correction.
+
+Closure note:
+
+Fix lands in this iteration. `planCompaction()` no longer does
+its own `readdir`+`stat` walk; instead it routes the entire
+projection segment enumeration through `listProjectionSegments()`,
+which already enforces the CQ-094/CQ-096-style containment
+(symlinked `epochs/` throws; symlinked `epochs/<n>/`,
+`epochs/<n>/projection/`, and `.parquet` files are dropped at
+the per-entry filter). The planner groups the flat listing back
+into per-entity arrays the policy decision consumes, and the
+unused internal `name_is_compact_dir` helper is removed since
+`listProjectionSegments` already excludes `compact-<NNNN>/` dirs.
+`defaultCompactionSeq` still uses a separate `readdir(epochsDir)`
+to discover existing `compact-<NNNN>/` names — that read runs
+after the listing's parent-symlink guard, so the planner cannot
+follow an external-rooted `epochs/`.
+
+Regression coverage (3 new tests in `planner.test.ts`):
+
+- Symlinked `<bundleRoot>/epochs` throws.
+- Symlinked `<bundleRoot>/epochs/<n>` silently dropped — even
+  though following it would have pushed the small-file count
+  above the low-count trigger.
+- Symlinked `.parquet` silently dropped — same trigger-boundary
+  setup.
+
+Validation:
+
+- `pnpm --filter @c3-oss/prosa-derived-v2 typecheck`: pass.
+- `pnpm --filter @c3-oss/prosa-derived-v2 test`: pass, 380 tests /
+  34 files.
+- `pnpm --filter @c3-oss/prosa-derived-v2 lint`: pass.
+- Full repo `pnpm build` / `pnpm test` / `pnpm lint`: 13/13 turbo.
+- `pnpm test:conformance`: pass, 26 / 2.
+- `git diff --check`: pass.
 
 ### CQ-100: Validate Latest SessionBlob Loader Input Before Epoch Listing — closed 2026-05-19
 

@@ -552,17 +552,27 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
   rules (digit-prefixed epoch dirs only; `compact-<NNNN>` skipped;
   non-`.parquet` files dropped; ENOENT-tolerant) but does not
   apply the compaction-policy decision. Suitable for CLI
-  inventory ("N segments across M epochs"), audit tools, and the
-  future Parquet merge worker (currently blocked behind
-  `@duckdb/node-api` allowlist) that needs to enumerate inputs.
-  Returns sorted by `(epoch, entityType)` ascending for
-  deterministic output. 9 tests cover: fresh-bundle [],
+  inventory, audit tools, and the future Parquet merge worker
+  (currently blocked behind `@duckdb/node-api` allowlist).
+  Returns sorted by `(epoch, entityType)` ascending. Includes
+  preemptive containment hardening matching the CQ-094/CQ-096
+  pattern applied to the `derived/` tree: `<bundleRoot>/epochs`
+  as a symlink throws (would redirect the entire walk); per-entry
+  rejection silently drops symlinked `epochs/<n>/`, symlinked
+  `epochs/<n>/projection/`, and symlinked `.parquet` files from
+  the listing; per-file rejection requires regular files for
+  segments. Bundle-root containment is deliberately NOT validated
+  — the symlinked-bundle-root deployment pattern stays supported.
+  15 tests cover the listing semantics (9: fresh-bundle [],
   empty-epoch-dirs [], every `.parquet` across multiple epochs,
-  full ProjectionSegment shape with `path` / `absPath` /
-  `byteLength`, `compact-<NNNN>` dirs skipped (no relist of
-  compacted output), non-numeric epoch dirs ignored, non-
-  `.parquet` files dropped, multi-epoch sorted ordering, and
-  single-epoch many-segments deterministic order.
+  full ProjectionSegment shape, `compact-<NNNN>` skip, non-numeric
+  epoch dirs ignored, non-`.parquet` files dropped, multi-epoch
+  sorted ordering, single-epoch many-segments order) and the
+  containment hardening (6: symlinked `epochs/` throws,
+  symlinked `epochs/<n>/` silently dropped, symlinked
+  `epochs/<n>/projection/` silently dropped, symlinked `.parquet`
+  silently dropped, bundle-root-alias accepted, summary inherits
+  the parent-throw via the composed listing).
 - [x] Bundle-level derived-layer status aggregator
   (`bundleDerivedStatus(bundleRoot)`) composes `tantivyIndexStatus`
   + `listSessionBlobSummaries` + `listSessionBlobEpochs` into one
@@ -722,7 +732,7 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
 ```text
 pnpm install --prefer-offline                       # registers @c3-oss/prosa-derived-v2 in pnpm-lock.yaml
 pnpm --filter @c3-oss/prosa-derived-v2 typecheck    # clean
-pnpm --filter @c3-oss/prosa-derived-v2 test         # 371 tests / 34 files (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 8, compaction executor-plan 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9, reader-iterator 7, tantivy checkpoint-store 11, analytics executor-plan 9, tantivy index-dir probe 17, tantivy plan-bundle orchestration 9, tantivy status 10, analytics descriptor 8, bundle status 8, compaction segments 16 (9 listing + 7 summary), derived-layout 27, tantivy clear-index-dir 10, session-blob loader 11, session-blob zstd 5, session-blob listing 27 (19 prior + 8 listAllSessionBlobSessions cross-epoch union), session-blob latest 11 incl. CQ-100, session-blob transcript-from-bundle 8, session-blob iterate-from-bundle 9, session-blob header 10, session-blob exists 11, session-blob latest-epoch 11, session-blob summary 19 (11 single + 8 bulk listing), integration sessionblob-end-to-end 12, integration compaction-end-to-end 8, integration tantivy-end-to-end 8)
+pnpm --filter @c3-oss/prosa-derived-v2 test         # 380 tests / 34 files (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 11 incl. CQ-101 containment regressions, compaction executor-plan 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9, reader-iterator 7, tantivy checkpoint-store 11, analytics executor-plan 9, tantivy index-dir probe 17, tantivy plan-bundle orchestration 9, tantivy status 10, analytics descriptor 8, bundle status 8, compaction segments 22 (9 listing + 7 summary + 6 containment), derived-layout 27, tantivy clear-index-dir 10, session-blob loader 11, session-blob zstd 5, session-blob listing 27 (19 prior + 8 listAllSessionBlobSessions cross-epoch union), session-blob latest 11 incl. CQ-100, session-blob transcript-from-bundle 8, session-blob iterate-from-bundle 9, session-blob header 10, session-blob exists 11, session-blob latest-epoch 11, session-blob summary 19 (11 single + 8 bulk listing), integration sessionblob-end-to-end 12, integration compaction-end-to-end 8, integration tantivy-end-to-end 8)
 pnpm --filter @c3-oss/prosa-derived-v2 lint         # clean
 pnpm build                                          # 13/13 turbo
 pnpm typecheck                                      # 13/13 turbo

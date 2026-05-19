@@ -5,7 +5,7 @@
 // filtering rules (digit-prefixed epoch dirs only, skip
 // `compact-<N>` dirs, drop non-`.parquet` files).
 
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -231,5 +231,115 @@ describe('summariseProjectionSegments', () => {
     const epochBytes = Object.values(summary.by_epoch).reduce((acc, r) => acc + r.bytes, 0)
     expect(entityBytes).toBe(summary.total_bytes)
     expect(epochBytes).toBe(summary.total_bytes)
+  })
+})
+
+describe('listProjectionSegments — symlink containment (CQ-094/CQ-096 parallel)', () => {
+  let bundleRoot: string
+
+  beforeEach(async () => {
+    bundleRoot = await mkdtemp(join(tmpdir(), 'prosa-derived-segments-containment-'))
+  })
+
+  afterEach(async () => {
+    await rm(bundleRoot, { recursive: true, force: true })
+  })
+
+  it('throws when `<bundleRoot>/epochs` is a symlink to an external tree', async () => {
+    // Plant a fully populated external tree that would otherwise
+    // pass every per-entry check. The listing must refuse before
+    // following the parent symlink.
+    const external = await mkdtemp(join(tmpdir(), 'prosa-derived-segments-cont-ext-'))
+    try {
+      const extEpoch = join(external, '1', 'projection')
+      await mkdir(extEpoch, { recursive: true })
+      await writeFile(join(extEpoch, 'sessions.parquet'), 'fake')
+      await symlink(external, join(bundleRoot, 'epochs'))
+
+      await expect(listProjectionSegments(bundleRoot)).rejects.toThrow(/symlink|epochs/i)
+      // External target survives unchanged.
+      expect((await lstat(join(external, '1', 'projection', 'sessions.parquet'))).isFile()).toBe(true)
+    } finally {
+      await rm(external, { recursive: true, force: true })
+    }
+  })
+
+  it('silently drops a symlinked `<bundleRoot>/epochs/<n>` directory (per-entry rejection)', async () => {
+    await plantSegment(bundleRoot, 1, 'sessions', 100)
+    // Plant a symlinked epoch dir whose external target would
+    // otherwise contribute segments to the listing.
+    const external = await mkdtemp(join(tmpdir(), 'prosa-derived-segments-cont-epoch-'))
+    try {
+      const extProj = join(external, 'projection')
+      await mkdir(extProj, { recursive: true })
+      await writeFile(join(extProj, 'external_session.parquet'), 'fake')
+      await symlink(external, join(bundleRoot, 'epochs', '5'))
+
+      const segments = await listProjectionSegments(bundleRoot)
+      // Only the real epoch surfaces.
+      expect(segments.map((s) => `${s.epoch}/${s.entityType}`)).toEqual(['1/sessions'])
+    } finally {
+      await rm(external, { recursive: true, force: true })
+    }
+  })
+
+  it('silently drops a symlinked `<bundleRoot>/epochs/<n>/projection/` directory', async () => {
+    await mkdir(join(bundleRoot, 'epochs', '1'), { recursive: true })
+    const external = await mkdtemp(join(tmpdir(), 'prosa-derived-segments-cont-proj-'))
+    try {
+      await writeFile(join(external, 'external_session.parquet'), 'fake')
+      await symlink(external, join(bundleRoot, 'epochs', '1', 'projection'))
+
+      const segments = await listProjectionSegments(bundleRoot)
+      expect(segments).toEqual([])
+    } finally {
+      await rm(external, { recursive: true, force: true })
+    }
+  })
+
+  it('silently drops a symlinked `.parquet` entry (per-file rejection)', async () => {
+    const dir = join(bundleRoot, 'epochs', '1', 'projection')
+    await mkdir(dir, { recursive: true })
+    await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(100, 0))
+    const external = await mkdtemp(join(tmpdir(), 'prosa-derived-segments-cont-file-'))
+    try {
+      await writeFile(join(external, 'external.parquet'), 'fake')
+      await symlink(join(external, 'external.parquet'), join(dir, 'messages.parquet'))
+
+      const segments = await listProjectionSegments(bundleRoot)
+      // Only the real file surfaces.
+      expect(segments.map((s) => s.entityType)).toEqual(['sessions'])
+    } finally {
+      await rm(external, { recursive: true, force: true })
+    }
+  })
+
+  it('accepts a symlinked bundle-root alias when the epochs tree is real', async () => {
+    // Bundle-root containment is NOT validated — opening through a
+    // symlinked alias is a supported deployment pattern.
+    await plantSegment(bundleRoot, 2, 'sessions', 200)
+    const aliasParent = await mkdtemp(join(tmpdir(), 'prosa-derived-segments-cont-alias-'))
+    try {
+      const aliasRoot = join(aliasParent, 'bundle-alias')
+      await symlink(bundleRoot, aliasRoot)
+      const segments = await listProjectionSegments(aliasRoot)
+      expect(segments).toHaveLength(1)
+      expect(segments[0]!.epoch).toBe(2)
+    } finally {
+      await rm(aliasParent, { recursive: true, force: true })
+    }
+  })
+
+  it('summary inherits the containment (throws on symlinked epochs/ via composed listing)', async () => {
+    const external = await mkdtemp(join(tmpdir(), 'prosa-derived-segments-cont-sum-'))
+    try {
+      await mkdir(join(external, '1', 'projection'), { recursive: true })
+      await writeFile(join(external, '1', 'projection', 'sessions.parquet'), 'fake')
+      await symlink(external, join(bundleRoot, 'epochs'))
+
+      await expect(summariseProjectionSegments(bundleRoot)).rejects.toThrow(/symlink|epochs/i)
+    } finally {
+      await rm(external, { recursive: true, force: true })
+    }
   })
 })

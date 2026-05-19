@@ -34,7 +34,7 @@ section as the full restart instruction:
   asserts on-disk pack stability). Lane 3 derived-layer scaffold has
   landed in its own focused commit on top of the Lane 2 closeout per
   `CQ-083`.
-- All `CQ-074..CQ-100` are closed. Lane 3 progress includes the
+- All `CQ-074..CQ-101` are closed. Lane 3 progress includes the
   `loadSessionBlobPack` on-disk loader (`eb88037`) with CQ-098
   intermediate-symlink containment (`ea5f5d1`), production zstd
   codec (`62550e1`), SessionBlob listing helpers + shared
@@ -193,14 +193,21 @@ Keep these files current:
 
 ## Current Blocking Corrections
 
-Current open corrections: none. `CQ-091`..`CQ-095` are all closed.
-`CQ-095` closed in this iteration: roadmap artifacts (`status.md`,
-`gates.md`, `evidence/lane-03.md`, this prompt) all now agree on
-`fa49eb2` as the committed `planTantivyRebuildFromBundle` slice. Lane 2
-is accepted by Codex/governor as of 2026-05-19; do not ask again for
-Lane 2 external acceptance and do not block Lane 3 on it. Lane 3 forward
-work continues on the remaining surfaces (Tantivy native writer, DuckDB
-runtime executor, Parquet merge worker).
+Current open corrections: none — `CQ-091`..`CQ-101` are all closed.
+`CQ-101` closeout: `planCompaction()` was refactored to route the
+entire segment enumeration through `listProjectionSegments()`, which
+already enforces the projection-tree containment (symlinked `epochs/`
+throws; symlinked `epochs/<n>/`, `epochs/<n>/projection/`, and
+`.parquet` files are silently dropped). The planner's previous
+`readdir`+`stat` walk and its `name_is_compact_dir` helper were
+removed; 3 regression tests prove the inherited behaviour at every
+chain level.
+
+Lane 2 is accepted by Codex/governor as of 2026-05-19; do not ask again for
+Lane 2 external acceptance and do not block Lane 3 on it. Lane 3 forward work
+continues on the remaining surfaces (Tantivy native writer, DuckDB runtime
+executor, Parquet merge worker), subject to closing the open Lane 3 correction
+before final acceptance.
 
 Lane 0 + Lane 1 are accepted by the project owner on 2026-05-18, including the
 two re-scopes in `docs/rearch-2/lane-1-rescopes.md`.

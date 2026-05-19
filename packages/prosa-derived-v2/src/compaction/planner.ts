@@ -14,10 +14,11 @@
 // the same on-disk layout the planner produces byte-identical output,
 // so re-runs across deploys do not invent new compaction work.
 
-import { readdir, stat } from 'node:fs/promises'
+import { readdir } from 'node:fs/promises'
 import { join, sep } from 'node:path'
 
 import { type CompactionFireReason, type SegmentRef, compactionDecision } from './policy.js'
+import { listProjectionSegments } from './segments.js'
 
 /** One planned compaction operation, per entity type. */
 export interface CompactionEntityPlan {
@@ -69,52 +70,51 @@ export interface PlanCompactionOptions {
  * (a freshly initialised bundle has none).
  */
 export async function planCompaction(bundleRoot: string, options: PlanCompactionOptions = {}): Promise<CompactionPlan> {
+  // CQ-101: route the entire walk through `listProjectionSegments`
+  // so the planner inherits its CQ-094/CQ-096-style containment
+  // hardening (symlinked `epochs/` throws; symlinked
+  // `epochs/<n>/`, `epochs/<n>/projection/`, and `.parquet` files
+  // are silently dropped per-entry). Previously the planner did
+  // its own `readdir` + `stat` walk that followed intermediate
+  // symlinks transparently. Now there is one source of truth for
+  // the segment listing and one place to enforce containment.
   const epochsDir = join(bundleRoot, 'epochs')
+  const allSegments = await listProjectionSegments(bundleRoot)
+
+  // Group the flat listing back into per-entity segment refs the
+  // policy decision consumes. The listing is already sorted by
+  // (epoch, entityType) ascending, so the per-entity list is
+  // automatically sorted by epoch.
   const segmentsByEntity = new Map<string, PlannedSegmentRef[]>()
-
-  let epochs: string[] = []
-  try {
-    epochs = await readdir(epochsDir)
-  } catch {
-    return { entities: [], empty: true }
+  for (const segment of allSegments) {
+    const list = segmentsByEntity.get(segment.entityType) ?? []
+    list.push({
+      path: segment.path,
+      byteLength: segment.byteLength,
+      epoch: segment.epoch,
+    })
+    segmentsByEntity.set(segment.entityType, list)
   }
-  // Only digit-prefixed entries are normal sealed epochs; existing
-  // `compact-<N>` directories are skipped so we do not re-compact
-  // already-compacted output.
-  const numericEpochs = epochs
-    .map((name) => ({ name, epoch: Number(name) }))
-    .filter((e) => Number.isInteger(e.epoch) && !name_is_compact_dir(e.name))
-    .sort((a, b) => a.epoch - b.epoch)
 
-  for (const { name, epoch } of numericEpochs) {
-    const projectionDir = join(epochsDir, name, 'projection')
-    let entries: string[]
-    try {
-      entries = await readdir(projectionDir)
-    } catch {
-      continue
-    }
-    for (const fileName of entries) {
-      if (!fileName.endsWith('.parquet')) continue
-      const entityType = fileName.replace(/\.parquet$/, '')
-      const relPath = `epochs${sep}${name}${sep}projection${sep}${fileName}`
-      const absPath = join(projectionDir, fileName)
-      let info: { size: number }
-      try {
-        info = await stat(absPath)
-      } catch {
-        continue
-      }
-      const list = segmentsByEntity.get(entityType) ?? []
-      list.push({ path: relPath, byteLength: info.size, epoch })
-      segmentsByEntity.set(entityType, list)
-    }
+  // `defaultCompactionSeq` still needs to scan `epochs/` to discover
+  // existing `compact-<NNNN>` numbers. Use `readdir` here rather
+  // than re-walking via the listing helper because compact dirs
+  // are deliberately excluded from `listProjectionSegments`. The
+  // parent-symlink guard inside `listProjectionSegments` already
+  // ran above (and threw if needed), so this readdir is safe to
+  // run unconditionally.
+  let epochsEntries: string[] = []
+  try {
+    epochsEntries = await readdir(epochsDir)
+  } catch {
+    // ENOENT: fresh bundle. The listing already returned [], so
+    // the entities loop below will also be empty.
   }
 
   const entities: CompactionEntityPlan[] = []
   const seq = options.nextCompactionSeq
     ? await options.nextCompactionSeq(bundleRoot)
-    : await defaultCompactionSeq(epochsDir, epochs)
+    : await defaultCompactionSeq(epochsDir, epochsEntries)
   for (const [entityType, segments] of Array.from(segmentsByEntity.entries()).sort(([a], [b]) =>
     a < b ? -1 : a > b ? 1 : 0,
   )) {
@@ -130,10 +130,6 @@ export async function planCompaction(bundleRoot: string, options: PlanCompaction
     })
   }
   return { entities, empty: entities.length === 0 }
-}
-
-function name_is_compact_dir(name: string): boolean {
-  return name.startsWith('compact-')
 }
 
 /**

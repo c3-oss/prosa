@@ -6,7 +6,7 @@
 // parquet files) and assert the resulting plan names exactly the
 // segments the policy says should be merged.
 
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 
@@ -134,5 +134,76 @@ describe('planCompaction', () => {
     }
     const plan = await planCompaction(root)
     expect(plan.empty).toBe(true)
+  })
+
+  describe('CQ-101: containment hardening inherited from listProjectionSegments', () => {
+    it('throws when `<bundleRoot>/epochs` is a symlink to an external tree', async () => {
+      const root = await tmp()
+      const external = await mkdtemp(join(tmpdir(), 'prosa-compaction-planner-cq101-ext-'))
+      try {
+        const extEpoch = join(external, '1', 'projection')
+        await mkdir(extEpoch, { recursive: true })
+        await writeFile(join(extEpoch, 'sessions.parquet'), Buffer.alloc(100))
+        await symlink(external, join(root, 'epochs'))
+
+        await expect(planCompaction(root)).rejects.toThrow(/symlink|epochs/i)
+      } finally {
+        await rm(external, { recursive: true, force: true })
+      }
+    })
+
+    it('silently drops a symlinked `<bundleRoot>/epochs/<n>` directory from the plan', async () => {
+      const root = await tmp()
+      // Plant 16 real small segments — exactly at the low-count
+      // trigger boundary (the trigger fires only when count > 16
+      // *and* total bytes < 256 MiB). With exactly 16 segments,
+      // no trigger fires. A symlinked epoch contributing 5 more
+      // would push count to 21 and fire `low_count_byte_ceiling`
+      // if the planner followed the symlink.
+      for (let epoch = 1; epoch <= 16; epoch++) {
+        await writeSegment(root, epoch, 'sessions', 100)
+      }
+      const external = await mkdtemp(join(tmpdir(), 'prosa-compaction-planner-cq101-epoch-'))
+      try {
+        const extProj = join(external, 'projection')
+        await mkdir(extProj, { recursive: true })
+        for (let i = 0; i < 5; i++) {
+          await writeFile(join(extProj, `session_${i}.parquet`), Buffer.alloc(100))
+        }
+        await symlink(external, join(root, 'epochs', '17'))
+
+        const plan = await planCompaction(root)
+        // The symlinked epoch is silently dropped — only the 16
+        // real segments are counted, which is exactly at (not >)
+        // the low-count trigger, so the plan stays empty.
+        expect(plan.empty).toBe(true)
+      } finally {
+        await rm(external, { recursive: true, force: true })
+      }
+    })
+
+    it('silently drops a symlinked `.parquet` file from the planner inputs', async () => {
+      const root = await tmp()
+      // Plant 16 real segments at the trigger boundary.
+      for (let epoch = 1; epoch <= 16; epoch++) {
+        await writeSegment(root, epoch, 'sessions', 100)
+      }
+      // Plant a symlinked .parquet that would push count to 17
+      // (over the low-count trigger) if followed.
+      const external = await mkdtemp(join(tmpdir(), 'prosa-compaction-planner-cq101-file-'))
+      try {
+        await writeFile(join(external, 'external.parquet'), Buffer.alloc(100))
+        const dir = join(root, 'epochs', '17', 'projection')
+        await mkdir(dir, { recursive: true })
+        await symlink(join(external, 'external.parquet'), join(dir, 'sessions.parquet'))
+
+        const plan = await planCompaction(root)
+        // Symlinked file dropped — count stays at 16 (== threshold,
+        // not >), so no trigger fires.
+        expect(plan.empty).toBe(true)
+      } finally {
+        await rm(external, { recursive: true, force: true })
+      }
+    })
   })
 })

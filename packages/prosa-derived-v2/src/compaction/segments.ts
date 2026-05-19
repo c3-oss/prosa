@@ -26,11 +26,29 @@
 //     collapses to "epoch has no projection files" (skipped silently).
 //   - Files whose name does not end in `.parquet` are dropped.
 //
+// Containment (preemptive hardening, matches the CQ-094/CQ-096
+// pattern applied to the `derived/` tree):
+//
+//   - `<bundleRoot>/epochs` itself must not be a symlink. A symlink
+//     there could redirect the entire walk to an external tree.
+//     Throws with a clear error rather than silently following.
+//   - Per-entry rejection at `<bundleRoot>/epochs/<n>` and at
+//     `<bundleRoot>/epochs/<n>/projection`: symlinked intermediates
+//     are silently dropped from the listing (the security boundary
+//     is enforced elsewhere when the segment is actually consumed).
+//   - Per-file rejection: each `.parquet` is `lstat`ed and dropped
+//     if it is a symlink or not a regular file.
+//
+// Bundle-root containment is NOT validated — opening a bundle
+// through a symlinked alias remains a supported deployment pattern.
+// The rejection target is symlinks inside the managed `epochs/`
+// tree.
+//
 // Pure read path — no Parquet decoding, no DuckDB. Suitable for any
 // surface regardless of the `@duckdb/node-api` allowlist gate that
 // the runtime merge worker needs.
 
-import { readdir, stat } from 'node:fs/promises'
+import { lstat, readdir } from 'node:fs/promises'
 import { join, sep } from 'node:path'
 
 export interface ProjectionSegment {
@@ -65,6 +83,24 @@ export interface ProjectionSegment {
  */
 export async function listProjectionSegments(bundleRoot: string): Promise<ProjectionSegment[]> {
   const epochsDir = join(bundleRoot, 'epochs')
+  // Containment: refuse to enumerate when `<bundleRoot>/epochs` is
+  // itself a symlink. A symlink there could point at an external
+  // tree and let the listing surface external `.parquet` files as
+  // if they were canonical bundle segments. Mirrors the CQ-096
+  // intermediate-symlink rejection applied to the derived/ tree.
+  // ENOENT collapses to empty (fresh bundle); other I/O errors
+  // throw so a misconfigured EACCES doesn't silently mask state.
+  try {
+    const epochsStat = await lstat(epochsDir)
+    if (epochsStat.isSymbolicLink()) {
+      throw new Error(
+        `listProjectionSegments: refusing to enumerate — ${epochsDir} is a symlink. Resolve the symlink configuration manually before retrying.`,
+      )
+    }
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') return []
+    throw err
+  }
   let epochs: string[]
   try {
     epochs = await readdir(epochsDir)
@@ -78,7 +114,26 @@ export async function listProjectionSegments(bundleRoot: string): Promise<Projec
 
   const segments: ProjectionSegment[] = []
   for (const { name, epoch } of numericEpochs) {
-    const projectionDir = join(epochsDir, name, 'projection')
+    // Per-entry rejection: drop symlinked epoch dirs silently — they
+    // can point at an arbitrary external tree. The probe is cheap
+    // (single lstat) and matches `listSessionBlobEpochs`'s
+    // per-entry symlink-drop semantics.
+    const epochAbsDir = join(epochsDir, name)
+    try {
+      const epochStat = await lstat(epochAbsDir)
+      if (epochStat.isSymbolicLink() || !epochStat.isDirectory()) continue
+    } catch {
+      continue
+    }
+    const projectionDir = join(epochAbsDir, 'projection')
+    // Reject a symlinked `projection/` directory too — the parent
+    // epoch is real but the projection subdir could still escape.
+    try {
+      const projStat = await lstat(projectionDir)
+      if (projStat.isSymbolicLink() || !projStat.isDirectory()) continue
+    } catch {
+      continue
+    }
     let entries: string[]
     try {
       entries = await readdir(projectionDir)
@@ -93,12 +148,16 @@ export async function listProjectionSegments(bundleRoot: string): Promise<Projec
       if (!fileName.endsWith('.parquet')) continue
       const entityType = fileName.replace(/\.parquet$/, '')
       const absPath = join(projectionDir, fileName)
-      let info: { size: number }
+      // Per-file rejection: drop symlinked `.parquet` files. A real
+      // segment is a regular file emitted by the projection writer.
+      let info: { size: number; isFile: boolean; isSymlink: boolean }
       try {
-        info = await stat(absPath)
+        const st = await lstat(absPath)
+        info = { size: st.size, isFile: st.isFile(), isSymlink: st.isSymbolicLink() }
       } catch {
         continue
       }
+      if (info.isSymlink || !info.isFile) continue
       segments.push({
         entityType,
         epoch,
