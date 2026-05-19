@@ -921,4 +921,77 @@ describe('prosa index-v2 CLI', () => {
     // The error message should list every supported format.
     expect(r.stderr).toMatch(/json\|text\|markdown/)
   })
+
+  it('`index-v2 transcript --start-ordinal / --end-ordinal` filters messages by ordinal range', async () => {
+    const { writeSessionBlobPack, zstdSessionBlobCompressor } = await import('@c3-oss/prosa-derived-v2')
+    const { sessionBlobEpochDir, sessionBlobPackPath } = await import('@c3-oss/prosa-derived-v2')
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    const messages = [0, 1, 2, 3].map((ordinal) => ({
+      message_id: `msg_${ordinal.toString().padStart(6, '0')}`,
+      ordinal,
+      role: ordinal % 2 === 0 ? ('user' as const) : ('assistant' as const),
+      timestamp: `2026-05-19T00:00:0${ordinal}.000Z`,
+      turn_id: `tur_${Math.floor(ordinal / 2)}`,
+      blocks: [
+        {
+          block_id: `blk_${ordinal}_0`,
+          block_type: 'text',
+          body: { kind: 'inline' as const, text: `body ${ordinal}`, byte_length: 6 },
+        },
+      ],
+    }))
+    const result = writeSessionBlobPack({ session_id: 'ses_alpha', epoch: 1, messages }, zstdSessionBlobCompressor)
+    await mkdir(sessionBlobEpochDir(storeRoot, 1), { recursive: true })
+    await writeFile(sessionBlobPackPath(storeRoot, 'ses_alpha', 1), result.pack)
+
+    const r = runCli([
+      'index-v2',
+      'transcript',
+      '--store',
+      storeRoot,
+      '--session-id',
+      'ses_alpha',
+      '--start-ordinal',
+      '1',
+      '--end-ordinal',
+      '2',
+    ])
+    expect(r.status).toBe(0)
+    const out = JSON.parse(r.stdout) as { messages: Array<{ ordinal: number }> }
+    expect(out.messages.map((m) => m.ordinal)).toEqual([1, 2])
+  })
+
+  it('`index-v2 transcript` rejects an inverted range', async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    const r = runCli([
+      'index-v2',
+      'transcript',
+      '--store',
+      storeRoot,
+      '--session-id',
+      'ses_alpha',
+      '--start-ordinal',
+      '5',
+      '--end-ordinal',
+      '2',
+    ])
+    expect(r.status).not.toBe(0)
+    expect(r.stderr).toMatch(/invalid range.*start-ordinal.*5.*end-ordinal.*2/i)
+  })
+
+  it('`index-v2 transcript` rejects a negative ordinal', async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    const r = runCli([
+      'index-v2',
+      'transcript',
+      '--store',
+      storeRoot,
+      '--session-id',
+      'ses_alpha',
+      '--start-ordinal',
+      '-1',
+    ])
+    expect(r.status).not.toBe(0)
+    expect(r.stderr).toMatch(/invalid --start-ordinal/i)
+  })
 })

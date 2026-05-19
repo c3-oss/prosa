@@ -209,28 +209,52 @@ export function indexV2Command(): Command {
     .requiredOption('--store <path>', 'bundle directory')
     .requiredOption('--session-id <id>', 'canonical session_id (matches `index-v2 sessions` rows)')
     .option('--format <fmt>', 'output format: json|text|markdown (default: json)', 'json')
-    .action(async (options: { store: string; sessionId: string; format: string }) => {
-      // CQ-105: validate `--format` synchronously before any bundle read so
-      // invalid formats fail with `invalid --format` regardless of whether the
-      // requested session exists or the store is reachable.
-      if (options.format !== 'json' && options.format !== 'text' && options.format !== 'markdown') {
-        throw new Error(`invalid --format: ${options.format} (expected json|text|markdown)`)
-      }
-      const storePath = resolvePath(options.store)
-      const transcript = await loadTranscriptFromBundle({
-        bundleRoot: storePath,
-        sessionId: options.sessionId,
-      })
-      if (options.format === 'text') {
-        process.stdout.write(formatTranscriptTextV2(transcript, { includeHeader: true }))
-        return
-      }
-      if (options.format === 'markdown') {
-        process.stdout.write(formatTranscriptMarkdownV2(transcript, { includeHeader: true }))
-        return
-      }
-      process.stdout.write(`${JSON.stringify(transcript, null, 2)}\n`)
-    })
+    .option(
+      '--start-ordinal <n>',
+      'inclusive lower bound on message ordinal (skips pages whose ordinal range falls below)',
+    )
+    .option('--end-ordinal <n>', 'inclusive upper bound on message ordinal')
+    .action(
+      async (options: {
+        store: string
+        sessionId: string
+        format: string
+        startOrdinal?: string
+        endOrdinal?: string
+      }) => {
+        // CQ-105: validate `--format` synchronously before any bundle read so
+        // invalid formats fail with `invalid --format` regardless of whether the
+        // requested session exists or the store is reachable.
+        if (options.format !== 'json' && options.format !== 'text' && options.format !== 'markdown') {
+          throw new Error(`invalid --format: ${options.format} (expected json|text|markdown)`)
+        }
+        const startOrdinal =
+          options.startOrdinal !== undefined
+            ? parseNonNegativeInteger('--start-ordinal', options.startOrdinal)
+            : undefined
+        const endOrdinal =
+          options.endOrdinal !== undefined ? parseNonNegativeInteger('--end-ordinal', options.endOrdinal) : undefined
+        if (startOrdinal !== undefined && endOrdinal !== undefined && startOrdinal > endOrdinal) {
+          throw new Error(`invalid range: --start-ordinal (${startOrdinal}) > --end-ordinal (${endOrdinal})`)
+        }
+        const storePath = resolvePath(options.store)
+        const range = startOrdinal !== undefined || endOrdinal !== undefined ? { startOrdinal, endOrdinal } : undefined
+        const transcript = await loadTranscriptFromBundle({
+          bundleRoot: storePath,
+          sessionId: options.sessionId,
+          range,
+        })
+        if (options.format === 'text') {
+          process.stdout.write(formatTranscriptTextV2(transcript, { includeHeader: true }))
+          return
+        }
+        if (options.format === 'markdown') {
+          process.stdout.write(formatTranscriptMarkdownV2(transcript, { includeHeader: true }))
+          return
+        }
+        process.stdout.write(`${JSON.stringify(transcript, null, 2)}\n`)
+      },
+    )
 
   return root
 }
