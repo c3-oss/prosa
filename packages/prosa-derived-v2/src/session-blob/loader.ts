@@ -30,41 +30,10 @@
 
 import { lstat, readFile } from 'node:fs/promises'
 
-import { derivedPaths, sessionBlobEpochDir, sessionBlobPackPath } from '../derived-layout.js'
+import { sessionBlobPackPath } from '../derived-layout.js'
 
+import { detectSessionBlobIntermediateSymlink } from './containment.js'
 import { type DecodedSessionBlobPack, decodeSessionBlobPack, verifyPackDigest } from './reader.js'
-
-/**
- * CQ-098 containment probe for the SessionBlob loader path chain.
- * Walks the managed intermediate components outermost → innermost
- * (`derived`, `derived/session-blob`, `derived/session-blob/epoch-<n>`)
- * and reports the first symlink found. Mirrors the CQ-096 Tantivy
- * helper in shape and policy:
- *
- *   - Missing intermediates resolve to `escape: false` (the outer
- *     `lstat(packPath)` will surface a clean ENOENT for the caller).
- *   - A non-symlink intermediate (regular dir / file) is fine here;
- *     the outer `lstat(packPath)` handles non-directory-at-pack-path.
- *   - Order matters: outermost first, so the error message names the
- *     highest escape point (most useful operator signal).
- */
-async function detectSessionBlobIntermediateSymlink(
-  bundleRoot: string,
-  epoch: number,
-): Promise<{ escape: false } | { escape: true; path: string }> {
-  const paths = derivedPaths(bundleRoot)
-  const epochDir = sessionBlobEpochDir(bundleRoot, epoch)
-  for (const path of [paths.derived, paths.sessionBlob, epochDir]) {
-    try {
-      const st = await lstat(path)
-      if (st.isSymbolicLink()) return { escape: true, path }
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') continue
-      throw err
-    }
-  }
-  return { escape: false }
-}
 
 export interface LoadSessionBlobPackInput {
   /** Absolute bundle root. */

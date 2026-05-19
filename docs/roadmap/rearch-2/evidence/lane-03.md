@@ -9,8 +9,10 @@ additional Lane 3 planner/helper slices landed through `d798b15`.
 `d798b15` (paired with the SessionBlob pack-path resolver in the
 same slice). `loadSessionBlobPack` landed at `eb88037` with the CQ-098
 intermediate-symlink containment fix at `ea5f5d1`.
-Tantivy writer, DuckDB analytics view definitions, and the runtime
-compaction worker still pending.
+Production zstd landed at `62550e1`. SessionBlob listing helpers +
+shared containment refactor + CQ-099 resolver-parity landing in
+this iteration. Tantivy writer, DuckDB analytics view definitions,
+and the runtime compaction worker still pending.
 Owner: Ralph
 Commit range: Lane 3 scaffold (`bb76006`) + SessionBlobPackV2 byte-layout
 slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
@@ -199,6 +201,32 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
   the three Tantivy delegates do not drift from the typed layout,
   and verify relative bundle roots are composed without
   `path.resolve()`.
+- [x] SessionBlobPackV2 directory listing helpers
+  (`listSessionBlobEpochs(bundleRoot)`,
+  `listSessionBlobSessions({ bundleRoot, epoch })`) enumerate the
+  emitted packs under `<bundleRoot>/derived/session-blob/`. Both
+  helpers reuse a shared `detectSessionBlobIntermediateSymlink`
+  helper in `src/session-blob/containment.ts` (extracted from the
+  previous in-loader copy under the CQ-096 "small shared helper for
+  clarity" exception now that the loader and listing both consume
+  it). Per-entry rules: regular `epoch-<n>` directories /
+  `<session_id>.pack` files are returned sorted ascending,
+  deduplicated; symlinked entries are silently dropped; ENOENT
+  resolves to an empty list. CQ-099 hardening: every candidate
+  session id is validated through `sessionBlobPackPath` so the
+  listing surface can never return ids the resolver rejects
+  (covers reserved singletons `.`, `..`, and any future grammar
+  tightening). 19 tests across both helpers cover: empty/ENOENT
+  bundles, sorted+dedup enumeration, name-pattern filtering
+  (leading-zero rejection, non-numeric epoch suffix, missing
+  pattern, regular file where dir expected for the epoch surface;
+  non-`.pack` files and directories for the sessions surface),
+  per-entry symlink drop, CQ-098 intermediate-symlink refusal at
+  each managed component (`derived`, `derived/session-blob`,
+  `epoch-<n>`), bundle-root-alias acceptance under a symlinked
+  bundle root, synchronous epoch input validation, CQ-099
+  resolver-parity for literal `.pack` and `..pack`, and an
+  any-listed-id-round-trips-through-resolver invariant.
 - [x] SessionBlobPackV2 production zstd codec wired
   (`zstdSessionBlobCompressor`, `zstdSessionBlobDecompressor`)
   finishes the production round-trip story for the byte-layout
@@ -377,7 +405,7 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
 ```text
 pnpm install --prefer-offline                       # registers @c3-oss/prosa-derived-v2 in pnpm-lock.yaml
 pnpm --filter @c3-oss/prosa-derived-v2 typecheck    # clean
-pnpm --filter @c3-oss/prosa-derived-v2 test         # 195 tests / 19 files (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 8, compaction executor-plan 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9, reader-iterator 7, tantivy checkpoint-store 11, analytics executor-plan 9, tantivy index-dir probe 17 (incl. CQ-096 intermediate + bundle-root-alias), tantivy plan-bundle orchestration 9, derived-layout 27 (7 canonical + 5 sessionBlobEpochDir + 15 sessionBlobPackPath), tantivy clear-index-dir 10 (incl. CQ-096 intermediate + bundle-root-alias), session-blob loader 11 (incl. CQ-098 intermediate + bundle-root-alias), session-blob zstd 5)
+pnpm --filter @c3-oss/prosa-derived-v2 test         # 214 tests / 20 files (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 8, compaction executor-plan 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9, reader-iterator 7, tantivy checkpoint-store 11, analytics executor-plan 9, tantivy index-dir probe 17, tantivy plan-bundle orchestration 9, derived-layout 27, tantivy clear-index-dir 10, session-blob loader 11, session-blob zstd 5, session-blob listing 19 incl. CQ-099 resolver-parity + CQ-098 intermediate-symlink containment via shared helper)
 pnpm --filter @c3-oss/prosa-derived-v2 lint         # clean
 pnpm build                                          # 13/13 turbo
 pnpm typecheck                                      # 13/13 turbo

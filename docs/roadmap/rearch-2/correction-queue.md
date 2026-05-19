@@ -4,9 +4,98 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 ## Open
 
-(none — `CQ-091`..`CQ-098` are all closed.)
+(none — `CQ-091`..`CQ-099` are all closed.)
 
 ## Closed (latest first)
+
+### CQ-099: SessionBlob Session Listing Must Not Return Resolver-Invalid IDs — closed 2026-05-19
+
+Status: closed
+Severity: medium
+Blocking: yes
+Owner: Ralph
+Opened: 2026-05-19
+Closed: 2026-05-19
+Lane: 3 - Derived layer
+
+Finding:
+
+The current `listSessionBlobSessions()` WIP says listed session IDs
+mirror `sessionBlobPackPath()`'s allow-list so callers can feed them
+back into the resolver/loader. The implementation filters `..`
+substrings but not the exact `.` session ID. A file named `.pack`
+matches `SESSION_PACK_PATTERN`, yields `session_id="."`, and would be
+returned even though `sessionBlobPackPath(bundleRoot, '.', epoch)`
+rejects `.` as a current-directory vector.
+
+Risk:
+
+The listing surface can return a session ID that the canonical path
+resolver rejects, making list-then-load workflows fail on ordinary
+iteration. It also weakens the traversal hardening story for the
+SessionBlob derived tree by letting a reserved path segment escape the
+same validation applied to direct lookups.
+
+Required fix:
+
+- Make `listSessionBlobSessions()` validate candidate IDs with the
+  same rules as `sessionBlobPackPath()` or otherwise reject every ID
+  that the resolver rejects, including exact `.`.
+- Keep the listing descriptive: invalid filenames should be ignored,
+  not cause the whole listing to throw.
+- Add a regression proving `.pack` is ignored, alongside the existing
+  `ses_..escape.pack` rejection.
+
+Acceptance criteria:
+
+- `listSessionBlobSessions()` never returns an ID that
+  `sessionBlobPackPath(bundleRoot, id, epoch)` would reject.
+- Tests cover `.pack` and at least one existing `..` invalid filename.
+- Focused gates pass:
+  - `pnpm --filter @c3-oss/prosa-derived-v2 test`
+  - `pnpm --filter @c3-oss/prosa-derived-v2 typecheck`
+  - `pnpm --filter @c3-oss/prosa-derived-v2 lint`
+  - `git diff --check`
+- Update `docs/roadmap/rearch-2/evidence/lane-03.md`, `gates.md`,
+  `status.md`, and `ralph-loop-prompt.md` with the fix commit and
+  gate evidence before closing this correction.
+
+Closure note:
+
+Fix lands in this iteration alongside the SessionBlob listing slice:
+
+- `listSessionBlobSessions()` now validates every candidate session
+  id by calling `sessionBlobPackPath(bundleRoot, candidate, epoch)`
+  inside a try/catch. Any id the resolver rejects — including the
+  reserved singletons `.` and `..`, the `..` substring family, and
+  any future tightening of the grammar — is silently dropped from
+  the listing. The listing surface stays descriptive (no whole-list
+  failure on a single garbage filename) while guaranteeing that
+  every returned id round-trips through the resolver.
+- Cheap by construction: `sessionBlobPackPath` is pure (no
+  filesystem access); the call inlines a `path.join` and a regex
+  check.
+
+Regression coverage:
+
+- `CQ-099: rejects a literal '.pack' filename (session-id '.' is
+  reserved)` plants `.pack` and `..pack` alongside `ses_good.pack`
+  and asserts only `ses_good` surfaces.
+- `CQ-099: every returned id round-trips through sessionBlobPackPath
+  without throwing` plants a mixed valid/invalid set (`ses_alpha.pack`,
+  `.pack`, `..pack`, `ses_..bad.pack`,
+  `prosa.session.v2:claude:zzz.pack`) and asserts every listed id
+  satisfies the resolver via direct invocation.
+
+Validation:
+
+- `pnpm --filter @c3-oss/prosa-derived-v2 typecheck`: pass.
+- `pnpm --filter @c3-oss/prosa-derived-v2 test`: pass, 214 tests / 20
+  files.
+- `pnpm --filter @c3-oss/prosa-derived-v2 lint`: pass.
+- Full repo `pnpm build` / `pnpm test` / `pnpm lint`: 13/13 turbo.
+- `pnpm test:conformance`: pass, 26 / 2.
+- `git diff --check`: pass.
 
 ### CQ-098: Reject Intermediate Symlink Escapes in SessionBlob Pack Loader — closed 2026-05-19
 
