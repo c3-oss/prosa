@@ -8,7 +8,7 @@ additional Lane 3 planner/helper slices landed through `d798b15`.
 `CQ-097` SessionBlob layout textual-source cleanup landed at
 `d798b15` (paired with the SessionBlob pack-path resolver in the
 same slice). `loadSessionBlobPack` landed at `eb88037` with the CQ-098
-intermediate-symlink containment fix landing in this iteration.
+intermediate-symlink containment fix at `ea5f5d1`.
 Tantivy writer, DuckDB analytics view definitions, and the runtime
 compaction worker still pending.
 Owner: Ralph
