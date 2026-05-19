@@ -13,7 +13,7 @@ Expect Codex to reject `RALPH_DONE` if subagent findings remain open.
 
 This is a very large feature. Work strictly lane by lane. Lane 1 is accepted
 with the re-scopes recorded in `docs/rearch-2/lane-1-rescopes.md`; Lane 2 is
-now active. If one Ralph Loop iteration cannot complete the entire roadmap,
+implementation-complete and Lane 3 is active. If one Ralph Loop iteration cannot complete the entire roadmap,
 leave accurate status and evidence for completed work. Do not output
 `RALPH_DONE` unless every lane below is complete and all required gates and
 stabilization steps have run.
@@ -33,14 +33,15 @@ section as the full restart instruction:
   asserts on-disk pack stability). Lane 3 derived-layer scaffold has
   landed in its own focused commit on top of the Lane 2 closeout per
   `CQ-083`.
-- All `CQ-074..CQ-089` are closed. The analytics Parquet binding now
-  unions both `epochs/*/projection/<entity>.parquet` (live) and
-  `epochs/compact-*/projection/<entity>.compacted.parquet` (planner
-  overlays) in a single `read_parquet([...])` call per entity. Lane 2
-  acceptance still requires Codex/governor/user sign-off; do not
-  output `RALPH_DONE` yet because Lane 3 remainder (Tantivy writer,
-  DuckDB runtime executor, runtime Parquet merge) plus Lanes 4–10
-  are still incomplete.
+- All `CQ-074..CQ-090` are closed. Lane 3 progress: scaffold
+  (`bb76006`), SessionBlobPackV2 byte layout (`ba87f05`), Parquet
+  compaction planner (`ea8c1a8`), DuckDB analytics view shape
+  contract + compacted-overlay binding (`cff3670` / `e35f844`),
+  Tantivy schema + rebuild planner state machine (`509e1f1`). Lane
+  2 acceptance still requires Codex/governor/user sign-off; do not
+  output `RALPH_DONE` yet because Lane 3 remainder (Tantivy native
+  writer, DuckDB runtime executor, runtime Parquet merge) plus
+  Lanes 4–10 are still incomplete.
 - If a correction needs a Codex/governor decision, ask one clear binary
   accept/reject question with a safe default. Do not loop on "external
   acceptance" as if Codex were unavailable.
@@ -158,13 +159,13 @@ Keep these files current:
 
 Current open correction:
 
-(none — `CQ-074..CQ-089` are all closed. Lane 3 progress: scaffold
+(none — `CQ-074..CQ-090` are all closed. Lane 3 progress: scaffold
 (`bb76006`), SessionBlobPackV2 byte layout (`ba87f05`), Parquet
 compaction planner (`ea8c1a8`), DuckDB analytics view shape
-contract (`cff3670`), CQ-089 compacted-overlay fix. Remaining
-Lane 3 surfaces — Tantivy generation writer + DuckDB runtime
-executor + runtime Parquet merge — are ordinary forward work, not
-corrections.)
+contract + compacted-overlay binding (`cff3670` / `e35f844`),
+Tantivy schema + rebuild planner (`509e1f1`). Remaining Lane 3
+surfaces — Tantivy native writer, DuckDB runtime executor, runtime
+Parquet merge — are ordinary forward work, not corrections.)
 
 Lane 0 + Lane 1 are accepted by the project owner on 2026-05-18, including the
 two re-scopes in `docs/rearch-2/lane-1-rescopes.md`.

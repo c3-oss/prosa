@@ -4,10 +4,40 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 ## Open
 
-(none — `CQ-074..CQ-089` are all closed. Lane 2 acceptance still
+(none — `CQ-074..CQ-090` are all closed. Lane 2 acceptance still
 requires Codex/governor/user sign-off.)
 
 ## Closed (latest first)
+
+### CQ-090: Reconcile Tantivy Planner Closeout Evidence Before Acceptance — closed 2026-05-19
+
+Already-satisfied at queue-open time: `509e1f1` committed
+`packages/prosa-derived-v2/src/tantivy/{schema,rebuild-plan}.ts` +
+their tests + `src/index.ts` exports + matching `evidence/lane-03.md`
+/ `gates.md` / `status.md` updates in one focused commit. Codex's
+CQ-090 captured a snapshot of stale Done-Check / prompt text from
+before `509e1f1`; this pass reconciles those last few stale lines
+to the committed HEAD.
+
+Reconciliation in this pass:
+
+- `gates.md`: `just test-all` row bumped to derived-v2 **72**;
+  Done Check no longer says `CQ-087`/`CQ-089` are open.
+- `status.md`: `Current HEAD` now names `509e1f1`; open blocking
+  corrections cleared.
+- `ralph-loop-prompt.md`: invocation contract + current-correction
+  section reflect the cleared queue.
+
+Gates against `509e1f1`:
+
+- `pnpm --filter @c3-oss/prosa-derived-v2 typecheck`: pass.
+- `pnpm --filter @c3-oss/prosa-derived-v2 test`: pass, 72 tests / 8
+  files.
+- `pnpm --filter @c3-oss/prosa-derived-v2 lint`: pass.
+- Full repo `pnpm build` / `pnpm typecheck` / `pnpm test` / `pnpm
+  lint`: 13/13 turbo.
+- `pnpm test:conformance`: pass, 26 tests / 2 files.
+- `git diff --check`: pass.
 
 ### CQ-089: Analytics Parquet Reads Must Include Compacted Overlays — closed 2026-05-19
 

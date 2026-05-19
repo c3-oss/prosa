@@ -7,7 +7,7 @@
 | `pnpm i` | yes | pass | `pnpm install --frozen-lockfile`-compatible. Pre-existing peer warning: `@c3-oss/config-vitest@0.3.0` wants vitest ^3.1.1, repo on 2.1.9. |
 | `pnpm build` | yes | pass | 13/13 turbo tasks (now includes `@c3-oss/prosa-derived-v2` Lane 3 scaffold). |
 | `just typecheck` | yes | pass | 13/13 turbo tasks. |
-| `just test-all` | yes | pass | **13/13** turbo at HEAD post-Lane 3 scaffold (full Lane 2 importer contract + Lane 3 derived-layer scaffold). Focused counts: `@c3-oss/prosa-types-v2` 89, `@c3-oss/prosa-wire-v2` 21, conformance **26** (15 leaves + 6 providers-v2 projection-id + 5 bundle-compile idempotency), `@c3-oss/prosa-bundle-v2` **120**, `@c3-oss/prosa-importers-v2` **40**, `@c3-oss/prosa-derived-v2` **17**, `@c3-oss/prosa-db-v2` 6. |
+| `just test-all` | yes | pass | **13/13** turbo at HEAD post-Lane 3 Tantivy schema/planner landing. Focused counts: `@c3-oss/prosa-types-v2` 89, `@c3-oss/prosa-wire-v2` 21, conformance **26** (15 leaves + 6 providers-v2 projection-id + 5 bundle-compile idempotency), `@c3-oss/prosa-bundle-v2` **120**, `@c3-oss/prosa-importers-v2` **40**, `@c3-oss/prosa-derived-v2` **72** (Lane 3: scaffold policies + SessionBlobPackV2 byte layout + Parquet compaction planner + DuckDB analytics view shape contract + Tantivy schema/rebuild planner), `@c3-oss/prosa-db-v2` 6. |
 | `just lint-all` | yes | pass | 10/10 turbo tasks. |
 | `pnpm audit --audit-level moderate` | yes | classified pass | 8 vulnerabilities found (1 low / 6 moderate / 1 high). All pre-existing on `master`. See "Audit Classification". |
 | `git diff --check` | yes | pass | No whitespace or conflict markers. |
@@ -98,9 +98,10 @@ no new transitive risk.
 
 - [x] Worktree state documented.
 - [x] Lane 0 has evidence; lanes 2–10 are documented as blocked or WIP.
-- [ ] No open blocking corrections. *(`CQ-089` is open; it blocks accepting the
-  analytics view-definition WIP until compacted overlay Parquet files are read
-  alongside live epoch files.)*
+- [x] No open blocking corrections. *(`CQ-074..CQ-090` are all closed. Lane
+  2 acceptance still requires Codex/governor/user sign-off. Next Lane 3
+  surfaces — Tantivy native writer, DuckDB runtime executor, runtime Parquet
+  merge — track as ordinary Lane 3 work, not as corrections.)*
 - [x] Base gates passed at HEAD `6c25966` (full repo `pnpm test` / `pnpm
   typecheck` / `pnpm lint` 12/12 turbo).
 - [x] Lane 0-specific gates passed: `prosa-types-v2` 89 tests, `prosa-wire-v2`
@@ -112,10 +113,10 @@ no new transitive risk.
 - [x] Audit output classified (8 findings; only `apps__cli>ink>ws` touches a
   non-dev path, pre-existing on `master`).
 - [ ] Security, integrity, remote-read, and E2E reviewer findings resolved
-  for Lane 0 and Lane 1. Lane 0 and Lane 1 corrections through `CQ-066` are
+  for Lane 0 and Lane 1. Lane 0 / Lane 1 corrections through `CQ-066` are
   closed; Lane 2 closeout (`CQ-074..CQ-082`) and Lane 3 byte layout +
-  planner (`CQ-083..CQ-088`) are closed; `CQ-089` tracks the current analytics
-  view-definition blocker.
+  planner / analytics / Tantivy-planner corrections (`CQ-083..CQ-090`) are
+  closed.
 - [ ] Final Codex review completed. *(Pending — Lane 3 remainder (Tantivy
   writer, DuckDB views, runtime Parquet merge) plus Lanes 4–10 still
   unstarted/incomplete.)*

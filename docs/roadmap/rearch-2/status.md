@@ -9,10 +9,10 @@ Completion signal: RALPH_DONE
 
 ## Current State
 
-Status: Lane 1 accepted; Lane 2 implementation contract complete; Lane 3 progress: scaffold (`bb76006`), SessionBlobPackV2 byte layout (`ba87f05`), Parquet compaction planner (`ea8c1a8`), DuckDB analytics view shape contract (`cff3670`), CQ-089 compacted-overlay fix (`e35f844`), Tantivy schema + rebuild planner landing in this iteration.
+Status: Lane 1 accepted; Lane 2 implementation contract complete; Lane 3 progress: scaffold (`bb76006`), SessionBlobPackV2 byte layout (`ba87f05`), Parquet compaction planner (`ea8c1a8`), DuckDB analytics view shape contract (`cff3670`), CQ-089 compacted-overlay fix (`e35f844`), Tantivy schema + rebuild planner (`509e1f1`).
 Current lane: Lane 3 — remaining surfaces are the Tantivy native writer (needs `@oxdev03/node-tantivy-binding` workspace allowlist) and the DuckDB / Parquet runtime executors.
-Current HEAD: `e35f844` (analytics compacted overlay); Tantivy schema + rebuild-plan commit pending in this iteration.
-No-change streak: 0 (no open blocking corrections; Lane 2 acceptance still requires Codex/governor/user sign-off)
+Current HEAD: `509e1f1` (Tantivy schema + rebuild planner); CQ-090 closeout reconciliation commit pending in this iteration.
+No-change streak: 0 (no open blocking corrections after this commit; Lane 2 acceptance still requires Codex/governor/user sign-off)
 Ralph active: yes
 
 ## Lane Status
@@ -22,7 +22,7 @@ Ralph active: yes
 | 00 - Foundation | Ralph | accepted | `cd845f2`, `e22ec27`, `b78b5ae`, `70b9df0`, `0e8a912`, `a650ef8`, `2809d21` (Lane 0 CQ-001..CQ-019 closed; later commits also touch `CANONICAL.md` governance) | `evidence/lane-00.md` |
 | 01 - Local store | Ralph | accepted (with re-scopes per `docs/rearch-2/lane-1-rescopes.md`) | `4f214b7`, `2b5ad1b`, `433c32f`, `a650ef8`, `6097f9e`, `5a6a683`, `2809d21`, `5e5ca20`, `ea615dd`, `5e4b5e7`, `ecc80a3`, `1419d92`, `1e81888`, `adee042`, `f54f4f1`, `f3730b3`, `aecc9af`, `b970437`, `6c25966`, `fc86533`, `a187a74`, `4792457` | `evidence/lane-01.md` |
 | 02 - Importers | Ralph | full provider implementation landed; CQ-082 closeout committed at `3eb1c08`; Lane 2 acceptance pending Codex/governor/user sign-off | `004107c`, `fc66925`, `8c0ba5f`, `aa88079`, `c496bac`, `8247a4c`, `58cca83`, `d302bc6`, `7eaed27`, `b660f44`, `8c1714f`, `af27eba`, `7a06c89`, `15194b5`, `3eb1c08` | `evidence/lane-02.md` |
-| 03 - Derived layer | Ralph | scaffold + SessionBlobPackV2 byte layout + Parquet compaction planner + DuckDB analytics view shape contract + Tantivy schema/rebuild-planner landed; Tantivy native writer + DuckDB/Parquet runtime executors pending | `bb76006`, `ba87f05`, `ea8c1a8`, `76128fa`, `16985b4`, `cff3670`, `e35f844` + (this iteration) | `evidence/lane-03.md` |
+| 03 - Derived layer | Ralph | scaffold + SessionBlobPackV2 byte layout + Parquet compaction planner + DuckDB analytics view shape contract + Tantivy schema/rebuild-planner landed; Tantivy native writer + DuckDB/Parquet runtime executors pending | `bb76006`, `ba87f05`, `ea8c1a8`, `76128fa`, `16985b4`, `cff3670`, `e35f844`, `509e1f1` | `evidence/lane-03.md` |
 | 04 - Server | Ralph | scaffold-landed | `5e5ca20` (`packages/prosa-db-v2/` Postgres DDL + pglite tests) | `evidence/lane-04.md` |
 | 05 - Sync protocol | Ralph | blocked-on-lane-04 | | `evidence/lane-05.md` |
 | 06 - Read API | Ralph | blocked-on-lane-05 | | `evidence/lane-06.md` |
@@ -33,7 +33,7 @@ Ralph active: yes
 
 ## Open Blocking Corrections
 
-(none — `CQ-074..CQ-089` are all closed. Lane 2 acceptance still
+(none — `CQ-074..CQ-090` are all closed. Lane 2 acceptance still
 requires Codex/governor/user sign-off.)
 
 ## Latest Gates
