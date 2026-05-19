@@ -163,4 +163,90 @@ describe('prosa index-v2 cross-subcommand coherence', () => {
     expect(alphaTranscriptOlder.epoch).toBe(1)
     expect(alphaTranscriptOlder.messages).toHaveLength(4)
   }, 120_000)
+
+  it('maintenance dashboard rollups equal the per-subcommand totals on the same bundle', async () => {
+    const { writeSessionBlobPack, zstdSessionBlobCompressor } = await import('@c3-oss/prosa-derived-v2')
+    const { sessionBlobEpochDir, sessionBlobPackPath } = await import('@c3-oss/prosa-derived-v2')
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-maintenance-coh-'))
+
+    // Plant: 1 SessionBlob pack + 17 small `sessions.parquet`
+    // segments + persist a manifest (no compacted output → inconsistent).
+    const messages = [
+      {
+        message_id: 'msg_000000',
+        ordinal: 0,
+        role: 'user' as const,
+        timestamp: '2026-05-19T00:00:00.000Z',
+        turn_id: 'tur_0',
+        blocks: [
+          {
+            block_id: 'blk_0_0',
+            block_type: 'text',
+            body: { kind: 'inline' as const, text: 'hi', byte_length: 2 },
+          },
+        ],
+      },
+    ]
+    const pack = writeSessionBlobPack({ session_id: 'ses_alpha', epoch: 1, messages }, zstdSessionBlobCompressor)
+    await mkdir(sessionBlobEpochDir(storeRoot, 1), { recursive: true })
+    await writeFile(sessionBlobPackPath(storeRoot, 'ses_alpha', 1), pack.pack)
+    for (let epoch = 1; epoch <= 17; epoch++) {
+      const dir = join(storeRoot, 'epochs', String(epoch), 'projection')
+      await mkdir(dir, { recursive: true })
+      await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(1024))
+    }
+    runCli([
+      'index-v2',
+      'compaction-manifest',
+      '--store',
+      storeRoot,
+      '--write',
+      '--generated-at',
+      '2026-05-19T12:00:00.000Z',
+    ])
+
+    // Read the maintenance dashboard.
+    const maintenance = JSON.parse(runCli(['index-v2', 'maintenance', '--store', storeRoot]).stdout) as {
+      status: { session_count: number }
+      projection: { total_segments: number; total_bytes: number }
+      compaction: { empty: boolean; entity_count: number }
+      persisted_compactions: { count: number; consistent_count: number; inconsistent_count: number }
+      gc: { candidate_count: number; safe_to_delete: { count: number }; blocked: { count: number } }
+    }
+
+    // Cross-reference each rollup against the corresponding
+    // single-purpose subcommand.
+    const status = JSON.parse(runCli(['index-v2', 'status', '--store', storeRoot]).stdout) as {
+      session_count: number
+    }
+    const projection = JSON.parse(
+      runCli(['index-v2', 'projection-segments', '--store', storeRoot, '--summary']).stdout,
+    ) as { total_segments: number; total_bytes: number }
+    const compactionPlan = JSON.parse(runCli(['index-v2', 'compaction-plan', '--store', storeRoot]).stdout) as {
+      empty: boolean
+      entities: unknown[]
+    }
+    const compactedOutputs = JSON.parse(
+      runCli(['index-v2', 'compacted-outputs', '--store', storeRoot]).stdout,
+    ) as Array<{ consistent: boolean }>
+    const gcPlan = JSON.parse(runCli(['index-v2', 'gc-plan', '--store', storeRoot]).stdout) as {
+      candidates: unknown[]
+      safe_to_delete: { count: number }
+      blocked: { count: number }
+    }
+
+    expect(maintenance.status.session_count).toBe(status.session_count)
+    expect(maintenance.projection.total_segments).toBe(projection.total_segments)
+    expect(maintenance.projection.total_bytes).toBe(projection.total_bytes)
+    expect(maintenance.compaction.empty).toBe(compactionPlan.empty)
+    expect(maintenance.compaction.entity_count).toBe(compactionPlan.entities.length)
+    expect(maintenance.persisted_compactions.count).toBe(compactedOutputs.length)
+    expect(maintenance.persisted_compactions.consistent_count).toBe(compactedOutputs.filter((r) => r.consistent).length)
+    expect(maintenance.persisted_compactions.inconsistent_count).toBe(
+      compactedOutputs.filter((r) => !r.consistent).length,
+    )
+    expect(maintenance.gc.candidate_count).toBe(gcPlan.candidates.length)
+    expect(maintenance.gc.safe_to_delete.count).toBe(gcPlan.safe_to_delete.count)
+    expect(maintenance.gc.blocked.count).toBe(gcPlan.blocked.count)
+  }, 120_000)
 })
