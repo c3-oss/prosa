@@ -100,7 +100,8 @@ section as the full restart instruction:
   schema-introspection subcommand (`343e148`),
   `writeCompactManifestV2` + `readCompactManifestV2` +
   `compactManifestPath` on-disk manifest persistence
-  (`09737e9`), plus the prior scaffold
+  (`09737e9`), CQ-107 deep-validation closeout on the
+  manifest reader (`1568e1c`), plus the prior scaffold
   (`bb76006`), SessionBlobPackV2 byte layout (`ba87f05`), Parquet
   compaction planner (`ea8c1a8`), DuckDB analytics view shape contract
   + compacted-overlay binding (`cff3670` / `e35f844`), Tantivy schema
@@ -115,7 +116,7 @@ section as the full restart instruction:
   `clearTantivyIndexDir` reset helper (`257a176`), CQ-096
   intermediate-symlink containment (`3be300f`), and SessionBlob
   pack-path resolver + CQ-097 textual-source cleanup (`d798b15`).
-  All `CQ-074..CQ-106` are closed; no open blocking corrections.
+  All `CQ-074..CQ-107` are closed; no open blocking corrections.
   There is no remaining Lane 2 external-acceptance blocker; do not
   output `RALPH_DONE` yet because Lane 3 remainder (Tantivy native
   writer, DuckDB runtime executor, runtime Parquet merge) plus
