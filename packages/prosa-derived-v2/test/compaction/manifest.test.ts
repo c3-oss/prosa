@@ -3,10 +3,17 @@
 // compaction_seq derivation, and the failure modes for empty plans
 // and malformed output paths.
 
-import { sep } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { mkdir, mkdtemp, readFile, rm, symlink } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join, sep } from 'node:path'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { buildCompactManifestV2 } from '../../src/compaction/manifest.js'
+import {
+  buildCompactManifestV2,
+  compactManifestPath,
+  readCompactManifestV2,
+  writeCompactManifestV2,
+} from '../../src/compaction/manifest.js'
 import type { CompactionPlan } from '../../src/compaction/planner.js'
 
 const GENERATED_AT = '2026-05-19T12:00:00.000Z'
@@ -122,5 +129,116 @@ describe('buildCompactManifestV2', () => {
     const manifest = buildCompactManifestV2({ plan, generatedAt: GENERATED_AT })
     expect(manifest.entities[0]?.output_path).toBe(plan.entities[0]?.outputPath)
     expect(manifest.entities[0]?.superseded[0]?.path).toBe(plan.entities[0]?.segmentsToMerge[0]?.path)
+  })
+})
+
+describe('compactManifestPath', () => {
+  it('builds the canonical bundle-relative path with zero-padded compaction seq', () => {
+    const path = compactManifestPath('/tmp/bundle', 7)
+    expect(path).toBe(`/tmp/bundle${sep}epochs${sep}compact-0007${sep}compact.manifest.json`)
+  })
+
+  it('rejects non-integer or negative compaction_seq', () => {
+    expect(() => compactManifestPath('/tmp/bundle', -1)).toThrow(/invalid compaction_seq/)
+    expect(() => compactManifestPath('/tmp/bundle', 1.5)).toThrow(/invalid compaction_seq/)
+  })
+})
+
+describe('writeCompactManifestV2 + readCompactManifestV2 round-trip', () => {
+  let bundleRoot: string
+
+  beforeEach(async () => {
+    bundleRoot = await mkdtemp(join(tmpdir(), 'prosa-derived-compact-manifest-'))
+  })
+
+  afterEach(async () => {
+    await rm(bundleRoot, { recursive: true, force: true })
+  })
+
+  it('writes the manifest atomically and reads back the same shape', async () => {
+    const plan = planWithEntity()
+    const manifest = buildCompactManifestV2({ plan, generatedAt: GENERATED_AT })
+
+    const writtenPath = await writeCompactManifestV2(bundleRoot, manifest)
+    expect(writtenPath).toBe(compactManifestPath(bundleRoot, manifest.compaction_seq))
+
+    const reread = await readCompactManifestV2(bundleRoot, manifest.compaction_seq)
+    expect(reread).toEqual(manifest)
+  })
+
+  it('the persisted bytes are canonical JSON (sorted keys, deterministic)', async () => {
+    const plan = planWithEntity()
+    const manifest = buildCompactManifestV2({ plan, generatedAt: GENERATED_AT })
+    const path = await writeCompactManifestV2(bundleRoot, manifest)
+    const bytes = await readFile(path)
+    const text = bytes.toString('utf-8')
+    // Keys at top level must be alphabetical: compaction_seq, entities,
+    // generated_at, schema.
+    const topLevelOrder = ['"compaction_seq"', '"entities"', '"generated_at"', '"schema"']
+    let lastIndex = -1
+    for (const key of topLevelOrder) {
+      const index = text.indexOf(key)
+      expect(index).toBeGreaterThan(lastIndex)
+      lastIndex = index
+    }
+    // Per-entity keys also alphabetical: entity_type, output_path,
+    // reason, superseded, total_bytes_in.
+    const entityKeys = ['"entity_type"', '"output_path"', '"reason"', '"superseded"', '"total_bytes_in"']
+    let entityCursor = text.indexOf('"entities"')
+    for (const key of entityKeys) {
+      const index = text.indexOf(key, entityCursor)
+      expect(index).toBeGreaterThan(entityCursor)
+      entityCursor = index
+    }
+  })
+
+  it('round-trip is byte-stable across re-writes of the same manifest', async () => {
+    const plan = planWithEntity()
+    const manifest = buildCompactManifestV2({ plan, generatedAt: GENERATED_AT })
+    const path1 = await writeCompactManifestV2(bundleRoot, manifest)
+    const bytes1 = await readFile(path1)
+    const path2 = await writeCompactManifestV2(bundleRoot, manifest)
+    const bytes2 = await readFile(path2)
+    expect(path1).toBe(path2)
+    expect(Buffer.compare(bytes1, bytes2)).toBe(0)
+  })
+
+  it('refuses to write when <bundleRoot>/epochs is a symlink', async () => {
+    const external = await mkdtemp(join(tmpdir(), 'prosa-derived-compact-manifest-sym-'))
+    try {
+      await symlink(external, join(bundleRoot, 'epochs'))
+      const plan = planWithEntity()
+      const manifest = buildCompactManifestV2({ plan, generatedAt: GENERATED_AT })
+      await expect(writeCompactManifestV2(bundleRoot, manifest)).rejects.toThrow(/symlink/i)
+    } finally {
+      await rm(external, { recursive: true, force: true })
+    }
+  })
+
+  it('refuses to write when the compact-<NNNN> directory is a symlink', async () => {
+    const external = await mkdtemp(join(tmpdir(), 'prosa-derived-compact-manifest-sym-'))
+    try {
+      await mkdir(join(bundleRoot, 'epochs'), { recursive: true })
+      await symlink(external, join(bundleRoot, 'epochs', 'compact-0001'))
+      const plan = planWithEntity()
+      const manifest = buildCompactManifestV2({ plan, generatedAt: GENERATED_AT })
+      await expect(writeCompactManifestV2(bundleRoot, manifest)).rejects.toThrow(/symlink/i)
+    } finally {
+      await rm(external, { recursive: true, force: true })
+    }
+  })
+
+  it('readCompactManifestV2 throws when the file is missing', async () => {
+    await expect(readCompactManifestV2(bundleRoot, 1)).rejects.toThrow(/ENOENT/)
+  })
+
+  it('readCompactManifestV2 rejects a manifest with a wrong schema discriminator', async () => {
+    const plan = planWithEntity()
+    const manifest = buildCompactManifestV2({ plan, generatedAt: GENERATED_AT })
+    const path = await writeCompactManifestV2(bundleRoot, manifest)
+    // Overwrite with a manifest that has a bogus schema field.
+    const { writeFile: write } = await import('node:fs/promises')
+    await write(path, JSON.stringify({ ...manifest, schema: 'prosa.bogus.v1' }))
+    await expect(readCompactManifestV2(bundleRoot, manifest.compaction_seq)).rejects.toThrow(/unexpected schema/)
   })
 })

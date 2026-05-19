@@ -1,4 +1,4 @@
-// `compact.manifest.cbor` builder — Lane 3 spec deliverable.
+// `compact.manifest.cbor` builder + on-disk writer — Lane 3 spec deliverable.
 //
 // Lane 3 calls for a per-compaction-run manifest that records which
 // epoch files were superseded by the merge so audit/GC workflows can
@@ -16,7 +16,12 @@
 // in `@c3-oss/prosa-types-v2`. Callers that want to persist the
 // manifest today can `JSON.stringify(manifest, null, 2)` it.
 
-import { sep } from 'node:path'
+import { lstat, mkdir, open, readFile, rename, unlink } from 'node:fs/promises'
+import { dirname, join, sep } from 'node:path'
+
+import { syncDir } from '@c3-oss/prosa-bundle-v2'
+
+import { canonicalJsonBytes } from '../session-blob/framing.js'
 
 import type { CompactionEntityPlan, CompactionPlan } from './planner.js'
 import type { CompactionFireReason } from './policy.js'
@@ -134,4 +139,184 @@ function extractCompactionSeq(entity: CompactionEntityPlan): number {
     )
   }
   return seq
+}
+
+/**
+ * Canonical on-disk path of the compact manifest for a given
+ * compaction sequence. Format:
+ * `<bundleRoot>/epochs/compact-<NNNN>/compact.manifest.json`.
+ *
+ * The Lane 3 spec calls the file `.cbor`; in line with Lane 1's
+ * epoch-manifest decision (`epoch.manifest.json` today; rename to
+ * `.cbor` when a canonical-CBOR encoder for free-form maps lands
+ * in `@c3-oss/prosa-types-v2`), this writer + reader use the
+ * `.json` extension. Callers that want to round-trip the manifest
+ * across implementations should consume `readCompactManifestV2`
+ * and `writeCompactManifestV2` rather than hand-rolling paths.
+ */
+export function compactManifestPath(bundleRoot: string, compactionSeq: number): string {
+  if (!Number.isInteger(compactionSeq) || compactionSeq < 0) {
+    throw new Error(`compactManifestPath: invalid compaction_seq ${compactionSeq} (expected non-negative integer)`)
+  }
+  return join(bundleRoot, 'epochs', `compact-${String(compactionSeq).padStart(4, '0')}`, 'compact.manifest.json')
+}
+
+/**
+ * Persist a `CompactManifestV2` to disk using the same
+ * atomic-rename + parent-fsync pattern as `writeIndexCheckpoint`
+ * (CQ-093). The bytes are canonical-JSON-encoded so the same
+ * manifest always produces the same on-disk bytes — the runtime
+ * worker can compute the manifest digest deterministically.
+ *
+ * Containment guards (parallel to CQ-094 / CQ-098 / CQ-103):
+ *
+ *   - Refuses to write when `<bundleRoot>/epochs` or
+ *     `<bundleRoot>/epochs/compact-<NNNN>` is a symlink — the
+ *     manifest is bundle-internal state and must not be staged
+ *     into an external tree.
+ *   - Refuses when the final `compact.manifest.json` already
+ *     exists as a symlink (rather than a regular file) — same
+ *     reasoning.
+ *   - Creates the `epochs/compact-<NNNN>/` directory if needed.
+ *     The runtime worker (which lands separately) will also
+ *     create the projection subdirectory; this writer's
+ *     responsibility ends at the manifest itself.
+ *
+ * Returns the resolved path so callers can chain
+ * `readCompactManifestV2` for round-trip verification.
+ */
+export async function writeCompactManifestV2(bundleRoot: string, manifest: CompactManifestV2): Promise<string> {
+  const path = compactManifestPath(bundleRoot, manifest.compaction_seq)
+  const dir = dirname(path)
+  await refuseSymlinkedIntermediate(bundleRoot, manifest.compaction_seq)
+  await refuseSymlinkedFinal(path)
+
+  const bytes = canonicalJsonBytes(manifestToCanonicalShape(manifest))
+  const tmp = `${path}.tmp.${process.pid}.${randomSuffix()}`
+  await mkdir(dir, { recursive: true })
+  const handle = await open(tmp, 'w')
+  try {
+    await handle.writeFile(bytes)
+    await handle.sync()
+  } finally {
+    await handle.close()
+  }
+  try {
+    await rename(tmp, path)
+  } catch (err) {
+    try {
+      await unlink(tmp)
+    } catch {
+      // ignore
+    }
+    throw err
+  }
+  await syncDir(dir)
+  return path
+}
+
+/**
+ * Read the persisted manifest back from disk. Throws when the
+ * file is missing (callers should know whether a compaction ran),
+ * when the bytes do not parse as JSON, when the parsed shape is
+ * not the expected manifest, or when the containment guards
+ * (`refuseSymlinkedIntermediate` / final symlink) trip.
+ */
+export async function readCompactManifestV2(bundleRoot: string, compactionSeq: number): Promise<CompactManifestV2> {
+  const path = compactManifestPath(bundleRoot, compactionSeq)
+  await refuseSymlinkedIntermediate(bundleRoot, compactionSeq)
+  await refuseSymlinkedFinal(path)
+  const bytes = await readFile(path)
+  const text = bytes.toString('utf-8')
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    throw new Error(`readCompactManifestV2: ${path} is not valid JSON: ${message}`)
+  }
+  return assertManifestShape(parsed, path)
+}
+
+function manifestToCanonicalShape(m: CompactManifestV2): Record<string, unknown> {
+  return {
+    compaction_seq: m.compaction_seq,
+    entities: m.entities.map((e) => ({
+      entity_type: e.entity_type,
+      output_path: e.output_path,
+      reason: e.reason,
+      superseded: e.superseded.map((s) => ({
+        byte_length: s.byte_length,
+        epoch: s.epoch,
+        path: s.path,
+      })),
+      total_bytes_in: e.total_bytes_in,
+    })),
+    generated_at: m.generated_at,
+    schema: m.schema,
+  }
+}
+
+function assertManifestShape(value: unknown, path: string): CompactManifestV2 {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error(`readCompactManifestV2: ${path} is not a JSON object`)
+  }
+  const obj = value as Record<string, unknown>
+  if (obj.schema !== 'prosa.compact-manifest.v2') {
+    throw new Error(`readCompactManifestV2: ${path} has unexpected schema ${JSON.stringify(obj.schema)}`)
+  }
+  if (typeof obj.compaction_seq !== 'number' || !Number.isInteger(obj.compaction_seq) || obj.compaction_seq < 0) {
+    throw new Error(`readCompactManifestV2: ${path} has invalid compaction_seq ${JSON.stringify(obj.compaction_seq)}`)
+  }
+  if (typeof obj.generated_at !== 'string') {
+    throw new Error(`readCompactManifestV2: ${path} has non-string generated_at`)
+  }
+  if (!Array.isArray(obj.entities)) {
+    throw new Error(`readCompactManifestV2: ${path} has non-array entities`)
+  }
+  // Trust the per-entity shape — the writer goes through the
+  // builder which already validates structure. A future schema
+  // change should bump `schema` so consumers gate on the version.
+  return value as CompactManifestV2
+}
+
+async function refuseSymlinkedIntermediate(bundleRoot: string, compactionSeq: number): Promise<void> {
+  const epochsDir = join(bundleRoot, 'epochs')
+  await refuseSymlinkAt(epochsDir, 'epochs')
+  const compactDir = join(epochsDir, `compact-${String(compactionSeq).padStart(4, '0')}`)
+  await refuseSymlinkAt(compactDir, `epochs/compact-${String(compactionSeq).padStart(4, '0')}`)
+}
+
+async function refuseSymlinkAt(path: string, label: string): Promise<void> {
+  try {
+    const st = await lstat(path)
+    if (st.isSymbolicLink()) {
+      throw new Error(
+        `compact manifest: refusing to use ${label} — ${path} is a symlink. Resolve the symlink configuration manually before retrying.`,
+      )
+    }
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') return
+    throw err
+  }
+}
+
+async function refuseSymlinkedFinal(path: string): Promise<void> {
+  try {
+    const st = await lstat(path)
+    if (st.isSymbolicLink()) {
+      throw new Error(
+        `compact manifest: refusing to read/write ${path} — final path is a symlink. Resolve the symlink configuration manually before retrying.`,
+      )
+    }
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') return
+    throw err
+  }
+}
+
+function randomSuffix(): string {
+  return Math.floor(Math.random() * 0xffffffff)
+    .toString(16)
+    .padStart(8, '0')
 }
