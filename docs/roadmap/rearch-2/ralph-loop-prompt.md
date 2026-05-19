@@ -42,8 +42,8 @@ section as the full restart instruction:
   `loadLatestSessionBlobPack` latest-epoch loader (`f0a6ba7`),
   `loadTranscriptFromBundle` end-to-end loader + CQ-100
   input-validation-before-listing (`d9dfc19`),
-  `iterateTranscriptFromBundle` streaming counterpart landing in
-  this iteration, plus
+  `iterateTranscriptFromBundle` streaming counterpart (`c1a2836`),
+  plus
   the prior scaffold
   (`bb76006`), SessionBlobPackV2 byte layout (`ba87f05`), Parquet
   compaction planner (`ea8c1a8`), DuckDB analytics view shape contract
@@ -63,9 +63,8 @@ section as the full restart instruction:
   output `RALPH_DONE` yet because Lane 3 remainder (Tantivy native
   writer, DuckDB runtime executor, runtime Parquet merge) plus
   Lanes 4–10 are still incomplete.
-- Continue from the first incomplete Lane 3 surface after the
-  `iterateTranscriptFromBundle` commit. Do not restart an already
-  completed lane.
+- Continue from the first incomplete Lane 3 surface after `c1a2836`.
+  Do not restart an already completed lane.
 - If a correction needs a Codex/governor decision, ask one clear binary
   accept/reject question with a safe default. Do not loop on "external
   acceptance" as if Codex were unavailable.
