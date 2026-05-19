@@ -87,7 +87,8 @@ section as the full restart instruction:
   transcript --start-ordinal/--end-ordinal` range flags
   (`2c37af6`), `loadTranscriptFromBundle({ epoch })` + `prosa
   index-v2 transcript --epoch <n>` historical-pack selector
-  (`f890091`), plus the prior scaffold
+  (`f890091`), `iterateTranscriptFromBundle({ epoch })`
+  streaming-side symmetry (`dcad4d7`), plus the prior scaffold
   (`bb76006`), SessionBlobPackV2 byte layout (`ba87f05`), Parquet
   compaction planner (`ea8c1a8`), DuckDB analytics view shape contract
   + compacted-overlay binding (`cff3670` / `e35f844`), Tantivy schema
