@@ -24,6 +24,7 @@ import {
   analyticsViewsDescriptor,
   bundleDerivedStatus,
   derivedLayerEpochsTouched,
+  formatTranscriptMarkdownV2,
   formatTranscriptTextV2,
   listProjectionSegments,
   listSessionBlobSummaries,
@@ -207,13 +208,13 @@ export function indexV2Command(): Command {
     )
     .requiredOption('--store <path>', 'bundle directory')
     .requiredOption('--session-id <id>', 'canonical session_id (matches `index-v2 sessions` rows)')
-    .option('--format <fmt>', 'output format: json|text (default: json)', 'json')
+    .option('--format <fmt>', 'output format: json|text|markdown (default: json)', 'json')
     .action(async (options: { store: string; sessionId: string; format: string }) => {
       // CQ-105: validate `--format` synchronously before any bundle read so
       // invalid formats fail with `invalid --format` regardless of whether the
       // requested session exists or the store is reachable.
-      if (options.format !== 'json' && options.format !== 'text') {
-        throw new Error(`invalid --format: ${options.format} (expected json|text)`)
+      if (options.format !== 'json' && options.format !== 'text' && options.format !== 'markdown') {
+        throw new Error(`invalid --format: ${options.format} (expected json|text|markdown)`)
       }
       const storePath = resolvePath(options.store)
       const transcript = await loadTranscriptFromBundle({
@@ -222,6 +223,10 @@ export function indexV2Command(): Command {
       })
       if (options.format === 'text') {
         process.stdout.write(formatTranscriptTextV2(transcript, { includeHeader: true }))
+        return
+      }
+      if (options.format === 'markdown') {
+        process.stdout.write(formatTranscriptMarkdownV2(transcript, { includeHeader: true }))
         return
       }
       process.stdout.write(`${JSON.stringify(transcript, null, 2)}\n`)

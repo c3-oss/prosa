@@ -4,9 +4,61 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 ## Open
 
-(none — `CQ-091`..`CQ-105` are all closed.)
+(none — `CQ-091`..`CQ-106` are all closed.)
 
 ## Closed (latest first)
+
+### CQ-106: Markdown Transcript Fences Must Survive Backtick Runs — closed 2026-05-19
+
+Status: closed
+Severity: medium
+Blocking: yes
+Owner: Ralph
+Opened: 2026-05-19
+Closed: 2026-05-19
+Lane: 3 - Derived layer
+
+Finding:
+
+The first `formatTranscriptMarkdownV2()` slice emitted fixed triple
+backtick fences for non-plain inline blocks and `cas_ref` previews.
+Transcript content is arbitrary user/tool text, so a payload or
+preview that contains a `` ``` `` run could prematurely close the
+fence and let subsequent transcript bytes render as Markdown
+structure outside the block.
+
+Risk:
+
+Markdown export could misrepresent transcript content and make
+rendered output unsafe to paste into docs/chats/PRs. A transcript
+containing fenced-code text must remain a faithful literal payload,
+not escape the renderer's block structure.
+
+Resolution:
+
+Added a `pickFence(text)` helper that scans the body for the longest
+contiguous run of backticks and returns a fence of
+`max(3, longestRun + 1)` backticks. Both inline-text fenced
+rendering and the `cas_ref` preview blockquote use the helper, so
+arbitrary backtick-bearing payloads now get a fence that cannot be
+closed by their own content. Existing tests with ordinary content
+(no backtick runs) continue to use the three-backtick fence.
+
+Acceptance criteria — all met:
+
+- ✅ `corepack pnpm --filter @c3-oss/prosa-derived-v2 exec vitest
+  run test/session-blob/transcript-format-markdown.test.ts` passes
+  (15 tests, including 3 new CQ-106 regressions covering
+  triple-backtick inline body, five-backtick inline body, and
+  triple-backtick cas_ref preview).
+- ✅ `corepack pnpm --filter @c3-oss/prosa exec vitest run
+  test/cli/index-v2.test.ts` passes (50 tests).
+- ✅ `corepack pnpm --filter @c3-oss/prosa-derived-v2 typecheck` passes.
+- ✅ `corepack pnpm --filter @c3-oss/prosa typecheck` passes.
+- ✅ `corepack pnpm --filter @c3-oss/prosa-derived-v2 lint` passes.
+- ✅ `corepack pnpm --filter @c3-oss/prosa lint` passes.
+- ✅ `git diff --check` passes.
+- ✅ Full repo `pnpm turbo run test` — 13/13 turbo.
 
 ### CQ-105: Validate `index-v2 transcript --format` Before Bundle Reads — closed 2026-05-19
 

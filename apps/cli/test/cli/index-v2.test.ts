@@ -836,6 +836,49 @@ describe('prosa index-v2 CLI', () => {
     expect(r.stdout).toContain('  hello')
   })
 
+  it('`index-v2 transcript --format markdown` renders a Markdown transcript with header', async () => {
+    const { writeSessionBlobPack, zstdSessionBlobCompressor } = await import('@c3-oss/prosa-derived-v2')
+    const { sessionBlobEpochDir, sessionBlobPackPath } = await import('@c3-oss/prosa-derived-v2')
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    const messages = [
+      {
+        message_id: 'msg_000000',
+        ordinal: 0,
+        role: 'user' as const,
+        timestamp: '2026-05-19T00:00:00.000Z',
+        turn_id: 'tur_0',
+        blocks: [
+          {
+            block_id: 'blk_0_0',
+            block_type: 'text',
+            body: { kind: 'inline' as const, text: 'hello', byte_length: 5 },
+          },
+        ],
+      },
+    ]
+    const result = writeSessionBlobPack({ session_id: 'ses_alpha', epoch: 3, messages }, zstdSessionBlobCompressor)
+    await mkdir(sessionBlobEpochDir(storeRoot, 3), { recursive: true })
+    await writeFile(sessionBlobPackPath(storeRoot, 'ses_alpha', 3), result.pack)
+
+    const r = runCli([
+      'index-v2',
+      'transcript',
+      '--store',
+      storeRoot,
+      '--session-id',
+      'ses_alpha',
+      '--format',
+      'markdown',
+    ])
+    expect(r.status).toBe(0)
+    expect(r.stdout).toContain('# Transcript')
+    expect(r.stdout).toContain('- **epoch**: 3')
+    expect(r.stdout).toContain('- **message_count**: 1')
+    expect(r.stdout).toContain('## #0 — user')
+    expect(r.stdout).toContain('`2026-05-19T00:00:00.000Z` · turn `tur_0`')
+    expect(r.stdout).toContain('\nhello\n')
+  })
+
   it('`index-v2 transcript --format json` is the default behaviour', async () => {
     const { writeSessionBlobPack, zstdSessionBlobCompressor } = await import('@c3-oss/prosa-derived-v2')
     const { sessionBlobEpochDir, sessionBlobPackPath } = await import('@c3-oss/prosa-derived-v2')
@@ -875,5 +918,7 @@ describe('prosa index-v2 CLI', () => {
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/invalid --format/i)
     expect(r.stderr).not.toMatch(/loadLatestSessionBlobPack|no pack found/i)
+    // The error message should list every supported format.
+    expect(r.stderr).toMatch(/json\|text\|markdown/)
   })
 })
