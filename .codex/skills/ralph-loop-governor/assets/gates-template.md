@@ -23,6 +23,10 @@ Populate from the matched domain skill. Example for server-sync:
 | `just e2e-cli` | yes | not-run | CLI two-device flow |
 | `just e2e-down` | yes | not-run | teardown |
 
+## Blocker Verification
+
+If any gate is skipped or the work is rerouted because of an environment/dependency/service blocker, record the direct smoke command and output here. A blocker claim without command output is not accepted.
+
 ## Done Check
 
 - [ ] Worktree state documented.
@@ -31,3 +35,5 @@ Populate from the matched domain skill. Example for server-sync:
 - [ ] Domain gates passed or blockers are documented.
 - [ ] Audit output classified.
 - [ ] Final Codex review completed.
+- [ ] No unverified dependency/environment blocker remains.
+- [ ] Five-cycle final stabilization evidence recorded before `RALPH_DONE`.

@@ -11,6 +11,8 @@ Completion signal: RALPH_DONE
 
 Status: planned | running | correction | final-review | done | blocked
 Current lane: <lane id>
+Current milestone: <one concrete core deliverable>
+Recent slice classification: core milestone | required support | premature surface
 Current HEAD: <sha>
 No-change streak: 0
 Ralph active: yes | no

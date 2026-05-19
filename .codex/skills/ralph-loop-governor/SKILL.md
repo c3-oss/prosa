@@ -61,6 +61,18 @@ question. Otherwise, make conservative assumptions and proceed.
   the correction queue and steering updates. Ralph must not treat Codex as an
   unavailable third party or spin on "external acceptance" without asking for a
   concrete decision.
+- Codex must maintain an explicit current milestone. Each Ralph slice must be
+  classified as core milestone work, required support work, or premature/later-lane
+  surface area. Support work is allowed only when it demonstrably accelerates the
+  current milestone.
+- Pure-read/audit/diagnostic surfaces are useful support, but they do not replace
+  runtime executors or other core deliverables. If three consecutive commits add
+  support/premature surfaces without touching the active milestone, Codex must stop
+  and redirect the next prompt to the core deliverable.
+- Any claimed environment, dependency, service, or package-manager blocker must be
+  proven with a direct smoke command and recorded output before rerouting work.
+- Routine status/hash-pin evidence should be batched per coherent slice unless a
+  blocking CQ closeout requires immediate evidence.
 
 ## Blocking Semantics
 
@@ -147,10 +159,14 @@ $ralph-loop-governor continuar server-sync usando docs/architecture/server-sync.
   `~/workspace/c3-oss/<repo>-<feature>-ralph-loop-monitor.md`.
 - When the user reports "Ralph started", "Loop iniciado", or equivalent, enter
   the active monitor loop immediately. Do not only record the start.
-- Use a 5-minute interval by default unless the user requested a different
-  interval. The interval is a real idle wait: stop all monitoring work, do not
-  run intermediate checks, do not send progress updates, and do not do parallel
-  review or implementation work until the wait expires.
+- Use a 5-minute interval only for explicitly tight active governance. For
+  overnight or low-touch loops, default to patient/passive monitoring: observe
+  commits, mtimes, gates, queues, and worktree state without prompting Ralph while
+  it is productive, thinking, or working. A 15–30 minute cadence is acceptable.
+- Intervene only for real blockers: a visible TUI prompt awaiting response,
+  rate/usage limit, max-iteration or restart handoff, `RALPH_DONE` validation, or
+  repeated checks with no useful changes. Do not nudge Ralph every check just to
+  ask for status.
 - Each check records in the external monitor: timestamp,
   `git status --short --branch`, recent commits, changed areas, lane
   evidence/status, correction queue, gates, `RALPH_DONE` signal, open blockers,
@@ -172,6 +188,45 @@ $ralph-loop-governor continuar server-sync usando docs/architecture/server-sync.
 - Keep treating Ralph as active until `RALPH_DONE` is detected, the user stops
   the run, or three configured idle checks show no implementation changes and
   final gates begin.
+
+## Milestone Focus And Blocker Verification
+
+Before launching or restarting Ralph, write a single current milestone in
+`ralph-loop-prompt.md`. Examples: `Lane 3 runtime executor — Tantivy writer`,
+`Lane 4 server signing`, or `Lane 5 sync protocol seal path`.
+
+At each monitor check, classify new commits:
+
+- **Core milestone work:** directly implements the named deliverable.
+- **Required support work:** necessary to unblock, test, or safely operate that
+  deliverable.
+- **Premature surface area:** useful eventually, but belongs to a later lane or
+  only observes/audits current state.
+
+If Ralph lands three consecutive required-support or premature-surface commits
+without core milestone progress, Codex must pause and answer: "Are we still
+accelerating the named milestone, or avoiding the hard part?" The next steering
+prompt should redirect to core milestone work unless the support work is proven
+blocking.
+
+For blocker claims, require evidence before rerouting. A blocker claim is not
+accepted until the executor records the exact command and output that proves it.
+For native/runtime dependencies, run a direct import or minimal runtime smoke.
+For service dependencies, run a minimal health or connection check. For external
+acceptance, ask a binary/multiple-choice decision with a safe default.
+
+## Cycle Reset And Cleanup
+
+At the end of a long run, consolidate before the next cycle:
+
+1. Stop executor and governor.
+2. Capture wrap-ups if needed.
+3. Write one concise `cycle-reset-YYYY-MM-DD.md` handoff under the roadmap.
+4. Reset `status.md`, `gates.md`, `correction-queue.md`, and lane evidence to
+   concise current-state files.
+5. Delete root scratch files, stale monitor logs, lockfiles, and uncommitted
+   skeletons not intended for the next cycle.
+
 
 ## Executor Completion Stabilization
 

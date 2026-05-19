@@ -25,6 +25,9 @@ Loop sync/promotion feature.
 
 ## Rules
 
+- Check whether changes advance the named milestone or merely add support/premature read/audit surface area. Flag milestone drift explicitly.
+- Treat unverified environment/dependency blocker claims as findings; require direct smoke-command evidence before accepting a reroute.
+
 - Default to read-only. Do not edit unless explicitly assigned a write scope.
 - The key question is whether reads after promotion use the intended authority
   and fail closed when no remote equivalent exists.

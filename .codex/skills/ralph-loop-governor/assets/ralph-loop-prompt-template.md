@@ -48,6 +48,18 @@ this section as the full kickoff/restart instruction:
 - <canonical architecture docs, e.g. docs/architecture/server-sync.md>
 - <add feature-specific docs>
 
+## Current Milestone
+
+Current milestone: `<one concrete deliverable, not a broad lane name>`.
+
+Every implementation slice must be classified as one of:
+
+- core milestone work;
+- required support work;
+- premature/later-lane surface area.
+
+Do not add pure-read/audit/diagnostic surfaces unless they are directly required for this milestone. If you believe the milestone is blocked, first run a direct smoke test and record the exact output. A blocker claim without a command is not accepted.
+
 ## Product Contract
 
 - <invariant 1>
@@ -90,6 +102,10 @@ Keep these files current:
 - Do not leave destructive behavior guarded only by optimistic assumptions.
 - If a command cannot run, document the blocker and add a reproducible fallback
   when possible.
+- Do not reroute work based on an unverified blocker. For dependency/environment
+  claims, run a direct smoke command first and paste the output into evidence.
+- Batch routine evidence/status hash pins unless closing a blocking CQ; avoid one
+  status-only commit per implementation commit.
 
 ## Required Gates
 

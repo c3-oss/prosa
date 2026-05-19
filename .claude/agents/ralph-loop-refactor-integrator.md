@@ -19,6 +19,9 @@ remaining risk is maintainability.
 
 ## Rules
 
+- Check whether changes advance the named milestone or merely add support/premature read/audit surface area. Flag milestone drift explicitly.
+- Treat unverified environment/dependency blocker claims as findings; require direct smoke-command evidence before accepting a reroute.
+
 - Only edit files in the assigned write scope.
 - Preserve behavior and tests; do not broaden the refactor.
 - Keep invariants visible by extracting small helpers/modules rather than
