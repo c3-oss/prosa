@@ -8,6 +8,7 @@ import { compileAllV2Command, compileV2Command } from './commands/compile-v2.js'
 import { compileAllCommand, compileCommand } from './commands/compile.js'
 import { doctorCommand } from './commands/doctor.js'
 import { exportCommand } from './commands/export.js'
+import { indexV2Command } from './commands/index-v2.js'
 import { indexCommand } from './commands/index.js'
 import { initCommand } from './commands/init.js'
 import { mcpCommand } from './commands/mcp.js'
@@ -64,6 +65,7 @@ export async function runCli(argv: readonly string[]): Promise<void> {
   program.addCommand(bundleCommand())
   program.addCommand(compileV2Command())
   program.addCommand(compileAllV2Command())
+  program.addCommand(indexV2Command())
 
   await program.parseAsync(stripLeadingDoubleDash(argv))
 }

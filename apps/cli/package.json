@@ -48,6 +48,7 @@
   "dependencies": {
     "@c3-oss/prosa-bundle-v2": "workspace:^",
     "@c3-oss/prosa-core": "workspace:^",
+    "@c3-oss/prosa-derived-v2": "workspace:^",
     "@c3-oss/prosa-importers-v2": "workspace:^",
     "@inkjs/ui": "^2.0.0",
     "commander": "^12.1.0",

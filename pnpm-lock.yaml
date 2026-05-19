@@ -163,6 +163,9 @@ importers:
       '@c3-oss/prosa-core':
         specifier: workspace:^
         version: link:../../packages/prosa-core
+      '@c3-oss/prosa-derived-v2':
+        specifier: workspace:^
+        version: link:../../packages/prosa-derived-v2
       '@c3-oss/prosa-importers-v2':
         specifier: workspace:^
         version: link:../../packages/prosa-importers-v2

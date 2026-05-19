@@ -199,16 +199,13 @@ Keep these files current:
 
 ## Current Blocking Corrections
 
-Current open corrections: `CQ-104` is open and blocking for Lane 3.
-Close it before `RALPH_DONE`.
-
-`CQ-104` applies to the current `derivedLayerEpochsTouched()` WIP. The helper
-claims to return epochs with SessionBlob packs or Parquet projection segments,
-but the SessionBlob side currently uses `listSessionBlobEpochs()`, which can
-include empty epoch directories. For audit/GC keep-set semantics, return only
-artifact-bearing epochs (preferred) or explicitly re-scope/rename the helper as
-directory-touched. Add the empty-SessionBlob-epoch regression and reconcile
-Lane 3 evidence/gates/status before closing.
+Current open corrections: none — `CQ-091`..`CQ-104` are all closed.
+`CQ-104` closeout: `derivedLayerEpochsTouched()` now filters SessionBlob
+candidate epochs through `listSessionBlobSessions({ bundleRoot, epoch })` and
+counts only epochs with actual packs, while projection segment epochs still come
+from `listProjectionSegments()`. Empty SessionBlob epoch directories no longer
+over-report the audit/GC keep-set, and the projection-overlap regression
+confirms projection-only artifacts still surface.
 
 Lane 2 is accepted by Codex/governor as of 2026-05-19; do not ask again for
 Lane 2 external acceptance and do not block Lane 3 on it. Lane 3 forward work

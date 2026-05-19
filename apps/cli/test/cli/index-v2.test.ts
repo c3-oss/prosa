@@ -1,0 +1,116 @@
+// Integration tests for `prosa index-v2 status` — the Lane 3 CLI
+// surface that wraps `bundleDerivedStatus` from
+// `@c3-oss/prosa-derived-v2`. We spawn the CLI as a subprocess so
+// the test exercises the same `commander` wiring real users hit;
+// the assertions inspect the printed JSON snapshot.
+//
+// Lane 3 lists `prosa index-v2 status` as a deliverable alongside
+// `prosa index-v2 tantivy` (Tantivy writer, blocked on the native
+// binding) and `prosa export-v2 parquet` (blocked on the DuckDB
+// runtime executor). The `status` form is pure-read and can ship
+// independently.
+
+import { spawnSync } from 'node:child_process'
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+import { describe, expect, it } from 'vitest'
+
+const CLI_ENTRY = join(__dirname, '..', '..', 'src', 'bin', 'prosa.ts')
+
+function runCli(args: string[]): { stdout: string; stderr: string; status: number | null } {
+  const result = spawnSync(
+    'node',
+    ['--conditions=prosa-dev', '--import', '@swc-node/register/esm-register', CLI_ENTRY, ...args],
+    { encoding: 'utf8', timeout: 60_000 },
+  )
+  return { stdout: result.stdout, stderr: result.stderr, status: result.status }
+}
+
+interface StatusSnapshot {
+  tantivy: {
+    checkpoint_present: boolean
+    index_dir_valid: boolean
+    ready_for_read: boolean
+    current_schema_fingerprint: string
+  }
+  session_summaries: Array<{ session_id: string }>
+  session_count: number
+  session_blob_epochs: number[]
+}
+
+describe('prosa index-v2 CLI', () => {
+  it('`index-v2 --help` lists the status subcommand', async () => {
+    const r = runCli(['index-v2', '--help'])
+    expect(r.status).toBe(0)
+    expect(r.stdout).toContain('Bundle v2 derived-layer index commands')
+    expect(r.stdout).toContain('status')
+  })
+
+  it('`index-v2 status --help` documents --store', async () => {
+    const r = runCli(['index-v2', 'status', '--help'])
+    expect(r.status).toBe(0)
+    expect(r.stdout).toContain('Print the combined Tantivy + SessionBlob status snapshot')
+    expect(r.stdout).toContain('--store')
+  })
+
+  it('`index-v2 status` against a fresh (nonexistent) bundle prints the empty snapshot', async () => {
+    // Point at a path that does not exist on disk yet. `bundleDerivedStatus`
+    // is documented to collapse to the fresh-bundle snapshot rather than
+    // error — that contract is what makes the command safe to script.
+    const storeRoot = join(await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-')), 'never-initialised')
+    const r = runCli(['index-v2', 'status', '--store', storeRoot])
+    expect(r.status).toBe(0)
+    const snapshot = JSON.parse(r.stdout) as StatusSnapshot
+    expect(snapshot.tantivy.checkpoint_present).toBe(false)
+    expect(snapshot.tantivy.index_dir_valid).toBe(false)
+    expect(snapshot.tantivy.ready_for_read).toBe(false)
+    expect(typeof snapshot.tantivy.current_schema_fingerprint).toBe('string')
+    expect(snapshot.session_summaries).toEqual([])
+    expect(snapshot.session_count).toBe(0)
+    expect(snapshot.session_blob_epochs).toEqual([])
+  })
+
+  it('`index-v2 status` reflects SessionBlob packs that have been written to the bundle', async () => {
+    const { writeSessionBlobPack, identityCompressor } = await import('@c3-oss/prosa-derived-v2')
+    const { sessionBlobEpochDir, sessionBlobPackPath } = await import('@c3-oss/prosa-derived-v2')
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+
+    const messages = [
+      {
+        message_id: 'msg_000000',
+        ordinal: 0,
+        role: 'user' as const,
+        timestamp: '2026-05-19T00:00:00.000Z',
+        turn_id: 'tur_0',
+        blocks: [
+          {
+            block_id: 'blk_0_0',
+            block_type: 'text',
+            body: { kind: 'inline' as const, text: 'hello', byte_length: 5 },
+          },
+        ],
+      },
+    ]
+    const result = writeSessionBlobPack({ session_id: 'ses_alpha', epoch: 1, messages }, identityCompressor)
+    await mkdir(sessionBlobEpochDir(storeRoot, 1), { recursive: true })
+    await writeFile(sessionBlobPackPath(storeRoot, 'ses_alpha', 1), result.pack)
+
+    const r = runCli(['index-v2', 'status', '--store', storeRoot])
+    expect(r.status).toBe(0)
+    const snapshot = JSON.parse(r.stdout) as StatusSnapshot
+    expect(snapshot.session_summaries.map((s) => s.session_id)).toEqual(['ses_alpha'])
+    expect(snapshot.session_count).toBe(1)
+    expect(snapshot.session_blob_epochs).toEqual([1])
+    // No Tantivy index has been written.
+    expect(snapshot.tantivy.checkpoint_present).toBe(false)
+    expect(snapshot.tantivy.ready_for_read).toBe(false)
+  })
+
+  it('`index-v2 status` fails when --store is missing', async () => {
+    const r = runCli(['index-v2', 'status'])
+    expect(r.status).not.toBe(0)
+    expect(r.stderr).toMatch(/required option.*--store/i)
+  })
+})
