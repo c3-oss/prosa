@@ -4,9 +4,63 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 ## Open
 
-(none — `CQ-091`..`CQ-106` are all closed.)
+(none — `CQ-091`..`CQ-107` are all closed.)
 
 ## Closed (latest first)
+
+### CQ-107: Validate Persisted Compact Manifest Entity Shape on Read — closed 2026-05-19
+
+Status: closed
+Severity: medium
+Blocking: yes
+Owner: Ralph
+Opened: 2026-05-19
+Closed: 2026-05-19
+Lane: 3 - Derived layer
+
+Finding:
+
+The first `readCompactManifestV2()` slice parsed
+`compact.manifest.json` and validated only the top-level object,
+`schema`, `compaction_seq`, `generated_at`, and `entities` array
+presence. It then returned `value as CompactManifestV2` with a
+comment saying to trust the per-entity shape because the writer
+goes through the builder.
+
+Risk:
+
+`readCompactManifestV2()` is the persisted-format boundary for
+audit/GC recovery. Files can be corrupted, manually edited,
+partially written by older tools, or produced by another
+implementation. A reader that accepts malformed entity rows or
+malformed `superseded` segments would hand invalid paths, byte
+counts, or epochs to future GC/audit code despite claiming the
+manifest shape was validated.
+
+Resolution:
+
+Replaced the trust-the-builder shortcut with full deep
+validation. Every entity must be an object with non-empty string
+`entity_type`, `reason` from the known set
+(`file_count_trigger` | `low_count_byte_ceiling`), non-empty
+string `output_path`, non-negative integer `total_bytes_in`,
+and an array `superseded`. Every superseded segment must be an
+object with non-negative integer `epoch`, non-empty string
+`path`, and non-negative integer `byte_length`. The reader also
+now verifies `manifest.compaction_seq` matches the requested
+`compactionSeq` argument — a drift here is almost always a bug.
+
+Acceptance criteria — all met:
+
+- ✅ `pnpm --filter @c3-oss/prosa-derived-v2 exec vitest run
+  test/compaction/manifest.test.ts` passes with 7 new CQ-107
+  regressions: seq mismatch, missing entity_type, unknown reason
+  enum, negative total_bytes_in, non-integer superseded.epoch,
+  empty superseded.path, entities array of strings (non-objects).
+- ✅ `pnpm --filter @c3-oss/prosa-derived-v2 typecheck` clean.
+- ✅ `pnpm --filter @c3-oss/prosa-derived-v2 lint` clean.
+- ✅ `git diff --check` clean.
+- ✅ Full repo `pnpm turbo run test` 13/13.
 
 ### CQ-106: Markdown Transcript Fences Must Survive Backtick Runs — closed 2026-05-19
 

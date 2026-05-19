@@ -235,7 +235,16 @@ export async function readCompactManifestV2(bundleRoot: string, compactionSeq: n
     const message = err instanceof Error ? err.message : String(err)
     throw new Error(`readCompactManifestV2: ${path} is not valid JSON: ${message}`)
   }
-  return assertManifestShape(parsed, path)
+  const manifest = assertManifestShape(parsed, path)
+  // CQ-107: the persisted compaction_seq must match the requested
+  // one. A drift here means the caller is reading a manifest other
+  // than the one indexed by `compactionSeq` — almost always a bug.
+  if (manifest.compaction_seq !== compactionSeq) {
+    throw new Error(
+      `readCompactManifestV2: ${path} has compaction_seq ${manifest.compaction_seq}, expected ${compactionSeq}`,
+    )
+  }
+  return manifest
 }
 
 function manifestToCanonicalShape(m: CompactManifestV2): Record<string, unknown> {
@@ -257,6 +266,8 @@ function manifestToCanonicalShape(m: CompactManifestV2): Record<string, unknown>
   }
 }
 
+const VALID_REASONS: ReadonlySet<CompactionFireReason> = new Set(['file_count_trigger', 'low_count_byte_ceiling'])
+
 function assertManifestShape(value: unknown, path: string): CompactManifestV2 {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new Error(`readCompactManifestV2: ${path} is not a JSON object`)
@@ -274,10 +285,84 @@ function assertManifestShape(value: unknown, path: string): CompactManifestV2 {
   if (!Array.isArray(obj.entities)) {
     throw new Error(`readCompactManifestV2: ${path} has non-array entities`)
   }
-  // Trust the per-entity shape — the writer goes through the
-  // builder which already validates structure. A future schema
-  // change should bump `schema` so consumers gate on the version.
-  return value as CompactManifestV2
+  // CQ-107: validate every entity + every superseded segment before
+  // returning. The reader is the persisted-format boundary for audit /
+  // GC recovery, so a corrupted, partially-written, or third-party
+  // manifest must surface as a clear error, not flow into downstream
+  // code as a malformed structure.
+  const entities: CompactManifestEntityV2[] = []
+  for (let i = 0; i < obj.entities.length; i++) {
+    entities.push(assertEntityShape(obj.entities[i], path, i))
+  }
+  return {
+    schema: 'prosa.compact-manifest.v2',
+    compaction_seq: obj.compaction_seq,
+    generated_at: obj.generated_at,
+    entities,
+  }
+}
+
+function assertEntityShape(value: unknown, path: string, index: number): CompactManifestEntityV2 {
+  const where = `entities[${index}]`
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error(`readCompactManifestV2: ${path} ${where} is not a JSON object`)
+  }
+  const obj = value as Record<string, unknown>
+  if (typeof obj.entity_type !== 'string' || obj.entity_type.length === 0) {
+    throw new Error(`readCompactManifestV2: ${path} ${where}.entity_type is not a non-empty string`)
+  }
+  if (typeof obj.reason !== 'string' || !VALID_REASONS.has(obj.reason as CompactionFireReason)) {
+    throw new Error(
+      `readCompactManifestV2: ${path} ${where}.reason ${JSON.stringify(obj.reason)} is not one of: ${[...VALID_REASONS].join(', ')}`,
+    )
+  }
+  if (typeof obj.output_path !== 'string' || obj.output_path.length === 0) {
+    throw new Error(`readCompactManifestV2: ${path} ${where}.output_path is not a non-empty string`)
+  }
+  if (typeof obj.total_bytes_in !== 'number' || !Number.isInteger(obj.total_bytes_in) || obj.total_bytes_in < 0) {
+    throw new Error(
+      `readCompactManifestV2: ${path} ${where}.total_bytes_in ${JSON.stringify(obj.total_bytes_in)} is not a non-negative integer`,
+    )
+  }
+  if (!Array.isArray(obj.superseded)) {
+    throw new Error(`readCompactManifestV2: ${path} ${where}.superseded is not an array`)
+  }
+  const superseded: CompactManifestEntityV2['superseded'] = []
+  for (let j = 0; j < obj.superseded.length; j++) {
+    superseded.push(assertSupersededShape(obj.superseded[j], path, `${where}.superseded[${j}]`))
+  }
+  return {
+    entity_type: obj.entity_type,
+    reason: obj.reason as CompactionFireReason,
+    output_path: obj.output_path,
+    total_bytes_in: obj.total_bytes_in,
+    superseded,
+  }
+}
+
+function assertSupersededShape(
+  value: unknown,
+  path: string,
+  where: string,
+): CompactManifestEntityV2['superseded'][number] {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error(`readCompactManifestV2: ${path} ${where} is not a JSON object`)
+  }
+  const obj = value as Record<string, unknown>
+  if (typeof obj.epoch !== 'number' || !Number.isInteger(obj.epoch) || obj.epoch < 0) {
+    throw new Error(
+      `readCompactManifestV2: ${path} ${where}.epoch ${JSON.stringify(obj.epoch)} is not a non-negative integer`,
+    )
+  }
+  if (typeof obj.path !== 'string' || obj.path.length === 0) {
+    throw new Error(`readCompactManifestV2: ${path} ${where}.path is not a non-empty string`)
+  }
+  if (typeof obj.byte_length !== 'number' || !Number.isInteger(obj.byte_length) || obj.byte_length < 0) {
+    throw new Error(
+      `readCompactManifestV2: ${path} ${where}.byte_length ${JSON.stringify(obj.byte_length)} is not a non-negative integer`,
+    )
+  }
+  return { epoch: obj.epoch, path: obj.path, byte_length: obj.byte_length }
 }
 
 async function refuseSymlinkedIntermediate(bundleRoot: string, compactionSeq: number): Promise<void> {

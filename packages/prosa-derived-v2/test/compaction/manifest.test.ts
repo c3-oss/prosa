@@ -232,6 +232,117 @@ describe('writeCompactManifestV2 + readCompactManifestV2 round-trip', () => {
     await expect(readCompactManifestV2(bundleRoot, 1)).rejects.toThrow(/ENOENT/)
   })
 
+  it('CQ-107: readCompactManifestV2 rejects when persisted compaction_seq does not match the requested seq', async () => {
+    const plan = planWithEntity()
+    const manifest = buildCompactManifestV2({ plan, generatedAt: GENERATED_AT })
+    const path = await writeCompactManifestV2(bundleRoot, manifest)
+    // Overwrite with a different seq embedded.
+    const { writeFile: write } = await import('node:fs/promises')
+    await write(path, JSON.stringify({ ...manifest, compaction_seq: 999 }))
+    await expect(readCompactManifestV2(bundleRoot, manifest.compaction_seq)).rejects.toThrow(
+      /compaction_seq 999, expected 1/,
+    )
+  })
+
+  it('CQ-107: readCompactManifestV2 rejects malformed entity rows (missing entity_type)', async () => {
+    const plan = planWithEntity()
+    const manifest = buildCompactManifestV2({ plan, generatedAt: GENERATED_AT })
+    const path = await writeCompactManifestV2(bundleRoot, manifest)
+    const { writeFile: write } = await import('node:fs/promises')
+    const corrupted = {
+      ...manifest,
+      entities: [
+        {
+          // entity_type intentionally omitted
+          reason: 'low_count_byte_ceiling',
+          output_path: 'epochs/compact-0001/projection/sessions.compacted.parquet',
+          total_bytes_in: 5_120,
+          superseded: [],
+        },
+      ],
+    }
+    await write(path, JSON.stringify(corrupted))
+    await expect(readCompactManifestV2(bundleRoot, manifest.compaction_seq)).rejects.toThrow(
+      /entities\[0\]\.entity_type/,
+    )
+  })
+
+  it('CQ-107: readCompactManifestV2 rejects entities with an unknown reason enum', async () => {
+    const plan = planWithEntity()
+    const manifest = buildCompactManifestV2({ plan, generatedAt: GENERATED_AT })
+    const path = await writeCompactManifestV2(bundleRoot, manifest)
+    const { writeFile: write } = await import('node:fs/promises')
+    const corrupted = {
+      ...manifest,
+      entities: [{ ...manifest.entities[0], reason: 'made_up_reason' }],
+    }
+    await write(path, JSON.stringify(corrupted))
+    await expect(readCompactManifestV2(bundleRoot, manifest.compaction_seq)).rejects.toThrow(
+      /entities\[0\]\.reason.*made_up_reason/,
+    )
+  })
+
+  it('CQ-107: readCompactManifestV2 rejects entities with a negative total_bytes_in', async () => {
+    const plan = planWithEntity()
+    const manifest = buildCompactManifestV2({ plan, generatedAt: GENERATED_AT })
+    const path = await writeCompactManifestV2(bundleRoot, manifest)
+    const { writeFile: write } = await import('node:fs/promises')
+    const corrupted = {
+      ...manifest,
+      entities: [{ ...manifest.entities[0], total_bytes_in: -1 }],
+    }
+    await write(path, JSON.stringify(corrupted))
+    await expect(readCompactManifestV2(bundleRoot, manifest.compaction_seq)).rejects.toThrow(
+      /entities\[0\]\.total_bytes_in/,
+    )
+  })
+
+  it('CQ-107: readCompactManifestV2 rejects superseded segments with non-integer epoch', async () => {
+    const plan = planWithEntity()
+    const manifest = buildCompactManifestV2({ plan, generatedAt: GENERATED_AT })
+    const path = await writeCompactManifestV2(bundleRoot, manifest)
+    const { writeFile: write } = await import('node:fs/promises')
+    const corrupted = {
+      ...manifest,
+      entities: [
+        {
+          ...manifest.entities[0],
+          superseded: [{ epoch: 1.5, path: 'epochs/1/projection/sessions.parquet', byte_length: 2_048 }],
+        },
+      ],
+    }
+    await write(path, JSON.stringify(corrupted))
+    await expect(readCompactManifestV2(bundleRoot, manifest.compaction_seq)).rejects.toThrow(
+      /entities\[0\]\.superseded\[0\]\.epoch/,
+    )
+  })
+
+  it('CQ-107: readCompactManifestV2 rejects superseded segments with empty path', async () => {
+    const plan = planWithEntity()
+    const manifest = buildCompactManifestV2({ plan, generatedAt: GENERATED_AT })
+    const path = await writeCompactManifestV2(bundleRoot, manifest)
+    const { writeFile: write } = await import('node:fs/promises')
+    const corrupted = {
+      ...manifest,
+      entities: [{ ...manifest.entities[0], superseded: [{ epoch: 1, path: '', byte_length: 0 }] }],
+    }
+    await write(path, JSON.stringify(corrupted))
+    await expect(readCompactManifestV2(bundleRoot, manifest.compaction_seq)).rejects.toThrow(
+      /entities\[0\]\.superseded\[0\]\.path/,
+    )
+  })
+
+  it('CQ-107: readCompactManifestV2 rejects when entities is not an array of objects', async () => {
+    const plan = planWithEntity()
+    const manifest = buildCompactManifestV2({ plan, generatedAt: GENERATED_AT })
+    const path = await writeCompactManifestV2(bundleRoot, manifest)
+    const { writeFile: write } = await import('node:fs/promises')
+    await write(path, JSON.stringify({ ...manifest, entities: ['not_an_object'] }))
+    await expect(readCompactManifestV2(bundleRoot, manifest.compaction_seq)).rejects.toThrow(
+      /entities\[0\] is not a JSON object/,
+    )
+  })
+
   it('readCompactManifestV2 rejects a manifest with a wrong schema discriminator', async () => {
     const plan = planWithEntity()
     const manifest = buildCompactManifestV2({ plan, generatedAt: GENERATED_AT })
