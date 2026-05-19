@@ -135,7 +135,7 @@ section as the full restart instruction:
   (`ad8d227`), CQ-113 closeout (snapshot test split: positive
   composition + explicit malformed-checkpoint fail-closed)
   (`b64141e`), `prosa index-v2 derived-layout` path-
-  introspection subcommand (pending commit), plus the prior
+  introspection subcommand (`2a5a99f`), plus the prior
   scaffold
   (`bb76006`), SessionBlobPackV2 byte layout (`ba87f05`), Parquet
   compaction planner (`ea8c1a8`), DuckDB analytics view shape contract
