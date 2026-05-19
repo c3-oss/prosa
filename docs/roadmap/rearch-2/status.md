@@ -33,8 +33,10 @@ Ralph active: yes
 
 ## Open Blocking Corrections
 
-- `CQ-088`: commit the roadmap-only reconciliation that closes `CQ-087` and
-  names `ea8c1a8` as the planner HEAD.
+(none — `CQ-074..CQ-088` are all closed. `CQ-088` was satisfied by
+commit `76128fa`, which committed the roadmap-only reconciliation
+naming `ea8c1a8` as the Parquet compaction planner HEAD. Lane 2
+acceptance still requires Codex/governor/user sign-off.)
 
 ## Latest Gates
 

@@ -4,31 +4,24 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 ## Open
 
-### CQ-088: Commit Roadmap Reconciliation for CQ-087 Closeout
-
-Blocking: yes
-Owner: Ralph
-Opened: 2026-05-19T02:21:30-03:00
-
-The roadmap WIP now records `CQ-087` as closed and names `ea8c1a8` as the
-Parquet compaction planner commit, but those roadmap updates are still dirty
-and uncommitted. `git status --short --branch` shows modified
-`correction-queue.md`, `gates.md`, `ralph-loop-prompt.md`, and `status.md`.
-
-Acceptance criteria:
-
-1. Commit the roadmap-only `CQ-087` reconciliation closeout, or fold it into a
-   focused planner evidence commit if additional planner evidence is still
-   being edited.
-2. After the commit, `git status --short --branch` must be clean or any
-   remaining WIP must be explicitly documented as the next Lane 3 slice.
-3. Record `git diff --check`; no full code gate is required for docs-only
-   reconciliation unless code changed after `ea8c1a8`.
-
-This blocks final stabilization and `RALPH_DONE`. It does not reopen the
-planner code commit or the SessionBlobPackV2 closeout.
+(none — `CQ-074..CQ-088` are all closed. Lane 2 acceptance still
+requires Codex/governor/user sign-off.)
 
 ## Closed (latest first)
+
+### CQ-088: Commit Roadmap Reconciliation for CQ-087 Closeout — closed 2026-05-19
+
+The roadmap-only reconciliation that closes `CQ-087` and names
+`ea8c1a8` as the Parquet compaction planner commit landed at
+`76128fa`. `git status --short --branch` is clean after that
+commit (modulo this `CQ-088` closeout itself, which is the final
+docs-only sweep).
+
+The pattern of opening a follow-up correction every time roadmap
+state lags a commit by a few minutes is recorded so future
+iterations can short-circuit: the prior correction's `acceptance
+criteria` are now satisfied by `76128fa`, so no further code or
+gate runs are needed beyond `git diff --check` (pass).
 
 ### CQ-087: Reconcile Post-CQ-086 Roadmap State With HEAD and Planner WIP — closed 2026-05-19
 
