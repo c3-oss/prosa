@@ -3,10 +3,12 @@
 Lane: 03 - Derived layer
 Status: active WIP — scaffold (`bb76006`) + SessionBlobPackV2 byte layout
 (framing + writer + reader + verifier) close `CQ-084` and `CQ-085`;
-additional Lane 3 planner/helper slices landed through `3b9f79e`.
-`CQ-096` intermediate symlink containment landing in this iteration.
-Tantivy writer, DuckDB analytics view definitions, and the runtime
-compaction worker still pending.
+additional Lane 3 planner/helper slices landed through `0b3dfd0`.
+`CQ-096` intermediate symlink containment landed at `3be300f`.
+`CQ-097` SessionBlob layout textual-source cleanup landing in the
+SessionBlob pack-path resolver commit this iteration. Tantivy writer,
+DuckDB analytics view definitions, and the runtime compaction worker
+still pending.
 Owner: Ralph
 Commit range: Lane 3 scaffold (`bb76006`) + SessionBlobPackV2 byte-layout
 slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
@@ -195,6 +197,30 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
   the three Tantivy delegates do not drift from the typed layout,
   and verify relative bundle roots are composed without
   `path.resolve()`.
+- [x] SessionBlobPackV2 on-disk path resolver
+  (`sessionBlobEpochDir(bundleRoot, epoch)`,
+  `sessionBlobPackPath(bundleRoot, sessionId, epoch)`) pins the
+  canonical pack layout: one pack per session per epoch at
+  `<bundleRoot>/derived/session-blob/epoch-<n>/<session_id>.pack`.
+  The epoch dir mirrors bundle-v2's `epochs/<n>/` grouping so
+  per-epoch operations (purge, list, rebuild) stay symmetric, and
+  the `.pack` suffix matches `cas/packs/*.pack`. Inputs are
+  validated to prevent path-traversal injection: `sessionId` must
+  match `/^[A-Za-z0-9_\-:.]{1,200}$/`, must not be `.` / `..`, and
+  must not contain `..` substrings; `epoch` must be a non-negative
+  safe integer. Both functions are pure — no filesystem side
+  effects; the runtime writer still owns directory creation, but
+  it now reads the pack file location from a single source of
+  truth shared with the future `loadSessionBlobPack` reader.
+  20 tests cover: canonical-path pinning for both helpers, no-drift
+  composition (`sessionBlobPackPath` builds atop `sessionBlobEpochDir`,
+  which builds atop `derivedPaths`), relative-root composition,
+  qualified external-key form (`prosa.session.v2:provider:key`),
+  rejection of forward-slash, backslash, `..` segments (incl. `.`
+  and `ses_..escape`), control characters, spaces, empty strings,
+  non-strings, 200-char boundary acceptance + 201-char rejection,
+  and `epoch` negative / non-integer / NaN / Infinity / non-number
+  rejection.
 - [x] Tantivy index-dir reset helper (`clearTantivyIndexDir(bundleRoot)`)
   for the `full`-rebuild path. The planner returns `kind: 'full'` when
   the prior index is unrecoverable; before the native writer opens a
@@ -297,7 +323,7 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
 ```text
 pnpm install --prefer-offline                       # registers @c3-oss/prosa-derived-v2 in pnpm-lock.yaml
 pnpm --filter @c3-oss/prosa-derived-v2 typecheck    # clean
-pnpm --filter @c3-oss/prosa-derived-v2 test         # 159 tests / 17 files (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 8, compaction executor-plan 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9, reader-iterator 7, tantivy checkpoint-store 11, analytics executor-plan 9, tantivy index-dir probe 17 (incl. CQ-096 intermediate + bundle-root-alias), tantivy plan-bundle orchestration 9, derived-layout 7, tantivy clear-index-dir 10 (incl. CQ-096 intermediate + bundle-root-alias))
+pnpm --filter @c3-oss/prosa-derived-v2 test         # 179 tests / 17 files (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 8, compaction executor-plan 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9, reader-iterator 7, tantivy checkpoint-store 11, analytics executor-plan 9, tantivy index-dir probe 17 (incl. CQ-096 intermediate + bundle-root-alias), tantivy plan-bundle orchestration 9, derived-layout 27 (7 canonical + 5 sessionBlobEpochDir + 15 sessionBlobPackPath), tantivy clear-index-dir 10 (incl. CQ-096 intermediate + bundle-root-alias))
 pnpm --filter @c3-oss/prosa-derived-v2 lint         # clean
 pnpm build                                          # 13/13 turbo
 pnpm typecheck                                      # 13/13 turbo

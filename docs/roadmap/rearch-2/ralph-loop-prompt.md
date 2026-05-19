@@ -34,7 +34,7 @@ section as the full restart instruction:
   asserts on-disk pack stability). Lane 3 derived-layer scaffold has
   landed in its own focused commit on top of the Lane 2 closeout per
   `CQ-083`.
-- All `CQ-074..CQ-096` are closed. Lane 3 progress includes scaffold
+- All `CQ-074..CQ-097` are closed. Lane 3 progress includes scaffold
   (`bb76006`), SessionBlobPackV2 byte layout (`ba87f05`), Parquet
   compaction planner (`ea8c1a8`), DuckDB analytics view shape contract
   + compacted-overlay binding (`cff3670` / `e35f844`), Tantivy schema
@@ -46,14 +46,16 @@ section as the full restart instruction:
   bundle-aware Tantivy rebuild orchestration (`fa49eb2`) with roadmap
   reconciliation at `e1e432d`, compaction execution-plan composer
   (`87bacb0`), `derivedPaths` centralised layout (`d3811b4`),
-  `clearTantivyIndexDir` reset helper (`257a176`), and CQ-096
-  intermediate-symlink containment (`3be300f`). There is no
-  remaining Lane 2 external-acceptance blocker; do not output
-  `RALPH_DONE` yet because Lane 3 remainder (Tantivy native writer,
-  DuckDB runtime executor, runtime Parquet merge) plus Lanes 4–10
-  are still incomplete.
-- Continue from the first incomplete Lane 3 surface after `3be300f`.
-  Do not restart an already completed lane.
+  `clearTantivyIndexDir` reset helper (`257a176`), CQ-096
+  intermediate-symlink containment (`3be300f`), and the SessionBlob
+  pack-path resolver + CQ-097 textual-source cleanup landing in this
+  iteration. There is no remaining Lane 2 external-acceptance
+  blocker; do not output `RALPH_DONE` yet because Lane 3 remainder
+  (Tantivy native writer, DuckDB runtime executor, runtime Parquet
+  merge) plus Lanes 4–10 are still incomplete.
+- Continue from the first incomplete Lane 3 surface after the
+  SessionBlob pack-path resolver commit. Do not restart an already
+  completed lane.
 - If a correction needs a Codex/governor decision, ask one clear binary
   accept/reject question with a safe default. Do not loop on "external
   acceptance" as if Codex were unavailable.

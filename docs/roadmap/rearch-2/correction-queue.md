@@ -4,9 +4,51 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 ## Open
 
-(none — `CQ-091`..`CQ-096` are all closed.)
+(none — `CQ-091`..`CQ-097` are all closed.)
 
 ## Closed (latest first)
+
+### CQ-097: Keep SessionBlob Layout Tests Textual and Reconcile WIP Evidence — closed 2026-05-19
+
+Status: closed
+Severity: medium
+Blocking: yes
+Owner: Ralph
+Opened: 2026-05-19
+Closed: 2026-05-19
+Lane: 3 - Derived layer
+
+Fix lands in this iteration as part of the SessionBlob pack-path
+resolver commit:
+
+- The null-byte rejection test in
+  `packages/prosa-derived-v2/test/derived-layout.test.ts` now
+  constructs the NUL at runtime via
+  `` `ses_${String.fromCharCode(0)}abc` ``. The source file contains
+  no literal NUL byte, so `file
+  packages/prosa-derived-v2/test/derived-layout.test.ts` reports
+  `JavaScript source, Unicode text, UTF-8 text` (previously `data`).
+- The null-byte rejection behavior is preserved: the test still
+  asserts that `sessionBlobPackPath()` throws `/characters outside/`
+  on the NUL-bearing sessionId.
+- The roadmap reconciliation (`status.md`, `gates.md`,
+  `evidence/lane-03.md`, `ralph-loop-prompt.md`) lands in the same
+  commit so HEAD references, focused test counts (179 / 17), and
+  the SessionBlob pack-path resolver evidence agree on the
+  post-commit state.
+
+Validation:
+
+- `file packages/prosa-derived-v2/test/derived-layout.test.ts`:
+  `JavaScript source, Unicode text, UTF-8 text`.
+- `grep -anP '\x00'` against the test file: no matches.
+- `pnpm --filter @c3-oss/prosa-derived-v2 test`: pass, 179 tests /
+  17 files.
+- `pnpm --filter @c3-oss/prosa-derived-v2 typecheck`: pass.
+- `pnpm --filter @c3-oss/prosa-derived-v2 lint`: pass.
+- Full repo `pnpm build` / `pnpm test` / `pnpm lint`: 13/13 turbo.
+- `pnpm test:conformance`: pass, 26 / 2.
+- `git diff --check`: pass.
 
 ### CQ-096: Reject Intermediate Symlink Escapes in Derived Tantivy Paths — closed 2026-05-19
 

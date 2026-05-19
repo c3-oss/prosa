@@ -9,9 +9,9 @@ Completion signal: RALPH_DONE
 
 ## Current State
 
-Status: Lane 1 accepted; Lane 2 accepted by Codex/governor on 2026-05-19; Lane 3 progress: scaffold (`bb76006`), SessionBlobPackV2 byte layout (`ba87f05`), Parquet compaction planner (`ea8c1a8`), DuckDB analytics view shape contract (`cff3670`), CQ-089 compacted-overlay fix (`e35f844`), Tantivy schema + rebuild planner (`509e1f1`), CAS-ref UTF-8 byte accounting (`585a456`), SessionBlob cross-page transcript iterator (`c7e027d`), Tantivy IndexCheckpointV2 persistence (`9ebbd07`), CQ-093 atomic checkpoint replacement (`734b958`), analytics execution-plan composer (`3f54ca6`), Tantivy index-dir probe (`8d45fbb`), CQ-094 symlink rejection (`2c97eca`), `planTantivyRebuildFromBundle` orchestration (`fa49eb2`), CQ-095 roadmap reconciliation (`e1e432d`), compaction execution-plan composer (`87bacb0`), `derivedPaths` centralised layout (`d3811b4`), `clearTantivyIndexDir` reset helper (`257a176`), prompt hash pin (`3b9f79e`), CQ-096 intermediate symlink containment (`3be300f`).
+Status: Lane 1 accepted; Lane 2 accepted by Codex/governor on 2026-05-19; Lane 3 progress: scaffold (`bb76006`), SessionBlobPackV2 byte layout (`ba87f05`), Parquet compaction planner (`ea8c1a8`), DuckDB analytics view shape contract (`cff3670`), CQ-089 compacted-overlay fix (`e35f844`), Tantivy schema + rebuild planner (`509e1f1`), CAS-ref UTF-8 byte accounting (`585a456`), SessionBlob cross-page transcript iterator (`c7e027d`), Tantivy IndexCheckpointV2 persistence (`9ebbd07`), CQ-093 atomic checkpoint replacement (`734b958`), analytics execution-plan composer (`3f54ca6`), Tantivy index-dir probe (`8d45fbb`), CQ-094 symlink rejection (`2c97eca`), `planTantivyRebuildFromBundle` orchestration (`fa49eb2`), CQ-095 roadmap reconciliation (`e1e432d`), compaction execution-plan composer (`87bacb0`), `derivedPaths` centralised layout (`d3811b4`), `clearTantivyIndexDir` reset helper (`257a176`), prompt hash pin (`3b9f79e`), CQ-096 intermediate symlink containment (`3be300f`), CQ-096 prompt/status pin (`0b3dfd0`), SessionBlob pack-path resolver + CQ-097 textual-source cleanup landing in this iteration.
 Current lane: Lane 3 — remaining surfaces are the Tantivy native writer (needs `@oxdev03/node-tantivy-binding` workspace allowlist) and the DuckDB / Parquet runtime executors.
-Current HEAD: `3be300f` (CQ-096 fix).
+Current HEAD: pending SessionBlob pack-path resolver + CQ-097 fix commit (after `0b3dfd0`).
 No-change streak: 0
 Ralph active: yes
 
@@ -22,7 +22,7 @@ Ralph active: yes
 | 00 - Foundation | Ralph | accepted | `cd845f2`, `e22ec27`, `b78b5ae`, `70b9df0`, `0e8a912`, `a650ef8`, `2809d21` (Lane 0 CQ-001..CQ-019 closed; later commits also touch `CANONICAL.md` governance) | `evidence/lane-00.md` |
 | 01 - Local store | Ralph | accepted (with re-scopes per `docs/rearch-2/lane-1-rescopes.md`) | `4f214b7`, `2b5ad1b`, `433c32f`, `a650ef8`, `6097f9e`, `5a6a683`, `2809d21`, `5e5ca20`, `ea615dd`, `5e4b5e7`, `ecc80a3`, `1419d92`, `1e81888`, `adee042`, `f54f4f1`, `f3730b3`, `aecc9af`, `b970437`, `6c25966`, `fc86533`, `a187a74`, `4792457` | `evidence/lane-01.md` |
 | 02 - Importers | Ralph | accepted by Codex/governor on 2026-05-19; full provider implementation landed; CQ-082 closeout committed at `3eb1c08`; no remaining Lane 2 acceptance gate | `004107c`, `fc66925`, `8c0ba5f`, `aa88079`, `c496bac`, `8247a4c`, `58cca83`, `d302bc6`, `7eaed27`, `b660f44`, `8c1714f`, `af27eba`, `7a06c89`, `15194b5`, `3eb1c08` | `evidence/lane-02.md` |
-| 03 - Derived layer | Ralph | scaffold + SessionBlobPackV2 byte layout + Parquet compaction planner + DuckDB analytics view shape contract + Tantivy schema/rebuild-planner + SessionBlob projection-bridge with UTF-8 byte accounting + cross-page transcript iterator + Tantivy IndexCheckpointV2 persistence with atomic replacement + analytics execution-plan composer + Tantivy index-dir probe with CQ-094 final-component + CQ-096 intermediate symlink rejection + `planTantivyRebuildFromBundle` orchestration + compaction execution-plan composer + `derivedPaths` centralised layout + `clearTantivyIndexDir` reset helper landed; Tantivy native writer + DuckDB/Parquet runtime executors pending | `bb76006`, `ba87f05`, `ea8c1a8`, `76128fa`, `16985b4`, `cff3670`, `e35f844`, `509e1f1`, `585a456`, `c7e027d`, `9ebbd07`, `734b958`, `3f54ca6`, `8d45fbb`, `2c97eca`, `fa49eb2`, `e1e432d`, `87bacb0`, `d3811b4`, `257a176`, `3b9f79e` | `evidence/lane-03.md` |
+| 03 - Derived layer | Ralph | scaffold + SessionBlobPackV2 byte layout + Parquet compaction planner + DuckDB analytics view shape contract + Tantivy schema/rebuild-planner + SessionBlob projection-bridge with UTF-8 byte accounting + cross-page transcript iterator + Tantivy IndexCheckpointV2 persistence with atomic replacement + analytics execution-plan composer + Tantivy index-dir probe with CQ-094 final-component + CQ-096 intermediate symlink rejection + `planTantivyRebuildFromBundle` orchestration + compaction execution-plan composer + `derivedPaths` centralised layout + `clearTantivyIndexDir` reset helper + SessionBlob pack-path resolver landed; Tantivy native writer + DuckDB/Parquet runtime executors pending | `bb76006`, `ba87f05`, `ea8c1a8`, `76128fa`, `16985b4`, `cff3670`, `e35f844`, `509e1f1`, `585a456`, `c7e027d`, `9ebbd07`, `734b958`, `3f54ca6`, `8d45fbb`, `2c97eca`, `fa49eb2`, `e1e432d`, `87bacb0`, `d3811b4`, `257a176`, `3b9f79e`, `3be300f`, `0b3dfd0` | `evidence/lane-03.md` |
 | 04 - Server | Ralph | scaffold-landed | `5e5ca20` (`packages/prosa-db-v2/` Postgres DDL + pglite tests) | `evidence/lane-04.md` |
 | 05 - Sync protocol | Ralph | blocked-on-lane-04 | | `evidence/lane-05.md` |
 | 06 - Read API | Ralph | blocked-on-lane-05 | | `evidence/lane-06.md` |
@@ -33,7 +33,7 @@ Ralph active: yes
 
 ## Open Blocking Corrections
 
-(none — `CQ-091`..`CQ-096` are all closed.)
+(none — `CQ-091`..`CQ-097` are all closed.)
 
 ## Latest Gates
 
