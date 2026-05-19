@@ -593,18 +593,24 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
   CQ-104 empty-SessionBlob-epoch-dir + projection-overlap
   (projection-only epoch still surfaces even when an empty
   SessionBlob dir exists for the same epoch).
-- [x] `prosa index-v2 status` CLI subcommand
-  (`apps/cli/src/cli/commands/index-v2.ts`) wires
-  `bundleDerivedStatus(--store)` and prints the snapshot JSON to
-  stdout. The `index-v2` parent command is the eventual home for
-  `tantivy` (blocked on the native binding) and `status` (now
-  shipped). 5 subprocess tests (`apps/cli/test/cli/index-v2.test.ts`)
-  cover: `--help` listing the `status` subcommand, `status --help`
+- [x] `prosa index-v2 status` + `prosa index-v2 sessions` CLI
+  subcommands (`apps/cli/src/cli/commands/index-v2.ts`). `status`
+  wires `bundleDerivedStatus(--store)`; `sessions` wires
+  `listSessionBlobSummaries(--store)`. Both print pretty JSON to
+  stdout — pure-read, no native bindings. The `index-v2` parent
+  command is the eventual home for `tantivy` (blocked on the
+  native binding); `status` and `sessions` now both shipped.
+  9 subprocess tests (`apps/cli/test/cli/index-v2.test.ts`) cover:
+  parent `--help` listing both subcommands, `status --help`
   documenting `--store`, fresh-bundle empty snapshot through a
   never-initialised path, SessionBlob-populated snapshot
-  reflecting per-session inventory, and the missing-`--store`
-  failure path. Apps/cli typecheck + lint clean; pulled in
-  `@c3-oss/prosa-derived-v2` as a workspace dependency.
+  reflecting per-session inventory, missing-`--store` failure for
+  `status`, `sessions --help` documenting `--store`, fresh-bundle
+  `sessions` returning `[]`, multi-session multi-epoch
+  `sessions` inventory (alpha across epochs [1,3] + bravo at
+  [1]) with `latest_epoch` correctness, and missing-`--store`
+  failure for `sessions`. Apps/cli typecheck + lint clean;
+  pulled in `@c3-oss/prosa-derived-v2` as a workspace dependency.
 - [x] Bundle-level derived-layer status aggregator
   (`bundleDerivedStatus(bundleRoot)`) composes `tantivyIndexStatus`
   + `listSessionBlobSummaries` + `listSessionBlobEpochs` into one
@@ -765,7 +771,7 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
 pnpm install --prefer-offline                       # registers @c3-oss/prosa-derived-v2 in pnpm-lock.yaml
 pnpm --filter @c3-oss/prosa-derived-v2 typecheck    # clean
 pnpm --filter @c3-oss/prosa-derived-v2 test         # 400 tests / 34 files
-pnpm --filter @c3-oss/prosa exec vitest run test/cli/index-v2.test.ts  # 5 subprocess-spawned tests for index-v2 status (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 13 incl. CQ-101 + CQ-102 containment regressions, compaction executor-plan 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9, reader-iterator 7, tantivy checkpoint-store 21 (11 prior + 4 write CQ-096 + 6 read CQ-103), analytics executor-plan 9, tantivy index-dir probe 17, tantivy plan-bundle orchestration 9, tantivy status 10, analytics descriptor 8, bundle status 16 (8 prior aggregator + 8 derivedLayerEpochsTouched incl. CQ-104 empty-epoch-dir regressions), compaction segments 22 (9 listing + 7 summary + 6 containment), derived-layout 27, tantivy clear-index-dir 10, session-blob loader 11, session-blob zstd 5, session-blob listing 27 (19 prior + 8 listAllSessionBlobSessions cross-epoch union), session-blob latest 11 incl. CQ-100, session-blob transcript-from-bundle 8, session-blob iterate-from-bundle 9, session-blob header 10, session-blob exists 11, session-blob latest-epoch 11, session-blob summary 19 (11 single + 8 bulk listing), integration sessionblob-end-to-end 12, integration compaction-end-to-end 8, integration tantivy-end-to-end 8)
+pnpm --filter @c3-oss/prosa exec vitest run test/cli/index-v2.test.ts  # 9 subprocess-spawned tests for index-v2 status + sessions (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 13 incl. CQ-101 + CQ-102 containment regressions, compaction executor-plan 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9, reader-iterator 7, tantivy checkpoint-store 21 (11 prior + 4 write CQ-096 + 6 read CQ-103), analytics executor-plan 9, tantivy index-dir probe 17, tantivy plan-bundle orchestration 9, tantivy status 10, analytics descriptor 8, bundle status 16 (8 prior aggregator + 8 derivedLayerEpochsTouched incl. CQ-104 empty-epoch-dir regressions), compaction segments 22 (9 listing + 7 summary + 6 containment), derived-layout 27, tantivy clear-index-dir 10, session-blob loader 11, session-blob zstd 5, session-blob listing 27 (19 prior + 8 listAllSessionBlobSessions cross-epoch union), session-blob latest 11 incl. CQ-100, session-blob transcript-from-bundle 8, session-blob iterate-from-bundle 9, session-blob header 10, session-blob exists 11, session-blob latest-epoch 11, session-blob summary 19 (11 single + 8 bulk listing), integration sessionblob-end-to-end 12, integration compaction-end-to-end 8, integration tantivy-end-to-end 8)
 pnpm --filter @c3-oss/prosa-derived-v2 lint         # clean
 pnpm build                                          # 13/13 turbo
 pnpm typecheck                                      # 13/13 turbo

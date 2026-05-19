@@ -18,7 +18,7 @@
 
 import { resolve as resolvePath } from 'node:path'
 
-import { bundleDerivedStatus } from '@c3-oss/prosa-derived-v2'
+import { bundleDerivedStatus, listSessionBlobSummaries } from '@c3-oss/prosa-derived-v2'
 import { Command } from 'commander'
 
 export function indexV2Command(): Command {
@@ -34,6 +34,16 @@ export function indexV2Command(): Command {
       const storePath = resolvePath(options.store)
       const snapshot = await bundleDerivedStatus(storePath)
       process.stdout.write(`${JSON.stringify(snapshot, null, 2)}\n`)
+    })
+
+  root
+    .command('sessions')
+    .description('Print the SessionBlob inventory (one summary row per session) for a bundle v2 store.')
+    .requiredOption('--store <path>', 'bundle directory')
+    .action(async (options: { store: string }) => {
+      const storePath = resolvePath(options.store)
+      const summaries = await listSessionBlobSummaries(storePath)
+      process.stdout.write(`${JSON.stringify(summaries, null, 2)}\n`)
     })
 
   return root

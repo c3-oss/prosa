@@ -41,11 +41,12 @@ interface StatusSnapshot {
 }
 
 describe('prosa index-v2 CLI', () => {
-  it('`index-v2 --help` lists the status subcommand', async () => {
+  it('`index-v2 --help` lists the status + sessions subcommands', async () => {
     const r = runCli(['index-v2', '--help'])
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('Bundle v2 derived-layer index commands')
     expect(r.stdout).toContain('status')
+    expect(r.stdout).toContain('sessions')
   })
 
   it('`index-v2 status --help` documents --store', async () => {
@@ -110,6 +111,75 @@ describe('prosa index-v2 CLI', () => {
 
   it('`index-v2 status` fails when --store is missing', async () => {
     const r = runCli(['index-v2', 'status'])
+    expect(r.status).not.toBe(0)
+    expect(r.stderr).toMatch(/required option.*--store/i)
+  })
+
+  it('`index-v2 sessions --help` documents --store', async () => {
+    const r = runCli(['index-v2', 'sessions', '--help'])
+    expect(r.status).toBe(0)
+    expect(r.stdout).toContain('SessionBlob inventory')
+    expect(r.stdout).toContain('--store')
+  })
+
+  it('`index-v2 sessions` against a fresh bundle prints []', async () => {
+    const storeRoot = join(await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-')), 'never-initialised')
+    const r = runCli(['index-v2', 'sessions', '--store', storeRoot])
+    expect(r.status).toBe(0)
+    expect(JSON.parse(r.stdout)).toEqual([])
+  })
+
+  it('`index-v2 sessions` reflects SessionBlob inventory rows when packs exist', async () => {
+    const { writeSessionBlobPack, identityCompressor } = await import('@c3-oss/prosa-derived-v2')
+    const { sessionBlobEpochDir, sessionBlobPackPath } = await import('@c3-oss/prosa-derived-v2')
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+
+    async function writePack(sessionId: string, epoch: number) {
+      const messages = [
+        {
+          message_id: 'msg_000000',
+          ordinal: 0,
+          role: 'user' as const,
+          timestamp: '2026-05-19T00:00:00.000Z',
+          turn_id: 'tur_0',
+          blocks: [
+            {
+              block_id: 'blk_0_0',
+              block_type: 'text',
+              body: { kind: 'inline' as const, text: 'hello', byte_length: 5 },
+            },
+          ],
+        },
+      ]
+      const result = writeSessionBlobPack({ session_id: sessionId, epoch, messages }, identityCompressor)
+      await mkdir(sessionBlobEpochDir(storeRoot, epoch), { recursive: true })
+      await writeFile(sessionBlobPackPath(storeRoot, sessionId, epoch), result.pack)
+    }
+
+    await writePack('ses_alpha', 1)
+    await writePack('ses_bravo', 1)
+    await writePack('ses_alpha', 3) // newer epoch for alpha
+
+    const r = runCli(['index-v2', 'sessions', '--store', storeRoot])
+    expect(r.status).toBe(0)
+    const summaries = JSON.parse(r.stdout) as Array<{
+      session_id: string
+      epochs: number[]
+      latest_epoch: number
+      message_count: number
+    }>
+    expect(summaries.map((s) => s.session_id)).toEqual(['ses_alpha', 'ses_bravo'])
+    const alpha = summaries.find((s) => s.session_id === 'ses_alpha')
+    const bravo = summaries.find((s) => s.session_id === 'ses_bravo')
+    expect(alpha?.epochs).toEqual([1, 3])
+    expect(alpha?.latest_epoch).toBe(3)
+    expect(bravo?.epochs).toEqual([1])
+    expect(bravo?.latest_epoch).toBe(1)
+    expect(alpha?.message_count).toBe(1)
+  })
+
+  it('`index-v2 sessions` fails when --store is missing', async () => {
+    const r = runCli(['index-v2', 'sessions'])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/required option.*--store/i)
   })
