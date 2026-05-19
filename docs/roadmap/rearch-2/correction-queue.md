@@ -4,9 +4,92 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 ## Open
 
-*(none)*
+### CQ-074: Reconcile Post-`58cca83` State and Block Lane 2 Re-Scope Overclaim
+
+Blocking: yes
+Owner: Ralph
+Opened: 2026-05-18T22:40:00-03:00
+
+After `58cca83`, the worktree is clean and the CQ-072/CQ-073 help-smoke
+closeout is committed. The active artifacts still contain stale state and a
+Lane 2 overclaim:
+
+- `status.md` says `Current HEAD: 8247a4c` and describes a pending
+  CQ-072/CQ-073 commit on top, but HEAD is now `58cca83`.
+- `status.md` says the next active surface may be Lane 3, even though
+  `docs/rearch-2/03-lane-2-importers.md` requires full provider ports,
+  fixture corpora, and an idempotency conformance test covering all 5
+  providers.
+- `evidence/lane-02.md` still says full transcript/event/tool-call/message
+  projection and real fixture idempotency are pending.
+
+Binary decision required before Lane 2 acceptance or Lane 3 start:
+
+- Accept the Lane 2 re-scope: minimal provider slices plus CLI are enough for
+  this lane, and full provider transcript/event/tool-call projection, fixture
+  corpora, Gemini multi-snapshot merge, Hermes SQLite+JSONL merge, and
+  cross-provider idempotency become explicit follow-up work.
+- Reject the re-scope (safe default): keep Lane 2 active and implement the
+  original `docs/rearch-2/03-lane-2-importers.md` contract before Lane 3.
+
+Acceptance criteria:
+
+1. Reconcile `status.md`, `gates.md`, `evidence/lane-02.md`, and
+   `ralph-loop-prompt.md` to HEAD `58cca83` with no "pending commit" language.
+2. Do not mark Lane 2 accepted and do not start Lane 3 unless the binary
+   re-scope decision is explicitly accepted by Codex/governor/user.
+3. If the re-scope is rejected or no decision is available, continue Lane 2 by
+   implementing the original importer contract and its tests.
+
+This blocks Lane 2 acceptance, Lane 3 start, and `RALPH_DONE`. It does not
+block additional Lane 2 importer work.
 
 ## Closed (latest first)
+
+### CQ-076: Remove Codex Projection Schema Casts and Persist Tool Fields Correctly — closed 2026-05-18
+
+The Codex full-projection WIP has been re-landed with no `as never` casts and
+with canonical-field-only tool rows:
+
+- `packages/prosa-importers-v2/src/codex/index.ts` ToolCallV2 rows now use the
+  canonical fields only (`source_call_id`, `command`, `cwd`, `path`, `query`,
+  `args_object_id` left null). Shell-like `arguments.command` arrays/strings
+  are flattened into a `command` preview; `arguments.path`/`file_path`,
+  `query`/`pattern`, and `cwd` are extracted when present. JSON-blob
+  arguments are still preserved upstream as `RawRecordV2` payload.
+- ToolResultV2 rows use the canonical fields only (`source_call_id`, `preview`
+  bounded to 4096 chars, all `*_object_id` left null until object-backed
+  output lands). `is_error` honors the envelope flag.
+- The `ContentBlockV2` push no longer needs `as never`; its row already
+  matched the schema.
+- `packages/prosa-importers-v2/test/unit/codex.test.ts` CQ-074 test now
+  asserts the canonical fields directly: `tool_calls[0].source_call_id`,
+  `tool_calls[0].command`, `tool_calls[0].args_object_id` (null), and
+  `tool_results[0].source_call_id`, `tool_results[0].preview`,
+  `tool_results[0].output_object_id` (null), `tool_results[0].is_error`.
+
+Focused gates after the change:
+
+- `pnpm --filter @c3-oss/prosa-importers-v2 typecheck`: pass.
+- `pnpm --filter @c3-oss/prosa-importers-v2 test`: pass, 36 tests / 7 files.
+- `pnpm --filter @c3-oss/prosa-importers-v2 lint`: pass.
+- `git diff --check`: pass.
+- Full repo `pnpm build` / `pnpm typecheck` / `pnpm test` / `pnpm lint`:
+  12/12 turbo tasks pass.
+
+### CQ-075: Fix CodexProvider Lane 2 WIP Typecheck — closed 2026-05-18
+
+The Codex full-projection slice now consumes both previously-unused symbols:
+
+- `CodexTurnContextPayload` is used to type the `turn_context` envelope path
+  and to read `model`, `cwd`, `effort`, `approval_policy`, `sandbox_policy`,
+  `turn_id`, etc. in `parseAndProject`.
+- `deriveCodexTurnRowId` is the deterministic turn-row id helper used by
+  every `turn_context` envelope (and as fallback for `response_item`
+  emissions tied to a prior turn).
+
+Focused gate `pnpm --filter @c3-oss/prosa-importers-v2 typecheck` now passes.
+Co-closed with CQ-076 in the same Lane 2 full-projection commit.
 
 ### CQ-073: Close CQ-072 Only After Formatting Gate and Commit — closed 2026-05-18
 

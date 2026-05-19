@@ -1,20 +1,24 @@
 # Lane Evidence
 
 Lane: 02 - Importers
-Status: active WIP (minimal provider stubs for Codex, Claude, Cursor, Gemini,
-and Hermes landed; CLI closeout under `CQ-073`; full transcript projection
-pending). The
-`LogicalImportUnit` contract, `GraphResolver`, and `runCompileImports`
-orchestrator landed at `004107c`. Lane 1 was later accepted at
-`4792457`, lifting the `CQ-044` containment gate. `fc66925` landed
-the first per-provider slice (minimal CodexProvider). `8c0ba5f`
-added CQ-067 governance reconcile and a minimal ClaudeProvider.
-`aa88079` added Claude subagent spawned-edge projection and a minimal
-CursorProvider. `c496bac` fixed Cursor's stable logical key and added minimal
-GeminiProvider and HermesProvider slices. Focused importer gates pass at 35
-tests across 7 files. `CQ-073` remains open because the CQ-072 help-smoke WIP
-is uncommitted and `pnpm --filter @c3-oss/prosa lint` still fails on one
-formatting issue.
+Status: active WIP. The user rejected the Lane 2 re-scope and directed full
+per-record projection across all 5 providers + fixture corpora +
+cross-provider idempotency conformance. CodexProvider now ships its **full**
+per-record projection (TurnV2 from `turn_context`; MessageV2 + ContentBlockV2
+from `response_item` with subtype `message`; ToolCallV2 from
+`response_item:function_call`; ToolResultV2 from
+`response_item:function_call_output`; EventV2 from `event_msg`), on the
+canonical schema fields only — `source_call_id`, `command`/`cwd`/`path`/`query`
+on ToolCallV2; `source_call_id` + bounded `preview` on ToolResultV2; no
+`as never` casts. The `LogicalImportUnit` contract, `GraphResolver`, and
+`runCompileImports` orchestrator landed at `004107c`. Lane 1 was accepted at
+`4792457`, lifting the `CQ-044` containment gate. `fc66925`/`8c0ba5f`/
+`aa88079`/`c496bac` landed minimal slices. `58cca83` landed CQ-072/CQ-073 CLI
+help-smoke closeout. **This iteration** (Codex full per-record projection)
+closes `CQ-075` and `CQ-076`. Focused importer gates pass at 36 tests / 7
+files. `CQ-074` remains open because the same full-projection work still has
+to land for Claude/Cursor/Gemini/Hermes plus fixture corpora and the
+cross-provider idempotency conformance.
 Owner: Ralph
 Commit range: `004107c` (orchestrator + GraphResolver), `4792457`
 (Lane 1 acceptance / `CQ-044` lifted), `fc66925` (minimal
@@ -47,18 +51,22 @@ CodexProvider), `8c0ba5f` (minimal ClaudeProvider + CQ-067 closeout),
 - [x] Unit tests: 5 for `resolveLateBindings`, 3 for the orchestrator
   end-to-end with a mock provider (`@c3-oss/prosa-importers-v2`: 8
   tests / 2 files).
-- [ ] **Per-provider importers (codex, claude, cursor, gemini, hermes)
-  remain partial.** All five providers now have minimal slices. Claude Code
-  additionally preserves subagent spawned edges (CQ-068) with deterministic
-  edge_ids and an end-to-end test through the orchestrator + sealEpoch. Cursor
-  is opaque-bytes only (no SQLite row decoding yet). Full
-  transcript/event/tool-call/message projection remains pending across all
-  providers.
+- [ ] **Per-provider importers (codex, claude, cursor, gemini, hermes).**
+  CodexProvider ships **full per-record projection** in this iteration:
+  TurnV2 (from `turn_context`), MessageV2 + ContentBlockV2 (from
+  `response_item:message`), ToolCallV2 (from `response_item:function_call`,
+  with command/cwd/path/query inferred from arguments), ToolResultV2 (from
+  `response_item:function_call_output`, with bounded `preview`), EventV2 (from
+  `event_msg`). Claude Code preserves subagent spawned edges (CQ-068) and a
+  minimal session+raw record slice; full transcript/event/tool projection
+  still pending. Cursor is opaque-bytes only. Gemini and Hermes have minimal
+  slices. Full projection still pending across Claude/Cursor/Gemini/Hermes.
 - [ ] `apps/cli/test/cli/compile-v2.test.ts` exists with subprocess tests for
   successful single-provider execution, bad-provider rejection, and
   `compile-all-v2` execution. The CQ-072 WIP adds `compile-v2 --help` and
-  `compile-all-v2 --help` smokes, but `CQ-073` still requires formatting,
-  focused gates, and a commit before the CLI surface is accepted.
+  `compile-all-v2 --help` smokes. The CLI surface is committed at `58cca83`;
+  Lane 2 acceptance still depends on the `CQ-074` scope decision or the
+  original full importer contract.
 - [ ] Invariants I2 (idempotency) and I3 (canonical graph) not yet
   validated against real fixture corpora — pending per-provider work.
 
@@ -88,11 +96,11 @@ CodexProvider), `8c0ba5f` (minimal ClaudeProvider + CQ-067 closeout),
 
 ```text
 pnpm install
-pnpm --filter @c3-oss/prosa-importers-v2 typecheck    # clean after CQ-068/CQ-069 closeout
-pnpm --filter @c3-oss/prosa-importers-v2 test         # 24 tests / 5 files (GraphResolver + orchestrator + CodexProvider + ClaudeProvider w/ spawned edges + CursorProvider)
+pnpm --filter @c3-oss/prosa-importers-v2 typecheck    # clean (Codex full per-record projection, no `as never` casts)
+pnpm --filter @c3-oss/prosa-importers-v2 test         # 36 tests / 7 files (GraphResolver 5, orchestrator 3, CodexProvider 7 incl. CQ-074 full-projection canonical-field assertions, ClaudeProvider 6 w/ spawned edges, CursorProvider 4, GeminiProvider 5, HermesProvider 6)
 pnpm --filter @c3-oss/prosa-importers-v2 build        # dist/ emitted
 pnpm --filter @c3-oss/prosa-importers-v2 lint         # clean
-pnpm --filter @c3-oss/prosa lint                      # fail: one CQ-072 test formatting issue remains
+pnpm --filter @c3-oss/prosa lint                      # pass after CQ-073 closeout
 pnpm --filter @c3-oss/prosa typecheck                 # pass after current CLI WIP
 pnpm --filter @c3-oss/prosa exec vitest run test/cli/compile-v2.test.ts
                                                           # pass, 5 tests including CQ-072 help smokes

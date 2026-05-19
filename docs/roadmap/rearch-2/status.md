@@ -9,10 +9,10 @@ Completion signal: RALPH_DONE
 
 ## Current State
 
-Status: Lane 1 accepted; Lane 2 active
+Status: Lane 1 accepted; Lane 2 active — CodexProvider full per-record projection landed (canonical-field tool rows, no `as never` casts)
 Current lane: Lane 2 — provider importers (Codex, Claude, Cursor, Gemini, Hermes)
-Current HEAD: `8247a4c`
-No-change streak: 0 (CQ-072 + CQ-073 closed in this iteration; pending commit on top of `8247a4c`)
+Current HEAD: `58cca83` (next commit pending: Codex full projection + CQ-075/CQ-076 closeout)
+No-change streak: 0 (CQ-074 open: continuing full projection on Claude/Gemini/Hermes/Cursor + fixtures + cross-provider idempotency conformance)
 Ralph active: yes
 
 ## Lane Status
@@ -21,7 +21,7 @@ Ralph active: yes
 | --- | --- | --- | --- | --- |
 | 00 - Foundation | Ralph | accepted | `cd845f2`, `e22ec27`, `b78b5ae`, `70b9df0`, `0e8a912`, `a650ef8`, `2809d21` (Lane 0 CQ-001..CQ-019 closed; later commits also touch `CANONICAL.md` governance) | `evidence/lane-00.md` |
 | 01 - Local store | Ralph | accepted (with re-scopes per `docs/rearch-2/lane-1-rescopes.md`) | `4f214b7`, `2b5ad1b`, `433c32f`, `a650ef8`, `6097f9e`, `5a6a683`, `2809d21`, `5e5ca20`, `ea615dd`, `5e4b5e7`, `ecc80a3`, `1419d92`, `1e81888`, `adee042`, `f54f4f1`, `f3730b3`, `aecc9af`, `b970437`, `6c25966`, `fc86533`, `a187a74`, `4792457` | `evidence/lane-01.md` |
-| 02 - Importers | Ralph | minimal providers + CLI (incl. `--help` smokes) complete; full transcript projection deferred | `004107c`, `fc66925`, `8c0ba5f`, `aa88079`, `c496bac`, `8247a4c`, plus pending CQ-072/CQ-073 commit | `evidence/lane-02.md` |
+| 02 - Importers | Ralph | minimal providers + CLI help smokes landed; full Lane 2 contract/re-scope decision pending under `CQ-074` | `004107c`, `fc66925`, `8c0ba5f`, `aa88079`, `c496bac`, `8247a4c`, `58cca83` | `evidence/lane-02.md` |
 | 03 - Derived layer | Ralph | blocked-on-lane-02 | | `evidence/lane-03.md` |
 | 04 - Server | Ralph | scaffold-landed | `5e5ca20` (`packages/prosa-db-v2/` Postgres DDL + pglite tests) | `evidence/lane-04.md` |
 | 05 - Sync protocol | Ralph | blocked-on-lane-04 | | `evidence/lane-05.md` |
@@ -33,13 +33,15 @@ Ralph active: yes
 
 ## Open Blocking Corrections
 
-*(none)*
+### CQ-074: Reconcile Post-`58cca83` State and Block Lane 2 Re-Scope Overclaim
 
-All Lane 0/1/2 blocking corrections through `CQ-073` are closed.
-The Lane 2 CLI surface has 5 subprocess-spawned tests including
-`--help` smokes for both `compile-v2` and `compile-all-v2`, plus
-clean lint and typecheck. Next active surface: Lane 3 (derived
-layer) or Lane 4 server beyond the DB scaffold.
+The user explicitly rejected the Lane 2 re-scope and asked for full per-record
+projection across all 5 providers + fixture corpora + cross-provider
+idempotency conformance. CodexProvider is now fully projected and committed in
+this iteration (TurnV2 + MessageV2 + ContentBlockV2 + ToolCallV2 + ToolResultV2
++ EventV2 on canonical schema fields). Claude/Cursor/Gemini/Hermes still need
+their full projection passes, plus the shared fixture corpora and the
+cross-provider idempotency conformance gate before CQ-074 can close.
 
 ## Latest Gates
 

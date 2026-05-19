@@ -23,3 +23,54 @@ export interface CodexSessionMetaPayload {
     repository_url?: string
   }
 }
+
+export interface CodexTurnContextPayload {
+  turn_id?: string
+  cwd?: string
+  model?: string
+  effort?: string
+  approval_policy?: string
+  sandbox_policy?: string | { mode?: string }
+  current_date?: string
+  timezone?: string
+}
+
+/** Loose `response_item` payload — assistant/user messages, tool calls, etc. */
+export interface CodexResponseItemPayload {
+  id?: string
+  type?: string
+  role?: string
+  model?: string
+  turn_id?: string
+  parent_message_id?: string
+  content?: CodexContentItem[] | string
+  call_id?: string
+  name?: string
+  arguments?: string | Record<string, unknown>
+  output?: unknown
+  status?: string
+  is_error?: boolean
+}
+
+/** Loose content item inside `response_item.content`. */
+export interface CodexContentItem {
+  type?: string
+  text?: string
+  thinking?: string
+  signature?: string
+  id?: string
+  name?: string
+  input?: unknown
+  tool_use_id?: string
+  is_error?: boolean
+}
+
+/** Loose `event_msg` payload — operational session events. */
+export interface CodexEventMsgPayload {
+  id?: string
+  turn_id?: string
+  subtype?: string
+  actor?: string
+  message?: string
+  level?: string
+}
