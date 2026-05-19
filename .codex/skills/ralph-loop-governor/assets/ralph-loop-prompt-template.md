@@ -19,10 +19,21 @@ this section as the full kickoff/restart instruction:
 - Read this prompt, `docs/roadmap/<feature>/correction-queue.md`,
   `docs/roadmap/<feature>/gates.md`, `docs/roadmap/<feature>/status.md`, and
   every feature source document listed below.
-- Close every blocking correction with code, tests, and evidence before
-  starting new lane work.
+- Close every implementable blocking correction with code, tests, and evidence.
+  Blocking corrections prevent final acceptance, `RALPH_DONE`, and dependent
+  downstream lane acceptance; they do not forbid independent useful work that
+  cannot invalidate the blocked decision.
 - Do not count out-of-sequence or downstream WIP as accepted progress while any
   prerequisite lane or correction remains open.
+- If a blocker depends on Codex/governor accepting or rejecting an architecture
+  re-scope, ask a single explicit binary question with a safe default. Example:
+  `Decision needed: accept the NDJSON projection re-scope? Default: reject and
+  implement Parquet.`
+- If no independent useful work remains after asking that binary question, stop
+  and wait for the answer. Do not continue empty iterations that only repeat
+  "waiting for Codex" or "external acceptance required".
+- In this prompt, "Codex" means the governor/reviewer available through
+  correction-queue steering, not an unavailable third party.
 - If no blocking correction remains, run the mandatory final stabilization
   wait: five clean cycles of sleep 180 seconds, then reread correction queue,
   gates, status, git status, and recent commits.
@@ -54,7 +65,8 @@ At the start of each iteration:
 - inspect `git status --short --branch`;
 - identify the first incomplete lane or open correction;
 - reread `correction-queue.md` and treat every `Blocking: yes` correction as
-  higher priority than new feature work;
+  higher priority than dependent new feature work;
+- continue independent work only when it cannot invalidate the open blocker;
 - continue from there without restarting completed work;
 - preserve user changes and unrelated agent changes;
 - do not touch generated directories by hand.

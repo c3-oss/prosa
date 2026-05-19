@@ -57,6 +57,35 @@ question. Otherwise, make conservative assumptions and proceed.
 - Ralph must not output `RALPH_DONE` immediately after it thinks the queue is
   empty. A final stabilization wait is mandatory; see "Executor Completion
   Stabilization" below.
+- In this workflow, "Codex" means the governor/reviewer participating through
+  the correction queue and steering updates. Ralph must not treat Codex as an
+  unavailable third party or spin on "external acceptance" without asking for a
+  concrete decision.
+
+## Blocking Semantics
+
+Blocking corrections and external acceptance gates block final acceptance,
+`RALPH_DONE`, and dependent downstream lanes. They do not automatically block
+all useful progress.
+
+When Ralph sees an open blocker:
+
+- If the blocker has an implementable fix, Ralph should implement it, update
+  evidence, and commit.
+- If the blocker depends on a Codex/governor architecture decision such as
+  accepting or rejecting a re-scope, Ralph must ask one explicit binary
+  question with a safe default, for example:
+  `Decision needed: accept the NDJSON re-scope for Lane 1 projections? Default:
+  reject and implement Parquet.`
+- If independent work exists that cannot invalidate the pending decision, Ralph
+  may continue that work while keeping the blocker open and must not count that
+  work as accepted progress for the blocked lane.
+- If no independent useful work remains, Ralph should stop after asking the
+  binary question. It must not keep running no-op iterations that only restate
+  "waiting for Codex".
+- Ralph may close a correction only when code/tests/evidence satisfy the
+  written acceptance criteria or Codex/governor has explicitly supplied the
+  requested decision.
 
 ## Setup Workflow
 
@@ -86,6 +115,10 @@ prompt rather than duplicated.
    files, open corrections, lane blocking rules, required gates, and completion
    stabilization instructions. Any restart-specific guidance belongs in the
    prompt file as an "Invocation Contract" or equivalent section.
+   The prompt must also define blocking semantics clearly: open blockers prevent
+   `RALPH_DONE` and dependent lane acceptance, but do not forbid independent
+   progress. Architecture decisions must be phrased as binary questions with a
+   safe default instead of vague "external acceptance" waits.
 4. Give the user an exact Claude command that contains only the prompt file
    reference and flags. Do not embed natural-language operational instructions
    in the command:
@@ -132,6 +165,10 @@ $ralph-loop-governor continuar server-sync usando docs/architecture/server-sync.
 - If reviewer findings or Codex review reveal blockers, immediately add or
   update entries in `correction-queue.md` with concrete acceptance criteria and
   update `ralph-loop-prompt.md` when the executor needs stronger steering.
+- When writing a blocker that depends on Codex/governor acceptance, include the
+  exact decision Ralph should ask for and the safe default if the decision is
+  rejected. Avoid wording like "wait for external acceptance" without a
+  concrete accept/reject question.
 - Keep treating Ralph as active until `RALPH_DONE` is detected, the user stops
   the run, or three configured idle checks show no implementation changes and
   final gates begin.

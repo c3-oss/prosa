@@ -6,10 +6,12 @@ ship verbatim: **RocksDB for the four shard backends** and **Parquet
 for projection segments**. Both choices are intentionally substituted
 with reviewed-equivalent alternatives in the current Lane 1 codebase.
 
-Codex has not yet formally accepted either re-scope. This document
-exists so the proposal can be reviewed in one place; it is not itself
-acceptance. `CQ-066` keeps Lane 1 in correction until Codex either
-implements the lane-doc text or accepts these re-scopes explicitly.
+**Status (2026-05-18): both re-scopes accepted by the project owner.**
+This document is now the authoritative source for the two substitutions
+in `docs/rearch-2/02-lane-1-local-store.md` (linked from that lane
+doc's Goal section). Lane 1 acceptance flows through these re-scopes;
+RocksDB-proper and Parquet emission remain open follow-up
+optimisations, not Lane 1 blockers.
 
 ## Re-scope 1: `MemoryShardActor` (append-log) in place of RocksDB
 
@@ -126,12 +128,20 @@ emits one canonical-NDJSON file per entity type with a
 4. Old NDJSON segments are kept for historical epochs; new epochs
    write Parquet.
 
-## Acceptance request
+## Acceptance record
 
-Codex review of these two re-scopes is the gating action for
-`CQ-066`. If Codex accepts both, the lane doc itself should be
-amended (or this file should be referenced from it) so the two paths
-agree.
+**2026-05-18:** project owner accepted both re-scopes. The lane doc
+`docs/rearch-2/02-lane-1-local-store.md` was amended in the same
+commit to reference this document from its Goal section. Lane 1 is
+now substantively complete; CQ-044's procedural Lane 1-acceptance
+gate is satisfied by this acceptance.
 
-If either re-scope is rejected, Lane 1 reopens with the corresponding
-RocksDB or Parquet implementation as a hard blocker.
+RocksDB-proper and Parquet emission remain open follow-up
+optimisations:
+
+- A future iteration can add `RocksdbShardActor` next to
+  `MemoryShardActor` without changing the `ShardActor` interface, and
+  swap backends per-bundle.
+- A future iteration can add `parquet-segment-writer.ts` next to the
+  NDJSON writer, with the Merkle-leaf domain extended to include the
+  file extension so different formats hash to different leaves.

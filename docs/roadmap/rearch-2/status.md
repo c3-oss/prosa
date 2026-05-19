@@ -9,21 +9,21 @@ Completion signal: RALPH_DONE
 
 ## Current State
 
-Status: awaiting Codex re-scope acceptance (Lane 1 full-scope deliverables landed; MemoryShardActor + NDJSON re-scopes proposed under `docs/rearch-2/lane-1-rescopes.md`)
-Current lane: Lane 1 awaiting Codex acceptance of CQ-066 evidence + re-scope proposals
-Current HEAD: pending CQ-066 closeout commit on top of `fc86533`
-No-change streak: 0 (CQ-066 evidence landed this iteration)
+Status: Lane 1 accepted; Lane 2 active
+Current lane: Lane 2 — provider importers (Codex, Claude, Cursor, Gemini, Hermes)
+Current HEAD: pending CQ-066/CQ-044 closure commit on top of `a187a74`
+No-change streak: 0 (project owner accepted both Lane 1 re-scopes this iteration)
 Ralph active: yes
 
 ## Lane Status
 
 | Lane | Owner | Status | Commit(s) | Evidence |
 | --- | --- | --- | --- | --- |
-| 00 - Foundation | Ralph | awaiting-codex-acceptance | `cd845f2`, `e22ec27`, `b78b5ae`, `70b9df0`, `0e8a912`, `a650ef8`, `2809d21` (Lane 0 CQ-001..CQ-019 closed; later commits also touch `CANONICAL.md` governance) | `evidence/lane-00.md` |
-| 01 - Local store | Ralph | rescope-proposed-pending-codex | `4f214b7`, `2b5ad1b`, `433c32f`, `a650ef8`, `6097f9e`, `5a6a683`, `2809d21`, `5e5ca20`, `ea615dd`, `5e4b5e7`, `ecc80a3`, `1419d92`, `1e81888`, `adee042`, `f54f4f1`, `f3730b3`, `aecc9af`, `b970437`, `6c25966`, `fc86533`, plus pending CQ-066 commit | `evidence/lane-01.md` |
-| 02 - Importers | Ralph | blocked-on-lane-01 | `004107c` (out-of-sequence WIP, unaccepted) | `evidence/lane-02.md` |
+| 00 - Foundation | Ralph | accepted | `cd845f2`, `e22ec27`, `b78b5ae`, `70b9df0`, `0e8a912`, `a650ef8`, `2809d21` (Lane 0 CQ-001..CQ-019 closed; later commits also touch `CANONICAL.md` governance) | `evidence/lane-00.md` |
+| 01 - Local store | Ralph | accepted (with re-scopes per `docs/rearch-2/lane-1-rescopes.md`) | `4f214b7`, `2b5ad1b`, `433c32f`, `a650ef8`, `6097f9e`, `5a6a683`, `2809d21`, `5e5ca20`, `ea615dd`, `5e4b5e7`, `ecc80a3`, `1419d92`, `1e81888`, `adee042`, `f54f4f1`, `f3730b3`, `aecc9af`, `b970437`, `6c25966`, `fc86533`, `a187a74`, plus pending CQ-066/CQ-044 closure commit | `evidence/lane-01.md` |
+| 02 - Importers | Ralph | in-progress | `004107c` (orchestrator + GraphResolver + mock provider tests) | `evidence/lane-02.md` |
 | 03 - Derived layer | Ralph | blocked-on-lane-02 | | `evidence/lane-03.md` |
-| 04 - Server | Ralph | blocked-on-lane-01 | out-of-sequence WIP only; unaccepted under `CQ-044` | `evidence/lane-04.md` |
+| 04 - Server | Ralph | scaffold-landed | `5e5ca20` (`packages/prosa-db-v2/` Postgres DDL + pglite tests) | `evidence/lane-04.md` |
 | 05 - Sync protocol | Ralph | blocked-on-lane-04 | | `evidence/lane-05.md` |
 | 06 - Read API | Ralph | blocked-on-lane-05 | | `evidence/lane-06.md` |
 | 07 - CLI and MCP | Ralph | blocked-on-lane-06 | | `evidence/lane-07.md` |
@@ -33,31 +33,26 @@ Ralph active: yes
 
 ## Open Blocking Corrections
 
-| ID | Severity | Owner | Summary |
-| --- | --- | --- | --- |
-| CQ-066 | high | Ralph / Codex | Complete Codex review closeout for Lane 1 re-scopes and evidence; active artifacts must agree before Lane 1 acceptance. |
-| CQ-044 | high | Ralph | Contain out-of-sequence Lane 2+ work until Lane 1 acceptance. |
+*(none)*
 
-CQ-036..CQ-043 closed at `5e5ca20`. CQ-045..CQ-049 closed at
-`ea615dd`. CQ-050..CQ-055 closed by `5e4b5e7` / `ecc80a3` /
-`1419d92` / `1e81888`. Lane 0 evidence refreshed in `adee042`.
-CQ-056..CQ-059 closed by `f54f4f1` / `f3730b3` / `aecc9af`.
-CQ-060..CQ-063 closed by `b970437` / `6c25966`. CQ-064/CQ-065 first
-landed at `fc86533`; Codex re-review opened CQ-066 against that
-closeout's overclaims. The real Lane 1 stress contract (1k sessions ×
-100k raw records × 200k CAS objects × 8 concurrent producers) now passes
-end-to-end, the cold-rebuild E2E now spawns the real CLI subprocess
-`prosa bundle rebuild-index`, and the MemoryShardActor + canonical-NDJSON
-re-scopes are documented in `docs/rearch-2/lane-1-rescopes.md` as
-proposed-pending-Codex. `CQ-066` remains open until Codex accepts or
-rejects those re-scopes and the source lane contract is reconciled.
-`CQ-044` remains open until Codex accepts Lane 1 with these re-scopes.
+All Lane 0/1 blocking corrections are closed:
+- CQ-001..CQ-019 (Lane 0)
+- CQ-020..CQ-063 (Lane 1 integrity hardening)
+- CQ-064..CQ-065 (Lane 1 full-scope deliverables)
+- CQ-066 (full-contract stress, real CLI E2E, re-scope docs)
+- CQ-044 (procedural Lane 2/4 containment) — closed by project owner's
+  Lane 1 acceptance.
+
+Lane 1 is accepted with the re-scopes recorded in
+`docs/rearch-2/lane-1-rescopes.md`. Lane 2 work is now active without
+exception. New Codex / reviewer findings become new corrections in
+the queue as they arrive.
 
 ## Latest Gates
 
 | Command | Result | Notes |
 | --- | --- | --- |
-| `git status --short --branch` | dirty-codex-correction | Codex opened `CQ-066` after reviewing `fc86533`. |
+| `git status --short --branch` | pass | `## feature/rearch...origin/feature/rearch` (pending Lane 1 acceptance + re-scope commit). |
 | `pnpm i` | pass | `pnpm install --frozen-lockfile`-compatible; only pre-existing peer warnings (`@c3-oss/config-vitest` wants vitest ^3.1.1, repo on 2.1.9). |
 | `pnpm build` | pass | 10/10 turbo tasks (includes `@c3-oss/prosa-bundle-v2`). |
 | `just typecheck` | pass | 10/10 turbo tasks. |

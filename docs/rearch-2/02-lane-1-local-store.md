@@ -6,6 +6,25 @@ Ship the bundle v2 local store: directory layout, 4 RocksDB shards with single-w
 
 This is the largest lane. Plan for 5–7 PRs.
 
+> **Accepted Lane 1 re-scopes (2026-05-18).** Two technology choices in
+> this contract were formally re-scoped during the Lane 1 hardening
+> chain and accepted by the project owner:
+>
+> 1. **`MemoryShardActor` (append-log) in place of 4 RocksDB shards**
+>    for the shard backend. Same `ShardActor` interface, same
+>    crash-safety guarantee, same correctness profile under the Lane 1
+>    integrity tests. Migration path to RocksDB-proper is open.
+> 2. **Canonical NDJSON in place of Parquet** for projection segments.
+>    Preserves byte-equality with the Merkle-leaf pipeline and the
+>    verifiable-in-one-pass property. Migration path to Parquet is open.
+>
+> Full rationale, what each re-scope does and does not cover, and the
+> respective migration paths are in
+> [`docs/rearch-2/lane-1-rescopes.md`](./lane-1-rescopes.md). The rest
+> of this lane doc retains the original RocksDB/Parquet wording for
+> historical fidelity; readers should treat the re-scope doc as the
+> authoritative source for the two substitutions.
+
 ## Depends on
 
 - Lane 0 (Foundation) complete. The shard actor uses `BundleHeadV2`, `SegmentRef`, `PackRef`, `SourceStateV2`, and the canonical encoding helpers from `prosa-types-v2`.

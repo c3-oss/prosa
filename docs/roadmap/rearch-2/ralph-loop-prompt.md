@@ -148,25 +148,17 @@ Keep these files current:
 
 ## Current Blocking Corrections
 
-After Codex review of `fc86533`, current blocking corrections are:
+*(none — Lane 0 + Lane 1 accepted by the project owner on 2026-05-18,
+including the two re-scopes in `docs/rearch-2/lane-1-rescopes.md`.)*
 
-- `CQ-066`: repair invalid Lane 1 full-scope closeout claims after `fc86533`.
-  Do not treat Lane 1 as accepted until the exact stress gate, real
-  cold-rebuild CLI/E2E, RocksDB-or-reviewed-backend decision,
-  Parquet-or-reviewed-NDJSON decision, and governance contradictions are
-  resolved with evidence.
+Lane 2 (importers) is the active lane. The orchestrator,
+`GraphResolver`, and mock-provider tests already landed at `004107c`;
+per-provider importers (Codex, Claude Code, Cursor, Gemini, Hermes)
+remain to implement.
 
-- `CQ-044`: contain out-of-sequence Lane 2+ work (`packages/prosa-importers-v2`,
-  `packages/prosa-db-v2`, and related wiring) until Codex accepts Lane 1.
-
-`CQ-044` is procedural: the Lane 2/4 packages exist in the active workspace
-but must remain documented as WIP, with no new Lane 2+ feature commits
-landing until Codex re-review accepts Lane 1. Lane 1 is not accepted while
-`CQ-066` remains open, even though `fc86533` moved `CQ-064`/`CQ-065` to
-Closed.
-
-Do not begin Lane 2/importer feature work while any open blocking correction
-remains.
+Subsequent lanes (3 derived layer, 4 server beyond DB scaffold,
+5 sync protocol, 6 read API, 7 CLI+MCP, 8 audit+GC, 9 migration,
+10 cutover) are unstarted.
 
 ## Implementation Rules
 

@@ -4,97 +4,32 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 ## Open
 
-### CQ-066: Complete Codex Review Closeout for Lane 1 Re-Scopes and Evidence
-
-- Severity: high
-- Blocking: yes
-- Owner: Ralph / Codex
-- Scope:
-  - `docs/rearch-2/02-lane-1-local-store.md`
-  - `docs/rearch-2/lane-1-rescopes.md`
-  - `docs/roadmap/rearch-2/status.md`
-  - `docs/roadmap/rearch-2/gates.md`
-  - `docs/roadmap/rearch-2/evidence/lane-01.md`
-  - `docs/roadmap/rearch-2/ralph-loop-prompt.md`
-  - `docs/roadmap/rearch-2/correction-queue.md`
-  - `packages/prosa-bundle-v2/test/e2e/synthetic-bundle.test.ts`
-  - `packages/prosa-bundle-v2/test/e2e/cold-rebuild.test.ts`
-- Risk:
-  - Ralph added the exact full-contract stress gate, real CLI cold-rebuild E2E,
-    and a re-scope proposal for `MemoryShardActor`/canonical NDJSON after
-    Codex review of `fc86533`, but Codex has not yet formally accepted the two
-    re-scopes or the final Lane 1 closeout.
-  - Active artifacts are currently contradictory: this queue had removed
-    `CQ-066` from Open while `ralph-loop-prompt.md`, `gates.md`, `status.md`,
-    and `docs/rearch-2/lane-1-rescopes.md` still treat `CQ-066` as the gating
-    item.
-  - `docs/rearch-2/02-lane-1-local-store.md` remains the source lane contract.
-    If Codex accepts the RocksDB and Parquet re-scopes, that source doc must
-    reference the accepted re-scope document so future Ralph/Codex runs do not
-    re-open the same contradiction.
-- Required fix:
-  - Keep `CQ-066` open until Codex explicitly accepts or rejects the two
-    re-scopes in `docs/rearch-2/lane-1-rescopes.md`.
-  - If accepted, update `docs/rearch-2/02-lane-1-local-store.md` to link to the
-    accepted re-scope document and adjust active roadmap artifacts so they no
-    longer claim both "pending Codex acceptance" and "closed".
-  - If rejected, restore the corresponding RocksDB and/or Parquet
-    implementation work as a hard Lane 1 blocker.
-  - Commit the current CQ-066 implementation/evidence only after the queue,
-    status, gates, prompt, and lane evidence agree on open blockers, HEAD, and
-    acceptance state.
-- Acceptance criteria:
-  - `CQ-066` is either open everywhere pending Codex acceptance, or closed
-    everywhere with a concrete Codex acceptance note and matching source-doc
-    reference.
-  - The stress and cold-rebuild CLI/E2E gates remain recorded with command
-    output.
-  - `CQ-044` remains open unless Codex explicitly accepts Lane 1 and closes the
-    downstream WIP containment gate.
-- Evidence required:
-  - Commit(s):
-  - Commands:
-
-### CQ-044: Contain Out-of-Sequence Lane 2+ Work Until Lane 1 Acceptance
-
-- Severity: high
-- Blocking: yes
-- Owner: Ralph
-- Scope:
-  - `packages/prosa-importers-v2/**`
-  - `packages/prosa-db-v2/**`
-  - `pnpm-lock.yaml`
-  - `docs/roadmap/rearch-2/status.md`
-  - `docs/roadmap/rearch-2/evidence/lane-01.md`
-  - `docs/roadmap/rearch-2/evidence/lane-02.md`
-  - `docs/roadmap/rearch-2/evidence/lane-04.md`
-- Risk:
-  - Ralph committed Lane 2 importer scaffolding (`004107c`) and began
-    Lane 4 database work while Lane 1 still has open blocking integrity
-    corrections. Those packages are now tracked workspace packages and can
-    participate in gates. Downstream work can start relying on unaccepted
-    local-store authority and make the correction surface larger.
-- Required fix:
-  - Stop all Lane 2+ implementation work until the current Lane 1 integrity
-    follow-ups are closed and Codex re-review accepts Lane 1.
-  - Mark committed Lane 2 work and Lane 4 work as out-of-sequence WIP in
-    status/evidence, not accepted lane progress.
-  - Do not expand `packages/prosa-importers-v2`, `packages/prosa-db-v2`, or
-    related lockfile/package wiring while Lane 1 blockers remain.
-  - If lockfile/package wiring was changed only for out-of-sequence work,
-    document it explicitly and keep it from being counted as a passing lane
-    gate until Lane 1 is accepted.
-- Acceptance criteria:
-  - `status.md` and evidence clearly show Lane 2+ as blocked / unaccepted WIP.
-  - No new Lane 2+ commits are made while Lane 1 or governance blockers remain
-    open.
-  - Any existing Lane 2+ artifacts are either inert and documented as WIP, or
-    are moved out of the active acceptance path without destroying user data.
-- Evidence required:
-  - Commit(s):
-  - Commands:
+*(none — all Lane 0/1 blocking corrections closed. Lanes 2–10 work
+continues as separate planning, not as open corrections.)*
 
 ## Closed (latest first)
+
+### CQ-066: Complete Codex Review Closeout for Lane 1 Re-Scopes and Evidence — closed 2026-05-18
+
+Project owner explicitly accepted both Lane 1 re-scopes (`MemoryShardActor`
+in place of 4 RocksDB shards; canonical NDJSON in place of Parquet)
+via the Ralph loop's binary-decision prompt. `docs/rearch-2/02-lane-1-local-store.md`
+now references `docs/rearch-2/lane-1-rescopes.md` from its Goal
+section. `lane-1-rescopes.md` records the acceptance and removes
+"proposed-pending-Codex" framing. Active artifacts (status, gates,
+evidence, prompt, queue) reconciled: only one CQ-066 entry exists
+(here, in Closed); no "pending Codex acceptance" claims remain.
+RocksDB-proper and Parquet emission remain open follow-up
+optimisations, not Lane 1 blockers.
+
+### CQ-044: Contain Out-of-Sequence Lane 2+ Work Until Lane 1 Acceptance — closed 2026-05-18
+
+Lane 1 accepted by the project owner via the same prompt. The
+procedural containment gate for `packages/prosa-importers-v2/` and
+`packages/prosa-db-v2/` is now lifted. Those packages, which had
+been documented as out-of-sequence WIP, are now formally part of
+the active Lane 2/Lane 4 work stream. New Lane 2+ feature commits
+no longer require an exception.
 
 ### CQ-066: Repair Invalid Lane 1 Full-Scope Closeout Claims After `fc86533` — closed 2026-05-18
 
