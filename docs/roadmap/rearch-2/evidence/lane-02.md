@@ -4,25 +4,26 @@ Lane: 02 - Importers
 Status: active WIP. The user rejected the Lane 2 re-scope and directed full
 per-record projection across all 5 providers + fixture corpora +
 cross-provider idempotency conformance. CodexProvider full per-record
-projection landed at `d302bc6` (TurnV2 + MessageV2 + ContentBlockV2 +
-ToolCallV2 + ToolResultV2 + EventV2 on canonical schema fields, no
-`as never` casts). **This iteration** lands ClaudeProvider full per-record
-projection: MessageV2 + ContentBlockV2 (including `thinking` →
-`hidden_by_default`) from `message.content[]`; ToolCallV2 from `tool_use`
-blocks with canonical_tool_type mapping + inferred command/path/query;
-ToolResultV2 from `tool_result` blocks linked by `source_call_id` with
-bounded preview; EventV2 from `system`/`progress`/operational records. The
-v1 user-vs-tool-role heuristic carries over: a user record whose content is
-only `tool_result` blocks is re-classified as role `tool`. The
+projection landed at `d302bc6`. ClaudeProvider at `7eaed27`. **This
+iteration** lands GeminiProvider full per-record projection: MessageV2 +
+ContentBlockV2 (per-`messages[].content` string or array; `thoughts[]`
+projected as extra `thinking` blocks at `hidden_by_default` visibility);
+ToolCallV2 from `toolCalls[]` entries with Gemini-specific
+`canonical_tool_type` mapping (`run_shell_command` → `shell`, `read_file`
+→ `read_file`, `replace` → `edit_file`, etc.) and inferred
+`command`/`cwd`/`path`/`query` from `args`; ToolResultV2 linked back by
+`source_call_id` with bounded `preview` rendered from `result[]` (text +
+`functionResponse.response.output`/`error`); EventV2 from `info` (→
+`system_operational`), `error` (→ `error`), and unknown records. The
 `LogicalImportUnit` contract, `GraphResolver`, and `runCompileImports`
 orchestrator landed at `004107c`. Lane 1 was accepted at `4792457`, lifting
 the `CQ-044` containment gate. `fc66925`/`8c0ba5f`/`aa88079`/`c496bac` landed
 minimal slices. `58cca83` landed CQ-072/CQ-073 CLI help-smoke closeout.
 `d302bc6` landed Codex full per-record projection + closed CQ-075/CQ-076.
-Focused importer gates pass at 37 tests / 7 files. `CQ-074` remains open
-because the same full-projection work still has to land for
-Cursor/Gemini/Hermes plus fixture corpora and the cross-provider idempotency
-conformance.
+`7eaed27` landed Claude full per-record projection. Focused importer gates
+pass at 38 tests / 7 files. `CQ-074` remains open because the same
+full-projection work still has to land for Cursor/Hermes plus fixture
+corpora and the cross-provider idempotency conformance.
 Owner: Ralph
 Commit range: `004107c` (orchestrator + GraphResolver), `4792457`
 (Lane 1 acceptance / `CQ-044` lifted), `fc66925` (minimal
@@ -56,7 +57,8 @@ CodexProvider), `8c0ba5f` (minimal ClaudeProvider + CQ-067 closeout),
   end-to-end with a mock provider (`@c3-oss/prosa-importers-v2`: 8
   tests / 2 files).
 - [ ] **Per-provider importers (codex, claude, cursor, gemini, hermes).**
-  CodexProvider and ClaudeProvider both ship **full per-record projection**.
+  CodexProvider, ClaudeProvider, and GeminiProvider all ship **full
+  per-record projection**.
   - Codex: TurnV2 (from `turn_context`), MessageV2 + ContentBlockV2 (from
     `response_item:message`), ToolCallV2 (from `response_item:function_call`,
     with command/cwd/path/query inferred from arguments), ToolResultV2 (from
@@ -70,8 +72,15 @@ CodexProvider), `8c0ba5f` (minimal ClaudeProvider + CQ-067 closeout),
     bounded `preview` and `status='success' | 'error'`), EventV2 (from
     `system`/`progress`/etc. records). User messages whose content is
     only `tool_result` blocks are re-classified as role `tool`.
-  - Cursor is opaque-bytes only. Gemini and Hermes have minimal slices. Full
-    projection still pending across Cursor/Gemini/Hermes.
+  - Gemini: MessageV2 + ContentBlockV2 (from `messages[].content`, supporting
+    both string and `GeminiContentItem[]` forms), `thoughts[]` projected as
+    extra `thinking` blocks at `hidden_by_default` visibility, ToolCallV2
+    per `toolCalls[]` entry (Gemini-specific canonical_tool_type mapping
+    covers `run_shell_command`/`read_file`/`replace`/etc.), ToolResultV2
+    linked back by `source_call_id` with bounded `preview` rendered from
+    the call's `result[]`, EventV2 (from `info`/`error`/unknown records).
+  - Cursor is opaque-bytes only. Hermes has a minimal slice. Full projection
+    still pending across Cursor/Hermes.
 - [ ] `apps/cli/test/cli/compile-v2.test.ts` exists with subprocess tests for
   successful single-provider execution, bad-provider rejection, and
   `compile-all-v2` execution. The CQ-072 WIP adds `compile-v2 --help` and
@@ -107,8 +116,8 @@ CodexProvider), `8c0ba5f` (minimal ClaudeProvider + CQ-067 closeout),
 
 ```text
 pnpm install
-pnpm --filter @c3-oss/prosa-importers-v2 typecheck    # clean (Codex + Claude full per-record projection)
-pnpm --filter @c3-oss/prosa-importers-v2 test         # 37 tests / 7 files (GraphResolver 5, orchestrator 3, CodexProvider 7 incl. CQ-074 full-projection canonical-field assertions, ClaudeProvider 7 incl. CQ-068 spawned edges + CQ-074 full-projection canonical-field assertions, CursorProvider 4, GeminiProvider 5, HermesProvider 6)
+pnpm --filter @c3-oss/prosa-importers-v2 typecheck    # clean (Codex + Claude + Gemini full per-record projection)
+pnpm --filter @c3-oss/prosa-importers-v2 test         # 38 tests / 7 files (GraphResolver 5, orchestrator 3, CodexProvider 7 incl. CQ-074 full-projection assertions, ClaudeProvider 7 incl. CQ-068 spawned edges + CQ-074 full-projection assertions, CursorProvider 4, GeminiProvider 6 incl. CQ-074 Gemini full-projection assertions, HermesProvider 6)
 pnpm --filter @c3-oss/prosa-importers-v2 build        # dist/ emitted
 pnpm --filter @c3-oss/prosa-importers-v2 lint         # clean
 pnpm --filter @c3-oss/prosa lint                      # pass after CQ-073 closeout

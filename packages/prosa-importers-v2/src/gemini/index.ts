@@ -1,22 +1,34 @@
-// Gemini CLI Provider (v2) — minimal first iteration.
+// Gemini CLI Provider (v2).
 //
-// Each session is a single JSON file with a `messages: []` array.
-// First-iteration scope: discover, cheap-identify by `sessionId`,
-// and emit one `SessionV2` + one `SourceFileV2` + one `RawRecordV2`
-// per `messages[]` entry. Multi-snapshot merging across snapshots
-// of the same `sessionId` (Gemini writes a fresh file every save)
-// is deferred to a follow-up — for now, each snapshot file is its
-// own `LogicalImportUnit` and the Reserve flow on a real shard
-// would dedupe at the orchestrator level.
+// Each session is a single JSON file with a `messages: []` array. The
+// provider discovers `<root>/<project-dir>/chats/session-*.json`,
+// cheap-identifies by `sessionId`, and emits:
 //
-// Out of scope: per-message TurnV2/MessageV2/ContentBlockV2/
-// ToolCallV2/ToolResultV2 projection, GeminiThought hidden-content
-// extraction, file-diff artifact synthesis.
+//   - one SessionV2 + one SourceFileV2 + one RawRecordV2 per `messages[]`
+//     entry (with `json_pointer: /messages/<i>`);
+//   - one MessageV2 per `type: 'user'` / `type: 'gemini'` entry, with one
+//     ContentBlockV2 per content[] item (or a single text block when
+//     `content` is a bare string); `thoughts[]` map to extra
+//     `thinking` blocks at `visibility: 'hidden_by_default'`;
+//   - one ToolCallV2 per `toolCalls[]` entry (canonical_tool_type mapped
+//     from Gemini-specific tool names like `run_shell_command` /
+//     `read_file` / `replace`; `command`/`cwd`/`path`/`query` inferred
+//     from `args`);
+//   - one ToolResultV2 per `toolCalls[]` entry linked back by
+//     `source_call_id` (the tool call's `id`), with bounded `preview`
+//     rendered from the call's `result[]`;
+//   - one EventV2 per `info` / `error` / unknown record.
+//
+// Multi-snapshot merging across files of the same `sessionId` is still
+// deferred to the Reserve flow at the orchestrator level. File-diff
+// artifact synthesis from `resultDisplay` is deferred to a follow-up.
 
 import { readFile } from 'node:fs/promises'
 import { normalize } from 'node:path'
 
 import {
+  type Actor,
+  type MessageRole,
   canonicalTimestamp,
   deriveRawRecordId,
   deriveSourceFileId,
@@ -35,10 +47,76 @@ import {
   emptyDraft,
 } from '../types.js'
 import { discoverGeminiChats } from './discover.js'
-import type { GeminiSessionFile } from './types.js'
+import type { GeminiContentItem, GeminiMessage, GeminiSessionFile, GeminiToolCall, GeminiToolResult } from './types.js'
 
 const SOURCE_TOOL = 'gemini' as const
 const FILE_KIND = 'session_json'
+const PREVIEW_MAX = 4096
+
+function canonicalToolType(toolName: string): string {
+  switch (toolName) {
+    case 'run_shell_command':
+    case 'shell':
+    case 'shell_command':
+      return 'shell'
+    case 'read_file':
+    case 'read_many_files':
+      return 'read_file'
+    case 'write_file':
+      return 'write_file'
+    case 'replace':
+    case 'search_replace':
+      return 'edit_file'
+    case 'list_directory':
+    case 'glob':
+    case 'grep_search':
+    case 'search_file_content':
+      return 'search_file'
+    case 'google_web_search':
+      return 'web_search'
+    case 'codebase_investigator':
+      return 'other'
+    default:
+      return toolName.startsWith('mcp__') ? 'mcp' : 'other'
+  }
+}
+
+function renderToolResultText(result: GeminiToolResult[] | undefined): string {
+  if (!Array.isArray(result)) return ''
+  const parts: string[] = []
+  for (const r of result) {
+    if (typeof r.text === 'string' && r.text.length > 0) {
+      parts.push(r.text)
+      continue
+    }
+    const fr = r.functionResponse?.response
+    if (fr) {
+      if (fr.error !== null && fr.error !== undefined) {
+        parts.push(typeof fr.error === 'string' ? fr.error : JSON.stringify(fr.error))
+      } else if (fr.output !== null && fr.output !== undefined) {
+        parts.push(typeof fr.output === 'string' ? fr.output : JSON.stringify(fr.output))
+      }
+    }
+  }
+  return parts.join('\n')
+}
+
+function actorFromGeminiKind(kind: string): Actor {
+  if (kind === 'user') return 'user'
+  if (kind === 'gemini') return 'assistant'
+  if (kind === 'error' || kind === 'info') return 'system'
+  return 'system'
+}
+
+function roleFromGeminiKind(kind: string): MessageRole | null {
+  if (kind === 'user') return 'user'
+  if (kind === 'gemini') return 'assistant'
+  return null
+}
+
+function rowIdFromKey(prefix: string, key: string): string {
+  return `${prefix}_${toHex(blake3(new TextEncoder().encode(key))).slice(0, 32)}`
+}
 
 interface DiscoveredGeminiFile extends DiscoveredSourceFile {
   project_dir: string
@@ -227,6 +305,203 @@ export class GeminiProvider implements Provider {
       timeline_confidence: 'high',
       raw_record_id: rawRecordIds[0] ?? null,
     })
+
+    // CQ-074: per-message projection — emit MessageV2 + ContentBlockV2 +
+    // ToolCallV2 + ToolResultV2 + EventV2 across `messages[]`.
+    let messageOrdinal = 0
+    let eventOrdinal = 0
+    for (let i = 0; i < messages.length; i++) {
+      const msg = messages[i] as GeminiMessage | undefined
+      if (!msg) continue
+      const rawRecordId = rawRecordIds[i] ?? rawRecordIds[0]!
+      const kind = typeof msg.type === 'string' ? msg.type : 'unknown'
+      const ts =
+        typeof msg.timestamp === 'string' && isValidCanonicalTimestamp(msg.timestamp)
+          ? canonicalTimestamp(msg.timestamp)
+          : null
+      const role = roleFromGeminiKind(kind)
+      if (role !== null) {
+        const sourceMessageId = typeof msg.id === 'string' && msg.id.length > 0 ? msg.id : null
+        const messageRowId =
+          sourceMessageId !== null
+            ? rowIdFromKey('msg', `gemini:msg:${sessionRowId}:${sourceMessageId}`)
+            : rowIdFromKey('msg', `gemini:msg:${sessionRowId}:ord:${i}`)
+        draft.messages.push({
+          message_id: messageRowId,
+          session_id: sessionRowId,
+          turn_id: null,
+          event_id: null,
+          source_message_id: sourceMessageId,
+          role,
+          author_name: null,
+          model: role === 'assistant' && typeof msg.model === 'string' ? msg.model : null,
+          timestamp: ts,
+          ordinal: messageOrdinal,
+          parent_message_id: null,
+          request_id: null,
+          status: null,
+          raw_record_id: rawRecordId,
+        })
+        messageOrdinal += 1
+
+        // Content blocks: string content → one text block; array content
+        // → one block per item; thoughts → trailing thinking blocks.
+        let blockOrdinal = 0
+        const content = msg.content
+        if (typeof content === 'string' && content.length > 0) {
+          draft.content_blocks.push({
+            block_id: rowIdFromKey('blk', `gemini:blk:${messageRowId}:${blockOrdinal}`),
+            message_id: messageRowId,
+            event_id: null,
+            session_id: sessionRowId,
+            ordinal: blockOrdinal,
+            block_type: 'text',
+            text_object_id: null,
+            text_inline: content.slice(0, PREVIEW_MAX),
+            mime_type: 'text/plain',
+            token_count: null,
+            is_error: false,
+            is_redacted: false,
+            visibility: 'default',
+            raw_record_id: rawRecordId,
+          })
+          blockOrdinal += 1
+        } else if (Array.isArray(content)) {
+          for (let ci = 0; ci < content.length; ci++) {
+            const item = content[ci] as GeminiContentItem | undefined
+            if (!item) continue
+            const blockType = typeof item.type === 'string' && item.type.length > 0 ? item.type : 'text'
+            const text = typeof item.text === 'string' ? item.text : ''
+            if (text.length === 0) continue
+            draft.content_blocks.push({
+              block_id: rowIdFromKey('blk', `gemini:blk:${messageRowId}:${blockOrdinal}`),
+              message_id: messageRowId,
+              event_id: null,
+              session_id: sessionRowId,
+              ordinal: blockOrdinal,
+              block_type: blockType,
+              text_object_id: null,
+              text_inline: text.slice(0, PREVIEW_MAX),
+              mime_type: 'text/plain',
+              token_count: null,
+              is_error: false,
+              is_redacted: false,
+              visibility: 'default',
+              raw_record_id: rawRecordId,
+            })
+            blockOrdinal += 1
+          }
+        }
+        const thoughts = Array.isArray(msg.thoughts) ? msg.thoughts : []
+        for (let ti = 0; ti < thoughts.length; ti++) {
+          const th = thoughts[ti]
+          if (!th) continue
+          const text = [th.subject, th.description].filter((s): s is string => typeof s === 'string').join('\n\n')
+          if (text.length === 0) continue
+          draft.content_blocks.push({
+            block_id: rowIdFromKey('blk', `gemini:blk:${messageRowId}:thought:${ti}`),
+            message_id: messageRowId,
+            event_id: null,
+            session_id: sessionRowId,
+            ordinal: blockOrdinal,
+            block_type: 'thinking',
+            text_object_id: null,
+            text_inline: text.slice(0, PREVIEW_MAX),
+            mime_type: 'text/plain',
+            token_count: null,
+            is_error: false,
+            is_redacted: false,
+            visibility: 'hidden_by_default',
+            raw_record_id: rawRecordId,
+          })
+          blockOrdinal += 1
+        }
+
+        // Tool calls live on the message itself (not on a separate
+        // tool_result content block as Claude has).
+        const toolCalls = Array.isArray(msg.toolCalls) ? msg.toolCalls : []
+        for (let ti = 0; ti < toolCalls.length; ti++) {
+          const tc = toolCalls[ti] as GeminiToolCall | undefined
+          if (!tc) continue
+          const sourceCallId = typeof tc.id === 'string' && tc.id.length > 0 ? tc.id : `${messageRowId}:tc:${ti}`
+          const toolName = typeof tc.name === 'string' && tc.name.length > 0 ? tc.name : 'unknown'
+          const toolCallRowId = rowIdFromKey('tcl', `gemini:tcl:${sessionRowId}:${sourceCallId}`)
+          const argsObj = tc.args ?? null
+          const command = typeof argsObj?.command === 'string' ? (argsObj.command as string) : null
+          const cwd = typeof argsObj?.dir_path === 'string' ? (argsObj.dir_path as string) : null
+          const path =
+            typeof argsObj?.file_path === 'string'
+              ? (argsObj.file_path as string)
+              : typeof argsObj?.path === 'string'
+                ? (argsObj.path as string)
+                : null
+          const query = typeof argsObj?.query === 'string' ? (argsObj.query as string) : null
+          const tcStatus = typeof tc.status === 'string' ? tc.status : null
+          draft.tool_calls.push({
+            tool_call_id: toolCallRowId,
+            session_id: sessionRowId,
+            turn_id: null,
+            message_id: messageRowId,
+            event_id: null,
+            source_call_id: sourceCallId,
+            tool_name: toolName,
+            canonical_tool_type: canonicalToolType(toolName),
+            args_object_id: null,
+            command,
+            cwd,
+            path,
+            query,
+            timestamp_start: typeof tc.timestamp === 'string' ? tc.timestamp : ts,
+            timestamp_end: null,
+            status: tcStatus,
+            raw_record_id: rawRecordId,
+          })
+
+          const resultText = renderToolResultText(tc.result)
+          const preview = resultText.length > 0 ? resultText.slice(0, PREVIEW_MAX) : null
+          draft.tool_results.push({
+            tool_result_id: rowIdFromKey('tre', `gemini:tre:${sessionRowId}:${sourceCallId}`),
+            tool_call_id: toolCallRowId,
+            session_id: sessionRowId,
+            message_id: messageRowId,
+            event_id: null,
+            source_call_id: sourceCallId,
+            status: tcStatus,
+            is_error: tcStatus === 'error',
+            exit_code: null,
+            duration_ms: null,
+            stdout_object_id: null,
+            stderr_object_id: null,
+            output_object_id: null,
+            preview,
+            raw_record_id: rawRecordId,
+          })
+        }
+        continue
+      }
+      // Operational record → EventV2 (info / error / unknown kinds).
+      const eventRowId =
+        typeof msg.id === 'string' && msg.id.length > 0
+          ? rowIdFromKey('evt', `gemini:evt:${sessionRowId}:${msg.id}`)
+          : rowIdFromKey('evt', `gemini:evt:${sessionRowId}:ord:${i}`)
+      draft.events.push({
+        event_id: eventRowId,
+        session_id: sessionRowId,
+        turn_id: null,
+        source_event_id: typeof msg.id === 'string' ? msg.id : null,
+        event_type: kind === 'error' ? 'error' : 'system_operational',
+        source_type: kind,
+        subtype: null,
+        timestamp: ts,
+        ordinal: eventOrdinal,
+        actor: actorFromGeminiKind(kind),
+        payload_object_id: null,
+        raw_record_id: rawRecordId,
+        confidence: 'high',
+        is_derived: false,
+      })
+      eventOrdinal += 1
+    }
 
     const unit: LogicalImportUnit = {
       unit_id: input.identification.unit_id,

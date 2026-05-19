@@ -108,6 +108,76 @@ describe('GeminiProvider', () => {
     expect(result.unit.projection.raw_records[0]!.confidence).toBe('low')
   })
 
+  it('CQ-074: full Gemini projection emits MessageV2 + ContentBlockV2 + ToolCallV2 + ToolResultV2 + EventV2', async () => {
+    const FULL_SESSION = {
+      sessionId: 'sess_full',
+      startTime: '2025-01-02T03:04:05.123Z',
+      lastUpdated: '2025-01-02T03:05:00.000Z',
+      messages: [
+        { type: 'user', id: 'u1', timestamp: '2025-01-02T03:04:05.500Z', content: 'inspect the repo' },
+        {
+          type: 'gemini',
+          id: 'a1',
+          timestamp: '2025-01-02T03:04:06.000Z',
+          model: 'gemini-2.5-pro',
+          content: [{ type: 'text', text: "I'll list files first." }],
+          thoughts: [{ subject: 'plan', description: 'Use ls to inspect the root.' }],
+          toolCalls: [
+            {
+              id: 'tc1',
+              name: 'run_shell_command',
+              args: { command: 'ls /repo' },
+              status: 'success',
+              result: [{ text: 'file1\nfile2\n' }],
+              timestamp: '2025-01-02T03:04:07.000Z',
+            },
+          ],
+        },
+        { type: 'info', id: 'i1', timestamp: '2025-01-02T03:04:08.000Z', content: 'tokens used: 100' },
+        { type: 'error', id: 'e1', timestamp: '2025-01-02T03:04:09.000Z', content: 'something failed' },
+      ],
+    }
+    const root = await tmp()
+    await mkdir(join(root, 'proj-a', 'chats'), { recursive: true })
+    await writeFile(join(root, 'proj-a', '.project_root'), '/repo/proj-a')
+    await writeFile(join(root, 'proj-a', 'chats', 'session-001.json'), sessionFile(FULL_SESSION))
+    const provider = new GeminiProvider()
+    const [file] = await provider.discover(root)
+    if (!file) throw new Error('expected one file')
+    const id = await provider.cheapIdentify(file)
+    const r = await provider.parseAndProject({
+      files: [file],
+      identification: id,
+      createdAt: '2025-01-02T03:04:05.123Z',
+    })
+    const p = r.unit.projection
+    expect(p.messages.length).toBe(2)
+    expect(p.messages.map((m) => m.role)).toEqual(['user', 'assistant'])
+    expect(p.messages[1]!.model).toBe('gemini-2.5-pro')
+    // Content blocks: 1 user text + 1 assistant text + 1 thinking = 3.
+    expect(p.content_blocks.length).toBe(3)
+    const thinking = p.content_blocks.find((b) => b.block_type === 'thinking')
+    expect(thinking?.visibility).toBe('hidden_by_default')
+    expect(thinking?.text_inline).toBe('plan\n\nUse ls to inspect the root.')
+    expect(p.tool_calls.length).toBe(1)
+    expect(p.tool_calls[0]!.tool_name).toBe('run_shell_command')
+    expect(p.tool_calls[0]!.canonical_tool_type).toBe('shell')
+    expect(p.tool_calls[0]!.source_call_id).toBe('tc1')
+    expect(p.tool_calls[0]!.command).toBe('ls /repo')
+    expect(p.tool_calls[0]!.args_object_id).toBeNull()
+    expect(p.tool_calls[0]!.status).toBe('success')
+    expect(p.tool_results.length).toBe(1)
+    expect(p.tool_results[0]!.tool_call_id).toBe(p.tool_calls[0]!.tool_call_id)
+    expect(p.tool_results[0]!.source_call_id).toBe('tc1')
+    expect(p.tool_results[0]!.preview).toBe('file1\nfile2\n')
+    expect(p.tool_results[0]!.is_error).toBe(false)
+    expect(p.tool_results[0]!.status).toBe('success')
+    // 2 events: info → system_operational, error → error.
+    expect(p.events.length).toBe(2)
+    const eventTypes = p.events.map((e) => e.event_type).sort()
+    expect(eventTypes).toEqual(['error', 'system_operational'])
+  })
+
   it('runCompileImports orchestrates Gemini through a real bundle seal', async () => {
     const bundleRoot = await tmp()
     const discoveryRoot = await tmp()

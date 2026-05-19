@@ -7,7 +7,7 @@
 | `pnpm i` | yes | pass | `pnpm install --frozen-lockfile`-compatible. Pre-existing peer warning: `@c3-oss/config-vitest@0.3.0` wants vitest ^3.1.1, repo on 2.1.9. |
 | `pnpm build` | yes | pass | 10/10 turbo tasks (now includes `@c3-oss/prosa-bundle-v2`). |
 | `just typecheck` | yes | pass | 10/10 turbo tasks. |
-| `just test-all` | yes | pass | 12/12 turbo at HEAD post-Claude full per-record projection (Codex + Claude both ship full projection on canonical schema fields). Focused counts: `@c3-oss/prosa-types-v2` 89, `@c3-oss/prosa-wire-v2` 21, conformance 15, `@c3-oss/prosa-bundle-v2` **120**, `@c3-oss/prosa-importers-v2` **37** (+1 CQ-074 Codex full-projection assertion +1 CQ-074 Claude full-projection assertion), `@c3-oss/prosa-db-v2` 6. |
+| `just test-all` | yes | pass | 12/12 turbo at HEAD post-Gemini full per-record projection (Codex + Claude + Gemini ship full projection on canonical schema fields). Focused counts: `@c3-oss/prosa-types-v2` 89, `@c3-oss/prosa-wire-v2` 21, conformance 15, `@c3-oss/prosa-bundle-v2` **120**, `@c3-oss/prosa-importers-v2` **38** (+3 CQ-074 full-projection assertions across Codex/Claude/Gemini), `@c3-oss/prosa-db-v2` 6. |
 | `just lint-all` | yes | pass | 10/10 turbo tasks. |
 | `pnpm audit --audit-level moderate` | yes | classified pass | 8 vulnerabilities found (1 low / 6 moderate / 1 high). All pre-existing on `master`. See "Audit Classification". |
 | `git diff --check` | yes | pass | No whitespace or conflict markers. |
@@ -37,8 +37,8 @@ a `just` wrapper fails for environmental reasons.
 | 01 | `pnpm test packages/prosa-bundle-v2/test/e2e/synthetic-bundle.test.ts` | yes | pass | 3 tests: CQ-066 full-contract 1k×100k×200k stress with 8 concurrent producers (~28s) + 1k-session full seal + 200-session re-open round-trip. |
 | 01 | `pnpm test packages/prosa-bundle-v2/test/e2e/cold-rebuild.test.ts` | yes | pass | 3 tests: CQ-066 real CLI subprocess (spawns `prosa bundle rebuild-index --store <path>` via `swc-node`) + index/-delete-then-rebuild replay + idempotent double-rebuild. |
 | 01 | `pnpm dev -- bundle rebuild-index --store <path> --uuid <uuid>` | yes | pass | CLI command exercises `rebuildIndex` end-to-end and emits manifest JSON to stdout; covered by the real-subprocess E2E above. |
-| 02 | `pnpm --filter @c3-oss/prosa-importers-v2 typecheck` | yes | pass | Codex + Claude both ship full per-record projection on canonical schema fields. |
-| 02 | `pnpm --filter @c3-oss/prosa-importers-v2 test` | yes | pass | 37 tests / 7 files (GraphResolver 5, orchestrator 3, CodexProvider 7 incl. CQ-074 full-projection canonical-field assertions, ClaudeProvider 7 incl. CQ-068 spawned-edge tests + CQ-074 Claude full-projection assertions, CursorProvider 4 incl. CQ-070 stable-key fix, GeminiProvider 5, HermesProvider 6). |
+| 02 | `pnpm --filter @c3-oss/prosa-importers-v2 typecheck` | yes | pass | Codex + Claude + Gemini ship full per-record projection on canonical schema fields. |
+| 02 | `pnpm --filter @c3-oss/prosa-importers-v2 test` | yes | pass | 38 tests / 7 files (GraphResolver 5, orchestrator 3, CodexProvider 7 incl. CQ-074 full-projection canonical-field assertions, ClaudeProvider 7 incl. CQ-068 spawned-edge tests + CQ-074 Claude full-projection assertions, CursorProvider 4 incl. CQ-070 stable-key fix, GeminiProvider 6 incl. CQ-074 Gemini full-projection assertions, HermesProvider 6). |
 | 02 | `pnpm --filter @c3-oss/prosa exec vitest run test/cli/compile-v2.test.ts` | yes | pass | 5 subprocess-spawned tests: `compile-v2 codex` happy path + invalid-provider rejection + `compile-all-v2` against all 5 providers + CQ-072 `--help` smokes for both commands. |
 | 02 | `pnpm --filter @c3-oss/prosa lint` | yes | pass | CQ-073: formatting issue auto-fixed by `biome check --fix`; lane-02 CLI lint clean. |
 | 03 | `pnpm --filter @c3-oss/prosa-derived-v2 test` | yes | not-run | Tantivy, session blob, analytics, compaction tests. |
