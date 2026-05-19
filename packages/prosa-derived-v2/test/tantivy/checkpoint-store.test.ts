@@ -6,7 +6,7 @@
 // canonical JSON (sorted keys) so two equivalent checkpoints always
 // produce byte-identical files.
 
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -208,5 +208,181 @@ describe('IndexCheckpointV2 persistence', () => {
       }),
     )
     await expect(readIndexCheckpoint(bundleRoot)).rejects.toThrow(/status has unexpected value/)
+  })
+
+  describe('CQ-096-parallel write-side containment', () => {
+    const VALID_CHECKPOINT: IndexCheckpointV2 = {
+      ...EMPTY_INDEX_CHECKPOINT,
+      status: 'ready',
+      schema_fingerprint: 'blake3:0000000000000000000000000000000000000000000000000000000000000000',
+      last_indexed_rowid: 1,
+      indexed_doc_count: 1,
+      source_doc_count: 1,
+    }
+
+    it('refuses to write when `<bundleRoot>/derived/tantivy` is a symlink (must not redirect mkdir)', async () => {
+      const external = await mkdtemp(join(tmpdir(), 'prosa-derived-checkpoint-cq096-tantivy-'))
+      try {
+        await mkdir(join(bundleRoot, 'derived'), { recursive: true })
+        await symlink(external, join(bundleRoot, 'derived', 'tantivy'))
+
+        await expect(writeIndexCheckpoint(bundleRoot, VALID_CHECKPOINT)).rejects.toThrow(/CQ-096|symlink|intermediate/i)
+        // External target survives without a `checkpoint.json` planted in it.
+        const externalEntries = await readdir(external)
+        expect(externalEntries).toEqual([])
+        // The symlink itself is left in place for the operator to investigate.
+        const linkStat = await lstat(join(bundleRoot, 'derived', 'tantivy'))
+        expect(linkStat.isSymbolicLink()).toBe(true)
+      } finally {
+        await rm(external, { recursive: true, force: true })
+      }
+    })
+
+    it('refuses to write when `<bundleRoot>/derived` is a symlink (outermost intermediate)', async () => {
+      const external = await mkdtemp(join(tmpdir(), 'prosa-derived-checkpoint-cq096-derived-'))
+      try {
+        await writeFile(join(external, 'sentinel'), 'do not touch')
+        await symlink(external, join(bundleRoot, 'derived'))
+
+        await expect(writeIndexCheckpoint(bundleRoot, VALID_CHECKPOINT)).rejects.toThrow(/CQ-096|symlink|intermediate/i)
+        // External tree's sentinel survives unchanged.
+        expect(await readFile(join(external, 'sentinel'), 'utf-8')).toBe('do not touch')
+      } finally {
+        await rm(external, { recursive: true, force: true })
+      }
+    })
+
+    it('accepts a symlinked bundle-root alias when the derived/tantivy chain is real', async () => {
+      // Bundle-root containment is NOT validated — the symlinked-
+      // bundle-root deployment pattern stays supported.
+      const aliasParent = await mkdtemp(join(tmpdir(), 'prosa-derived-checkpoint-cq096-alias-'))
+      try {
+        const aliasRoot = join(aliasParent, 'bundle-alias')
+        await symlink(bundleRoot, aliasRoot)
+
+        await writeIndexCheckpoint(aliasRoot, VALID_CHECKPOINT)
+
+        // Checkpoint actually landed under the real bundle root.
+        expect(await readIndexCheckpoint(bundleRoot)).toEqual(VALID_CHECKPOINT)
+      } finally {
+        await rm(aliasParent, { recursive: true, force: true })
+      }
+    })
+
+    it('continues to work on a fresh bundle (no intermediate-symlink false positives)', async () => {
+      // The fresh-bundle case has no `derived/` directory at all;
+      // the containment check tolerates ENOENT and the write
+      // proceeds to create the dir + checkpoint normally.
+      await writeIndexCheckpoint(bundleRoot, VALID_CHECKPOINT)
+      expect(await readIndexCheckpoint(bundleRoot)).toEqual(VALID_CHECKPOINT)
+    })
+  })
+
+  describe('CQ-103: read-side symlink containment', () => {
+    const VALID_CHECKPOINT: IndexCheckpointV2 = {
+      ...EMPTY_INDEX_CHECKPOINT,
+      status: 'ready',
+      schema_fingerprint: `blake3:${'c'.repeat(64)}`,
+      last_indexed_rowid: 7,
+      indexed_doc_count: 7,
+      source_doc_count: 7,
+    }
+
+    it('refuses to read when `<bundleRoot>/derived/tantivy` is a symlink (intermediate)', async () => {
+      const external = await mkdtemp(join(tmpdir(), 'prosa-derived-checkpoint-cq103-tantivy-'))
+      try {
+        // External target has a perfectly valid checkpoint.json that
+        // would otherwise round-trip — the read must still refuse.
+        await writeFile(
+          join(external, 'checkpoint.json'),
+          JSON.stringify({
+            error_message: null,
+            indexed_doc_count: 99,
+            last_indexed_rowid: 99,
+            schema_fingerprint: 'blake3:fake',
+            source_doc_count: 99,
+            status: 'ready',
+          }),
+        )
+        await mkdir(join(bundleRoot, 'derived'), { recursive: true })
+        await symlink(external, join(bundleRoot, 'derived', 'tantivy'))
+
+        await expect(readIndexCheckpoint(bundleRoot)).rejects.toThrow(/CQ-103|symlink|intermediate/i)
+      } finally {
+        await rm(external, { recursive: true, force: true })
+      }
+    })
+
+    it('refuses to read when `<bundleRoot>/derived` is a symlink (outermost intermediate)', async () => {
+      const external = await mkdtemp(join(tmpdir(), 'prosa-derived-checkpoint-cq103-derived-'))
+      try {
+        await symlink(external, join(bundleRoot, 'derived'))
+
+        await expect(readIndexCheckpoint(bundleRoot)).rejects.toThrow(/CQ-103|symlink|intermediate/i)
+      } finally {
+        await rm(external, { recursive: true, force: true })
+      }
+    })
+
+    it('refuses to read when the final `checkpoint.json` is a symlink', async () => {
+      // Real derived/tantivy/ but the final checkpoint.json is a
+      // symlink to an external file. The read must reject before
+      // following the link — even if the target is valid JSON, the
+      // contents are from outside the bundle.
+      await mkdir(join(bundleRoot, 'derived', 'tantivy'), { recursive: true })
+      const external = await mkdtemp(join(tmpdir(), 'prosa-derived-checkpoint-cq103-final-'))
+      try {
+        const externalPath = join(external, 'external-checkpoint.json')
+        await writeFile(
+          externalPath,
+          JSON.stringify({
+            error_message: null,
+            indexed_doc_count: 1,
+            last_indexed_rowid: 1,
+            schema_fingerprint: 'blake3:external',
+            source_doc_count: 1,
+            status: 'ready',
+          }),
+        )
+        await symlink(externalPath, tantivyCheckpointPath(bundleRoot))
+
+        await expect(readIndexCheckpoint(bundleRoot)).rejects.toThrow(/CQ-103|symlink|final path/i)
+      } finally {
+        await rm(external, { recursive: true, force: true })
+      }
+    })
+
+    it('refuses to read when the checkpoint path is a directory (non-regular-file)', async () => {
+      // Someone planted a directory where the checkpoint should be;
+      // the read must reject rather than silently returning null.
+      await mkdir(tantivyCheckpointPath(bundleRoot), { recursive: true })
+      await expect(readIndexCheckpoint(bundleRoot)).rejects.toThrow(/not a regular file/i)
+    })
+
+    it('accepts a symlinked bundle-root alias when the derived/tantivy/checkpoint chain is real', async () => {
+      // Bundle-root containment is NOT validated — symlinked
+      // bundle-root deployments stay supported. Write through the
+      // real root, read through the alias — should round-trip.
+      await writeIndexCheckpoint(bundleRoot, VALID_CHECKPOINT)
+      const aliasParent = await mkdtemp(join(tmpdir(), 'prosa-derived-checkpoint-cq103-alias-'))
+      try {
+        const aliasRoot = join(aliasParent, 'bundle-alias')
+        await symlink(bundleRoot, aliasRoot)
+        const result = await readIndexCheckpoint(aliasRoot)
+        expect(result).toEqual(VALID_CHECKPOINT)
+      } finally {
+        await rm(aliasParent, { recursive: true, force: true })
+      }
+    })
+
+    it('readIndexCheckpointOrEmpty propagates the same CQ-103 refusal', async () => {
+      const external = await mkdtemp(join(tmpdir(), 'prosa-derived-checkpoint-cq103-empty-'))
+      try {
+        await symlink(external, join(bundleRoot, 'derived'))
+        await expect(readIndexCheckpointOrEmpty(bundleRoot)).rejects.toThrow(/CQ-103|symlink|intermediate/i)
+      } finally {
+        await rm(external, { recursive: true, force: true })
+      }
+    })
   })
 })

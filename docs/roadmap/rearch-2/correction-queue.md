@@ -4,7 +4,117 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 ## Open
 
-(none — `CQ-091`..`CQ-102` are all closed.)
+(none — `CQ-091`..`CQ-103` are all closed.)
+
+## Closed (latest first)
+
+### CQ-103: Tantivy Checkpoint Reads Must Reject Symlink Escapes — closed 2026-05-19
+
+Status: closed
+Severity: high
+Blocking: yes
+Owner: Ralph
+Opened: 2026-05-19
+Closed: 2026-05-19
+Lane: 3 - Derived layer
+
+Finding:
+
+The current Tantivy checkpoint WIP adds a CQ-096-style intermediate
+symlink guard to `writeIndexCheckpoint()`, which prevents checkpoint
+writes from traversing symlinked `<bundleRoot>/derived` or
+`<bundleRoot>/derived/tantivy`. However, `readIndexCheckpoint()` still
+uses `readFile(tantivyCheckpointPath(bundleRoot))` directly. That read
+follows symlinked intermediates and a symlinked final
+`checkpoint.json` component.
+
+Risk:
+
+`planTantivyRebuildFromBundle()` consumes checkpoint state to decide
+between skip, incremental, and full rebuilds. If checkpoint reads can
+follow an external symlink, an attacker or corrupted bundle can supply
+external `lastIndexedRowid`, schema fingerprint, status, or failure
+state while the planner believes it is reading canonical bundle-local
+state. This weakens the same managed-derived-tree containment already
+enforced for the Tantivy index directory and clear-reset paths.
+
+Required fix:
+
+- Apply the same intermediate symlink containment to
+  `readIndexCheckpoint()` and `readIndexCheckpointOrEmpty()` that the
+  WIP applies to `writeIndexCheckpoint()`.
+- Reject a symlinked final `checkpoint.json` component before reading.
+- Preserve existing fresh-bundle / missing-checkpoint behavior:
+  `readIndexCheckpoint()` returns `null` on a genuinely absent
+  checkpoint, and `readIndexCheckpointOrEmpty()` returns
+  `EMPTY_INDEX_CHECKPOINT`.
+- Preserve the supported symlinked bundle-root alias pattern; reject
+  only symlinks inside the managed derived tree.
+
+Acceptance criteria:
+
+- Tests prove checkpoint reads throw/refuse on:
+  - symlinked `<bundleRoot>/derived`;
+  - symlinked `<bundleRoot>/derived/tantivy`;
+  - symlinked final `checkpoint.json`.
+- Tests prove `writeIndexCheckpoint()` also refuses the managed
+  intermediate symlink cases and still accepts a symlinked bundle-root
+  alias.
+- Fresh-bundle / missing-checkpoint behavior remains unchanged.
+- Focused gates pass:
+  - `pnpm --filter @c3-oss/prosa-derived-v2 test`
+  - `pnpm --filter @c3-oss/prosa-derived-v2 typecheck`
+  - `pnpm --filter @c3-oss/prosa-derived-v2 lint`
+  - `git diff --check`
+- Update `docs/roadmap/rearch-2/evidence/lane-03.md`, `gates.md`,
+  `status.md`, and `ralph-loop-prompt.md` before closing.
+
+Closure note:
+
+Fix lands in this iteration alongside the same-pattern write-side
+hardening (which was itself preemptive). `readIndexCheckpoint`
+now:
+
+1. Calls `detectDerivedTantivyIntermediateSymlink(bundleRoot)`
+   first and throws when any managed intermediate
+   (`<bundleRoot>/derived`, `<bundleRoot>/derived/tantivy`) is a
+   symlink.
+2. `lstat`s the final `checkpoint.json` and throws on symlink
+   (CQ-103 final-component refusal) or non-regular-file. The
+   existing ENOENT → `null` contract is preserved for genuinely
+   absent state.
+3. Only after both guards pass does it `readFile` and parse the
+   canonical JSON.
+
+`readIndexCheckpointOrEmpty` inherits the refusal transitively
+because it calls `readIndexCheckpoint`. `writeIndexCheckpoint`
+already got the matching intermediate guard in the preemptive
+pass.
+
+The previously-private `detectDerivedTantivyIntermediateSymlink`
+helper is now exported from `tantivy/index-dir.ts` so the
+checkpoint store can import it without re-implementing the walk.
+
+Regression coverage (10 new tests total: 4 write-side + 6
+read-side):
+
+- Write: refuses symlinked `derived/tantivy`, symlinked `derived`,
+  accepts symlinked bundle-root alias, fresh-bundle still works.
+- Read: refuses symlinked `derived/tantivy` (with valid external
+  checkpoint to confirm policy not content), refuses symlinked
+  `derived`, refuses symlinked final `checkpoint.json`, refuses
+  directory-at-final-path, accepts symlinked bundle-root alias,
+  and `readIndexCheckpointOrEmpty` inherits the refusal.
+
+Validation:
+
+- `pnpm --filter @c3-oss/prosa-derived-v2 typecheck`: pass.
+- `pnpm --filter @c3-oss/prosa-derived-v2 test`: pass, 392 tests /
+  34 files.
+- `pnpm --filter @c3-oss/prosa-derived-v2 lint`: pass.
+- Full repo `pnpm build` / `pnpm test` / `pnpm lint`: 13/13 turbo.
+- `pnpm test:conformance`: pass, 26 / 2.
+- `git diff --check`: pass.
 
 ## Closed (latest first)
 

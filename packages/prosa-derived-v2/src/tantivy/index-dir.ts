@@ -57,7 +57,7 @@ import { derivedPaths } from '../derived-layout.js'
  * where the directory should be) is also reported as `escape: false`
  * here; the existing final-component checks already detect those.
  */
-async function detectDerivedTantivyIntermediateSymlink(
+export async function detectDerivedTantivyIntermediateSymlink(
   bundleRoot: string,
 ): Promise<{ escape: false } | { escape: true; path: string }> {
   const paths = derivedPaths(bundleRoot)

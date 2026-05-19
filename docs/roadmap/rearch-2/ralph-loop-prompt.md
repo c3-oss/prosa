@@ -34,7 +34,7 @@ section as the full restart instruction:
   asserts on-disk pack stability). Lane 3 derived-layer scaffold has
   landed in its own focused commit on top of the Lane 2 closeout per
   `CQ-083`.
-- All `CQ-074..CQ-102` are closed. Lane 3 progress includes the
+- All `CQ-074..CQ-103` are closed. Lane 3 progress includes the
   `loadSessionBlobPack` on-disk loader (`eb88037`) with CQ-098
   intermediate-symlink containment (`ea5f5d1`), production zstd
   codec (`62550e1`), SessionBlob listing helpers + shared
@@ -193,14 +193,15 @@ Keep these files current:
 
 ## Current Blocking Corrections
 
-Current open corrections: none — `CQ-091`..`CQ-102` are all closed.
-`CQ-102` closeout in this iteration added the two regressions Codex
-requested: a planner test for symlinked `epochs/<n>/projection`, and a
-planner-to-execution integration test that calls
-`planCompactionExecution({ bundleRoot, plan })` after planting three
-external attacks (symlinked epoch, projection, and final `.parquet`) and
-asserts every emitted statement's SQL references zero external paths and
-every output absolute path stays inside the bundle.
+Current open corrections: none — `CQ-091`..`CQ-103` are all closed.
+`CQ-103` closeout: `readIndexCheckpoint` now calls
+`detectDerivedTantivyIntermediateSymlink` first and `lstat`s the final
+`checkpoint.json`, throwing on symlinks at any managed intermediate or
+the final path. `readIndexCheckpointOrEmpty` inherits the refusal
+transitively. `writeIndexCheckpoint` got the matching intermediate
+guard in the same slice. Fresh-bundle null/EMPTY behavior preserved;
+symlinked bundle-root alias still supported. 10 regression tests
+(4 write + 6 read).
 
 Lane 2 is accepted by Codex/governor as of 2026-05-19; do not ask again for
 Lane 2 external acceptance and do not block Lane 3 on it. Lane 3 forward work

@@ -18,13 +18,14 @@
 // whitespace) so the same checkpoint always produces the same bytes
 // and a diff tool can compare two runs.
 
-import { mkdir, open, readFile, rename, unlink } from 'node:fs/promises'
+import { lstat, mkdir, open, readFile, rename, unlink } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { syncDir } from '@c3-oss/prosa-bundle-v2'
 
 import { derivedPaths } from '../derived-layout.js'
 import { canonicalJsonBytes } from '../session-blob/framing.js'
 
+import { detectDerivedTantivyIntermediateSymlink } from './index-dir.js'
 import { EMPTY_INDEX_CHECKPOINT, type IndexCheckpointV2 } from './rebuild-plan.js'
 
 const VALID_STATUSES = new Set<IndexCheckpointV2['status']>(['idle', 'building', 'ready', 'failed', null])
@@ -41,16 +42,41 @@ export function tantivyCheckpointPath(bundleRoot: string): string {
  * themselves. Throws when the file exists but is malformed — a corrupt
  * checkpoint is a real integrity failure the planner must not paper
  * over with `EMPTY_INDEX_CHECKPOINT`.
+ *
+ * CQ-103 containment: refuses to follow a symlinked managed
+ * intermediate (`<bundleRoot>/derived`, `<bundleRoot>/derived/tantivy`)
+ * or a symlinked final `checkpoint.json`. The same write-side guard
+ * is applied by `writeIndexCheckpoint`. A symlinked checkpoint
+ * surface is treated as integrity corruption — checkpoint state
+ * feeds Tantivy rebuild planning, so following an external target
+ * would let the planner consume rebuild state outside the bundle.
+ * Throws rather than returning `null` so the failure surfaces; the
+ * existing `null`-on-ENOENT contract is reserved for genuinely
+ * absent state.
  */
 export async function readIndexCheckpoint(bundleRoot: string): Promise<IndexCheckpointV2 | null> {
+  const intermediate = await detectDerivedTantivyIntermediateSymlink(bundleRoot)
+  if (intermediate.escape) {
+    throw new Error(
+      `readIndexCheckpoint: refusing to read — intermediate path ${intermediate.path} is a symlink (CQ-103). Resolve the symlink configuration manually before retrying.`,
+    )
+  }
   const path = tantivyCheckpointPath(bundleRoot)
-  let bytes: Buffer
   try {
-    bytes = await readFile(path)
+    const st = await lstat(path)
+    if (st.isSymbolicLink()) {
+      throw new Error(
+        `readIndexCheckpoint: refusing to read ${path} — final path is a symlink (CQ-103). Resolve the symlink configuration manually before retrying.`,
+      )
+    }
+    if (!st.isFile()) {
+      throw new Error(`readIndexCheckpoint: ${path} exists but is not a regular file`)
+    }
   } catch (err) {
     if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') return null
     throw err
   }
+  const bytes = await readFile(path)
   const text = bytes.toString('utf-8')
   let parsed: unknown
   try {
@@ -73,6 +99,19 @@ export async function readIndexCheckpoint(bundleRoot: string): Promise<IndexChec
 export async function writeIndexCheckpoint(bundleRoot: string, checkpoint: IndexCheckpointV2): Promise<void> {
   const path = tantivyCheckpointPath(bundleRoot)
   const dir = dirname(path)
+  // CQ-096-parallel containment: refuse to write the checkpoint
+  // when any managed intermediate (`<bundleRoot>/derived`,
+  // `<bundleRoot>/derived/tantivy`) is a symlink. Without this,
+  // `mkdir(dir, { recursive: true })` would resolve the
+  // intermediate symlink and write the checkpoint outside the
+  // bundle. Same policy as `clearTantivyIndexDir`: throw with
+  // the offending path quoted so an operator can investigate.
+  const intermediate = await detectDerivedTantivyIntermediateSymlink(bundleRoot)
+  if (intermediate.escape) {
+    throw new Error(
+      `writeIndexCheckpoint: refusing to write — intermediate path ${intermediate.path} is a symlink (CQ-096). Resolve the symlink configuration manually before retrying.`,
+    )
+  }
   const bytes = canonicalJsonBytes(checkpointToCanonicalShape(checkpoint))
   // Same-directory temp; suffix is unique per call so concurrent
   // writers cannot collide on the same temp path (the planner
