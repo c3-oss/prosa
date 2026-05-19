@@ -41,7 +41,7 @@ interface StatusSnapshot {
 }
 
 describe('prosa index-v2 CLI', () => {
-  it('`index-v2 --help` lists all ten subcommands (status, sessions, epochs, analytics-views, analytics-execution-plan, projection-segments, tantivy-rebuild-plan, compaction-plan, compaction-execution-plan, transcript)', async () => {
+  it('`index-v2 --help` lists every subcommand (status, sessions, epochs, analytics-views, analytics-execution-plan, projection-segments, tantivy-rebuild-plan, compaction-plan, compaction-execution-plan, transcript-header, transcript)', async () => {
     const r = runCli(['index-v2', '--help'])
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('Bundle v2 derived-layer index commands')
@@ -54,6 +54,7 @@ describe('prosa index-v2 CLI', () => {
     expect(r.stdout).toContain('tantivy-rebuild-plan')
     expect(r.stdout).toContain('compaction-plan')
     expect(r.stdout).toContain('compaction-execution-plan')
+    expect(r.stdout).toContain('transcript-header')
     expect(r.stdout).toContain('transcript')
   })
 
@@ -606,6 +607,119 @@ describe('prosa index-v2 CLI', () => {
     const r = runCli(['index-v2', 'compaction-execution-plan'])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/required option.*--store/i)
+  })
+
+  it('`index-v2 transcript-header --help` documents --store, --session-id, --epoch', async () => {
+    const r = runCli(['index-v2', 'transcript-header', '--help'])
+    expect(r.status).toBe(0)
+    expect(r.stdout).toContain('pack header')
+    expect(r.stdout).toContain('--store')
+    expect(r.stdout).toContain('--session-id')
+    expect(r.stdout).toContain('--epoch')
+  })
+
+  it('`index-v2 transcript-header` returns the page-aggregate header for the latest epoch', async () => {
+    const { writeSessionBlobPack, identityCompressor } = await import('@c3-oss/prosa-derived-v2')
+    const { sessionBlobEpochDir, sessionBlobPackPath } = await import('@c3-oss/prosa-derived-v2')
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    const messages = [
+      {
+        message_id: 'msg_000000',
+        ordinal: 0,
+        role: 'user' as const,
+        timestamp: '2026-05-19T00:00:00.000Z',
+        turn_id: 'tur_0',
+        blocks: [
+          {
+            block_id: 'blk_0_0',
+            block_type: 'text',
+            body: { kind: 'inline' as const, text: 'hi', byte_length: 2 },
+          },
+        ],
+      },
+    ]
+    const result = writeSessionBlobPack({ session_id: 'ses_alpha', epoch: 3, messages }, identityCompressor)
+    await mkdir(sessionBlobEpochDir(storeRoot, 3), { recursive: true })
+    await writeFile(sessionBlobPackPath(storeRoot, 'ses_alpha', 3), result.pack)
+
+    const r = runCli(['index-v2', 'transcript-header', '--store', storeRoot, '--session-id', 'ses_alpha'])
+    expect(r.status).toBe(0)
+    const out = JSON.parse(r.stdout) as {
+      epoch: number
+      path: string
+      pack_digest: string
+      header: { pack_digest: string; compression: string; epoch: number; page_count: number; pages: unknown[] }
+    }
+    expect(out.epoch).toBe(3)
+    expect(out.header.epoch).toBe(3)
+    expect(out.header.page_count).toBeGreaterThan(0)
+    expect(out.header.pages.length).toBe(out.header.page_count)
+    expect(typeof out.pack_digest).toBe('string')
+    expect(out.pack_digest.length).toBeGreaterThan(0)
+    // Pack-digest in the result equals the one stored in the header.
+    expect(out.header.pack_digest).toBe(out.pack_digest)
+  })
+
+  it('`index-v2 transcript-header --epoch <n>` reads the specific epoch instead of the latest', async () => {
+    const { writeSessionBlobPack, identityCompressor } = await import('@c3-oss/prosa-derived-v2')
+    const { sessionBlobEpochDir, sessionBlobPackPath } = await import('@c3-oss/prosa-derived-v2')
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    async function plant(epoch: number) {
+      const messages = [
+        {
+          message_id: `msg_e${epoch}`,
+          ordinal: 0,
+          role: 'user' as const,
+          timestamp: '2026-05-19T00:00:00.000Z',
+          turn_id: 'tur_0',
+          blocks: [
+            {
+              block_id: 'blk_0_0',
+              block_type: 'text',
+              body: { kind: 'inline' as const, text: `epoch ${epoch}`, byte_length: `epoch ${epoch}`.length },
+            },
+          ],
+        },
+      ]
+      const result = writeSessionBlobPack({ session_id: 'ses_alpha', epoch, messages }, identityCompressor)
+      await mkdir(sessionBlobEpochDir(storeRoot, epoch), { recursive: true })
+      await writeFile(sessionBlobPackPath(storeRoot, 'ses_alpha', epoch), result.pack)
+    }
+    await plant(1)
+    await plant(4)
+
+    const rLatest = runCli(['index-v2', 'transcript-header', '--store', storeRoot, '--session-id', 'ses_alpha'])
+    expect(rLatest.status).toBe(0)
+    expect((JSON.parse(rLatest.stdout) as { epoch: number }).epoch).toBe(4)
+
+    const rOlder = runCli([
+      'index-v2',
+      'transcript-header',
+      '--store',
+      storeRoot,
+      '--session-id',
+      'ses_alpha',
+      '--epoch',
+      '1',
+    ])
+    expect(rOlder.status).toBe(0)
+    expect((JSON.parse(rOlder.stdout) as { epoch: number }).epoch).toBe(1)
+  })
+
+  it('`index-v2 transcript-header` rejects a negative --epoch', async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    const r = runCli([
+      'index-v2',
+      'transcript-header',
+      '--store',
+      storeRoot,
+      '--session-id',
+      'ses_alpha',
+      '--epoch',
+      '-2',
+    ])
+    expect(r.status).not.toBe(0)
+    expect(r.stderr).toMatch(/invalid --epoch/i)
   })
 
   it('`index-v2 transcript --help` documents --store and --session-id', async () => {

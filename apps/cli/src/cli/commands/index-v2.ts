@@ -31,6 +31,7 @@ import {
   planCompaction,
   planCompactionExecution,
   planTantivyRebuildFromBundle,
+  readSessionBlobHeader,
   summariseProjectionSegments,
 } from '@c3-oss/prosa-derived-v2'
 import { Command } from 'commander'
@@ -177,6 +178,25 @@ export function indexV2Command(): Command {
       const plan = await planCompaction(storePath)
       const execution = planCompactionExecution({ bundleRoot: storePath, plan })
       process.stdout.write(`${JSON.stringify(execution, null, 2)}\n`)
+    })
+
+  root
+    .command('transcript-header')
+    .description(
+      "Print a session's pack header (epoch + pack_digest + per-page aggregates) without decompressing any page. Cheap header-only probe over the latest pack (default) or a specific --epoch.",
+    )
+    .requiredOption('--store <path>', 'bundle directory')
+    .requiredOption('--session-id <id>', 'canonical session_id (matches `index-v2 sessions` rows)')
+    .option('--epoch <n>', 'specific epoch to read instead of the latest pack', undefined)
+    .action(async (options: { store: string; sessionId: string; epoch?: string }) => {
+      const storePath = resolvePath(options.store)
+      const epoch = options.epoch !== undefined ? parseNonNegativeInteger('--epoch', options.epoch) : undefined
+      const header = await readSessionBlobHeader({
+        bundleRoot: storePath,
+        sessionId: options.sessionId,
+        epoch,
+      })
+      process.stdout.write(`${JSON.stringify(header, null, 2)}\n`)
     })
 
   root
