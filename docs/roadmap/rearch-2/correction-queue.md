@@ -4,9 +4,110 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 ## Open
 
-(none — `CQ-091`..`CQ-101` are all closed.)
+(none — `CQ-091`..`CQ-102` are all closed.)
 
 ## Closed (latest first)
+
+### CQ-102: Complete CQ-101 Planner/Execution Containment Evidence — closed 2026-05-19
+
+Status: closed
+Severity: medium
+Blocking: yes
+Owner: Ralph
+Opened: 2026-05-19
+Closed: 2026-05-19
+Lane: 3 - Derived layer
+
+Finding:
+
+`CQ-101` is closed, and the implementation now routes
+`planCompaction()` through `listProjectionSegments()`, which is the
+right containment shape. However, the written `CQ-101` acceptance
+criteria are not fully proven by the closeout evidence. The closure
+note says "3 regression tests prove the inherited behaviour at every
+chain level", but those planner tests cover only symlinked
+`<bundleRoot>/epochs`, symlinked `epochs/<n>`, and symlinked final
+`.parquet` files. They do not directly cover a symlinked
+`epochs/<n>/projection` directory through `planCompaction()`, and no
+test composes the resulting plan through `planCompactionExecution()`
+to prove execution statements never receive external symlink targets.
+
+Risk:
+
+The code path is probably safe because `planCompaction()` now shares
+the hardened listing helper, but the gate evidence overclaims the
+tested surface. This is exactly the kind of evidence drift that lets a
+future planner/listing split reintroduce a containment bug while the
+roadmap still claims planner and execution coverage.
+
+Required fix:
+
+- Add a planner regression proving a symlinked
+  `epochs/<n>/projection` directory is silently dropped and cannot
+  fire compaction by contributing external segments.
+- Add an integrated planner-to-execution regression proving that
+  symlinked `epochs/<n>`, symlinked `epochs/<n>/projection`, and
+  symlinked final `.parquet` cases do not produce
+  `planCompactionExecution()` statements containing external absolute
+  paths.
+- Reconcile the `CQ-101` closure note / Lane 3 evidence so it names
+  the actual coverage without overclaiming.
+
+Acceptance criteria:
+
+- Focused tests cover the missing symlinked `projection/` planner
+  case.
+- Focused tests prove `planCompactionExecution()` receives no external
+  symlink target paths from the `CQ-101` containment cases.
+- Focused gates pass:
+  - `pnpm --filter @c3-oss/prosa-derived-v2 test`
+  - `pnpm --filter @c3-oss/prosa-derived-v2 typecheck`
+  - `pnpm --filter @c3-oss/prosa-derived-v2 lint`
+  - `git diff --check`
+- Update `docs/roadmap/rearch-2/evidence/lane-03.md`, `gates.md`,
+  `status.md`, and `ralph-loop-prompt.md` before closing.
+
+Closure note:
+
+Fix lands in this iteration. Two regression tests added under the
+`CQ-101: containment hardening inherited from listProjectionSegments`
+suite in `planner.test.ts`:
+
+- `CQ-102: silently drops a symlinked epochs/<n>/projection/
+  directory from the plan` — plants 16 real small segments
+  (low-count trigger boundary) + a 5-segment external dir
+  symlinked through `epochs/17/projection`. Plan stays empty
+  because the symlinked projection dir is silently dropped before
+  the policy decision.
+- `CQ-102: planner-to-execution: planCompactionExecution never
+  receives external symlink targets` — plants 17 real segments
+  (triggers the low-count trigger so the plan emits an entity
+  row) plus three external attacks: symlinked `epochs/99` (whole
+  epoch), symlinked `epochs/100/projection` (projection only),
+  and symlinked `epochs/101/projection/sessions.parquet` (final
+  file). Calls `planCompactionExecution({ bundleRoot, plan })`
+  and asserts that for every emitted statement, the SQL string
+  contains zero references to any of the four external paths,
+  the output absolute path stays inside the bundle, and every
+  segment in the plan resolves to a path under the bundle root.
+- Belt-and-suspenders re-verification through the plan
+  structure itself: even if the executor-plan composer stops
+  embedding absolute input paths in the SQL, the plan-level
+  paths are checked separately.
+
+Closure also reconciles the CQ-101 evidence quote in the lane
+docs to name the actual coverage (no "every chain level"
+overclaim).
+
+Validation:
+
+- `pnpm --filter @c3-oss/prosa-derived-v2 typecheck`: pass.
+- `pnpm --filter @c3-oss/prosa-derived-v2 test`: pass, 382 tests /
+  34 files.
+- `pnpm --filter @c3-oss/prosa-derived-v2 lint`: pass.
+- Full repo `pnpm build` / `pnpm test` / `pnpm lint`: 13/13 turbo.
+- `pnpm test:conformance`: pass, 26 / 2.
+- `git diff --check`: pass.
 
 ### CQ-101: Apply Projection-Segment Symlink Containment to Compaction Planner — closed 2026-05-19
 

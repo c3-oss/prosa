@@ -12,6 +12,7 @@ import { join, sep } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
 
+import { planCompactionExecution } from '../../src/compaction/executor-plan.js'
 import { planCompaction } from '../../src/compaction/planner.js'
 import { COMPACTION_FILE_COUNT_TRIGGER } from '../../src/compaction/policy.js'
 
@@ -177,6 +178,103 @@ describe('planCompaction', () => {
         // real segments are counted, which is exactly at (not >)
         // the low-count trigger, so the plan stays empty.
         expect(plan.empty).toBe(true)
+      } finally {
+        await rm(external, { recursive: true, force: true })
+      }
+    })
+
+    it('CQ-102: silently drops a symlinked `epochs/<n>/projection/` directory from the plan', async () => {
+      const root = await tmp()
+      // 16 real segments at the low-count trigger boundary.
+      for (let epoch = 1; epoch <= 16; epoch++) {
+        await writeSegment(root, epoch, 'sessions', 100)
+      }
+      // Epoch 17 has a real epoch dir but its `projection/` is a
+      // symlink to an external location with 5 segments — following
+      // it would push count to 21 and fire the low-count trigger.
+      await mkdir(join(root, 'epochs', '17'), { recursive: true })
+      const external = await mkdtemp(join(tmpdir(), 'prosa-compaction-planner-cq102-proj-'))
+      try {
+        for (let i = 0; i < 5; i++) {
+          await writeFile(join(external, `session_${i}.parquet`), Buffer.alloc(100))
+        }
+        await symlink(external, join(root, 'epochs', '17', 'projection'))
+
+        const plan = await planCompaction(root)
+        expect(plan.empty).toBe(true)
+      } finally {
+        await rm(external, { recursive: true, force: true })
+      }
+    })
+
+    it('CQ-102: planner-to-execution: planCompactionExecution never receives external symlink targets', async () => {
+      const root = await tmp()
+      // Plant enough small segments to fire the low-count trigger
+      // (17 > 16) so the planner emits at least one entity entry,
+      // and we can verify the execution plan it produces refers only
+      // to real bundle paths.
+      for (let epoch = 1; epoch <= 17; epoch++) {
+        await writeSegment(root, epoch, 'sessions', 100)
+      }
+      // Plant a symlinked epoch dir + symlinked projection dir +
+      // symlinked `.parquet` — every level should be dropped before
+      // the planner's segment list reaches `planCompactionExecution`.
+      const external = await mkdtemp(join(tmpdir(), 'prosa-compaction-planner-cq102-exec-'))
+      try {
+        // Symlinked epoch
+        const externalEpochProj = join(external, 'sym-epoch', 'projection')
+        await mkdir(externalEpochProj, { recursive: true })
+        await writeFile(join(externalEpochProj, 'sessions.parquet'), Buffer.alloc(100))
+        await symlink(join(external, 'sym-epoch'), join(root, 'epochs', '99'))
+
+        // Symlinked projection on a real epoch
+        await mkdir(join(root, 'epochs', '100'), { recursive: true })
+        const externalProj = join(external, 'sym-proj')
+        await mkdir(externalProj, { recursive: true })
+        await writeFile(join(externalProj, 'sessions.parquet'), Buffer.alloc(100))
+        await symlink(externalProj, join(root, 'epochs', '100', 'projection'))
+
+        // Symlinked .parquet on a real epoch+projection
+        await mkdir(join(root, 'epochs', '101', 'projection'), { recursive: true })
+        await writeFile(join(external, 'external-file.parquet'), Buffer.alloc(100))
+        await symlink(
+          join(external, 'external-file.parquet'),
+          join(root, 'epochs', '101', 'projection', 'sessions.parquet'),
+        )
+
+        const plan = await planCompaction(root)
+        const execution = planCompactionExecution({ bundleRoot: root, plan })
+
+        // The execution plan must reference ONLY paths inside the
+        // canonical bundle root — no external symlink targets.
+        const allExternalPaths = [
+          external,
+          join(external, 'sym-epoch'),
+          join(external, 'sym-proj'),
+          join(external, 'external-file.parquet'),
+        ]
+        for (const statement of execution.statements) {
+          for (const externalPath of allExternalPaths) {
+            expect(statement.sql).not.toContain(externalPath)
+          }
+          // Output path must be inside the bundle.
+          expect(statement.outputAbsPath.startsWith(root)).toBe(true)
+        }
+        // Every input segment path the planner picked must be
+        // inside the bundle. Belt-and-suspenders: re-verify against
+        // the plan itself in case `planCompactionExecution` doesn't
+        // include the absolute input path in the SQL string.
+        for (const entity of plan.entities) {
+          for (const seg of entity.segmentsToMerge) {
+            // Relative paths in the plan; resolved against the
+            // bundle root, they must stay inside the bundle.
+            const resolved = join(root, seg.path)
+            expect(resolved.startsWith(root)).toBe(true)
+            for (const externalPath of allExternalPaths) {
+              expect(resolved.startsWith(externalPath)).toBe(false)
+            }
+          }
+        }
       } finally {
         await rm(external, { recursive: true, force: true })
       }

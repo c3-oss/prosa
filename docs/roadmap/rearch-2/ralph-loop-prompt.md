@@ -34,7 +34,7 @@ section as the full restart instruction:
   asserts on-disk pack stability). Lane 3 derived-layer scaffold has
   landed in its own focused commit on top of the Lane 2 closeout per
   `CQ-083`.
-- All `CQ-074..CQ-101` are closed. Lane 3 progress includes the
+- All `CQ-074..CQ-102` are closed. Lane 3 progress includes the
   `loadSessionBlobPack` on-disk loader (`eb88037`) with CQ-098
   intermediate-symlink containment (`ea5f5d1`), production zstd
   codec (`62550e1`), SessionBlob listing helpers + shared
@@ -193,21 +193,19 @@ Keep these files current:
 
 ## Current Blocking Corrections
 
-Current open corrections: none — `CQ-091`..`CQ-101` are all closed.
-`CQ-101` closeout: `planCompaction()` was refactored to route the
-entire segment enumeration through `listProjectionSegments()`, which
-already enforces the projection-tree containment (symlinked `epochs/`
-throws; symlinked `epochs/<n>/`, `epochs/<n>/projection/`, and
-`.parquet` files are silently dropped). The planner's previous
-`readdir`+`stat` walk and its `name_is_compact_dir` helper were
-removed; 3 regression tests prove the inherited behaviour at every
-chain level.
+Current open corrections: none — `CQ-091`..`CQ-102` are all closed.
+`CQ-102` closeout in this iteration added the two regressions Codex
+requested: a planner test for symlinked `epochs/<n>/projection`, and a
+planner-to-execution integration test that calls
+`planCompactionExecution({ bundleRoot, plan })` after planting three
+external attacks (symlinked epoch, projection, and final `.parquet`) and
+asserts every emitted statement's SQL references zero external paths and
+every output absolute path stays inside the bundle.
 
 Lane 2 is accepted by Codex/governor as of 2026-05-19; do not ask again for
 Lane 2 external acceptance and do not block Lane 3 on it. Lane 3 forward work
 continues on the remaining surfaces (Tantivy native writer, DuckDB runtime
-executor, Parquet merge worker), subject to closing the open Lane 3 correction
-before final acceptance.
+executor, Parquet merge worker).
 
 Lane 0 + Lane 1 are accepted by the project owner on 2026-05-18, including the
 two re-scopes in `docs/rearch-2/lane-1-rescopes.md`.
