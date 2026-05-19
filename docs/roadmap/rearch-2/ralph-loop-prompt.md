@@ -137,8 +137,8 @@ section as the full restart instruction:
   (`b64141e`), `prosa index-v2 derived-layout` path-
   introspection subcommand (`2a5a99f`),
   `detectCompactionOverlaps` cross-seq correctness audit +
-  `prosa index-v2 compaction-overlaps` CLI subcommand (pending
-  commit), plus the prior scaffold
+  `prosa index-v2 compaction-overlaps` CLI subcommand
+  (`9033b5b`), plus the prior scaffold
   (`bb76006`), SessionBlobPackV2 byte layout (`ba87f05`), Parquet
   compaction planner (`ea8c1a8`), DuckDB analytics view shape contract
   + compacted-overlay binding (`cff3670` / `e35f844`), Tantivy schema
