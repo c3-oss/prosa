@@ -30,6 +30,7 @@ import {
   derivedLayerEpochsTouched,
   derivedLayerMaintenanceSummary,
   derivedLayerSnapshot,
+  derivedPaths,
   formatTranscriptMarkdownV2,
   formatTranscriptTextV2,
   getSessionBlobSummary,
@@ -300,6 +301,18 @@ export function indexV2Command(): Command {
       const storePath = resolvePath(options.store)
       const plan = await planSupersededCleanup(storePath)
       process.stdout.write(`${JSON.stringify(plan, null, 2)}\n`)
+    })
+
+  root
+    .command('derived-layout')
+    .description(
+      'Print the resolved absolute paths for the derived-layer subsystems under `<store>` (root, derived, tantivy, tantivyIndex, tantivyMeta, tantivyCheckpoint, sessionBlob, analytics). Pure path resolution: does not touch the filesystem. Useful for ops scripts that need to know where to look.',
+    )
+    .requiredOption('--store <path>', 'bundle directory')
+    .action(async (options: { store: string }) => {
+      const storePath = resolvePath(options.store)
+      const layout = derivedPaths(storePath)
+      process.stdout.write(`${JSON.stringify(layout, null, 2)}\n`)
     })
 
   root

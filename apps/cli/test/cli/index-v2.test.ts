@@ -66,6 +66,7 @@ describe('prosa index-v2 CLI', () => {
     expect(r.stdout).toContain('footprint')
     expect(r.stdout).toContain('capabilities')
     expect(r.stdout).toContain('snapshot')
+    expect(r.stdout).toContain('derived-layout')
     expect(r.stdout).toContain('superseded-segments')
     expect(r.stdout).toContain('verify-packs')
     expect(r.stdout).toContain('transcript-header')
@@ -1464,6 +1465,52 @@ describe('prosa index-v2 CLI', () => {
 
   it('`index-v2 snapshot` fails when --store is missing', async () => {
     const r = runCli(['index-v2', 'snapshot'])
+    expect(r.status).not.toBe(0)
+    expect(r.stderr).toMatch(/required option.*--store/i)
+  })
+
+  it('`index-v2 derived-layout --help` documents --store and the path-resolution contract', async () => {
+    const r = runCli(['index-v2', 'derived-layout', '--help'])
+    expect(r.status).toBe(0)
+    expect(r.stdout).toContain('resolved absolute paths')
+    expect(r.stdout).toContain('--store')
+  })
+
+  it('`index-v2 derived-layout` emits the canonical subsystem paths anchored at --store', async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    const r = runCli(['index-v2', 'derived-layout', '--store', storeRoot])
+    expect(r.status).toBe(0)
+    const layout = JSON.parse(r.stdout) as {
+      root: string
+      derived: string
+      tantivy: string
+      tantivyIndex: string
+      tantivyMeta: string
+      tantivyCheckpoint: string
+      sessionBlob: string
+      analytics: string
+    }
+    expect(layout.root).toBe(storeRoot)
+    expect(layout.derived).toBe(join(storeRoot, 'derived'))
+    expect(layout.tantivy).toBe(join(storeRoot, 'derived', 'tantivy'))
+    expect(layout.tantivyIndex).toBe(join(storeRoot, 'derived', 'tantivy', 'index'))
+    expect(layout.tantivyMeta).toBe(join(storeRoot, 'derived', 'tantivy', 'index', 'meta.json'))
+    expect(layout.tantivyCheckpoint).toBe(join(storeRoot, 'derived', 'tantivy', 'checkpoint.json'))
+    expect(layout.sessionBlob).toBe(join(storeRoot, 'derived', 'session-blob'))
+    expect(layout.analytics).toBe(join(storeRoot, 'derived', 'analytics'))
+  })
+
+  it('`index-v2 derived-layout` does not touch the filesystem (works on a non-existent store)', async () => {
+    const ghostStore = join(await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-')), 'this-does-not-exist')
+    const r = runCli(['index-v2', 'derived-layout', '--store', ghostStore])
+    expect(r.status).toBe(0)
+    const layout = JSON.parse(r.stdout) as { root: string; derived: string }
+    expect(layout.root).toBe(ghostStore)
+    expect(layout.derived).toBe(join(ghostStore, 'derived'))
+  })
+
+  it('`index-v2 derived-layout` fails when --store is missing', async () => {
+    const r = runCli(['index-v2', 'derived-layout'])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/required option.*--store/i)
   })
