@@ -13,7 +13,7 @@ Production zstd landed at `62550e1`. SessionBlob listing helpers +
 shared containment refactor + CQ-099 resolver-parity landed at
 `f8a2b7a`. `loadLatestSessionBlobPack` landed at `f0a6ba7`.
 `loadTranscriptFromBundle` end-to-end loader + CQ-100
-input-validation-before-listing fix landing in this iteration.
+input-validation-before-listing fix landed at `d9dfc19`.
 Tantivy writer, DuckDB analytics view definitions, and the runtime
 compaction worker still pending.
 Owner: Ralph
