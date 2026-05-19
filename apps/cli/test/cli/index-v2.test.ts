@@ -41,7 +41,7 @@ interface StatusSnapshot {
 }
 
 describe('prosa index-v2 CLI', () => {
-  it('`index-v2 --help` lists every subcommand (status, sessions, epochs, analytics-views, analytics-execution-plan, projection-segments, tantivy-rebuild-plan, compaction-plan, compaction-manifest, compaction-execution-plan, verify-packs, transcript-header, transcript)', async () => {
+  it('`index-v2 --help` lists every subcommand (status, sessions, epochs, analytics-views, analytics-execution-plan, projection-segments, tantivy-schema, tantivy-rebuild-plan, compaction-plan, compaction-manifest, compaction-execution-plan, verify-packs, transcript-header, transcript)', async () => {
     const r = runCli(['index-v2', '--help'])
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('Bundle v2 derived-layer index commands')
@@ -51,6 +51,7 @@ describe('prosa index-v2 CLI', () => {
     expect(r.stdout).toContain('analytics-views')
     expect(r.stdout).toContain('analytics-execution-plan')
     expect(r.stdout).toContain('projection-segments')
+    expect(r.stdout).toContain('tantivy-schema')
     expect(r.stdout).toContain('tantivy-rebuild-plan')
     expect(r.stdout).toContain('compaction-plan')
     expect(r.stdout).toContain('compaction-manifest')
@@ -479,6 +480,46 @@ describe('prosa index-v2 CLI', () => {
     const r = runCli(['index-v2', 'analytics-execution-plan', '--store', storeRoot])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/required option.*--view/i)
+  })
+
+  it('`index-v2 tantivy-schema --help` documents the schema endpoint and takes no --store option', async () => {
+    const r = runCli(['index-v2', 'tantivy-schema', '--help'])
+    expect(r.status).toBe(0)
+    expect(r.stdout).toContain('Tantivy field schema')
+    expect(r.stdout).not.toMatch(/--store\s+<path>/)
+  })
+
+  it('`index-v2 tantivy-schema` prints the canonical fields + fingerprint', async () => {
+    const r = runCli(['index-v2', 'tantivy-schema'])
+    expect(r.status).toBe(0)
+    const out = JSON.parse(r.stdout) as {
+      fingerprint: string
+      fields: Array<{ name: string; tokenizer: 'raw' | 'default' }>
+    }
+    expect(out.fingerprint).toMatch(/^blake3:[0-9a-f]{64}$/)
+    // The `text` field is the only `default`-tokenized field in the schema.
+    const defaultTokenized = out.fields.filter((f) => f.tokenizer === 'default').map((f) => f.name)
+    expect(defaultTokenized).toEqual(['text'])
+    // Every canonical raw-tokenized field is present in canonical order.
+    const rawNames = out.fields.filter((f) => f.tokenizer === 'raw').map((f) => f.name)
+    expect(rawNames).toContain('doc_id')
+    expect(rawNames).toContain('session_id')
+    expect(rawNames).toContain('timestamp')
+    // The first field is `doc_id` (canonical order is fingerprint-locked).
+    expect(out.fields[0]?.name).toBe('doc_id')
+  })
+
+  it('`index-v2 tantivy-schema` fingerprint matches `index-v2 status.tantivy.current_schema_fingerprint`', async () => {
+    const schemaResult = runCli(['index-v2', 'tantivy-schema'])
+    expect(schemaResult.status).toBe(0)
+    const schemaFingerprint = (JSON.parse(schemaResult.stdout) as { fingerprint: string }).fingerprint
+
+    const storeRoot = join(await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-')), 'never-initialised')
+    const statusResult = runCli(['index-v2', 'status', '--store', storeRoot])
+    expect(statusResult.status).toBe(0)
+    const statusFingerprint = (JSON.parse(statusResult.stdout) as { tantivy: { current_schema_fingerprint: string } })
+      .tantivy.current_schema_fingerprint
+    expect(schemaFingerprint).toBe(statusFingerprint)
   })
 
   it('`index-v2 tantivy-rebuild-plan --help` documents --store, --current-max-rowid, --overwrite', async () => {

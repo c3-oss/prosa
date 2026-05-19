@@ -21,9 +21,11 @@ import { resolve as resolvePath } from 'node:path'
 import {
   ANALYTICS_VIEW_NAMES,
   type AnalyticsViewName,
+  TANTIVY_SCHEMA_FIELDS,
   analyticsViewsDescriptor,
   buildCompactManifestV2,
   bundleDerivedStatus,
+  currentTantivySchemaFingerprint,
   derivedLayerEpochsTouched,
   formatTranscriptMarkdownV2,
   formatTranscriptTextV2,
@@ -144,6 +146,19 @@ export function indexV2Command(): Command {
         reportQuery: options.reportQuery,
       })
       process.stdout.write(`${JSON.stringify(plan, null, 2)}\n`)
+    })
+
+  root
+    .command('tantivy-schema')
+    .description(
+      'Print the Tantivy field schema (name + tokenizer) the Lane 3 writer uses, with the current schema fingerprint. Takes no --store; the schema is content-free. Mirrors `analytics-views` for the Tantivy side.',
+    )
+    .action(() => {
+      const out = {
+        fingerprint: currentTantivySchemaFingerprint(),
+        fields: TANTIVY_SCHEMA_FIELDS.map((field) => ({ name: field.name, tokenizer: field.tokenizer })),
+      }
+      process.stdout.write(`${JSON.stringify(out, null, 2)}\n`)
     })
 
   root
