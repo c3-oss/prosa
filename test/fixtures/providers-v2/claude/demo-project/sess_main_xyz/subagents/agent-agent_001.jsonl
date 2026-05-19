@@ -1,0 +1,2 @@
+{"type":"user","uuid":"sub-rec-1","parentUuid":null,"sessionId":"sess_main_xyz","agentId":"agent_001","isSidechain":true,"timestamp":"2025-01-02T03:04:09.000Z","message":{"role":"user","content":[{"type":"text","text":"subagent task"}]}}
+{"type":"assistant","uuid":"sub-rec-2","parentUuid":"sub-rec-1","sessionId":"sess_main_xyz","agentId":"agent_001","isSidechain":true,"timestamp":"2025-01-02T03:04:10.000Z","message":{"role":"assistant","model":"claude-haiku-4-5","content":[{"type":"text","text":"subagent done"}]}}

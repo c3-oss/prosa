@@ -27,19 +27,22 @@ section as the full restart instruction:
 - Read this prompt, `docs/roadmap/rearch-2/correction-queue.md`,
   `docs/roadmap/rearch-2/gates.md`, `docs/roadmap/rearch-2/status.md`, and
   `docs/rearch-2/03-lane-2-importers.md`.
-- User direction: Lane 1 is accepted. Continue Lane 2 provider-importer work.
-- Close the current blocking corrections named in
-  `docs/roadmap/rearch-2/correction-queue.md` with code, tests, and evidence.
-  As of Codex review after `58cca83`, that is `CQ-074`.
-- `CQ-074` blocks Lane 2 acceptance, Lane 3 start, and `RALPH_DONE`. The user
-  rejected the Lane 2 re-scope and directed full per-record projection across
-  all 5 providers + fixture corpora + cross-provider idempotency conformance.
+- User direction: Lane 1 is accepted. The Lane 2 implementation contract is
+  now complete: all 5 providers ship full per-record projection on canonical
+  schema fields + shared fixture corpora under
+  `test/fixtures/providers-v2/` + cross-provider idempotency conformance at
+  `test/conformance/providers-v2-idempotency.test.ts`.
+- `CQ-074`, `CQ-075`, `CQ-076`, `CQ-077`, `CQ-078`, `CQ-079`, and `CQ-080`
+  are all closed. There are no open blocking corrections. Lane 2 acceptance
+  still requires Codex/governor/user sign-off.
 - CodexProvider full per-record projection landed at `d302bc6` (closed
   CQ-075/CQ-076). ClaudeProvider at `7eaed27`. GeminiProvider at `b660f44`.
-  HermesProvider at `8c1714f`. CursorProvider full per-record projection
-  lands in this iteration (closes CQ-077 + CQ-078). All 5 providers now ship
-  full projection. Continue `CQ-074` with the shared fixture corpora and the
-  cross-provider idempotency conformance test.
+  HermesProvider at `8c1714f`. CursorProvider at `af27eba` (closed
+  CQ-077/CQ-078). The Lane 2 closeout commit on top of this iteration adds
+  the shared fixture corpora + providers-v2 idempotency conformance suite +
+  root `better-sqlite3` / `@types/better-sqlite3` devDependency, and closes
+  `CQ-074` + `CQ-079` + `CQ-080`. `pnpm test:conformance` reports 21 tests
+  / 2 files (15 leaves + 6 providers-v2 idempotency cases).
 - If a correction needs a Codex/governor decision, ask one clear binary
   accept/reject question with a safe default. Do not loop on "external
   acceptance" as if Codex were unavailable.
@@ -157,31 +160,28 @@ Keep these files current:
 
 Current open correction:
 
-- `CQ-074`: implement the full Lane 2 importer contract (per-record projection
-  across Codex/Claude/Cursor/Gemini/Hermes + fixture corpora +
-  cross-provider idempotency conformance). Blocks Lane 2 acceptance, Lane 3
-  start, and `RALPH_DONE`. All 5 providers now ship full per-record
-  projection; shared fixture corpora under `test/fixtures/providers-v2/`
-  and the cross-provider idempotency conformance test are still pending.
+(none — `CQ-074`, `CQ-075`, `CQ-076`, `CQ-077`, `CQ-078`, `CQ-079`,
+and `CQ-080` are all closed. Lane 2 implementation contract is
+complete; Lane 2 acceptance is pending Codex/governor/user sign-off.
+Next: enter the mandatory five-cycle final stabilization wait once
+Codex confirms acceptance, then proceed to Lane 3.)
 
 Lane 0 + Lane 1 are accepted by the project owner on 2026-05-18, including the
 two re-scopes in `docs/rearch-2/lane-1-rescopes.md`.
 
-Lane 2 (importers) is the active lane. The orchestrator,
-`GraphResolver`, and mock-provider tests already landed at `004107c`.
-`fc66925` landed a minimal CodexProvider, `8c0ba5f` landed a minimal
-ClaudeProvider, `aa88079` landed Claude spawned edges plus a minimal
-CursorProvider, `c496bac` landed minimal Gemini/Hermes providers plus the
-Cursor logical-key fix, `58cca83` landed the CLI help-smoke closeout,
-`d302bc6` landed CodexProvider full per-record projection, `7eaed27`
-landed ClaudeProvider full per-record projection, `b660f44` landed
-GeminiProvider full per-record projection, and `8c1714f` landed
-HermesProvider full per-record projection. **This iteration** lands
-CursorProvider full per-record projection over a real SQLite reader
-(`better-sqlite3` workspace dep added; closes CQ-077 + CQ-078). All 5
-providers now ship full projection. The shared fixture corpora and
-cross-provider idempotency conformance remain required before Lane 2 can
-be accepted.
+Lane 2 (importers) implementation is complete. The orchestrator,
+`GraphResolver`, and mock-provider tests landed at `004107c`. Minimal
+provider slices: `fc66925` (Codex), `8c0ba5f` (Claude), `aa88079`
+(Claude spawned edges + Cursor), `c496bac` (Gemini + Hermes + Cursor
+logical-key fix). CLI help-smoke closeout: `58cca83`. Full per-record
+projection: `d302bc6` (Codex), `7eaed27` (Claude), `b660f44` (Gemini),
+`8c1714f` (Hermes), `af27eba` (Cursor over a real SQLite reader). **This
+iteration** lands the Lane 2 closeout: shared fixture corpora under
+`test/fixtures/providers-v2/` and the cross-provider idempotency
+conformance suite at `test/conformance/providers-v2-idempotency.test.ts`,
+plus the root `better-sqlite3` / `@types/better-sqlite3` devDependency
+the conformance test needs. Closes `CQ-074` + `CQ-079` + `CQ-080`. Lane
+2 acceptance still requires Codex/governor/user sign-off.
 
 Subsequent lanes (3 derived layer, 4 server beyond DB scaffold,
 5 sync protocol, 6 read API, 7 CLI+MCP, 8 audit+GC, 9 migration,

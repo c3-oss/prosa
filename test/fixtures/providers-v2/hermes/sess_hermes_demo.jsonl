@@ -1,0 +1,4 @@
+{"session_id":"sess_hermes_demo","role":"session_meta","id":"hm0","timestamp":"2025-01-02T03:04:05.123Z","model":"gpt-4o"}
+{"session_id":"sess_hermes_demo","role":"user","id":"hm1","timestamp":"2025-01-02T03:04:06.000Z","content":"list the files"}
+{"session_id":"sess_hermes_demo","role":"assistant","id":"hm2","timestamp":"2025-01-02T03:04:07.000Z","model":"gpt-4o","content":"I'll list them now.","reasoning":"Choose a quick listing strategy.","tool_calls":[{"id":"hm_tc1","function":{"name":"run_shell_command","arguments":{"command":"ls /repo"}}}]}
+{"session_id":"sess_hermes_demo","role":"tool","id":"hm3","timestamp":"2025-01-02T03:04:08.000Z","tool_call_id":"hm_tc1","tool_name":"run_shell_command","content":"file1\nfile2\n"}

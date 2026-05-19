@@ -7,7 +7,7 @@
 | `pnpm i` | yes | pass | `pnpm install --frozen-lockfile`-compatible. Pre-existing peer warning: `@c3-oss/config-vitest@0.3.0` wants vitest ^3.1.1, repo on 2.1.9. |
 | `pnpm build` | yes | pass | 10/10 turbo tasks (now includes `@c3-oss/prosa-bundle-v2`). |
 | `just typecheck` | yes | pass | 10/10 turbo tasks. |
-| `just test-all` | yes | pass | 12/12 turbo at HEAD post-Cursor full per-record projection (all 5 providers ship full projection on canonical schema fields). Focused counts: `@c3-oss/prosa-types-v2` 89, `@c3-oss/prosa-wire-v2` 21, conformance 15, `@c3-oss/prosa-bundle-v2` **120**, `@c3-oss/prosa-importers-v2` **40** (+5 CQ-074 full-projection assertions across all providers), `@c3-oss/prosa-db-v2` 6. |
+| `just test-all` | yes | pass | 12/12 turbo at HEAD post-CQ-074 closeout (full Lane 2 importer contract — 5 providers + shared fixture corpora + cross-provider idempotency conformance). Focused counts: `@c3-oss/prosa-types-v2` 89, `@c3-oss/prosa-wire-v2` 21, conformance **21** (15 leaves + 6 providers-v2 idempotency), `@c3-oss/prosa-bundle-v2` **120**, `@c3-oss/prosa-importers-v2` **40**, `@c3-oss/prosa-db-v2` 6. |
 | `just lint-all` | yes | pass | 10/10 turbo tasks. |
 | `pnpm audit --audit-level moderate` | yes | classified pass | 8 vulnerabilities found (1 low / 6 moderate / 1 high). All pre-existing on `master`. See "Audit Classification". |
 | `git diff --check` | yes | pass | No whitespace or conflict markers. |
@@ -32,7 +32,7 @@ a `just` wrapper fails for environmental reasons.
 | 00 | `pnpm --filter @c3-oss/prosa-types-v2 test` | yes | pass | 89 tests across 8 files (canonical-encoding, merkle-leaf, merkle-root, bundle-root, raw-source, receipt-payload, derive-ids, normalization; +CQ-018 BLAKE3 spec vectors + CQ-014/CQ-022 timestamp/normalization). |
 | 00 | `pnpm --filter @c3-oss/prosa-wire-v2 typecheck` | yes | pass | |
 | 00 | `pnpm --filter @c3-oss/prosa-wire-v2 test` | yes | pass | 21 tests including CQ-011 receiptId binding and CQ-012 transportHash. |
-| 00 | `pnpm test:conformance` | yes | pass | 15 tests; 13 entity leaves stable. |
+| 00 | `pnpm test:conformance` | yes | pass | **21 tests** / 2 files: 15 canonical leaves (Lane 0) + 6 providers-v2 idempotency cases (CQ-074 closeout — one per provider asserting byte-identical projection on re-import, plus Claude spawned-edge idempotency). |
 | 01 | `pnpm --filter @c3-oss/prosa-bundle-v2 test` | yes | pass | 120 tests across 17 files (prior 118 + CQ-066 full-contract stress + real CLI cold-rebuild). |
 | 01 | `pnpm test packages/prosa-bundle-v2/test/e2e/synthetic-bundle.test.ts` | yes | pass | 3 tests: CQ-066 full-contract 1k×100k×200k stress with 8 concurrent producers (~28s) + 1k-session full seal + 200-session re-open round-trip. |
 | 01 | `pnpm test packages/prosa-bundle-v2/test/e2e/cold-rebuild.test.ts` | yes | pass | 3 tests: CQ-066 real CLI subprocess (spawns `prosa bundle rebuild-index --store <path>` via `swc-node`) + index/-delete-then-rebuild replay + idempotent double-rebuild. |
@@ -98,11 +98,11 @@ no new transitive risk.
 
 - [x] Worktree state documented.
 - [x] Lane 0 has evidence; lanes 2–10 are documented as blocked or WIP.
-- [ ] No open blocking corrections. *(`CQ-074` and `CQ-078` are open; they
-  block Lane 2 acceptance, Lane 3 start, and `RALPH_DONE` pending Cursor
-  closeout reconciliation plus the fixture-corpora + cross-provider
-  idempotency conformance. `CQ-075`, `CQ-076`, and `CQ-077` are closed by
-  their focused fixes, subject to the `CQ-078` commit/evidence reconciliation.)*
+- [ ] No open blocking corrections. *(`CQ-080` is open; it blocks Lane 2
+  acceptance, Lane 3 start, final stabilization, and `RALPH_DONE` until the
+  passing providers-v2 fixture/idempotency closeout is committed and roadmap
+  artifacts are reconciled to that committed HEAD. `CQ-074` and `CQ-079` are
+  not accepted as closed until `CQ-080` closes.)*
 - [x] Base gates passed at HEAD `6c25966` (full repo `pnpm test` / `pnpm
   typecheck` / `pnpm lint` 12/12 turbo).
 - [x] Lane 0-specific gates passed: `prosa-types-v2` 89 tests, `prosa-wire-v2`
@@ -115,11 +115,9 @@ no new transitive risk.
   non-dev path, pre-existing on `master`).
 - [ ] Security, integrity, remote-read, and E2E reviewer findings resolved
   for Lane 0 and Lane 1. Lane 0 and Lane 1 corrections through `CQ-066` are
-  closed; `CQ-074` tracks remaining Lane 2 fixture-corpora + cross-provider
-  idempotency conformance, and `CQ-078` tracks Cursor closeout evidence
-  reconciliation.
-- [ ] Final Codex review completed. *(Pending — Lane 2+ work, `CQ-074`, and
-  `CQ-078`
+  closed; `CQ-080` tracks the current uncommitted providers-v2
+  fixture/idempotency closeout.
+- [ ] Final Codex review completed. *(Pending — Lane 2+ work and `CQ-080`
   remain open.)*
 - [ ] Five-cycle final stabilization evidence recorded. *(Pending; Lane 1
   must be accepted by Codex first.)*

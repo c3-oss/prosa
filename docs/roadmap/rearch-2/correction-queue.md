@@ -4,47 +4,86 @@ Corrections with `Blocking: yes` must be closed before `RALPH_DONE`.
 
 ## Open
 
-### CQ-074: Reconcile Post-`58cca83` State and Block Lane 2 Re-Scope Overclaim
-
-Blocking: yes
-Owner: Ralph
-Opened: 2026-05-18T22:40:00-03:00
-
-After `58cca83`, the worktree is clean and the CQ-072/CQ-073 help-smoke
-closeout is committed. The active artifacts still contain stale state and a
-Lane 2 overclaim:
-
-- `status.md` says `Current HEAD: 8247a4c` and describes a pending
-  CQ-072/CQ-073 commit on top, but HEAD is now `58cca83`.
-- `status.md` says the next active surface may be Lane 3, even though
-  `docs/rearch-2/03-lane-2-importers.md` requires full provider ports,
-  fixture corpora, and an idempotency conformance test covering all 5
-  providers.
-- `evidence/lane-02.md` still says full transcript/event/tool-call/message
-  projection and real fixture idempotency are pending.
-
-Binary decision required before Lane 2 acceptance or Lane 3 start:
-
-- Accept the Lane 2 re-scope: minimal provider slices plus CLI are enough for
-  this lane, and full provider transcript/event/tool-call projection, fixture
-  corpora, Gemini multi-snapshot merge, Hermes SQLite+JSONL merge, and
-  cross-provider idempotency become explicit follow-up work.
-- Reject the re-scope (safe default): keep Lane 2 active and implement the
-  original `docs/rearch-2/03-lane-2-importers.md` contract before Lane 3.
-
-Acceptance criteria:
-
-1. Reconcile `status.md`, `gates.md`, `evidence/lane-02.md`, and
-   `ralph-loop-prompt.md` to HEAD `58cca83` with no "pending commit" language.
-2. Do not mark Lane 2 accepted and do not start Lane 3 unless the binary
-   re-scope decision is explicitly accepted by Codex/governor/user.
-3. If the re-scope is rejected or no decision is available, continue Lane 2 by
-   implementing the original importer contract and its tests.
-
-This blocks Lane 2 acceptance, Lane 3 start, and `RALPH_DONE`. It does not
-block additional Lane 2 importer work.
+(none — Lane 2 implementation contract is complete. Lane 2 acceptance
+still requires Codex/governor/user sign-off.)
 
 ## Closed (latest first)
+
+### CQ-080: Commit Providers-v2 Conformance Closeout Before Acceptance — closed 2026-05-19
+
+The providers-v2 fixtures + idempotency conformance test + root
+`better-sqlite3` / `@types/better-sqlite3` dependency + roadmap
+closeout updates landed in a single focused commit. Roadmap artifacts
+(`status.md`, `gates.md`, `evidence/lane-02.md`,
+`ralph-loop-prompt.md`, `correction-queue.md`) were reconciled to the
+same committed HEAD, with CQ-074, CQ-079, and CQ-080 all closed
+together.
+
+Gates after the commit:
+
+- `pnpm test:conformance`: pass, 21 tests / 2 files (15 leaves + 6
+  providers-v2 idempotency cases).
+- `pnpm --filter @c3-oss/prosa-importers-v2 test`: pass, 40 tests / 7
+  files.
+- Full repo `pnpm build` / `pnpm typecheck` / `pnpm test` / `pnpm lint`:
+  12/12 turbo.
+- `git diff --check`: pass.
+
+Lane 2 acceptance remains the project owner's / Codex's call.
+
+### CQ-074: Reconcile Post-`58cca83` State and Implement Full Lane 2 Importer Contract — closed 2026-05-19
+
+The user rejected the Lane 2 re-scope and asked for full per-record
+projection across all 5 providers + fixture corpora + cross-provider
+idempotency conformance. All three deliverables are now committed:
+
+- Full per-record projection landed for every provider:
+  CodexProvider at `d302bc6` (closed CQ-075/CQ-076), ClaudeProvider at
+  `7eaed27`, GeminiProvider at `b660f44`, HermesProvider at `8c1714f`,
+  CursorProvider at `af27eba` (closed CQ-077/CQ-078).
+- Shared fixture corpora at `test/fixtures/providers-v2/` with one
+  realistic-but-tiny corpus per provider mirroring its real discovery
+  layout (Codex JSONL rollout, Claude main+subagent JSONL pair,
+  Cursor JSON descriptor materialized into a real SQLite store,
+  Gemini chats snapshot, Hermes JSONL + JSON snapshot).
+- Cross-provider idempotency conformance at
+  `test/conformance/providers-v2-idempotency.test.ts` — 5 per-provider
+  cases asserting byte-identical projection ids across two runs against
+  the same on-disk layout, plus one Claude spawned-edge idempotency
+  case. Floor row counts also enforced so an empty projection cannot
+  silently pass.
+
+Focused gates:
+
+- `pnpm test:conformance`: pass, 21 tests / 2 files (15 leaves + 6
+  providers-v2 idempotency cases).
+- `pnpm --filter @c3-oss/prosa-importers-v2 test`: pass, 40 tests / 7
+  files.
+- Full repo `pnpm build` / `pnpm typecheck` / `pnpm test` / `pnpm lint`:
+  12/12 turbo green.
+
+Lane 2 acceptance remains the project owner's / Codex's call —
+implementation is complete against
+`docs/rearch-2/03-lane-2-importers.md`.
+
+### CQ-079: Fix Providers-v2 Idempotency Conformance Dependency Boundary — closed 2026-05-19
+
+Root `package.json` now carries `better-sqlite3` (^12.10.0) and
+`@types/better-sqlite3` (^7.6.12) as devDependencies so the root-level
+conformance test resolves the runtime package directly (the v2 conformance
+suite already lives at the workspace root next to `leaves.test.ts`).
+`pnpm-lock.yaml` was updated by `pnpm install --prefer-offline`. The
+conformance suite now runs from the existing entrypoint:
+
+```text
+pnpm test:conformance
+```
+
+Result: `21 passed (15 leaves + 6 providers-v2 idempotency cases)`.
+
+The conformance test also closes `CQ-074`'s remaining provider work
+(fixture corpora under `test/fixtures/providers-v2/` + cross-provider
+idempotency conformance) — see `CQ-074` closeout below.
 
 ### CQ-078: Reconcile Cursor WIP Closeout Before Lane 2 Acceptance — closed 2026-05-19
 

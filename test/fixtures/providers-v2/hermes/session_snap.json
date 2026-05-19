@@ -1,0 +1,22 @@
+{
+  "session_id": "sess_hermes_snap",
+  "start_time": "2025-01-02T03:04:05.123Z",
+  "end_time": "2025-01-02T03:05:00.000Z",
+  "model": "gpt-4o",
+  "summary": "Hermes snapshot session",
+  "messages": [
+    {
+      "role": "user",
+      "id": "snap_u1",
+      "timestamp": "2025-01-02T03:04:05.500Z",
+      "content": "ping"
+    },
+    {
+      "role": "assistant",
+      "id": "snap_a1",
+      "timestamp": "2025-01-02T03:04:06.000Z",
+      "model": "gpt-4o",
+      "content": "pong"
+    }
+  ]
+}

@@ -9,10 +9,10 @@ Completion signal: RALPH_DONE
 
 ## Current State
 
-Status: Lane 1 accepted; Lane 2 active — all 5 providers (Codex + Claude + Gemini + Hermes + Cursor) ship full per-record projection on canonical schema fields
-Current lane: Lane 2 — provider importers (Codex, Claude, Cursor, Gemini, Hermes)
-Current HEAD: `8c1714f` (Cursor full projection + CQ-077/CQ-078 closeout commit pending)
-No-change streak: 0 (CQ-074 open: shared fixture corpora + cross-provider idempotency conformance still needed)
+Status: Lane 1 accepted; Lane 2 implementation contract complete (all 5 providers ship full per-record projection on canonical schema fields + shared fixture corpora + cross-provider idempotency conformance). Lane 2 acceptance still requires Codex/governor/user sign-off.
+Current lane: Lane 2 — awaiting acceptance review
+Current HEAD: `af27eba` (Cursor) + CQ-074/CQ-079/CQ-080 closeout commit pending in this iteration
+No-change streak: 0 (no open blocking corrections after this commit lands; awaiting acceptance review)
 Ralph active: yes
 
 ## Lane Status
@@ -33,21 +33,10 @@ Ralph active: yes
 
 ## Open Blocking Corrections
 
-### CQ-074: Reconcile Post-`58cca83` State and Block Lane 2 Re-Scope Overclaim
-
-The user explicitly rejected the Lane 2 re-scope and asked for full per-record
-projection across all 5 providers + fixture corpora + cross-provider
-idempotency conformance. CodexProvider was fully projected at `d302bc6`;
-ClaudeProvider at `7eaed27`; GeminiProvider at `b660f44`; HermesProvider at
-`8c1714f`. **This iteration** ships CursorProvider full per-record projection
-over a real SQLite reader (`better-sqlite3` workspace dep added): meta row +
-one raw_record per `blobs[]` row; JSON blobs project to MessageV2 +
-ContentBlockV2 + ToolCallV2 + ToolResultV2 with role + canonical_tool_type
-mapping; protobuf blobs stay as `binary_only` raw_records; bytes are
-preserved opaquely with a single fallback raw_record when the file is not a
-valid SQLite database. With all 5 providers ported, what still remains for
-CQ-074 is the shared fixture corpora under `test/fixtures/providers-v2/`
-and the cross-provider idempotency conformance test.
+(none — Lane 2 implementation contract is complete. `CQ-074`,
+`CQ-075`, `CQ-076`, `CQ-077`, `CQ-078`, `CQ-079`, and `CQ-080` are
+all closed. Lane 2 acceptance is still pending Codex/governor/user
+sign-off.)
 
 ## Latest Gates
 

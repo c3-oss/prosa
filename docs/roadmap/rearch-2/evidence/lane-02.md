@@ -32,10 +32,23 @@ minimal slices. `58cca83` landed CQ-072/CQ-073 CLI help-smoke
 closeout. `d302bc6` landed Codex full per-record projection + closed
 CQ-075/CQ-076. `7eaed27` landed Claude full per-record projection.
 `b660f44` landed Gemini full per-record projection. `8c1714f` landed
-Hermes full per-record projection. Focused importer gates pass at 40
-tests / 7 files. `CQ-074` remains open because the shared fixture
-corpora under `test/fixtures/providers-v2/` and the cross-provider
-idempotency conformance test are still pending.
+Hermes full per-record projection. `af27eba` landed Cursor full
+per-record projection over a real SQLite reader + closed
+CQ-077/CQ-078. The Lane 2 closeout commit on top of this iteration
+adds the shared fixture corpora under `test/fixtures/providers-v2/`
+(one realistic-but-tiny corpus per provider mirroring its discovery
+layout, including a Cursor JSON descriptor that the conformance test
+materializes into a real SQLite store at runtime) and the
+cross-provider idempotency conformance suite at
+`test/conformance/providers-v2-idempotency.test.ts` (5 per-provider
+cases asserting byte-identical projection ids across two runs against
+the same on-disk layout, plus 1 Claude spawned-edge idempotency case;
+floor row counts also enforced so an empty projection cannot silently
+pass). `pnpm test:conformance` runs 21 tests / 2 files (15 leaves +
+6 providers-v2 idempotency). `CQ-074`, `CQ-079`, and `CQ-080` are all
+closed together with that commit; Lane 2 implementation contract is
+complete and Lane 2 acceptance is pending Codex/governor/user
+sign-off.
 Owner: Ralph
 Commit range: `004107c` (orchestrator + GraphResolver), `4792457`
 (Lane 1 acceptance / `CQ-044` lifted), `fc66925` (minimal
@@ -117,14 +130,24 @@ CodexProvider), `8c0ba5f` (minimal ClaudeProvider + CQ-067 closeout),
     `model_first|last` from `meta`. The provider also handles
     non-SQLite or schemaless files by emitting one fallback
     `binary_only` RawRecordV2 so I1 holds.
-- [ ] `apps/cli/test/cli/compile-v2.test.ts` exists with subprocess tests for
+- [x] `apps/cli/test/cli/compile-v2.test.ts` exists with subprocess tests for
   successful single-provider execution, bad-provider rejection, and
-  `compile-all-v2` execution. The CQ-072 WIP adds `compile-v2 --help` and
-  `compile-all-v2 --help` smokes. The CLI surface is committed at `58cca83`;
-  Lane 2 acceptance still depends on the `CQ-074` scope decision or the
-  original full importer contract.
-- [ ] Invariants I2 (idempotency) and I3 (canonical graph) not yet
-  validated against real fixture corpora — pending per-provider work.
+  `compile-all-v2` execution plus `compile-v2 --help` and `compile-all-v2
+  --help` smokes. The CLI surface committed at `58cca83`.
+- [x] Invariant I2 (idempotency) validated against real fixture corpora.
+  `test/fixtures/providers-v2/` holds one corpus per provider that mirrors
+  the real discovery layout, and `test/conformance/providers-v2-idempotency.test.ts`
+  runs each provider end-to-end twice against the same on-disk layout and
+  asserts byte-identical projection ids per entity type (sessions, turns,
+  messages, content_blocks, tool_calls, tool_results, events, edges,
+  raw_records, source_files). Floor row counts also enforced so an empty
+  projection cannot silently pass. `pnpm test:conformance` reports 21 tests
+  / 2 files.
+- [ ] Invariant I3 (canonical graph) — preserved via deterministic
+  `EdgeV2.edge_id` derivation for Claude spawned edges, with one
+  Claude-specific idempotency case in the conformance suite; full
+  cross-provider graph unification still emerges as Lane 3+ derived layers
+  consume the projection.
 
 ## Implementation Notes
 
