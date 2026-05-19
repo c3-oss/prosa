@@ -19,8 +19,15 @@
 // recoverable index. Future writer code may open, delete, or recreate
 // this path during full/incremental rebuilds, so symlinked surfaces
 // must fail closed before the native writer lands.
+//
+// `clearTantivyIndexDir` extends the same symlink-rejection contract
+// to the `full`-rebuild reset path: the planner returns
+// `kind: 'full'` when the prior index is unrecoverable, and callers
+// must wipe the index directory before the native writer opens it.
+// That removal MUST refuse to traverse a symlink at the index path,
+// or `rm -rf` could delete an arbitrary external directory.
 
-import { lstat, readFile } from 'node:fs/promises'
+import { lstat, mkdir, readFile, rm } from 'node:fs/promises'
 
 import { derivedPaths } from '../derived-layout.js'
 
@@ -88,4 +95,70 @@ export async function tantivyIndexDirIsValid(bundleRoot: string): Promise<boolea
   const segments = (parsed as Record<string, unknown>).segments
   if (!Array.isArray(segments)) return false
   return true
+}
+
+/**
+ * Reset the Tantivy index directory to an empty state. Callers run
+ * this after the rebuild planner returns `kind: 'full'`: the prior
+ * index is unrecoverable, the native writer wants a clean slate, and
+ * leaving stale segment files behind would corrupt the freshly built
+ * index (the writer cannot reconcile orphaned segments against a new
+ * `meta.json`).
+ *
+ * The reset is filesystem-aware: it never traverses a symlink at the
+ * index path (CQ-094-style hardening). A symlinked index dir is a
+ * configuration-time integrity failure — recursive removal through
+ * the symlink would delete its external target — so this helper
+ * throws and leaves the symlink in place for an operator to
+ * investigate. The probe already returns `false` for a symlinked
+ * index, so the planner already routes to `full`; the writer must
+ * surface the deletion failure rather than silently widening the
+ * blast radius.
+ *
+ * Idempotent: when no index directory exists yet (fresh bundle) the
+ * helper just creates an empty one. When the path exists as a regular
+ * directory, contents are removed recursively and the directory is
+ * recreated empty so the writer can open it immediately.
+ *
+ * Refuses to operate when the path exists as a regular file
+ * (something other than the native writer has populated the slot) —
+ * the failure mode mirrors the symlink case: the helper does not know
+ * how to interpret the stray file and the caller must intervene
+ * rather than blindly overwrite.
+ *
+ * Side effects are confined to `<bundleRoot>/derived/tantivy/index`
+ * itself and its descendants; the parent directory is created if
+ * missing so a fresh bundle does not trip the writer's open path.
+ */
+export async function clearTantivyIndexDir(bundleRoot: string): Promise<void> {
+  const dir = tantivyIndexDir(bundleRoot)
+  let exists = true
+  try {
+    const dirStat = await lstat(dir)
+    if (dirStat.isSymbolicLink()) {
+      throw new Error(
+        `clearTantivyIndexDir: refusing to clear ${dir} — path is a symlink (CQ-094). Resolve the symlink configuration manually before retrying.`,
+      )
+    }
+    if (!dirStat.isDirectory()) {
+      throw new Error(`clearTantivyIndexDir: refusing to clear ${dir} — path exists and is not a directory.`)
+    }
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') {
+      exists = false
+    } else {
+      throw err
+    }
+  }
+  if (exists) {
+    // `rm` with `recursive: true` does NOT follow symlinks: any
+    // symlinked children are unlinked in place, not traversed. The
+    // symlink-at-root case is already rejected above, so the
+    // recursive walk is confined to the bundle.
+    await rm(dir, { recursive: true, force: false })
+  }
+  // Recreate the empty directory so the native writer (and the
+  // `tantivyIndexDirIsValid` probe, once the writer drops a fresh
+  // `meta.json`) sees a usable surface immediately.
+  await mkdir(dir, { recursive: true })
 }

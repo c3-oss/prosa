@@ -44,13 +44,16 @@ section as the full restart instruction:
   analytics execution-plan composer (`3f54ca6`), Tantivy index-dir
   probe + symlink rejection (`8d45fbb` / `2c97eca`), and
   bundle-aware Tantivy rebuild orchestration (`fa49eb2`) with roadmap
-  reconciliation at `e1e432d`, and compaction execution-plan composer
-  (`87bacb0`). There is no remaining Lane 2 external-acceptance
-  blocker; do not output `RALPH_DONE` yet because Lane 3 remainder
-  (Tantivy native writer, DuckDB runtime executor, runtime Parquet
-  merge) plus Lanes 4–10 are still incomplete.
-- Continue from the first incomplete Lane 3 surface after `87bacb0`.
-  Do not restart an already completed lane.
+  reconciliation at `e1e432d`, compaction execution-plan composer
+  (`87bacb0`), `derivedPaths` centralised layout (`d3811b4`), and
+  `clearTantivyIndexDir` reset helper landing in this iteration.
+  There is no remaining Lane 2 external-acceptance blocker; do not
+  output `RALPH_DONE` yet because Lane 3 remainder (Tantivy native
+  writer, DuckDB runtime executor, runtime Parquet merge) plus
+  Lanes 4–10 are still incomplete.
+- Continue from the first incomplete Lane 3 surface after the
+  `clearTantivyIndexDir` commit. Do not restart an already completed
+  lane.
 - If a correction needs a Codex/governor decision, ask one clear binary
   accept/reject question with a safe default. Do not loop on "external
   acceptance" as if Codex were unavailable.

@@ -179,6 +179,25 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
   the three Tantivy delegates do not drift from the typed layout,
   and verify relative bundle roots are composed without
   `path.resolve()`.
+- [x] Tantivy index-dir reset helper (`clearTantivyIndexDir(bundleRoot)`)
+  for the `full`-rebuild path. The planner returns `kind: 'full'` when
+  the prior index is unrecoverable; before the native writer opens a
+  clean slate the caller must wipe `<bundleRoot>/derived/tantivy/index`.
+  The reset is filesystem-aware: it `lstat`s the index path, refuses
+  to traverse a symlink there (CQ-094 hardening — recursive removal
+  through a symlink could delete an arbitrary external directory),
+  refuses to operate on a regular file planted at the index path, and
+  is idempotent on a fresh bundle (no-op + `mkdir`). On a populated
+  directory it recursively removes contents (`fs.rm` with
+  `recursive: true` does not follow symlinks — symlinked children
+  unlink in place) and recreates the empty directory so the writer can
+  open it immediately. 7 tests cover: fresh-bundle idempotency,
+  repeated invocation idempotency, recursive removal of stale segments
+  + meta, CQ-094 refusal on symlinked index dir (external target
+  unchanged, symlink left in place for operator), refusal on regular
+  file at index path, symlinked-children unlink semantics (target
+  survives), and sibling-surface preservation (`derived/analytics`
+  intact after reset).
 - [x] Compaction execution-plan composer
   (`planCompactionExecution({ bundleRoot, plan })`) turns a
   `CompactionPlan` from `planCompaction()` into the ordered DuckDB
@@ -251,7 +270,7 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
 ```text
 pnpm install --prefer-offline                       # registers @c3-oss/prosa-derived-v2 in pnpm-lock.yaml
 pnpm --filter @c3-oss/prosa-derived-v2 typecheck    # clean
-pnpm --filter @c3-oss/prosa-derived-v2 test         # 146 tests / 16 files (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 8, compaction executor-plan 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9, reader-iterator 7, tantivy checkpoint-store 11, analytics executor-plan 9, tantivy index-dir probe 14, tantivy plan-bundle orchestration 9, derived-layout 7)
+pnpm --filter @c3-oss/prosa-derived-v2 test         # 153 tests / 17 files (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 8, compaction executor-plan 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9, reader-iterator 7, tantivy checkpoint-store 11, analytics executor-plan 9, tantivy index-dir probe 14, tantivy plan-bundle orchestration 9, derived-layout 7, tantivy clear-index-dir 7)
 pnpm --filter @c3-oss/prosa-derived-v2 lint         # clean
 pnpm build                                          # 13/13 turbo
 pnpm typecheck                                      # 13/13 turbo
