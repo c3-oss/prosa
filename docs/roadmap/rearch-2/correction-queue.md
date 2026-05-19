@@ -46,6 +46,35 @@ block additional Lane 2 importer work.
 
 ## Closed (latest first)
 
+### CQ-078: Reconcile Cursor WIP Closeout Before Lane 2 Acceptance — closed 2026-05-19
+
+CursorProvider full per-record projection (SQLite reader,
+`better-sqlite3` workspace dep + per-blob projection + CQ-074 test
+over a real SQLite store) is committed in the same closeout as
+`CQ-077`. All roadmap artifacts (`status.md`, `gates.md`,
+`evidence/lane-02.md`, `ralph-loop-prompt.md`, `correction-queue.md`)
+were reconciled to the new committed HEAD reflecting 40 importer
+tests / 7 files. `CQ-074` stays open for the shared fixture corpora
+and cross-provider idempotency conformance.
+
+### CQ-077: Fix Cursor SQLite WIP Lint Before Acceptance — closed 2026-05-19
+
+CursorProvider full-projection / SQLite-reader WIP imports were reorganised,
+SQL string literals downgraded from template strings to single-quoted
+literals (both in `packages/prosa-importers-v2/src/cursor/index.ts` and
+`packages/prosa-importers-v2/test/unit/cursor.test.ts`), and formatting
+auto-fixed by `biome check --write`. Focused gates after the fix:
+
+- `pnpm --filter @c3-oss/prosa-importers-v2 typecheck`: pass.
+- `pnpm --filter @c3-oss/prosa-importers-v2 test`: pass, 40 tests / 7 files.
+- `pnpm --filter @c3-oss/prosa-importers-v2 lint`: pass.
+- `git diff --check`: pass.
+- Full repo `pnpm build` / `pnpm typecheck` / `pnpm test` / `pnpm lint`:
+  12/12 turbo tasks pass.
+
+Closed in the same Cursor SQLite + full-projection commit so the slice
+lands with a green lint gate.
+
 ### CQ-076: Remove Codex Projection Schema Casts and Persist Tool Fields Correctly — closed 2026-05-18
 
 The Codex full-projection WIP has been re-landed with no `as never` casts and

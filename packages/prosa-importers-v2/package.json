@@ -37,12 +37,14 @@
   "dependencies": {
     "@c3-oss/prosa-bundle-v2": "workspace:*",
     "@c3-oss/prosa-types-v2": "workspace:*",
-    "@noble/hashes": "^1.7.0"
+    "@noble/hashes": "^1.7.0",
+    "better-sqlite3": "^12.10.0"
   },
   "devDependencies": {
     "@c3-oss/config-biome": "^0.3.1",
     "@c3-oss/config-tsup": "^0.2.0",
     "@c3-oss/config-typescript": "^0.1.0",
-    "@c3-oss/config-vitest": "^0.3.0"
+    "@c3-oss/config-vitest": "^0.3.0",
+    "@types/better-sqlite3": "^7.6.12"
   }
 }

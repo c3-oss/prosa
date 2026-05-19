@@ -9,10 +9,10 @@ Completion signal: RALPH_DONE
 
 ## Current State
 
-Status: Lane 1 accepted; Lane 2 active — Codex + Claude + Gemini + Hermes providers all ship full per-record projection (canonical-field tool rows, no `as never` casts)
+Status: Lane 1 accepted; Lane 2 active — all 5 providers (Codex + Claude + Gemini + Hermes + Cursor) ship full per-record projection on canonical schema fields
 Current lane: Lane 2 — provider importers (Codex, Claude, Cursor, Gemini, Hermes)
-Current HEAD: `b660f44` (Hermes full projection commit pending)
-No-change streak: 0 (CQ-074 open: continuing full projection on Cursor + fixtures + cross-provider idempotency conformance)
+Current HEAD: `8c1714f` (Cursor full projection + CQ-077/CQ-078 closeout commit pending)
+No-change streak: 0 (CQ-074 open: shared fixture corpora + cross-provider idempotency conformance still needed)
 Ralph active: yes
 
 ## Lane Status
@@ -38,17 +38,16 @@ Ralph active: yes
 The user explicitly rejected the Lane 2 re-scope and asked for full per-record
 projection across all 5 providers + fixture corpora + cross-provider
 idempotency conformance. CodexProvider was fully projected at `d302bc6`;
-ClaudeProvider at `7eaed27`; GeminiProvider at `b660f44`. **This iteration**
-ships HermesProvider full per-record projection (per-envelope MessageV2 +
-ContentBlockV2 across both JSONL files and JSON snapshots; `session_meta`
-envelopes mapped to EventV2; hidden reasoning content stored as
-`hidden_by_default` blocks for `reasoning`, `reasoning_content`,
-`reasoning_details`, `codex_reasoning_items`, `codex_message_items`; ToolCallV2
-from each `tool_calls[]` entry on the same envelope; ToolResultV2 emitted for
-`role: 'tool'` envelopes linked back by `tool_call_id`). Cursor still needs
-its full projection pass (requires a SQLite parser dep), plus the shared
-fixture corpora and the cross-provider idempotency conformance gate before
-CQ-074 can close.
+ClaudeProvider at `7eaed27`; GeminiProvider at `b660f44`; HermesProvider at
+`8c1714f`. **This iteration** ships CursorProvider full per-record projection
+over a real SQLite reader (`better-sqlite3` workspace dep added): meta row +
+one raw_record per `blobs[]` row; JSON blobs project to MessageV2 +
+ContentBlockV2 + ToolCallV2 + ToolResultV2 with role + canonical_tool_type
+mapping; protobuf blobs stay as `binary_only` raw_records; bytes are
+preserved opaquely with a single fallback raw_record when the file is not a
+valid SQLite database. With all 5 providers ported, what still remains for
+CQ-074 is the shared fixture corpora under `test/fixtures/providers-v2/`
+and the cross-provider idempotency conformance test.
 
 ## Latest Gates
 

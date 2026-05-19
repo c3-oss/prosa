@@ -36,10 +36,10 @@ section as the full restart instruction:
   all 5 providers + fixture corpora + cross-provider idempotency conformance.
 - CodexProvider full per-record projection landed at `d302bc6` (closed
   CQ-075/CQ-076). ClaudeProvider at `7eaed27`. GeminiProvider at `b660f44`.
-  HermesProvider full per-record projection lands in this iteration.
-  Continue Lane 2 by porting the same full per-record projection to Cursor
-  (requires SQLite parser dep), then add fixture corpora and the
-  cross-provider idempotency conformance.
+  HermesProvider at `8c1714f`. CursorProvider full per-record projection
+  lands in this iteration (closes CQ-077 + CQ-078). All 5 providers now ship
+  full projection. Continue `CQ-074` with the shared fixture corpora and the
+  cross-provider idempotency conformance test.
 - If a correction needs a Codex/governor decision, ask one clear binary
   accept/reject question with a safe default. Do not loop on "external
   acceptance" as if Codex were unavailable.
@@ -160,8 +160,9 @@ Current open correction:
 - `CQ-074`: implement the full Lane 2 importer contract (per-record projection
   across Codex/Claude/Cursor/Gemini/Hermes + fixture corpora +
   cross-provider idempotency conformance). Blocks Lane 2 acceptance, Lane 3
-  start, and `RALPH_DONE`. Codex + Claude + Gemini + Hermes full per-record
-  projection now landed; Cursor (needs SQLite dep) still pending.
+  start, and `RALPH_DONE`. All 5 providers now ship full per-record
+  projection; shared fixture corpora under `test/fixtures/providers-v2/`
+  and the cross-provider idempotency conformance test are still pending.
 
 Lane 0 + Lane 1 are accepted by the project owner on 2026-05-18, including the
 two re-scopes in `docs/rearch-2/lane-1-rescopes.md`.
@@ -173,14 +174,14 @@ ClaudeProvider, `aa88079` landed Claude spawned edges plus a minimal
 CursorProvider, `c496bac` landed minimal Gemini/Hermes providers plus the
 Cursor logical-key fix, `58cca83` landed the CLI help-smoke closeout,
 `d302bc6` landed CodexProvider full per-record projection, `7eaed27`
-landed ClaudeProvider full per-record projection, and `b660f44` landed
-GeminiProvider full per-record projection. **This iteration** ships
-HermesProvider full per-record projection (per-envelope MessageV2 +
-ContentBlockV2 + ToolCallV2 + ToolResultV2 + EventV2 across both `.jsonl`
-and `session_*.json` files; hidden reasoning blocks tagged
-`hidden_by_default`). Cursor still needs its full projection pass
-(requires a SQLite parser dep) plus the shared fixture corpora and the
-cross-provider idempotency conformance before Lane 2 can be accepted.
+landed ClaudeProvider full per-record projection, `b660f44` landed
+GeminiProvider full per-record projection, and `8c1714f` landed
+HermesProvider full per-record projection. **This iteration** lands
+CursorProvider full per-record projection over a real SQLite reader
+(`better-sqlite3` workspace dep added; closes CQ-077 + CQ-078). All 5
+providers now ship full projection. The shared fixture corpora and
+cross-provider idempotency conformance remain required before Lane 2 can
+be accepted.
 
 Subsequent lanes (3 derived layer, 4 server beyond DB scaffold,
 5 sync protocol, 6 read API, 7 CLI+MCP, 8 audit+GC, 9 migration,

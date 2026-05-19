@@ -1,14 +1,44 @@
-// Cursor Provider unit tests (minimal opaque-bytes slice).
+// Cursor Provider unit tests.
 
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { initBundle } from '@c3-oss/prosa-bundle-v2'
+import Database from 'better-sqlite3'
 import { describe, expect, it } from 'vitest'
 
 import { CursorProvider } from '../../src/cursor/index.js'
 import { runCompileImports } from '../../src/orchestrator.js'
+
+/**
+ * Create a real Cursor-shaped SQLite store at `path` with hex-encoded
+ * meta JSON in `meta` table and one blob per chat message in `blobs`.
+ */
+function writeCursorStore(
+  path: string,
+  meta: Record<string, unknown>,
+  blobs: { id: string; payload: unknown | Buffer }[],
+): void {
+  const db = new Database(path)
+  try {
+    db.exec(`
+      CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);
+      CREATE TABLE blobs (id TEXT PRIMARY KEY, data BLOB);
+    `)
+    const metaHex = Buffer.from(JSON.stringify(meta), 'utf8').toString('hex')
+    db.prepare(`INSERT INTO meta (key, value) VALUES ('0', ?)`).run(metaHex)
+    const insert = db.prepare('INSERT INTO blobs (id, data) VALUES (?, ?)')
+    for (const b of blobs) {
+      const buf = Buffer.isBuffer(b.payload)
+        ? b.payload
+        : Buffer.from(typeof b.payload === 'string' ? b.payload : JSON.stringify(b.payload), 'utf8')
+      insert.run(b.id, buf)
+    }
+  } finally {
+    db.close()
+  }
+}
 
 async function tmp(): Promise<string> {
   return mkdtemp(join(tmpdir(), 'prosa-cursor-'))
@@ -87,6 +117,114 @@ describe('CursorProvider', () => {
     expect(projection.raw_records[0]!.record_kind).toBe('session_sqlite_row')
     expect(projection.sessions[0]!.timeline_confidence).toBe('low')
     expect(projection.sessions[0]!.source_session_id).toBe('cursor:ws-1:agent-a')
+  })
+
+  it('CQ-074: full Cursor projection over a real SQLite store emits MessageV2 + ContentBlockV2 + ToolCallV2 + ToolResultV2', async () => {
+    const root = await tmp()
+    await mkdir(join(root, 'ws-real', 'agent-x'), { recursive: true })
+    const dbPath = join(root, 'ws-real', 'agent-x', 'store.db')
+    writeCursorStore(
+      dbPath,
+      {
+        agentId: 'agent-x',
+        createdAt: 1735780000000,
+        name: 'Test Session',
+        mode: 'agent',
+        lastUsedModel: 'claude-opus-4',
+      },
+      [
+        {
+          id: 'blob-user-1',
+          payload: {
+            role: 'user',
+            id: 'msg-user-1',
+            content: 'list the files',
+          },
+        },
+        {
+          id: 'blob-asst-1',
+          payload: {
+            role: 'assistant',
+            id: 'msg-asst-1',
+            content: [
+              { type: 'reasoning', text: 'I should look at the repo root.' },
+              { type: 'text', text: "I'll run ls." },
+              {
+                type: 'tool-call',
+                toolCallId: 'tc1',
+                toolName: 'run_terminal_cmd',
+                args: { command: 'ls /repo' },
+              },
+            ],
+          },
+        },
+        {
+          id: 'blob-tool-1',
+          payload: {
+            role: 'tool',
+            id: 'msg-tool-1',
+            content: [
+              {
+                type: 'tool-result',
+                toolCallId: 'tc1',
+                result: 'file1\nfile2\n',
+              },
+            ],
+          },
+        },
+        {
+          id: 'blob-protobuf-1',
+          // Protobuf-like opaque bytes — should land as binary_only raw_record.
+          payload: Buffer.from([0x08, 0x96, 0x01, 0xff, 0xfe]),
+        },
+      ],
+    )
+    const provider = new CursorProvider()
+    const [file] = await provider.discover(root)
+    if (!file) throw new Error('expected one file')
+    const id = await provider.cheapIdentify(file)
+    const r = await provider.parseAndProject({
+      files: [file],
+      identification: id,
+      createdAt: '2025-01-02T03:04:05.123Z',
+    })
+    const p = r.unit.projection
+    // 5 raw_records: 1 meta + 4 blobs (3 JSON + 1 binary).
+    expect(p.raw_records.length).toBe(5)
+    expect(p.raw_records[0]!.json_pointer).toBe('meta/0')
+    expect(p.raw_records[0]!.parser_status).toBe('parsed')
+    expect(p.raw_records.filter((r) => r.parser_status === 'binary_only').length).toBe(1)
+    // 3 messages (user, assistant, tool).
+    expect(p.messages.length).toBe(3)
+    expect(p.messages.map((m) => m.role)).toEqual(['user', 'assistant', 'tool'])
+    expect(p.messages[1]!.model).toBe('claude-opus-4')
+    // Content blocks: 1 user text + (reasoning + text + tool_use) + 1 tool_result = 5.
+    expect(p.content_blocks.length).toBe(5)
+    const reasoning = p.content_blocks.find((b) => b.block_type === 'thinking')
+    expect(reasoning?.visibility).toBe('hidden_by_default')
+    expect(reasoning?.text_inline).toBe('I should look at the repo root.')
+    // 1 tool call from the tool-call content item.
+    expect(p.tool_calls.length).toBe(1)
+    expect(p.tool_calls[0]!.tool_name).toBe('run_terminal_cmd')
+    expect(p.tool_calls[0]!.canonical_tool_type).toBe('shell')
+    expect(p.tool_calls[0]!.source_call_id).toBe('tc1')
+    expect(p.tool_calls[0]!.command).toBe('ls /repo')
+    expect(p.tool_calls[0]!.args_object_id).toBeNull()
+    // 1 tool result linked by source_call_id.
+    expect(p.tool_results.length).toBe(1)
+    expect(p.tool_results[0]!.tool_call_id).toBe(p.tool_calls[0]!.tool_call_id)
+    expect(p.tool_results[0]!.source_call_id).toBe('tc1')
+    expect(p.tool_results[0]!.preview).toBe('file1\nfile2\n')
+    expect(p.tool_results[0]!.is_error).toBe(false)
+    expect(p.tool_results[0]!.status).toBe('success')
+    // Session enrichment from meta.
+    const s = p.sessions[0]!
+    expect(s.title).toBe('Test Session')
+    expect(s.agent_nickname).toBe('Test Session')
+    expect(s.agent_role).toBe('agent')
+    expect(s.model_first).toBe('claude-opus-4')
+    expect(s.model_last).toBe('claude-opus-4')
+    expect(s.start_ts).toBe(new Date(1735780000000).toISOString())
   })
 
   it('runCompileImports orchestrates Cursor through a real bundle seal', async () => {
