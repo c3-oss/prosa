@@ -594,26 +594,28 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
   (projection-only epoch still surfaces even when an empty
   SessionBlob dir exists for the same epoch).
 - [x] `prosa index-v2` CLI group (`apps/cli/src/cli/commands/index-v2.ts`)
-  shipping eight pure-read subcommands. `status` wires
+  shipping nine pure-read subcommands. `status` wires
   `bundleDerivedStatus(--store)`; `sessions` wires
   `listSessionBlobSummaries(--store)`; `epochs` wires
   `derivedLayerEpochsTouched(--store)`; `analytics-views` wires
   `analyticsViewsDescriptor()` (content-free, takes no `--store`);
-  `projection-segments` wires `listProjectionSegments(--store)` by
-  default and `summariseProjectionSegments(--store)` with
-  `--summary`; `tantivy-rebuild-plan` wires
-  `planTantivyRebuildFromBundle({ bundleRoot: --store,
-  currentMaxRowid: --current-max-rowid, overwriteRequested:
-  --overwrite })`; `compaction-plan` wires
+  `analytics-execution-plan` wires `planAnalyticsExecution({
+  bundleRoot: --store, view: --view, reportQuery: --report-query
+  })`; `projection-segments` wires
+  `listProjectionSegments(--store)` by default and
+  `summariseProjectionSegments(--store)` with `--summary`;
+  `tantivy-rebuild-plan` wires `planTantivyRebuildFromBundle({
+  bundleRoot: --store, currentMaxRowid: --current-max-rowid,
+  overwriteRequested: --overwrite })`; `compaction-plan` wires
   `planCompaction(--store)`; `transcript` wires
   `loadTranscriptFromBundle({ bundleRoot: --store, sessionId:
-  --session-id })`. All eight print pretty JSON to stdout — no
+  --session-id })`. All nine print pretty JSON to stdout — no
   native bindings, no filesystem mutation. The
   `index-v2` parent command is the eventual home for `tantivy`
   (blocked on the native binding); `status`, `sessions`,
-  `epochs`, `analytics-views`, `projection-segments`,
-  `tantivy-rebuild-plan`, `compaction-plan`, and `transcript`
-  ship now and stand in for
+  `epochs`, `analytics-views`, `analytics-execution-plan`,
+  `projection-segments`, `tantivy-rebuild-plan`,
+  `compaction-plan`, and `transcript` ship now and stand in for
   the JSON-form path of gate criterion 3 (`prosa session show
   <id>` against a v2 bundle — v1-renderer parity output is a
   follow-up). `compaction-plan` also gives the scripted-scenario
@@ -630,8 +632,12 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
   fingerprint) the runtime writer would apply for a
   caller-supplied `--current-max-rowid`, so the rebuild decision
   can be inspected without the native binding.
-  33 subprocess tests (`apps/cli/test/cli/index-v2.test.ts`) cover:
-  parent `--help` listing all eight subcommands, `status`
+  `analytics-execution-plan` composes the entity preamble + view
+  body + report query DuckDB statement sequence the runtime
+  executor would issue — the auditable counterpart to
+  `analytics-views` that pins the bundle root in the preamble.
+  38 subprocess tests (`apps/cli/test/cli/index-v2.test.ts`) cover:
+  parent `--help` listing all nine subcommands, `status`
   `--help` + fresh-bundle empty snapshot + SessionBlob-populated
   snapshot + missing-`--store` (4); `sessions --help` +
   fresh-bundle `[]` + multi-session multi-epoch inventory (alpha
@@ -652,6 +658,15 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
   `(epoch, entityType)` sort order) + `--summary` rollup
   (3-segment / 700-byte total split across `by_entity` and
   `by_epoch`) + missing-`--store` (5);
+  `analytics-execution-plan --help` documenting `--store` +
+  `--view` + `--report-query` + `--view session_facts` against
+  a fresh bundle returning the entity preamble (every setup
+  statement is semicolon-terminated, the last is the
+  `CREATE OR REPLACE VIEW session_facts ...` body, the entity
+  preamble contains the bundle root path via `parquetReadFor`)
+  + default `reportQuery: 'SELECT * FROM session_facts;'` +
+  `--report-query` override pass-through + unknown-`--view`
+  rejected synchronously + missing-`--view` failure (5);
   `tantivy-rebuild-plan --help` documenting `--store` +
   `--current-max-rowid` + `--overwrite` + fresh-bundle returns
   `{ plan: { kind: 'full', reason: 'index_dir_invalid',
@@ -833,7 +848,7 @@ slice (this iteration) on top of the Lane 2 `CQ-082` closeout (`3eb1c08`).
 pnpm install --prefer-offline                       # registers @c3-oss/prosa-derived-v2 in pnpm-lock.yaml
 pnpm --filter @c3-oss/prosa-derived-v2 typecheck    # clean
 pnpm --filter @c3-oss/prosa-derived-v2 test         # 400 tests / 34 files
-pnpm --filter @c3-oss/prosa exec vitest run test/cli/index-v2.test.ts  # 33 subprocess-spawned tests for index-v2 status + sessions + epochs + analytics-views + projection-segments + tantivy-rebuild-plan + compaction-plan + transcript (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 13 incl. CQ-101 + CQ-102 containment regressions, compaction executor-plan 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9, reader-iterator 7, tantivy checkpoint-store 21 (11 prior + 4 write CQ-096 + 6 read CQ-103), analytics executor-plan 9, tantivy index-dir probe 17, tantivy plan-bundle orchestration 9, tantivy status 10, analytics descriptor 8, bundle status 16 (8 prior aggregator + 8 derivedLayerEpochsTouched incl. CQ-104 empty-epoch-dir regressions), compaction segments 22 (9 listing + 7 summary + 6 containment), derived-layout 27, tantivy clear-index-dir 10, session-blob loader 11, session-blob zstd 5, session-blob listing 27 (19 prior + 8 listAllSessionBlobSessions cross-epoch union), session-blob latest 11 incl. CQ-100, session-blob transcript-from-bundle 8, session-blob iterate-from-bundle 9, session-blob header 10, session-blob exists 11, session-blob latest-epoch 11, session-blob summary 19 (11 single + 8 bulk listing), integration sessionblob-end-to-end 12, integration compaction-end-to-end 8, integration tantivy-end-to-end 8)
+pnpm --filter @c3-oss/prosa exec vitest run test/cli/index-v2.test.ts  # 38 subprocess-spawned tests for index-v2 status + sessions + epochs + analytics-views + analytics-execution-plan + projection-segments + tantivy-rebuild-plan + compaction-plan + transcript (writer-policy 11, compaction 6, framing 8, writer/reader 11, compaction planner 13 incl. CQ-101 + CQ-102 containment regressions, compaction executor-plan 8, analytics views 11, tantivy schema 7, tantivy rebuild-plan 10, projection-bridge 9, reader-iterator 7, tantivy checkpoint-store 21 (11 prior + 4 write CQ-096 + 6 read CQ-103), analytics executor-plan 9, tantivy index-dir probe 17, tantivy plan-bundle orchestration 9, tantivy status 10, analytics descriptor 8, bundle status 16 (8 prior aggregator + 8 derivedLayerEpochsTouched incl. CQ-104 empty-epoch-dir regressions), compaction segments 22 (9 listing + 7 summary + 6 containment), derived-layout 27, tantivy clear-index-dir 10, session-blob loader 11, session-blob zstd 5, session-blob listing 27 (19 prior + 8 listAllSessionBlobSessions cross-epoch union), session-blob latest 11 incl. CQ-100, session-blob transcript-from-bundle 8, session-blob iterate-from-bundle 9, session-blob header 10, session-blob exists 11, session-blob latest-epoch 11, session-blob summary 19 (11 single + 8 bulk listing), integration sessionblob-end-to-end 12, integration compaction-end-to-end 8, integration tantivy-end-to-end 8)
 pnpm --filter @c3-oss/prosa-derived-v2 lint         # clean
 pnpm build                                          # 13/13 turbo
 pnpm typecheck                                      # 13/13 turbo

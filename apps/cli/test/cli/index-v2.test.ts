@@ -41,7 +41,7 @@ interface StatusSnapshot {
 }
 
 describe('prosa index-v2 CLI', () => {
-  it('`index-v2 --help` lists all subcommands (status, sessions, epochs, analytics-views, projection-segments, tantivy-rebuild-plan, compaction-plan, transcript)', async () => {
+  it('`index-v2 --help` lists all nine subcommands (status, sessions, epochs, analytics-views, analytics-execution-plan, projection-segments, tantivy-rebuild-plan, compaction-plan, transcript)', async () => {
     const r = runCli(['index-v2', '--help'])
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('Bundle v2 derived-layer index commands')
@@ -49,6 +49,7 @@ describe('prosa index-v2 CLI', () => {
     expect(r.stdout).toContain('sessions')
     expect(r.stdout).toContain('epochs')
     expect(r.stdout).toContain('analytics-views')
+    expect(r.stdout).toContain('analytics-execution-plan')
     expect(r.stdout).toContain('projection-segments')
     expect(r.stdout).toContain('tantivy-rebuild-plan')
     expect(r.stdout).toContain('compaction-plan')
@@ -362,6 +363,69 @@ describe('prosa index-v2 CLI', () => {
     const r = runCli(['index-v2', 'projection-segments'])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/required option.*--store/i)
+  })
+
+  it('`index-v2 analytics-execution-plan --help` documents --store, --view, --report-query', async () => {
+    const r = runCli(['index-v2', 'analytics-execution-plan', '--help'])
+    expect(r.status).toBe(0)
+    expect(r.stdout).toContain('ordered DuckDB statement sequence')
+    expect(r.stdout).toContain('--store')
+    expect(r.stdout).toContain('--view')
+    expect(r.stdout).toContain('--report-query')
+  })
+
+  it('`index-v2 analytics-execution-plan --view session_facts` prints the entity preamble + view body + default report query', async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    const r = runCli(['index-v2', 'analytics-execution-plan', '--store', storeRoot, '--view', 'session_facts'])
+    expect(r.status).toBe(0)
+    const plan = JSON.parse(r.stdout) as {
+      view: string
+      columns: string[]
+      setupStatements: string[]
+      reportQuery: string
+    }
+    expect(plan.view).toBe('session_facts')
+    expect(plan.columns.length).toBeGreaterThan(0)
+    expect(plan.setupStatements.length).toBeGreaterThan(0)
+    // Every setup statement is terminated with a semicolon.
+    for (const stmt of plan.setupStatements) expect(stmt.trim().endsWith(';')).toBe(true)
+    // The last setup statement is the view body.
+    expect(plan.setupStatements.at(-1)).toMatch(/CREATE OR REPLACE VIEW session_facts/i)
+    // Entity preamble is bound to the bundle root via parquetReadFor.
+    expect(plan.setupStatements[0]).toContain(storeRoot)
+    expect(plan.reportQuery).toBe('SELECT * FROM session_facts;')
+  })
+
+  it('`index-v2 analytics-execution-plan --report-query` overrides the report query verbatim', async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    const r = runCli([
+      'index-v2',
+      'analytics-execution-plan',
+      '--store',
+      storeRoot,
+      '--view',
+      'model_usage',
+      '--report-query',
+      'SELECT model_name FROM model_usage LIMIT 5;',
+    ])
+    expect(r.status).toBe(0)
+    const plan = JSON.parse(r.stdout) as { reportQuery: string; view: string }
+    expect(plan.view).toBe('model_usage')
+    expect(plan.reportQuery).toBe('SELECT model_name FROM model_usage LIMIT 5;')
+  })
+
+  it('`index-v2 analytics-execution-plan` rejects an unknown --view', async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    const r = runCli(['index-v2', 'analytics-execution-plan', '--store', storeRoot, '--view', 'not_a_real_view'])
+    expect(r.status).not.toBe(0)
+    expect(r.stderr).toMatch(/invalid --view/i)
+  })
+
+  it('`index-v2 analytics-execution-plan` fails when --view is missing', async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
+    const r = runCli(['index-v2', 'analytics-execution-plan', '--store', storeRoot])
+    expect(r.status).not.toBe(0)
+    expect(r.stderr).toMatch(/required option.*--view/i)
   })
 
   it('`index-v2 tantivy-rebuild-plan --help` documents --store, --current-max-rowid, --overwrite', async () => {

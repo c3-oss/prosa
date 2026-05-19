@@ -19,17 +19,25 @@
 import { resolve as resolvePath } from 'node:path'
 
 import {
+  ANALYTICS_VIEW_NAMES,
+  type AnalyticsViewName,
   analyticsViewsDescriptor,
   bundleDerivedStatus,
   derivedLayerEpochsTouched,
   listProjectionSegments,
   listSessionBlobSummaries,
   loadTranscriptFromBundle,
+  planAnalyticsExecution,
   planCompaction,
   planTantivyRebuildFromBundle,
   summariseProjectionSegments,
 } from '@c3-oss/prosa-derived-v2'
 import { Command } from 'commander'
+
+function parseViewName(raw: string): AnalyticsViewName {
+  if ((ANALYTICS_VIEW_NAMES as readonly string[]).includes(raw)) return raw as AnalyticsViewName
+  throw new Error(`invalid --view: ${raw} (expected one of: ${ANALYTICS_VIEW_NAMES.join(', ')})`)
+}
 
 function parseNonNegativeInteger(label: string, raw: string): number {
   const n = Number.parseInt(raw, 10)
@@ -99,6 +107,28 @@ export function indexV2Command(): Command {
         ? await summariseProjectionSegments(storePath)
         : await listProjectionSegments(storePath)
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
+    })
+
+  root
+    .command('analytics-execution-plan')
+    .description(
+      'Print the ordered DuckDB statement sequence (entity preamble + view body + report query) the runtime executor would issue for the named analytics view against a bundle v2 store.',
+    )
+    .requiredOption('--store <path>', 'bundle directory')
+    .requiredOption('--view <name>', `analytics view to materialise (one of: ${ANALYTICS_VIEW_NAMES.join(', ')})`)
+    .option(
+      '--report-query <sql>',
+      'optional custom report query; defaults to `SELECT * FROM <view>;` — passed verbatim (terminate with `;` yourself)',
+    )
+    .action(async (options: { store: string; view: string; reportQuery?: string }) => {
+      const storePath = resolvePath(options.store)
+      const view = parseViewName(options.view)
+      const plan = planAnalyticsExecution({
+        bundleRoot: storePath,
+        view,
+        reportQuery: options.reportQuery,
+      })
+      process.stdout.write(`${JSON.stringify(plan, null, 2)}\n`)
     })
 
   root
