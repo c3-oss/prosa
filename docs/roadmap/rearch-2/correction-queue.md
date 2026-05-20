@@ -1327,9 +1327,11 @@ Reviewer concerns addressed in commits c67df82 + b2a9cbc:
 - `pnpm lint` and `pnpm typecheck` pass repo-wide.
 - The CQ-126 boot-schema test no longer overclaims CQ-124 closure — it
   scopes strictly to CQ-126 and now includes an authenticated
-  BeginPromotion case that proves the v2 query layer (including
-  `search_generation_current` upserts on seal) resolves against the
-  boot-applied schema.
+  BeginPromotion case that proves the v2 query/write layer
+  (`remote_authority_v2`, `promotion_staging`, and `device`) resolves
+  against the boot-applied schema.
+- `cq-137-store-scoped-generation.test.ts` proves the seal-time
+  `search_generation_current` upsert is scoped by `(tenant_id, store_id)`.
 - `startServer()` no longer carries its own copy of the search-generation
   SQL — it delegates to the same canonical helper used by every test.
 

@@ -95,8 +95,10 @@ The blocker is implementation work, not environment.
 - CQ-137: closed (2026-05-20) alongside CQ-126. Production boot, every
   test entry point, and the Docker E2E bootstrap apply the legacy-shape
   migration through `applyV2PromotionSubsetSchema`'s
-  `SEARCH_GENERATION_ONLY_SQL` block; the authenticated CQ-126 boot-path
-  test exercises a real seal-style upsert against the boot-applied schema.
+  `SEARCH_GENERATION_ONLY_SQL` block. The authenticated CQ-126 boot-path
+  test proves BeginPromotion reaches the boot-applied v2 query/write layer;
+  `cq-137-store-scoped-generation.test.ts` proves the seal-time
+  `(tenant_id, store_id)` upsert behavior.
 - CQ-138: GetReceipt now checks id/tuple/derived-id/signature, but closure
   remains open until shared receipt schema validation is resolved and CLI
   receipt validation is proven.
