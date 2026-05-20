@@ -1,10 +1,109 @@
 # rearch-2 Correction Queue
 
-Updated: 2026-05-20 after CQ-122 closure.
+Updated: 2026-05-20 after Lane 5 slice 1.
 
 ## Open blocking corrections
 
-None currently recorded.
+### CQ-123: Better Auth tenant_id values do not satisfy `canonicalIdSchema`
+
+Severity: high
+Blocking: yes (blocks Lane 5 acceptance — receipt schema cannot be parsed by clients)
+Status: open
+Owner: Ralph
+
+Problem:
+
+`prosa-wire-v2` constrains `tenantId`, `storeId`, and `deviceId` to
+`canonicalIdSchema`, which requires lowercase characters only (CQ-002).
+`apps/api/src/auth.ts` boots Better Auth with default options, so
+`organization.id` is a mixed-case nanoid (e.g.
+`z3EIp38VKKSqPFuAk238kNUxGVWWf4RP`). The tenant_id stored on every v2
+row therefore never matches the canonical regex.
+
+Lane 5 slice 1 works around this server-side by validating
+`BeginPromotion` requests with a local opaque-string schema for
+`tenantId`/`storeId`/`deviceId`. The response receipt is still stored
+verbatim, which means the receipt payload carries a mixed-case
+`tenantId` and a client running
+`promotionReceiptV2Schema.safeParse(receipt)` will reject it.
+
+Risk:
+
+Lane 5 cannot reach a green E2E gate with mixed-case tenant ids:
+`prosa sync-v2` and the second-device remote read will both fail
+client-side receipt verification, even though the server signed the
+receipt correctly. Invariant I5 (receipt verifiability end-to-end) is
+not satisfied until this mismatch resolves.
+
+Required fix (one of):
+
+- Configure Better Auth to mint lowercase canonical ids for
+  `organization.id`, `user.id`, and `device.id` (uniform across v1 and
+  v2 — needs a migration plan for any pre-existing mixed-case rows).
+- Or relax the `canonicalIdSchema` boundaries on auth-system ids in
+  `prosa-wire-v2` (e.g. introduce `opaqueAuthIdSchema` and use it for
+  `tenantId`, `storeId`, `deviceId` in `bundleHeadV2Schema`,
+  `beginPromotionRequestSchema`, and `promotionReceiptV2PayloadSchema`)
+  while keeping `canonicalIdSchema` strict for content-addressed ids
+  (segmentId, objectId, packDigest, bundleRoot).
+
+Acceptance:
+
+- [ ] A real Better Auth signup produces tenant/store/device ids that
+      either match the v2 canonical schema or pass the relaxed
+      auth-id schema, and a receipt signed by the server passes
+      client-side `promotionReceiptV2Schema.safeParse`.
+- [ ] End-to-end test covers the full lifecycle:
+      signup → BeginPromotion → uploads → seal → GetReceipt → client
+      verifies signature against JWKS.
+- [ ] Lane 5 slice 1 test re-enables
+      `beginPromotionResponseSchema.safeParse` assertions removed in
+      this slice.
+
+### CQ-124: v1 and v2 schemas share table names with incompatible columns
+
+Severity: high
+Blocking: no (does not block Lane 5 development; blocks Lane 10 cutover)
+Status: open
+Owner: Ralph
+
+Problem:
+
+`packages/prosa-db` (v1) and `packages/prosa-db-v2` both declare
+`projection_session`, `search_doc`, `remote_object`, and `device` with
+incompatible column sets. Calling `applySchemaV2` on a database that
+already ran v1 `applySchema` succeeds for `CREATE TABLE IF NOT EXISTS`
+but fails when the v2 indexes reference v2-only columns
+(e.g. `projection_session_tenant_end_idx ON projection_session
+(tenant_id, end_ts DESC)` against the v1 table without `end_ts`).
+
+Risk:
+
+- Production-mode boot cannot call `applySchemaV2` against a database
+  that has the v1 schema applied (which it currently does — see
+  `apps/api/src/server.ts`).
+- Lane 5 tests cannot apply the full v2 schema; only the conflict-free
+  `PROMOTION_SCHEMA_SQL` block is safe. Materialization paths (Lane 5
+  seal) need `projection_*` and `search_doc` schemas, so this must be
+  resolved before slice 3.
+
+Required fix (one of):
+
+- Namespace v2 into its own Postgres schema (`prosa_v2.projection_session`
+  etc.) and update v2 callers to qualify table names.
+- Or rename the conflicting v2 tables (`projection_session_v2`,
+  `search_doc_v2`, `remote_object_v2`, `device_v2`).
+- Either approach needs a Lane 10 cutover plan that drops or migrates
+  the v1 rows once v2 is the only read path.
+
+Acceptance:
+
+- [ ] Fresh boot applies both schemas on the same database without
+      error.
+- [ ] Lane 5 test helper applies the full v2 schema and exercises
+      projection/search materialization.
+- [ ] Lane 10 cutover plan documents the v1 → v2 migration for the
+      shared-name tables.
 
 ## Closed during this cycle
 

@@ -67,11 +67,17 @@ describe('v2 plugin skeleton', () => {
     }
   })
 
-  it('returns 501 NOT_IMPLEMENTED to an authenticated tenant member on every promotion route', async () => {
+  it('returns 501 NOT_IMPLEMENTED to an authenticated tenant member on every unimplemented promotion route', async () => {
+    // Lane 5 fills in the promotion protocol one slice at a time. Routes
+    // that still return 501 are listed below; routes already implemented
+    // (e.g. `BeginPromotion` in slice 1) are exercised by their own
+    // focused tests under `test/v2/sync/`.
+    const unimplemented = new Set(['UploadSegment', 'UploadObjectPack', 'SealPromotion', 'GetReceipt'])
     const t = await buildTestApp()
     try {
       const account = await signupWithTenant(t, 'v2-501@example.com', 'Acme', 'acme-501')
       for (const route of V2_PROMOTION_ROUTES) {
+        if (!unimplemented.has(route.opName)) continue
         const url = placeholderUrl(route.url)
         const response = await t.app.inject({
           method: route.method,

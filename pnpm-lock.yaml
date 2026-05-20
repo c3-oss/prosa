@@ -96,6 +96,9 @@ importers:
       '@c3-oss/prosa-db':
         specifier: workspace:^
         version: link:../../packages/prosa-db
+      '@c3-oss/prosa-db-v2':
+        specifier: workspace:*
+        version: link:../../packages/prosa-db-v2
       '@c3-oss/prosa-storage':
         specifier: workspace:^
         version: link:../../packages/prosa-storage

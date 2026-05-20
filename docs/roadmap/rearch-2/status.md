@@ -1,6 +1,6 @@
 # rearch-2 Current Status
 
-Updated: 2026-05-20 after Lane 4 acceptance and Lane 5 prep.
+Updated: 2026-05-20 after Lane 5 slice 1 (BeginPromotion fast path).
 
 ## Summary
 
@@ -51,7 +51,15 @@ The blocker is implementation work, not environment.
 
 ## Open blockers
 
-No open correction-queue blockers are currently recorded.
+- CQ-123: Better Auth tenant_id values do not satisfy
+  `canonicalIdSchema`. Blocks Lane 5 acceptance because client-side
+  receipt schema parses fail against mixed-case tenant ids. Slice 1
+  worked around it server-side via opaque local schemas; full fix is
+  required before E2E gates can pass.
+- CQ-124: v1 and v2 schemas share table names with incompatible
+  columns. Blocks Lane 5 slice 3 (materialization paths) and Lane 10
+  cutover; slice 1 sidesteps it by applying only the conflict-free
+  promotion block in tests.
 
 ## Supporting documents
 

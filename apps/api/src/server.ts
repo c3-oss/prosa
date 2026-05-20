@@ -18,6 +18,15 @@ export async function startServer(): Promise<void> {
   // bootstrap remains a safety net so the API never accepts traffic against
   // an empty database.
   await applySchema(dbHandle.raw)
+  // NB: v2 schema (`applySchemaV2`) is intentionally not applied here.
+  // v1 and v2 share table names (`projection_session`, `search_doc`,
+  // `remote_object`, `device`) with incompatible column sets. Lane 10
+  // cutover owns the migration that namespaces v2 into its own schema
+  // or renames the v2 tables. Until then, the v2 promotion surface is
+  // exercised only against the v2-specific tables (`promotion_staging`,
+  // `remote_authority_v2`, `receipt`, `remote_pack`, `remote_pack_entry`,
+  // `receipt_pack_grant`) which are applied separately in tests and by
+  // a follow-up production migration.
 
   // Spot-check that the bootstrap created the required tables before we let
   // any traffic through. If a key table is missing, fail fast.

@@ -1,4 +1,5 @@
 import { applySchema } from '@c3-oss/prosa-db'
+import { PROMOTION_SCHEMA_SQL } from '@c3-oss/prosa-db-v2'
 import { MemoryObjectStore } from '@c3-oss/prosa-storage'
 import { PGlite } from '@electric-sql/pglite'
 import type { FastifyInstance } from 'fastify'
@@ -27,6 +28,13 @@ export async function buildTestApp(overrides: Partial<NodeJS.ProcessEnv> = {}): 
   } as NodeJS.ProcessEnv)
   const pglite = new PGlite()
   await applySchema(pglite)
+  // v1 + v2 share table names (`projection_session`, `search_doc`,
+  // `remote_object`, `device`) with incompatible column sets, so we
+  // can't blanket-apply `applySchemaV2` on top of v1. Lane 10 cutover
+  // handles the production migration. For Lane 5 tests we need the v2
+  // promotion tables (`promotion_staging`, `remote_authority_v2`,
+  // `receipt`, `legacy_receipt_archive`), which do not collide with v1.
+  await pglite.exec(PROMOTION_SCHEMA_SQL)
   const db = openPgliteDatabase(pglite)
   const auth = createAuth({ config, db: db.db })
   const objectStore = new MemoryObjectStore()
