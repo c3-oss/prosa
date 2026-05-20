@@ -122,7 +122,13 @@ Required work before another completion attempt:
 - Persist or derive expected pack transport metadata and make `SealPromotion`
   fail closed when a linked pack's object-store `head()` has wrong nonzero
   hash/size, before any receipt/authority/grant writes.
-- Add focused tests for wrong nonzero seal metadata and injected repair failure.
+- Do not treat `remote_pack.byte_hash IS NULL` as sufficient evidence for seal.
+  Seal must fail closed when expected transport hash metadata is absent, unless
+  it derives and verifies that expected hash before authority grant.
+- Require `objectStore.head(...).hashAlgorithm === 'blake3'`; wrong algorithm
+  must fail closed even if the hash string and size happen to match.
+- Add focused tests for wrong nonzero seal metadata, null-byte_hash same-size
+  wrong bytes, wrong hash algorithm, and injected repair failure.
 - Re-run focused CQ-141 tests plus `pnpm --filter @c3-oss/prosa-api test`,
   `pnpm lint`, `pnpm typecheck`, `git diff --check`, and Docker object-store
   evidence before starting a fresh five-cycle stabilization.

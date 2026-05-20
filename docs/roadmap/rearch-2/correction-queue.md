@@ -1927,6 +1927,29 @@ fail-open/data-loss paths:
    {"headAfter":null,"remotePacks":1,"linked":0}
    ```
 
+Follow-up WIP rejection (2026-05-20): the next attempted fix is still not
+accepted. Focused tests pass, but reviewer smoke found two remaining seal-time
+gaps:
+
+1. Legacy/catalog rows with `remote_pack.byte_hash IS NULL` can still seal
+   wrong same-size bytes. The current seal check treats null `byte_hash` as a
+   size-only check; a linked pack with null byte_hash, matching byte_length,
+   and wrong nonzero object-store hash still wrote receipt/authority/grant rows:
+
+   ```text
+   {"status":"sealed","receipts":1,"authorities":1,"grants":1}
+   ```
+
+   Required behavior: fail closed when expected transport hash is missing,
+   unless seal derives and verifies the hash before authority grant. Size-only
+   verification is not sufficient for cleanup-authorizing authority.
+
+2. Seal does not compare `objectStore.head(...).hashAlgorithm`. A nonzero
+   object with `hashAlgorithm != 'blake3'` can pass if the hash string and size
+   match. Required behavior: require `hashAlgorithm === 'blake3'` and test the
+   wrong-algorithm case fails closed with restored staging and zero
+   receipt/authority/grant rows.
+
 Rejected closure attempt (2026-05-20): the attempted fix covered these cases
 only partially.
 
@@ -2035,6 +2058,11 @@ Required fix:
   or fail closed without deleting existing bytes.
 - Seal must not grant packs whose object-store bytes are absent or whose
   metadata/content does not match the expected pack bytes.
+- Seal must fail closed when expected transport hash metadata is absent
+  (`byte_hash IS NULL`) unless it can derive and verify the actual expected hash
+  before authority grant.
+- Seal must verify object-store `hashAlgorithm` is `blake3`, not just compare
+  the hash string and compressed size.
 
 Acceptance:
 
@@ -2053,6 +2081,10 @@ Acceptance:
 - [ ] Seal test proves a linked pack with wrong nonzero object-store hash/size
       fails closed with restored staging and zero
       `receipt` / `remote_authority_v2` / `receipt_pack_grant` writes.
+- [ ] Seal test proves `byte_hash IS NULL` plus same-size wrong bytes fails
+      closed before authority/grant writes.
+- [ ] Seal test proves wrong `hashAlgorithm` fails closed before
+      authority/grant writes.
 
 ## Closed during this cycle
 
