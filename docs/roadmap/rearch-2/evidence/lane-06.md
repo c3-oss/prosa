@@ -147,13 +147,45 @@ pnpm typecheck                         → EXIT=0
 pnpm --filter @c3-oss/prosa-api lint   → EXIT=0
 ```
 
+## Slice 4 — Postgres FTS search (2026-05-20)
+
+Landed:
+
+- `apps/api/src/v2/reads/search/query.ts` — `searchQuery(deps,
+  tenantId, input)`. Wraps the verified-search gate on `search_doc`
+  and composes the FTS predicate
+  `d.text_tsv @@ websearch_to_tsquery('english', $2)`. Snippets
+  come from `ts_headline` with bounded fragment / word counts.
+- Cursor encodes `(rank, doc_id)` with descending rank + ascending
+  id as the tiebreaker so paging is stable across calls.
+- Supported filters: `roles`, `toolNames`, `canonicalToolTypes`,
+  `entityTypes`, `errorsOnly`, `sessionId`, `since`, `until`. Each
+  appends positional placeholders so the FTS string itself is
+  bound, not concatenated.
+- `POST /v2/reads/search/query` registered through
+  `registerV2ReadRoutes` with Zod input validation and the shared
+  `requireV2Tenant` gate ladder.
+- `apps/api/test/v2/reads/search-fts.test.ts` (12 tests): gate
+  hides docs with no authority, hides superseded receipts,
+  isolates tenants on shared store ids, returns non-empty snippets
+  that contain the matched term, every filter narrows the result
+  set, and a paged iteration over 5 docs visits each exactly once
+  under the `(rank, doc_id)` cursor.
+
+Slice 4 gates on the contributor checkout:
+
+```text
+pnpm exec vitest run test/v2/reads/   → 6 files / 41/41 tests passed
+pnpm typecheck                         → EXIT=0
+pnpm --filter @c3-oss/prosa-api lint   → EXIT=0
+```
+
 Remaining slices (per `docs/rearch-2/07-lane-6-read-api.md`):
 
-1. Search query with FTS, snippets, filters.
-2. Tool-calls list and artifacts.getText.
-3. Analytics summary/report and cross-store aggregation.
-4. p95 latency evidence under fixture load.
-5. Five consecutive 180 s stabilization cycles before RALPH_DONE.
+1. Tool-calls list and artifacts.getText.
+2. Analytics summary/report and cross-store distinct aggregation.
+3. p95 latency evidence under fixture load.
+4. Five consecutive 180 s stabilization cycles before RALPH_DONE.
 
 ## Scope
 
