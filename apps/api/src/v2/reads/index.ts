@@ -16,6 +16,7 @@ import { countSessions, countSessionsInput } from './sessions/count.js'
 import { getSessionDetail, sessionDetailInput } from './sessions/detail.js'
 import { listSessions, listSessionsInput } from './sessions/list.js'
 import { getTranscriptPage, transcriptPageInput } from './sessions/transcript.js'
+import { InvalidCursorError } from './shared/authority-snapshot.js'
 import { listToolCalls, toolCallsListInput } from './tool-calls/list.js'
 
 export type V2ReadRoutesDeps = V2AuthDeps & {
@@ -96,7 +97,15 @@ export function registerV2ReadRoutes(app: FastifyInstance, deps: V2ReadRoutesDep
         reply.code(400)
         return { code: 'INVALID_INPUT', op: 'ReadSessionsList', issues: parsed.error.issues }
       }
-      return await listSessions({ rawExec: deps.rawExec }, gate.tenantId, parsed.data)
+      try {
+        return await listSessions({ rawExec: deps.rawExec }, gate.tenantId, parsed.data)
+      } catch (err) {
+        if (err instanceof InvalidCursorError) {
+          reply.code(400)
+          return { code: 'INVALID_CURSOR', op: 'ReadSessionsList', message: err.message }
+        }
+        throw err
+      }
     },
   })
 
@@ -144,7 +153,15 @@ export function registerV2ReadRoutes(app: FastifyInstance, deps: V2ReadRoutesDep
         reply.code(400)
         return { code: 'INVALID_INPUT', op: 'ReadSessionsTranscript', issues: parsed.error.issues }
       }
-      return await getTranscriptPage({ rawExec: deps.rawExec }, gate.tenantId, parsed.data)
+      try {
+        return await getTranscriptPage({ rawExec: deps.rawExec }, gate.tenantId, parsed.data)
+      } catch (err) {
+        if (err instanceof InvalidCursorError) {
+          reply.code(400)
+          return { code: 'INVALID_CURSOR', op: 'ReadSessionsTranscript', message: err.message }
+        }
+        throw err
+      }
     },
   })
 
@@ -160,7 +177,15 @@ export function registerV2ReadRoutes(app: FastifyInstance, deps: V2ReadRoutesDep
         reply.code(400)
         return { code: 'INVALID_INPUT', op: 'ReadSearchQuery', issues: parsed.error.issues }
       }
-      return await searchQuery({ rawExec: deps.rawExec }, gate.tenantId, parsed.data)
+      try {
+        return await searchQuery({ rawExec: deps.rawExec }, gate.tenantId, parsed.data)
+      } catch (err) {
+        if (err instanceof InvalidCursorError) {
+          reply.code(400)
+          return { code: 'INVALID_CURSOR', op: 'ReadSearchQuery', message: err.message }
+        }
+        throw err
+      }
     },
   })
 
@@ -176,7 +201,15 @@ export function registerV2ReadRoutes(app: FastifyInstance, deps: V2ReadRoutesDep
         reply.code(400)
         return { code: 'INVALID_INPUT', op: 'ReadToolCallsList', issues: parsed.error.issues }
       }
-      return await listToolCalls({ rawExec: deps.rawExec }, gate.tenantId, parsed.data)
+      try {
+        return await listToolCalls({ rawExec: deps.rawExec }, gate.tenantId, parsed.data)
+      } catch (err) {
+        if (err instanceof InvalidCursorError) {
+          reply.code(400)
+          return { code: 'INVALID_CURSOR', op: 'ReadToolCallsList', message: err.message }
+        }
+        throw err
+      }
     },
   })
 

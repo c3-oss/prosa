@@ -15,7 +15,7 @@ import { applySchemaV2 } from '@c3-oss/prosa-db-v2'
 import { MemoryObjectStore, PUT_PREVERIFIED_BYTES } from '@c3-oss/prosa-storage'
 import { PGlite } from '@electric-sql/pglite'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { type ArtifactGetTextResponse, getArtifactText } from '../../../src/v2/reads/artifacts/get-text.js'
+import { type ArtifactMissReason, getArtifactText } from '../../../src/v2/reads/artifacts/get-text.js'
 
 async function putBytes(store: MemoryObjectStore, key: string, bytes: Buffer): Promise<void> {
   // Bypass the hash verification — these tests do not exercise the
@@ -154,12 +154,16 @@ describe('Lane 6 artifacts/getText', () => {
     await db.close()
   })
 
-  it('returns not_visible when the artifact is missing or under a superseded receipt', async () => {
-    const miss = await getArtifactText({ rawExec: makeRawExec(db), objectStore: store }, tenantId, {
+  it('returns an opaque { found: false } when the artifact is missing or under a superseded receipt (CQ-144)', async () => {
+    const seenReasons: ArtifactMissReason[] = []
+    const onMiss = (_t: string, _id: string, reason: ArtifactMissReason) => {
+      seenReasons.push(reason)
+    }
+    const miss = await getArtifactText({ rawExec: makeRawExec(db), objectStore: store, onMiss }, tenantId, {
       artifactId: 'art_missing',
       maxBytes: 1024,
     })
-    expect((miss as Extract<ArtifactGetTextResponse, { found: false }>).reason).toBe('not_visible')
+    expect(miss).toEqual({ found: false })
 
     await seedArtifact(db, {
       tenantId,
@@ -168,14 +172,18 @@ describe('Lane 6 artifacts/getText', () => {
       artifactId: 'art_super',
       objectId,
     })
-    const superseded = await getArtifactText({ rawExec: makeRawExec(db), objectStore: store }, tenantId, {
+    const superseded = await getArtifactText({ rawExec: makeRawExec(db), objectStore: store, onMiss }, tenantId, {
       artifactId: 'art_super',
       maxBytes: 1024,
     })
-    expect((superseded as Extract<ArtifactGetTextResponse, { found: false }>).reason).toBe('not_visible')
+    expect(superseded).toEqual({ found: false })
+    // Internal observability hook still sees the real reason — but the
+    // caller-visible shape is opaque.
+    expect(seenReasons).toEqual(['not_visible', 'not_visible'])
   })
 
-  it('returns no_grant when the receipt does not own the pack containing the object', async () => {
+  it('returns an opaque { found: false } when the receipt does not own the pack — onMiss observes no_grant', async () => {
+    const seenReasons: ArtifactMissReason[] = []
     await seedPack(db, {
       tenantId,
       packDigest,
@@ -197,20 +205,71 @@ describe('Lane 6 artifacts/getText', () => {
       artifactId: 'art_no_grant',
       objectId,
     })
-    const r = await getArtifactText({ rawExec: makeRawExec(db), objectStore: store }, tenantId, {
-      artifactId: 'art_no_grant',
-      maxBytes: 1024,
-    })
-    expect((r as Extract<ArtifactGetTextResponse, { found: false }>).reason).toBe('no_grant')
+    const r = await getArtifactText(
+      {
+        rawExec: makeRawExec(db),
+        objectStore: store,
+        onMiss: (_t, _id, reason) => seenReasons.push(reason),
+      },
+      tenantId,
+      { artifactId: 'art_no_grant', maxBytes: 1024 },
+    )
+    expect(r).toEqual({ found: false })
+    expect(seenReasons).toEqual(['no_grant'])
   })
 
-  it('returns no_object when the artifact has no object id', async () => {
+  it('returns an opaque { found: false } when the artifact has no object id — onMiss observes no_object', async () => {
+    const seenReasons: ArtifactMissReason[] = []
     await seedArtifact(db, { tenantId, storeId, receiptId, artifactId: 'art_no_obj', objectId: null })
-    const r = await getArtifactText({ rawExec: makeRawExec(db), objectStore: store }, tenantId, {
-      artifactId: 'art_no_obj',
-      maxBytes: 1024,
+    const r = await getArtifactText(
+      {
+        rawExec: makeRawExec(db),
+        objectStore: store,
+        onMiss: (_t, _id, reason) => seenReasons.push(reason),
+      },
+      tenantId,
+      { artifactId: 'art_no_obj', maxBytes: 1024 },
+    )
+    expect(r).toEqual({ found: false })
+    expect(seenReasons).toEqual(['no_object'])
+  })
+
+  it('returns an opaque { found: false } when the object bytes cannot be fetched — onMiss observes fetch_failed', async () => {
+    // Catalog row points to a storage URI that does not exist in the
+    // object store.
+    await seedPack(db, {
+      tenantId,
+      packDigest,
+      storageUri: 'object-packs/missing-bytes',
+      byteLength: 100,
+      entryCount: 1,
+      objectId,
+      storedOffset: 0,
+      storedLength: 100,
+      storedHash: 'h',
+      compression: 'none',
+      uncompressedSize: 100,
     })
-    expect((r as Extract<ArtifactGetTextResponse, { found: false }>).reason).toBe('no_object')
+    await seedGrant(db, { tenantId, receiptId, packDigest })
+    await seedArtifact(db, {
+      tenantId,
+      storeId,
+      receiptId,
+      artifactId: 'art_fetch_fail',
+      objectId,
+    })
+    const seenReasons: ArtifactMissReason[] = []
+    const r = await getArtifactText(
+      {
+        rawExec: makeRawExec(db),
+        objectStore: store,
+        onMiss: (_t, _id, reason) => seenReasons.push(reason),
+      },
+      tenantId,
+      { artifactId: 'art_fetch_fail', maxBytes: 1024 },
+    )
+    expect(r).toEqual({ found: false })
+    expect(seenReasons).toEqual(['fetch_failed'])
   })
 
   it('fetches and returns bounded UTF-8 text for an uncompressed object', async () => {

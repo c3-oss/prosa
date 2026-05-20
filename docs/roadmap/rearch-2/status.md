@@ -11,8 +11,10 @@ Updated: 2026-05-20 after Lane 6 read-surface reviewer findings.
   stabilization cycles.
 - Lane 4 Server: **accepted** by Codex/governor on 2026-05-20.
 - Lane 5 Sync protocol: **accepted** by Codex/governor on 2026-05-20.
-- Lane 6 Read API: **active**, slices 1-5 landed; reviewer found blocking
-  receipt-snapshot cursor, legacy CLI-read safety, and artifacts opacity gaps.
+- Lane 6 Read API: **active**, slice 6 landed. CQ-142
+  (receipt-snapshot cursors) and CQ-144 (artifacts opacity) closed;
+  CQ-143 (CLI fail-closed for promoted v2 stores) remains open as
+  the only blocking reviewer finding.
 - Lanes 7–10: **not started**.
 
 ## Current Lane 6 focus

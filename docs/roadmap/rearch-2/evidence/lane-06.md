@@ -229,11 +229,68 @@ pnpm typecheck                         → EXIT=0
 pnpm --filter @c3-oss/prosa-api lint   → EXIT=0
 ```
 
-Remaining slices (per `docs/rearch-2/07-lane-6-read-api.md`):
+## Slice 6 — Reviewer corrections CQ-142 + CQ-144 (2026-05-20)
 
-1. Analytics summary/report and cross-store distinct aggregation.
-2. p95 latency evidence under fixture load.
-3. Five consecutive 180 s stabilization cycles before RALPH_DONE.
+Landed:
+
+- **CQ-144 (artifacts opacity):** `getArtifactText` now collapses
+  every miss path — missing artifact, superseded receipt, missing
+  pack grant, no object id, fetch / decompression failure — to a
+  single opaque `{ found: false }` response. The internal
+  diagnosis path is preserved through an optional
+  `ArtifactsDeps.onMiss(tenantId, artifactId, reason)` hook so
+  operators retain observability without leaking state to callers.
+- **CQ-142 (receipt-snapshot cursors):**
+  `apps/api/src/v2/reads/shared/authority-snapshot.ts` introduces:
+  - `resolveAuthoritySnapshot(rawExec, tenantId)` — page-1 snapshot
+    of `(store_id, current_receipt_id)` for the tenant.
+  - `verifiedProjectionInSnapshotWhere(alias, tenantParam,
+    snapshot, params)` — gate fragment pinned to a snapshot's
+    `(store_id, receipt_id)` tuples (FALSE when the snapshot is
+    empty).
+  - `encodeCursorSnapshot` / `parseCursorSnapshot` — strict
+    cursor envelope helpers.
+  - `decodeRequiredCursor` — throws `InvalidCursorError` for any
+    tamper / truncation pattern.
+- `sessions/list`, `sessions/transcript` (all four sub-queries),
+  `search/query`, and `tool-calls/list` (outer gate + LATERAL
+  inner gate) now resolve the snapshot on page 1 and embed it in
+  the cursor; subsequent pages decode the snapshot and pin every
+  query to it. `buildSessionWhere` takes an optional snapshot so
+  the count helper continues to track the live authority.
+- Route layer maps `InvalidCursorError` → HTTP 400 with
+  `code: 'INVALID_CURSOR'` for the four paginated routes.
+- `lint-no-direct-projection-read.test.ts` accepts
+  `verifiedProjectionInSnapshotWhere` as a gate composer.
+- `apps/api/test/v2/reads/artifacts-get-text.test.ts` (8 tests)
+  updated: the four miss cases now assert the opaque response
+  shape AND that the `onMiss` hook still sees the internal
+  reason — including a new `fetch_failed` case where the storage
+  URI is missing from the object store.
+- `apps/api/test/v2/reads/cursor-snapshot.test.ts` (8 tests)
+  pins CQ-142 acceptance: page 2 still sees only rows under the
+  original snapshot for sessions/list, sessions/transcript,
+  search/query, and tool-calls/list after a mid-iteration
+  promotion bumps `remote_authority_v2.current_receipt_id`. Each
+  surface also rejects a tampered cursor with
+  `InvalidCursorError`.
+
+Slice 6 gates on the contributor checkout:
+
+```text
+pnpm exec vitest run test/v2/reads/   → 9 files / 63/63 tests passed
+pnpm typecheck                         → EXIT=0
+pnpm --filter @c3-oss/prosa-api lint   → EXIT=0
+```
+
+Remaining slices (per `docs/rearch-2/07-lane-6-read-api.md` and the
+reviewer's correction queue):
+
+1. CQ-143: fail-closed CLI session reads for promoted v2 stores
+   (or accept Lane 7 surface — pending governor decision).
+2. Analytics summary/report and cross-store distinct aggregation.
+3. p95 latency evidence under fixture load.
+4. Five consecutive 180 s stabilization cycles before RALPH_DONE.
 
 ## Scope
 

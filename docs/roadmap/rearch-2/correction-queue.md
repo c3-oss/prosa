@@ -8,8 +8,26 @@ Updated: 2026-05-20 after Lane 6 read-surface reviewer findings.
 
 Severity: high
 Blocking: yes (blocks Lane 6 sessions/search/tool-calls pagination acceptance)
-Status: open (2026-05-20)
+Status: closed (2026-05-20) — pending governor acceptance
 Owner: Ralph
+
+Closure (2026-05-20):
+
+- `apps/api/src/v2/reads/shared/authority-snapshot.ts` ships
+  `resolveAuthoritySnapshot`, `verifiedProjectionInSnapshotWhere`,
+  `encodeCursorSnapshot`, `parseCursorSnapshot`, and
+  `decodeRequiredCursor` + `InvalidCursorError`.
+- `sessions/list`, `sessions/transcript`, `search/query`, and
+  `tool-calls/list` resolve the snapshot on page 1 and embed it in
+  the cursor; subsequent pages pin every query to that exact
+  `(store_id, receipt_id)` set instead of re-resolving live
+  authority. `tool-calls/list` pins both the outer gate and the
+  LATERAL inner gate to the same snapshot.
+- Route layer maps `InvalidCursorError` to HTTP 400 /
+  `INVALID_CURSOR` on all four paginated routes.
+- `cursor-snapshot.test.ts` (8 tests) covers the four
+  promotion-between-pages cases plus tampered-cursor rejection for
+  each route.
 
 Problem:
 
@@ -117,8 +135,21 @@ Acceptance:
 
 Severity: medium
 Blocking: yes (blocks Lane 6 artifacts.getText acceptance if the artifacts route lands)
-Status: open (2026-05-20)
+Status: closed (2026-05-20) — pending governor acceptance
 Owner: Ralph
+
+Closure (2026-05-20):
+
+- `getArtifactText` now collapses every miss path —
+  `not_visible | no_grant | no_object | fetch_failed` — to a
+  single opaque `{ found: false }` response.
+- The internal reason is preserved through an optional
+  `ArtifactsDeps.onMiss(tenantId, artifactId, reason)` hook so
+  operators retain observability without leaking state.
+- `artifacts-get-text.test.ts` (8 tests) covers each miss path
+  and asserts both the opaque caller-visible response shape AND
+  the `onMiss` reason — including a new `fetch_failed` case
+  where the storage URI is missing from the object store.
 
 Problem:
 

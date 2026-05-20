@@ -29,8 +29,16 @@
 
 import { z } from 'zod'
 import type { RawExec } from '../../../db.js'
-import { decodeCursor, encodeCursor } from '../shared/cursor.js'
-import { verifiedProjectionWhere } from '../shared/verified-projection.js'
+import {
+  type AuthoritySnapshot,
+  InvalidCursorError,
+  decodeRequiredCursor,
+  encodeCursorSnapshot,
+  parseCursorSnapshot,
+  resolveAuthoritySnapshot,
+  verifiedProjectionInSnapshotWhere,
+} from '../shared/authority-snapshot.js'
+import { encodeCursor } from '../shared/cursor.js'
 import { appendParam } from './filters.js'
 
 /**
@@ -155,7 +163,11 @@ type ToolResultRow = {
   duration_ms: number | null
 }
 
-type Cursor = { ord: number; id: string }
+type StoredCursor = {
+  ord: number
+  id: string
+  snapshot: Array<{ s: string; r: string }>
+}
 
 export type TranscriptDeps = {
   rawExec: RawExec
@@ -166,24 +178,47 @@ export async function getTranscriptPage(
   tenantId: string,
   input: TranscriptPageInput,
 ): Promise<TranscriptPageResponse> {
-  // Step 1: session header.
+  // CQ-142: pin the (store_id, receipt_id) snapshot at page 1 so
+  // every subsequent page sees the same set, even if a fresh
+  // promotion bumps `remote_authority_v2` mid-iteration.
+  let snapshot: AuthoritySnapshot
+  let cursor: { ord: number; id: string } | null = null
+  const parsedCursor = decodeRequiredCursor<StoredCursor>(input.cursor ?? undefined)
+  if (parsedCursor) {
+    if (typeof parsedCursor.id !== 'string' || parsedCursor.id.length === 0) {
+      throw new InvalidCursorError('cursor.id missing')
+    }
+    if (!Number.isInteger(parsedCursor.ord)) {
+      throw new InvalidCursorError('cursor.ord must be an integer')
+    }
+    snapshot = parseCursorSnapshot(parsedCursor.snapshot)
+    cursor = { ord: parsedCursor.ord, id: parsedCursor.id }
+  } else {
+    snapshot = await resolveAuthoritySnapshot(deps.rawExec, tenantId)
+  }
+
+  // Step 1: session header — gated by the pinned snapshot so a
+  // session that was visible on page 1 stays visible on the
+  // transcript pages even if its receipt was superseded mid-read.
+  const headerParams: unknown[] = [tenantId, input.sessionId]
+  const headerGate = verifiedProjectionInSnapshotWhere('s', '$1', snapshot, headerParams)
   const headerRows = await deps.rawExec<SessionHeaderRow>(
     `SELECT s.session_id, s.source_tool, s.source_session_id, s.title,
             to_char(s.start_ts AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS start_ts,
             to_char(s.end_ts   AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS end_ts,
             s.store_id, s.receipt_id
        FROM projection_session s
-      WHERE ${verifiedProjectionWhere('s')}
+      WHERE ${headerGate}
         AND s.session_id = $2
       LIMIT 1`,
-    [tenantId, input.sessionId],
+    headerParams,
   )
   const header = headerRows[0]
   if (!header) return null
 
   // Step 2: page of messages with derived ordinal.
-  const cursor = decodeCursor<Cursor>(input.cursor ?? undefined)
   const msgParams: unknown[] = [tenantId, input.sessionId]
+  const msgGate = verifiedProjectionInSnapshotWhere('m', '$1', snapshot, msgParams)
   let cursorClause = ''
   if (cursor) {
     const ordParam = appendParam(msgParams, cursor.ord)
@@ -201,7 +236,7 @@ export async function getTranscriptPage(
          SELECT m.message_id, m.turn_id, m.role, m.model, m.timestamp,
                 row_number() OVER (ORDER BY COALESCE(m.timestamp, '1970-01-01'::timestamptz), m.message_id)::int AS ord
            FROM projection_message m
-          WHERE ${verifiedProjectionWhere('m')}
+          WHERE ${msgGate}
             AND m.session_id = $2
        ) ranked
       WHERE 1 = 1${cursorClause}
@@ -213,7 +248,10 @@ export async function getTranscriptPage(
   const overflow = messages.length > input.limit
   const pageMessages = overflow ? messages.slice(0, input.limit) : messages
   const lastMsg = pageMessages[pageMessages.length - 1]
-  const nextCursor = overflow && lastMsg ? encodeCursor({ ord: lastMsg.ord, id: lastMsg.message_id }) : null
+  const nextCursor =
+    overflow && lastMsg
+      ? encodeCursor({ ord: lastMsg.ord, id: lastMsg.message_id, snapshot: encodeCursorSnapshot(snapshot) })
+      : null
 
   const messageIds = pageMessages.map((m) => m.message_id)
   const turnIds: string[] = []
@@ -223,12 +261,13 @@ export async function getTranscriptPage(
   let blocks: BlockRow[] = []
   if (messageIds.length > 0) {
     const blockParams: unknown[] = [tenantId]
+    const gate = verifiedProjectionInSnapshotWhere('b', '$1', snapshot, blockParams)
     const placeholders = messageIds.map((id) => appendParam(blockParams, id)).join(', ')
     blocks = await deps.rawExec<BlockRow>(
       `SELECT b.block_id, b.message_id, b.ordinal, b.block_type, b.is_error, b.is_redacted, b.visibility,
               b.text_inline, b.object_id, b.payload
          FROM projection_content_block b
-        WHERE ${verifiedProjectionWhere('b')}
+        WHERE ${gate}
           AND b.message_id IN (${placeholders})
         ORDER BY b.message_id ASC, b.ordinal ASC, b.block_id ASC`,
       blockParams,
@@ -239,13 +278,14 @@ export async function getTranscriptPage(
   let turnCalls: ToolCallRow[] = []
   if (turnIds.length > 0) {
     const callParams: unknown[] = [tenantId, input.sessionId]
+    const gate = verifiedProjectionInSnapshotWhere('c', '$1', snapshot, callParams)
     const placeholders = turnIds.map((id) => appendParam(callParams, id)).join(', ')
     turnCalls = await deps.rawExec<ToolCallRow>(
       `SELECT c.tool_call_id, c.turn_id, c.tool_name, c.canonical_tool_type,
               to_char(c.timestamp_start AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS timestamp_start,
               c.status
          FROM projection_tool_call c
-        WHERE ${verifiedProjectionWhere('c')}
+        WHERE ${gate}
           AND c.session_id = $2
           AND c.turn_id IN (${placeholders})
         ORDER BY c.timestamp_start ASC NULLS LAST, c.tool_call_id ASC`,
@@ -256,16 +296,18 @@ export async function getTranscriptPage(
   // Step 4b: unattached tool calls — only on the first page.
   let unattachedCalls: ToolCallRow[] = []
   if (!cursor) {
+    const unattachedParams: unknown[] = [tenantId, input.sessionId]
+    const gate = verifiedProjectionInSnapshotWhere('c', '$1', snapshot, unattachedParams)
     unattachedCalls = await deps.rawExec<ToolCallRow>(
       `SELECT c.tool_call_id, c.turn_id, c.tool_name, c.canonical_tool_type,
               to_char(c.timestamp_start AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS timestamp_start,
               c.status
          FROM projection_tool_call c
-        WHERE ${verifiedProjectionWhere('c')}
+        WHERE ${gate}
           AND c.session_id = $2
           AND c.turn_id IS NULL
         ORDER BY c.timestamp_start ASC NULLS LAST, c.tool_call_id ASC`,
-      [tenantId, input.sessionId],
+      unattachedParams,
     )
   }
 
@@ -274,12 +316,13 @@ export async function getTranscriptPage(
   const resultByCallId = new Map<string, ToolResultRow>()
   if (callIds.length > 0) {
     const rParams: unknown[] = [tenantId]
+    const gate = verifiedProjectionInSnapshotWhere('r', '$1', snapshot, rParams)
     const placeholders = callIds.map((id) => appendParam(rParams, id)).join(', ')
     const rows = await deps.rawExec<ToolResultRow>(
       `SELECT DISTINCT ON (r.tool_call_id)
               r.tool_call_id, r.tool_result_id, r.status, r.is_error, r.exit_code, r.duration_ms
          FROM projection_tool_result r
-        WHERE ${verifiedProjectionWhere('r')}
+        WHERE ${gate}
           AND r.tool_call_id IN (${placeholders})
         ORDER BY r.tool_call_id, r.tool_result_id DESC`,
       rParams,

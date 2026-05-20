@@ -50,13 +50,15 @@ describe('Lane 6 read paths cannot bypass the verified-projection gate', () => {
       const mentions = VERIFIED_PROJECTION_TABLES.filter((t) => text.includes(t))
       if (mentions.length === 0) continue
       // The gate is applied directly (`verifiedProjectionWhere`,
-      // `verifiedSearchWhere`) or indirectly through a helper that
-      // composes it (`buildSessionWhere` from `sessions/filters.ts`).
-      // Adding a new gate-aware helper means updating this allowlist
-      // and the helper itself.
+      // `verifiedSearchWhere`, `verifiedProjectionInSnapshotWhere`)
+      // or indirectly through a helper that composes it
+      // (`buildSessionWhere` from `sessions/filters.ts`). Adding a
+      // new gate-aware helper means updating this allowlist and
+      // the helper itself.
       const composesGate =
         text.includes('verifiedProjectionWhere') ||
         text.includes('verifiedSearchWhere') ||
+        text.includes('verifiedProjectionInSnapshotWhere') ||
         text.includes('buildSessionWhere')
       if (!composesGate) {
         for (const m of mentions) offenders.push({ file, table: m })

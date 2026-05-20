@@ -23,9 +23,12 @@
 //      `kind: 'text'`; binary payloads return `kind: 'binary'`
 //      with an empty `text` field.
 //
-// Missing row, missing grant, or a corrupt catalog row collapses
-// to `{ found: false }` so an attacker cannot use the response
-// shape to probe internal state.
+// CQ-144: every miss path — missing artifact, superseded receipt,
+// missing pack grant, missing remote_pack_entry, missing object
+// bytes, or fetch/decompress failure — collapses to a single
+// opaque `{ found: false }` response. The handler logs internal
+// reasons through the optional `onMiss` hook for operators but
+// never surfaces them to the caller.
 
 import type { RemoteObjectStore } from '@c3-oss/prosa-storage'
 import { z } from 'zod'
@@ -43,6 +46,12 @@ export const artifactGetTextInput = z.object({
 
 export type ArtifactGetTextInput = z.infer<typeof artifactGetTextInput>
 
+/**
+ * Server-internal miss reason. Never returned to callers; emitted
+ * through `ArtifactsDeps.onMiss` so operators can correlate logs.
+ */
+export type ArtifactMissReason = 'not_visible' | 'no_grant' | 'no_object' | 'fetch_failed'
+
 export type ArtifactGetTextResponse =
   | {
       found: true
@@ -57,7 +66,7 @@ export type ArtifactGetTextResponse =
       storeId: string
       receiptId: string
     }
-  | { found: false; reason: 'not_visible' | 'no_grant' | 'no_object' | 'fetch_failed' }
+  | { found: false }
 
 type ResolvedArtifact = {
   artifactId: string
@@ -76,6 +85,12 @@ type ResolvedArtifact = {
 export type ArtifactsDeps = {
   rawExec: RawExec
   objectStore: RemoteObjectStore
+  /**
+   * Optional server-side observability hook fired with the internal
+   * miss reason. Never reaches the response — `getArtifactText`
+   * collapses every miss to `{ found: false }` per CQ-144.
+   */
+  onMiss?: (tenantId: string, artifactId: string, reason: ArtifactMissReason) => void
 }
 
 type Row = {
@@ -103,7 +118,7 @@ export async function getArtifactText(
   // `not_visible` / `no_grant` / `no_object` depending on which
   // edge failed; the SQL returns 0 rows when *anything* in the
   // chain is missing so we re-derive the reason with a cheap
-  // follow-up.
+  // follow-up. The caller-visible response stays opaque (CQ-144).
   const rows = await deps.rawExec<Row>(
     `SELECT a.artifact_id, a.object_id, a.content_type, a.byte_length,
             a.store_id, a.receipt_id,
@@ -127,10 +142,12 @@ export async function getArtifactText(
   )
 
   if (rows.length === 0) {
-    return diagnoseMiss(deps, tenantId, input.artifactId)
+    return missOpaque(deps, tenantId, input.artifactId, await diagnoseMissReason(deps, tenantId, input.artifactId))
   }
   const row = rows[0]!
-  if (!row.object_id) return { found: false, reason: 'no_object' }
+  if (!row.object_id) {
+    return missOpaque(deps, tenantId, input.artifactId, 'no_object')
+  }
   const resolved: ResolvedArtifact = {
     artifactId: row.artifact_id,
     objectId: row.object_id,
@@ -149,14 +166,19 @@ export async function getArtifactText(
   try {
     stream = await deps.objectStore.getRange(resolved.storageUri, resolved.storedOffset, resolved.storedLength)
   } catch {
-    return { found: false, reason: 'fetch_failed' }
+    return missOpaque(deps, tenantId, input.artifactId, 'fetch_failed')
   }
 
   const iter: AsyncIterable<Uint8Array> = streamToAsyncIterable(stream)
-  const decoded =
-    resolved.compression === 'zstd'
-      ? await decompressZstdBounded(iter, input.maxBytes)
-      : await readRawBounded(iter, input.maxBytes)
+  let decoded: Awaited<ReturnType<typeof decompressZstdBounded>>
+  try {
+    decoded =
+      resolved.compression === 'zstd'
+        ? await decompressZstdBounded(iter, input.maxBytes)
+        : await readRawBounded(iter, input.maxBytes)
+  } catch {
+    return missOpaque(deps, tenantId, input.artifactId, 'fetch_failed')
+  }
 
   const textLike = looksLikeText(resolved.contentType, decoded.decoded)
   return {
@@ -174,15 +196,25 @@ export async function getArtifactText(
   }
 }
 
-async function diagnoseMiss(
+function missOpaque(
   deps: ArtifactsDeps,
   tenantId: string,
   artifactId: string,
-): Promise<ArtifactGetTextResponse> {
-  // Cheap follow-up: distinguish between "artifact does not exist /
-  // is not under current authority" (`not_visible`) and "artifact is
-  // visible but its underlying object lacks a receipt grant"
-  // (`no_grant`) or "artifact has no object id" (`no_object`).
+  reason: ArtifactMissReason,
+): ArtifactGetTextResponse {
+  deps.onMiss?.(tenantId, artifactId, reason)
+  return { found: false }
+}
+
+async function diagnoseMissReason(
+  deps: ArtifactsDeps,
+  tenantId: string,
+  artifactId: string,
+): Promise<ArtifactMissReason> {
+  // Diagnostic only. The response stays opaque; only `onMiss` sees
+  // the reason. Distinguishes "row is invisible under current
+  // authority" from "row is visible but lacks an object id / pack
+  // grant" so an operator can tell the two apart.
   const rows = await deps.rawExec<{ object_id: string | null; receipt_id: string }>(
     `SELECT a.object_id, a.receipt_id
        FROM projection_artifact a
@@ -191,9 +223,9 @@ async function diagnoseMiss(
     [tenantId, artifactId],
   )
   const row = rows[0]
-  if (!row) return { found: false, reason: 'not_visible' }
-  if (!row.object_id) return { found: false, reason: 'no_object' }
-  return { found: false, reason: 'no_grant' }
+  if (!row) return 'not_visible'
+  if (!row.object_id) return 'no_object'
+  return 'no_grant'
 }
 
 function looksLikeText(contentType: string | null, decoded: Uint8Array): boolean {

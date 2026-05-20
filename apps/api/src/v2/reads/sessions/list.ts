@@ -10,15 +10,25 @@
 //   2. Time-ordered paging. The outer query re-sorts the
 //      conflict-resolved rows by `start_ts DESC, session_id DESC`
 //      and applies the caller's cursor bound. The cursor encodes
-//      `{ startedAt, id }` so it stays stable across page calls
-//      even when new rows arrive at the head.
-//   3. Filters. `buildSessionWhere` composes any combination of
-//      tool / project / store / time / title filters; the gate
-//      keeps the result tenant-scoped.
+//      `{ startedAt, id, snapshot }` so it stays stable across page
+//      calls even when new rows arrive at the head.
+//   3. CQ-142 — receipt-snapshot pinning. Page 1 resolves the
+//      `(store_id, current_receipt_id)` set once and embeds it in
+//      the cursor; subsequent pages use the same tuples instead of
+//      re-resolving the live authority. A promotion between pages
+//      does not skip / duplicate / mix receipts.
 
 import { z } from 'zod'
 import type { RawExec } from '../../../db.js'
-import { decodeCursor, encodeCursor } from '../shared/cursor.js'
+import {
+  type AuthoritySnapshot,
+  InvalidCursorError,
+  decodeRequiredCursor,
+  encodeCursorSnapshot,
+  parseCursorSnapshot,
+  resolveAuthoritySnapshot,
+} from '../shared/authority-snapshot.js'
+import { encodeCursor } from '../shared/cursor.js'
 import { type SessionListFilters, appendParam, buildSessionWhere, sessionListFilters } from './filters.js'
 
 export const listSessionsInput = z
@@ -69,7 +79,11 @@ type DbRow = {
   timeline_confidence: string
 }
 
-type ListCursor = { startedAt: string | null; id: string }
+type StoredCursor = {
+  startedAt: string | null
+  id: string
+  snapshot: Array<{ s: string; r: string }>
+}
 
 export type ListSessionsDeps = {
   rawExec: RawExec
@@ -88,15 +102,30 @@ export async function listSessions(
     until: input.until,
     q: input.q,
   }
-  const { whereSql, params } = buildSessionWhere(tenantId, filters)
-  const cursor = decodeCursor<ListCursor>(input.cursor ?? undefined)
+
+  // CQ-142: page 1 resolves the authority snapshot; subsequent
+  // pages decode it from the cursor. Tampered / truncated cursors
+  // surface as `InvalidCursorError` (HTTP 400 at the route layer).
+  let snapshot: AuthoritySnapshot
+  let cursorBound: { startedAt: string | null; id: string } | null = null
+  const parsed = decodeRequiredCursor<StoredCursor>(input.cursor ?? undefined)
+  if (parsed) {
+    if (typeof parsed.id !== 'string' || parsed.id.length === 0) {
+      throw new InvalidCursorError('cursor.id missing')
+    }
+    if (parsed.startedAt != null && typeof parsed.startedAt !== 'string') {
+      throw new InvalidCursorError('cursor.startedAt must be a string or null')
+    }
+    snapshot = parseCursorSnapshot(parsed.snapshot)
+    cursorBound = { startedAt: parsed.startedAt, id: parsed.id }
+  } else {
+    snapshot = await resolveAuthoritySnapshot(deps.rawExec, tenantId)
+  }
+
+  const { whereSql, params } = buildSessionWhere(tenantId, filters, snapshot)
   const limit = input.limit
   const fetchLimit = limit + 1
 
-  // Conflict-resolved inner set: at most one row per logical session
-  // tuple, picking the freshest end (then receipt) when more than
-  // one store has promoted the same `(source_tool,
-  // source_session_id)`.
   const innerSql = `
     SELECT DISTINCT ON (s.source_tool, s.source_session_id)
            s.session_id,
@@ -118,15 +147,11 @@ export async function listSessions(
      ORDER BY s.source_tool, s.source_session_id, s.end_ts DESC NULLS LAST, s.receipt_id DESC
   `
 
-  // Cursor bound is applied on the OUTER ordering tuple
-  // `(start_ts DESC, session_id DESC)`. Encoding `start_ts` as text
-  // keeps the cursor stable regardless of how the driver renders
-  // the column.
   let cursorClause = ''
-  if (cursor) {
+  if (cursorBound) {
     const sortedExpr = `COALESCE(to_char(c.start_ts AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'), '')`
-    const startedParam = appendParam(params, cursor.startedAt ?? '')
-    const idParam = appendParam(params, cursor.id)
+    const startedParam = appendParam(params, cursorBound.startedAt ?? '')
+    const idParam = appendParam(params, cursorBound.id)
     cursorClause = ` WHERE (${sortedExpr} < ${startedParam} OR (${sortedExpr} = ${startedParam} AND c.session_id < ${idParam}))`
   }
   const limitParam = appendParam(params, fetchLimit)
@@ -159,7 +184,14 @@ export async function listSessions(
   const overflow = rows.length > limit
   const windowed = overflow ? rows.slice(0, limit) : rows
   const last = windowed[windowed.length - 1]
-  const nextCursor = overflow && last ? encodeCursor({ startedAt: last.start_ts ?? '', id: last.session_id }) : null
+  const nextCursor =
+    overflow && last
+      ? encodeCursor({
+          startedAt: last.start_ts ?? '',
+          id: last.session_id,
+          snapshot: encodeCursorSnapshot(snapshot),
+        })
+      : null
 
   return {
     rows: windowed.map(mapRow),

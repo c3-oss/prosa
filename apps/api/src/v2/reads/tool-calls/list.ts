@@ -9,8 +9,16 @@
 
 import { z } from 'zod'
 import type { RawExec } from '../../../db.js'
-import { decodeCursor, encodeCursor } from '../shared/cursor.js'
-import { verifiedProjectionWhere } from '../shared/verified-projection.js'
+import {
+  type AuthoritySnapshot,
+  InvalidCursorError,
+  decodeRequiredCursor,
+  encodeCursorSnapshot,
+  parseCursorSnapshot,
+  resolveAuthoritySnapshot,
+  verifiedProjectionInSnapshotWhere,
+} from '../shared/authority-snapshot.js'
+import { encodeCursor } from '../shared/cursor.js'
 
 export const toolCallsListInput = z.object({
   sessionId: z.string().min(1).optional(),
@@ -66,7 +74,11 @@ type DbRow = {
   latest_duration_ms: number | null
 }
 
-type Cursor = { ts: string | null; id: string }
+type StoredCursor = {
+  ts: string | null
+  id: string
+  snapshot: Array<{ s: string; r: string }>
+}
 
 export type ToolCallsDeps = {
   rawExec: RawExec
@@ -82,8 +94,29 @@ export async function listToolCalls(
   tenantId: string,
   input: ToolCallsListInput,
 ): Promise<ToolCallsListResponse> {
+  // CQ-142: page 1 captures the (store_id, receipt_id) snapshot;
+  // subsequent pages decode the snapshot from the cursor so the
+  // gate stays pinned across an in-flight promotion. The same
+  // snapshot pins the LATERAL `projection_tool_result` join below.
+  let snapshot: AuthoritySnapshot
+  let cursorBound: { ts: string | null; id: string } | null = null
+  const parsedCursor = decodeRequiredCursor<StoredCursor>(input.cursor ?? undefined)
+  if (parsedCursor) {
+    if (typeof parsedCursor.id !== 'string' || parsedCursor.id.length === 0) {
+      throw new InvalidCursorError('cursor.id missing')
+    }
+    if (parsedCursor.ts != null && typeof parsedCursor.ts !== 'string') {
+      throw new InvalidCursorError('cursor.ts must be a string or null')
+    }
+    snapshot = parseCursorSnapshot(parsedCursor.snapshot)
+    cursorBound = { ts: parsedCursor.ts, id: parsedCursor.id }
+  } else {
+    snapshot = await resolveAuthoritySnapshot(deps.rawExec, tenantId)
+  }
+
   const params: unknown[] = [tenantId]
-  const clauses: string[] = [verifiedProjectionWhere('c', '$1')]
+  const outerGate = verifiedProjectionInSnapshotWhere('c', '$1', snapshot, params)
+  const clauses: string[] = [outerGate]
 
   if (input.sessionId) {
     clauses.push(`c.session_id = ${appendParam(params, input.sessionId)}`)
@@ -114,17 +147,20 @@ export async function listToolCalls(
        )`
     : ''
 
-  const cursor = decodeCursor<Cursor>(input.cursor ?? undefined)
   let cursorClause = ''
-  if (cursor) {
+  if (cursorBound) {
     const tsExpr = `COALESCE(to_char(c.timestamp_start AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'), '')`
-    const tsParam = appendParam(params, cursor.ts ?? '')
-    const idParam = appendParam(params, cursor.id)
+    const tsParam = appendParam(params, cursorBound.ts ?? '')
+    const idParam = appendParam(params, cursorBound.id)
     // Descending order on timestamp + tool_call_id; "less than" is
     // the cursor advance comparator.
     cursorClause = ` AND (${tsExpr} < ${tsParam} OR (${tsExpr} = ${tsParam} AND c.tool_call_id < ${idParam}))`
   }
 
+  // LATERAL gate: pinned to the same snapshot. Duplicates the
+  // (store_id, receipt_id) placeholders for the inner subquery so
+  // both gates evaluate against the same tuples.
+  const lateralGate = verifiedProjectionInSnapshotWhere('r', '$1', snapshot, params)
   const limitParam = appendParam(params, input.limit + 1)
 
   const sql = `
@@ -140,7 +176,7 @@ export async function listToolCalls(
       LEFT JOIN LATERAL (
         SELECT r.tool_result_id, r.status, r.is_error, r.exit_code, r.duration_ms
           FROM projection_tool_result r
-         WHERE ${verifiedProjectionWhere('r', '$1')}
+         WHERE ${lateralGate}
            AND r.tool_call_id = c.tool_call_id
          ORDER BY r.tool_result_id DESC
          LIMIT 1
@@ -156,7 +192,14 @@ export async function listToolCalls(
   const overflow = rows.length > input.limit
   const pageRows = overflow ? rows.slice(0, input.limit) : rows
   const last = pageRows[pageRows.length - 1]
-  const nextCursor = overflow && last ? encodeCursor({ ts: last.timestamp_start ?? '', id: last.tool_call_id }) : null
+  const nextCursor =
+    overflow && last
+      ? encodeCursor({
+          ts: last.timestamp_start ?? '',
+          id: last.tool_call_id,
+          snapshot: encodeCursorSnapshot(snapshot),
+        })
+      : null
 
   return {
     rows: pageRows.map(mapRow),

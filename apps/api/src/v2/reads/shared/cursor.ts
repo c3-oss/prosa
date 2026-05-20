@@ -1,12 +1,11 @@
 // Lane 6 — opaque cursor encoding.
 //
 // Pagination cursors are base64url-encoded JSON over the full stable
-// sort tuple, never offsets. Decoding a tampered cursor returns null
-// so the read falls back to the first page instead of throwing — this
-// matches the v1 trpc reads contract and keeps client-visible errors
-// constrained.
+// sort tuple plus the receipt-snapshot embedded by CQ-142. The
+// payload is an arbitrary JSON object — handlers shape it to suit
+// their sort key and the snapshot envelope.
 
-export type CursorPayload = Record<string, string | number | null>
+export type CursorPayload = Record<string, unknown>
 
 export function encodeCursor(payload: CursorPayload): string {
   return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url')

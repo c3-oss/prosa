@@ -8,6 +8,7 @@
 // combination is supplied.
 
 import { z } from 'zod'
+import { type AuthoritySnapshot, verifiedProjectionInSnapshotWhere } from '../shared/authority-snapshot.js'
 import { verifiedProjectionWhere } from '../shared/verified-projection.js'
 
 export const sessionListFilters = z.object({
@@ -38,10 +39,23 @@ export type BuiltSessionFilter = {
  * Build the WHERE clause + positional parameters. `$1` is always the
  * caller's tenant id; the verified-projection gate cross-references
  * it so every additional filter inherits the receipt-pinned scope.
+ *
+ * When `snapshot` is provided the gate is pinned to the exact
+ * `(store_id, receipt_id)` tuples captured at page-1 time
+ * (CQ-142). Without a snapshot the gate falls back to the live
+ * `remote_authority_v2` table — used by non-paginated count
+ * queries.
  */
-export function buildSessionWhere(tenantId: string, filters: SessionListFilters): BuiltSessionFilter {
+export function buildSessionWhere(
+  tenantId: string,
+  filters: SessionListFilters,
+  snapshot?: AuthoritySnapshot,
+): BuiltSessionFilter {
   const params: unknown[] = [tenantId]
-  const clauses: string[] = [verifiedProjectionWhere('s', '$1')]
+  const gateClause = snapshot
+    ? verifiedProjectionInSnapshotWhere('s', '$1', snapshot, params)
+    : verifiedProjectionWhere('s', '$1')
+  const clauses: string[] = [gateClause]
 
   if (filters.sourceTools && filters.sourceTools.length > 0) {
     const placeholders = filters.sourceTools.map((t) => appendParam(params, t)).join(', ')

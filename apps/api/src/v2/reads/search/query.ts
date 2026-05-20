@@ -22,8 +22,16 @@
 
 import { z } from 'zod'
 import type { RawExec } from '../../../db.js'
-import { decodeCursor, encodeCursor } from '../shared/cursor.js'
-import { verifiedSearchWhere } from '../shared/verified-projection.js'
+import {
+  type AuthoritySnapshot,
+  InvalidCursorError,
+  decodeRequiredCursor,
+  encodeCursorSnapshot,
+  parseCursorSnapshot,
+  resolveAuthoritySnapshot,
+  verifiedProjectionInSnapshotWhere,
+} from '../shared/authority-snapshot.js'
+import { encodeCursor } from '../shared/cursor.js'
 
 export const searchQueryInput = z.object({
   q: z.string().min(1),
@@ -82,7 +90,11 @@ type DbRow = {
   receipt_id: string
 }
 
-type Cursor = { rank: number; id: string }
+type StoredCursor = {
+  rank: number
+  id: string
+  snapshot: Array<{ s: string; r: string }>
+}
 
 export type SearchDeps = {
   rawExec: RawExec
@@ -104,7 +116,29 @@ export async function searchQuery(
   // back to `english` keeps the gate-aware contract testable on
   // PGlite, which only ships the default dictionaries.
   const TS_CONFIG = "'english'"
+
+  // CQ-142: pin the (store_id, receipt_id) snapshot at page 1 so
+  // every page sees the same set of receipts. Subsequent pages
+  // decode the snapshot from the cursor; tampered cursors throw
+  // `InvalidCursorError` (HTTP 400 at the route layer).
+  let snapshot: AuthoritySnapshot
+  let cursorBound: { rank: number; id: string } | null = null
+  const parsed = decodeRequiredCursor<StoredCursor>(input.cursor ?? undefined)
+  if (parsed) {
+    if (typeof parsed.id !== 'string' || parsed.id.length === 0) {
+      throw new InvalidCursorError('cursor.id missing')
+    }
+    if (typeof parsed.rank !== 'number' || !Number.isFinite(parsed.rank)) {
+      throw new InvalidCursorError('cursor.rank must be a finite number')
+    }
+    snapshot = parseCursorSnapshot(parsed.snapshot)
+    cursorBound = { rank: parsed.rank, id: parsed.id }
+  } else {
+    snapshot = await resolveAuthoritySnapshot(deps.rawExec, tenantId)
+  }
+
   const params: unknown[] = [tenantId, input.q]
+  const snapshotGate = verifiedProjectionInSnapshotWhere('d', '$1', snapshot, params)
 
   const filters: string[] = []
   if (input.roles && input.roles.length > 0) {
@@ -139,11 +173,10 @@ export async function searchQuery(
     filters.push(`AND d.timestamp < ${p}::timestamptz`)
   }
 
-  const cursor = decodeCursor<Cursor>(input.cursor ?? undefined)
   let cursorClause = ''
-  if (cursor) {
-    const rankParam = appendParam(params, cursor.rank)
-    const idParam = appendParam(params, cursor.id)
+  if (cursorBound) {
+    const rankParam = appendParam(params, cursorBound.rank)
+    const idParam = appendParam(params, cursorBound.id)
     // FTS rank is descending; `doc_id` ascending is the tiebreaker.
     cursorClause = ` AND (
       ts_rank_cd(d.text_tsv, websearch_to_tsquery(${TS_CONFIG}, $2)) < ${rankParam}
@@ -167,7 +200,7 @@ export async function searchQuery(
            ts_rank_cd(d.text_tsv, websearch_to_tsquery(${TS_CONFIG}, $2)) AS rank,
            d.store_id, d.receipt_id
       FROM search_doc d
-     WHERE ${verifiedSearchWhere('d')}
+     WHERE ${snapshotGate}
        AND d.text_tsv @@ websearch_to_tsquery(${TS_CONFIG}, $2)
        ${filters.join('\n       ')}
        ${cursorClause}
@@ -179,7 +212,10 @@ export async function searchQuery(
   const overflow = rows.length > input.limit
   const pageRows = overflow ? rows.slice(0, input.limit) : rows
   const last = pageRows[pageRows.length - 1]
-  const nextCursor = overflow && last ? encodeCursor({ rank: last.rank, id: last.doc_id }) : null
+  const nextCursor =
+    overflow && last
+      ? encodeCursor({ rank: last.rank, id: last.doc_id, snapshot: encodeCursorSnapshot(snapshot) })
+      : null
 
   return {
     rows: pageRows.map(mapHit),
