@@ -617,3 +617,18 @@ just e2e-cli                                       # 3/3
 ```
 
 Cycle 13 clean.
+
+### Cycle 14 — 2026-05-20 (continuation while awaiting governor)
+
+No code drift; gates re-confirmed:
+
+```text
+focused CQ-141 (unit + route)                      # 14/14
+pnpm typecheck                                     # 13/13 cached
+pnpm lint                                          # 13/13 cached
+git diff --check                                   # clean
+just e2e                                           # 4/4
+just e2e-cli                                       # 3/3
+```
+
+Cycle 14 clean.
