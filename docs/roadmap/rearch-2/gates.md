@@ -163,10 +163,11 @@ Lane 6 Read API is the next active milestone. Initial gate checklist:
 - [x] L6.3 — Search query uses Postgres FTS with role/tool/type/error filters,
   snippets, stable cursors, and verified-authority gating.
   (`search-fts.test.ts`.)
-- [x] L6.4 — Tool-calls list and artifacts.getText enforce verified projection
+- [ ] L6.4 — Tool-calls list and artifacts.getText enforce verified projection
   plus receipt/object grants; large/binary artifact behavior is bounded.
   (`tool-calls-list.test.ts`, `artifacts-get-text.test.ts`,
-  `artifacts-route.test.ts`.)
+  `artifacts-route.test.ts`.) Reopened by CQ-148: tool-calls/list must not
+  attach a result row from the wrong session/store/receipt.
 - [x] L6.5 — Analytics summary/report expose the fixed report contracts from
   Lane 3-equivalent shapes without widening tenant scope. Strict input
   pinned by `analytics-report.test.ts` + `analytics-route.test.ts`.

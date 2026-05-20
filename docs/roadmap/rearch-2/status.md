@@ -1,6 +1,6 @@
 # rearch-2 Current Status
 
-Updated: 2026-05-20 after Lane 6 slice 11 closure attempt for CQ-146 + CQ-147.
+Updated: 2026-05-20 after Lane 6 slice 11 governor review.
 
 ## Summary
 
@@ -12,17 +12,12 @@ Updated: 2026-05-20 after Lane 6 slice 11 closure attempt for CQ-146 + CQ-147.
 - Lane 4 Server: **accepted** by Codex/governor on 2026-05-20.
 - Lane 5 Sync protocol: **accepted** by Codex/governor on 2026-05-20.
 - Lane 6 Read API: **active**, slice 11 landed. CQ-142, CQ-143, CQ-144,
-  CQ-145, and L6.8 p95 evidence are accepted by Codex/governor. CQ-146 and
-  CQ-147 are both in closure attempts pending governor acceptance: the
-  bundled `docker-compose.yml` now requires `PROSA_AUTH_SECRET` and
-  `PROSA_CURSOR_HMAC_SECRET` via `${VAR:?...}` (no public dev fallback for
-  production) and `docs/architecture/web-deployment.md` lists the env var
-  with the 32-byte minimum and same-value-across-workers rule; analytics
-  tools/errors subqueries tuple-match `r.session_id = c.session_id` with the
-  governor's wrong-session smoke pinned as a regression, and the new
-  `analytics-route.test.ts` proves auth/INVALID_INPUT at the live Fastify
-  boundary. Stabilization is optional when no useful Ralph work remains; it
-  does not block lane acceptance once all CQs/gates/evidence are clean.
+  CQ-145, CQ-146, CQ-147, and L6.8 p95 evidence are accepted by
+  Codex/governor. Lane 6 is still blocked by CQ-148: `tool-calls/list` can
+  attach a current-authority `projection_tool_result` from the wrong session
+  because its LATERAL result join matches only `tool_call_id`. Stabilization is
+  optional when no useful Ralph work remains; it does not block lane acceptance
+  once all CQs/gates/evidence are clean.
 - Lanes 7–10: **not started**.
 
 ## Current Lane 6 focus
@@ -92,7 +87,7 @@ under "Closed this cycle" below; the full closure detail lives in
   proven by current authority; they must not fake materialization.
 - CQ-142: accepted by Codex/governor for cursor integrity, empty cursor
   rejection, and HTTP 400 `INVALID_CURSOR` route coverage on all four
-  paginated routes. Residual production key wiring is CQ-146.
+  paginated routes. Production key wiring is closed by CQ-146.
 - CQ-143: accepted by Codex/governor. CLI subprocess tests pin sessions,
   sessions count, and session show with `--local` guidance and no network
   markers for v2-promoted stores.
@@ -100,18 +95,24 @@ under "Closed this cycle" below; the full closure detail lives in
 - CQ-145: accepted by Codex/governor. `artifacts-route.test.ts` now exercises
   every miss path, valid small UTF-8, and bounded >1 MiB binary through the live
   Fastify route.
-- CQ-146: production config/boot, docs, and compose are all closed in
-  slice 11. `docker-compose.yml` requires `PROSA_AUTH_SECRET` and
+- CQ-146: accepted by Codex/governor. Production config/boot, docs, and
+  compose are all closed in slice 11. `docker-compose.yml` requires
+  `PROSA_AUTH_SECRET` and
   `PROSA_CURSOR_HMAC_SECRET` via `${VAR:?<message>}` (smoke:
   `docker compose config` aborts with an explicit error when the secret is
   missing), and `docs/architecture/web-deployment.md` server env table
   lists `PROSA_CURSOR_HMAC_SECRET`, the 32-byte minimum, and the
-  same-value-across-workers rule. Pending Codex/governor acceptance.
-- CQ-147: tools/errors now tuple-match `r.session_id = c.session_id` in
-  addition to store/receipt/tool-call ids, the governor's wrong-session
-  smoke is pinned as a regression in `cross-store-distinct.test.ts`, and
-  `analytics-route.test.ts` (6 tests) proves auth/INVALID_INPUT at the
-  live Fastify boundary. Pending Codex/governor acceptance.
+  same-value-across-workers rule.
+- CQ-147: accepted by Codex/governor. Analytics tools/errors now tuple-match
+  `r.session_id = c.session_id` in addition to store/receipt/tool-call ids, the
+  governor's wrong-session smoke is pinned as a regression in
+  `cross-store-distinct.test.ts`, and `analytics-route.test.ts` (6 tests) proves
+  auth/INVALID_INPUT at the live Fastify boundary.
+- CQ-148: `tool-calls/list` can attach a current-authority
+  `projection_tool_result` row from a different `session_id`. The LATERAL join
+  must tuple-match the result to the current call by `session_id`, `store_id`,
+  and `receipt_id` as well as `tool_call_id`, and tests must pin
+  wrong-session/wrong-receipt/wrong-store rows.
 - L6.8: accepted by Codex/governor based on explicit p95 smoke output for all
   four targets, including `artifacts/getText` 1 MiB at 226.2 ms in the
   governor run.

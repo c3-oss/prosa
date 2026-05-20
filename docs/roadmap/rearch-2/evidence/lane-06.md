@@ -876,6 +876,71 @@ pnpm lint        -> 13/13 packages clean
 git diff --check -> clean
 ```
 
+## Slice 11 governor review — CQ-146/CQ-147 accepted, CQ-148 opened (2026-05-20)
+
+Codex/reviewer decisions:
+
+- CQ-146 accepted. Runtime config, `registerV2Routes()` wiring, production
+  signer tests, `docker-compose.yml`, and `docs/architecture/web-deployment.md`
+  now prove production cursor HMAC signing is configured and fail-closed.
+- CQ-147 accepted. Analytics tools/errors tuple-match result rows by
+  `tool_call_id/session_id/store_id/receipt_id`; wrong-session and
+  wrong-receipt result regressions are pinned; route-level analytics
+  auth/input tests and contract-narrowing tests are present.
+- Lane 6 remains blocked by CQ-148. `tool-calls/list` has the same wrong-tuple
+  result-row class outside analytics: its LATERAL result join only matches
+  `r.tool_call_id = c.tool_call_id`.
+
+Governor validation:
+
+```text
+pnpm --filter @c3-oss/prosa-api exec vitest run \
+  test/v2/reads/cross-store-distinct.test.ts \
+  test/v2/reads/analytics-route.test.ts \
+  test/v2/reads/analytics-contract.test.ts
+# 3 files / 19 tests passed
+
+pnpm typecheck
+pnpm lint
+git diff --check
+# clean
+
+env -u PROSA_AUTH_SECRET -u PROSA_CURSOR_HMAC_SECRET docker compose config --format json
+# exits 1: PROSA_AUTH_SECRET is missing
+
+env -u PROSA_CURSOR_HMAC_SECRET PROSA_AUTH_SECRET=<32-byte> docker compose config --format json
+# exits 1: PROSA_CURSOR_HMAC_SECRET is missing
+
+PROSA_AUTH_SECRET=<32-byte> PROSA_CURSOR_HMAC_SECRET=<32-byte> docker compose config --format json
+# API environment includes both supplied secrets and PROSA_RUNTIME_MODE=production
+```
+
+CQ-148 smoke:
+
+```text
+pnpm exec node --conditions=prosa-dev --import @swc-node/register/esm-register --input-type=module
+# Seed:
+#   projection_tool_call(tool_call_id='tc_shared', session_id='ses_current',
+#     store_id='s_current', receipt_id='rcp_current')
+#   projection_tool_result(tool_result_id='tr_wrong_session',
+#     tool_call_id='tc_shared', session_id='ses_wrong',
+#     store_id='s_current', receipt_id='rcp_current', is_error=TRUE)
+# Output from listToolCalls:
+#   toolCallId: "tc_shared"
+#   sessionId: "ses_current"
+#   latestResult.toolResultId: "tr_wrong_session"
+#   latestResult.isError: true
+```
+
+Next slice:
+
+1. CQ-148: tuple-match the `tool-calls/list` LATERAL result join on
+   `tool_call_id/session_id/store_id/receipt_id`.
+2. Add wrong-session, wrong-receipt, wrong-store, and `errorsOnly`
+   regressions to `tool-calls-list.test.ts`.
+3. Re-run focused `tool-calls-list.test.ts`, full API test, `pnpm typecheck`,
+   `pnpm lint`, and `git diff --check`.
+
 ## Scope
 
 Lane 6 implements the receipt-pinned remote read API from
@@ -917,14 +982,19 @@ pnpm lint
 git diff --check
 ```
 
-Lane-specific evidence still to collect:
+Lane-specific evidence collected:
 
 - `apps/api/test/v2/reads/authority-refresh.test.ts`
 - `apps/api/test/v2/reads/verified-projection-gate.test.ts`
 - `apps/api/test/v2/reads/sessions-list.test.ts`
 - `apps/api/test/v2/reads/search-fts.test.ts`
 - `apps/api/test/v2/reads/transcript-pagination.test.ts`
+- `apps/api/test/v2/reads/tool-calls-list.test.ts` (reopened by CQ-148 for
+  wrong-tuple result coverage)
 - `apps/api/test/v2/reads/artifacts-get-text.test.ts`
+- `apps/api/test/v2/reads/artifacts-route.test.ts`
 - `apps/api/test/v2/reads/analytics-report.test.ts`
+- `apps/api/test/v2/reads/analytics-route.test.ts`
+- `apps/api/test/v2/reads/analytics-contract.test.ts`
 - `apps/api/test/v2/reads/cross-store-distinct.test.ts`
 - latency/cache smoke showing the Lane 6 p95 targets.

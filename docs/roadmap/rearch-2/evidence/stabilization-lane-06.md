@@ -1,13 +1,12 @@
 ## Lane 6 Stabilization Log
 
-Tracks the five consecutive 180-second clean cycles required by
-`docs/roadmap/rearch-2/ralph-loop-prompt.md` completion rule for
-Lane 6. Each cycle records that `correction-queue.md`, `gates.md`,
-`status.md`, `git status --short --branch`, and the recent commit
-list were reread and remained consistent, and that the Lane 6
-minimum gate batch is green. Any new code commit between cycles,
-open blocker change, failed gate, stale evidence, or contradictory
-status resets the counter to zero.
+Tracks historical and optional confirmation cycles for Lane 6. The current
+`docs/roadmap/rearch-2/ralph-loop-prompt.md` completion rule makes
+stabilization optional when no useful Ralph work remains: clean CQs, gates, and
+evidence are required; repeated empty stabilization cycles are not required
+unless Codex/governor explicitly asks for them. Any new code commit, open
+blocker change, failed gate, stale evidence, or contradictory status invalidates
+older cycles as acceptance evidence.
 
 Lane 6 scope-splits explicitly retained out-of-scope for these
 cycles: CQ-124 + the CQ-124-blocked sub-bullets of CQ-134 (the v1 /
@@ -58,8 +57,9 @@ pnpm lint        -> 13/13 packages clean
 git diff --check -> clean
 ```
 
-No contradictions across `correction-queue.md`, `gates.md`,
-`status.md`. Cycle 1 counts.
+Historical note only. This cycle no longer counts as Lane 6 acceptance
+evidence: later slice 11 code/doc changes reset the cycle, and CQ-148 is now
+open.
 
 ## Cycle 2 — 2026-05-20T18:09:55Z
 
@@ -95,8 +95,9 @@ pnpm lint        -> 13/13 packages clean
 git diff --check -> clean (EXIT=0)
 ```
 
-No contradictions across `correction-queue.md`, `gates.md`,
-`status.md`. Cycle 2 counts.
+Historical note only. This cycle no longer counts as Lane 6 acceptance
+evidence: later slice 11 code/doc changes reset the cycle, and CQ-148 is now
+open.
 
 ## Cycle 3 — 2026-05-20T18:13:12Z
 
@@ -132,8 +133,9 @@ pnpm lint        -> 13/13 packages clean (FULL TURBO)
 git diff --check -> clean (EXIT=0)
 ```
 
-No contradictions across `correction-queue.md`, `gates.md`,
-`status.md`. Cycle 3 counts.
+Historical note only. This cycle no longer counts as Lane 6 acceptance
+evidence: later slice 11 code/doc changes reset the cycle, and CQ-148 is now
+open.
 
 ## Slice 11 reset note
 
@@ -202,5 +204,7 @@ git diff --check -> clean (EXIT=0)
     a 16+ character Better Auth signing secret shared across workers
 ```
 
-No contradictions across `correction-queue.md`, `gates.md`,
-`status.md`. Cycle 4 counts as the slice 11 confirmation cycle.
+Historical note only. Cycle 4 does not establish Lane 6 acceptance because
+Codex/governor review opened CQ-148 after this confirmation cycle. Per the
+current prompt, no further empty stabilization is needed until all CQs/gates are
+clean and Codex/governor requests it.

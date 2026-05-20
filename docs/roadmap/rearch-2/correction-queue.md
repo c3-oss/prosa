@@ -1,6 +1,6 @@
 # rearch-2 Correction Queue
 
-Updated: 2026-05-20 after Lane 6 slice 10 governor review.
+Updated: 2026-05-20 after Lane 6 slice 11 governor review.
 
 ## Open blocking corrections
 
@@ -325,7 +325,7 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 6 production readiness for paginated reads)
-Status: closure attempt #4 (2026-05-20) — pending governor acceptance
+Status: closed (2026-05-20) — accepted by Codex/governor
 Owner: Ralph
 
 Closure attempt #4 (2026-05-20, slice 11):
@@ -466,11 +466,11 @@ Required fix:
 
 Acceptance:
 
-- [ ] Config/boot test proves production without a cursor HMAC key fails closed
+- [x] Config/boot test proves production without a cursor HMAC key fails closed
       or derives a stable cursor-only key from approved production config.
-- [ ] Config/boot test proves a configured production key creates a signer
+- [x] Config/boot test proves a configured production key creates a signer
       accepted by `registerV2Routes()`.
-- [ ] Test proves two route/plugin instances sharing the configured key accept
+- [x] Test proves two route/plugin instances sharing the configured key accept
       each other's cursors, while a different key rejects them.
 - [x] Docker Compose / production env guidance names `PROSA_CURSOR_HMAC_SECRET`
       and prevents accidental production boot without it. The bundled
@@ -487,7 +487,7 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks L6.5/L6.6 analytics acceptance)
-Status: closure attempt #3 (2026-05-20) — pending governor acceptance
+Status: closed (2026-05-20) — accepted by Codex/governor
 Owner: Ralph
 
 Closure attempt #3 (2026-05-20, slice 11):
@@ -643,6 +643,68 @@ Acceptance:
       enumerates the local-only filter keys, asserts the v2 strict
       schema rejects every local-only key, and pins the ISO 8601 UTC
       wire timestamp convention.
+
+### CQ-148: tool-calls/list can attach result rows from the wrong call tuple
+
+Severity: high
+Blocking: yes (blocks Lane 6 L6.4 and final Lane 6 acceptance)
+Status: open (2026-05-20)
+Owner: Ralph
+
+Problem:
+
+`apps/api/src/v2/reads/tool-calls/list.ts` uses a LATERAL join to attach the
+latest `projection_tool_result` to each current-authority
+`projection_tool_call`. The result subquery is authority-gated, but it only
+matches `r.tool_call_id = c.tool_call_id`. It does not require
+`r.session_id = c.session_id`, `r.store_id = c.store_id`, or
+`r.receipt_id = c.receipt_id`.
+
+That means a current-authority result row with the same `tool_call_id` but a
+different session can be attached to the visible call. The analytics CQ-147 fix
+closed this exact class of bug for analytics tools/errors; `tool-calls/list`
+must use the same tuple discipline.
+
+Smoke evidence:
+
+Codex/governor on 2026-05-20:
+
+```text
+pnpm exec node --conditions=prosa-dev --import @swc-node/register/esm-register --input-type=module
+# Seed:
+#   remote_authority_v2(store_id='s_current', current_receipt_id='rcp_current')
+#   projection_tool_call(tool_call_id='tc_shared', session_id='ses_current',
+#     store_id='s_current', receipt_id='rcp_current')
+#   projection_tool_result(tool_result_id='tr_wrong_session',
+#     tool_call_id='tc_shared', session_id='ses_wrong',
+#     store_id='s_current', receipt_id='rcp_current', is_error=TRUE)
+# Output from listToolCalls:
+#   toolCallId: "tc_shared"
+#   sessionId: "ses_current"
+#   latestResult.toolResultId: "tr_wrong_session"
+#   latestResult.isError: true
+```
+
+Required fix:
+
+- In the `projection_tool_result` LATERAL join for `tool-calls/list`, match
+  result rows to the current call tuple:
+  `r.tool_call_id = c.tool_call_id`, `r.session_id = c.session_id`,
+  `r.store_id = c.store_id`, and `r.receipt_id = c.receipt_id`.
+- Preserve the existing snapshot/authority gate and cursor behavior.
+- Add tests proving wrong-session, wrong-receipt, and wrong-store result rows
+  are ignored and cannot affect `latestResult` or `errorsOnly`.
+
+Acceptance:
+
+- [ ] `tool-calls/list` result join tuple-matches
+      `tool_call_id/session_id/store_id/receipt_id`.
+- [ ] Handler tests prove a wrong-session result row with the same
+      `tool_call_id` is ignored.
+- [ ] Handler tests prove wrong-receipt and wrong-store result rows are ignored.
+- [ ] Tests prove `errorsOnly` is not satisfied by wrong-tuple result rows.
+- [ ] Focused `tool-calls-list.test.ts`, `pnpm --filter @c3-oss/prosa-api test`,
+      `pnpm typecheck`, `pnpm lint`, and `git diff --check` are clean.
 
 ### CQ-144: `artifacts.getText` WIP leaks miss reasons and lacks route-level tests
 

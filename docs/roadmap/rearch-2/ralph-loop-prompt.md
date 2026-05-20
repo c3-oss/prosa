@@ -64,23 +64,21 @@ Read `docs/roadmap/rearch-2/correction-queue.md` before the next slice.
 - CQ-145 is closed and accepted by Codex/governor. Route-level
   `artifacts.getText` evidence covers opaque miss paths, valid small UTF-8
   text, and bounded >1 MiB binary behavior.
-- CQ-146 is open and blocks Lane 6 production readiness: signed cursor support
-  now rejects random production cursor keys and accepts a configured
-  `PROSA_CURSOR_HMAC_SECRET`, and slice 10 added the env var to
-  `docker-compose.yml`. The closure is still rejected because the compose file
-  runs `PROSA_RUNTIME_MODE=production` with a public fallback cursor secret.
-  Make the production compose/guidance path require
-  `${PROSA_CURSOR_HMAC_SECRET:?set a shared 32+ byte cursor HMAC secret}` or
-  split local-dev defaults from production guidance, and add the variable to
-  `docs/architecture/web-deployment.md`.
-- CQ-147 is open and blocks L6.5/L6.6 analytics acceptance: unsupported
-  analytics filters now reject; cross-store distinct mostly landed; and slice
-  10 fixed superseded/wrong-receipt `projection_tool_result` rows. The closure
-  is still rejected because tools/errors can count a current-authority result
-  row whose `session_id` does not match the current call. Add
-  `r.session_id = c.session_id` to both result subqueries and pin it with a
-  test. Also add route-level analytics auth/input tests for
-  `/v2/reads/analytics/summary` and `/v2/reads/analytics/report`.
+- CQ-146 is closed and accepted by Codex/governor. Production config, docs, and
+  compose now fail closed for missing `PROSA_CURSOR_HMAC_SECRET`, and the
+  production compose path no longer has a public fallback cursor secret.
+- CQ-147 is closed and accepted by Codex/governor. Analytics tools/errors now
+  tuple-match result rows by `tool_call_id/session_id/store_id/receipt_id`,
+  route-level analytics auth/input tests exist, and the v2/local analytics
+  contract narrowing is pinned.
+- CQ-148 is open and blocks L6.4/final Lane 6 acceptance: `tool-calls/list`
+  can still attach a current-authority `projection_tool_result` row from the
+  wrong call tuple. Its LATERAL result join gates result rows by current
+  authority, but only matches `r.tool_call_id = c.tool_call_id`; it must also
+  match `r.session_id = c.session_id`, `r.store_id = c.store_id`, and
+  `r.receipt_id = c.receipt_id`. Add handler tests proving wrong-session,
+  wrong-receipt, and wrong-store result rows are ignored, including under
+  `errorsOnly`.
 - CQ-141 is closed and accepted. Do not keep iterating on CQ-141 unless a fresh
   focused smoke command proves a new regression.
 - CQ-124 remains open for Lane 10: the full v1/v2 table-name cutover is not
