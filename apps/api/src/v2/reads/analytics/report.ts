@@ -218,7 +218,9 @@ async function runToolsReport(
               WHERE lower(COALESCE(c.status, '')) IN ('error','failed','failure')
                  OR EXISTS (
                    SELECT 1 FROM projection_tool_result r
-                    WHERE r.tenant_id = c.tenant_id
+                    WHERE ${verifiedProjectionWhere('r')}
+                      AND r.store_id = c.store_id
+                      AND r.receipt_id = c.receipt_id
                       AND r.tool_call_id = c.tool_call_id
                       AND r.is_error = TRUE
                  )
@@ -259,7 +261,9 @@ async function runErrorsReport(
           lower(COALESCE(c.status, '')) IN ('error','failed','failure')
           OR EXISTS (
             SELECT 1 FROM projection_tool_result r
-             WHERE r.tenant_id = c.tenant_id
+             WHERE ${verifiedProjectionWhere('r')}
+               AND r.store_id = c.store_id
+               AND r.receipt_id = c.receipt_id
                AND r.tool_call_id = c.tool_call_id
                AND r.is_error = TRUE
           )

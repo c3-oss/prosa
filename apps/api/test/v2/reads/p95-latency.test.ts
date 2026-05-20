@@ -20,8 +20,10 @@
 // checkout and pins them under generous CI-friendly ceilings.
 
 import { applySchemaV2 } from '@c3-oss/prosa-db-v2'
+import { MemoryObjectStore, PUT_PREVERIFIED_BYTES } from '@c3-oss/prosa-storage'
 import { PGlite } from '@electric-sql/pglite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { getArtifactText } from '../../../src/v2/reads/artifacts/get-text.js'
 import { searchQuery } from '../../../src/v2/reads/search/query.js'
 import { listSessions } from '../../../src/v2/reads/sessions/list.js'
 import { getTranscriptPage } from '../../../src/v2/reads/sessions/transcript.js'
@@ -85,11 +87,50 @@ async function seedFixture(db: PGlite, opts: { sessions: number; messagesPerSess
 
 const cursorSigner = createInProcessCursorSigner()
 let db: PGlite
+let store: MemoryObjectStore
+const ARTIFACT_ID = 'art_p95_1mib'
+const ARTIFACT_OBJECT_ID = 'blake3:p95_1mib_object'
+const ARTIFACT_PACK = 'pack_p95_1mib'
+const ARTIFACT_URI = 'object-packs/p95-1mib'
 
 beforeAll(async () => {
   db = new PGlite()
   await applySchemaV2(db)
   await seedFixture(db, { sessions: 200, messagesPerSession: 50, docs: 200 })
+
+  // 1 MiB artifact fixture for the L6.8 artifacts/getText target.
+  store = new MemoryObjectStore()
+  const body = Buffer.alloc(1024 * 1024)
+  for (let i = 0; i < body.length; i += 1) body[i] = i & 0xff || 0x20
+  await store[PUT_PREVERIFIED_BYTES](
+    ARTIFACT_URI,
+    (async function* () {
+      yield new Uint8Array(body)
+    })(),
+    { hash: 'h', hashAlgorithm: 'blake3', uncompressedSize: body.length, compressedSize: body.length },
+  )
+  await db.query(
+    `INSERT INTO remote_pack (tenant_id, pack_digest, kind, entry_count, byte_length, object_set_root, storage_uri)
+     VALUES ($1, $2, 'cas_object_pack', 1, $3, 'root', $4)`,
+    [tenantId, ARTIFACT_PACK, body.length, ARTIFACT_URI],
+  )
+  await db.query(
+    `INSERT INTO remote_pack_entry
+       (tenant_id, pack_digest, entry_index, object_id, uncompressed_size, stored_offset, stored_length, stored_hash, compression)
+     VALUES ($1, $2, 0, $3, $4, 0, $4, 'h', 'none')`,
+    [tenantId, ARTIFACT_PACK, ARTIFACT_OBJECT_ID, body.length],
+  )
+  await db.query(`INSERT INTO receipt_pack_grant (receipt_id, tenant_id, pack_digest) VALUES ($1, $2, $3)`, [
+    receiptId,
+    tenantId,
+    ARTIFACT_PACK,
+  ])
+  await db.query(
+    `INSERT INTO projection_artifact
+       (tenant_id, artifact_id, store_id, receipt_id, source_tool, kind, object_id, byte_length, content_type, payload)
+     VALUES ($1, $2, $3, $4, 'codex', 'text', $5, $6, 'text/plain', '{}'::jsonb)`,
+    [tenantId, ARTIFACT_ID, storeId, receiptId, ARTIFACT_OBJECT_ID, body.length],
+  )
 }, 60_000)
 
 afterAll(async () => {
@@ -131,6 +172,26 @@ describe('Lane 6 p95 latency smoke (PGlite — loose CI ceilings)', () => {
     expect(observed).toBeLessThan(2000)
     // eslint-disable-next-line no-console
     console.log(`[p95] search/query = ${observed.toFixed(1)} ms across ${SAMPLE_COUNT} samples`)
+  })
+
+  it('artifacts/getText 1 MiB p95 stays under the Lane 6 target', async () => {
+    const samples: number[] = []
+    for (let i = 0; i < SAMPLE_COUNT; i += 1) {
+      samples.push(
+        await time(() =>
+          getArtifactText({ rawExec: makeRawExec(db), objectStore: store }, tenantId, {
+            artifactId: ARTIFACT_ID,
+            maxBytes: 1024 * 1024,
+          }),
+        ),
+      )
+    }
+    const observed = p95(samples)
+    // Lane 6 production target is < 1 s for 1 MiB. PGlite + Memory
+    // store ceiling here is 5 s to leave headroom for CI noise.
+    expect(observed).toBeLessThan(5000)
+    // eslint-disable-next-line no-console
+    console.log(`[p95] artifacts/getText 1MiB = ${observed.toFixed(1)} ms across ${SAMPLE_COUNT} samples`)
   })
 
   it('sessions/transcript first-page p95 stays under the Lane 6 target', async () => {

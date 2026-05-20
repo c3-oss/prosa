@@ -130,6 +130,36 @@ describe('Lane 6 analytics — CQ-147 cross-store distinct invariants', () => {
     expect(gpt?.message_count).toBe(1)
     expect(gpt?.distinct_sessions).toBe(1)
   })
+
+  it('tools / errors reports ignore superseded tool_result rows (CQ-147 follow-up)', async () => {
+    // Seed a *superseded* tool_result that would mark the call as
+    // errored if the report failed to apply
+    // `verifiedProjectionWhere('r')`. The current-authority result
+    // (none) means the call must NOT count as an error.
+    await db.query(
+      `INSERT INTO projection_tool_result
+         (tenant_id, tool_result_id, store_id, receipt_id, tool_call_id, session_id,
+          status, is_error, payload)
+       VALUES ($1, 'tr_superseded', 's_new', 'rcp_superseded',
+               'tc_new', 'ses_new', 'failure', TRUE, '{}'::jsonb)`,
+      [tenantId],
+    )
+
+    const tools = await getAnalyticsReport({ rawExec: makeRawExec(db), now: () => new Date() }, tenantId, {
+      report: 'tools',
+      limit: 100,
+    })
+    const bash = tools.rows.find((r) => r.tool_name === 'bash')
+    // tc_new has no current-authority error result, so error_count stays 0.
+    expect(bash?.error_count).toBe(0)
+
+    const errors = await getAnalyticsReport({ rawExec: makeRawExec(db), now: () => new Date() }, tenantId, {
+      report: 'errors',
+      limit: 100,
+    })
+    // No tool with a current-authority error → empty rows.
+    expect(errors.rows).toEqual([])
+  })
 })
 
 describe('Lane 6 analytics report input — CQ-147 strictness', () => {

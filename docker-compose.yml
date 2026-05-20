@@ -57,6 +57,12 @@ services:
       PROSA_LOG_LEVEL: info
       PROSA_DATABASE_URL: postgres://prosa:prosa@postgres:5432/prosa
       PROSA_AUTH_SECRET: ${PROSA_AUTH_SECRET:-compose-development-secret-please-change}
+      # CQ-146: signed paginated read cursors. The default value is a
+      # 32-byte development placeholder so `docker compose up` works
+      # out of the box; production deployments MUST override
+      # `PROSA_CURSOR_HMAC_SECRET` with a real key that every worker
+      # shares so cursors round-trip across the fleet.
+      PROSA_CURSOR_HMAC_SECRET: ${PROSA_CURSOR_HMAC_SECRET:-compose-development-cursor-hmac-secret-please-change}
       PROSA_OBJECT_STORE_DRIVER: s3
       PROSA_OBJECT_STORE_BUCKET: prosa
       PROSA_OBJECT_STORE_PREFIX: prosa/
