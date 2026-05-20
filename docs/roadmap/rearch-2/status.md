@@ -64,9 +64,9 @@ The blocker is implementation work, not environment.
   proven.
 - CQ-126: current WIP appears to centralize the conflict-free v2 boot subset
   and migrate old `search_generation_current` shape, with focused smoke green,
-  but closure is rejected until the WIP is lint-clean, committed, wording stops
-  implying CQ-124 closure, and authenticated BeginPromotion boot-path evidence
-  is recorded.
+  and follow-up package lint green, but closure is rejected until the WIP is
+  committed, wording stops implying CQ-124 closure, and authenticated
+  BeginPromotion boot-path evidence is recorded.
 - CQ-127: BeginPromotion and opt-in post-begin device checks exist, but closure
   is rejected until device identity is mandatory/derived on upload, object-pack,
   seal, status, and receipt surfaces, and CLI `sync-v2` sends/proves it.
@@ -144,8 +144,9 @@ The blocker is implementation work, not environment.
 - CQ-126 closure from `ea46899` is rejected pending reviewer-smoked old
   `search_generation_current` shape and authenticated boot-path proof.
 - Current CQ-126/CQ-137 helper WIP is required Lane 5 support and functionally
-  promising, but not accepted: reviewer found package lint failures and wording
-  that overclaims "CQ-124 closure".
+  promising, with follow-up package lint now passing, but not accepted: wording
+  still overclaims "CQ-124 closure" and committed authenticated boot-path
+  evidence is still required.
 - Reviewer aggregate smoke
   `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/` failed 77/78 with
   a timeout in the malformed-body BeginPromotion case, while the same file

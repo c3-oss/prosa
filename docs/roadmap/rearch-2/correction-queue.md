@@ -292,12 +292,14 @@ shape is migrated to `(tenant_id, store_id)`, existing rows are preserved with
 authenticated `BeginPromotion` reaches `200 needs_inventory` with a
 `promotion_staging` row.
 
-The WIP is not accepted yet:
-- `pnpm --filter @c3-oss/prosa-api lint` fails on import formatting in
-  `apps/api/test/v2/cq-126-server-boot-schema.test.ts`.
-- `pnpm --filter @c3-oss/prosa-db-v2 lint` fails on the
-  `PACKS_SCHEMA_SQL.replace(...)` formatting in
-  `packages/prosa-db-v2/src/apply.ts`.
+Follow-up smoke: after WIP formatting changes, both package lint commands pass:
+
+```text
+pnpm --filter @c3-oss/prosa-api lint
+pnpm --filter @c3-oss/prosa-db-v2 lint
+```
+
+The WIP is still not accepted:
 - `apps/api/test/v2/cq-126-server-boot-schema.test.ts` wording says
   "CQ-124 closure"; this must be corrected because the slice is required
   Lane 5 support only and CQ-124 remains open for the full v1/v2
@@ -1295,10 +1297,13 @@ pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/cq-126-server-boot-schem
 ```
 
 Reviewer smoke also passed the legacy-table migration and second-store
-seal-style insert. This does not close CQ-137 until the WIP is lint-clean,
-committed, and its evidence includes the authenticated boot-path proof. It
-also does not close CQ-124; the full v1/v2 projection/search/shared-name table
-migration remains a later-lane cutover.
+seal-style insert. After WIP formatting changes,
+`pnpm --filter @c3-oss/prosa-api lint` and
+`pnpm --filter @c3-oss/prosa-db-v2 lint` pass. This does not close CQ-137
+until the WIP is committed, the CQ-124 overclaim is removed, and its evidence
+includes the authenticated boot-path proof. It also does not close CQ-124; the
+full v1/v2 projection/search/shared-name table migration remains a later-lane
+cutover.
 
 Partial closure: `SEARCH_SCHEMA_SQL` ships an idempotent
 migration block that runs every time the schema is re-applied:
