@@ -700,3 +700,78 @@ Slice 8 deferred (explicit):
 - Adaptive upload concurrency, dry-run, JSON progress (slice 9).
 - Docker-backed E2E (acceptance gate).
 - Five 180s stabilization cycles.
+
+## Slice 9 (Docker-backed E2E acceptance gate) — 2026-05-20
+
+Scope:
+
+- New `apps/api/test/e2e/v2-promote.e2e.test.ts` drives the full
+  Lane 5 protocol against a real Postgres 16 + MinIO/S3 stack
+  brought up by `apps/api/docker-compose.test.yml`. Follows the v1
+  e2e gating: reads `PROSA_TEST_POSTGRES_URL`,
+  `PROSA_TEST_S3_ENDPOINT`, `PROSA_TEST_S3_ACCESS_KEY`, and
+  `PROSA_TEST_S3_SECRET_KEY` and uses `describe.skipIf(!shouldRun)`
+  so the default `pnpm test` run stays hermetic.
+- The harness resets the Postgres schema between runs (DROP +
+  applySchema v1 + the conflict-free v2 promotion + packs +
+  `search_generation_current` blocks), ensures the MinIO bucket
+  exists, and builds a fresh API app per test pointed at the real
+  backends via `S3ObjectStore` and `openPostgresDatabase`.
+
+Three E2E cases:
+
+1. **fresh seal + already_promoted + I5 JWKS verify** — drives
+   `BeginPromotion → PUT inventories → POST object pack →
+   SealPromotion` against real Postgres + MinIO. Re-issues
+   `BeginPromotion` for the same bundleRoot and asserts the response
+   is `already_promoted` with the same `receiptId` and that the
+   round-trip completes in **< 2 s wall clock**. The seal-time
+   receipt signature is verified against the published JWKS via
+   `node:crypto verify(...)` against `receiptPayloadBytes`
+   (invariant I5 end-to-end, signed by the live server).
+2. **cross-tenant `GET /v2/receipts` 404 (I1)** — a sealed receipt
+   for tenant A returns 200 to A and 404 RECEIPT_NOT_FOUND to a
+   freshly-signed-up tenant B. Existence does not leak.
+3. **resume after half-interrupt** — BeginPromotion + a single
+   inventory PUT, then `GET /v2/promotions/:id/status` reports the
+   uploaded inventory as `uploaded:true`, the other as `false`,
+   and `uploadedPackDigests: []`. Finishing the remaining PUTs +
+   pack + seal returns `status: 'sealed'`.
+
+Smoke evidence (run from repo root with the harness already up):
+
+```text
+docker compose -f apps/api/docker-compose.test.yml up -d
+PROSA_TEST_POSTGRES_URL='postgres://prosa:prosa@127.0.0.1:54329/prosa_test' \
+PROSA_TEST_S3_ENDPOINT='http://127.0.0.1:54392' \
+PROSA_TEST_S3_ACCESS_KEY='prosa' \
+PROSA_TEST_S3_SECRET_KEY='prosa-minio' \
+PROSA_TEST_S3_BUCKET='prosa-test-v2' \
+pnpm --filter @c3-oss/prosa-api exec vitest run test/e2e/v2-promote.e2e.test.ts
+```
+
+Result: pass, 3/3 against the Docker harness; default `pnpm test`
+shows 218 passed / 4 skipped (3 v2 e2e env-gated + 1 pre-existing
+v1 skip).
+
+Gates:
+
+- Docker harness up: `docker compose -f apps/api/docker-compose.test.yml ps`
+  → `api-postgres-1` and `api-minio-1` both report `healthy`.
+- `pnpm --filter @c3-oss/prosa-api exec vitest run test/e2e/v2-promote.e2e.test.ts`
+  (with env) → pass, 3/3.
+- `pnpm --filter @c3-oss/prosa-api exec vitest run test/e2e/v2-promote.e2e.test.ts`
+  (no env) → 3 skipped, 0 failed.
+- `pnpm --filter @c3-oss/prosa-api test` → pass,
+  218 passed / 4 skipped.
+- `pnpm --filter @c3-oss/prosa-api lint` → clean.
+- `pnpm typecheck` → pass, 13/13 packages.
+- `git diff --check` → clean.
+
+Slice 9 deferred (explicit):
+
+- The promote driver / CLI still doesn't ship adaptive upload
+  concurrency, dry-run output, JSON progress events, or
+  `--no-resume`. The E2E proves the protocol; the UX polish is
+  follow-up work.
+- Five 180 s stabilization cycles before Lane 5 acceptance.
