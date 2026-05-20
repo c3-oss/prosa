@@ -487,3 +487,35 @@ Gate output (full closure command set):
   `pnpm --filter @c3-oss/prosa-derived-v2 test` → 585/585 (57
   files). Workspace `pnpm typecheck` → 13/13. typecheck + biome
   clean across all touched packages.
+
+## Transcript-rendering gate (2026-05-20)
+
+Closes the gates.md "transcript rendering against a v2 bundle"
+bullet. Strict byte-for-byte v1↔v2 parity is intentionally out of
+scope: the v2 transcript renderer (`formatTranscriptTextV2`) uses
+a different layout (per-message ordinal headers + block-level
+identifiers + CAS-ref preview lines). The gate proves the v2
+transcript flow round-trips end-to-end and surfaces the same
+semantic content the v1 renderer would.
+
+- Added `runSessionBlobBuild` runtime writer in
+  `packages/prosa-derived-v2/src/session-blob/runtime-writer.ts`:
+  reads `epochs/<n>/projection/{message,content_block,tool_call}.prosa-projection.ndjson`,
+  groups by `session_id`, runs `projectionToSessionBlobInputs` +
+  `writeSessionBlobPack` per session, and persists one pack at
+  `<bundleRoot>/derived/session-blob/epoch-<n>/<session_id>.pack`.
+  Returns `{packs, skippedSessions}` with per-pack stats. Stable
+  output order (sessions sorted by id) so re-runs produce
+  deterministic result rows.
+- `apps/cli/test/cli/compile-to-transcript-gate.test.ts` drives
+  the full chain: spawns `prosa compile-v2 codex` against a
+  synthetic codex JSONL (sentinel-user / sentinel-assistant
+  texts), runs `runSessionBlobBuild` in-process, then spawns
+  `prosa index-v2 transcript --format text` and asserts the
+  rendered output contains both fixture texts AND the
+  `[#0] user` / `[#1] assistant` ordinal headers the v2 layout
+  emits.
+- Gates: `pnpm --filter @c3-oss/prosa exec vitest run
+  test/cli/compile-to-transcript-gate.test.ts` → 1/1 (~3.5s).
+  Full `pnpm --filter @c3-oss/prosa-derived-v2 test` → 585/585.
+  typecheck + biome clean across all touched packages.
