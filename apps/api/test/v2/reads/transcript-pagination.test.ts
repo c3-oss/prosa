@@ -11,6 +11,9 @@ import { applySchemaV2 } from '@c3-oss/prosa-db-v2'
 import { PGlite } from '@electric-sql/pglite'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { INLINE_TEXT_BUDGET_BYTES, getTranscriptPage } from '../../../src/v2/reads/sessions/transcript.js'
+import { createInProcessCursorSigner } from '../../../src/v2/reads/shared/cursor-signer.js'
+
+const cursorSigner = createInProcessCursorSigner()
 
 function makeRawExec(db: PGlite) {
   return async <Row = Record<string, unknown>>(sql: string, params: unknown[] = []): Promise<Row[]> => {
@@ -200,7 +203,10 @@ describe('Lane 6 sessions/transcript', () => {
   })
 
   it('returns null when the session is not visible under current authority', async () => {
-    const r = await getTranscriptPage({ rawExec: makeRawExec(db) }, 't_a', { sessionId: 'ses_missing', limit: 10 })
+    const r = await getTranscriptPage({ rawExec: makeRawExec(db), cursorSigner }, 't_a', {
+      sessionId: 'ses_missing',
+      limit: 10,
+    })
     expect(r).toBeNull()
   })
 
@@ -212,7 +218,10 @@ describe('Lane 6 sessions/transcript', () => {
       receiptId: 'rcp_superseded',
       sessionId: 'ses_old',
     })
-    const r = await getTranscriptPage({ rawExec: makeRawExec(db) }, 't_a', { sessionId: 'ses_old', limit: 10 })
+    const r = await getTranscriptPage({ rawExec: makeRawExec(db), cursorSigner }, 't_a', {
+      sessionId: 'ses_old',
+      limit: 10,
+    })
     expect(r).toBeNull()
   })
 
@@ -234,14 +243,14 @@ describe('Lane 6 sessions/transcript', () => {
         timestamp: `2026-05-19T10:${String(i).padStart(2, '0')}:00Z`,
       })
     }
-    const page1 = await getTranscriptPage({ rawExec: makeRawExec(db) }, tenantId, {
+    const page1 = await getTranscriptPage({ rawExec: makeRawExec(db), cursorSigner }, tenantId, {
       sessionId: 'ses_p',
       limit: 2,
     })
     if (!page1) throw new Error('expected page')
     expect(page1.turns.map((t) => t.messageId)).toEqual(['msg_00', 'msg_01'])
     expect(page1.nextCursor).not.toBeNull()
-    const page2 = await getTranscriptPage({ rawExec: makeRawExec(db) }, tenantId, {
+    const page2 = await getTranscriptPage({ rawExec: makeRawExec(db), cursorSigner }, tenantId, {
       sessionId: 'ses_p',
       limit: 2,
       cursor: page1.nextCursor,
@@ -249,7 +258,7 @@ describe('Lane 6 sessions/transcript', () => {
     if (!page2) throw new Error('expected page')
     expect(page2.turns.map((t) => t.messageId)).toEqual(['msg_02', 'msg_03'])
     expect(page2.nextCursor).not.toBeNull()
-    const page3 = await getTranscriptPage({ rawExec: makeRawExec(db) }, tenantId, {
+    const page3 = await getTranscriptPage({ rawExec: makeRawExec(db), cursorSigner }, tenantId, {
       sessionId: 'ses_p',
       limit: 2,
       cursor: page2.nextCursor,
@@ -296,7 +305,7 @@ describe('Lane 6 sessions/transcript', () => {
       textInline: large,
       objectId: 'obj_large_body',
     })
-    const r = await getTranscriptPage({ rawExec: makeRawExec(db) }, tenantId, {
+    const r = await getTranscriptPage({ rawExec: makeRawExec(db), cursorSigner }, tenantId, {
       sessionId: 'ses_b',
       limit: 10,
     })
@@ -393,7 +402,7 @@ describe('Lane 6 sessions/transcript', () => {
     // Limit=2 keeps the same-turn pair on the first page (proves
     // within-page dedup). Limit again to a second page so we can
     // prove `unattachedToolCalls` only surfaces on the first page.
-    const first = await getTranscriptPage({ rawExec: makeRawExec(db) }, tenantId, {
+    const first = await getTranscriptPage({ rawExec: makeRawExec(db), cursorSigner }, tenantId, {
       sessionId: 'ses_t',
       limit: 2,
     })
@@ -408,7 +417,7 @@ describe('Lane 6 sessions/transcript', () => {
     expect(first.unattachedToolCalls.map((c) => c.toolCallId)).toEqual(['tc_orphan'])
     expect(first.nextCursor).not.toBeNull()
 
-    const second = await getTranscriptPage({ rawExec: makeRawExec(db) }, tenantId, {
+    const second = await getTranscriptPage({ rawExec: makeRawExec(db), cursorSigner }, tenantId, {
       sessionId: 'ses_t',
       limit: 2,
       cursor: first.nextCursor,
@@ -488,7 +497,10 @@ describe('Lane 6 sessions/transcript', () => {
       toolName: 'bash',
     })
 
-    const r = await getTranscriptPage({ rawExec: makeRawExec(db) }, tenantId, { sessionId: 'ses_h', limit: 10 })
+    const r = await getTranscriptPage({ rawExec: makeRawExec(db), cursorSigner }, tenantId, {
+      sessionId: 'ses_h',
+      limit: 10,
+    })
     if (!r) throw new Error('expected page')
     expect(r.turns.map((t) => t.messageId)).toEqual(['msg_current'])
     expect(r.turns[0]?.blocks.map((b) => b.blockId)).toEqual(['blk_current'])

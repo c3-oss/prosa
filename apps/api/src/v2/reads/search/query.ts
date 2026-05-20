@@ -27,11 +27,12 @@ import {
   InvalidCursorError,
   decodeRequiredCursor,
   encodeCursorSnapshot,
+  encodeSignedCursor,
   parseCursorSnapshot,
   resolveAuthoritySnapshot,
   verifiedProjectionInSnapshotWhere,
 } from '../shared/authority-snapshot.js'
-import { encodeCursor } from '../shared/cursor.js'
+import type { CursorSigner } from '../shared/cursor-signer.js'
 
 export const searchQueryInput = z.object({
   q: z.string().min(1),
@@ -98,6 +99,7 @@ type StoredCursor = {
 
 export type SearchDeps = {
   rawExec: RawExec
+  cursorSigner: CursorSigner
 }
 
 function appendParam(params: unknown[], value: unknown): string {
@@ -123,7 +125,7 @@ export async function searchQuery(
   // `InvalidCursorError` (HTTP 400 at the route layer).
   let snapshot: AuthoritySnapshot
   let cursorBound: { rank: number; id: string } | null = null
-  const parsed = decodeRequiredCursor<StoredCursor>(input.cursor ?? undefined)
+  const parsed = decodeRequiredCursor<StoredCursor>(deps.cursorSigner, input.cursor ?? undefined)
   if (parsed) {
     if (typeof parsed.id !== 'string' || parsed.id.length === 0) {
       throw new InvalidCursorError('cursor.id missing')
@@ -214,7 +216,11 @@ export async function searchQuery(
   const last = pageRows[pageRows.length - 1]
   const nextCursor =
     overflow && last
-      ? encodeCursor({ rank: last.rank, id: last.doc_id, snapshot: encodeCursorSnapshot(snapshot) })
+      ? encodeSignedCursor(deps.cursorSigner, {
+          rank: last.rank,
+          id: last.doc_id,
+          snapshot: encodeCursorSnapshot(snapshot),
+        })
       : null
 
   return {

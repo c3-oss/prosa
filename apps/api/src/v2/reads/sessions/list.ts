@@ -25,10 +25,11 @@ import {
   InvalidCursorError,
   decodeRequiredCursor,
   encodeCursorSnapshot,
+  encodeSignedCursor,
   parseCursorSnapshot,
   resolveAuthoritySnapshot,
 } from '../shared/authority-snapshot.js'
-import { encodeCursor } from '../shared/cursor.js'
+import type { CursorSigner } from '../shared/cursor-signer.js'
 import { type SessionListFilters, appendParam, buildSessionWhere, sessionListFilters } from './filters.js'
 
 export const listSessionsInput = z
@@ -87,6 +88,7 @@ type StoredCursor = {
 
 export type ListSessionsDeps = {
   rawExec: RawExec
+  cursorSigner: CursorSigner
 }
 
 export async function listSessions(
@@ -108,7 +110,7 @@ export async function listSessions(
   // surface as `InvalidCursorError` (HTTP 400 at the route layer).
   let snapshot: AuthoritySnapshot
   let cursorBound: { startedAt: string | null; id: string } | null = null
-  const parsed = decodeRequiredCursor<StoredCursor>(input.cursor ?? undefined)
+  const parsed = decodeRequiredCursor<StoredCursor>(deps.cursorSigner, input.cursor ?? undefined)
   if (parsed) {
     if (typeof parsed.id !== 'string' || parsed.id.length === 0) {
       throw new InvalidCursorError('cursor.id missing')
@@ -186,7 +188,7 @@ export async function listSessions(
   const last = windowed[windowed.length - 1]
   const nextCursor =
     overflow && last
-      ? encodeCursor({
+      ? encodeSignedCursor(deps.cursorSigner, {
           startedAt: last.start_ts ?? '',
           id: last.session_id,
           snapshot: encodeCursorSnapshot(snapshot),

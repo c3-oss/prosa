@@ -22,6 +22,7 @@
 //      which the route layer maps to HTTP 400 / `INVALID_CURSOR`.
 
 import type { RawExec } from '../../../db.js'
+import { CursorIntegrityError, type CursorSigner } from './cursor-signer.js'
 
 export type AuthoritySnapshotEntry = { storeId: string; receiptId: string }
 export type AuthoritySnapshot = readonly AuthoritySnapshotEntry[]
@@ -112,27 +113,46 @@ export function encodeCursorSnapshot(snapshot: AuthoritySnapshot): Array<{ s: st
 }
 
 /**
- * Decode a cursor strictly. Returns `null` when the caller passes
- * `null` / `undefined` (first-page semantics). For any other
- * malformed value — bad base64, missing fields, wrong types — it
- * throws `InvalidCursorError`.
+ * Verify + decode a cursor strictly. Returns `null` when the caller
+ * passes `null` / `undefined` (first-page semantics). For any
+ * malformed or tampered value — bad base64, missing fields, wrong
+ * types, HMAC mismatch — it throws `InvalidCursorError`. Cursor
+ * integrity (CQ-142 follow-up) is enforced by the supplied
+ * `CursorSigner`: the entire payload, including the authority
+ * snapshot, is HMAC-signed at encode time and verified here.
  */
-export function decodeRequiredCursor<T = Record<string, unknown>>(cursor: string | null | undefined): T | null {
-  if (cursor == null || cursor === '') return null
-  let raw: string
-  try {
-    raw = Buffer.from(cursor, 'base64url').toString('utf8')
-  } catch {
-    throw new InvalidCursorError('cursor is not valid base64url')
+export function decodeRequiredCursor<T = Record<string, unknown>>(
+  signer: CursorSigner,
+  cursor: string | null | undefined,
+): T | null {
+  if (cursor == null) return null
+  // CQ-142 acceptance: an empty-string cursor is NOT first-page
+  // semantics. Callers either omit the field entirely (handled
+  // above) or pass a server-issued token; an explicit empty string
+  // is a forgery / corruption signal and fails closed.
+  if (cursor === '') {
+    throw new InvalidCursorError('cursor cannot be the empty string')
   }
   let parsed: unknown
   try {
-    parsed = JSON.parse(raw)
-  } catch {
-    throw new InvalidCursorError('cursor payload is not valid JSON')
+    parsed = signer.verify(cursor)
+  } catch (err) {
+    if (err instanceof CursorIntegrityError) {
+      throw new InvalidCursorError(err.message)
+    }
+    throw err
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
     throw new InvalidCursorError('cursor payload must be a JSON object')
   }
   return parsed as T
+}
+
+/**
+ * Sign + encode a cursor payload. The encoded token includes an
+ * HMAC over the payload bytes so any tamper at the client side
+ * produces a verification failure.
+ */
+export function encodeSignedCursor(signer: CursorSigner, payload: Record<string, unknown>): string {
+  return signer.sign(payload)
 }

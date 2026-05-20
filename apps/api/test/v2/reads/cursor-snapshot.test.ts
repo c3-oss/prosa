@@ -25,6 +25,7 @@ import { searchQuery } from '../../../src/v2/reads/search/query.js'
 import { listSessions } from '../../../src/v2/reads/sessions/list.js'
 import { getTranscriptPage } from '../../../src/v2/reads/sessions/transcript.js'
 import { InvalidCursorError } from '../../../src/v2/reads/shared/authority-snapshot.js'
+import { createInProcessCursorSigner } from '../../../src/v2/reads/shared/cursor-signer.js'
 import { listToolCalls } from '../../../src/v2/reads/tool-calls/list.js'
 
 function makeRawExec(db: PGlite) {
@@ -33,6 +34,8 @@ function makeRawExec(db: PGlite) {
     return res.rows
   }
 }
+
+const cursorSigner = createInProcessCursorSigner()
 
 async function setAuthority(db: PGlite, tenantId: string, storeId: string, receiptId: string): Promise<void> {
   await db.query(
@@ -83,7 +86,7 @@ describe('Lane 6 sessions/list — receipt-snapshot pin under in-flight promotio
         startTs: `2026-05-19T10:0${3 - i}:00Z`,
       })
     }
-    const page1 = await listSessions({ rawExec: makeRawExec(db) }, tenantId, { limit: 2 })
+    const page1 = await listSessions({ rawExec: makeRawExec(db), cursorSigner }, tenantId, { limit: 2 })
     // start_ts DESC, session_id DESC
     expect(page1.rows.map((r) => r.id)).toEqual(['ses_v1_0', 'ses_v1_1'])
     expect(page1.nextCursor).not.toBeNull()
@@ -97,7 +100,7 @@ describe('Lane 6 sessions/list — receipt-snapshot pin under in-flight promotio
       startTs: '2026-05-19T11:00:00Z',
     })
 
-    const page2 = await listSessions({ rawExec: makeRawExec(db) }, tenantId, {
+    const page2 = await listSessions({ rawExec: makeRawExec(db), cursorSigner }, tenantId, {
       limit: 2,
       cursor: page1.nextCursor,
     })
@@ -111,12 +114,12 @@ describe('Lane 6 sessions/list — receipt-snapshot pin under in-flight promotio
     await setAuthority(db, tenantId, storeId, 'rcp_v1')
     await seedSession({ sessionId: 'ses_only', receiptId: 'rcp_v1', startTs: '2026-05-19T10:00:00Z' })
     await expect(
-      listSessions({ rawExec: makeRawExec(db) }, tenantId, { limit: 10, cursor: '!!!not-a-cursor!!!' }),
+      listSessions({ rawExec: makeRawExec(db), cursorSigner }, tenantId, { limit: 10, cursor: '!!!not-a-cursor!!!' }),
     ).rejects.toBeInstanceOf(InvalidCursorError)
 
     const bogusButValidBase64 = Buffer.from(JSON.stringify({ startedAt: 'x', id: 'y' }), 'utf8').toString('base64url')
     await expect(
-      listSessions({ rawExec: makeRawExec(db) }, tenantId, { limit: 10, cursor: bogusButValidBase64 }),
+      listSessions({ rawExec: makeRawExec(db), cursorSigner }, tenantId, { limit: 10, cursor: bogusButValidBase64 }),
     ).rejects.toBeInstanceOf(InvalidCursorError)
   })
 })
@@ -157,7 +160,7 @@ describe('Lane 6 sessions/transcript — receipt-snapshot pin (CQ-142)', () => {
     await seedMessage('msg_v1_a', 'rcp_v1', 0, '2026-05-19T10:00:00Z')
     await seedMessage('msg_v1_b', 'rcp_v1', 1, '2026-05-19T10:01:00Z')
 
-    const page1 = await getTranscriptPage({ rawExec: makeRawExec(db) }, tenantId, {
+    const page1 = await getTranscriptPage({ rawExec: makeRawExec(db), cursorSigner }, tenantId, {
       sessionId: 'ses_t',
       limit: 1,
     })
@@ -173,7 +176,7 @@ describe('Lane 6 sessions/transcript — receipt-snapshot pin (CQ-142)', () => {
     // invisible to page 2.
     await seedMessage('msg_v2_x', 'rcp_v2', 2, '2026-05-19T10:00:30Z')
 
-    const page2 = await getTranscriptPage({ rawExec: makeRawExec(db) }, tenantId, {
+    const page2 = await getTranscriptPage({ rawExec: makeRawExec(db), cursorSigner }, tenantId, {
       sessionId: 'ses_t',
       limit: 1,
       cursor: page1.nextCursor,
@@ -186,7 +189,7 @@ describe('Lane 6 sessions/transcript — receipt-snapshot pin (CQ-142)', () => {
     await setAuthority(db, tenantId, storeId, 'rcp_v1')
     await seedSession('rcp_v1')
     await expect(
-      getTranscriptPage({ rawExec: makeRawExec(db) }, tenantId, {
+      getTranscriptPage({ rawExec: makeRawExec(db), cursorSigner }, tenantId, {
         sessionId: 'ses_t',
         limit: 10,
         cursor: 'totally-bogus',
@@ -222,7 +225,7 @@ describe('Lane 6 search/query — receipt-snapshot pin (CQ-142)', () => {
     await seedDoc('doc_b', 'rcp_v1', 'fox beta beta')
     await seedDoc('doc_c', 'rcp_v1', 'fox gamma gamma gamma')
 
-    const page1 = await searchQuery({ rawExec: makeRawExec(db) }, tenantId, { q: 'fox', limit: 1 })
+    const page1 = await searchQuery({ rawExec: makeRawExec(db), cursorSigner }, tenantId, { q: 'fox', limit: 1 })
     expect(page1.rows.length).toBe(1)
     expect(page1.nextCursor).not.toBeNull()
 
@@ -235,7 +238,11 @@ describe('Lane 6 search/query — receipt-snapshot pin (CQ-142)', () => {
     let cursor: string | null | undefined = page1.nextCursor
     let safety = 0
     while (cursor) {
-      const page = await searchQuery({ rawExec: makeRawExec(db) }, tenantId, { q: 'fox', limit: 1, cursor })
+      const page = await searchQuery({ rawExec: makeRawExec(db), cursorSigner }, tenantId, {
+        q: 'fox',
+        limit: 1,
+        cursor,
+      })
       for (const r of page.rows) collected.push(r.docId)
       cursor = page.nextCursor
       safety += 1
@@ -247,7 +254,7 @@ describe('Lane 6 search/query — receipt-snapshot pin (CQ-142)', () => {
   it('rejects a tampered search cursor', async () => {
     await setAuthority(db, tenantId, storeId, 'rcp_v1')
     await expect(
-      searchQuery({ rawExec: makeRawExec(db) }, tenantId, { q: 'fox', limit: 10, cursor: 'tamper' }),
+      searchQuery({ rawExec: makeRawExec(db), cursorSigner }, tenantId, { q: 'fox', limit: 10, cursor: 'tamper' }),
     ).rejects.toBeInstanceOf(InvalidCursorError)
   })
 })
@@ -277,14 +284,14 @@ describe('Lane 6 tool-calls/list — receipt-snapshot pin (CQ-142)', () => {
     await seedCall('tc_v1_1', 'rcp_v1', '2026-05-19T10:01:00Z')
     await seedCall('tc_v1_2', 'rcp_v1', '2026-05-19T10:02:00Z')
 
-    const page1 = await listToolCalls({ rawExec: makeRawExec(db) }, tenantId, { limit: 2 })
+    const page1 = await listToolCalls({ rawExec: makeRawExec(db), cursorSigner }, tenantId, { limit: 2 })
     expect(page1.rows.map((r) => r.toolCallId)).toEqual(['tc_v1_2', 'tc_v1_1'])
     expect(page1.nextCursor).not.toBeNull()
 
     await setAuthority(db, tenantId, storeId, 'rcp_v2')
     await seedCall('tc_v2_x', 'rcp_v2', '2026-05-19T10:03:00Z')
 
-    const page2 = await listToolCalls({ rawExec: makeRawExec(db) }, tenantId, {
+    const page2 = await listToolCalls({ rawExec: makeRawExec(db), cursorSigner }, tenantId, {
       limit: 2,
       cursor: page1.nextCursor,
     })
@@ -295,7 +302,7 @@ describe('Lane 6 tool-calls/list — receipt-snapshot pin (CQ-142)', () => {
   it('rejects a tampered tool-calls cursor', async () => {
     await setAuthority(db, tenantId, storeId, 'rcp_v1')
     await expect(
-      listToolCalls({ rawExec: makeRawExec(db) }, tenantId, { limit: 10, cursor: 'tamper' }),
+      listToolCalls({ rawExec: makeRawExec(db), cursorSigner }, tenantId, { limit: 10, cursor: 'tamper' }),
     ).rejects.toBeInstanceOf(InvalidCursorError)
   })
 })

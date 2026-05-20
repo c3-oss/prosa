@@ -17,6 +17,7 @@ import { getSessionDetail, sessionDetailInput } from './sessions/detail.js'
 import { listSessions, listSessionsInput } from './sessions/list.js'
 import { getTranscriptPage, transcriptPageInput } from './sessions/transcript.js'
 import { InvalidCursorError } from './shared/authority-snapshot.js'
+import { type CursorSigner, createInProcessCursorSigner } from './shared/cursor-signer.js'
 import { listToolCalls, toolCallsListInput } from './tool-calls/list.js'
 
 export type V2ReadRoutesDeps = V2AuthDeps & {
@@ -26,6 +27,14 @@ export type V2ReadRoutesDeps = V2AuthDeps & {
    * single Better Auth tenant maps to a single bucket / namespace.
    */
   objectStore: RemoteObjectStore
+  /**
+   * Cursor signer that HMACs the receipt-snapshot embedded in every
+   * paginated cursor (CQ-142 follow-up). Production injects a
+   * shared `PROSA_CURSOR_HMAC_SECRET`-derived signer so cursors
+   * round-trip across workers; dev / test boots fall back to a
+   * per-process random key.
+   */
+  cursorSigner?: CursorSigner
   /**
    * Optional cache override for tests. Defaults to a 30 s TTL
    * in-process cache; tests inject a smaller-TTL instance to keep
@@ -37,6 +46,7 @@ export type V2ReadRoutesDeps = V2AuthDeps & {
 
 export type V2ReadPluginHandle = {
   authorityCache: AuthorityTtlCache<CachedAuthority>
+  cursorSigner: CursorSigner
 }
 
 export const V2_READ_ROUTES = [
@@ -60,6 +70,7 @@ export const V2_READ_ROUTES = [
 
 export function registerV2ReadRoutes(app: FastifyInstance, deps: V2ReadRoutesDeps): V2ReadPluginHandle {
   const authorityCache = deps.authorityCache ?? new AuthorityTtlCache<CachedAuthority>()
+  const cursorSigner = deps.cursorSigner ?? createInProcessCursorSigner()
   const now = deps.now
 
   app.route({
@@ -98,7 +109,7 @@ export function registerV2ReadRoutes(app: FastifyInstance, deps: V2ReadRoutesDep
         return { code: 'INVALID_INPUT', op: 'ReadSessionsList', issues: parsed.error.issues }
       }
       try {
-        return await listSessions({ rawExec: deps.rawExec }, gate.tenantId, parsed.data)
+        return await listSessions({ rawExec: deps.rawExec, cursorSigner }, gate.tenantId, parsed.data)
       } catch (err) {
         if (err instanceof InvalidCursorError) {
           reply.code(400)
@@ -154,7 +165,7 @@ export function registerV2ReadRoutes(app: FastifyInstance, deps: V2ReadRoutesDep
         return { code: 'INVALID_INPUT', op: 'ReadSessionsTranscript', issues: parsed.error.issues }
       }
       try {
-        return await getTranscriptPage({ rawExec: deps.rawExec }, gate.tenantId, parsed.data)
+        return await getTranscriptPage({ rawExec: deps.rawExec, cursorSigner }, gate.tenantId, parsed.data)
       } catch (err) {
         if (err instanceof InvalidCursorError) {
           reply.code(400)
@@ -178,7 +189,7 @@ export function registerV2ReadRoutes(app: FastifyInstance, deps: V2ReadRoutesDep
         return { code: 'INVALID_INPUT', op: 'ReadSearchQuery', issues: parsed.error.issues }
       }
       try {
-        return await searchQuery({ rawExec: deps.rawExec }, gate.tenantId, parsed.data)
+        return await searchQuery({ rawExec: deps.rawExec, cursorSigner }, gate.tenantId, parsed.data)
       } catch (err) {
         if (err instanceof InvalidCursorError) {
           reply.code(400)
@@ -202,7 +213,7 @@ export function registerV2ReadRoutes(app: FastifyInstance, deps: V2ReadRoutesDep
         return { code: 'INVALID_INPUT', op: 'ReadToolCallsList', issues: parsed.error.issues }
       }
       try {
-        return await listToolCalls({ rawExec: deps.rawExec }, gate.tenantId, parsed.data)
+        return await listToolCalls({ rawExec: deps.rawExec, cursorSigner }, gate.tenantId, parsed.data)
       } catch (err) {
         if (err instanceof InvalidCursorError) {
           reply.code(400)
@@ -229,7 +240,7 @@ export function registerV2ReadRoutes(app: FastifyInstance, deps: V2ReadRoutesDep
     },
   })
 
-  return { authorityCache }
+  return { authorityCache, cursorSigner }
 }
 
 type GateResult = { tenantId: string } | null
@@ -287,3 +298,9 @@ export {
 } from './shared/verified-projection.js'
 export { decodeCursor, encodeCursor } from './shared/cursor.js'
 export type { CursorPage, CursorPayload } from './shared/cursor.js'
+export {
+  CursorIntegrityError,
+  type CursorSigner,
+  createCursorSigner,
+  createInProcessCursorSigner,
+} from './shared/cursor-signer.js'

@@ -34,11 +34,12 @@ import {
   InvalidCursorError,
   decodeRequiredCursor,
   encodeCursorSnapshot,
+  encodeSignedCursor,
   parseCursorSnapshot,
   resolveAuthoritySnapshot,
   verifiedProjectionInSnapshotWhere,
 } from '../shared/authority-snapshot.js'
-import { encodeCursor } from '../shared/cursor.js'
+import type { CursorSigner } from '../shared/cursor-signer.js'
 import { appendParam } from './filters.js'
 
 /**
@@ -171,6 +172,7 @@ type StoredCursor = {
 
 export type TranscriptDeps = {
   rawExec: RawExec
+  cursorSigner: CursorSigner
 }
 
 export async function getTranscriptPage(
@@ -183,7 +185,7 @@ export async function getTranscriptPage(
   // promotion bumps `remote_authority_v2` mid-iteration.
   let snapshot: AuthoritySnapshot
   let cursor: { ord: number; id: string } | null = null
-  const parsedCursor = decodeRequiredCursor<StoredCursor>(input.cursor ?? undefined)
+  const parsedCursor = decodeRequiredCursor<StoredCursor>(deps.cursorSigner, input.cursor ?? undefined)
   if (parsedCursor) {
     if (typeof parsedCursor.id !== 'string' || parsedCursor.id.length === 0) {
       throw new InvalidCursorError('cursor.id missing')
@@ -250,7 +252,11 @@ export async function getTranscriptPage(
   const lastMsg = pageMessages[pageMessages.length - 1]
   const nextCursor =
     overflow && lastMsg
-      ? encodeCursor({ ord: lastMsg.ord, id: lastMsg.message_id, snapshot: encodeCursorSnapshot(snapshot) })
+      ? encodeSignedCursor(deps.cursorSigner, {
+          ord: lastMsg.ord,
+          id: lastMsg.message_id,
+          snapshot: encodeCursorSnapshot(snapshot),
+        })
       : null
 
   const messageIds = pageMessages.map((m) => m.message_id)

@@ -13,6 +13,25 @@ type PromotedStore = {
 }
 
 /**
+ * CQ-143: detect a v2 promotion by inspecting the recorded receipt.
+ * v2 receipts carry `receiptVersion: 2` in `payload`; v1 receipts do
+ * not. The CLI's read clients still route through the legacy
+ * `/trpc/sessions.*` surface (gated by the old
+ * `sync_batch_projection_manifest` path) which is incompatible with
+ * the Lane 6 `remote_authority_v2` gate. Until Lane 7 wires
+ * `prosa sessions` to `/v2/reads/*`, the CLI must fail closed for
+ * v2-promoted stores and direct the operator to `--local`.
+ */
+export function isV2Promotion(record: PromotionRecord): boolean {
+  const receipt = record.receipt
+  if (!receipt || typeof receipt !== 'object') return false
+  const payload = (receipt as { payload?: unknown }).payload
+  if (!payload || typeof payload !== 'object') return false
+  const version = (payload as { receiptVersion?: unknown }).receiptVersion
+  return version === 2
+}
+
+/**
  * Decide whether a read command should hit the server or the local bundle.
  *
  * Resolution order:
@@ -66,6 +85,19 @@ export async function resolveReadAuthorityOrFailClosed(opts: {
   if (!opts.remoteSupported) {
     throw new CliUserError(
       `${opts.commandName} is not available for remote-authoritative store ${resolvedStore} yet.\nThis store was promoted to ${promoted.entry.url}; refusing to read a stale or missing local bundle by default.\nUse --local to read the local bundle explicitly.`,
+    )
+  }
+
+  // CQ-143: the CLI's `remote` path still routes through the legacy
+  // `/trpc/sessions.*` endpoints, which use the v1
+  // `sync_batch_projection_manifest` gate rather than the Lane 6
+  // `remote_authority_v2` receipt-pinned gate. Reading legacy data
+  // for a v2-promoted store could expose rows that are no longer
+  // current authority. Until Lane 7 wires this command to
+  // `/v2/reads/*`, fail closed and redirect to `--local`.
+  if (isV2Promotion(promoted.promotion)) {
+    throw new CliUserError(
+      `${opts.commandName} cannot read the remote-authoritative v2-promoted store ${resolvedStore} yet.\nThis store was promoted to ${promoted.entry.url} via the v2 protocol; the legacy /trpc/sessions.* endpoints are not gated by the v2 receipt authority.\nUntil the CLI wires through /v2/reads/*, use --local to read the local bundle explicitly.`,
     )
   }
 

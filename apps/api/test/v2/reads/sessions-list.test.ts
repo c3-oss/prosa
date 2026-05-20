@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { countSessions } from '../../../src/v2/reads/sessions/count.js'
 import { getSessionDetail } from '../../../src/v2/reads/sessions/detail.js'
 import { listSessions } from '../../../src/v2/reads/sessions/list.js'
+import { createInProcessCursorSigner } from '../../../src/v2/reads/shared/cursor-signer.js'
 
 type Seed = {
   tenantId: string
@@ -31,6 +32,8 @@ type Seed = {
   status?: string | null
   summary?: string | null
 }
+
+const cursorSigner = createInProcessCursorSigner()
 
 function makeRawExec(db: PGlite) {
   return async <Row = Record<string, unknown>>(sql: string, params: unknown[] = []): Promise<Row[]> => {
@@ -133,7 +136,7 @@ describe('Lane 6 sessions/list — pagination + filters', () => {
   })
 
   it('returns an empty page for a tenant with no authority', async () => {
-    const result = await listSessions({ rawExec: makeRawExec(db) }, 't_empty', { limit: 50 })
+    const result = await listSessions({ rawExec: makeRawExec(db), cursorSigner }, 't_empty', { limit: 50 })
     expect(result.rows).toEqual([])
     expect(result.nextCursor).toBeNull()
   })
@@ -162,7 +165,7 @@ describe('Lane 6 sessions/list — pagination + filters', () => {
       title: 'should-not-leak',
     })
 
-    const result = await listSessions({ rawExec: makeRawExec(db) }, 't_a', { limit: 50 })
+    const result = await listSessions({ rawExec: makeRawExec(db), cursorSigner }, 't_a', { limit: 50 })
     expect(result.rows.map((r) => r.id)).toEqual(['ses_visible'])
   })
 
@@ -182,10 +185,10 @@ describe('Lane 6 sessions/list — pagination + filters', () => {
         title: `t-${i}`,
       })
     }
-    const page1 = await listSessions({ rawExec: makeRawExec(db) }, 't_a', { limit: 3 })
+    const page1 = await listSessions({ rawExec: makeRawExec(db), cursorSigner }, 't_a', { limit: 3 })
     expect(page1.rows.map((r) => r.id)).toEqual(['ses_05', 'ses_04', 'ses_03'])
     expect(page1.nextCursor).not.toBeNull()
-    const page2 = await listSessions({ rawExec: makeRawExec(db) }, 't_a', {
+    const page2 = await listSessions({ rawExec: makeRawExec(db), cursorSigner }, 't_a', {
       limit: 3,
       cursor: page1.nextCursor,
     })
@@ -223,7 +226,7 @@ describe('Lane 6 sessions/list — pagination + filters', () => {
       endTs: '2026-05-19T11:00:00Z',
       title: 'new-copy',
     })
-    const result = await listSessions({ rawExec: makeRawExec(db) }, 't_a', { limit: 10 })
+    const result = await listSessions({ rawExec: makeRawExec(db), cursorSigner }, 't_a', { limit: 10 })
     expect(result.rows.length).toBe(1)
     expect(result.rows[0]?.id).toBe('ses_new_copy')
     expect(result.rows[0]?.storeId).toBe('s_new')
@@ -258,24 +261,28 @@ describe('Lane 6 sessions/list — pagination + filters', () => {
     })
 
     expect(
-      (await listSessions({ rawExec: makeRawExec(db) }, 't_a', { limit: 10, sourceTools: ['codex'] })).rows.map(
-        (r) => r.id,
-      ),
-    ).toEqual(['ses_codex'])
-    expect(
-      (await listSessions({ rawExec: makeRawExec(db) }, 't_a', { limit: 10, projectIds: ['prj_y'] })).rows.map(
-        (r) => r.id,
-      ),
-    ).toEqual(['ses_claude'])
-    expect(
-      (await listSessions({ rawExec: makeRawExec(db) }, 't_a', { limit: 10, storeIds: ['s_b'] })).rows.map((r) => r.id),
-    ).toEqual(['ses_claude'])
-    expect(
-      (await listSessions({ rawExec: makeRawExec(db) }, 't_a', { limit: 10, q: 'fox' })).rows.map((r) => r.id),
+      (
+        await listSessions({ rawExec: makeRawExec(db), cursorSigner }, 't_a', { limit: 10, sourceTools: ['codex'] })
+      ).rows.map((r) => r.id),
     ).toEqual(['ses_codex'])
     expect(
       (
-        await listSessions({ rawExec: makeRawExec(db) }, 't_a', {
+        await listSessions({ rawExec: makeRawExec(db), cursorSigner }, 't_a', { limit: 10, projectIds: ['prj_y'] })
+      ).rows.map((r) => r.id),
+    ).toEqual(['ses_claude'])
+    expect(
+      (
+        await listSessions({ rawExec: makeRawExec(db), cursorSigner }, 't_a', { limit: 10, storeIds: ['s_b'] })
+      ).rows.map((r) => r.id),
+    ).toEqual(['ses_claude'])
+    expect(
+      (await listSessions({ rawExec: makeRawExec(db), cursorSigner }, 't_a', { limit: 10, q: 'fox' })).rows.map(
+        (r) => r.id,
+      ),
+    ).toEqual(['ses_codex'])
+    expect(
+      (
+        await listSessions({ rawExec: makeRawExec(db), cursorSigner }, 't_a', {
           limit: 10,
           since: '2026-05-20T00:00:00Z',
         })
@@ -283,7 +290,7 @@ describe('Lane 6 sessions/list — pagination + filters', () => {
     ).toEqual(['ses_claude'])
     expect(
       (
-        await listSessions({ rawExec: makeRawExec(db) }, 't_a', {
+        await listSessions({ rawExec: makeRawExec(db), cursorSigner }, 't_a', {
           limit: 10,
           until: '2026-05-20T00:00:00Z',
         })
@@ -316,9 +323,9 @@ describe('Lane 6 sessions/list — pagination + filters', () => {
       startTs: '2026-05-19T10:00:00Z',
       title: 'bob-only',
     })
-    const alice = await listSessions({ rawExec: makeRawExec(db) }, 't_alice', { limit: 10 })
+    const alice = await listSessions({ rawExec: makeRawExec(db), cursorSigner }, 't_alice', { limit: 10 })
     expect(alice.rows.map((r) => r.id)).toEqual(['ses_alice'])
-    const bob = await listSessions({ rawExec: makeRawExec(db) }, 't_bob', { limit: 10 })
+    const bob = await listSessions({ rawExec: makeRawExec(db), cursorSigner }, 't_bob', { limit: 10 })
     expect(bob.rows.map((r) => r.id)).toEqual(['ses_bob'])
   })
 })

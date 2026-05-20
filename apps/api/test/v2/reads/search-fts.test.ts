@@ -17,6 +17,9 @@ import { applySchemaV2 } from '@c3-oss/prosa-db-v2'
 import { PGlite } from '@electric-sql/pglite'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { searchQuery } from '../../../src/v2/reads/search/query.js'
+import { createInProcessCursorSigner } from '../../../src/v2/reads/shared/cursor-signer.js'
+
+const cursorSigner = createInProcessCursorSigner()
 
 function makeRawExec(db: PGlite) {
   return async <Row = Record<string, unknown>>(sql: string, params: unknown[] = []): Promise<Row[]> => {
@@ -99,7 +102,7 @@ describe('Lane 6 search/query — verified-projection gate', () => {
       docId: 'doc_a',
       text: 'the quick brown fox jumps over the lazy dog',
     })
-    const r = await searchQuery({ rawExec: makeRawExec(db) }, 't_a', { q: 'fox', limit: 10 })
+    const r = await searchQuery({ rawExec: makeRawExec(db), cursorSigner }, 't_a', { q: 'fox', limit: 10 })
     expect(r.rows).toEqual([])
     expect(r.nextCursor).toBeNull()
   })
@@ -120,7 +123,7 @@ describe('Lane 6 search/query — verified-projection gate', () => {
       docId: 'doc_hidden',
       text: 'the quick brown fox is hidden',
     })
-    const r = await searchQuery({ rawExec: makeRawExec(db) }, 't_a', { q: 'fox', limit: 10 })
+    const r = await searchQuery({ rawExec: makeRawExec(db), cursorSigner }, 't_a', { q: 'fox', limit: 10 })
     expect(r.rows.map((row) => row.docId)).toEqual(['doc_visible'])
   })
 
@@ -143,9 +146,9 @@ describe('Lane 6 search/query — verified-projection gate', () => {
       docId: 'doc_bob',
       text: 'bob also wrote about a fox',
     })
-    const aliceView = await searchQuery({ rawExec: makeRawExec(db) }, 't_alice', { q: 'fox', limit: 10 })
+    const aliceView = await searchQuery({ rawExec: makeRawExec(db), cursorSigner }, 't_alice', { q: 'fox', limit: 10 })
     expect(aliceView.rows.map((r) => r.docId)).toEqual(['doc_alice'])
-    const bobView = await searchQuery({ rawExec: makeRawExec(db) }, 't_bob', { q: 'fox', limit: 10 })
+    const bobView = await searchQuery({ rawExec: makeRawExec(db), cursorSigner }, 't_bob', { q: 'fox', limit: 10 })
     expect(bobView.rows.map((r) => r.docId)).toEqual(['doc_bob'])
   })
 })
@@ -215,7 +218,7 @@ describe('Lane 6 search/query — filters + snippets', () => {
   })
 
   it('returns hits with a non-empty snippet containing the matched term', async () => {
-    const r = await searchQuery({ rawExec: makeRawExec(db) }, tenantId, { q: 'fox', limit: 10 })
+    const r = await searchQuery({ rawExec: makeRawExec(db), cursorSigner }, tenantId, { q: 'fox', limit: 10 })
     expect(r.rows.length).toBeGreaterThan(0)
     for (const hit of r.rows) {
       // ts_headline highlights every match; verify the snippet
@@ -225,12 +228,16 @@ describe('Lane 6 search/query — filters + snippets', () => {
   })
 
   it('filters by roles', async () => {
-    const r = await searchQuery({ rawExec: makeRawExec(db) }, tenantId, { q: 'fox', roles: ['user'], limit: 10 })
+    const r = await searchQuery({ rawExec: makeRawExec(db), cursorSigner }, tenantId, {
+      q: 'fox',
+      roles: ['user'],
+      limit: 10,
+    })
     expect(r.rows.map((h) => h.docId)).toEqual(['doc_user'])
   })
 
   it('filters by toolNames', async () => {
-    const r = await searchQuery({ rawExec: makeRawExec(db) }, tenantId, {
+    const r = await searchQuery({ rawExec: makeRawExec(db), cursorSigner }, tenantId, {
       q: 'fox',
       toolNames: ['bash'],
       limit: 10,
@@ -239,7 +246,7 @@ describe('Lane 6 search/query — filters + snippets', () => {
   })
 
   it('filters by canonicalToolTypes', async () => {
-    const r = await searchQuery({ rawExec: makeRawExec(db) }, tenantId, {
+    const r = await searchQuery({ rawExec: makeRawExec(db), cursorSigner }, tenantId, {
       q: 'fox',
       canonicalToolTypes: ['execute_shell'],
       limit: 10,
@@ -248,7 +255,7 @@ describe('Lane 6 search/query — filters + snippets', () => {
   })
 
   it('filters by entityTypes', async () => {
-    const r = await searchQuery({ rawExec: makeRawExec(db) }, tenantId, {
+    const r = await searchQuery({ rawExec: makeRawExec(db), cursorSigner }, tenantId, {
       q: 'fox',
       entityTypes: ['tool_result'],
       limit: 10,
@@ -257,7 +264,7 @@ describe('Lane 6 search/query — filters + snippets', () => {
   })
 
   it('filters by errorsOnly', async () => {
-    const r = await searchQuery({ rawExec: makeRawExec(db) }, tenantId, {
+    const r = await searchQuery({ rawExec: makeRawExec(db), cursorSigner }, tenantId, {
       q: 'fox',
       errorsOnly: true,
       limit: 10,
@@ -266,7 +273,7 @@ describe('Lane 6 search/query — filters + snippets', () => {
   })
 
   it('filters by sessionId', async () => {
-    const r = await searchQuery({ rawExec: makeRawExec(db) }, tenantId, {
+    const r = await searchQuery({ rawExec: makeRawExec(db), cursorSigner }, tenantId, {
       q: 'fox',
       sessionId: 'ses_a',
       limit: 10,
@@ -275,13 +282,13 @@ describe('Lane 6 search/query — filters + snippets', () => {
   })
 
   it('filters by since / until', async () => {
-    const r1 = await searchQuery({ rawExec: makeRawExec(db) }, tenantId, {
+    const r1 = await searchQuery({ rawExec: makeRawExec(db), cursorSigner }, tenantId, {
       q: 'fox',
       since: '2026-05-21T00:00:00Z',
       limit: 10,
     })
     expect(r1.rows.map((h) => h.docId).sort()).toEqual(['doc_tool_bash', 'doc_tool_err'])
-    const r2 = await searchQuery({ rawExec: makeRawExec(db) }, tenantId, {
+    const r2 = await searchQuery({ rawExec: makeRawExec(db), cursorSigner }, tenantId, {
       q: 'fox',
       until: '2026-05-21T00:00:00Z',
       limit: 10,
@@ -320,7 +327,7 @@ describe('Lane 6 search/query — cursor pagination', () => {
     let cursor: string | null | undefined
     let safety = 0
     do {
-      const page = await searchQuery({ rawExec: makeRawExec(db) }, 't_a', { q: 'fox', limit: 2, cursor })
+      const page = await searchQuery({ rawExec: makeRawExec(db), cursorSigner }, 't_a', { q: 'fox', limit: 2, cursor })
       for (const r of page.rows) collected.push(r.docId)
       cursor = page.nextCursor
       safety += 1

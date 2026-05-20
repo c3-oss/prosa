@@ -9,7 +9,10 @@
 import { applySchemaV2 } from '@c3-oss/prosa-db-v2'
 import { PGlite } from '@electric-sql/pglite'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { createInProcessCursorSigner } from '../../../src/v2/reads/shared/cursor-signer.js'
 import { listToolCalls } from '../../../src/v2/reads/tool-calls/list.js'
+
+const cursorSigner = createInProcessCursorSigner()
 
 function makeRawExec(db: PGlite) {
   return async <Row = Record<string, unknown>>(sql: string, params: unknown[] = []): Promise<Row[]> => {
@@ -114,7 +117,7 @@ describe('Lane 6 tool-calls/list', () => {
   })
 
   it('returns empty rows for a tenant with no projected calls', async () => {
-    const r = await listToolCalls({ rawExec: makeRawExec(db) }, tenantId, { limit: 10 })
+    const r = await listToolCalls({ rawExec: makeRawExec(db), cursorSigner }, tenantId, { limit: 10 })
     expect(r.rows).toEqual([])
     expect(r.nextCursor).toBeNull()
   })
@@ -138,7 +141,7 @@ describe('Lane 6 tool-calls/list', () => {
       toolName: 'bash',
       timestampStart: '2026-05-19T11:00:00Z',
     })
-    const r = await listToolCalls({ rawExec: makeRawExec(db) }, tenantId, { limit: 10 })
+    const r = await listToolCalls({ rawExec: makeRawExec(db), cursorSigner }, tenantId, { limit: 10 })
     expect(r.rows.map((row) => row.toolCallId)).toEqual(['tc_visible'])
   })
 
@@ -179,7 +182,7 @@ describe('Lane 6 tool-calls/list', () => {
       exitCode: 2,
       durationMs: 1234,
     })
-    const r = await listToolCalls({ rawExec: makeRawExec(db) }, tenantId, { limit: 10 })
+    const r = await listToolCalls({ rawExec: makeRawExec(db), cursorSigner }, tenantId, { limit: 10 })
     expect(r.rows.map((row) => row.toolCallId)).toEqual(['tc_one'])
     expect(r.rows[0]?.latestResult).toMatchObject({
       toolResultId: 'tr_b_new',
@@ -211,13 +214,13 @@ describe('Lane 6 tool-calls/list', () => {
       timestampStart: '2026-05-21T10:00:00Z',
     })
     expect(
-      (await listToolCalls({ rawExec: makeRawExec(db) }, tenantId, { sessionId: 'ses_a', limit: 10 })).rows.map(
-        (r) => r.toolCallId,
-      ),
+      (
+        await listToolCalls({ rawExec: makeRawExec(db), cursorSigner }, tenantId, { sessionId: 'ses_a', limit: 10 })
+      ).rows.map((r) => r.toolCallId),
     ).toEqual(['tc_a'])
     expect(
       (
-        await listToolCalls({ rawExec: makeRawExec(db) }, tenantId, {
+        await listToolCalls({ rawExec: makeRawExec(db), cursorSigner }, tenantId, {
           toolNames: ['edit_file'],
           limit: 10,
         })
@@ -225,7 +228,7 @@ describe('Lane 6 tool-calls/list', () => {
     ).toEqual(['tc_b'])
     expect(
       (
-        await listToolCalls({ rawExec: makeRawExec(db) }, tenantId, {
+        await listToolCalls({ rawExec: makeRawExec(db), cursorSigner }, tenantId, {
           canonicalToolTypes: ['execute_shell'],
           limit: 10,
         })
@@ -233,7 +236,7 @@ describe('Lane 6 tool-calls/list', () => {
     ).toEqual(['tc_a'])
     expect(
       (
-        await listToolCalls({ rawExec: makeRawExec(db) }, tenantId, {
+        await listToolCalls({ rawExec: makeRawExec(db), cursorSigner }, tenantId, {
           since: '2026-05-20T00:00:00Z',
           limit: 10,
         })
@@ -241,7 +244,7 @@ describe('Lane 6 tool-calls/list', () => {
     ).toEqual(['tc_b'])
     expect(
       (
-        await listToolCalls({ rawExec: makeRawExec(db) }, tenantId, {
+        await listToolCalls({ rawExec: makeRawExec(db), cursorSigner }, tenantId, {
           until: '2026-05-20T00:00:00Z',
           limit: 10,
         })
@@ -302,7 +305,7 @@ describe('Lane 6 tool-calls/list', () => {
       status: 'success',
       isError: false,
     })
-    const r = await listToolCalls({ rawExec: makeRawExec(db) }, tenantId, { errorsOnly: true, limit: 10 })
+    const r = await listToolCalls({ rawExec: makeRawExec(db), cursorSigner }, tenantId, { errorsOnly: true, limit: 10 })
     expect(r.rows.map((row) => row.toolCallId).sort()).toEqual(['tc_result_err', 'tc_status_err'])
   })
 
@@ -322,7 +325,7 @@ describe('Lane 6 tool-calls/list', () => {
     let cursor: string | null | undefined
     let safety = 0
     do {
-      const page = await listToolCalls({ rawExec: makeRawExec(db) }, tenantId, { limit: 2, cursor })
+      const page = await listToolCalls({ rawExec: makeRawExec(db), cursorSigner }, tenantId, { limit: 2, cursor })
       for (const r of page.rows) collected.push(r.toolCallId)
       cursor = page.nextCursor
       safety += 1

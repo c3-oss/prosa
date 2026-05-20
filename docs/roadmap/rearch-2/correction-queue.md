@@ -8,8 +8,29 @@ Updated: 2026-05-20 after Lane 6 WIP reviewer findings.
 
 Severity: high
 Blocking: yes (blocks Lane 6 sessions/search/tool-calls pagination acceptance)
-Status: open (2026-05-20) — closure attempt rejected by Codex/governor
+Status: closure attempt #3 (2026-05-20) — pending governor acceptance
 Owner: Ralph
+
+Closure attempt #3 (2026-05-20):
+
+- HMAC-signed cursors via `apps/api/src/v2/reads/shared/cursor-signer.ts`:
+  payload + MAC over the encoded bytes, constant-time comparison,
+  ≥32-byte key requirement.
+- `decodeRequiredCursor(signer, cursor)` is the only entry point for
+  paginated routes. Empty-string cursors throw `InvalidCursorError`;
+  forged / wrong-signed / tampered tokens throw `InvalidCursorError`.
+- All four paginated handlers (`sessions/list`, `sessions/transcript`,
+  `search/query`, `tool-calls/list`) take the signer as a dep and
+  produce / consume signed cursors. The route layer maps
+  `InvalidCursorError` to HTTP 400 / `INVALID_CURSOR`.
+- `cursor-integrity.test.ts` (7 handler tests) + `cursor-route-integrity.test.ts`
+  (12 HTTP route tests) cover signer round-trip, foreign-signer
+  rejection, payload tamper, no-MAC suffix, short-key constructor
+  rejection, forged-snapshot rejection at handler boundary, and
+  HTTP 400 `INVALID_CURSOR` on each paginated route for empty,
+  tampered, and wrong-signed cursors. `cursor-snapshot.test.ts`
+  (8 tests) continues to cover the promotion-between-pages
+  invariant.
 
 Closure attempt (2026-05-20; rejected):
 
@@ -127,8 +148,25 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 6 remote-read safety; Lane 7 can later replace the fail-closed stop)
-Status: open (2026-05-20)
+Status: closure attempt (2026-05-20) — pending governor acceptance
 Owner: Ralph
+
+Closure attempt (2026-05-20):
+
+- `apps/cli/src/cli/auth/routing.ts` adds `isV2Promotion(record)` and
+  refuses the legacy `/trpc/sessions.*` path for any promotion whose
+  receipt carries `payload.receiptVersion: 2`. The error names the
+  promoted server and redirects to `--local`.
+- `remote-authority-routing.test.ts` (3 new tests): v2 promotion is
+  refused at the resolver layer with `--local` guidance; `--local`
+  still works with the stale warning; v1 promotions still resolve
+  to remote.
+- `sessions-v2-failclose.test.ts` (2 new CLI subprocess tests):
+  `prosa sessions` and `prosa sessions count` exit non-zero with
+  `v2-promoted` / `--local` markers in stderr and never reach the
+  network (no ECONNREFUSED / HTTP markers). The server URL is set
+  to `http://127.0.0.1:1` so any unintended fetch would surface
+  immediately.
 
 Problem:
 
@@ -178,8 +216,25 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 6 artifacts route acceptance and L6.4)
-Status: open (2026-05-20)
+Status: closure attempt (2026-05-20) — pending governor acceptance
 Owner: Ralph
+
+Closure attempt (2026-05-20):
+
+- `apps/api/src/v2/reads/artifacts/get-text.ts` wraps the primary
+  join and the diagnose query in try/catch. Any unexpected SQL
+  failure — including the v2 projection schema not being applied
+  to a tenant's data path — collapses to the opaque
+  `{ found: false }` response via `onMiss('not_visible')`. The
+  Fastify route therefore never surfaces HTTP 500 for a miss.
+- `artifacts-route.test.ts` (4 tests) drives the live route:
+  route is registered, 401 / `UNAUTHENTICATED` without auth,
+  400 / `INVALID_INPUT` for missing input, opaque
+  `{ found: false }` (sole top-level key) for a missing artifact
+  id. The handler-level
+  `artifacts-get-text.test.ts` (8 tests) continues to cover all
+  four miss reasons via the `onMiss` hook + the success / binary /
+  cross-tenant paths.
 
 Problem:
 

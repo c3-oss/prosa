@@ -345,17 +345,79 @@ pnpm --filter @c3-oss/prosa-api exec vitest run \
 # failed: missing-artifact route returned 500 instead of opaque found:false
 ```
 
-Remaining slices (per `docs/rearch-2/07-lane-6-read-api.md` and the
-reviewer's correction queue):
+## Slice 7 — CQ-142 cursor integrity + CQ-143 CLI fail-closed + CQ-145 route artifacts (2026-05-20)
 
-1. CQ-142: tamper-resistant receipt-snapshot cursors plus empty-cursor and
-   HTTP-route `INVALID_CURSOR` evidence.
-2. CQ-143: fail-closed CLI session reads for promoted v2 stores
-   (or accept Lane 7 surface — pending governor decision).
-3. CQ-145: route-level artifacts getText opaque miss behavior.
-4. Analytics summary/report and cross-store distinct aggregation.
-5. p95 latency evidence under fixture load.
-6. Five consecutive 180 s stabilization cycles before RALPH_DONE.
+Landed:
+
+- **CQ-142 cursor integrity:**
+  `apps/api/src/v2/reads/shared/cursor-signer.ts` ships
+  `CursorSigner` (HMAC-SHA256 over the payload bytes,
+  constant-time compare, ≥32-byte key). `authority-snapshot.ts`
+  exposes `encodeSignedCursor(signer, payload)` plus a
+  signer-aware `decodeRequiredCursor(signer, cursor)` that
+  rejects forged tokens, empty strings (no longer page-1
+  semantics), tampered payload bytes, and missing MAC suffixes.
+  `sessions/list`, `sessions/transcript`, `search/query`, and
+  `tool-calls/list` thread the signer through `Deps` and verify
+  every cursor before reading. `registerV2ReadRoutes` takes an
+  optional `cursorSigner` (production injects a shared
+  `PROSA_CURSOR_HMAC_SECRET`-derived signer; dev / test boot uses
+  a per-process random key).
+- **CQ-143 CLI fail-closed for v2-promoted stores:**
+  `apps/cli/src/cli/auth/routing.ts` adds `isV2Promotion(record)`
+  and refuses the legacy `/trpc/sessions.*` path when the
+  recorded receipt carries `payload.receiptVersion: 2`. Operators
+  get a `CliUserError` redirect to `--local`. v1 promotions are
+  unaffected.
+- **CQ-145 route-level artifact opacity:**
+  `apps/api/src/v2/reads/artifacts/get-text.ts` now wraps the
+  primary join + diagnose query in try/catch so any unexpected
+  SQL failure (e.g. v2 projection schema not yet applied to a
+  tenant's data path) collapses to the same opaque
+  `{ found: false }` response via `onMiss('not_visible')`. The
+  Fastify route therefore never returns HTTP 500 for a miss.
+
+New tests:
+
+- `apps/api/test/v2/reads/cursor-integrity.test.ts` (7 tests):
+  signer round-trip, foreign-signer reject, payload-edit reject,
+  no-MAC reject, short-key constructor reject, forged-snapshot
+  rejection at the handler boundary (hand-rolled + other-signer).
+- `apps/api/test/v2/reads/cursor-route-integrity.test.ts` (12
+  tests): every paginated route (`sessions/list`,
+  `sessions/transcript`, `search/query`, `tool-calls/list`)
+  returns HTTP 400 / `INVALID_CURSOR` for empty-string,
+  tampered, and foreign-signed cursors.
+- `apps/api/test/v2/reads/artifacts-route.test.ts` (4 tests):
+  route is registered, 401 / `UNAUTHENTICATED` without auth,
+  400 / `INVALID_INPUT` for missing input, opaque
+  `{ found: false }` (sole top-level key) for any miss path —
+  including the v2 projection schema absence that produces SQL
+  errors under the test fixture.
+- `apps/cli/test/cli/sessions-v2-failclose.test.ts` (2 tests):
+  spawns the CLI binary against a v2-promoted store config and
+  asserts non-zero exit, `v2-promoted` + `--local` in stderr,
+  and no `ECONNREFUSED` / HTTP error markers (proving the CLI
+  bailed out BEFORE any fetch). Covers both `prosa sessions` and
+  `prosa sessions count`.
+
+Slice 7 gates on the contributor checkout:
+
+```text
+pnpm exec vitest run test/v2/reads/   → 12 files / 86/86 tests passed
+pnpm typecheck                         → repo-wide green
+pnpm lint                              → repo-wide green
+pnpm --filter @c3-oss/prosa exec vitest run test/cli/remote-authority-routing.test.ts
+                                       → 9/9 passed
+pnpm --filter @c3-oss/prosa exec vitest run test/cli/sessions-v2-failclose.test.ts
+                                       → 2/2 passed
+```
+
+Remaining slices (per `docs/rearch-2/07-lane-6-read-api.md`):
+
+1. Analytics summary/report and cross-store distinct aggregation.
+2. p95 latency evidence under fixture load.
+3. Five consecutive 180 s stabilization cycles before RALPH_DONE.
 
 ## Scope
 

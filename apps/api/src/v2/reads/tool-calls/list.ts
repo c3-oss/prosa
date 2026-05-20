@@ -14,11 +14,12 @@ import {
   InvalidCursorError,
   decodeRequiredCursor,
   encodeCursorSnapshot,
+  encodeSignedCursor,
   parseCursorSnapshot,
   resolveAuthoritySnapshot,
   verifiedProjectionInSnapshotWhere,
 } from '../shared/authority-snapshot.js'
-import { encodeCursor } from '../shared/cursor.js'
+import type { CursorSigner } from '../shared/cursor-signer.js'
 
 export const toolCallsListInput = z.object({
   sessionId: z.string().min(1).optional(),
@@ -82,6 +83,7 @@ type StoredCursor = {
 
 export type ToolCallsDeps = {
   rawExec: RawExec
+  cursorSigner: CursorSigner
 }
 
 function appendParam(params: unknown[], value: unknown): string {
@@ -100,7 +102,7 @@ export async function listToolCalls(
   // snapshot pins the LATERAL `projection_tool_result` join below.
   let snapshot: AuthoritySnapshot
   let cursorBound: { ts: string | null; id: string } | null = null
-  const parsedCursor = decodeRequiredCursor<StoredCursor>(input.cursor ?? undefined)
+  const parsedCursor = decodeRequiredCursor<StoredCursor>(deps.cursorSigner, input.cursor ?? undefined)
   if (parsedCursor) {
     if (typeof parsedCursor.id !== 'string' || parsedCursor.id.length === 0) {
       throw new InvalidCursorError('cursor.id missing')
@@ -194,7 +196,7 @@ export async function listToolCalls(
   const last = pageRows[pageRows.length - 1]
   const nextCursor =
     overflow && last
-      ? encodeCursor({
+      ? encodeSignedCursor(deps.cursorSigner, {
           ts: last.timestamp_start ?? '',
           id: last.tool_call_id,
           snapshot: encodeCursorSnapshot(snapshot),

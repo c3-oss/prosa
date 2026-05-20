@@ -118,28 +118,36 @@ export async function getArtifactText(
   // `not_visible` / `no_grant` / `no_object` depending on which
   // edge failed; the SQL returns 0 rows when *anything* in the
   // chain is missing so we re-derive the reason with a cheap
-  // follow-up. The caller-visible response stays opaque (CQ-144).
-  const rows = await deps.rawExec<Row>(
-    `SELECT a.artifact_id, a.object_id, a.content_type, a.byte_length,
-            a.store_id, a.receipt_id,
-            pe.pack_digest, p.storage_uri, pe.stored_offset, pe.stored_length,
-            pe.compression, pe.uncompressed_size
-       FROM projection_artifact a
-       JOIN remote_pack_entry pe
-         ON pe.tenant_id = a.tenant_id
-        AND pe.object_id = a.object_id
-       JOIN remote_pack p
-         ON p.tenant_id = pe.tenant_id
-        AND p.pack_digest = pe.pack_digest
-       JOIN receipt_pack_grant g
-         ON g.tenant_id = a.tenant_id
-        AND g.receipt_id = a.receipt_id
-        AND g.pack_digest = pe.pack_digest
-      WHERE ${verifiedProjectionWhere('a')}
-        AND a.artifact_id = $2
-      LIMIT 1`,
-    [tenantId, input.artifactId],
-  )
+  // follow-up. The caller-visible response stays opaque (CQ-144) —
+  // an unexpected SQL failure (e.g. v2 projection schema not yet
+  // applied to a tenant's data path) also collapses to `not_visible`
+  // so the route never leaks server state via an unhandled 500.
+  let rows: Row[]
+  try {
+    rows = await deps.rawExec<Row>(
+      `SELECT a.artifact_id, a.object_id, a.content_type, a.byte_length,
+              a.store_id, a.receipt_id,
+              pe.pack_digest, p.storage_uri, pe.stored_offset, pe.stored_length,
+              pe.compression, pe.uncompressed_size
+         FROM projection_artifact a
+         JOIN remote_pack_entry pe
+           ON pe.tenant_id = a.tenant_id
+          AND pe.object_id = a.object_id
+         JOIN remote_pack p
+           ON p.tenant_id = pe.tenant_id
+          AND p.pack_digest = pe.pack_digest
+         JOIN receipt_pack_grant g
+           ON g.tenant_id = a.tenant_id
+          AND g.receipt_id = a.receipt_id
+          AND g.pack_digest = pe.pack_digest
+        WHERE ${verifiedProjectionWhere('a')}
+          AND a.artifact_id = $2
+        LIMIT 1`,
+      [tenantId, input.artifactId],
+    )
+  } catch {
+    return missOpaque(deps, tenantId, input.artifactId, 'not_visible')
+  }
 
   if (rows.length === 0) {
     return missOpaque(deps, tenantId, input.artifactId, await diagnoseMissReason(deps, tenantId, input.artifactId))
@@ -214,18 +222,25 @@ async function diagnoseMissReason(
   // Diagnostic only. The response stays opaque; only `onMiss` sees
   // the reason. Distinguishes "row is invisible under current
   // authority" from "row is visible but lacks an object id / pack
-  // grant" so an operator can tell the two apart.
-  const rows = await deps.rawExec<{ object_id: string | null; receipt_id: string }>(
-    `SELECT a.object_id, a.receipt_id
-       FROM projection_artifact a
-      WHERE ${verifiedProjectionWhere('a')} AND a.artifact_id = $2
-      LIMIT 1`,
-    [tenantId, artifactId],
-  )
-  const row = rows[0]
-  if (!row) return 'not_visible'
-  if (!row.object_id) return 'no_object'
-  return 'no_grant'
+  // grant" so an operator can tell the two apart. An unexpected
+  // SQL failure (missing v2 projection table) collapses to
+  // `not_visible` — the same opaque shape, just with a different
+  // server-side hint.
+  try {
+    const rows = await deps.rawExec<{ object_id: string | null; receipt_id: string }>(
+      `SELECT a.object_id, a.receipt_id
+         FROM projection_artifact a
+        WHERE ${verifiedProjectionWhere('a')} AND a.artifact_id = $2
+        LIMIT 1`,
+      [tenantId, artifactId],
+    )
+    const row = rows[0]
+    if (!row) return 'not_visible'
+    if (!row.object_id) return 'no_object'
+    return 'no_grant'
+  } catch {
+    return 'not_visible'
+  }
 }
 
 function looksLikeText(contentType: string | null, decoded: Uint8Array): boolean {
