@@ -4,7 +4,42 @@ Updated: 2026-05-20 after Codex/governor acceptance of Lane 6.
 
 ## Active Corrections For Lanes 7-9
 
-None at restart.
+### CQ-149: `prosa.refresh_authority` MCP tool not yet registered
+
+Severity: medium
+
+Blocking: yes for Lane 7 gate item 11 (MCP tool registration).
+
+Affected lane: Lane 7.
+
+Affected paths:
+- `apps/cli/src/cli/v2/commands/mcp-serve.ts` — pins authority at
+  startup, logs it to stderr, but does not register a
+  `prosa.refresh_authority` tool inside the running McpServer.
+- `packages/prosa-core/src/mcp/tools.ts` — would need an
+  `onRefreshAuthority` callback / extra tool registration hook.
+
+Risk: MCP clients cannot trigger an authority refresh inside the
+session; today the operator must restart the server. Acceptable for
+the slice 9 minimum (which surfaces the pinned context for Lane 8
+audit-drift signalling) but lane 7 gate is not green until the
+tool exists.
+
+Required fix:
+- Extend `prosa-core` MCP tool factory to accept an
+  `onRefreshAuthority` callback and register the
+  `prosa.refresh_authority` tool when provided.
+- Wire `prosa mcp serve --authority` to pass a closure that calls
+  `refreshAuthorityNow` and mutates the pinned `ReadContext`.
+
+Acceptance:
+- [ ] Focused test verifying the tool is registered when authority
+  is `auto` or `remote`.
+- [ ] Focused test verifying the tool is absent in `--authority local`.
+- [ ] Focused test verifying a 412 mid-tool-call surfaces
+  `AUTHORITY_CHANGED` to the caller (does not auto-refresh).
+
+
 
 When Ralph or Codex finds a blocker, add it here with:
 
