@@ -1,5 +1,8 @@
 # Lane 8 Evidence — Audit and GC
 
-Status: blocked on Lane 5. Some local derived-layer audit/GC planning helpers exist early; fleet cron/drift/remote GC scope is not started.
+Status: not started.
 
-Refer to `docs/rearch-2/` for the source contract when this lane is resumed.
+Record Lane 8 slices here. Include changed commits, focused command evidence,
+baseline gates, open/closed CQs, and any governor reviewer findings.
+
+Required source plan: `docs/rearch-2/09-lane-8-audit-and-gc.md`.

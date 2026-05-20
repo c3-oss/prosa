@@ -1,5 +1,6 @@
 # Lane 10 Evidence — Cutover
 
-Status: blocked on Lane 9.
+Status: deferred; not part of the next Ralph loop.
 
-Refer to `docs/rearch-2/` for the source contract when this lane is resumed.
+Lane 10 will be prepared after Lane 9 is accepted. CQ-124 and the remaining
+CQ-134 projection/search materialization work stay here.

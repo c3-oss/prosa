@@ -1,3 +1,6 @@
 # Lane 0 Evidence — Foundation
 
-Status: accepted. Canonical entity/types, wire schemas, conformance fixtures and CI coverage are complete. Historical CQ details were consolidated in `../cycle-reset-2026-05-19.md`.
+Status: accepted.
+
+Historical detail was compacted after Lane 6 acceptance. Use git history before
+the Lane 6 closeout commit for the full audit trail.

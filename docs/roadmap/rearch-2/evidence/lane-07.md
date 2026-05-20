@@ -1,5 +1,8 @@
 # Lane 7 Evidence — CLI and MCP
 
-Status: blocked on Lane 6. Some `index-v2` diagnostic CLI work exists early; official `prosa read *`/MCP/web scope is not started.
+Status: not started.
 
-Refer to `docs/rearch-2/` for the source contract when this lane is resumed.
+Record Lane 7 slices here. Include changed commits, focused command evidence,
+baseline gates, open/closed CQs, and any governor reviewer findings.
+
+Required source plan: `docs/rearch-2/08-lane-7-cli-and-mcp.md`.

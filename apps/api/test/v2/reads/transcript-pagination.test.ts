@@ -428,6 +428,62 @@ describe('Lane 6 sessions/transcript', () => {
     expect(second.unattachedToolCalls).toEqual([])
   })
 
+  it('does not attach a current-authority tool result from the wrong session', async () => {
+    const tenantId = 't_a'
+    const storeId = 's_a'
+    const receiptId = 'rcp_a'
+    await seedAuthority(db, [{ tenantId, storeId, receiptId }])
+    await seedSession(db, { tenantId, storeId, receiptId, sessionId: 'ses_current' })
+    await seedSession(db, { tenantId, storeId, receiptId, sessionId: 'ses_wrong' })
+    await seedMessage(db, {
+      tenantId,
+      storeId,
+      receiptId,
+      sessionId: 'ses_current',
+      messageId: 'msg_current',
+      turnId: 'turn_current',
+      ordinal: 0,
+    })
+    await seedToolCall(db, {
+      tenantId,
+      storeId,
+      receiptId,
+      sessionId: 'ses_current',
+      toolCallId: 'tc_shared',
+      turnId: 'turn_current',
+      toolName: 'bash',
+    })
+    await seedToolResult(db, {
+      tenantId,
+      storeId,
+      receiptId,
+      sessionId: 'ses_current',
+      toolCallId: 'tc_shared',
+      toolResultId: 'tr_current',
+      status: 'success',
+      isError: false,
+    })
+    await seedToolResult(db, {
+      tenantId,
+      storeId,
+      receiptId,
+      sessionId: 'ses_wrong',
+      toolCallId: 'tc_shared',
+      toolResultId: 'tr_wrong_z',
+      status: 'failure',
+      isError: true,
+    })
+
+    const r = await getTranscriptPage({ rawExec: makeRawExec(db), cursorSigner }, tenantId, {
+      sessionId: 'ses_current',
+      limit: 10,
+    })
+    if (!r) throw new Error('expected page')
+    const result = r.turns[0]?.toolCalls[0]?.result
+    expect(result?.toolResultId).toBe('tr_current')
+    expect(result?.isError).toBe(false)
+  })
+
   it('hides projections from a superseded receipt across messages / blocks / calls', async () => {
     const tenantId = 't_a'
     const storeId = 's_a'

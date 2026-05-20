@@ -148,6 +148,9 @@ type BlockRow = {
 
 type ToolCallRow = {
   tool_call_id: string
+  session_id: string
+  store_id: string
+  receipt_id: string
   turn_id: string | null
   tool_name: string
   canonical_tool_type: string | null
@@ -157,6 +160,9 @@ type ToolCallRow = {
 
 type ToolResultRow = {
   tool_call_id: string
+  session_id: string
+  store_id: string
+  receipt_id: string
   tool_result_id: string
   status: string | null
   is_error: boolean
@@ -287,7 +293,8 @@ export async function getTranscriptPage(
     const gate = verifiedProjectionInSnapshotWhere('c', '$1', snapshot, callParams)
     const placeholders = turnIds.map((id) => appendParam(callParams, id)).join(', ')
     turnCalls = await deps.rawExec<ToolCallRow>(
-      `SELECT c.tool_call_id, c.turn_id, c.tool_name, c.canonical_tool_type,
+      `SELECT c.tool_call_id, c.session_id, c.store_id, c.receipt_id,
+              c.turn_id, c.tool_name, c.canonical_tool_type,
               to_char(c.timestamp_start AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS timestamp_start,
               c.status
          FROM projection_tool_call c
@@ -305,7 +312,8 @@ export async function getTranscriptPage(
     const unattachedParams: unknown[] = [tenantId, input.sessionId]
     const gate = verifiedProjectionInSnapshotWhere('c', '$1', snapshot, unattachedParams)
     unattachedCalls = await deps.rawExec<ToolCallRow>(
-      `SELECT c.tool_call_id, c.turn_id, c.tool_name, c.canonical_tool_type,
+      `SELECT c.tool_call_id, c.session_id, c.store_id, c.receipt_id,
+              c.turn_id, c.tool_name, c.canonical_tool_type,
               to_char(c.timestamp_start AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS timestamp_start,
               c.status
          FROM projection_tool_call c
@@ -318,22 +326,38 @@ export async function getTranscriptPage(
   }
 
   // Step 4c: latest tool result per call across both groups.
-  const callIds = [...turnCalls, ...unattachedCalls].map((c) => c.tool_call_id)
-  const resultByCallId = new Map<string, ToolResultRow>()
-  if (callIds.length > 0) {
+  const calls = [...turnCalls, ...unattachedCalls]
+  const resultByCallTuple = new Map<string, ToolResultRow>()
+  if (calls.length > 0) {
     const rParams: unknown[] = [tenantId]
     const gate = verifiedProjectionInSnapshotWhere('r', '$1', snapshot, rParams)
-    const placeholders = callIds.map((id) => appendParam(rParams, id)).join(', ')
+    const tuples = calls
+      .map((c) => {
+        const toolCallId = appendParam(rParams, c.tool_call_id)
+        const sessionId = appendParam(rParams, c.session_id)
+        const storeId = appendParam(rParams, c.store_id)
+        const receiptId = appendParam(rParams, c.receipt_id)
+        return `(${toolCallId}, ${sessionId}, ${storeId}, ${receiptId})`
+      })
+      .join(', ')
     const rows = await deps.rawExec<ToolResultRow>(
-      `SELECT DISTINCT ON (r.tool_call_id)
-              r.tool_call_id, r.tool_result_id, r.status, r.is_error, r.exit_code, r.duration_ms
+      `WITH visible_calls(tool_call_id, session_id, store_id, receipt_id) AS (
+         VALUES ${tuples}
+       )
+       SELECT DISTINCT ON (r.tool_call_id, r.session_id, r.store_id, r.receipt_id)
+              r.tool_call_id, r.session_id, r.store_id, r.receipt_id,
+              r.tool_result_id, r.status, r.is_error, r.exit_code, r.duration_ms
          FROM projection_tool_result r
+         JOIN visible_calls c
+           ON c.tool_call_id = r.tool_call_id
+          AND c.session_id = r.session_id
+          AND c.store_id = r.store_id
+          AND c.receipt_id = r.receipt_id
         WHERE ${gate}
-          AND r.tool_call_id IN (${placeholders})
-        ORDER BY r.tool_call_id, r.tool_result_id DESC`,
+        ORDER BY r.tool_call_id, r.session_id, r.store_id, r.receipt_id, r.tool_result_id DESC`,
       rParams,
     )
-    for (const r of rows) resultByCallId.set(r.tool_call_id, r)
+    for (const r of rows) resultByCallTuple.set(toolCallTupleKey(r), r)
   }
 
   // Assemble.
@@ -365,11 +389,11 @@ export async function getTranscriptPage(
       model: m.model,
       timestamp: m.timestamp,
       blocks: (blocksByMessage.get(m.message_id) ?? []).map(mapBlock),
-      toolCalls: callsForTurn.map((c) => mapToolCall(c, resultByCallId.get(c.tool_call_id) ?? null)),
+      toolCalls: callsForTurn.map((c) => mapToolCall(c, resultByCallTuple.get(toolCallTupleKey(c)) ?? null)),
     }
   })
 
-  const unattached = unattachedCalls.map((c) => mapToolCall(c, resultByCallId.get(c.tool_call_id) ?? null))
+  const unattached = unattachedCalls.map((c) => mapToolCall(c, resultByCallTuple.get(toolCallTupleKey(c)) ?? null))
 
   return {
     session: {
@@ -388,6 +412,15 @@ export async function getTranscriptPage(
     unattachedToolCalls: unattached,
     nextCursor,
   }
+}
+
+function toolCallTupleKey(row: {
+  tool_call_id: string
+  session_id: string
+  store_id: string
+  receipt_id: string
+}): string {
+  return `${row.tool_call_id}\0${row.session_id}\0${row.store_id}\0${row.receipt_id}`
 }
 
 function mapBlock(row: BlockRow): TranscriptBlock {

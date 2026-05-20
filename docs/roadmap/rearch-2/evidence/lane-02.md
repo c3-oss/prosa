@@ -1,3 +1,6 @@
 # Lane 2 Evidence — Importers
 
-Status: accepted by Codex/governor on 2026-05-19. Provider implementations, compile orchestration, fixture coverage and idempotency gates are complete for the accepted scope. Historical CQ details were consolidated in `../cycle-reset-2026-05-19.md`.
+Status: accepted by Codex/governor on 2026-05-19.
+
+Historical detail was compacted after Lane 6 acceptance. Use git history before
+the Lane 6 closeout commit for the full audit trail.
