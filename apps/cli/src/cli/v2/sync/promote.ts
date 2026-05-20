@@ -42,6 +42,13 @@ export type PromoteInput = {
   objectInventory: { ref: SegmentRefWire; bytes: Uint8Array }
   projectionInventory: { ref: SegmentRefWire; bytes: Uint8Array }
   objectPacks: Array<{ bytes: Uint8Array }>
+  /**
+   * When true, skip the server-side resume optimisation
+   * (status fetch + uploaded-pack-digest short-circuit) and
+   * re-upload every inventory + pack. Wired from CLI
+   * `--no-resume`. Defaults to false: resume is on.
+   */
+  skipResume?: boolean
 }
 
 export type PromoteResult =
@@ -111,7 +118,12 @@ export async function promoteBundleV2(client: PromoteHttpClient, input: PromoteI
   //
   //    CQ-127: every post-begin request carries the device id so
   //    the server's mandatory device check passes.
-  const remoteState = await tryFetchStatus(client, promotionId, input.deviceId)
+  //
+  //    --no-resume (Lane 5 gate L5.6): when set, treat the server
+  //    as if no inventory/pack is uploaded yet and re-send every
+  //    byte. Uploads remain idempotent server-side; the override
+  //    only affects which calls the client makes.
+  const remoteState = input.skipResume === true ? null : await tryFetchStatus(client, promotionId, input.deviceId)
 
   // 3. Upload inventories.
   if (!remoteState?.inventories.object.uploaded) {

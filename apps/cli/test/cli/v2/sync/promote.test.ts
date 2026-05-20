@@ -354,6 +354,47 @@ describe('promoteBundleV2 — end-to-end (Lane 5 slice 7)', () => {
     expect(calls).not.toContain(`PUT /v2/promotions/${promotionId}/segments/${fx.objectInventory.ref.segmentId}`)
   })
 
+  it('--no-resume (skipResume: true) skips the GET /status call and re-uploads everything', async () => {
+    // Lane 5 gate L5.6: the CLI `--no-resume` flag must skip
+    // the server-side resume optimisation. With `skipResume:
+    // true`, the recording client should NOT see a GET
+    // /v2/promotions/:id/status call.
+    const { app: fastify } = app!
+    const account = await signupWithTenant(fastify, 'cli-noresume@example.com', 'Acme', 'acme-cli-noresume')
+    const client = makeInjectClient(fastify, account.token)
+    const fx = buildPromoteFixture()
+    const head = buildBundleHead({ storeId: 'store-cli-noresume', bundleRoot: '55'.repeat(32) })
+
+    const calls: string[] = []
+    const recordingClient: PromoteHttpClient = async (req) => {
+      calls.push(`${req.method} ${req.url}`)
+      return client(req)
+    }
+
+    const result = await promoteBundleV2(recordingClient, {
+      tenantId: account.tenantId,
+      storeId: 'store-cli-noresume',
+      storePath: '/home/test/store',
+      deviceId: 'dev-cli',
+      head,
+      objectInventory: fx.objectInventory,
+      projectionInventory: fx.projectionInventory,
+      objectPacks: [{ bytes: fx.pack.bytes }],
+      skipResume: true,
+    })
+    expect(result.status).toBe('sealed')
+
+    // No status fetch happened. The status URL never appears in
+    // the recorded call list.
+    const statusCalls = calls.filter((c) => /\/v2\/promotions\/.*\/status$/.test(c))
+    expect(statusCalls).toEqual([])
+    // All other expected calls still happened.
+    expect(calls.filter((c) => c.includes('/v2/promotions/begin'))).toHaveLength(1)
+    expect(calls.filter((c) => /\/segments\//.test(c))).toHaveLength(2)
+    expect(calls.filter((c) => /\/object-packs$/.test(c))).toHaveLength(1)
+    expect(calls.filter((c) => /\/seal$/.test(c))).toHaveLength(1)
+  })
+
   it('throws PromoteV2Error with the failing step + status code on server-side rejection', async () => {
     const { app: fastify } = app!
     const account = await signupWithTenant(fastify, 'cli-fail@example.com', 'Acme', 'acme-cli-fail')

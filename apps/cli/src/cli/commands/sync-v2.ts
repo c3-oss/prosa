@@ -22,6 +22,14 @@ type SyncV2Options = {
   device: string
   bundle: string
   json?: boolean
+  /**
+   * Lane 5 gate L5.6: when true, ignore the server-side status
+   * resume optimization (skip the GET .../status call) and
+   * re-upload every inventory + pack on this run. Used for a
+   * clean-room promotion after local corruption or to force a
+   * fresh-write benchmark.
+   */
+  resume?: boolean
 }
 
 const TOKEN_ENV_VAR = 'PROSA_SYNC_TOKEN'
@@ -41,6 +49,12 @@ export function syncV2Command(): Command {
     .requiredOption('--device <id>', 'device id')
     .requiredOption('--bundle <path>', 'path to the v2 bundle directory')
     .addOption(new Option('--json', 'emit machine-readable JSON output instead of human text'))
+    .addOption(
+      new Option(
+        '--no-resume',
+        'skip the server-side status resume optimisation and re-upload every inventory + pack on this run',
+      ),
+    )
     .action(async (opts: SyncV2Options) => {
       const token = await resolveToken(opts.tokenFile)
       const layout = await readBundleLayout(opts.bundle)
@@ -54,6 +68,8 @@ export function syncV2Command(): Command {
         objectInventory: layout.objectInventory,
         projectionInventory: layout.projectionInventory,
         objectPacks: layout.objectPacks,
+        // commander maps `--no-resume` to `opts.resume = false`.
+        skipResume: opts.resume === false,
       })
       reportResult(opts.json === true, result)
     })
