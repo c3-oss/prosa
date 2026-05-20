@@ -614,3 +614,79 @@ Slice 7 deferred (explicit):
   promote client against a real Docker postgres + minio + API
   stack).
 - Five 180s stabilization cycles after CLI + E2E close.
+
+## Slice 8 (GetPromotionStatus + client resume) — 2026-05-20
+
+Scope:
+
+- New `apps/api/src/v2/sync/get-promotion-status.ts` implements
+  `GET /v2/promotions/:promotionId/status`. Tenant-scoped lookup
+  against `promotion_staging` joined with object-store
+  `head(staging/<tenant>/<promotion>/<segmentId>)` lookups for each
+  declared inventory segment, plus a SELECT of every uploaded pack
+  digest from `promotion_uploaded_pack`. Returns
+  `{ status, promotionId, bundleRoot, storeId, inventories: { object,
+  projection }, uploadedPackDigests }`. Misses (including
+  cross-tenant) produce 404 PROMOTION_NOT_FOUND so existence does
+  not leak across tenants.
+- `apps/api/src/v2/promotion.ts` adds the new route to
+  `V2_PROMOTION_ROUTES` (6 routes now) and dispatches it. The
+  skeleton contract test pins the expanded sorted list and op-name
+  set.
+- `apps/cli/src/cli/v2/sync/promote.ts` queries the status endpoint
+  immediately after `BeginPromotion` and uses the response to skip
+  re-uploading bytes the server already has: an inventory PUT is
+  omitted when `inventories.<kind>.uploaded === true`, and a pack
+  POST is omitted when its wire BLAKE3 already appears in
+  `uploadedPackDigests`. A status fetch failure is non-fatal — the
+  client falls back to uploading every byte, and the server's
+  per-route idempotency catches any duplicates.
+
+New server tests in
+`apps/api/test/v2/sync/get-promotion-status.test.ts` (5 cases):
+
+1. unauth → 401 UNAUTHENTICATED.
+2. unknown `promotionId` → 404 PROMOTION_NOT_FOUND.
+3. cross-tenant lookup → 404 PROMOTION_NOT_FOUND (I1).
+4. fresh staging slot → `status='open'`, both inventories
+   `uploaded:false`, empty `uploadedPackDigests`.
+5. partial upload → only the uploaded inventory flips to true,
+   `uploadedPackDigests` lists exactly the one pack digest.
+
+New client test in
+`apps/cli/test/cli/v2/sync/promote.test.ts` (1 case, integrated
+with the existing in-process Fastify inject suite):
+
+- Half-interrupt scenario: drive `BeginPromotion` and a single
+  inventory PUT outside `promoteBundleV2`, then re-invoke the
+  client with the same input. A recording-client wrapper asserts
+  the second invocation issues the status fetch, skips the
+  already-uploaded inventory PUT, and proceeds with the remaining
+  inventory + pack + seal calls. Final result is `sealed`.
+
+Gates:
+
+- `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/sync/get-promotion-status.test.ts`
+  → pass, 5/5.
+- `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/` → pass,
+  83/83.
+- `pnpm --filter @c3-oss/prosa-api test` → pass, 218/219
+  (1 pre-existing skip).
+- `pnpm --filter @c3-oss/prosa exec vitest run test/cli/v2/sync/promote.test.ts`
+  → pass, 4/4 (3 prior + 1 resume).
+- `pnpm --filter @c3-oss/prosa test` → pass, 290/291
+  (1 pre-existing skip).
+- `pnpm lint` → clean, 13/13 packages.
+- `pnpm typecheck` → pass, 13/13 packages.
+- `git diff --check` → clean.
+
+Slice 8 deferred (explicit):
+
+- Persistent `~/.config/prosa/promotions/<id>.json` checkpoint file
+  + `--no-resume` CLI flag (slice 9). Today's resume relies on the
+  server-side staging row + status endpoint; restart of the whole
+  process re-runs `BeginPromotion` (which returns the same id from
+  the idempotent staging-row lookup).
+- Adaptive upload concurrency, dry-run, JSON progress (slice 9).
+- Docker-backed E2E (acceptance gate).
+- Five 180s stabilization cycles.

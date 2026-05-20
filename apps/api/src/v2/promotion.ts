@@ -27,6 +27,7 @@ import {
   BeginPromotionValidationError,
   beginPromotion,
 } from './sync/begin-promotion.js'
+import { GetPromotionStatusNotFoundError, getPromotionStatus } from './sync/get-promotion-status.js'
 import { getReceipt } from './sync/get-receipt.js'
 import {
   SealPromotionInProgressError,
@@ -55,6 +56,11 @@ export const V2_PROMOTION_ROUTES = [
   },
   { method: 'POST' as const, url: '/v2/promotions/:promotionId/seal' as const, opName: 'SealPromotion' as const },
   { method: 'GET' as const, url: '/v2/receipts/:receiptId' as const, opName: 'GetReceipt' as const },
+  {
+    method: 'GET' as const,
+    url: '/v2/promotions/:promotionId/status' as const,
+    opName: 'GetPromotionStatus' as const,
+  },
 ]
 
 export type PromotionRoutesDeps = V2AuthDeps & {
@@ -92,6 +98,9 @@ export function registerPromotionRoutes(app: FastifyInstance, deps: PromotionRou
         }
         if (route.opName === 'GetReceipt') {
           return handleGetReceipt(deps, ctx.tenantId, req, reply)
+        }
+        if (route.opName === 'GetPromotionStatus') {
+          return handleGetPromotionStatus(deps, ctx.tenantId, req, reply)
         }
         // All Lane 5 routes are wired; this branch is unreachable
         // once the literal union above is exhaustively matched.
@@ -266,6 +275,33 @@ async function handleSealPromotion(
         message: err.message,
         missingSegmentIds: err.missingSegmentIds,
       }
+    }
+    throw err
+  }
+}
+
+async function handleGetPromotionStatus(
+  deps: PromotionRoutesDeps,
+  tenantId: string,
+  req: FastifyRequest,
+  reply: FastifyReply,
+): Promise<unknown> {
+  const params = req.params as { promotionId?: string }
+  if (!params.promotionId) {
+    reply.code(400)
+    return { code: 'INVALID_REQUEST', op: 'GetPromotionStatus', message: 'promotionId is required' }
+  }
+  try {
+    const result = await getPromotionStatus(
+      { rawExec: deps.rawExec, tenantId, objectStore: deps.objectStore },
+      { promotionId: params.promotionId },
+    )
+    reply.code(200)
+    return result
+  } catch (err) {
+    if (err instanceof GetPromotionStatusNotFoundError) {
+      reply.code(404)
+      return { code: err.code, op: 'GetPromotionStatus', message: err.message }
     }
     throw err
   }

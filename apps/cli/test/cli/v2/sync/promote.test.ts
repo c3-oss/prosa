@@ -265,6 +265,84 @@ describe('promoteBundleV2 — end-to-end (Lane 5 slice 7)', () => {
     expect(second.receipt.payload.receiptId).toBe(firstReceiptId)
   })
 
+  it('resumes after a half-interrupt: re-running the same input does not re-upload the already-staged inventory', async () => {
+    const { app: fastify } = app!
+    const account = await signupWithTenant(fastify, 'cli-resume@example.com', 'Acme', 'acme-cli-resume')
+    const client = makeInjectClient(fastify, account.token)
+    const fx = buildPromoteFixture()
+    const head = buildBundleHead({ storeId: 'store-cli-resume', bundleRoot: '44'.repeat(32) })
+
+    // 1. Start the promotion, upload only the object inventory and
+    //    then "crash" before uploading the projection inventory or the
+    //    pack. We model the crash by driving the begin + first upload
+    //    manually rather than through promoteBundleV2.
+    const begin = await client({
+      method: 'POST',
+      url: '/v2/promotions/begin',
+      headers: { 'content-type': 'application/json' },
+      body: {
+        protocolVersion: 2,
+        tenantId: account.tenantId,
+        storeId: 'store-cli-resume',
+        storePath: '/home/test/store',
+        head,
+        inventories: {
+          objectInventorySegment: fx.objectInventory.ref,
+          projectionInventorySegment: fx.projectionInventory.ref,
+        },
+        device: { deviceId: 'dev-cli' },
+      },
+    })
+    expect(begin.statusCode).toBe(200)
+    const { promotionId } = begin.json() as { promotionId: string }
+    const firstUpload = await client({
+      method: 'PUT',
+      url: `/v2/promotions/${promotionId}/segments/${fx.objectInventory.ref.segmentId}`,
+      headers: {
+        'content-type': 'application/octet-stream',
+        'x-prosa-transport-hash': fx.objectInventory.ref.digest,
+      },
+      body: fx.objectInventory.bytes,
+    })
+    expect(firstUpload.statusCode).toBe(200)
+
+    // 2. Instrument the client to capture which routes the second
+    //    promoteBundleV2 invocation actually calls. We expect the
+    //    object inventory upload to be skipped.
+    const calls: string[] = []
+    const recordingClient: PromoteHttpClient = async (req) => {
+      calls.push(`${req.method} ${req.url}`)
+      return client(req)
+    }
+
+    const result = await promoteBundleV2(recordingClient, {
+      tenantId: account.tenantId,
+      storeId: 'store-cli-resume',
+      storePath: '/home/test/store',
+      deviceId: 'dev-cli',
+      head,
+      objectInventory: fx.objectInventory,
+      projectionInventory: fx.projectionInventory,
+      objectPacks: [{ bytes: fx.pack.bytes }],
+    })
+    expect(result.status).toBe('sealed')
+
+    // The status fetch must have happened, the already-uploaded
+    // object inventory PUT must have been skipped, the projection
+    // inventory PUT must have happened, the pack POST must have
+    // happened, and the seal POST must have happened.
+    expect(calls).toEqual(
+      expect.arrayContaining([
+        'POST /v2/promotions/begin',
+        `GET /v2/promotions/${promotionId}/status`,
+        `PUT /v2/promotions/${promotionId}/segments/${fx.projectionInventory.ref.segmentId}`,
+        `POST /v2/promotions/${promotionId}/object-packs`,
+        `POST /v2/promotions/${promotionId}/seal`,
+      ]),
+    )
+    expect(calls).not.toContain(`PUT /v2/promotions/${promotionId}/segments/${fx.objectInventory.ref.segmentId}`)
+  })
+
   it('throws PromoteV2Error with the failing step + status code on server-side rejection', async () => {
     const { app: fastify } = app!
     const account = await signupWithTenant(fastify, 'cli-fail@example.com', 'Acme', 'acme-cli-fail')

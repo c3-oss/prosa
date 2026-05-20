@@ -93,30 +93,51 @@ export async function promoteBundleV2(client: PromoteHttpClient, input: PromoteI
   }
   const promotionId = begin.promotionId
 
-  // 2. Upload inventories. The server-side `needs_inventory` placeholder
-  //    keeps both refs in the missing list; we upload both whether or
-  //    not the server later flips to `needs_upload`.
-  await uploadSegment(client, {
-    promotionId,
-    segmentId: input.objectInventory.ref.segmentId,
-    bytes: input.objectInventory.bytes,
-    digest: input.objectInventory.ref.digest,
-  })
-  await uploadSegment(client, {
-    promotionId,
-    segmentId: input.projectionInventory.ref.segmentId,
-    bytes: input.projectionInventory.bytes,
-    digest: input.projectionInventory.ref.digest,
-  })
+  // 2. Resume optimisation: ask the server which inventory segments
+  //    and pack digests are already present so we don't re-upload
+  //    bytes after an interrupt. Uploads are idempotent server-side
+  //    even without this query, so a status fetch failure is not
+  //    fatal — the client falls back to uploading every byte.
+  const remoteState = await tryFetchStatus(client, promotionId)
 
-  // 3. Upload object packs.
+  // 3. Upload inventories.
+  if (!remoteState?.inventories.object.uploaded) {
+    await uploadSegment(client, {
+      promotionId,
+      segmentId: input.objectInventory.ref.segmentId,
+      bytes: input.objectInventory.bytes,
+      digest: input.objectInventory.ref.digest,
+    })
+  }
+  if (!remoteState?.inventories.projection.uploaded) {
+    await uploadSegment(client, {
+      promotionId,
+      segmentId: input.projectionInventory.ref.segmentId,
+      bytes: input.projectionInventory.bytes,
+      digest: input.projectionInventory.ref.digest,
+    })
+  }
+
+  // 4. Upload object packs. Hash each pack first so we can ask the
+  //    server whether it already has this digest before sending bytes.
+  const remoteDigests = new Set(remoteState?.uploadedPackDigests ?? [])
   for (const pack of input.objectPacks) {
+    const transportHash = `blake3:${await blake3Hex(pack.bytes)}`
+    if (remoteDigests.has(transportHash)) {
+      // remote_pack indexes by self-referential pack_digest, which for
+      // CAS packs is NOT the wire BLAKE3 — so this short-circuit only
+      // skips when the server already saw the literal bytes (which
+      // means it also has the pack catalogued). Otherwise we POST and
+      // the server returns `already_present` if the catalogued digest
+      // matches.
+      continue
+    }
     const response = await client({
       method: 'POST',
       url: `/v2/promotions/${promotionId}/object-packs`,
       headers: {
         'content-type': 'application/octet-stream',
-        'x-prosa-transport-hash': `blake3:${await blake3Hex(pack.bytes)}`,
+        'x-prosa-transport-hash': transportHash,
       },
       body: pack.bytes,
     })
@@ -137,6 +158,25 @@ export async function promoteBundleV2(client: PromoteHttpClient, input: PromoteI
   }
   const seal = sealResponse.json() as { status: 'sealed'; receipt: PromotionReceiptV2 }
   return { status: 'sealed', receipt: seal.receipt, promotionId }
+}
+
+type RemotePromotionStatus = {
+  status: string
+  inventories: {
+    object: { segmentId: string | null; uploaded: boolean }
+    projection: { segmentId: string | null; uploaded: boolean }
+  }
+  uploadedPackDigests: string[]
+}
+
+async function tryFetchStatus(client: PromoteHttpClient, promotionId: string): Promise<RemotePromotionStatus | null> {
+  const response = await client({
+    method: 'GET',
+    url: `/v2/promotions/${promotionId}/status`,
+    headers: {},
+  })
+  if (response.statusCode !== 200) return null
+  return response.json() as RemotePromotionStatus
 }
 
 async function uploadSegment(

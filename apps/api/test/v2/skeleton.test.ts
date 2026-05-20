@@ -97,12 +97,24 @@ describe('v2 plugin skeleton', () => {
       'POST /v2/promotions/:promotionId/object-packs',
       'POST /v2/promotions/:promotionId/seal',
       'GET /v2/receipts/:receiptId',
+      // Slice 8 — resume support: client status-fetch lets retries
+      // skip already-uploaded bytes.
+      'GET /v2/promotions/:promotionId/status',
     ].sort()
     expect(actual).toEqual(expected)
   })
 
   it('registers each Lane 5 promotion route definition', () => {
     const ops = V2_PROMOTION_ROUTES.map((r) => r.opName).sort()
-    expect(ops).toEqual(['BeginPromotion', 'GetReceipt', 'SealPromotion', 'UploadObjectPack', 'UploadSegment'].sort())
+    expect(ops).toEqual(
+      [
+        'BeginPromotion',
+        'GetPromotionStatus',
+        'GetReceipt',
+        'SealPromotion',
+        'UploadObjectPack',
+        'UploadSegment',
+      ].sort(),
+    )
   })
 })
