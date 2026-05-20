@@ -60,3 +60,40 @@ git diff --check -> clean
 
 No contradictions across `correction-queue.md`, `gates.md`,
 `status.md`. Cycle 1 counts.
+
+## Cycle 2 — 2026-05-20T18:09:55Z
+
+- **Interval since cycle 1**: 17:46:26Z → 18:09:55Z = 1409 s
+  (≥ 180 s minimum honoured).
+- **HEAD**: still
+  `5755547 fix(api): lane 6 slice 10 — CQ-147 superseded tool_result + CQ-146 compose + p95 artifacts`
+  for code/test work. The only new commit between cycle 1 and
+  cycle 2 is
+  `7b24376 docs(docs): lane 6 stabilization log — cycle 1`, which
+  is the cycle 1 governance entry itself, not lane code/test
+  work; the counter is intact.
+- **Worktree**: only `apps/api/.claude/` untracked.
+- **correction-queue.md / gates.md / status.md**: unchanged since
+  cycle 1. CQ-124 + CQ-134 still Lane 10 deferrals; CQ-142 / 144
+  accepted; CQ-143 / 145 / 146 / 147 closure attempts pending
+  governor acceptance; L6.8 p95 evidence intact.
+- **Recent commits** (most recent first):
+  - `7b24376 docs(docs): lane 6 stabilization log — cycle 1`
+  - `5755547 fix(api): lane 6 slice 10 — CQ-147 superseded tool_result + CQ-146 compose + p95 artifacts`
+  - `f8191e5 docs(docs): review lane 6 slice 9`
+  - `d276d27 fix(api,cli,docs): lane 6 slice 9 — CQ-143/145/146/147 + p95 smoke`
+  - `aa221b8 docs(docs): add lane 6 analytics blockers`
+
+Lane 6 minimum gate evidence:
+
+```text
+pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/reads/
+ -> Tests 112 passed (15 files, 79.4 s)
+
+pnpm typecheck   -> 13/13 packages clean
+pnpm lint        -> 13/13 packages clean
+git diff --check -> clean (EXIT=0)
+```
+
+No contradictions across `correction-queue.md`, `gates.md`,
+`status.md`. Cycle 2 counts.
