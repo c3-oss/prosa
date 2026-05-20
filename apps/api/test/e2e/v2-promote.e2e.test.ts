@@ -135,7 +135,7 @@ async function signupTenant(
   email: string,
   tenantName: string,
   tenantSlug: string,
-): Promise<{ token: string; tenantId: string }> {
+): Promise<{ token: string; tenantId: string; userId: string }> {
   const response = await app.inject({
     method: 'POST',
     url: '/trpc/auth.signupWithTenant',
@@ -147,10 +147,10 @@ async function signupTenant(
   }
   const data = (
     response.json() as {
-      result: { data: { token: string; tenant: { id: string } } }
+      result: { data: { token: string; user: { id: string }; tenant: { id: string } } }
     }
   ).result.data
-  return { token: data.token, tenantId: data.tenant.id }
+  return { token: data.token, tenantId: data.tenant.id, userId: data.user.id }
 }
 
 function buildBundleHead(opts: { storeId: string; bundleRoot: string }) {
@@ -266,6 +266,7 @@ async function drivePromotion(opts: {
         'content-type': 'application/octet-stream',
         authorization: `Bearer ${token}`,
         'x-prosa-transport-hash': digest,
+        'x-prosa-device-id': 'e2e-device',
       },
       payload: Buffer.from(bytes),
     })
@@ -279,6 +280,7 @@ async function drivePromotion(opts: {
       'content-type': 'application/octet-stream',
       authorization: `Bearer ${token}`,
       'x-prosa-transport-hash': transportHashOf(fx.pack.bytes),
+      'x-prosa-device-id': 'e2e-device',
     },
     payload: Buffer.from(fx.pack.bytes),
   })
@@ -287,7 +289,11 @@ async function drivePromotion(opts: {
   const seal = await app.inject({
     method: 'POST',
     url: `/v2/promotions/${promotionId}/seal`,
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${token}`,
+      'x-prosa-device-id': 'e2e-device',
+    },
     payload: {} as never,
   })
   expect(seal.statusCode).toBe(200)
@@ -387,11 +393,21 @@ describe.skipIf(!shouldRun)('Lane 5 E2E — v2 promotion against real Postgres +
     })
     const sealedId = sealResponse.receipt.payload.receiptId
 
+    // Register a tenant-B device so the device check passes;
+    // the test pins tenant isolation (404), not device
+    // ownership.
+    const db = postgres(PG_URL!, { max: 1, prepare: false })
+    try {
+      await db`INSERT INTO device (id, tenant_id, user_id, name) VALUES (${'e2e-device-b'}, ${accountB.tenantId}, ${accountB.userId}, ${'e2e-device-b'}) ON CONFLICT (id) DO NOTHING`
+    } finally {
+      await db.end({ timeout: 2 })
+    }
+
     // Owning tenant fetches receipt successfully.
     const ok = await app.inject({
       method: 'GET',
       url: `/v2/receipts/${sealedId}`,
-      headers: { authorization: `Bearer ${accountA.token}` },
+      headers: { authorization: `Bearer ${accountA.token}`, 'x-prosa-device-id': 'e2e-device' },
     })
     expect(ok.statusCode).toBe(200)
     expect((ok.json() as { receipt: { payload: { receiptId: string } } }).receipt.payload.receiptId).toBe(sealedId)
@@ -400,7 +416,7 @@ describe.skipIf(!shouldRun)('Lane 5 E2E — v2 promotion against real Postgres +
     const denied = await app.inject({
       method: 'GET',
       url: `/v2/receipts/${sealedId}`,
-      headers: { authorization: `Bearer ${accountB.token}` },
+      headers: { authorization: `Bearer ${accountB.token}`, 'x-prosa-device-id': 'e2e-device-b' },
     })
     expect(denied.statusCode).toBe(404)
     expect((denied.json() as { code: string }).code).toBe('RECEIPT_NOT_FOUND')
@@ -455,6 +471,7 @@ describe.skipIf(!shouldRun)('Lane 5 E2E — v2 promotion against real Postgres +
         'content-type': 'application/octet-stream',
         authorization: `Bearer ${account.token}`,
         'x-prosa-transport-hash': fx.objDigest,
+        'x-prosa-device-id': 'e2e-device',
       },
       payload: Buffer.from(fx.objBytes),
     })
@@ -463,7 +480,7 @@ describe.skipIf(!shouldRun)('Lane 5 E2E — v2 promotion against real Postgres +
     const status = await app.inject({
       method: 'GET',
       url: `/v2/promotions/${promotionId}/status`,
-      headers: { authorization: `Bearer ${account.token}` },
+      headers: { authorization: `Bearer ${account.token}`, 'x-prosa-device-id': 'e2e-device' },
     })
     expect(status.statusCode).toBe(200)
     const statusBody = status.json() as {
@@ -482,6 +499,7 @@ describe.skipIf(!shouldRun)('Lane 5 E2E — v2 promotion against real Postgres +
         'content-type': 'application/octet-stream',
         authorization: `Bearer ${account.token}`,
         'x-prosa-transport-hash': fx.projDigest,
+        'x-prosa-device-id': 'e2e-device',
       },
       payload: Buffer.from(fx.projBytes),
     })
@@ -492,13 +510,18 @@ describe.skipIf(!shouldRun)('Lane 5 E2E — v2 promotion against real Postgres +
         'content-type': 'application/octet-stream',
         authorization: `Bearer ${account.token}`,
         'x-prosa-transport-hash': transportHashOf(fx.pack.bytes),
+        'x-prosa-device-id': 'e2e-device',
       },
       payload: Buffer.from(fx.pack.bytes),
     })
     const seal = await app.inject({
       method: 'POST',
       url: `/v2/promotions/${promotionId}/seal`,
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${account.token}` },
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${account.token}`,
+        'x-prosa-device-id': 'e2e-device',
+      },
       payload: {} as never,
     })
     expect(seal.statusCode).toBe(200)
