@@ -1,6 +1,6 @@
 # rearch-2 Current Status
 
-Updated: 2026-05-20 after Lane 6 slice 7 governor review.
+Updated: 2026-05-20 after Lane 6 slice 8 reviewer findings.
 
 ## Summary
 
@@ -11,11 +11,10 @@ Updated: 2026-05-20 after Lane 6 slice 7 governor review.
   stabilization cycles.
 - Lane 4 Server: **accepted** by Codex/governor on 2026-05-20.
 - Lane 5 Sync protocol: **accepted** by Codex/governor on 2026-05-20.
-- Lane 6 Read API: **active**, slice 7 landed and analytics WIP continues.
-  CQ-142 is accepted for signed cursors and route-level invalid-cursor
-  coverage. CQ-143 remains open for session detail/show command proof; CQ-145
-  remains open for complete route-level artifact cases; CQ-146 is open for
-  production cursor HMAC signer wiring.
+- Lane 6 Read API: **active**, slice 8 landed. CQ-142 is accepted for signed
+  cursors and route-level invalid-cursor coverage. CQ-146 production wiring is
+  functionally accepted but still needs docs/compose guidance. CQ-143, CQ-145,
+  and CQ-147 remain open; p95 evidence and five stabilization cycles remain.
 - Lanes 7–10: **not started**.
 
 ## Current Lane 6 focus
@@ -97,8 +96,12 @@ under "Closed this cycle" below; the full closure detail lives in
   tests still need missing grant/object, missing bytes/fetch, valid small text,
   and bounded large/binary cases.
 - CQ-146: production cursor HMAC signer wiring is missing; production currently
-  falls back to per-process random cursor keys unless a signer is injected by
-  code, and no config/env path exists.
+  rejects missing cursor secrets and configured secrets are stable across
+  plugin instances, but docs/compose do not yet name
+  `PROSA_CURSOR_HMAC_SECRET`.
+- CQ-147: analytics summary/report are tenant/authority gated, but unsupported
+  filters are silently ignored and summary/tools/errors/models can double count
+  duplicate logical sessions across current stores.
 
 ## Closed this cycle
 

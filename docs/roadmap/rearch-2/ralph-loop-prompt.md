@@ -71,10 +71,14 @@ Read `docs/roadmap/rearch-2/correction-queue.md` before the next slice.
   cover missing receipt/object grant, missing bytes/fetch failure, valid small
   UTF-8 text, and bounded large/binary behavior.
 - CQ-146 is open and blocks Lane 6 production readiness: signed cursor support
-  currently falls back to a per-process random HMAC key because production
-  config/boot does not parse or pass `PROSA_CURSOR_HMAC_SECRET` (or an
-  equivalent cursor-only derivation). Production must not silently use a random
-  cursor signer.
+  now rejects random production cursor keys and accepts a configured
+  `PROSA_CURSOR_HMAC_SECRET`, but operational docs/compose must name the env
+  var, minimum length, and same-value-across-workers rule before closure.
+- CQ-147 is open and blocks L6.5/L6.6 analytics acceptance: unsupported
+  analytics filters are silently ignored, and summary/tools/errors/models can
+  double count duplicate logical sessions across current stores. Fix by
+  rejecting unsupported filters or implementing them, and apply deterministic
+  cross-store distinct consistently across analytics reports.
 - CQ-141 is closed and accepted. Do not keep iterating on CQ-141 unless a fresh
   focused smoke command proves a new regression.
 - CQ-124 remains open for Lane 10: the full v1/v2 table-name cutover is not

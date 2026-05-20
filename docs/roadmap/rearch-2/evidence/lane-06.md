@@ -530,12 +530,37 @@ pnpm --filter @c3-oss/prosa-api exec vitest run \
                                        → 22/22 passed
 ```
 
+Governor/reviewer follow-up (2026-05-20):
+
+- Codex re-ran:
+  - `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/reads/ test/config.test.ts test/v2/production-signer.test.ts`
+    → 15 files / 117 tests passed.
+  - `pnpm --filter @c3-oss/prosa-api typecheck && pnpm --filter @c3-oss/prosa-api lint && git diff --check`
+    → clean.
+- CQ-146 production wiring is functionally accepted: production does not
+  silently use a random signer, configured secrets work across plugin
+  instances, different secrets reject, and dev/test random fallback is explicit.
+  The CQ remains open only for operational docs/compose updates naming
+  `PROSA_CURSOR_HMAC_SECRET`, minimum length, and same-value-across-workers
+  rule.
+- CQ-147 opened for analytics. Reviewer smoke showed a duplicate logical
+  session promoted by two current stores produced `summarySessions: 2`,
+  `sessionsRows: 1`, `tools.invocation_count: 2`, and
+  `models.message_count: 2`. This violates the L6.6 cross-store distinct gate.
+- Analytics report input also silently strips unsupported filters because the
+  schema accepts only `report`, `sourceTools`, `since`, `until`, and `limit`
+  and is not strict. Unsupported filters must be rejected or implemented.
+
 Remaining slices:
 
-1. p95 latency evidence under fixture load (sessions/list,
+1. CQ-143 session detail/show no-call proof for v2-promoted stores.
+2. CQ-145 complete route-level artifacts getText evidence.
+3. CQ-146 operational docs/compose for `PROSA_CURSOR_HMAC_SECRET`.
+4. CQ-147 analytics filter strictness and cross-store distinct fixes.
+5. p95 latency evidence under fixture load (sessions/list,
    search/query, sessions/transcript first page, artifacts/getText
    1 MiB).
-2. Five consecutive 180 s stabilization cycles before RALPH_DONE.
+6. Five consecutive 180 s stabilization cycles before RALPH_DONE.
 
 ## Scope
 

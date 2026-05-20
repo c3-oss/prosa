@@ -1,6 +1,6 @@
 # rearch-2 Correction Queue
 
-Updated: 2026-05-20 after Lane 6 slice 7 governor review.
+Updated: 2026-05-20 after Lane 6 slice 8 reviewer findings.
 
 ## Open blocking corrections
 
@@ -302,7 +302,7 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 6 production readiness for paginated reads)
-Status: closure attempt (2026-05-20) — pending governor acceptance
+Status: open (2026-05-20) — closure attempt has operational-doc gap
 Owner: Ralph
 
 Closure attempt (2026-05-20):
@@ -328,6 +328,15 @@ Closure attempt (2026-05-20):
   two plugin instances sharing the secret accept each other's
   cursors; a different secret rejects; dev fallback uses an
   in-process signer that does not verify a foreign token.
+
+Governor review (2026-05-20):
+
+The production boot path and tests are accepted: production no longer silently
+uses random cursor keys, a configured key is stable across plugin instances,
+and dev/test random fallback is explicit. CQ-146 remains open only because
+operator-facing docs/compose omit the new required secret. Add
+`PROSA_CURSOR_HMAC_SECRET` to the production compose/env guidance with the
+minimum length and same-value-across-workers requirement.
 
 Problem:
 
@@ -375,6 +384,76 @@ Acceptance:
       each other's cursors, while a different key rejects them.
 - [ ] Documentation/evidence names the env var or derivation source and the
       minimum key length.
+
+### CQ-147: Lane 6 analytics filters and cross-store distinct are incomplete
+
+Severity: high
+Blocking: yes (blocks L6.5/L6.6 analytics acceptance)
+Status: open (2026-05-20)
+Owner: Ralph
+
+Problem:
+
+Slice 8 adds `/v2/reads/analytics/summary` and
+`/v2/reads/analytics/report`, but the implementation does not yet satisfy the
+Lane 6 analytics contract. Unsupported filters are silently stripped by the
+non-strict report schema, so callers can receive broader results than
+requested. Cross-store distinct is applied to only part of the surface:
+`sessions` and `projects` collapse duplicate logical sessions, but summary,
+tools, errors, and models can double count the same logical
+`(source_tool, source_session_id)` promoted by multiple current stores.
+
+Smoke evidence:
+
+Remote-read reviewer on 2026-05-20:
+
+```text
+pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/reads/analytics-report.test.ts
+# 9/9 passed
+
+inline PGlite/applySchemaV2 smoke with duplicate logical session in two stores
+# summarySessions: 2, sessionsRows: 1,
+# tools.invocation_count: 2, models.message_count: 2
+```
+
+Additional review notes:
+
+- `apps/api/src/v2/reads/analytics/report.ts` accepts only `report`,
+  `sourceTools`, `since`, `until`, and `limit`; the schema is not strict.
+  Local analytics filters such as `toolName`, `canonicalType`, `errorsOnly`,
+  `category`, `model`, `project`, `sessionId`, and source-path substring are
+  stripped rather than rejected or honored.
+- The local fixed reports in
+  `packages/prosa-core/src/services/analytics.ts` expose richer columns and
+  report-specific timestamp semantics. If the v2 Lane 6 surface intentionally
+  supports a narrower contract, unsupported filters must fail closed and the
+  accepted response shape must be pinned explicitly.
+
+Required fix:
+
+- Make unsupported analytics report filters fail closed with `INVALID_INPUT`,
+  or implement the missing filter semantics.
+- Apply deterministic cross-store distinct consistently across summary,
+  sessions, tools, errors, models, and projects wherever duplicate logical
+  sessions can affect counts or aggregates.
+- Preserve tenant and receipt-authority gating through the shared verified
+  projection/search helpers.
+- Add route-level tests for auth/input behavior and strict unsupported-filter
+  rejection.
+- Add cross-store duplicate tests proving summary/tools/errors/models/projects
+  do not double count logical sessions.
+
+Acceptance:
+
+- [ ] Analytics report input rejects unsupported filters rather than silently
+      stripping them, or tests prove the full supported filter set is honored.
+- [ ] Summary counts collapse duplicate logical sessions deterministically.
+- [ ] Tools/errors/models aggregates do not double count duplicate logical
+      sessions across current stores.
+- [ ] Route-level tests prove auth and invalid-input behavior for summary and
+      report.
+- [ ] Tests document and pin any intentional difference from the local
+      `packages/prosa-core` analytics report columns and timestamp semantics.
 
 ### CQ-144: `artifacts.getText` WIP leaks miss reasons and lacks route-level tests
 
