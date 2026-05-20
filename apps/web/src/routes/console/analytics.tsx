@@ -23,7 +23,7 @@ function renderCell(value: unknown): string {
 }
 
 export function ConsoleAnalytics() {
-  const { api } = useAppContext()
+  const { apiV2 } = useAppContext()
   const { me } = useAuth()
   const tenantId = me?.tenantId ?? null
   const [report, setReport] = useState<Report>('sessions')
@@ -31,7 +31,7 @@ export function ConsoleAnalytics() {
   const data = useQuery({
     enabled: Boolean(tenantId),
     queryKey: tenantId ? queryKeys.analyticsReport(tenantId, { report }) : ['analytics', 'report', 'no-tenant'],
-    queryFn: async (): Promise<AnalyticsReport> => api.analytics.report.query({ report }),
+    queryFn: async (): Promise<AnalyticsReport> => apiV2.v2.analytics.report({ report }),
   })
 
   const rows = data.data?.rows ?? []

@@ -23,7 +23,7 @@ type SearchHit = {
 type SearchPage = { rows: SearchHit[]; nextCursor: string | null }
 
 export function ConsoleSearch() {
-  const { api } = useAppContext()
+  const { apiV2 } = useAppContext()
   const { me } = useAuth()
   const tenantId = me?.tenantId ?? null
   const search = useSearch({ strict: false }) as { q?: string; cursor?: string }
@@ -53,7 +53,27 @@ export function ConsoleSearch() {
       tenantId && submitted
         ? queryKeys.searchQuery(tenantId, { q: submitted, cursor })
         : ['search', 'query', 'no-tenant'],
-    queryFn: async (): Promise<SearchPage> => api.search.query.query({ q: submitted, ...(cursor ? { cursor } : {}) }),
+    queryFn: async (): Promise<SearchPage> => {
+      const response = await apiV2.v2.search.query({ q: submitted, ...(cursor ? { cursor } : {}) })
+      return {
+        rows: response.rows.map((row) => ({
+          // The v2 response identifies a hit by `docId`; the route
+          // component shape kept the `id` field so list keys stay
+          // stable across the migration.
+          id: row.docId,
+          sessionId: row.sessionId ?? '',
+          // The Lane 6 schema does not return `sessionTitle` —
+          // callers want a fallback string; we surface the source
+          // tool here so the existing UI still has a label.
+          sessionTitle: null,
+          sourceKind: row.toolName ?? row.role ?? row.canonicalToolType ?? row.entityType,
+          timestamp: row.timestamp,
+          fieldKind: row.fieldKind,
+          snippet: row.snippet,
+        })),
+        nextCursor: response.nextCursor,
+      }
+    },
     placeholderData: keepPreviousData,
   })
 
