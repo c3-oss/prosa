@@ -66,6 +66,7 @@ describe('IndexCheckpointV2 persistence', () => {
   it('persists canonical JSON with sorted keys and no whitespace', async () => {
     const checkpoint: IndexCheckpointV2 = {
       last_indexed_rowid: 42,
+      last_indexed_epoch: 3,
       schema_fingerprint: `blake3:${'b'.repeat(64)}`,
       status: 'ready',
       indexed_doc_count: 17,

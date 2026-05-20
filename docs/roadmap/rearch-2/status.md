@@ -1,6 +1,6 @@
 # rearch-2 Current Status
 
-Updated: 2026-05-20 after Tantivy runtime + bundle orchestrator + `index-v2 tantivy` CLI landed.
+Updated: 2026-05-20 after CQ-115 closed.
 
 ## Summary
 
@@ -13,7 +13,10 @@ Updated: 2026-05-20 after Tantivy runtime + bundle orchestrator + `index-v2 tant
 
 ## Current Lane 3 focus
 
-Next slice is a scripted compile-then-index gate (`compile-v2 <provider> && index-v2 tantivy && index-v2 status`) against an importer-produced bundle so the runtime is proven against the real projection-segment shape, not just a planted fixture. After that:
+CQ-115 is closed: the Tantivy rebuild planner is now epoch-aware
+(`last_indexed_epoch` on the checkpoint + `currentEpoch` planner input → `full /
+epoch_mismatch`). The regression covers checkpoint parity AND on-disk index
+content. Next runtime executor slices:
 
 1. Scripted compile-then-index gate proving `indexed_doc_count == source_doc_count` after a real `compile-v2 && index-v2 tantivy` against a fixture-driven importer run.
 2. DuckDB analytics runtime executor.
@@ -33,7 +36,7 @@ The blocker is implementation work, not environment.
 
 ## Open blockers
 
-No open correction-queue blockers are currently recorded. The primary blocker is missing implementation for the Lane 3 runtime executors.
+No open correction-queue blockers are currently recorded. CQ-115 closed 2026-05-20 — see `correction-queue.md` for the closure record.
 
 ## Supporting documents
 

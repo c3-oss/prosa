@@ -56,6 +56,7 @@ describe('tantivyIndexStatus', () => {
   it('returns the checkpoint snapshot when one is present', async () => {
     const checkpoint: IndexCheckpointV2 = {
       last_indexed_rowid: 100,
+      last_indexed_epoch: 0,
       schema_fingerprint: currentTantivySchemaFingerprint(),
       status: 'ready',
       indexed_doc_count: 100,
@@ -93,6 +94,7 @@ describe('tantivyIndexStatus', () => {
     await plantValidIndexDir(bundleRoot)
     await writeIndexCheckpoint(bundleRoot, {
       last_indexed_rowid: 100,
+      last_indexed_epoch: 0,
       schema_fingerprint: currentTantivySchemaFingerprint(),
       status: 'ready',
       indexed_doc_count: 100,
@@ -112,6 +114,7 @@ describe('tantivyIndexStatus', () => {
     await plantValidIndexDir(bundleRoot)
     await writeIndexCheckpoint(bundleRoot, {
       last_indexed_rowid: 50,
+      last_indexed_epoch: 0,
       schema_fingerprint: currentTantivySchemaFingerprint(),
       status: 'building',
       indexed_doc_count: 50,
@@ -128,6 +131,7 @@ describe('tantivyIndexStatus', () => {
     await plantValidIndexDir(bundleRoot)
     await writeIndexCheckpoint(bundleRoot, {
       last_indexed_rowid: null,
+      last_indexed_epoch: null,
       schema_fingerprint: currentTantivySchemaFingerprint(),
       status: 'failed',
       indexed_doc_count: null,
@@ -145,6 +149,7 @@ describe('tantivyIndexStatus', () => {
     // disk wiped after the checkpoint was last persisted).
     await writeIndexCheckpoint(bundleRoot, {
       last_indexed_rowid: 100,
+      last_indexed_epoch: 0,
       schema_fingerprint: currentTantivySchemaFingerprint(),
       status: 'ready',
       indexed_doc_count: 100,

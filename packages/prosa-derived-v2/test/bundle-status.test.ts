@@ -93,6 +93,7 @@ describe('bundleDerivedStatus', () => {
     await plantValidIndexDir(bundleRoot)
     await writeIndexCheckpoint(bundleRoot, {
       last_indexed_rowid: 100,
+      last_indexed_epoch: 0,
       schema_fingerprint: currentTantivySchemaFingerprint(),
       status: 'ready',
       indexed_doc_count: 100,
@@ -114,6 +115,7 @@ describe('bundleDerivedStatus', () => {
     await plantValidIndexDir(bundleRoot)
     await writeIndexCheckpoint(bundleRoot, {
       last_indexed_rowid: 50,
+      last_indexed_epoch: 0,
       schema_fingerprint: currentTantivySchemaFingerprint(),
       status: 'ready',
       indexed_doc_count: 50,

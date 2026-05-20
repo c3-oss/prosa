@@ -85,6 +85,14 @@ export interface RunTantivyRebuildInput {
   /** Total `count(*)` of the current `search_docs` projection.
    *  Recorded in the checkpoint regardless of the plan outcome. */
   sourceDocCount: number
+  /** Bundle epoch the rows came from. Persisted on the checkpoint
+   *  so a future call with a different epoch routes to
+   *  `full / epoch_mismatch` instead of comparing rowids across
+   *  per-epoch snapshots (CQ-115). Optional for back-compat with
+   *  callers that hand-build a row producer outside the bundle
+   *  orchestrator; the orchestrator
+   *  (`runTantivyRebuildForBundle`) always passes it. */
+  currentEpoch?: number
   /** Row producer keyed on the planned mode. The caller is
    *  responsible for ordering rows by `rowid` ascending and for
    *  filtering by `lastIndexedRowid` when the plan is incremental. */
@@ -212,6 +220,7 @@ export async function runTantivyRebuild(input: RunTantivyRebuildInput): Promise<
   const { plan, checkpoint: priorCheckpoint } = await planTantivyRebuildFromBundle({
     bundleRoot: input.bundleRoot,
     currentMaxRowid: input.currentMaxRowid,
+    currentEpoch: input.currentEpoch,
     overwriteRequested: input.overwriteRequested,
   })
 
@@ -269,6 +278,7 @@ export async function runTantivyRebuild(input: RunTantivyRebuildInput): Promise<
       newMaxRowid: maxRowid,
       indexedDocCount,
       sourceDocCount: input.sourceDocCount,
+      epoch: input.currentEpoch,
     })
     await writeIndexCheckpoint(input.bundleRoot, newCheckpoint)
 

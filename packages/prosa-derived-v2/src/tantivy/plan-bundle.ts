@@ -25,6 +25,10 @@ export interface PlanTantivyRebuildFromBundleInput {
    *  passing 0 is valid for an empty bundle and forces a `full`
    *  rebuild via `no_prior_index`. */
   currentMaxRowid: number
+  /** Current bundle epoch the caller is sourcing rows from. When
+   *  provided, the planner forces `full / epoch_mismatch` if the
+   *  stored checkpoint's `last_indexed_epoch` differs (CQ-115). */
+  currentEpoch?: number
   /** Caller-supplied flag (`prosa index-v2 tantivy --overwrite`). */
   overwriteRequested?: boolean
 }
@@ -72,6 +76,7 @@ export async function planTantivyRebuildFromBundle(
     currentMaxRowid: input.currentMaxRowid,
     indexDirValid,
     overwriteRequested: input.overwriteRequested,
+    currentEpoch: input.currentEpoch,
   })
   return { plan, checkpoint, indexDirValid }
 }

@@ -73,6 +73,7 @@ export async function runTantivyRebuildForBundle(
     bundleRoot: input.bundleRoot,
     currentMaxRowid: segment.maxRowid,
     sourceDocCount: segment.sourceDocCount,
+    currentEpoch: input.epoch,
     overwriteRequested: input.overwriteRequested,
     heapBytes: input.heapBytes,
     numThreads: input.numThreads,

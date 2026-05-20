@@ -13,6 +13,16 @@ import { currentTantivySchemaFingerprint } from './schema.js'
 export interface IndexCheckpointV2 {
   /** Highest `search_docs.rowid` present in the Tantivy index. */
   last_indexed_rowid: number | null
+  /** Bundle epoch the prior run sourced rows from. The v2 projection
+   *  is a per-epoch snapshot — `rowid` is a synthetic position-based
+   *  watermark inside one segment and is not comparable across
+   *  epochs. Storing the epoch lets `planTantivyRebuild` detect an
+   *  epoch change and force `full / epoch_mismatch` rather than
+   *  routing to `skip` or `incremental` against rowids from a
+   *  different snapshot (CQ-115). `null` for legacy checkpoints
+   *  written before the field landed; the planner treats `null` the
+   *  same as a mismatch and forces `full`. */
+  last_indexed_epoch: number | null
   /** Schema fingerprint stored at last successful indexing. */
   schema_fingerprint: string | null
   /** Reported status of the last run. */
@@ -28,6 +38,7 @@ export interface IndexCheckpointV2 {
 /** Empty checkpoint used when no prior status exists (fresh bundle). */
 export const EMPTY_INDEX_CHECKPOINT: IndexCheckpointV2 = {
   last_indexed_rowid: null,
+  last_indexed_epoch: null,
   schema_fingerprint: null,
   status: null,
   indexed_doc_count: null,
@@ -62,6 +73,11 @@ export type RebuildPlan =
    *   - `caller_requested_overwrite`: explicit `--overwrite` flag.
    *   - `index_dir_invalid`: the on-disk Tantivy meta is missing.
    *   - `prior_run_failed`: previous run left `status === 'failed'`.
+   *   - `epoch_mismatch`: caller passed a `currentEpoch` that does
+   *     not match the checkpoint's `last_indexed_epoch` (or the
+   *     checkpoint has no recorded epoch). Each bundle-v2 epoch is a
+   *     full snapshot with its own synthetic rowid space, so any
+   *     epoch change forces a complete re-index (CQ-115).
    */
   | {
       kind: 'full'
@@ -71,6 +87,7 @@ export type RebuildPlan =
         | 'caller_requested_overwrite'
         | 'index_dir_invalid'
         | 'prior_run_failed'
+        | 'epoch_mismatch'
       fingerprint: string
       currentMaxRowid: number
     }
@@ -87,6 +104,16 @@ export interface PlanTantivyRebuildInput {
   indexDirValid: boolean
   /** Caller-supplied flag (`prosa index-v2 tantivy --overwrite`). */
   overwriteRequested?: boolean
+  /** Current bundle epoch the caller is sourcing rows from. When
+   *  provided, the planner forces `full / epoch_mismatch` if the
+   *  checkpoint's `last_indexed_epoch` differs (or is `null` while
+   *  a prior `ready` run exists). Optional so callers that have not
+   *  yet adopted epoch tracking (legacy callers, the
+   *  `tantivy-rebuild-plan` CLI command) keep working with the
+   *  pre-CQ-115 behaviour; the bundle orchestrator
+   *  (`planTantivyRebuildFromBundle` / `runTantivyRebuildForBundle`)
+   *  always passes the value. */
+  currentEpoch?: number
 }
 
 /**
@@ -108,6 +135,21 @@ export function planTantivyRebuild(input: PlanTantivyRebuildInput): RebuildPlan 
   if (checkpoint.schema_fingerprint !== null && checkpoint.schema_fingerprint !== fingerprint) {
     return { kind: 'full', reason: 'fingerprint_mismatch', fingerprint, currentMaxRowid }
   }
+  // CQ-115: when the caller passes the current epoch, refuse to
+  // route to `incremental` / `skip` against rowids from a different
+  // snapshot. Synthetic rowids in the v2 projection reset every
+  // epoch (they are position-based inside one segment), so a
+  // currentMaxRowid from epoch N cannot be compared with a
+  // last_indexed_rowid from epoch N-1. A checkpoint that has a
+  // prior `ready` state but no recorded epoch is also treated as a
+  // mismatch — the planner cannot prove the rowid spaces line up.
+  if (input.currentEpoch !== undefined) {
+    const checkpointEpoch = checkpoint.last_indexed_epoch
+    const hasPriorReady = checkpoint.status === 'ready' || (checkpoint.last_indexed_rowid ?? 0) > 0
+    if (hasPriorReady && checkpointEpoch !== input.currentEpoch) {
+      return { kind: 'full', reason: 'epoch_mismatch', fingerprint, currentMaxRowid }
+    }
+  }
   const lastIndexedRowid = checkpoint.last_indexed_rowid ?? 0
   if (lastIndexedRowid <= 0) {
     return { kind: 'full', reason: 'no_prior_index', fingerprint, currentMaxRowid }
@@ -126,7 +168,13 @@ export function planTantivyRebuild(input: PlanTantivyRebuildInput): RebuildPlan 
 
 /**
  * Update a checkpoint after a successful Tantivy run. Returns a new
- * `IndexCheckpointV2` rather than mutating the input.
+ * `IndexCheckpointV2` rather than mutating the input. Pass `epoch`
+ * to record the bundle epoch the indexed rows came from so a future
+ * planner call against a different epoch routes to
+ * `full / epoch_mismatch` (CQ-115). `epoch` is optional for
+ * back-compat with callers that pre-date the field; when omitted
+ * the new checkpoint preserves the prior `last_indexed_epoch`
+ * (which may itself be `null`).
  */
 export function checkpointAfterRebuild(args: {
   prior: IndexCheckpointV2
@@ -134,12 +182,14 @@ export function checkpointAfterRebuild(args: {
   newMaxRowid: number
   indexedDocCount: number
   sourceDocCount: number
+  epoch?: number
 }): IndexCheckpointV2 {
   return {
     ...args.prior,
     status: 'ready',
     schema_fingerprint: args.fingerprint,
     last_indexed_rowid: args.newMaxRowid,
+    last_indexed_epoch: args.epoch ?? args.prior.last_indexed_epoch,
     indexed_doc_count: args.indexedDocCount,
     source_doc_count: args.sourceDocCount,
     error_message: null,

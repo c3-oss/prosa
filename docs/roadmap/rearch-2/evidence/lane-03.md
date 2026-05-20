@@ -85,6 +85,44 @@ The original Lane 3 plan required three runtime outputs: Tantivy writer, Session
 
 The next loop may continue adding safe read-only utilities instead of tackling the runtime executor work. The next prompt explicitly forbids additional read/audit surfaces unless they directly support a selected runtime executor slice.
 
+## CQ-115 closure (2026-05-20)
+
+Codex review caught the cross-epoch skip foot-gun: the projection reader's
+synthetic per-segment rowids made `runTantivyRebuildForBundle` route to `skip`
+when a new epoch had fewer rows than the previously-indexed one. Fix:
+
+- `IndexCheckpointV2` now carries `last_indexed_epoch` (legacy `null` collapses
+  to the same "mismatch" branch).
+- `planTantivyRebuild` takes an optional `currentEpoch` and returns
+  `{ kind: 'full', reason: 'epoch_mismatch' }` when the caller's epoch differs
+  from the checkpoint's recorded epoch (or the checkpoint has a prior `ready`
+  run without a recorded epoch).
+- `planTantivyRebuildFromBundle` + `runTantivyRebuild` + `runTantivyRebuildForBundle`
+  thread the epoch through end-to-end; `checkpointAfterRebuild({ epoch })`
+  persists it on success.
+
+Regression evidence in
+`packages/prosa-derived-v2/test/tantivy/rebuild-bundle.test.ts > CQ-115:
+forces full / epoch_mismatch …` runs the exact Codex-smoke scenario (epoch 0 → 3
+docs, epoch 1 → 2 docs) and asserts:
+
+- second call: `plan = { kind: 'full', reason: 'epoch_mismatch' }`;
+- checkpoint: `last_indexed_epoch = 1`, `indexed_doc_count = 2`,
+  `source_doc_count = 2`;
+- on-disk Tantivy index: `searcher.numDocs === 2`, an epoch-1-only `doc_id`
+  query returns hits, an epoch-0-only `doc_id` returns 0 hits.
+
+Four planner-level cases in `rebuild-plan.test.ts` cover the explicit mismatch,
+the `null`-epoch + prior-ready case, the matching-epoch happy path, and the
+legacy "no `currentEpoch` passed" path so callers that have not adopted epoch
+tracking keep working.
+
+Gate output (full closure command set):
+
+- `pnpm --filter @c3-oss/prosa-derived-v2 exec vitest run test/tantivy/runtime-writer.test.ts test/tantivy/rebuild-bundle.test.ts test/tantivy/projection-reader.test.ts` → 17/17.
+- `pnpm --filter @c3-oss/prosa exec vitest run test/cli/index-v2.test.ts -t tantivy` → 17/17 (137 in suite, 120 unrelated skipped).
+- Full `pnpm --filter @c3-oss/prosa-derived-v2 test` → 563/563.
+
 ## Smoke + gate evidence (2026-05-20)
 
 - `@oxdev03/node-tantivy-binding` v0.2.0 is loadable from the

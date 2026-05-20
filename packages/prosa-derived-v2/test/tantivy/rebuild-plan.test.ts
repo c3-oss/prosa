@@ -131,6 +131,82 @@ describe('planTantivyRebuild', () => {
     })
     expect(plan.kind).toBe('incremental')
   })
+
+  it('CQ-115: full / epoch_mismatch when caller passes a currentEpoch that differs from the checkpoint epoch', () => {
+    const plan = planTantivyRebuild({
+      checkpoint: withCheckpoint({
+        last_indexed_rowid: 10,
+        last_indexed_epoch: 0,
+        schema_fingerprint: FINGERPRINT,
+        status: 'ready',
+      }),
+      currentMaxRowid: 5,
+      indexDirValid: true,
+      currentEpoch: 1,
+    })
+    expect(plan.kind).toBe('full')
+    if (plan.kind !== 'full') throw new Error('unreachable')
+    expect(plan.reason).toBe('epoch_mismatch')
+  })
+
+  it('CQ-115: full / epoch_mismatch when the checkpoint records a prior ready run but no last_indexed_epoch', () => {
+    const plan = planTantivyRebuild({
+      checkpoint: withCheckpoint({
+        last_indexed_rowid: 10,
+        last_indexed_epoch: null,
+        schema_fingerprint: FINGERPRINT,
+        status: 'ready',
+      }),
+      currentMaxRowid: 5,
+      indexDirValid: true,
+      currentEpoch: 0,
+    })
+    expect(plan.kind).toBe('full')
+    if (plan.kind !== 'full') throw new Error('unreachable')
+    expect(plan.reason).toBe('epoch_mismatch')
+  })
+
+  it('CQ-115: matching currentEpoch lets the planner reach skip / incremental as before', () => {
+    const skipPlan = planTantivyRebuild({
+      checkpoint: withCheckpoint({
+        last_indexed_rowid: 10,
+        last_indexed_epoch: 2,
+        schema_fingerprint: FINGERPRINT,
+        status: 'ready',
+      }),
+      currentMaxRowid: 10,
+      indexDirValid: true,
+      currentEpoch: 2,
+    })
+    expect(skipPlan.kind).toBe('skip')
+
+    const incPlan = planTantivyRebuild({
+      checkpoint: withCheckpoint({
+        last_indexed_rowid: 10,
+        last_indexed_epoch: 2,
+        schema_fingerprint: FINGERPRINT,
+        status: 'ready',
+      }),
+      currentMaxRowid: 15,
+      indexDirValid: true,
+      currentEpoch: 2,
+    })
+    expect(incPlan.kind).toBe('incremental')
+  })
+
+  it('CQ-115: omitting currentEpoch keeps the pre-CQ-115 behaviour (legacy callers unaffected)', () => {
+    const plan = planTantivyRebuild({
+      checkpoint: withCheckpoint({
+        last_indexed_rowid: 10,
+        last_indexed_epoch: null,
+        schema_fingerprint: FINGERPRINT,
+        status: 'ready',
+      }),
+      currentMaxRowid: 10,
+      indexDirValid: true,
+    })
+    expect(plan.kind).toBe('skip')
+  })
 })
 
 describe('checkpointAfterRebuild / checkpointAfterFailure', () => {
@@ -152,6 +228,27 @@ describe('checkpointAfterRebuild / checkpointAfterFailure', () => {
     expect(next.indexed_doc_count).toBe(200)
     expect(next.source_doc_count).toBe(200)
     expect(next.error_message).toBeNull()
+  })
+
+  it('checkpointAfterRebuild records the new epoch when passed and preserves the prior epoch when omitted (CQ-115)', () => {
+    const withEpoch = checkpointAfterRebuild({
+      prior: withCheckpoint({ last_indexed_epoch: null }),
+      fingerprint: FINGERPRINT,
+      newMaxRowid: 5,
+      indexedDocCount: 5,
+      sourceDocCount: 5,
+      epoch: 3,
+    })
+    expect(withEpoch.last_indexed_epoch).toBe(3)
+
+    const withoutEpoch = checkpointAfterRebuild({
+      prior: withCheckpoint({ last_indexed_epoch: 7 }),
+      fingerprint: FINGERPRINT,
+      newMaxRowid: 5,
+      indexedDocCount: 5,
+      sourceDocCount: 5,
+    })
+    expect(withoutEpoch.last_indexed_epoch).toBe(7)
   })
 
   it('checkpointAfterFailure preserves prior data and records the error', () => {

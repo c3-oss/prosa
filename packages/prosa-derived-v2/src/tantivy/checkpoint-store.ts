@@ -166,6 +166,7 @@ function checkpointToCanonicalShape(c: IndexCheckpointV2): Record<string, unknow
   return {
     error_message: c.error_message,
     indexed_doc_count: c.indexed_doc_count,
+    last_indexed_epoch: c.last_indexed_epoch,
     last_indexed_rowid: c.last_indexed_rowid,
     schema_fingerprint: c.schema_fingerprint,
     source_doc_count: c.source_doc_count,
@@ -200,6 +201,11 @@ function assertCheckpointShape(value: unknown, path: string): IndexCheckpointV2 
   }
   return {
     last_indexed_rowid: nullableNumber('last_indexed_rowid'),
+    // Legacy checkpoints written before CQ-115 are missing the
+    // field entirely; `nullableNumber` collapses missing + null
+    // to `null`, which the planner treats as an epoch mismatch
+    // and routes to `full`.
+    last_indexed_epoch: nullableNumber('last_indexed_epoch'),
     schema_fingerprint: nullableString('schema_fingerprint'),
     status: statusRaw as IndexCheckpointV2['status'],
     indexed_doc_count: nullableNumber('indexed_doc_count'),
