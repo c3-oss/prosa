@@ -38,6 +38,16 @@ Active / incomplete. Tantivy native runtime writer is in. DuckDB analytics runti
     persists the post-run checkpoint, and surfaces failures via a
     typed `RuntimeResult`. End-to-end gate covered by
     `packages/prosa-derived-v2/test/tantivy/runtime-writer.test.ts`.
+  - `search_doc` projection-segment reader
+    (`readSearchDocSegment`) — parses
+    `<bundleRoot>/epochs/<epoch>/projection/search_doc.prosa-projection.ndjson`
+    line-by-line, maps `SearchDocV2` to `SearchDocInputV2`, assigns
+    synthetic 1-based rowids by position; returns `null` for missing
+    segments and throws on malformed JSON / missing `doc_id`.
+  - bundle-level orchestrator (`runTantivyRebuildForBundle`) — wires
+    the reader into the runtime writer for a given `(bundleRoot, epoch)`
+    pair. Reports `no_search_docs` when the segment is absent and
+    forwards the inner `RuntimeResult` otherwise.
 - Operational/read surfaces:
   - `bundleDerivedStatus`, `derivedLayerMaintenanceSummary`, `recommendMaintenanceActions`, `derivedLayerFootprint`, `derivedLayerCapabilities`, `derivedLayerSnapshot`.
   - `prosa index-v2` read/audit subcommands in `apps/cli/src/cli/commands/index-v2.ts`.
@@ -45,11 +55,15 @@ Active / incomplete. Tantivy native runtime writer is in. DuckDB analytics runti
 ## Required next implementation
 
 - [x] Tantivy native writer / incremental rebuild runtime — landed
-      with the `runTantivyRebuild` executor + focused test. Next step
-      is wiring the bundle-v2 projection (search_docs.arrow.zst /
-      epoch parquet) as the row producer so a real bundle round-trip
-      executes end-to-end and `prosa index-v2 tantivy` can call the
-      runtime.
+      with `runTantivyRebuild` + bundle orchestrator
+      (`runTantivyRebuildForBundle`) + NDJSON projection reader.
+      End-to-end test runs a real synthetic projection segment through
+      the orchestrator → runtime writer → native binding and confirms
+      `indexed_doc_count == source_doc_count` plus `ready_for_read`.
+      Next step: `prosa index-v2 tantivy` CLI command should invoke
+      the bundle orchestrator and a scripted-bundle CLI gate should
+      run `compile-v2 && index-v2 tantivy && index-v2 status` against
+      a real importer-produced bundle.
 - [ ] DuckDB analytics runtime executor.
 - [ ] Parquet compaction merge worker.
 - [ ] End-to-end Lane 3 gates in `gates.md`.
@@ -74,6 +88,14 @@ The next loop may continue adding safe read-only utilities instead of tackling t
   case asserts `checkpoint.indexed_doc_count == checkpoint.source_doc_count`
   and that `tantivyIndexDirIsValid(bundleRoot)` flips to `true`
   after the commit (`meta.json.segments.length > 0`).
-- `pnpm --filter @c3-oss/prosa-derived-v2 typecheck` + full
-  `vitest run` (546/546) + `biome check .` all clean after the
-  runtime writer landed.
+- `pnpm --filter @c3-oss/prosa-derived-v2 exec vitest run test/tantivy/rebuild-bundle.test.ts test/tantivy/projection-reader.test.ts`
+  drives the projection reader + bundle orchestrator end-to-end
+  against a real NDJSON segment on disk. Five rebuild-bundle cases
+  (no-segment / full / skip / incremental / forced overwrite) and
+  five projection-reader cases (happy path / missing doc_id /
+  malformed body / empty file / null on ENOENT) all pass; the full
+  case asserts the Lane 3 gate (`status.ready_for_read === true` and
+  `checkpoint.indexed_doc_count == checkpoint.source_doc_count`).
+- Full `pnpm --filter @c3-oss/prosa-derived-v2 test` (556/556) +
+  `typecheck` + `biome check .` + workspace `pnpm typecheck` all
+  clean.

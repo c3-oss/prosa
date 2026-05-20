@@ -1,6 +1,6 @@
 # rearch-2 Current Status
 
-Updated: 2026-05-20 after Tantivy native runtime writer landed.
+Updated: 2026-05-20 after Tantivy runtime + bundle orchestrator landed.
 
 ## Summary
 
@@ -13,9 +13,9 @@ Updated: 2026-05-20 after Tantivy native runtime writer landed.
 
 ## Current Lane 3 focus
 
-Next slice is wiring the Tantivy runtime writer against a real v2 bundle (projection row producer) so `prosa index-v2 tantivy` can call `runTantivyRebuild` end-to-end. Remaining runtime executors after that:
+Next slice is wiring the bundle orchestrator (`runTantivyRebuildForBundle`) into the `prosa index-v2 tantivy` CLI command and adding a scripted-bundle gate (`compile-v2 && index-v2 tantivy && index-v2 status`). After that:
 
-1. Tantivy projection row producer → `prosa index-v2 tantivy` CLI wiring + scripted-bundle gate proving `indexed_doc_count == source_doc_count` after `compile-v2 && index-v2 tantivy`.
+1. `prosa index-v2 tantivy` CLI wiring + scripted-bundle gate proving `indexed_doc_count == source_doc_count` after `compile-v2 && index-v2 tantivy`.
 2. DuckDB analytics runtime executor.
 3. Parquet compaction merge worker.
 4. Lane-3 gate wiring and end-to-end validation.
