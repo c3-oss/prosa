@@ -1,6 +1,6 @@
 # rearch-2 Current Status
 
-Updated: 2026-05-20 after compile-to-index gate landed.
+Updated: 2026-05-20 after Parquet compaction merge worker landed.
 
 ## Summary
 
@@ -24,9 +24,8 @@ full v1 parity for tool-call / tool-result fan-out remains a follow-up.
 Remaining runtime executor slices:
 
 1. DuckDB analytics runtime executor review/acceptance for `828b59f`.
-2. Parquet compaction merge worker.
-3. Per-provider search_doc emission parity (claude / cursor / gemini / hermes) so the gate covers every importer.
-4. Lane-3 gate wiring and end-to-end validation.
+2. Per-provider search_doc emission parity (claude / cursor / gemini / hermes) so the compile-to-index gate covers every importer.
+3. Lane-3 gate wiring and end-to-end validation.
 
 Do **not** add more pure-read/audit/CLI surfaces unless they are directly required to implement or validate one of those runtime executors.
 

@@ -26,7 +26,13 @@ governor review/acceptance. Parquet compaction merge worker still outstanding.
   - compact manifest build/read/write/deep validation;
   - superseded/compacted outputs helpers;
   - GC plan and GC execution-plan composers;
-  - compaction effectiveness/history/overlap audit helpers.
+  - compaction effectiveness/history/overlap audit helpers;
+  - runtime merge worker (`runCompaction`) — opens DuckDB, mkdir's
+    each entity's output dir, runs the composer's COPY statements,
+    reads back the on-disk output byte length + row count, returns
+    per-entity stats. Non-destructive: the worker never touches the
+    live `epochs/<n>/projection/` segments. Supports a `dryRun`
+    mode that returns the planned work without opening DuckDB.
 - DuckDB analytics support:
   - fixed analytics view definitions;
   - pure execution-plan composer;
@@ -110,7 +116,17 @@ governor review/acceptance. Parquet compaction merge worker still outstanding.
       asserts row counts + `skippedEntities` reporting. Governor acceptance is
       pending until the current Tantivy compile-to-index gate is closed and the
       DuckDB slice receives focused review/validation.
-- [ ] Parquet compaction merge worker.
+- [x] Parquet compaction merge worker — landed
+      (`packages/prosa-derived-v2/src/compaction/runtime-worker.ts`).
+      Five focused tests under
+      `packages/prosa-derived-v2/test/compaction/runtime-worker.test.ts`
+      cover: under-threshold no-op (empty plan), 33-small-segment
+      `file_count_trigger` scenario (compacted file written + 33 rows
+      preserved end-to-end), dry-run path (no DuckDB connection / no
+      file written), caller-supplied trimmed plan (worker honours
+      `segmentsToMerge.slice(...)` exactly), and on-disk byte-length
+      reporting parity. Source live segments confirmed unchanged
+      after the worker runs (non-destructive contract).
 - [ ] End-to-end Lane 3 gates in `gates.md`.
 
 ## Deviation from original plan
@@ -205,6 +221,35 @@ Gate output (full closure command set):
   test/cli/compile-to-index-gate.test.ts` → 1/1 (~5.5s). Full
   importers suite → 40/40, derived-v2 suite → 570/570, CLI tantivy
   CLI subset → 17/17, workspace `pnpm typecheck` clean.
+
+## Compaction merge worker (2026-05-20)
+
+- `packages/prosa-derived-v2/src/compaction/runtime-worker.ts`
+  closes the loop on Lane 3 compaction: `runCompaction({bundleRoot,
+  plan?, dryRun?})` resolves the plan (caller-supplied or via
+  `planCompaction(bundleRoot)`), composes it through
+  `planCompactionExecution`, opens a DuckDB connection, mkdir's
+  each entity's output dir, executes the `COPY (SELECT * FROM
+  read_parquet([...], union_by_name => true)) TO ... (FORMAT
+  'parquet', CODEC 'zstd');` statement, reads the resulting file's
+  byte length + row count, and returns `{plan, executionPlan,
+  results, empty, dryRun}`. Source live segments are never
+  touched — superseded cleanup is a separate planner/runtime
+  concern. The merge is row-preserving by construction.
+- Focused 5-test suite at
+  `packages/prosa-derived-v2/test/compaction/runtime-worker.test.ts`
+  covers: under-threshold no-op (empty plan), 33-small-segment
+  `file_count_trigger` end-to-end (compacted file at
+  `epochs/compact-0001/projection/sessions.compacted.parquet`
+  contains 33 distinct rows; source live segments still exist),
+  dry-run (no DuckDB connection, no file written), caller-supplied
+  trimmed plan (worker honours `segmentsToMerge.slice(0, 17)`
+  verbatim), and `outputByteLength === stat(outputAbsPath).size`
+  parity.
+- Gate output: `pnpm --filter @c3-oss/prosa-derived-v2 exec
+  vitest run test/compaction/runtime-worker.test.ts` → 5/5 (~1.7s).
+  Full @c3-oss/prosa-derived-v2 suite → 575/575 (55 files);
+  typecheck + biome clean; workspace `pnpm typecheck` → 13/13.
 
 ## Smoke + gate evidence (2026-05-20)
 
