@@ -1,5 +1,5 @@
 import { applySchema } from '@c3-oss/prosa-db'
-import { PROMOTION_SCHEMA_SQL } from '@c3-oss/prosa-db-v2'
+import { PACKS_SCHEMA_SQL, PROMOTION_SCHEMA_SQL } from '@c3-oss/prosa-db-v2'
 import { MemoryObjectStore } from '@c3-oss/prosa-storage'
 import { PGlite } from '@electric-sql/pglite'
 import type { FastifyInstance } from 'fastify'
@@ -31,10 +31,15 @@ export async function buildTestApp(overrides: Partial<NodeJS.ProcessEnv> = {}): 
   // v1 + v2 share table names (`projection_session`, `search_doc`,
   // `remote_object`, `device`) with incompatible column sets, so we
   // can't blanket-apply `applySchemaV2` on top of v1. Lane 10 cutover
-  // handles the production migration. For Lane 5 tests we need the v2
-  // promotion tables (`promotion_staging`, `remote_authority_v2`,
-  // `receipt`, `legacy_receipt_archive`), which do not collide with v1.
+  // handles the production migration. For Lane 5 tests we apply the
+  // v2 promotion tables (`promotion_staging`, `remote_authority_v2`,
+  // `receipt`, `legacy_receipt_archive`) and the v2 packs tables
+  // (`remote_pack`, `remote_pack_entry`, `receipt_pack_grant`,
+  // `pack_audit_state`, `pack_gc_state`). `remote_object` from the
+  // packs block is the conflicting v1/v2 name, so we strip it before
+  // applying.
   await pglite.exec(PROMOTION_SCHEMA_SQL)
+  await pglite.exec(PACKS_SCHEMA_SQL.replace(/CREATE TABLE IF NOT EXISTS remote_object[\s\S]*?\);/u, ''))
   const db = openPgliteDatabase(pglite)
   const auth = createAuth({ config, db: db.db })
   const objectStore = new MemoryObjectStore()

@@ -17,12 +17,18 @@
 
 import type { RemoteObjectStore } from '@c3-oss/prosa-storage'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
+import type { DatabaseHandle } from '../db.js'
 import { type V2AuthDeps, resolveV2AuthContext } from './context.js'
 import {
   BeginPromotionTenantMismatchError,
   BeginPromotionValidationError,
   beginPromotion,
 } from './sync/begin-promotion.js'
+import {
+  UploadObjectPackNotFoundError,
+  UploadObjectPackValidationError,
+  uploadObjectPack,
+} from './sync/upload-object-pack.js'
 import { UploadSegmentNotFoundError, UploadSegmentValidationError, uploadSegment } from './sync/upload-segment.js'
 
 export const V2_PROMOTION_ROUTES = [
@@ -43,6 +49,7 @@ export const V2_PROMOTION_ROUTES = [
 
 export type PromotionRoutesDeps = V2AuthDeps & {
   objectStore: RemoteObjectStore
+  transaction: DatabaseHandle['transaction']
 }
 
 export function registerPromotionRoutes(app: FastifyInstance, deps: PromotionRoutesDeps): void {
@@ -65,6 +72,9 @@ export function registerPromotionRoutes(app: FastifyInstance, deps: PromotionRou
         }
         if (route.opName === 'UploadSegment') {
           return handleUploadSegment(deps, ctx.tenantId, req, reply)
+        }
+        if (route.opName === 'UploadObjectPack') {
+          return handleUploadObjectPack(deps, ctx.tenantId, req, reply)
         }
         reply.code(501)
         return {
@@ -146,6 +156,59 @@ async function handleUploadSegment(
     }
     throw err
   }
+}
+
+async function handleUploadObjectPack(
+  deps: PromotionRoutesDeps,
+  tenantId: string,
+  req: FastifyRequest,
+  reply: FastifyReply,
+): Promise<unknown> {
+  const params = req.params as { promotionId?: string }
+  if (!params.promotionId) {
+    reply.code(400)
+    return { code: 'INVALID_REQUEST', op: 'UploadObjectPack', message: 'promotionId is required' }
+  }
+  const body = toUint8Array(req.body)
+  if (!body) {
+    reply.code(400)
+    return {
+      code: 'INVALID_REQUEST',
+      op: 'UploadObjectPack',
+      message: 'octet-stream body required (Content-Type: application/octet-stream)',
+    }
+  }
+  const declaredPackDigest = readSingleHeader(req, 'x-prosa-pack-digest')
+  const transportHash = readSingleHeader(req, 'x-prosa-transport-hash')
+  try {
+    const result = await uploadObjectPack(
+      {
+        rawExec: deps.rawExec,
+        transaction: deps.transaction,
+        tenantId,
+        objectStore: deps.objectStore,
+      },
+      { promotionId: params.promotionId, body, declaredPackDigest, transportHash },
+    )
+    reply.code(200)
+    return result
+  } catch (err) {
+    if (err instanceof UploadObjectPackNotFoundError) {
+      reply.code(404)
+      return { code: err.code, op: 'UploadObjectPack', message: err.message }
+    }
+    if (err instanceof UploadObjectPackValidationError) {
+      reply.code(400)
+      return { code: 'INVALID_REQUEST', op: 'UploadObjectPack', message: err.message, issues: err.issues }
+    }
+    throw err
+  }
+}
+
+function readSingleHeader(req: FastifyRequest, name: string): string | undefined {
+  const value = req.headers[name]
+  if (Array.isArray(value)) return value[0]
+  return value
 }
 
 function toUint8Array(body: unknown): Uint8Array | null {

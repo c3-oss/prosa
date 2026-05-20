@@ -27,6 +27,7 @@ describe('v2 plugin production-mode signer policy', () => {
         auth: stubAuth(),
         rawExec: stubRawExec,
         objectStore: new MemoryObjectStore(),
+        transaction: async (fn) => fn(stubRawExec),
         runtimeMode: 'production',
         // signer intentionally omitted
       }),
@@ -40,6 +41,7 @@ describe('v2 plugin production-mode signer policy', () => {
       auth: stubAuth(),
       rawExec: stubRawExec,
       objectStore: new MemoryObjectStore(),
+      transaction: async (fn) => fn(stubRawExec),
       runtimeMode: 'production',
       signer,
     })
@@ -52,6 +54,7 @@ describe('v2 plugin production-mode signer policy', () => {
       auth: stubAuth(),
       rawExec: stubRawExec,
       objectStore: new MemoryObjectStore(),
+      transaction: async (fn) => fn(stubRawExec),
       runtimeMode: 'development',
     })
     expect(handle.signer).toBeDefined()
@@ -65,6 +68,7 @@ describe('v2 plugin production-mode signer policy', () => {
       auth: stubAuth(),
       rawExec: stubRawExec,
       objectStore: new MemoryObjectStore(),
+      transaction: async (fn) => fn(stubRawExec),
       runtimeMode: 'test',
     })
     expect(handle.signer).toBeDefined()

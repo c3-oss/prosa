@@ -251,3 +251,83 @@ Slice 3 deferred (explicit):
   canonical digest is checked directly.
 - Object pack uploads (`POST /v2/promotions/:id/object-packs`),
   seal, and `GET /v2/receipts/:receiptId` remain 501.
+
+## Slice 4 (UploadObjectPack route + remote_pack catalog) — 2026-05-20
+
+Scope:
+
+- New `apps/api/src/v2/sync/upload-object-pack.ts` implements
+  `POST /v2/promotions/:promotionId/object-packs`:
+  - Resolves the staging row by `(id, tenant_id)` and refuses
+    sealed/aborted slots with `404 PROMOTION_NOT_FOUND`.
+  - Computes two distinct hashes: `transportHash` (BLAKE3 over the
+    wire bytes) and the self-referential `packDigest` from the
+    verified pack header. CQ-012 keeps the two separate; CQ-026
+    explains why the on-disk digest differs from `BLAKE3(bytes)`.
+  - Validates the optional `x-prosa-transport-hash` and
+    `x-prosa-pack-digest` headers against the corresponding hashes
+    and returns `400 INVALID_REQUEST` with a typed `issues[]`
+    payload on mismatch.
+  - Runs `verifyCasPack(bytes)` from `@c3-oss/prosa-bundle-v2` — the
+    canonical pack verifier checks framing magic/version, canonical
+    JSON header bytes, the self-referential pack_digest, the zstd
+    window cap, and every entry's `stored_hash` /
+    `uncompressed_hash` / `object_id` match.
+  - Idempotency: hits the catalog first
+    (`SELECT … FROM remote_pack WHERE tenant_id=$1 AND pack_digest=$2`)
+    and returns `already_present` when present. Otherwise
+    `putIfAbsent` writes the bytes at
+    `object-packs/<tenant>/<pack_digest_hex>.pack`. INSERT
+    `remote_pack` + N `remote_pack_entry` rows in a transaction;
+    a racing duplicate raises `unique_violation` (`23505`) and the
+    handler resurfaces it as `already_present`.
+  - Hands the literal transport hash to the object store's
+    `meta.hash`, since `MemoryObjectStore`/`FsObjectStore` verify
+    `BLAKE3(bytes) === meta.hash` and that value is NOT the
+    self-referential pack digest.
+- `apps/api/src/v2/index.ts`, `apps/api/src/app.ts`, and
+  `apps/api/src/v2/promotion.ts` thread the new
+  `DatabaseHandle['transaction']` dep through to the route plugin.
+- `apps/api/test/helpers/test-app.ts` applies `PACKS_SCHEMA_SQL` on
+  top of the existing v1 schema with the colliding `remote_object`
+  block stripped (CQ-124 placeholder). The remaining v2 packs tables
+  (`remote_pack`, `remote_pack_entry`, `receipt_pack_grant`,
+  `pack_audit_state`, `pack_gc_state`) don't collide.
+- `apps/api/test/v2/skeleton.test.ts` removes `UploadObjectPack`
+  from the 501 set; only `SealPromotion` and `GetReceipt` remain
+  unimplemented.
+- `apps/api/test/v2/production-signer.test.ts` passes the new
+  `transaction` dep alongside the existing `MemoryObjectStore`.
+- New `apps/api/test/v2/sync/upload-object-pack.test.ts` covers 7
+  cases: unauth 401, unknown promotion 404, cross-tenant 404 (I1),
+  random bytes rejected by `verifyCasPack` 400, bad
+  `x-prosa-pack-digest` header 400, happy path inserts 1
+  `remote_pack` + 2 `remote_pack_entry` rows / writes the staging
+  object / re-upload is `already_present` with row count unchanged,
+  sealed/aborted refuses with 404. The happy path uses real
+  `buildCasPack(...)` bytes so the test pin verifies the full Lane
+  1 pack format end-to-end.
+
+Gates:
+
+- `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/sync/upload-object-pack.test.ts`
+  → pass, 7/7.
+- `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/` → pass,
+  67/67.
+- `pnpm --filter @c3-oss/prosa-api test` → pass, 202/203
+  (1 pre-existing skip).
+- `pnpm --filter @c3-oss/prosa-api lint` → clean.
+- `pnpm typecheck` → pass, 13/13 packages.
+- `git diff --check` → clean.
+
+Slice 4 deferred (explicit):
+
+- BeginPromotion still always returns `needs_inventory` for fresh
+  bundles. The `needs_upload` transition requires reading the
+  uploaded `inventory_object` segment, comparing the declared
+  object set to `remote_pack_entry` rows, and emitting the missing
+  set. That transition ships alongside the seal slice or its
+  prerequisite.
+- `SealPromotion` and `GET /v2/receipts/:receiptId` remain 501.
+- CLI `prosa sync-v2`, resume/no-op behavior, and Docker E2E are
+  pending downstream slices.

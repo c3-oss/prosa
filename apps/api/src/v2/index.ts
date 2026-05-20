@@ -8,7 +8,7 @@ import type { RemoteObjectStore } from '@c3-oss/prosa-storage'
 import type { FastifyInstance } from 'fastify'
 import type { ProsaAuth } from '../auth.js'
 import type { RuntimeMode } from '../config.js'
-import type { RawExec } from '../db.js'
+import type { DatabaseHandle, RawExec } from '../db.js'
 import { registerReceiptKeysRoute } from './keys.js'
 import { registerPromotionRoutes } from './promotion.js'
 import { type ReceiptSigner, createLocalReceiptSigner } from './signing/local-signer.js'
@@ -26,6 +26,7 @@ export class MissingV2SignerError extends Error {
 export type V2PluginDeps = {
   auth: ProsaAuth
   rawExec: RawExec
+  transaction: DatabaseHandle['transaction']
   objectStore: RemoteObjectStore
   /**
    * Runtime mode from `loadConfig`. In `production`, `signer` is
@@ -52,6 +53,7 @@ export function registerV2Routes(app: FastifyInstance, deps: V2PluginDeps): V2Pl
   registerPromotionRoutes(app, {
     auth: deps.auth,
     rawExec: deps.rawExec,
+    transaction: deps.transaction,
     objectStore: deps.objectStore,
   })
   return { signer }

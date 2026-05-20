@@ -41,6 +41,7 @@
   },
   "dependencies": {
     "@better-auth/drizzle-adapter": "^1.6.11",
+    "@c3-oss/prosa-bundle-v2": "workspace:*",
     "@c3-oss/prosa-db": "workspace:^",
     "@c3-oss/prosa-db-v2": "workspace:*",
     "@c3-oss/prosa-storage": "workspace:^",
