@@ -933,3 +933,53 @@ only repaired the missing-byte case via the existing two-case
 the wrong-content fast path and the seal-after-pack-byte-loss
 gap; both are now covered by the new test file above. CQ-141
 acceptance bullets are all proven; the CQ is closed.
+
+## CQ-125 closure (BeginPromotion receipt verification) — 2026-05-20
+
+Scope:
+
+- `apps/api/src/v2/sync/begin-promotion.ts` adds the signer to
+  `BeginPromotionDeps` and gates the `already_promoted` fast path
+  on three independent checks:
+  1. Authority tuple integrity — `loadAuthorityReceipt` loads the
+     row scoped to `(tenant, store, bundleRoot, receiptId)` and
+     refuses any row/payload tuple mismatch.
+  2. Content-addressed derived id —
+     `deriveReceiptId(payload) === payload.receiptId`.
+  3. Signature verification —
+     `signer.verifyReceipt(receiptPayloadBytes(payload), signature)`.
+- Receipt is only returned when
+  `payload.deviceId === request.device.deviceId`. A different
+  device falls through to open its own staging slot — the
+  bundle's authority already exists; the second device's re-seal
+  produces a receipt signed under its own id.
+- `apps/api/test/helpers/test-app.ts` exposes the signer on
+  `TestApp` so seed helpers can sign with the same instance the
+  route verifies against.
+- `apps/api/test/v2/sync/begin-fast-path.test.ts` +
+  `apps/api/test/v2/sync/cq-127-device-ownership.test.ts` updated
+  to derive canonical receipt ids and sign with the test signer.
+
+Pinned by `apps/api/test/v2/sync/cq-125-receipt-validation.test.ts`:
+
+1. Tampered payload (deriveReceiptId mismatch) → 500
+   `AUTHORITY_CORRUPT` with a `deriveReceiptId`-flagged message.
+2. Bogus base64url signature (right shape, wrong bytes) → 500
+   `AUTHORITY_CORRUPT` with a signature-flagged message.
+3. Foreign-signer signature with the keyId spoofed to the
+   current signer's → 500 `AUTHORITY_CORRUPT`.
+4. Happy path: properly derived id + signed payload → 200
+   `already_promoted` with the schema-valid receipt.
+
+Gates:
+
+- `pnpm --filter @c3-oss/prosa-api test` → pass, 278 / 4 skipped.
+- `pnpm --filter @c3-oss/prosa test` → pass, 290 / 1 skipped.
+- `pnpm lint` repo-wide → clean.
+- `pnpm typecheck` repo-wide → clean.
+
+CQ-125 acceptance bullets are all proven; the CQ is closed. The
+malformed/unparseable receipt JSON case is implicitly covered by
+the existing missing-receipt path (`coerceJsonbObject` → null →
+'missing'); the device-mismatch + invalid-signature axes are
+explicit cases above.
