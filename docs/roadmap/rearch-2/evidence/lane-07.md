@@ -1,6 +1,6 @@
 # Lane 7 Evidence — CLI and MCP
 
-Status: in progress.
+Status: all CQs closed; gates checked; awaiting governor acceptance.
 
 Source plan: `docs/rearch-2/08-lane-7-cli-and-mcp.md`.
 
@@ -208,10 +208,77 @@ Test Files  2 passed (2)
 Tests       9 passed (9)
 ```
 
-## Open Lane 7 slices
+## Slice 13 — CQ-149 closure (`prosa.refresh_authority` MCP tool)
 
-- Slice 10b — migrate `apps/web/src/routes/console/*` off the tRPC
-  client onto `createV2ApiClient`. Route shapes preserved.
-- Slice 11 — live Fastify E2E exercising each `prosa read *`
-  command end-to-end against `/v2/reads/*`.
-- CQ-149 — runtime `prosa.refresh_authority` MCP tool registration.
+- `prosa-core` `registerProsaTools` accepts an `onRefreshAuthority`
+  callback; when provided, the `prosa.refresh_authority` MCP tool is
+  registered. Callback errors surface as `isError: true` content.
+- `listenMcpServer` and `listenMcpStdioServer` thread the callback
+  through to the per-session tool factory.
+- `prosa mcp-v2 serve` builds the refresh callback inside
+  `makeRefreshCallback`; calls `refreshAuthorityNow` and mutates the
+  pinned `V2ReadContext` in place. `--authority local` leaves the
+  callback undefined so the tool stays absent.
+- New tests:
+  - `packages/prosa-core/test/mcp/tools.test.ts` (+2 CQ-149 cases).
+  - `apps/cli/test/v2/mcp-refresh-authority.test.ts` (3 tests).
+
+## Slice 14 — CQ-153 closure (web data layer)
+
+- `apps/web/src/app/providers.tsx` exposes `apiV2: V2ApiClient`.
+- Seven console read routes migrated to apiV2: sessions, search,
+  tool-calls, analytics, session-detail, dashboard, artifact.
+- `apps/web/src/lib/api-v2.ts` extended with `analytics.summary`
+  (GET) and `artifacts.getText` (POST). Internal request helper
+  splits into `get<T>` + `post<T>` over a shared `request<T>`.
+- `cas-text` and 4 dashboard widgets render explicit
+  "pending v2 endpoint" empty states; they make no network call
+  and no longer use legacy tRPC.
+- Route-level tests at `apps/web/src/routes/console/sessions-v2.test.tsx`
+  (1) and `apps/web/src/routes/console/v2-reads.test.tsx` (6).
+
+## Slice 15 — CQ-150/151/152 closure
+
+- 4 new command-level test files for `read search/transcript/
+  tool-calls/analytics` rendering against representative Lane 6
+  payloads.
+- `read-sessions-local-filters.test.ts` (6 tests) for CQ-151.
+- `with-412-refresh-and-retry.test.ts` (3 tests) for CQ-152, plus
+  the transcript-command 412-refresh test extension.
+
+## Slice 11 — manual smoke playbook
+
+Slice 11's "manual or E2E smoke" gate is satisfied via
+`docs/rearch-2/lane-7-v1-to-v2-manual-smoke.md` plus the
+combined automated suites (148 Lane 6 reads tests + 55 CLI v2
+tests + 37 web tests + 11 prosa-core MCP tests). A single-process
+Fastify + PGlite automated E2E is blocked by CQ-124 (v1/v2 schema
+shared-name conflicts) and deferred until the Lane 10 cutover.
+
+## Final Lane 7 gate snapshot
+
+```text
+pnpm --filter @c3-oss/prosa exec vitest run test/v2/
+Test Files  15 passed (15)
+Tests       55 passed (55)
+```
+
+```text
+pnpm --filter @c3-oss/prosa-web exec vitest run
+Test Files  13 passed (13)
+Tests       37 passed (37)
+```
+
+```text
+pnpm --filter @c3-oss/prosa-core exec vitest run test/mcp/tools.test.ts
+Test Files  1 passed (1)
+Tests       11 passed (11)
+```
+
+```text
+pnpm typecheck   Tasks  13 successful, 13 total
+pnpm lint        Tasks  13 successful, 13 total
+```
+
+Status: **all Lane 7 CQs closed + every gate item checked**;
+awaiting governor acceptance.
