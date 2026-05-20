@@ -184,3 +184,61 @@ satisfied. Phase 0 prerequisite is met; Phase 1 (Lane 4 Server)
 may begin per the ralph-loop prompt. The prompt explicitly
 forbids `RALPH_DONE` immediately after Phase 0 — Lane 4 must
 reach its own gate first.
+
+---
+
+# Lane 4 Stabilization Log
+
+Lane 4 acceptance requires its own five consecutive 180-second
+clean cycles after the implementation slices land. Counter resets
+to zero whenever a new non-stabilization commit lands, a gate
+fails, an open blocker appears, or status/gates/evidence
+disagree with the repo state.
+
+## Cycle 1 — 2026-05-20T04:05:24Z
+
+- **HEAD**: `3fe127a feat(api): cq-122 streaming pack validator with bounded scratch`
+- **Branch**: `feature/rearch` (ahead 1 of `origin/feature/rearch`
+  per the rebase that aligned the upstream tracking after the
+  Lane 4 commits landed).
+- **Worktree**: governor-driven doc edits to
+  `docs/roadmap/rearch-2/{evidence/lane-05.md, gates.md,
+  ralph-loop-prompt.md, status.md}` (same pattern as Lane 3
+  cycles 1–5). Plus the same transient
+  `.claude/scheduled_tasks.lock` from the loop runner. No code,
+  test, config, or build changes.
+- **correction-queue.md**: "None currently recorded" under open
+  blockers. CQ-119, CQ-120, CQ-121, and CQ-122 are listed under
+  "Closed during this cycle". Header reads "2026-05-20 after
+  CQ-122 closure".
+- **gates.md**: Lane 4 completion gates section enumerates seven
+  bullets covering schema idempotency, v2 boot + auth context,
+  receipt signing/I5, JWKS, streaming pack validation, cron
+  skeleton, and 501 promotion routes. All bullets are evidenced
+  by committed tests + slice records in
+  `evidence/lane-04.md`. Lane 5+ bullets are intentionally
+  unfilled.
+- **evidence/lane-04.md**: records slices 1–6 plus the four CQ
+  closures (CQ-119/CQ-120/CQ-121/CQ-122), including the explicit
+  Lane 4 vs Lane 5 scope split for the streaming validator.
+- **status.md**: governor-driven; reads "Lane 4 Server: next
+  core milestone after Lane 3 closeout". Will be updated to
+  "implementation complete; awaiting governor acceptance" once
+  the next stabilization cycle confirms the worktree.
+- **Recent commits** (most recent first; no surprise commits):
+  - `3fe127a feat(api): cq-122 streaming pack validator with bounded scratch`
+  - `92f0b4f fix(api): cq-120 + cq-121 close production signer + wire alg gaps`
+  - `2ef824b feat(api): lane 4 cron advisory-lock skeleton`
+  - `957d132 fix(api): cq-119 align v2 promotion routes with lane 5 contract`
+  - `cfe7f0c feat(api): lane 4 bounded zstd window cap for pack uploads`
+  - `6a616b2 test(api): invariant I5 sign+verify gate + signer bugfix`
+  - `c86ea31 feat(api): lane 4 v2 plugin scaffold + receipt signer + 501 routes`
+  - `5df6db0 chore(docs): lane 3 stabilization cycle 5`
+- **Gate snapshot** (no fresh runs in this cycle; the most recent
+  run was during the CQ-122 closure commit at `3fe127a`):
+  - `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/` → 44/44.
+  - `pnpm --filter @c3-oss/prosa-api lint` → clean.
+  - Workspace `pnpm typecheck` → 13/13.
+
+Cycle 1 result: **clean**. Counter = 1. Cycle 2 may start no
+earlier than 2026-05-20T04:08:24Z (180 s minimum interval).
