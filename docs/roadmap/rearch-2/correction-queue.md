@@ -636,10 +636,13 @@ Acceptance:
 - [x] Tools/errors tests prove current-authority rows with a mismatched
       `session_id` cannot affect error counts or errors rows
       (`cross-store-distinct.test.ts` wrong-session regression, slice 11).
-- [ ] Tests document and pin any intentional difference from the local
-      `packages/prosa-core` analytics report columns and timestamp semantics.
-      (Not in scope for slice 11 closure; the strict schema rejects unsupported
-      filter keys, so the contract narrowing is enforced at the wire boundary.)
+- [x] Tests document and pin any intentional difference from the local
+      `packages/prosa-core` analytics report columns and timestamp semantics
+      (`apps/api/test/v2/reads/analytics-contract.test.ts`, slice 11 follow-up).
+      The contract test enumerates the v2 supported filter set,
+      enumerates the local-only filter keys, asserts the v2 strict
+      schema rejects every local-only key, and pins the ISO 8601 UTC
+      wire timestamp convention.
 
 ### CQ-144: `artifacts.getText` WIP leaks miss reasons and lacks route-level tests
 
