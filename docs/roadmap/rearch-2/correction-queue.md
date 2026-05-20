@@ -210,6 +210,34 @@ Governor review after `a1a21d7`:
 - Existing web evidence only proves the helper's missing-tenant no-network
   behavior; it does not prove any route uses `/v2/reads/*`.
 
+Update at `6b19d5c` + `7f6f3c8`:
+
+- `AppProviders` now exposes `apiV2: V2ApiClient` alongside the legacy
+  tRPC client.
+- Five console read routes migrated to apiV2:
+  `ConsoleSessions` (sessions.list + count), `ConsoleSearch`
+  (search.query), `ConsoleToolCalls` (toolCalls.list),
+  `ConsoleAnalytics` (analytics.report), and `ConsoleSessionDetail`
+  (sessions.transcript). Filter shapes translate v1 `sourceKinds` to v2
+  `sourceTools` and shim the v2 transcript payload into the existing
+  TranscriptTurn/TranscriptToolCall component shape.
+- Route-level tests at
+  `apps/web/src/routes/console/sessions-v2.test.tsx` (1 test) and
+  `apps/web/src/routes/console/v2-reads.test.tsx` (4 tests) prove each
+  migrated route calls `apiV2.v2.*` and never invokes the legacy tRPC
+  procedures. Web suite: 13 files, 35 tests passed.
+
+Still open under **CQ-153 follow-up** — these consumers stay on legacy
+tRPC because they need additional v2 read endpoints before migration:
+
+- `apps/web/src/routes/console/dashboard.tsx` → `api.analytics.summary`.
+- `apps/web/src/components/console/dashboard/widgets/{activity,daily-threads,tokens-by-agent,agent-vs-subagent}-widget.tsx`
+  — bespoke `api.analytics.*` procedures with no v2 equivalent yet.
+- `apps/web/src/routes/console/artifact.tsx` → `api.artifacts.getText`.
+- `apps/web/src/components/console/transcript/cas-text.tsx` →
+  `api.artifacts.getText` (the v2 client has `artifactGetText` but the
+  component still wires through the legacy client; needs a leaf change).
+
 ### CQ-149: `prosa.refresh_authority` MCP tool not yet registered
 
 Severity: medium
