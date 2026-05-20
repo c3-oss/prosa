@@ -297,3 +297,18 @@ just e2e-cli         # 3/3 (CLI subprocess + second-device 404)
 ```
 
 No code drift in the 180-second wait. Cycle 1 clean.
+
+### Cycle 2 — 2026-05-20
+
+Working tree clean (no drift since cycle 1). Gates re-run:
+
+```text
+focused CQ-141 vitest                              # 10/10
+pnpm typecheck                                     # 13/13 cached
+pnpm lint                                          # 13/13 cached
+git diff --check                                   # clean
+just e2e                                           # 4/4
+just e2e-cli                                       # 3/3
+```
+
+Cycle 2 clean.
