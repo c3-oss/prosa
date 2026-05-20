@@ -1128,3 +1128,55 @@ Gates:
 
 CQ-138 acceptance bullets are all proven (the same-tenant policy
 sub-bullet is delegated to CQ-127); the CQ is closed.
+
+## CQ-127 closure (mandatory device + GetReceipt scoping) — 2026-05-20
+
+Scope:
+
+- `apps/api/src/v2/promotion.ts` renames `maybeVerifyDevice` to
+  `requireVerifiedDevice` and gates every post-begin route on a
+  three-state result:
+  - `missing` (header absent) → 400 DEVICE_REQUIRED;
+  - `invalid` (unregistered to this user) → 403 DEVICE_NOT_OWNED;
+  - `verified` (registered) → route proceeds; the inner handler
+    cross-checks against `staging.device_id` and surfaces 403
+    DEVICE_MISMATCH on disagreement.
+- GetReceipt (`GET /v2/receipts/:receiptId`) additionally compares
+  the verified device id against `payload.deviceId` and returns
+  404 RECEIPT_NOT_FOUND on mismatch. The 404 (vs 403) prevents a
+  probe from distinguishing "exists, wrong device" from "does not
+  exist".
+- `apps/cli/src/cli/v2/sync/promote.ts` threads
+  `input.deviceId` into `x-prosa-device-id` on every post-begin
+  request — status fetch, inventory segment uploads, object-pack
+  upload, seal. The header reuses the same device id
+  BeginPromotion already requires in the request body.
+
+Pinned by:
+
+- Pre-existing `apps/api/test/v2/sync/cq-127-device-policy-routes.test.ts`
+  — 4 cases (UploadSegment mismatch / UploadObjectPack
+  unregistered / SealPromotion mismatch / GetPromotionStatus
+  mismatch).
+- Pre-existing `apps/api/test/v2/sync/cq-127-device-ownership.test.ts`
+  — 4 cases (auto-register fresh device, cross-user-steal refusal,
+  foreign-device fall-through to needs_inventory, same-device
+  already_promoted replay).
+- Updated v2 sync test suite — every route test
+  (`upload-segment`, `upload-object-pack`, `seal-promotion`,
+  `get-promotion-status`, `get-receipt`, `cq-134`, `cq-136-*`,
+  `cq-137`, `cq-138`, `cq-141-*`) now sends the device header.
+  Tests that exercise tenant isolation register a separate device
+  for the second tenant; 404-on-unknown tests register the device
+  before the call so the test exercises the intended 404 path.
+- `apps/cli/test/cli/v2/sync/promote.test.ts` exercises the
+  header end-to-end through the lifecycle test.
+
+Gates:
+
+- `pnpm --filter @c3-oss/prosa-api test` → pass, 281 / 4 skipped.
+- `pnpm --filter @c3-oss/prosa test` → pass, 295 / 1 skipped.
+- `pnpm lint` repo-wide → clean.
+- `pnpm typecheck` repo-wide → clean.
+
+CQ-127 acceptance bullets are all proven; the CQ is closed.

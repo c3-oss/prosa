@@ -82,9 +82,15 @@ The blocker is implementation work, not environment.
   `remote_authority_v2` / `promotion_staging` / `device` all resolve
   against the boot-applied schema. Test wording no longer claims CQ-124
   closure. Repo-wide `pnpm lint` and `pnpm typecheck` green.
-- CQ-127: BeginPromotion and opt-in post-begin device checks exist, but closure
-  is rejected until device identity is mandatory/derived on upload, object-pack,
-  seal, status, and receipt surfaces, and CLI `sync-v2` sends/proves it.
+- CQ-127: closed (2026-05-20). `x-prosa-device-id` is mandatory on every
+  post-begin v2 route (`requireVerifiedDevice`); missing → 400
+  DEVICE_REQUIRED, unregistered → 403 DEVICE_NOT_OWNED, mismatched
+  → 403 DEVICE_MISMATCH. GetReceipt additionally compares against
+  `payload.deviceId` and returns 404 RECEIPT_NOT_FOUND on mismatch.
+  CLI `promoteBundleV2` sends the header on every status / segment /
+  pack / seal request. Pinned by the existing CQ-127 policy +
+  ownership test files plus updated routes across the v2 sync test
+  suite.
 - CQ-128: closed (2026-05-20). The partial unique index over active
   `(tenant_id, store_id, bundleRoot)` rows + `INSERT ... ON CONFLICT DO
   NOTHING` collapse 8 concurrent `BeginPromotion`s to a single
@@ -179,9 +185,11 @@ The blocker is implementation work, not environment.
   earlier `cba2b90`/`6557852` and `11447b7`/`9aff136` rejections (shared
   schema + CLI validation) are resolved by the 2026-05-20 closure
   (`promoteBundleV2` now schema-parses + JWKS-verifies every receipt).
-- CQ-127 closure from `0e59a43` is rejected because post-begin checks are
-  optional via `x-prosa-device-id`, CLI does not send the header, and GetReceipt
-  remains tenant-wide.
+- CQ-127's earlier `0e59a43` rejection (opt-in header + tenant-wide
+  GetReceipt + no CLI propagation) is resolved by the 2026-05-20 closure:
+  the header is mandatory, GetReceipt is device-scoped via
+  `payload.deviceId`, and the CLI sends the header on every post-begin
+  request.
 - CQ-123 closure from `3f313f0` is rejected as partial; that gap is resolved
   by the 2026-05-20 closure (`promote.test.ts` adds the lifecycle proof
   with `promotionReceiptV2Schema.safeParse` + JWKS verify of a real

@@ -472,45 +472,58 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 5 authorization acceptance)
-Status: open (partial closure rejected 2026-05-20)
+Status: closed (2026-05-20)
 Owner: Ralph
 
-Partial closure: UploadSegment, UploadObjectPack, SealPromotion,
-and GetPromotionStatus each read an optional
-`x-prosa-device-id` header via the new `maybeVerifyDevice(...)`
-helper. When the header is present:
-- the device must be registered to the authenticated user
-  (foreign devices → 403 DEVICE_NOT_OWNED), and
-- the staging row's `device_id` must match (mismatch → 403
-  DEVICE_MISMATCH).
-When the header is absent the route falls back to tenant-scoped
-access; the security-critical receipt-leak path is closed by
-BeginPromotion's same-device fast-path gate (already in v2.0),
-because that's the only route that emits/returns receipts to
-foreign-device callers.
+Closure (2026-05-20): `x-prosa-device-id` is now MANDATORY on
+every post-begin v2 route. The helper renamed from
+`maybeVerifyDevice` to `requireVerifiedDevice`, and each route
+returns `400 DEVICE_REQUIRED` when the header is absent. When
+present, the device must be registered to the authenticated user
+(otherwise 403 DEVICE_NOT_OWNED) AND match the staging row's
+`device_id` (otherwise 403 DEVICE_MISMATCH).
 
-The policy boundary is the route layer:
-`verifyDeviceOwnership(...)` lives in
-`apps/api/src/v2/sync/device-check.ts`. Each handler defines a
-`DeviceMismatchError` that surfaces as 403 with
-`stagingDeviceId` + `requestingDeviceId` for client telemetry.
+Affected routes:
+- `PUT /v2/promotions/:promotionId/segments/:segmentId`
+- `POST /v2/promotions/:promotionId/object-packs`
+- `POST /v2/promotions/:promotionId/seal`
+- `GET /v2/promotions/:promotionId/status`
+- `GET /v2/receipts/:receiptId` — additionally compares the
+  verified device against `payload.deviceId` and returns 404
+  RECEIPT_NOT_FOUND when they differ. The 404 (vs 403) prevents
+  a same-tenant probe from distinguishing "exists, wrong device"
+  from "does not exist".
 
-Pinned by four cases in
-`apps/api/test/v2/sync/cq-127-device-policy-routes.test.ts`:
-1. UploadSegment with a mismatched header → 403 DEVICE_MISMATCH;
-2. UploadObjectPack with a foreign (unregistered) header → 403
-   DEVICE_NOT_OWNED;
-3. SealPromotion with a mismatched header refuses to seal;
-4. GetPromotionStatus with a mismatched header → 403
-   DEVICE_MISMATCH.
+CLI: `apps/cli/src/cli/v2/sync/promote.ts` sends
+`x-prosa-device-id: ${input.deviceId}` on every post-begin
+request — status fetch, segment upload, object-pack upload, seal.
+The header is threaded through the same `PromoteInput.deviceId`
+that BeginPromotion already requires in its body, so callers do
+not need to track a second value.
 
-This does not close CQ-127. Reviewer found the policy is opt-in:
-when `x-prosa-device-id` is absent, post-begin routes continue
-tenant-scoped, and the current CLI `sync-v2` path does not send
-the header on status/upload/seal requests. A same-tenant caller
-who can reuse an active staging id can omit the header and read
-status, upload bytes, or seal. GetReceipt also remains
-tenant-wide and does not use the same device policy.
+Pinned by:
+- `apps/api/test/v2/sync/cq-127-device-policy-routes.test.ts` —
+  four cases proving the device-mismatch + device-not-owned
+  rejection paths still surface as 403.
+- `apps/api/test/v2/sync/cq-127-device-ownership.test.ts` —
+  fresh device auto-register, cross-user-steal refusal,
+  foreign-device fall-through to needs_inventory, same-device
+  already_promoted replay.
+- Every other v2 route test (`upload-segment`, `upload-object-pack`,
+  `seal-promotion`, `get-promotion-status`, `get-receipt`,
+  `cq-134`, `cq-136-*`, `cq-137`, `cq-138`, `cq-141-*`) was
+  updated to send the device header — proving the mandatory
+  policy doesn't accidentally break legitimate Lane 5 flows.
+- `apps/cli/test/cli/v2/sync/promote.test.ts` exercises the
+  client-side header through the full lifecycle.
+
+Closure history (kept for context):
+- The first BeginPromotion-side fix (`claimDevice` + same-device
+  fast path) addressed the receipt-leak on begin. The reviewer
+  flagged that post-begin routes still allowed tenant-wide
+  access. This closure makes the header mandatory on every
+  post-begin route AND on GetReceipt, closing the same-tenant
+  fall-through path.
 
 Earlier partial-closure note (BeginPromotion-side):
 
@@ -538,12 +551,15 @@ Pinned by four cases in
 4. same device replaying the seal still gets
    `already_promoted`.
 
-Outstanding for full closure:
-- Make device identity mandatory on every post-begin route, or derive it from
-  an authenticated device token. Optional headers are not enough.
-- Update CLI `sync-v2` to send/prove the device id on status/upload/seal.
-- Apply the same policy to GetReceipt, or explicitly re-scope CQ-127/CQ-138 to a
-  tenant-wide receipt policy with tests.
+Outstanding for full closure: ALL ITEMS RESOLVED in the
+2026-05-20 closure.
+- [x] Make device identity mandatory on every post-begin route
+      (`requireVerifiedDevice` + 400 DEVICE_REQUIRED).
+- [x] Update CLI `sync-v2` to send/prove the device id on
+      status/upload/seal (`promoteBundleV2` threads `input.deviceId`
+      into `x-prosa-device-id` on every call).
+- [x] Apply the same policy to GetReceipt (header required +
+      `payload.deviceId === verifiedDeviceId`).
 
 Problem:
 
