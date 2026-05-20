@@ -54,6 +54,26 @@ are closed with command evidence:
 - CQ-153: migrate web console read routes from legacy tRPC to `/v2/reads/*` and
   fail closed when no tenant is active.
 
+Governor review of `a1a21d7` found these CQs are not closed yet:
+
+- CQ-150 still lacks command-level tests for `read search`, `read transcript`,
+  `read tool-calls`, and `read analytics` against representative Lane 6
+  payloads.
+- CQ-151 still lacks focused local fallback filter tests.
+- CQ-152 still has a behavior bug: single-page `read transcript` must refresh
+  once and retry after HTTP 412; only `--all-pages` should fail closed as
+  streaming output.
+- CQ-153 is not implemented: the web console routes still call legacy tRPC
+  read procedures instead of `/v2/reads/*`.
+
+Lane 8 and Lane 9 commits may exist in history, but they are not accepted while
+Lane 7 has these blockers. Do not claim Lane 8 or Lane 9 completion until Lane
+7 gates and CQs are clean.
+
+Do not close these blockers with docs/status/evidence-only commits. The next
+useful work is code plus focused tests for CQ-149 through CQ-153. Evidence
+updates should come after the relevant tests exist and pass.
+
 ## Milestone Order
 
 ### Lane 7 — CLI and MCP

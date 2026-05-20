@@ -19,7 +19,7 @@ import {
   type TranscriptToolCall,
   type TranscriptTurn,
 } from '../../client/index.js'
-import { type CommonReadOptions, addCommonReadOptions, prepareV2Read } from './common.js'
+import { type CommonReadOptions, addCommonReadOptions, prepareV2Read, with412RefreshAndRetry } from './common.js'
 
 type TranscriptFormat = 'text' | 'markdown' | 'json'
 
@@ -76,24 +76,42 @@ export function readTranscriptCommand(): Command {
 
       const pages: TranscriptPageBody[] = []
       let cursor: string | null | undefined = options.cursor ?? null
+      let currentCtx = ctx
 
-      // We refuse to refresh-and-retry inside the page walk: even
-      // a single 412 means the page set is no longer coherent.
+      // CQ-152 behavior split:
+      //  - Single-page transcript (no --all-pages) is an idempotent
+      //    read; HTTP 412 triggers one authority refresh + retry via
+      //    `with412RefreshAndRetry`. A second 412 stops with
+      //    `AuthorityChangedError`.
+      //  - Multi-page walk (--all-pages) MUST fail closed on any 412
+      //    so partial output never mixes two receipt snapshots.
       do {
         let page: TranscriptPageBody | null
-        try {
-          page = await ctx.client.getTranscriptPage({
-            sessionId,
-            ...(cursor ? { cursor } : {}),
-            ...(limit ? { limit } : {}),
-          })
-        } catch (err) {
-          if (err instanceof AuthorityChangedHttpError) {
-            throw new AuthorityChangedError(
-              'authority changed mid-transcript (HTTP 412); rerun the command to walk the new receipt.',
-            )
+        if (options.allPages) {
+          try {
+            page = await currentCtx.client.getTranscriptPage({
+              sessionId,
+              ...(cursor ? { cursor } : {}),
+              ...(limit ? { limit } : {}),
+            })
+          } catch (err) {
+            if (err instanceof AuthorityChangedHttpError) {
+              throw new AuthorityChangedError(
+                'authority changed mid-transcript (HTTP 412); rerun the command to walk the new receipt.',
+              )
+            }
+            throw err
           }
-          throw err
+        } else {
+          page = await with412RefreshAndRetry(currentCtx, (cur) => {
+            if (cur.kind !== 'remote') throw new Error('expected remote context')
+            currentCtx = cur
+            return cur.client.getTranscriptPage({
+              sessionId,
+              ...(cursor ? { cursor } : {}),
+              ...(limit ? { limit } : {}),
+            })
+          })
         }
         if (page === null) {
           if (pages.length === 0) {

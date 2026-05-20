@@ -50,6 +50,16 @@ Acceptance:
 - [ ] `pnpm --filter @c3-oss/prosa exec vitest run test/v2/` passes.
 - [ ] Relevant web v2 client tests pass after schema alignment.
 
+Governor review after `a1a21d7`:
+
+- Still open. The added client contract tests validate request/response schemas,
+  but they are not command-level tests for `prosa read search`,
+  `transcript`, `tool-calls`, or `analytics` rendering/routing against
+  representative Lane 6 payloads.
+- Required evidence command is still missing; if command-level files do not
+  exist, add them before closing:
+  `pnpm --filter @c3-oss/prosa exec vitest run test/v2/read-search*.test.ts test/v2/read-transcript*.test.ts test/v2/read-tool-calls*.test.ts test/v2/read-analytics*.test.ts`.
+
 ### CQ-151: Local read fallbacks ignore documented filters
 
 Severity: high
@@ -77,6 +87,12 @@ Acceptance:
   project/cursor filters.
 - [ ] Focused tests prove local `read search` honors supported filters or
   rejects unsupported filters explicitly.
+
+Governor review after `a1a21d7`:
+
+- Still open for evidence. Code appears to reject local `sessions --project`,
+  local `sessions --cursor`, and server-only local search filters, but no
+  focused command tests prove the acceptance criteria.
 
 ### CQ-152: CLI HTTP 412 handling does not refresh once and retry idempotent reads
 
@@ -107,6 +123,14 @@ Acceptance:
 - [ ] Focused tests prove repeated 412 stops explicitly without looping.
 - [ ] Focused tests prove multi-page/streaming output stops with a clear
   authority-changed error.
+
+Governor review after `a1a21d7`:
+
+- Still open with a behavior bug. `read transcript` single-page currently fails
+  closed on `AuthorityChangedHttpError`; only `--all-pages` should use the
+  streaming fail-closed path.
+- Existing `with-412-refresh-and-retry.test.ts` lacks the required first-412
+  retry, repeated-412 stop, and streaming/transcript fail-closed cases.
 
 ### CQ-153: Web console routes still use legacy tRPC and v2 client is not fail-closed
 
@@ -148,6 +172,17 @@ Acceptance:
   preserved or rejected explicitly.
 - [ ] Transcript large-body rendering either works through a v2 read endpoint or
   renders an explicit unavailable state without legacy fallback.
+
+Governor review after `a1a21d7`:
+
+- Still open. `AppProviders` still exposes only the legacy tRPC client, and
+  console read routes still call `api.sessions.*`, `api.search.*`,
+  `api.toolCalls.*`, `api.analytics.*`, and `api.artifacts.*` tRPC procedures.
+- The v2 client still lacks route coverage for session detail, artifact/CAS
+  text, analytics summary, and dashboard widget equivalents or explicit
+  fail-closed states.
+- Existing web evidence only proves the helper's missing-tenant no-network
+  behavior; it does not prove any route uses `/v2/reads/*`.
 
 ### CQ-149: `prosa.refresh_authority` MCP tool not yet registered
 

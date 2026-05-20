@@ -11,21 +11,20 @@ Updated: 2026-05-20 after Codex/governor acceptance of Lane 6.
 - Lane 4 Server: **accepted** by Codex/governor on 2026-05-20.
 - Lane 5 Sync protocol: **accepted** by Codex/governor on 2026-05-20.
 - Lane 6 Read API: **accepted** by Codex/governor on 2026-05-20.
-- Lane 7 CLI and MCP: **in progress** — slices 1-10 landed on main
-  plus CQ-150/151/152/153 fixes. Open: slice 10b (route migration
-  off tRPC), slice 11 (E2E smoke), CQ-149
+- Lane 7 CLI and MCP: **blocked, not accepted** — slices 1-10 landed, but
+  governor review found CQ-150/CQ-151/CQ-152/CQ-153 still open after
+  `a1a21d7`. Also open: slice 11 E2E smoke and CQ-149
   (`prosa.refresh_authority` MCP tool).
-- Lane 8 Audit and GC: **integrated to main** — audit cron handlers
+- Lane 8 Audit and GC: **implemented but not governor-accepted** — audit cron handlers
   (hourly/daily/weekly/monthly), GC three-phase lifecycle, drift
   surface (quarantine + receipt_audit_state + repair field), 503
   `DATA_UNAVAILABLE` artifact fallback, and Prometheus metrics
-  landed via parallel worktree merge. Lane 8 gate checkboxes
-  closed.
-- Lane 9 Migration: **integrated to main** — `prosa migrate-v2
+  landed. Acceptance is blocked until Lane 7 is clean.
+- Lane 9 Migration: **implemented but not governor-accepted** — `prosa migrate-v2
   bundle` (local) + `prosa migrate-v2 tenant` + `POST
   /v2/migrate/tenant` + `legacy_receipt_archive` landed via
-  parallel worktree merge. Lane 9 gate items pending final
-  baseline batch on integrated main.
+  parallel worktree merge. Acceptance is blocked until Lane 7 and Lane 8
+  are accepted in order.
 - Lane 10 Cutover: **not in the next Ralph loop**.
 
 ## Lane 6 Acceptance

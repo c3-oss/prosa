@@ -54,14 +54,14 @@ Tests       7 passed (7)
 - [x] CLI authority cache implements 60 s TTL, `--refresh`, `--offline`, and
   explicit stop on HTTP 412 (see `apps/cli/test/v2/authority-cache.test.ts`
   and `apps/cli/test/v2/reads-client.test.ts`).
-- [~] `prosa mcp serve --authority {auto|local|remote}` pins authority at
+- [ ] `prosa mcp serve --authority {auto|local|remote}` pins authority at
   startup. The runtime `prosa.refresh_authority` MCP tool is deferred to
   CQ-149 (restart-to-refresh today).
-- [~] MCP tools cover search, sessions, tool calls, analytics, artifact, and
+- [ ] MCP tools cover search, sessions, tool calls, analytics, artifact, and
   compile behavior without widening tenant/store authority. The existing
   prosa-core tool set is unchanged; v2 authority-aware tool wiring is
   tracked under CQ-149.
-- [~] Web data layer consumes `/v2/reads/*` while preserving route shapes.
+- [ ] Web data layer consumes `/v2/reads/*` while preserving route shapes.
   Typed client lives at `apps/web/src/lib/api-v2.ts`; full route-by-route
   migration off tRPC is tracked as a follow-up slice (Lane 7 slice 10b).
 - [x] Focused CLI, MCP, and web tests from `docs/rearch-2/08-lane-7-cli-and-mcp.md`
@@ -71,6 +71,9 @@ Tests       7 passed (7)
   against a live Fastify harness (Lane 7 slice 11).
 
 ## Lane 8 Completion Gates — Audit and GC
+
+Implementation evidence may be recorded, but Lane 8 is not governor-accepted
+until Lane 7 gates and CQ-149 through CQ-153 are clean.
 
 - [x] Audit cron handlers implement hourly, daily, weekly, and monthly cadences
   under advisory locks.
@@ -88,6 +91,9 @@ Tests       7 passed (7)
 - [x] E2E drift and GC scenarios are recorded.
 
 ## Lane 9 Completion Gates — Migration
+
+Implementation evidence may be recorded, but Lane 9 is not governor-accepted
+until Lane 7 and Lane 8 are accepted in order.
 
 - [x] `prosa migrate-v2 bundle` converts a v1 bundle to v2 from preserved raw
   bytes and aborts before rename on validation failure.
