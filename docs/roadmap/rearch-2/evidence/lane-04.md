@@ -431,6 +431,76 @@ frame followed by an oversized zstd frame was accepted by
 the implementation and evidence agree on whether multi-frame/later-frame
 enforcement is required and tested.
 
+## Governor review - CQ-122 closure accepted, stabilization reset
+
+Codex/governor accepts CQ-122 closure for Lane 4 scope because the current
+evidence explicitly limits Lane 4 to single-frame bounded stream validation,
+BLAKE3 transport hash comparison, byte budget, abort hook, and bounded scratch
+buffer. Multi-frame scanning, per-entry stored/uncompressed hash verification,
+S3 multipart abort wiring, and request concurrency caps are now documented as
+Lane 5 upload-route responsibilities rather than claimed Lane 4 completion.
+
+Focused validation:
+
+```text
+pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/streaming-pack.test.ts test/v2/streaming-validation.test.ts
+```
+
+Result: pass, 19/19.
+
+Stabilization note: Lane 4 stabilization cycles 1 and 2 were recorded while
+`status.md` / `ralph-loop-prompt.md` still named CQ-122 as open or otherwise
+contradicted `correction-queue.md`. Per the completion rule, those cycles do
+not count. Restart the five-cycle Lane 4 stabilization count only after this
+alignment is committed and final gates are rerun.
+
+## Governor final gate batch - 2026-05-20
+
+Codex/governor reran the final Lane 4 gate batch after CQ-119, CQ-120, CQ-121,
+and CQ-122 were closed and after the Lane 4 / Lane 5 streaming-validation scope
+split was accepted.
+
+Results:
+
+```text
+pnpm --filter @c3-oss/prosa-db-v2 test
+```
+
+Result: pass, 6/6.
+
+```text
+pnpm --filter @c3-oss/prosa-api test
+```
+
+Result: pass, 179 passed / 1 skipped.
+
+```text
+pnpm typecheck
+```
+
+Result: pass, 13/13 packages.
+
+```text
+pnpm lint
+```
+
+Result: pass, 13/13 packages.
+
+```text
+pnpm build
+```
+
+Result: pass, 13/13 packages.
+
+```text
+git diff --check
+```
+
+Result: pass.
+
+Lane 4 acceptance remains pending until five fresh 180-second stabilization
+cycles complete after this evidence/status/prompt alignment is committed.
+
 ## Governor review - CQ-120/CQ-121/CQ-122 opened
 
 CQ-119 was closed by `957d132`; the route contract smoke now passes and API v2

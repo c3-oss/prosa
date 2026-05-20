@@ -1,44 +1,47 @@
 # rearch-2 Current Status
 
-Updated: 2026-05-20 after CQ-116 closure.
+Updated: 2026-05-20 after Lane 4 final gate batch.
 
 ## Summary
 
 - Lane 0 Foundation: **accepted**.
 - Lane 1 Local store: **accepted** with recorded rescopes.
 - Lane 2 Importers: **accepted** by Codex/governor on 2026-05-19.
-- Lane 3 Derived layer: **active / incomplete**.
-- Lane 4 Server: **not yet started for delivery**; only early db scaffold exists.
-- Lanes 5–10: **not started**.
+- Lane 3 Derived layer: **accepted** after five documented 180-second
+  stabilization cycles.
+- Lane 4 Server: **final gates green / stabilization pending**.
+- Lane 5 Sync protocol: **prepared; blocked until Lane 4 acceptance**.
+- Lanes 6–10: **not started**.
 
-## Current Lane 3 focus
+## Current Lane 4 closeout
 
-CQ-115 closed. Tantivy runtime + bundle orchestrator + CLI shipped. The
-governor-mandated Tantivy compile-to-index gate is now satisfied end-to-end:
-`apps/cli/test/cli/compile-to-index-gate.test.ts` spawns `compile-v2 codex`
-against a fixture, then `index-v2 tantivy`, then `index-v2 status`, and asserts
-`tantivy.ready_for_read === true` with `indexed_doc_count === source_doc_count`.
-The v2 codex importer now emits one search_doc per message with indexable text;
-full v1 parity for tool-call / tool-result fan-out remains a follow-up. Reviewer
-feedback says the gate should still be strengthened before Lane 3 finalization
-by parsing the emitted `search_doc` row and/or querying the Tantivy index for the
-fixture text/doc_id; this does not reopen CQ-115.
-
-CQ-116 closed: the analytics runtime now reads canonical-projection NDJSON
-segments emitted by `compile-v2` (via DuckDB's `read_json_auto` with a
-`WHERE entityType IS NULL` header-filter) and materialises every analytics
-entity that has no on-disk file as a typed-but-empty stub built from
-`ENTITY_SCHEMA_ORDER`. A fixture-backed `compile-v2 codex` → `runAnalyticsExecution(session_facts)`
-end-to-end test asserts the expected row counts.
+CQ-119, CQ-120, CQ-121, and CQ-122 are closed. The v2 route placeholders,
+production signing fail-closed behavior, wire-compatible canonical I5 signing,
+streaming pack validator, and cron advisory-lock skeleton are implemented and
+evidenced for Lane 4 scope.
 
 Current explicit milestone:
 
-1. Lane-3 end-to-end gate wiring and final acceptance (no open blockers).
-2. Continue per-provider `search_doc` emission parity only as required support
-   for the Tantivy gate, and do not present partial provider wiring as full
-   Lane 3 completion.
+1. Commit this Lane 4 closeout and Lane 5 prep alignment.
+2. Complete five fresh 180-second Lane 4 stabilization cycles.
+3. Accept Lane 4, then start Lane 5 Sync protocol.
 
-Do **not** add more pure-read/audit/CLI surfaces unless they are directly required to implement or validate one of those runtime executors.
+Do **not** add more pure-read/audit/CLI surfaces unless they directly unblock
+Lane 3 closeout or validate a Lane 4 gate.
+
+## Lane 4 Server scope
+
+Lane 4 scope is limited to the server foundation from
+`docs/rearch-2/05-lane-4-server.md`: `packages/prosa-db-v2` schema and
+`applySchemaV2`, `apps/api/src/v2/` boot skeleton, preserved auth context,
+server receipt signing/JWKS, bounded streaming pack validation, cron/advisory
+lock skeleton, and v2 promotion route definitions that return 501.
+
+Lane 5 sync protocol work remains blocked until Lane 4 is accepted. After Lane 4
+acceptance, Lane 5 scope is the four-call promotion protocol:
+`BeginPromotion` -> upload inventory/object packs -> `SealPromotion` ->
+`GetReceipt`, plus CLI `sync-v2`, resume/no-op behavior, receipt verification,
+and Docker-backed E2E evidence.
 
 ## Important correction
 
@@ -51,8 +54,9 @@ The blocker is implementation work, not environment.
 
 ## Open blockers
 
-No open correction-queue blockers are currently recorded. CQ-115, CQ-116,
-CQ-117, and CQ-118 closed during this cycle — see `correction-queue.md`.
+No open correction-queue blockers are currently recorded. Lane 4 cannot be
+accepted yet because the fresh five-cycle 180-second stabilization count has not
+completed after final gate evidence.
 
 ## Supporting documents
 
