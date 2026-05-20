@@ -1,6 +1,6 @@
 # rearch-2 Current Status
 
-Updated: 2026-05-20 after Lane 5 governor acceptance and Lane 6 prep.
+Updated: 2026-05-20 after Lane 6 read-surface reviewer findings.
 
 ## Summary
 
@@ -11,9 +11,8 @@ Updated: 2026-05-20 after Lane 5 governor acceptance and Lane 6 prep.
   stabilization cycles.
 - Lane 4 Server: **accepted** by Codex/governor on 2026-05-20.
 - Lane 5 Sync protocol: **accepted** by Codex/governor on 2026-05-20.
-- Lane 6 Read API: **active**, slice 5 landed (tool-calls list with
-  LATERAL latest-result join + artifacts.getText with verified
-  projection, receipt-pack-grant chain, and bounded byte fetch).
+- Lane 6 Read API: **active**, slices 1-5 landed; reviewer found blocking
+  receipt-snapshot cursor, legacy CLI-read safety, and artifacts opacity gaps.
 - Lanes 7–10: **not started**.
 
 ## Current Lane 6 focus
@@ -81,6 +80,15 @@ under "Closed this cycle" below; the full closure detail lives in
   search materialization sub-bullets are blocked on CQ-124 and remain Lane 10
   cutover scope. Lane 6 reads may only expose rows that already exist and are
   proven by current authority; they must not fake materialization.
+- CQ-142: paginated v2 reads re-resolve current authority on each page instead
+  of pinning the original `(store_id, receipt_id)` snapshot in the cursor.
+  Blocks sessions/search/transcript/tool-calls pagination acceptance.
+- CQ-143: promoted `prosa sessions` reads still route through legacy
+  `/trpc/sessions.*`. Until Lane 7 wires `/v2/reads/*`, they must fail closed
+  for promoted v2 stores instead of bypassing the Lane 6 authority gate.
+- CQ-144: `artifacts.getText` must not expose distinct no-grant/no-object/fetch
+  miss reasons and needs route-level tests that prove opaque fail-closed
+  behavior.
 
 ## Closed this cycle
 

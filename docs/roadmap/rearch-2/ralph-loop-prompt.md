@@ -50,6 +50,20 @@ Lane 6 progress, stop and redirect to the read API.
 
 Read `docs/roadmap/rearch-2/correction-queue.md` before the next slice.
 
+- CQ-142 is open and blocks Lane 6 pagination acceptance: sessions/search/
+  transcript/tool-calls cursors must pin the authority snapshot, not just sort
+  tuples. A promotion between page 1 and page 2 must not silently change the
+  visible row set. Malformed/tampered cursors must fail closed with a 400-style
+  response.
+- CQ-143 is open and blocks Lane 6 remote-read safety: promoted v2 stores must
+  not keep using legacy `/trpc/sessions.*` through `prosa sessions`. This is
+  required support work, not permission to implement full Lane 7. Safe default:
+  fail closed for promoted v2 session reads with `--local` guidance until Lane
+  7 wires `/v2/reads/*`.
+- CQ-144 is open and blocks artifacts acceptance if the artifacts route lands:
+  `artifacts.getText` must not expose distinct miss reasons for no grant,
+  missing object, invisible projection, or fetch/decode failure. Return one
+  opaque not-readable/403-style shape and add tests.
 - CQ-141 is closed and accepted. Do not keep iterating on CQ-141 unless a fresh
   focused smoke command proves a new regression.
 - CQ-124 remains open for Lane 10: the full v1/v2 table-name cutover is not
@@ -73,9 +87,13 @@ contract with the tests below.
   without auth-context membership.
 - Every projection/search read is receipt pinned. Rows without current
   `remote_authority_v2` coverage for the tenant/store are invisible.
+- Every paginated cursor must also be receipt-snapshot pinned. Page 2 must use
+  the same `(store_id, receipt_id)` authority set as page 1 even if a new
+  promotion lands between requests.
 - Authority refresh returns only the caller's store authority and uses a 30 s
   in-process cache without bypassing tenant scope.
-- Cursors are opaque base64url JSON over stable sort tuples, not offsets.
+- Cursors are opaque base64url JSON over stable sort tuples plus the authority
+  snapshot, not offsets.
 - Search uses Postgres FTS and preserves filters for role, tool name,
   canonical tool type, errors-only, session, and time bounds.
 - Artifact reads verify projection authority and object/pack grants before

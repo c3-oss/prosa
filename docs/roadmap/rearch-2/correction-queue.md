@@ -1,8 +1,161 @@
 # rearch-2 Correction Queue
 
-Updated: 2026-05-20 after Lane 5 slice 2 review.
+Updated: 2026-05-20 after Lane 6 read-surface reviewer findings.
 
 ## Open blocking corrections
+
+### CQ-142: Paginated v2 read cursors are not receipt-snapshot pinned
+
+Severity: high
+Blocking: yes (blocks Lane 6 sessions/search/tool-calls pagination acceptance)
+Status: open (2026-05-20)
+Owner: Ralph
+
+Problem:
+
+Lane 6 requires receipt-pinned remote reads. The committed read handlers gate
+each query against `remote_authority_v2.current_receipt_id`, but paginated
+cursors only encode sort tuples:
+
+- `sessions/list` cursor: `{ startedAt, id }`
+- `sessions/transcript` cursor: `{ ord, id }`
+- `search/query` cursor: `{ rank, id }`
+- WIP `tool-calls/list` cursor: `{ ts, id }`
+
+Each subsequent page re-resolves the *current* authority through
+`verifiedProjectionWhere()` instead of constraining the page to the same
+authority snapshot used by page 1. A promotion between page 1 and page 2 can
+change the visible row set and cause skips, duplicates, or mixed-receipt pages.
+
+Smoke evidence:
+
+Read-surface reviewer on 2026-05-20:
+
+```text
+apps/api/src/v2/reads/shared/verified-projection.ts re-resolves
+remote_authority_v2.current_receipt_id on every page.
+apps/api/src/v2/reads/sessions/list.ts, sessions/transcript.ts,
+search/query.ts, and WIP tool-calls/list.ts cursors encode only sort tuples.
+```
+
+Required fix:
+
+- Encode the resolved authority snapshot in every paginated cursor. Acceptable
+  forms include:
+  - exact `(store_id, receipt_id)` pairs visible to the first page; or
+  - an equivalent read generation that is proven to resolve to the same
+    `(store_id, receipt_id)` set.
+- Subsequent pages must constrain queries to that exact snapshot and must not
+  silently re-resolve newer `remote_authority_v2` rows.
+- Tampered or malformed cursors must fail closed with a clear 400-style error;
+  do not treat a bad cursor as "first page".
+- Keep query-time cross-store conflict resolution deterministic inside the
+  pinned snapshot.
+
+Acceptance:
+
+- [ ] `sessions/list` test fetches page 1, changes
+      `remote_authority_v2.current_receipt_id`, fetches page 2 with the cursor,
+      and proves page 2 still uses the original snapshot with no skip/duplicate.
+- [ ] `sessions/transcript` has the same promotion-between-pages test.
+- [ ] `search/query` has the same promotion-between-pages test.
+- [ ] `tool-calls/list` has the same promotion-between-pages test before L6.4
+      acceptance.
+- [ ] Malformed/tampered cursor tests prove 400/fail-closed behavior for all
+      paginated routes.
+
+### CQ-143: Promoted CLI session reads bypass the Lane 6 v2 read API
+
+Severity: high
+Blocking: yes (blocks Lane 6 remote-read safety; Lane 7 can later replace the fail-closed stop)
+Status: open (2026-05-20)
+Owner: Ralph
+
+Problem:
+
+`prosa sessions` currently declares remote reads supported. When a store has a
+promotion receipt, the CLI calls `authority.client.listSessions()` /
+`countSessions()` / `getSession()`, and the client maps those to legacy
+`/trpc/sessions.*` endpoints. Those legacy reads are gated by the old
+`sync_batch_projection_manifest` path, not the new Lane 6
+`remote_authority_v2` receipt-pinned gate.
+
+This is not permission to implement full Lane 7 CLI read consumers. It is a
+required support/safety stop: until Lane 7 wires `prosa sessions` to
+`/v2/reads/*`, promoted v2 stores must not use the legacy tRPC read path.
+
+Smoke evidence:
+
+Read-surface reviewer on 2026-05-20:
+
+```text
+apps/cli/src/cli/commands/sessions.ts calls authority.client.listSessions.
+apps/cli/src/cli/auth/client.ts maps listSessions/countSessions/getSession to
+/trpc/sessions.*.
+apps/api/src/trpc/routers/reads/shared.ts gates on sync_batch_projection_manifest,
+not remote_authority_v2.
+```
+
+Required fix:
+
+- Safe default for Lane 6: fail closed for promoted v2 stores on
+  `prosa sessions`, `prosa sessions count`, and session detail/show paths,
+  with guidance to use `--local` until Lane 7 wires `/v2/reads/*`.
+- Alternatively, if Ralph chooses to wire the CLI to `/v2/reads/*` now, treat
+  that as Lane 7 surface and first ask Codex/governor for a binary decision.
+  Safe default: do not implement Lane 7; fail closed.
+
+Acceptance:
+
+- [ ] CLI tests prove a promoted v2 store does not call legacy
+      `/trpc/sessions.list`, `/trpc/sessions.count`, or `/trpc/sessions.get`.
+- [ ] CLI tests prove the promoted-store default fails closed with clear
+      `--local` guidance.
+- [ ] Existing local session read behavior remains unchanged.
+
+### CQ-144: `artifacts.getText` WIP leaks miss reasons and lacks route-level tests
+
+Severity: medium
+Blocking: yes (blocks Lane 6 artifacts.getText acceptance if the artifacts route lands)
+Status: open (2026-05-20)
+Owner: Ralph
+
+Problem:
+
+The current WIP `artifacts.getText` shape distinguishes internal miss reasons
+such as `not_visible`, `no_grant`, `no_object`, and `fetch_failed`. That can
+reveal that a verified artifact exists but is missing a pack/object grant, or
+that catalog/bytes diverged. Lane 6 artifact reads must fail closed: projection
+visibility and receipt/object grants should be enforced without turning storage
+or grant state into an oracle.
+
+Smoke evidence:
+
+Read-surface reviewer on 2026-05-20:
+
+```text
+apps/api/src/v2/reads/artifacts/get-text.ts exposes distinct miss reasons and
+has a diagnoseMiss follow-up probe. No route-level artifacts-get-text test is
+committed yet.
+```
+
+Required fix:
+
+- Return one opaque not-readable shape or 403-style response for missing grant,
+  missing object, invisible artifact, and fetch/decode failure.
+- Keep server logs/internal diagnostics if useful, but do not expose the reason
+  to callers.
+- Add route/handler tests before claiming L6.4.
+
+Acceptance:
+
+- [ ] Test proves missing projection authority is opaque/fail-closed.
+- [ ] Test proves missing receipt/object grant is opaque/fail-closed and does
+      not reveal that the artifact row exists.
+- [ ] Test proves missing object bytes/fetch failure is opaque/fail-closed.
+- [ ] Test proves a valid small UTF-8 artifact returns bounded text.
+- [ ] Test proves a >1 MiB or binary artifact is bounded/fail-closed per the
+      Lane 6 contract.
 
 ### CQ-123: Better Auth tenant_id values do not satisfy `canonicalIdSchema`
 
