@@ -61,3 +61,32 @@ resets the counter to zero.
 
 Cycle 1 result: **clean**. Counter = 1. Cycle 2 may start no
 earlier than 2026-05-20T03:09:41Z (180 s minimum interval).
+
+## Cycle 2 — 2026-05-20T03:09:53Z
+
+- **Interval since cycle 1**: 03:06:41Z → 03:09:53Z = 192 s
+  (≥ 180 s minimum honoured).
+- **HEAD**: `2a07dd9 chore(docs): lane 3 stabilization cycle 1`
+  (the cycle-1 marker; no non-stabilization commits since).
+- **Branch**: `feature/rearch` (ahead 13 of `origin/feature/rearch`).
+- **Worktree**: same governor-driven doc edits to
+  `docs/roadmap/rearch-2/{evidence/lane-04.md, evidence/lane-05.md,
+  gates.md, ralph-loop-prompt.md, status.md}` that were present at
+  cycle 1. Plus a transient `.claude/scheduled_tasks.lock` from the
+  loop runner's wakeup hook (untracked, ignored). No code, test,
+  config, or build changes.
+- **correction-queue.md**: still "None currently recorded" under
+  open blockers; header still "2026-05-20 after CQ-116 closure".
+  Unchanged from cycle 1.
+- **gates.md**: Lane 3 completion gates 1-5 still evidenced by
+  their test files; bullet 6 (stabilization) advanced to cycle 2.
+  Unchanged from cycle 1 except for stabilization progress.
+- **status.md**: still "Lane 3 = closeout pending"; consistent
+  with no open CQ blockers and gates.md bullets 1-5 satisfied.
+  Unchanged from cycle 1.
+- **Recent commits** (most recent first): the cycle-1 marker
+  `2a07dd9` followed by the same Lane 3 work history that was
+  present at cycle 1. No surprise commits between cycles.
+
+Cycle 2 result: **clean**. Counter = 2. Cycle 3 may start no
+earlier than 2026-05-20T03:12:53Z.
