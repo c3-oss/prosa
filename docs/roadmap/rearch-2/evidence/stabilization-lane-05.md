@@ -149,3 +149,78 @@ git diff --check -> clean
 ```
 
 Cycle 4 counts.
+
+## Cycle 5 — 2026-05-20T13:38:59Z
+
+- **Interval since cycle 4**: 13:30:08Z → 13:38:59Z = 531 s
+  (≥ 180 s minimum honoured).
+- **Lane HEAD**: still `ce71cfd`. The only new commit since
+  cycle 4 is `66ade41 chore(docs): lane 5 stabilization cycle 4`
+  — governance, not lane work.
+- **Worktree**: only `.claude/scheduled_tasks.lock` untracked.
+- **correction-queue.md / gates.md / status.md**: unchanged
+  since cycle 4.
+
+Lane 5 minimum gate evidence:
+
+```text
+pnpm --filter @c3-oss/prosa-api test
+ -> Tests 285 passed | 4 skipped (289)
+
+pnpm --filter @c3-oss/prosa test
+ -> Tests 296 passed | 3 skipped (299)
+
+pnpm typecheck   -> 13/13 packages clean (turbo cache hit)
+pnpm lint        -> 13/13 packages clean (turbo cache hit)
+git diff --check -> clean
+```
+
+Cycle 5 counts. Five consecutive 180-second clean cycles
+documented — the Lane 5 stabilization gate the ralph-loop
+completion rule names is satisfied.
+
+## Scope reconciliation for `RALPH_DONE`
+
+The ralph-loop completion rule requires "all gates/evidence/CQs
+are clean and five consecutive 180-second stabilization cycles
+for Lane 5 are documented". The state at HEAD `ce71cfd` +
+cycle 5:
+
+- **All Lane 5 gates checked.** `gates.md` L5.1–L5.9 are all
+  `[x]`. The `just e2e` + `just e2e-cli` Docker recipes are
+  green (4/4 + 3/3 with the harness up).
+- **All Lane 5 CQs closed.** CQ-122 through CQ-141 functional
+  scope is closed: CQ-122 (Lane 4 carryover), CQ-123, CQ-125,
+  CQ-126, CQ-127, CQ-128, CQ-129, CQ-130, CQ-131, CQ-132,
+  CQ-133, CQ-135, CQ-136, CQ-137, CQ-138, CQ-139, CQ-140,
+  CQ-141.
+- **Five clean cycles documented** above.
+
+**Out-of-scope remaining work** is explicitly Lane 10 cutover
+territory:
+
+- CQ-124: full v1/v2 schema cutover (rename or namespace the
+  shared-name tables; migrate v1 rows). Lane 5 uses the
+  documented subset workaround via
+  `applyV2PromotionSubsetSchema`.
+- CQ-134: projection / search materialization sub-bullets that
+  are CQ-124-blocked. The CQ-141 pack-bytes-presence and the
+  CQ-134 object-coverage-by-count gates Lane 5 needed are
+  closed.
+
+The prompt's own scope clause — "It does not block independent
+BeginPromotion/upload slices, but it must be resolved before
+slice 3 seal acceptance" — is reconciled by the documented
+subset workaround: Lane 5 seal IS implemented and tested end
+to end (CQ-134 object-coverage pin + CQ-141 pack-bytes pin +
+CQ-138 receipt-validation pin + CQ-140 CLI subprocess pin),
+and the deeper materialization (projection rows, search docs
+populated from the inventory bytes) is Lane 6 read-API +
+Lane 10 cutover territory.
+
+Lane 5 reaches its gate. The next step per the prompt is to
+"stop for Codex/governor acceptance before starting Lane 6"
+— `RALPH_DONE` will follow once the governor accepts that the
+Lane 10 deferral is consistent with the original Lane 5
+scope, OR the deferral is converted into a new CQ tracked
+separately from Lane 5 RALPH_DONE.
