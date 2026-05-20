@@ -1,6 +1,6 @@
 # rearch-2 Correction Queue
 
-Updated: 2026-05-20 after Lane 6 WIP reviewer findings.
+Updated: 2026-05-20 after Lane 6 slice 7 governor review.
 
 ## Open blocking corrections
 
@@ -8,7 +8,7 @@ Updated: 2026-05-20 after Lane 6 WIP reviewer findings.
 
 Severity: high
 Blocking: yes (blocks Lane 6 sessions/search/tool-calls pagination acceptance)
-Status: closure attempt #3 (2026-05-20) — pending governor acceptance
+Status: closed (2026-05-20) — accepted by Codex/governor
 Owner: Ralph
 
 Closure attempt #3 (2026-05-20):
@@ -31,6 +31,14 @@ Closure attempt #3 (2026-05-20):
   tampered, and wrong-signed cursors. `cursor-snapshot.test.ts`
   (8 tests) continues to cover the promotion-between-pages
   invariant.
+
+Governor acceptance (2026-05-20):
+
+CQ-142 is accepted for cursor integrity and route-level `INVALID_CURSOR`
+coverage. Codex re-ran the focused route/handler tests and the full
+`test/v2/reads/` suite; empty-string, tampered, and wrong-signed cursors now
+return HTTP 400 / `INVALID_CURSOR` for all four paginated routes. Residual
+production signer wiring is tracked separately in CQ-146.
 
 Closure attempt (2026-05-20; rejected):
 
@@ -125,30 +133,30 @@ Required fix:
 
 Acceptance:
 
-- [ ] `sessions/list` test fetches page 1, changes
+- [x] `sessions/list` test fetches page 1, changes
       `remote_authority_v2.current_receipt_id`, fetches page 2 with the cursor,
       and proves page 2 still uses the original snapshot with no skip/duplicate.
-- [ ] `sessions/transcript` has the same promotion-between-pages test.
-- [ ] `search/query` has the same promotion-between-pages test.
-- [ ] `tool-calls/list` has the same promotion-between-pages test before L6.4
+- [x] `sessions/transcript` has the same promotion-between-pages test.
+- [x] `search/query` has the same promotion-between-pages test.
+- [x] `tool-calls/list` has the same promotion-between-pages test before L6.4
       acceptance.
-- [ ] Malformed/tampered cursor tests prove 400/fail-closed behavior for all
+- [x] Malformed/tampered cursor tests prove 400/fail-closed behavior for all
       paginated routes.
-- [ ] Forged but well-formed cursor tests prove a client cannot add a
+- [x] Forged but well-formed cursor tests prove a client cannot add a
       superseded or unauthorized `(store_id, receipt_id)` tuple.
-- [ ] Empty string cursor input is rejected as invalid, not treated as page 1.
-- [ ] HTTP route tests prove `/v2/reads/sessions/list`,
+- [x] Empty string cursor input is rejected as invalid, not treated as page 1.
+- [x] HTTP route tests prove `/v2/reads/sessions/list`,
       `/v2/reads/sessions/transcript`, `/v2/reads/search/query`, and
       `/v2/reads/tool-calls/list` return 400 `INVALID_CURSOR` for invalid or
       forged cursors.
-- [ ] Route-level tests include `cursor: ""` and wrong-signed forged snapshots
+- [x] Route-level tests include `cursor: ""` and wrong-signed forged snapshots
       for all four paginated routes.
 
 ### CQ-143: Promoted CLI session reads bypass the Lane 6 v2 read API
 
 Severity: high
 Blocking: yes (blocks Lane 6 remote-read safety; Lane 7 can later replace the fail-closed stop)
-Status: closure attempt (2026-05-20) — pending governor acceptance
+Status: open (2026-05-20) — closure attempt has acceptance gaps
 Owner: Ralph
 
 Closure attempt (2026-05-20):
@@ -167,6 +175,15 @@ Closure attempt (2026-05-20):
   network (no ECONNREFUSED / HTTP markers). The server URL is set
   to `http://127.0.0.1:1` so any unintended fetch would surface
   immediately.
+
+Governor review (2026-05-20):
+
+The sessions and sessions-count command tests pass and prove those two commands
+fail closed before network access. CQ-143 remains open because the written
+acceptance also requires command/client-boundary proof for session detail/show
+paths, including no legacy `/trpc/sessions.get` call for a v2-promoted store.
+Inspection shows `prosa session show` uses `remoteSupported: false`, but the CQ
+requires an executable test pin.
 
 Problem:
 
@@ -216,7 +233,7 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 6 artifacts route acceptance and L6.4)
-Status: closure attempt (2026-05-20) — pending governor acceptance
+Status: open (2026-05-20) — closure attempt has route-evidence gaps
 Owner: Ralph
 
 Closure attempt (2026-05-20):
@@ -235,6 +252,14 @@ Closure attempt (2026-05-20):
   `artifacts-get-text.test.ts` (8 tests) continues to cover all
   four miss reasons via the `onMiss` hook + the success / binary /
   cross-tenant paths.
+
+Governor review (2026-05-20):
+
+The route no longer returns HTTP 500 for a missing artifact id; Codex re-ran the
+route test successfully. CQ-145 remains open because the written route-level
+acceptance still lacks route tests for missing receipt/object grant, missing
+object bytes/fetch failure, valid small UTF-8 artifact text, and bounded
+large/binary artifact behavior.
 
 Problem:
 
@@ -272,6 +297,60 @@ Acceptance:
 - [ ] Route-level test proves valid small UTF-8 artifact returns bounded text.
 - [ ] Route-level test proves >1 MiB or binary artifacts are bounded/fail
       closed per the Lane 6 contract.
+
+### CQ-146: Cursor HMAC signer is not production-configured
+
+Severity: high
+Blocking: yes (blocks Lane 6 production readiness for paginated reads)
+Status: open (2026-05-20)
+Owner: Ralph
+
+Problem:
+
+CQ-142 introduced signed cursors, but production boot does not actually parse
+or pass a durable/shared cursor HMAC key. `registerV2ReadRoutes()` falls back to
+`createInProcessCursorSigner()` whenever `deps.cursorSigner` is omitted, and
+`registerV2Routes()` currently omits it. `loadConfig()` has no
+`PROSA_CURSOR_HMAC_SECRET` field. This means production can boot with a
+per-process random cursor key, so page-2 cursors can fail after a restart or
+when requests hit a different worker. That breaks the Lane 6 stable-cursor
+contract even though it fails closed.
+
+Smoke evidence:
+
+Governor review on 2026-05-20:
+
+```text
+rg -n "PROSA_CURSOR_HMAC_SECRET|cursorSigner|createInProcessCursorSigner|createCursorSigner" \
+  apps/api/src/config.ts apps/api/src/app.ts apps/api/src/v2/index.ts \
+  apps/api/src/v2/reads/index.ts apps/api/src/v2/reads/shared/cursor-signer.ts
+
+# PROSA_CURSOR_HMAC_SECRET appears only in cursor-signer comments.
+# registerV2ReadRoutes defaults to createInProcessCursorSigner().
+# registerV2Routes calls registerV2ReadRoutes without cursorSigner.
+# loadConfig has no cursor-HMAC config field.
+```
+
+Required fix:
+
+- Add production configuration for a shared cursor HMAC secret or explicitly
+  derive a cursor-only key from an existing production secret with domain
+  separation.
+- Production mode must not silently fall back to a random in-process cursor
+  signer.
+- Development/test may keep an in-process signer.
+- Pass the resolved signer through app/v2 boot into `registerV2ReadRoutes()`.
+
+Acceptance:
+
+- [ ] Config/boot test proves production without a cursor HMAC key fails closed
+      or derives a stable cursor-only key from approved production config.
+- [ ] Config/boot test proves a configured production key creates a signer
+      accepted by `registerV2Routes()`.
+- [ ] Test proves two route/plugin instances sharing the configured key accept
+      each other's cursors, while a different key rejects them.
+- [ ] Documentation/evidence names the env var or derivation source and the
+      minimum key length.
 
 ### CQ-144: `artifacts.getText` WIP leaks miss reasons and lacks route-level tests
 

@@ -413,11 +413,61 @@ pnpm --filter @c3-oss/prosa exec vitest run test/cli/sessions-v2-failclose.test.
                                        → 2/2 passed
 ```
 
+Governor review (2026-05-20):
+
+- CQ-142 accepted. Codex re-ran the full read suite and focused cursor route /
+  handler tests. Empty-string, tampered, and wrong-signed cursors now return
+  HTTP 400 / `INVALID_CURSOR` for sessions/list, sessions/transcript,
+  search/query, and tool-calls/list.
+- CQ-143 remains open. `prosa sessions` and `prosa sessions count` are proven
+  fail-closed before network access, but session detail/show still needs an
+  executable no-call pin for the legacy `/trpc/sessions.get` path.
+- CQ-145 remains open. The missing-artifact route-level 500 is fixed, but the
+  route suite still lacks missing grant/object, missing bytes/fetch, valid
+  small UTF-8 text, and bounded large/binary cases.
+- CQ-146 opened. Static smoke shows production config/boot does not parse or
+  pass a durable cursor HMAC signer; `registerV2ReadRoutes()` defaults to a
+  per-process random signer.
+
+Codex validation:
+
+```text
+pnpm --filter @c3-oss/prosa-api exec vitest run \
+  test/v2/reads/cursor-integrity.test.ts \
+  test/v2/reads/cursor-route-integrity.test.ts \
+  test/v2/reads/cursor-snapshot.test.ts \
+  test/v2/reads/artifacts-route.test.ts
+# 4 files / 31 tests passed
+
+pnpm --filter @c3-oss/prosa exec vitest run \
+  test/cli/remote-authority-routing.test.ts \
+  test/cli/sessions-v2-failclose.test.ts
+# 2 files / 11 tests passed
+
+pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/reads/
+# 12 files / 86 tests passed
+
+pnpm --filter @c3-oss/prosa-api typecheck
+pnpm --filter @c3-oss/prosa-api lint
+pnpm --filter @c3-oss/prosa lint
+git diff --check
+# all clean
+
+rg -n "PROSA_CURSOR_HMAC_SECRET|cursorSigner|createInProcessCursorSigner|createCursorSigner" \
+  apps/api/src/config.ts apps/api/src/app.ts apps/api/src/v2/index.ts \
+  apps/api/src/v2/reads/index.ts apps/api/src/v2/reads/shared/cursor-signer.ts
+# PROSA_CURSOR_HMAC_SECRET appears only in comments; v2 boot does not pass
+# cursorSigner; read routes default to createInProcessCursorSigner().
+```
+
 Remaining slices (per `docs/rearch-2/07-lane-6-read-api.md`):
 
-1. Analytics summary/report and cross-store distinct aggregation.
-2. p95 latency evidence under fixture load.
-3. Five consecutive 180 s stabilization cycles before RALPH_DONE.
+1. CQ-143 session detail/show no-call proof for v2-promoted stores.
+2. CQ-145 complete route-level artifacts getText evidence.
+3. CQ-146 production cursor HMAC signer wiring.
+4. Analytics summary/report and cross-store distinct aggregation.
+5. p95 latency evidence under fixture load.
+6. Five consecutive 180 s stabilization cycles before RALPH_DONE.
 
 ## Scope
 

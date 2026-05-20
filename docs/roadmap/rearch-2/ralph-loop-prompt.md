@@ -50,31 +50,31 @@ Lane 6 progress, stop and redirect to the read API.
 
 Read `docs/roadmap/rearch-2/correction-queue.md` before the next slice.
 
-- CQ-142 is open and blocks Lane 6 pagination acceptance: sessions/search/
-  transcript/tool-calls cursors must pin the authority snapshot, not just sort
-  tuples. A promotion between page 1 and page 2 must not silently change the
-  visible row set. Malformed/tampered cursors must fail closed with a 400-style
-  response. The first closure attempt is rejected: an unsigned client-supplied
-  snapshot can be forged to name a superseded `(store_id, receipt_id)` pair.
-  Fix with signed/HMAC cursors or server-side cursor state; shape validation is
-  not sufficient, and `cursor: ""` must not mean "first page". Current WIP with
-  signed cursors still fails if empty string decodes to page 1, and handler
-  tests do not replace HTTP route tests for `INVALID_CURSOR`.
+- CQ-142 is closed and accepted by Codex/governor for cursor integrity,
+  receipt-snapshot pagination, empty-cursor rejection, and HTTP-route
+  `INVALID_CURSOR` coverage. Do not keep iterating on CQ-142 unless a fresh
+  focused smoke command proves a new regression.
 - CQ-143 is open and blocks Lane 6 remote-read safety: promoted v2 stores must
   not keep using legacy `/trpc/sessions.*` through `prosa sessions`. This is
   required support work, not permission to implement full Lane 7. Safe default:
   fail closed for promoted v2 session reads with `--local` guidance until Lane
   7 wires `/v2/reads/*`. Closure requires command/client-boundary proof that
   `prosa sessions`, `prosa sessions count`, and session detail/show do not call
-  `/trpc/sessions.*` for v2-promoted stores.
+  `/trpc/sessions.*` for v2-promoted stores. The latest attempt proves
+  sessions/count but still needs a detail/show executable pin.
 - CQ-144 is closed and accepted by Codex/governor. `artifacts.getText` now
   returns one opaque `{ found: false }` shape for invisible projection, no
   grant, no object, and fetch/decode failure. Final Lane 6 acceptance still
   needs route-level artifacts evidence.
 - CQ-145 is open and blocks Lane 6 artifacts route acceptance: current
-  route-level WIP for `POST /v2/reads/artifacts/getText` returns HTTP 500 for a
-  missing artifact case instead of the opaque `{ found: false }` contract. Fix
-  route/dependency wiring and add route-level artifact tests.
+  route-level WIP fixed the missing-artifact 500, but route tests still need to
+  cover missing receipt/object grant, missing bytes/fetch failure, valid small
+  UTF-8 text, and bounded large/binary behavior.
+- CQ-146 is open and blocks Lane 6 production readiness: signed cursor support
+  currently falls back to a per-process random HMAC key because production
+  config/boot does not parse or pass `PROSA_CURSOR_HMAC_SECRET` (or an
+  equivalent cursor-only derivation). Production must not silently use a random
+  cursor signer.
 - CQ-141 is closed and accepted. Do not keep iterating on CQ-141 unless a fresh
   focused smoke command proves a new regression.
 - CQ-124 remains open for Lane 10: the full v1/v2 table-name cutover is not
