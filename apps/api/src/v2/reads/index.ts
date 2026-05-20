@@ -9,6 +9,9 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { type V2AuthContext, type V2AuthDeps, resolveV2AuthContext } from '../context.js'
 import { AuthorityTtlCache } from './authority-cache.js'
 import { type AuthorityRefreshResponse, type CachedAuthority, getAuthority } from './authority.js'
+import { countSessions, countSessionsInput } from './sessions/count.js'
+import { getSessionDetail, sessionDetailInput } from './sessions/detail.js'
+import { listSessions, listSessionsInput } from './sessions/list.js'
 
 export type V2ReadRoutesDeps = V2AuthDeps & {
   /**
@@ -30,6 +33,9 @@ export const V2_READ_ROUTES = [
     url: '/v2/stores/:storeId/authority' as const,
     opName: 'AuthorityRefresh' as const,
   },
+  { method: 'POST' as const, url: '/v2/reads/sessions/list' as const, opName: 'ReadSessionsList' as const },
+  { method: 'POST' as const, url: '/v2/reads/sessions/count' as const, opName: 'ReadSessionsCount' as const },
+  { method: 'POST' as const, url: '/v2/reads/sessions/detail' as const, opName: 'ReadSessionsDetail' as const },
 ]
 
 export function registerV2ReadRoutes(app: FastifyInstance, deps: V2ReadRoutesDeps): V2ReadPluginHandle {
@@ -59,6 +65,54 @@ export function registerV2ReadRoutes(app: FastifyInstance, deps: V2ReadRoutesDep
     },
   })
 
+  app.route({
+    method: 'POST',
+    url: '/v2/reads/sessions/list',
+    handler: async (req: FastifyRequest, reply: FastifyReply) => {
+      const ctx = await resolveV2AuthContext(deps, req)
+      const gate = requireV2Tenant(ctx, reply, 'ReadSessionsList')
+      if (!gate) return reply.sent ? undefined : reply
+      const parsed = listSessionsInput.safeParse(req.body ?? {})
+      if (!parsed.success) {
+        reply.code(400)
+        return { code: 'INVALID_INPUT', op: 'ReadSessionsList', issues: parsed.error.issues }
+      }
+      return await listSessions({ rawExec: deps.rawExec }, gate.tenantId, parsed.data)
+    },
+  })
+
+  app.route({
+    method: 'POST',
+    url: '/v2/reads/sessions/count',
+    handler: async (req: FastifyRequest, reply: FastifyReply) => {
+      const ctx = await resolveV2AuthContext(deps, req)
+      const gate = requireV2Tenant(ctx, reply, 'ReadSessionsCount')
+      if (!gate) return reply.sent ? undefined : reply
+      const parsed = countSessionsInput.safeParse(req.body ?? {})
+      if (!parsed.success) {
+        reply.code(400)
+        return { code: 'INVALID_INPUT', op: 'ReadSessionsCount', issues: parsed.error.issues }
+      }
+      return await countSessions({ rawExec: deps.rawExec }, gate.tenantId, parsed.data)
+    },
+  })
+
+  app.route({
+    method: 'POST',
+    url: '/v2/reads/sessions/detail',
+    handler: async (req: FastifyRequest, reply: FastifyReply) => {
+      const ctx = await resolveV2AuthContext(deps, req)
+      const gate = requireV2Tenant(ctx, reply, 'ReadSessionsDetail')
+      if (!gate) return reply.sent ? undefined : reply
+      const parsed = sessionDetailInput.safeParse(req.body ?? {})
+      if (!parsed.success) {
+        reply.code(400)
+        return { code: 'INVALID_INPUT', op: 'ReadSessionsDetail', issues: parsed.error.issues }
+      }
+      return await getSessionDetail({ rawExec: deps.rawExec }, gate.tenantId, parsed.data)
+    },
+  })
+
   return { authorityCache }
 }
 
@@ -82,10 +136,18 @@ export { AuthorityTtlCache, authorityCacheKey } from './authority-cache.js'
 export type { AuthorityCacheEntry } from './authority-cache.js'
 export { getAuthority } from './authority.js'
 export type { AuthorityAuditStatus, AuthorityRefreshResponse, CachedAuthority } from './authority.js'
+export { countSessions, countSessionsInput } from './sessions/count.js'
+export type { CountSessionsResponse } from './sessions/count.js'
+export { getSessionDetail, sessionDetailInput } from './sessions/detail.js'
+export type { SessionDetailResponse } from './sessions/detail.js'
+export { listSessions, listSessionsInput } from './sessions/list.js'
+export type { ListSessionsResponse, SessionRow } from './sessions/list.js'
+export { buildSessionWhere, sessionListFilters } from './sessions/filters.js'
+export type { SessionListFilters } from './sessions/filters.js'
 export {
+  VERIFIED_PROJECTION_TABLES,
   verifiedProjectionWhere,
   verifiedSearchWhere,
-  VERIFIED_PROJECTION_TABLES,
 } from './shared/verified-projection.js'
 export { decodeCursor, encodeCursor } from './shared/cursor.js'
 export type { CursorPage, CursorPayload } from './shared/cursor.js'

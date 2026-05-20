@@ -59,9 +59,63 @@ pnpm lint
 `pnpm --filter @c3-oss/prosa-api test` (full suite) is the next-slice
 gate; slice 1 ran the focused Lane 6 routes plus typecheck/lint clean.
 
+## Slice 2 — Sessions list / count / detail (2026-05-20)
+
+Landed:
+
+- `apps/api/src/v2/reads/sessions/filters.ts` — `sessionListFilters`
+  Zod schema and `buildSessionWhere(tenantId, filters)`. The helper
+  builds the WHERE fragment + positional parameter array threading
+  the verified-projection gate as `$1` so every filter inherits the
+  receipt-pinned scope. Filters: `sourceTools`, `projectIds`,
+  `storeIds`, `since`, `until`, `q` (title substring).
+- `apps/api/src/v2/reads/sessions/list.ts` — `listSessions(deps,
+  tenantId, input)`. Conflict-resolved inner CTE collapses
+  cross-store duplicates by `(source_tool, source_session_id)`
+  taking the freshest `end_ts` then highest `receipt_id`; outer
+  query re-sorts by `start_ts DESC, session_id DESC` and applies
+  the opaque base64url cursor over `{ startedAt, id }`.
+- `apps/api/src/v2/reads/sessions/count.ts` — `countSessions(deps,
+  tenantId, input)`. Re-uses `buildSessionWhere`; collapses
+  cross-store duplicates with `SELECT DISTINCT (source_tool,
+  source_session_id)` so the count agrees with what a paginated
+  list iteration would surface.
+- `apps/api/src/v2/reads/sessions/detail.ts` — `getSessionDetail`.
+  Returns the header for a current session and gate-aware counts
+  for messages / tool calls / tool-result errors / content blocks /
+  events / artifacts. Each count subquery composes the gate so
+  superseded auxiliary rows stay hidden.
+- `POST /v2/reads/sessions/list`, `POST /v2/reads/sessions/count`,
+  `POST /v2/reads/sessions/detail` registered in
+  `registerV2ReadRoutes` with Zod input validation. The shared
+  `requireV2Tenant` gate keeps the 401 / 403 / 400 ladder
+  consistent with the authority refresh route.
+- `apps/api/src/v2/reads/shared/verified-projection.ts` —
+  CQ-141-style fix: rename the inner `remote_authority_v2` alias to
+  `ra_gate` so a projection table aliased `a` (used by
+  `projection_artifact` reads) does not shadow it.
+- `apps/api/test/v2/reads/sessions-list.test.ts` (9 tests) drives the
+  handler functions against a fresh v2-only PGlite per case. Covers
+  empty-tenant short-circuit, gate hiding superseded rows, cursor
+  stability across pages, cross-store conflict resolution, every
+  filter combination, tenant isolation, count collapsing, detail
+  found / not-found, and gate-aware count totals.
+- `lint-no-direct-projection-read.test.ts` updated to accept the
+  `buildSessionWhere` helper as a known gate composer so the list /
+  count handlers stay flagged when they would otherwise hit a
+  projection table directly.
+
+Slice 2 gates on the contributor checkout:
+
+```text
+pnpm exec vitest run test/v2/reads/   → 4 files / 23/23 tests passed
+pnpm typecheck                         → EXIT=0
+pnpm --filter @c3-oss/prosa-api lint   → EXIT=0
+```
+
 Remaining slices (per `docs/rearch-2/07-lane-6-read-api.md`):
 
-1. Sessions list / count / detail / transcript with cursors.
+1. Sessions transcript pagination with bounded inline text.
 2. Search query with FTS, snippets, filters.
 3. Tool-calls list and artifacts.getText.
 4. Analytics summary/report and cross-store aggregation.

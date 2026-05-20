@@ -25,13 +25,16 @@
  *                 WHERE ${verifiedProjectionWhere('s', '$1')}`
  */
 export function verifiedProjectionWhere(alias: string, tenantParam = '$1'): string {
+  // The inner alias is intentionally unusual (`ra_gate`) so a caller
+  // who happens to use `a` for `projection_artifact` does not shadow
+  // the `remote_authority_v2` reference inside the EXISTS subquery.
   return `${alias}.tenant_id = ${tenantParam}
     AND EXISTS (
       SELECT 1
-        FROM remote_authority_v2 a
-       WHERE a.tenant_id = ${alias}.tenant_id
-         AND a.store_id = ${alias}.store_id
-         AND a.current_receipt_id = ${alias}.receipt_id
+        FROM remote_authority_v2 ra_gate
+       WHERE ra_gate.tenant_id = ${alias}.tenant_id
+         AND ra_gate.store_id = ${alias}.store_id
+         AND ra_gate.current_receipt_id = ${alias}.receipt_id
     )`
 }
 
