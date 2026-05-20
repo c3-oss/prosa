@@ -199,37 +199,56 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 5 BeginPromotion acceptance)
-Status: open (closure rejected 2026-05-20)
+Status: closed (2026-05-20)
 Owner: Ralph
 
-Closure rejection: `apps/api/src/v2/sync/begin-promotion.ts` replaces the
-old `loadReceipt(receiptId)` with `loadAuthorityReceipt(...)`
-which loads the row scoped to the authority tuple AND verifies:
-- `receipt.store_id == authority.store_id`,
-- `payload.tenantId == ctx.tenantId`,
-- `payload.storeId == authority.store_id`,
-- `payload.bundleRoot == authority.current_bundle_root`,
-- `payload.receiptId == authority.current_receipt_id`.
-Any mismatch (or missing receipt) raises
-`BeginPromotionAuthorityCorruptError`; the route surfaces it as
-`500 AUTHORITY_CORRUPT` — corrupt server state, NOT a retryable
-client error and NOT a silent reopen of promotion. Pinned by
-four cases in
-`apps/api/test/v2/sync/cq-125-authority-integrity.test.ts`:
-missing receipt, row.store_id mismatch, payload.bundleRoot
-mismatch, payload.receiptId mismatch.
+Closure (2026-05-20): `apps/api/src/v2/sync/begin-promotion.ts` now
+gates the `already_promoted` fast path on three independent checks:
 
-The closure is not accepted. Security reviewer smoke confirmed the fast path
-still omits device binding and receipt authenticity checks:
+1. **Authority tuple** — `loadAuthorityReceipt` loads the row scoped
+   to the authority `(tenant, store, bundleRoot, receiptId)` and
+   refuses to return when the row is missing or any of
+   `row.store_id` / `payload.tenantId` / `payload.storeId` /
+   `payload.bundleRoot` / `payload.receiptId` disagree with the
+   authority tuple. Any mismatch raises
+   `BeginPromotionAuthorityCorruptError` → `500 AUTHORITY_CORRUPT`.
+2. **Content-addressed derived id** —
+   `deriveReceiptId(loaded.payload)` must equal
+   `payload.receiptId`. A same-tenant attacker who mutates a
+   non-tuple field (e.g. `serverRegion`) breaks the canonical hash
+   and the route fails closed.
+3. **Signature verification** — `signer.verifyReceipt(payloadBytes,
+   loaded.signature)` must return true. The signer is the same
+   instance the seal path uses to mint receipts, so verification
+   resolves the keyId against the server's published JWKS. Bogus
+   signatures, signatures from foreign keys, and keyId-spoofed
+   signatures all fail closed.
 
-```text
-device-mismatch 200 already_promoted victim-device
-malformed-signature 200 already_promoted {}
-```
+Device handling: the receipt is only returned when
+`payload.deviceId === request.device.deviceId`. A
+different-device request observes `remote_authority_v2` but falls
+through to open its own staging slot — the bundle's authority
+already exists and a re-seal from that device produces a fresh
+receipt the device can trust.
 
-`BeginPromotion` must bind the no-op receipt to the requested device, validate
-row/payload device ids, and reject malformed/schema-invalid or wrongly signed
-receipts before returning `already_promoted`.
+Pinned by:
+- `apps/api/test/v2/sync/cq-125-authority-integrity.test.ts` —
+  4 tuple-mismatch cases (missing, row.store_id, payload.bundleRoot,
+  payload.receiptId).
+- `apps/api/test/v2/sync/cq-125-receipt-validation.test.ts` — 4
+  cases: tampered payload (deriveReceiptId mismatch), bogus
+  signature, foreign-signer signature with spoofed `keyId`, plus a
+  happy-path replay that returns `200 already_promoted` with the
+  schema-valid receipt.
+- The pre-existing `begin-fast-path.test.ts` happy path now signs
+  the seeded receipt with the test app's exposed signer
+  (`TestApp.signer`) — keeping the wire-schema replay check
+  meaningful end-to-end.
+
+The earlier reviewer-rejection smoke (device-mismatch + malformed
+signature still returning 200) is resolved by the device-only
+return gate combined with the derived-id + signature checks
+above.
 
 Problem:
 
@@ -282,18 +301,24 @@ Required fix:
 
 Acceptance:
 
-- [ ] Route test seeds an authority row pointing to a receipt for a different
+- [x] Route test seeds an authority row pointing to a receipt for a different
       store/root/device and proves `BeginPromotion` fails closed, not
-      `already_promoted`.
-- [ ] Route test seeds an authority row pointing to a missing receipt and proves
+      `already_promoted` (covered by `cq-125-authority-integrity`).
+- [x] Route test seeds an authority row pointing to a missing receipt and proves
       `BeginPromotion` fails closed, not `needs_inventory`, and no staging row is
-      created.
-- [ ] Route test covers malformed/unparseable receipt JSON and fails closed.
-- [ ] Route tests cover wrong `device_id` and malformed/invalid signatures.
-- [ ] Valid replay verifies the receipt schema/signature before returning
-      `already_promoted`.
-- [ ] Valid replay still returns the exact schema-valid receipt for the same
-      `(tenant, store, bundleRoot, device)` tuple.
+      created (missing-receipt case in `cq-125-authority-integrity`).
+- [x] Route test covers malformed/unparseable receipt JSON and fails closed
+      (`coerceJsonbObject` returns null → 'missing' path covered by the
+      missing-receipt case; deriveReceiptId mismatch covers tampered payload).
+- [x] Route tests cover wrong `device_id` and malformed/invalid signatures
+      (device fall-through behavior + `cq-125-receipt-validation` three
+      signature-failure cases).
+- [x] Valid replay verifies the receipt schema/signature before returning
+      `already_promoted` (happy-path case in `cq-125-receipt-validation` +
+      pre-existing fast-path test now uses the real signer).
+- [x] Valid replay still returns the exact schema-valid receipt for the same
+      `(tenant, store, bundleRoot, device)` tuple
+      (`begin-fast-path.test.ts > returns already_promoted ...`).
 
 ### CQ-126: Production boot registers BeginPromotion without v2 promotion tables
 

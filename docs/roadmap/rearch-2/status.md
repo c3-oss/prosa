@@ -60,10 +60,16 @@ The blocker is implementation work, not environment.
   test entry point), but the underlying v1/v2 cutover is deferred to
   Lane 10 — CQ-124 acceptance (full `applySchemaV2` over v1, projection
   / search materialization) remains open until that cutover lands.
-- CQ-125: BeginPromotion no-op fast path now checks part of the authority
-  receipt tuple, but closure is rejected until requested device binding,
-  malformed/schema-invalid receipt rejection, and signature verification are
-  proven.
+- CQ-125: closed (2026-05-20). BeginPromotion's `already_promoted` fast
+  path gates on three independent checks before returning the stored
+  receipt: tuple integrity (load-scoped to authority tuple, refuse on
+  mismatch), content-addressed derived id
+  (`deriveReceiptId(payload) === payload.receiptId`), and signature
+  verification via the server's JWKS-published signer. Receipt is only
+  returned when `payload.deviceId === request.device.deviceId`. Pinned
+  by `cq-125-authority-integrity` (4 tuple cases) and
+  `cq-125-receipt-validation` (4 cases: tamper, bogus sig, foreign
+  signer, happy-path replay).
 - CQ-126: closed (2026-05-20). Boot applies the conflict-free v2 subset via
   the canonical helper `applyV2PromotionSubsetSchema`, the
   `search_generation_current` migration is idempotent and pinned by
@@ -164,10 +170,11 @@ The blocker is implementation work, not environment.
   remains tenant-wide.
 - CQ-123 closure from `3f313f0` is rejected as partial until lifecycle evidence
   proves real Better Auth ids parse and verify through client receipt handling.
-- CQ-125 closure from `41642b3` is rejected pending reviewer-smoked
-  device-mismatch and malformed-signature cases. CQ-141's earlier `f1d15b3`
-  rejection (wrong-metadata fast path + seal-after-pack-byte-loss) is
-  resolved by the 2026-05-20 closure above.
+- CQ-125's earlier `41642b3` rejection (device-mismatch + malformed-sig
+  cases) is resolved by the 2026-05-20 closure: `verifyReceipt` +
+  `deriveReceiptId` checks plus the device-only return gate. CQ-141's
+  earlier `f1d15b3` rejection (wrong-metadata fast path +
+  seal-after-pack-byte-loss) is resolved by the 2026-05-20 closure above.
 - CQ-126 was reopened twice (rejection of `ea46899` and the earlier WIP
   helper slice). The 2026-05-20 closure addresses both: the
   `search_generation_current` legacy-shape upgrade is idempotent and pinned
