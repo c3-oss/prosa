@@ -62,9 +62,11 @@ The blocker is implementation work, not environment.
   receipt tuple, but closure is rejected until requested device binding,
   malformed/schema-invalid receipt rejection, and signature verification are
   proven.
-- CQ-126: production-style boot now applies conflict-free v2 tables, but closure
-  is rejected until boot verifies/migrates old `search_generation_current`
-  column shape and an authenticated BeginPromotion reaches the SQL path cleanly.
+- CQ-126: current WIP appears to centralize the conflict-free v2 boot subset
+  and migrate old `search_generation_current` shape, with focused smoke green,
+  but closure is rejected until the WIP is lint-clean, committed, wording stops
+  implying CQ-124 closure, and authenticated BeginPromotion boot-path evidence
+  is recorded.
 - CQ-127: BeginPromotion and opt-in post-begin device checks exist, but closure
   is rejected until device identity is mandatory/derived on upload, object-pack,
   seal, status, and receipt surfaces, and CLI `sync-v2` sends/proves it.
@@ -85,9 +87,9 @@ The blocker is implementation work, not environment.
 - CQ-136: normal sealed replay now validates tuple fields, but closure remains
   open until race-loser replay and linked-receipt schema/derived-id/signature
   validation fail closed.
-- CQ-137: package schema migration for `search_generation_current` exists, but
-  closure remains open until production/startServer boot uses that migration
-  path for old tenant-wide table shapes.
+- CQ-137: current WIP routes production/startServer boot through the
+  `search_generation_current` migration helper, but closure remains open until
+  the same lint/commit/authenticated boot-path evidence above is clean.
 - CQ-138: GetReceipt now checks id/tuple/derived-id/signature, but closure
   remains open until shared receipt schema validation is resolved and CLI
   receipt validation is proven.
@@ -141,6 +143,9 @@ The blocker is implementation work, not environment.
   and seal-after-pack-byte-loss cases.
 - CQ-126 closure from `ea46899` is rejected pending reviewer-smoked old
   `search_generation_current` shape and authenticated boot-path proof.
+- Current CQ-126/CQ-137 helper WIP is required Lane 5 support and functionally
+  promising, but not accepted: reviewer found package lint failures and wording
+  that overclaims "CQ-124 closure".
 - Reviewer aggregate smoke
   `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/` failed 77/78 with
   a timeout in the malformed-body BeginPromotion case, while the same file

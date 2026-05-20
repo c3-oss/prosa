@@ -280,8 +280,31 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 5 production/Docker E2E acceptance)
-Status: open (closure rejected 2026-05-20)
+Status: open (WIP review: functionally promising, not accepted 2026-05-20)
 Owner: Ralph
+
+WIP review update: the current uncommitted schema helper slice moves the safe
+Lane 5 v2 subset into `packages/prosa-db-v2/src/apply.ts` and wires
+`apps/api/src/server.ts` to `applyV2PromotionSubsetSchema`. Reviewer smoke
+confirmed the prior legacy `search_generation_current(tenant_id PRIMARY KEY)`
+shape is migrated to `(tenant_id, store_id)`, existing rows are preserved with
+`store_id = ''`, a second-store seal-style insert succeeds, and an
+authenticated `BeginPromotion` reaches `200 needs_inventory` with a
+`promotion_staging` row.
+
+The WIP is not accepted yet:
+- `pnpm --filter @c3-oss/prosa-api lint` fails on import formatting in
+  `apps/api/test/v2/cq-126-server-boot-schema.test.ts`.
+- `pnpm --filter @c3-oss/prosa-db-v2 lint` fails on the
+  `PACKS_SCHEMA_SQL.replace(...)` formatting in
+  `packages/prosa-db-v2/src/apply.ts`.
+- `apps/api/test/v2/cq-126-server-boot-schema.test.ts` wording says
+  "CQ-124 closure"; this must be corrected because the slice is required
+  Lane 5 support only and CQ-124 remains open for the full v1/v2
+  shared-table migration/cutover.
+- Committed evidence still needs to include the authenticated
+  `BeginPromotion` boot-path proof, not only the unauthenticated 401 route
+  smoke.
 
 Closure rejection: `apps/api/src/server.ts` applies the conflict-free
 v2 slice during boot, immediately after the v1 `applySchema`:
@@ -1259,8 +1282,23 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 5 search/projection authority acceptance)
-Status: open (partial closure rejected 2026-05-20)
+Status: open (WIP review: production boot migration promising, not accepted 2026-05-20)
 Owner: Ralph
+
+WIP review update: the current uncommitted schema helper slice routes
+production boot through `applyV2PromotionSubsetSchema`, which includes the
+guarded legacy-to-composite `search_generation_current` migration. Focused
+tests passed:
+
+```text
+pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/cq-126-server-boot-schema.test.ts test/v2/sync/cq-137-schema-migration.test.ts
+```
+
+Reviewer smoke also passed the legacy-table migration and second-store
+seal-style insert. This does not close CQ-137 until the WIP is lint-clean,
+committed, and its evidence includes the authenticated boot-path proof. It
+also does not close CQ-124; the full v1/v2 projection/search/shared-name table
+migration remains a later-lane cutover.
 
 Partial closure: `SEARCH_SCHEMA_SQL` ships an idempotent
 migration block that runs every time the schema is re-applied:
