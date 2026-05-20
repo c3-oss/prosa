@@ -72,11 +72,15 @@ The blocker is implementation work, not environment.
 - CQ-128: BeginPromotion race safety is now pinned by focused tests, but the
   broader status/resume digest-domain and inventory-ref conflict acceptance
   items remain watch points until directly proven.
+- CQ-132: cleanup-on-catalog-failure has focused tests, but closure is rejected
+  until a concurrent interleaving proves a failed request cannot delete bytes
+  after another request catalogues the same pack.
 - CQ-133: per-promotion pack linkage exists, but full acceptance remains blocked
   by CQ-141's missing-byte fast-path case.
 - CQ-134: SealPromotion can emit receipt/authority before proving object
-  coverage or projection/search materialization; receipt verification flags can
-  claim success for deferred work.
+  coverage by object id, pack-byte presence, or projection/search
+  materialization; receipt verification flags can claim success for deferred
+  work.
 - CQ-135: signer or transaction failure after the seal status flip can strand
   staging in `materializing`, blocking retry/resume.
 - CQ-136: idempotent re-seal of an old promotion can return the current store
@@ -113,11 +117,11 @@ The blocker is implementation work, not environment.
 - Slice 9 focused v2 E2E is useful Postgres/S3 adapter evidence, but it is not
   accepted as the Lane 5 Docker E2E gate: no-env runs skip, `just e2e` fails,
   and the test uses in-process Fastify rather than `prosa sync-v2`.
-- Current live WIP after Slice 9 is not gate-clean: upload/ seal focused tests
-  fail while CQ-130/CQ-131/CQ-135 fixes are in progress.
-- CQ-129, CQ-130, CQ-131, and CQ-132 have focused green smoke and are accepted
-  by the governor as of 2026-05-20. CQ-139 is structurally accepted for removing
-  argv bearer tokens, but command-level CLI coverage is still desirable.
+- CQ-129, CQ-130, and CQ-131 have focused green smoke and are accepted by the
+  governor as of 2026-05-20. CQ-132 is not accepted after reviewer coverage
+  found the concurrent delete-after-catalog race. CQ-139 is structurally
+  accepted for removing argv bearer tokens, but command-level CLI coverage is
+  still desirable.
 - CQ-135 closure from `a867e93` is rejected pending explicit failure-injection
   tests for signer, transaction, and post-flip pre-sign failures.
 - Reviewer aggregate smoke

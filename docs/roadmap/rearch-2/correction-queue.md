@@ -618,10 +618,10 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 5 object-pack cleanup acceptance)
-Status: closed (2026-05-20)
+Status: open (closure rejected 2026-05-20)
 Owner: Ralph
 
-Closure: `apps/api/src/v2/sync/upload-object-pack.ts` captures
+Closure rejection: `apps/api/src/v2/sync/upload-object-pack.ts` captures
 `putIfAbsent`'s `alreadyExisted` flag as `newlyWritten`. On any
 catalog-side failure other than the idempotent
 `unique_violation` (23505) it already handles, the catch block
@@ -635,6 +635,12 @@ by three cases in
 2. idempotent retry with a throwing transaction → bytes
    remain + remote_pack row count stays at 1;
 3. verifyCasPack rejection → no object-store write at all.
+
+Those tests do not cover the concurrent ownership interleaving where request A
+writes bytes and owns `newlyWritten=true`, request B observes those bytes via
+`putIfAbsent` and successfully inserts the catalog rows, then request A hits a
+non-idempotent catalog failure and deletes the key. That would leave B's
+`remote_pack` rows pointing at missing bytes.
 
 Problem:
 
@@ -675,6 +681,8 @@ Acceptance:
 - [ ] Test injects a catalog/transaction failure after object-store write and
       proves the storage key is absent or cleanup was explicitly recorded.
 - [ ] Test proves idempotent replay does not delete pre-existing pack bytes.
+- [ ] Test proves a racing loser that wrote bytes first cannot delete the key
+      after a concurrent winner has catalogued that pack.
 - [ ] Object-pack route evidence documents the storage/catalog failure policy.
 
 ### CQ-133: Object packs are not linked to the promotion that uploaded them
@@ -758,6 +766,10 @@ are written, staging returns to `open`. The bundles-declare-zero
 edge case still seals cleanly.
 
 Outstanding for full closure (blocked on CQ-124):
+- Parse the uploaded object inventory and compare declared object ids to linked
+  `remote_pack_entry.object_id` values; the current check is count-only.
+- Prove linked pack bytes still exist in object storage before granting them
+  (also tracked as CQ-141).
 - Materialize projection/search rows before authority swap.
 - Receipt `rowCountsByEntity` reflects actual catalog state.
 - Truthful `verification.projectionRowsLoaded` (schema currently
@@ -802,8 +814,8 @@ Required fix:
 
 - Parse and validate uploaded inventories during seal or fail closed before
   writing authority.
-- Prove every declared object needed by the promotion is present in linked
-  `remote_pack_entry` rows.
+- Prove every declared object id needed by the promotion is present in linked
+  `remote_pack_entry` rows, not just that the linked row count is high enough.
 - Materialize projection/search rows before setting verification flags, or make
   seal fail closed until CQ-124 enables that materialization.
 - Receipt counts and verification flags must reflect actual checks.
@@ -815,6 +827,8 @@ Acceptance:
 
 - [ ] Seal without object-pack coverage for declared objects returns a conflict
       and writes no receipt/authority/grants.
+- [ ] Seal with enough linked pack entries for the wrong object ids fails
+      closed and writes no receipt/authority/grants.
 - [ ] Seal without projection/search materialization either fails closed or
       records truthful non-success verification state accepted by the wire
       schema/architecture.
