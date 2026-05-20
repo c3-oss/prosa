@@ -1,12 +1,194 @@
 # rearch-2 Correction Queue
 
-Updated: 2026-05-20 after CQ-119 closure.
+Updated: 2026-05-20 after CQ-120/CQ-121 closure (CQ-122 still open).
 
 ## Open blocking corrections
 
-None currently recorded.
+### CQ-122: Streaming validation is header-only and does not satisfy the Lane 4 pack-validation gate
+
+Severity: high
+Blocking: yes
+Status: open
+Owner: Ralph
+
+Problem:
+
+The current upload validator only parses supplied zstd frame header bytes and
+checks the first advertised window. Lane 4 requires a bounded streaming pack
+validation pipeline: pack-level BLAKE3, per-slice/object hashes, streaming
+decode, object/transport hash separation, storage upload/abort behavior, 8 MiB
+zstd window enforcement, memory budget, and concurrency cap.
+
+Risk:
+
+Lane 4 could accept a helper that rejects one oversized first-frame header but
+does not protect the real upload path. Later Lane 5 upload code might decode or
+buffer attacker-controlled bytes before validation, miss later oversized zstd
+frames, or store bytes whose transport/object hashes were never verified.
+
+Smoke evidence:
+
+- `apps/api/src/v2/upload/validate.ts` exposes `validateZstdWindow(headBytes)`
+  and documents that it checks "the first ~32 bytes only; no decompression is
+  performed."
+- `apps/api/test/v2/streaming-validation.test.ts` states it does not run the
+  zstd decoder and only tests header parsing.
+
+Required fix:
+
+Implement or explicitly gate a stream-facing Lane 4 validator that reads a
+bounded prefix before decompression, enforces the 8 MiB zstd window across the
+actual stream/frames it will decode, verifies declared pack/transport/object
+hash inputs, aborts storage on validation failure, and proves the documented
+memory/concurrency bounds. If a piece is intentionally deferred to Lane 5, the
+Lane 4 gate/evidence must not claim it is satisfied.
+
+Acceptance:
+
+- [ ] Tests cover chunk-boundary header handling and oversized later-frame or
+      multi-frame input, not only a single provided header buffer.
+- [ ] Tests cover mismatched transport hash, pack digest, and per-entry stored
+      or uncompressed hashes.
+- [ ] Tests cover abort/cleanup behavior on validation failure before catalog
+      success.
+- [ ] Tests or documented smoke evidence prove the <=16 MiB per-upload memory
+      budget and validation concurrency cap.
+- [ ] Lane 4 evidence accurately distinguishes implemented pipeline pieces from
+      any Lane 5 deferred wiring.
+- [ ] Focused API v2 tests, `pnpm --filter @c3-oss/prosa-api lint`, and
+      `pnpm typecheck` pass.
 
 ## Closed during this cycle
+
+### CQ-120: Production v2 receipt signing falls back to an ephemeral local key
+
+Severity: high
+Blocking: yes
+Status: closed (2026-05-20)
+Owner: Ralph
+
+Problem:
+
+Lane 4 requires AWS KMS / durable server-key signing. Current production server
+boot does not pass a v2 signer into `buildApp`, and `registerV2Routes` falls
+back to `createLocalReceiptSigner()` whenever `deps.signer` is absent. That
+local signer keeps keys only in process memory.
+
+Risk:
+
+A production deploy with missing signer/KMS configuration can still boot and
+publish a JWKS backed by an ephemeral in-memory key. After restart or across
+multiple workers, receipts signed by a previous process would become
+unverifiable, breaking invariant I5 and receipt auditability.
+
+Smoke evidence:
+
+- `apps/api/src/server.ts` calls `buildApp` without `v2Signer` in the server
+  boot path.
+- `apps/api/src/v2/index.ts` creates `deps.signer ?? createLocalReceiptSigner()`.
+- `apps/api/src/v2/signing/local-signer.ts` documents that the private key is
+  in memory only.
+
+Required fix:
+
+Make production-mode v2 signing fail closed unless a durable/KMS-backed signer
+is configured. Keep the local signer explicit for tests/development only. Do
+not commit real KMS keys or secrets.
+
+Acceptance:
+
+- [x] Production-mode boot cannot silently use `createLocalReceiptSigner()`.
+      `registerV2Routes` now reads `runtimeMode` from the deps and throws
+      `MissingV2SignerError` when production boot is missing a configured
+      signer.
+- [x] Tests prove production mode fails closed without a configured durable
+      signer/KMS adapter. `apps/api/test/v2/production-signer.test.ts > refuses
+      to boot in production when no signer is configured`.
+- [x] Tests prove test/development mode can still use an explicit local/mock
+      signer. Same test file covers both modes plus the production
+      explicit-signer happy path.
+- [x] JWKS remains available only from the configured signer for production.
+      `BuildAppOptions.v2Signer` is the only injection point; the plugin no
+      longer creates an in-process key in `production`.
+- [x] Focused API tests, `pnpm --filter @c3-oss/prosa-api lint`, and
+      `pnpm typecheck` pass. `pnpm --filter @c3-oss/prosa-api exec vitest run
+      test/v2/` → 35/35; lint clean; workspace typecheck → 13/13.
+
+### CQ-121: Receipt signer and I5 gate are not v2 wire-compatible
+
+Severity: high
+Blocking: yes
+Status: closed (2026-05-20)
+Owner: Ralph
+
+Problem:
+
+The local receipt signer returns `alg: 'EdDSA'`, while the v2 receipt type and
+wire schema require receipt signatures with `alg: 'Ed25519'`. The current I5
+test signs arbitrary `JSON.stringify(...)`/string bytes instead of canonical
+`receiptPayloadBytes(schema-valid PromotionReceiptV2Payload)` bytes and does
+not validate a complete `PromotionReceiptV2` with
+`promotionReceiptV2Schema`.
+
+Risk:
+
+Lane 4 can pass a byte-level roundtrip while producing signatures that a real
+v2 receipt schema rejects, or while signing bytes that are not the canonical
+receipt payload used for `receiptId` derivation and offline audit.
+
+Smoke evidence:
+
+```text
+pnpm exec node --conditions=prosa-dev --import @swc-node/register/esm-register -e "import { createLocalReceiptSigner } from './src/v2/signing/local-signer.ts'; const s = createLocalReceiptSigner({kidPrefix:'smoke'}); const sig = await s.signReceipt(new TextEncoder().encode('payload')); console.log(JSON.stringify(sig)); process.exit(sig.alg === 'Ed25519' ? 0 : 1);"
+```
+
+Run from `apps/api`; result exited `1` with a signature shaped like:
+
+```json
+{"alg":"EdDSA","keyId":"smoke-...","sig":"..."}
+```
+
+Source contract:
+
+- `packages/prosa-types-v2/src/receipt.ts` requires
+  `PromotionReceiptV2Signature.alg: 'Ed25519'`.
+- `packages/prosa-wire-v2/src/primitives.ts` requires
+  `signature.alg` to be literal `Ed25519` and checks
+  `payload.receiptId === deriveReceiptId(payload)`.
+- `packages/prosa-types-v2/src/canonical.ts` defines
+  `receiptPayloadBytes(payload)` as the deterministic bytes used for receipt ID
+  hashing and server signing.
+
+Required fix:
+
+Separate JWK metadata (`alg: 'EdDSA'`) from the receipt signature wire field
+(`alg: 'Ed25519'`). Make the signer/I5 tests build a schema-valid
+`PromotionReceiptV2Payload`, derive its `receiptId`, sign
+`receiptPayloadBytes(payload)`, assemble a `PromotionReceiptV2`, validate it
+with `promotionReceiptV2Schema`, and verify it through the published JWKS.
+
+Acceptance:
+
+- [x] `ReceiptSignature` returned by the v2 signer is wire-compatible with
+      `PromotionReceiptV2Signature` (`alg: 'Ed25519'`). Updated in
+      `apps/api/src/v2/signing/local-signer.ts`.
+- [x] JWKS keys may still use JWK `alg: 'EdDSA'`; tests prove the two alg
+      fields are not conflated. `apps/api/test/v2/kms-sign-verify.test.ts >
+      signs the canonical receipt bytes and produces a schema-valid v2 receipt`
+      asserts `signature.alg === 'Ed25519'` and `jwk.alg === 'EdDSA'` for the
+      same key.
+- [x] I5 tests sign canonical `receiptPayloadBytes(payload)` for a schema-valid
+      receipt payload, not arbitrary strings. The helper builds a payload
+      draft, calls `deriveReceiptId(draft)`, assigns the canonical id, and
+      signs `receiptPayloadBytes(payload)`.
+- [x] A complete `PromotionReceiptV2` validates with `promotionReceiptV2Schema`.
+      The same test runs `promotionReceiptV2Schema.safeParse(receipt)` and
+      asserts `success === true`.
+- [x] Tampered canonical payload bytes or mismatched `receiptId` fail.
+      `rejects a tampered payload` and `rejects an assembled receipt whose
+      receiptId does not match deriveReceiptId` cover both cases.
+- [x] Focused API v2 tests and relevant v2 wire/type tests pass.
+      `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/` → 35/35.
 
 ### CQ-119: Lane 4 v2 promotion placeholders do not match the Lane 5 route contract
 

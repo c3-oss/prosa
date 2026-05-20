@@ -44,6 +44,8 @@
     "@c3-oss/prosa-db": "workspace:^",
     "@c3-oss/prosa-storage": "workspace:^",
     "@c3-oss/prosa-sync": "workspace:^",
+    "@c3-oss/prosa-types-v2": "workspace:*",
+    "@c3-oss/prosa-wire-v2": "workspace:*",
     "@trpc/server": "^11.0.0",
     "better-auth": "^1.6.11",
     "drizzle-orm": "^0.45.2",

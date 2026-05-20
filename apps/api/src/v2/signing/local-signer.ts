@@ -22,6 +22,7 @@ export type JwkOkp = {
   crv: 'Ed25519'
   x: string
   use: 'sig'
+  /** JWA algorithm name for Ed25519 signatures (RFC 8037). */
   alg: 'EdDSA'
   kid: string
 }
@@ -30,8 +31,15 @@ export type JwkSet = {
   keys: JwkOkp[]
 }
 
+/**
+ * Wire-shape signature emitted by the v2 server. Matches
+ * `PromotionReceiptV2Signature` from `@c3-oss/prosa-types-v2`:
+ * `alg: 'Ed25519'` is the curve name used by the receipt wire schema,
+ * which is intentionally distinct from the JWA name `EdDSA` used in
+ * the JWKS (see RFC 8037 §3.1).
+ */
 export type ReceiptSignature = {
-  alg: 'EdDSA'
+  alg: 'Ed25519'
   keyId: string
   /** base64url-encoded raw signature bytes. */
   sig: string
@@ -102,13 +110,13 @@ export function createLocalReceiptSigner(opts: { kidPrefix?: string } = {}): Rec
     async signReceipt(payload) {
       const signature = nodeSign(null, payload, current.privateKey)
       return {
-        alg: 'EdDSA',
+        alg: 'Ed25519',
         keyId: current.kid,
         sig: Buffer.from(signature).toString('base64url'),
       }
     },
     async verifyReceipt(payload, sig) {
-      if (sig.alg !== 'EdDSA') return false
+      if (sig.alg !== 'Ed25519') return false
       const entry = findByKid(sig.keyId)
       if (!entry) return false
       const signature = Buffer.from(sig.sig, 'base64url')

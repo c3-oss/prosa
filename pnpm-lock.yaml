@@ -102,6 +102,12 @@ importers:
       '@c3-oss/prosa-sync':
         specifier: workspace:^
         version: link:../../packages/prosa-sync
+      '@c3-oss/prosa-types-v2':
+        specifier: workspace:*
+        version: link:../../packages/prosa-types-v2
+      '@c3-oss/prosa-wire-v2':
+        specifier: workspace:*
+        version: link:../../packages/prosa-wire-v2
       '@fastify/cors':
         specifier: ^10.0.0
         version: 10.1.0

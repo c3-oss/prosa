@@ -251,6 +251,81 @@ Required smokes:
   - `pnpm --filter @c3-oss/prosa-api lint` → clean.
   - Workspace `pnpm typecheck` → 13/13.
 
+## CQ-120 closure — 2026-05-20
+
+- `apps/api/src/v2/index.ts` now exports `MissingV2SignerError` and
+  requires `runtimeMode` on `V2PluginDeps`. The plugin only falls
+  back to `createLocalReceiptSigner()` when `runtimeMode !==
+  'production'`. Production-mode boot without a configured signer
+  throws `MissingV2SignerError` before any route registers.
+- `apps/api/src/app.ts` threads `opts.config.runtimeMode` into
+  `registerV2Routes`, so a stray `buildApp({ runtimeMode:
+  'production' })` call without `v2Signer` fails closed.
+- `apps/api/test/v2/production-signer.test.ts` pins five cases:
+  1. production + no signer → `MissingV2SignerError`.
+  2. production + explicit signer → returns that exact signer.
+  3. development + no signer → in-process local signer with ≥1 key.
+  4. test + no signer → in-process local signer with ≥1 key.
+  5. `MissingV2SignerError.message` mentions production +
+     `createLocalReceiptSigner` so the operator sees actionable
+     guidance.
+- Gates:
+  - `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/` → 35/35.
+  - `pnpm --filter @c3-oss/prosa-api lint` → clean.
+  - Workspace `pnpm typecheck` → 13/13.
+
+## CQ-121 closure — 2026-05-20
+
+- `apps/api/src/v2/signing/local-signer.ts` changes:
+  - `ReceiptSignature.alg` is now `'Ed25519'`, matching
+    `PromotionReceiptV2Signature` from `@c3-oss/prosa-types-v2`.
+  - JWK `JwkOkp.alg` stays `'EdDSA'`, the JWA name for Ed25519
+    signatures (RFC 8037 §3.1). The two fields are intentionally
+    distinct, and the doc comments call out the distinction.
+  - `verifyReceipt` rejects any signature whose `alg !== 'Ed25519'`.
+- `apps/api/test/v2/kms-sign-verify.test.ts` rewritten:
+  - Builds a schema-valid `PromotionReceiptV2Payload` (all
+    required fields present, including
+    `materialization.rowCountsByEntity` for every
+    `CANONICAL_ENTITY_TYPES` entry).
+  - Calls `deriveReceiptId(draft)` and assigns the canonical id.
+  - Signs `receiptPayloadBytes(payload)` from
+    `@c3-oss/prosa-types-v2`.
+  - Assembles `PromotionReceiptV2` and runs
+    `promotionReceiptV2Schema.safeParse(...)`; expects
+    `success === true`.
+  - Asserts JWKS publishes `alg: 'EdDSA'` for the same key id.
+  - Tamper case: mutated payload bytes do not verify.
+  - Cross-signer case: signature from a sibling signer is rejected.
+  - Rotation case: old + new key ids both in JWKS, both
+    signatures still verify after rotation.
+  - Schema rejection: `payload.receiptId === 'rcpt_tampered'`
+    fails `promotionReceiptV2Schema` because
+    `deriveReceiptId(payload)` no longer matches.
+  - Explicit `signature.alg === 'Ed25519'` and not `'EdDSA'`
+    regression assertion (the original CQ-121 trigger).
+- `apps/api/package.json` adds workspace deps
+  `@c3-oss/prosa-types-v2` and `@c3-oss/prosa-wire-v2` (test-only
+  use; the production server still imports them lazily via
+  `BuildAppOptions.v2Signer` once a real signer ships).
+- Gates:
+  - `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/kms-sign-verify.test.ts` → 8/8.
+  - `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/` → 35/35.
+  - `pnpm --filter @c3-oss/prosa-api lint` → clean.
+  - Workspace `pnpm typecheck` → 13/13.
+
+## Governor review - CQ-122 still open
+
+CQ-120 and CQ-121 closed by the slice above. CQ-122 — full streaming
+pack validation pipeline — remains open. The Lane 4 ralph-loop prompt
+asks for "bounded streaming pack validation that rejects zstd windows
+larger than 8 MiB and keeps memory within the documented budget",
+which the current header-only validator meets in spirit. CQ-122
+extends that scope to the full Lane 5 pipeline (pack-level BLAKE3,
+per-entry hashes, S3 multipart abort/cleanup, memory budget, and
+concurrency cap). The next slice must either implement the missing
+pieces or scope the gate/evidence down honestly.
+
 ## Governor review - CQ-120/CQ-121/CQ-122 opened
 
 CQ-119 was closed by `957d132`; the route contract smoke now passes and API v2

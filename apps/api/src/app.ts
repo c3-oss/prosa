@@ -162,6 +162,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   registerV2Routes(app, {
     auth: opts.auth,
     rawExec: opts.rawExec,
+    runtimeMode: opts.config.runtimeMode,
     signer: opts.v2Signer,
   })
 
