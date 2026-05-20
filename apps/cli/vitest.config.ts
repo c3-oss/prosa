@@ -31,11 +31,15 @@ export default mergeConfig(
         exclude: ['src/bin/**', 'src/index.ts', 'src/**/*.d.ts'],
         cleanOnRerun: false,
       },
-      fileParallelism: !isCoverage,
+      // CQ-140: the v1 `sync-e2e.test.ts` and the new Lane 5
+      // `sync-v2-e2e.test.ts` both DROP SCHEMA the shared Docker
+      // Postgres + reset the MinIO bucket. Run them serialized
+      // when any vitest argv mentions e2e so they don't race.
+      fileParallelism: !isCoverage && !process.argv.some((arg) => arg.includes('e2e')),
       pool: 'forks',
       poolOptions: {
         forks: {
-          singleFork: isCoverage,
+          singleFork: isCoverage || process.argv.some((arg) => arg.includes('e2e')),
         },
       },
       testTimeout: isCoverage ? 90_000 : 60_000,
