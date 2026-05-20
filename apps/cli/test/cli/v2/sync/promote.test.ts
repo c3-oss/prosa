@@ -208,6 +208,24 @@ describe('promoteBundleV2 — end-to-end (Lane 5 slice 7)', () => {
     expect(result.receipt.payload.bundleRoot).toBe(bundleRoot)
     expect(result.receipt.signature.alg).toBe('Ed25519')
 
+    // CQ-123: the seal-time receipt — carrying a real Better Auth
+    // tenantId (organization.id, mixed-case nanoid) — must parse
+    // against the canonical `promotionReceiptV2Schema`. This is
+    // the end-to-end I5 + CQ-123 acceptance: real signup all the
+    // way through to client-side schema-validated receipt.
+    const { promotionReceiptV2Schema } = await import('@c3-oss/prosa-wire-v2')
+    const schemaParse = promotionReceiptV2Schema.safeParse(result.receipt)
+    if (!schemaParse.success) {
+      // Surface the failure for fast debugging — without this the
+      // test only shows `expected false to be true`.
+      // eslint-disable-next-line no-console
+      console.error(JSON.stringify(schemaParse.error.issues, null, 2))
+    }
+    expect(schemaParse.success).toBe(true)
+    // Confirm the tenantId really came from Better Auth (not a
+    // helper-supplied lowercase fixture).
+    expect(result.receipt.payload.tenantId).toBe(account.tenantId)
+
     // I5 — the signature returned to the client verifies against
     // the published JWKS.
     const jwks = await fastify.inject({ method: 'GET', url: '/v2/.well-known/receipt-keys.json' })

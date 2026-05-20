@@ -1036,3 +1036,44 @@ Gates:
 - `pnpm typecheck` repo-wide → clean.
 
 CQ-136 acceptance bullets are all proven; the CQ is closed.
+
+## CQ-123 closure (Better Auth lifecycle proof) — 2026-05-20
+
+Scope:
+
+- `apps/cli/test/cli/v2/sync/promote.test.ts > drives the full
+  four-call protocol and seals a fresh bundle` now asserts the
+  CQ-123 end-to-end lifecycle:
+  1. `auth.signupWithTenant` creates a real Better Auth org +
+     user; `account.tenantId` is the mixed-case
+     `organization.id`.
+  2. `promoteBundleV2(...)` drives BeginPromotion → uploads →
+     SealPromotion through that tenantId.
+  3. After seal, the receipt is parsed with
+     `promotionReceiptV2Schema.safeParse(...)` and the assertion
+     passes. The test also asserts
+     `result.receipt.payload.tenantId === account.tenantId`,
+     proving the mixed-case id really flowed end-to-end.
+  4. The signature is verified against the server's JWKS via
+     `node:crypto` (existing I5 check).
+- The other CLI lifecycle cases (already-promoted fast path,
+  resume after half-interrupt) continue to exercise the same
+  Better Auth signup pathway.
+
+This closes the remaining CQ-123 acceptance gap: the prior
+`opaqueAuthIdSchema` relaxation in `prosa-wire-v2` ensured the
+canonical schemas admit Better Auth ids; the new
+safeParse + tuple equality assertion proves a real Better Auth
+signup all the way through to a schema-validated receipt at the
+client.
+
+Gates:
+
+- `pnpm --filter @c3-oss/prosa exec vitest run test/cli/v2/sync/promote.test.ts`
+  → pass, 4/4.
+- The existing apps/api fixture tests
+  (`apps/api/test/v2/sync/cq-123-opaque-auth-ids.test.ts` and
+  `apps/api/test/v2/sync/begin-fast-path.test.ts > returns
+  already_promoted ...`) continue to pass.
+
+CQ-123 acceptance bullets are all proven; the CQ is closed.

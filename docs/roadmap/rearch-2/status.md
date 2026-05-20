@@ -51,9 +51,13 @@ The blocker is implementation work, not environment.
 
 ## Open blockers
 
-- CQ-123: `opaqueAuthIdSchema` now covers Better Auth mixed-case tenant/store/
-  device ids, but closure is rejected until a real signup → promote → seal →
-  GetReceipt → client schema/JWKS verification lifecycle is proven.
+- CQ-123: closed (2026-05-20). The `opaqueAuthIdSchema` wire-schema
+  relaxation is now complemented by a real end-to-end lifecycle pin in
+  `apps/cli/test/cli/v2/sync/promote.test.ts` (signup → BeginPromotion →
+  uploads → seal → client `promotionReceiptV2Schema.safeParse` + JWKS
+  signature verify). The CLI test signs up via Better Auth and asserts
+  the returned receipt's `payload.tenantId` matches the mixed-case
+  organization id end-to-end.
 - CQ-124: v1 and v2 schemas share table names with incompatible
   columns. The conflict-free subset is now centralized behind
   `applyV2PromotionSubsetSchema` (used by production boot and every
@@ -173,8 +177,10 @@ The blocker is implementation work, not environment.
 - CQ-127 closure from `0e59a43` is rejected because post-begin checks are
   optional via `x-prosa-device-id`, CLI does not send the header, and GetReceipt
   remains tenant-wide.
-- CQ-123 closure from `3f313f0` is rejected as partial until lifecycle evidence
-  proves real Better Auth ids parse and verify through client receipt handling.
+- CQ-123 closure from `3f313f0` is rejected as partial; that gap is resolved
+  by the 2026-05-20 closure (`promote.test.ts` adds the lifecycle proof
+  with `promotionReceiptV2Schema.safeParse` + JWKS verify of a real
+  Better Auth signup-derived receipt).
 - CQ-125's earlier `41642b3` rejection (device-mismatch + malformed-sig
   cases) is resolved by the 2026-05-20 closure: `verifyReceipt` +
   `deriveReceiptId` checks plus the device-only return gate. CQ-141's

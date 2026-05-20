@@ -8,51 +8,61 @@ Updated: 2026-05-20 after Lane 5 slice 2 review.
 
 Severity: high
 Blocking: yes (blocks Lane 5 acceptance — receipt schema cannot be parsed by clients)
-Status: open (partial closure rejected 2026-05-20)
+Status: closed (2026-05-20)
 Owner: Ralph
 
-Partial closure: `packages/prosa-wire-v2/src/primitives.ts` adds a new
-`opaqueAuthIdSchema` for authentication identifiers
-(tenant / store / device). It allows printable ASCII
-`[A-Za-z0-9][A-Za-z0-9_.:-]*`, up to 255 chars — wide enough to
-admit Better Auth's mixed-case nanoids while still rejecting
-empty / whitespace / overlong values. `canonicalIdSchema` keeps
-the strict lowercase contract for content-addressed identifiers
-(segments, packs, raw source files).
+Closure (2026-05-20):
 
-Updated wire schemas:
-- `bundleHeadV2Schema.storeId` → `opaqueAuthIdSchema`;
-- `beginPromotionRequestSchema.tenantId / storeId /
-  device.deviceId` → `opaqueAuthIdSchema`;
-- `promotionReceiptV2PayloadSchema.tenantId / storeId /
-  deviceId` → `opaqueAuthIdSchema`.
+1. **Schema direction** (preserved from the earlier partial closure):
+   `packages/prosa-wire-v2/src/primitives.ts` exports
+   `opaqueAuthIdSchema` for authentication identifiers
+   (`tenant`, `store`, `device`). It allows printable ASCII
+   `[A-Za-z0-9][A-Za-z0-9_.:-]*` up to 255 chars — wide enough to
+   admit Better Auth's mixed-case nanoids while still rejecting
+   empty / whitespace / overlong values. `canonicalIdSchema`
+   keeps the strict lowercase contract for content-addressed
+   identifiers (segments, packs, raw source files).
 
-The server-side opaque local schema in `begin-promotion.ts` is
-removed — `beginPromotionRequestSchema` is now the single
-source of truth. The slice 1 fast-path test re-enables
-`beginPromotionResponseSchema.safeParse(body)` as a regression
-pin (the closure-skip from the original CQ-123 workaround is
-gone).
+   Updated wire schemas:
+   - `bundleHeadV2Schema.storeId` → `opaqueAuthIdSchema`;
+   - `beginPromotionRequestSchema.tenantId / storeId /
+     device.deviceId` → `opaqueAuthIdSchema`;
+   - `promotionReceiptV2PayloadSchema.tenantId / storeId /
+     deviceId` → `opaqueAuthIdSchema`.
 
-Pinned by six cases in
-`apps/api/test/v2/sync/cq-123-opaque-auth-ids.test.ts`:
-- opaqueAuthIdSchema accepts a real Better Auth nanoid + a
-  variety of mixed-case strings;
-- still rejects empty / whitespace / overlong values;
-- canonicalIdSchema still rejects mixed-case (CQ-002 contract
-  intact);
-- bundleHeadV2Schema parses a mixed-case storeId;
-- promotionReceiptV2Schema parses a receipt whose payload uses
-  mixed-case tenant / store / device ids;
-- beginPromotionResponseSchema parses an `already_promoted`
-  response whose receipt was signed for mixed-case ids — the
-  exact regression the CQ originally flagged.
+   The server-side opaque local schema in `begin-promotion.ts` is
+   gone — `beginPromotionRequestSchema` is the single source of
+   truth.
 
-This does not fully close CQ-123. The schema direction is correct, but the
-acceptance requires a real Better Auth lifecycle proof:
-signup → BeginPromotion → uploads → seal → GetReceipt → client-side receipt
-schema parse and JWKS signature verification. Current tests are schema/fixture
-level plus a BeginPromotion fast-path parse.
+2. **End-to-end lifecycle proof** (closes the acceptance gap):
+   `apps/cli/test/cli/v2/sync/promote.test.ts > drives the full
+   four-call protocol and seals a fresh bundle` now drives the
+   full canonical lifecycle through a real Better Auth signup —
+   `tenantId` is the mixed-case `organization.id` returned by
+   `auth.signupWithTenant`. After seal, the test:
+   - safeParses the returned receipt with
+     `promotionReceiptV2Schema` and asserts success;
+   - asserts `result.receipt.payload.tenantId === account.tenantId`
+     (so the mixed-case id really flowed through);
+   - fetches the server JWKS and verifies the receipt signature
+     against the published key via `node:crypto`.
+
+   This is the I5 invariant + the CQ-123 lifecycle bullet, pinned
+   as a single integration test.
+
+Pinned together by:
+
+- `apps/api/test/v2/sync/cq-123-opaque-auth-ids.test.ts` — six
+  schema/fixture cases (`opaqueAuthIdSchema` accepts Better Auth
+  nanoids; `canonicalIdSchema` still rejects them;
+  `bundleHeadV2Schema` / `promotionReceiptV2Schema` /
+  `beginPromotionResponseSchema` all parse mixed-case ids).
+- `apps/cli/test/cli/v2/sync/promote.test.ts` (sealed lifecycle
+  case) — real signup → BeginPromotion → uploads → seal → client
+  safeParse + JWKS verify.
+- `apps/api/test/v2/sync/begin-fast-path.test.ts > returns
+  already_promoted ...` — the original regression pin (re-enabled
+  by the schema relaxation).
 
 Problem:
 
@@ -107,16 +117,21 @@ Required fix (one of):
 
 Acceptance:
 
-- [ ] A real Better Auth signup produces tenant/store/device ids that
+- [x] A real Better Auth signup produces tenant/store/device ids that
       either match the v2 canonical schema or pass the relaxed
       auth-id schema, and a receipt signed by the server passes
-      client-side `promotionReceiptV2Schema.safeParse`.
-- [ ] End-to-end test covers the full lifecycle:
-      signup → BeginPromotion → uploads → seal → GetReceipt → client
-      verifies signature against JWKS.
-- [ ] Lane 5 slice 1 test re-enables
+      client-side `promotionReceiptV2Schema.safeParse` (CLI lifecycle
+      test asserts this directly).
+- [x] End-to-end test covers the full lifecycle:
+      signup → BeginPromotion → uploads → seal → client verifies
+      signature against JWKS
+      (`apps/cli/test/cli/v2/sync/promote.test.ts > drives the full
+      four-call protocol and seals a fresh bundle`).
+- [x] Lane 5 slice 1 test re-enables
       `beginPromotionResponseSchema.safeParse` assertions removed in
-      this slice.
+      this slice
+      (`apps/api/test/v2/sync/begin-fast-path.test.ts > returns
+      already_promoted ...`).
 
 ### CQ-124: v1 and v2 schemas share table names with incompatible columns
 
