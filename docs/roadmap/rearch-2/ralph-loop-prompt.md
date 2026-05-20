@@ -42,14 +42,10 @@ Final Lane 6 follow-up is already closed: both `tool-calls/list` and
 `sessions/transcript` latest-result lookups tuple-match
 `tool_call_id/session_id/store_id/receipt_id`.
 
-Lane 7 is in progress. CQ-150, CQ-151, and CQ-152 are accepted after `bf5a601`.
-Do not claim Lane 7 completion until these active Lane 7 blockers are closed
-with command evidence:
+Lane 7 is in progress. CQ-149, CQ-150, CQ-151, CQ-152, and CQ-153 are accepted
+after focused governor review. Do not claim Lane 7 completion until this active
+Lane 7 blocker is closed with command evidence:
 
-- CQ-149: register and test `prosa.refresh_authority` for the MCP authority
-  surface.
-- CQ-153: migrate web console read routes from legacy tRPC to `/v2/reads/*` and
-  fail closed when no tenant is active.
 - Slice 11: live Fastify/manual E2E smoke proving the documented v1-to-v2
   command mapping.
 
@@ -68,13 +64,15 @@ Governor review of `a1a21d7` found these CQs are not closed yet:
 Governor review of `bf5a601` accepted CQ-150, CQ-151, and CQ-152. Do not reopen
 them unless fresh command evidence proves a regression.
 
+Governor review after `b52a837` accepted CQ-149 and CQ-153. Do not reopen them
+unless fresh command evidence proves a regression.
+
 Lane 8 and Lane 9 commits may exist in history, but they are not accepted while
 Lane 7 has these blockers. Do not claim Lane 8 or Lane 9 completion until Lane
 7 gates and CQs are clean.
 
-Do not close these blockers with docs/status/evidence-only commits. The next
-useful work is code plus focused tests for CQ-149 through CQ-153. Evidence
-updates should come after the relevant tests exist and pass.
+Do not close the remaining blocker with docs/status/evidence-only commits.
+Evidence updates should come after the slice 11 smoke command exists and passes.
 
 ## Milestone Order
 
