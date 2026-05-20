@@ -1,9 +1,10 @@
 # Lane 5 Evidence - Sync protocol
 
-Status: prepared; blocked until Lane 4 acceptance.
+Status: active; Lane 4 accepted on 2026-05-20.
 
-Lane 5 may start only after Lane 4 has five fresh clean 180-second
-stabilization cycles and is accepted by Codex/governor.
+Lane 5 may start now. Lane 4 final gates passed, all Lane 4 CQs are closed, and
+Codex/governor accepted Lane 4 after the user explicitly waived the remaining
+fresh stabilization wait.
 
 Core scope after Lane 4 acceptance:
 

@@ -2,13 +2,12 @@
 
 ## Mission
 
-Continue `rearch-2` after Lane 4 Server closeout. The next core milestone is
+Continue `rearch-2` after accepted Lane 4 Server closeout. The next core milestone is
 **Lane 5 Sync protocol: BeginPromotion -> Upload -> Seal -> GetReceipt, plus
 CLI sync-v2 and Docker-backed E2E evidence**.
 
-Do not start Lane 5 until `docs/roadmap/rearch-2/status.md` says Lane 4 is
-accepted. If Lane 4 is still in stabilization, only update evidence requested by
-Codex/governor; do not implement Lane 5.
+Lane 4 is accepted by Codex/governor. Start Lane 5; do not start Lane 6 or any
+read/CLI/MCP expansion outside the sync protocol.
 
 ## Read first
 

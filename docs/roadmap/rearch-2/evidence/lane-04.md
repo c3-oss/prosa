@@ -498,8 +498,8 @@ git diff --check
 
 Result: pass.
 
-Lane 4 acceptance remains pending until five fresh 180-second stabilization
-cycles complete after this evidence/status/prompt alignment is committed.
+Lane 4 acceptance: accepted by Codex/governor on 2026-05-20 after final gates
+passed and the user explicitly waived the remaining fresh stabilization wait.
 
 ## Governor review - CQ-120/CQ-121/CQ-122 opened
 
