@@ -55,18 +55,23 @@ The blocker is implementation work, not environment.
   device ids, but closure is rejected until a real signup → promote → seal →
   GetReceipt → client schema/JWKS verification lifecycle is proven.
 - CQ-124: v1 and v2 schemas share table names with incompatible
-  columns. Blocks Lane 5 slice 3 (materialization paths) and Lane 10
-  cutover; slice 1 sidesteps it by applying only the conflict-free
-  promotion block in tests.
+  columns. The conflict-free subset is now centralized behind
+  `applyV2PromotionSubsetSchema` (used by production boot and every
+  test entry point), but the underlying v1/v2 cutover is deferred to
+  Lane 10 — CQ-124 acceptance (full `applySchemaV2` over v1, projection
+  / search materialization) remains open until that cutover lands.
 - CQ-125: BeginPromotion no-op fast path now checks part of the authority
   receipt tuple, but closure is rejected until requested device binding,
   malformed/schema-invalid receipt rejection, and signature verification are
   proven.
-- CQ-126: current WIP appears to centralize the conflict-free v2 boot subset
-  and migrate old `search_generation_current` shape, with focused smoke green,
-  and follow-up package lint green, but closure is rejected until the WIP is
-  committed, wording stops implying CQ-124 closure, and authenticated
-  BeginPromotion boot-path evidence is recorded.
+- CQ-126: closed (2026-05-20). Boot applies the conflict-free v2 subset via
+  the canonical helper `applyV2PromotionSubsetSchema`, the
+  `search_generation_current` migration is idempotent and pinned by
+  CQ-137, and `apps/api/test/v2/cq-126-server-boot-schema.test.ts` now
+  includes an authenticated BeginPromotion case that proves
+  `remote_authority_v2` / `promotion_staging` / `device` all resolve
+  against the boot-applied schema. Test wording no longer claims CQ-124
+  closure. Repo-wide `pnpm lint` and `pnpm typecheck` green.
 - CQ-127: BeginPromotion and opt-in post-begin device checks exist, but closure
   is rejected until device identity is mandatory/derived on upload, object-pack,
   seal, status, and receipt surfaces, and CLI `sync-v2` sends/proves it.
@@ -141,12 +146,11 @@ The blocker is implementation work, not environment.
 - CQ-125/CQ-141 closure claims from `41642b3`/`f1d15b3` are rejected pending
   reviewer-smoked device-mismatch, malformed-signature, wrong pack metadata,
   and seal-after-pack-byte-loss cases.
-- CQ-126 closure from `ea46899` is rejected pending reviewer-smoked old
-  `search_generation_current` shape and authenticated boot-path proof.
-- Current CQ-126/CQ-137 helper WIP is required Lane 5 support and functionally
-  promising, with follow-up package lint now passing, but not accepted: wording
-  still overclaims "CQ-124 closure" and committed authenticated boot-path
-  evidence is still required.
+- CQ-126 was reopened twice (rejection of `ea46899` and the earlier WIP
+  helper slice). The 2026-05-20 closure addresses both: the
+  `search_generation_current` legacy-shape upgrade is idempotent and pinned
+  by CQ-137; the cq-126 test now asserts an authenticated BeginPromotion
+  reaches `200 needs_inventory` against the boot-applied schema.
 - Reviewer aggregate smoke
   `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/` failed 77/78 with
   a timeout in the malformed-body BeginPromotion case, while the same file

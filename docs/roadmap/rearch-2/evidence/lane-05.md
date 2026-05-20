@@ -792,3 +792,73 @@ Slice 9 deferred (explicit):
   `--no-resume`. The E2E proves the protocol; the UX polish is
   follow-up work.
 - Five 180 s stabilization cycles before Lane 5 acceptance.
+
+## CQ-126 closure (canonical v2 boot subset helper) — 2026-05-20
+
+Scope:
+
+- `packages/prosa-db-v2/src/apply.ts` now exports a single canonical
+  helper `applyV2PromotionSubsetSchema(client)` and a load-bearing
+  table list `V2_PROMOTION_SUBSET_TABLES`. The helper applies
+  `PROMOTION_SCHEMA_SQL`, the packs SQL with the colliding
+  `remote_object` block stripped (CQ-124 placeholder), and the
+  per-(tenant, store) `search_generation_current` block including
+  the idempotent legacy-shape migration from CQ-137.
+- `apps/api/src/server.ts` boots through that helper and derives
+  its fail-fast required-tables check from `V2_PROMOTION_SUBSET_TABLES`,
+  so the boot table list cannot drift from the SQL the helper actually
+  runs.
+- Every test entry point now uses the same helper instead of inline
+  regex strips:
+  - `apps/api/test/helpers/test-app.ts` (in-process Fastify),
+  - `apps/api/test/e2e/v2-promote.e2e.test.ts` (Docker E2E
+    bootstrap),
+  - `apps/cli/test/cli/v2/sync/promote.test.ts` (CLI promote
+    driver),
+  - `apps/api/test/v2/sync/cq-132-orphan-cleanup.test.ts` and
+    `apps/api/test/v2/sync/cq-135-seal-restore.test.ts`.
+
+Pinned by `apps/api/test/v2/cq-126-server-boot-schema.test.ts`:
+
+1. `applyV2PromotionSubsetSchema` creates every table in
+   `V2_PROMOTION_SUBSET_TABLES` on a fresh v1 database.
+2. Re-applying the helper is idempotent (CREATE/ALTER/DO blocks all
+   re-runnable).
+3. Unauthenticated `POST /v2/promotions/begin` returns 401 (no
+   "relation does not exist").
+4. **Authenticated** BeginPromotion against a v1+v2-boot database
+   reaches the v2 query layer cleanly: signs up a real tenant, posts
+   an authenticated body, and asserts `200 needs_inventory` plus the
+   matching `promotion_staging` row. Proves
+   `remote_authority_v2` SELECT, `promotion_staging` partial-unique
+   INSERT, and `claimDevice` upsert all resolve against the
+   boot-applied schema.
+
+Reviewer concerns addressed:
+
+- `pnpm lint` repo-wide clean (`apps/api`, `prosa-db-v2`, every
+  other workspace). Earlier closure-attempt failed on
+  `PACKS_SCHEMA_SQL.replace(...)` and import formatting; both fixed.
+- Test wording no longer claims CQ-124 closure — title and comments
+  scope strictly to CQ-126. CQ-124 (the full v1/v2 shared-name
+  cutover) remains open and is owned by Lane 10.
+- The recorded evidence now includes an authenticated boot-path
+  proof, not only the unauthenticated 401 route smoke.
+
+Gates:
+
+- `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/cq-126-server-boot-schema.test.ts`
+  → pass, 4/4.
+- `pnpm --filter @c3-oss/prosa-api test` → pass, 269 / 4 skipped.
+- `pnpm --filter @c3-oss/prosa test` → pass, 290 / 1 skipped.
+- `pnpm lint` → clean (13/13 packages).
+- `pnpm typecheck` → clean (13/13 packages).
+
+CQ-124 explicitly NOT closed by this slice:
+
+- The full v1/v2 shared-name collision (for `device`,
+  `remote_object`, `projection_session`, `search_doc`) still
+  prevents `applySchemaV2` over a v1 database. Projection / search
+  materialization remains v1-shaped. Lane 10 owns the namespace /
+  rename / migration cutover. CQ-124 acceptance bullets stay open
+  until that cutover lands.

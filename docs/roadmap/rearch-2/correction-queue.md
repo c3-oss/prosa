@@ -122,8 +122,27 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 5 seal/materialization acceptance and Lane 10 cutover; does not block independent BeginPromotion/upload slices)
-Status: open
+Status: open — subset workaround formalized (2026-05-20); full v1/v2 cutover deferred to Lane 10
 Owner: Ralph
+
+Subset workaround formalization (2026-05-20): the conflict-free v2 subset
+that boot and every test entry point need (promotion + packs minus
+`remote_object` + the per-(tenant, store) `search_generation_current`
+pointer) now lives behind a single canonical helper
+`applyV2PromotionSubsetSchema` in `packages/prosa-db-v2/src/apply.ts`, with
+the load-bearing table list at `V2_PROMOTION_SUBSET_TABLES`. Production
+boot (`apps/api/src/server.ts`), the in-process Fastify tests
+(`apps/api/test/helpers/test-app.ts`), the Docker E2E bootstrap
+(`apps/api/test/e2e/v2-promote.e2e.test.ts`), and the CLI promote test
+(`apps/cli/test/cli/v2/sync/promote.test.ts`) all call through this
+helper. Pinned by `apps/api/test/v2/cq-126-server-boot-schema.test.ts`.
+
+This is NOT a CQ-124 closure: the full v1/v2 table-name collision (for
+`device`, `remote_object`, `projection_session`, `search_doc`) still
+prevents calling `applySchemaV2` over a v1 database, so projection /
+search materialization remains v1-shaped. Lane 10 owns the namespace /
+rename / migration cutover. The acceptance checklist below stays open
+until that cutover lands.
 
 Problem:
 
@@ -280,33 +299,38 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 5 production/Docker E2E acceptance)
-Status: open (WIP review: functionally promising, not accepted 2026-05-20)
+Status: closed (2026-05-20)
 Owner: Ralph
 
-WIP review update: the current uncommitted schema helper slice moves the safe
-Lane 5 v2 subset into `packages/prosa-db-v2/src/apply.ts` and wires
-`apps/api/src/server.ts` to `applyV2PromotionSubsetSchema`. Reviewer smoke
-confirmed the prior legacy `search_generation_current(tenant_id PRIMARY KEY)`
-shape is migrated to `(tenant_id, store_id)`, existing rows are preserved with
-`store_id = ''`, a second-store seal-style insert succeeds, and an
-authenticated `BeginPromotion` reaches `200 needs_inventory` with a
-`promotion_staging` row.
+Closure (2026-05-20): boot now applies the conflict-free v2 subset through
+the single canonical helper `applyV2PromotionSubsetSchema` exported from
+`@c3-oss/prosa-db-v2`. The matching required-tables list lives at
+`V2_PROMOTION_SUBSET_TABLES`, so the boot-time fail-fast check cannot drift
+from the SQL that actually runs. The same helper is also used by every
+in-process test entry point (`buildTestApp`, the v2-promote Docker E2E
+bootstrap, the CLI promote test, the focused CQ tests) — no inline regex
+strips remain.
 
-Follow-up smoke: after WIP formatting changes, both package lint commands pass:
+Reviewer concerns addressed:
+- `pnpm lint` passes repo-wide (`apps/api`, `prosa-db-v2`, every other
+  workspace) after the `PACKS_SCHEMA_SQL.replace(...)` and import
+  formatting fixes.
+- `apps/api/test/v2/cq-126-server-boot-schema.test.ts` no longer claims
+  CQ-124 closure — its title and comments scope strictly to CQ-126.
+- The same test now includes an **authenticated** BeginPromotion case:
+  it signs up a real tenant, posts an authenticated body, and asserts a
+  `200 needs_inventory` response with a matching `promotion_staging` row.
+  This proves the v2 query layer (`remote_authority_v2` SELECT,
+  `promotion_staging` partial-unique INSERT, `claimDevice` upsert) all
+  resolve against the boot-applied schema — not just that the auth ladder
+  short-circuits ahead of SQL.
+
+Earlier follow-up smoke (still valid): both package lints pass:
 
 ```text
 pnpm --filter @c3-oss/prosa-api lint
 pnpm --filter @c3-oss/prosa-db-v2 lint
 ```
-
-The WIP is still not accepted:
-- `apps/api/test/v2/cq-126-server-boot-schema.test.ts` wording says
-  "CQ-124 closure"; this must be corrected because the slice is required
-  Lane 5 support only and CQ-124 remains open for the full v1/v2
-  shared-table migration/cutover.
-- Committed evidence still needs to include the authenticated
-  `BeginPromotion` boot-path proof, not only the unauthenticated 401 route
-  smoke.
 
 Closure rejection: `apps/api/src/server.ts` applies the conflict-free
 v2 slice during boot, immediately after the v1 `applySchema`:
