@@ -34,6 +34,7 @@ import { type MessageRole, deriveRawRecordId, deriveSourceFileId, toHex } from '
 import { blake3 } from '@noble/hashes/blake3'
 import Database from 'better-sqlite3'
 
+import { buildSearchDocsFromMessageBlocks } from '../search-doc-builder.js'
 import {
   type CheapIdentification,
   type DiscoveredSourceFile,
@@ -469,6 +470,10 @@ export class CursorProvider implements Provider {
       timeline_confidence: 'low',
       raw_record_id: metaRawId ?? rawRecordIds[0] ?? null,
     })
+
+    // Lane 3 compile-to-index gate: emit one SearchDocV2 per
+    // message-with-indexable-text via the shared helper.
+    buildSearchDocsFromMessageBlocks(draft)
 
     const unit: LogicalImportUnit = {
       unit_id: input.identification.unit_id,

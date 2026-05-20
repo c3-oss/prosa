@@ -20,6 +20,7 @@
 // so the merged compacted file does not change `bundleRoot`.
 
 import { mkdir, stat } from 'node:fs/promises'
+import { isAbsolute, relative, resolve as resolvePath, sep } from 'node:path'
 
 import { type CompactionExecutionPlan, planCompactionExecution } from './executor-plan.js'
 import { type CompactionPlan, planCompaction } from './planner.js'
@@ -102,6 +103,14 @@ async function loadDuckDb(): Promise<DuckDbModule> {
  */
 export async function runCompaction(input: RunCompactionInput): Promise<RunCompactionResult> {
   const plan = input.plan ?? (await planCompaction(input.bundleRoot))
+  // CQ-118: validate caller-supplied plans before composing the
+  // execution plan or running any DuckDB / file side effect. A
+  // freshly-built `planCompaction` plan is always contained, so a
+  // re-validation here is a defensive belt-and-braces; the cost is
+  // a few path joins per entity. Validation runs before `dryRun`
+  // returns so even dry-run callers cannot inspect an escaping
+  // execution plan.
+  assertPlanContained(plan, input.bundleRoot)
   const executionPlan = planCompactionExecution({ bundleRoot: input.bundleRoot, plan })
   const dryRun = input.dryRun ?? false
 
@@ -163,4 +172,50 @@ export async function runCompaction(input: RunCompactionInput): Promise<RunCompa
 
 function quoteSqlString(value: string): string {
   return `'${value.replace(/'/g, "''")}'`
+}
+
+/**
+ * CQ-118: validate every caller-supplied path inside a
+ * `CompactionPlan` against the bundle root. Rejects absolute paths,
+ * `..` traversal, and any resolved path outside `bundleRoot`. Runs
+ * before the execution-plan composer touches the path string and
+ * before any DuckDB / `mkdir` / `COPY` side effect.
+ *
+ * Throws a single `Error` on the first escape; the offending value
+ * is quoted in the message so an operator can identify the
+ * offending plan field. A planner-generated plan (built via
+ * `planCompaction(bundleRoot)`) always passes this check.
+ */
+export function assertPlanContained(plan: CompactionPlan, bundleRoot: string): void {
+  const rootAbs = resolvePath(bundleRoot)
+  for (const entity of plan.entities) {
+    for (const segment of entity.segmentsToMerge) {
+      assertContained(segment.path, rootAbs, `segmentsToMerge[].path for entity ${entity.entityType}`)
+    }
+    assertContained(entity.outputPath, rootAbs, `outputPath for entity ${entity.entityType}`)
+  }
+}
+
+function assertContained(path: string, rootAbs: string, label: string): void {
+  if (typeof path !== 'string' || path.length === 0) {
+    throw new Error(`assertPlanContained: ${label} is empty or not a string`)
+  }
+  if (isAbsolute(path)) {
+    throw new Error(`assertPlanContained: ${label} ${JSON.stringify(path)} is absolute; must be relative to bundleRoot`)
+  }
+  // Reject explicit `..` traversal segments regardless of whether
+  // the resolved path happens to stay inside the bundle. This is
+  // belt-and-braces and matches CQ-094-style hardening.
+  for (const part of path.split(/[\\/]/)) {
+    if (part === '..') {
+      throw new Error(`assertPlanContained: ${label} ${JSON.stringify(path)} contains '..' traversal`)
+    }
+  }
+  const resolved = resolvePath(rootAbs, path)
+  const rel = relative(rootAbs, resolved)
+  if (rel === '' || rel.startsWith('..') || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+    throw new Error(
+      `assertPlanContained: ${label} ${JSON.stringify(path)} resolves outside bundleRoot (${JSON.stringify(resolved)})`,
+    )
+  }
 }

@@ -41,6 +41,7 @@ import {
 } from '@c3-oss/prosa-types-v2'
 import { blake3 } from '@noble/hashes/blake3'
 
+import { buildSearchDocsFromMessageBlocks } from '../search-doc-builder.js'
 import {
   type CheapIdentification,
   type DiscoveredSourceFile,
@@ -631,6 +632,10 @@ export class ClaudeProvider implements Provider {
       sessionRow.model_first = modelFirst
       sessionRow.model_last = modelLast
     }
+
+    // Lane 3 compile-to-index gate: emit one SearchDocV2 per
+    // message-with-indexable-text via the shared helper.
+    buildSearchDocsFromMessageBlocks(draft)
 
     const unit: LogicalImportUnit = {
       unit_id: input.identification.unit_id,

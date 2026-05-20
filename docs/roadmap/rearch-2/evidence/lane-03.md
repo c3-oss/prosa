@@ -1,13 +1,14 @@
 # Lane 3 Evidence — Derived layer
 
-Updated: 2026-05-20 after the compile-to-index gate landed.
+Updated: 2026-05-20 after governor review opened CQ-116..CQ-118.
 
 ## Status
 
-Active / incomplete. The Tantivy compile-to-index gate is now satisfied
-end-to-end (compile-v2 → index-v2 tantivy → index-v2 status). DuckDB analytics
-runtime code landed early in `828b59f`; keep it but treat it as pending
-governor review/acceptance. Parquet compaction merge worker still outstanding.
+Active / incomplete. The Tantivy compile-to-index gate is satisfied for the
+Codex fixture path (compile-v2 → index-v2 tantivy → index-v2 status), but Lane 3
+is not complete. DuckDB analytics runtime code landed in `828b59f` and Parquet
+compaction runtime code landed in `2345798`; both are kept as core Lane 3 work
+but are not governor-accepted while CQ-116..CQ-118 remain open.
 
 ## Completed support foundation
 
@@ -33,6 +34,7 @@ governor review/acceptance. Parquet compaction merge worker still outstanding.
     per-entity stats. Non-destructive: the worker never touches the
     live `epochs/<n>/projection/` segments. Supports a `dryRun`
     mode that returns the planned work without opening DuckDB.
+    **Not accepted yet:** CQ-117 and CQ-118 block compaction acceptance.
 - DuckDB analytics support:
   - fixed analytics view definitions;
   - pure execution-plan composer;
@@ -44,6 +46,7 @@ governor review/acceptance. Parquet compaction merge worker still outstanding.
     skippedEntities }`. Drops entity setup statements entirely when
     both live + compacted globs are empty so the caller sees an
     authentic "missing parquet" failure instead of a glob error.
+    **Not accepted yet:** CQ-116 blocks analytics acceptance.
 - Tantivy support:
   - schema/fingerprint;
   - rebuild planner/state machine;
@@ -108,15 +111,16 @@ governor review/acceptance. Parquet compaction merge worker still outstanding.
       text (`input_text` / `output_text` / `text` blocks); full v1
       parity for tool-call / tool-result / per-block fan-out remains
       a follow-up.
-- [ ] DuckDB analytics runtime executor — code landed early in `828b59f` with
+- [ ] DuckDB analytics runtime executor — code landed in `828b59f` with
       `runAnalyticsExecution` + a focused 7-test suite that materialises
       each of the 5 fixed views against minimal Parquet fixtures
       (planted via DuckDB's own `COPY ... TO ... (FORMAT PARQUET)`),
       verifies column-shape parity with `ANALYTICS_VIEW_COLUMNS`, and
       asserts row counts + `skippedEntities` reporting. Governor acceptance is
-      pending until the current Tantivy compile-to-index gate is closed and the
-      DuckDB slice receives focused review/validation.
-- [x] Parquet compaction merge worker — landed
+      blocked by CQ-116: real `compile-v2` output is currently NDJSON, not
+      Parquet, and sparse bundles can fail with missing temp tables.
+- [ ] Parquet compaction merge worker — code landed in `2345798` but is not
+      accepted while CQ-117/CQ-118 remain open
       (`packages/prosa-derived-v2/src/compaction/runtime-worker.ts`).
       Five focused tests under
       `packages/prosa-derived-v2/test/compaction/runtime-worker.test.ts`
@@ -126,7 +130,10 @@ governor review/acceptance. Parquet compaction merge worker still outstanding.
       file written), caller-supplied trimmed plan (worker honours
       `segmentsToMerge.slice(...)` exactly), and on-disk byte-length
       reporting parity. Source live segments confirmed unchanged
-      after the worker runs (non-destructive contract).
+      after the worker runs (non-destructive contract). Reviewer/direct smoke
+      evidence shows that this non-destructive contract currently makes the
+      analytics overlay double-count rows after compaction unless a manifest or
+      superseded filter is applied.
 - [ ] End-to-end Lane 3 gates in `gates.md`.
 
 ## Deviation from original plan
@@ -136,6 +143,43 @@ The original Lane 3 plan required three runtime outputs: Tantivy writer, Session
 ## Current risk
 
 The next loop may continue adding safe read-only utilities instead of tackling the runtime executor work. The next prompt explicitly forbids additional read/audit surfaces unless they directly support a selected runtime executor slice.
+
+## Governor review blockers (2026-05-20)
+
+Reviewer subagents plus direct smokes found that DuckDB analytics and Parquet
+compaction code are useful core Lane 3 work, but not acceptance-ready.
+
+- CQ-116: `compile-v2 codex` produced only
+  `*.prosa-projection.ndjson` projection files under `epochs/1/projection/`
+  (`content_block`, `message`, `raw_record`, `search_doc`, `session`,
+  `source_file`) plus epoch manifests. No `.parquet` files were emitted, while
+  `runAnalyticsExecution` reads only Parquet globs. A sparse-bundle smoke with
+  only `sessions.parquet` failed with
+  `Catalog Error: Table with name projects does not exist`, confirming that
+  missing optional entity temp tables currently break `session_facts`.
+- CQ-117: a direct compaction smoke planted 33 one-row live
+  `sessions.parquet` segments, ran `runCompaction({ bundleRoot })`, then queried
+  the analytics overlay via `parquetReadFor(bundleRoot, 'sessions')`. Result:
+  `beforeCount = 33`, `afterCount = 66`, `compactedRows = 33`. The compacted
+  file is row-preserving in isolation, but consumers see live + compacted rows.
+- CQ-118: a dry-run injected plan with `../outside-input.parquet` and
+  `../outside-output.parquet` resolved `outputAbsPath` to
+  `/tmp/outside-output.parquet` and generated SQL containing the outside input
+  path. Caller-supplied compaction plans need containment validation before
+  execution planning or side effects.
+
+Focused tests that still pass and should remain green while fixing the CQs:
+
+- `pnpm --filter @c3-oss/prosa exec vitest run test/cli/compile-to-index-gate.test.ts`
+  → 1/1.
+- `pnpm --filter @c3-oss/prosa exec vitest run test/cli/index-v2.test.ts -t tantivy`
+  → 17/17 selected, 120 skipped.
+- `pnpm --filter @c3-oss/prosa-derived-v2 exec vitest run test/analytics/runtime-executor.test.ts`
+  → 7/7.
+- `pnpm --filter @c3-oss/prosa-derived-v2 exec vitest run test/compaction/runtime-worker.test.ts`
+  → 5/5.
+- `pnpm --filter @c3-oss/prosa-importers-v2 test -- --runInBand`
+  → 40/40.
 
 ## CQ-115 closure (2026-05-20)
 
@@ -282,3 +326,33 @@ Gate output (full closure command set):
   spawns a real `prosa index-v2 tantivy` subprocess, then spawns
   `prosa index-v2 status` and asserts `tantivy.ready_for_read ===
   true` with the matching `indexed_doc_count`.
+
+## CQ-118 closure + per-provider search_doc parity (2026-05-20)
+
+- Extracted shared `buildSearchDocsFromMessageBlocks(draft)` helper in
+  `packages/prosa-importers-v2/src/search-doc-builder.ts`. Wired
+  into codex / claude / cursor / gemini / hermes importers. Each
+  message with `input_text` / `output_text` / `text` blocks now
+  produces one `SearchDocV2` row with the same shape across
+  providers; full v1 tool-call / tool-result fan-out remains a
+  follow-up.
+- Extended `apps/cli/test/cli/compile-to-index-gate.test.ts` with a
+  second case driving `compile-all-v2` against codex / claude /
+  gemini / hermes fixtures (cursor's bundle is opaque). Asserts
+  every won provider produces ≥1 search_doc and the merged Tantivy
+  index reports `ready_for_read === true` with matching counts.
+- CQ-118 fix landed: `runCompaction` calls a new
+  `assertPlanContained(plan, bundleRoot)` helper immediately after
+  resolving the plan and before composing or running anything.
+  Rejects absolute paths, `..` traversal components, and resolved
+  escapes via `path.relative()`. Five new regression cases in
+  `packages/prosa-derived-v2/test/compaction/runtime-worker.test.ts`
+  (absolute / `..` in segmentsToMerge[].path; absolute / `..` in
+  outputPath; dry-run path containment before any side effect).
+- Gate output: `pnpm --filter @c3-oss/prosa-derived-v2 exec
+  vitest run test/compaction/runtime-worker.test.ts` → 10/10.
+  Full `pnpm --filter @c3-oss/prosa-derived-v2 test` → 580/580
+  (55 files). Full `pnpm --filter @c3-oss/prosa-importers-v2
+  test` → 40/40. `pnpm --filter @c3-oss/prosa exec vitest run
+  test/cli/compile-to-index-gate.test.ts` → 2/2. typecheck +
+  biome clean across all touched packages.

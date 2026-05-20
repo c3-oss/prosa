@@ -1,10 +1,168 @@
 # rearch-2 Correction Queue
 
-Updated: 2026-05-20 after CQ-115 closed.
+Updated: 2026-05-20 after governor review opened CQ-116..CQ-118.
 
 ## Open blocking corrections
 
-None currently recorded.
+### CQ-116: DuckDB analytics is not wired to real v2 compile output and fails sparse bundles
+
+Severity: high
+Blocking: yes
+Status: open
+Owner: Ralph
+
+Problem:
+
+`runAnalyticsExecution` only reads Parquet globs
+(`epochs/*/projection/<entity>.parquet` and compacted overlays), but
+`compile-v2` currently writes canonical projection segments as
+`*.prosa-projection.ndjson`. The focused DuckDB tests plant Parquet fixtures
+directly, so they do not prove that a real `compile-v2` bundle can drive the
+analytics runtime. Separately, the runtime skips temp-view setup for entities
+with no Parquet files. That makes sparse real bundles fail when view SQL joins
+optional tables such as `projects`, `turns`, `tool_calls`, `tool_results`,
+`raw_records`, or `source_files`.
+
+Risk:
+
+The DuckDB runtime can pass planted-fixture tests while failing against actual
+v2 bundle output or common sparse bundles. This blocks acceptance of `828b59f`
+as a Lane 3 analytics runtime executor.
+
+Smoke evidence:
+
+- `compile-v2 codex` smoke on 2026-05-19 local time produced only:
+  `*.prosa-projection.ndjson` files under `epochs/1/projection/`, plus epoch
+  manifests. No `.parquet` projection files were emitted.
+- Sparse-bundle smoke on 2026-05-19 local time planted only
+  `epochs/0/projection/sessions.parquet` and ran
+  `runAnalyticsExecution({ view: 'session_facts' })`. Result:
+  `Catalog Error: Table with name projects does not exist`.
+
+Required fix:
+
+Connect analytics to real v2 projection output. Acceptable routes include
+emitting Parquet projection segments during/after `compile-v2`, or adding a
+documented, tested conversion/runtime binding from the canonical NDJSON
+segments into DuckDB. Sparse bundles must materialise empty-but-typed temp
+tables for missing optional entities, or otherwise prove every view degrades
+correctly without `Table ... does not exist`.
+
+Acceptance:
+
+- [ ] A fixture-backed `compile-v2` flow produces analytics-readable inputs.
+- [ ] `runAnalyticsExecution` succeeds on a sparse real or realistic bundle
+      with no projects/tool calls/tool results/events.
+- [ ] Focused tests cover the sparse-table case and the real compile-output
+      path, not only planted Parquet fixtures.
+- [ ] Evidence is recorded in `docs/roadmap/rearch-2/evidence/lane-03.md`.
+
+### CQ-117: Compaction double-counts rows through the analytics overlay
+
+Severity: high
+Blocking: yes
+Status: open
+Owner: Ralph
+
+Problem:
+
+`runCompaction` writes compacted Parquet outputs but intentionally leaves all
+source live segments in place. The analytics binding reads both live globs and
+compacted globs unconditionally. Without a compact manifest / superseded filter
+in the query path, post-compaction consumers see both the original rows and the
+compacted rows.
+
+Risk:
+
+The compaction worker can report that it wrote a row-preserving compacted file
+while the logical row set visible to analytics is doubled. That violates the
+Lane 3 gates requiring compaction to preserve logical rows and reduce effective
+file count below the threshold.
+
+Smoke evidence:
+
+On 2026-05-19 local time, a direct smoke planted 33 one-row
+`sessions.parquet` live segments, ran `runCompaction({ bundleRoot })`, then
+queried the analytics `parquetReadFor(bundleRoot, 'sessions')` overlay.
+Result:
+
+```json
+{"beforeCount":33,"afterCount":66,"compactedRows":33,"resultCount":1}
+```
+
+Required fix:
+
+Define and implement the post-compaction visibility contract. The runtime must
+either write/read a compact manifest that excludes superseded live segments from
+consumers, move/delete superseded files as part of an explicit safe phase, or
+otherwise make analytics/readers see exactly one logical copy of each row after
+compaction.
+
+Acceptance:
+
+- [ ] Post-compaction analytics/read queries preserve logical row counts.
+- [ ] The effective file set for compacted entities drops below the policy
+      threshold or the remaining cleanup phase is explicit and blocked.
+- [ ] A focused integration test plants many live Parquet segments, runs
+      compaction, then proves the consumer-visible row count remains unchanged.
+- [ ] Evidence is recorded in `docs/roadmap/rearch-2/evidence/lane-03.md`.
+
+### CQ-118: Compaction caller-supplied plans can escape bundleRoot
+
+Severity: high
+Blocking: yes
+Status: closed (2026-05-20)
+Owner: Ralph
+
+Problem:
+
+`runCompaction` accepts caller-supplied plans for tests/scripted gates and feeds
+them to `planCompactionExecution` without validating that
+`segmentsToMerge[].path` and `outputPath` remain inside `bundleRoot`.
+
+Risk:
+
+An injected plan can make the worker read from or write to paths outside the
+bundle root. Even dry-run exposes the escaping execution plan; non-dry-run would
+`mkdir` and execute DuckDB `COPY` against the resolved output path.
+
+Smoke evidence:
+
+On 2026-05-19 local time, a dry-run injected plan with
+`segmentsToMerge[0].path = '../outside-input.parquet'` and
+`outputPath = '../outside-output.parquet'` returned:
+
+```json
+{
+  "outputAbsPath": "/tmp/outside-output.parquet",
+  "outputRelativeToBundle": "../outside-output.parquet",
+  "sqlContainsOutsideInput": true
+}
+```
+
+Required fix:
+
+Validate caller-supplied compaction plans before composing or executing SQL.
+Reject absolute paths, `..` traversal, symlink escape, and any resolved input or
+output path outside `bundleRoot`. Keep planner-generated plans working.
+
+Acceptance:
+
+- [x] Injected plan paths are containment-checked before execution planning or
+      before any DuckDB/file side effect. `runCompaction` calls a new
+      `assertPlanContained(plan, bundleRoot)` helper immediately after resolving
+      the plan and before `planCompactionExecution`. The helper rejects empty
+      paths, absolute paths, any `..` component (regardless of where it
+      resolves), and any resolved path that escapes the bundle root via
+      `path.relative()`.
+- [x] Regression tests cover escaping segment paths and escaping output paths.
+      Five new cases in
+      `packages/prosa-derived-v2/test/compaction/runtime-worker.test.ts`:
+      absolute `segmentsToMerge[].path`, `..` in `segmentsToMerge[].path`,
+      absolute `outputPath`, `..` in `outputPath`, and a dry-run path that
+      proves containment runs before any FS / DuckDB side effect.
+- [x] Focused compaction tests still pass (original 5 + 5 new = 10/10).
+- [x] Evidence is recorded in `docs/roadmap/rearch-2/evidence/lane-03.md`.
 
 ## Closed during this cycle
 

@@ -183,6 +183,88 @@ describe('runCompaction', () => {
     expect(entityResult.rowCount).toBe(17)
   })
 
+  it('CQ-118: rejects a caller-supplied plan with an absolute segmentsToMerge[].path', async () => {
+    const plan = {
+      empty: false,
+      entities: [
+        {
+          entityType: 'sessions',
+          reason: 'file_count_trigger' as const,
+          segmentsToMerge: [{ path: '/etc/passwd', byteLength: 1, epoch: 0 }],
+          outputPath: 'epochs/compact-0001/projection/sessions.compacted.parquet',
+          totalBytesIn: 1,
+        },
+      ],
+    }
+    await expect(runCompaction({ bundleRoot, plan, dryRun: true })).rejects.toThrow(/is absolute/)
+  })
+
+  it('CQ-118: rejects a caller-supplied plan with `..` traversal in segmentsToMerge[].path', async () => {
+    const plan = {
+      empty: false,
+      entities: [
+        {
+          entityType: 'sessions',
+          reason: 'file_count_trigger' as const,
+          segmentsToMerge: [{ path: '../outside-input.parquet', byteLength: 1, epoch: 0 }],
+          outputPath: 'epochs/compact-0001/projection/sessions.compacted.parquet',
+          totalBytesIn: 1,
+        },
+      ],
+    }
+    await expect(runCompaction({ bundleRoot, plan, dryRun: true })).rejects.toThrow(/'\.\.'/)
+  })
+
+  it('CQ-118: rejects a caller-supplied plan with an absolute outputPath', async () => {
+    const plan = {
+      empty: false,
+      entities: [
+        {
+          entityType: 'sessions',
+          reason: 'file_count_trigger' as const,
+          segmentsToMerge: [{ path: 'epochs/0/projection/sessions.parquet', byteLength: 1, epoch: 0 }],
+          outputPath: '/tmp/escape-output.parquet',
+          totalBytesIn: 1,
+        },
+      ],
+    }
+    await expect(runCompaction({ bundleRoot, plan, dryRun: true })).rejects.toThrow(/is absolute/)
+  })
+
+  it('CQ-118: rejects a caller-supplied plan with `..` traversal in outputPath', async () => {
+    const plan = {
+      empty: false,
+      entities: [
+        {
+          entityType: 'sessions',
+          reason: 'file_count_trigger' as const,
+          segmentsToMerge: [{ path: 'epochs/0/projection/sessions.parquet', byteLength: 1, epoch: 0 }],
+          outputPath: '../outside-output.parquet',
+          totalBytesIn: 1,
+        },
+      ],
+    }
+    await expect(runCompaction({ bundleRoot, plan, dryRun: true })).rejects.toThrow(/'\.\.'/)
+  })
+
+  it('CQ-118: containment check runs before any FS / DuckDB side effect (dry-run path)', async () => {
+    // No live parquets planted; the path still triggers the check
+    // because the worker validates before composing or running.
+    const plan = {
+      empty: false,
+      entities: [
+        {
+          entityType: 'sessions',
+          reason: 'file_count_trigger' as const,
+          segmentsToMerge: [{ path: '/abs/escape.parquet', byteLength: 1, epoch: 0 }],
+          outputPath: '../escape.parquet',
+          totalBytesIn: 1,
+        },
+      ],
+    }
+    await expect(runCompaction({ bundleRoot, plan })).rejects.toThrow(/is absolute|'\.\.'/)
+  })
+
   it('reports outputByteLength from the on-disk compacted file', async () => {
     for (let epoch = 0; epoch < 33; epoch++) {
       await plantSegment(bundleRoot, epoch, 'sessions', 1, epoch)
