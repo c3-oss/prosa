@@ -246,3 +246,54 @@ The five waits are documented, but the clean-cycle premise is invalid:
 
 Next valid stabilization must restart from zero after CQ-141 is fixed with
 code, tests, evidence, and clean gates.
+
+## Post-CQ-141 closure attempt #3 — restart from zero (2026-05-20)
+
+Governor restart on 2026-05-20 invalidated the prior five
+cycles because CQ-141 was reopened. CQ-141 closure attempt #3
+landed (`3f17811` fix + `1ce53f0` docs):
+
+- `remote_pack.byte_hash` column persists the canonical
+  transport BLAKE3 alongside `byte_length`; upload writes it
+  on every INSERT and backfills the already_present fast path.
+- `UploadObjectPackBytesCorruptError` replaces the destructive
+  delete+put repair — wrong-content fast path is fail-closed
+  without touching stored bytes.
+- `SealPromotionPackBytesMismatchError` gates authority grant
+  on `head.hashAlgorithm === 'blake3'`, byte_hash present and
+  equal, and byte_length equal — legacy null byte_hash fails
+  closed because size-only is insufficient for a
+  cleanup-authorizing grant.
+- Pinned by 10 cases in
+  `apps/api/test/v2/sync/cq-141-wrong-metadata-and-seal-presence.test.ts`.
+
+Five fresh stabilization waits must now run before another
+`RALPH_DONE` attempt. This file resumes that schedule from
+cycle 1.
+
+### Cycle 1 — 2026-05-20 (post-CQ-141 closure attempt #3)
+
+Gates re-run with the closure attempt in place:
+
+```text
+pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/sync/cq-141-wrong-metadata-and-seal-presence.test.ts
+  Test Files 1 passed (1) — 10/10
+
+pnpm --filter @c3-oss/prosa-api test
+  Test Files 54 passed | 2 skipped (56) — 291 passed | 4 skipped
+
+pnpm --filter @c3-oss/prosa test
+  Test Files 36 passed | 2 skipped (38) — 296 passed | 3 skipped
+
+pnpm --filter @c3-oss/prosa-db-v2 test
+  Test Files 1 passed (1) — 6/6
+
+pnpm typecheck       # 13/13
+pnpm lint            # 13/13
+git diff --check     # clean
+
+just e2e             # 4/4 (api-postgres-1, api-minio-1 up)
+just e2e-cli         # 3/3 (CLI subprocess + second-device 404)
+```
+
+No code drift in the 180-second wait. Cycle 1 clean.
