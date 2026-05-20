@@ -1321,8 +1321,27 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 5 object-pack integrity and seal acceptance)
-Status: open
+Status: closed (2026-05-20)
 Owner: Ralph
+
+Closure: `apps/api/src/v2/sync/upload-object-pack.ts`'s catalog
+fast path now calls `objectStore.head(storage_uri)` after the
+`remote_pack` SELECT. If the storage object is missing, the
+handler repairs it from the request body via
+`putIfAbsent(storage_uri, params.body, meta)` BEFORE linking the
+pack to the current promotion. The wire body was already
+verified by `verifyCasPack`, so repair is safe; a concurrent
+race that restored the bytes meanwhile observes
+`alreadyExisted=true` and the `MemoryObjectStore`/`S3ObjectStore`
+verifyBytes guard catches any inconsistency.
+
+Pinned by two cases in
+`apps/api/test/v2/sync/cq-141-catalog-only-repair.test.ts`:
+1. Catalog-only state (bytes deleted out-of-band, link dropped)
+   replays the upload: bytes are restored, link is recreated,
+   route returns `already_present`.
+2. Catalog + bytes present: fast path is a no-op (object store
+   size unchanged) and the route still returns `already_present`.
 
 Problem:
 

@@ -138,20 +138,37 @@ export async function uploadObjectPack(
   }
 
   // Idempotency fast path: same (tenant, pack_digest) already
-  // catalogued. Still link the pack to this promotion so SealPromotion
-  // can grant it (the catalog is tenant-wide and may pre-exist from a
-  // prior promotion).
+  // catalogued. Still link the pack to this promotion so
+  // SealPromotion can grant it (the catalog is tenant-wide and
+  // may pre-exist from a prior promotion).
   const existingRows = await deps.rawExec<{ entry_count: number; storage_uri: string }>(
     `SELECT entry_count, storage_uri FROM remote_pack WHERE tenant_id = $1 AND pack_digest = $2 LIMIT 1`,
     [deps.tenantId, observedDigest],
   )
   if (existingRows.length > 0) {
+    // CQ-141: a catalog row whose object-store bytes are missing
+    // is corrupt fast-path state. We have valid pack bytes in
+    // params.body (verifyCasPack already accepted them), so
+    // repair the object store from this request before linking
+    // and returning. `putIfAbsent` is safe here: if a concurrent
+    // race already restored the bytes, the second call sees
+    // `alreadyExisted=true` and verifies the hash matches.
+    const storageKey = existingRows[0]!.storage_uri
+    const head = await deps.objectStore.head(storageKey)
+    if (!head) {
+      await deps.objectStore.putIfAbsent(storageKey, asyncOnce(params.body), {
+        hash: observedTransportHash.slice('blake3:'.length),
+        hashAlgorithm: 'blake3',
+        uncompressedSize: params.body.byteLength,
+        compressedSize: params.body.byteLength,
+      })
+    }
     await linkPackToPromotion(deps, params.promotionId, observedDigest)
     return {
       status: 'already_present',
       packDigest: observedDigest,
       entryCount: Number(existingRows[0]!.entry_count),
-      storageKey: existingRows[0]!.storage_uri,
+      storageKey,
     }
   }
 
