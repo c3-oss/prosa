@@ -1,92 +1,15 @@
-import { useQuery } from '@tanstack/react-query'
-import { useState } from 'react'
-import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-
-import { useAppContext } from '~/app/providers.js'
-import { queryKeys } from '~/lib/query-keys.js'
-
-type ActivityRow = { date: string; count: number }
-type ActivityResponse = { rows: ActivityRow[]; windowDays: number; generatedAt: string }
-
-const WINDOW_OPTIONS: Array<{ label: string; days: number }> = [
-  { label: '30d', days: 30 },
-  { label: '90d', days: 90 },
-  { label: '365d', days: 365 },
-]
-
-export function DailyThreadsWidget({ tenantId }: { tenantId: string }) {
-  const { api } = useAppContext()
-  const [days, setDays] = useState(90)
-  const threads = useQuery({
-    queryKey: queryKeys.analyticsActivity(tenantId, days),
-    queryFn: async (): Promise<ActivityResponse> => api.analytics.activity.query({ days }),
-  })
-
-  const rows = threads.data?.rows ?? []
-
+/**
+ * CQ-153 — daily threads pulls from the same bespoke
+ * `analytics.activity` tRPC procedure with no v2 counterpart.
+ * Render an explicit unavailable state until
+ * `/v2/reads/analytics/activity` lands.
+ */
+export function DailyThreadsWidget(_: { tenantId: string }) {
   return (
-    <>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 'var(--space-2)' }}>
-        <div className="dashboard-window-toggle" role="tablist" aria-label="Time window">
-          {WINDOW_OPTIONS.map((opt) => (
-            <button
-              key={opt.days}
-              type="button"
-              role="tab"
-              data-active={opt.days === days}
-              onClick={() => setDays(opt.days)}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="dashboard-chart-wrapper">
-        {threads.isLoading ? (
-          <p style={{ color: 'var(--color-text-faint)', fontSize: 'var(--font-size-xs)' }}>Loading…</p>
-        ) : rows.length === 0 ? (
-          <p style={{ color: 'var(--color-text-faint)', fontSize: 'var(--font-size-xs)' }}>
-            No sessions in the last {days} days.
-          </p>
-        ) : (
-          <ResponsiveContainer width="100%" height="100%" minHeight={180}>
-            <LineChart data={rows} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
-              <CartesianGrid stroke="var(--color-border-subtle)" strokeDasharray="2 4" vertical={false} />
-              <XAxis
-                dataKey="date"
-                tick={{ fontSize: 11, fill: 'var(--color-text-faint)' }}
-                stroke="var(--color-border)"
-                minTickGap={32}
-              />
-              <YAxis
-                tick={{ fontSize: 11, fill: 'var(--color-text-faint)' }}
-                stroke="var(--color-border)"
-                allowDecimals={false}
-                width={32}
-              />
-              <Tooltip
-                contentStyle={{
-                  background: 'var(--color-bg-elevated)',
-                  border: '1px solid var(--color-border)',
-                  borderRadius: 'var(--radius-sm)',
-                  fontSize: 'var(--font-size-xs)',
-                  color: 'var(--color-text)',
-                }}
-                labelStyle={{ color: 'var(--color-text-muted)' }}
-              />
-              <Line
-                type="monotone"
-                dataKey="count"
-                name="threads"
-                stroke="var(--color-accent-strong)"
-                strokeWidth={2}
-                dot={false}
-                isAnimationActive={false}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        )}
-      </div>
-    </>
+    <div className="dashboard-line-chart" aria-label="Daily threads chart pending v2">
+      <p style={{ color: 'var(--color-text-muted)', fontSize: 'var(--font-size-xs)' }}>
+        Daily threads chart is pending a `/v2/reads/analytics/activity` endpoint (CQ-153 follow-up).
+      </p>
+    </div>
   )
 }
