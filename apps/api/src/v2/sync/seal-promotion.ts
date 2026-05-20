@@ -186,6 +186,9 @@ export async function sealPromotion(
   // Build receipt payload.
   const head = coerceHead(staging.head_json)
   if (!head) {
+    // CQ-135: any post-flip failure must restore the slot so the
+    // client can retry without operator intervention.
+    await restoreStagingStatus(deps, params.promotionId, staging.status)
     throw new SealPromotionNotFoundError(`promotion ${params.promotionId} has malformed head`)
   }
   const payload = buildReceiptPayload({
@@ -207,57 +210,88 @@ export async function sealPromotion(
   const receiptIdAttempt = deriveReceiptId(payload)
   const finalPayload: PromotionReceiptV2Payload = { ...payload, receiptId: receiptIdAttempt }
   const signatureBytes = receiptPayloadBytes(finalPayload)
-  const signature: PromotionReceiptV2Signature = await deps.signer.signReceipt(signatureBytes)
+  let signature: PromotionReceiptV2Signature
+  try {
+    signature = await deps.signer.signReceipt(signatureBytes)
+  } catch (err) {
+    // CQ-135: signer-side failure must NOT leave the slot stuck in
+    // `materializing`. Restore the prior status so the client can
+    // retry seal once the signer recovers.
+    await restoreStagingStatus(deps, params.promotionId, staging.status)
+    throw err
+  }
 
   // The load-bearing transaction.
-  await deps.transaction(async (tx) => {
-    await tx(
-      `INSERT INTO receipt (receipt_id, tenant_id, store_id, device_id, payload, signature)
+  try {
+    await deps.transaction(async (tx) => {
+      await tx(
+        `INSERT INTO receipt (receipt_id, tenant_id, store_id, device_id, payload, signature)
        VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb)`,
-      [
-        finalPayload.receiptId,
-        deps.tenantId,
-        staging.store_id,
-        staging.device_id,
-        JSON.stringify(finalPayload),
-        JSON.stringify(signature),
-      ],
-    )
-    await tx(
-      `INSERT INTO remote_authority_v2 (tenant_id, store_id, current_receipt_id, current_bundle_root, promoted_at)
+        [
+          finalPayload.receiptId,
+          deps.tenantId,
+          staging.store_id,
+          staging.device_id,
+          JSON.stringify(finalPayload),
+          JSON.stringify(signature),
+        ],
+      )
+      await tx(
+        `INSERT INTO remote_authority_v2 (tenant_id, store_id, current_receipt_id, current_bundle_root, promoted_at)
        VALUES ($1, $2, $3, $4, now())
        ON CONFLICT (tenant_id, store_id) DO UPDATE
          SET current_receipt_id = EXCLUDED.current_receipt_id,
              current_bundle_root = EXCLUDED.current_bundle_root,
              promoted_at = EXCLUDED.promoted_at`,
-      [deps.tenantId, staging.store_id, finalPayload.receiptId, head.bundleRoot],
-    )
-    await tx(
-      `INSERT INTO search_generation_current (tenant_id, generation_id, receipt_id, promoted_at)
+        [deps.tenantId, staging.store_id, finalPayload.receiptId, head.bundleRoot],
+      )
+      await tx(
+        `INSERT INTO search_generation_current (tenant_id, generation_id, receipt_id, promoted_at)
        VALUES ($1, $2, $3, now())
        ON CONFLICT (tenant_id) DO UPDATE
          SET generation_id = EXCLUDED.generation_id,
              receipt_id = EXCLUDED.receipt_id,
              promoted_at = EXCLUDED.promoted_at,
              updated_at = now()`,
-      [deps.tenantId, finalPayload.materialization.searchGenerationId, finalPayload.receiptId],
-    )
-    for (const digest of packDigests) {
-      await tx(
-        `INSERT INTO receipt_pack_grant (receipt_id, tenant_id, pack_digest, grant_mode)
+        [deps.tenantId, finalPayload.materialization.searchGenerationId, finalPayload.receiptId],
+      )
+      for (const digest of packDigests) {
+        await tx(
+          `INSERT INTO receipt_pack_grant (receipt_id, tenant_id, pack_digest, grant_mode)
          VALUES ($1, $2, $3, 'all_entries')
          ON CONFLICT (receipt_id, tenant_id, pack_digest) DO NOTHING`,
-        [finalPayload.receiptId, deps.tenantId, digest],
-      )
-    }
-    await tx(
-      `UPDATE promotion_staging SET status = 'sealed', updated_at = now()
+          [finalPayload.receiptId, deps.tenantId, digest],
+        )
+      }
+      await tx(
+        `UPDATE promotion_staging SET status = 'sealed', updated_at = now()
         WHERE id = $1 AND tenant_id = $2`,
-      [params.promotionId, deps.tenantId],
-    )
-  })
+        [params.promotionId, deps.tenantId],
+      )
+    })
+  } catch (err) {
+    // CQ-135: transaction-level failure (e.g. unique violation,
+    // Postgres connection drop) must restore the slot so a retry can
+    // re-attempt the seal. The transaction itself rolled everything
+    // back; only the prior status flip survives outside the tx.
+    await restoreStagingStatus(deps, params.promotionId, staging.status)
+    throw err
+  }
 
   return { status: 'sealed', receipt: { payload: finalPayload, signature } }
+}
+
+async function restoreStagingStatus(deps: SealPromotionDeps, promotionId: string, priorStatus: string): Promise<void> {
+  // Only revert when the row is still mid-flight; if another seal
+  // attempt already completed, leave the sealed/aborted final state
+  // intact.
+  const safeStatus = priorStatus === 'open' || priorStatus === 'uploading' ? priorStatus : 'open'
+  await deps.rawExec(
+    `UPDATE promotion_staging
+        SET status = $3, updated_at = now()
+      WHERE id = $1 AND tenant_id = $2 AND status = 'materializing'`,
+    [promotionId, deps.tenantId, safeStatus],
+  )
 }
 
 async function loadSealedReceipt(deps: SealPromotionDeps, storeId: string): Promise<PromotionReceiptV2 | null> {

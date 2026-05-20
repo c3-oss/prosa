@@ -220,13 +220,21 @@ describe('GET /v2/promotions/:promotionId/status — Lane 5 slice 8', () => {
       await t.app.inject({
         method: 'PUT',
         url: `/v2/promotions/${promotionId}/segments/st-obj-inv`,
-        headers: { 'content-type': 'application/octet-stream', authorization: `Bearer ${account.token}` },
+        headers: {
+          'content-type': 'application/octet-stream',
+          authorization: `Bearer ${account.token}`,
+          'x-prosa-transport-hash': fx.objDigest,
+        },
         payload: Buffer.from(fx.objBytes),
       })
       await t.app.inject({
         method: 'POST',
         url: `/v2/promotions/${promotionId}/object-packs`,
-        headers: { 'content-type': 'application/octet-stream', authorization: `Bearer ${account.token}` },
+        headers: {
+          'content-type': 'application/octet-stream',
+          authorization: `Bearer ${account.token}`,
+          'x-prosa-transport-hash': transportHashOf(fx.pack.bytes),
+        },
         payload: Buffer.from(fx.pack.bytes),
       })
 

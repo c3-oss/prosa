@@ -124,16 +124,22 @@ function uploadInjectArgs(opts: {
   promotionId: string
   segmentId: string
   body: Uint8Array
+  /** Overrides the auto-computed transport hash. Omit to use BLAKE3(body). */
   transportHash?: string
+  /** Set true to omit the transport hash header entirely. */
+  omitTransportHash?: boolean
 }) {
+  const headers: Record<string, string> = {
+    'content-type': 'application/octet-stream',
+    authorization: `Bearer ${opts.token}`,
+  }
+  if (!opts.omitTransportHash) {
+    headers['x-prosa-transport-hash'] = opts.transportHash ?? `blake3:${toHex(blake3(opts.body))}`
+  }
   return {
     method: 'PUT' as const,
     url: `/v2/promotions/${opts.promotionId}/segments/${opts.segmentId}`,
-    headers: {
-      'content-type': 'application/octet-stream',
-      authorization: `Bearer ${opts.token}`,
-      ...(opts.transportHash ? { 'x-prosa-transport-hash': opts.transportHash } : {}),
-    },
+    headers,
     payload: Buffer.from(opts.body),
   }
 }

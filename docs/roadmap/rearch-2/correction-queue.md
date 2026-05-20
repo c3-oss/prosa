@@ -459,8 +459,16 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 5 upload acceptance)
-Status: open
+Status: closed (2026-05-20)
 Owner: Ralph
+
+Closure: `apps/api/src/v2/sync/upload-segment.ts` and
+`apps/api/src/v2/sync/upload-object-pack.ts` now require the
+`x-prosa-transport-hash` header. Missing header → 400 INVALID_REQUEST
+with `{ field: 'transportHash', received: '<missing>' }`. Pinned by
+two cases in `apps/api/test/v2/sync/cq-batch-a.test.ts`. All test
+fixtures that previously omitted the header now compute and pass
+the BLAKE3 of the body bytes.
 
 Problem:
 
@@ -523,8 +531,14 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 5 seal/upload phase acceptance)
-Status: open
+Status: closed (2026-05-20)
 Owner: Ralph
+
+Closure: both upload handlers now treat `materializing` as a closed
+status alongside `sealed` and `aborted`. Late uploads against an
+in-flight seal return 404 PROMOTION_NOT_FOUND with the status in
+the message. Pinned by two cases in
+`apps/api/test/v2/sync/cq-batch-a.test.ts`.
 
 Problem:
 
@@ -742,6 +756,17 @@ Acceptance:
 ### CQ-135: SealPromotion failure after status flip strands staging in `materializing`
 
 Severity: high
+Blocking: yes (blocks Lane 5 SealPromotion retry/resume acceptance)
+Status: closed (2026-05-20)
+Owner: Ralph
+
+Closure: `apps/api/src/v2/sync/seal-promotion.ts` now wraps both
+the signer call and the load-bearing transaction in try blocks that
+call `restoreStagingStatus(deps, promotionId, priorStatus)` on
+failure. The helper only reverts rows still in `materializing` so
+a racing successful seal stays sealed. Prior status (open or
+uploading) is preserved; anything else falls back to `open`. The
+existing seal idempotency test continues to pass.
 Blocking: yes (blocks Lane 5 retry/resume acceptance)
 Status: open
 Owner: Ralph
@@ -985,8 +1010,16 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 5 CLI acceptance)
-Status: open
+Status: closed (2026-05-20)
 Owner: Ralph
+
+Closure: `apps/cli/src/cli/commands/sync-v2.ts` removes the
+`--token <token>` option entirely. Tokens are now read from the
+`PROSA_SYNC_TOKEN` environment variable or a `--token-file <path>`
+file (single-line, trailing newline stripped). `resolveToken(...)`
+throws a `CliUserError` when neither source provides a non-empty
+token, naming both sources and CQ-139 in the message. Argv-only
+tokens are no longer accepted.
 
 Problem:
 

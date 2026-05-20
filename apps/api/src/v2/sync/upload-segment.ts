@@ -73,7 +73,11 @@ type StagingRow = {
   inventory_projection_ref: unknown
 }
 
-const TERMINAL_STAGING_STATUSES = new Set(['sealed', 'aborted'])
+// CQ-131: once seal moves the slot to `materializing`, the upload
+// routes must refuse new bytes — the catalog/authority swap is
+// running and any late upload would have nowhere to bind. Sealed
+// and aborted slots are likewise terminal.
+const CLOSED_STAGING_STATUSES = new Set(['sealed', 'aborted', 'materializing'])
 
 export async function uploadSegment(
   deps: UploadSegmentDeps,
@@ -90,7 +94,7 @@ export async function uploadSegment(
     throw new UploadSegmentNotFoundError(`promotion ${params.promotionId} not found`, 'PROMOTION_NOT_FOUND')
   }
   const row = rows[0]!
-  if (TERMINAL_STAGING_STATUSES.has(row.status)) {
+  if (CLOSED_STAGING_STATUSES.has(row.status)) {
     throw new UploadSegmentNotFoundError(
       `promotion ${params.promotionId} is ${row.status}; cannot accept new segments`,
       'PROMOTION_NOT_FOUND',
@@ -123,7 +127,15 @@ export async function uploadSegment(
   if (observedHash !== segment.digest) {
     issues.push({ field: 'digest', expected: segment.digest, received: observedHash })
   }
-  if (params.transportHash !== undefined && params.transportHash !== observedHash) {
+  // CQ-130: the wire schema (`uploadSegmentRequestSchema`) requires
+  // `transportHash` so the server can independently catch in-flight
+  // chunk re-framing corruption. The handler enforces presence here
+  // even though digest verification would catch many of the same
+  // corruptions — the spec separates transport from canonical hash
+  // on purpose (CQ-012).
+  if (params.transportHash === undefined) {
+    issues.push({ field: 'transportHash', expected: 'blake3:<64-hex>', received: '<missing>' })
+  } else if (params.transportHash !== observedHash) {
     issues.push({ field: 'transportHash', expected: observedHash, received: params.transportHash })
   }
 

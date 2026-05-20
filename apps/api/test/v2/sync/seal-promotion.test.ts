@@ -157,14 +157,22 @@ async function drivePromotion(t: TestApp, token: string, tenantId: string, opts:
   const upObj = await t.app.inject({
     method: 'PUT',
     url: `/v2/promotions/${promotionId}/segments/seg-obj-inv`,
-    headers: { 'content-type': 'application/octet-stream', authorization: `Bearer ${token}` },
+    headers: {
+      'content-type': 'application/octet-stream',
+      authorization: `Bearer ${token}`,
+      'x-prosa-transport-hash': fx.objectInventoryDigest,
+    },
     payload: Buffer.from(fx.objectInventoryBytes),
   })
   expect(upObj.statusCode).toBe(200)
   const upProj = await t.app.inject({
     method: 'PUT',
     url: `/v2/promotions/${promotionId}/segments/seg-proj-inv`,
-    headers: { 'content-type': 'application/octet-stream', authorization: `Bearer ${token}` },
+    headers: {
+      'content-type': 'application/octet-stream',
+      authorization: `Bearer ${token}`,
+      'x-prosa-transport-hash': fx.projectionInventoryDigest,
+    },
     payload: Buffer.from(fx.projectionInventoryBytes),
   })
   expect(upProj.statusCode).toBe(200)
@@ -172,7 +180,11 @@ async function drivePromotion(t: TestApp, token: string, tenantId: string, opts:
   const upPack = await t.app.inject({
     method: 'POST',
     url: `/v2/promotions/${promotionId}/object-packs`,
-    headers: { 'content-type': 'application/octet-stream', authorization: `Bearer ${token}` },
+    headers: {
+      'content-type': 'application/octet-stream',
+      authorization: `Bearer ${token}`,
+      'x-prosa-transport-hash': transportHashOf(fx.pack.bytes),
+    },
     payload: Buffer.from(fx.pack.bytes),
   })
   expect(upPack.statusCode).toBe(200)

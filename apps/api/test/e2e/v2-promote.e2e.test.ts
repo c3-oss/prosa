@@ -497,6 +497,7 @@ describe.skipIf(!shouldRun)('Lane 5 E2E — v2 promotion against real Postgres +
       headers: {
         'content-type': 'application/octet-stream',
         authorization: `Bearer ${account.token}`,
+        'x-prosa-transport-hash': transportHashOf(fx.pack.bytes),
       },
       payload: Buffer.from(fx.pack.bytes),
     })

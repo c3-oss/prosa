@@ -78,7 +78,9 @@ export class UploadObjectPackValidationError extends Error {
 
 type StagingRow = { status: string }
 
-const TERMINAL_STAGING_STATUSES = new Set(['sealed', 'aborted'])
+// CQ-131: materializing is in-flight authority-swap territory —
+// no new bytes accepted. Sealed/aborted likewise.
+const CLOSED_STAGING_STATUSES = new Set(['sealed', 'aborted', 'materializing'])
 
 export async function uploadObjectPack(
   deps: UploadObjectPackDeps,
@@ -91,7 +93,7 @@ export async function uploadObjectPack(
   if (stagingRows.length === 0) {
     throw new UploadObjectPackNotFoundError(`promotion ${params.promotionId} not found`)
   }
-  if (TERMINAL_STAGING_STATUSES.has(stagingRows[0]!.status)) {
+  if (CLOSED_STAGING_STATUSES.has(stagingRows[0]!.status)) {
     throw new UploadObjectPackNotFoundError(
       `promotion ${params.promotionId} is ${stagingRows[0]!.status}; cannot accept new packs`,
     )
@@ -100,7 +102,16 @@ export async function uploadObjectPack(
   const observedTransportHash = `blake3:${toHex(blake3(params.body))}`
   const issues: Array<{ field: string; expected: string; received: string }> = []
 
-  if (params.transportHash !== undefined && params.transportHash !== observedTransportHash) {
+  // CQ-130: `uploadObjectPackHeaderSchema` requires `transportHash`.
+  // The server enforces it here so a client that omits the header
+  // fails closed instead of relying on the catalog/canonical-digest
+  // checks alone.
+  if (params.transportHash === undefined) {
+    throw new UploadObjectPackValidationError('x-prosa-transport-hash header is required', [
+      { field: 'transportHash', expected: 'blake3:<64-hex>', received: '<missing>' },
+    ])
+  }
+  if (params.transportHash !== observedTransportHash) {
     issues.push({ field: 'transportHash', expected: observedTransportHash, received: params.transportHash })
     throw new UploadObjectPackValidationError('declared transport hash disagrees with streamed BLAKE3', issues)
   }

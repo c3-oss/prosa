@@ -116,17 +116,23 @@ function uploadPackInjectArgs(opts: {
   promotionId: string
   body: Uint8Array
   declaredPackDigest?: string
+  /** Overrides the auto-computed transport hash. Omit to use BLAKE3(body). */
   transportHash?: string
+  /** Set true to omit the transport hash header entirely. */
+  omitTransportHash?: boolean
 }) {
+  const headers: Record<string, string> = {
+    'content-type': 'application/octet-stream',
+    authorization: `Bearer ${opts.token}`,
+  }
+  if (opts.declaredPackDigest) headers['x-prosa-pack-digest'] = opts.declaredPackDigest
+  if (!opts.omitTransportHash) {
+    headers['x-prosa-transport-hash'] = opts.transportHash ?? transportHashOf(opts.body)
+  }
   return {
     method: 'POST' as const,
     url: `/v2/promotions/${opts.promotionId}/object-packs`,
-    headers: {
-      'content-type': 'application/octet-stream',
-      authorization: `Bearer ${opts.token}`,
-      ...(opts.declaredPackDigest ? { 'x-prosa-pack-digest': opts.declaredPackDigest } : {}),
-      ...(opts.transportHash ? { 'x-prosa-transport-hash': opts.transportHash } : {}),
-    },
+    headers,
     payload: Buffer.from(opts.body),
   }
 }

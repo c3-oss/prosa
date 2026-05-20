@@ -143,19 +143,31 @@ async function driveSeal(
   await t.app.inject({
     method: 'PUT',
     url: `/v2/promotions/${promotionId}/segments/seg-obj-get`,
-    headers: { 'content-type': 'application/octet-stream', authorization: `Bearer ${token}` },
+    headers: {
+      'content-type': 'application/octet-stream',
+      authorization: `Bearer ${token}`,
+      'x-prosa-transport-hash': fx.objectInventoryDigest,
+    },
     payload: Buffer.from(fx.objectInventoryBytes),
   })
   await t.app.inject({
     method: 'PUT',
     url: `/v2/promotions/${promotionId}/segments/seg-proj-get`,
-    headers: { 'content-type': 'application/octet-stream', authorization: `Bearer ${token}` },
+    headers: {
+      'content-type': 'application/octet-stream',
+      authorization: `Bearer ${token}`,
+      'x-prosa-transport-hash': fx.projectionInventoryDigest,
+    },
     payload: Buffer.from(fx.projectionInventoryBytes),
   })
   await t.app.inject({
     method: 'POST',
     url: `/v2/promotions/${promotionId}/object-packs`,
-    headers: { 'content-type': 'application/octet-stream', authorization: `Bearer ${token}` },
+    headers: {
+      'content-type': 'application/octet-stream',
+      authorization: `Bearer ${token}`,
+      'x-prosa-transport-hash': transportHashOf(fx.pack.bytes),
+    },
     payload: Buffer.from(fx.pack.bytes),
   })
   const seal = await t.app.inject({

@@ -16,7 +16,7 @@ import { type PromoteHttpClient, type PromoteResult, promoteBundleV2 } from '../
 
 type SyncV2Options = {
   server: string
-  token: string
+  tokenFile?: string
   tenant: string
   store: string
   device: string
@@ -24,19 +24,27 @@ type SyncV2Options = {
   json?: boolean
 }
 
+const TOKEN_ENV_VAR = 'PROSA_SYNC_TOKEN'
+
 export function syncV2Command(): Command {
   return new Command('sync-v2')
     .description('Promote a v2 bundle to a remote prosa-api server (Lane 5 protocol).')
     .requiredOption('--server <url>', 'prosa-api server base URL (e.g. https://prosa.example.com)')
-    .requiredOption('--token <token>', 'bearer token issued by the server')
+    .addOption(
+      new Option(
+        '--token-file <path>',
+        `path to a file containing the bearer token (preferred over the ${TOKEN_ENV_VAR} env var). Argv tokens are rejected — CQ-139.`,
+      ),
+    )
     .requiredOption('--tenant <id>', 'tenant id (organization id)')
     .requiredOption('--store <id>', 'logical store id')
     .requiredOption('--device <id>', 'device id')
     .requiredOption('--bundle <path>', 'path to the v2 bundle directory')
     .addOption(new Option('--json', 'emit machine-readable JSON output instead of human text'))
     .action(async (opts: SyncV2Options) => {
+      const token = await resolveToken(opts.tokenFile)
       const layout = await readBundleLayout(opts.bundle)
-      const client = makeFetchClient(opts.server, opts.token)
+      const client = makeFetchClient(opts.server, token)
       const result = await promoteBundleV2(client, {
         tenantId: opts.tenant,
         storeId: opts.store,
@@ -49,6 +57,30 @@ export function syncV2Command(): Command {
       })
       reportResult(opts.json === true, result)
     })
+}
+
+// CQ-139: bearer tokens MUST NOT be passed via argv where they are
+// visible in `ps`/`/proc/<pid>/cmdline` and shell history. The CLI
+// reads the token from the `PROSA_SYNC_TOKEN` env var or a
+// `--token-file <path>` file (single-line file, trailing newline
+// stripped). At least one source must be provided.
+async function resolveToken(tokenFile?: string): Promise<string> {
+  if (tokenFile) {
+    try {
+      const raw = await readFile(tokenFile, 'utf8')
+      const trimmed = raw.trim()
+      if (trimmed.length === 0) {
+        throw new CliUserError(`token file ${tokenFile} is empty`)
+      }
+      return trimmed
+    } catch (err) {
+      if (err instanceof CliUserError) throw err
+      throw new CliUserError(`failed to read --token-file ${tokenFile}: ${(err as Error).message}`)
+    }
+  }
+  const envToken = process.env[TOKEN_ENV_VAR]
+  if (envToken && envToken.length > 0) return envToken
+  throw new CliUserError(`bearer token is required. Set ${TOKEN_ENV_VAR}=<token> or pass --token-file <path> (CQ-139).`)
 }
 
 async function readBundleLayout(bundlePath: string): Promise<{
