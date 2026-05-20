@@ -618,8 +618,23 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 5 object-pack cleanup acceptance)
-Status: open
+Status: closed (2026-05-20)
 Owner: Ralph
+
+Closure: `apps/api/src/v2/sync/upload-object-pack.ts` captures
+`putIfAbsent`'s `alreadyExisted` flag as `newlyWritten`. On any
+catalog-side failure other than the idempotent
+`unique_violation` (23505) it already handles, the catch block
+best-effort calls `objectStore.delete(storageKey)` ONLY when
+`newlyWritten` is true. Pre-existing bytes from a prior
+successful upload or a concurrent retry are left intact. Pinned
+by three cases in
+`apps/api/test/v2/sync/cq-132-orphan-cleanup.test.ts`:
+1. injected catalog failure → storage empty + no remote_pack
+   row;
+2. idempotent retry with a throwing transaction → bytes
+   remain + remote_pack row count stays at 1;
+3. verifyCasPack rejection → no object-store write at all.
 
 Problem:
 

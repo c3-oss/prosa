@@ -161,12 +161,19 @@ export async function uploadObjectPack(
   // differs from the wire BLAKE3 (CQ-026: the digest is computed
   // over the frame with the `pack_digest` field zeroed), so we hand
   // the store the literal transport hash instead.
-  await deps.objectStore.putIfAbsent(storageKey, asyncOnce(params.body), {
+  const putResult = await deps.objectStore.putIfAbsent(storageKey, asyncOnce(params.body), {
     hash: observedTransportHash.slice('blake3:'.length),
     hashAlgorithm: 'blake3',
     uncompressedSize: params.body.byteLength,
     compressedSize: params.body.byteLength,
   })
+  // CQ-132: if THIS request wrote new bytes (not an
+  // already-present hit), we own them until the catalog INSERT
+  // commits. Any non-23505 failure below must best-effort delete
+  // the storage key so the byte stream does not orphan. Pre-existing
+  // bytes from a prior successful upload or a concurrent idempotent
+  // retry are left intact (those are not ours to delete).
+  const newlyWritten = !putResult.alreadyExisted
 
   // INSERT catalog rows atomically. Primary keys
   // `(tenant_id, pack_digest)` and `(tenant_id, pack_digest, entry_index)`
@@ -229,6 +236,20 @@ export async function uploadObjectPack(
           entryCount: Number(row.entry_count),
           storageKey: row.storage_uri,
         }
+      }
+    }
+    // CQ-132: non-idempotent catalog failure. If THIS request wrote
+    // the bytes, best-effort delete the storage key so it does not
+    // orphan. `objectStore.delete` is documented as no-op when the
+    // key is missing, and we already know the bytes are ours
+    // (`newlyWritten`).
+    if (newlyWritten) {
+      try {
+        await deps.objectStore.delete(storageKey)
+      } catch {
+        // Swallow — the catalog failure is the load-bearing error
+        // we want to surface. Cleanup is best-effort and a follow-up
+        // audit/GC pass will reap any survivor.
       }
     }
     throw err
