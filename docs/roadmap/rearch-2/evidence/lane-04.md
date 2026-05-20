@@ -135,3 +135,44 @@ Required smokes:
   is a Lane 4 task 4 follow-up. The `ReceiptSigner` interface and the
   `BuildAppOptions.v2Signer` hook allow KMS to drop in without
   changing any caller.
+
+## Slice 4 (zstd window cap) — 2026-05-20
+
+- New `apps/api/src/v2/upload/validate.ts` parses the zstd frame
+  header directly (RFC 8478 §3.1) to recover the advertised window
+  size without invoking the decoder. `validateZstdWindow(headBytes,
+  opts)` throws `PackZstdWindowTooLargeError` (code
+  `PACK_ZSTD_WINDOW_TOO_LARGE`, action `reencode_pack`) when the
+  declared window exceeds `DEFAULT_MAX_ZSTD_WINDOW_BYTES = 8 MiB`
+  (or a caller-supplied tighter cap). The parser handles both the
+  Window_Descriptor and the Single_Segment+FCS code paths.
+- New `apps/api/test/v2/streaming-validation.test.ts` covers 10
+  cases:
+  - parses a real zstd-napi default-window pack (magic + summary
+    sane);
+  - accepts a single-segment zstd-napi frame whose `window ==
+    content_size` < cap;
+  - decodes synthesised `Window_Descriptor (exp 13, mant 0)` as
+    exactly 8 MiB and allows it (strict `>` boundary);
+  - rejects synthesised `Window_Descriptor (exp 14, mant 0)` = 16
+    MiB with `PACK_ZSTD_WINDOW_TOO_LARGE` and `action:
+    'reencode_pack'`;
+  - rejects synthesised `Window_Descriptor (exp 17, mant 0)` = 128
+    MiB;
+  - rejects synthesised `Window_Descriptor (exp 13, mant 1)` = 9
+    MiB (mantissa effect);
+  - honors a tighter caller-supplied cap against a real zstd-napi
+    single-segment frame;
+  - throws `ZSTD_BAD_MAGIC` for non-zstd bytes;
+  - throws `ZSTD_HEADER_TRUNCATED` for under-sized input;
+  - reports the canonical magic constant `0xfd2fb528`.
+- Hand-crafted frame headers are required because zstd-napi prefers
+  Single_Segment frames for the small payloads a unit test can
+  afford. Single_Segment frames carry no Window_Descriptor, so to
+  exercise the `Window_Descriptor (exp, mant)` parse path the test
+  synthesises the header bytes directly. The validator never decodes
+  the body, so the synthesised frames are valid input for the parser.
+- Gates:
+  - `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/` → 19/19.
+  - `pnpm --filter @c3-oss/prosa-api lint` → clean.
+  - Workspace `pnpm typecheck` → 13/13.
