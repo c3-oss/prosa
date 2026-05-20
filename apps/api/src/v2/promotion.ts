@@ -1,14 +1,16 @@
 // v2 promotion routes.
 //
-// Lane 4 shipped these as 501 placeholders. Lane 5 fills the protocol
-// handler by handler:
+// All five Lane 5 routes are implemented:
 //
-// - `POST /v2/promotions/begin` — implemented (fast path + staging row).
-// - `PUT /v2/promotions/:promotionId/segments/:segmentId` — implemented
-//   (slice 3: inventory + projection segment upload, BLAKE3-verified).
-// - `POST /v2/promotions/:promotionId/object-packs` — 501.
-// - `POST /v2/promotions/:promotionId/seal` — 501.
-// - `GET /v2/receipts/:receiptId` — 501.
+// - `POST /v2/promotions/begin` — fast path + staging row open.
+// - `PUT /v2/promotions/:promotionId/segments/:segmentId` —
+//   inventory/projection segment upload with BLAKE3 verification.
+// - `POST /v2/promotions/:promotionId/object-packs` — CAS pack upload
+//   with `verifyCasPack` + `remote_pack` catalog INSERT.
+// - `POST /v2/promotions/:promotionId/seal` — load-bearing
+//   authority-swap transaction.
+// - `GET /v2/receipts/:receiptId` — tenant-scoped receipt lookup
+//   for clients that lost the seal response.
 //
 // The auth context is resolved on every call so unauthenticated callers
 // see `401` and authenticated-but-unmemberd callers see `403`. This
@@ -25,6 +27,7 @@ import {
   BeginPromotionValidationError,
   beginPromotion,
 } from './sync/begin-promotion.js'
+import { getReceipt } from './sync/get-receipt.js'
 import {
   SealPromotionInProgressError,
   SealPromotionInventoryIncompleteError,
@@ -87,10 +90,16 @@ export function registerPromotionRoutes(app: FastifyInstance, deps: PromotionRou
         if (route.opName === 'SealPromotion') {
           return handleSealPromotion(deps, ctx.tenantId, req, reply)
         }
+        if (route.opName === 'GetReceipt') {
+          return handleGetReceipt(deps, ctx.tenantId, req, reply)
+        }
+        // All Lane 5 routes are wired; this branch is unreachable
+        // once the literal union above is exhaustively matched.
+        // Keep it as a defense-in-depth fallthrough.
         reply.code(501)
         return {
           code: 'NOT_IMPLEMENTED',
-          op: route.opName,
+          op: (route as { opName: string }).opName,
           message: 'v2 promotion protocol is not implemented in this build (Lane 5 surface).',
         }
       },
@@ -260,6 +269,26 @@ async function handleSealPromotion(
     }
     throw err
   }
+}
+
+async function handleGetReceipt(
+  deps: PromotionRoutesDeps,
+  tenantId: string,
+  req: FastifyRequest,
+  reply: FastifyReply,
+): Promise<unknown> {
+  const params = req.params as { receiptId?: string }
+  if (!params.receiptId) {
+    reply.code(400)
+    return { code: 'INVALID_REQUEST', op: 'GetReceipt', message: 'receiptId is required' }
+  }
+  const result = await getReceipt({ rawExec: deps.rawExec, tenantId }, { receiptId: params.receiptId })
+  if (result.status === 'not_found') {
+    reply.code(404)
+    return { code: 'RECEIPT_NOT_FOUND', op: 'GetReceipt', status: 'not_found', receiptId: result.receiptId }
+  }
+  reply.code(200)
+  return result
 }
 
 function readSingleHeader(req: FastifyRequest, name: string): string | undefined {

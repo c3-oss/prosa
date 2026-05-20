@@ -430,3 +430,72 @@ Slice 5 deferred (explicit):
   pull the receipt from the seal response.
 - CLI `prosa sync-v2`, resume/no-op behavior, and Docker E2E are
   pending downstream slices.
+
+## Slice 6 (GetReceipt route) — 2026-05-20
+
+Scope:
+
+- New `apps/api/src/v2/sync/get-receipt.ts` implements
+  `GET /v2/receipts/:receiptId`. Tenant-scoped lookup against the
+  `receipt` table; returns `{ status: 'found', receipt }` with the
+  stored payload + signature verbatim, or `{ status: 'not_found',
+  receiptId }` with a 404 response code. Cross-tenant attempts are
+  indistinguishable from "doesn't exist" (I1 — existence does not
+  leak across tenants).
+- `apps/api/src/v2/promotion.ts` dispatches `GetReceipt` to the
+  new handler; the route surface is now fully implemented and the
+  501 fallthrough is unreachable.
+- `apps/api/test/v2/skeleton.test.ts` flips its 501 assertion: the
+  test now pins that NO Lane 5 route returns 501. A future
+  regression that re-introduces 501 on any route will fail this
+  case immediately.
+
+New tests in `apps/api/test/v2/sync/get-receipt.test.ts` (4 cases):
+
+1. unauth → 401 UNAUTHENTICATED.
+2. unknown `receiptId` → 404 with `code='RECEIPT_NOT_FOUND'`,
+   `status='not_found'`, and the echoed `receiptId`.
+3. cross-tenant attempt (tenant B requesting a receipt sealed by
+   tenant A) → 404 RECEIPT_NOT_FOUND. Confirms existence does not
+   leak across tenants (I1).
+4. happy path: full BeginPromotion → uploads → seal → GET sequence
+   returns 200 with the same payload + signature the seal response
+   produced (`expect(getBody.receipt.payload).toEqual(sealBody
+   .receipt.payload)` plus the same on the signature object).
+
+Gates:
+
+- `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/sync/get-receipt.test.ts`
+  → pass, 4/4.
+- `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/` → pass,
+  78/78 across all Lane 5 slices.
+- `pnpm --filter @c3-oss/prosa-api test` → pass, 213/214
+  (1 pre-existing skip).
+- `pnpm --filter @c3-oss/prosa-api lint` → clean.
+- `pnpm typecheck` → pass, 13/13 packages.
+- `git diff --check` → clean.
+
+Server scope summary at slice 6 close:
+
+- All five Lane 5 routes implemented and tested:
+  `BeginPromotion`, `UploadSegment`, `UploadObjectPack`,
+  `SealPromotion`, `GetReceipt`.
+- Invariants enforced server-side: I1 (tenant isolation —
+  asserted on every route), I5 (receipt signature verifies
+  against published JWKS — proven via `node:crypto` verify in the
+  slice 5 test). I2/I3/I4 remain deferred behind CQ-124.
+
+Lane 5 server scope deferred (explicit):
+
+- Projection / search_doc materialization (blocked by CQ-124).
+- `BeginPromotion` `needs_upload` transition (server still always
+  returns `needs_inventory` for fresh bundles; the
+  client-driven retry sequence still works because subsequent
+  uploads succeed against the staging slot, but the spec's
+  needs_inventory → needs_upload progression is approximated).
+- Client side: CLI `prosa sync-v2`, resume / no-op behavior,
+  receipt verification UI, retries, `--dry-run`/`--no-resume`/
+  `--json` flags.
+- Docker-backed E2E (postgres + minio + API + CLI sync) — Lane 5
+  acceptance gate.
+- Five 180s stabilization cycles after CLI + E2E close.

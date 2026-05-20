@@ -67,28 +67,22 @@ describe('v2 plugin skeleton', () => {
     }
   })
 
-  it('returns 501 NOT_IMPLEMENTED to an authenticated tenant member on every unimplemented promotion route', async () => {
-    // Lane 5 fills in the promotion protocol one slice at a time. Routes
-    // that still return 501 are listed below; routes already implemented
-    // (e.g. `BeginPromotion` in slice 1) are exercised by their own
-    // focused tests under `test/v2/sync/`.
-    const unimplemented = new Set(['GetReceipt'])
+  it('every Lane 5 promotion route is now implemented (no 501 left)', async () => {
+    // After slice 6 all five routes are wired. This test pins the
+    // assertion so a regression that re-introduces 501 on any route
+    // fails immediately. Auth ladder + route-specific responses are
+    // covered by the per-slice focused tests under `test/v2/sync/`.
     const t = await buildTestApp()
     try {
-      const account = await signupWithTenant(t, 'v2-501@example.com', 'Acme', 'acme-501')
+      const account = await signupWithTenant(t, 'v2-no501@example.com', 'Acme', 'acme-no501')
       for (const route of V2_PROMOTION_ROUTES) {
-        if (!unimplemented.has(route.opName)) continue
         const url = placeholderUrl(route.url)
         const response = await t.app.inject({
           method: route.method,
           url,
           headers: { authorization: `Bearer ${account.token}` },
         })
-        expect(response.statusCode, `${route.method} ${url}`).toBe(501)
-        const body = response.json() as { code: string; op: string; message: string }
-        expect(body.code).toBe('NOT_IMPLEMENTED')
-        expect(body.op).toBe(route.opName)
-        expect(body.message).toMatch(/Lane 5/)
+        expect(response.statusCode, `${route.method} ${url}`).not.toBe(501)
       }
     } finally {
       await t.close()
