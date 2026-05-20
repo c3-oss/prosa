@@ -201,71 +201,82 @@ export async function sealPromotion(
     throw new SealPromotionInProgressError(`promotion ${params.promotionId} is mid-seal`)
   }
 
-  // Look up uploaded packs for this promotion.
-  const packRows = await deps.rawExec<{ pack_digest: string }>(
-    `SELECT pack_digest FROM promotion_uploaded_pack
-      WHERE promotion_id = $1 AND tenant_id = $2`,
-    [params.promotionId, deps.tenantId],
-  )
-  const packDigests = packRows.map((r) => r.pack_digest)
-
-  // Build receipt payload.
-  const head = coerceHead(staging.head_json)
-  if (!head) {
-    // CQ-135: any post-flip failure must restore the slot so the
-    // client can retry without operator intervention.
-    await restoreStagingStatus(deps, params.promotionId, staging.status)
-    throw new SealPromotionNotFoundError(`promotion ${params.promotionId} has malformed head`)
-  }
-
-  // CQ-134: prove every declared object is covered by a
-  // `remote_pack_entry` row linked to this promotion BEFORE we
-  // swap authority. Falling short means the remote cannot replace
-  // local data — the receipt would be a cleanup signal for bytes
-  // the server can't actually serve.
-  const declaredObjectCount = head.counts.objects
-  if (declaredObjectCount > 0) {
-    const coverageRows = await deps.rawExec<{ count: string | number }>(
-      `SELECT count(*)::int AS count
-         FROM remote_pack_entry rpe
-         JOIN promotion_uploaded_pack pup
-           ON pup.pack_digest = rpe.pack_digest AND pup.tenant_id = rpe.tenant_id
-        WHERE pup.promotion_id = $1 AND pup.tenant_id = $2`,
+  // CQ-135: every step after the status flip is wrapped so the
+  // slot is restored from `materializing` back to its prior
+  // status (open / uploading) on ANY failure — signer outages,
+  // payload-building bugs, transaction errors, schema drift.
+  // The previous closure only wrapped the signer + transaction;
+  // the reviewer flagged that pack lookup / currentKeyId /
+  // receiptPayloadBytes / buildReceiptPayload can also throw
+  // after the flip. This try-block restores on every code path
+  // that runs post-flip but before the transaction body.
+  let finalPayload: PromotionReceiptV2Payload
+  let signature: PromotionReceiptV2Signature
+  let packDigests: string[]
+  let bundleRoot: string
+  try {
+    // Look up uploaded packs for this promotion.
+    const packRows = await deps.rawExec<{ pack_digest: string }>(
+      `SELECT pack_digest FROM promotion_uploaded_pack
+        WHERE promotion_id = $1 AND tenant_id = $2`,
       [params.promotionId, deps.tenantId],
     )
-    const catalogObjectCount = Number(coverageRows[0]?.count ?? 0)
-    if (catalogObjectCount < declaredObjectCount) {
-      await restoreStagingStatus(deps, params.promotionId, staging.status)
-      throw new SealPromotionCoverageError(declaredObjectCount, catalogObjectCount)
-    }
-  }
+    packDigests = packRows.map((r) => r.pack_digest)
 
-  const payload = buildReceiptPayload({
-    tenantId: deps.tenantId,
-    storeId: staging.store_id,
-    storePath: staging.store_path,
-    deviceId: staging.device_id,
-    bundleRoot: head.bundleRoot,
-    rawSourceRoot: head.rawSourceRoot,
-    counts: head.counts,
-    serverRegion: deps.serverRegion ?? 'local',
-    serverKeyId: deps.signer.currentKeyId(),
-    issuedAt: canonicalNowMs(),
-    previousReceiptId: null,
-    previousBundleRoot: null,
-    searchGenerationId: deriveSearchGenerationId(deps.tenantId, staging.store_id, head.bundleRoot),
-    postgresCommitId: derivePostgresCommitId(deps.tenantId, staging.store_id, head.bundleRoot),
-  })
-  const receiptIdAttempt = deriveReceiptId(payload)
-  const finalPayload: PromotionReceiptV2Payload = { ...payload, receiptId: receiptIdAttempt }
-  const signatureBytes = receiptPayloadBytes(finalPayload)
-  let signature: PromotionReceiptV2Signature
-  try {
+    // Build receipt payload.
+    const head = coerceHead(staging.head_json)
+    if (!head) {
+      throw new SealPromotionNotFoundError(`promotion ${params.promotionId} has malformed head`)
+    }
+    bundleRoot = head.bundleRoot
+
+    // CQ-134: prove every declared object is covered by a
+    // `remote_pack_entry` row linked to this promotion BEFORE we
+    // swap authority. Falling short means the remote cannot
+    // replace local data — the receipt would be a cleanup signal
+    // for bytes the server can't actually serve.
+    const declaredObjectCount = head.counts.objects
+    if (declaredObjectCount > 0) {
+      const coverageRows = await deps.rawExec<{ count: string | number }>(
+        `SELECT count(*)::int AS count
+           FROM remote_pack_entry rpe
+           JOIN promotion_uploaded_pack pup
+             ON pup.pack_digest = rpe.pack_digest AND pup.tenant_id = rpe.tenant_id
+          WHERE pup.promotion_id = $1 AND pup.tenant_id = $2`,
+        [params.promotionId, deps.tenantId],
+      )
+      const catalogObjectCount = Number(coverageRows[0]?.count ?? 0)
+      if (catalogObjectCount < declaredObjectCount) {
+        throw new SealPromotionCoverageError(declaredObjectCount, catalogObjectCount)
+      }
+    }
+
+    const payload = buildReceiptPayload({
+      tenantId: deps.tenantId,
+      storeId: staging.store_id,
+      storePath: staging.store_path,
+      deviceId: staging.device_id,
+      bundleRoot: head.bundleRoot,
+      rawSourceRoot: head.rawSourceRoot,
+      counts: head.counts,
+      serverRegion: deps.serverRegion ?? 'local',
+      serverKeyId: deps.signer.currentKeyId(),
+      issuedAt: canonicalNowMs(),
+      previousReceiptId: null,
+      previousBundleRoot: null,
+      searchGenerationId: deriveSearchGenerationId(deps.tenantId, staging.store_id, head.bundleRoot),
+      postgresCommitId: derivePostgresCommitId(deps.tenantId, staging.store_id, head.bundleRoot),
+    })
+    const receiptIdAttempt = deriveReceiptId(payload)
+    finalPayload = { ...payload, receiptId: receiptIdAttempt }
+    const signatureBytes = receiptPayloadBytes(finalPayload)
     signature = await deps.signer.signReceipt(signatureBytes)
   } catch (err) {
-    // CQ-135: signer-side failure must NOT leave the slot stuck in
-    // `materializing`. Restore the prior status so the client can
-    // retry seal once the signer recovers.
+    // Restore the slot so the client can retry once the
+    // underlying issue clears. `restoreStagingStatus` only
+    // reverts rows still in `materializing`; if a racing seal
+    // already terminated this slot, we leave its final state
+    // intact.
     await restoreStagingStatus(deps, params.promotionId, staging.status)
     throw err
   }
@@ -292,7 +303,7 @@ export async function sealPromotion(
          SET current_receipt_id = EXCLUDED.current_receipt_id,
              current_bundle_root = EXCLUDED.current_bundle_root,
              promoted_at = EXCLUDED.promoted_at`,
-        [deps.tenantId, staging.store_id, finalPayload.receiptId, head.bundleRoot],
+        [deps.tenantId, staging.store_id, finalPayload.receiptId, bundleRoot],
       )
       // CQ-137: search_generation_current is keyed by
       // (tenant_id, store_id) — promoting a second store in the

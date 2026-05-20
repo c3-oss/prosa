@@ -959,10 +959,38 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 5 SealPromotion retry/resume acceptance)
-Status: open (closure rejected 2026-05-20)
+Status: closed (2026-05-20) — post-flip try/catch widened + failure-injection tests added
 Owner: Ralph
 
-Closure rejection: commit `a867e93` added restore handling around
+Full closure: `apps/api/src/v2/sync/seal-promotion.ts` now wraps
+EVERY post-flip step inside a single try/catch that calls
+`restoreStagingStatus(...)` on failure:
+- `promotion_uploaded_pack` lookup;
+- `coerceHead(head_json)` parse;
+- CQ-134 object-coverage SELECT;
+- `buildReceiptPayload(...)` (including
+  `signer.currentKeyId()`, `canonicalNowMs()`,
+  `deriveSearchGenerationId(...)`, `derivePostgresCommitId(...)`);
+- `deriveReceiptId(...)`;
+- `receiptPayloadBytes(...)`;
+- `signer.signReceipt(...)`.
+The previously-existing transaction-failure try/catch remains
+the second layer of restore. Either layer reverts the row from
+`materializing` back to its prior `open`/`uploading` status so
+the client can retry.
+
+Pinned by three failure-injection cases in
+`apps/api/test/v2/sync/cq-135-seal-restore.test.ts`:
+1. signer.signReceipt throws → status returns to `open`, no
+   receipt/authority/grant rows written, retry with a working
+   signer seals successfully;
+2. signer.currentKeyId throws synchronously (build-payload-side
+   failure) → status returns to `open`;
+3. throwing transaction stub (after signer succeeds) → status
+   returns to `open`.
+
+Closure rejection (superseded by the wider try/catch above):
+commit `a867e93` added restore handling around
 `signReceipt` and the load-bearing transaction, but did not add the required
 failure-injection tests. A reviewer also found post-flip work before those
 guards: `promotion_uploaded_pack` lookup, `signer.currentKeyId()`, receipt
