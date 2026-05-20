@@ -28,6 +28,7 @@ vi.mock('~/app/providers.js', async () => {
     useAppContext: () => ({
       config: { apiUrl: 'http://127.0.0.1:0', appEnv: 'development', marketingDocsUrl: null, githubUrl: null },
       api: {} as unknown as ReturnType<typeof actual.useAppContext>['api'],
+      apiV2: {} as unknown as ReturnType<typeof actual.useAppContext>['apiV2'],
       auth: {} as unknown as ReturnType<typeof actual.useAppContext>['auth'],
       tenantId: null,
       setTenantId: vi.fn(),

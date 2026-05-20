@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { type ReactNode, createContext, useContext, useMemo, useState } from 'react'
 
+import { type V2ApiClient, createV2ApiClient } from '~/lib/api-v2.js'
 import { type ProsaTRPCClient, createApiClient } from '~/lib/api.js'
 import { type BrowserAuth, createBrowserAuth } from '~/lib/auth.js'
 import { type WebRuntimeConfig, loadWebConfig } from '~/lib/config.js'
@@ -10,6 +11,12 @@ import { AuthProvider } from './auth-context.js'
 type AppContextValue = {
   config: WebRuntimeConfig
   api: ProsaTRPCClient
+  /**
+   * CQ-153: typed v2 read client for `/v2/reads/*`. Console routes
+   * read through this client; the legacy `api` tRPC client stays
+   * registered for writes + auth flows until Lane 10 cutover.
+   */
+  apiV2: V2ApiClient
   auth: BrowserAuth
   tenantId: string | null
   setTenantId: (id: string | null) => void
@@ -59,11 +66,12 @@ export function AppProviders({
       }),
   )
   const api = useMemo(() => createApiClient({ config, getTenantId: () => tenantId }), [config, tenantId])
+  const apiV2 = useMemo(() => createV2ApiClient({ config, getTenantId: () => tenantId }), [config, tenantId])
   const auth = useMemo(() => createBrowserAuth(config), [config])
 
   const value = useMemo<AppContextValue>(
-    () => ({ config, api, auth, tenantId, setTenantId }),
-    [config, api, auth, tenantId],
+    () => ({ config, api, apiV2, auth, tenantId, setTenantId }),
+    [config, api, apiV2, auth, tenantId],
   )
 
   return (
