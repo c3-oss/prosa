@@ -115,6 +115,7 @@ type StagingRow = {
   head_json: unknown
   inventory_object_ref: unknown
   inventory_projection_ref: unknown
+  sealed_receipt_id: string | null
 }
 
 type ReceiptRow = { payload: unknown; signature: unknown }
@@ -128,7 +129,7 @@ export async function sealPromotion(
 ): Promise<SealPromotionResult> {
   const stagingRows = await deps.rawExec<StagingRow>(
     `SELECT status, user_id, device_id, store_id, store_path, head_json,
-            inventory_object_ref, inventory_projection_ref
+            inventory_object_ref, inventory_projection_ref, sealed_receipt_id
        FROM promotion_staging
       WHERE id = $1 AND tenant_id = $2
       LIMIT 1`,
@@ -146,12 +147,19 @@ export async function sealPromotion(
     throw new SealPromotionInProgressError(`promotion ${params.promotionId} is mid-seal`)
   }
   if (staging.status === 'sealed') {
-    // Idempotent: return the receipt already written by the prior
-    // seal call. The authority row points to it.
-    const existing = await loadSealedReceipt(deps, staging.store_id)
-    if (existing) return { status: 'sealed', receipt: existing }
-    // Fall through if the authority row was somehow lost — let the
-    // re-seal attempt restore it.
+    // CQ-136: idempotent re-seal must return the receipt this
+    // promotion actually sealed, not whatever happens to be the
+    // store's current authority. We persist the sealed receipt id
+    // on `promotion_staging.sealed_receipt_id` inside the seal
+    // transaction; loading by id keeps re-seal stable even after a
+    // newer promotion has overwritten the store's authority
+    // pointer.
+    if (staging.sealed_receipt_id) {
+      const existing = await loadReceiptById(deps, staging.sealed_receipt_id)
+      if (existing) return { status: 'sealed', receipt: existing }
+    }
+    // Fall through if the linkage is missing or the receipt row
+    // disappeared — let the re-seal attempt restore it.
   }
 
   // Inventory presence check.
@@ -182,12 +190,12 @@ export async function sealPromotion(
   )
   if (flipped.length === 0) {
     // Someone else flipped first. Re-read.
-    const refreshed = await deps.rawExec<{ status: string }>(
-      `SELECT status FROM promotion_staging WHERE id = $1 AND tenant_id = $2 LIMIT 1`,
+    const refreshed = await deps.rawExec<{ status: string; sealed_receipt_id: string | null }>(
+      `SELECT status, sealed_receipt_id FROM promotion_staging WHERE id = $1 AND tenant_id = $2 LIMIT 1`,
       [params.promotionId, deps.tenantId],
     )
-    if (refreshed[0]?.status === 'sealed') {
-      const existing = await loadSealedReceipt(deps, staging.store_id)
+    if (refreshed[0]?.status === 'sealed' && refreshed[0]!.sealed_receipt_id) {
+      const existing = await loadReceiptById(deps, refreshed[0]!.sealed_receipt_id)
       if (existing) return { status: 'sealed', receipt: existing }
     }
     throw new SealPromotionInProgressError(`promotion ${params.promotionId} is mid-seal`)
@@ -305,9 +313,12 @@ export async function sealPromotion(
         )
       }
       await tx(
-        `UPDATE promotion_staging SET status = 'sealed', updated_at = now()
-        WHERE id = $1 AND tenant_id = $2`,
-        [params.promotionId, deps.tenantId],
+        `UPDATE promotion_staging
+            SET status = 'sealed',
+                sealed_receipt_id = $3,
+                updated_at = now()
+          WHERE id = $1 AND tenant_id = $2`,
+        [params.promotionId, deps.tenantId, finalPayload.receiptId],
       )
     })
   } catch (err) {
@@ -335,15 +346,16 @@ async function restoreStagingStatus(deps: SealPromotionDeps, promotionId: string
   )
 }
 
-async function loadSealedReceipt(deps: SealPromotionDeps, storeId: string): Promise<PromotionReceiptV2 | null> {
-  const rows = await deps.rawExec<ReceiptRow & { receipt_id: string }>(
-    `SELECT r.payload, r.signature
-       FROM remote_authority_v2 a
-       JOIN receipt r
-         ON r.receipt_id = a.current_receipt_id AND r.tenant_id = a.tenant_id
-      WHERE a.tenant_id = $1 AND a.store_id = $2
+async function loadReceiptById(deps: SealPromotionDeps, receiptId: string): Promise<PromotionReceiptV2 | null> {
+  // CQ-136: load the exact receipt this promotion sealed, not
+  // whatever happens to be the store's current authority. Caller
+  // resolves `receiptId` from `promotion_staging.sealed_receipt_id`.
+  const rows = await deps.rawExec<ReceiptRow>(
+    `SELECT payload, signature
+       FROM receipt
+      WHERE receipt_id = $1 AND tenant_id = $2
       LIMIT 1`,
-    [deps.tenantId, storeId],
+    [receiptId, deps.tenantId],
   )
   if (rows.length === 0) return null
   const row = rows[0]!

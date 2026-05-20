@@ -15,9 +15,17 @@ CREATE TABLE IF NOT EXISTS promotion_staging (
   expected_object_count    INTEGER,
   expected_row_count       INTEGER,
   error                    JSONB,
+  -- CQ-136: the exact receipt id sealed by THIS promotion. Set
+  -- inside the seal transaction so an idempotent re-seal returns
+  -- the same receipt even after a newer promotion has overwritten
+  -- the store's authority pointer. NULL until seal succeeds.
+  sealed_receipt_id        TEXT,
   created_at               TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at               TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- Allow the column to be added to pre-existing tables when re-applying
+-- the schema (test harness re-runs the same SQL on every PGlite).
+ALTER TABLE promotion_staging ADD COLUMN IF NOT EXISTS sealed_receipt_id TEXT;
 CREATE INDEX IF NOT EXISTS promotion_staging_tenant_store_idx
   ON promotion_staging (tenant_id, store_id, created_at DESC);
 
