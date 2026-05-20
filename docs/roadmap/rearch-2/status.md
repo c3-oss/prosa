@@ -11,20 +11,20 @@ Updated: 2026-05-20 after Codex/governor acceptance of Lane 6.
 - Lane 4 Server: **accepted** by Codex/governor on 2026-05-20.
 - Lane 5 Sync protocol: **accepted** by Codex/governor on 2026-05-20.
 - Lane 6 Read API: **accepted** by Codex/governor on 2026-05-20.
-- Lane 7 CLI and MCP: **blocked, not accepted** — CQ-150/CQ-151/CQ-152
-  accepted after `bf5a601`. Open: CQ-149 (`prosa.refresh_authority` MCP
-  tool), CQ-153 (web console routes still use legacy tRPC), and slice 11
-  E2E/manual smoke.
-- Lane 8 Audit and GC: **implemented but not governor-accepted** — audit cron handlers
+- Lane 7 CLI and MCP: **all CQs closed; gates checked; awaiting governor
+  acceptance.** CQ-149 through CQ-153 are closed with focused tests; slice 11
+  manual smoke playbook landed at `docs/rearch-2/lane-7-v1-to-v2-manual-smoke.md`
+  (a single-process automated E2E is deferred behind CQ-124 until Lane 10).
+- Lane 8 Audit and GC: **all gate items checked; awaiting governor acceptance**
+  once Lane 7 is accepted — audit cron handlers
   (hourly/daily/weekly/monthly), GC three-phase lifecycle, drift
   surface (quarantine + receipt_audit_state + repair field), 503
   `DATA_UNAVAILABLE` artifact fallback, and Prometheus metrics
-  landed. Acceptance is blocked until Lane 7 is clean.
-- Lane 9 Migration: **implemented but not governor-accepted** — `prosa migrate-v2
-  bundle` (local) + `prosa migrate-v2 tenant` + `POST
-  /v2/migrate/tenant` + `legacy_receipt_archive` landed via
-  parallel worktree merge. Acceptance is blocked until Lane 7 and Lane 8
-  are accepted in order.
+  landed.
+- Lane 9 Migration: **all gate items checked; awaiting governor acceptance**
+  once Lane 7 and Lane 8 are accepted — `prosa migrate-v2 bundle` (local) +
+  `prosa migrate-v2 tenant` + `POST /v2/migrate/tenant` +
+  `legacy_receipt_archive` landed.
 - Lane 10 Cutover: **not in the next Ralph loop**.
 
 ## Lane 6 Acceptance
