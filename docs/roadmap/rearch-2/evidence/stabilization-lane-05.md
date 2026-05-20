@@ -224,3 +224,25 @@ Lane 5 reaches its gate. The next step per the prompt is to
 Lane 10 deferral is consistent with the original Lane 5
 scope, OR the deferral is converted into a new CQ tracked
 separately from Lane 5 RALPH_DONE.
+
+## Governor Rejection — 2026-05-20
+
+Codex/governor does **not** accept `RALPH_DONE` for this stabilization batch.
+
+The five waits are documented, but the clean-cycle premise is invalid:
+
+- CQ-141 is reopened. Reviewer smoke proved `SealPromotion` can still grant
+  receipt/authority/grant rows for a linked pack whose object-store metadata is
+  wrong but nonzero, because the current seal check only rejects missing or
+  zero-length heads.
+- CQ-141's upload repair path is destructive before replacement succeeds:
+  wrong-content repair deletes the existing storage object and then calls
+  `putIfAbsent`; injected replacement failure leaves the existing `remote_pack`
+  catalog row with no object bytes.
+- L5.2 and L5.3 are therefore unchecked again in `gates.md`.
+- CQ-124 and CQ-134 materialization remain a separate governor decision, but
+  they are not the only blocker. CQ-141 is a direct Lane 5 object-pack/authority
+  integrity blocker.
+
+Next valid stabilization must restart from zero after CQ-141 is fixed with
+code, tests, evidence, and clean gates.

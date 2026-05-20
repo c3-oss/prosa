@@ -99,6 +99,33 @@ Read `docs/roadmap/rearch-2/correction-queue.md` before the next slice.
 - CQ-140 blocks Lane 5 Docker E2E acceptance: the documented `just e2e` recipe
   must be green and the evidence must distinguish route-level Postgres/S3 E2E
   from the still-required command-level `prosa sync-v2` gate.
+- CQ-141 is reopened and blocks Lane 5 object-pack / seal acceptance:
+  `SealPromotion` must compare linked pack object-store metadata against
+  durable expected pack-byte metadata before authority grant, and
+  `UploadObjectPack` wrong-content repair must not delete existing bytes before
+  replacement is guaranteed. Fix the wrong-nonzero-metadata seal case and the
+  injected repair-failure case before claiming Lane 5 clean.
+
+## Governor restart note — 2026-05-20
+
+Codex/governor rejected the Lane 5 completion claim. Do not output
+`RALPH_DONE`. The five recorded stabilization cycles are invalidated because
+CQ-141 is open and L5.2/L5.3 are unchecked again.
+
+Next slice classification: **core Lane 5 milestone work**.
+
+Required work before another completion attempt:
+
+- Fix CQ-141 without destructive repair: wrong-content upload replay must either
+  atomically replace bytes or fail closed without deleting already-present
+  bytes.
+- Persist or derive expected pack transport metadata and make `SealPromotion`
+  fail closed when a linked pack's object-store `head()` has wrong nonzero
+  hash/size, before any receipt/authority/grant writes.
+- Add focused tests for wrong nonzero seal metadata and injected repair failure.
+- Re-run focused CQ-141 tests plus `pnpm --filter @c3-oss/prosa-api test`,
+  `pnpm lint`, `pnpm typecheck`, `git diff --check`, and Docker object-store
+  evidence before starting a fresh five-cycle stabilization.
 
 ## Lane 5 invariants
 

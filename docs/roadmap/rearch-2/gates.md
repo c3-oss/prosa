@@ -82,13 +82,14 @@ Lane 5 Sync protocol is functionally complete; the gate checklist is:
 
 - [x] L5.1 — `POST /v2/promotions/begin` implements the no-op fast path and
   staging path without widening tenant scope. (CQ-125, CQ-128.)
-- [x] L5.2 — Inventory and object-pack uploads validate transport hashes
+- [ ] L5.2 — Inventory and object-pack uploads validate transport hashes
   separately from canonical BLAKE3 object identity and abort/cleanup on
-  failure. (CQ-129, CQ-130, CQ-132, CQ-141.)
-- [x] L5.3 — `SealPromotion` performs the load-bearing authority swap
+  failure. (CQ-129, CQ-130, CQ-132 accepted; CQ-141 reopened.)
+- [ ] L5.3 — `SealPromotion` performs the load-bearing authority swap
   transactionally: receipt insert, `remote_authority_v2`,
   `search_generation_current`, `receipt_pack_grant`, and sealed staging
-  status. (Slice 5 + CQ-135 + CQ-136 + CQ-141 + CQ-137.)
+  status. (Slice 5 + CQ-135 + CQ-136 + CQ-137 accepted; CQ-141 reopened for
+  pack-byte metadata proof before authority grant.)
 - [x] L5.4 — `GET /v2/receipts/:receiptId` is device-scoped (CQ-127) and
   verifies against JWKS (CQ-138 server side + CQ-123 + CQ-138 client side).
 - [x] L5.5 — `prosa sync-v2` promotes a fresh bundle, resumes after
@@ -112,6 +113,12 @@ Outstanding (deferred to Lane 10): CQ-124 v1/v2 schema cutover and the
 CQ-124-blocked portions of CQ-134 (projection / search materialization).
 These are NOT Lane 5 scope per the initial plan — Lane 5 uses the
 `applyV2PromotionSubsetSchema` workaround.
+
+Governor rejection after Ralph finalization (2026-05-20): L5.2 and L5.3 are
+not accepted while CQ-141 remains open. The previous CQ-141 closure proves
+missing pack bytes fail closed, but not wrong nonzero object-store metadata at
+seal time, and the wrong-content upload repair can delete existing bytes before
+replacement succeeds.
 
 Minimum command evidence:
 

@@ -1092,9 +1092,9 @@ edge case still seals cleanly.
 Outstanding for full closure (blocked on CQ-124):
 - Parse the uploaded object inventory and compare declared object ids to linked
   `remote_pack_entry.object_id` values; the current check is count-only.
-- [x] Prove linked pack bytes still exist in object storage before granting
-  them (closed by CQ-141: seal now `head()`s every linked pack and throws
-  `SealPromotionPackBytesMissingError` → 409 PACK_BYTES_MISSING).
+- [ ] Prove linked pack bytes still exist and match expected metadata in object
+  storage before granting them. CQ-141 is reopened: seal currently rejects
+  missing/zero-length pack bytes but still grants wrong nonzero metadata.
 - Materialize projection/search rows before authority swap.
 - Receipt `rowCountsByEntity` reflects actual catalog state.
 - Truthful `verification.projectionRowsLoaded` (schema currently
@@ -1892,10 +1892,43 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 5 object-pack integrity and seal acceptance)
-Status: closed (2026-05-20)
+Status: open (closure rejected by governor/reviewer 2026-05-20)
 Owner: Ralph
 
-Closure (2026-05-20): both axes the reviewer flagged are now closed.
+Governor rejection (2026-05-20): the `f6d0f93` / `3ef057c` closure is not
+accepted. The WIP is core Lane 5 integrity work, but it still leaves two
+fail-open/data-loss paths:
+
+1. `SealPromotion` only proves pack bytes exist and are non-empty. In
+   `apps/api/src/v2/sync/seal-promotion.ts`, the pack check loads
+   `storage_uri`, calls `objectStore.head(storageKey)`, and rejects only
+   missing or `compressedSize === 0` heads. It does not compare
+   `head.hash`, `head.hashAlgorithm`, `compressedSize`, or any durable
+   expected byte metadata before writing `receipt`, `remote_authority_v2`,
+   and `receipt_pack_grant`.
+
+   Reviewer smoke with a linked pack whose object-store head returned a wrong
+   nonzero hash/size still sealed and granted authority:
+
+   ```text
+   {"status":"sealed","receiptPackCount":0,"receipts":1,"authorities":1,"grants":1}
+   ```
+
+2. `UploadObjectPack` wrong-content repair is destructive before it proves the
+   replacement write succeeded. In `apps/api/src/v2/sync/upload-object-pack.ts`,
+   the mismatch path calls `delete(storageKey)` and then `putIfAbsent(...)`.
+   If the replacement write fails, the `remote_pack` catalog row remains while
+   object bytes are now missing.
+
+   Reviewer smoke with injected `putIfAbsent` failure after delete:
+
+   ```text
+   uploadError=injected put failure after delete
+   {"headAfter":null,"remotePacks":1,"linked":0}
+   ```
+
+Rejected closure attempt (2026-05-20): the attempted fix covered these cases
+only partially.
 
 1. **UploadObjectPack wrong-metadata fast path** —
    `apps/api/src/v2/sync/upload-object-pack.ts` now treats the
@@ -1948,7 +1981,9 @@ still granted catalog-only packs without bytes:
 wrong-meta-fast-path 200 already_present storedHashMatchesUploaded false storedSize 11
 ```
 
-Both axes are now covered by the new test file above.
+The new test file does not cover wrong nonzero storage metadata at seal time,
+nor injected repair failure after the destructive delete. Both axes remain
+open.
 
 Problem:
 
@@ -1988,12 +2023,18 @@ Result: passed 10/10 on 2026-05-20.
 
 Required fix:
 
+- Persist or otherwise derive expected pack transport-byte metadata, then make
+  seal compare linked pack `head()` results against it before writing
+  authority/receipt/grant rows.
 - On the catalog fast path, verify the stored object exists and its metadata
   matches the stored bytes identity expected for that pack.
 - If the catalog row exists but bytes are absent, either safely repair the
   object-store write from the uploaded request body or fail closed with a clear
   conflict/error that prevents linking the pack to the promotion.
-- Seal must not grant packs whose object-store bytes are absent.
+- Make wrong-content repair non-destructive unless replacement is guaranteed,
+  or fail closed without deleting existing bytes.
+- Seal must not grant packs whose object-store bytes are absent or whose
+  metadata/content does not match the expected pack bytes.
 
 Acceptance:
 
@@ -2004,8 +2045,14 @@ Acceptance:
       `promotion_uploaded_pack` unless bytes are repaired and verified.
 - [ ] Test proves an existing storage key with wrong hash/size fails closed or
       is repaired before linking.
+- [ ] Test injects repair failure after detecting wrong-content storage state
+      and proves no catalog-only state is created and no already-granted bytes
+      are destroyed.
 - [ ] Seal test proves a linked pack with missing object-store bytes cannot be
       granted in a cleanup-authorizing receipt.
+- [ ] Seal test proves a linked pack with wrong nonzero object-store hash/size
+      fails closed with restored staging and zero
+      `receipt` / `remote_authority_v2` / `receipt_pack_grant` writes.
 
 ## Closed during this cycle
 

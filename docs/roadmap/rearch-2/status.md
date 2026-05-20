@@ -64,9 +64,14 @@ lives in `docs/roadmap/rearch-2/correction-queue.md`.
   Lane 5 acceptance proceeds with the subset workaround documented.
 - CQ-134: SealPromotion can emit receipt/authority before proving object
   coverage by object id, projection rows, and search docs. The
-  pack-byte-presence sub-bullet is closed by CQ-141; the projection /
-  search materialization sub-bullets are blocked on CQ-124 and remain
-  Lane 6 / Lane 10 scope.
+  pack-byte-presence sub-bullet is not fully closed because CQ-141 is
+  reopened; the projection / search materialization sub-bullets are blocked on
+  CQ-124 and remain Lane 6 / Lane 10 scope unless the governor explicitly
+  accepts that deferral.
+- CQ-141: reopened by governor/reviewer on 2026-05-20. Seal only checks that
+  linked pack storage exists and is non-empty; it does not compare hash/size
+  against durable expected metadata before authority grant. Upload wrong-content
+  repair also deletes existing bytes before proving replacement succeeded.
 
 ## Closed this cycle
 
@@ -83,7 +88,8 @@ All closed on 2026-05-20 — see `correction-queue.md` for full detail:
 - **CQ-136** (both sealed-replay branches go through `loadAndValidateLinkedReceipt`).
 - **CQ-137** (store-scoped `search_generation_current` + idempotent legacy migration).
 - **CQ-138** (CLI `promoteBundleV2` schema + deriveReceiptId + JWKS verify every receipt).
-- **CQ-141** (UploadObjectPack wrong-content rewrite + seal pack-bytes-missing fail-closed).
+- **CQ-141** rejected after review; previous closure attempt covered missing
+  bytes but not wrong nonzero seal metadata or destructive repair failure.
 - **CQ-140** (`just e2e` + `just e2e-cli` both green; CLI subprocess harness in
   `apps/cli/test/cli/sync-v2-e2e.test.ts` covers `prosa sync-v2` over HTTP
   fetch + JWKS verify + second-device 404).
@@ -96,7 +102,8 @@ All closed on 2026-05-20 — see `correction-queue.md` for full detail:
   all pass).
 - `pnpm --filter @c3-oss/prosa test` runs the CLI suite green: 295
   passed / 1 skipped.
-- `pnpm typecheck` + `pnpm lint` repo-wide → clean (13/13 packages).
+- `pnpm typecheck` + `pnpm lint` repo-wide were reported clean by Ralph, but
+  Lane 5 acceptance is rejected while CQ-141 remains open.
 - `just e2e` (Docker harness up) → pass, 4/4 (1 v1 + 3 v2 route-level).
   `just e2e-cli` → pass, 3/3 (1 v1 two-device + 2 v2 CLI subprocess +
   second-device read). Fresh no-env runs skip the e2e blocks (skip ≠
@@ -110,9 +117,8 @@ All closed on 2026-05-20 — see `correction-queue.md` for full detail:
 - CQ-129, CQ-130, CQ-131, CQ-139 accepted by the governor on
   2026-05-20.
 - CQ-140 is closed (route-level + CLI subprocess gates both green).
-  Remaining Lane 5 acceptance caveats are Lane 10 cutover work
-  (CQ-124, CQ-134) — explicitly out of Lane 5 scope per the
-  initial plan.
+  Remaining acceptance blockers are CQ-141 plus the unresolved CQ-124/CQ-134
+  materialization deferral decision. `RALPH_DONE` is not accepted.
 
 ## Supporting documents
 
