@@ -11,6 +11,7 @@ import type { ReactNode } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 
 import { ConsoleAnalytics } from './analytics.js'
+import { ConsoleArtifact } from './artifact.js'
 import { ConsoleDashboard } from './dashboard.js'
 import { ConsoleSearch } from './search.js'
 import { ConsoleSessionDetail } from './session-detail.js'
@@ -20,6 +21,7 @@ const searchSpy = vi.fn(async () => ({ rows: [], nextCursor: null }))
 const toolCallsSpy = vi.fn(async () => ({ rows: [], nextCursor: null }))
 const analyticsSpy = vi.fn(async () => ({ report: 'sessions', generatedAt: '2026-05-20T11:00:00.000Z', rows: [] }))
 const transcriptSpy = vi.fn(async () => null)
+const artifactSpy = vi.fn(async () => ({ found: false as const }))
 const summarySpy = vi.fn(async () => ({
   generatedAt: '2026-05-20T11:00:00.000Z',
   counts: {
@@ -41,6 +43,7 @@ const legacyToolCalls = vi.fn()
 const legacyAnalytics = vi.fn()
 const legacyTranscript = vi.fn()
 const legacySummary = vi.fn()
+const legacyArtifact = vi.fn()
 
 vi.mock('~/app/auth-context.js', () => ({
   useAuth: () => ({
@@ -64,6 +67,7 @@ vi.mock('~/app/providers.js', async () => {
         toolCalls: { list: { query: legacyToolCalls } },
         analytics: { report: { query: legacyAnalytics }, summary: { query: legacySummary } },
         sessions: { transcript: { query: legacyTranscript } },
+        artifacts: { getText: { query: legacyArtifact } },
       } as unknown as ReturnType<typeof actual.useAppContext>['api'],
       apiV2: {
         v2: {
@@ -71,7 +75,7 @@ vi.mock('~/app/providers.js', async () => {
           search: { query: searchSpy },
           toolCalls: { list: toolCallsSpy },
           analytics: { report: analyticsSpy, summary: summarySpy },
-          artifacts: { getText: vi.fn() },
+          artifacts: { getText: artifactSpy },
         },
       } as unknown as ReturnType<typeof actual.useAppContext>['apiV2'],
       auth: {} as unknown as ReturnType<typeof actual.useAppContext>['auth'],
@@ -87,7 +91,7 @@ vi.mock('@tanstack/react-router', async () => {
     ...actual,
     useSearch: () => ({ q: 'needle' }),
     useNavigate: () => vi.fn(),
-    useParams: () => ({ sessionId: 'sess-1' }),
+    useParams: () => ({ sessionId: 'sess-1', artifactId: 'art-1' }),
     Link: ({ children, ...props }: { children: ReactNode } & Record<string, unknown>) => <a {...props}>{children}</a>,
   }
 })
@@ -132,6 +136,18 @@ describe('CQ-153 — v2 console routes use apiV2 (not legacy tRPC)', () => {
     expect(legacyAnalytics).not.toHaveBeenCalled()
     const first = analyticsSpy.mock.calls[0] as [{ report: string }] | undefined
     expect(first?.[0]?.report).toBe('sessions')
+  })
+
+  it('ConsoleArtifact calls apiV2.v2.artifacts.getText', async () => {
+    render(
+      <Harness>
+        <ConsoleArtifact />
+      </Harness>,
+    )
+    await waitFor(() => expect(artifactSpy).toHaveBeenCalled())
+    expect(legacyArtifact).not.toHaveBeenCalled()
+    const first = artifactSpy.mock.calls[0] as [{ artifactId: string }] | undefined
+    expect(first?.[0]?.artifactId).toBe('art-1')
   })
 
   it('ConsoleDashboard calls apiV2.v2.analytics.summary', async () => {

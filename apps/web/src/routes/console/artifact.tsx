@@ -19,7 +19,7 @@ type ArtifactText = {
 
 export function ConsoleArtifact() {
   const { artifactId } = useParams({ strict: false }) as { artifactId?: string }
-  const { api } = useAppContext()
+  const { apiV2 } = useAppContext()
   const { me } = useAuth()
   const tenantId = me?.tenantId ?? null
 
@@ -29,7 +29,20 @@ export function ConsoleArtifact() {
       tenantId && artifactId ? queryKeys.artifactText(tenantId, { artifactId }) : ['artifacts', 'getText', 'no-tenant'],
     queryFn: async (): Promise<ArtifactText | null> => {
       if (!artifactId) return null
-      return api.artifacts.getText.query({ artifactId })
+      const response = await apiV2.v2.artifacts.getText({ artifactId })
+      // CQ-153: shim v2 found/found:false union into the existing
+      // legacy shape the UI consumes. Miss collapses to null so the
+      // existing "Could not load artifact" empty state renders.
+      if (!response.found) return null
+      return {
+        id: response.artifactId,
+        objectId: response.objectId,
+        contentType: response.contentType,
+        bytesReturned: response.bytesReturned,
+        truncated: response.truncated,
+        text: response.text,
+        kind: response.kind,
+      }
     },
   })
 

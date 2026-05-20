@@ -235,18 +235,40 @@ export type V2AnalyticsSummaryResponse = {
   stores: Array<{ storeId: string; sessionCount: number; latestPromotedAt: string | null }>
 }
 
+/**
+ * Wire input for `/v2/reads/artifacts/getText`. The server gates the
+ * lookup through the verified-projection rule on
+ * `projection_artifact`, so callers identify the artifact by its
+ * projection-row id (`artifactId`). Object-id lookups would require
+ * a different endpoint (tracked under the CQ-153 cas-text follow-up).
+ */
 export type V2ArtifactGetTextInput = {
-  storeId: string
-  receiptId: string
-  bodyDigest: string
+  artifactId: string
   maxBytes?: number
 }
-export type V2ArtifactGetTextResponse = {
-  text: string
-  truncated: boolean
-  bytesReturned: number
-  totalBytes: number
-}
+/**
+ * Wire response. Either the artifact resolves and the bounded text
+ * comes back, or the server collapses every miss into a single
+ * opaque `{ found: false }`, or — Lane 8 — the underlying pack is
+ * quarantined and the route returns 503 DATA_UNAVAILABLE which the
+ * client surfaces as `{ found: false, reason: 'data_unavailable' }`.
+ */
+export type V2ArtifactGetTextResponse =
+  | {
+      found: true
+      artifactId: string
+      objectId: string
+      contentType: string | null
+      bytesReturned: number
+      uncompressedSize: number | null
+      truncated: boolean
+      text: string
+      kind: 'text' | 'binary'
+      storeId: string
+      receiptId: string
+    }
+  | { found: false }
+  | { found: false; reason: 'data_unavailable'; artifactId: string }
 
 export type V2ApiClient = {
   v2: {
