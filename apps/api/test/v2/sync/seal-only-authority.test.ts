@@ -10,7 +10,13 @@
 // only place that builds + signs the receipt) and can produce
 // authority rows the receipt cannot back. We pin it as a
 // source-grep that walks `apps/api/src/` and asserts the only
-// mutating SQL is in `seal-promotion.ts`.
+// mutating SQL is in the allowlisted writers.
+//
+// Lane 9 amendment: `apps/api/src/v2/migrate/tenant.ts` is also
+// allowed to mutate `remote_authority_v2` because the server-side
+// tenant migration synthesizes its own v2 receipt + authority row in
+// one transaction. The migration receipt is built and signed before
+// the upsert, mirroring the SealPromotion invariant.
 //
 // Read-only references (SELECT/FROM in BeginPromotion authority
 // validation, schema bootstrap blocks, code comments, error
@@ -46,16 +52,27 @@ async function walkSrc(dir: string, out: string[]): Promise<void> {
   }
 }
 
+// Sanctioned writers per authority table. seal-promotion remains the
+// canonical writer; Lane 9 explicitly adds migrate/tenant.ts for
+// `remote_authority_v2` because the synthetic migration receipt is
+// built + signed and persisted in the same transaction.
+const ALLOWED_WRITERS: Record<string, ReadonlyArray<string>> = {
+  remote_authority_v2: [path.join('v2', 'sync', 'seal-promotion.ts'), path.join('v2', 'migrate', 'tenant.ts')],
+  search_generation_current: [path.join('v2', 'sync', 'seal-promotion.ts')],
+  receipt_pack_grant: [path.join('v2', 'sync', 'seal-promotion.ts')],
+}
+
 describe('Lane 5 gate L5.7: only seal-promotion writes to authority tables', () => {
   for (const table of AUTHORITY_TABLES) {
-    it(`only apps/api/src/v2/sync/seal-promotion.ts mutates ${table}`, async () => {
+    it(`only sanctioned writers mutate ${table}`, async () => {
       const files: string[] = []
       await walkSrc(srcRoot, files)
       const pattern = mutatingPatternFor(table)
+      const allowed = new Set(ALLOWED_WRITERS[table])
       const violators: Array<{ file: string; snippet: string }> = []
       for (const file of files) {
         const rel = path.relative(srcRoot, file)
-        if (rel === path.join('v2', 'sync', 'seal-promotion.ts')) continue
+        if (allowed.has(rel)) continue
         const text = await readFile(file, 'utf8')
         const match = pattern.exec(text)
         if (match !== null) {
