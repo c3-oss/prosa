@@ -10,6 +10,7 @@ import type { ProsaAuth } from '../auth.js'
 import type { RuntimeMode } from '../config.js'
 import type { DatabaseHandle, RawExec } from '../db.js'
 import { registerReceiptKeysRoute } from './keys.js'
+import { registerMigrateRoutes } from './migrate/index.js'
 import { registerPromotionRoutes } from './promotion.js'
 import { type V2ReadPluginHandle, registerV2ReadRoutes } from './reads/index.js'
 import { type CursorSigner, createCursorSigner, createInProcessCursorSigner } from './reads/shared/cursor-signer.js'
@@ -83,6 +84,13 @@ export function registerV2Routes(app: FastifyInstance, deps: V2PluginDeps): V2Pl
     objectStore: deps.objectStore,
     signer,
   })
+  registerMigrateRoutes(app, {
+    auth: deps.auth,
+    rawExec: deps.rawExec,
+    transaction: deps.transaction,
+    objectStore: deps.objectStore,
+    signer,
+  })
   const reads = registerV2ReadRoutes(app, {
     auth: deps.auth,
     rawExec: deps.rawExec,
@@ -108,6 +116,13 @@ function resolveCursorSigner(deps: V2PluginDeps): CursorSigner {
 }
 
 export { V2_RECEIPT_KEYS_PATH } from './keys.js'
+export { V2_MIGRATE_ROUTES, registerMigrateRoutes } from './migrate/index.js'
+export type {
+  LegacyV1SourceFile,
+  MigrateTenantGap,
+  MigrateTenantInput,
+  MigrateTenantResponse,
+} from './migrate/index.js'
 export { V2_PROMOTION_ROUTES } from './promotion.js'
 export { V2_READ_ROUTES } from './reads/index.js'
 export type { V2ReadPluginHandle, V2ReadRoutesDeps } from './reads/index.js'

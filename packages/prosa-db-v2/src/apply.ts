@@ -111,6 +111,37 @@ $$;
 
 const PACKS_NO_REMOTE_OBJECT_SQL = PACKS_SCHEMA_SQL.replace(/CREATE TABLE IF NOT EXISTS remote_object[\s\S]*?\);/u, '')
 
+// CQ-124 + Lane 9: `projection_source_file` and
+// `projection_raw_record` exist only in v2 (the v1 schema has neither
+// table). The migration flow needs them when re-projecting a tenant,
+// so the conflict-free subset applies them explicitly. The rest of
+// `projection_*` stays v1-owned until Lane 10 cutover.
+const PROJECTION_V2_ONLY_SQL = `
+CREATE TABLE IF NOT EXISTS projection_source_file (
+  tenant_id        TEXT NOT NULL,
+  source_file_id   TEXT NOT NULL,
+  source_tool      TEXT NOT NULL,
+  path             TEXT NOT NULL,
+  file_kind        TEXT NOT NULL,
+  content_hash     TEXT NOT NULL,
+  object_id        TEXT NOT NULL,
+  pack_digest      TEXT NOT NULL,
+  payload          JSONB NOT NULL,
+  PRIMARY KEY (tenant_id, source_file_id)
+);
+CREATE TABLE IF NOT EXISTS projection_raw_record (
+  tenant_id        TEXT NOT NULL,
+  raw_record_id    TEXT NOT NULL,
+  source_file_id   TEXT NOT NULL,
+  record_kind      TEXT NOT NULL,
+  ordinal          INTEGER,
+  content_hash     TEXT NOT NULL,
+  object_id        TEXT NOT NULL,
+  payload          JSONB NOT NULL,
+  PRIMARY KEY (tenant_id, raw_record_id)
+);
+`
+
 /**
  * Apply the conflict-free subset of the v2 schema on top of the
  * v1 schema. See the comment above for which tables are
@@ -125,6 +156,7 @@ export async function applyV2PromotionSubsetSchema(client: SqlClient): Promise<v
   await execSql(client, PROMOTION_SCHEMA_SQL)
   await execSql(client, PACKS_NO_REMOTE_OBJECT_SQL)
   await execSql(client, SEARCH_GENERATION_ONLY_SQL)
+  await execSql(client, PROJECTION_V2_ONLY_SQL)
 }
 
 /**
@@ -136,6 +168,8 @@ export const V2_PROMOTION_SUBSET_TABLES: readonly string[] = [
   'remote_authority_v2',
   'receipt',
   'legacy_receipt_archive',
+  'legacy_v1_source_files',
+  'legacy_v1_migration_gap',
   'promotion_uploaded_pack',
   'remote_pack',
   'remote_pack_entry',
@@ -144,6 +178,8 @@ export const V2_PROMOTION_SUBSET_TABLES: readonly string[] = [
   'pack_gc_state',
   'receipt_audit_state',
   'search_generation_current',
+  'projection_source_file',
+  'projection_raw_record',
 ]
 
 /**

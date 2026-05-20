@@ -17,6 +17,7 @@ export default mergeConfig(
         '@c3-oss/prosa-storage': path.resolve(moduleDir, '../../packages/prosa-storage/src/index.ts'),
         '@c3-oss/prosa-sync': path.resolve(moduleDir, '../../packages/prosa-sync/src/index.ts'),
         '@c3-oss/prosa-bundle-v2': path.resolve(moduleDir, '../../packages/prosa-bundle-v2/src/index.ts'),
+        '@c3-oss/prosa-importers-v2': path.resolve(moduleDir, '../../packages/prosa-importers-v2/src/index.ts'),
         '@c3-oss/prosa-types-v2': path.resolve(moduleDir, '../../packages/prosa-types-v2/src/index.ts'),
         '@c3-oss/prosa-wire-v2': path.resolve(moduleDir, '../../packages/prosa-wire-v2/src/index.ts'),
       },
