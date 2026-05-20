@@ -67,14 +67,18 @@ The blocker is implementation work, not environment.
   applying/verifying v2 promotion tables, so a v1-only database can pass
   health and fail the first BeginPromotion query.
 - CQ-127: BeginPromotion proves tenant membership but not device
-  ownership/policy, and can return a receipt associated with another
-  device.
+  ownership/policy; UploadSegment inherits the same gap and can accept staged
+  bytes from another same-tenant user/device.
 - CQ-128: BeginPromotion staging idempotency is sequential only; concurrent
   same-tuple calls can create two active `promotion_staging` rows and two
   promotion ids.
 - CQ-129: UploadObjectPack WIP writes object-store metadata with canonical
   `packDigest` instead of the BLAKE3 transport hash of the stored bytes, causing
   valid pack uploads to fail storage verification.
+- CQ-130: UploadSegment accepts inventory bytes without the required
+  `x-prosa-transport-hash`.
+- CQ-131: UploadSegment accepts uploads while staging is already
+  `materializing`.
 
 ## Supporting documents
 

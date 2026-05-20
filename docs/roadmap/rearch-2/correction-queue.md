@@ -442,6 +442,103 @@ Acceptance:
 - [ ] Mismatched declared transport hash and mismatched declared pack digest
       remain separate 400 failures.
 
+### CQ-130: UploadSegment accepts inventory bytes without required transport hash
+
+Severity: high
+Blocking: yes (blocks Lane 5 upload-segment acceptance)
+Status: open
+Owner: Ralph
+
+Problem:
+
+The shared v2 wire schema requires `transportHash` for `UploadSegment`, and
+Lane 5 invariants require transport hash verification independent of canonical
+content identity. The slice 3 route treats `x-prosa-transport-hash` as optional
+and accepts uploads when it is missing.
+
+Risk:
+
+Clients can upload inventory bytes without proving the bytes observed on the
+wire. That weakens CQ-012 and makes retry/audit behavior diverge from the
+published protocol schema.
+
+Smoke evidence:
+
+```text
+pnpm --filter @c3-oss/prosa-api exec tsx --conditions=prosa-dev <<'TS'
+...open staging; PUT declared inventory segment with valid bytes and no x-prosa-transport-hash...
+TS
+```
+
+Run from `apps/api`; output:
+
+```text
+no-transport 200 accepted
+```
+
+Required fix:
+
+- Treat missing `x-prosa-transport-hash` as `400 INVALID_REQUEST`.
+- Keep mismatch handling separate from missing-header handling.
+- Re-upload/idempotency must still pass through the same transport-hash
+  validation path.
+
+Acceptance:
+
+- [ ] Route test proves missing `x-prosa-transport-hash` returns 400.
+- [ ] Valid transport hash accepts the upload.
+- [ ] Mismatched transport hash remains a 400 with a `transportHash` issue.
+- [ ] Re-upload requires and verifies the transport hash before returning
+      `already_present`.
+
+### CQ-131: UploadSegment accepts uploads while promotion is materializing
+
+Severity: high
+Blocking: yes (blocks Lane 5 seal/upload phase acceptance)
+Status: open
+Owner: Ralph
+
+Problem:
+
+`UploadSegment` rejects only `sealed` and `aborted` staging rows. It still
+accepts uploads when a promotion is `materializing`, which is the phase where
+seal verification/materialization starts.
+
+Risk:
+
+Uploads can overlap with seal/materialization, allowing the upload plan or
+stored bytes to change while the server is verifying and committing promoted
+data. This violates the seal-only authority path and can produce receipts over
+an unstable staging set.
+
+Smoke evidence:
+
+```text
+pnpm --filter @c3-oss/prosa-api exec tsx --conditions=prosa-dev <<'TS'
+...open staging; update status='materializing'; PUT declared inventory segment...
+TS
+```
+
+Run from `apps/api`; output:
+
+```text
+materializing 200 accepted
+```
+
+Required fix:
+
+- Define the upload-allowed states explicitly, likely `open` and `uploading`
+  only.
+- Reject `materializing`, `sealed`, and `aborted` with either
+  `404 PROMOTION_NOT_FOUND` or an explicit phase-conflict response used
+  consistently by segment/object-pack routes.
+
+Acceptance:
+
+- [ ] Route test proves `materializing` staging rows reject segment uploads.
+- [ ] Route test proves `sealed` and `aborted` remain rejected.
+- [ ] Allowed states are documented and reused by object-pack upload and seal.
+
 ## Closed during this cycle
 
 ### CQ-122: Streaming validation is header-only and does not satisfy the Lane 4 pack-validation gate
