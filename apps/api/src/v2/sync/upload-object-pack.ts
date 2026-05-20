@@ -55,6 +55,8 @@ export type UploadObjectPackParams = {
   declaredPackDigest?: string
   /** Optional `x-prosa-transport-hash: blake3:<hex>` header. */
   transportHash?: string
+  /** CQ-127: see UploadSegmentParams.requestingDeviceId. */
+  requestingDeviceId?: string
 }
 
 export type UploadObjectPackResult =
@@ -76,7 +78,20 @@ export class UploadObjectPackValidationError extends Error {
   }
 }
 
-type StagingRow = { status: string }
+export class UploadObjectPackDeviceMismatchError extends Error {
+  override name = 'UploadObjectPackDeviceMismatchError'
+  readonly code = 'DEVICE_MISMATCH' as const
+  constructor(
+    readonly stagingDeviceId: string,
+    readonly requestingDeviceId: string,
+  ) {
+    super(
+      `promotion is owned by device ${stagingDeviceId}; ` + `requesting device ${requestingDeviceId} cannot act on it`,
+    )
+  }
+}
+
+type StagingRow = { status: string; device_id: string }
 
 // CQ-131: materializing is in-flight authority-swap territory —
 // no new bytes accepted. Sealed/aborted likewise.
@@ -87,16 +102,20 @@ export async function uploadObjectPack(
   params: UploadObjectPackParams,
 ): Promise<UploadObjectPackResult> {
   const stagingRows = await deps.rawExec<StagingRow>(
-    `SELECT status FROM promotion_staging WHERE id = $1 AND tenant_id = $2 LIMIT 1`,
+    `SELECT status, device_id FROM promotion_staging WHERE id = $1 AND tenant_id = $2 LIMIT 1`,
     [params.promotionId, deps.tenantId],
   )
   if (stagingRows.length === 0) {
     throw new UploadObjectPackNotFoundError(`promotion ${params.promotionId} not found`)
   }
-  if (CLOSED_STAGING_STATUSES.has(stagingRows[0]!.status)) {
+  const stagingRow = stagingRows[0]!
+  if (CLOSED_STAGING_STATUSES.has(stagingRow.status)) {
     throw new UploadObjectPackNotFoundError(
-      `promotion ${params.promotionId} is ${stagingRows[0]!.status}; cannot accept new packs`,
+      `promotion ${params.promotionId} is ${stagingRow.status}; cannot accept new packs`,
     )
+  }
+  if (params.requestingDeviceId !== undefined && params.requestingDeviceId !== stagingRow.device_id) {
+    throw new UploadObjectPackDeviceMismatchError(stagingRow.device_id, params.requestingDeviceId)
   }
 
   const observedTransportHash = `blake3:${toHex(blake3(params.body))}`

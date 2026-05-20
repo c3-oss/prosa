@@ -21,6 +21,8 @@ export type GetPromotionStatusDeps = {
 
 export type GetPromotionStatusParams = {
   promotionId: string
+  /** CQ-127: requesting device id. When set, must match staging.device_id. */
+  requestingDeviceId?: string
 }
 
 export type GetPromotionStatusResult = {
@@ -40,9 +42,23 @@ export class GetPromotionStatusNotFoundError extends Error {
   readonly code = 'PROMOTION_NOT_FOUND' as const
 }
 
+export class GetPromotionStatusDeviceMismatchError extends Error {
+  override name = 'GetPromotionStatusDeviceMismatchError'
+  readonly code = 'DEVICE_MISMATCH' as const
+  constructor(
+    readonly stagingDeviceId: string,
+    readonly requestingDeviceId: string,
+  ) {
+    super(
+      `promotion is owned by device ${stagingDeviceId}; ` + `requesting device ${requestingDeviceId} cannot read it`,
+    )
+  }
+}
+
 type StagingRow = {
   status: GetPromotionStatusResult['status']
   store_id: string
+  device_id: string
   head_json: unknown
   inventory_object_ref: unknown
   inventory_projection_ref: unknown
@@ -53,7 +69,7 @@ export async function getPromotionStatus(
   params: GetPromotionStatusParams,
 ): Promise<GetPromotionStatusResult> {
   const rows = await deps.rawExec<StagingRow>(
-    `SELECT status, store_id, head_json, inventory_object_ref, inventory_projection_ref
+    `SELECT status, store_id, device_id, head_json, inventory_object_ref, inventory_projection_ref
        FROM promotion_staging
       WHERE id = $1 AND tenant_id = $2
       LIMIT 1`,
@@ -63,6 +79,9 @@ export async function getPromotionStatus(
     throw new GetPromotionStatusNotFoundError(`promotion ${params.promotionId} not found`)
   }
   const row = rows[0]!
+  if (params.requestingDeviceId !== undefined && params.requestingDeviceId !== row.device_id) {
+    throw new GetPromotionStatusDeviceMismatchError(row.device_id, params.requestingDeviceId)
+  }
 
   const objectInventory = parseSegmentRef(row.inventory_object_ref)
   const projectionInventory = parseSegmentRef(row.inventory_projection_ref)

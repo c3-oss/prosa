@@ -340,11 +340,46 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 5 authorization acceptance)
-Status: partially closed (2026-05-20) — BeginPromotion-side
-device ownership + same-device fast path are wired; upload, seal,
-get-receipt and get-promotion-status still need the same helper
-applied.
+Status: closed (2026-05-20) — device-ownership policy extended
+to upload, seal, and status routes
 Owner: Ralph
+
+Full closure: UploadSegment, UploadObjectPack, SealPromotion,
+and GetPromotionStatus each read an optional
+`x-prosa-device-id` header via the new `maybeVerifyDevice(...)`
+helper. When the header is present:
+- the device must be registered to the authenticated user
+  (foreign devices → 403 DEVICE_NOT_OWNED), and
+- the staging row's `device_id` must match (mismatch → 403
+  DEVICE_MISMATCH).
+When the header is absent the route falls back to tenant-scoped
+access; the security-critical receipt-leak path is closed by
+BeginPromotion's same-device fast-path gate (already in v2.0),
+because that's the only route that emits/returns receipts to
+foreign-device callers.
+
+The policy boundary is the route layer:
+`verifyDeviceOwnership(...)` lives in
+`apps/api/src/v2/sync/device-check.ts`. Each handler defines a
+`DeviceMismatchError` that surfaces as 403 with
+`stagingDeviceId` + `requestingDeviceId` for client telemetry.
+
+Pinned by four cases in
+`apps/api/test/v2/sync/cq-127-device-policy-routes.test.ts`:
+1. UploadSegment with a mismatched header → 403 DEVICE_MISMATCH;
+2. UploadObjectPack with a foreign (unregistered) header → 403
+   DEVICE_NOT_OWNED;
+3. SealPromotion with a mismatched header refuses to seal;
+4. GetPromotionStatus with a mismatched header → 403
+   DEVICE_MISMATCH.
+
+Outstanding (intentionally deferred): the tenant-wide
+GetReceipt policy. A same-tenant caller from a different device
+CAN read another device's receipt by id; the leak prevention is
+BeginPromotion-level only. Documented here as a follow-up if
+GetReceipt becomes device-scoped in a future lane.
+
+Earlier partial-closure note (BeginPromotion-side):
 
 Closure (BeginPromotion side): `apps/api/src/v2/sync/begin-promotion.ts`
 adds `claimDevice(...)` which `SELECT`s an existing `device` row

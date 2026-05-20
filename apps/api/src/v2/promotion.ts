@@ -29,10 +29,16 @@ import {
   BeginPromotionValidationError,
   beginPromotion,
 } from './sync/begin-promotion.js'
-import { GetPromotionStatusNotFoundError, getPromotionStatus } from './sync/get-promotion-status.js'
+import { verifyDeviceOwnership } from './sync/device-check.js'
+import {
+  GetPromotionStatusDeviceMismatchError,
+  GetPromotionStatusNotFoundError,
+  getPromotionStatus,
+} from './sync/get-promotion-status.js'
 import { getReceipt } from './sync/get-receipt.js'
 import {
   SealPromotionCoverageError,
+  SealPromotionDeviceMismatchError,
   SealPromotionInProgressError,
   SealPromotionInventoryIncompleteError,
   SealPromotionLinkCorruptError,
@@ -40,11 +46,17 @@ import {
   sealPromotion,
 } from './sync/seal-promotion.js'
 import {
+  UploadObjectPackDeviceMismatchError,
   UploadObjectPackNotFoundError,
   UploadObjectPackValidationError,
   uploadObjectPack,
 } from './sync/upload-object-pack.js'
-import { UploadSegmentNotFoundError, UploadSegmentValidationError, uploadSegment } from './sync/upload-segment.js'
+import {
+  UploadSegmentDeviceMismatchError,
+  UploadSegmentNotFoundError,
+  UploadSegmentValidationError,
+  uploadSegment,
+} from './sync/upload-segment.js'
 
 export const V2_PROMOTION_ROUTES = [
   { method: 'POST' as const, url: '/v2/promotions/begin' as const, opName: 'BeginPromotion' as const },
@@ -92,19 +104,19 @@ export function registerPromotionRoutes(app: FastifyInstance, deps: PromotionRou
           return handleBeginPromotion(deps, ctx.tenantId, ctx.user.id, req, reply)
         }
         if (route.opName === 'UploadSegment') {
-          return handleUploadSegment(deps, ctx.tenantId, req, reply)
+          return handleUploadSegment(deps, ctx.tenantId, ctx.user.id, req, reply)
         }
         if (route.opName === 'UploadObjectPack') {
-          return handleUploadObjectPack(deps, ctx.tenantId, req, reply)
+          return handleUploadObjectPack(deps, ctx.tenantId, ctx.user.id, req, reply)
         }
         if (route.opName === 'SealPromotion') {
-          return handleSealPromotion(deps, ctx.tenantId, req, reply)
+          return handleSealPromotion(deps, ctx.tenantId, ctx.user.id, req, reply)
         }
         if (route.opName === 'GetReceipt') {
           return handleGetReceipt(deps, ctx.tenantId, req, reply)
         }
         if (route.opName === 'GetPromotionStatus') {
-          return handleGetPromotionStatus(deps, ctx.tenantId, req, reply)
+          return handleGetPromotionStatus(deps, ctx.tenantId, ctx.user.id, req, reply)
         }
         // All Lane 5 routes are wired; this branch is unreachable
         // once the literal union above is exhaustively matched.
@@ -161,6 +173,7 @@ async function handleBeginPromotion(
 async function handleUploadSegment(
   deps: PromotionRoutesDeps,
   tenantId: string,
+  userId: string,
   req: FastifyRequest,
   reply: FastifyReply,
 ): Promise<unknown> {
@@ -168,6 +181,18 @@ async function handleUploadSegment(
   if (!params.promotionId || !params.segmentId) {
     reply.code(400)
     return { code: 'INVALID_REQUEST', op: 'UploadSegment', message: 'promotionId and segmentId are required' }
+  }
+  // CQ-127: when the caller declares a device id, the device
+  // must be registered to the authenticated user AND match the
+  // staging row's device_id. We treat the header as OPTIONAL on
+  // post-begin routes — the security-critical leak path is
+  // already-promoted on BeginPromotion (which always requires
+  // the device id in the request body). When absent here, the
+  // route falls back to tenant-scoped access only.
+  const deviceCheck = await maybeVerifyDevice(deps, tenantId, userId, req.headers['x-prosa-device-id'])
+  if (deviceCheck.kind === 'invalid') {
+    reply.code(403)
+    return { code: deviceCheck.code, op: 'UploadSegment', message: deviceCheck.message }
   }
   const body = toUint8Array(req.body)
   if (!body) {
@@ -188,6 +213,7 @@ async function handleUploadSegment(
         segmentId: params.segmentId,
         body,
         transportHash,
+        requestingDeviceId: deviceCheck.kind === 'verified' ? deviceCheck.deviceId : undefined,
       },
     )
     reply.code(200)
@@ -196,6 +222,16 @@ async function handleUploadSegment(
     if (err instanceof UploadSegmentNotFoundError) {
       reply.code(404)
       return { code: err.code, op: 'UploadSegment', message: err.message }
+    }
+    if (err instanceof UploadSegmentDeviceMismatchError) {
+      reply.code(403)
+      return {
+        code: err.code,
+        op: 'UploadSegment',
+        message: err.message,
+        stagingDeviceId: err.stagingDeviceId,
+        requestingDeviceId: err.requestingDeviceId,
+      }
     }
     if (err instanceof UploadSegmentValidationError) {
       reply.code(400)
@@ -208,6 +244,7 @@ async function handleUploadSegment(
 async function handleUploadObjectPack(
   deps: PromotionRoutesDeps,
   tenantId: string,
+  userId: string,
   req: FastifyRequest,
   reply: FastifyReply,
 ): Promise<unknown> {
@@ -215,6 +252,12 @@ async function handleUploadObjectPack(
   if (!params.promotionId) {
     reply.code(400)
     return { code: 'INVALID_REQUEST', op: 'UploadObjectPack', message: 'promotionId is required' }
+  }
+  // CQ-127: optional device verification (see UploadSegment).
+  const deviceCheck = await maybeVerifyDevice(deps, tenantId, userId, req.headers['x-prosa-device-id'])
+  if (deviceCheck.kind === 'invalid') {
+    reply.code(403)
+    return { code: deviceCheck.code, op: 'UploadObjectPack', message: deviceCheck.message }
   }
   const body = toUint8Array(req.body)
   if (!body) {
@@ -235,7 +278,13 @@ async function handleUploadObjectPack(
         tenantId,
         objectStore: deps.objectStore,
       },
-      { promotionId: params.promotionId, body, declaredPackDigest, transportHash },
+      {
+        promotionId: params.promotionId,
+        body,
+        declaredPackDigest,
+        transportHash,
+        requestingDeviceId: deviceCheck.kind === 'verified' ? deviceCheck.deviceId : undefined,
+      },
     )
     reply.code(200)
     return result
@@ -243,6 +292,16 @@ async function handleUploadObjectPack(
     if (err instanceof UploadObjectPackNotFoundError) {
       reply.code(404)
       return { code: err.code, op: 'UploadObjectPack', message: err.message }
+    }
+    if (err instanceof UploadObjectPackDeviceMismatchError) {
+      reply.code(403)
+      return {
+        code: err.code,
+        op: 'UploadObjectPack',
+        message: err.message,
+        stagingDeviceId: err.stagingDeviceId,
+        requestingDeviceId: err.requestingDeviceId,
+      }
     }
     if (err instanceof UploadObjectPackValidationError) {
       reply.code(400)
@@ -255,6 +314,7 @@ async function handleUploadObjectPack(
 async function handleSealPromotion(
   deps: PromotionRoutesDeps,
   tenantId: string,
+  userId: string,
   req: FastifyRequest,
   reply: FastifyReply,
 ): Promise<unknown> {
@@ -262,6 +322,12 @@ async function handleSealPromotion(
   if (!params.promotionId) {
     reply.code(400)
     return { code: 'INVALID_REQUEST', op: 'SealPromotion', message: 'promotionId is required' }
+  }
+  // CQ-127: optional device verification (see UploadSegment).
+  const deviceCheck = await maybeVerifyDevice(deps, tenantId, userId, req.headers['x-prosa-device-id'])
+  if (deviceCheck.kind === 'invalid') {
+    reply.code(403)
+    return { code: deviceCheck.code, op: 'SealPromotion', message: deviceCheck.message }
   }
   try {
     const result = await sealPromotion(
@@ -272,11 +338,24 @@ async function handleSealPromotion(
         objectStore: deps.objectStore,
         signer: deps.signer,
       },
-      { promotionId: params.promotionId },
+      {
+        promotionId: params.promotionId,
+        requestingDeviceId: deviceCheck.kind === 'verified' ? deviceCheck.deviceId : undefined,
+      },
     )
     reply.code(200)
     return result
   } catch (err) {
+    if (err instanceof SealPromotionDeviceMismatchError) {
+      reply.code(403)
+      return {
+        code: err.code,
+        op: 'SealPromotion',
+        message: err.message,
+        stagingDeviceId: err.stagingDeviceId,
+        requestingDeviceId: err.requestingDeviceId,
+      }
+    }
     if (err instanceof SealPromotionNotFoundError) {
       reply.code(404)
       return { code: err.code, op: 'SealPromotion', message: err.message }
@@ -317,6 +396,7 @@ async function handleSealPromotion(
 async function handleGetPromotionStatus(
   deps: PromotionRoutesDeps,
   tenantId: string,
+  userId: string,
   req: FastifyRequest,
   reply: FastifyReply,
 ): Promise<unknown> {
@@ -325,10 +405,19 @@ async function handleGetPromotionStatus(
     reply.code(400)
     return { code: 'INVALID_REQUEST', op: 'GetPromotionStatus', message: 'promotionId is required' }
   }
+  // CQ-127: optional device verification (see UploadSegment).
+  const deviceCheck = await maybeVerifyDevice(deps, tenantId, userId, req.headers['x-prosa-device-id'])
+  if (deviceCheck.kind === 'invalid') {
+    reply.code(403)
+    return { code: deviceCheck.code, op: 'GetPromotionStatus', message: deviceCheck.message }
+  }
   try {
     const result = await getPromotionStatus(
       { rawExec: deps.rawExec, tenantId, objectStore: deps.objectStore },
-      { promotionId: params.promotionId },
+      {
+        promotionId: params.promotionId,
+        requestingDeviceId: deviceCheck.kind === 'verified' ? deviceCheck.deviceId : undefined,
+      },
     )
     reply.code(200)
     return result
@@ -336,6 +425,16 @@ async function handleGetPromotionStatus(
     if (err instanceof GetPromotionStatusNotFoundError) {
       reply.code(404)
       return { code: err.code, op: 'GetPromotionStatus', message: err.message }
+    }
+    if (err instanceof GetPromotionStatusDeviceMismatchError) {
+      reply.code(403)
+      return {
+        code: err.code,
+        op: 'GetPromotionStatus',
+        message: err.message,
+        stagingDeviceId: err.stagingDeviceId,
+        requestingDeviceId: err.requestingDeviceId,
+      }
     }
     throw err
   }
@@ -362,6 +461,36 @@ async function handleGetReceipt(
   }
   reply.code(200)
   return result
+}
+
+// CQ-127: optional device-ownership verification for routes
+// that act on existing staging slots (upload, seal, status).
+// When the caller provides `x-prosa-device-id`, the helper
+// verifies the device belongs to this user — and the inner
+// handler then cross-checks the staging row's device_id. When
+// the header is absent, the route falls back to tenant-scoped
+// access only; the receipt-leak path is closed by
+// BeginPromotion's same-device fast-path gate.
+type DeviceCheck =
+  | { kind: 'verified'; deviceId: string }
+  | { kind: 'absent' }
+  | { kind: 'invalid'; code: 'DEVICE_NOT_OWNED'; message: string }
+async function maybeVerifyDevice(
+  deps: PromotionRoutesDeps,
+  tenantId: string,
+  userId: string,
+  rawHeader: string | string[] | undefined,
+): Promise<DeviceCheck> {
+  const deviceId = Array.isArray(rawHeader) ? rawHeader[0] : rawHeader
+  if (!deviceId) return { kind: 'absent' }
+  const outcome = await verifyDeviceOwnership({ rawExec: deps.rawExec, tenantId, userId }, deviceId)
+  if (outcome.ok) return { kind: 'verified', deviceId: outcome.deviceId }
+  if (outcome.code === 'DEVICE_NOT_OWNED') {
+    return { kind: 'invalid', code: 'DEVICE_NOT_OWNED', message: outcome.message }
+  }
+  // DEVICE_REQUIRED can't happen here (we checked for absence
+  // above); treat any other code as invalid.
+  return { kind: 'invalid', code: 'DEVICE_NOT_OWNED', message: outcome.message }
 }
 
 function readSingleHeader(req: FastifyRequest, name: string): string | undefined {

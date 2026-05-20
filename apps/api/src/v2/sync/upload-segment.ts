@@ -41,6 +41,15 @@ export type UploadSegmentParams = {
   body: Uint8Array
   /** Optional `x-prosa-transport-hash: blake3:<hex>` header. */
   transportHash?: string
+  /**
+   * CQ-127: the requesting device's id. When set, the handler
+   * requires the staging row's `device_id` to match. Callers
+   * (the route handler) verify ownership upstream via
+   * `verifyDeviceOwnership(...)` before passing this in; this
+   * field is the policy boundary between "device claims to
+   * own this slot" and the staging row's recorded owner.
+   */
+  requestingDeviceId?: string
 }
 
 export type UploadSegmentResult =
@@ -67,8 +76,24 @@ export class UploadSegmentValidationError extends Error {
   }
 }
 
+// CQ-127: requesting device doesn't match the staging slot's
+// recorded device. Surfaces as 403 DEVICE_MISMATCH.
+export class UploadSegmentDeviceMismatchError extends Error {
+  override name = 'UploadSegmentDeviceMismatchError'
+  readonly code = 'DEVICE_MISMATCH' as const
+  constructor(
+    readonly stagingDeviceId: string,
+    readonly requestingDeviceId: string,
+  ) {
+    super(
+      `promotion is owned by device ${stagingDeviceId}; ` + `requesting device ${requestingDeviceId} cannot act on it`,
+    )
+  }
+}
+
 type StagingRow = {
   status: string
+  device_id: string
   inventory_object_ref: unknown
   inventory_projection_ref: unknown
 }
@@ -84,7 +109,7 @@ export async function uploadSegment(
   params: UploadSegmentParams,
 ): Promise<UploadSegmentResult> {
   const rows = await deps.rawExec<StagingRow>(
-    `SELECT status, inventory_object_ref, inventory_projection_ref
+    `SELECT status, device_id, inventory_object_ref, inventory_projection_ref
        FROM promotion_staging
       WHERE id = $1 AND tenant_id = $2
       LIMIT 1`,
@@ -99,6 +124,9 @@ export async function uploadSegment(
       `promotion ${params.promotionId} is ${row.status}; cannot accept new segments`,
       'PROMOTION_NOT_FOUND',
     )
+  }
+  if (params.requestingDeviceId !== undefined && params.requestingDeviceId !== row.device_id) {
+    throw new UploadSegmentDeviceMismatchError(row.device_id, params.requestingDeviceId)
   }
 
   const candidates: Array<SegmentRefWire | null> = [

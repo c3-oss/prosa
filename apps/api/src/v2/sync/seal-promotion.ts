@@ -63,6 +63,8 @@ export type SealPromotionDeps = {
 
 export type SealPromotionParams = {
   promotionId: string
+  /** CQ-127: requesting device id. When set, must match staging.device_id. */
+  requestingDeviceId?: string
 }
 
 export type SealPromotionResult = {
@@ -85,6 +87,21 @@ export class SealPromotionInventoryIncompleteError extends Error {
   readonly code = 'INVENTORY_INCOMPLETE' as const
   constructor(readonly missingSegmentIds: readonly string[]) {
     super(`missing inventory segments: ${missingSegmentIds.join(', ')}`)
+  }
+}
+
+// CQ-127: requesting device doesn't match the staging slot's
+// recorded device. Surfaces as 403 DEVICE_MISMATCH.
+export class SealPromotionDeviceMismatchError extends Error {
+  override name = 'SealPromotionDeviceMismatchError'
+  readonly code = 'DEVICE_MISMATCH' as const
+  constructor(
+    readonly stagingDeviceId: string,
+    readonly requestingDeviceId: string,
+  ) {
+    super(
+      `promotion is owned by device ${stagingDeviceId}; ` + `requesting device ${requestingDeviceId} cannot seal it`,
+    )
   }
 }
 
@@ -149,6 +166,14 @@ export async function sealPromotion(
     throw new SealPromotionNotFoundError(`promotion ${params.promotionId} not found`)
   }
   const staging = stagingRows[0]!
+
+  // CQ-127: verify the requesting device owns this slot before
+  // any other status logic runs. A foreign-device caller cannot
+  // see the slot's status / device_id leak — they always get a
+  // device-mismatch error.
+  if (params.requestingDeviceId !== undefined && params.requestingDeviceId !== staging.device_id) {
+    throw new SealPromotionDeviceMismatchError(staging.device_id, params.requestingDeviceId)
+  }
 
   if (staging.status === 'aborted') {
     throw new SealPromotionNotFoundError(`promotion ${params.promotionId} is aborted`)
