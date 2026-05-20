@@ -147,6 +147,7 @@ async function driveSeal(
       'content-type': 'application/octet-stream',
       authorization: `Bearer ${token}`,
       'x-prosa-transport-hash': fx.objectInventoryDigest,
+      'x-prosa-device-id': 'dev-get',
     },
     payload: Buffer.from(fx.objectInventoryBytes),
   })
@@ -157,6 +158,7 @@ async function driveSeal(
       'content-type': 'application/octet-stream',
       authorization: `Bearer ${token}`,
       'x-prosa-transport-hash': fx.projectionInventoryDigest,
+      'x-prosa-device-id': 'dev-get',
     },
     payload: Buffer.from(fx.projectionInventoryBytes),
   })
@@ -167,13 +169,18 @@ async function driveSeal(
       'content-type': 'application/octet-stream',
       authorization: `Bearer ${token}`,
       'x-prosa-transport-hash': transportHashOf(fx.pack.bytes),
+      'x-prosa-device-id': 'dev-get',
     },
     payload: Buffer.from(fx.pack.bytes),
   })
   const seal = await t.app.inject({
     method: 'POST',
     url: `/v2/promotions/${promotionId}/seal`,
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${token}`,
+      'x-prosa-device-id': 'dev-get',
+    },
     payload: {} as never,
   })
   expect(seal.statusCode).toBe(200)
@@ -206,10 +213,14 @@ describe('GET /v2/receipts/:receiptId — Lane 5 slice 6', () => {
     const t = await buildTestApp()
     try {
       const account = await signupWithTenant(t, 'get-404@example.com', 'Acme', 'acme-get-404')
+      await t.db.rawExec(
+        `INSERT INTO device (id, tenant_id, user_id, name) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING`,
+        ['dev-get', account.tenant.id, account.user.id, 'dev-get'],
+      )
       const response = await t.app.inject({
         method: 'GET',
         url: '/v2/receipts/rcpt_doesnotexist',
-        headers: { authorization: `Bearer ${account.token}` },
+        headers: { authorization: `Bearer ${account.token}`, 'x-prosa-device-id': 'dev-get' },
       })
       expect(response.statusCode).toBe(404)
       const body = response.json() as { code: string; status: string; receiptId: string }
@@ -228,10 +239,14 @@ describe('GET /v2/receipts/:receiptId — Lane 5 slice 6', () => {
       const accountB = await signupWithTenant(t, 'get-iso-b@example.com', 'Acme B', 'acme-get-iso-b')
       const sealed = await driveSeal(t, accountA.token, accountA.tenant.id)
       // Tenant B should NOT see A's receipt.
+      await t.db.rawExec(
+        `INSERT INTO device (id, tenant_id, user_id, name) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING`,
+        ['dev-get-b', accountB.tenant.id, accountB.user.id, 'dev-get-b'],
+      )
       const response = await t.app.inject({
         method: 'GET',
         url: `/v2/receipts/${sealed.receiptId}`,
-        headers: { authorization: `Bearer ${accountB.token}` },
+        headers: { authorization: `Bearer ${accountB.token}`, 'x-prosa-device-id': 'dev-get-b' },
       })
       expect(response.statusCode).toBe(404)
       expect((response.json() as { code: string }).code).toBe('RECEIPT_NOT_FOUND')
@@ -249,7 +264,7 @@ describe('GET /v2/receipts/:receiptId — Lane 5 slice 6', () => {
       const response = await t.app.inject({
         method: 'GET',
         url: `/v2/receipts/${sealed.receiptId}`,
-        headers: { authorization: `Bearer ${account.token}` },
+        headers: { authorization: `Bearer ${account.token}`, 'x-prosa-device-id': 'dev-get' },
       })
       expect(response.statusCode).toBe(200)
       const body = response.json() as {

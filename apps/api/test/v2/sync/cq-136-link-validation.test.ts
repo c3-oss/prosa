@@ -131,6 +131,7 @@ async function drivePromotionThroughUploads(
   expect(begin.statusCode).toBe(200)
   const beginBody = begin.json() as { promotionId: string }
   const promotionId = beginBody.promotionId
+  const deviceId = body.device.deviceId
   await t.app.inject({
     method: 'PUT',
     url: `/v2/promotions/${promotionId}/segments/${body.inventories.objectInventorySegment.segmentId}`,
@@ -138,6 +139,7 @@ async function drivePromotionThroughUploads(
       'content-type': 'application/octet-stream',
       authorization: `Bearer ${token}`,
       'x-prosa-transport-hash': fx.objDigest,
+      'x-prosa-device-id': deviceId,
     },
     payload: Buffer.from(fx.objBytes),
   })
@@ -148,6 +150,7 @@ async function drivePromotionThroughUploads(
       'content-type': 'application/octet-stream',
       authorization: `Bearer ${token}`,
       'x-prosa-transport-hash': fx.projDigest,
+      'x-prosa-device-id': deviceId,
     },
     payload: Buffer.from(fx.projBytes),
   })
@@ -158,6 +161,7 @@ async function drivePromotionThroughUploads(
       'content-type': 'application/octet-stream',
       authorization: `Bearer ${token}`,
       'x-prosa-transport-hash': transportHashOf(fx.pack.bytes),
+      'x-prosa-device-id': deviceId,
     },
     payload: Buffer.from(fx.pack.bytes),
   })
@@ -168,11 +172,16 @@ async function sealPromotion(
   t: TestApp,
   token: string,
   promotionId: string,
+  deviceId: string,
 ): Promise<{ statusCode: number; body: { status?: string; receipt?: { payload: { receiptId: string } } } }> {
   const seal = await t.app.inject({
     method: 'POST',
     url: `/v2/promotions/${promotionId}/seal`,
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${token}`,
+      'x-prosa-device-id': deviceId,
+    },
     payload: {} as never,
   })
   return { statusCode: seal.statusCode, body: seal.json() as never }
@@ -260,7 +269,7 @@ describe('CQ-136 (link validation): sealed-replay validates derived id and signa
         buildBeginBody({ tenantId: account.tenant.id, storeId, bundleRoot, declaredObjectCount: 1, fx }),
         fx,
       )
-      const sealResp = await sealPromotion(t, account.token, promotionId)
+      const sealResp = await sealPromotion(t, account.token, promotionId, `${storeId}-dev`)
       expect(sealResp.statusCode).toBe(200)
 
       // Build a spoof receipt: tuple matches the staging row,
@@ -296,7 +305,7 @@ describe('CQ-136 (link validation): sealed-replay validates derived id and signa
         promotionId,
       ])
 
-      const replay = await sealPromotion(t, account.token, promotionId)
+      const replay = await sealPromotion(t, account.token, promotionId, `${storeId}-dev`)
       expect(replay.statusCode).toBe(500)
       const body = replay.body as { code?: string; message?: string }
       expect(body.code).toBe('SEAL_LINK_CORRUPT')
@@ -319,7 +328,7 @@ describe('CQ-136 (link validation): sealed-replay validates derived id and signa
         buildBeginBody({ tenantId: account.tenant.id, storeId, bundleRoot, declaredObjectCount: 1, fx }),
         fx,
       )
-      expect((await sealPromotion(t, account.token, promotionId)).statusCode).toBe(200)
+      expect((await sealPromotion(t, account.token, promotionId, `${storeId}-dev`)).statusCode).toBe(200)
 
       const deviceId = `${storeId}-dev`
       const draft = payloadDraftFor({
@@ -349,7 +358,7 @@ describe('CQ-136 (link validation): sealed-replay validates derived id and signa
         promotionId,
       ])
 
-      const replay = await sealPromotion(t, account.token, promotionId)
+      const replay = await sealPromotion(t, account.token, promotionId, `${storeId}-dev`)
       expect(replay.statusCode).toBe(500)
       const body = replay.body as { code?: string; message?: string }
       expect(body.code).toBe('SEAL_LINK_CORRUPT')
@@ -372,7 +381,7 @@ describe('CQ-136 (link validation): sealed-replay validates derived id and signa
         buildBeginBody({ tenantId: account.tenant.id, storeId, bundleRoot, declaredObjectCount: 1, fx }),
         fx,
       )
-      expect((await sealPromotion(t, account.token, promotionId)).statusCode).toBe(200)
+      expect((await sealPromotion(t, account.token, promotionId, `${storeId}-dev`)).statusCode).toBe(200)
 
       const deviceId = `${storeId}-dev`
       const draft = payloadDraftFor({
@@ -399,7 +408,7 @@ describe('CQ-136 (link validation): sealed-replay validates derived id and signa
         promotionId,
       ])
 
-      const replay = await sealPromotion(t, account.token, promotionId)
+      const replay = await sealPromotion(t, account.token, promotionId, `${storeId}-dev`)
       expect(replay.statusCode).toBe(500)
       const body = replay.body as { code?: string }
       expect(body.code).toBe('SEAL_LINK_CORRUPT')

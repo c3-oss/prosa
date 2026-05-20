@@ -108,7 +108,10 @@ export async function promoteBundleV2(client: PromoteHttpClient, input: PromoteI
   //    bytes after an interrupt. Uploads are idempotent server-side
   //    even without this query, so a status fetch failure is not
   //    fatal — the client falls back to uploading every byte.
-  const remoteState = await tryFetchStatus(client, promotionId)
+  //
+  //    CQ-127: every post-begin request carries the device id so
+  //    the server's mandatory device check passes.
+  const remoteState = await tryFetchStatus(client, promotionId, input.deviceId)
 
   // 3. Upload inventories.
   if (!remoteState?.inventories.object.uploaded) {
@@ -117,6 +120,7 @@ export async function promoteBundleV2(client: PromoteHttpClient, input: PromoteI
       segmentId: input.objectInventory.ref.segmentId,
       bytes: input.objectInventory.bytes,
       digest: input.objectInventory.ref.digest,
+      deviceId: input.deviceId,
     })
   }
   if (!remoteState?.inventories.projection.uploaded) {
@@ -125,6 +129,7 @@ export async function promoteBundleV2(client: PromoteHttpClient, input: PromoteI
       segmentId: input.projectionInventory.ref.segmentId,
       bytes: input.projectionInventory.bytes,
       digest: input.projectionInventory.ref.digest,
+      deviceId: input.deviceId,
     })
   }
 
@@ -148,6 +153,7 @@ export async function promoteBundleV2(client: PromoteHttpClient, input: PromoteI
       headers: {
         'content-type': 'application/octet-stream',
         'x-prosa-transport-hash': transportHash,
+        'x-prosa-device-id': input.deviceId,
       },
       body: pack.bytes,
     })
@@ -160,7 +166,10 @@ export async function promoteBundleV2(client: PromoteHttpClient, input: PromoteI
   const sealResponse = await client({
     method: 'POST',
     url: `/v2/promotions/${promotionId}/seal`,
-    headers: { 'content-type': 'application/json' },
+    headers: {
+      'content-type': 'application/json',
+      'x-prosa-device-id': input.deviceId,
+    },
     body: {},
   })
   if (sealResponse.statusCode !== 200) {
@@ -261,11 +270,15 @@ type RemotePromotionStatus = {
   uploadedPackDigests: string[]
 }
 
-async function tryFetchStatus(client: PromoteHttpClient, promotionId: string): Promise<RemotePromotionStatus | null> {
+async function tryFetchStatus(
+  client: PromoteHttpClient,
+  promotionId: string,
+  deviceId: string,
+): Promise<RemotePromotionStatus | null> {
   const response = await client({
     method: 'GET',
     url: `/v2/promotions/${promotionId}/status`,
-    headers: {},
+    headers: { 'x-prosa-device-id': deviceId },
   })
   if (response.statusCode !== 200) return null
   return response.json() as RemotePromotionStatus
@@ -273,7 +286,7 @@ async function tryFetchStatus(client: PromoteHttpClient, promotionId: string): P
 
 async function uploadSegment(
   client: PromoteHttpClient,
-  opts: { promotionId: string; segmentId: string; bytes: Uint8Array; digest: string },
+  opts: { promotionId: string; segmentId: string; bytes: Uint8Array; digest: string; deviceId: string },
 ): Promise<void> {
   const response = await client({
     method: 'PUT',
@@ -281,6 +294,7 @@ async function uploadSegment(
     headers: {
       'content-type': 'application/octet-stream',
       'x-prosa-transport-hash': opts.digest,
+      'x-prosa-device-id': opts.deviceId,
     },
     body: opts.bytes,
   })

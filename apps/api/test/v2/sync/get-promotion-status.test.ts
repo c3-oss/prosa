@@ -150,10 +150,14 @@ describe('GET /v2/promotions/:promotionId/status — Lane 5 slice 8', () => {
     const t = await buildTestApp()
     try {
       const account = await signupWithTenant(t, 'st-404@example.com', 'Acme', 'acme-st-404')
+      await t.db.rawExec(
+        `INSERT INTO device (id, tenant_id, user_id, name) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING`,
+        ['dev-status', account.tenant.id, account.user.id, 'dev-status'],
+      )
       const response = await t.app.inject({
         method: 'GET',
         url: '/v2/promotions/prm_unknown000000000000000000/status',
-        headers: { authorization: `Bearer ${account.token}` },
+        headers: { authorization: `Bearer ${account.token}`, 'x-prosa-device-id': 'dev-status' },
       })
       expect(response.statusCode).toBe(404)
       expect((response.json() as { code: string }).code).toBe('PROMOTION_NOT_FOUND')
@@ -168,10 +172,14 @@ describe('GET /v2/promotions/:promotionId/status — Lane 5 slice 8', () => {
       const accountA = await signupWithTenant(t, 'st-iso-a@example.com', 'A', 'acme-st-iso-a')
       const accountB = await signupWithTenant(t, 'st-iso-b@example.com', 'B', 'acme-st-iso-b')
       const { promotionId } = await openStaging(t, accountA.token, accountA.tenant.id, '11'.repeat(32))
+      await t.db.rawExec(
+        `INSERT INTO device (id, tenant_id, user_id, name) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING`,
+        ['dev-status-b', accountB.tenant.id, accountB.user.id, 'dev-status-b'],
+      )
       const response = await t.app.inject({
         method: 'GET',
         url: `/v2/promotions/${promotionId}/status`,
-        headers: { authorization: `Bearer ${accountB.token}` },
+        headers: { authorization: `Bearer ${accountB.token}`, 'x-prosa-device-id': 'dev-status-b' },
       })
       expect(response.statusCode).toBe(404)
       expect((response.json() as { code: string }).code).toBe('PROMOTION_NOT_FOUND')
@@ -188,7 +196,7 @@ describe('GET /v2/promotions/:promotionId/status — Lane 5 slice 8', () => {
       const response = await t.app.inject({
         method: 'GET',
         url: `/v2/promotions/${promotionId}/status`,
-        headers: { authorization: `Bearer ${account.token}` },
+        headers: { authorization: `Bearer ${account.token}`, 'x-prosa-device-id': 'dev-status' },
       })
       expect(response.statusCode).toBe(200)
       const body = response.json() as {
@@ -224,6 +232,7 @@ describe('GET /v2/promotions/:promotionId/status — Lane 5 slice 8', () => {
           'content-type': 'application/octet-stream',
           authorization: `Bearer ${account.token}`,
           'x-prosa-transport-hash': fx.objDigest,
+          'x-prosa-device-id': 'dev-status',
         },
         payload: Buffer.from(fx.objBytes),
       })
@@ -234,6 +243,7 @@ describe('GET /v2/promotions/:promotionId/status — Lane 5 slice 8', () => {
           'content-type': 'application/octet-stream',
           authorization: `Bearer ${account.token}`,
           'x-prosa-transport-hash': transportHashOf(fx.pack.bytes),
+          'x-prosa-device-id': 'dev-status',
         },
         payload: Buffer.from(fx.pack.bytes),
       })
@@ -241,7 +251,7 @@ describe('GET /v2/promotions/:promotionId/status — Lane 5 slice 8', () => {
       const response = await t.app.inject({
         method: 'GET',
         url: `/v2/promotions/${promotionId}/status`,
-        headers: { authorization: `Bearer ${account.token}` },
+        headers: { authorization: `Bearer ${account.token}`, 'x-prosa-device-id': 'dev-status' },
       })
       const body = response.json() as {
         inventories: {

@@ -120,6 +120,10 @@ function uploadPackInjectArgs(opts: {
   transportHash?: string
   /** Set true to omit the transport hash header entirely. */
   omitTransportHash?: boolean
+  /** Override the device id in `x-prosa-device-id`. */
+  deviceId?: string
+  /** Set true to omit the device header entirely. */
+  omitDevice?: boolean
 }) {
   const headers: Record<string, string> = {
     'content-type': 'application/octet-stream',
@@ -128,6 +132,9 @@ function uploadPackInjectArgs(opts: {
   if (opts.declaredPackDigest) headers['x-prosa-pack-digest'] = opts.declaredPackDigest
   if (!opts.omitTransportHash) {
     headers['x-prosa-transport-hash'] = opts.transportHash ?? transportHashOf(opts.body)
+  }
+  if (!opts.omitDevice) {
+    headers['x-prosa-device-id'] = opts.deviceId ?? 'dev-pack'
   }
   return {
     method: 'POST' as const,
@@ -171,6 +178,10 @@ describe('POST /v2/promotions/:promotionId/object-packs — Lane 5 slice 4', () 
     const t = await buildTestApp()
     try {
       const account = await signupWithTenant(t, 'pk-404@example.com', 'Acme', 'acme-pk-404')
+      await t.db.rawExec(
+        `INSERT INTO device (id, tenant_id, user_id, name) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING`,
+        ['dev-pack', account.tenant.id, account.user.id, 'dev-pack'],
+      )
       const built = buildTestPack()
       const response = await t.app.inject(
         uploadPackInjectArgs({
@@ -192,9 +203,18 @@ describe('POST /v2/promotions/:promotionId/object-packs — Lane 5 slice 4', () 
       const accountA = await signupWithTenant(t, 'pk-iso-a@example.com', 'Acme A', 'acme-pk-iso-a')
       const accountB = await signupWithTenant(t, 'pk-iso-b@example.com', 'Acme B', 'acme-pk-iso-b')
       const { promotionId } = await openStaging(t, accountA.token, accountA.tenant.id)
+      await t.db.rawExec(
+        `INSERT INTO device (id, tenant_id, user_id, name) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING`,
+        ['dev-pack-b', accountB.tenant.id, accountB.user.id, 'dev-pack-b'],
+      )
       const built = buildTestPack()
       const response = await t.app.inject(
-        uploadPackInjectArgs({ token: accountB.token, promotionId, body: built.bytes }),
+        uploadPackInjectArgs({
+          token: accountB.token,
+          promotionId,
+          body: built.bytes,
+          deviceId: 'dev-pack-b',
+        }),
       )
       expect(response.statusCode).toBe(404)
       expect((response.json() as { code: string }).code).toBe('PROMOTION_NOT_FOUND')

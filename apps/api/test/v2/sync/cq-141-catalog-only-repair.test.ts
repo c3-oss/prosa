@@ -109,6 +109,7 @@ describe('CQ-141: object-pack fast path repairs missing storage bytes', () => {
           'content-type': 'application/octet-stream',
           authorization: `Bearer ${account.token}`,
           'x-prosa-transport-hash': transportHash,
+          'x-prosa-device-id': 'dev-cq141',
         },
         payload: Buffer.from(pack.bytes),
       })
@@ -134,6 +135,7 @@ describe('CQ-141: object-pack fast path repairs missing storage bytes', () => {
           'content-type': 'application/octet-stream',
           authorization: `Bearer ${account.token}`,
           'x-prosa-transport-hash': transportHash,
+          'x-prosa-device-id': 'dev-cq141',
         },
         payload: Buffer.from(pack.bytes),
       })
@@ -179,6 +181,7 @@ describe('CQ-141: object-pack fast path repairs missing storage bytes', () => {
           'content-type': 'application/octet-stream',
           authorization: `Bearer ${account.token}`,
           'x-prosa-transport-hash': transportHash,
+          'x-prosa-device-id': 'dev-cq141',
         },
         payload: Buffer.from(pack.bytes),
       })
@@ -195,6 +198,7 @@ describe('CQ-141: object-pack fast path repairs missing storage bytes', () => {
           'content-type': 'application/octet-stream',
           authorization: `Bearer ${account.token}`,
           'x-prosa-transport-hash': transportHash,
+          'x-prosa-device-id': 'dev-cq141',
         },
         payload: Buffer.from(pack.bytes),
       })

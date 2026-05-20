@@ -121,6 +121,7 @@ async function drivePromotionThroughSeal(opts: {
         'content-type': 'application/octet-stream',
         authorization: `Bearer ${token}`,
         'x-prosa-transport-hash': digest,
+        'x-prosa-device-id': 'dev-cq137',
       },
       payload: Buffer.from(bytes),
     })
@@ -134,6 +135,7 @@ async function drivePromotionThroughSeal(opts: {
       'content-type': 'application/octet-stream',
       authorization: `Bearer ${token}`,
       'x-prosa-transport-hash': transportHashOf(fx.pack.bytes),
+      'x-prosa-device-id': 'dev-cq137',
     },
     payload: Buffer.from(fx.pack.bytes),
   })
@@ -142,7 +144,11 @@ async function drivePromotionThroughSeal(opts: {
   const seal = await t.app.inject({
     method: 'POST',
     url: `/v2/promotions/${promotionId}/seal`,
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${token}`,
+      'x-prosa-device-id': 'dev-cq137',
+    },
     payload: {} as never,
   })
   expect(seal.statusCode).toBe(200)

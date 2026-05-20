@@ -143,6 +143,7 @@ async function drivePromotion(
         'content-type': 'application/octet-stream',
         authorization: `Bearer ${token}`,
         'x-prosa-transport-hash': upload.digest,
+        'x-prosa-device-id': 'dev-cq136',
       },
       payload: Buffer.from(upload.bytes),
     })
@@ -176,13 +177,18 @@ describe('CQ-136: re-sealing an old promotion returns its own receipt', () => {
           'content-type': 'application/octet-stream',
           authorization: `Bearer ${account.token}`,
           'x-prosa-transport-hash': transportHashOf(fxA.pack.bytes),
+          'x-prosa-device-id': 'dev-cq136',
         },
         payload: Buffer.from(fxA.pack.bytes),
       })
       const sealA = await t.app.inject({
         method: 'POST',
         url: `/v2/promotions/${idA}/seal`,
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${account.token}` },
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${account.token}`,
+          'x-prosa-device-id': 'dev-cq136',
+        },
         payload: {} as never,
       })
       expect(sealA.statusCode).toBe(200)
@@ -205,13 +211,18 @@ describe('CQ-136: re-sealing an old promotion returns its own receipt', () => {
           'content-type': 'application/octet-stream',
           authorization: `Bearer ${account.token}`,
           'x-prosa-transport-hash': transportHashOf(fxB.pack.bytes),
+          'x-prosa-device-id': 'dev-cq136',
         },
         payload: Buffer.from(fxB.pack.bytes),
       })
       const sealB = await t.app.inject({
         method: 'POST',
         url: `/v2/promotions/${idB}/seal`,
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${account.token}` },
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${account.token}`,
+          'x-prosa-device-id': 'dev-cq136',
+        },
         payload: {} as never,
       })
       expect(sealB.statusCode).toBe(200)
@@ -229,7 +240,11 @@ describe('CQ-136: re-sealing an old promotion returns its own receipt', () => {
       const reSealA = await t.app.inject({
         method: 'POST',
         url: `/v2/promotions/${idA}/seal`,
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${account.token}` },
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${account.token}`,
+          'x-prosa-device-id': 'dev-cq136',
+        },
         payload: {} as never,
       })
       expect(reSealA.statusCode).toBe(200)
@@ -262,13 +277,18 @@ describe('CQ-136: re-sealing an old promotion returns its own receipt', () => {
           'content-type': 'application/octet-stream',
           authorization: `Bearer ${account.token}`,
           'x-prosa-transport-hash': transportHashOf(fx.pack.bytes),
+          'x-prosa-device-id': 'dev-cq136',
         },
         payload: Buffer.from(fx.pack.bytes),
       })
       const seal = await t.app.inject({
         method: 'POST',
         url: `/v2/promotions/${promotionId}/seal`,
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${account.token}` },
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${account.token}`,
+          'x-prosa-device-id': 'dev-cq136',
+        },
         payload: {} as never,
       })
       expect(seal.statusCode).toBe(200)
@@ -318,7 +338,11 @@ describe('CQ-136: re-sealing an old promotion returns its own receipt', () => {
       const replay = await t.app.inject({
         method: 'POST',
         url: `/v2/promotions/${promotionId}/seal`,
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${account.token}` },
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${account.token}`,
+          'x-prosa-device-id': 'dev-cq136',
+        },
         payload: {} as never,
       })
       expect(replay.statusCode).toBe(500)
@@ -358,6 +382,7 @@ describe('CQ-136: re-sealing an old promotion returns its own receipt', () => {
           'content-type': 'application/octet-stream',
           authorization: `Bearer ${account.token}`,
           'x-prosa-transport-hash': transportHashOf(fx.pack.bytes),
+          'x-prosa-device-id': 'dev-cq136',
         },
         payload: Buffer.from(fx.pack.bytes),
       })
@@ -371,7 +396,11 @@ describe('CQ-136: re-sealing an old promotion returns its own receipt', () => {
       const seal = await t.app.inject({
         method: 'POST',
         url: `/v2/promotions/${promotionId}/seal`,
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${account.token}` },
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${account.token}`,
+          'x-prosa-device-id': 'dev-cq136',
+        },
         payload: {} as never,
       })
       const receiptId = (seal.json() as { receipt: { payload: { receiptId: string } } }).receipt.payload.receiptId

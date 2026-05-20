@@ -311,6 +311,7 @@ describe('promoteBundleV2 — end-to-end (Lane 5 slice 7)', () => {
       headers: {
         'content-type': 'application/octet-stream',
         'x-prosa-transport-hash': fx.objectInventory.ref.digest,
+        'x-prosa-device-id': 'dev-cli',
       },
       body: fx.objectInventory.bytes,
     })

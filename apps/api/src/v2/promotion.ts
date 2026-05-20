@@ -114,7 +114,7 @@ export function registerPromotionRoutes(app: FastifyInstance, deps: PromotionRou
           return handleSealPromotion(deps, ctx.tenantId, ctx.user.id, req, reply)
         }
         if (route.opName === 'GetReceipt') {
-          return handleGetReceipt(deps, ctx.tenantId, req, reply)
+          return handleGetReceipt(deps, ctx.tenantId, ctx.user.id, req, reply)
         }
         if (route.opName === 'GetPromotionStatus') {
           return handleGetPromotionStatus(deps, ctx.tenantId, ctx.user.id, req, reply)
@@ -183,14 +183,20 @@ async function handleUploadSegment(
     reply.code(400)
     return { code: 'INVALID_REQUEST', op: 'UploadSegment', message: 'promotionId and segmentId are required' }
   }
-  // CQ-127: when the caller declares a device id, the device
-  // must be registered to the authenticated user AND match the
-  // staging row's device_id. We treat the header as OPTIONAL on
-  // post-begin routes — the security-critical leak path is
-  // already-promoted on BeginPromotion (which always requires
-  // the device id in the request body). When absent here, the
-  // route falls back to tenant-scoped access only.
-  const deviceCheck = await maybeVerifyDevice(deps, tenantId, userId, req.headers['x-prosa-device-id'])
+  // CQ-127: the caller MUST send `x-prosa-device-id` on every
+  // post-begin route. The device must be registered to the
+  // authenticated user AND match the staging row's device_id.
+  // A missing header is 400 INVALID_REQUEST so a same-tenant
+  // caller cannot fall through to a tenant-wide path.
+  const deviceCheck = await requireVerifiedDevice(deps, tenantId, userId, req.headers['x-prosa-device-id'])
+  if (deviceCheck.kind === 'missing') {
+    reply.code(400)
+    return {
+      code: 'DEVICE_REQUIRED',
+      op: 'UploadSegment',
+      message: 'x-prosa-device-id header is required on post-begin routes',
+    }
+  }
   if (deviceCheck.kind === 'invalid') {
     reply.code(403)
     return { code: deviceCheck.code, op: 'UploadSegment', message: deviceCheck.message }
@@ -214,7 +220,7 @@ async function handleUploadSegment(
         segmentId: params.segmentId,
         body,
         transportHash,
-        requestingDeviceId: deviceCheck.kind === 'verified' ? deviceCheck.deviceId : undefined,
+        requestingDeviceId: deviceCheck.deviceId,
       },
     )
     reply.code(200)
@@ -254,8 +260,16 @@ async function handleUploadObjectPack(
     reply.code(400)
     return { code: 'INVALID_REQUEST', op: 'UploadObjectPack', message: 'promotionId is required' }
   }
-  // CQ-127: optional device verification (see UploadSegment).
-  const deviceCheck = await maybeVerifyDevice(deps, tenantId, userId, req.headers['x-prosa-device-id'])
+  // CQ-127: device header is required (see UploadSegment).
+  const deviceCheck = await requireVerifiedDevice(deps, tenantId, userId, req.headers['x-prosa-device-id'])
+  if (deviceCheck.kind === 'missing') {
+    reply.code(400)
+    return {
+      code: 'DEVICE_REQUIRED',
+      op: 'UploadObjectPack',
+      message: 'x-prosa-device-id header is required on post-begin routes',
+    }
+  }
   if (deviceCheck.kind === 'invalid') {
     reply.code(403)
     return { code: deviceCheck.code, op: 'UploadObjectPack', message: deviceCheck.message }
@@ -284,7 +298,7 @@ async function handleUploadObjectPack(
         body,
         declaredPackDigest,
         transportHash,
-        requestingDeviceId: deviceCheck.kind === 'verified' ? deviceCheck.deviceId : undefined,
+        requestingDeviceId: deviceCheck.deviceId,
       },
     )
     reply.code(200)
@@ -324,8 +338,16 @@ async function handleSealPromotion(
     reply.code(400)
     return { code: 'INVALID_REQUEST', op: 'SealPromotion', message: 'promotionId is required' }
   }
-  // CQ-127: optional device verification (see UploadSegment).
-  const deviceCheck = await maybeVerifyDevice(deps, tenantId, userId, req.headers['x-prosa-device-id'])
+  // CQ-127: device header is required (see UploadSegment).
+  const deviceCheck = await requireVerifiedDevice(deps, tenantId, userId, req.headers['x-prosa-device-id'])
+  if (deviceCheck.kind === 'missing') {
+    reply.code(400)
+    return {
+      code: 'DEVICE_REQUIRED',
+      op: 'SealPromotion',
+      message: 'x-prosa-device-id header is required on post-begin routes',
+    }
+  }
   if (deviceCheck.kind === 'invalid') {
     reply.code(403)
     return { code: deviceCheck.code, op: 'SealPromotion', message: deviceCheck.message }
@@ -341,7 +363,7 @@ async function handleSealPromotion(
       },
       {
         promotionId: params.promotionId,
-        requestingDeviceId: deviceCheck.kind === 'verified' ? deviceCheck.deviceId : undefined,
+        requestingDeviceId: deviceCheck.deviceId,
       },
     )
     reply.code(200)
@@ -420,8 +442,16 @@ async function handleGetPromotionStatus(
     reply.code(400)
     return { code: 'INVALID_REQUEST', op: 'GetPromotionStatus', message: 'promotionId is required' }
   }
-  // CQ-127: optional device verification (see UploadSegment).
-  const deviceCheck = await maybeVerifyDevice(deps, tenantId, userId, req.headers['x-prosa-device-id'])
+  // CQ-127: device header is required (see UploadSegment).
+  const deviceCheck = await requireVerifiedDevice(deps, tenantId, userId, req.headers['x-prosa-device-id'])
+  if (deviceCheck.kind === 'missing') {
+    reply.code(400)
+    return {
+      code: 'DEVICE_REQUIRED',
+      op: 'GetPromotionStatus',
+      message: 'x-prosa-device-id header is required on post-begin routes',
+    }
+  }
   if (deviceCheck.kind === 'invalid') {
     reply.code(403)
     return { code: deviceCheck.code, op: 'GetPromotionStatus', message: deviceCheck.message }
@@ -431,7 +461,7 @@ async function handleGetPromotionStatus(
       { rawExec: deps.rawExec, tenantId, objectStore: deps.objectStore },
       {
         promotionId: params.promotionId,
-        requestingDeviceId: deviceCheck.kind === 'verified' ? deviceCheck.deviceId : undefined,
+        requestingDeviceId: deviceCheck.deviceId,
       },
     )
     reply.code(200)
@@ -458,6 +488,7 @@ async function handleGetPromotionStatus(
 async function handleGetReceipt(
   deps: PromotionRoutesDeps,
   tenantId: string,
+  userId: string,
   req: FastifyRequest,
   reply: FastifyReply,
 ): Promise<unknown> {
@@ -465,6 +496,25 @@ async function handleGetReceipt(
   if (!params.receiptId) {
     reply.code(400)
     return { code: 'INVALID_REQUEST', op: 'GetReceipt', message: 'receiptId is required' }
+  }
+  // CQ-127: GetReceipt is the recovery path for the device that
+  // received the original receipt. It MUST require the device
+  // header AND match the receipt's `payload.deviceId`. A tenant
+  // member with the receipt id from another device's promotion
+  // cannot probe receipts — only the originating device can read
+  // back its own sealed-receipt history.
+  const deviceCheck = await requireVerifiedDevice(deps, tenantId, userId, req.headers['x-prosa-device-id'])
+  if (deviceCheck.kind === 'missing') {
+    reply.code(400)
+    return {
+      code: 'DEVICE_REQUIRED',
+      op: 'GetReceipt',
+      message: 'x-prosa-device-id header is required on receipt lookup',
+    }
+  }
+  if (deviceCheck.kind === 'invalid') {
+    reply.code(403)
+    return { code: deviceCheck.code, op: 'GetReceipt', message: deviceCheck.message }
   }
   const result = await getReceipt(
     { rawExec: deps.rawExec, tenantId, signer: deps.signer },
@@ -474,37 +524,45 @@ async function handleGetReceipt(
     reply.code(404)
     return { code: 'RECEIPT_NOT_FOUND', op: 'GetReceipt', status: 'not_found', receiptId: result.receiptId }
   }
+  // CQ-127: only the originating device can fetch its sealed
+  // receipt. We surface this as 404 (same as cross-tenant) so a
+  // probe can't distinguish "exists, wrong device" from "does
+  // not exist". The CLI knows its own device id and routes
+  // GetReceipt accordingly.
+  if (result.status === 'found' && result.receipt.payload.deviceId !== deviceCheck.deviceId) {
+    reply.code(404)
+    return { code: 'RECEIPT_NOT_FOUND', op: 'GetReceipt', status: 'not_found', receiptId: params.receiptId }
+  }
   reply.code(200)
   return result
 }
 
-// CQ-127: optional device-ownership verification for routes
-// that act on existing staging slots (upload, seal, status).
-// When the caller provides `x-prosa-device-id`, the helper
-// verifies the device belongs to this user — and the inner
-// handler then cross-checks the staging row's device_id. When
-// the header is absent, the route falls back to tenant-scoped
-// access only; the receipt-leak path is closed by
-// BeginPromotion's same-device fast-path gate.
+// CQ-127: required device-ownership verification for routes
+// that act on existing staging slots (upload, seal, status,
+// receipt). The caller MUST send `x-prosa-device-id`; the
+// helper verifies the device is registered to this user and the
+// inner handler cross-checks the staging row's device_id. A
+// missing header is a 400 INVALID_REQUEST so a same-tenant
+// caller cannot omit the header to fall through to a tenant-wide
+// path. The header is optional only for the receipt-key /
+// debug surfaces that don't touch a staging row.
 type DeviceCheck =
   | { kind: 'verified'; deviceId: string }
-  | { kind: 'absent' }
+  | { kind: 'missing' }
   | { kind: 'invalid'; code: 'DEVICE_NOT_OWNED'; message: string }
-async function maybeVerifyDevice(
+async function requireVerifiedDevice(
   deps: PromotionRoutesDeps,
   tenantId: string,
   userId: string,
   rawHeader: string | string[] | undefined,
 ): Promise<DeviceCheck> {
   const deviceId = Array.isArray(rawHeader) ? rawHeader[0] : rawHeader
-  if (!deviceId) return { kind: 'absent' }
+  if (!deviceId) return { kind: 'missing' }
   const outcome = await verifyDeviceOwnership({ rawExec: deps.rawExec, tenantId, userId }, deviceId)
   if (outcome.ok) return { kind: 'verified', deviceId: outcome.deviceId }
   if (outcome.code === 'DEVICE_NOT_OWNED') {
     return { kind: 'invalid', code: 'DEVICE_NOT_OWNED', message: outcome.message }
   }
-  // DEVICE_REQUIRED can't happen here (we checked for absence
-  // above); treat any other code as invalid.
   return { kind: 'invalid', code: 'DEVICE_NOT_OWNED', message: outcome.message }
 }
 

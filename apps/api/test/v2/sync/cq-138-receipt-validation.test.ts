@@ -19,7 +19,7 @@ async function signupTenant(t: TestApp, email: string, name: string, slug: strin
     payload: { email, password: 'correct-horse-battery', name: email, tenantName: name, tenantSlug: slug } as never,
   })
   expect(r.statusCode).toBe(200)
-  return (r.json() as { result: { data: { token: string; tenant: { id: string } } } }).result.data
+  return (r.json() as { result: { data: { token: string; user: { id: string }; tenant: { id: string } } } }).result.data
 }
 
 async function seedReceiptRow(
@@ -29,10 +29,20 @@ async function seedReceiptRow(
     tenantId: string
     storeId: string
     deviceId: string
+    userId: string
     payload: Record<string, unknown>
     signature: Record<string, unknown>
   },
 ): Promise<void> {
+  // CQ-127: GetReceipt now requires a registered x-prosa-device-id
+  // header. Register the requesting device so verifyDeviceOwnership
+  // succeeds and the route falls through to the receipt-validation
+  // checks the test is actually pinning.
+  await t.db.rawExec(
+    `INSERT INTO device (id, tenant_id, user_id, name)
+     VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING`,
+    [opts.deviceId, opts.tenantId, opts.userId, opts.deviceId],
+  )
   await t.db.rawExec(
     `INSERT INTO receipt (receipt_id, tenant_id, store_id, device_id, payload, signature)
      VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb)`,
@@ -106,6 +116,7 @@ describe('CQ-138: GetReceipt rejects corrupt or mismatched rows', () => {
         tenantId: account.tenant.id,
         storeId: 'store-cq138',
         deviceId: 'dev-cq138',
+        userId: account.user.id,
         payload: corruptPayload({
           // Signed payload claims a different receipt id.
           receiptId: 'rcpt_someotherid',
@@ -118,7 +129,7 @@ describe('CQ-138: GetReceipt rejects corrupt or mismatched rows', () => {
       const response = await t.app.inject({
         method: 'GET',
         url: '/v2/receipts/rcpt_seeded',
-        headers: { authorization: `Bearer ${account.token}` },
+        headers: { authorization: `Bearer ${account.token}`, 'x-prosa-device-id': 'dev-cq138' },
       })
       expect(response.statusCode).toBe(404)
       expect((response.json() as { code: string }).code).toBe('RECEIPT_NOT_FOUND')
@@ -136,6 +147,7 @@ describe('CQ-138: GetReceipt rejects corrupt or mismatched rows', () => {
         tenantId: account.tenant.id,
         storeId: 'store-row',
         deviceId: 'dev-cq138',
+        userId: account.user.id,
         payload: corruptPayload({
           receiptId: 'rcpt_storerow',
           tenantId: account.tenant.id,
@@ -147,7 +159,7 @@ describe('CQ-138: GetReceipt rejects corrupt or mismatched rows', () => {
       const response = await t.app.inject({
         method: 'GET',
         url: '/v2/receipts/rcpt_storerow',
-        headers: { authorization: `Bearer ${account.token}` },
+        headers: { authorization: `Bearer ${account.token}`, 'x-prosa-device-id': 'dev-cq138' },
       })
       expect(response.statusCode).toBe(404)
     } finally {
@@ -164,6 +176,7 @@ describe('CQ-138: GetReceipt rejects corrupt or mismatched rows', () => {
         tenantId: account.tenant.id,
         storeId: 'store-cq138',
         deviceId: 'dev-row',
+        userId: account.user.id,
         payload: corruptPayload({
           receiptId: 'rcpt_devrow',
           tenantId: account.tenant.id,
@@ -175,7 +188,11 @@ describe('CQ-138: GetReceipt rejects corrupt or mismatched rows', () => {
       const response = await t.app.inject({
         method: 'GET',
         url: '/v2/receipts/rcpt_devrow',
-        headers: { authorization: `Bearer ${account.token}` },
+        // Use the row's device id so verifyDeviceOwnership
+        // succeeds; the test pins the payload-vs-row mismatch
+        // path, which still returns 404 via getReceipt's
+        // internal tuple check.
+        headers: { authorization: `Bearer ${account.token}`, 'x-prosa-device-id': 'dev-row' },
       })
       expect(response.statusCode).toBe(404)
     } finally {
@@ -210,13 +227,14 @@ describe('CQ-138: GetReceipt rejects corrupt or mismatched rows', () => {
         tenantId: account.tenant.id,
         storeId: 'store-cq138',
         deviceId: 'dev-cq138',
+        userId: account.user.id,
         payload,
         signature: { alg: 'Ed25519', keyId: 'unknown-key', sig: VALID_BASE64 },
       })
       const response = await t.app.inject({
         method: 'GET',
         url: `/v2/receipts/${receiptId}`,
-        headers: { authorization: `Bearer ${account.token}` },
+        headers: { authorization: `Bearer ${account.token}`, 'x-prosa-device-id': 'dev-cq138' },
       })
       expect(response.statusCode).toBe(404)
       expect((response.json() as { code: string }).code).toBe('RECEIPT_NOT_FOUND')
@@ -235,6 +253,7 @@ describe('CQ-138: GetReceipt rejects corrupt or mismatched rows', () => {
         tenantId: account.tenant.id,
         storeId: 'store-cq138',
         deviceId: 'dev-cq138',
+        userId: account.user.id,
         payload: corruptPayload({
           receiptId: 'rcpt_badsig',
           tenantId: account.tenant.id,
@@ -246,7 +265,7 @@ describe('CQ-138: GetReceipt rejects corrupt or mismatched rows', () => {
       const response = await t.app.inject({
         method: 'GET',
         url: '/v2/receipts/rcpt_badsig',
-        headers: { authorization: `Bearer ${account.token}` },
+        headers: { authorization: `Bearer ${account.token}`, 'x-prosa-device-id': 'dev-cq138' },
       })
       expect(response.statusCode).toBe(404)
       expect((response.json() as { code: string }).code).toBe('RECEIPT_NOT_FOUND')

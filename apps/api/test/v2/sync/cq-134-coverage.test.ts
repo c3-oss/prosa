@@ -136,6 +136,7 @@ describe('CQ-134: SealPromotion refuses authority swap without object coverage',
             'content-type': 'application/octet-stream',
             authorization: `Bearer ${account.token}`,
             'x-prosa-transport-hash': digest,
+            'x-prosa-device-id': 'dev-cq134',
           },
           payload: Buffer.from(body),
         })
@@ -145,7 +146,11 @@ describe('CQ-134: SealPromotion refuses authority swap without object coverage',
       const seal = await t.app.inject({
         method: 'POST',
         url: `/v2/promotions/${promotionId}/seal`,
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${account.token}` },
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${account.token}`,
+          'x-prosa-device-id': 'dev-cq134',
+        },
         payload: {} as never,
       })
       expect(seal.statusCode).toBe(409)
@@ -220,6 +225,7 @@ describe('CQ-134: SealPromotion refuses authority swap without object coverage',
             'content-type': 'application/octet-stream',
             authorization: `Bearer ${account.token}`,
             'x-prosa-transport-hash': digest,
+            'x-prosa-device-id': 'dev-cq134',
           },
           payload: Buffer.from(body),
         })
@@ -227,7 +233,11 @@ describe('CQ-134: SealPromotion refuses authority swap without object coverage',
       const seal = await t.app.inject({
         method: 'POST',
         url: `/v2/promotions/${promotionId}/seal`,
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${account.token}` },
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${account.token}`,
+          'x-prosa-device-id': 'dev-cq134',
+        },
         payload: {} as never,
       })
       expect(seal.statusCode).toBe(200)

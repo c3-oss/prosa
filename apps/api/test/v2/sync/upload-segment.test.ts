@@ -128,6 +128,10 @@ function uploadInjectArgs(opts: {
   transportHash?: string
   /** Set true to omit the transport hash header entirely. */
   omitTransportHash?: boolean
+  /** Override the device id sent in `x-prosa-device-id`. */
+  deviceId?: string
+  /** Set true to omit the device header entirely (negative test). */
+  omitDevice?: boolean
 }) {
   const headers: Record<string, string> = {
     'content-type': 'application/octet-stream',
@@ -135,6 +139,9 @@ function uploadInjectArgs(opts: {
   }
   if (!opts.omitTransportHash) {
     headers['x-prosa-transport-hash'] = opts.transportHash ?? `blake3:${toHex(blake3(opts.body))}`
+  }
+  if (!opts.omitDevice) {
+    headers['x-prosa-device-id'] = opts.deviceId ?? 'dev-up'
   }
   return {
     method: 'PUT' as const,
@@ -165,6 +172,12 @@ describe('PUT /v2/promotions/:promotionId/segments/:segmentId — Lane 5 slice 3
     const t = await buildTestApp()
     try {
       const account = await signupWithTenant(t, 'up-404@example.com', 'Acme', 'acme-up-404')
+      // CQ-127: register the device so the CQ-127 check passes
+      // and we exercise the 404-PROMOTION_NOT_FOUND path.
+      await t.db.rawExec(
+        `INSERT INTO device (id, tenant_id, user_id, name) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING`,
+        ['dev-up', account.tenant.id, account.user.id, 'dev-up'],
+      )
       const response = await t.app.inject(
         uploadInjectArgs({
           token: account.token,
@@ -186,12 +199,19 @@ describe('PUT /v2/promotions/:promotionId/segments/:segmentId — Lane 5 slice 3
       const accountA = await signupWithTenant(t, 'up-iso-a@example.com', 'Acme A', 'acme-up-iso-a')
       const accountB = await signupWithTenant(t, 'up-iso-b@example.com', 'Acme B', 'acme-up-iso-b')
       const { promotionId } = await openStaging(t, accountA.token, accountA.tenant.id)
+      // CQ-127: register a tenant-B device so the device check
+      // passes; the test exercises tenant isolation.
+      await t.db.rawExec(
+        `INSERT INTO device (id, tenant_id, user_id, name) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING`,
+        ['dev-up-b', accountB.tenant.id, accountB.user.id, 'dev-up-b'],
+      )
       const response = await t.app.inject(
         uploadInjectArgs({
           token: accountB.token,
           promotionId,
           segmentId: 'seg-obj-1',
           body: OBJ_BYTES,
+          deviceId: 'dev-up-b',
         }),
       )
       expect(response.statusCode).toBe(404)

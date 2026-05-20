@@ -139,6 +139,7 @@ describe('Lane 5 CQ batch A acceptance pins', () => {
             'content-type': 'application/octet-stream',
             authorization: `Bearer ${account.token}`,
             'x-prosa-transport-hash': transportHash,
+            'x-prosa-device-id': 'dev-cqa',
           },
           payload: Buffer.from(packBytes),
         })
@@ -172,6 +173,7 @@ describe('Lane 5 CQ batch A acceptance pins', () => {
             'content-type': 'application/octet-stream',
             authorization: `Bearer ${account.token}`,
             'x-prosa-transport-hash': transportHash,
+            'x-prosa-device-id': 'dev-cqa',
           },
           payload: Buffer.from(fx.pack.bytes),
         })
@@ -193,6 +195,7 @@ describe('Lane 5 CQ batch A acceptance pins', () => {
             'content-type': 'application/octet-stream',
             authorization: `Bearer ${account.token}`,
             'x-prosa-transport-hash': transportHash,
+            'x-prosa-device-id': 'dev-cqa',
           },
           payload: Buffer.from(fx.pack.bytes),
         })
@@ -217,7 +220,13 @@ describe('Lane 5 CQ batch A acceptance pins', () => {
         const response = await t.app.inject({
           method: 'PUT',
           url: `/v2/promotions/${promotionId}/segments/cqa-obj-inv`,
-          headers: { 'content-type': 'application/octet-stream', authorization: `Bearer ${account.token}` },
+          // Provide the device header so the CQ-127 check passes
+          // and the route proceeds to validate transportHash.
+          headers: {
+            'content-type': 'application/octet-stream',
+            authorization: `Bearer ${account.token}`,
+            'x-prosa-device-id': 'dev-cqa',
+          },
           payload: Buffer.from(fx.objBytes),
         })
         expect(response.statusCode).toBe(400)
@@ -239,7 +248,11 @@ describe('Lane 5 CQ batch A acceptance pins', () => {
         const response = await t.app.inject({
           method: 'POST',
           url: `/v2/promotions/${promotionId}/object-packs`,
-          headers: { 'content-type': 'application/octet-stream', authorization: `Bearer ${account.token}` },
+          headers: {
+            'content-type': 'application/octet-stream',
+            authorization: `Bearer ${account.token}`,
+            'x-prosa-device-id': 'dev-cqa',
+          },
           payload: Buffer.from(fx.pack.bytes),
         })
         expect(response.statusCode).toBe(400)
@@ -268,6 +281,7 @@ describe('Lane 5 CQ batch A acceptance pins', () => {
             'content-type': 'application/octet-stream',
             authorization: `Bearer ${account.token}`,
             'x-prosa-transport-hash': fx.objDigest,
+            'x-prosa-device-id': 'dev-cqa',
           },
           payload: Buffer.from(fx.objBytes),
         })
@@ -291,6 +305,7 @@ describe('Lane 5 CQ batch A acceptance pins', () => {
             'content-type': 'application/octet-stream',
             authorization: `Bearer ${account.token}`,
             'x-prosa-transport-hash': `blake3:${toHex(blake3(fx.pack.bytes))}`,
+            'x-prosa-device-id': 'dev-cqa',
           },
           payload: Buffer.from(fx.pack.bytes),
         })

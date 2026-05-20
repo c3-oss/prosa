@@ -161,6 +161,7 @@ async function drivePromotion(t: TestApp, token: string, tenantId: string, opts:
       'content-type': 'application/octet-stream',
       authorization: `Bearer ${token}`,
       'x-prosa-transport-hash': fx.objectInventoryDigest,
+      'x-prosa-device-id': 'dev-seal',
     },
     payload: Buffer.from(fx.objectInventoryBytes),
   })
@@ -172,6 +173,7 @@ async function drivePromotion(t: TestApp, token: string, tenantId: string, opts:
       'content-type': 'application/octet-stream',
       authorization: `Bearer ${token}`,
       'x-prosa-transport-hash': fx.projectionInventoryDigest,
+      'x-prosa-device-id': 'dev-seal',
     },
     payload: Buffer.from(fx.projectionInventoryBytes),
   })
@@ -184,6 +186,7 @@ async function drivePromotion(t: TestApp, token: string, tenantId: string, opts:
       'content-type': 'application/octet-stream',
       authorization: `Bearer ${token}`,
       'x-prosa-transport-hash': transportHashOf(fx.pack.bytes),
+      'x-prosa-device-id': 'dev-seal',
     },
     payload: Buffer.from(fx.pack.bytes),
   })
@@ -213,10 +216,21 @@ describe('POST /v2/promotions/:promotionId/seal — Lane 5 slice 5', () => {
     const t = await buildTestApp()
     try {
       const account = await signupWithTenant(t, 'seal-404@example.com', 'Acme', 'acme-seal-404')
+      // CQ-127: every post-begin route requires a registered
+      // device header. Register it directly since this test
+      // doesn't go through BeginPromotion.
+      await t.db.rawExec(
+        `INSERT INTO device (id, tenant_id, user_id, name) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING`,
+        ['dev-seal', account.tenant.id, account.user.id, 'dev-seal'],
+      )
       const response = await t.app.inject({
         method: 'POST',
         url: '/v2/promotions/prm_unknown00000000000000000000/seal',
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${account.token}` },
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${account.token}`,
+          'x-prosa-device-id': 'dev-seal',
+        },
         payload: {} as never,
       })
       expect(response.statusCode).toBe(404)
@@ -253,7 +267,11 @@ describe('POST /v2/promotions/:promotionId/seal — Lane 5 slice 5', () => {
       const seal = await t.app.inject({
         method: 'POST',
         url: `/v2/promotions/${promotionId}/seal`,
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${account.token}` },
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${account.token}`,
+          'x-prosa-device-id': 'dev-seal',
+        },
         payload: {} as never,
       })
       expect(seal.statusCode).toBe(409)
@@ -274,7 +292,11 @@ describe('POST /v2/promotions/:promotionId/seal — Lane 5 slice 5', () => {
       const seal = await t.app.inject({
         method: 'POST',
         url: `/v2/promotions/${promotionId}/seal`,
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${account.token}` },
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${account.token}`,
+          'x-prosa-device-id': 'dev-seal',
+        },
         payload: {} as never,
       })
       expect(seal.statusCode).toBe(200)
@@ -340,7 +362,11 @@ describe('POST /v2/promotions/:promotionId/seal — Lane 5 slice 5', () => {
       const first = await t.app.inject({
         method: 'POST',
         url: `/v2/promotions/${promotionId}/seal`,
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${account.token}` },
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${account.token}`,
+          'x-prosa-device-id': 'dev-seal',
+        },
         payload: {} as never,
       })
       expect(first.statusCode).toBe(200)
@@ -349,7 +375,11 @@ describe('POST /v2/promotions/:promotionId/seal — Lane 5 slice 5', () => {
       const second = await t.app.inject({
         method: 'POST',
         url: `/v2/promotions/${promotionId}/seal`,
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${account.token}` },
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${account.token}`,
+          'x-prosa-device-id': 'dev-seal',
+        },
         payload: {} as never,
       })
       expect(second.statusCode).toBe(200)
@@ -379,10 +409,23 @@ describe('POST /v2/promotions/:promotionId/seal — Lane 5 slice 5', () => {
       const accountA = await signupWithTenant(t, 'seal-iso-a@example.com', 'Acme A', 'acme-seal-iso-a')
       const accountB = await signupWithTenant(t, 'seal-iso-b@example.com', 'Acme B', 'acme-seal-iso-b')
       const { promotionId } = await drivePromotion(t, accountA.token, accountA.tenant.id)
+      // Register a device for tenant B so the CQ-127 device
+      // check passes; the test's intent is tenant-isolation,
+      // not device-ownership. The id must be distinct from
+      // tenant A's 'dev-seal' because `device.id` is the
+      // global primary key.
+      await t.db.rawExec(
+        `INSERT INTO device (id, tenant_id, user_id, name) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING`,
+        ['dev-seal-b', accountB.tenant.id, accountB.user.id, 'dev-seal-b'],
+      )
       const seal = await t.app.inject({
         method: 'POST',
         url: `/v2/promotions/${promotionId}/seal`,
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${accountB.token}` },
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${accountB.token}`,
+          'x-prosa-device-id': 'dev-seal-b',
+        },
         payload: {} as never,
       })
       expect(seal.statusCode).toBe(404)
@@ -400,7 +443,11 @@ describe('POST /v2/promotions/:promotionId/seal — Lane 5 slice 5', () => {
       const seal = await t.app.inject({
         method: 'POST',
         url: `/v2/promotions/${promotionId}/seal`,
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${account.token}` },
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${account.token}`,
+          'x-prosa-device-id': 'dev-seal',
+        },
         payload: {} as never,
       })
       const body = seal.json() as {
