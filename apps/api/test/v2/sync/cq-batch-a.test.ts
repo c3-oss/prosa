@@ -114,6 +114,100 @@ async function openStaging(t: TestApp, token: string, tenantId: string, bundleRo
 }
 
 describe('Lane 5 CQ batch A acceptance pins', () => {
+  describe('CQ-129: object-store metadata uses the wire transport hash, not the self-referential packDigest', () => {
+    it('an accepted pack lands in the object store under its transport hash', async () => {
+      const t = await buildTestApp()
+      try {
+        const account = await signupTenant(t, 'cq129@example.com', 'Acme', 'acme-cq129')
+        const { promotionId, fx } = await openStaging(t, account.token, account.tenant.id, 'ee'.repeat(32))
+
+        const packBytes = fx.pack.bytes
+        const transportHashHex = toHex(blake3(packBytes))
+        const transportHash = `blake3:${transportHashHex}`
+        const canonicalPackDigest = fx.pack.packDigest
+        // CQ-026 / CQ-129: the two values are intentionally distinct
+        // for CAS packs. The store must record the literal wire
+        // BLAKE3 so that round-trip head() verification of the
+        // bytes succeeds; the catalog row keeps the canonical
+        // pack_digest separately.
+        expect(canonicalPackDigest).not.toBe(transportHash)
+
+        const response = await t.app.inject({
+          method: 'POST',
+          url: `/v2/promotions/${promotionId}/object-packs`,
+          headers: {
+            'content-type': 'application/octet-stream',
+            authorization: `Bearer ${account.token}`,
+            'x-prosa-transport-hash': transportHash,
+          },
+          payload: Buffer.from(packBytes),
+        })
+        expect(response.statusCode).toBe(200)
+        const body = response.json() as { packDigest: string; storageKey: string }
+        expect(body.packDigest).toBe(canonicalPackDigest)
+
+        const meta = await t.objectStore.head(body.storageKey)
+        expect(meta).not.toBeNull()
+        expect(meta!.hash).toBe(transportHashHex)
+        expect(meta!.hashAlgorithm).toBe('blake3')
+        expect(meta!.compressedSize).toBe(packBytes.byteLength)
+      } finally {
+        await t.close()
+      }
+    })
+  })
+
+  describe('CQ-133: object packs are linked to the uploading promotion', () => {
+    it('UploadObjectPack INSERTs into promotion_uploaded_pack so seal can grant the digest', async () => {
+      const t = await buildTestApp()
+      try {
+        const account = await signupTenant(t, 'cq133@example.com', 'Acme', 'acme-cq133')
+        const { promotionId, fx } = await openStaging(t, account.token, account.tenant.id, 'f1'.repeat(32))
+
+        const transportHash = `blake3:${toHex(blake3(fx.pack.bytes))}`
+        const response = await t.app.inject({
+          method: 'POST',
+          url: `/v2/promotions/${promotionId}/object-packs`,
+          headers: {
+            'content-type': 'application/octet-stream',
+            authorization: `Bearer ${account.token}`,
+            'x-prosa-transport-hash': transportHash,
+          },
+          payload: Buffer.from(fx.pack.bytes),
+        })
+        expect(response.statusCode).toBe(200)
+
+        const linkRows = await t.db.rawExec<{ pack_digest: string }>(
+          `SELECT pack_digest FROM promotion_uploaded_pack WHERE promotion_id = $1 AND tenant_id = $2`,
+          [promotionId, account.tenant.id],
+        )
+        expect(linkRows.length).toBe(1)
+        expect(linkRows[0]!.pack_digest).toBe(fx.pack.packDigest)
+
+        // Re-upload of the same pack bytes is idempotent and does
+        // not duplicate the linkage row.
+        const second = await t.app.inject({
+          method: 'POST',
+          url: `/v2/promotions/${promotionId}/object-packs`,
+          headers: {
+            'content-type': 'application/octet-stream',
+            authorization: `Bearer ${account.token}`,
+            'x-prosa-transport-hash': transportHash,
+          },
+          payload: Buffer.from(fx.pack.bytes),
+        })
+        expect(second.statusCode).toBe(200)
+        const after = await t.db.rawExec<{ count: string | number }>(
+          `SELECT count(*)::int AS count FROM promotion_uploaded_pack WHERE promotion_id = $1`,
+          [promotionId],
+        )
+        expect(Number(after[0]!.count)).toBe(1)
+      } finally {
+        await t.close()
+      }
+    })
+  })
+
   describe('CQ-130: upload routes require x-prosa-transport-hash', () => {
     it('UploadSegment without the header returns 400 INVALID_REQUEST', async () => {
       const t = await buildTestApp()

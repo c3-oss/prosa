@@ -21,6 +21,15 @@ CREATE TABLE IF NOT EXISTS promotion_staging (
 CREATE INDEX IF NOT EXISTS promotion_staging_tenant_store_idx
   ON promotion_staging (tenant_id, store_id, created_at DESC);
 
+-- CQ-128: at most one ACTIVE staging row per (tenant, store, bundleRoot).
+-- A terminal row (sealed/aborted) does not occupy the slot, so a fresh
+-- bundle can always open a new active row. Two concurrent fresh
+-- BeginPromotion calls race on this unique index instead of both
+-- INSERTing.
+CREATE UNIQUE INDEX IF NOT EXISTS promotion_staging_active_tuple_idx
+  ON promotion_staging (tenant_id, store_id, (head_json->>'bundleRoot'))
+  WHERE status IN ('open', 'uploading', 'materializing');
+
 CREATE TABLE IF NOT EXISTS remote_authority_v2 (
   tenant_id               TEXT NOT NULL,
   store_id                TEXT NOT NULL,

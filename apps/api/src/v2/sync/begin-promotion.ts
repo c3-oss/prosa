@@ -175,16 +175,27 @@ async function findOrCreateStaging(deps: BeginPromotionDeps, input: ServerBeginP
     return existing[0]!.id
   }
 
-  // Fresh row. Generate a `prm_<base32-lower>` id; the alphabet
-  // satisfies `canonicalIdSchema` on the response side so the wire
-  // contract holds for promotionId.
+  // CQ-128: race-safe fresh insert. The partial unique index
+  // `promotion_staging_active_tuple_idx` over
+  // `(tenant_id, store_id, head_json->>'bundleRoot')` filtered on
+  // ACTIVE statuses guarantees at most one open slot per tuple.
+  // Two concurrent BeginPromotion calls that observe an empty
+  // SELECT both race on the INSERT; the loser hits `ON CONFLICT DO
+  // NOTHING` and the follow-up SELECT returns the winner's id.
+  //
+  // `prm_<base32-lower>` id satisfies `canonicalIdSchema` on the
+  // response side so the wire contract holds for promotionId.
   const promotionId = newPromotionId()
-  await deps.rawExec(
+  const inserted = await deps.rawExec<{ id: string }>(
     `INSERT INTO promotion_staging (
        id, tenant_id, user_id, device_id, store_id, store_path,
        status, head_json, inventory_object_ref, inventory_projection_ref
      )
-     VALUES ($1, $2, $3, $4, $5, $6, 'open', $7::jsonb, $8, $9)`,
+     VALUES ($1, $2, $3, $4, $5, $6, 'open', $7::jsonb, $8, $9)
+     ON CONFLICT (tenant_id, store_id, (head_json->>'bundleRoot'))
+       WHERE status IN ('open', 'uploading', 'materializing')
+       DO NOTHING
+     RETURNING id`,
     [
       promotionId,
       deps.tenantId,
@@ -197,7 +208,32 @@ async function findOrCreateStaging(deps: BeginPromotionDeps, input: ServerBeginP
       JSON.stringify(input.inventories.projectionInventorySegment),
     ],
   )
-  return promotionId
+  if (inserted.length > 0) {
+    return inserted[0]!.id
+  }
+
+  // Lost the race. The winner's row is now visible via the same
+  // active-tuple lookup we ran above; return its id.
+  const winner = await deps.rawExec<StagingRow>(
+    `SELECT id, status
+       FROM promotion_staging
+      WHERE tenant_id = $1
+        AND store_id = $2
+        AND head_json->>'bundleRoot' = $3
+        AND status = ANY($4)
+      ORDER BY created_at DESC
+      LIMIT 1`,
+    [deps.tenantId, input.storeId, input.head.bundleRoot, ACTIVE_STAGING_STATUSES as unknown as string[]],
+  )
+  if (winner.length === 0) {
+    // Window where the unique-index conflict matched but the row is
+    // not yet visible (or has already terminated). Surface a typed
+    // error so the caller retries.
+    throw new BeginPromotionValidationError('failed to resolve staging slot after conflict', [
+      { path: ['promotion'], message: 'staging slot race did not settle on a winner' },
+    ])
+  }
+  return winner[0]!.id
 }
 
 async function loadReceipt(deps: BeginPromotionDeps, receiptId: string): Promise<PromotionReceiptV2 | null> {

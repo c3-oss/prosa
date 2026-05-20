@@ -324,8 +324,21 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 5 retry/resume and upload/seal acceptance)
-Status: open
+Status: closed (2026-05-20)
 Owner: Ralph
+
+Closure: `packages/prosa-db-v2/src/schema/promotion.ts` adds a
+partial unique index
+`promotion_staging_active_tuple_idx (tenant_id, store_id,
+(head_json->>'bundleRoot')) WHERE status IN ('open','uploading',
+'materializing')`. `findOrCreateStaging` now does
+`INSERT … ON CONFLICT (tenant_id, store_id, (head_json->>'bundleRoot'))
+WHERE status IN (active) DO NOTHING RETURNING id`. The loser of the
+race re-reads the active row and returns the winner's id. Pinned by
+two cases in `apps/api/test/v2/sync/cq-128-race.test.ts`: 8
+concurrent `BeginPromotion` calls collapse to a single
+promotionId and exactly one active row; aborted rows do not
+occupy the slot.
 
 Problem:
 
@@ -390,8 +403,18 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 5 object-pack upload acceptance)
-Status: open (implementation appears fixed in `154ba25`; acceptance still needs explicit object-store metadata assertions)
+Status: closed (2026-05-20)
 Owner: Ralph
+
+Closure: `apps/api/src/v2/sync/upload-object-pack.ts` writes the
+literal wire BLAKE3 (`observedTransportHash`) to
+`PutMeta.hash`, not the self-referential CAS pack digest, so
+`putIfAbsent`'s `verifyBytes(buffer, meta)` succeeds. Pinned by
+`apps/api/test/v2/sync/cq-batch-a.test.ts > CQ-129: ... an
+accepted pack lands in the object store under its transport hash`:
+the test asserts `transportHash !== packDigest`, the upload
+returns 200, and `MemoryObjectStore.head(storageKey).hash`
+equals the transport hash hex.
 
 Problem:
 
@@ -643,8 +666,20 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 5 seal grant correctness)
-Status: open (WIP appears to add `promotion_uploaded_pack`; remains open until committed and gated)
+Status: closed (2026-05-20)
 Owner: Ralph
+
+Closure: `packages/prosa-db-v2/src/schema/promotion.ts` ships the
+`promotion_uploaded_pack(promotion_id, tenant_id, pack_digest,
+uploaded_at)` table with composite PK
+`(promotion_id, pack_digest)`. `upload-object-pack.ts` calls
+`linkPackToPromotion(...)` on both the accepted and
+`already_present` paths with `ON CONFLICT DO NOTHING`.
+SealPromotion reads from this table to determine which pack
+digests need `receipt_pack_grant` rows. Pinned by
+`apps/api/test/v2/sync/cq-batch-a.test.ts > CQ-133: ... links the
+uploading promotion`: a single pack upload INSERTs exactly one
+linkage row, re-upload is idempotent (count remains 1).
 
 Problem:
 
