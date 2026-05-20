@@ -8,7 +8,9 @@ Updated: 2026-05-20 after Codex/governor acceptance of Lane 6.
 
 Severity: critical
 
-Blocking: yes for Lane 7.
+Blocking: no — accepted by Codex/governor after `bf5a601`.
+
+Status: closed.
 
 Affected lane: Lane 7.
 
@@ -60,11 +62,21 @@ Governor review after `a1a21d7`:
   exist, add them before closing:
   `pnpm --filter @c3-oss/prosa exec vitest run test/v2/read-search*.test.ts test/v2/read-transcript*.test.ts test/v2/read-tool-calls*.test.ts test/v2/read-analytics*.test.ts`.
 
+Governor review after `bf5a601`:
+
+- Accepted. Command-level tests now cover `read search`, `read transcript`,
+  `read tool-calls`, and `read analytics` against representative v2 payloads.
+- Evidence:
+  `pnpm --filter @c3-oss/prosa exec vitest run test/v2/read-analytics-command.test.ts test/v2/read-search-command.test.ts test/v2/read-sessions-local-filters.test.ts test/v2/read-tool-calls-command.test.ts test/v2/read-transcript-command.test.ts test/v2/with-412-refresh-and-retry.test.ts`
+  passed: 6 files, 19 tests.
+
 ### CQ-151: Local read fallbacks ignore documented filters
 
 Severity: high
 
-Blocking: yes for Lane 7.
+Blocking: no — accepted by Codex/governor after `bf5a601`.
+
+Status: closed.
 
 Affected lane: Lane 7.
 
@@ -94,11 +106,19 @@ Governor review after `a1a21d7`:
   local `sessions --cursor`, and server-only local search filters, but no
   focused command tests prove the acceptance criteria.
 
+Governor review after `bf5a601`:
+
+- Accepted. Local fallback command tests now cover `sessions --project`,
+  `sessions --cursor`, and local search server-only filters.
+- Evidence: same 6-file focused command above passed: 19 tests.
+
 ### CQ-152: CLI HTTP 412 handling does not refresh once and retry idempotent reads
 
 Severity: high
 
-Blocking: yes for Lane 7.
+Blocking: no — accepted by Codex/governor after `bf5a601`.
+
+Status: closed.
 
 Affected lane: Lane 7.
 
@@ -131,6 +151,12 @@ Governor review after `a1a21d7`:
   streaming fail-closed path.
 - Existing `with-412-refresh-and-retry.test.ts` lacks the required first-412
   retry, repeated-412 stop, and streaming/transcript fail-closed cases.
+
+Governor review after `bf5a601`:
+
+- Accepted. Single-page transcript now uses refresh-and-retry; repeated 412
+  stops explicitly; `--all-pages` remains fail-closed.
+- Evidence: same 6-file focused command above passed: 19 tests.
 
 ### CQ-153: Web console routes still use legacy tRPC and v2 client is not fail-closed
 
