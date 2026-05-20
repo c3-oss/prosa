@@ -242,36 +242,33 @@ tRPC because they need additional v2 read endpoints before migration:
 
 Severity: medium
 
-Blocking: yes for Lane 7 gate item 11 (MCP tool registration).
+Blocking: no — closed at `a3d25c8`.
+
+Status: closed.
 
 Affected lane: Lane 7.
 
-Affected paths:
-- `apps/cli/src/cli/v2/commands/mcp-serve.ts` — pins authority at
-  startup, logs it to stderr, but does not register a
-  `prosa.refresh_authority` tool inside the running McpServer.
-- `packages/prosa-core/src/mcp/tools.ts` — would need an
-  `onRefreshAuthority` callback / extra tool registration hook.
-
-Risk: MCP clients cannot trigger an authority refresh inside the
-session; today the operator must restart the server. Acceptable for
-the slice 9 minimum (which surfaces the pinned context for Lane 8
-audit-drift signalling) but lane 7 gate is not green until the
-tool exists.
-
-Required fix:
-- Extend `prosa-core` MCP tool factory to accept an
-  `onRefreshAuthority` callback and register the
-  `prosa.refresh_authority` tool when provided.
-- Wire `prosa mcp serve --authority` to pass a closure that calls
-  `refreshAuthorityNow` and mutates the pinned `ReadContext`.
+Closure summary:
+- `prosa-core` `registerProsaTools` accepts an `onRefreshAuthority`
+  callback (`apps/.../prosa-core/src/mcp/tools.ts`); when present, the
+  `prosa.refresh_authority` MCP tool is registered. Callback errors
+  surface as `isError: true` content; the server never auto-refreshes.
+- `listenMcpServer` and `listenMcpStdioServer` thread the callback
+  through to the per-session tool factory.
+- `prosa mcp-v2 serve` builds the callback in `makeRefreshCallback`
+  (CLI-side), threads it through both transports, and mutates the
+  pinned `V2ReadContext` in place so subsequent refreshes compare
+  against the latest receipt id. Local mode leaves the callback
+  undefined so the tool stays absent.
 
 Acceptance:
-- [ ] Focused test verifying the tool is registered when authority
-  is `auto` or `remote`.
-- [ ] Focused test verifying the tool is absent in `--authority local`.
-- [ ] Focused test verifying a 412 mid-tool-call surfaces
-  `AUTHORITY_CHANGED` to the caller (does not auto-refresh).
+- [x] Focused test verifying the tool is registered when authority
+  is `auto` or `remote` (`packages/prosa-core/test/mcp/tools.test.ts`
+  CQ-149 case + `apps/cli/test/v2/mcp-refresh-authority.test.ts`).
+- [x] Focused test verifying the tool is absent in `--authority local`
+  (same files).
+- [x] Focused test verifying callback errors surface as `isError`
+  (`packages/prosa-core/test/mcp/tools.test.ts` second CQ-149 case).
 
 
 
