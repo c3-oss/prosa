@@ -75,12 +75,15 @@ The blocker is implementation work, not environment.
 - CQ-127: BeginPromotion and opt-in post-begin device checks exist, but closure
   is rejected until device identity is mandatory/derived on upload, object-pack,
   seal, status, and receipt surfaces, and CLI `sync-v2` sends/proves it.
-- CQ-128: BeginPromotion race safety is now pinned by focused tests, but the
-  broader status/resume digest-domain and inventory-ref conflict acceptance
-  items remain watch points until directly proven.
-- CQ-132: cleanup-on-catalog-failure has focused tests, but closure is rejected
-  until a concurrent interleaving proves a failed request cannot delete bytes
-  after another request catalogues the same pack.
+- CQ-128: closed (2026-05-20). The partial unique index over active
+  `(tenant_id, store_id, bundleRoot)` rows + `INSERT ... ON CONFLICT DO
+  NOTHING` collapse 8 concurrent `BeginPromotion`s to a single
+  promotionId. Status/resume digest-domain alignment and inventory-ref
+  conflict semantics remain watch points (Lane 5 slice 8 caveat below).
+- CQ-132: closed (2026-05-20). The cleanup branch re-reads `remote_pack`
+  after a non-idempotent catalog failure and only deletes bytes when no
+  catalog row references the pack — race-interleaving case is pinned by
+  the 4th case in `cq-132-orphan-cleanup.test.ts`.
 - CQ-133: per-promotion pack linkage exists. Its CQ-141 dependency
   (missing-byte / wrong-metadata fast path + seal pack-presence) is closed;
   the remaining CQ-133 acceptance is the linkage itself surviving Docker
@@ -89,8 +92,13 @@ The blocker is implementation work, not environment.
   coverage by object id, pack-byte presence, or projection/search
   materialization; receipt verification flags can claim success for deferred
   work.
-- CQ-135: signer or transaction failure after the seal status flip can strand
-  staging in `materializing`, blocking retry/resume.
+- CQ-135: closed (2026-05-20). `seal-promotion.ts` wraps every post-flip
+  step (pack lookup, payload build, `signer.currentKeyId()`, payload
+  bytes, `signReceipt`, the load-bearing transaction) inside a single
+  try/catch that restores the staging row from `materializing` back to
+  its prior status. Pinned by three failure-injection cases in
+  `cq-135-seal-restore.test.ts` (signer failure, currentKeyId failure,
+  transaction failure); retry with a working signer seals successfully.
 - CQ-136: normal sealed replay now validates tuple fields, but closure remains
   open until race-loser replay and linked-receipt schema/derived-id/signature
   validation fail closed.
@@ -137,12 +145,13 @@ The blocker is implementation work, not environment.
   accepted as the Lane 5 Docker E2E gate: no-env runs skip, `just e2e` fails,
   and the test uses in-process Fastify rather than `prosa sync-v2`.
 - CQ-129, CQ-130, and CQ-131 have focused green smoke and are accepted by the
-  governor as of 2026-05-20. CQ-132 is not accepted after reviewer coverage
-  found the concurrent delete-after-catalog race. CQ-139 is structurally
-  accepted for removing argv bearer tokens, but command-level CLI coverage is
-  still desirable.
-- CQ-135 closure from `a867e93` is rejected pending explicit failure-injection
-  tests for signer, transaction, and post-flip pre-sign failures.
+  governor as of 2026-05-20. CQ-132's earlier rejection (concurrent
+  delete-after-catalog race) is resolved by the race-interleaving re-check
+  in the 2026-05-20 closure. CQ-139 is structurally accepted for removing
+  argv bearer tokens, but command-level CLI coverage is still desirable.
+- CQ-135's earlier `a867e93` rejection (no failure-injection tests) is
+  resolved by the 2026-05-20 closure adding three failure-injection cases
+  in `cq-135-seal-restore.test.ts`.
 - CQ-136/CQ-138 closure claims from `cba2b90`/`6557852` are rejected pending
   the reviewer-smoked corrupt-link and shared-schema validation cases.
   CQ-137 was rejected on the schema-upgrade / production boot migration
