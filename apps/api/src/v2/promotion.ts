@@ -141,7 +141,7 @@ async function handleBeginPromotion(
   reply: FastifyReply,
 ): Promise<unknown> {
   try {
-    const response = await beginPromotion({ rawExec: deps.rawExec, tenantId, userId }, req.body)
+    const response = await beginPromotion({ rawExec: deps.rawExec, tenantId, userId, signer: deps.signer }, req.body)
     reply.code(200)
     return response
   } catch (err) {

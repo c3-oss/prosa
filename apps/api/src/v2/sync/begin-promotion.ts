@@ -35,15 +35,30 @@
 //   returned verbatim; clients re-verify against JWKS.
 
 import { randomBytes } from 'node:crypto'
-import type { PromotionReceiptV2, PromotionReceiptV2Payload, PromotionReceiptV2Signature } from '@c3-oss/prosa-types-v2'
+import {
+  type PromotionReceiptV2,
+  type PromotionReceiptV2Payload,
+  type PromotionReceiptV2Signature,
+  deriveReceiptId,
+  receiptPayloadBytes,
+} from '@c3-oss/prosa-types-v2'
 import { type BeginPromotionResponse, beginPromotionRequestSchema } from '@c3-oss/prosa-wire-v2'
 import type { z } from 'zod'
 import type { RawExec } from '../../db.js'
+import type { ReceiptSigner } from '../signing/local-signer.js'
 
 export type BeginPromotionDeps = {
   rawExec: RawExec
   tenantId: string
   userId: string
+  /**
+   * CQ-125: the fast path must verify the signed receipt
+   * before returning `already_promoted`. The signer is the same
+   * instance the seal path used to mint the receipt, so
+   * `verifyReceipt(...)` resolves the keyId against the
+   * server's published JWKS.
+   */
+  signer: ReceiptSigner
 }
 
 export class BeginPromotionValidationError extends Error {
@@ -155,6 +170,29 @@ export async function beginPromotion(deps: BeginPromotionDeps, rawInput: unknown
     if (loaded === 'missing' || loaded === 'mismatch') {
       throw new BeginPromotionAuthorityCorruptError(
         `remote_authority_v2 row for (${deps.tenantId}, ${input.storeId}, ${input.head.bundleRoot}) references a ${loaded === 'missing' ? 'missing' : 'tuple-mismatched'} receipt`,
+      )
+    }
+    // CQ-125 (signature + derived-id verification): the loaded
+    // payload bytes must hash to the signed receipt id AND the
+    // signature must verify against the server's published JWKS.
+    // A same-tenant attacker who tampers with the JSONB row can
+    // leave the tuple fields intact and still corrupt other
+    // payload fields (serverRegion, materialization metadata,
+    // …). Both checks fail closed via
+    // `BeginPromotionAuthorityCorruptError` — the row is corrupt
+    // and operators must heal it; we never return it as
+    // authority.
+    const derivedReceiptId = deriveReceiptId(loaded.payload)
+    if (derivedReceiptId !== loaded.payload.receiptId) {
+      throw new BeginPromotionAuthorityCorruptError(
+        `remote_authority_v2 receipt ${loaded.payload.receiptId} payload no longer hashes to its receipt id (deriveReceiptId = ${derivedReceiptId})`,
+      )
+    }
+    const payloadBytes = receiptPayloadBytes(loaded.payload)
+    const signatureOk = await deps.signer.verifyReceipt(payloadBytes, loaded.signature)
+    if (!signatureOk) {
+      throw new BeginPromotionAuthorityCorruptError(
+        `remote_authority_v2 receipt ${loaded.payload.receiptId} signature does not verify against the server JWKS`,
       )
     }
     // CQ-127: only return the receipt to the device that actually

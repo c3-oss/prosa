@@ -205,13 +205,15 @@ describe('CQ-127: BeginPromotion device ownership', () => {
       const bundleRoot = 'dd'.repeat(32)
 
       // Seed the authority row + receipt directly (simulating a
-      // prior seal from device A).
+      // prior seal from device A). CQ-125: BeginPromotion now
+      // verifies deriveReceiptId + signature, so we derive the
+      // canonical id and sign with the test app's signer.
       const sealerDeviceId = 'cq127-dev-sealer'
-      const receiptId = 'rcpt_cq127_sealed'
-      const payload = {
-        receiptVersion: 2,
-        receiptId,
-        protocolVersion: 2,
+      const { deriveReceiptId, receiptPayloadBytes } = await import('@c3-oss/prosa-types-v2')
+      const draft = {
+        receiptVersion: 2 as const,
+        receiptId: 'rcpt_placeholder',
+        protocolVersion: 2 as const,
         tenantId: account.tenant.id,
         storeId,
         storePath: '/home/test/store',
@@ -223,12 +225,53 @@ describe('CQ-127: BeginPromotion device ownership', () => {
         previousBundleRoot: null,
         bundleRoot,
         rawSourceRoot: '00'.repeat(32),
-        counts: {},
-        materialization: {},
-        verification: {},
-        clientSignatureStatus: 'absent_v2_0',
+        counts: {
+          sourceFiles: 0,
+          rawRecords: 0,
+          objects: 0,
+          sessions: 0,
+          messages: 0,
+          events: 0,
+          contentBlocks: 0,
+          turns: 0,
+          toolCalls: 0,
+          toolResults: 0,
+          artifacts: 0,
+          edges: 0,
+          searchDocs: 0,
+          projectionRows: 0,
+        },
+        materialization: {
+          postgresCommitId: 'pg-cq127',
+          searchGenerationId: 'gen-cq127',
+          rowCountsByEntity: {
+            session: 0,
+            message: 0,
+            event: 0,
+            content_block: 0,
+            turn: 0,
+            tool_call: 0,
+            tool_result: 0,
+            artifact: 0,
+            edge: 0,
+            project: 0,
+            source_file: 0,
+            raw_record: 0,
+            search_doc: 0,
+          },
+        },
+        verification: {
+          uploadDigestVerified: true as const,
+          objectHashesVerifiedAtIngest: true as const,
+          projectionRowsLoaded: true as const,
+          noPerObjectHeadRequired: true as const,
+          backgroundAuditEligible: true as const,
+        },
+        clientSignatureStatus: 'absent_v2_0' as const,
       }
-      const signature = { alg: 'Ed25519', keyId: 'test-key', sig: Buffer.alloc(64).toString('base64url') }
+      const receiptId = deriveReceiptId(draft)
+      const payload = { ...draft, receiptId }
+      const signature = await t.signer.signReceipt(receiptPayloadBytes(payload))
       await t.db.rawExec(
         `INSERT INTO receipt (receipt_id, tenant_id, store_id, device_id, payload, signature)
          VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb)`,
@@ -273,11 +316,11 @@ describe('CQ-127: BeginPromotion device ownership', () => {
         `INSERT INTO device (id, tenant_id, user_id, name) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING`,
         [sealerDeviceId, account.tenant.id, account.user.id, sealerDeviceId],
       )
-      const receiptId = 'rcpt_cq127_same'
-      const payload = {
-        receiptVersion: 2,
-        receiptId,
-        protocolVersion: 2,
+      const { deriveReceiptId, receiptPayloadBytes } = await import('@c3-oss/prosa-types-v2')
+      const draft = {
+        receiptVersion: 2 as const,
+        receiptId: 'rcpt_placeholder',
+        protocolVersion: 2 as const,
         tenantId: account.tenant.id,
         storeId,
         storePath: '/home/test/store',
@@ -289,12 +332,53 @@ describe('CQ-127: BeginPromotion device ownership', () => {
         previousBundleRoot: null,
         bundleRoot,
         rawSourceRoot: '00'.repeat(32),
-        counts: {},
-        materialization: {},
-        verification: {},
-        clientSignatureStatus: 'absent_v2_0',
+        counts: {
+          sourceFiles: 0,
+          rawRecords: 0,
+          objects: 0,
+          sessions: 0,
+          messages: 0,
+          events: 0,
+          contentBlocks: 0,
+          turns: 0,
+          toolCalls: 0,
+          toolResults: 0,
+          artifacts: 0,
+          edges: 0,
+          searchDocs: 0,
+          projectionRows: 0,
+        },
+        materialization: {
+          postgresCommitId: 'pg-cq127',
+          searchGenerationId: 'gen-cq127',
+          rowCountsByEntity: {
+            session: 0,
+            message: 0,
+            event: 0,
+            content_block: 0,
+            turn: 0,
+            tool_call: 0,
+            tool_result: 0,
+            artifact: 0,
+            edge: 0,
+            project: 0,
+            source_file: 0,
+            raw_record: 0,
+            search_doc: 0,
+          },
+        },
+        verification: {
+          uploadDigestVerified: true as const,
+          objectHashesVerifiedAtIngest: true as const,
+          projectionRowsLoaded: true as const,
+          noPerObjectHeadRequired: true as const,
+          backgroundAuditEligible: true as const,
+        },
+        clientSignatureStatus: 'absent_v2_0' as const,
       }
-      const signature = { alg: 'Ed25519', keyId: 'test-key', sig: Buffer.alloc(64).toString('base64url') }
+      const receiptId = deriveReceiptId(draft)
+      const payload = { ...draft, receiptId }
+      const signature = await t.signer.signReceipt(receiptPayloadBytes(payload))
       await t.db.rawExec(
         `INSERT INTO receipt (receipt_id, tenant_id, store_id, device_id, payload, signature)
          VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb)`,

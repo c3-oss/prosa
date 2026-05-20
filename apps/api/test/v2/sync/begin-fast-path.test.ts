@@ -108,7 +108,7 @@ async function insertPromotedReceipt(
   t: TestApp,
   opts: { tenantId: string; storeId: string; storePath: string; bundleRoot: string; deviceId: string },
 ): Promise<PromotionReceiptV2> {
-  const { deriveReceiptId } = await import('@c3-oss/prosa-types-v2')
+  const { deriveReceiptId, receiptPayloadBytes } = await import('@c3-oss/prosa-types-v2')
 
   const draft = {
     receiptVersion: 2 as const,
@@ -171,11 +171,11 @@ async function insertPromotedReceipt(
   }
   const receiptId = deriveReceiptId(draft)
   const payload = { ...draft, receiptId }
-  const signature = {
-    alg: 'Ed25519' as const,
-    keyId: 'test-kid',
-    sig: 'AA'.repeat(32),
-  }
+  // CQ-125: BeginPromotion's fast path now verifies the receipt
+  // signature against the server JWKS. The seed must sign with
+  // the SAME signer instance the route uses, exposed on the
+  // TestApp helper.
+  const signature = await t.signer.signReceipt(receiptPayloadBytes(payload))
 
   await t.db.rawExec(
     `INSERT INTO receipt (receipt_id, tenant_id, store_id, device_id, payload, signature)
