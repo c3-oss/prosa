@@ -767,6 +767,75 @@ Next slice:
    `git diff --check`. Do not spend time on stabilization unless Codex asks for
    it after all blockers are clean.
 
+## Slice 11 — CQ-146 fail-closed compose + CQ-147 wrong-session tuple + analytics route tests (2026-05-20)
+
+Landed:
+
+- **CQ-146 production fail-closed:** `docker-compose.yml` removes the
+  public dev fallback for the production-mode API service. Both
+  `PROSA_AUTH_SECRET` and `PROSA_CURSOR_HMAC_SECRET` are now required
+  via `${VAR:?<message>}`. `docker compose up` and
+  `docker compose config` abort when either secret is missing from
+  the operator's env / `.env` file — there is no public default
+  that could let the production path silently boot with a known
+  cursor key. `docs/architecture/web-deployment.md` server env table
+  now lists `PROSA_CURSOR_HMAC_SECRET`, the 32-byte minimum, the
+  same-value-across-workers rule, and the production fail-closed
+  invariant alongside `PROSA_AUTH_SECRET` / `PROSA_DATABASE_URL`.
+- **CQ-147 wrong-session tuple match:** `analytics/report.ts`
+  `runToolsReport` and `runErrorsReport` add
+  `r.session_id = c.session_id` to both
+  `EXISTS (SELECT 1 FROM projection_tool_result r ...)` subqueries.
+  A current-authority `projection_tool_result` row with the same
+  `tool_call_id` but a mismatched `session_id` no longer counts as
+  an error for the current call. The governor's slice 10 smoke is
+  now an explicit regression in `cross-store-distinct.test.ts`.
+- **CQ-147 route-level tests:**
+  `apps/api/test/v2/reads/analytics-route.test.ts` (6 tests) drives
+  the live Fastify routes via `app.inject`:
+  `V2_READ_ROUTES` registration check, 401 / `UNAUTHENTICATED` on
+  summary and report, 400 / `INVALID_INPUT` for missing required
+  `report`, 400 / `INVALID_INPUT` for an unknown filter key (CQ-147
+  strictness at the HTTP boundary), 400 / `INVALID_INPUT` for an
+  out-of-bounds `limit`.
+
+Slice 11 gates on the contributor checkout:
+
+```text
+pnpm --filter @c3-oss/prosa-api exec vitest run \
+  test/v2/reads/cross-store-distinct.test.ts \
+  test/v2/reads/analytics-route.test.ts
+# 2 files / 15 tests passed
+
+pnpm --filter @c3-oss/prosa-api test
+# 71 files / 422 passed | 4 skipped (env-gated E2E + pre-existing skip)
+
+pnpm typecheck                                 # 13/13 green
+pnpm lint                                      # 13/13 green
+git diff --check                               # clean
+
+(unset PROSA_AUTH_SECRET PROSA_CURSOR_HMAC_SECRET; \
+ docker compose config --format json)
+# error while interpolating services.api.environment.PROSA_AUTH_SECRET:
+# required variable PROSA_AUTH_SECRET is missing a value: set
+# PROSA_AUTH_SECRET to a 16+ character Better Auth signing secret
+# shared across workers
+#
+# (chained: removing the auth secret short-circuits before the cursor
+# variable; supplying just PROSA_AUTH_SECRET surfaces the analogous
+# error for PROSA_CURSOR_HMAC_SECRET.)
+
+(export PROSA_AUTH_SECRET=<32-byte>; \
+ export PROSA_CURSOR_HMAC_SECRET=<32-byte>; \
+ docker compose config --format json | jq '.services.api.environment.PROSA_CURSOR_HMAC_SECRET')
+# "<32-byte>"
+```
+
+Slice 11 closes the last two CQs blocking Lane 6 acceptance. Per the
+prompt's "Completion rule", stabilization is optional when no useful
+Ralph work remains; this slice stops for Codex/governor acceptance
+instead of spending cycles on empty stabilization.
+
 ## Scope
 
 Lane 6 implements the receipt-pinned remote read API from

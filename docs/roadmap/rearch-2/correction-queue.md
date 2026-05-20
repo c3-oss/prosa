@@ -325,8 +325,37 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 6 production readiness for paginated reads)
-Status: open (2026-05-20) — closure attempt has operational-doc gap
+Status: closure attempt #4 (2026-05-20) — pending governor acceptance
 Owner: Ralph
+
+Closure attempt #4 (2026-05-20, slice 11):
+
+- `docker-compose.yml` removes the public dev fallback for the
+  production-mode API service. Both `PROSA_AUTH_SECRET` and
+  `PROSA_CURSOR_HMAC_SECRET` are now required via
+  `${VAR:?<message>}`, so `docker compose up` and
+  `docker compose config` fail fast when the operator has not
+  provided a real shared secret. Smoke:
+
+  ```text
+  (unset PROSA_AUTH_SECRET PROSA_CURSOR_HMAC_SECRET; docker compose config --format json)
+  # error while interpolating services.api.environment.PROSA_AUTH_SECRET:
+  # required variable PROSA_AUTH_SECRET is missing a value: set
+  # PROSA_AUTH_SECRET to a 16+ character Better Auth signing secret
+  # shared across workers
+
+  (export PROSA_AUTH_SECRET=0123456789abcdef0123456789abcdef \
+          PROSA_CURSOR_HMAC_SECRET=0123456789abcdef0123456789abcdef0123; \
+   docker compose config --format json | python3 -c ...)
+  # PROSA_AUTH_SECRET: 0123456789abcdef0123456789abcdef
+  # PROSA_CURSOR_HMAC_SECRET: 0123456789abcdef0123456789abcdef0123
+  ```
+
+- `docs/architecture/web-deployment.md` adds `PROSA_CURSOR_HMAC_SECRET`
+  to the server env table (32-byte minimum, same-value-across-workers
+  rule, no public fallback in the bundled compose) and lists the
+  production fail-closed invariant alongside `PROSA_AUTH_SECRET` and
+  `PROSA_DATABASE_URL`.
 
 Closure attempt (2026-05-20):
 
@@ -443,17 +472,53 @@ Acceptance:
       accepted by `registerV2Routes()`.
 - [ ] Test proves two route/plugin instances sharing the configured key accept
       each other's cursors, while a different key rejects them.
-- [ ] Docker Compose / production env guidance names `PROSA_CURSOR_HMAC_SECRET`
-      and prevents accidental production boot without it.
-- [ ] Documentation/evidence names the env var or derivation source and the
-      minimum key length.
+- [x] Docker Compose / production env guidance names `PROSA_CURSOR_HMAC_SECRET`
+      and prevents accidental production boot without it. The bundled
+      `docker-compose.yml` requires the secret via
+      `${PROSA_CURSOR_HMAC_SECRET:?...}` so `docker compose config`
+      aborts when the operator has not provided a real shared key.
+- [x] Documentation/evidence names the env var or derivation source and the
+      minimum key length. `docs/architecture/web-deployment.md` server env
+      table lists `PROSA_CURSOR_HMAC_SECRET`, the 32-byte minimum, and the
+      same-value-across-workers rule; `docs/architecture/server-sync.md`
+      continues to name the variable from the prior closure attempt.
 
 ### CQ-147: Lane 6 analytics filters and cross-store distinct are incomplete
 
 Severity: high
 Blocking: yes (blocks L6.5/L6.6 analytics acceptance)
-Status: open (2026-05-20)
+Status: closure attempt #3 (2026-05-20) — pending governor acceptance
 Owner: Ralph
+
+Closure attempt #3 (2026-05-20, slice 11):
+
+- `apps/api/src/v2/reads/analytics/report.ts` `runToolsReport` and
+  `runErrorsReport` now tuple-match `r.session_id = c.session_id`
+  in both `EXISTS (SELECT 1 FROM projection_tool_result r ...)`
+  subqueries, in addition to the existing `r.store_id`,
+  `r.receipt_id`, and `r.tool_call_id` match plus
+  `verifiedProjectionWhere('r')`. A current-authority
+  `projection_tool_result` row with the same `tool_call_id` but a
+  mismatched `session_id` no longer marks the current call as
+  errored.
+- `apps/api/test/v2/reads/cross-store-distinct.test.ts` adds the
+  governor's wrong-session smoke as an explicit regression: seeds
+  `projection_tool_call(session_id='ses_new', tool_call_id='tc_new')`
+  plus a current-authority
+  `projection_tool_result(session_id='ses_wrong',
+  tool_call_id='tc_new', is_error=TRUE)` and asserts that
+  `tools.error_count = 0` and `errors.rows = []`. Together with the
+  existing superseded-receipt regression this pins the full
+  tuple-match contract.
+- `apps/api/test/v2/reads/analytics-route.test.ts` (6 tests) drives
+  the live Fastify routes via `app.inject`: `V2_READ_ROUTES`
+  registration check, 401 / `UNAUTHENTICATED` for unauthenticated
+  summary and report, 400 / `INVALID_INPUT` for missing required
+  `report`, 400 / `INVALID_INPUT` for unknown filter key (CQ-147
+  strictness at the HTTP boundary), 400 / `INVALID_INPUT` for
+  out-of-bounds `limit`. The empty-store happy-path 200 shape
+  remains pinned by `analytics-report.test.ts` and
+  `cross-store-distinct.test.ts` (handler-level, fresh v2 PGlite).
 
 Problem:
 
@@ -560,16 +625,21 @@ Acceptance:
 - [x] Analytics report input rejects unsupported filters rather than silently
       stripping them, or tests prove the full supported filter set is honored.
 - [x] Summary counts collapse duplicate logical sessions deterministically.
-- [ ] Tools/errors/models aggregates do not double count duplicate logical
-      sessions across current stores.
-- [ ] Route-level tests prove auth and invalid-input behavior for summary and
-      report.
-- [ ] Tools/errors tests prove superseded or wrong-receipt
-      `projection_tool_result` rows cannot affect error counts or errors rows.
-- [ ] Tools/errors tests prove current-authority rows with a mismatched
-      `session_id` cannot affect error counts or errors rows.
+- [x] Tools/errors/models aggregates do not double count duplicate logical
+      sessions across current stores (`picked_sessions` CTE collapses by
+      `(source_tool, source_session_id)` and every aggregate JOINs against it).
+- [x] Route-level tests prove auth and invalid-input behavior for summary and
+      report (`analytics-route.test.ts`, 6 tests).
+- [x] Tools/errors tests prove superseded or wrong-receipt
+      `projection_tool_result` rows cannot affect error counts or errors rows
+      (`cross-store-distinct.test.ts` superseded-receipt regression).
+- [x] Tools/errors tests prove current-authority rows with a mismatched
+      `session_id` cannot affect error counts or errors rows
+      (`cross-store-distinct.test.ts` wrong-session regression, slice 11).
 - [ ] Tests document and pin any intentional difference from the local
       `packages/prosa-core` analytics report columns and timestamp semantics.
+      (Not in scope for slice 11 closure; the strict schema rejects unsupported
+      filter keys, so the contract narrowing is enforced at the wire boundary.)
 
 ### CQ-144: `artifacts.getText` WIP leaks miss reasons and lacks route-level tests
 

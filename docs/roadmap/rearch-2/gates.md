@@ -152,25 +152,38 @@ scope and are not silently accepted here.
 
 Lane 6 Read API is the next active milestone. Initial gate checklist:
 
-- [ ] L6.1 — `GET /v2/stores/:storeId/authority` returns
+- [x] L6.1 — `GET /v2/stores/:storeId/authority` returns
   `unchanged | updated | gone_or_forbidden`, verifies tenant/store authority,
-  and pins the 30 s cache TTL behavior.
-- [ ] L6.2 — Sessions list/count/detail/transcript reads are receipt-pinned,
+  and pins the 30 s cache TTL behavior. (`authority-refresh.test.ts`.)
+- [x] L6.2 — Sessions list/count/detail/transcript reads are receipt-pinned,
   tenant scoped, cursor-stable, and fail closed for unverified rows.
-- [ ] L6.3 — Search query uses Postgres FTS with role/tool/type/error filters,
+  (`sessions-list.test.ts`, `transcript-pagination.test.ts`,
+  `cursor-snapshot.test.ts`, `cursor-integrity.test.ts`,
+  `cursor-route-integrity.test.ts`.)
+- [x] L6.3 — Search query uses Postgres FTS with role/tool/type/error filters,
   snippets, stable cursors, and verified-authority gating.
-- [ ] L6.4 — Tool-calls list and artifacts.getText enforce verified projection
+  (`search-fts.test.ts`.)
+- [x] L6.4 — Tool-calls list and artifacts.getText enforce verified projection
   plus receipt/object grants; large/binary artifact behavior is bounded.
-- [ ] L6.5 — Analytics summary/report expose the fixed report contracts from
-  Lane 3-equivalent shapes without widening tenant scope.
-- [ ] L6.6 — Cross-store aggregation returns one row per logical session using
-  deterministic conflict resolution.
-- [ ] L6.7 — No read path bypasses the shared verified-projection/authority
-  gate; lint/integration tests pin the rule.
+  (`tool-calls-list.test.ts`, `artifacts-get-text.test.ts`,
+  `artifacts-route.test.ts`.)
+- [x] L6.5 — Analytics summary/report expose the fixed report contracts from
+  Lane 3-equivalent shapes without widening tenant scope. Strict input
+  pinned by `analytics-report.test.ts` + `analytics-route.test.ts`.
+- [x] L6.6 — Cross-store aggregation returns one row per logical session using
+  deterministic conflict resolution. `picked_sessions` CTE pinned by
+  `cross-store-distinct.test.ts`; slice 11 adds the wrong-session tuple
+  match regression.
+- [x] L6.7 — No read path bypasses the shared verified-projection/authority
+  gate; `lint-no-direct-projection-read.test.ts` walks
+  `src/v2/reads/` and rejects any new handler that mentions a
+  `VERIFIED_PROJECTION_TABLES` entry without composing the helper.
 - [x] L6.8 — Performance evidence records p95 targets for sessions list,
   search, transcript first page, and artifacts.getText.
-- [ ] L6.9 — `pnpm --filter @c3-oss/prosa-api test`, `pnpm typecheck`,
-  `pnpm lint`, and `git diff --check` are clean.
+- [x] L6.9 — `pnpm --filter @c3-oss/prosa-api test`, `pnpm typecheck`,
+  `pnpm lint`, and `git diff --check` are clean (slice 11 contributor
+  checkout: 422 passed / 4 skipped on the api filter, 13/13 typecheck,
+  13/13 lint, `git diff --check` empty).
 
 ## Known historical notes
 

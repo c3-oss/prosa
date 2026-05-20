@@ -1,6 +1,6 @@
 # rearch-2 Current Status
 
-Updated: 2026-05-20 after Lane 6 slice 10 governor review.
+Updated: 2026-05-20 after Lane 6 slice 11 closure attempt for CQ-146 + CQ-147.
 
 ## Summary
 
@@ -11,15 +11,18 @@ Updated: 2026-05-20 after Lane 6 slice 10 governor review.
   stabilization cycles.
 - Lane 4 Server: **accepted** by Codex/governor on 2026-05-20.
 - Lane 5 Sync protocol: **accepted** by Codex/governor on 2026-05-20.
-- Lane 6 Read API: **active**, slice 10 landed. CQ-142, CQ-143, CQ-144,
-  CQ-145, and L6.8 p95 evidence are accepted by Codex/governor. CQ-146 remains
-  open because the production compose path still permits a public fallback
-  cursor secret and `web-deployment.md` omits the env var. CQ-147 remains open
-  because tools/errors can still count a current-authority
-  `projection_tool_result` from the wrong `session_id`, and route-level
-  analytics auth/input tests are still missing. Stabilization is optional when
-  no useful Ralph work remains; it does not block lane acceptance once all
-  CQs/gates/evidence are clean.
+- Lane 6 Read API: **active**, slice 11 landed. CQ-142, CQ-143, CQ-144,
+  CQ-145, and L6.8 p95 evidence are accepted by Codex/governor. CQ-146 and
+  CQ-147 are both in closure attempts pending governor acceptance: the
+  bundled `docker-compose.yml` now requires `PROSA_AUTH_SECRET` and
+  `PROSA_CURSOR_HMAC_SECRET` via `${VAR:?...}` (no public dev fallback for
+  production) and `docs/architecture/web-deployment.md` lists the env var
+  with the 32-byte minimum and same-value-across-workers rule; analytics
+  tools/errors subqueries tuple-match `r.session_id = c.session_id` with the
+  governor's wrong-session smoke pinned as a regression, and the new
+  `analytics-route.test.ts` proves auth/INVALID_INPUT at the live Fastify
+  boundary. Stabilization is optional when no useful Ralph work remains; it
+  does not block lane acceptance once all CQs/gates/evidence are clean.
 - Lanes 7–10: **not started**.
 
 ## Current Lane 6 focus
@@ -97,16 +100,18 @@ under "Closed this cycle" below; the full closure detail lives in
 - CQ-145: accepted by Codex/governor. `artifacts-route.test.ts` now exercises
   every miss path, valid small UTF-8, and bounded >1 MiB binary through the live
   Fastify route.
-- CQ-146: production config/boot behavior is accepted, and server-sync docs
-  name `PROSA_CURSOR_HMAC_SECRET`. Slice 10 adds the env var to
-  `docker-compose.yml`, but the compose file still runs
-  `PROSA_RUNTIME_MODE=production` with a public fallback cursor secret, and
-  `docs/architecture/web-deployment.md` does not list the required variable.
-- CQ-147: strict input, cross-store distinct, and superseded/wrong-receipt
-  result gating mostly landed, but analytics tools/errors can still count a
-  current-authority `projection_tool_result` row whose `session_id` does not
-  match the current tool call. Route tests for analytics auth/input behavior
-  are still missing.
+- CQ-146: production config/boot, docs, and compose are all closed in
+  slice 11. `docker-compose.yml` requires `PROSA_AUTH_SECRET` and
+  `PROSA_CURSOR_HMAC_SECRET` via `${VAR:?<message>}` (smoke:
+  `docker compose config` aborts with an explicit error when the secret is
+  missing), and `docs/architecture/web-deployment.md` server env table
+  lists `PROSA_CURSOR_HMAC_SECRET`, the 32-byte minimum, and the
+  same-value-across-workers rule. Pending Codex/governor acceptance.
+- CQ-147: tools/errors now tuple-match `r.session_id = c.session_id` in
+  addition to store/receipt/tool-call ids, the governor's wrong-session
+  smoke is pinned as a regression in `cross-store-distinct.test.ts`, and
+  `analytics-route.test.ts` (6 tests) proves auth/INVALID_INPUT at the
+  live Fastify boundary. Pending Codex/governor acceptance.
 - L6.8: accepted by Codex/governor based on explicit p95 smoke output for all
   four targets, including `artifacts/getText` 1 MiB at 226.2 ms in the
   governor run.
