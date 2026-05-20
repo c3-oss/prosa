@@ -1,10 +1,10 @@
 # Lane 3 Evidence — Derived layer
 
-Updated: 2026-05-19 after cycle reset.
+Updated: 2026-05-20 after Tantivy runtime writer landed.
 
 ## Status
 
-Active / incomplete. The support foundation is broad, but the runtime executors are still missing.
+Active / incomplete. Tantivy native runtime writer is in. DuckDB analytics runtime executor and Parquet compaction merge worker are still missing.
 
 ## Completed support foundation
 
@@ -32,14 +32,24 @@ Active / incomplete. The support foundation is broad, but the runtime executors 
   - rebuild planner/state machine;
   - checkpoint persistence;
   - index-dir probe/reset;
-  - read-only status snapshot.
+  - read-only status snapshot;
+  - native runtime writer (`runTantivyRebuild`) — applies the plan
+    against `@oxdev03/node-tantivy-binding`, handles full/incremental,
+    persists the post-run checkpoint, and surfaces failures via a
+    typed `RuntimeResult`. End-to-end gate covered by
+    `packages/prosa-derived-v2/test/tantivy/runtime-writer.test.ts`.
 - Operational/read surfaces:
   - `bundleDerivedStatus`, `derivedLayerMaintenanceSummary`, `recommendMaintenanceActions`, `derivedLayerFootprint`, `derivedLayerCapabilities`, `derivedLayerSnapshot`.
   - `prosa index-v2` read/audit subcommands in `apps/cli/src/cli/commands/index-v2.ts`.
 
 ## Required next implementation
 
-- [ ] Tantivy native writer / incremental rebuild runtime.
+- [x] Tantivy native writer / incremental rebuild runtime — landed
+      with the `runTantivyRebuild` executor + focused test. Next step
+      is wiring the bundle-v2 projection (search_docs.arrow.zst /
+      epoch parquet) as the row producer so a real bundle round-trip
+      executes end-to-end and `prosa index-v2 tantivy` can call the
+      runtime.
 - [ ] DuckDB analytics runtime executor.
 - [ ] Parquet compaction merge worker.
 - [ ] End-to-end Lane 3 gates in `gates.md`.
@@ -51,3 +61,19 @@ The original Lane 3 plan required three runtime outputs: Tantivy writer, Session
 ## Current risk
 
 The next loop may continue adding safe read-only utilities instead of tackling the runtime executor work. The next prompt explicitly forbids additional read/audit surfaces unless they directly support a selected runtime executor slice.
+
+## Smoke + gate evidence (2026-05-20)
+
+- `@oxdev03/node-tantivy-binding` v0.2.0 is loadable from the
+  workspace; standalone smoke (`SchemaBuilder`/`Index`/`IndexWriter`)
+  builds a one-doc index in `/tmp` successfully. This invalidates
+  any prior claim that `allowBuilds` blocks Lane 3 runtime work.
+- `pnpm --filter @c3-oss/prosa-derived-v2 exec vitest run test/tantivy/runtime-writer.test.ts`
+  exercises full/skip/incremental/failure/tuning branches against
+  the real native binding. All five tests pass; the full rebuild
+  case asserts `checkpoint.indexed_doc_count == checkpoint.source_doc_count`
+  and that `tantivyIndexDirIsValid(bundleRoot)` flips to `true`
+  after the commit (`meta.json.segments.length > 0`).
+- `pnpm --filter @c3-oss/prosa-derived-v2 typecheck` + full
+  `vitest run` (546/546) + `biome check .` all clean after the
+  runtime writer landed.

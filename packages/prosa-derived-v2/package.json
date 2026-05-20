@@ -37,7 +37,14 @@
   "dependencies": {
     "@c3-oss/prosa-bundle-v2": "workspace:*",
     "@c3-oss/prosa-types-v2": "workspace:*",
-    "@noble/hashes": "^1.7.0"
+    "@noble/hashes": "^1.7.0",
+    "@oxdev03/node-tantivy-binding": "0.2.0"
+  },
+  "optionalDependencies": {
+    "@oxdev03/node-tantivy-binding-darwin-arm64": "0.2.0",
+    "@oxdev03/node-tantivy-binding-darwin-x64": "0.2.0",
+    "@oxdev03/node-tantivy-binding-linux-x64-gnu": "0.2.0",
+    "@oxdev03/node-tantivy-binding-win32-x64-msvc": "0.2.0"
   },
   "devDependencies": {
     "@c3-oss/config-biome": "^0.3.1",

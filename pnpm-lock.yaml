@@ -482,6 +482,9 @@ importers:
       '@noble/hashes':
         specifier: ^1.7.0
         version: 1.8.0
+      '@oxdev03/node-tantivy-binding':
+        specifier: 0.2.0
+        version: 0.2.0
     devDependencies:
       '@c3-oss/config-biome':
         specifier: ^0.3.1
@@ -495,6 +498,19 @@ importers:
       '@c3-oss/config-vitest':
         specifier: ^0.3.0
         version: 0.3.0(vitest@2.1.9(@types/node@22.19.17)(jsdom@25.0.1)(terser@5.47.1))
+    optionalDependencies:
+      '@oxdev03/node-tantivy-binding-darwin-arm64':
+        specifier: 0.2.0
+        version: 0.2.0
+      '@oxdev03/node-tantivy-binding-darwin-x64':
+        specifier: 0.2.0
+        version: 0.2.0
+      '@oxdev03/node-tantivy-binding-linux-x64-gnu':
+        specifier: 0.2.0
+        version: 0.2.0
+      '@oxdev03/node-tantivy-binding-win32-x64-msvc':
+        specifier: 0.2.0
+        version: 0.2.0
 
   packages/prosa-importers-v2:
     dependencies:
