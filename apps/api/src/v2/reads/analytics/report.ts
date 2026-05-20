@@ -222,6 +222,7 @@ async function runToolsReport(
                       AND r.store_id = c.store_id
                       AND r.receipt_id = c.receipt_id
                       AND r.tool_call_id = c.tool_call_id
+                      AND r.session_id = c.session_id
                       AND r.is_error = TRUE
                  )
             )::int AS error_count,
@@ -265,6 +266,7 @@ async function runErrorsReport(
                AND r.store_id = c.store_id
                AND r.receipt_id = c.receipt_id
                AND r.tool_call_id = c.tool_call_id
+               AND r.session_id = c.session_id
                AND r.is_error = TRUE
           )
         )

@@ -131,6 +131,37 @@ describe('Lane 6 analytics — CQ-147 cross-store distinct invariants', () => {
     expect(gpt?.distinct_sessions).toBe(1)
   })
 
+  it('tools / errors reports ignore current-authority tool_result with mismatched session_id (CQ-147 follow-up)', async () => {
+    // Seed a *current-authority* tool_result that shares store/receipt/
+    // tool_call_id with the current call, but the session_id does NOT
+    // match the call's session. Without `r.session_id = c.session_id`
+    // the EXISTS subquery would mark tc_new as errored even though the
+    // wrong-session result belongs to a different logical call. The
+    // regression is the governor's slice 10 smoke output.
+    await db.query(
+      `INSERT INTO projection_tool_result
+         (tenant_id, tool_result_id, store_id, receipt_id, tool_call_id, session_id,
+          status, is_error, payload)
+       VALUES ($1, 'tr_wrong_session', 's_new', 'rcp_new',
+               'tc_new', 'ses_wrong', 'failure', TRUE, '{}'::jsonb)`,
+      [tenantId],
+    )
+
+    const tools = await getAnalyticsReport({ rawExec: makeRawExec(db), now: () => new Date() }, tenantId, {
+      report: 'tools',
+      limit: 100,
+    })
+    const bash = tools.rows.find((r) => r.tool_name === 'bash')
+    // The mismatched session_id must NOT count as an error for tc_new.
+    expect(bash?.error_count).toBe(0)
+
+    const errors = await getAnalyticsReport({ rawExec: makeRawExec(db), now: () => new Date() }, tenantId, {
+      report: 'errors',
+      limit: 100,
+    })
+    expect(errors.rows).toEqual([])
+  })
+
   it('tools / errors reports ignore superseded tool_result rows (CQ-147 follow-up)', async () => {
     // Seed a *superseded* tool_result that would mark the call as
     // errored if the report failed to apply
