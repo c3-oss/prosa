@@ -88,6 +88,24 @@ export class SealPromotionInventoryIncompleteError extends Error {
   }
 }
 
+// CQ-134: the bundle head's declared object count must be covered
+// by the union of `remote_pack_entry` rows for packs uploaded in
+// this promotion. Refuse to swap authority when the catalog falls
+// short; the spec calls this a "promoted data not proven" failure.
+export class SealPromotionCoverageError extends Error {
+  override name = 'SealPromotionCoverageError'
+  readonly code = 'OBJECT_COVERAGE_INCOMPLETE' as const
+  constructor(
+    readonly declaredObjectCount: number,
+    readonly catalogObjectCount: number,
+  ) {
+    super(
+      `bundle declares ${declaredObjectCount} objects, ` +
+        `but only ${catalogObjectCount} remote_pack_entry rows are linked to this promotion`,
+    )
+  }
+}
+
 type StagingRow = {
   status: string
   user_id: string
@@ -191,6 +209,29 @@ export async function sealPromotion(
     await restoreStagingStatus(deps, params.promotionId, staging.status)
     throw new SealPromotionNotFoundError(`promotion ${params.promotionId} has malformed head`)
   }
+
+  // CQ-134: prove every declared object is covered by a
+  // `remote_pack_entry` row linked to this promotion BEFORE we
+  // swap authority. Falling short means the remote cannot replace
+  // local data — the receipt would be a cleanup signal for bytes
+  // the server can't actually serve.
+  const declaredObjectCount = head.counts.objects
+  if (declaredObjectCount > 0) {
+    const coverageRows = await deps.rawExec<{ count: string | number }>(
+      `SELECT count(*)::int AS count
+         FROM remote_pack_entry rpe
+         JOIN promotion_uploaded_pack pup
+           ON pup.pack_digest = rpe.pack_digest AND pup.tenant_id = rpe.tenant_id
+        WHERE pup.promotion_id = $1 AND pup.tenant_id = $2`,
+      [params.promotionId, deps.tenantId],
+    )
+    const catalogObjectCount = Number(coverageRows[0]?.count ?? 0)
+    if (catalogObjectCount < declaredObjectCount) {
+      await restoreStagingStatus(deps, params.promotionId, staging.status)
+      throw new SealPromotionCoverageError(declaredObjectCount, catalogObjectCount)
+    }
+  }
+
   const payload = buildReceiptPayload({
     tenantId: deps.tenantId,
     storeId: staging.store_id,

@@ -30,6 +30,7 @@ import {
 import { GetPromotionStatusNotFoundError, getPromotionStatus } from './sync/get-promotion-status.js'
 import { getReceipt } from './sync/get-receipt.js'
 import {
+  SealPromotionCoverageError,
   SealPromotionInProgressError,
   SealPromotionInventoryIncompleteError,
   SealPromotionNotFoundError,
@@ -274,6 +275,16 @@ async function handleSealPromotion(
         op: 'SealPromotion',
         message: err.message,
         missingSegmentIds: err.missingSegmentIds,
+      }
+    }
+    if (err instanceof SealPromotionCoverageError) {
+      reply.code(409)
+      return {
+        code: err.code,
+        op: 'SealPromotion',
+        message: err.message,
+        declaredObjectCount: err.declaredObjectCount,
+        catalogObjectCount: err.catalogObjectCount,
       }
     }
     throw err

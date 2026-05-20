@@ -1,6 +1,6 @@
 # rearch-2 Current Status
 
-Updated: 2026-05-20 after Lane 5 slice 6 review and CLI sync-v2 WIP.
+Updated: 2026-05-20 after Lane 5 CQ batch validation.
 
 ## Summary
 
@@ -69,21 +69,11 @@ The blocker is implementation work, not environment.
 - CQ-127: BeginPromotion proves tenant membership but not device
   ownership/policy; UploadSegment inherits the same gap and can accept staged
   bytes from another same-tenant user/device.
-- CQ-128: BeginPromotion staging idempotency is sequential only; concurrent
-  same-tuple calls can create two active `promotion_staging` rows and two
-  promotion ids.
-- CQ-129: UploadObjectPack WIP writes object-store metadata with canonical
-  `packDigest` instead of the BLAKE3 transport hash of the stored bytes, causing
-  valid pack uploads to fail storage verification.
-- CQ-130: UploadSegment accepts inventory bytes without the required
-  `x-prosa-transport-hash`; UploadObjectPack has the same optional-header gap.
-- CQ-131: UploadSegment and UploadObjectPack accept uploads while staging is
-  already `materializing`.
-- CQ-132: UploadObjectPack writes object-store bytes before catalog rows and
-  lacks cleanup on non-idempotent catalog failure.
-- CQ-133: UploadObjectPack commit `154ba25` did not link tenant-wide pack
-  catalog rows to the promotion that uploaded them; current WIP appears to add
-  `promotion_uploaded_pack`, but it is not yet committed/gated.
+- CQ-128: BeginPromotion race safety is now pinned by focused tests, but the
+  broader status/resume digest-domain and inventory-ref conflict acceptance
+  items remain watch points until directly proven.
+- CQ-133: per-promotion pack linkage exists, but full acceptance remains blocked
+  by CQ-141's missing-byte fast-path case.
 - CQ-134: SealPromotion can emit receipt/authority before proving object
   coverage or projection/search materialization; receipt verification flags can
   claim success for deferred work.
@@ -96,12 +86,12 @@ The blocker is implementation work, not environment.
 - CQ-138: GetReceipt returns object-shaped same-tenant receipts without proving
   request id, row/payload tuple, shared receipt schema, JWKS signature, or the
   accepted device/user access policy; CLI WIP also trusts receipts by cast.
-- CQ-139: `prosa sync-v2` requires `--token <token>`, exposing bearer tokens in
-  shell history/process listings; Lane 5 CLI acceptance needs a safe token
-  source.
 - CQ-140: focused v2 E2E can pass with Docker env, but the documented `just e2e`
   recipe fails and the gate still does not prove command-level `prosa sync-v2`,
   API container, or second-device remote read.
+- CQ-141: `UploadObjectPack` can return `already_present` from `remote_pack`
+  alone without proving the object-store bytes still exist, then link/grant a
+  catalog-only pack.
 
 ## Current gate caveats
 
@@ -125,6 +115,11 @@ The blocker is implementation work, not environment.
   and the test uses in-process Fastify rather than `prosa sync-v2`.
 - Current live WIP after Slice 9 is not gate-clean: upload/ seal focused tests
   fail while CQ-130/CQ-131/CQ-135 fixes are in progress.
+- CQ-129, CQ-130, CQ-131, and CQ-132 have focused green smoke and are accepted
+  by the governor as of 2026-05-20. CQ-139 is structurally accepted for removing
+  argv bearer tokens, but command-level CLI coverage is still desirable.
+- CQ-135 closure from `a867e93` is rejected pending explicit failure-injection
+  tests for signer, transaction, and post-flip pre-sign failures.
 - Reviewer aggregate smoke
   `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/` failed 77/78 with
   a timeout in the malformed-body BeginPromotion case, while the same file

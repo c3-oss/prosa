@@ -740,8 +740,30 @@ Acceptance:
 
 Severity: critical
 Blocking: yes (blocks Lane 5 SealPromotion acceptance and any cleanup/no-local-data promise)
-Status: open
+Status: partially closed (2026-05-20) — object-coverage proof landed; full projection/search materialization remains deferred behind CQ-124
 Owner: Ralph
+
+Object-coverage closure: `apps/api/src/v2/sync/seal-promotion.ts`
+now refuses the authority swap when the bundle head's declared
+`counts.objects` exceeds the joined `promotion_uploaded_pack ⨝
+remote_pack_entry` row count for this promotion. The new
+`SealPromotionCoverageError` surfaces as
+`409 OBJECT_COVERAGE_INCOMPLETE` with `declaredObjectCount` +
+`catalogObjectCount`. Status is restored from `materializing`
+back to the prior state (CQ-135) so the client can re-upload and
+retry. Pinned by `apps/api/test/v2/sync/cq-134-coverage.test.ts`:
+seal with declared objects but zero uploaded packs returns 409,
+no `receipt` / `remote_authority_v2` / `receipt_pack_grant` rows
+are written, staging returns to `open`. The bundles-declare-zero
+edge case still seals cleanly.
+
+Outstanding for full closure (blocked on CQ-124):
+- Materialize projection/search rows before authority swap.
+- Receipt `rowCountsByEntity` reflects actual catalog state.
+- Truthful `verification.projectionRowsLoaded` (schema currently
+  requires literal `true` — coupled change with Lane 6 read API).
+- Status-assisted resume metadata pin (hash + size) so a stale
+  object-store entry can't masquerade as a valid inventory.
 
 Problem:
 
@@ -807,19 +829,16 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 5 SealPromotion retry/resume acceptance)
-Status: closed (2026-05-20)
+Status: open (closure rejected 2026-05-20)
 Owner: Ralph
 
-Closure: `apps/api/src/v2/sync/seal-promotion.ts` now wraps both
-the signer call and the load-bearing transaction in try blocks that
-call `restoreStagingStatus(deps, promotionId, priorStatus)` on
-failure. The helper only reverts rows still in `materializing` so
-a racing successful seal stays sealed. Prior status (open or
-uploading) is preserved; anything else falls back to `open`. The
-existing seal idempotency test continues to pass.
-Blocking: yes (blocks Lane 5 retry/resume acceptance)
-Status: open
-Owner: Ralph
+Closure rejection: commit `a867e93` added restore handling around
+`signReceipt` and the load-bearing transaction, but did not add the required
+failure-injection tests. A reviewer also found post-flip work before those
+guards: `promotion_uploaded_pack` lookup, `signer.currentKeyId()`, receipt
+payload construction, and `receiptPayloadBytes(...)` can still throw after the
+row is set to `materializing`. Existing seal idempotency tests are not evidence
+for signer/current-key/transaction failure recovery.
 
 Problem:
 
@@ -863,6 +882,9 @@ Acceptance:
       later successful retry.
 - [ ] Injected transaction failure test leaves no authority/receipt/grant rows
       and allows a later successful retry.
+- [ ] Failure after the status flip but before `signReceipt` (for example
+      pack lookup, `signer.currentKeyId()`, or receipt serialization) restores a
+      retryable status and allows a later successful retry.
 - [ ] Concurrent seal still permits only one successful authority transaction.
 
 ### CQ-136: Re-sealing an old sealed promotion can return the current store receipt
@@ -1192,6 +1214,68 @@ Acceptance:
 - [ ] A Docker-backed command-level `prosa sync-v2` gate exists or the Lane 5
       evidence explicitly keeps CLI sync E2E open.
 - [ ] Evidence records exact commands and output for the green recipe.
+
+### CQ-141: Object-pack fast path can grant catalog-only packs without bytes
+
+Severity: high
+Blocking: yes (blocks Lane 5 object-pack integrity and seal acceptance)
+Status: open
+Owner: Ralph
+
+Problem:
+
+`UploadObjectPack` returns `already_present` when `remote_pack` has a matching
+`(tenant_id, pack_digest)` row, then links that digest to the current promotion.
+That fast path does not verify `objectStore.head(storage_uri)` and does not
+repair missing bytes from the request body. If the catalog row exists but the
+object-store object was lost, deleted, or never committed, the client cannot
+repair the pack by retrying the upload.
+
+Risk:
+
+Seal can later grant a pack digest whose bytes are absent from remote object
+storage. This weakens cleanup safety because a cleanup-authorizing receipt can
+claim remote object coverage even though the remote cannot serve the pack.
+
+Smoke evidence:
+
+Promotion integrity reviewer on 2026-05-20:
+
+```text
+apps/api/src/v2/sync/upload-object-pack.ts returns already_present from
+remote_pack alone, links the pack to the current promotion, and never verifies
+objectStore.head(storage_uri) or rewrites supplied bytes.
+```
+
+Focused CQ-132 tests prove cleanup on non-idempotent catalog failure, but do
+not prove the catalog-only/missing-byte replay case:
+
+```text
+pnpm --filter @c3-oss/prosa-api exec vitest run \
+  test/v2/sync/cq-132-orphan-cleanup.test.ts \
+  test/v2/sync/upload-object-pack.test.ts
+```
+
+Result: passed 10/10 on 2026-05-20.
+
+Required fix:
+
+- On the catalog fast path, verify the stored object exists and its metadata
+  matches the stored bytes identity expected for that pack.
+- If the catalog row exists but bytes are absent, either safely repair the
+  object-store write from the uploaded request body or fail closed with a clear
+  conflict/error that prevents linking the pack to the promotion.
+- Seal must not grant packs whose object-store bytes are absent.
+
+Acceptance:
+
+- [ ] Test seeds `remote_pack`/`remote_pack_entry` without object-store bytes,
+      POSTs the valid pack, and proves either repair/write or fail-closed
+      behavior.
+- [ ] Test proves the route does not link a catalog-only missing-byte pack to
+      `promotion_uploaded_pack` unless bytes are repaired and verified.
+- [ ] Seal test proves a linked pack with missing object-store bytes cannot be
+      granted in a cleanup-authorizing receipt.
 
 ## Closed during this cycle
 
