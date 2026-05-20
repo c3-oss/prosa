@@ -68,7 +68,8 @@ lives in `docs/roadmap/rearch-2/correction-queue.md`.
   reopened; the projection / search materialization sub-bullets are blocked on
   CQ-124 and remain Lane 6 / Lane 10 scope unless the governor explicitly
   accepts that deferral.
-- CQ-141: closure attempt #3 landed 2026-05-20; awaiting governor review.
+- CQ-141: closure attempt #3 landed 2026-05-20 and is rejected pending replay
+  and route-level evidence.
   `remote_pack` gained a `byte_hash` column; uploads write/backfill it on every
   insert/already-present path; seal compares head().hash/hashAlgorithm/length
   against the durable `byte_hash`/`byte_length` and fails closed via
@@ -77,6 +78,9 @@ lives in `docs/roadmap/rearch-2/correction-queue.md`.
   `UploadObjectPackBytesCorruptError` — no bytes are deleted before a guaranteed
   replacement. Pinned by 10 cases in
   `apps/api/test/v2/sync/cq-141-wrong-metadata-and-seal-presence.test.ts`.
+  Remaining blockers: the `status='sealed'` replay branch returns the existing
+  receipt before re-running linked-pack byte verification, and route-level
+  `409 PACK_BYTES_CORRUPT` / `409 PACK_BYTES_MISMATCH` tests are missing.
 
 ## Closed this cycle
 
@@ -95,6 +99,8 @@ All closed on 2026-05-20 — see `correction-queue.md` for full detail:
 - **CQ-138** (CLI `promoteBundleV2` schema + deriveReceiptId + JWKS verify every receipt).
 - **CQ-141** rejected after review; previous closure attempt covered missing
   bytes but not wrong nonzero seal metadata or destructive repair failure.
+  Closure attempt #3 fixes those fresh/unsealed paths but remains rejected
+  pending sealed-replay byte verification and route-level 409 tests.
 - **CQ-140** (`just e2e` + `just e2e-cli` both green; CLI subprocess harness in
   `apps/cli/test/cli/sync-v2-e2e.test.ts` covers `prosa sync-v2` over HTTP
   fetch + JWKS verify + second-device 404).

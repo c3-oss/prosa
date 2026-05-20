@@ -1892,7 +1892,7 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 5 object-pack integrity and seal acceptance)
-Status: closure attempt #3 (2026-05-20); awaiting governor review
+Status: open (closure attempt #3 rejected by governor/reviewer 2026-05-20)
 Owner: Ralph
 
 Closure attempt 3 (2026-05-20):
@@ -1982,6 +1982,31 @@ Gate evidence (2026-05-20):
 - `pnpm typecheck` → pass, 13/13.
 - `pnpm lint` → pass, 13/13.
 - `git diff --check` → clean.
+
+Governor re-review rejection (2026-05-20): closure attempt #3 fixes the fresh
+unsealed CQ-141 paths, but it is not accepted yet.
+
+Blocking data-loss/replay risk:
+
+- The `SealPromotion` `status = 'sealed'` replay branch returns the existing
+  linked receipt after tuple / derived-id / signature validation and before the
+  new CQ-141 pack-byte checks run. A sealed promotion whose linked
+  `remote_pack` has missing bytes, wrong bytes, wrong metadata, or
+  `byte_hash IS NULL` can still replay the cleanup-authorizing receipt without
+  proving the remote bytes remain valid.
+- This is not only a historical branch-shape concern: the replay path is the
+  retry path a client may use after a post-seal network failure. It must either
+  re-run the same linked-pack byte verification before returning the receipt,
+  or explicitly quarantine/fail closed when pack metadata cannot be proven.
+
+Non-data blockers before closure:
+
+- Add route-level tests for the new `409 PACK_BYTES_CORRUPT` and
+  `409 PACK_BYTES_MISMATCH` surfaces. Current tests call
+  `uploadObjectPack` / `sealPromotion` directly and prove core behavior, but
+  not HTTP status/body serialization from `apps/api/src/v2/promotion.ts`.
+- Update gate/evidence docs only after the replay and route-level gaps are
+  fixed. L5.2/L5.3 remain unchecked while CQ-141 is open.
 
 Governor rejection (2026-05-20): the `f6d0f93` / `3ef057c` closure is not
 accepted. The WIP is core Lane 5 integrity work, but it still leaves two
@@ -2173,6 +2198,14 @@ Acceptance:
       closed before authority/grant writes.
 - [ ] Seal test proves wrong `hashAlgorithm` fails closed before
       authority/grant writes.
+- [ ] Sealed-replay test proves a legacy/corrupt sealed promotion with linked
+      pack bytes missing, wrong metadata, or `byte_hash IS NULL` fails closed
+      instead of returning the receipt.
+- [ ] Route-level test proves upload wrong-content returns
+      `409 PACK_BYTES_CORRUPT` with the expected body and does not link.
+- [ ] Route-level test proves seal wrong metadata returns
+      `409 PACK_BYTES_MISMATCH` with the expected body and writes zero
+      authority/grant rows.
 
 ## Closed during this cycle
 

@@ -343,6 +343,24 @@ just e2e-cli                                       # 3/3
 
 Cycle 4 clean.
 
+## Governor Rejection — closure attempt #3 still incomplete
+
+Codex/governor does **not** accept the post-CQ-141 closure attempt #3
+stabilization batch.
+
+The fresh/unsealed CQ-141 paths are materially improved and focused tests are
+green, but the clean-cycle premise is still invalid:
+
+- `SealPromotion`'s `status='sealed'` replay branch returns the existing linked
+  receipt before the CQ-141 linked-pack byte checks run. A legacy/corrupt sealed
+  promotion can still replay a cleanup-authorizing receipt even when linked pack
+  bytes are missing, wrong, wrong-algorithm, or `byte_hash IS NULL`.
+- The new `PACK_BYTES_CORRUPT` and `PACK_BYTES_MISMATCH` HTTP surfaces are not
+  pinned by route-level tests.
+
+Next valid stabilization must restart from zero after replay verification and
+route-level 409 tests land, with CQ/gates/evidence updated and clean.
+
 ### Cycle 5 — 2026-05-20
 
 Working tree clean (no drift since cycle 4). Gates re-run:

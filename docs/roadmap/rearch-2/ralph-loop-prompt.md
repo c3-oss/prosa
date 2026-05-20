@@ -129,6 +129,12 @@ Required work before another completion attempt:
   must fail closed even if the hash string and size happen to match.
 - Add focused tests for wrong nonzero seal metadata, null-byte_hash same-size
   wrong bytes, wrong hash algorithm, and injected repair failure.
+- Also fix sealed replay: the `status='sealed'` branch must not return an
+  existing receipt before proving linked pack bytes still satisfy CQ-141, or it
+  must fail closed/quarantine when that proof cannot be made.
+- Add route-level tests for the new 409 surfaces:
+  `PACK_BYTES_CORRUPT` on object-pack wrong-content fast path and
+  `PACK_BYTES_MISMATCH` on seal wrong metadata.
 - Re-run focused CQ-141 tests plus `pnpm --filter @c3-oss/prosa-api test`,
   `pnpm lint`, `pnpm typecheck`, `git diff --check`, and Docker object-store
   evidence before starting a fresh five-cycle stabilization.
