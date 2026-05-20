@@ -1180,3 +1180,67 @@ Gates:
 - `pnpm typecheck` repo-wide → clean.
 
 CQ-127 acceptance bullets are all proven; the CQ is closed.
+
+## CQ-140 partial closure (just e2e green) — 2026-05-20
+
+Scope:
+
+- `apps/api/test/e2e/v2-promote.e2e.test.ts` sends
+  `x-prosa-device-id` on every post-begin inject call (CQ-127
+  alignment). The cross-tenant receipt-isolation case registers
+  a separate device for tenant B via a one-off `postgres`
+  client so `verifyDeviceOwnership` passes and the 404 path
+  exercises tenant isolation, not device ownership.
+- `signupTenant` returns `userId` so the tenant-B device insert
+  can reference it.
+- Pre-existing changes from earlier CQ-140 work remain in place:
+  - `apps/api/test/e2e/postgres-s3.e2e.test.ts` passes
+    `PROSA_RUNTIME_MODE: 'test'` to `loadConfig(...)`.
+  - `apps/api/vitest.config.ts` serializes e2e files when any
+    argv contains `"e2e"`.
+
+Green-recipe evidence (with Docker harness up):
+
+```text
+$ docker compose -f apps/api/docker-compose.test.yml ps
+NAME             STATUS
+api-minio-1      Up (healthy)   :54392
+api-postgres-1   Up (healthy)   :54329
+
+$ just e2e
+ ✓ test/e2e/postgres-s3.e2e.test.ts (1 test) [v1 path]
+ ✓ test/e2e/v2-promote.e2e.test.ts (3 tests) [Lane 5 path]
+ Test Files  2 passed (2)
+      Tests  4 passed (4)
+```
+
+No-env behavior (acceptance: skip != gate proof):
+
+```text
+$ env -u PROSA_TEST_POSTGRES_URL -u PROSA_TEST_S3_ENDPOINT \
+    pnpm --filter @c3-oss/prosa-api exec vitest run test/e2e/v2-promote.e2e.test.ts
+ Test Files  1 skipped (1)
+      Tests  3 skipped (3)
+```
+
+Gates:
+
+- `pnpm --filter @c3-oss/prosa-api test` → pass, 281 / 4 skipped
+  (the 4 skipped include the env-gated v2 e2e tests + 1 v1
+  pre-existing skip; with the env vars set they all pass).
+- `pnpm lint` repo-wide → clean.
+- `pnpm typecheck` repo-wide → clean.
+
+Still scoped out of Lane 5 (intentional, recorded for the
+governor):
+
+- A Docker-backed `prosa sync-v2` subprocess harness — currently
+  the v2 e2e uses in-process Fastify `app.inject` against real
+  Postgres + MinIO. CQ-127 + CQ-138 + CQ-123 already pin the
+  route + client semantics for the subprocess case; the missing
+  piece is the harness itself. Tracked as the remaining CQ-140
+  bullet.
+- A two-process second-device remote-read end-to-end. CQ-127's
+  GetReceipt scoping + CQ-138's CLI verification cover the
+  semantics, but no subprocess test currently exercises a fresh
+  process reading another device's receipt.

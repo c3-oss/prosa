@@ -1744,8 +1744,10 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 5 Docker E2E acceptance and `RALPH_DONE`)
-Status: partially closed (2026-05-20) — `just e2e` is green; the
-"second device + sync-v2 CLI subprocess" surface remains open.
+Status: partially closed (2026-05-20) — repository recipe (`just e2e`)
+is green and deterministic; CLI-subprocess + second-device remote-read
+surfaces remain explicitly scoped out of Lane 5 (tracked separately
+below).
 Owner: Ralph
 
 Closure so far:
@@ -1757,18 +1759,37 @@ Closure so far:
   argv contains `"e2e"`: `fileParallelism: false` plus
   `singleFork: true`. The `postgres-s3` and `v2-promote` files
   no longer race on the shared `DROP SCHEMA public CASCADE`.
-- With Docker up, `just e2e` reports 2 test files / 4 tests
-  passed (1 v1 + 3 v2). Non-e2e suites keep the parallel
-  default.
+- The v2 E2E now sends `x-prosa-device-id` on every post-begin
+  request (CQ-127 alignment). The cross-tenant receipt-isolation
+  case registers a separate device for tenant B via a one-off
+  `postgres` client so `verifyDeviceOwnership` passes and the
+  404 path exercises tenant isolation, not device ownership.
+- With Docker up, `just e2e` is green and deterministic:
 
-Outstanding for full closure:
-- The v2 e2e still uses in-process Fastify `app.inject` against
-  Docker Postgres/MinIO, not an API container or the
-  `prosa sync-v2` subprocess.
+  ```text
+  docker compose -f apps/api/docker-compose.test.yml ps
+   -> api-postgres-1 healthy, api-minio-1 healthy
+
+  just e2e
+   -> Test Files 2 passed (2), Tests 4 passed (4)
+      - apps/api/test/e2e/postgres-s3.e2e.test.ts (1 test, v1)
+      - apps/api/test/e2e/v2-promote.e2e.test.ts (3 tests, v2)
+  ```
+
+  Non-e2e suites keep the parallel default (`pnpm --filter
+  @c3-oss/prosa-api test` runs the full set without serialization).
+
+Still outstanding (intentionally scoped to a later iteration):
+- The v2 E2E uses in-process Fastify `app.inject` against Docker
+  Postgres/MinIO, not an API container or the `prosa sync-v2`
+  subprocess.
 - No second-device remote-read coverage. A CLI-driven E2E that
   signs up a second device + tenant, drives `prosa sync-v2`,
   and reads the promoted receipt through `GET /v2/receipts/:id`
-  from a fresh process is still pending.
+  from a fresh process is still pending. CQ-127 closure already
+  pins the route-level second-device 404 behavior, and CQ-138 +
+  CQ-123 pin client-side receipt verification — the missing
+  piece is the subprocess harness itself.
 
 Problem:
 
@@ -1835,14 +1856,17 @@ Required fix:
 
 Acceptance:
 
-- [ ] `docker compose -f apps/api/docker-compose.test.yml ps` shows Postgres and
+- [x] `docker compose -f apps/api/docker-compose.test.yml ps` shows Postgres and
       MinIO healthy.
-- [ ] `just e2e` passes from a clean checkout with Docker up.
-- [ ] Focused v2 E2E with env passes and focused no-env run is explicitly
-      recorded only as skip behavior, not gate proof.
-- [ ] A Docker-backed command-level `prosa sync-v2` gate exists or the Lane 5
-      evidence explicitly keeps CLI sync E2E open.
-- [ ] Evidence records exact commands and output for the green recipe.
+- [x] `just e2e` passes from a clean checkout with Docker up (4/4 tests).
+- [x] Focused v2 E2E with env passes; the focused no-env run is recorded
+      only as skip behavior (3 skipped), not as gate proof.
+- [~] A Docker-backed command-level `prosa sync-v2` gate exists OR the Lane 5
+      evidence explicitly keeps CLI sync E2E open. The second leg is the
+      current state: the lane-05 evidence records the in-process Fastify
+      route harness AND explicitly keeps the CLI-subprocess gate open.
+- [x] Evidence records exact commands and output for the green recipe (see
+      lane-05 CQ-140 closure section).
 
 ### CQ-141: Object-pack fast path can grant catalog-only packs without bytes
 

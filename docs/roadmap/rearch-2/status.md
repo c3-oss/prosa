@@ -137,9 +137,13 @@ The blocker is implementation work, not environment.
   `apps/cli/test/cli/v2/sync/promote-receipt-validation.test.ts` (5/5):
   tampered payload, forged signature, malformed shape, tampered
   already_promoted retry, happy-path replay.
-- CQ-140: focused v2 E2E can pass with Docker env, but the documented `just e2e`
-  recipe fails and the gate still does not prove command-level `prosa sync-v2`,
-  API container, or second-device remote read.
+- CQ-140: partially closed (2026-05-20). `just e2e` is now green and
+  deterministic (4/4: 1 v1 + 3 v2) with Docker up; the v2 E2E sends
+  `x-prosa-device-id` per CQ-127 and registers a tenant-B device for
+  the cross-tenant isolation case. Still explicitly open: a
+  Docker-backed `prosa sync-v2` subprocess harness + second-device
+  remote read. CQ-127 + CQ-138 + CQ-123 already pin the route + client
+  semantics; the missing piece is the subprocess gate itself.
 - CQ-141: closed (2026-05-20). UploadObjectPack's catalog fast path now
   handles healthy / missing / wrong-content storage states via a
   `delete() + putIfAbsent()` rewrite when stored bytes disagree with the
