@@ -905,8 +905,21 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 5 idempotency and receipt correctness)
-Status: open
+Status: closed (2026-05-20)
 Owner: Ralph
+
+Closure: `packages/prosa-db-v2/src/schema/promotion.ts` adds a
+`sealed_receipt_id TEXT` column to `promotion_staging` (with
+`ALTER TABLE ... ADD COLUMN IF NOT EXISTS` for re-applied schemas).
+`apps/api/src/v2/sync/seal-promotion.ts` sets that column inside
+the load-bearing seal transaction alongside `status = 'sealed'`.
+The sealed-status branch and the race-loser branch both load the
+receipt by its exact id via `loadReceiptById(...)`. Pinned by two
+cases in `apps/api/test/v2/sync/cq-136-resale.test.ts`: seal A
+then B for the same store and re-seal A returns A's receiptId
+(while remote_authority_v2 still points at B); plus a direct row
+assertion that `sealed_receipt_id` is NULL before seal and equals
+the returned receiptId after.
 
 Problem:
 
