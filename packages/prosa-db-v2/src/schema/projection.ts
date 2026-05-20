@@ -12,10 +12,21 @@
 
 export const PROJECTION_BUCKETS = 8
 
+// Lane 6 — store_id and receipt_id are required on every projection
+// row so the read API can join against `remote_authority_v2` to enforce
+// the verified-projection gate (see
+// `apps/api/src/v2/reads/shared/verified-projection.ts`). They are
+// populated by the seal-promotion materialization path. CQ-134's full
+// projection materialization is Lane 10 scope; until then these
+// columns exist but are empty in production, and Lane 6 tests seed
+// rows directly.
+
 export const PROJECTION_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS projection_session (
   tenant_id            TEXT NOT NULL,
   session_id           TEXT NOT NULL,
+  store_id             TEXT NOT NULL,
+  receipt_id           TEXT NOT NULL,
   source_tool          TEXT NOT NULL,
   source_session_id    TEXT NOT NULL,
   project_id           TEXT,
@@ -34,10 +45,14 @@ CREATE TABLE IF NOT EXISTS projection_session (
 );
 CREATE INDEX IF NOT EXISTS projection_session_tenant_end_idx
   ON projection_session (tenant_id, end_ts DESC);
+CREATE INDEX IF NOT EXISTS projection_session_store_idx
+  ON projection_session (tenant_id, store_id, end_ts DESC);
 
 CREATE TABLE IF NOT EXISTS projection_message (
   tenant_id          TEXT NOT NULL,
   message_id         TEXT NOT NULL,
+  store_id           TEXT NOT NULL,
+  receipt_id         TEXT NOT NULL,
   session_id         TEXT NOT NULL,
   turn_id            TEXT,
   role               TEXT NOT NULL,
@@ -54,6 +69,8 @@ CREATE INDEX IF NOT EXISTS projection_message_session_idx
 CREATE TABLE IF NOT EXISTS projection_tool_call (
   tenant_id           TEXT NOT NULL,
   tool_call_id        TEXT NOT NULL,
+  store_id            TEXT NOT NULL,
+  receipt_id          TEXT NOT NULL,
   session_id          TEXT NOT NULL,
   turn_id             TEXT,
   tool_name           TEXT NOT NULL,
@@ -69,6 +86,8 @@ CREATE INDEX IF NOT EXISTS projection_tool_call_session_idx
 CREATE TABLE IF NOT EXISTS projection_tool_result (
   tenant_id        TEXT NOT NULL,
   tool_result_id   TEXT NOT NULL,
+  store_id         TEXT NOT NULL,
+  receipt_id       TEXT NOT NULL,
   tool_call_id     TEXT,
   session_id       TEXT NOT NULL,
   status           TEXT,
@@ -82,6 +101,8 @@ CREATE TABLE IF NOT EXISTS projection_tool_result (
 CREATE TABLE IF NOT EXISTS projection_event (
   tenant_id     TEXT NOT NULL,
   event_id      TEXT NOT NULL,
+  store_id      TEXT NOT NULL,
+  receipt_id    TEXT NOT NULL,
   session_id    TEXT NOT NULL,
   turn_id       TEXT,
   event_type    TEXT NOT NULL,
@@ -97,6 +118,8 @@ CREATE INDEX IF NOT EXISTS projection_event_session_idx
 CREATE TABLE IF NOT EXISTS projection_content_block (
   tenant_id      TEXT NOT NULL,
   block_id       TEXT NOT NULL,
+  store_id       TEXT NOT NULL,
+  receipt_id     TEXT NOT NULL,
   message_id     TEXT,
   session_id     TEXT NOT NULL,
   ordinal        INTEGER NOT NULL,
@@ -104,6 +127,8 @@ CREATE TABLE IF NOT EXISTS projection_content_block (
   is_error       BOOLEAN NOT NULL DEFAULT FALSE,
   is_redacted    BOOLEAN NOT NULL DEFAULT FALSE,
   visibility     TEXT NOT NULL,
+  text_inline    TEXT,
+  object_id      TEXT,
   payload        JSONB NOT NULL,
   PRIMARY KEY (tenant_id, block_id)
 );
@@ -111,10 +136,15 @@ CREATE TABLE IF NOT EXISTS projection_content_block (
 CREATE TABLE IF NOT EXISTS projection_artifact (
   tenant_id     TEXT NOT NULL,
   artifact_id   TEXT NOT NULL,
+  store_id      TEXT NOT NULL,
+  receipt_id    TEXT NOT NULL,
   session_id    TEXT,
   project_id    TEXT,
   source_tool   TEXT NOT NULL,
   kind          TEXT NOT NULL,
+  object_id     TEXT,
+  byte_length   BIGINT,
+  content_type  TEXT,
   payload       JSONB NOT NULL,
   PRIMARY KEY (tenant_id, artifact_id)
 );

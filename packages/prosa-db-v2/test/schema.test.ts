@@ -49,10 +49,10 @@ describe('applySchemaV2', () => {
     await applySchemaV2(db)
     await db.exec(`
       INSERT INTO projection_session
-        (tenant_id, session_id, source_tool, source_session_id, parent_resolution,
-         timeline_confidence, payload)
+        (tenant_id, session_id, store_id, receipt_id, source_tool, source_session_id,
+         parent_resolution, timeline_confidence, payload)
       VALUES
-        ('t_a', 'ses_a', 'codex', 'src_a', 'unresolved', 'high',
+        ('t_a', 'ses_a', 'store_a', 'rcp_a', 'codex', 'src_a', 'unresolved', 'high',
          '{"hello":"world"}'::jsonb)
     `)
     const r = await db.query<{ session_id: string; payload: { hello: string } }>(
@@ -69,9 +69,9 @@ describe('applySchemaV2', () => {
     await applySchemaV2(db)
     await db.exec(`
       INSERT INTO search_doc
-        (tenant_id, doc_id, entity_type, entity_id, field_kind, text, text_tsv)
+        (tenant_id, doc_id, store_id, receipt_id, entity_type, entity_id, field_kind, text, text_tsv)
       VALUES
-        ('t_a', 'sdc_a', 'message', 'msg_a', 'message_text',
+        ('t_a', 'sdc_a', 'store_a', 'rcp_a', 'message', 'msg_a', 'message_text',
          'the quick brown fox', to_tsvector('english', 'the quick brown fox'))
     `)
     const r = await db.query<{ doc_id: string }>(

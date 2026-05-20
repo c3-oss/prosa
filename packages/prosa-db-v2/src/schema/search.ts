@@ -14,6 +14,8 @@ export const SEARCH_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS search_doc (
   tenant_id            TEXT NOT NULL,
   doc_id               TEXT NOT NULL,
+  store_id             TEXT NOT NULL,
+  receipt_id           TEXT NOT NULL,
   entity_type          TEXT NOT NULL,
   entity_id            TEXT NOT NULL,
   session_id           TEXT,

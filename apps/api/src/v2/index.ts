@@ -11,6 +11,7 @@ import type { RuntimeMode } from '../config.js'
 import type { DatabaseHandle, RawExec } from '../db.js'
 import { registerReceiptKeysRoute } from './keys.js'
 import { registerPromotionRoutes } from './promotion.js'
+import { type V2ReadPluginHandle, registerV2ReadRoutes } from './reads/index.js'
 import { type ReceiptSigner, createLocalReceiptSigner } from './signing/local-signer.js'
 
 export class MissingV2SignerError extends Error {
@@ -45,6 +46,7 @@ export type V2PluginDeps = {
 
 export type V2PluginHandle = {
   signer: ReceiptSigner
+  reads: V2ReadPluginHandle
 }
 
 export function registerV2Routes(app: FastifyInstance, deps: V2PluginDeps): V2PluginHandle {
@@ -57,7 +59,11 @@ export function registerV2Routes(app: FastifyInstance, deps: V2PluginDeps): V2Pl
     objectStore: deps.objectStore,
     signer,
   })
-  return { signer }
+  const reads = registerV2ReadRoutes(app, {
+    auth: deps.auth,
+    rawExec: deps.rawExec,
+  })
+  return { signer, reads }
 }
 
 function resolveSigner(deps: V2PluginDeps): ReceiptSigner {
@@ -68,5 +74,7 @@ function resolveSigner(deps: V2PluginDeps): ReceiptSigner {
 
 export { V2_RECEIPT_KEYS_PATH } from './keys.js'
 export { V2_PROMOTION_ROUTES } from './promotion.js'
+export { V2_READ_ROUTES } from './reads/index.js'
+export type { V2ReadPluginHandle, V2ReadRoutesDeps } from './reads/index.js'
 export { createLocalReceiptSigner } from './signing/local-signer.js'
 export type { JwkOkp, JwkSet, ReceiptSignature, ReceiptSigner } from './signing/local-signer.js'
