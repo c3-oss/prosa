@@ -55,6 +55,7 @@ export function registerV2Routes(app: FastifyInstance, deps: V2PluginDeps): V2Pl
     rawExec: deps.rawExec,
     transaction: deps.transaction,
     objectStore: deps.objectStore,
+    signer,
   })
   return { signer }
 }

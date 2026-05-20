@@ -53,4 +53,18 @@ CREATE TABLE IF NOT EXISTS legacy_receipt_archive (
   signature    JSONB,
   archived_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Per-promotion linkage from a staging slot to the object packs the
+-- client uploaded. SealPromotion reads this to determine which pack
+-- digests need a receipt_pack_grant row. Idempotent under retries
+-- via the composite PK.
+CREATE TABLE IF NOT EXISTS promotion_uploaded_pack (
+  promotion_id TEXT NOT NULL,
+  tenant_id    TEXT NOT NULL,
+  pack_digest  TEXT NOT NULL,
+  uploaded_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (promotion_id, pack_digest)
+);
+CREATE INDEX IF NOT EXISTS promotion_uploaded_pack_tenant_idx
+  ON promotion_uploaded_pack (tenant_id, promotion_id);
 `

@@ -127,12 +127,15 @@ export async function uploadObjectPack(
   }
 
   // Idempotency fast path: same (tenant, pack_digest) already
-  // catalogued.
+  // catalogued. Still link the pack to this promotion so SealPromotion
+  // can grant it (the catalog is tenant-wide and may pre-exist from a
+  // prior promotion).
   const existingRows = await deps.rawExec<{ entry_count: number; storage_uri: string }>(
     `SELECT entry_count, storage_uri FROM remote_pack WHERE tenant_id = $1 AND pack_digest = $2 LIMIT 1`,
     [deps.tenantId, observedDigest],
   )
   if (existingRows.length > 0) {
+    await linkPackToPromotion(deps, params.promotionId, observedDigest)
     return {
       status: 'already_present',
       packDigest: observedDigest,
@@ -208,6 +211,7 @@ export async function uploadObjectPack(
       )
       const row = rows[0]
       if (row) {
+        await linkPackToPromotion(deps, params.promotionId, observedDigest)
         return {
           status: 'already_present',
           packDigest: observedDigest,
@@ -219,6 +223,7 @@ export async function uploadObjectPack(
     throw err
   }
 
+  await linkPackToPromotion(deps, params.promotionId, observedDigest)
   await deps.rawExec(`UPDATE promotion_staging SET updated_at = now() WHERE id = $1 AND tenant_id = $2`, [
     params.promotionId,
     deps.tenantId,
@@ -230,6 +235,15 @@ export async function uploadObjectPack(
     entryCount: verified.header.entry_count,
     storageKey,
   }
+}
+
+async function linkPackToPromotion(deps: UploadObjectPackDeps, promotionId: string, packDigest: string): Promise<void> {
+  await deps.rawExec(
+    `INSERT INTO promotion_uploaded_pack (promotion_id, tenant_id, pack_digest)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (promotion_id, pack_digest) DO NOTHING`,
+    [promotionId, deps.tenantId, packDigest],
+  )
 }
 
 export function objectPackStorageKey(tenantId: string, packDigest: string): string {

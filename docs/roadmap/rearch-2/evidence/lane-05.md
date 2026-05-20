@@ -331,3 +331,102 @@ Slice 4 deferred (explicit):
 - `SealPromotion` and `GET /v2/receipts/:receiptId` remain 501.
 - CLI `prosa sync-v2`, resume/no-op behavior, and Docker E2E are
   pending downstream slices.
+
+## Slice 5 (SealPromotion load-bearing transaction) — 2026-05-20
+
+Scope:
+
+- New `apps/api/src/v2/sync/seal-promotion.ts` implements
+  `POST /v2/promotions/:promotionId/seal` — the only code path that
+  writes `remote_authority_v2`, `search_generation_current`, or
+  `receipt_pack_grant` (Lane 5 gate L5.6). Sequence:
+  1. Resolve `promotion_staging` by `(id, tenant_id)`. Miss →
+     `404 PROMOTION_NOT_FOUND`; `aborted` → 404;
+     `materializing` → `409 SEAL_IN_PROGRESS`; `sealed` →
+     idempotent re-read via `remote_authority_v2` ⨝ `receipt`.
+  2. Verify both inventory segments are present in the object
+     store at `staging/<tenant>/<promotion>/<segmentId>`. Missing
+     → `409 INVENTORY_INCOMPLETE` with `missingSegmentIds[]`.
+  3. CAS status flip `open|uploading → materializing` via
+     `UPDATE … RETURNING id`. Losing the race → 409.
+  4. Read uploaded pack digests from `promotion_uploaded_pack`
+     (slice 4 maintains the linkage; this slice adds the
+     `INSERT … ON CONFLICT DO NOTHING` in the upload path).
+  5. Build a `PromotionReceiptV2Payload`. Counts come from
+     `head_json`; `materialization.rowCountsByEntity` is zero for
+     every canonical entity (projection materialization is
+     deferred because CQ-124 still blocks the shared-name v2
+     `projection_*` tables). `searchGenerationId` and
+     `postgresCommitId` are derived deterministically from
+     `(tenantId, storeId, bundleRoot)` so retries observe the
+     same id.
+  6. Call `deriveReceiptId(payload)` from `@c3-oss/prosa-types-v2`
+     to set the canonical receipt id, then sign
+     `receiptPayloadBytes(payload)` with the configured
+     `ReceiptSigner`.
+  7. One Postgres transaction: INSERT `receipt` + UPSERT
+     `remote_authority_v2` + UPSERT `search_generation_current` +
+     INSERT N `receipt_pack_grant` rows (`ON CONFLICT DO NOTHING`)
+     + UPDATE `promotion_staging.status='sealed'`.
+- New table `promotion_uploaded_pack(promotion_id, tenant_id,
+  pack_digest, uploaded_at)` in `PROMOTION_SCHEMA_SQL`. The
+  upload-object-pack handler INSERTs `ON CONFLICT DO NOTHING` after
+  every accepted or already-present pack so the seal can resolve
+  the per-promotion pack set.
+- `apps/api/src/v2/index.ts` and `apps/api/src/v2/promotion.ts`
+  thread the v2 signer into the route deps. `PromotionRoutesDeps`
+  now carries `signer: ReceiptSigner`. The route handler maps
+  `SealPromotionNotFoundError → 404`, `SealPromotionInProgressError
+  → 409 SEAL_IN_PROGRESS`, `SealPromotionInventoryIncompleteError →
+  409 INVENTORY_INCOMPLETE` (with `missingSegmentIds`).
+- `apps/api/vitest.config.ts` adds aliases for `@c3-oss/prosa-db-v2`,
+  `@c3-oss/prosa-bundle-v2`, `@c3-oss/prosa-types-v2`, and
+  `@c3-oss/prosa-wire-v2` so vitest picks up source changes
+  immediately instead of stale `dist/` builds.
+- `apps/api/test/helpers/test-app.ts` applies the
+  `search_generation_current` table on its own (the full
+  `SEARCH_SCHEMA_SQL` still collides with v1 via `search_doc`).
+- `apps/api/test/v2/skeleton.test.ts` removes `SealPromotion` from
+  the 501 set; only `GetReceipt` remains unimplemented.
+
+New tests in `apps/api/test/v2/sync/seal-promotion.test.ts`
+(7 cases):
+
+1. unauth → 401 UNAUTHENTICATED.
+2. unknown `promotionId` → 404 PROMOTION_NOT_FOUND.
+3. missing inventories → 409 INVENTORY_INCOMPLETE with
+   `missingSegmentIds`.
+4. happy path: BeginPromotion → uploads → seal → 200. Receipt row
+   count = 1; `remote_authority_v2.current_receipt_id` =
+   receipt.payload.receiptId; `search_generation_current.receipt_id`
+   matches; `receipt_pack_grant` row count = 1 with the right
+   pack_digest; `promotion_staging.status = 'sealed'`.
+5. idempotent re-seal: same `receiptId`, no row duplication.
+6. cross-tenant seal attempt → 404 PROMOTION_NOT_FOUND (I1).
+7. invariant I5: signature verifies against the JWKS publication
+   via `node:crypto` `verify(null, receiptPayloadBytes(payload),
+   publicKey, sigBytes)`.
+
+Gates:
+
+- `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/sync/seal-promotion.test.ts`
+  → pass, 7/7 (includes the I5 JWKS verification).
+- `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/` → pass,
+  74/74.
+- `pnpm --filter @c3-oss/prosa-api test` → pass, 209/210
+  (1 pre-existing skip).
+- `pnpm --filter @c3-oss/prosa-api lint` → clean.
+- `pnpm typecheck` → pass, 13/13 packages.
+- `git diff --check` → clean.
+
+Slice 5 deferred (explicit):
+
+- Projection / search_doc row materialization remains deferred
+  until CQ-124 (v1/v2 shared-name table collision) is resolved.
+  The receipt currently records `rowCountsByEntity` all zero —
+  invariants I2/I3/I4 (projection row presence, count parity,
+  search visibility) are not yet enforced.
+- `GET /v2/receipts/:receiptId` remains 501; clients today must
+  pull the receipt from the seal response.
+- CLI `prosa sync-v2`, resume/no-op behavior, and Docker E2E are
+  pending downstream slices.

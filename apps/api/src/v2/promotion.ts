@@ -19,11 +19,18 @@ import type { RemoteObjectStore } from '@c3-oss/prosa-storage'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import type { DatabaseHandle } from '../db.js'
 import { type V2AuthDeps, resolveV2AuthContext } from './context.js'
+import type { ReceiptSigner } from './signing/local-signer.js'
 import {
   BeginPromotionTenantMismatchError,
   BeginPromotionValidationError,
   beginPromotion,
 } from './sync/begin-promotion.js'
+import {
+  SealPromotionInProgressError,
+  SealPromotionInventoryIncompleteError,
+  SealPromotionNotFoundError,
+  sealPromotion,
+} from './sync/seal-promotion.js'
 import {
   UploadObjectPackNotFoundError,
   UploadObjectPackValidationError,
@@ -50,6 +57,7 @@ export const V2_PROMOTION_ROUTES = [
 export type PromotionRoutesDeps = V2AuthDeps & {
   objectStore: RemoteObjectStore
   transaction: DatabaseHandle['transaction']
+  signer: ReceiptSigner
 }
 
 export function registerPromotionRoutes(app: FastifyInstance, deps: PromotionRoutesDeps): void {
@@ -75,6 +83,9 @@ export function registerPromotionRoutes(app: FastifyInstance, deps: PromotionRou
         }
         if (route.opName === 'UploadObjectPack') {
           return handleUploadObjectPack(deps, ctx.tenantId, req, reply)
+        }
+        if (route.opName === 'SealPromotion') {
+          return handleSealPromotion(deps, ctx.tenantId, req, reply)
         }
         reply.code(501)
         return {
@@ -200,6 +211,52 @@ async function handleUploadObjectPack(
     if (err instanceof UploadObjectPackValidationError) {
       reply.code(400)
       return { code: 'INVALID_REQUEST', op: 'UploadObjectPack', message: err.message, issues: err.issues }
+    }
+    throw err
+  }
+}
+
+async function handleSealPromotion(
+  deps: PromotionRoutesDeps,
+  tenantId: string,
+  req: FastifyRequest,
+  reply: FastifyReply,
+): Promise<unknown> {
+  const params = req.params as { promotionId?: string }
+  if (!params.promotionId) {
+    reply.code(400)
+    return { code: 'INVALID_REQUEST', op: 'SealPromotion', message: 'promotionId is required' }
+  }
+  try {
+    const result = await sealPromotion(
+      {
+        rawExec: deps.rawExec,
+        transaction: deps.transaction,
+        tenantId,
+        objectStore: deps.objectStore,
+        signer: deps.signer,
+      },
+      { promotionId: params.promotionId },
+    )
+    reply.code(200)
+    return result
+  } catch (err) {
+    if (err instanceof SealPromotionNotFoundError) {
+      reply.code(404)
+      return { code: err.code, op: 'SealPromotion', message: err.message }
+    }
+    if (err instanceof SealPromotionInProgressError) {
+      reply.code(409)
+      return { code: err.code, op: 'SealPromotion', message: err.message }
+    }
+    if (err instanceof SealPromotionInventoryIncompleteError) {
+      reply.code(409)
+      return {
+        code: err.code,
+        op: 'SealPromotion',
+        message: err.message,
+        missingSegmentIds: err.missingSegmentIds,
+      }
     }
     throw err
   }

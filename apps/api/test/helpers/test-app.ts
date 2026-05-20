@@ -40,6 +40,19 @@ export async function buildTestApp(overrides: Partial<NodeJS.ProcessEnv> = {}): 
   // applying.
   await pglite.exec(PROMOTION_SCHEMA_SQL)
   await pglite.exec(PACKS_SCHEMA_SQL.replace(/CREATE TABLE IF NOT EXISTS remote_object[\s\S]*?\);/u, ''))
+  // search_generation_current is the small per-tenant pointer the
+  // seal transaction upserts. The full v2 search_doc table collides
+  // with v1; the generation pointer does not, so we apply it on its
+  // own here.
+  await pglite.exec(`
+    CREATE TABLE IF NOT EXISTS search_generation_current (
+      tenant_id              TEXT PRIMARY KEY,
+      generation_id          TEXT NOT NULL,
+      receipt_id             TEXT NOT NULL,
+      promoted_at            TIMESTAMPTZ NOT NULL,
+      updated_at             TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `)
   const db = openPgliteDatabase(pglite)
   const auth = createAuth({ config, db: db.db })
   const objectStore = new MemoryObjectStore()
