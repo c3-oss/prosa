@@ -205,3 +205,80 @@ Required smokes:
   - `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/` → 19/19.
   - `pnpm --filter @c3-oss/prosa-api lint` → clean.
   - Workspace `pnpm typecheck` → 13/13.
+
+## Slice 5 (cron advisory-lock skeleton) — 2026-05-20
+
+- New `apps/api/src/cron/advisory-lock.ts`:
+  - `hashLockNameToInt64(name)` hashes the role name through SHA-256
+    and reads the first 8 bytes as a signed big-endian int64.
+  - `withAdvisoryLock(rawExec, lockName, fn)` calls
+    `pg_try_advisory_lock($1)` (non-blocking), runs `fn()` only on
+    success, releases via `pg_advisory_unlock($1)` on every exit
+    path (including when `fn` throws). Returns
+    `{ acquired: true, result }` or `{ acquired: false, result: null }`.
+- New `apps/api/src/cron/index.ts`:
+  - `CRON_TASK_DEFINITIONS` enumerates the 4 audit roles + 1 GC role
+    per the Lane 4 spec with cron expressions
+    `0 * * * *` / `0 2 * * *` / `0 3 * * 0` / `0 4 1 * *` /
+    `0 1 * * *` and lock names `prosa-audit-hourly`/`-daily`/
+    `-weekly`/`-monthly`/`prosa-gc-daily`.
+  - `startCron({ rawExec, scheduler, handlers? })` registers each
+    task with the injected `scheduler(cronExpression, wrapped)` and
+    always wraps the body in `withAdvisoryLock(lockName, body)`.
+    Production-mode boot will pass `node-cron`'s `cron.schedule`;
+    tests inject a recording scheduler. The default `noopHandler`
+    runs under the lock so the contract is exercised before Lane 8
+    fills in the real bodies.
+- New `apps/api/test/v2/cron-advisory-lock.test.ts` covers 7 cases:
+  1. `startCron` registers exactly one job per definition; `cancel`
+     removes them.
+  2. Role list has 4 audit + 1 gc entries.
+  3. `withAdvisoryLock` against a real PGlite acquires + releases
+     and a second call also succeeds.
+  4. Stubbed contention (first try → false) skips the handler.
+  5. Lock is released when the handler throws.
+  6. Recording scheduler + per-task counters: 2 ticks each → 2
+     increments each (proves lock is released between ticks).
+  7. `hashLockNameToInt64` is deterministic and produces distinct
+     ids per name.
+- Note: PGlite advisory locks are per-instance, so the cross-session
+  contention case uses a stub rawExec rather than a sibling PGlite.
+  The contract under test matches what a real cross-session PG
+  caller would observe.
+- Lane 8 audit/GC handlers are intentionally NOT implemented here.
+- Gates:
+  - `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/` → 28/28.
+  - `pnpm --filter @c3-oss/prosa-api lint` → clean.
+  - Workspace `pnpm typecheck` → 13/13.
+
+## Governor review - CQ-120/CQ-121/CQ-122 opened
+
+CQ-119 was closed by `957d132`; the route contract smoke now passes and API v2
+tests pass. Three new Lane 4 blockers remain open:
+
+- CQ-120: production v2 signing must not fall back to an ephemeral local signer.
+- CQ-121: receipt signatures/I5 tests must use the v2 wire algorithm and
+  canonical receipt payload bytes.
+- CQ-122: streaming validation must satisfy the full Lane 4 pack-validation gate
+  or stop claiming deferred pieces are complete.
+
+Focused validation observed during review:
+
+```text
+pnpm exec node --conditions=prosa-dev --import @swc-node/register/esm-register -e "...V2_PROMOTION_ROUTES exact method/path smoke..."
+```
+
+Run from `apps/api`; result: pass, with no missing or extra routes.
+
+```text
+pnpm exec node --conditions=prosa-dev --import @swc-node/register/esm-register -e "...createLocalReceiptSigner alg smoke..."
+```
+
+Run from `apps/api`; result: fail because the signer returns `alg: "EdDSA"`
+where the v2 receipt schema requires `alg: "Ed25519"`.
+
+```text
+pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/
+```
+
+Result: pass, 28/28.
