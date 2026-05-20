@@ -63,6 +63,12 @@ The blocker is implementation work, not environment.
 - CQ-125: BeginPromotion no-op fast path does not verify that the
   authority row's receipt matches the requested tenant/store/root/device
   tuple and fail-opens orphan authority rows into fresh promotion.
+- CQ-126: production-style boot registers v2 promotion routes without
+  applying/verifying v2 promotion tables, so a v1-only database can pass
+  health and fail the first BeginPromotion query.
+- CQ-127: BeginPromotion proves tenant membership but not device
+  ownership/policy, and can return a receipt associated with another
+  device.
 
 ## Supporting documents
 

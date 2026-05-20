@@ -201,6 +201,122 @@ Acceptance:
 - [ ] Valid replay still returns the exact schema-valid receipt for the same
       `(tenant, store, bundleRoot, device)` tuple.
 
+### CQ-126: Production boot registers BeginPromotion without v2 promotion tables
+
+Severity: high
+Blocking: yes (blocks Lane 5 production/Docker E2E acceptance)
+Status: open
+Owner: Ralph
+
+Problem:
+
+`startServer` applies and verifies only the v1 schema. It intentionally skips
+`applySchemaV2` because the full v2 schema conflicts with v1 table names, but it
+still registers the v2 routes. `BeginPromotion` immediately queries
+`remote_authority_v2` and, in the staging path, `promotion_staging`. A production
+database that has only the verified v1 tables can pass boot/health and then fail
+the first sync request at runtime.
+
+Risk:
+
+Lane 5 Docker E2E and production sync cannot rely on server boot as a schema
+gate. The API may accept traffic with no `remote_authority_v2`,
+`promotion_staging`, or `receipt` tables, producing runtime 500s instead of a
+fail-closed boot error or an intentionally disabled v2 route surface.
+
+Smoke evidence:
+
+```text
+pnpm --filter @c3-oss/prosa-api exec tsx --conditions=prosa-dev <<'TS'
+...applySchema(v1) on PGlite, then call beginPromotion(...) with a valid request...
+TS
+```
+
+Run from `apps/api`; output:
+
+```text
+beginPromotion-v1-only failed
+relation "remote_authority_v2" does not exist
+```
+
+Required fix:
+
+- Apply the conflict-free v2 promotion DDL (`PROMOTION_SCHEMA_SQL`) during
+  server boot, or fail closed and do not register v2 promotion routes unless the
+  required promotion tables exist.
+- Add boot-time verification for `promotion_staging`, `remote_authority_v2`,
+  `receipt`, and any other Lane 5 tables used before seal.
+- Preserve CQ-124 separately for the full v2 projection/search schema conflict.
+
+Acceptance:
+
+- [ ] Production-style boot against a fresh database creates or verifies v2
+      promotion tables before serving traffic.
+- [ ] A v1-only database either receives the v2 promotion DDL or fails boot with
+      a clear schema error; it must not pass `/health` and then fail
+      `BeginPromotion`.
+- [ ] Docker-backed Lane 5 E2E starts from fresh services and completes
+      `BeginPromotion` without manual schema setup.
+
+### CQ-127: BeginPromotion does not prove device ownership or bind receipts to the requested device
+
+Severity: high
+Blocking: yes (blocks Lane 5 authorization acceptance)
+Status: open
+Owner: Ralph
+
+Problem:
+
+The v2 route proves the caller is authenticated and belongs to the tenant, but
+the handler currently treats `request.device.deviceId` as an opaque body field.
+It does not verify that the device belongs to the authenticated user/tenant, and
+the `already_promoted` fast path can return a receipt whose row/payload
+`deviceId` belongs to another device.
+
+Risk:
+
+Any tenant member who knows or can guess `(storeId, bundleRoot)` can retrieve a
+receipt for another device. Receipts include store path, roots, counts, and
+authority metadata, and later upload/seal routes will need the same device
+authorization semantics. This violates the Lane 5 invariant that tenant
+membership, device ownership, and object routes share authorization semantics.
+
+Smoke evidence:
+
+```text
+pnpm --filter @c3-oss/prosa-api exec tsx --conditions=prosa-dev <<'TS'
+...seed receipt.device_id/payload.deviceId = 'victim-device', request deviceId = 'attacker-device', then call POST /v2/promotions/begin...
+TS
+```
+
+Run from `apps/api`; output:
+
+```text
+device-mismatch 200 already_promoted victim-device
+```
+
+Required fix:
+
+- Carry authenticated user/session context and a verified device identity into
+  `BeginPromotion`.
+- Require a valid device record or documented device-registration policy for
+  `(tenant_id, user_id, device_id)` before opening staging or returning a
+  receipt.
+- Bind `already_promoted` receipt validation to the accepted device policy: same
+  device if receipts are device-scoped, or an explicit same-tenant multi-device
+  rule that still validates the receipt tuple and avoids leaking unauthorized
+  device metadata.
+
+Acceptance:
+
+- [ ] Route test proves an unknown/unowned `deviceId` is rejected before
+      staging or receipt return.
+- [ ] Route test proves a request for `attacker-device` cannot receive a
+      receipt scoped to `victim-device` unless an explicit multi-device policy
+      is implemented and tested.
+- [ ] The same device authorization helper/policy is reused by upload, seal, and
+      receipt-fetch routes.
+
 ## Closed during this cycle
 
 ### CQ-122: Streaming validation is header-only and does not satisfy the Lane 4 pack-validation gate

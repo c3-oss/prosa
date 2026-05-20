@@ -61,6 +61,12 @@ Read `docs/roadmap/rearch-2/correction-queue.md` before the next slice.
   closed when `remote_authority_v2` points to a missing, malformed, or mismatched
   receipt, and valid `already_promoted` replies must prove the receipt matches
   the requested authority tuple.
+- CQ-126 blocks Lane 5 production/Docker E2E acceptance: server boot must apply
+  or verify the conflict-free v2 promotion tables before registering usable v2
+  promotion routes.
+- CQ-127 blocks Lane 5 authorization acceptance: BeginPromotion must verify
+  device ownership/policy and must not return another device's receipt by only
+  proving tenant membership.
 
 ## Lane 5 invariants
 
