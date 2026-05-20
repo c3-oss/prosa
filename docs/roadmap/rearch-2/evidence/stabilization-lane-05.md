@@ -468,3 +468,30 @@ just e2e-cli                                       # 3/3
 ```
 
 Cycle 4 clean.
+
+### Cycle 5 — 2026-05-20
+
+Working tree clean (no drift since cycle 4). Gates re-run:
+
+```text
+focused CQ-141 (unit + route)                      # 14/14
+pnpm typecheck                                     # 13/13 cached
+pnpm lint                                          # 13/13 cached
+git diff --check                                   # clean
+just e2e                                           # 4/4
+just e2e-cli                                       # 3/3
+```
+
+Cycle 5 clean. Five consecutive cycles documented for the
+post-CQ-141 closure attempt #4 batch.
+
+## Awaiting governor acceptance (closure attempt #4)
+
+CQ-141 status in `correction-queue.md` is "closure attempt #4
+(2026-05-20); awaiting governor review". The five fresh
+180-second stabilization cycles are now in place. Per the
+prompt's completion rule — "Do not output RALPH_DONE unless
+all gates/evidence/CQs are clean and five consecutive 180
+-second stabilization cycles for Lane 5 are documented" — the
+cycles are documented, but CQ-141 still requires explicit
+governor acceptance before another RALPH_DONE attempt.
