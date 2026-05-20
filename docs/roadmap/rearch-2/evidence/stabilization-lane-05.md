@@ -63,3 +63,34 @@ git diff --check -> clean
 
 No contradictions across `correction-queue.md`, `gates.md`,
 `status.md`. Cycle 1 counts.
+
+## Cycle 2 — 2026-05-20T13:00:27Z
+
+- **Interval since cycle 1**: 12:50:29Z → 13:00:27Z = 598 s
+  (≥ 180 s minimum honoured).
+- **Lane HEAD**: still `ce71cfd docs(docs): mark all lane 5
+  completion gates checked`. The only new commit between cycle 1
+  and cycle 2 is `af1c3ea docs(docs): start lane 5 stabilization
+  log — cycle 1`, which is the cycle 1 governance entry itself,
+  not lane code/test work; the counter is intact.
+- **Worktree**: only `.claude/scheduled_tasks.lock` untracked.
+- **correction-queue.md / gates.md / status.md**: unchanged
+  since cycle 1. CQ-124 + CQ-134 still the only open Lane 5
+  items; all nine L5.x gate checkboxes still `[x]`; status.md
+  "Closed this cycle" still lists the 12 Lane 5 CQs.
+
+Lane 5 minimum gate evidence:
+
+```text
+pnpm --filter @c3-oss/prosa-api test
+ -> Tests 285 passed | 4 skipped (289)
+
+pnpm --filter @c3-oss/prosa test
+ -> Tests 296 passed | 3 skipped (299)
+
+pnpm typecheck   -> 13/13 packages clean (turbo cache hit)
+pnpm lint        -> 13/13 packages clean (turbo cache hit)
+git diff --check -> clean
+```
+
+Cycle 2 counts.
