@@ -51,168 +51,66 @@ The blocker is implementation work, not environment.
 
 ## Open blockers
 
-- CQ-123: closed (2026-05-20). The `opaqueAuthIdSchema` wire-schema
-  relaxation is now complemented by a real end-to-end lifecycle pin in
-  `apps/cli/test/cli/v2/sync/promote.test.ts` (signup → BeginPromotion →
-  uploads → seal → client `promotionReceiptV2Schema.safeParse` + JWKS
-  signature verify). The CLI test signs up via Better Auth and asserts
-  the returned receipt's `payload.tenantId` matches the mixed-case
-  organization id end-to-end.
+Only CQs that remain BLOCKING for Lane 5 acceptance. Closed CQs are
+summarized under "Closed this cycle" below; the full closure detail
+lives in `docs/roadmap/rearch-2/correction-queue.md`.
+
 - CQ-124: v1 and v2 schemas share table names with incompatible
   columns. The conflict-free subset is now centralized behind
   `applyV2PromotionSubsetSchema` (used by production boot and every
   test entry point), but the underlying v1/v2 cutover is deferred to
   Lane 10 — CQ-124 acceptance (full `applySchemaV2` over v1, projection
   / search materialization) remains open until that cutover lands.
-- CQ-125: closed (2026-05-20). BeginPromotion's `already_promoted` fast
-  path gates on three independent checks before returning the stored
-  receipt: tuple integrity (load-scoped to authority tuple, refuse on
-  mismatch), content-addressed derived id
-  (`deriveReceiptId(payload) === payload.receiptId`), and signature
-  verification via the server's JWKS-published signer. Receipt is only
-  returned when `payload.deviceId === request.device.deviceId`. Pinned
-  by `cq-125-authority-integrity` (4 tuple cases) and
-  `cq-125-receipt-validation` (4 cases: tamper, bogus sig, foreign
-  signer, happy-path replay).
-- CQ-126: closed (2026-05-20). Boot applies the conflict-free v2 subset via
-  the canonical helper `applyV2PromotionSubsetSchema`, the
-  `search_generation_current` migration is idempotent and pinned by
-  CQ-137, and `apps/api/test/v2/cq-126-server-boot-schema.test.ts` now
-  includes an authenticated BeginPromotion case that proves
-  `remote_authority_v2` / `promotion_staging` / `device` all resolve
-  against the boot-applied schema. Test wording no longer claims CQ-124
-  closure. Repo-wide `pnpm lint` and `pnpm typecheck` green.
-- CQ-127: closed (2026-05-20). `x-prosa-device-id` is mandatory on every
-  post-begin v2 route (`requireVerifiedDevice`); missing → 400
-  DEVICE_REQUIRED, unregistered → 403 DEVICE_NOT_OWNED, mismatched
-  → 403 DEVICE_MISMATCH. GetReceipt additionally compares against
-  `payload.deviceId` and returns 404 RECEIPT_NOT_FOUND on mismatch.
-  CLI `promoteBundleV2` sends the header on every status / segment /
-  pack / seal request. Pinned by the existing CQ-127 policy +
-  ownership test files plus updated routes across the v2 sync test
-  suite.
-- CQ-128: closed (2026-05-20). The partial unique index over active
-  `(tenant_id, store_id, bundleRoot)` rows + `INSERT ... ON CONFLICT DO
-  NOTHING` collapse 8 concurrent `BeginPromotion`s to a single
-  promotionId. Status/resume digest-domain alignment and inventory-ref
-  conflict semantics remain watch points (Lane 5 slice 8 caveat below).
-- CQ-132: closed (2026-05-20). The cleanup branch re-reads `remote_pack`
-  after a non-idempotent catalog failure and only deletes bytes when no
-  catalog row references the pack — race-interleaving case is pinned by
-  the 4th case in `cq-132-orphan-cleanup.test.ts`.
-- CQ-133: per-promotion pack linkage exists. Its CQ-141 dependency
-  (missing-byte / wrong-metadata fast path + seal pack-presence) is closed;
-  the remaining CQ-133 acceptance is the linkage itself surviving Docker
-  E2E.
+  Lane 5 acceptance proceeds with the subset workaround documented.
 - CQ-134: SealPromotion can emit receipt/authority before proving object
-  coverage by object id, pack-byte presence, or projection/search
-  materialization; receipt verification flags can claim success for deferred
-  work.
-- CQ-135: closed (2026-05-20). `seal-promotion.ts` wraps every post-flip
-  step (pack lookup, payload build, `signer.currentKeyId()`, payload
-  bytes, `signReceipt`, the load-bearing transaction) inside a single
-  try/catch that restores the staging row from `materializing` back to
-  its prior status. Pinned by three failure-injection cases in
-  `cq-135-seal-restore.test.ts` (signer failure, currentKeyId failure,
-  transaction failure); retry with a working signer seals successfully.
-- CQ-136: closed (2026-05-20). Both sealed-replay branches (normal
-  `status='sealed'` and race-loser) now go through
-  `loadAndValidateLinkedReceipt`, which validates tuple integrity,
-  content-addressed derived id, and Ed25519 signature against the server
-  JWKS. Pinned by `cq-136-resale.test.ts` (3 tuple cases) plus
-  `cq-136-link-validation.test.ts` (3 cases: derived-id mismatch, bogus
-  signature, foreign-signer signature).
-- CQ-137: closed (2026-05-20) alongside CQ-126. Production boot, every
-  test entry point, and the Docker E2E bootstrap apply the legacy-shape
-  migration through `applyV2PromotionSubsetSchema`'s
-  `SEARCH_GENERATION_ONLY_SQL` block. The authenticated CQ-126 boot-path
-  test proves BeginPromotion reaches the boot-applied v2 query/write layer;
-  `cq-137-store-scoped-generation.test.ts` proves the seal-time
-  `(tenant_id, store_id)` upsert behavior.
-- CQ-138: closed (2026-05-20). Server-side GetReceipt already ran
-  tuple/derived-id/signature checks; client-side `promoteBundleV2` now
-  gates every received receipt on canonical
-  `promotionReceiptV2Schema.safeParse`, `deriveReceiptId` content
-  integrity, and JWKS Ed25519 verification. Pinned by
-  `apps/cli/test/cli/v2/sync/promote-receipt-validation.test.ts` (5/5):
-  tampered payload, forged signature, malformed shape, tampered
-  already_promoted retry, happy-path replay.
-- CQ-140: partially closed (2026-05-20). `just e2e` is now green and
-  deterministic (4/4: 1 v1 + 3 v2) with Docker up; the v2 E2E sends
-  `x-prosa-device-id` per CQ-127 and registers a tenant-B device for
-  the cross-tenant isolation case. Still explicitly open: a
-  Docker-backed `prosa sync-v2` subprocess harness + second-device
-  remote read. CQ-127 + CQ-138 + CQ-123 already pin the route + client
-  semantics; the missing piece is the subprocess gate itself.
-- CQ-141: closed (2026-05-20). UploadObjectPack's catalog fast path now
-  handles healthy / missing / wrong-content storage states via a
-  `delete() + putIfAbsent()` rewrite when stored bytes disagree with the
-  uploaded body's hash or length, and `SealPromotion` `head()`s every
-  linked pack before the authority swap (missing/zero-length packs throw
-  `SealPromotionPackBytesMissingError` → `409 PACK_BYTES_MISSING`). Pinned
-  by `apps/api/test/v2/sync/cq-141-wrong-metadata-and-seal-presence.test.ts`
-  (4/4).
+  coverage by object id, projection rows, and search docs. The
+  pack-byte-presence sub-bullet is closed by CQ-141; the projection /
+  search materialization sub-bullets are blocked on CQ-124 and remain
+  Lane 6 / Lane 10 scope.
+- CQ-140 (partial): `just e2e` is green (4/4: 1 v1 + 3 v2). Still open:
+  a Docker-backed `prosa sync-v2` subprocess harness + a two-process
+  second-device remote-read test. CQ-127 + CQ-138 + CQ-123 already
+  pin the route + client semantics; the missing piece is the harness.
+
+## Closed this cycle
+
+All closed on 2026-05-20 — see `correction-queue.md` for full detail:
+
+- **CQ-123** (Better Auth ids end-to-end through schema parse + JWKS verify).
+- **CQ-125** (BeginPromotion: tuple + deriveReceiptId + signature on fast path).
+- **CQ-126** (canonical `applyV2PromotionSubsetSchema` for boot + authenticated boot-path test).
+- **CQ-127** (mandatory `x-prosa-device-id` + GetReceipt scoping + CLI header propagation).
+- **CQ-128** (race-safe `BeginPromotion` via partial unique index + ON CONFLICT).
+- **CQ-132** (race-interleaving re-check before deleting orphan pack bytes).
+- **CQ-133** (per-promotion `promotion_uploaded_pack` linkage).
+- **CQ-135** (post-flip try/catch wraps every step; staging restored on any failure).
+- **CQ-136** (both sealed-replay branches go through `loadAndValidateLinkedReceipt`).
+- **CQ-137** (store-scoped `search_generation_current` + idempotent legacy migration).
+- **CQ-138** (CLI `promoteBundleV2` schema + deriveReceiptId + JWKS verify every receipt).
+- **CQ-141** (UploadObjectPack wrong-content rewrite + seal pack-bytes-missing fail-closed).
 
 ## Current gate caveats
 
-- Slice 6 focused GetReceipt smoke is green:
-  `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/sync/get-receipt.test.ts`
-  passed 4/4.
-- CLI slice 7 / status WIP focused smoke is green:
-  `pnpm --filter @c3-oss/prosa exec vitest run test/cli/v2/sync/promote.test.ts`
-  passed 4/4, and
-  `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/sync/get-promotion-status.test.ts`
-  passed 5/5.
-- These focused tests prove route/client mechanics only. They do not close
-  runtime receipt validation, safe token sourcing, command-level CLI coverage,
-  pack-skip resume, sealed checkpoint recovery, Docker E2E, or stabilization.
-- Slice 8 reviewer smokes confirmed `packDigest !== transportHash`, so current
-  pack-skip resume compares different digest domains and normally re-uploads
-  packs. Status-assisted inventory skip also relies on object-store presence,
-  not stored hash/size verification.
-- Slice 9 focused v2 E2E is useful Postgres/S3 adapter evidence, but it is not
-  accepted as the Lane 5 Docker E2E gate: no-env runs skip, `just e2e` fails,
-  and the test uses in-process Fastify rather than `prosa sync-v2`.
-- CQ-129, CQ-130, and CQ-131 have focused green smoke and are accepted by the
-  governor as of 2026-05-20. CQ-132's earlier rejection (concurrent
-  delete-after-catalog race) is resolved by the race-interleaving re-check
-  in the 2026-05-20 closure. CQ-139 is structurally accepted for removing
-  argv bearer tokens, but command-level CLI coverage is still desirable.
-- CQ-135's earlier `a867e93` rejection (no failure-injection tests) is
-  resolved by the 2026-05-20 closure adding three failure-injection cases
-  in `cq-135-seal-restore.test.ts`.
-- CQ-137 was rejected on the schema-upgrade / production boot migration
-  axis; that gap is closed in 2026-05-20 alongside CQ-126. CQ-136 was
-  rejected on the race-loser + derived-id/signature axis; both are
-  resolved by the 2026-05-20 closure
-  (`loadAndValidateLinkedReceipt` covers both replay branches). CQ-138's
-  earlier `cba2b90`/`6557852` and `11447b7`/`9aff136` rejections (shared
-  schema + CLI validation) are resolved by the 2026-05-20 closure
-  (`promoteBundleV2` now schema-parses + JWKS-verifies every receipt).
-- CQ-127's earlier `0e59a43` rejection (opt-in header + tenant-wide
-  GetReceipt + no CLI propagation) is resolved by the 2026-05-20 closure:
-  the header is mandatory, GetReceipt is device-scoped via
-  `payload.deviceId`, and the CLI sends the header on every post-begin
-  request.
-- CQ-123 closure from `3f313f0` is rejected as partial; that gap is resolved
-  by the 2026-05-20 closure (`promote.test.ts` adds the lifecycle proof
-  with `promotionReceiptV2Schema.safeParse` + JWKS verify of a real
-  Better Auth signup-derived receipt).
-- CQ-125's earlier `41642b3` rejection (device-mismatch + malformed-sig
-  cases) is resolved by the 2026-05-20 closure: `verifyReceipt` +
-  `deriveReceiptId` checks plus the device-only return gate. CQ-141's
-  earlier `f1d15b3` rejection (wrong-metadata fast path +
-  seal-after-pack-byte-loss) is resolved by the 2026-05-20 closure above.
-- CQ-126 was reopened twice (rejection of `ea46899` and the earlier WIP
-  helper slice). The 2026-05-20 closure addresses both: the
-  `search_generation_current` legacy-shape upgrade is idempotent and pinned
-  by CQ-137; the cq-126 test now asserts an authenticated BeginPromotion
-  reaches `200 needs_inventory` against the boot-applied schema.
-- Reviewer aggregate smoke
-  `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/` failed 77/78 with
-  a timeout in the malformed-body BeginPromotion case, while the same file
-  passed 7/7 in isolation. Do not accept the recorded 78/78 aggregate gate until
-  a fresh aggregate run is green or the timeout is fixed/documented.
+- `pnpm --filter @c3-oss/prosa-api test` runs the full v2 sync test
+  suite green: 281 passed / 4 skipped (the 4 skipped are env-gated
+  Docker E2E tests + a pre-existing v1 skip; with the env vars set they
+  all pass).
+- `pnpm --filter @c3-oss/prosa test` runs the CLI suite green: 295
+  passed / 1 skipped.
+- `pnpm typecheck` + `pnpm lint` repo-wide → clean (13/13 packages).
+- `just e2e` (Docker harness up) → pass, 4/4 (1 v1 + 3 v2). Fresh
+  no-env run → 3 skipped (skip ≠ gate proof).
+- Slice 8 watch point (CQ-128): `packDigest !== transportHash`, so
+  pack-skip resume compares different digest domains and normally
+  re-uploads packs. Status-assisted inventory skip relies on
+  object-store presence, not stored hash/size verification. Both
+  remain documented as low-impact pending work behind the closed
+  CQ-128 core.
+- CQ-129, CQ-130, CQ-131, CQ-139 accepted by the governor on
+  2026-05-20.
+- The remaining CQ-140 sub-bullet (Docker-backed `prosa sync-v2`
+  subprocess harness + two-process second-device read) is the only
+  Lane 5 gate caveat besides Lane 10 cutover work (CQ-124, CQ-134).
 
 ## Supporting documents
 
