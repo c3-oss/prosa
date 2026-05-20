@@ -74,6 +74,14 @@ export class BeginPromotionAuthorityCorruptError extends Error {
   readonly code = 'AUTHORITY_CORRUPT' as const
 }
 
+// CQ-127: the request's deviceId is already registered to a
+// different user in the same tenant — refuse with a documented
+// device-ownership error rather than auto-claiming.
+export class BeginPromotionDeviceOwnershipError extends Error {
+  override name = 'BeginPromotionDeviceOwnershipError'
+  readonly code = 'DEVICE_OWNED_BY_OTHER_USER' as const
+}
+
 // Server-local request schema. Tenant/store/device ids are opaque on
 // the server side (see file header). The bundle and segment refs still
 // go through the canonical wire schemas.
@@ -135,6 +143,15 @@ export async function beginPromotion(deps: BeginPromotionDeps, rawInput: unknown
     ])
   }
 
+  // CQ-127: claim the device for this user before any catalog
+  // read returns receipt metadata. The device record is the
+  // authorization handle used by upload/seal/get-receipt; the
+  // claim is `INSERT ON CONFLICT DO NOTHING` so repeated
+  // BeginPromotion calls from the same device are idempotent,
+  // and a steal attempt (different user owning the same id)
+  // surfaces as `DEVICE_OWNED_BY_OTHER_USER`.
+  await claimDevice(deps, input.device.deviceId)
+
   // 1. Fast path: already promoted?
   const authority = await deps.rawExec<RemoteAuthorityRow>(
     `SELECT current_receipt_id
@@ -161,7 +178,14 @@ export async function beginPromotion(deps: BeginPromotionDeps, rawInput: unknown
         `remote_authority_v2 row for (${deps.tenantId}, ${input.storeId}, ${input.head.bundleRoot}) references a ${loaded === 'missing' ? 'missing' : 'tuple-mismatched'} receipt`,
       )
     }
-    return { status: 'already_promoted', receipt: loaded }
+    // CQ-127: only return the receipt to the device that actually
+    // sealed it. A different device in the same tenant falls
+    // through to open its own staging slot (the bundle's
+    // authority already exists — a re-seal from this device will
+    // produce a fresh receipt the device can trust).
+    if (loaded.payload.deviceId === input.device.deviceId) {
+      return { status: 'already_promoted', receipt: loaded }
+    }
   }
 
   // 2. Open (or reuse) a promotion_staging row for this bundle.
@@ -253,6 +277,37 @@ async function findOrCreateStaging(deps: BeginPromotionDeps, input: ServerBeginP
     ])
   }
   return winner[0]!.id
+}
+
+// CQ-127: claim a device for (tenant_id, user_id). The first
+// BeginPromotion from a fresh device auto-registers it; repeated
+// calls from the same device are a no-op. A different user
+// claiming the same id surfaces as DEVICE_OWNED_BY_OTHER_USER.
+async function claimDevice(deps: BeginPromotionDeps, deviceId: string): Promise<void> {
+  const existing = await deps.rawExec<{ user_id: string }>(
+    `SELECT user_id FROM device WHERE id = $1 AND tenant_id = $2 LIMIT 1`,
+    [deviceId, deps.tenantId],
+  )
+  if (existing.length > 0) {
+    if (existing[0]!.user_id !== deps.userId) {
+      throw new BeginPromotionDeviceOwnershipError(
+        `device ${deviceId} is already registered to another user in this tenant`,
+      )
+    }
+    return
+  }
+  // Auto-register. The v1 `device` table schema is what the test
+  // helper + production both apply; the v2 device columns
+  // overlap on (id, tenant_id, user_id, name, platform,
+  // cli_version, created_at). `name` defaults to the deviceId so
+  // the column stays NOT NULL without forcing the client to
+  // supply one for v2.0.
+  await deps.rawExec(
+    `INSERT INTO device (id, tenant_id, user_id, name)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (id) DO NOTHING`,
+    [deviceId, deps.tenantId, deps.userId, deviceId],
+  )
 }
 
 // CQ-125: load the receipt referenced by an authority row and

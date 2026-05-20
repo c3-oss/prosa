@@ -294,8 +294,45 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 5 authorization acceptance)
-Status: open
+Status: partially closed (2026-05-20) — BeginPromotion-side
+device ownership + same-device fast path are wired; upload, seal,
+get-receipt and get-promotion-status still need the same helper
+applied.
 Owner: Ralph
+
+Closure (BeginPromotion side): `apps/api/src/v2/sync/begin-promotion.ts`
+adds `claimDevice(...)` which `SELECT`s an existing `device` row
+for `(id, tenant_id)`, rejects if it belongs to a different
+`user_id` (throws `BeginPromotionDeviceOwnershipError` →
+`403 DEVICE_OWNED_BY_OTHER_USER`), and otherwise
+`INSERT ON CONFLICT DO NOTHING` auto-registers a fresh
+`(id, tenant_id, user_id, name=id)` row. The already_promoted
+fast path now only returns the receipt when
+`payload.deviceId === input.device.deviceId`; a different
+device in the same tenant falls through to a fresh staging
+slot rather than receiving a foreign-device receipt.
+
+Pinned by four cases in
+`apps/api/test/v2/sync/cq-127-device-ownership.test.ts`:
+1. fresh device auto-registers in `device` for the requesting
+   user;
+2. cross-user steal of an existing device id returns 403
+   DEVICE_OWNED_BY_OTHER_USER and leaves the row's `user_id`
+   unchanged;
+3. different device asking about an already-promoted bundle
+   gets `needs_inventory` (no foreign-device leak);
+4. same device replaying the seal still gets
+   `already_promoted`.
+
+Outstanding for full closure:
+- Apply the same device-ownership helper to UploadSegment,
+  UploadObjectPack, SealPromotion, GetReceipt, and
+  GetPromotionStatus so every receipt-touching route enforces
+  the same policy (current state: only BeginPromotion).
+- Document the tenant-wide GetReceipt policy (a same-tenant
+  caller from a different device CAN read another device's
+  receipt by id; the leak prevention is BeginPromotion-level
+  only).
 
 Problem:
 

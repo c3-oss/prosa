@@ -24,6 +24,7 @@ import { type V2AuthDeps, resolveV2AuthContext } from './context.js'
 import type { ReceiptSigner } from './signing/local-signer.js'
 import {
   BeginPromotionAuthorityCorruptError,
+  BeginPromotionDeviceOwnershipError,
   BeginPromotionTenantMismatchError,
   BeginPromotionValidationError,
   beginPromotion,
@@ -143,6 +144,13 @@ async function handleBeginPromotion(
       // intentionally avoids 200/409 here — a client should not
       // retry around this; an operator must heal the orphan.
       reply.code(500)
+      return { code: err.code, op: 'BeginPromotion', message: err.message }
+    }
+    if (err instanceof BeginPromotionDeviceOwnershipError) {
+      // CQ-127: a device-steal attempt is a 403. The client
+      // should pick a different device id or have the original
+      // owner release it.
+      reply.code(403)
       return { code: err.code, op: 'BeginPromotion', message: err.message }
     }
     throw err
