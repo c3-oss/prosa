@@ -183,6 +183,48 @@ describe('CQ-138: GetReceipt rejects corrupt or mismatched rows', () => {
     }
   })
 
+  it('rejects a row whose payload.receiptId does not equal deriveReceiptId(payload) (CQ-138 follow-up)', async () => {
+    // Tampered payload bytes: a same-tenant attacker mutates
+    // the signed payload (here: edits `serverRegion`) without
+    // re-deriving the receipt id. payload.receiptId still
+    // equals the request, but the canonical hash of the
+    // current payload bytes won't match anymore — so
+    // deriveReceiptId(payload) !== payload.receiptId and the
+    // route refuses.
+    const t = await buildTestApp()
+    try {
+      const account = await signupTenant(t, 'cq138-derive@example.com', 'Acme', 'acme-cq138-derive')
+      const receiptId = 'rcpt_seeded_derive'
+      const payload = corruptPayload({
+        receiptId,
+        tenantId: account.tenant.id,
+        storeId: 'store-cq138',
+        deviceId: 'dev-cq138',
+      })
+      // Edit a field AFTER computing the id elsewhere — the
+      // canonical hash of `payload` no longer matches its
+      // `receiptId`.
+      ;(payload as { serverRegion: string }).serverRegion = 'tampered'
+      await seedReceiptRow(t, {
+        receiptId,
+        tenantId: account.tenant.id,
+        storeId: 'store-cq138',
+        deviceId: 'dev-cq138',
+        payload,
+        signature: { alg: 'Ed25519', keyId: 'unknown-key', sig: VALID_BASE64 },
+      })
+      const response = await t.app.inject({
+        method: 'GET',
+        url: `/v2/receipts/${receiptId}`,
+        headers: { authorization: `Bearer ${account.token}` },
+      })
+      expect(response.statusCode).toBe(404)
+      expect((response.json() as { code: string }).code).toBe('RECEIPT_NOT_FOUND')
+    } finally {
+      await t.close()
+    }
+  })
+
   it('rejects a row whose signature does not verify against the JWKS', async () => {
     const t = await buildTestApp()
     try {

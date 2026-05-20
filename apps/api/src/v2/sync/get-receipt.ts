@@ -27,6 +27,7 @@ import {
   type PromotionReceiptV2,
   type PromotionReceiptV2Payload,
   type PromotionReceiptV2Signature,
+  deriveReceiptId,
   receiptPayloadBytes,
 } from '@c3-oss/prosa-types-v2'
 import type { RawExec } from '../../db.js'
@@ -77,6 +78,26 @@ export async function getReceipt(deps: GetReceiptDeps, params: GetReceiptParams)
     return { status: 'not_found', receiptId: params.receiptId }
   }
   if (payload.storeId !== row.store_id || payload.deviceId !== row.device_id) {
+    return { status: 'not_found', receiptId: params.receiptId }
+  }
+  // CQ-138 #5 (rejection follow-up): payload.receiptId must
+  // equal `deriveReceiptId(payload)` — the canonical hash of the
+  // signed payload bytes. This catches a row whose stored id
+  // got out of sync with its canonical bytes (tamper, partial
+  // re-encode, or schema drift). We skip the full
+  // `promotionReceiptV2Schema.safeParse(...)` because that
+  // schema enforces `canonicalIdSchema` lowercase on tenant /
+  // store / device ids — Better Auth org/user/device ids are
+  // mixed case (CQ-123). The content-addressed check is what
+  // protects against tamper; the schema's id-shape rule belongs
+  // in the wire boundary, not the storage layer.
+  let derived: string
+  try {
+    derived = deriveReceiptId(payload)
+  } catch {
+    return { status: 'not_found', receiptId: params.receiptId }
+  }
+  if (derived !== payload.receiptId) {
     return { status: 'not_found', receiptId: params.receiptId }
   }
   // CQ-138 #4: signature verifies against the JWKS.

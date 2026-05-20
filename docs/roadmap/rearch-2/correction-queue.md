@@ -1170,10 +1170,30 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 5 search/projection authority acceptance)
-Status: open (closure rejected 2026-05-20)
+Status: closed (2026-05-20) — idempotent migration added
 Owner: Ralph
 
-Closure rejection: `packages/prosa-db-v2/src/schema/search.ts` rewrites
+Full closure: `SEARCH_SCHEMA_SQL` ships an idempotent
+migration block that runs every time the schema is re-applied:
+`ADD COLUMN IF NOT EXISTS store_id`, backfill `NULL → ''`,
+`ALTER COLUMN store_id SET NOT NULL`, then a DO block that
+detects the legacy single-column PK via `pg_index` and swaps
+in `PRIMARY KEY (tenant_id, store_id)`. Re-applying the
+schema on a fresh database is a no-op (the new shape is
+already in place); re-applying it on a legacy
+tenant-pk database migrates the row in place without data loss.
+
+Pinned by `apps/api/test/v2/sync/cq-137-schema-migration.test.ts`:
+1. Seed the legacy `tenant_id PRIMARY KEY` shape with a row,
+   re-apply `SEARCH_SCHEMA_SQL`, then assert the PK is now
+   `(tenant_id, store_id)`, the pre-existing row carries
+   `store_id = ''`, and a second store can coexist for the
+   same tenant.
+2. Apply the schema twice on a fresh database — the second
+   application is a no-op (PK shape unchanged).
+
+Closure rejection (superseded by the migration block above):
+`packages/prosa-db-v2/src/schema/search.ts` rewrites
 `search_generation_current` with a composite PK
 `(tenant_id, store_id)` — matching `remote_authority_v2`'s
 scoping. The seal handler UPSERTs against that key, supplying
@@ -1237,10 +1257,33 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 5 GetReceipt, CLI resume, and receipt-verification acceptance)
-Status: open (partial closure rejected 2026-05-20)
+Status: closed (2026-05-20) — deriveReceiptId tamper check added
 Owner: Ralph
 
-Partial closure: `apps/api/src/v2/sync/get-receipt.ts` now validates the
+Full closure: `apps/api/src/v2/sync/get-receipt.ts` now also
+asserts `deriveReceiptId(payload) === payload.receiptId` —
+the content-addressed canonical hash of the stored payload
+bytes must match the signed receipt id. A same-tenant
+attacker who mutates the JSONB row (e.g. flips
+`serverRegion`) leaves `payload.receiptId` intact but
+breaks the canonical hash; the route refuses with 404. We
+intentionally skip the full
+`promotionReceiptV2Schema.safeParse(...)` because that
+schema enforces lowercase canonical IDs for
+tenant/store/device — Better Auth org/user/device ids are
+mixed case (tracked separately in CQ-123). The
+content-addressed check protects against tamper without
+coupling the storage layer to the canonical-id constraint.
+
+Pinned by a fifth case in
+`apps/api/test/v2/sync/cq-138-receipt-validation.test.ts`:
+seed a row where `payload.receiptId` matches the request
+but the payload bytes have been mutated post-derivation
+(serverRegion changed). GetReceipt returns 404
+RECEIPT_NOT_FOUND.
+
+Partial closure (superseded by the deriveReceiptId check above):
+`apps/api/src/v2/sync/get-receipt.ts` now validates the
 stored row before returning it:
 1. payload + signature parse to objects;
 2. `payload.receiptId === :receiptId`;
