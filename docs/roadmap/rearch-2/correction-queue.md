@@ -137,8 +137,25 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 5 BeginPromotion acceptance)
-Status: open
+Status: closed (2026-05-20)
 Owner: Ralph
+
+Closure: `apps/api/src/v2/sync/begin-promotion.ts` replaces the
+old `loadReceipt(receiptId)` with `loadAuthorityReceipt(...)`
+which loads the row scoped to the authority tuple AND verifies:
+- `receipt.store_id == authority.store_id`,
+- `payload.tenantId == ctx.tenantId`,
+- `payload.storeId == authority.store_id`,
+- `payload.bundleRoot == authority.current_bundle_root`,
+- `payload.receiptId == authority.current_receipt_id`.
+Any mismatch (or missing receipt) raises
+`BeginPromotionAuthorityCorruptError`; the route surfaces it as
+`500 AUTHORITY_CORRUPT` — corrupt server state, NOT a retryable
+client error and NOT a silent reopen of promotion. Pinned by
+four cases in
+`apps/api/test/v2/sync/cq-125-authority-integrity.test.ts`:
+missing receipt, row.store_id mismatch, payload.bundleRoot
+mismatch, payload.receiptId mismatch.
 
 Problem:
 
