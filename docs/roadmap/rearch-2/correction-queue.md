@@ -1255,8 +1255,31 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 5 Docker E2E acceptance and `RALPH_DONE`)
-Status: open
+Status: partially closed (2026-05-20) — `just e2e` is green; the
+"second device + sync-v2 CLI subprocess" surface remains open.
 Owner: Ralph
+
+Closure so far:
+- `apps/api/test/e2e/postgres-s3.e2e.test.ts` passes
+  `PROSA_RUNTIME_MODE: 'test'` to `loadConfig(...)` so the v2
+  plugin no longer fails the v1 e2e boot with
+  `MissingV2SignerError`.
+- `apps/api/vitest.config.ts` serializes e2e files when any
+  argv contains `"e2e"`: `fileParallelism: false` plus
+  `singleFork: true`. The `postgres-s3` and `v2-promote` files
+  no longer race on the shared `DROP SCHEMA public CASCADE`.
+- With Docker up, `just e2e` reports 2 test files / 4 tests
+  passed (1 v1 + 3 v2). Non-e2e suites keep the parallel
+  default.
+
+Outstanding for full closure:
+- The v2 e2e still uses in-process Fastify `app.inject` against
+  Docker Postgres/MinIO, not an API container or the
+  `prosa sync-v2` subprocess.
+- No second-device remote-read coverage. A CLI-driven E2E that
+  signs up a second device + tenant, drives `prosa sync-v2`,
+  and reads the promoted receipt through `GET /v2/receipts/:id`
+  from a fresh process is still pending.
 
 Problem:
 
