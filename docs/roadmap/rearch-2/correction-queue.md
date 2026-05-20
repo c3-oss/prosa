@@ -1,6 +1,6 @@
 # rearch-2 Correction Queue
 
-Updated: 2026-05-20 after Lane 5 slice 1.
+Updated: 2026-05-20 after Lane 5 slice 2 review.
 
 ## Open blocking corrections
 
@@ -316,6 +316,62 @@ Acceptance:
       is implemented and tested.
 - [ ] The same device authorization helper/policy is reused by upload, seal, and
       receipt-fetch routes.
+
+### CQ-128: BeginPromotion staging idempotency is not race-safe
+
+Severity: high
+Blocking: yes (blocks Lane 5 retry/resume and upload/seal acceptance)
+Status: open
+Owner: Ralph
+
+Problem:
+
+Lane 5 slice 2 makes sequential `BeginPromotion` retries idempotent by
+selecting an existing active `promotion_staging` row before inserting a new one.
+The operation is not atomic: there is no transaction/advisory lock and no unique
+constraint over active `(tenant_id, store_id, bundleRoot)` rows. Two concurrent
+fresh begins can both observe no active row and insert distinct active staging
+rows for the same bundle.
+
+Risk:
+
+Retry/resume identity is unstable under normal client concurrency or duplicate
+requests. Later upload/seal paths can attach segments to one promotion id while
+another active id exists for the same authority tuple, weakening idempotency,
+cleanup, and seal-only authority assumptions.
+
+Smoke evidence:
+
+```text
+pnpm --filter @c3-oss/prosa-api exec tsx --conditions=prosa-dev <<'TS'
+...Promise.all([beginPromotion(same tuple), beginPromotion(same tuple)]), then count active promotion_staging rows...
+TS
+```
+
+Run from `apps/api`; output:
+
+```json
+{"insertCount":2,"promotionIds":["prm_fucayio4tezy3qlyeavmaa44cu","prm_zioqqmlugymueeo4piuauuue4q"]}
+```
+
+Required fix:
+
+- Make fresh `BeginPromotion` staging creation atomic for the active
+  `(tenant_id, store_id, bundleRoot)` key. Acceptable approaches include a
+  transaction plus advisory lock, or a schema-level generated bundle-root column
+  and partial unique index/UPSERT for active statuses.
+- Define conflict semantics for retries that change inventory refs for the same
+  bundle root: either return the originally persisted refs or reject with a
+  clear conflict; do not silently reuse the id while changing the upload plan.
+
+Acceptance:
+
+- [ ] Concurrent same-tuple `BeginPromotion` calls return one promotion id and
+      leave exactly one active `promotion_staging` row.
+- [ ] Sequential retry still reuses the active id.
+- [ ] Terminal `sealed`/`aborted` rows still allow a fresh active row.
+- [ ] Same `(tenant, store, bundleRoot)` with changed inventory refs is either
+      rejected as conflict or returns the originally persisted inventory plan.
 
 ## Closed during this cycle
 

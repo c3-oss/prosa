@@ -67,6 +67,9 @@ Read `docs/roadmap/rearch-2/correction-queue.md` before the next slice.
 - CQ-127 blocks Lane 5 authorization acceptance: BeginPromotion must verify
   device ownership/policy and must not return another device's receipt by only
   proving tenant membership.
+- CQ-128 blocks Lane 5 retry/resume and upload/seal acceptance: concurrent
+  `BeginPromotion` calls for the same active tuple must be atomic and return a
+  single promotion id / staging row.
 
 ## Lane 5 invariants
 

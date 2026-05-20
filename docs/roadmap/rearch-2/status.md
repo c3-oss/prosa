@@ -69,6 +69,9 @@ The blocker is implementation work, not environment.
 - CQ-127: BeginPromotion proves tenant membership but not device
   ownership/policy, and can return a receipt associated with another
   device.
+- CQ-128: BeginPromotion staging idempotency is sequential only; concurrent
+  same-tuple calls can create two active `promotion_staging` rows and two
+  promotion ids.
 
 ## Supporting documents
 
