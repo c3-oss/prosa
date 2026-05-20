@@ -255,18 +255,30 @@ export async function uploadObjectPack(
         }
       }
     }
-    // CQ-132: non-idempotent catalog failure. If THIS request wrote
-    // the bytes, best-effort delete the storage key so it does not
-    // orphan. `objectStore.delete` is documented as no-op when the
-    // key is missing, and we already know the bytes are ours
-    // (`newlyWritten`).
+    // CQ-132: non-idempotent catalog failure. If THIS request
+    // wrote the bytes, best-effort delete the storage key so it
+    // does not orphan. Before deleting we re-check the catalog:
+    // a concurrent request B may have raced past our putIfAbsent
+    // (observing our newly-written bytes as `alreadyExisted`)
+    // and committed its catalog rows while our transaction
+    // failed. Deleting in that interleaving would orphan B's
+    // remote_pack/remote_pack_entry rows. The re-check holds the
+    // invariant: bytes are only deleted when no catalog row
+    // references them.
     if (newlyWritten) {
-      try {
-        await deps.objectStore.delete(storageKey)
-      } catch {
-        // Swallow — the catalog failure is the load-bearing error
-        // we want to surface. Cleanup is best-effort and a follow-up
-        // audit/GC pass will reap any survivor.
+      const aliveRows = await deps.rawExec<{ count: string | number }>(
+        `SELECT count(*)::int AS count FROM remote_pack WHERE tenant_id = $1 AND pack_digest = $2`,
+        [deps.tenantId, observedDigest],
+      )
+      const referenced = Number(aliveRows[0]?.count ?? 0) > 0
+      if (!referenced) {
+        try {
+          await deps.objectStore.delete(storageKey)
+        } catch {
+          // Swallow — the catalog failure is the load-bearing
+          // error we want to surface. Cleanup is best-effort and
+          // a follow-up audit/GC pass will reap any survivor.
+        }
       }
     }
     throw err

@@ -710,10 +710,34 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 5 object-pack cleanup acceptance)
-Status: open (closure rejected 2026-05-20)
+Status: closed (2026-05-20) — race-interleaving re-check added
 Owner: Ralph
 
-Closure rejection: `apps/api/src/v2/sync/upload-object-pack.ts` captures
+Full closure: the cleanup branch now re-reads `remote_pack`
+after the catalog transaction fails. Bytes are only deleted
+when no `(tenant_id, pack_digest)` row references them.
+This handles the previously-flagged race where request A
+writes bytes (`newlyWritten=true`), request B observes them
+via `putIfAbsent` (`alreadyExisted=true`) and successfully
+commits its catalog rows, then A's transaction fails non-
+idempotently. The re-check finds B's catalog row and refuses
+to delete — B's `remote_pack` rows stay backed by valid
+bytes.
+
+Pinned by four cases in
+`apps/api/test/v2/sync/cq-132-orphan-cleanup.test.ts`:
+1. injected catalog failure with no racing B → storage
+   empty, no remote_pack row;
+2. idempotent retry with a throwing transaction → bytes
+   remain, count stays at 1, transaction body never runs;
+3. verifyCasPack rejection → no object-store write at all;
+4. **NEW: race interleaving** — interleaving transaction
+   stub directly INSERTs a remote_pack row before throwing.
+   The handler's cleanup sees the row, refuses to delete,
+   and the bytes survive.
+
+Closure rejection (superseded by the re-check above):
+`apps/api/src/v2/sync/upload-object-pack.ts` captures
 `putIfAbsent`'s `alreadyExisted` flag as `newlyWritten`. On any
 catalog-side failure other than the idempotent
 `unique_violation` (23505) it already handles, the catch block

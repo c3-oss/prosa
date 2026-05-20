@@ -187,4 +187,72 @@ describe('CQ-132: UploadObjectPack cleans up orphan bytes on catalog failure', (
       await sb.close()
     }
   })
+
+  it('does not delete bytes a racing request already catalogued (CQ-132 race interleaving)', async () => {
+    // Scenario flagged in the reviewer rejection:
+    //  - Request A writes bytes (alreadyExisted=false,
+    //    newlyWritten=true) and then its catalog transaction
+    //    throws non-23505.
+    //  - Meanwhile request B observed the same bytes via
+    //    putIfAbsent (alreadyExisted=true) and successfully
+    //    committed its remote_pack rows.
+    //  - A's cleanup must NOT delete the bytes — that would
+    //    orphan B's catalog rows.
+    //
+    // We simulate B by inserting the catalog row directly
+    // between A's putIfAbsent and A's failing transaction. The
+    // helper exposes the transaction it will run via the
+    // injected closure, so we use the seam to drop in the
+    // simulated B catalog row before throwing.
+    const sb = await buildSandbox()
+    try {
+      const pack = buildPack()
+      const observedDigest = pack.packDigest
+      const interleavingTransaction = async <T>(_fn: (tx: typeof sb.db.rawExec) => Promise<T>): Promise<T> => {
+        // Simulate concurrent request B: directly write the
+        // remote_pack catalog row for this digest as if B
+        // committed first.
+        await sb.db.rawExec(
+          `INSERT INTO remote_pack (
+             tenant_id, pack_digest, kind, entry_count, byte_length,
+             object_set_root, standalone_large_object, storage_uri
+           )
+           VALUES ($1, $2, 'cas_object_pack', 1, $3, $4, false, $5)`,
+          [
+            sb.tenantId,
+            observedDigest,
+            pack.bytes.byteLength,
+            '00'.repeat(32),
+            `object-packs/${sb.tenantId}/${observedDigest.slice('blake3:'.length)}.pack`,
+          ],
+        )
+        throw new Error('simulated non-23505 catalog failure with racing B commit (cq-132)')
+      }
+
+      await expect(
+        uploadObjectPack(
+          {
+            rawExec: sb.db.rawExec,
+            transaction: interleavingTransaction as unknown as typeof sb.db.transaction,
+            tenantId: sb.tenantId,
+            objectStore: sb.objectStore,
+          },
+          { promotionId: sb.promotionId, body: pack.bytes, transportHash: transportHashOf(pack.bytes) },
+        ),
+      ).rejects.toThrow(/cq-132/)
+
+      // Bytes remain because the racing B catalog row references
+      // them. The race-safe cleanup re-checks remote_pack and
+      // declines to delete when the digest is now catalogued.
+      const key = objectPackStorageKey(sb.tenantId, observedDigest)
+      expect(await sb.objectStore.head(key)).not.toBeNull()
+      const rows = await sb.db.rawExec<{ count: string | number }>(
+        `SELECT count(*)::int AS count FROM remote_pack WHERE tenant_id = $1 AND pack_digest = $2`,
+        [sb.tenantId, observedDigest],
+      )
+      expect(Number(rows[0]!.count)).toBe(1)
+    } finally {
+      await sb.close()
+    }
+  })
 })
