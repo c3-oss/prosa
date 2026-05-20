@@ -1,10 +1,13 @@
 # Lane 3 Evidence — Derived layer
 
-Updated: 2026-05-20 after Tantivy runtime writer landed.
+Updated: 2026-05-20 after the compile-to-index gate landed.
 
 ## Status
 
-Active / incomplete. Tantivy native runtime writer is in. DuckDB analytics runtime executor and Parquet compaction merge worker are still missing.
+Active / incomplete. The Tantivy compile-to-index gate is now satisfied
+end-to-end (compile-v2 → index-v2 tantivy → index-v2 status). DuckDB analytics
+runtime code landed early in `828b59f`; keep it but treat it as pending
+governor review/acceptance. Parquet compaction merge worker still outstanding.
 
 ## Completed support foundation
 
@@ -81,16 +84,32 @@ Active / incomplete. Tantivy native runtime writer is in. DuckDB analytics runti
       index-v2 tantivy && index-v2 status`) against an
       importer-produced bundle, to cover the projection-segment
       shape end-to-end rather than the planted-fixture shape.
-- [x] DuckDB analytics runtime executor — landed with
+- [x] Tantivy compile-to-index gate — landed
+      (`apps/cli/test/cli/compile-to-index-gate.test.ts`). The test
+      spawns `prosa compile-v2 codex` against a synthetic Codex
+      rollout fixture (`session_meta` + two `response_item` messages
+      with `input_text` / `output_text` content), reads back the
+      importer-produced
+      `epochs/<n>/projection/search_doc.prosa-projection.ndjson` to
+      confirm ≥ 1 search_doc row landed, spawns
+      `prosa index-v2 tantivy` against the resulting v2 bundle, then
+      spawns `prosa index-v2 status` and asserts
+      `tantivy.ready_for_read === true`,
+      `checkpoint.last_indexed_epoch === sealedEpoch`, and
+      `checkpoint.indexed_doc_count === checkpoint.source_doc_count`.
+      The v2 codex importer gained a minimal `buildSearchDocs`
+      step that emits one `SearchDocV2` per message with indexable
+      text (`input_text` / `output_text` / `text` blocks); full v1
+      parity for tool-call / tool-result / per-block fan-out remains
+      a follow-up.
+- [ ] DuckDB analytics runtime executor — code landed early in `828b59f` with
       `runAnalyticsExecution` + a focused 7-test suite that materialises
       each of the 5 fixed views against minimal Parquet fixtures
       (planted via DuckDB's own `COPY ... TO ... (FORMAT PARQUET)`),
       verifies column-shape parity with `ANALYTICS_VIEW_COLUMNS`, and
-      asserts row counts + `skippedEntities` reporting. Remaining next
-      step: `prosa index-v2 analytics-run` CLI command + a scripted
-      gate that proves the runtime works against an importer-produced
-      Parquet bundle (requires importers to emit Parquet, currently
-      they only emit NDJSON).
+      asserts row counts + `skippedEntities` reporting. Governor acceptance is
+      pending until the current Tantivy compile-to-index gate is closed and the
+      DuckDB slice receives focused review/validation.
 - [ ] Parquet compaction merge worker.
 - [ ] End-to-end Lane 3 gates in `gates.md`.
 
@@ -161,6 +180,31 @@ Gate output (full closure command set):
 - Full `pnpm --filter @c3-oss/prosa-derived-v2 test` → 570/570
   (54 files); typecheck + biome clean; workspace `pnpm typecheck`
   green (13/13 packages).
+
+## Compile-to-index gate (2026-05-20)
+
+- `apps/cli/test/cli/compile-to-index-gate.test.ts` runs the full
+  governance gate: spawns `prosa compile-v2 codex` against a
+  synthetic codex JSONL containing one `session_meta` + two
+  `response_item` messages (user + assistant) with indexable
+  `input_text` / `output_text` content; reads back
+  `epochs/<n>/projection/search_doc.prosa-projection.ndjson` to
+  confirm ≥1 search_doc row was emitted; spawns
+  `prosa index-v2 tantivy --store … --heap-bytes 15000000 --num-threads 1`;
+  spawns `prosa index-v2 status` and asserts
+  `tantivy.ready_for_read === true`,
+  `checkpoint.last_indexed_epoch === sealedEpoch`, and
+  `checkpoint.indexed_doc_count === checkpoint.source_doc_count`.
+- The v2 codex importer now emits one `SearchDocV2` per message
+  with indexable text (`input_text` / `output_text` / `text`
+  blocks); full v1 parity for tool-call / tool-result / per-block
+  fan-out is a follow-up. Without this importer change the gate
+  would fail with `no_search_docs` because the projection segment
+  would be empty.
+- Gate output: `pnpm --filter @c3-oss/prosa exec vitest run
+  test/cli/compile-to-index-gate.test.ts` → 1/1 (~5.5s). Full
+  importers suite → 40/40, derived-v2 suite → 570/570, CLI tantivy
+  CLI subset → 17/17, workspace `pnpm typecheck` clean.
 
 ## Smoke + gate evidence (2026-05-20)
 

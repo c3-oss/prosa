@@ -508,6 +508,46 @@ export class CodexProvider implements Provider {
       raw_record_id: firstRawRecordId,
     })
 
+    // Lane 3 compile-to-index gate: emit one `SearchDocV2` per message
+    // that has at least one indexable text content block. Mirrors the
+    // load-bearing subset of v1's `buildSearchDocs` (codex variant)
+    // without the per-tool-call / per-tool-result fan-out — those land
+    // when the v2 codex importer ports its full v1 behaviour. The
+    // Tantivy runtime planner / writer only needs the rows to exist;
+    // the column shape matches `SEARCH_DOC_FIELDS`.
+    const blocksByMessage = new Map<string, string[]>()
+    for (const block of draft.content_blocks) {
+      const textInline = block.text_inline
+      if (typeof textInline !== 'string' || textInline.length === 0) continue
+      if (block.block_type !== 'input_text' && block.block_type !== 'output_text' && block.block_type !== 'text') {
+        continue
+      }
+      const messageId = block.message_id
+      if (messageId === null) continue
+      const list = blocksByMessage.get(messageId) ?? []
+      list.push(textInline)
+      blocksByMessage.set(messageId, list)
+    }
+    for (const message of draft.messages) {
+      const texts = blocksByMessage.get(message.message_id)
+      if (texts === undefined || texts.length === 0) continue
+      const text = texts.join('\n')
+      draft.search_docs.push({
+        doc_id: `msg:${message.message_id}`,
+        entity_type: 'message',
+        entity_id: message.message_id,
+        session_id: sessionId,
+        project_id: null,
+        timestamp: message.timestamp,
+        role: message.role,
+        tool_name: null,
+        canonical_tool_type: null,
+        field_kind: message.role === 'user' ? 'user_prompt' : 'assistant_text',
+        errors_only: false,
+        text,
+      })
+    }
+
     const unit: LogicalImportUnit = {
       unit_id: input.identification.unit_id,
       source_tool: SOURCE_TOOL,

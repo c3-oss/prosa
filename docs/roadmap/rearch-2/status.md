@@ -1,6 +1,6 @@
 # rearch-2 Current Status
 
-Updated: 2026-05-20 after DuckDB analytics runtime executor landed.
+Updated: 2026-05-20 after compile-to-index gate landed.
 
 ## Summary
 
@@ -13,14 +13,19 @@ Updated: 2026-05-20 after DuckDB analytics runtime executor landed.
 
 ## Current Lane 3 focus
 
-CQ-115 closed. Tantivy runtime + bundle orchestrator + CLI shipped. DuckDB
-analytics runtime executor (`runAnalyticsExecution`) shipped with 7 focused
-tests covering all 5 views against real Parquet fixtures. Remaining runtime
-executor slices:
+CQ-115 closed. Tantivy runtime + bundle orchestrator + CLI shipped. The
+governor-mandated Tantivy compile-to-index gate is now satisfied end-to-end:
+`apps/cli/test/cli/compile-to-index-gate.test.ts` spawns `compile-v2 codex`
+against a fixture, then `index-v2 tantivy`, then `index-v2 status`, and asserts
+`tantivy.ready_for_read === true` with `indexed_doc_count === source_doc_count`.
+The v2 codex importer now emits one search_doc per message with indexable text;
+full v1 parity for tool-call / tool-result fan-out remains a follow-up.
 
-1. Parquet compaction merge worker (DuckDB-backed `COPY` over selected live segments → compacted overlay).
-2. `prosa index-v2 analytics-run` CLI command wiring `runAnalyticsExecution` (gated on importers emitting Parquet, currently they only emit NDJSON).
-3. Scripted compile-then-index gate proving `indexed_doc_count == source_doc_count` after a real `compile-v2 && index-v2 tantivy` against a fixture-driven importer run.
+Remaining runtime executor slices:
+
+1. DuckDB analytics runtime executor review/acceptance for `828b59f`.
+2. Parquet compaction merge worker.
+3. Per-provider search_doc emission parity (claude / cursor / gemini / hermes) so the gate covers every importer.
 4. Lane-3 gate wiring and end-to-end validation.
 
 Do **not** add more pure-read/audit/CLI surfaces unless they are directly required to implement or validate one of those runtime executors.
