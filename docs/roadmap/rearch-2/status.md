@@ -99,6 +99,9 @@ The blocker is implementation work, not environment.
 - CQ-139: `prosa sync-v2` requires `--token <token>`, exposing bearer tokens in
   shell history/process listings; Lane 5 CLI acceptance needs a safe token
   source.
+- CQ-140: focused v2 E2E can pass with Docker env, but the documented `just e2e`
+  recipe fails and the gate still does not prove command-level `prosa sync-v2`,
+  API container, or second-device remote read.
 
 ## Current gate caveats
 
@@ -117,6 +120,11 @@ The blocker is implementation work, not environment.
   pack-skip resume compares different digest domains and normally re-uploads
   packs. Status-assisted inventory skip also relies on object-store presence,
   not stored hash/size verification.
+- Slice 9 focused v2 E2E is useful Postgres/S3 adapter evidence, but it is not
+  accepted as the Lane 5 Docker E2E gate: no-env runs skip, `just e2e` fails,
+  and the test uses in-process Fastify rather than `prosa sync-v2`.
+- Current live WIP after Slice 9 is not gate-clean: upload/ seal focused tests
+  fail while CQ-130/CQ-131/CQ-135 fixes are in progress.
 - Reviewer aggregate smoke
   `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/` failed 77/78 with
   a timeout in the malformed-body BeginPromotion case, while the same file

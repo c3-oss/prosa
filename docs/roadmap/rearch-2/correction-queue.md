@@ -1029,6 +1029,87 @@ Acceptance:
 - [ ] Command-level tests prove human and JSON output paths still work with the
       safe token source.
 
+### CQ-140: Lane 5 E2E gate is not green as the repo recipe
+
+Severity: high
+Blocking: yes (blocks Lane 5 Docker E2E acceptance and `RALPH_DONE`)
+Status: open
+Owner: Ralph
+
+Problem:
+
+Commit `370363f` adds a focused v2 promotion E2E that can pass against Docker
+Postgres + MinIO when the right env vars are set, but the repository E2E gate is
+not green as a repeatable recipe. `just e2e` runs the whole API E2E directory,
+not just the v2 file. Reviewer smoke showed it failing because the older
+`postgres-s3.e2e.test.ts` builds the app without `PROSA_RUNTIME_MODE=test` and
+hits `MissingV2SignerError`, while the v2 and v1 E2E files both drop/recreate
+the shared `public` schema concurrently, producing a Postgres duplicate-type
+error.
+
+The new v2 E2E is also not the full Lane 5 acceptance surface: it uses
+in-process Fastify `app.inject` against Docker Postgres/MinIO, not an API
+container or the `prosa sync-v2` command, and it does not prove second-device
+remote read.
+
+Risk:
+
+Lane 5 could appear to have Docker E2E evidence while the documented gate still
+fails or only proves a narrower in-process API route harness. Env-skipped
+default test counts can hide the missing Docker coverage.
+
+Smoke evidence:
+
+Reviewer evidence:
+
+```text
+docker compose -f apps/api/docker-compose.test.yml ps
+-> api-postgres-1 healthy, api-minio-1 healthy
+
+env -u PROSA_TEST_POSTGRES_URL ... pnpm --filter @c3-oss/prosa-api exec vitest run test/e2e/v2-promote.e2e.test.ts
+-> 3 skipped
+
+PROSA_TEST_POSTGRES_URL=... PROSA_TEST_S3_ENDPOINT=... pnpm --filter @c3-oss/prosa-api exec vitest run test/e2e/v2-promote.e2e.test.ts
+-> 3 passed
+
+just e2e
+-> failed: MissingV2SignerError in postgres-s3.e2e.test.ts and duplicate pg_type constraint during concurrent schema reset
+
+just e2e-cli
+-> passed, but drives legacy sync, not sync-v2
+```
+
+Codex live smoke on the current WIP also failed to collect the v2 E2E because
+`apps/api/src/v2/sync/seal-promotion.ts` had an uncommitted syntax error:
+
+```text
+Expected "finally" but found "async"
+```
+
+Required fix:
+
+- Make the documented API E2E recipe green and deterministic with the Docker
+  harness, including the existing v1 E2E and the new v2 E2E.
+- Prevent schema-reset races across E2E files, either by serializing the suite,
+  using isolated schemas/databases, or moving reset logic to a safe shared
+  fixture.
+- Ensure production/test signer configuration is explicit so E2E app boot does
+  not fail with `MissingV2SignerError`.
+- Add a command-level `prosa sync-v2` Docker-backed path or clearly separate the
+  route-level Postgres/S3 adapter E2E from the still-missing CLI acceptance gate.
+- Do not count env-skipped tests as Docker evidence.
+
+Acceptance:
+
+- [ ] `docker compose -f apps/api/docker-compose.test.yml ps` shows Postgres and
+      MinIO healthy.
+- [ ] `just e2e` passes from a clean checkout with Docker up.
+- [ ] Focused v2 E2E with env passes and focused no-env run is explicitly
+      recorded only as skip behavior, not gate proof.
+- [ ] A Docker-backed command-level `prosa sync-v2` gate exists or the Lane 5
+      evidence explicitly keeps CLI sync E2E open.
+- [ ] Evidence records exact commands and output for the green recipe.
+
 ## Closed during this cycle
 
 ### CQ-122: Streaming validation is header-only and does not satisfy the Lane 4 pack-validation gate

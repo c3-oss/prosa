@@ -96,6 +96,9 @@ Read `docs/roadmap/rearch-2/correction-queue.md` before the next slice.
   wrongly signed same-tenant receipts as authority.
 - CQ-139 blocks Lane 5 CLI acceptance: `prosa sync-v2` must not require bearer
   tokens in argv for the normal command path.
+- CQ-140 blocks Lane 5 Docker E2E acceptance: the documented `just e2e` recipe
+  must be green and the evidence must distinguish route-level Postgres/S3 E2E
+  from the still-required command-level `prosa sync-v2` gate.
 
 ## Lane 5 invariants
 

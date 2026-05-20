@@ -768,6 +768,23 @@ Gates:
 - `pnpm typecheck` → pass, 13/13 packages.
 - `git diff --check` → clean.
 
+Governor review caveat (2026-05-20):
+
+- The focused v2 E2E with env is useful Docker Postgres/MinIO adapter evidence,
+  but it is not accepted as the full Lane 5 E2E gate.
+- No-env runs skip all three v2 E2E cases, so default suite counts are not
+  Docker proof.
+- `just e2e` failed in reviewer smoke: the older `postgres-s3.e2e.test.ts`
+  hit `MissingV2SignerError`, and concurrent schema resets between E2E files
+  produced a Postgres duplicate-type error.
+- The v2 E2E uses in-process Fastify `app.inject`; it does not exercise an API
+  container, the `prosa sync-v2` command, or second-device remote read.
+- The resume E2E did not assert the final projection upload/object-pack POST
+  responses before seal. Current upload WIP makes the missing object-pack
+  transport header observable, so this test needs strengthening before it can
+  prove resume completion.
+- CQ-140 tracks the E2E recipe/gate gap.
+
 Slice 9 deferred (explicit):
 
 - The promote driver / CLI still doesn't ship adaptive upload
