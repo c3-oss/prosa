@@ -836,6 +836,46 @@ prompt's "Completion rule", stabilization is optional when no useful
 Ralph work remains; this slice stops for Codex/governor acceptance
 instead of spending cycles on empty stabilization.
 
+## Slice 11.1 — CQ-147 contract narrowing pin vs prosa-core (2026-05-20)
+
+Landed:
+
+- **Contract narrowing test:** new
+  `apps/api/test/v2/reads/analytics-contract.test.ts` (4 tests)
+  documents and pins the intentional differences between the v2
+  Lane 6 analytics surface and the local
+  `packages/prosa-core/src/services/analytics.ts` service:
+  - Same five report names (`sessions`, `tools`, `errors`,
+    `models`, `projects`).
+  - v2 supported filter keys are exactly
+    `{report, sourceTools, since, until, limit}`.
+  - Local-only filter keys (`source`, `toolName`,
+    `canonicalType`, `errorsOnly`, `category`, `model`,
+    `project`, `sessionId`, `sourcePathSubstring`) each
+    fail the v2 strict schema at the wire boundary.
+  - ISO 8601 UTC timestamp convention is pinned for `since` /
+    `until`.
+
+  This closes the last unchecked CQ-147 acceptance criterion
+  ("Tests document and pin any intentional difference from the
+  local `packages/prosa-core` analytics report columns and timestamp
+  semantics"). The test mirrors the local constants manually instead
+  of pulling `@c3-oss/prosa-core` into the api runtime dependency
+  graph.
+
+Slice 11.1 gates on the contributor checkout:
+
+```text
+pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/reads/
+ -> Test Files  17 passed (17)
+    Tests       123 passed (123)
+    Duration    76.55 s
+
+pnpm typecheck   -> 13/13 packages clean
+pnpm lint        -> 13/13 packages clean
+git diff --check -> clean
+```
+
 ## Scope
 
 Lane 6 implements the receipt-pinned remote read API from
