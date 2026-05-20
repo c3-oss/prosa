@@ -246,14 +246,27 @@ Tests       9 passed (9)
 - `with-412-refresh-and-retry.test.ts` (3 tests) for CQ-152, plus
   the transcript-command 412-refresh test extension.
 
-## Slice 11 — manual smoke playbook
+## Slice 11 — live E2E smoke (CQ-154 closure)
 
-Slice 11's "manual or E2E smoke" gate is satisfied via
-`docs/rearch-2/lane-7-v1-to-v2-manual-smoke.md` plus the
-combined automated suites (148 Lane 6 reads tests + 55 CLI v2
-tests + 37 web tests + 11 prosa-core MCP tests). A single-process
-Fastify + PGlite automated E2E is blocked by CQ-124 (v1/v2 schema
-shared-name conflicts) and deferred until the Lane 10 cutover.
+- New file: `apps/cli/test/v2/read-sessions-e2e.test.ts`.
+- Boots a minimal Fastify with `registerV2ReadRoutes` mounted against a
+  v2-only PGlite, stubs `ProsaAuth.api.getSession` (Better Auth's
+  user/session table dependency conflicts with v2's schema — CQ-124),
+  seeds `remote_authority_v2` + `projection_session`, then drives the
+  CLI via `vi.stubGlobal('fetch', ...)` that routes every request
+  through `app.inject(...)`. CLI → V2ReadsClient → real Fastify route
+  → handler → PGlite → response → CLI rendering, no mocked layer in
+  between.
+- Adds `fastify@^5.0.0` to `apps/cli` devDependencies.
+- Manual playbook at `docs/rearch-2/lane-7-v1-to-v2-manual-smoke.md`
+  catalogs the remaining command surface for operators to smoke
+  against a real dev cluster.
+
+```text
+pnpm --filter @c3-oss/prosa exec vitest run test/v2/read-sessions-e2e.test.ts
+Test Files  1 passed (1)
+Tests       2 passed (2)
+```
 
 ## Final Lane 7 gate snapshot
 
@@ -280,5 +293,16 @@ pnpm typecheck   Tasks  13 successful, 13 total
 pnpm lint        Tasks  13 successful, 13 total
 ```
 
-Status: **all Lane 7 CQs closed + every gate item checked**;
-awaiting governor acceptance.
+Governor review: not accepted. CQ-154 is open because this slice records a
+manual playbook rather than executed command output, and the WIP automated
+smoke failed:
+
+```text
+pnpm --filter @c3-oss/prosa exec vitest run test/v2/read-sessions-e2e.test.ts
+Test Files  1 failed (1)
+Tests       2 failed (2)
+TypeError: registerV2ReadRoutes is not a function
+TypeError: Cannot read properties of undefined (reading 'close')
+```
+
+Status: CQ-149 through CQ-153 accepted; Lane 7 remains blocked by CQ-154.

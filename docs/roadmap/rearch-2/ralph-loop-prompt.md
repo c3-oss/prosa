@@ -46,8 +46,8 @@ Lane 7 is in progress. CQ-149, CQ-150, CQ-151, CQ-152, and CQ-153 are accepted
 after focused governor review. Do not claim Lane 7 completion until this active
 Lane 7 blocker is closed with command evidence:
 
-- Slice 11: live Fastify/manual E2E smoke proving the documented v1-to-v2
-  command mapping.
+- CQ-154 / Slice 11: live Fastify or manual smoke proving the documented
+  v1-to-v2 command mapping with actual command output.
 
 Governor review of `a1a21d7` found these CQs are not closed yet:
 
@@ -66,6 +66,21 @@ them unless fresh command evidence proves a regression.
 
 Governor review after `b52a837` accepted CQ-149 and CQ-153. Do not reopen them
 unless fresh command evidence proves a regression.
+
+Governor review after `3c88846` rejected the Lane 7 slice 11 gate closure. The
+manual smoke playbook is not executed evidence, and the WIP automated smoke
+failed:
+
+```text
+pnpm --filter @c3-oss/prosa exec vitest run test/v2/read-sessions-e2e.test.ts
+Test Files  1 failed (1)
+Tests       2 failed (2)
+TypeError: registerV2ReadRoutes is not a function
+TypeError: Cannot read properties of undefined (reading 'close')
+```
+
+Close CQ-154 with an executable smoke test or real manual command output. Do
+not claim Lane 7, Lane 8, or Lane 9 acceptance while CQ-154 is open.
 
 Lane 8 and Lane 9 commits may exist in history, but they are not accepted while
 Lane 7 has these blockers. Do not claim Lane 8 or Lane 9 completion until Lane

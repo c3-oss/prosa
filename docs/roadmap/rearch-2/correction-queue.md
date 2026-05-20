@@ -4,6 +4,76 @@ Updated: 2026-05-20 after Codex/governor acceptance of Lane 6.
 
 ## Active Corrections For Lanes 7-9
 
+### CQ-154: Lane 7 slice 11 smoke is documented but not executable/proven
+
+Severity: critical
+
+Blocking: no — closed at slice 11 E2E commit.
+
+Status: closed.
+
+Affected lane: Lane 7.
+
+Affected paths:
+- `docs/rearch-2/lane-7-v1-to-v2-manual-smoke.md`
+- `docs/roadmap/rearch-2/evidence/lane-07.md`
+- `docs/roadmap/rearch-2/gates.md`
+- `apps/cli/test/v2/read-sessions-e2e.test.ts`
+- `apps/cli/package.json`
+- `pnpm-lock.yaml`
+
+Risk: Lane 7 gate item 8 was marked complete using a manual smoke playbook, not
+actual command output. The claimed automated E2E blocker is not accepted
+without smoke-command evidence. A WIP E2E test exists, but it currently fails.
+
+Governor smoke command:
+
+```text
+pnpm --filter @c3-oss/prosa exec vitest run test/v2/read-sessions-e2e.test.ts
+```
+
+Observed output:
+
+```text
+Test Files  1 failed (1)
+Tests       2 failed (2)
+TypeError: registerV2ReadRoutes is not a function
+TypeError: Cannot read properties of undefined (reading 'close')
+```
+
+Required fix:
+- Make the slice 11 smoke executable and commit it, or replace the playbook
+  claim with real manual command evidence showing the exact commands run and
+  their output against a live dev cluster.
+- If using the automated test, import the v2 read route plugin from a real
+  public export or add the necessary public export intentionally, and make
+  teardown safe when boot fails.
+- Remove the claim that CQ-124 blocks Lane 7 E2E unless a direct smoke command
+  proves an unavoidable dependency. A v2-only Fastify/PGlite harness with
+  stubbed auth appears feasible and is already attempted in the WIP test.
+
+Acceptance:
+- [x] `pnpm --filter @c3-oss/prosa exec vitest run test/v2/read-sessions-e2e.test.ts`
+  passes: 1 file, 2 tests (list + count). Both drive `prosa read sessions`
+  end-to-end through a real Fastify route + handler + PGlite.
+- [x] `apps/cli/package.json` adds `fastify@^5.0.0` as a devDependency —
+  required for the slice 11 harness to mount the route plugin in process.
+- [x] `docs/roadmap/rearch-2/gates.md` flips slice 11 to checked after the
+  accepted evidence landed.
+- [x] `docs/roadmap/rearch-2/evidence/lane-07.md` records the slice 11
+  passing command output.
+
+Closure summary:
+- `apps/cli/test/v2/read-sessions-e2e.test.ts` mounts only the
+  `registerV2ReadRoutes` plugin against a v2-only PGlite, stubs
+  `ProsaAuth.api.getSession` to return a fixed user + active tenant
+  (avoiding the CQ-124 v1+v2 schema collision in Better Auth), seeds
+  `remote_authority_v2` + `projection_session`, then drives the CLI
+  via a `vi.stubGlobal('fetch', ...)` adapter that routes through
+  `app.inject(...)`. The CLI flows through V2ReadsClient → real
+  Fastify route → handler → PGlite → response → CLI rendering with
+  no mocked layer between them.
+
 ### CQ-150: CLI and web v2 read clients are not wire-compatible with Lane 6 schemas
 
 Severity: critical

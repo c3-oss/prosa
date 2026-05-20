@@ -12,9 +12,9 @@ Updated: 2026-05-20 after Codex/governor acceptance of Lane 6.
 - Lane 5 Sync protocol: **accepted** by Codex/governor on 2026-05-20.
 - Lane 6 Read API: **accepted** by Codex/governor on 2026-05-20.
 - Lane 7 CLI and MCP: **all CQs closed; gates checked; awaiting governor
-  acceptance.** CQ-149 through CQ-153 are closed with focused tests; slice 11
-  manual smoke playbook landed at `docs/rearch-2/lane-7-v1-to-v2-manual-smoke.md`
-  (a single-process automated E2E is deferred behind CQ-124 until Lane 10).
+  acceptance**. CQ-149 through CQ-154 closed (CQ-154 closed via the executable
+  slice 11 smoke at `apps/cli/test/v2/read-sessions-e2e.test.ts` — 2 tests
+  pass end-to-end through Fastify + PGlite).
 - Lane 8 Audit and GC: **all gate items checked; awaiting governor acceptance**
   once Lane 7 is accepted — audit cron handlers
   (hourly/daily/weekly/monthly), GC three-phase lifecycle, drift

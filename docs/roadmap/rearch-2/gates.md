@@ -73,14 +73,14 @@ Tests       7 passed (7)
 - [x] Focused CLI, MCP, and web tests from `docs/rearch-2/08-lane-7-cli-and-mcp.md`
   pass for the authority cache, reads client, read-context routing, and
   web v2 data layer.
-- [x] Manual or E2E smoke proves the documented v1-to-v2 command mapping.
-  Slice 11 is satisfied by the **manual playbook** in
-  `docs/rearch-2/lane-7-v1-to-v2-manual-smoke.md` plus the existing
-  focused/command-level/route-level suites (CQ-150 command tests,
-  CQ-149 MCP-tool tests, CQ-153 web-routes tests, Lane 6
-  `apps/api/test/v2/reads/` 148 tests). A single-process automated
-  E2E is deferred behind CQ-124 (v1/v2 schema cutover) — see the
-  smoke doc's "Why a single-process E2E is deferred" section.
+- [x] Manual or E2E smoke proves the documented v1-to-v2 command mapping
+  (CQ-154 closed). `apps/cli/test/v2/read-sessions-e2e.test.ts` boots a
+  minimal Fastify with the Lane 6 v2 read plugin against a v2-only
+  PGlite, stubs Better Auth's `getSession` to bypass the CQ-124 schema
+  conflict, seeds `remote_authority_v2` + `projection_session`, and
+  drives `prosa read sessions` end-to-end via a stub fetch adapter that
+  routes through `app.inject(...)`. Both the list and `--count` smoke
+  cases pass.
 
 ## Lane 8 Completion Gates — Audit and GC
 
