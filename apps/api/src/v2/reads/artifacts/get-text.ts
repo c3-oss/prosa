@@ -50,7 +50,7 @@ export type ArtifactGetTextInput = z.infer<typeof artifactGetTextInput>
  * Server-internal miss reason. Never returned to callers; emitted
  * through `ArtifactsDeps.onMiss` so operators can correlate logs.
  */
-export type ArtifactMissReason = 'not_visible' | 'no_grant' | 'no_object' | 'fetch_failed'
+export type ArtifactMissReason = 'not_visible' | 'no_grant' | 'no_object' | 'fetch_failed' | 'pack_quarantined'
 
 export type ArtifactGetTextResponse =
   | {
@@ -67,6 +67,11 @@ export type ArtifactGetTextResponse =
       receiptId: string
     }
   | { found: false }
+  // Lane 8: pack quarantined by the audit cron. Lifted out of the
+  // opaque-miss bucket so the HTTP route can return a dedicated
+  // `503 DATA_UNAVAILABLE` and the client knows the failure is
+  // recoverable via re-promotion (vs. a permanent miss).
+  | { found: false; reason: 'data_unavailable'; artifactId: string }
 
 type ResolvedArtifact = {
   artifactId: string
@@ -106,6 +111,7 @@ type Row = {
   stored_length: number
   compression: 'zstd' | 'none'
   uncompressed_size: number | null
+  pack_audit_status: string | null
 }
 
 export async function getArtifactText(
@@ -128,7 +134,8 @@ export async function getArtifactText(
       `SELECT a.artifact_id, a.object_id, a.content_type, a.byte_length,
               a.store_id, a.receipt_id,
               pe.pack_digest, p.storage_uri, pe.stored_offset, pe.stored_length,
-              pe.compression, pe.uncompressed_size
+              pe.compression, pe.uncompressed_size,
+              pa.status AS pack_audit_status
          FROM projection_artifact a
          JOIN remote_pack_entry pe
            ON pe.tenant_id = a.tenant_id
@@ -140,6 +147,9 @@ export async function getArtifactText(
            ON g.tenant_id = a.tenant_id
           AND g.receipt_id = a.receipt_id
           AND g.pack_digest = pe.pack_digest
+         LEFT JOIN pack_audit_state pa
+           ON pa.tenant_id = pe.tenant_id
+          AND pa.pack_digest = pe.pack_digest
         WHERE ${verifiedProjectionWhere('a')}
           AND a.artifact_id = $2
         LIMIT 1`,
@@ -155,6 +165,15 @@ export async function getArtifactText(
   const row = rows[0]!
   if (!row.object_id) {
     return missOpaque(deps, tenantId, input.artifactId, 'no_object')
+  }
+  // Lane 8: if the pack containing this object is quarantined by the
+  // audit cron the route returns a typed `data_unavailable` shape so
+  // the HTTP layer can map it to `503 DATA_UNAVAILABLE`. The opaque
+  // miss path stays for unknown / supersedede / no-grant cases so
+  // CQ-144 is unaffected.
+  if (row.pack_audit_status === 'quarantined') {
+    deps.onMiss?.(tenantId, input.artifactId, 'pack_quarantined')
+    return { found: false, reason: 'data_unavailable', artifactId: input.artifactId }
   }
   const resolved: ResolvedArtifact = {
     artifactId: row.artifact_id,
