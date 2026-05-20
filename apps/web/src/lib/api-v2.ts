@@ -34,6 +34,18 @@ export class AuthorityChangedError extends ApiV2Error {
   }
 }
 
+/**
+ * CQ-153 — refuse v2 read calls without an active tenant so the
+ * server cannot silently fall back to the session's active org.
+ * Thrown before any network request is made.
+ */
+export class MissingTenantError extends ApiV2Error {
+  override name = 'MissingTenantError'
+  constructor(route: string) {
+    super(route, 0, 'NO_TENANT', `${route} requires an active tenant; sign in and select a tenant before retrying.`)
+  }
+}
+
 export type CreateV2ClientOptions = {
   config: WebRuntimeConfig
   /** Returns the active tenant id, if any, when each request is built. */
@@ -76,52 +88,87 @@ export type V2CountResponse = { count: number }
 export type V2TranscriptInput = { sessionId: string; cursor?: string | null; limit?: number }
 export type V2TranscriptBlock = {
   blockId: string
-  kind: string
-  text: string | null
-  artifactRef?: { kind: string; messageBlockId: string; bodyDigest?: string | null } | null
+  blockType: string
+  ordinal: number
+  textInline: string | null
+  textObjectId: string | null
+  hidden: boolean
+  isError: boolean
+  isRedacted: boolean
+  mimeType: string | null
 }
-export type V2TranscriptToolResult = { toolResultId: string; status: string | null; summary: string | null }
+export type V2TranscriptToolResult = {
+  toolResultId: string
+  status: string | null
+  isError: boolean
+  exitCode: number | null
+  durationMs: number | null
+}
 export type V2TranscriptToolCall = {
   toolCallId: string
-  toolName: string | null
-  startedAt: string | null
-  endedAt: string | null
+  toolName: string
+  canonicalToolType: string | null
+  status: string | null
+  timestampStart: string | null
   result: V2TranscriptToolResult | null
 }
 export type V2TranscriptTurn = {
-  turnId: string
+  messageId: string
+  ordinal: number
+  turnId: string | null
   role: string
-  startedAt: string | null
-  endedAt: string | null
+  model: string | null
+  timestamp: string | null
   blocks: V2TranscriptBlock[]
   toolCalls: V2TranscriptToolCall[]
 }
-export type V2TranscriptResponse = { sessionId: string; turns: V2TranscriptTurn[]; nextCursor: string | null }
+export type V2TranscriptSession = {
+  id: string
+  sourceTool: string
+  sourceSessionId: string
+  title: string | null
+  startedAt: string | null
+  endedAt: string | null
+  durationMs: number | null
+  storeId: string
+  receiptId: string
+}
+export type V2TranscriptPageBody = {
+  session: V2TranscriptSession
+  turns: V2TranscriptTurn[]
+  unattachedToolCalls: V2TranscriptToolCall[]
+  nextCursor: string | null
+}
+/** The server returns `null` when the session is not in the current authority. */
+export type V2TranscriptResponse = V2TranscriptPageBody | null
 
 export type V2SearchInput = {
   q: string
   cursor?: string | null
   limit?: number
-  role?: string
-  toolName?: string
-  canonicalType?: string
+  roles?: string[]
+  toolNames?: string[]
+  canonicalToolTypes?: string[]
+  entityTypes?: string[]
   errorsOnly?: boolean
-  sourceTools?: string[]
-  projectIds?: string[]
-  storeIds?: string[]
+  sessionId?: string
+  since?: string
+  until?: string
 }
 export type V2SearchHit = {
-  id: string
-  sessionId: string
-  sessionTitle: string | null
-  sourceTool: string
+  docId: string
+  entityType: string
+  entityId: string
+  sessionId: string | null
+  projectId: string | null
   timestamp: string | null
   role: string | null
   toolName: string | null
-  canonicalType: string
+  canonicalToolType: string | null
   fieldKind: string
+  errorsOnly: boolean
   snippet: string
-  rank: number | null
+  rank: number
   storeId: string
   receiptId: string
 }
@@ -130,9 +177,9 @@ export type V2SearchResponse = { rows: V2SearchHit[]; nextCursor: string | null 
 export type V2ToolCallsInput = {
   cursor?: string | null
   limit?: number
-  sourceTools?: string[]
+  sessionId?: string
   toolNames?: string[]
-  sessionIds?: string[]
+  canonicalToolTypes?: string[]
   errorsOnly?: boolean
   since?: string
   until?: string
@@ -140,30 +187,36 @@ export type V2ToolCallsInput = {
 export type V2ToolCallHit = {
   toolCallId: string
   sessionId: string
+  turnId: string | null
+  toolName: string
+  canonicalToolType: string | null
+  status: string | null
+  timestampStart: string | null
   storeId: string
   receiptId: string
-  toolName: string | null
-  startedAt: string | null
-  endedAt: string | null
-  status: string | null
-  summary: string | null
-  resultStatus: string | null
+  latestResult: {
+    toolResultId: string
+    status: string | null
+    isError: boolean
+    exitCode: number | null
+    durationMs: number | null
+  } | null
 }
 export type V2ToolCallsResponse = { rows: V2ToolCallHit[]; nextCursor: string | null }
 
+export type V2AnalyticsReportKind = 'sessions' | 'tools' | 'errors' | 'models' | 'projects'
 export type V2AnalyticsReportInput = {
-  report: 'sessions' | 'tools' | 'errors' | 'models' | 'projects'
-  cursor?: string | null
+  report: V2AnalyticsReportKind
   limit?: number
   since?: string
   until?: string
   sourceTools?: string[]
-  projectIds?: string[]
 }
+export type V2AnalyticsReportRow = Record<string, string | number | null>
 export type V2AnalyticsReportResponse = {
-  rows: Array<Record<string, unknown>>
-  nextCursor: string | null
-  report: string
+  report: V2AnalyticsReportKind
+  generatedAt: string
+  rows: V2AnalyticsReportRow[]
 }
 
 export type V2ApiClient = {
@@ -190,12 +243,19 @@ export function createV2ApiClient(opts: CreateV2ClientOptions): V2ApiClient {
   const baseUrl = opts.config.apiUrl.replace(/\/+$/, '')
 
   async function post<T>(route: string, body: unknown): Promise<T> {
+    const tenantId = opts.getTenantId?.() ?? null
+    if (!tenantId) {
+      // CQ-153: fail closed before the network round-trip. The
+      // server independently checks tenant membership but never
+      // letting the request reach it removes any chance of a
+      // session-active-org fallback masking a missing tenant.
+      throw new MissingTenantError(route)
+    }
     const headers: Record<string, string> = {
       accept: 'application/json',
       'content-type': 'application/json',
+      [TENANT_HEADER]: tenantId,
     }
-    const tenantId = opts.getTenantId?.() ?? null
-    if (tenantId) headers[TENANT_HEADER] = tenantId
 
     const response = await fetchFn(`${baseUrl}${route}`, {
       method: 'POST',

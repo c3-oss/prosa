@@ -42,6 +42,18 @@ Final Lane 6 follow-up is already closed: both `tool-calls/list` and
 `sessions/transcript` latest-result lookups tuple-match
 `tool_call_id/session_id/store_id/receipt_id`.
 
+Lane 7 is in progress. Do not start Lane 8 until these active Lane 7 blockers
+are closed with command evidence:
+
+- CQ-149: register and test `prosa.refresh_authority` for the MCP authority
+  surface.
+- CQ-150: align CLI/web v2 clients with the actual Lane 6 route schemas and
+  response shapes.
+- CQ-151: local read fallbacks must honor documented filters or fail closed.
+- CQ-152: implement one refresh plus retry for idempotent reads after HTTP 412.
+- CQ-153: migrate web console read routes from legacy tRPC to `/v2/reads/*` and
+  fail closed when no tenant is active.
+
 ## Milestone Order
 
 ### Lane 7 — CLI and MCP

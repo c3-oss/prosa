@@ -9,6 +9,7 @@ import { countSessions as countLocalSessions, listSessions as listLocalSessions 
 import { Command } from 'commander'
 import { withBundle } from '../../../bundle.js'
 import { type ColumnSet, maxWidthsForColumns, resolveColumns, tailColumnsFor } from '../../../columns.js'
+import { CliUserError } from '../../../errors.js'
 import { printRows } from '../../../output.js'
 import { parseSourceTool } from '../../../parsers.js'
 import {
@@ -16,7 +17,7 @@ import {
   addCommonReadOptions,
   parseOutputFormat,
   prepareV2Read,
-  with412Retry,
+  with412RefreshAndRetry,
 } from './common.js'
 
 type SessionCol =
@@ -124,6 +125,7 @@ async function runList(options: SessionsOptions): Promise<void> {
   const ctx = await prepareV2Read({ commandName: 'prosa read sessions', options })
 
   if (ctx.kind === 'local') {
+    rejectUnsupportedLocalFilters('prosa read sessions', options)
     await withBundle(ctx.storePath, (bundle) => {
       const rows = listLocalSessions(bundle, {
         sourceTool,
@@ -142,7 +144,7 @@ async function runList(options: SessionsOptions): Promise<void> {
     return
   }
 
-  const response = await with412Retry(ctx, (cur) => {
+  const response = await with412RefreshAndRetry(ctx, (cur) => {
     if (cur.kind !== 'remote') throw new Error('expected remote context')
     return cur.client.listSessions({
       limit,
@@ -192,11 +194,23 @@ async function runList(options: SessionsOptions): Promise<void> {
   })
 }
 
+function rejectUnsupportedLocalFilters(commandName: string, options: SessionsOptions): void {
+  const unsupported: string[] = []
+  if (options.project) unsupported.push('--project')
+  if (options.cursor) unsupported.push('--cursor')
+  if (unsupported.length > 0) {
+    throw new CliUserError(
+      `${commandName} local mode does not support ${unsupported.join(', ')}; rerun against a promoted store with --authority remote, or drop the unsupported filter.`,
+    )
+  }
+}
+
 async function runCount(options: SessionsOptions): Promise<void> {
   const sourceTool = parseSourceTool(options.source)
   const ctx = await prepareV2Read({ commandName: 'prosa read sessions --count', options })
 
   if (ctx.kind === 'local') {
+    rejectUnsupportedLocalFilters('prosa read sessions --count', { ...options, cursor: undefined })
     await withBundle(ctx.storePath, (bundle) => {
       const count = countLocalSessions(bundle, {
         sourceTool,
@@ -208,7 +222,7 @@ async function runCount(options: SessionsOptions): Promise<void> {
     return
   }
 
-  const response = await with412Retry(ctx, (cur) => {
+  const response = await with412RefreshAndRetry(ctx, (cur) => {
     if (cur.kind !== 'remote') throw new Error('expected remote context')
     return cur.client.countSessions({
       ...(sourceTool ? { sourceTools: [sourceTool] } : {}),

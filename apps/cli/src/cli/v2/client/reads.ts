@@ -1,15 +1,9 @@
 // Lane 7 — typed v2 read API client.
 //
 // Thin HTTP wrapper around the `/v2/reads/*` endpoints shipped by
-// Lane 6. The client carries the caller's Bearer token + tenant
-// header on every call, parses error envelopes into rich
-// `V2ReadsError` instances, and exposes a 412 hook so callers can
-// implement the L12 mid-command refresh policy. The shapes match the
-// server route schemas exactly so the CLI does not re-validate
-// payloads on the happy path.
-//
-// Authority refresh lives in `../authority/`; this module deals
-// only with the read surface.
+// Lane 6. The shapes are pinned to the server route schemas
+// verbatim (see `apps/api/src/v2/reads/*`); deviations are caught
+// by `apps/cli/test/v2/reads-client-contract.test.ts`.
 
 export class V2ReadsError extends Error {
   override name = 'V2ReadsError'
@@ -39,6 +33,8 @@ export type V2ReadsClientOptions = {
   /** Inject for tests; defaults to `globalThis.fetch`. */
   fetch?: typeof fetch
 }
+
+// ───── sessions/list + count ─────────────────────────────────────────
 
 export type SessionListInput = {
   cursor?: string | null
@@ -70,7 +66,10 @@ export type SessionRow = {
 
 export type SessionListResponse = { rows: SessionRow[]; nextCursor: string | null }
 
+export type CountSessionsInput = Omit<SessionListInput, 'cursor' | 'limit'>
 export type CountSessionsResponse = { count: number }
+
+// ───── sessions/transcript ───────────────────────────────────────────
 
 export type TranscriptPageInput = {
   sessionId: string
@@ -78,75 +77,112 @@ export type TranscriptPageInput = {
   limit?: number
 }
 
-export type TranscriptTurn = {
-  turnId: string
-  role: string
-  startedAt: string | null
-  endedAt: string | null
-  blocks: TranscriptBlock[]
-  toolCalls: TranscriptToolCall[]
-}
-
 export type TranscriptBlock = {
   blockId: string
-  kind: string
-  text: string | null
-  artifactRef?: { kind: string; messageBlockId: string; bodyDigest?: string | null } | null
+  blockType: string
+  ordinal: number
+  textInline: string | null
+  textObjectId: string | null
+  hidden: boolean
+  isError: boolean
+  isRedacted: boolean
+  mimeType: string | null
+}
+
+export type TranscriptToolResult = {
+  toolResultId: string
+  status: string | null
+  isError: boolean
+  exitCode: number | null
+  durationMs: number | null
 }
 
 export type TranscriptToolCall = {
   toolCallId: string
-  toolName: string | null
-  startedAt: string | null
-  endedAt: string | null
+  toolName: string
+  canonicalToolType: string | null
+  status: string | null
+  timestampStart: string | null
   result: TranscriptToolResult | null
 }
 
-export type TranscriptToolResult = { toolResultId: string; status: string | null; summary: string | null }
+export type TranscriptTurn = {
+  messageId: string
+  ordinal: number
+  turnId: string | null
+  role: string
+  model: string | null
+  timestamp: string | null
+  blocks: TranscriptBlock[]
+  toolCalls: TranscriptToolCall[]
+}
 
-export type TranscriptPageResponse = {
-  sessionId: string
+export type TranscriptSession = {
+  id: string
+  sourceTool: string
+  sourceSessionId: string
+  title: string | null
+  startedAt: string | null
+  endedAt: string | null
+  durationMs: number | null
+  storeId: string
+  receiptId: string
+}
+
+export type TranscriptPageBody = {
+  session: TranscriptSession
   turns: TranscriptTurn[]
+  unattachedToolCalls: TranscriptToolCall[]
   nextCursor: string | null
 }
+
+/** The server returns `null` when the session does not exist in the current authority. */
+export type TranscriptPageResponse = TranscriptPageBody | null
+
+// ───── search/query ──────────────────────────────────────────────────
 
 export type SearchQueryInput = {
   q: string
   cursor?: string | null
   limit?: number
-  role?: string
-  toolName?: string
-  canonicalType?: string
+  roles?: string[]
+  toolNames?: string[]
+  canonicalToolTypes?: string[]
+  entityTypes?: string[]
   errorsOnly?: boolean
-  sourceTools?: string[]
-  projectIds?: string[]
-  storeIds?: string[]
+  sessionId?: string
+  since?: string
+  until?: string
 }
 
 export type SearchHit = {
-  id: string
-  sessionId: string
-  sessionTitle: string | null
-  sourceTool: string
+  docId: string
+  entityType: string
+  entityId: string
+  sessionId: string | null
+  projectId: string | null
   timestamp: string | null
   role: string | null
   toolName: string | null
-  canonicalType: string
+  canonicalToolType: string | null
   fieldKind: string
+  errorsOnly: boolean
   snippet: string
-  rank: number | null
+  rank: number
   storeId: string
   receiptId: string
 }
 
 export type SearchQueryResponse = { rows: SearchHit[]; nextCursor: string | null }
 
+// ───── tool-calls/list ───────────────────────────────────────────────
+
 export type ToolCallsListInput = {
   cursor?: string | null
   limit?: number
-  sourceTools?: string[]
+  sessionId?: string
   toolNames?: string[]
-  sessionIds?: string[]
+  canonicalToolTypes?: string[]
   errorsOnly?: boolean
   since?: string
   until?: string
@@ -155,33 +191,45 @@ export type ToolCallsListInput = {
 export type ToolCallHit = {
   toolCallId: string
   sessionId: string
+  turnId: string | null
+  toolName: string
+  canonicalToolType: string | null
+  status: string | null
+  timestampStart: string | null
   storeId: string
   receiptId: string
-  toolName: string | null
-  startedAt: string | null
-  endedAt: string | null
-  status: string | null
-  summary: string | null
-  resultStatus: string | null
+  latestResult: {
+    toolResultId: string
+    status: string | null
+    isError: boolean
+    exitCode: number | null
+    durationMs: number | null
+  } | null
 }
 
 export type ToolCallsListResponse = { rows: ToolCallHit[]; nextCursor: string | null }
 
+// ───── analytics/report ──────────────────────────────────────────────
+
+export type AnalyticsReportKind = 'sessions' | 'tools' | 'errors' | 'models' | 'projects'
+
 export type AnalyticsReportInput = {
-  report: 'sessions' | 'tools' | 'errors' | 'models' | 'projects'
-  cursor?: string | null
-  limit?: number
+  report: AnalyticsReportKind
+  sourceTools?: string[]
   since?: string
   until?: string
-  sourceTools?: string[]
-  projectIds?: string[]
+  limit?: number
 }
 
+export type AnalyticsReportRow = Record<string, string | number | null>
+
 export type AnalyticsReportResponse = {
-  rows: Array<Record<string, unknown>>
-  nextCursor: string | null
-  report: string
+  report: AnalyticsReportKind
+  generatedAt: string
+  rows: AnalyticsReportRow[]
 }
+
+// ───── artifacts/getText ─────────────────────────────────────────────
 
 export type ArtifactGetTextInput = {
   storeId: string
@@ -196,6 +244,8 @@ export type ArtifactGetTextResponse = {
   bytesReturned: number
   totalBytes: number
 }
+
+// ───── client ────────────────────────────────────────────────────────
 
 export class V2ReadsClient {
   private readonly baseUrl: string
@@ -213,7 +263,7 @@ export class V2ReadsClient {
   listSessions(input: SessionListInput): Promise<SessionListResponse> {
     return this.post('/v2/reads/sessions/list', input)
   }
-  countSessions(input: Omit<SessionListInput, 'cursor' | 'limit'>): Promise<CountSessionsResponse> {
+  countSessions(input: CountSessionsInput): Promise<CountSessionsResponse> {
     return this.post('/v2/reads/sessions/count', input)
   }
   getTranscriptPage(input: TranscriptPageInput): Promise<TranscriptPageResponse> {
@@ -255,7 +305,7 @@ export class V2ReadsClient {
     try {
       envelope = JSON.parse(text) as { code?: string; message?: string }
     } catch {
-      // Non-JSON error body; fall through to the generic message below.
+      // non-JSON error body
     }
     const code = envelope.code ?? `HTTP_${response.status}`
     const message = envelope.message ?? text.slice(0, 240) ?? `HTTP ${response.status}`

@@ -1,18 +1,24 @@
 // Lane 7 — `prosa read transcript <session-id>`.
 //
-// Consumes `/v2/reads/sessions/transcript` page by page. With
-// `--all-pages` the CLI walks `nextCursor` to completion and
-// concatenates the rendered output.  For streaming-output forms
-// (text/markdown), a mid-walk 412 raises `AuthorityChangedError`
-// rather than auto-refreshing — the operator must rerun with the
-// fresh receipt.
+// Consumes `/v2/reads/sessions/transcript`. The response is either
+// the full page (session + turns + unattachedToolCalls + nextCursor)
+// or `null` when the session is not in the current authority.
+//
+// With `--all-pages` the CLI walks `nextCursor` to completion. A
+// mid-walk 412 surfaces `AuthorityChangedError` so the operator can
+// rerun rather than emit a transcript that mixes two snapshots.
 
 import { formatTranscriptText, loadTranscript } from '@c3-oss/prosa-core'
 import { Command } from 'commander'
 import { withBundle } from '../../../bundle.js'
 import { CliUserError } from '../../../errors.js'
 import { AuthorityChangedError } from '../../authority/index.js'
-import { AuthorityChangedHttpError, type TranscriptPageResponse, type TranscriptTurn } from '../../client/index.js'
+import {
+  AuthorityChangedHttpError,
+  type TranscriptPageBody,
+  type TranscriptToolCall,
+  type TranscriptTurn,
+} from '../../client/index.js'
 import { type CommonReadOptions, addCommonReadOptions, prepareV2Read } from './common.js'
 
 type TranscriptFormat = 'text' | 'markdown' | 'json'
@@ -59,10 +65,6 @@ export function readTranscriptCommand(): Command {
             return
           }
           if (format === 'markdown') {
-            // The local `exportSessionMarkdown` exists but expects an
-            // output path; fall back to a JSON dump for now and let
-            // the operator pipe through `prosa export session` for
-            // markdown when running locally.
             throw new CliUserError(
               'prosa read transcript --format markdown is not supported in --authority local; use `prosa export session` for local markdown.',
             )
@@ -72,11 +74,13 @@ export function readTranscriptCommand(): Command {
         return
       }
 
-      const pages: TranscriptPageResponse[] = []
+      const pages: TranscriptPageBody[] = []
       let cursor: string | null | undefined = options.cursor ?? null
 
+      // We refuse to refresh-and-retry inside the page walk: even
+      // a single 412 means the page set is no longer coherent.
       do {
-        let page: TranscriptPageResponse
+        let page: TranscriptPageBody | null
         try {
           page = await ctx.client.getTranscriptPage({
             sessionId,
@@ -85,14 +89,17 @@ export function readTranscriptCommand(): Command {
           })
         } catch (err) {
           if (err instanceof AuthorityChangedHttpError) {
-            // The CLI refuses to silently switch receipts mid-walk —
-            // the partial output would mix two snapshots. Surface the
-            // signal and let the operator rerun.
             throw new AuthorityChangedError(
               'authority changed mid-transcript (HTTP 412); rerun the command to walk the new receipt.',
             )
           }
           throw err
+        }
+        if (page === null) {
+          if (pages.length === 0) {
+            throw new CliUserError(`session ${sessionId} not found in the current authority.`)
+          }
+          break
         }
         pages.push(page)
         cursor = options.allPages ? page.nextCursor : null
@@ -103,8 +110,9 @@ export function readTranscriptCommand(): Command {
           pages.length === 1
             ? pages[0]
             : {
-                sessionId: pages[0]?.sessionId ?? sessionId,
+                session: pages[0]?.session,
                 turns: pages.flatMap((p) => p.turns),
+                unattachedToolCalls: pages.flatMap((p) => p.unattachedToolCalls),
                 nextCursor: pages[pages.length - 1]?.nextCursor ?? null,
               }
         process.stdout.write(`${JSON.stringify(merged, null, 2)}\n`)
@@ -112,32 +120,45 @@ export function readTranscriptCommand(): Command {
       }
 
       const turns = pages.flatMap((p) => p.turns)
-      process.stdout.write(renderTranscriptTurns(turns, format))
+      const unattached = pages.flatMap((p) => p.unattachedToolCalls)
+      process.stdout.write(renderTranscript(turns, unattached, format))
     })
   return cmd
 }
 
-function renderTranscriptTurns(turns: TranscriptTurn[], format: 'text' | 'markdown'): string {
+function renderTranscript(
+  turns: TranscriptTurn[],
+  unattached: TranscriptToolCall[],
+  format: 'text' | 'markdown',
+): string {
   const lines: string[] = []
   for (const turn of turns) {
     if (format === 'markdown') {
-      lines.push(`## ${turn.role}${turn.startedAt ? ` — ${turn.startedAt}` : ''}\n`)
+      lines.push(`## ${turn.role}${turn.timestamp ? ` — ${turn.timestamp}` : ''}\n`)
     } else {
-      lines.push(`[${turn.role}]${turn.startedAt ? ` ${turn.startedAt}` : ''}`)
+      lines.push(`[${turn.role}]${turn.timestamp ? ` ${turn.timestamp}` : ''}`)
     }
     for (const block of turn.blocks) {
-      if (block.text) {
-        lines.push(block.text)
-      } else if (block.artifactRef?.bodyDigest) {
-        lines.push(`<artifact ${block.artifactRef.bodyDigest}>`)
+      if (block.hidden) continue
+      if (block.textInline) {
+        lines.push(block.textInline)
+      } else if (block.textObjectId) {
+        lines.push(`<artifact ${block.blockType} object=${block.textObjectId}>`)
       }
     }
     for (const call of turn.toolCalls) {
-      if (format === 'markdown') {
-        lines.push(`- tool ${call.toolName ?? '(unknown)'} status=${call.result?.status ?? 'pending'}`)
-      } else {
-        lines.push(`  tool ${call.toolName ?? '(unknown)'} status=${call.result?.status ?? 'pending'}`)
-      }
+      const status = call.result?.status ?? call.status ?? 'pending'
+      const prefix = format === 'markdown' ? '- ' : '  '
+      lines.push(`${prefix}tool ${call.toolName} status=${status}`)
+    }
+    lines.push('')
+  }
+  if (unattached.length > 0) {
+    lines.push(format === 'markdown' ? '## unattached tool calls' : '[unattached tool calls]')
+    for (const call of unattached) {
+      const status = call.result?.status ?? call.status ?? 'pending'
+      const prefix = format === 'markdown' ? '- ' : '  '
+      lines.push(`${prefix}tool ${call.toolName} status=${status}`)
     }
     lines.push('')
   }

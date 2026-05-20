@@ -1,7 +1,7 @@
 // Lane 7 — focused test for the web v2 data layer.
 
 import { describe, expect, it } from 'vitest'
-import { ApiV2Error, AuthorityChangedError, createV2ApiClient } from './api-v2.js'
+import { ApiV2Error, AuthorityChangedError, MissingTenantError, createV2ApiClient } from './api-v2.js'
 import type { WebRuntimeConfig } from './config.js'
 
 const CONFIG: WebRuntimeConfig = {
@@ -40,23 +40,29 @@ describe('createV2ApiClient', () => {
     expect((init.headers as Record<string, string>)['x-prosa-tenant-id']).toBe('tenant-42')
   })
 
-  it('omits the tenant header when no active tenant', async () => {
+  it('CQ-153 — fails closed when no getTenantId is provided (no network call)', async () => {
     const { fetch: stubFetch, calls } = stub(200, { rows: [], nextCursor: null })
     const client = createV2ApiClient({ config: CONFIG, fetch: stubFetch })
-    await client.v2.sessions.list({ limit: 10 })
-    const headers = calls[0]!.init.headers as Record<string, string>
-    expect(headers['x-prosa-tenant-id']).toBeUndefined()
+    await expect(client.v2.sessions.list({ limit: 10 })).rejects.toBeInstanceOf(MissingTenantError)
+    expect(calls).toHaveLength(0)
+  })
+
+  it('CQ-153 — fails closed when tenant getter returns null', async () => {
+    const { fetch: stubFetch, calls } = stub(200, { count: 0 })
+    const client = createV2ApiClient({ config: CONFIG, getTenantId: () => null, fetch: stubFetch })
+    await expect(client.v2.sessions.count({})).rejects.toBeInstanceOf(MissingTenantError)
+    expect(calls).toHaveLength(0)
   })
 
   it('maps HTTP 412 to AuthorityChangedError', async () => {
     const { fetch: stubFetch } = stub(412, { code: 'AUTHORITY_CHANGED' })
-    const client = createV2ApiClient({ config: CONFIG, fetch: stubFetch })
+    const client = createV2ApiClient({ config: CONFIG, getTenantId: () => 'tenant-42', fetch: stubFetch })
     await expect(client.v2.sessions.transcript({ sessionId: 's1' })).rejects.toBeInstanceOf(AuthorityChangedError)
   })
 
   it('parses error envelopes into ApiV2Error', async () => {
     const { fetch: stubFetch } = stub(400, { code: 'INVALID_INPUT', message: 'bad query' })
-    const client = createV2ApiClient({ config: CONFIG, fetch: stubFetch })
+    const client = createV2ApiClient({ config: CONFIG, getTenantId: () => 'tenant-42', fetch: stubFetch })
     await expect(client.v2.search.query({ q: '' })).rejects.toMatchObject({
       name: 'ApiV2Error',
       status: 400,
@@ -66,7 +72,7 @@ describe('createV2ApiClient', () => {
 
   it('captures retry-after on 429', async () => {
     const { fetch: stubFetch } = stub(429, { code: 'TOO_MANY_REQUESTS' }, { 'retry-after': '8' })
-    const client = createV2ApiClient({ config: CONFIG, fetch: stubFetch })
+    const client = createV2ApiClient({ config: CONFIG, getTenantId: () => 'tenant-42', fetch: stubFetch })
     try {
       await client.v2.toolCalls.list({})
       throw new Error('expected error')
