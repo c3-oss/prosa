@@ -196,31 +196,16 @@ export async function sealPromotion(
   }
   if (staging.status === 'sealed') {
     // CQ-136: idempotent re-seal must return the receipt this
-    // promotion actually sealed AND verify the linked receipt
-    // belongs to this staging row's (store, device, bundle)
-    // tuple. A corrupt link (e.g. a tampered
-    // `sealed_receipt_id` pointing at a same-tenant receipt for
-    // a different store/device) MUST fail closed rather than
-    // return the wrong receipt.
+    // promotion actually sealed AND verify the linked receipt's
+    // payload is canonical-hash intact AND its signature still
+    // verifies against the server JWKS. `loadAndValidateLinkedReceipt`
+    // throws `SealPromotionLinkCorruptError` on any tuple /
+    // derived-id / signature failure; a missing row falls through
+    // to re-seal.
     if (staging.sealed_receipt_id) {
-      const existing = await loadReceiptById(deps, staging.sealed_receipt_id)
+      const existing = await loadAndValidateLinkedReceipt(deps, staging, staging.sealed_receipt_id, params.promotionId)
       if (existing) {
-        const head = coerceHead(staging.head_json)
-        const tupleMatch =
-          existing.payload.tenantId === deps.tenantId &&
-          existing.payload.storeId === staging.store_id &&
-          existing.payload.deviceId === staging.device_id &&
-          existing.payload.receiptId === staging.sealed_receipt_id &&
-          head !== null &&
-          existing.payload.bundleRoot === head.bundleRoot
-        if (tupleMatch) {
-          return { status: 'sealed', receipt: existing }
-        }
-        // Linked receipt doesn't match the staging tuple — refuse
-        // rather than reopen seal or return the wrong receipt.
-        throw new SealPromotionLinkCorruptError(
-          `sealed_receipt_id ${staging.sealed_receipt_id} on promotion ${params.promotionId} does not match the staging tuple`,
-        )
+        return { status: 'sealed', receipt: existing }
       }
     }
     // Fall through if the linkage is missing or the receipt row
@@ -260,8 +245,20 @@ export async function sealPromotion(
       [params.promotionId, deps.tenantId],
     )
     if (refreshed[0]?.status === 'sealed' && refreshed[0]!.sealed_receipt_id) {
-      const existing = await loadReceiptById(deps, refreshed[0]!.sealed_receipt_id)
-      if (existing) return { status: 'sealed', receipt: existing }
+      // CQ-136: the race-loser path MUST run the same
+      // tuple / derived-id / signature validation the normal
+      // sealed-replay branch does. Without this a concurrent
+      // attacker who tampered with the `sealed_receipt_id`
+      // link between our pre-flip read and this re-read would
+      // get the foreign receipt back through the race-loser
+      // door.
+      const validated = await loadAndValidateLinkedReceipt(
+        deps,
+        staging,
+        refreshed[0]!.sealed_receipt_id,
+        params.promotionId,
+      )
+      if (validated) return { status: 'sealed', receipt: validated }
     }
     throw new SealPromotionInProgressError(`promotion ${params.promotionId} is mid-seal`)
   }
@@ -473,6 +470,59 @@ async function loadReceiptById(deps: SealPromotionDeps, receiptId: string): Prom
   const signature = coerceJsonbObject(row.signature) as PromotionReceiptV2Signature | null
   if (!payload || !signature) return null
   return { payload, signature }
+}
+
+// CQ-136: every sealed-replay path (the `status='sealed'` branch
+// AND the race-loser branch where another seal flipped past us)
+// must validate the linked receipt against the staging row's
+// tuple AND prove the payload was not tampered with after sealing
+// AND prove the signature still verifies against the server's
+// JWKS-published signer. Anything less can return a same-tenant
+// foreign or corrupted receipt as authority. Returns the receipt
+// on success, `null` when the link / payload is malformed
+// (caller falls through to re-seal), or throws
+// `SealPromotionLinkCorruptError` when the link is intact but
+// the linked receipt is corrupt enough that re-seal would also
+// fail — an operator must heal it.
+async function loadAndValidateLinkedReceipt(
+  deps: SealPromotionDeps,
+  staging: { store_id: string; device_id: string; head_json: unknown },
+  linkedReceiptId: string,
+  promotionId: string,
+): Promise<PromotionReceiptV2 | null> {
+  const existing = await loadReceiptById(deps, linkedReceiptId)
+  if (!existing) return null
+  const head = coerceHead(staging.head_json)
+  if (!head) return null
+  const tupleMatch =
+    existing.payload.tenantId === deps.tenantId &&
+    existing.payload.storeId === staging.store_id &&
+    existing.payload.deviceId === staging.device_id &&
+    existing.payload.receiptId === linkedReceiptId &&
+    existing.payload.bundleRoot === head.bundleRoot
+  if (!tupleMatch) {
+    throw new SealPromotionLinkCorruptError(
+      `sealed_receipt_id ${linkedReceiptId} on promotion ${promotionId} does not match the staging tuple`,
+    )
+  }
+  // Tampered payload: a same-tenant attacker who flips a
+  // non-tuple field (e.g. `serverRegion`) leaves
+  // `payload.receiptId` intact but breaks the canonical hash.
+  if (deriveReceiptId(existing.payload) !== existing.payload.receiptId) {
+    throw new SealPromotionLinkCorruptError(
+      `sealed_receipt_id ${linkedReceiptId} on promotion ${promotionId} payload no longer hashes to its signed receipt id`,
+    )
+  }
+  // Signature must verify against the server JWKS. Fails
+  // closed when the linked receipt was minted by a foreign
+  // signer or the JSONB row's signature bytes were swapped.
+  const signatureOk = await deps.signer.verifyReceipt(receiptPayloadBytes(existing.payload), existing.signature)
+  if (!signatureOk) {
+    throw new SealPromotionLinkCorruptError(
+      `sealed_receipt_id ${linkedReceiptId} on promotion ${promotionId} signature does not verify against the server JWKS`,
+    )
+  }
+  return existing
 }
 
 function buildReceiptPayload(input: {
