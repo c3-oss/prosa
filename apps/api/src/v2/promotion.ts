@@ -12,8 +12,12 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { type V2AuthDeps, resolveV2AuthContext } from './context.js'
 
 export const V2_PROMOTION_ROUTES = [
-  { method: 'POST' as const, url: '/v2/promotions' as const, opName: 'BeginPromotion' as const },
-  { method: 'POST' as const, url: '/v2/promotions/:promotionId/segments' as const, opName: 'UploadSegment' as const },
+  { method: 'POST' as const, url: '/v2/promotions/begin' as const, opName: 'BeginPromotion' as const },
+  {
+    method: 'PUT' as const,
+    url: '/v2/promotions/:promotionId/segments/:segmentId' as const,
+    opName: 'UploadSegment' as const,
+  },
   {
     method: 'POST' as const,
     url: '/v2/promotions/:promotionId/object-packs' as const,

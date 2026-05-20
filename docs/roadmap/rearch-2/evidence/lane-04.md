@@ -136,6 +136,35 @@ Required smokes:
   `BuildAppOptions.v2Signer` hook allow KMS to drop in without
   changing any caller.
 
+## CQ-119 closure — 2026-05-20
+
+- Updated `apps/api/src/v2/promotion.ts` so `V2_PROMOTION_ROUTES`
+  matches the Lane 5 contract exactly:
+  - `POST /v2/promotions/begin`
+  - `PUT /v2/promotions/:promotionId/segments/:segmentId`
+  - `POST /v2/promotions/:promotionId/object-packs`
+  - `POST /v2/promotions/:promotionId/seal`
+  - `GET /v2/receipts/:receiptId`
+  All five routes still return `501 NOT_IMPLEMENTED` once the auth
+  ladder passes; no Lane 5 promotion semantics are implemented.
+- Strengthened `apps/api/test/v2/skeleton.test.ts`:
+  - Added `exactly matches the Lane 5 method/path contract` — asserts
+    the sorted `${method} ${url}` list against the spec verbatim.
+  - Added `returns 501 NOT_IMPLEMENTED to an authenticated tenant
+    member on every promotion route` — signs up through
+    `/trpc/auth.signupWithTenant` so Better Auth + tenant resolution
+    is exercised end-to-end, then injects each route with the
+    issued Bearer token and asserts `501 NOT_IMPLEMENTED` with the
+    `Lane 5` message.
+  - Preserved the original 401-unauthenticated case; the route loop
+    now also substitutes `:segmentId` so `PUT
+    /v2/promotions/:promotionId/segments/:segmentId` is reachable
+    in the test.
+- Gates:
+  - `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/skeleton.test.ts` → 5/5.
+  - `pnpm --filter @c3-oss/prosa-api lint` → clean.
+  - Workspace `pnpm typecheck` → 13/13.
+
 ## Slice 4 (zstd window cap) — 2026-05-20
 
 - New `apps/api/src/v2/upload/validate.ts` parses the zstd frame

@@ -1,6 +1,28 @@
 import { describe, expect, it } from 'vitest'
 import { V2_PROMOTION_ROUTES, V2_RECEIPT_KEYS_PATH } from '../../src/v2/index.js'
-import { buildTestApp } from '../helpers/test-app.js'
+import { type TestApp, buildTestApp } from '../helpers/test-app.js'
+
+function placeholderUrl(template: string): string {
+  return template
+    .replace(':promotionId', 'prm_test_123')
+    .replace(':segmentId', 'seg_test_456')
+    .replace(':receiptId', 'rcp_test_789')
+}
+
+async function signupWithTenant(t: TestApp, email: string, tenantName: string, tenantSlug: string) {
+  const response = await t.app.inject({
+    method: 'POST',
+    url: '/trpc/auth.signupWithTenant',
+    headers: { 'content-type': 'application/json' },
+    payload: { email, password: 'correct-horse-battery', name: email, tenantName, tenantSlug } as never,
+  })
+  expect(response.statusCode).toBe(200)
+  return (
+    response.json() as {
+      result: { data: { token: string; user: { id: string; email: string }; tenant: { id: string } } }
+    }
+  ).result.data
+}
 
 describe('v2 plugin skeleton', () => {
   it('serves a JWKS document with at least one current EdDSA key', async () => {
@@ -33,7 +55,7 @@ describe('v2 plugin skeleton', () => {
     const t = await buildTestApp()
     try {
       for (const route of V2_PROMOTION_ROUTES) {
-        const url = route.url.replace(':promotionId', 'prm_test').replace(':receiptId', 'rcp_test')
+        const url = placeholderUrl(route.url)
         const response = await t.app.inject({ method: route.method, url })
         expect(response.statusCode, `${route.method} ${url}`).toBe(401)
         const body = response.json() as { code: string; op: string }
@@ -43,6 +65,40 @@ describe('v2 plugin skeleton', () => {
     } finally {
       await t.close()
     }
+  })
+
+  it('returns 501 NOT_IMPLEMENTED to an authenticated tenant member on every promotion route', async () => {
+    const t = await buildTestApp()
+    try {
+      const account = await signupWithTenant(t, 'v2-501@example.com', 'Acme', 'acme-501')
+      for (const route of V2_PROMOTION_ROUTES) {
+        const url = placeholderUrl(route.url)
+        const response = await t.app.inject({
+          method: route.method,
+          url,
+          headers: { authorization: `Bearer ${account.token}` },
+        })
+        expect(response.statusCode, `${route.method} ${url}`).toBe(501)
+        const body = response.json() as { code: string; op: string; message: string }
+        expect(body.code).toBe('NOT_IMPLEMENTED')
+        expect(body.op).toBe(route.opName)
+        expect(body.message).toMatch(/Lane 5/)
+      }
+    } finally {
+      await t.close()
+    }
+  })
+
+  it('exactly matches the Lane 5 method/path contract', () => {
+    const actual = V2_PROMOTION_ROUTES.map((r) => `${r.method} ${r.url}`).sort()
+    const expected = [
+      'POST /v2/promotions/begin',
+      'PUT /v2/promotions/:promotionId/segments/:segmentId',
+      'POST /v2/promotions/:promotionId/object-packs',
+      'POST /v2/promotions/:promotionId/seal',
+      'GET /v2/receipts/:receiptId',
+    ].sort()
+    expect(actual).toEqual(expected)
   })
 
   it('registers each Lane 5 promotion route definition', () => {

@@ -1,12 +1,87 @@
 # rearch-2 Correction Queue
 
-Updated: 2026-05-20 after CQ-116 closure.
+Updated: 2026-05-20 after CQ-119 closure.
 
 ## Open blocking corrections
 
 None currently recorded.
 
 ## Closed during this cycle
+
+### CQ-119: Lane 4 v2 promotion placeholders do not match the Lane 5 route contract
+
+Severity: high
+Blocking: yes
+Status: closed (2026-05-20)
+Owner: Ralph
+
+Problem:
+
+Lane 4 is supposed to define v2 promotion route placeholders that return 501
+without implementing the Lane 5 protocol. The current placeholders do return
+only placeholder responses, but two route definitions do not match the Lane 5
+contract in `docs/rearch-2/06-lane-5-sync-protocol.md`:
+
+- Expected `POST /v2/promotions/begin`, actual `POST /v2/promotions`.
+- Expected `PUT /v2/promotions/:promotionId/segments/:segmentId`, actual
+  `POST /v2/promotions/:promotionId/segments`.
+
+Risk:
+
+The Lane 4 gate can pass while pinning the wrong API surface. Lane 5 would then
+either build client/server sync against the wrong paths or need to break the
+Lane 4 placeholder contract immediately.
+
+Smoke evidence:
+
+```text
+pnpm exec node --conditions=prosa-dev --import @swc-node/register/esm-register -e "import { V2_PROMOTION_ROUTES } from './src/v2/promotion.ts'; const expected = ['POST /v2/promotions/begin', 'PUT /v2/promotions/:promotionId/segments/:segmentId', 'POST /v2/promotions/:promotionId/object-packs', 'POST /v2/promotions/:promotionId/seal', 'GET /v2/receipts/:receiptId']; const actual = V2_PROMOTION_ROUTES.map((r) => r.method + ' ' + r.url); console.log(JSON.stringify({expected, actual, missing: expected.filter((x) => !actual.includes(x)), extra: actual.filter((x) => !expected.includes(x))}, null, 2)); process.exit(expected.every((x) => actual.includes(x)) ? 0 : 1);"
+```
+
+Run from `apps/api`; result exited `1` with:
+
+```json
+{
+  "missing": [
+    "POST /v2/promotions/begin",
+    "PUT /v2/promotions/:promotionId/segments/:segmentId"
+  ],
+  "extra": [
+    "POST /v2/promotions",
+    "POST /v2/promotions/:promotionId/segments"
+  ]
+}
+```
+
+Required fix:
+
+Update `apps/api/src/v2/promotion.ts` so `V2_PROMOTION_ROUTES` matches the Lane
+5 endpoint contract exactly while still returning 501 for authorized callers.
+Do not implement the promotion protocol.
+
+Acceptance:
+
+- [x] `V2_PROMOTION_ROUTES` exactly includes:
+      `POST /v2/promotions/begin`,
+      `PUT /v2/promotions/:promotionId/segments/:segmentId`,
+      `POST /v2/promotions/:promotionId/object-packs`,
+      `POST /v2/promotions/:promotionId/seal`, and
+      `GET /v2/receipts/:receiptId`. Implemented in
+      `apps/api/src/v2/promotion.ts`.
+- [x] Tests assert the exact method/path contract, not only the operation names.
+      `apps/api/test/v2/skeleton.test.ts > exactly matches the Lane 5 method/path contract`
+      compares the sorted `${method} ${url}` list against the spec.
+- [x] Tests prove each route returns `401` when unauthenticated and `501` when
+      called by an authenticated tenant member. Two cases in
+      `apps/api/test/v2/skeleton.test.ts` iterate the route list and assert
+      both responses for every entry; signup runs through
+      `/trpc/auth.signupWithTenant` so the same Better Auth + tenant
+      resolution path the production server takes is exercised.
+- [x] No Lane 5 promotion semantics are implemented. Each handler still returns
+      `501 NOT_IMPLEMENTED` once auth and tenant pass.
+- [x] Focused API v2 tests and `pnpm --filter @c3-oss/prosa-api lint` pass.
+      `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/skeleton.test.ts`
+      → 5/5. `pnpm --filter @c3-oss/prosa-api lint` → clean.
 
 ### CQ-116: DuckDB analytics is not wired to real v2 compile output and fails sparse bundles
 
