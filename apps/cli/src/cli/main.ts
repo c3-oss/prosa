@@ -12,6 +12,7 @@ import { indexV2Command } from './commands/index-v2.js'
 import { indexCommand } from './commands/index.js'
 import { initCommand } from './commands/init.js'
 import { mcpCommand } from './commands/mcp.js'
+import { migrateV2Command } from './commands/migrate-v2.js'
 import { queryCommand } from './commands/query.js'
 import { searchCommand } from './commands/search.js'
 import { sessionCommand } from './commands/session.js'
@@ -68,6 +69,7 @@ export async function runCli(argv: readonly string[]): Promise<void> {
   program.addCommand(compileV2Command())
   program.addCommand(compileAllV2Command())
   program.addCommand(indexV2Command())
+  program.addCommand(migrateV2Command())
 
   await program.parseAsync(stripLeadingDoubleDash(argv))
 }
