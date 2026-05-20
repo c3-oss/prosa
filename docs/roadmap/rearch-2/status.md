@@ -1,6 +1,6 @@
 # rearch-2 Current Status
 
-Updated: 2026-05-20 after governor review opened CQ-116..CQ-118.
+Updated: 2026-05-20 after CQ-118 closure was governor-accepted.
 
 ## Summary
 
@@ -26,12 +26,15 @@ fixture text/doc_id; this does not reopen CQ-115.
 
 Current explicit milestone:
 
-1. Fix CQ-118 first: compaction caller-supplied plan containment. This is the
-   smallest high-risk blocker and directly guards the Parquet runtime worker.
-2. Fix CQ-117: post-compaction consumer visibility must not double-count rows.
-3. Fix CQ-116: DuckDB analytics must connect to real v2 compile output and
+1. Fix CQ-117: post-compaction consumer visibility must not double-count rows.
+   WIP exists in `packages/prosa-derived-v2/src/analytics/runtime-executor.ts`
+   and `packages/prosa-derived-v2/src/compaction/runtime-worker.ts`, but the
+   current WIP is not acceptable while the new CQ-117 overlay test fails because
+   its `sessions.parquet` fixture lacks the `raw_record_id` column required by
+   `session_facts`.
+2. Fix CQ-116: DuckDB analytics must connect to real v2 compile output and
    handle sparse bundles.
-4. Continue per-provider `search_doc` emission parity only as required support
+3. Continue per-provider `search_doc` emission parity only as required support
    for the Tantivy gate, and do not present partial provider wiring as full
    Lane 3 completion.
 
@@ -53,7 +56,6 @@ Open blocking corrections:
 - CQ-116: DuckDB analytics is not wired to real v2 compile output and fails
   sparse bundles.
 - CQ-117: Compaction double-counts rows through the analytics overlay.
-- CQ-118: Compaction caller-supplied plans can escape `bundleRoot`.
 
 No `RALPH_DONE` is valid while any of these remain open.
 

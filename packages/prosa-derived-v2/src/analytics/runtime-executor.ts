@@ -26,8 +26,11 @@
 // failure mode (the caller asked to analyse a bundle that has no
 // Parquet for the entity).
 
-import { glob } from 'node:fs/promises'
+import { join } from 'node:path'
 
+import { listCompactedOutputs } from '../compaction/outputs.js'
+import { listProjectionSegments } from '../compaction/segments.js'
+import { listSupersededSegmentsFromManifests } from '../compaction/superseded.js'
 import {
   type AnalyticsExecutionPlan,
   type PlanAnalyticsExecutionInput,
@@ -130,21 +133,47 @@ export async function runAnalyticsExecution(input: RunAnalyticsExecutionInput): 
   }
 }
 
-/** Probe each entity's parquet globs and rewrite the setup
- *  statements to reference only the globs with at least one match.
- *  Statements that would degrade to an empty `read_parquet([])` are
- *  dropped entirely; their entities are reported in
- *  `skippedEntities` so callers see exactly what the runtime
- *  omitted. */
+/** Enumerate live + compacted Parquet segments for each canonical
+ *  entity, filtering out live segments superseded by a persisted
+ *  compact manifest, then rewrite the composer-built setup
+ *  statements to read from the explicit file list. CQ-117: without
+ *  the superseded filter, the analytics overlay double-counts rows
+ *  after compaction. CQ-116: the composer's glob would fail with
+ *  `IO Error: No files found` when the compacted overlay glob has
+ *  zero matches; the explicit-file-list form sidesteps that. */
 async function resolveRuntimeSetupStatements(
   plan: AnalyticsExecutionPlan,
   bundleRoot: string,
 ): Promise<{ executedSetupStatements: string[]; skippedEntities: AnalyticsEntityTable[] }> {
-  const live = new Map<AnalyticsEntityTable, string>()
-  const compact = new Map<AnalyticsEntityTable, string>()
-  for (const entity of ANALYTICS_ENTITY_TABLES) {
-    live.set(entity, `${bundleRoot}/epochs/*/projection/${entity}.parquet`)
-    compact.set(entity, `${bundleRoot}/epochs/compact-*/projection/${entity}.compacted.parquet`)
+  // One pass over the bundle for the three pieces of state the
+  // runtime needs to make consistent per-entity decisions:
+  //
+  //   - `liveSegments`: every `epochs/<n>/projection/<entity>.parquet`.
+  //   - `supersededPaths`: bundle-relative paths the compact
+  //     manifests claim as superseded (CQ-117 source of truth).
+  //   - `compactedAudits`: which `epochs/compact-<NNNN>/
+  //     projection/<entity>.compacted.parquet` files exist on disk.
+  const [liveSegments, superseded, compactedAudits] = await Promise.all([
+    listProjectionSegments(bundleRoot),
+    listSupersededSegmentsFromManifests(bundleRoot),
+    listCompactedOutputs(bundleRoot),
+  ])
+  const supersededPaths = new Set(superseded.map((s) => s.path))
+  const liveByEntity = new Map<string, string[]>()
+  for (const segment of liveSegments) {
+    if (supersededPaths.has(segment.path)) continue
+    const list = liveByEntity.get(segment.entityType) ?? []
+    list.push(segment.absPath)
+    liveByEntity.set(segment.entityType, list)
+  }
+  const compactedByEntity = new Map<string, string[]>()
+  for (const audit of compactedAudits) {
+    for (const out of audit.entity_outputs) {
+      if (!out.exists) continue
+      const list = compactedByEntity.get(out.entity_type) ?? []
+      list.push(join(bundleRoot, out.output_path))
+      compactedByEntity.set(out.entity_type, list)
+    }
   }
 
   const executedSetupStatements: string[] = []
@@ -159,21 +188,16 @@ async function resolveRuntimeSetupStatements(
     const stmt = plan.setupStatements[i] as string
     const entity = entityFromTempViewStatement(stmt)
     if (entity === null) {
-      // Analytics view body or any other passthrough statement.
       executedSetupStatements.push(stmt)
       continue
     }
-    const livePath = live.get(entity) as string
-    const compactPath = compact.get(entity) as string
-    const [liveHits, compactHits] = await Promise.all([globHits(livePath), globHits(compactPath)])
-    if (!liveHits && !compactHits) {
+    const filesForEntity: string[] = [...(liveByEntity.get(entity) ?? []), ...(compactedByEntity.get(entity) ?? [])]
+    if (filesForEntity.length === 0) {
       skippedEntities.push(entity)
       continue
     }
-    const present: string[] = []
-    if (liveHits) present.push(livePath)
-    if (compactHits) present.push(compactPath)
-    const replacement = `read_parquet([${present.map((p) => quoteSqlString(p)).join(', ')}], union_by_name => true)`
+    const fileList = filesForEntity.map((p) => quoteSqlString(p)).join(', ')
+    const replacement = `read_parquet([${fileList}], union_by_name => true)`
     executedSetupStatements.push(rewriteReadParquetClause(stmt, replacement))
   }
 
@@ -214,18 +238,6 @@ function rewriteReadParquetClause(stmt: string, replacement: string): string {
   }
   if (end < 0) return stmt
   return `${stmt.slice(0, start)}${replacement}${stmt.slice(end)}`
-}
-
-/** True iff the glob matches at least one filesystem entry. Uses
- *  `node:fs/promises.glob` (Node 22+) and short-circuits on the
- *  first hit. */
-async function globHits(pattern: string): Promise<boolean> {
-  // `glob` is async-iterable; consuming the first entry is enough.
-  for await (const _entry of glob(pattern)) {
-    void _entry
-    return true
-  }
-  return false
 }
 
 /** Single-quote a value for SQL string literals, doubling embedded

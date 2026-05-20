@@ -23,6 +23,7 @@ import { mkdir, stat } from 'node:fs/promises'
 import { isAbsolute, relative, resolve as resolvePath, sep } from 'node:path'
 
 import { type CompactionExecutionPlan, planCompactionExecution } from './executor-plan.js'
+import { buildCompactManifestV2, writeCompactManifestV2 } from './manifest.js'
 import { type CompactionPlan, planCompaction } from './planner.js'
 
 export interface RunCompactionInput {
@@ -39,6 +40,10 @@ export interface RunCompactionInput {
    *  CLI surfaces. Result rows still describe the planned work,
    *  with `outputByteLength = 0` and `rowCount = 0`. */
   dryRun?: boolean
+  /** ISO-8601 timestamp embedded as `generated_at` on the persisted
+   *  compact manifest. Defaults to `new Date().toISOString()`.
+   *  Exposed so tests can pin a deterministic timestamp. */
+  generatedAt?: string
 }
 
 export interface CompactionEntityResult {
@@ -73,6 +78,13 @@ export interface RunCompactionResult {
    *  JSON through `jq` see exactly which run mode produced the
    *  rows. */
   dryRun: boolean
+  /** Absolute path to the persisted compact manifest, or `null` when
+   *  the worker did not write one (empty plan or `dryRun === true`).
+   *  CQ-117: consumers (the analytics runtime, audit/GC helpers) use
+   *  the manifest to discover which live segments are superseded by
+   *  the compacted output so they can be filtered out of read
+   *  globs. */
+  manifestPath: string | null
 }
 
 /** Lazy native module reference. */
@@ -115,7 +127,7 @@ export async function runCompaction(input: RunCompactionInput): Promise<RunCompa
   const dryRun = input.dryRun ?? false
 
   if (plan.empty || executionPlan.statements.length === 0) {
-    return { plan, executionPlan, results: [], empty: true, dryRun }
+    return { plan, executionPlan, results: [], empty: true, dryRun, manifestPath: null }
   }
 
   const results: CompactionEntityResult[] = []
@@ -135,7 +147,7 @@ export async function runCompaction(input: RunCompactionInput): Promise<RunCompa
         rowCount: 0,
       })
     }
-    return { plan, executionPlan, results, empty: false, dryRun }
+    return { plan, executionPlan, results, empty: false, dryRun, manifestPath: null }
   }
 
   const duckdb = await loadDuckDb()
@@ -167,7 +179,22 @@ export async function runCompaction(input: RunCompactionInput): Promise<RunCompa
     connection.closeSync()
   }
 
-  return { plan, executionPlan, results, empty: false, dryRun }
+  // CQ-117: persist the compact manifest so the analytics runtime
+  // (and any audit/GC consumer) can discover which live segments
+  // are superseded by the compacted outputs. The manifest is the
+  // single source of truth for "this live segment is no longer
+  // canonical"; without it, consumers reading the live + compacted
+  // overlays would double-count rows. The persisted manifest is
+  // bundle-internal state — `writeCompactManifestV2` enforces the
+  // same CQ-094/CQ-098/CQ-103 containment rules as the index
+  // checkpoint store.
+  const manifest = buildCompactManifestV2({
+    plan,
+    generatedAt: input.generatedAt ?? new Date().toISOString(),
+  })
+  const manifestPath = await writeCompactManifestV2(input.bundleRoot, manifest)
+
+  return { plan, executionPlan, results, empty: false, dryRun, manifestPath }
 }
 
 function quoteSqlString(value: string): string {

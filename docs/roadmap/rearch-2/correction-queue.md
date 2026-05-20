@@ -1,6 +1,6 @@
 # rearch-2 Correction Queue
 
-Updated: 2026-05-20 after governor review opened CQ-116..CQ-118.
+Updated: 2026-05-20 after CQ-118 closure was governor-accepted.
 
 ## Open blocking corrections
 
@@ -61,7 +61,7 @@ Acceptance:
 
 Severity: high
 Blocking: yes
-Status: open
+Status: closed (2026-05-20)
 Owner: Ralph
 
 Problem:
@@ -100,12 +100,30 @@ compaction.
 
 Acceptance:
 
-- [ ] Post-compaction analytics/read queries preserve logical row counts.
-- [ ] The effective file set for compacted entities drops below the policy
-      threshold or the remaining cleanup phase is explicit and blocked.
-- [ ] A focused integration test plants many live Parquet segments, runs
-      compaction, then proves the consumer-visible row count remains unchanged.
-- [ ] Evidence is recorded in `docs/roadmap/rearch-2/evidence/lane-03.md`.
+- [x] Post-compaction analytics/read queries preserve logical row counts.
+      `runCompaction` now persists a `compact.manifest.json` for every
+      non-empty plan via `buildCompactManifestV2` + `writeCompactManifestV2`
+      and exposes the resolved manifest path on the result. The analytics
+      runtime (`runAnalyticsExecution`) aggregates
+      `listSupersededSegmentsFromManifests` + `listProjectionSegments` +
+      `listCompactedOutputs` and rewrites the composer's `read_parquet([...])`
+      array to an explicit per-entity file list: live segments minus
+      superseded paths, plus existing compacted outputs.
+- [x] The effective file set for compacted entities drops below the policy
+      threshold (the analytics overlay reads one compacted file instead of
+      33 live segments for `sessions`).
+- [x] A focused integration test plants many live Parquet segments, runs
+      compaction, then proves the consumer-visible row count remains
+      unchanged.
+      `packages/prosa-derived-v2/test/compaction/compaction-analytics-overlay.test.ts`
+      plants 33 distinct `sessions.parquet` segments + minimum-viable stubs
+      for every other canonical entity the `session_facts` view body joins
+      against; pre-compaction the overlay sees 33 sessions; post-compaction
+      the overlay still sees 33 (not 66) AND
+      `listSupersededSegmentsFromManifests` returns 33 entries.
+- [x] Evidence is recorded in `docs/roadmap/rearch-2/evidence/lane-03.md`.
+
+## Closed during this cycle
 
 ### CQ-118: Compaction caller-supplied plans can escape bundleRoot
 
@@ -162,9 +180,14 @@ Acceptance:
       absolute `outputPath`, `..` in `outputPath`, and a dry-run path that
       proves containment runs before any FS / DuckDB side effect.
 - [x] Focused compaction tests still pass (original 5 + 5 new = 10/10).
+      Governor re-ran
+      `pnpm --filter @c3-oss/prosa-derived-v2 exec vitest run test/compaction/runtime-worker.test.ts`
+      on 2026-05-19 local time: 10/10.
+- [x] Direct post-fix smoke rejects the original escape before exposing an
+      execution plan:
+      `assertPlanContained: segmentsToMerge[].path for entity sessions
+      "../outside-input.parquet" contains '..' traversal`.
 - [x] Evidence is recorded in `docs/roadmap/rearch-2/evidence/lane-03.md`.
-
-## Closed during this cycle
 
 ### CQ-115: Tantivy bundle rebuild skips incorrectly across epoch changes
 

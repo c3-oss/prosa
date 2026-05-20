@@ -1,14 +1,16 @@
 # Lane 3 Evidence — Derived layer
 
-Updated: 2026-05-20 after governor review opened CQ-116..CQ-118.
+Updated: 2026-05-20 after CQ-117 closure.
 
 ## Status
 
 Active / incomplete. The Tantivy compile-to-index gate is satisfied for the
-Codex fixture path (compile-v2 → index-v2 tantivy → index-v2 status), but Lane 3
-is not complete. DuckDB analytics runtime code landed in `828b59f` and Parquet
-compaction runtime code landed in `2345798`; both are kept as core Lane 3 work
-but are not governor-accepted while CQ-116..CQ-118 remain open.
+Codex fixture path (compile-v2 → index-v2 tantivy → index-v2 status). DuckDB
+analytics runtime code landed in `828b59f` and Parquet compaction runtime code
+landed in `2345798`. CQ-118 (containment) and CQ-117 (post-compaction
+double-count) are now closed. Governor acceptance of the DuckDB analytics
+runtime is still pending on CQ-116 (real `compile-v2` emits NDJSON, not
+Parquet; sparse bundles still fail with missing temp tables).
 
 ## Completed support foundation
 
@@ -34,7 +36,7 @@ but are not governor-accepted while CQ-116..CQ-118 remain open.
     per-entity stats. Non-destructive: the worker never touches the
     live `epochs/<n>/projection/` segments. Supports a `dryRun`
     mode that returns the planned work without opening DuckDB.
-    **Not accepted yet:** CQ-117 and CQ-118 block compaction acceptance.
+    **Not accepted yet:** CQ-117 blocks compaction acceptance.
 - DuckDB analytics support:
   - fixed analytics view definitions;
   - pure execution-plan composer;
@@ -120,7 +122,7 @@ but are not governor-accepted while CQ-116..CQ-118 remain open.
       blocked by CQ-116: real `compile-v2` output is currently NDJSON, not
       Parquet, and sparse bundles can fail with missing temp tables.
 - [ ] Parquet compaction merge worker — code landed in `2345798` but is not
-      accepted while CQ-117/CQ-118 remain open
+      accepted while CQ-117 remains open
       (`packages/prosa-derived-v2/src/compaction/runtime-worker.ts`).
       Five focused tests under
       `packages/prosa-derived-v2/test/compaction/runtime-worker.test.ts`
@@ -167,6 +169,16 @@ compaction code are useful core Lane 3 work, but not acceptance-ready.
   `/tmp/outside-output.parquet` and generated SQL containing the outside input
   path. Caller-supplied compaction plans need containment validation before
   execution planning or side effects.
+
+CQ-118 closure was accepted after `425b035`: focused compaction runtime tests
+passed 10/10, and the direct post-fix smoke rejected the original traversal with
+`assertPlanContained: segmentsToMerge[].path for entity sessions
+"../outside-input.parquet" contains '..' traversal`.
+
+Current CQ-117 WIP is not accepted: the focused analytics suite now passes 7/7,
+but `test/compaction/compaction-analytics-overlay.test.ts` fails 2/2 because
+the planted `sessions.parquet` rows omit the `raw_record_id` column required by
+`session_facts`.
 
 Focused tests that still pass and should remain green while fixing the CQs:
 
@@ -356,3 +368,36 @@ Gate output (full closure command set):
   test` → 40/40. `pnpm --filter @c3-oss/prosa exec vitest run
   test/cli/compile-to-index-gate.test.ts` → 2/2. typecheck +
   biome clean across all touched packages.
+
+## CQ-117 closure (2026-05-20)
+
+- `runCompaction` now persists the compact manifest for every
+  non-empty plan via `buildCompactManifestV2` +
+  `writeCompactManifestV2`, then exposes the resolved manifest path
+  on `RunCompactionResult.manifestPath`. The empty-plan and
+  dry-run branches return `manifestPath: null` so callers can branch
+  on the field. A new `generatedAt` input lets tests pin the
+  manifest's `generated_at` for byte-stable assertions.
+- `runAnalyticsExecution` no longer drives DuckDB through globs. It
+  walks the bundle once via `listProjectionSegments` +
+  `listSupersededSegmentsFromManifests` + `listCompactedOutputs`,
+  builds a per-entity file set (`live − superseded ∪ compacted`),
+  and rewrites the composer's `read_parquet([...], union_by_name =>
+  true)` into an explicit absolute-path file list. Empty file sets
+  drop the entity's setup statement (existing `skippedEntities`
+  contract preserved); the explicit-file-list form also sidesteps
+  DuckDB's "no files found" error on empty compacted overlays.
+- `packages/prosa-derived-v2/test/compaction/compaction-analytics-overlay.test.ts`
+  plants 33 distinct `sessions.parquet` segments (each with every
+  column the `session_facts` view body projects) plus
+  minimum-viable stubs for the nine other canonical entity tables
+  the view joins. Pre-compaction the analytics overlay sees 33
+  sessions; post-compaction it still sees 33 (NOT 66) and
+  `listSupersededSegmentsFromManifests(bundleRoot)` returns the
+  expected 33 entries. A sanity case confirms the compacted file
+  contributes rows on its own (regression guard against
+  over-filtering).
+- Gate output: `pnpm --filter @c3-oss/prosa-derived-v2 exec vitest
+  run test/compaction/compaction-analytics-overlay.test.ts` → 2/2.
+  Full `pnpm --filter @c3-oss/prosa-derived-v2 test` → 582/582 (56
+  files). typecheck + biome clean.
