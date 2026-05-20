@@ -74,9 +74,14 @@ Read `docs/roadmap/rearch-2/correction-queue.md` before the next slice.
   use the transport-byte hash, while `remote_pack.pack_digest` remains the
   canonical CAS pack digest.
 - CQ-130 blocks Lane 5 upload-segment acceptance: missing
-  `x-prosa-transport-hash` must reject, not accept.
+  `x-prosa-transport-hash` must reject, not accept, on segment and object-pack
+  uploads.
 - CQ-131 blocks Lane 5 seal/upload phase acceptance: uploads must reject once
   staging is `materializing`.
+- CQ-132 blocks Lane 5 object-pack cleanup acceptance: bytes written before a
+  catalog failure must be deleted or explicitly queued for cleanup.
+- CQ-133 blocks Lane 5 seal grant correctness: uploaded object packs must be
+  durably linked to the promotion that uploaded or claimed them.
 
 ## Lane 5 invariants
 

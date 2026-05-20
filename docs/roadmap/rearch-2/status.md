@@ -76,9 +76,14 @@ The blocker is implementation work, not environment.
   `packDigest` instead of the BLAKE3 transport hash of the stored bytes, causing
   valid pack uploads to fail storage verification.
 - CQ-130: UploadSegment accepts inventory bytes without the required
-  `x-prosa-transport-hash`.
-- CQ-131: UploadSegment accepts uploads while staging is already
-  `materializing`.
+  `x-prosa-transport-hash`; UploadObjectPack has the same optional-header gap.
+- CQ-131: UploadSegment and UploadObjectPack accept uploads while staging is
+  already `materializing`.
+- CQ-132: UploadObjectPack writes object-store bytes before catalog rows and
+  lacks cleanup on non-idempotent catalog failure.
+- CQ-133: UploadObjectPack commit `154ba25` did not link tenant-wide pack
+  catalog rows to the promotion that uploaded them; current WIP appears to add
+  `promotion_uploaded_pack`, but it is not yet committed/gated.
 
 ## Supporting documents
 

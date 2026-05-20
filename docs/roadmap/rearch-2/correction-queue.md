@@ -377,7 +377,7 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 5 object-pack upload acceptance)
-Status: open
+Status: open (implementation appears fixed in `154ba25`; acceptance still needs explicit object-store metadata assertions)
 Owner: Ralph
 
 Problem:
@@ -442,25 +442,26 @@ Acceptance:
 - [ ] Mismatched declared transport hash and mismatched declared pack digest
       remain separate 400 failures.
 
-### CQ-130: UploadSegment accepts inventory bytes without required transport hash
+### CQ-130: Upload routes accept bytes without required transport hash
 
 Severity: high
-Blocking: yes (blocks Lane 5 upload-segment acceptance)
+Blocking: yes (blocks Lane 5 upload acceptance)
 Status: open
 Owner: Ralph
 
 Problem:
 
-The shared v2 wire schema requires `transportHash` for `UploadSegment`, and
-Lane 5 invariants require transport hash verification independent of canonical
-content identity. The slice 3 route treats `x-prosa-transport-hash` as optional
-and accepts uploads when it is missing.
+The shared v2 wire schemas require `transportHash` for `UploadSegment` and
+`UploadObjectPack`, and Lane 5 invariants require transport hash verification
+independent of canonical content identity. Slice 3 treats
+`x-prosa-transport-hash` as optional for inventory segments, and slice 4 treats
+it as optional for object packs.
 
 Risk:
 
-Clients can upload inventory bytes without proving the bytes observed on the
-wire. That weakens CQ-012 and makes retry/audit behavior diverge from the
-published protocol schema.
+Clients can upload inventory or object-pack bytes without proving the bytes
+observed on the wire. That weakens CQ-012 and makes retry/audit behavior
+diverge from the published protocol schema.
 
 Smoke evidence:
 
@@ -476,6 +477,16 @@ Run from `apps/api`; output:
 no-transport 200 accepted
 ```
 
+Additional object-pack evidence from commit `154ba25`:
+
+```text
+git grep -n "transportHash" 154ba25 -- apps/api/src/v2/sync/upload-object-pack.ts apps/api/test/v2/sync/upload-object-pack.test.ts
+```
+
+Output shows `transportHash?: string`, validation only under
+`params.transportHash !== undefined`, and re-upload tests that omit the
+transport hash header.
+
 Required fix:
 
 - Treat missing `x-prosa-transport-hash` as `400 INVALID_REQUEST`.
@@ -485,13 +496,17 @@ Required fix:
 
 Acceptance:
 
-- [ ] Route test proves missing `x-prosa-transport-hash` returns 400.
-- [ ] Valid transport hash accepts the upload.
-- [ ] Mismatched transport hash remains a 400 with a `transportHash` issue.
+- [ ] Segment upload route test proves missing `x-prosa-transport-hash`
+      returns 400.
+- [ ] Object-pack upload route test proves missing `x-prosa-transport-hash`
+      returns 400.
+- [ ] Valid transport hash accepts each upload route.
+- [ ] Mismatched transport hash remains a 400 with a `transportHash` issue on
+      each route.
 - [ ] Re-upload requires and verifies the transport hash before returning
       `already_present`.
 
-### CQ-131: UploadSegment accepts uploads while promotion is materializing
+### CQ-131: Upload routes accept uploads while promotion is materializing
 
 Severity: high
 Blocking: yes (blocks Lane 5 seal/upload phase acceptance)
@@ -500,9 +515,9 @@ Owner: Ralph
 
 Problem:
 
-`UploadSegment` rejects only `sealed` and `aborted` staging rows. It still
-accepts uploads when a promotion is `materializing`, which is the phase where
-seal verification/materialization starts.
+`UploadSegment` and `UploadObjectPack` reject only `sealed` and `aborted`
+staging rows. They still accept uploads when a promotion is `materializing`,
+which is the phase where seal verification/materialization starts.
 
 Risk:
 
@@ -525,6 +540,15 @@ Run from `apps/api`; output:
 materializing 200 accepted
 ```
 
+Additional object-pack evidence from commit `154ba25`:
+
+```text
+git show 154ba25:apps/api/src/v2/sync/upload-object-pack.ts | nl -ba | sed -n '79,98p'
+```
+
+Output shows `TERMINAL_STAGING_STATUSES = new Set(['sealed', 'aborted'])`, so
+`materializing` is not rejected.
+
 Required fix:
 
 - Define the upload-allowed states explicitly, likely `open` and `uploading`
@@ -536,8 +560,104 @@ Required fix:
 Acceptance:
 
 - [ ] Route test proves `materializing` staging rows reject segment uploads.
-- [ ] Route test proves `sealed` and `aborted` remain rejected.
+- [ ] Route test proves `materializing` staging rows reject object-pack uploads.
+- [ ] Route tests prove `sealed` and `aborted` remain rejected.
 - [ ] Allowed states are documented and reused by object-pack upload and seal.
+
+### CQ-132: UploadObjectPack leaves orphan pack bytes on catalog failure
+
+Severity: high
+Blocking: yes (blocks Lane 5 object-pack cleanup acceptance)
+Status: open
+Owner: Ralph
+
+Problem:
+
+In commit `154ba25`, `UploadObjectPack` writes pack bytes to the object store
+before inserting `remote_pack` and `remote_pack_entry` rows in the catalog
+transaction. On non-idempotent catalog failure, the handler rethrows without
+deleting the newly written object-store bytes.
+
+Risk:
+
+Database errors, timeouts, future constraints, or partial catalog failures can
+leave unreferenced object-pack bytes. This violates the Lane 5 orphan-byte
+cleanup invariant and makes later GC/audit responsible for bytes the upload
+route should have aborted or cleaned immediately.
+
+Smoke evidence:
+
+```text
+git show 154ba25:apps/api/src/v2/sync/upload-object-pack.ts | nl -ba | sed -n '144,220p'
+```
+
+Output shows `objectStore.putIfAbsent(...)` before `deps.transaction(...)`; the
+catch block handles only `23505` and otherwise `throw err` with no
+`objectStore.delete(storageKey)` cleanup.
+
+Required fix:
+
+- Track whether this request actually wrote new bytes (`alreadyExisted ===
+  false`).
+- On non-idempotent catalog failure after a new write, best-effort delete the
+  staging object key or otherwise record an explicit cleanup task before
+  returning failure.
+- Do not delete bytes that pre-existed from an idempotent retry or another
+  successful promotion.
+
+Acceptance:
+
+- [ ] Test injects a catalog/transaction failure after object-store write and
+      proves the storage key is absent or cleanup was explicitly recorded.
+- [ ] Test proves idempotent replay does not delete pre-existing pack bytes.
+- [ ] Object-pack route evidence documents the storage/catalog failure policy.
+
+### CQ-133: Object packs are not linked to the promotion that uploaded them
+
+Severity: high
+Blocking: yes (blocks Lane 5 seal grant correctness)
+Status: open (WIP appears to add `promotion_uploaded_pack`; remains open until committed and gated)
+Owner: Ralph
+
+Problem:
+
+In commit `154ba25`, `remote_pack` is tenant-wide and keyed by
+`(tenant_id, pack_digest)`, but the upload route does not record which
+`promotion_staging.id` uploaded or claimed the pack. Seal needs a
+per-promotion pack set to write `receipt_pack_grant` rows only for the sealed
+promotion.
+
+Risk:
+
+With only tenant-wide pack catalog rows, seal can over-grant packs uploaded by
+another active promotion in the same tenant, or fail to know which packs belong
+to the promotion being sealed. This weakens receipt grants and remote read
+authorization.
+
+Smoke evidence:
+
+```text
+git grep -n "promotion_uploaded_pack" 154ba25 -- packages apps || true
+```
+
+Output: no matches.
+
+Required fix:
+
+- Add a per-promotion pack linkage table or equivalent durable relation.
+- Link a pack to the current promotion both when the pack is newly catalogued
+  and when it already exists tenant-wide.
+- Seal must read that relation, not all tenant packs, when writing
+  `receipt_pack_grant`.
+
+Acceptance:
+
+- [ ] Object-pack upload test proves `promotion_uploaded_pack` (or equivalent)
+      is written on fresh upload.
+- [ ] Re-upload/already-present path links the existing pack to the current
+      promotion without duplicating rows.
+- [ ] Seal test with two active promotions in one tenant proves receipt grants
+      include only packs linked to the sealed promotion.
 
 ## Closed during this cycle
 
