@@ -184,9 +184,18 @@ importers:
       '@c3-oss/prosa-importers-v2':
         specifier: workspace:^
         version: link:../../packages/prosa-importers-v2
+      '@c3-oss/prosa-types-v2':
+        specifier: workspace:*
+        version: link:../../packages/prosa-types-v2
+      '@c3-oss/prosa-wire-v2':
+        specifier: workspace:*
+        version: link:../../packages/prosa-wire-v2
       '@inkjs/ui':
         specifier: ^2.0.0
         version: 2.0.0(ink@7.0.1(@types/react@19.2.14)(react@19.2.5))
+      '@noble/hashes':
+        specifier: ^1.7.0
+        version: 1.8.0
       commander:
         specifier: ^12.1.0
         version: 12.1.0
@@ -224,6 +233,9 @@ importers:
       '@c3-oss/prosa-db':
         specifier: workspace:^
         version: link:../../packages/prosa-db
+      '@c3-oss/prosa-db-v2':
+        specifier: workspace:*
+        version: link:../../packages/prosa-db-v2
       '@c3-oss/prosa-storage':
         specifier: workspace:^
         version: link:../../packages/prosa-storage

@@ -16,6 +16,7 @@ import { queryCommand } from './commands/query.js'
 import { searchCommand } from './commands/search.js'
 import { sessionCommand } from './commands/session.js'
 import { sessionsCommand } from './commands/sessions.js'
+import { syncV2Command } from './commands/sync-v2.js'
 import { syncCommand } from './commands/sync.js'
 import { tuiCommand } from './commands/tui.js'
 /**
@@ -62,6 +63,7 @@ export async function runCli(argv: readonly string[]): Promise<void> {
   program.addCommand(tuiCommand())
   program.addCommand(authCommand())
   program.addCommand(syncCommand())
+  program.addCommand(syncV2Command())
   program.addCommand(bundleCommand())
   program.addCommand(compileV2Command())
   program.addCommand(compileAllV2Command())

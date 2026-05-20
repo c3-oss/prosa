@@ -515,3 +515,84 @@ Lane 5 server scope deferred (explicit):
 - Docker-backed E2E (postgres + minio + API + CLI sync) — Lane 5
   acceptance gate.
 - Five 180s stabilization cycles after CLI + E2E close.
+
+## Slice 7 (CLI promote client + sync-v2 command) — 2026-05-20
+
+Scope:
+
+- New `apps/cli/src/cli/v2/sync/promote.ts` implements
+  `promoteBundleV2(client, input)` — a generic-HTTP-client function
+  that drives the four-call protocol against a v2-capable
+  prosa-api server:
+  1. POST `/v2/promotions/begin` with the bundle head + inventory
+     segment refs. `already_promoted` → return early.
+  2. PUT `/v2/promotions/:id/segments/<obj-inv>` and
+     `<proj-inv>` with the inventory bytes and
+     `x-prosa-transport-hash` declarations.
+  3. POST `/v2/promotions/:id/object-packs` for every object pack
+     (one streamed body per pack, transport hash declared).
+  4. POST `/v2/promotions/:id/seal`.
+  - Returns `{ status: 'already_promoted', receipt } |
+    { status: 'sealed', receipt, promotionId }`.
+  - On any non-200 step, throws `PromoteV2Error` carrying the
+    failing step (`begin`/`upload-segment`/`upload-pack`/`seal`),
+    the HTTP status code, and the parsed response body.
+- The `PromoteHttpClient` interface is intentionally generic — a
+  function `(req) => Promise<{ statusCode, json() }>`. Tests adapt
+  Fastify's `app.inject(...)` directly; the CLI command wraps
+  `fetch`.
+- New `apps/cli/src/cli/commands/sync-v2.ts` defines the
+  `prosa sync-v2` CLI command with `--server`, `--token`,
+  `--tenant`, `--store`, `--device`, `--bundle`, and `--json`
+  flags. The command reads a bundle directory layout
+  (`head.json` + `sync-v2.layout.json` pointing at inventory and
+  pack files), builds the promote input, runs the client, and
+  prints either a human-readable or JSON status line.
+  `--no-resume`, `--dry-run`, and progress UI ship in follow-up
+  slices.
+- `apps/cli/src/cli/main.ts` registers `syncV2Command()` alongside
+  the existing v1 `syncCommand()`.
+- `apps/cli/vitest.config.ts` adds aliases for v2 workspace
+  packages (`@c3-oss/prosa-db-v2`, `@c3-oss/prosa-bundle-v2`,
+  `@c3-oss/prosa-types-v2`, `@c3-oss/prosa-wire-v2`) so CLI tests
+  pick up source changes rather than stale `dist/` builds.
+- `apps/cli/package.json` adds `@c3-oss/prosa-db-v2`,
+  `@c3-oss/prosa-types-v2`, `@c3-oss/prosa-wire-v2`, and
+  `@noble/hashes` as workspace dependencies.
+
+New tests in `apps/cli/test/cli/v2/sync/promote.test.ts` (3 cases,
+end-to-end via in-process Fastify inject — server + canonical
+types + CLI client all exercised together):
+
+1. happy path: full four-call sequence seals a fresh bundle, the
+   returned receipt's signature verifies against the published
+   JWKS via `node:crypto verify(...)` (invariant I5 end-to-end
+   through the CLI client surface).
+2. fast path: a second promotion of the same bundleRoot returns
+   `{ status: 'already_promoted', receipt }` with the same
+   receiptId as the first seal.
+3. error reporting: corrupted pack bytes surface as a
+   `PromoteV2Error` with `step='upload-pack'` and
+   `statusCode=400`.
+
+Gates:
+
+- `pnpm --filter @c3-oss/prosa exec vitest run test/cli/v2/sync/promote.test.ts`
+  → pass, 3/3.
+- `pnpm --filter @c3-oss/prosa test` → pass, 289/290
+  (1 pre-existing skip).
+- `pnpm --filter @c3-oss/prosa-api test` → pass, 213/214
+  (no regressions from CLI changes).
+- `pnpm lint` → clean, 13/13 packages.
+- `pnpm typecheck` → pass, 13/13 packages.
+- `git diff --check` → clean.
+
+Slice 7 deferred (explicit):
+
+- Resume-after-interrupt checkpoints (slice 8).
+- Adaptive upload concurrency (slice 9).
+- Rich progress reporting / dry-run flag (slice 9).
+- Docker-backed E2E (Lane 5 acceptance gate; runs the same
+  promote client against a real Docker postgres + minio + API
+  stack).
+- Five 180s stabilization cycles after CLI + E2E close.
