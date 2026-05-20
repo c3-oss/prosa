@@ -113,6 +113,10 @@ The blocker is implementation work, not environment.
 - These focused tests prove route/client mechanics only. They do not close
   runtime receipt validation, safe token sourcing, command-level CLI coverage,
   pack-skip resume, sealed checkpoint recovery, Docker E2E, or stabilization.
+- Slice 8 reviewer smokes confirmed `packDigest !== transportHash`, so current
+  pack-skip resume compares different digest domains and normally re-uploads
+  packs. Status-assisted inventory skip also relies on object-store presence,
+  not stored hash/size verification.
 - Reviewer aggregate smoke
   `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/` failed 77/78 with
   a timeout in the malformed-body BeginPromotion case, while the same file

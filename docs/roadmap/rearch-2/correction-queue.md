@@ -366,6 +366,10 @@ Required fix:
 - Define conflict semantics for retries that change inventory refs for the same
   bundle root: either return the originally persisted refs or reject with a
   clear conflict; do not silently reuse the id while changing the upload plan.
+- Bind resume skip decisions to the same digest domain used by the server. Slice
+  8 currently returns canonical CAS `pack_digest` values from
+  `promotion_uploaded_pack`, while the CLI compares them to the transport BLAKE3
+  of the pack bytes; those are intentionally different identities.
 
 Acceptance:
 
@@ -377,6 +381,10 @@ Acceptance:
       rejected as conflict or returns the originally persisted inventory plan.
 - [ ] CLI resume/status handling validates returned inventory refs/digests
       before skipping uploads, or fails closed on mismatch.
+- [ ] Pack replay test pre-uploads one pack, reruns the client, and proves no
+      `POST /object-packs` is sent for that already-uploaded canonical pack.
+- [ ] Status responses expose enough pack/inventory identity for the client to
+      compare in the correct digest domain.
 
 ### CQ-129: UploadObjectPack stores pack bytes with the wrong object-store hash
 
@@ -713,6 +721,9 @@ Required fix:
 - Materialize projection/search rows before setting verification flags, or make
   seal fail closed until CQ-124 enables that materialization.
 - Receipt counts and verification flags must reflect actual checks.
+- Status-assisted resume must not use object-store presence alone as proof of a
+  valid inventory upload; stored metadata hash/size must match the declared
+  segment before the client can skip upload or seal can proceed.
 
 Acceptance:
 
@@ -723,6 +734,8 @@ Acceptance:
       schema/architecture.
 - [ ] Happy-path seal proves object coverage and projection/search count parity
       before authority swap.
+- [ ] Status `uploaded=true` with wrong object-store metadata hash/size does not
+      let the CLI skip upload and cannot lead to a successful seal.
 - [ ] Tests assert no `remote_authority_v2`, `receipt`, or
       `receipt_pack_grant` rows are written on failed verification.
 

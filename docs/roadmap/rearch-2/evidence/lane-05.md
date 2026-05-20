@@ -682,6 +682,16 @@ Gates:
 
 Slice 8 deferred (explicit):
 
+- Runtime receipt/schema/JWKS/tuple validation remains blocked by CQ-138.
+- Device/user authorization for promotion status remains blocked by CQ-127.
+- Resume identity validation remains blocked by CQ-128: the current client skips
+  inventory uploads based on `uploaded` booleans, while the status response does
+  not include enough digest/size/ref data for a closed comparison.
+- Pack-skip resume is not proven and is currently mismatched: status returns
+  canonical CAS `pack_digest`, while the client compares against the transport
+  BLAKE3 of pack bytes. Reviewer smoke showed the two values differ.
+- Status-assisted inventory skip relies on object-store presence only; wrong
+  stored metadata hash/size is still covered by CQ-134.
 - Persistent `~/.config/prosa/promotions/<id>.json` checkpoint file
   + `--no-resume` CLI flag (slice 9). Today's resume relies on the
   server-side staging row + status endpoint; restart of the whole
