@@ -688,6 +688,85 @@ Remaining slices:
 3. L6.8 explicit `artifacts/getText` 1 MiB p95 measurement.
 4. Five consecutive 180 s stabilization cycles before RALPH_DONE.
 
+## Slice 10 governor review — CQ-146/CQ-147/p95 follow-up (2026-05-20)
+
+Ralph landed:
+
+```text
+5755547 fix(api): lane 6 slice 10 — CQ-147 superseded tool_result + CQ-146 compose + p95 artifacts
+7b24376 docs(docs): lane 6 stabilization log — cycle 1
+```
+
+Codex validation:
+
+```text
+pnpm --filter @c3-oss/prosa-api exec vitest run \
+  test/v2/reads/cross-store-distinct.test.ts \
+  test/v2/reads/p95-latency.test.ts \
+  test/v2/production-signer.test.ts \
+  test/config.test.ts
+# 4 files / 34 tests passed
+# [p95] artifacts/getText 1MiB = 23.7 ms across 20 samples
+
+pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/reads/
+# 15 files / 112 tests passed
+# [p95] artifacts/getText 1MiB = 226.2 ms across 20 samples
+
+pnpm typecheck
+pnpm lint
+git diff --check
+# clean
+
+docker compose config --format json
+# API environment includes:
+# PROSA_CURSOR_HMAC_SECRET=compose-development-cursor-hmac-secret-please-change
+```
+
+Governor decisions:
+
+- L6.8 is accepted: explicit p95 smoke now covers all four targets and the
+  governor run measured `artifacts/getText` 1 MiB at 226.2 ms, under the
+  1-second evidence target.
+- CQ-146 remains open. Runtime config/tests are accepted and compose now names
+  `PROSA_CURSOR_HMAC_SECRET`, but the compose file still runs
+  `PROSA_RUNTIME_MODE=production` with a public fallback cursor secret. The
+  production path must require a real shared secret or split local-dev defaults
+  from production guidance. `docs/architecture/web-deployment.md` also needs the
+  env var.
+- CQ-147 remains open. Slice 10 fixes superseded/wrong-receipt result rows, but
+  tools/errors still count a current-authority `projection_tool_result` with the
+  same `tool_call_id` and wrong `session_id`.
+- Route-level analytics tests are still missing for summary/report auth and
+  invalid-input behavior.
+- `evidence/stabilization-lane-06.md` cycle 1 does not count: it was recorded
+  while status/queue/gates still contradicted the slice 10 claims and while
+  CQ-146/CQ-147 remained open. Per current governor direction, stabilization is
+  optional once no useful Ralph work remains.
+
+Wrong-session result smoke:
+
+```text
+pnpm exec node --conditions=prosa-dev --import @swc-node/register/esm-register --input-type=module
+# Seed:
+#   projection_tool_call(session_id='ses_current', tool_call_id='tc_shared')
+#   projection_tool_result(session_id='ses_wrong', tool_call_id='tc_shared',
+#     store_id='s_current', receipt_id='rcp_current', is_error=TRUE)
+# Output:
+#   tools[0].error_count = 1
+#   errors rows = [{ tool_name: "bash", error_count: 1, distinct_sessions: 1 }]
+```
+
+Next slice:
+
+1. CQ-146: remove the production public fallback path or split dev/prod compose
+   guidance, and update `docs/architecture/web-deployment.md`.
+2. CQ-147: require `r.session_id = c.session_id` in tools/errors result
+   subqueries, add the wrong-session regression, and add route-level analytics
+   auth/input tests.
+3. Re-run focused tests plus `pnpm typecheck`, `pnpm lint`, and
+   `git diff --check`. Do not spend time on stabilization unless Codex asks for
+   it after all blockers are clean.
+
 ## Scope
 
 Lane 6 implements the receipt-pinned remote read API from

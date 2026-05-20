@@ -1,6 +1,6 @@
 # rearch-2 Current Status
 
-Updated: 2026-05-20 after Lane 6 slice 9 governor review.
+Updated: 2026-05-20 after Lane 6 slice 10 governor review.
 
 ## Summary
 
@@ -11,12 +11,15 @@ Updated: 2026-05-20 after Lane 6 slice 9 governor review.
   stabilization cycles.
 - Lane 4 Server: **accepted** by Codex/governor on 2026-05-20.
 - Lane 5 Sync protocol: **accepted** by Codex/governor on 2026-05-20.
-- Lane 6 Read API: **active**, slice 9 landed. CQ-142, CQ-143, CQ-144, and
-  CQ-145 are accepted by Codex/governor. CQ-146 remains open for Docker Compose
-  env wiring; CQ-147 remains open for stale tool-result gating and route-level
-  analytics tests. L6.8 p95 remains incomplete until `artifacts/getText` 1 MiB
-  has explicit measured p95 evidence. Five 180 s stabilization cycles remain
-  before RALPH_DONE.
+- Lane 6 Read API: **active**, slice 10 landed. CQ-142, CQ-143, CQ-144,
+  CQ-145, and L6.8 p95 evidence are accepted by Codex/governor. CQ-146 remains
+  open because the production compose path still permits a public fallback
+  cursor secret and `web-deployment.md` omits the env var. CQ-147 remains open
+  because tools/errors can still count a current-authority
+  `projection_tool_result` from the wrong `session_id`, and route-level
+  analytics auth/input tests are still missing. Stabilization is optional when
+  no useful Ralph work remains; it does not block lane acceptance once all
+  CQs/gates/evidence are clean.
 - Lanes 7–10: **not started**.
 
 ## Current Lane 6 focus
@@ -95,14 +98,18 @@ under "Closed this cycle" below; the full closure detail lives in
   every miss path, valid small UTF-8, and bounded >1 MiB binary through the live
   Fastify route.
 - CQ-146: production config/boot behavior is accepted, and server-sync docs
-  name `PROSA_CURSOR_HMAC_SECRET`, but `docker-compose.yml` still omits the env
-  var while running the API in production mode.
-- CQ-147: strict input and cross-store distinct mostly landed, but analytics
-  tools/errors can still count superseded `projection_tool_result` rows; route
-  tests for analytics auth/input behavior are still missing.
-- L6.8: PGlite p95 smoke covers sessions/list, search/query, and transcript
-  first page. `artifacts/getText` 1 MiB has functional coverage only, not
-  explicit p95 measurement.
+  name `PROSA_CURSOR_HMAC_SECRET`. Slice 10 adds the env var to
+  `docker-compose.yml`, but the compose file still runs
+  `PROSA_RUNTIME_MODE=production` with a public fallback cursor secret, and
+  `docs/architecture/web-deployment.md` does not list the required variable.
+- CQ-147: strict input, cross-store distinct, and superseded/wrong-receipt
+  result gating mostly landed, but analytics tools/errors can still count a
+  current-authority `projection_tool_result` row whose `session_id` does not
+  match the current tool call. Route tests for analytics auth/input behavior
+  are still missing.
+- L6.8: accepted by Codex/governor based on explicit p95 smoke output for all
+  four targets, including `artifacts/getText` 1 MiB at 226.2 ms in the
+  governor run.
 
 ## Closed this cycle
 

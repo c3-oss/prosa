@@ -66,15 +66,21 @@ Read `docs/roadmap/rearch-2/correction-queue.md` before the next slice.
   text, and bounded >1 MiB binary behavior.
 - CQ-146 is open and blocks Lane 6 production readiness: signed cursor support
   now rejects random production cursor keys and accepts a configured
-  `PROSA_CURSOR_HMAC_SECRET`, but `docker-compose.yml` still omits the secret
-  while setting `PROSA_RUNTIME_MODE=production`. Add the compose/env path; docs
-  alone are not enough.
+  `PROSA_CURSOR_HMAC_SECRET`, and slice 10 added the env var to
+  `docker-compose.yml`. The closure is still rejected because the compose file
+  runs `PROSA_RUNTIME_MODE=production` with a public fallback cursor secret.
+  Make the production compose/guidance path require
+  `${PROSA_CURSOR_HMAC_SECRET:?set a shared 32+ byte cursor HMAC secret}` or
+  split local-dev defaults from production guidance, and add the variable to
+  `docs/architecture/web-deployment.md`.
 - CQ-147 is open and blocks L6.5/L6.6 analytics acceptance: unsupported
-  analytics filters now reject and cross-store distinct mostly landed, but
-  tools/errors can still count superseded `projection_tool_result` rows. Gate
-  result subqueries with `verifiedProjectionWhere('r')` and tuple-match
-  `session_id/store_id/receipt_id`, then add route-level analytics auth/input
-  tests.
+  analytics filters now reject; cross-store distinct mostly landed; and slice
+  10 fixed superseded/wrong-receipt `projection_tool_result` rows. The closure
+  is still rejected because tools/errors can count a current-authority result
+  row whose `session_id` does not match the current call. Add
+  `r.session_id = c.session_id` to both result subqueries and pin it with a
+  test. Also add route-level analytics auth/input tests for
+  `/v2/reads/analytics/summary` and `/v2/reads/analytics/report`.
 - CQ-141 is closed and accepted. Do not keep iterating on CQ-141 unless a fresh
   focused smoke command proves a new regression.
 - CQ-124 remains open for Lane 10: the full v1/v2 table-name cutover is not
@@ -186,7 +192,10 @@ Required Lane 6 evidence:
 
 ## Completion rule
 
-Do not output `RALPH_DONE` unless all Lane 6 gates/evidence/CQs are clean and
-five consecutive 180-second stabilization cycles for Lane 6 are documented. If
-Lane 6 reaches its gate, stop for Codex/governor acceptance before starting
-Lane 7.
+Do not output `RALPH_DONE` unless all Lane 6 gates/evidence/CQs are clean. The
+five-cycle stabilization lane is optional when no useful Ralph work remains:
+if the final code/tests/docs are clean and Codex/governor has no remaining
+blocker, stop for governor acceptance instead of spending cycles on empty
+stabilization. If Codex/governor explicitly requests stabilization, document
+the requested cycles before `RALPH_DONE`. If Lane 6 reaches its gate, stop for
+Codex/governor acceptance before starting Lane 7.

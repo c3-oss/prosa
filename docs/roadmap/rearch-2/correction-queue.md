@@ -1,6 +1,6 @@
 # rearch-2 Correction Queue
 
-Updated: 2026-05-20 after Lane 6 slice 9 governor review.
+Updated: 2026-05-20 after Lane 6 slice 10 governor review.
 
 ## Open blocking corrections
 
@@ -376,6 +376,29 @@ CQ-146 remains open until `docker-compose.yml` or the compose guidance provides
 an explicit `PROSA_CURSOR_HMAC_SECRET` path, preferably required via
 `${PROSA_CURSOR_HMAC_SECRET?...}` for production.
 
+Slice 10 follow-up review (2026-05-20; rejected):
+
+- Runtime config remains accepted: production rejects a missing or short
+  cursor secret; configured production signers round-trip across route
+  instances; dev/test fallback remains explicit.
+- `docker-compose.yml` now includes `PROSA_CURSOR_HMAC_SECRET`, and smoke
+  confirms it appears in the API service environment:
+
+```text
+docker compose config --format json
+# .services.api.environment.PROSA_CURSOR_HMAC_SECRET =
+# compose-development-cursor-hmac-secret-please-change
+```
+
+Governor rejection: the compose service still sets
+`PROSA_RUNTIME_MODE=production` while allowing a public fallback cursor secret.
+That is not a production fail-closed path. Either require
+`${PROSA_CURSOR_HMAC_SECRET:?set a shared 32+ byte cursor HMAC secret}` for the
+production compose path, or split local-dev defaults from production guidance.
+Also update `docs/architecture/web-deployment.md` so the production server env
+table lists `PROSA_CURSOR_HMAC_SECRET`, the 32+ byte minimum, and the
+same-value-across-workers rule.
+
 Problem:
 
 CQ-142 introduced signed cursors, but production boot does not actually parse
@@ -479,13 +502,39 @@ Route-level analytics acceptance is also still incomplete: strictness is tested
 at schema level, not at the `/v2/reads/analytics/report` HTTP boundary, and
 `/v2/reads/analytics/summary` auth/input behavior lacks route tests.
 
+Slice 10 closure attempt (2026-05-20; rejected):
+
+- `tools` and `errors` now gate result rows with `verifiedProjectionWhere('r')`
+  and match `r.store_id`, `r.receipt_id`, and `r.tool_call_id` to the current
+  call.
+- `cross-store-distinct.test.ts` adds a regression for a superseded
+  wrong-receipt error result, and focused tests pass.
+
+Governor rejection: result rows still do not tuple-match `r.session_id` to
+`c.session_id`. A current-authority row with the same `tool_call_id` but the
+wrong `session_id` still marks the current call as errored:
+
+```text
+pnpm exec node --conditions=prosa-dev --import @swc-node/register/esm-register --input-type=module
+# seeded projection_tool_call(session_id='ses_current', tool_call_id='tc_shared')
+# seeded current-authority projection_tool_result(session_id='ses_wrong',
+# tool_call_id='tc_shared', is_error=TRUE)
+# tools[0].error_count: 1
+# errors rows: [{ tool_name: "bash", error_count: 1, distinct_sessions: 1 }]
+```
+
+Route-level analytics tests are still absent. `analytics-report.test.ts` and
+`cross-store-distinct.test.ts` exercise handlers/schemas directly; no
+`app.inject` tests prove `/v2/reads/analytics/summary` auth/no-tenant behavior
+or `/v2/reads/analytics/report` invalid-input/unknown-filter behavior.
+
 Additional review notes:
 
-- `apps/api/src/v2/reads/analytics/report.ts` accepts only `report`,
-  `sourceTools`, `since`, `until`, and `limit`; the schema is not strict.
-  Local analytics filters such as `toolName`, `canonicalType`, `errorsOnly`,
-  `category`, `model`, `project`, `sessionId`, and source-path substring are
-  stripped rather than rejected or honored.
+- `apps/api/src/v2/reads/analytics/report.ts` intentionally accepts only
+  `report`, `sourceTools`, `since`, `until`, and `limit`, and the schema is now
+  strict. Local analytics filters such as `toolName`, `canonicalType`,
+  `errorsOnly`, `category`, `model`, `project`, `sessionId`, and source-path
+  substring are rejected rather than silently stripped.
 - The local fixed reports in
   `packages/prosa-core/src/services/analytics.ts` expose richer columns and
   report-specific timestamp semantics. If the v2 Lane 6 surface intentionally
@@ -508,15 +557,17 @@ Required fix:
 
 Acceptance:
 
-- [ ] Analytics report input rejects unsupported filters rather than silently
+- [x] Analytics report input rejects unsupported filters rather than silently
       stripping them, or tests prove the full supported filter set is honored.
-- [ ] Summary counts collapse duplicate logical sessions deterministically.
+- [x] Summary counts collapse duplicate logical sessions deterministically.
 - [ ] Tools/errors/models aggregates do not double count duplicate logical
       sessions across current stores.
 - [ ] Route-level tests prove auth and invalid-input behavior for summary and
       report.
 - [ ] Tools/errors tests prove superseded or wrong-receipt
       `projection_tool_result` rows cannot affect error counts or errors rows.
+- [ ] Tools/errors tests prove current-authority rows with a mismatched
+      `session_id` cannot affect error counts or errors rows.
 - [ ] Tests document and pin any intentional difference from the local
       `packages/prosa-core` analytics report columns and timestamp semantics.
 

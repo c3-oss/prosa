@@ -33,7 +33,10 @@ Lane 3 is not complete until all of these are true:
 - Parquet compaction merge worker has a scripted 100-small-epoch scenario proving compaction reduces file count while preserving logical rows.
 - Transcript rendering against a v2 bundle matches the v1 renderer for the same input.
 - No open blocking corrections remain.
-- Final stabilization completes five clean cycles before `RALPH_DONE`.
+- Final stabilization is optional when no useful Ralph work remains. If
+  Codex/governor explicitly requests stabilization, complete the requested clean
+  cycles before `RALPH_DONE`; otherwise stop for governor acceptance once all
+  CQs/gates/evidence are clean.
 
 ## Lane 4 completion gates
 
@@ -164,7 +167,7 @@ Lane 6 Read API is the next active milestone. Initial gate checklist:
   deterministic conflict resolution.
 - [ ] L6.7 — No read path bypasses the shared verified-projection/authority
   gate; lint/integration tests pin the rule.
-- [ ] L6.8 — Performance evidence records p95 targets for sessions list,
+- [x] L6.8 — Performance evidence records p95 targets for sessions list,
   search, transcript first page, and artifacts.getText.
 - [ ] L6.9 — `pnpm --filter @c3-oss/prosa-api test`, `pnpm typecheck`,
   `pnpm lint`, and `git diff --check` are clean.
