@@ -60,6 +60,9 @@ The blocker is implementation work, not environment.
   columns. Blocks Lane 5 slice 3 (materialization paths) and Lane 10
   cutover; slice 1 sidesteps it by applying only the conflict-free
   promotion block in tests.
+- CQ-125: BeginPromotion no-op fast path does not verify that the
+  authority row's receipt matches the requested tenant/store/root/device
+  tuple and fail-opens orphan authority rows into fresh promotion.
 
 ## Supporting documents
 

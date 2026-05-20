@@ -133,6 +133,74 @@ Acceptance:
 - [ ] Lane 10 cutover plan documents the v1 → v2 migration for the
       shared-name tables.
 
+### CQ-125: BeginPromotion no-op fast path does not verify authority receipt integrity
+
+Severity: high
+Blocking: yes (blocks Lane 5 BeginPromotion acceptance)
+Status: open
+Owner: Ralph
+
+Problem:
+
+Lane 5 slice 1 looks up `remote_authority_v2` by
+`(tenant_id, store_id, current_bundle_root)` but then loads the referenced
+`receipt` row only by `(receipt_id, tenant_id)`. It returns
+`already_promoted` without proving that the receipt row and signed payload
+match the requested `storeId`, `bundleRoot`, `deviceId`, and authority row.
+
+The same path also treats a `remote_authority_v2` row whose
+`current_receipt_id` is missing from `receipt` as a fresh promotion and returns
+`needs_inventory`. That is a fail-open authority path: once the server says a
+store/root is promoted, a missing receipt means the cleanup/authority proof is
+corrupt and the route must fail closed instead of silently reopening promotion.
+
+Risk:
+
+A same-tenant bad link or catalog corruption can make `BeginPromotion` return
+`already_promoted` for store/root A with a receipt for store/root B. Orphaned
+authority rows can also be overwritten or replayed by the fresh-promotion path.
+Both cases weaken the seal-only authority invariant and make receipt-based
+cleanup/audit untrustworthy.
+
+Smoke evidence:
+
+```text
+pnpm --filter @c3-oss/prosa-api exec tsx --conditions=prosa-dev <<'TS'
+...seed remote_authority_v2(store-a, root=11...) -> rcpt_mismatch whose receipt payload is store-b/root=22...; seed remote_authority_v2(store-orphan) -> rcpt_missing...
+TS
+```
+
+Run from `apps/api`; output:
+
+```text
+mismatch 200 already_promoted store-b 2222222222222222222222222222222222222222222222222222222222222222
+orphan 200 needs_inventory prm_4uvemevuf4u4d4tq24zel4lina
+```
+
+Required fix:
+
+- Load the receipt using the full authority tuple, or validate after load that
+  `receipt.tenant_id`, `receipt.store_id`, `receipt.device_id`, and
+  `receipt.payload.{tenantId,storeId,deviceId,bundleRoot}` match the
+  authenticated tenant and requested `storeId`/`bundleRoot`/device.
+- Validate the receipt shape before returning `already_promoted`; once CQ-123 is
+  resolved, this must use the shared v2 receipt/BeginPromotion response schema.
+- If `remote_authority_v2.current_receipt_id` is missing, malformed, or points
+  to a mismatched receipt, return a server integrity error (or explicit 409
+  conflict) and do not create/reuse staging for that request.
+
+Acceptance:
+
+- [ ] Route test seeds an authority row pointing to a receipt for a different
+      store/root/device and proves `BeginPromotion` fails closed, not
+      `already_promoted`.
+- [ ] Route test seeds an authority row pointing to a missing receipt and proves
+      `BeginPromotion` fails closed, not `needs_inventory`, and no staging row is
+      created.
+- [ ] Route test covers malformed/unparseable receipt JSON and fails closed.
+- [ ] Valid replay still returns the exact schema-valid receipt for the same
+      `(tenant, store, bundleRoot, device)` tuple.
+
 ## Closed during this cycle
 
 ### CQ-122: Streaming validation is header-only and does not satisfy the Lane 4 pack-validation gate

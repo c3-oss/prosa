@@ -57,6 +57,10 @@ Read `docs/roadmap/rearch-2/correction-queue.md` before the next slice.
   validated on the current shared public schema. It does not block independent
   BeginPromotion/upload slices, but it must be resolved before slice 3 seal
   acceptance.
+- CQ-125 blocks Lane 5 BeginPromotion acceptance: the no-op fast path must fail
+  closed when `remote_authority_v2` points to a missing, malformed, or mismatched
+  receipt, and valid `already_promoted` replies must prove the receipt matches
+  the requested authority tuple.
 
 ## Lane 5 invariants
 
