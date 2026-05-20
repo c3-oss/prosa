@@ -258,13 +258,14 @@ describe('POST /v2/promotions/begin — Lane 5 slice 1', () => {
       expect(body.receipt.payload.receiptId).toBe(inserted.payload.receiptId)
       expect(body.receipt.payload.bundleRoot).toBe(bundleRoot)
       expect(body.receipt.signature.alg).toBe('Ed25519')
-      // NB: the strict `beginPromotionResponseSchema` enforces canonical
-      // lowercase `tenantId`/`storeId`/`deviceId` on the receipt payload,
-      // which conflicts with Better Auth's mixed-case org IDs. The
-      // server returns the stored bytes verbatim; the
-      // canonical-tenant-id mismatch is tracked in the correction queue
-      // and resolved before Lane 5 acceptance. Until then, only the
-      // receipt id + bundleRoot are asserted as integrity checks.
+      // CQ-123 closed: tenant / store / device fields now use
+      // `opaqueAuthIdSchema`, so the full response parses
+      // against the wire schema with Better Auth's mixed-case
+      // ids. This re-enables the regression pin that the
+      // initial slice 1 closure had to skip.
+      const { beginPromotionResponseSchema } = await import('@c3-oss/prosa-wire-v2')
+      const parsed = beginPromotionResponseSchema.safeParse(body)
+      expect(parsed.success).toBe(true)
     } finally {
       await t.close()
     }

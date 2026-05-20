@@ -43,8 +43,25 @@ export const manifestDigestSchema = taggedHashSchema // BLAKE3 over the manifest
 export const transportHashSchema = taggedHashSchema // CQ-012: BLAKE3 over bytes observed on the upload transport
 
 // Canonical id form: starts with letter/digit, then [a-z0-9_:-]*. Uppercase
-// is rejected (CQ-002).
+// is rejected (CQ-002). Use this for content-addressed identifiers
+// (segments, raw source files, etc.) — values the producer fully
+// controls.
 export const canonicalIdSchema = z.string().regex(/^[a-z0-9][a-z0-9_:-]*$/u, 'expected lowercase canonical id')
+
+// CQ-123: opaque auth-system id form. Authentication identifiers
+// — tenant / store / device — flow through Better Auth, which
+// mints mixed-case nanoids
+// (e.g. `z3EIp38VKKSqPFuAk238kNUxGVWWf4RP`). They cannot be
+// constrained to the canonical lowercase form without breaking
+// the auth layer. Keep them readable (printable ASCII excluding
+// whitespace) and bounded to a reasonable length so logs stay
+// parseable and the wire schema still rejects empty / pathological
+// inputs.
+export const opaqueAuthIdSchema = z
+  .string()
+  .min(1, 'auth id must be non-empty')
+  .max(255, 'auth id must be at most 255 characters')
+  .regex(/^[A-Za-z0-9][A-Za-z0-9_.:-]*$/u, 'expected printable auth id (alnum + . _ : -)')
 
 // Canonical RFC3339 UTC ms-precision timestamp with semantic validation
 // (CQ-016). Regex shape AND Date.UTC round-trip both required so impossible
@@ -128,7 +145,7 @@ export const bundleCountsSchema = z.object({
 
 export const bundleHeadV2Schema = z.object({
   bundleFormat: z.literal(2),
-  storeId: canonicalIdSchema,
+  storeId: opaqueAuthIdSchema, // CQ-123: see opaqueAuthIdSchema docs
   storePath: z.string(),
   epoch: z.number().int().nonnegative(),
   parserVersion: z.string(),
@@ -146,10 +163,14 @@ export const promotionReceiptV2PayloadSchema = z.object({
   receiptId: receiptIdSchema,
   protocolVersion: z.literal(2),
 
-  tenantId: canonicalIdSchema,
-  storeId: canonicalIdSchema,
+  // CQ-123: auth-system ids (tenant / store / device) flow
+  // through Better Auth and are mixed-case nanoids. They use
+  // `opaqueAuthIdSchema`, not `canonicalIdSchema`, so receipts
+  // signed against real tenant ids parse without rewriting.
+  tenantId: opaqueAuthIdSchema,
+  storeId: opaqueAuthIdSchema,
   storePath: z.string(),
-  deviceId: canonicalIdSchema,
+  deviceId: opaqueAuthIdSchema,
 
   issuedAt: canonicalTimestampSchema,
   serverRegion: z.string(),

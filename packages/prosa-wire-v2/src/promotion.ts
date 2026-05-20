@@ -5,6 +5,7 @@ import {
   canonicalIdSchema,
   missingObjectPlanV2Schema,
   objectSetRootSchema,
+  opaqueAuthIdSchema,
   packDigestSchema,
   promotionReceiptV2Schema,
   receiptIdSchema,
@@ -16,8 +17,9 @@ import {
 
 export const beginPromotionRequestSchema = z.object({
   protocolVersion: z.literal(2),
-  tenantId: canonicalIdSchema,
-  storeId: canonicalIdSchema,
+  // CQ-123: auth-system ids — see opaqueAuthIdSchema docs.
+  tenantId: opaqueAuthIdSchema,
+  storeId: opaqueAuthIdSchema,
   storePath: z.string(),
   head: bundleHeadV2Schema,
   inventories: z.object({
@@ -25,7 +27,7 @@ export const beginPromotionRequestSchema = z.object({
     projectionInventorySegment: segmentRefSchema,
   }),
   device: z.object({
-    deviceId: canonicalIdSchema,
+    deviceId: opaqueAuthIdSchema,
   }),
 })
 

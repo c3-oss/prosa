@@ -36,9 +36,8 @@
 
 import { randomBytes } from 'node:crypto'
 import type { PromotionReceiptV2, PromotionReceiptV2Payload, PromotionReceiptV2Signature } from '@c3-oss/prosa-types-v2'
-import type { BeginPromotionResponse } from '@c3-oss/prosa-wire-v2'
-import { bundleHeadV2Schema, segmentRefSchema } from '@c3-oss/prosa-wire-v2'
-import { z } from 'zod'
+import { type BeginPromotionResponse, beginPromotionRequestSchema } from '@c3-oss/prosa-wire-v2'
+import type { z } from 'zod'
 import type { RawExec } from '../../db.js'
 
 export type BeginPromotionDeps = {
@@ -82,31 +81,11 @@ export class BeginPromotionDeviceOwnershipError extends Error {
   readonly code = 'DEVICE_OWNED_BY_OTHER_USER' as const
 }
 
-// Server-local request schema. Tenant/store/device ids are opaque on
-// the server side (see file header). The bundle and segment refs still
-// go through the canonical wire schemas.
-const opaqueIdSchema = z.string().min(1)
-
-const serverBeginPromotionRequestSchema = z.object({
-  protocolVersion: z.literal(2),
-  tenantId: opaqueIdSchema,
-  storeId: opaqueIdSchema,
-  storePath: z.string(),
-  head: bundleHeadV2Schema.extend({
-    // Override the canonical storeId on the head with the same opaque
-    // form so client bundle stores keyed by Better Auth org ids parse.
-    storeId: opaqueIdSchema,
-  }),
-  inventories: z.object({
-    objectInventorySegment: segmentRefSchema,
-    projectionInventorySegment: segmentRefSchema,
-  }),
-  device: z.object({
-    deviceId: opaqueIdSchema,
-  }),
-})
-
-type ServerBeginPromotionRequest = z.infer<typeof serverBeginPromotionRequestSchema>
+// CQ-123: the shared `beginPromotionRequestSchema` now uses
+// `opaqueAuthIdSchema` for tenant / store / device, so the
+// server can validate directly against the wire schema without
+// the local-schema workaround that earlier slices needed.
+type ServerBeginPromotionRequest = z.infer<typeof beginPromotionRequestSchema>
 
 type RemoteAuthorityRow = { current_receipt_id: string }
 type ReceiptRow = { payload: unknown; signature: unknown }
@@ -121,7 +100,7 @@ type StagingRow = { id: string; status: string }
 const ACTIVE_STAGING_STATUSES = ['open', 'uploading', 'materializing'] as const
 
 export async function beginPromotion(deps: BeginPromotionDeps, rawInput: unknown): Promise<BeginPromotionResponse> {
-  const parsed = serverBeginPromotionRequestSchema.safeParse(rawInput)
+  const parsed = beginPromotionRequestSchema.safeParse(rawInput)
   if (!parsed.success) {
     throw new BeginPromotionValidationError('invalid BeginPromotion request', parsed.error.issues)
   }

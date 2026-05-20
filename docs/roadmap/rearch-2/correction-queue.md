@@ -8,8 +8,45 @@ Updated: 2026-05-20 after Lane 5 slice 2 review.
 
 Severity: high
 Blocking: yes (blocks Lane 5 acceptance — receipt schema cannot be parsed by clients)
-Status: open
+Status: closed (2026-05-20) — opaqueAuthIdSchema introduced
 Owner: Ralph
+
+Closure: `packages/prosa-wire-v2/src/primitives.ts` adds a new
+`opaqueAuthIdSchema` for authentication identifiers
+(tenant / store / device). It allows printable ASCII
+`[A-Za-z0-9][A-Za-z0-9_.:-]*`, up to 255 chars — wide enough to
+admit Better Auth's mixed-case nanoids while still rejecting
+empty / whitespace / overlong values. `canonicalIdSchema` keeps
+the strict lowercase contract for content-addressed identifiers
+(segments, packs, raw source files).
+
+Updated wire schemas:
+- `bundleHeadV2Schema.storeId` → `opaqueAuthIdSchema`;
+- `beginPromotionRequestSchema.tenantId / storeId /
+  device.deviceId` → `opaqueAuthIdSchema`;
+- `promotionReceiptV2PayloadSchema.tenantId / storeId /
+  deviceId` → `opaqueAuthIdSchema`.
+
+The server-side opaque local schema in `begin-promotion.ts` is
+removed — `beginPromotionRequestSchema` is now the single
+source of truth. The slice 1 fast-path test re-enables
+`beginPromotionResponseSchema.safeParse(body)` as a regression
+pin (the closure-skip from the original CQ-123 workaround is
+gone).
+
+Pinned by six cases in
+`apps/api/test/v2/sync/cq-123-opaque-auth-ids.test.ts`:
+- opaqueAuthIdSchema accepts a real Better Auth nanoid + a
+  variety of mixed-case strings;
+- still rejects empty / whitespace / overlong values;
+- canonicalIdSchema still rejects mixed-case (CQ-002 contract
+  intact);
+- bundleHeadV2Schema parses a mixed-case storeId;
+- promotionReceiptV2Schema parses a receipt whose payload uses
+  mixed-case tenant / store / device ids;
+- beginPromotionResponseSchema parses an `already_promoted`
+  response whose receipt was signed for mixed-case ids — the
+  exact regression the CQ originally flagged.
 
 Problem:
 
@@ -340,11 +377,10 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 5 authorization acceptance)
-Status: closed (2026-05-20) — device-ownership policy extended
-to upload, seal, and status routes
+Status: open (partial closure rejected 2026-05-20)
 Owner: Ralph
 
-Full closure: UploadSegment, UploadObjectPack, SealPromotion,
+Partial closure: UploadSegment, UploadObjectPack, SealPromotion,
 and GetPromotionStatus each read an optional
 `x-prosa-device-id` header via the new `maybeVerifyDevice(...)`
 helper. When the header is present:
@@ -373,11 +409,13 @@ Pinned by four cases in
 4. GetPromotionStatus with a mismatched header → 403
    DEVICE_MISMATCH.
 
-Outstanding (intentionally deferred): the tenant-wide
-GetReceipt policy. A same-tenant caller from a different device
-CAN read another device's receipt by id; the leak prevention is
-BeginPromotion-level only. Documented here as a follow-up if
-GetReceipt becomes device-scoped in a future lane.
+This does not close CQ-127. Reviewer found the policy is opt-in:
+when `x-prosa-device-id` is absent, post-begin routes continue
+tenant-scoped, and the current CLI `sync-v2` path does not send
+the header on status/upload/seal requests. A same-tenant caller
+who can reuse an active staging id can omit the header and read
+status, upload bytes, or seal. GetReceipt also remains
+tenant-wide and does not use the same device policy.
 
 Earlier partial-closure note (BeginPromotion-side):
 
@@ -406,14 +444,11 @@ Pinned by four cases in
    `already_promoted`.
 
 Outstanding for full closure:
-- Apply the same device-ownership helper to UploadSegment,
-  UploadObjectPack, SealPromotion, GetReceipt, and
-  GetPromotionStatus so every receipt-touching route enforces
-  the same policy (current state: only BeginPromotion).
-- Document the tenant-wide GetReceipt policy (a same-tenant
-  caller from a different device CAN read another device's
-  receipt by id; the leak prevention is BeginPromotion-level
-  only).
+- Make device identity mandatory on every post-begin route, or derive it from
+  an authenticated device token. Optional headers are not enough.
+- Update CLI `sync-v2` to send/prove the device id on status/upload/seal.
+- Apply the same policy to GetReceipt, or explicitly re-scope CQ-127/CQ-138 to a
+  tenant-wide receipt policy with tests.
 
 Problem:
 
@@ -469,6 +504,10 @@ Acceptance:
       is implemented and tested.
 - [ ] The same device authorization helper/policy is reused by upload, seal, and
       receipt-fetch and promotion-status routes.
+- [ ] Missing `x-prosa-device-id` on UploadSegment, UploadObjectPack,
+      SealPromotion, and GetPromotionStatus fails closed or is replaced by an
+      authenticated device identity.
+- [ ] CLI `sync-v2` sends/proves device identity on status/upload/seal.
 
 ### CQ-128: BeginPromotion staging idempotency is not race-safe
 
