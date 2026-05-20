@@ -5,8 +5,10 @@
 // same v2 auth context resolver the promotion routes use so a single
 // Better Auth session covers writes and reads.
 
+import type { RemoteObjectStore } from '@c3-oss/prosa-storage'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { type V2AuthContext, type V2AuthDeps, resolveV2AuthContext } from '../context.js'
+import { artifactGetTextInput, getArtifactText } from './artifacts/get-text.js'
 import { AuthorityTtlCache } from './authority-cache.js'
 import { type AuthorityRefreshResponse, type CachedAuthority, getAuthority } from './authority.js'
 import { searchQuery, searchQueryInput } from './search/query.js'
@@ -14,8 +16,15 @@ import { countSessions, countSessionsInput } from './sessions/count.js'
 import { getSessionDetail, sessionDetailInput } from './sessions/detail.js'
 import { listSessions, listSessionsInput } from './sessions/list.js'
 import { getTranscriptPage, transcriptPageInput } from './sessions/transcript.js'
+import { listToolCalls, toolCallsListInput } from './tool-calls/list.js'
 
 export type V2ReadRoutesDeps = V2AuthDeps & {
+  /**
+   * Object store used by `artifacts.getText` for the bounded byte
+   * fetch. The store is shared with the promotion routes so a
+   * single Better Auth tenant maps to a single bucket / namespace.
+   */
+  objectStore: RemoteObjectStore
   /**
    * Optional cache override for tests. Defaults to a 30 s TTL
    * in-process cache; tests inject a smaller-TTL instance to keep
@@ -44,6 +53,8 @@ export const V2_READ_ROUTES = [
     opName: 'ReadSessionsTranscript' as const,
   },
   { method: 'POST' as const, url: '/v2/reads/search/query' as const, opName: 'ReadSearchQuery' as const },
+  { method: 'POST' as const, url: '/v2/reads/tool-calls/list' as const, opName: 'ReadToolCallsList' as const },
+  { method: 'POST' as const, url: '/v2/reads/artifacts/getText' as const, opName: 'ReadArtifactsGetText' as const },
 ]
 
 export function registerV2ReadRoutes(app: FastifyInstance, deps: V2ReadRoutesDeps): V2ReadPluginHandle {
@@ -153,6 +164,38 @@ export function registerV2ReadRoutes(app: FastifyInstance, deps: V2ReadRoutesDep
     },
   })
 
+  app.route({
+    method: 'POST',
+    url: '/v2/reads/tool-calls/list',
+    handler: async (req: FastifyRequest, reply: FastifyReply) => {
+      const ctx = await resolveV2AuthContext(deps, req)
+      const gate = requireV2Tenant(ctx, reply, 'ReadToolCallsList')
+      if (!gate) return reply.sent ? undefined : reply
+      const parsed = toolCallsListInput.safeParse(req.body ?? {})
+      if (!parsed.success) {
+        reply.code(400)
+        return { code: 'INVALID_INPUT', op: 'ReadToolCallsList', issues: parsed.error.issues }
+      }
+      return await listToolCalls({ rawExec: deps.rawExec }, gate.tenantId, parsed.data)
+    },
+  })
+
+  app.route({
+    method: 'POST',
+    url: '/v2/reads/artifacts/getText',
+    handler: async (req: FastifyRequest, reply: FastifyReply) => {
+      const ctx = await resolveV2AuthContext(deps, req)
+      const gate = requireV2Tenant(ctx, reply, 'ReadArtifactsGetText')
+      if (!gate) return reply.sent ? undefined : reply
+      const parsed = artifactGetTextInput.safeParse(req.body ?? {})
+      if (!parsed.success) {
+        reply.code(400)
+        return { code: 'INVALID_INPUT', op: 'ReadArtifactsGetText', issues: parsed.error.issues }
+      }
+      return await getArtifactText({ rawExec: deps.rawExec, objectStore: deps.objectStore }, gate.tenantId, parsed.data)
+    },
+  })
+
   return { authorityCache }
 }
 
@@ -193,6 +236,15 @@ export type {
 } from './sessions/transcript.js'
 export { searchQuery, searchQueryInput } from './search/query.js'
 export type { SearchHit, SearchQueryInput, SearchQueryResponse } from './search/query.js'
+export { listToolCalls, toolCallsListInput } from './tool-calls/list.js'
+export type { ToolCallHit, ToolCallsListInput, ToolCallsListResponse } from './tool-calls/list.js'
+export {
+  ARTIFACT_TEXT_MAX_BYTES_DEFAULT,
+  ARTIFACT_TEXT_MAX_BYTES_LIMIT,
+  artifactGetTextInput,
+  getArtifactText,
+} from './artifacts/get-text.js'
+export type { ArtifactGetTextInput, ArtifactGetTextResponse } from './artifacts/get-text.js'
 export { buildSessionWhere, sessionListFilters } from './sessions/filters.js'
 export type { SessionListFilters } from './sessions/filters.js'
 export {

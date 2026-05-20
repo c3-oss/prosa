@@ -180,12 +180,60 @@ pnpm typecheck                         → EXIT=0
 pnpm --filter @c3-oss/prosa-api lint   → EXIT=0
 ```
 
+## Slice 5 — Tool-calls list + artifacts.getText (2026-05-20)
+
+Landed:
+
+- `apps/api/src/v2/reads/tool-calls/list.ts` — `listToolCalls(deps,
+  tenantId, input)`. Verified-projection gate on
+  `projection_tool_call` plus a LATERAL join that picks the latest
+  `projection_tool_result` (`ORDER BY tool_result_id DESC LIMIT 1`).
+  Filters: `sessionId`, `toolNames`, `canonicalToolTypes`,
+  `errorsOnly` (matches the call's own status string or the latest
+  result's `is_error` flag), `since` / `until`. Cursor encodes
+  `(timestamp_start, tool_call_id)` with descending order so paging
+  starts at the head and remains stable across calls.
+- `apps/api/src/v2/reads/artifacts/get-text.ts` —
+  `getArtifactText(deps, tenantId, input)`. Multi-step gate:
+  (1) verified-projection on `projection_artifact`,
+  (2) `receipt_pack_grant` linking the artifact's receipt to the
+  pack containing the object, (3) `remote_pack_entry` + `remote_pack`
+  for storage URI / offset / length / compression, (4) bounded byte
+  fetch via the injected `RemoteObjectStore`. Decompression flows
+  through `decompressZstdBounded` / `readRawBounded` so the
+  decoded payload is capped at `maxBytes` (256 KiB default,
+  2 MiB limit). The handler distinguishes
+  `not_visible | no_grant | no_object | fetch_failed` reasons via
+  a cheap diagnose query when the main join returns zero rows.
+- `registerV2ReadRoutes` now takes a `RemoteObjectStore` dep; the
+  v2 plugin entry threads `deps.objectStore` through.
+- `POST /v2/reads/tool-calls/list` and
+  `POST /v2/reads/artifacts/getText` wired with Zod input
+  validation and the shared `requireV2Tenant` gate ladder.
+- `apps/api/test/v2/reads/tool-calls-list.test.ts` (6 tests):
+  empty / superseded-hidden / LATERAL-latest-result / every
+  filter / errorsOnly via call status OR latest result is_error /
+  paginated DESC iteration.
+- `apps/api/test/v2/reads/artifacts-get-text.test.ts` (7 tests):
+  `not_visible` for missing / superseded; `no_grant` when the
+  receipt does not own the pack; `no_object` when the row has no
+  object id; text round-trip; truncation at `maxBytes`; binary
+  detection (`kind: 'binary'`, empty `text`); cross-tenant
+  isolation.
+
+Slice 5 gates on the contributor checkout:
+
+```text
+pnpm exec vitest run test/v2/reads/   → 8 files / 54/54 tests passed
+pnpm typecheck                         → EXIT=0
+pnpm --filter @c3-oss/prosa-api lint   → EXIT=0
+```
+
 Remaining slices (per `docs/rearch-2/07-lane-6-read-api.md`):
 
-1. Tool-calls list and artifacts.getText.
-2. Analytics summary/report and cross-store distinct aggregation.
-3. p95 latency evidence under fixture load.
-4. Five consecutive 180 s stabilization cycles before RALPH_DONE.
+1. Analytics summary/report and cross-store distinct aggregation.
+2. p95 latency evidence under fixture load.
+3. Five consecutive 180 s stabilization cycles before RALPH_DONE.
 
 ## Scope
 

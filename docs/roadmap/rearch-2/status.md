@@ -11,9 +11,9 @@ Updated: 2026-05-20 after Lane 5 governor acceptance and Lane 6 prep.
   stabilization cycles.
 - Lane 4 Server: **accepted** by Codex/governor on 2026-05-20.
 - Lane 5 Sync protocol: **accepted** by Codex/governor on 2026-05-20.
-- Lane 6 Read API: **active**, slice 4 landed (Postgres FTS search
-  with snippets, eight composable filters, and a stable
-  `(rank, doc_id)` cursor over the verified-search gate).
+- Lane 6 Read API: **active**, slice 5 landed (tool-calls list with
+  LATERAL latest-result join + artifacts.getText with verified
+  projection, receipt-pack-grant chain, and bounded byte fetch).
 - Lanes 7–10: **not started**.
 
 ## Current Lane 6 focus

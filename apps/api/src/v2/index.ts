@@ -62,6 +62,7 @@ export function registerV2Routes(app: FastifyInstance, deps: V2PluginDeps): V2Pl
   const reads = registerV2ReadRoutes(app, {
     auth: deps.auth,
     rawExec: deps.rawExec,
+    objectStore: deps.objectStore,
   })
   return { signer, reads }
 }
