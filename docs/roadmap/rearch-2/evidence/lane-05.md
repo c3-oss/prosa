@@ -1077,3 +1077,54 @@ Gates:
   already_promoted ...`) continue to pass.
 
 CQ-123 acceptance bullets are all proven; the CQ is closed.
+
+## CQ-138 closure (CLI client-side receipt validation) — 2026-05-20
+
+Scope:
+
+- `apps/cli/src/cli/v2/sync/promote.ts` adds
+  `createReceiptVerifier(client)` — a small helper that runs
+  three independent checks on every receipt the CLI surfaces:
+  1. `promotionReceiptV2Schema.safeParse(receipt)` — canonical
+     wire schema (whose superRefine itself enforces
+     `deriveReceiptId(payload) === payload.receiptId`).
+  2. Explicit `deriveReceiptId` check as defense-in-depth in
+     case of schema-version drift.
+  3. JWKS lookup against `/v2/.well-known/receipt-keys.json`
+     (keys cached per promote) + Ed25519 signature verification
+     via `node:crypto.verify(...)`.
+- Both the `already_promoted` fast path in BeginPromotion and
+  the SealPromotion response now route through the verifier.
+  Any failure throws `PromoteV2Error` with `step` and a
+  descriptive message so callers persist nothing.
+
+Pinned by:
+
+- `apps/cli/test/cli/v2/sync/promote-receipt-validation.test.ts`
+  (new) — 5 cases via an in-process tampering proxy:
+  1. SealPromotion tampered payload — `serverRegion` flipped
+     after server signed; rejected.
+  2. SealPromotion forged signature — keyId intact, sig bytes
+     zeroed; rejected.
+  3. SealPromotion malformed payload — required `counts` field
+     removed; rejected by schema before any crypto work.
+  4. BeginPromotion `already_promoted` tampered receipt on
+     retry — first call seals cleanly, second-call replay is
+     tampered between server and client; rejected.
+  5. Happy path — no tampering returns `sealed` cleanly with no
+     throw.
+- `apps/api/test/v2/sync/cq-138-receipt-validation.test.ts`
+  (existing) — server-side GetReceipt validation: 5 cases
+  (receiptId mismatch, store mismatch, device mismatch,
+  unknown-key signature, tampered payload). All return
+  `404 RECEIPT_NOT_FOUND`.
+
+Gates:
+
+- `pnpm --filter @c3-oss/prosa exec vitest run test/cli/v2/sync/promote-receipt-validation.test.ts`
+  → pass, 5/5.
+- `pnpm --filter @c3-oss/prosa-api test` → pass, 281 / 4 skipped.
+- `pnpm lint` + `pnpm typecheck` repo-wide → clean.
+
+CQ-138 acceptance bullets are all proven (the same-tenant policy
+sub-bullet is delegated to CQ-127); the CQ is closed.

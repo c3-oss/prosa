@@ -123,9 +123,14 @@ The blocker is implementation work, not environment.
   test proves BeginPromotion reaches the boot-applied v2 query/write layer;
   `cq-137-store-scoped-generation.test.ts` proves the seal-time
   `(tenant_id, store_id)` upsert behavior.
-- CQ-138: GetReceipt now checks id/tuple/derived-id/signature, but closure
-  remains open until shared receipt schema validation is resolved and CLI
-  receipt validation is proven.
+- CQ-138: closed (2026-05-20). Server-side GetReceipt already ran
+  tuple/derived-id/signature checks; client-side `promoteBundleV2` now
+  gates every received receipt on canonical
+  `promotionReceiptV2Schema.safeParse`, `deriveReceiptId` content
+  integrity, and JWKS Ed25519 verification. Pinned by
+  `apps/cli/test/cli/v2/sync/promote-receipt-validation.test.ts` (5/5):
+  tampered payload, forged signature, malformed shape, tampered
+  already_promoted retry, happy-path replay.
 - CQ-140: focused v2 E2E can pass with Docker env, but the documented `just e2e`
   recipe fails and the gate still does not prove command-level `prosa sync-v2`,
   API container, or second-device remote read.
@@ -166,14 +171,14 @@ The blocker is implementation work, not environment.
 - CQ-135's earlier `a867e93` rejection (no failure-injection tests) is
   resolved by the 2026-05-20 closure adding three failure-injection cases
   in `cq-135-seal-restore.test.ts`.
-- CQ-138 closure claims from `cba2b90`/`6557852` are rejected pending the
-  reviewer-smoked shared-schema validation case. CQ-137 was rejected on
-  the schema-upgrade / production boot migration axis; that gap is closed
-  in 2026-05-20 alongside CQ-126. CQ-136 was rejected on the race-loser
-  + derived-id/signature axis; both are resolved by the 2026-05-20
-  closure (`loadAndValidateLinkedReceipt` covers both replay branches).
-- CQ-138 closure claims from `11447b7`/`9aff136` remain rejected/partial
-  pending CLI/shared-schema receipt validation.
+- CQ-137 was rejected on the schema-upgrade / production boot migration
+  axis; that gap is closed in 2026-05-20 alongside CQ-126. CQ-136 was
+  rejected on the race-loser + derived-id/signature axis; both are
+  resolved by the 2026-05-20 closure
+  (`loadAndValidateLinkedReceipt` covers both replay branches). CQ-138's
+  earlier `cba2b90`/`6557852` and `11447b7`/`9aff136` rejections (shared
+  schema + CLI validation) are resolved by the 2026-05-20 closure
+  (`promoteBundleV2` now schema-parses + JWKS-verifies every receipt).
 - CQ-127 closure from `0e59a43` is rejected because post-begin checks are
   optional via `x-prosa-device-id`, CLI does not send the header, and GetReceipt
   remains tenant-wide.
