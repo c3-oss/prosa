@@ -16,8 +16,8 @@
 // `sealed` (full promotion). Callers can then persist the receipt
 // locally and update their authority cache.
 
-import type { PromotionReceiptV2 } from '@c3-oss/prosa-types-v2'
-import type { BundleHeadV2Wire, SegmentRefWire } from '@c3-oss/prosa-wire-v2'
+import { type PromotionReceiptV2, deriveReceiptId, receiptPayloadBytes } from '@c3-oss/prosa-types-v2'
+import { type BundleHeadV2Wire, type SegmentRefWire, promotionReceiptV2Schema } from '@c3-oss/prosa-wire-v2'
 
 export type PromoteHttpRequest = {
   method: 'GET' | 'POST' | 'PUT'
@@ -88,7 +88,17 @@ export async function promoteBundleV2(client: PromoteHttpClient, input: PromoteI
     | { status: 'needs_inventory'; promotionId: string; missingInventories: SegmentRefWire[] }
     | { status: 'needs_upload'; promotionId: string }
 
+  // CQ-138: every receipt the CLI surfaces to the user — whether
+  // from BeginPromotion's `already_promoted` fast path or
+  // SealPromotion's freshly minted receipt — must pass canonical
+  // schema validation AND content-addressed derived-id check AND
+  // JWKS signature verification. We fetch the keys lazily on the
+  // first receipt and reuse them for any subsequent verification
+  // in the same call.
+  const verifier = createReceiptVerifier(client)
+
   if (begin.status === 'already_promoted') {
+    await verifier.verifyOrThrow(begin.receipt, 'begin')
     return { status: 'already_promoted', receipt: begin.receipt }
   }
   const promotionId = begin.promotionId
@@ -157,7 +167,89 @@ export async function promoteBundleV2(client: PromoteHttpClient, input: PromoteI
     throw new PromoteV2Error('SealPromotion failed', 'seal', sealResponse.statusCode, sealResponse.json())
   }
   const seal = sealResponse.json() as { status: 'sealed'; receipt: PromotionReceiptV2 }
+  await verifier.verifyOrThrow(seal.receipt, 'seal')
   return { status: 'sealed', receipt: seal.receipt, promotionId }
+}
+
+type ReceiptKey = { kty: string; crv: string; kid: string; x: string }
+
+function createReceiptVerifier(client: PromoteHttpClient): {
+  verifyOrThrow: (receipt: PromotionReceiptV2, step: string) => Promise<void>
+} {
+  let cachedKeys: ReceiptKey[] | null = null
+  const fetchKeys = async (): Promise<ReceiptKey[]> => {
+    if (cachedKeys !== null) return cachedKeys
+    const response = await client({
+      method: 'GET',
+      url: '/v2/.well-known/receipt-keys.json',
+      headers: {},
+    })
+    if (response.statusCode !== 200) {
+      throw new PromoteV2Error(
+        'failed to fetch receipt JWKS for signature verification',
+        'jwks',
+        response.statusCode,
+        response.json(),
+      )
+    }
+    const body = response.json() as { keys?: ReceiptKey[] }
+    if (!body.keys || !Array.isArray(body.keys)) {
+      throw new PromoteV2Error('JWKS response has no `keys` array', 'jwks', response.statusCode, body)
+    }
+    cachedKeys = body.keys
+    return cachedKeys
+  }
+
+  return {
+    async verifyOrThrow(receipt, step) {
+      // Schema: the wire shape must parse against the canonical
+      // v2 receipt schema (incl. opaqueAuthIdSchema for tenant /
+      // store / device). Rejects malformed payloads, missing
+      // counts, wrong materialization shape, etc.
+      const parsed = promotionReceiptV2Schema.safeParse(receipt)
+      if (!parsed.success) {
+        throw new PromoteV2Error(
+          `server returned a receipt that fails promotionReceiptV2Schema: ${parsed.error.issues
+            .map((i) => `${i.path.join('.')}: ${i.message}`)
+            .join('; ')}`,
+          step,
+          200,
+          receipt,
+        )
+      }
+      // Content integrity: the canonical hash of the payload
+      // bytes must match the signed receipt id. A same-tenant
+      // attacker who mutated a non-tuple field after sealing
+      // breaks this.
+      const derived = deriveReceiptId(receipt.payload)
+      if (derived !== receipt.payload.receiptId) {
+        throw new PromoteV2Error(
+          `receipt payload no longer hashes to its receipt id (got ${derived}, expected ${receipt.payload.receiptId})`,
+          step,
+          200,
+          receipt,
+        )
+      }
+      // Cryptographic verification against the server's JWKS.
+      const keys = await fetchKeys()
+      const key = keys.find((k) => k.kid === receipt.signature.keyId)
+      if (!key) {
+        throw new PromoteV2Error(
+          `signature keyId ${receipt.signature.keyId} is not published in the server JWKS`,
+          step,
+          200,
+          receipt,
+        )
+      }
+      const { createPublicKey, verify } = await import('node:crypto')
+      const publicKey = createPublicKey({ key: { ...key, alg: 'EdDSA' } as never, format: 'jwk' })
+      const sigBytes = Buffer.from(receipt.signature.sig, 'base64url')
+      const ok = verify(null, receiptPayloadBytes(receipt.payload), publicKey, sigBytes)
+      if (!ok) {
+        throw new PromoteV2Error('receipt signature does not verify against the server JWKS', step, 200, receipt)
+      }
+    },
+  }
 }
 
 type RemotePromotionStatus = {
