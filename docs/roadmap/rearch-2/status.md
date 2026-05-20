@@ -96,15 +96,23 @@ The blocker is implementation work, not environment.
 - CQ-138: GetReceipt returns object-shaped same-tenant receipts without proving
   request id, row/payload tuple, shared receipt schema, JWKS signature, or the
   accepted device/user access policy; CLI WIP also trusts receipts by cast.
+- CQ-139: `prosa sync-v2` requires `--token <token>`, exposing bearer tokens in
+  shell history/process listings; Lane 5 CLI acceptance needs a safe token
+  source.
 
 ## Current gate caveats
 
 - Slice 6 focused GetReceipt smoke is green:
   `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/sync/get-receipt.test.ts`
   passed 4/4.
-- CLI WIP focused smoke is green:
+- CLI slice 7 / status WIP focused smoke is green:
   `pnpm --filter @c3-oss/prosa exec vitest run test/cli/v2/sync/promote.test.ts`
-  passed 3/3.
+  passed 4/4, and
+  `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/sync/get-promotion-status.test.ts`
+  passed 5/5.
+- These focused tests prove route/client mechanics only. They do not close
+  runtime receipt validation, safe token sourcing, command-level CLI coverage,
+  pack-skip resume, sealed checkpoint recovery, Docker E2E, or stabilization.
 - Reviewer aggregate smoke
   `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/` failed 77/78 with
   a timeout in the malformed-body BeginPromotion case, while the same file

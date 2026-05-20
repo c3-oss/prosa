@@ -94,6 +94,8 @@ Read `docs/roadmap/rearch-2/correction-queue.md` before the next slice.
 - CQ-138 blocks Lane 5 GetReceipt/CLI acceptance: `GET /v2/receipts/:receiptId`
   and `prosa sync-v2` must not accept unvalidated, tuple-mismatched, or
   wrongly signed same-tenant receipts as authority.
+- CQ-139 blocks Lane 5 CLI acceptance: `prosa sync-v2` must not require bearer
+  tokens in argv for the normal command path.
 
 ## Lane 5 invariants
 
@@ -130,8 +132,8 @@ Work in committed slices with focused evidence:
    return 404 for wrong tenant and fail closed for corrupt same-tenant rows.
 5. CLI `prosa sync-v2`: build inventories, upload missing data, seal, persist
    receipt/checkpoint state only after schema/JWKS/tuple validation, support
-   retry/resume, `--no-resume`, `--dry-run`, `--json`, and useful failure
-   output.
+   retry/resume, `--no-resume`, `--dry-run`, `--json`, safe token sourcing, and
+   useful failure output.
 6. Docker-backed E2E: API + Postgres + object storage + CLI sync + second device
    remote read.
 

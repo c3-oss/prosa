@@ -271,7 +271,10 @@ The v2 route proves the caller is authenticated and belongs to the tenant, but
 the handler currently treats `request.device.deviceId` as an opaque body field.
 It does not verify that the device belongs to the authenticated user/tenant, and
 the `already_promoted` fast path can return a receipt whose row/payload
-`deviceId` belongs to another device.
+`deviceId` belongs to another device. The current `GetPromotionStatus` WIP
+extends the same tenant-only policy to promotion recovery: it loads staging by
+`(promotionId, tenant_id)` and returns store id, bundle root, inventory upload
+state, and pack digests without checking `user_id` or `device_id`.
 
 Risk:
 
@@ -315,7 +318,7 @@ Acceptance:
       receipt scoped to `victim-device` unless an explicit multi-device policy
       is implemented and tested.
 - [ ] The same device authorization helper/policy is reused by upload, seal, and
-      receipt-fetch routes.
+      receipt-fetch and promotion-status routes.
 
 ### CQ-128: BeginPromotion staging idempotency is not race-safe
 
@@ -372,6 +375,8 @@ Acceptance:
 - [ ] Terminal `sealed`/`aborted` rows still allow a fresh active row.
 - [ ] Same `(tenant, store, bundleRoot)` with changed inventory refs is either
       rejected as conflict or returns the originally persisted inventory plan.
+- [ ] CLI resume/status handling validates returned inventory refs/digests
+      before skipping uploads, or fails closed on mismatch.
 
 ### CQ-129: UploadObjectPack stores pack bytes with the wrong object-store hash
 
@@ -941,6 +946,9 @@ Required fix:
   by default, or an explicit tenant-wide policy with tests.
 - Make CLI `sync-v2` validate every `already_promoted`, `sealed`, and
   GetReceipt recovery receipt before persisting checkpoints or printing success.
+- Do not treat `GetPromotionStatus` as sealed-receipt recovery until staging is
+  linked to the exact sealed receipt id and that receipt passes the same
+  schema/JWKS/tuple validation.
 
 Acceptance:
 
@@ -954,8 +962,59 @@ Acceptance:
 - [ ] CLI tests prove `promoteBundleV2` rejects malformed, tuple-mismatched, or
       wrongly signed receipts from BeginPromotion, SealPromotion, and GetReceipt
       recovery.
+- [ ] Crash-after-seal recovery returns the exact sealed receipt for that
+      promotion, or fails closed; it must never resolve through current store
+      authority alone.
 - [ ] CQ-123 is resolved or this CQ remains open because real Better Auth
       receipts still fail client-side schema parsing.
+
+### CQ-139: `sync-v2 --token` exposes bearer tokens in argv
+
+Severity: high
+Blocking: yes (blocks Lane 5 CLI acceptance)
+Status: open
+Owner: Ralph
+
+Problem:
+
+Commit `4937d52` introduces `prosa sync-v2` with required
+`--token <token>`. The command sends that token as bearer auth, but requiring it
+on the command line exposes long-lived credentials through shell history and
+process listings on shared systems.
+
+Risk:
+
+A user running the documented CLI can leak a server bearer token to local users,
+debug tooling, shell history, CI logs, or process monitors. Lane 5 promotes
+authoritative remote data, so the sync credential must not be trained into an
+unsafe invocation pattern.
+
+Smoke evidence:
+
+Security reviewer finding from slice 7:
+
+```text
+apps/cli/src/cli/commands/sync-v2.ts:30 requires --token <token>
+apps/cli/src/cli/commands/sync-v2.ts:109 sends it as Bearer auth
+```
+
+Required fix:
+
+- Resolve auth from the existing prosa auth/session configuration when
+  available, or accept a token through an environment variable or stdin/file
+  override intended for automation.
+- Do not require bearer tokens in argv for the normal command path.
+- Help text and docs must avoid examples that place bearer tokens in shell
+  history.
+
+Acceptance:
+
+- [ ] `prosa sync-v2` can authenticate without putting the bearer token in argv.
+- [ ] Tests cover token resolution from the chosen safe source.
+- [ ] `--token` is removed, deprecated, or restricted to explicit unsafe/dev
+      use with a clear warning and a safer default.
+- [ ] Command-level tests prove human and JSON output paths still work with the
+      safe token source.
 
 ## Closed during this cycle
 

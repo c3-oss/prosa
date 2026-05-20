@@ -560,7 +560,7 @@ Scope:
   `@c3-oss/prosa-types-v2`, `@c3-oss/prosa-wire-v2`, and
   `@noble/hashes` as workspace dependencies.
 
-New tests in `apps/cli/test/cli/v2/sync/promote.test.ts` (3 cases,
+New tests in `apps/cli/test/cli/v2/sync/promote.test.ts` (3 committed cases,
 end-to-end via in-process Fastify inject — server + canonical
 types + CLI client all exercised together):
 
@@ -586,6 +586,24 @@ Gates:
 - `pnpm lint` → clean, 13/13 packages.
 - `pnpm typecheck` → pass, 13/13 packages.
 - `git diff --check` → clean.
+
+Governor review caveat (2026-05-20):
+
+- Current WIP extends the CLI test to 4 cases and adds
+  `GET /v2/promotions/:promotionId/status` tests. Focused smokes passed:
+  `pnpm --filter @c3-oss/prosa exec vitest run test/cli/v2/sync/promote.test.ts`
+  -> 4/4, and
+  `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/sync/get-promotion-status.test.ts`
+  -> 5/5.
+- The "I5 through the CLI client surface" evidence is test-side verification,
+  not runtime CLI enforcement. CQ-138 remains open until the client validates
+  every receipt with shared schema, tuple checks, receipt id derivation, JWKS
+  lookup, and Ed25519 verification before returning success.
+- Resume coverage currently proves one inventory skip only. It does not prove
+  pack-skip resume, sealed checkpoint recovery, `--no-resume`, `--dry-run`,
+  no-op under 2 seconds, command-level `prosa sync-v2`, or Docker E2E.
+- CQ-139 blocks CLI acceptance because `sync-v2 --token` puts bearer tokens in
+  argv.
 
 Slice 7 deferred (explicit):
 
