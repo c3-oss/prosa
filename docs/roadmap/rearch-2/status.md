@@ -1,6 +1,6 @@
 # rearch-2 Current Status
 
-Updated: 2026-05-20 after Codex/governor acceptance of Lane 6.
+Updated: 2026-05-20 after Codex/governor Lane 8/9 review blockers.
 
 ## Summary
 
@@ -11,20 +11,21 @@ Updated: 2026-05-20 after Codex/governor acceptance of Lane 6.
 - Lane 4 Server: **accepted** by Codex/governor on 2026-05-20.
 - Lane 5 Sync protocol: **accepted** by Codex/governor on 2026-05-20.
 - Lane 6 Read API: **accepted** by Codex/governor on 2026-05-20.
-- Lane 7 CLI and MCP: **all CQs closed; gates checked; awaiting governor
-  acceptance**. CQ-149 through CQ-154 closed (CQ-154 closed via the executable
+- Lane 7 CLI and MCP: **accepted** by Codex/governor on 2026-05-20.
+  CQ-149 through CQ-154 closed (CQ-154 closed via the executable
   slice 11 smoke at `apps/cli/test/v2/read-sessions-e2e.test.ts` — 2 tests
-  pass end-to-end through Fastify + PGlite).
-- Lane 8 Audit and GC: **all gate items checked; awaiting governor acceptance**
-  once Lane 7 is accepted — audit cron handlers
-  (hourly/daily/weekly/monthly), GC three-phase lifecycle, drift
-  surface (quarantine + receipt_audit_state + repair field), 503
-  `DATA_UNAVAILABLE` artifact fallback, and Prometheus metrics
-  landed.
-- Lane 9 Migration: **all gate items checked; awaiting governor acceptance**
-  once Lane 7 and Lane 8 are accepted — `prosa migrate-v2 bundle` (local) +
-  `prosa migrate-v2 tenant` + `POST /v2/migrate/tenant` +
-  `legacy_receipt_archive` landed.
+  pass end-to-end through Fastify + PGlite). Baseline `pnpm build`,
+  `pnpm typecheck`, `pnpm test`, `pnpm lint`, and `git diff --check` passed
+  after `91a9f96`.
+- Lane 8 Audit and GC: **blocked by CQ-155 through CQ-157** after focused
+  governor review. Do not accept until GC revalidates references before delete,
+  audit/GC are wired into API startup, and monthly audit uses the same BLAKE3
+  digest as pack upload.
+- Lane 9 Migration: **blocked by CQ-158 through CQ-161** after focused
+  governor review. Do not accept until remote migration publishes authority only
+  after load-bearing projections are usable, multi-store migration resolves
+  authority and archives every real store, receipt provenance is server-owned,
+  and local migration read-only/crash-safety/performance evidence is clean.
 - Lane 10 Cutover: **not in the next Ralph loop**.
 
 ## Lane 6 Acceptance
@@ -62,14 +63,14 @@ Additional Lane 6 evidence:
 Stabilization cycles are optional for this roadmap phase when all CQs, gates,
 and evidence are clean and no useful executor work remains.
 
-## Next Loop
+## Current Milestone
 
-Run Lanes 7, 8, and 9 in sequence inside one Ralph loop:
+Lane 7 is accepted. The active milestone returns to **Lane 8 Audit and GC
+hardening**:
 
-1. Lane 7 — CLI and MCP consumers for the Lane 6 read API.
-2. Lane 8 — Audit and GC cron behavior, quarantine/degraded authority surface,
-   and metrics.
-3. Lane 9 — Local and remote v1-to-v2 migration tooling.
+1. Close CQ-155, CQ-156, and CQ-157 with code and smoke-command evidence.
+2. Only after Lane 8 is accepted, resume Lane 9 and close CQ-158 through CQ-161.
+3. Stop before Lane 10.
 
 Do not start Lane 10 in the next loop. Lane 10 requires a cutover-specific
 governor decision after Lane 9 is complete.

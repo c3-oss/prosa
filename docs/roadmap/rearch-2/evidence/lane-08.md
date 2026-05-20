@@ -1,8 +1,8 @@
 // markdownlint-disable MD041
 # Lane 8 Evidence — Audit and GC
 
-Status: shipped on the `feature/rearch` worktree branch
-`worktree-agent-a9b01faa332e1bffa`.
+Status: implementation landed, but not governor-accepted. Focused review on
+2026-05-20 opened CQ-155 through CQ-157.
 
 Required source plan: `docs/rearch-2/09-lane-8-audit-and-gc.md`.
 
@@ -108,6 +108,19 @@ pnpm build       # 13/13 packages clean
   `gc-blocked-by-staging.test.ts`, `gc-delete-failure.test.ts`) pin
   the three-way guard and the revert-on-failure contract.
 
-## Open CQs
+## Governor Review Blockers
 
-None opened.
+- CQ-155: GC must revalidate receipt grants and open staging rows after
+  tombstone and before delete.
+- CQ-156: audit/GC handlers must be wired into API startup/config, not only
+  exposed in test-callable modules.
+- CQ-157: monthly audit must hash with the same BLAKE3 digest used by pack
+  upload/catalog rows.
+
+Current focused tests still pass, but they do not cover these blockers:
+
+```text
+pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/migrate/tenant-roundtrip.test.ts test/v2/migrate/legacy-receipts-archived.test.ts test/v2/cron/gc-lifecycle.test.ts test/v2/cron/gc-blocked-by-grant.test.ts test/v2/cron/gc-blocked-by-staging.test.ts
+Test Files  5 passed (5)
+Tests       9 passed (9)
+```

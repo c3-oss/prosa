@@ -1,8 +1,261 @@
 # rearch-2 Correction Queue
 
-Updated: 2026-05-20 after Codex/governor acceptance of Lane 6.
+Updated: 2026-05-20 after Codex/governor Lane 8/9 review blockers.
 
 ## Active Corrections For Lanes 7-9
+
+### CQ-161: local bundle migration lacks read-only and crash-safety proof
+
+Severity: high
+
+Blocking: yes.
+
+Status: open.
+
+Affected lane: Lane 9.
+
+Affected paths:
+- `apps/cli/src/cli/v2/migrate/bundle.ts`
+- `apps/cli/test/v2/migrate/bundle-atomic-rename.test.ts`
+- `docs/roadmap/rearch-2/evidence/lane-09.md`
+
+Risk: `migrate-v2 bundle` opens the v1 bundle through the normal opener, which
+can run migrations/metadata writes, and the two-step rename can leave the
+original path absent if the process dies after archiving oldPath but before
+moving newPath into place. The current atomic-rename test only covers failure
+before the archive move.
+
+Required fix:
+- Prove v1 input is opened read-only or use a read-only v1 catalog path that
+  cannot mutate the source bundle.
+- Make rename crash recovery safe, or implement a recovery guard that restores
+  the v1 bundle if the second rename does not complete.
+- Either run the documented 1.4 GB timing gate or record an explicit
+  governor-approved rescope before claiming Lane 9 final acceptance.
+
+Acceptance:
+- [ ] A regression proves process death or injected failure between archive and
+  final rename leaves the v1 bundle discoverable at the original path or
+  recoverable by the next run.
+- [ ] Tests prove the v1 source bundle is not mutated by migration.
+- [ ] The performance gate is run and recorded, or the source-plan timing gate
+  is explicitly rescoped in gates/evidence with governor acceptance.
+- [ ] `pnpm --filter @c3-oss/prosa exec vitest run test/v2/migrate/bundle-atomic-rename.test.ts`
+  passes with the new regression.
+
+### CQ-160: migrate tenant receipt provenance accepts caller-supplied serverRegion
+
+Severity: high
+
+Blocking: yes.
+
+Status: open.
+
+Affected lane: Lane 9.
+
+Affected paths:
+- `apps/api/src/v2/migrate/index.ts`
+- `apps/api/src/v2/migrate/tenant.ts`
+- `apps/api/test/v2/migrate/**`
+
+Risk: `POST /v2/migrate/tenant` accepts `serverRegion` from the HTTP request
+body and signs it into a server receipt. A tenant admin can therefore obtain a
+valid signature over false server provenance.
+
+Required fix:
+- Remove `serverRegion` from request input, or reject caller-provided values.
+- Use only server-side config for receipt provenance.
+
+Acceptance:
+- [ ] A route test proves body-supplied `serverRegion` is ignored or rejected.
+- [ ] The signed receipt payload uses configured server provenance only.
+- [ ] `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/migrate/tenant-receipt-provenance.test.ts`
+  passes.
+
+### CQ-159: multi-store remote migration writes unusable authority and misses archives
+
+Severity: critical
+
+Blocking: yes.
+
+Status: open.
+
+Affected lane: Lane 9.
+
+Affected paths:
+- `apps/api/src/v2/migrate/tenant.ts`
+- `apps/api/test/v2/migrate/tenant-roundtrip.test.ts`
+- `apps/api/test/v2/migrate/legacy-receipts-archived.test.ts`
+
+Risk: tenant-wide migration uses a synthetic receipt `store_id` of
+`migration-multi` while writing `remote_authority_v2` rows for each real store.
+Lane 6 authority refresh joins `receipt.store_id` to the requested store, so
+those rows cannot resolve. The same synthetic store id means v1 receipts for
+the real stores are not archived.
+
+Required fix:
+- Issue one signed v2 receipt per migrated store, or intentionally adjust the
+  authority model with matching read-side tests.
+- Archive legacy v1 receipts for every real migrated store.
+
+Acceptance:
+- [ ] A multi-store tenant migration test proves `/v2/stores/<store>/authority`
+  resolves for each migrated store after migration.
+- [ ] The same test proves each store's legacy v1 receipts move into
+  `legacy_receipt_archive` and are removed from the active v1 receipt table.
+- [ ] `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/migrate/tenant-roundtrip.test.ts test/v2/migrate/legacy-receipts-archived.test.ts test/v2/migrate/tenant-multistore.test.ts`
+  passes.
+
+### CQ-158: remote migration publishes authority before load-bearing projection is usable
+
+Severity: critical
+
+Blocking: yes.
+
+Status: open.
+
+Affected lane: Lane 9.
+
+Affected paths:
+- `apps/api/src/v2/migrate/tenant.ts`
+- `apps/api/test/v2/migrate/tenant-roundtrip.test.ts`
+- `apps/api/test/v2/migrate/legacy-receipts-archived.test.ts`
+- `apps/api/src/v2/reads/**`
+
+Risk: `POST /v2/migrate/tenant` signs a v2 receipt and upserts
+`remote_authority_v2`, but currently persists only `projection_source_file`
+plus gaps/archive. Lane 6 reads require usable projection rows behind verified
+authority. A migration with missing raw bytes can still return success, publish
+authority, and archive legacy receipts even though the migrated read surface is
+not complete.
+
+Required fix:
+- Remote migration must not publish `remote_authority_v2` or archive active v1
+  receipts unless the load-bearing read projections required by Lane 6 are
+  materialized for the migrated store.
+- Any gap that prevents re-projecting a store must fail closed before authority
+  swap and before legacy receipt archival.
+
+Acceptance:
+- [ ] `POST /v2/migrate/tenant` followed by `/v2/reads/sessions/list` returns
+  the migrated session through the v2 read API for the migrated store.
+- [ ] A missing raw byte or parse gap prevents `remote_authority_v2` upsert and
+  prevents legacy receipt archival for that store.
+- [ ] `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/migrate/tenant-roundtrip.test.ts test/v2/migrate/legacy-receipts-archived.test.ts`
+  passes with the new assertions.
+
+### CQ-157: monthly audit hashes packs with SHA-256 instead of BLAKE3
+
+Severity: high
+
+Blocking: yes.
+
+Status: open.
+
+Affected lane: Lane 8.
+
+Affected paths:
+- `apps/api/src/cron/audit.ts`
+- `apps/api/test/v2/cron/audit-detects-mismatch.test.ts`
+- `apps/api/src/v2/sync/upload-object-pack.ts`
+
+Risk: uploaded pack `remote_pack.byte_hash` values are BLAKE3 digests, but
+monthly audit recomputes SHA-256. Healthy packs with `byte_hash` set can be
+falsely quarantined and degrade valid receipts.
+
+Required fix:
+- Monthly full-byte audit must use the same digest algorithm as upload/catalog
+  storage.
+
+Acceptance:
+- [ ] A monthly audit regression seeds a healthy pack with real BLAKE3
+  `byte_hash` and proves it remains healthy.
+- [ ] A mismatch case still quarantines/degrades the affected pack/receipt.
+- [ ] `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/cron/audit-detects-mismatch.test.ts`
+  passes with the new regression.
+
+### CQ-156: Lane 8 audit and GC handlers are not wired into API startup
+
+Severity: high
+
+Blocking: yes.
+
+Status: open.
+
+Affected lane: Lane 8.
+
+Affected paths:
+- `apps/api/src/server.ts`
+- `apps/api/src/cron/**`
+- `apps/api/test/v2/cron/**`
+
+Risk: `registerAuditCron`, `registerGcCron`, and `startCron` exist, but
+governor `rg` found no production startup wiring outside tests. Audit/GC
+behavior therefore may never run in the API fleet.
+
+Governor smoke command:
+
+```text
+rg -n "startCron|registerAuditCron|registerGcCron" apps/api/src apps/api/test/v2/cron
+```
+
+Observed output: only module definitions/comments and test imports call these
+symbols; no API startup call is present under `apps/api/src/server.ts`.
+
+Required fix:
+- Wire the Lane 8 audit and GC handlers into API startup/config, or explicitly
+  fail closed when cron dependencies are not configured.
+- Keep advisory-lock wrapping through `startCron`.
+
+Acceptance:
+- [ ] Production startup code registers audit and GC handlers under config.
+- [ ] A production-wiring test proves the startup path calls `startCron` with
+  the registered audit/GC handlers.
+- [ ] `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/cron/production-wiring.test.ts`
+  passes.
+
+### CQ-155: GC does not revalidate references before deleting tombstoned packs
+
+Severity: critical
+
+Blocking: yes.
+
+Status: open.
+
+Affected lane: Lane 8.
+
+Affected paths:
+- `apps/api/src/cron/gc.ts`
+- `apps/api/test/v2/cron/gc-lifecycle.test.ts`
+- `apps/api/test/v2/cron/gc-blocked-by-grant.test.ts`
+- `apps/api/test/v2/cron/gc-blocked-by-staging.test.ts`
+
+Risk: GC checks `receipt_pack_grant` and open `promotion_staging` only when a
+pack first enters `tombstone_pending`. If a grant or open staging row appears
+during the tombstone window, phase 2/3 can still delete the pack bytes and
+catalog rows, violating the Lane 8 no-delete-while-referenced invariant.
+
+Governor smoke command:
+
+```text
+pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/migrate/tenant-roundtrip.test.ts test/v2/migrate/legacy-receipts-archived.test.ts test/v2/cron/gc-lifecycle.test.ts test/v2/cron/gc-blocked-by-grant.test.ts test/v2/cron/gc-blocked-by-staging.test.ts
+```
+
+Observed output: 5 files passed, 9 tests passed. These tests do not cover a grant
+or open staging row appearing after tombstone and before delete.
+
+Required fix:
+- Revalidate `receipt_pack_grant` and open `promotion_staging` before moving a
+  tombstone to `delete_pending` and immediately before object deletion.
+- Add regressions for a post-tombstone grant and a post-tombstone open staging
+  row.
+
+Acceptance:
+- [ ] A post-tombstone receipt grant prevents deletion and returns the pack to
+  a non-deleting state or leaves it safely tombstoned.
+- [ ] A post-tombstone open staging row prevents deletion.
+- [ ] `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/cron/gc-lifecycle.test.ts test/v2/cron/gc-blocked-by-grant.test.ts test/v2/cron/gc-blocked-by-staging.test.ts test/v2/cron/gc-rechecks-before-delete.test.ts`
+  passes.
 
 ### CQ-154: Lane 7 slice 11 smoke is documented but not executable/proven
 
@@ -22,9 +275,9 @@ Affected paths:
 - `apps/cli/package.json`
 - `pnpm-lock.yaml`
 
-Risk: Lane 7 gate item 8 was marked complete using a manual smoke playbook, not
-actual command output. The claimed automated E2E blocker is not accepted
-without smoke-command evidence. A WIP E2E test exists, but it currently fails.
+Risk: Lane 7 gate item 8 was originally marked complete using a manual smoke
+playbook, not actual command output. The claimed automated E2E blocker was not
+accepted without smoke-command evidence.
 
 Governor smoke command:
 
@@ -32,7 +285,7 @@ Governor smoke command:
 pnpm --filter @c3-oss/prosa exec vitest run test/v2/read-sessions-e2e.test.ts
 ```
 
-Observed output:
+Initial observed failure:
 
 ```text
 Test Files  1 failed (1)

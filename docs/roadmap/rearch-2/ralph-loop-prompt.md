@@ -42,52 +42,50 @@ Final Lane 6 follow-up is already closed: both `tool-calls/list` and
 `sessions/transcript` latest-result lookups tuple-match
 `tool_call_id/session_id/store_id/receipt_id`.
 
-Lane 7 is in progress. CQ-149, CQ-150, CQ-151, CQ-152, and CQ-153 are accepted
-after focused governor review. Do not claim Lane 7 completion until this active
-Lane 7 blocker is closed with command evidence:
+Lane 7 is accepted by Codex/governor on 2026-05-20. CQ-149 through CQ-154 are
+closed. Do not reopen Lane 7 unless a fresh command proves a regression.
 
-- CQ-154 / Slice 11: live Fastify or manual smoke proving the documented
-  v1-to-v2 command mapping with actual command output.
+Current milestone: **Lane 8 Audit and GC hardening**. Focused governor review
+opened these blocking CQs:
 
-Governor review of `a1a21d7` found these CQs are not closed yet:
+- CQ-155: GC must revalidate receipt grants and open staging rows after
+  tombstone and before delete.
+- CQ-156: audit/GC handlers must be wired into API startup/config.
+- CQ-157: monthly audit must hash pack bytes with the same BLAKE3 digest used
+  by upload/catalog rows.
 
-- CQ-150 still lacks command-level tests for `read search`, `read transcript`,
-  `read tool-calls`, and `read analytics` against representative Lane 6
-  payloads.
-- CQ-151 still lacks focused local fallback filter tests.
-- CQ-152 still has a behavior bug: single-page `read transcript` must refresh
-  once and retry after HTTP 412; only `--all-pages` should fail closed as
-  streaming output.
-- CQ-153 is not implemented: the web console routes still call legacy tRPC
-  read procedures instead of `/v2/reads/*`.
+After CQ-155 through CQ-157 are closed and Lane 8 is accepted, continue to
+**Lane 9 Migration hardening**. Focused governor review opened these blocking
+CQs:
 
-Governor review of `bf5a601` accepted CQ-150, CQ-151, and CQ-152. Do not reopen
-them unless fresh command evidence proves a regression.
+- CQ-158: remote migration must not publish `remote_authority_v2` or archive
+  active v1 receipts until the load-bearing Lane 6 read projections are usable.
+- CQ-159: multi-store remote migration must write resolvable per-store
+  authority and archive each real store's v1 receipts.
+- CQ-160: migrate-tenant receipt provenance must be server-owned; callers must
+  not be able to sign arbitrary `serverRegion` values into receipts.
+- CQ-161: local bundle migration needs read-only source proof,
+  crash-safe rename/recovery proof, and performance-gate evidence or explicit
+  governor rescope.
 
-Governor review after `b52a837` accepted CQ-149 and CQ-153. Do not reopen them
-unless fresh command evidence proves a regression.
-
-Governor review after `3c88846` rejected the Lane 7 slice 11 gate closure. The
-manual smoke playbook is not executed evidence, and the WIP automated smoke
-failed:
+Governor smoke evidence:
 
 ```text
-pnpm --filter @c3-oss/prosa exec vitest run test/v2/read-sessions-e2e.test.ts
-Test Files  1 failed (1)
-Tests       2 failed (2)
-TypeError: registerV2ReadRoutes is not a function
-TypeError: Cannot read properties of undefined (reading 'close')
+rg -n "startCron|registerAuditCron|registerGcCron" apps/api/src apps/api/test/v2/cron
 ```
 
-Close CQ-154 with an executable smoke test or real manual command output. Do
-not claim Lane 7, Lane 8, or Lane 9 acceptance while CQ-154 is open.
+This found only module definitions/comments and test imports; no production
+startup call is present under `apps/api/src/server.ts`.
 
-Lane 8 and Lane 9 commits may exist in history, but they are not accepted while
-Lane 7 has these blockers. Do not claim Lane 8 or Lane 9 completion until Lane
-7 gates and CQs are clean.
+```text
+pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/migrate/tenant-roundtrip.test.ts test/v2/migrate/legacy-receipts-archived.test.ts test/v2/cron/gc-lifecycle.test.ts test/v2/cron/gc-blocked-by-grant.test.ts test/v2/cron/gc-blocked-by-staging.test.ts
+Test Files  5 passed (5)
+Tests       9 passed (9)
+```
 
-Do not close the remaining blocker with docs/status/evidence-only commits.
-Evidence updates should come after the slice 11 smoke command exists and passes.
+These current tests pass, but they do not cover the new blockers. Do not claim
+Lane 8 or Lane 9 acceptance until the open CQs are closed with code, tests, and
+recorded command evidence. Do not close these blockers with docs-only commits.
 
 ## Milestone Order
 

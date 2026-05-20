@@ -1,6 +1,6 @@
 # rearch-2 Gates
 
-Updated: 2026-05-20 after Codex/governor acceptance of Lane 6.
+Updated: 2026-05-20 after Codex/governor Lane 8/9 review blockers.
 
 ## Baseline Gates
 
@@ -27,6 +27,7 @@ baseline batch before a lane acceptance claim.
 - [x] Lane 4 Server accepted by Codex/governor on 2026-05-20.
 - [x] Lane 5 Sync protocol accepted by Codex/governor on 2026-05-20.
 - [x] Lane 6 Read API accepted by Codex/governor on 2026-05-20.
+- [x] Lane 7 CLI and MCP accepted by Codex/governor on 2026-05-20.
 
 Lane 6 final API gate:
 
@@ -84,44 +85,48 @@ Tests       7 passed (7)
 
 ## Lane 8 Completion Gates — Audit and GC
 
-Implementation evidence may be recorded, but Lane 8 is not governor-accepted
-until Lane 7 gates and CQ-149 through CQ-153 are clean.
+Lane 8 is not governor-accepted. CQ-155 through CQ-157 are blocking.
 
-- [x] Audit cron handlers implement hourly, daily, weekly, and monthly cadences
-  under advisory locks.
-- [x] Audit detects missing or mismatched packs, quarantines affected packs, and
-  degrades affected receipts.
+- [ ] Audit cron handlers implement hourly, daily, weekly, and monthly cadences
+  under advisory locks and are wired into API startup/config (CQ-156).
+- [ ] Audit detects missing or mismatched packs with the catalog digest
+  algorithm, quarantines affected packs, and degrades affected receipts
+  (CQ-157).
 - [x] Authority refresh surfaces `auditStatus` and `repair` for degraded
   receipts.
 - [x] `artifacts.getText` returns `503 DATA_UNAVAILABLE` for quarantined pack
   bytes.
-- [x] GC transitions unreferenced packs through tombstone and delete phases
-  without deleting packs referenced by receipts or open staging rows.
+- [ ] GC transitions unreferenced packs through tombstone and delete phases
+  without deleting packs referenced by receipts or open staging rows, including
+  references that appear after tombstone and before delete (CQ-155).
 - [x] Metrics exist for audit findings and GC delete/failure volume.
-- [x] Focused audit/GC/read tests from
+- [ ] Focused audit/GC/read tests from
   `docs/rearch-2/09-lane-8-audit-and-gc.md` pass.
-- [x] E2E drift and GC scenarios are recorded.
+- [ ] E2E drift and GC scenarios are recorded, including post-tombstone
+  reference revalidation and production cron wiring.
 
 ## Lane 9 Completion Gates — Migration
 
-Implementation evidence may be recorded, but Lane 9 is not governor-accepted
-until Lane 7 and Lane 8 are accepted in order.
+Lane 9 is not governor-accepted. CQ-158 through CQ-161 are blocking, and Lane 9
+remains dependent on Lane 8 acceptance.
 
-- [x] `prosa migrate-v2 bundle` converts a v1 bundle to v2 from preserved raw
-  bytes and aborts before rename on validation failure.
+- [ ] `prosa migrate-v2 bundle` converts a v1 bundle to v2 from preserved raw
+  bytes without mutating the v1 source and remains recoverable across rename
+  interruption (CQ-161).
 - [x] Migration count validation covers source files, raw records, sessions,
   objects, and search docs according to the Lane 9 policy.
 - [x] Migration progress and JSON output are implemented.
 - [x] Corrupt or missing raw bytes surface a gap and use the documented
   provider-history fallback when available.
-- [x] `prosa migrate-v2 tenant` and `POST /v2/migrate/tenant` re-project a
-  tenant remotely with admin-only authorization.
-- [x] `legacy_receipt_archive` stores v1 receipts for audit only; v2 reads do
-  not accept them as authority.
-- [x] Focused migration tests from `docs/rearch-2/10-lane-9-migration.md` pass
+- [ ] `prosa migrate-v2 tenant` and `POST /v2/migrate/tenant` re-project a
+  tenant remotely with admin-only authorization and publish authority only
+  after Lane 6 read surfaces can consume the migrated projections (CQ-158).
+- [ ] `legacy_receipt_archive` stores v1 receipts for audit only; v2 reads do
+  not accept them as authority, including multi-store migrations (CQ-159).
+- [ ] Focused migration tests from `docs/rearch-2/10-lane-9-migration.md` pass
   (`pnpm --filter @c3-oss/prosa exec vitest run test/v2/migrate/`).
-- [x] Atomic rename safety and synthetic remote migration E2E evidence are
-  recorded.
+- [ ] Atomic rename safety, server-owned receipt provenance (CQ-160), and
+  synthetic remote migration E2E evidence are recorded.
 
 ## Lane 10 Boundary
 

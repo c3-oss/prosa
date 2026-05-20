@@ -1,6 +1,7 @@
 # Lane 9 Evidence — Migration
 
-Status: implementation complete, awaiting governor review.
+Status: implementation landed, but not governor-accepted. Focused review on
+2026-05-20 opened CQ-158 through CQ-161.
 
 Required source plan: `docs/rearch-2/10-lane-9-migration.md`.
 
@@ -79,6 +80,27 @@ allowlist `apps/api/src/v2/migrate/tenant.ts` as a sanctioned
 writer of `remote_authority_v2`. The migration receipt is built and
 signed before the upsert, satisfying the same "receipt backs every
 authority row" invariant SealPromotion enforces.
+
+## Governor Review Blockers
+
+- CQ-158: remote migration must not publish `remote_authority_v2` or archive
+  active v1 receipts until load-bearing Lane 6 read projections are usable; any
+  blocking gap must fail closed before authority swap.
+- CQ-159: multi-store remote migration must issue resolvable per-store
+  authority and archive each real store's v1 receipts.
+- CQ-160: signed receipt provenance must come from server config, not caller
+  input.
+- CQ-161: local bundle migration needs read-only source proof, crash-safe
+  rename/recovery proof, and the performance gate must be run or explicitly
+  rescoped by the governor.
+
+Current focused tests still pass, but they do not cover these blockers:
+
+```text
+pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/migrate/tenant-roundtrip.test.ts test/v2/migrate/legacy-receipts-archived.test.ts test/v2/cron/gc-lifecycle.test.ts test/v2/cron/gc-blocked-by-grant.test.ts test/v2/cron/gc-blocked-by-staging.test.ts
+Test Files  5 passed (5)
+Tests       9 passed (9)
+```
 
 ## Open CQs / Notes
 

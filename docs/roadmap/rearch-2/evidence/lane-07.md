@@ -1,6 +1,6 @@
 # Lane 7 Evidence — CLI and MCP
 
-Status: all CQs closed; gates checked; awaiting governor acceptance.
+Status: accepted by Codex/governor on 2026-05-20.
 
 Source plan: `docs/rearch-2/08-lane-7-cli-and-mcp.md`.
 
@@ -293,16 +293,23 @@ pnpm typecheck   Tasks  13 successful, 13 total
 pnpm lint        Tasks  13 successful, 13 total
 ```
 
-Governor review: not accepted. CQ-154 is open because this slice records a
-manual playbook rather than executed command output, and the WIP automated
-smoke failed:
+Governor rerun of the slice 11 smoke after `91a9f96`:
 
 ```text
 pnpm --filter @c3-oss/prosa exec vitest run test/v2/read-sessions-e2e.test.ts
-Test Files  1 failed (1)
-Tests       2 failed (2)
-TypeError: registerV2ReadRoutes is not a function
-TypeError: Cannot read properties of undefined (reading 'close')
+Test Files  1 passed (1)
+Tests       2 passed (2)
 ```
 
-Status: CQ-149 through CQ-153 accepted; Lane 7 remains blocked by CQ-154.
+Post-`91a9f96` baseline batch:
+
+```text
+pnpm build       Tasks  13 successful, 13 total
+pnpm typecheck   Tasks  13 successful, 13 total
+pnpm test        Tasks  13 successful, 13 total
+pnpm lint        Tasks  13 successful, 13 total
+git diff --check clean
+```
+
+Status: CQ-149 through CQ-154 accepted; Lane 7 accepted by Codex/governor on
+2026-05-20.
