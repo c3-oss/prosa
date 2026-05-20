@@ -8,10 +8,10 @@ Updated: 2026-05-20 after Lane 5 slice 2 review.
 
 Severity: high
 Blocking: yes (blocks Lane 5 acceptance — receipt schema cannot be parsed by clients)
-Status: closed (2026-05-20) — opaqueAuthIdSchema introduced
+Status: open (partial closure rejected 2026-05-20)
 Owner: Ralph
 
-Closure: `packages/prosa-wire-v2/src/primitives.ts` adds a new
+Partial closure: `packages/prosa-wire-v2/src/primitives.ts` adds a new
 `opaqueAuthIdSchema` for authentication identifiers
 (tenant / store / device). It allows printable ASCII
 `[A-Za-z0-9][A-Za-z0-9_.:-]*`, up to 255 chars — wide enough to
@@ -47,6 +47,12 @@ Pinned by six cases in
 - beginPromotionResponseSchema parses an `already_promoted`
   response whose receipt was signed for mixed-case ids — the
   exact regression the CQ originally flagged.
+
+This does not fully close CQ-123. The schema direction is correct, but the
+acceptance requires a real Better Auth lifecycle proof:
+signup → BeginPromotion → uploads → seal → GetReceipt → client-side receipt
+schema parse and JWKS signature verification. Current tests are schema/fixture
+level plus a BeginPromotion fast-path parse.
 
 Problem:
 

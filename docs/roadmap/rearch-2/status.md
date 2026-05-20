@@ -51,11 +51,9 @@ The blocker is implementation work, not environment.
 
 ## Open blockers
 
-- CQ-123: Better Auth tenant_id values do not satisfy
-  `canonicalIdSchema`. Blocks Lane 5 acceptance because client-side
-  receipt schema parses fail against mixed-case tenant ids. Slice 1
-  worked around it server-side via opaque local schemas; full fix is
-  required before E2E gates can pass.
+- CQ-123: `opaqueAuthIdSchema` now covers Better Auth mixed-case tenant/store/
+  device ids, but closure is rejected until a real signup → promote → seal →
+  GetReceipt → client schema/JWKS verification lifecycle is proven.
 - CQ-124: v1 and v2 schemas share table names with incompatible
   columns. Blocks Lane 5 slice 3 (materialization paths) and Lane 10
   cutover; slice 1 sidesteps it by applying only the conflict-free
@@ -67,9 +65,9 @@ The blocker is implementation work, not environment.
 - CQ-126: production-style boot now applies conflict-free v2 tables, but closure
   is rejected until boot verifies/migrates old `search_generation_current`
   column shape and an authenticated BeginPromotion reaches the SQL path cleanly.
-- CQ-127: BeginPromotion proves tenant membership but not device
-  ownership/policy; UploadSegment inherits the same gap and can accept staged
-  bytes from another same-tenant user/device.
+- CQ-127: BeginPromotion and opt-in post-begin device checks exist, but closure
+  is rejected until device identity is mandatory/derived on upload, object-pack,
+  seal, status, and receipt surfaces, and CLI `sync-v2` sends/proves it.
 - CQ-128: BeginPromotion race safety is now pinned by focused tests, but the
   broader status/resume digest-domain and inventory-ref conflict acceptance
   items remain watch points until directly proven.
@@ -133,6 +131,11 @@ The blocker is implementation work, not environment.
 - CQ-136/CQ-137/CQ-138 closure claims from `11447b7`/`9aff136` remain
   rejected/partial pending race-loser sealed replay, production boot migration,
   and CLI/shared-schema receipt validation.
+- CQ-127 closure from `0e59a43` is rejected because post-begin checks are
+  optional via `x-prosa-device-id`, CLI does not send the header, and GetReceipt
+  remains tenant-wide.
+- CQ-123 closure from `3f313f0` is rejected as partial until lifecycle evidence
+  proves real Better Auth ids parse and verify through client receipt handling.
 - CQ-125/CQ-141 closure claims from `41642b3`/`f1d15b3` are rejected pending
   reviewer-smoked device-mismatch, malformed-signature, wrong pack metadata,
   and seal-after-pack-byte-loss cases.
