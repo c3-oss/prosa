@@ -90,3 +90,40 @@ earlier than 2026-05-20T03:09:41Z (180 s minimum interval).
 
 Cycle 2 result: **clean**. Counter = 2. Cycle 3 may start no
 earlier than 2026-05-20T03:12:53Z.
+
+## Cycle 3 — 2026-05-20T03:16:25Z
+
+- **Interval since cycle 2**: 03:09:53Z → 03:16:25Z = 392 s
+  (≥ 180 s minimum honoured; gap explained by an operator-initiated
+  loop cancel + restart that landed the updated Phase 0 / Phase 1
+  prompt without touching code, tests, or evidence content).
+- **HEAD**: `74e9353 chore(docs): lane 3 stabilization cycle 2`
+  (the cycle-2 marker; no non-stabilization commits since).
+- **Branch**: `feature/rearch` (ahead 14 of `origin/feature/rearch`).
+- **Worktree**: same governor-driven doc edits to
+  `docs/roadmap/rearch-2/{evidence/lane-04.md, evidence/lane-05.md,
+  gates.md, ralph-loop-prompt.md, status.md}` that were present at
+  cycle 1 and cycle 2. Plus the same transient
+  `.claude/scheduled_tasks.lock` untracked file from the loop
+  runner's wakeup hook. No code, test, config, or build changes.
+  The loop-prompt edit converted the prompt from the Lane 3-only
+  shape into the new Lane 3 closeout → Lane 4 kickoff shape; this
+  is governor-authored, not Ralph's WIP, and does not contradict
+  status.md or gates.md.
+- **correction-queue.md**: still "None currently recorded" under
+  open blockers; header still "2026-05-20 after CQ-116 closure".
+  Unchanged from cycles 1-2.
+- **gates.md**: Lane 3 completion gates 1-5 still evidenced by
+  their test files; bullet 6 (stabilization) advanced to cycle 3.
+  Lane 4 completion gates added by the governor and pinned for
+  the post-Phase-0 milestone; no contradiction with Lane 3
+  closeout.
+- **status.md**: still "Lane 3 = closeout pending"; Lane 4 = "next
+  core milestone after Lane 3 closeout". Consistent with no open
+  CQ blockers and gates.md bullets 1-5 satisfied.
+- **Recent commits** (most recent first): the cycle-2 marker
+  `74e9353`, then the cycle-1 marker `2a07dd9`, then the same
+  Lane 3 work history. No surprise commits between cycles.
+
+Cycle 3 result: **clean**. Counter = 3. Cycle 4 may start no
+earlier than 2026-05-20T03:19:25Z.
