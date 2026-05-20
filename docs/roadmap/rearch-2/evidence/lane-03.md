@@ -26,7 +26,15 @@ Active / incomplete. Tantivy native runtime writer is in. DuckDB analytics runti
   - compaction effectiveness/history/overlap audit helpers.
 - DuckDB analytics support:
   - fixed analytics view definitions;
-  - pure execution-plan composer.
+  - pure execution-plan composer;
+  - runtime executor (`runAnalyticsExecution`) — opens an in-process
+    `@duckdb/node-api` connection, probes each canonical entity's
+    parquet globs (filters out empty-match globs to avoid DuckDB's
+    `IO Error: No files found`), runs setup statements + report
+    query, returns `{ view, columns, rows, executedSetupStatements,
+    skippedEntities }`. Drops entity setup statements entirely when
+    both live + compacted globs are empty so the caller sees an
+    authentic "missing parquet" failure instead of a glob error.
 - Tantivy support:
   - schema/fingerprint;
   - rebuild planner/state machine;
@@ -73,7 +81,16 @@ Active / incomplete. Tantivy native runtime writer is in. DuckDB analytics runti
       index-v2 tantivy && index-v2 status`) against an
       importer-produced bundle, to cover the projection-segment
       shape end-to-end rather than the planted-fixture shape.
-- [ ] DuckDB analytics runtime executor.
+- [x] DuckDB analytics runtime executor — landed with
+      `runAnalyticsExecution` + a focused 7-test suite that materialises
+      each of the 5 fixed views against minimal Parquet fixtures
+      (planted via DuckDB's own `COPY ... TO ... (FORMAT PARQUET)`),
+      verifies column-shape parity with `ANALYTICS_VIEW_COLUMNS`, and
+      asserts row counts + `skippedEntities` reporting. Remaining next
+      step: `prosa index-v2 analytics-run` CLI command + a scripted
+      gate that proves the runtime works against an importer-produced
+      Parquet bundle (requires importers to emit Parquet, currently
+      they only emit NDJSON).
 - [ ] Parquet compaction merge worker.
 - [ ] End-to-end Lane 3 gates in `gates.md`.
 
@@ -122,6 +139,28 @@ Gate output (full closure command set):
 - `pnpm --filter @c3-oss/prosa-derived-v2 exec vitest run test/tantivy/runtime-writer.test.ts test/tantivy/rebuild-bundle.test.ts test/tantivy/projection-reader.test.ts` → 17/17.
 - `pnpm --filter @c3-oss/prosa exec vitest run test/cli/index-v2.test.ts -t tantivy` → 17/17 (137 in suite, 120 unrelated skipped).
 - Full `pnpm --filter @c3-oss/prosa-derived-v2 test` → 563/563.
+
+## DuckDB analytics runtime (2026-05-20)
+
+- `@duckdb/node-api` 1.5.2-r.1 is loadable from `prosa-derived-v2`;
+  smoke (`CREATE TEMP VIEW`/`SELECT count(*)`) ran inline before the
+  dep landed. `read_parquet([live, compact])` rejects empty globs
+  with `IO Error: No files found that match the pattern`; the
+  runtime executor probes via `node:fs/promises.glob` and filters
+  out empty matches before issuing the setup statement, so a fresh
+  bundle with only live segments runs cleanly without a compacted
+  overlay.
+- `pnpm --filter @c3-oss/prosa-derived-v2 exec vitest run
+  test/analytics/runtime-executor.test.ts` → 7/7. Cases cover all
+  five fixed views (`session_facts`, `tool_usage_facts`,
+  `error_facts`, `model_usage`, `project_activity`) with
+  `result.columns === ANALYTICS_VIEW_COLUMNS[view]`, row counts that
+  match seeded fixtures, and the `skippedEntities` reporter when an
+  entity has no Parquet. A caller-supplied `reportQuery` case
+  confirms custom queries flow through to DuckDB verbatim.
+- Full `pnpm --filter @c3-oss/prosa-derived-v2 test` → 570/570
+  (54 files); typecheck + biome clean; workspace `pnpm typecheck`
+  green (13/13 packages).
 
 ## Smoke + gate evidence (2026-05-20)
 

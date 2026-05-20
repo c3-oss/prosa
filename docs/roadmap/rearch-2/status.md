@@ -1,6 +1,6 @@
 # rearch-2 Current Status
 
-Updated: 2026-05-20 after CQ-115 closed.
+Updated: 2026-05-20 after DuckDB analytics runtime executor landed.
 
 ## Summary
 
@@ -13,14 +13,14 @@ Updated: 2026-05-20 after CQ-115 closed.
 
 ## Current Lane 3 focus
 
-CQ-115 is closed: the Tantivy rebuild planner is now epoch-aware
-(`last_indexed_epoch` on the checkpoint + `currentEpoch` planner input → `full /
-epoch_mismatch`). The regression covers checkpoint parity AND on-disk index
-content. Next runtime executor slices:
+CQ-115 closed. Tantivy runtime + bundle orchestrator + CLI shipped. DuckDB
+analytics runtime executor (`runAnalyticsExecution`) shipped with 7 focused
+tests covering all 5 views against real Parquet fixtures. Remaining runtime
+executor slices:
 
-1. Scripted compile-then-index gate proving `indexed_doc_count == source_doc_count` after a real `compile-v2 && index-v2 tantivy` against a fixture-driven importer run.
-2. DuckDB analytics runtime executor.
-3. Parquet compaction merge worker.
+1. Parquet compaction merge worker (DuckDB-backed `COPY` over selected live segments → compacted overlay).
+2. `prosa index-v2 analytics-run` CLI command wiring `runAnalyticsExecution` (gated on importers emitting Parquet, currently they only emit NDJSON).
+3. Scripted compile-then-index gate proving `indexed_doc_count == source_doc_count` after a real `compile-v2 && index-v2 tantivy` against a fixture-driven importer run.
 4. Lane-3 gate wiring and end-to-end validation.
 
 Do **not** add more pure-read/audit/CLI surfaces unless they are directly required to implement or validate one of those runtime executors.
