@@ -137,10 +137,10 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 5 BeginPromotion acceptance)
-Status: closed (2026-05-20)
+Status: open (closure rejected 2026-05-20)
 Owner: Ralph
 
-Closure: `apps/api/src/v2/sync/begin-promotion.ts` replaces the
+Closure rejection: `apps/api/src/v2/sync/begin-promotion.ts` replaces the
 old `loadReceipt(receiptId)` with `loadAuthorityReceipt(...)`
 which loads the row scoped to the authority tuple AND verifies:
 - `receipt.store_id == authority.store_id`,
@@ -156,6 +156,18 @@ four cases in
 `apps/api/test/v2/sync/cq-125-authority-integrity.test.ts`:
 missing receipt, row.store_id mismatch, payload.bundleRoot
 mismatch, payload.receiptId mismatch.
+
+The closure is not accepted. Security reviewer smoke confirmed the fast path
+still omits device binding and receipt authenticity checks:
+
+```text
+device-mismatch 200 already_promoted victim-device
+malformed-signature 200 already_promoted {}
+```
+
+`BeginPromotion` must bind the no-op receipt to the requested device, validate
+row/payload device ids, and reject malformed/schema-invalid or wrongly signed
+receipts before returning `already_promoted`.
 
 Problem:
 
@@ -215,6 +227,9 @@ Acceptance:
       `BeginPromotion` fails closed, not `needs_inventory`, and no staging row is
       created.
 - [ ] Route test covers malformed/unparseable receipt JSON and fails closed.
+- [ ] Route tests cover wrong `device_id` and malformed/invalid signatures.
+- [ ] Valid replay verifies the receipt schema/signature before returning
+      `already_promoted`.
 - [ ] Valid replay still returns the exact schema-valid receipt for the same
       `(tenant, store, bundleRoot, device)` tuple.
 
@@ -1321,10 +1336,10 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 5 object-pack integrity and seal acceptance)
-Status: closed (2026-05-20)
+Status: open (partial closure rejected 2026-05-20)
 Owner: Ralph
 
-Closure: `apps/api/src/v2/sync/upload-object-pack.ts`'s catalog
+Partial closure: `apps/api/src/v2/sync/upload-object-pack.ts`'s catalog
 fast path now calls `objectStore.head(storage_uri)` after the
 `remote_pack` SELECT. If the storage object is missing, the
 handler repairs it from the request body via
@@ -1342,6 +1357,17 @@ Pinned by two cases in
    route returns `already_present`.
 2. Catalog + bytes present: fast path is a no-op (object store
    size unchanged) and the route still returns `already_present`.
+
+The closure is not accepted. Security reviewer smoke confirmed the fast path
+only repairs missing `head()`; if the storage key exists with the wrong
+hash/size, the route still links and returns `already_present`:
+
+```text
+wrong-meta-fast-path 200 already_present storedHashMatchesUploaded false storedSize 11
+```
+
+Seal also still grants linked packs without proving the object-store bytes
+remain present and match the linked pack metadata.
 
 Problem:
 
@@ -1395,6 +1421,8 @@ Acceptance:
       behavior.
 - [ ] Test proves the route does not link a catalog-only missing-byte pack to
       `promotion_uploaded_pack` unless bytes are repaired and verified.
+- [ ] Test proves an existing storage key with wrong hash/size fails closed or
+      is repaired before linking.
 - [ ] Seal test proves a linked pack with missing object-store bytes cannot be
       granted in a cleanup-authorizing receipt.
 

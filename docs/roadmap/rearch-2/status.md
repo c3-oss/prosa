@@ -60,9 +60,10 @@ The blocker is implementation work, not environment.
   columns. Blocks Lane 5 slice 3 (materialization paths) and Lane 10
   cutover; slice 1 sidesteps it by applying only the conflict-free
   promotion block in tests.
-- CQ-125: BeginPromotion no-op fast path does not verify that the
-  authority row's receipt matches the requested tenant/store/root/device
-  tuple and fail-opens orphan authority rows into fresh promotion.
+- CQ-125: BeginPromotion no-op fast path now checks part of the authority
+  receipt tuple, but closure is rejected until requested device binding,
+  malformed/schema-invalid receipt rejection, and signature verification are
+  proven.
 - CQ-126: production-style boot registers v2 promotion routes without
   applying/verifying v2 promotion tables, so a v1-only database can pass
   health and fail the first BeginPromotion query.
@@ -95,9 +96,9 @@ The blocker is implementation work, not environment.
 - CQ-140: focused v2 E2E can pass with Docker env, but the documented `just e2e`
   recipe fails and the gate still does not prove command-level `prosa sync-v2`,
   API container, or second-device remote read.
-- CQ-141: `UploadObjectPack` can return `already_present` from `remote_pack`
-  alone without proving the object-store bytes still exist, then link/grant a
-  catalog-only pack.
+- CQ-141: `UploadObjectPack` repairs catalog rows whose object-store bytes are
+  missing, but closure is rejected until wrong-metadata fast paths and
+  seal-after-pack-byte-loss fail closed.
 
 ## Current gate caveats
 
@@ -129,6 +130,9 @@ The blocker is implementation work, not environment.
 - CQ-136/CQ-137/CQ-138 closure claims from `cba2b90`/`6557852` are rejected
   pending the reviewer-smoked corrupt-link, schema-upgrade, and shared-schema
   validation cases.
+- CQ-125/CQ-141 closure claims from `41642b3`/`f1d15b3` are rejected pending
+  reviewer-smoked device-mismatch, malformed-signature, wrong pack metadata,
+  and seal-after-pack-byte-loss cases.
 - Reviewer aggregate smoke
   `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/` failed 77/78 with
   a timeout in the malformed-body BeginPromotion case, while the same file
