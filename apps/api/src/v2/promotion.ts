@@ -35,6 +35,7 @@ import {
   SealPromotionCoverageError,
   SealPromotionInProgressError,
   SealPromotionInventoryIncompleteError,
+  SealPromotionLinkCorruptError,
   SealPromotionNotFoundError,
   sealPromotion,
 } from './sync/seal-promotion.js'
@@ -302,6 +303,12 @@ async function handleSealPromotion(
         declaredObjectCount: err.declaredObjectCount,
         catalogObjectCount: err.catalogObjectCount,
       }
+    }
+    if (err instanceof SealPromotionLinkCorruptError) {
+      // CQ-136: corrupt sealed-receipt link surfaces as 500 —
+      // operator/audit must heal the staging row.
+      reply.code(500)
+      return { code: err.code, op: 'SealPromotion', message: err.message }
     }
     throw err
   }

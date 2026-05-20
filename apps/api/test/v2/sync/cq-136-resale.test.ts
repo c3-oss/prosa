@@ -242,6 +242,102 @@ describe('CQ-136: re-sealing an old promotion returns its own receipt', () => {
     }
   })
 
+  it('fails closed with SEAL_LINK_CORRUPT when sealed_receipt_id points at a tuple-mismatched receipt', async () => {
+    const t = await buildTestApp()
+    try {
+      const account = await signupTenant(t, 'cq136-corrupt@example.com', 'Acme', 'acme-cq136-corrupt')
+      const fx = buildFixture('cq136-corrupt')
+      const body = buildBeginBody({
+        tenantId: account.tenant.id,
+        storeId: 'store-cq136-corrupt',
+        bundleRoot: 'dd'.repeat(32),
+        declaredObjectCount: 1,
+        fx,
+      })
+      const { promotionId } = await drivePromotion(t, account.token, body, fx)
+      await t.app.inject({
+        method: 'POST',
+        url: `/v2/promotions/${promotionId}/object-packs`,
+        headers: {
+          'content-type': 'application/octet-stream',
+          authorization: `Bearer ${account.token}`,
+          'x-prosa-transport-hash': transportHashOf(fx.pack.bytes),
+        },
+        payload: Buffer.from(fx.pack.bytes),
+      })
+      const seal = await t.app.inject({
+        method: 'POST',
+        url: `/v2/promotions/${promotionId}/seal`,
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${account.token}` },
+        payload: {} as never,
+      })
+      expect(seal.statusCode).toBe(200)
+      const receiptId = (seal.json() as { receipt: { payload: { receiptId: string } } }).receipt.payload.receiptId
+
+      // Tamper: insert a same-tenant receipt for a DIFFERENT
+      // store / bundleRoot and re-point sealed_receipt_id at it.
+      // The replay branch must refuse to return it.
+      const foreignReceiptId = 'rcpt_cq136_foreign_link'
+      const foreignPayload = {
+        receiptVersion: 2,
+        receiptId: foreignReceiptId,
+        protocolVersion: 2,
+        tenantId: account.tenant.id,
+        storeId: 'store-other', // different store
+        storePath: '/home/test/store',
+        deviceId: 'dev-other',
+        issuedAt: '2026-05-20T00:00:00.000Z',
+        serverRegion: 'test',
+        serverKeyId: 'test-key',
+        previousReceiptId: null,
+        previousBundleRoot: null,
+        bundleRoot: 'ff'.repeat(32),
+        rawSourceRoot: '00'.repeat(32),
+        counts: {},
+        materialization: {},
+        verification: {},
+        clientSignatureStatus: 'absent_v2_0',
+      }
+      await t.db.rawExec(
+        `INSERT INTO receipt (receipt_id, tenant_id, store_id, device_id, payload, signature)
+         VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb)`,
+        [
+          foreignReceiptId,
+          account.tenant.id,
+          'store-other',
+          'dev-other',
+          JSON.stringify(foreignPayload),
+          JSON.stringify({ alg: 'Ed25519', keyId: 'test-key', sig: Buffer.alloc(64).toString('base64url') }),
+        ],
+      )
+      await t.db.rawExec(`UPDATE promotion_staging SET sealed_receipt_id = $1 WHERE id = $2`, [
+        foreignReceiptId,
+        promotionId,
+      ])
+
+      const replay = await t.app.inject({
+        method: 'POST',
+        url: `/v2/promotions/${promotionId}/seal`,
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${account.token}` },
+        payload: {} as never,
+      })
+      expect(replay.statusCode).toBe(500)
+      const body2 = replay.json() as { code: string; message: string }
+      expect(body2.code).toBe('SEAL_LINK_CORRUPT')
+      expect(body2.message).toContain(promotionId)
+
+      // The legitimate receipt is still in the catalog —
+      // existence wasn't damaged, only the replay path refused.
+      const rows = await t.db.rawExec<{ count: string | number }>(
+        `SELECT count(*)::int AS count FROM receipt WHERE receipt_id = $1`,
+        [receiptId],
+      )
+      expect(Number(rows[0]!.count)).toBe(1)
+    } finally {
+      await t.close()
+    }
+  })
+
   it('persists sealed_receipt_id on the staging row inside the seal transaction', async () => {
     const t = await buildTestApp()
     try {

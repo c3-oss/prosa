@@ -1072,10 +1072,31 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 5 idempotency and receipt correctness)
-Status: open (closure rejected 2026-05-20)
+Status: closed (2026-05-20) — tuple verification on replay added
 Owner: Ralph
 
-Closure rejection: `packages/prosa-db-v2/src/schema/promotion.ts` adds a
+Full closure: the sealed-status replay branch in
+`apps/api/src/v2/sync/seal-promotion.ts` now verifies the
+loaded receipt matches the staging tuple before returning it:
+- `payload.tenantId === ctx.tenantId`,
+- `payload.storeId === staging.store_id`,
+- `payload.deviceId === staging.device_id`,
+- `payload.receiptId === staging.sealed_receipt_id`,
+- `payload.bundleRoot === staging.head_json.bundleRoot`.
+A mismatch raises `SealPromotionLinkCorruptError` → 500
+SEAL_LINK_CORRUPT. The handler no longer returns a foreign
+same-tenant receipt even when `sealed_receipt_id` is corrupt.
+
+Pinned by three cases in `cq-136-resale.test.ts`:
+- the original A→B replay returns A's receipt;
+- the row-level link assertion (sealed_receipt_id is NULL
+  before seal, matches receiptId after);
+- **NEW**: tampered `sealed_receipt_id` pointing at a
+  same-tenant receipt with a different store/device/bundle →
+  500 SEAL_LINK_CORRUPT, original receipt row untouched.
+
+Closure rejection (superseded by the tuple-verification above):
+`packages/prosa-db-v2/src/schema/promotion.ts` adds a
 `sealed_receipt_id TEXT` column to `promotion_staging` (with
 `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` for re-applied schemas).
 `apps/api/src/v2/sync/seal-promotion.ts` sets that column inside

@@ -88,6 +88,16 @@ export class SealPromotionInventoryIncompleteError extends Error {
   }
 }
 
+// CQ-136: corrupt re-seal linkage — `sealed_receipt_id` points
+// at a receipt whose signed tuple disagrees with the staging
+// row's (store, device, bundleRoot). Treated as server-side
+// corruption: fail closed instead of returning the wrong
+// receipt.
+export class SealPromotionLinkCorruptError extends Error {
+  override name = 'SealPromotionLinkCorruptError'
+  readonly code = 'SEAL_LINK_CORRUPT' as const
+}
+
 // CQ-134: the bundle head's declared object count must be covered
 // by the union of `remote_pack_entry` rows for packs uploaded in
 // this promotion. Refuse to swap authority when the catalog falls
@@ -148,15 +158,32 @@ export async function sealPromotion(
   }
   if (staging.status === 'sealed') {
     // CQ-136: idempotent re-seal must return the receipt this
-    // promotion actually sealed, not whatever happens to be the
-    // store's current authority. We persist the sealed receipt id
-    // on `promotion_staging.sealed_receipt_id` inside the seal
-    // transaction; loading by id keeps re-seal stable even after a
-    // newer promotion has overwritten the store's authority
-    // pointer.
+    // promotion actually sealed AND verify the linked receipt
+    // belongs to this staging row's (store, device, bundle)
+    // tuple. A corrupt link (e.g. a tampered
+    // `sealed_receipt_id` pointing at a same-tenant receipt for
+    // a different store/device) MUST fail closed rather than
+    // return the wrong receipt.
     if (staging.sealed_receipt_id) {
       const existing = await loadReceiptById(deps, staging.sealed_receipt_id)
-      if (existing) return { status: 'sealed', receipt: existing }
+      if (existing) {
+        const head = coerceHead(staging.head_json)
+        const tupleMatch =
+          existing.payload.tenantId === deps.tenantId &&
+          existing.payload.storeId === staging.store_id &&
+          existing.payload.deviceId === staging.device_id &&
+          existing.payload.receiptId === staging.sealed_receipt_id &&
+          head !== null &&
+          existing.payload.bundleRoot === head.bundleRoot
+        if (tupleMatch) {
+          return { status: 'sealed', receipt: existing }
+        }
+        // Linked receipt doesn't match the staging tuple — refuse
+        // rather than reopen seal or return the wrong receipt.
+        throw new SealPromotionLinkCorruptError(
+          `sealed_receipt_id ${staging.sealed_receipt_id} on promotion ${params.promotionId} does not match the staging tuple`,
+        )
+      }
     }
     // Fall through if the linkage is missing or the receipt row
     // disappeared — let the re-seal attempt restore it.
