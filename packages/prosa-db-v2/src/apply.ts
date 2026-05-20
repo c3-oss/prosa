@@ -142,6 +142,7 @@ export const V2_PROMOTION_SUBSET_TABLES: readonly string[] = [
   'receipt_pack_grant',
   'pack_audit_state',
   'pack_gc_state',
+  'receipt_audit_state',
   'search_generation_current',
 ]
 

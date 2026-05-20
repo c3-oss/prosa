@@ -57,17 +57,48 @@ CREATE INDEX IF NOT EXISTS receipt_pack_grant_tenant_pack_idx
 CREATE TABLE IF NOT EXISTS pack_audit_state (
   tenant_id     TEXT NOT NULL,
   pack_digest   TEXT NOT NULL,
-  last_audit_at TIMESTAMPTZ NOT NULL,
+  last_audit_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   status        TEXT NOT NULL CHECK (status IN ('ok', 'drift', 'quarantined')),
   details       JSONB,
   PRIMARY KEY (tenant_id, pack_digest)
 );
+-- Lane 8: audit cron updates these timestamps + error columns when it
+-- HEAD/digest/byte-rehashes packs. last_audit_at retains the legacy
+-- default for v1 callers; the audit cron updates last_header_check_at
+-- and last_full_hash_at separately so the four cadences are
+-- distinguishable in operator reports.
+ALTER TABLE pack_audit_state ADD COLUMN IF NOT EXISTS last_header_check_at TIMESTAMPTZ;
+ALTER TABLE pack_audit_state ADD COLUMN IF NOT EXISTS last_full_hash_at    TIMESTAMPTZ;
+ALTER TABLE pack_audit_state ADD COLUMN IF NOT EXISTS error                JSONB;
 
 CREATE TABLE IF NOT EXISTS pack_gc_state (
-  tenant_id          TEXT NOT NULL,
-  pack_digest        TEXT NOT NULL,
-  unreferenced_since TIMESTAMPTZ NOT NULL,
-  deleted_at         TIMESTAMPTZ,
+  tenant_id            TEXT NOT NULL,
+  pack_digest          TEXT NOT NULL,
+  unreferenced_since   TIMESTAMPTZ NOT NULL,
+  deleted_at           TIMESTAMPTZ,
   PRIMARY KEY (tenant_id, pack_digest)
 );
+-- Lane 8: GC cron rewrites the lifecycle column set onto this table so
+-- the same row tracks the live -> tombstone_pending -> delete_pending
+-- -> deleted journey. unreferenced_since survives from Lane 4 for
+-- backward compatibility; the cron mirrors it onto
+-- first_unreferenced_at on insert.
+ALTER TABLE pack_gc_state ADD COLUMN IF NOT EXISTS status               TEXT
+  NOT NULL DEFAULT 'live';
+ALTER TABLE pack_gc_state ADD COLUMN IF NOT EXISTS first_unreferenced_at TIMESTAMPTZ;
+ALTER TABLE pack_gc_state ADD COLUMN IF NOT EXISTS error                JSONB;
+
+-- Lane 8: receipt-level audit aggregate. One row per receipt; the audit
+-- cron sets the status to 'degraded' when any of the receipt's pack
+-- grants reference a quarantined pack. The authority refresh route
+-- surfaces this status (and a repair hint) to clients.
+CREATE TABLE IF NOT EXISTS receipt_audit_state (
+  receipt_id           TEXT PRIMARY KEY,
+  tenant_id            TEXT NOT NULL,
+  status               TEXT NOT NULL CHECK (status IN ('ok', 'degraded', 'invalidated')),
+  affected_pack_count  INTEGER NOT NULL DEFAULT 0,
+  updated_at           TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS receipt_audit_state_tenant_status_idx
+  ON receipt_audit_state (tenant_id, status);
 `
