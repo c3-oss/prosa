@@ -1892,8 +1892,37 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 5 object-pack integrity and seal acceptance)
-Status: open (closure attempt #3 rejected by governor/reviewer 2026-05-20)
+Status: closure attempt #4 (2026-05-20); awaiting governor review
 Owner: Ralph
+
+Closure attempt 4 (2026-05-20): addresses the two governor-flagged
+gaps left by closure attempt 3.
+
+4. **Sealed-replay re-verifies linked-pack bytes** —
+   `apps/api/src/v2/sync/seal-promotion.ts` extracts the
+   linked-pack byte check into `verifyLinkedPackBytes()` and
+   calls it from THREE paths: fresh seal (after the CAS status
+   flip, before signer + transaction); idempotent
+   `status='sealed'` replay (before returning the existing
+   receipt); race-loser replay (after CAS lost, when the
+   refreshed status is `'sealed'`). Without verification on the
+   replay paths, an out-of-band swap / loss between the original
+   seal and a replay would let the idempotent path return the
+   previously signed receipt as if the bytes were still
+   trustworthy. Both replay paths now fail closed with the same
+   `SealPromotionPackBytesMissingError` /
+   `SealPromotionPackBytesMismatchError` types the fresh seal
+   uses.
+
+5. **Route-level 409 evidence** —
+   `apps/api/test/v2/sync/cq-141-route-409-and-sealed-replay.test.ts`
+   pins via Fastify HTTP injection (real route → handler → DB →
+   object store) that: upload wrong-content → 409
+   `PACK_BYTES_CORRUPT` with stored bytes intact; seal mismatch
+   → 409 `PACK_BYTES_MISMATCH` with staging restored and zero
+   receipt/authority/grant rows; sealed-replay with lost bytes →
+   409 `PACK_BYTES_MISSING`; sealed-replay with swapped same-size
+   wrong content → 409 `PACK_BYTES_MISMATCH`.
 
 Closure attempt 3 (2026-05-20):
 

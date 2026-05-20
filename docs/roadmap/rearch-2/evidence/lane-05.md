@@ -1333,3 +1333,51 @@ pnpm typecheck      # 13/13
 pnpm lint           # 13/13
 git diff --check    # clean
 ```
+
+## CQ-141 closure attempt #4 — 2026-05-20
+
+Scope (extends closure attempt #3):
+
+- `apps/api/src/v2/sync/seal-promotion.ts` extracts the linked
+  -pack byte verification into a shared `verifyLinkedPackBytes()`
+  helper. The fresh seal path, the idempotent `status='sealed'`
+  replay branch, AND the race-loser replay branch all call it
+  before returning a receipt. Without verification on the
+  replay paths, an out-of-band byte swap / loss after the
+  original seal would let the idempotent replay return the
+  previously signed receipt as if nothing had changed.
+
+- `apps/api/test/v2/sync/cq-141-route-409-and-sealed-replay.test.ts`
+  adds four new Fastify-injection cases that exercise the
+  route → handler → DB → object store path end to end:
+  1. Upload wrong-content → 409 `PACK_BYTES_CORRUPT` with
+     stored bytes still intact (no destructive delete).
+  2. Seal mismatch → 409 `PACK_BYTES_MISMATCH` with staging
+     restored and zero receipt/authority/grant rows.
+  3. Sealed-replay with lost bytes → 409 `PACK_BYTES_MISSING`;
+     `sealed_receipt_id` linkage is preserved.
+  4. Sealed-replay with same-size wrong content swap → 409
+     `PACK_BYTES_MISMATCH`.
+
+Gate evidence (2026-05-20):
+
+```text
+pnpm --filter @c3-oss/prosa-api exec vitest run \
+  test/v2/sync/cq-141-route-409-and-sealed-replay.test.ts
+   Test Files 1 passed (1) — 4/4
+
+pnpm --filter @c3-oss/prosa-api exec vitest run \
+  test/v2/sync/cq-141-wrong-metadata-and-seal-presence.test.ts \
+  test/v2/sync/cq-141-route-409-and-sealed-replay.test.ts
+   Test Files 2 passed (2) — 14/14
+
+pnpm --filter @c3-oss/prosa-api test
+   Test Files 55 passed | 2 skipped (57) — 295 passed | 4 skipped
+
+pnpm typecheck      # 13/13
+pnpm lint           # 13/13
+git diff --check    # clean
+
+just e2e            # 4/4
+just e2e-cli        # 3/3
+```

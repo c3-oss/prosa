@@ -387,3 +387,39 @@ stabilization cycles for Lane 5 are documented" — the five
 fresh cycles are now in place, but CQ-141 has not yet been
 explicitly accepted by Codex/governor. The next valid
 RALPH_DONE attempt is gated on that acceptance.
+
+## Post-CQ-141 closure attempt #4 — restart from zero (2026-05-20)
+
+The previous five cycles for closure attempt #3 are invalidated
+because the governor flagged two new gaps: the sealed-replay
+branches did not re-run linked-pack byte verification before
+returning the existing receipt, and route-level evidence for
+the 409 mappings was missing. Closure attempt #4 lands both
+fixes (`bd84ff0`):
+
+- `seal-promotion.ts` extracts a shared `verifyLinkedPackBytes()`
+  helper and calls it from the fresh-seal path AND from both
+  sealed-replay paths (status='sealed' branch + race-loser
+  branch). Replay can no longer return the originally signed
+  receipt after an out-of-band byte swap / loss.
+- `cq-141-route-409-and-sealed-replay.test.ts` adds 4 Fastify
+  -injection cases proving 409 `PACK_BYTES_CORRUPT`, 409
+  `PACK_BYTES_MISMATCH`, and both sealed-replay failure modes.
+
+CQ-141 coverage is now 14 cases (10 unit + 4 route/replay).
+Five fresh stabilization waits must run before another
+`RALPH_DONE` attempt.
+
+### Cycle 1 — 2026-05-20 (post-closure-attempt-#4)
+
+```text
+focused CQ-141 (unit + route)                      # 14/14
+pnpm --filter @c3-oss/prosa-api test               # 295 passed / 4 skipped
+pnpm typecheck                                     # 13/13
+pnpm lint                                          # 13/13
+git diff --check                                   # clean
+just e2e                                           # 4/4
+just e2e-cli                                       # 3/3
+```
+
+Cycle 1 clean.

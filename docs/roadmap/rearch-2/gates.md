@@ -115,14 +115,19 @@ These are NOT Lane 5 scope per the initial plan — Lane 5 uses the
 `applyV2PromotionSubsetSchema` workaround.
 
 Governor rejection after Ralph finalization (2026-05-20): L5.2 and L5.3 are
-not accepted while CQ-141 remains open. Closure attempt #3 landed on
-2026-05-20 and is awaiting governor review: `remote_pack.byte_hash` is now
-durable, seal compares head().hash/hashAlgorithm/length against the persisted
-metadata (legacy null `byte_hash` and `hashAlgorithm !== 'blake3'` both fail
-closed), and the upload wrong-content fast path is fail-closed via
-`UploadObjectPackBytesCorruptError` without deleting any bytes. Pinned by 10
-focused cases in
-`apps/api/test/v2/sync/cq-141-wrong-metadata-and-seal-presence.test.ts`.
+not accepted while CQ-141 remains open. Closure attempt #4 landed on
+2026-05-20 and is awaiting governor review. In addition to closure attempt
+#3 (durable `remote_pack.byte_hash` + seal hash/algorithm/length verification
++ non-destructive upload), attempt #4 makes the `status='sealed'` and
+race-loser replay branches re-run linked-pack byte verification before
+returning the existing receipt, and adds route-level (Fastify HTTP
+injection) evidence for 409 `PACK_BYTES_CORRUPT`, 409 `PACK_BYTES_MISMATCH`,
+and both sealed-replay failure modes. Pinned by 14 focused cases
+across
+`apps/api/test/v2/sync/cq-141-wrong-metadata-and-seal-presence.test.ts`
+(10 unit) and
+`apps/api/test/v2/sync/cq-141-route-409-and-sealed-replay.test.ts`
+(4 route/replay).
 
 Minimum command evidence:
 
