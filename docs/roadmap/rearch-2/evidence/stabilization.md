@@ -268,3 +268,43 @@ earlier than 2026-05-20T04:08:24Z (180 s minimum interval).
 
 Cycle 2 result: **clean**. Counter = 2. Cycle 3 may start no
 earlier than 2026-05-20T04:12:05Z.
+
+## Cycle 3 — 2026-05-20T04:12:10Z
+
+- **Interval since cycle 2**: 04:09:05Z → 04:12:10Z = 185 s
+  (≥ 180 s minimum honoured).
+- **HEAD**: `6bbca0a chore(docs): lane 4 stabilization cycle 2`.
+- **Branch**: `feature/rearch` (ahead 3 of `origin/feature/rearch`).
+- **Worktree**: same governor-driven doc edits to
+  `docs/roadmap/rearch-2/{evidence/lane-05.md, gates.md,
+  ralph-loop-prompt.md, status.md}`. Plus
+  `.claude/scheduled_tasks.lock` untracked. No code, test, config,
+  or build changes.
+- **correction-queue.md**: still "None currently recorded".
+- **gates.md**: Lane 4 completion gates unchanged.
+- **evidence/lane-04.md**: unchanged.
+- **status.md**: governor-driven; unchanged from cycles 1-2.
+- **Recent commits** (most recent first): cycle-2 marker
+  `6bbca0a`, cycle-1 marker `b930e74`, then Lane 4 implementation
+  history. No surprise commits.
+
+Cycle 3 result: **clean**. Counter = 3. Cycle 4 may start no
+earlier than 2026-05-20T04:15:10Z.
+
+## Governor reset — 2026-05-20T01:12:00-03:00
+
+Counter reset to zero.
+
+Reason: Codex/governor reviewed CQ-122 after cycles 1 and 2 and accepted the
+closure only with explicit Lane 4/Lane 5 scope reconciliation. During cycles 1
+and 2, `status.md` and `ralph-loop-prompt.md` still described CQ-122 as open or
+otherwise contradicted `correction-queue.md`. The completion rule says
+contradictory status resets the counter.
+
+Next valid Lane 4 stabilization cycle may start only after:
+
+- `status.md`, `gates.md`, `correction-queue.md`, `ralph-loop-prompt.md`, and
+  `evidence/lane-04.md` agree.
+- The final Lane 4 gate batch is rerun and recorded.
+- The worktree is clean except for the known transient
+  `.claude/scheduled_tasks.lock`.
