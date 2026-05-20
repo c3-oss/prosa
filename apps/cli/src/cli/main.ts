@@ -19,6 +19,7 @@ import { sessionsCommand } from './commands/sessions.js'
 import { syncV2Command } from './commands/sync-v2.js'
 import { syncCommand } from './commands/sync.js'
 import { tuiCommand } from './commands/tui.js'
+import { readCommand } from './v2/commands/read/index.js'
 /**
  * Drop a leading literal `--` token from the user-args portion of argv.
  *
@@ -68,6 +69,7 @@ export async function runCli(argv: readonly string[]): Promise<void> {
   program.addCommand(compileV2Command())
   program.addCommand(compileAllV2Command())
   program.addCommand(indexV2Command())
+  program.addCommand(readCommand())
 
   await program.parseAsync(stripLeadingDoubleDash(argv))
 }
