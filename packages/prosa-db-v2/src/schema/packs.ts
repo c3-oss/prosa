@@ -8,12 +8,14 @@ CREATE TABLE IF NOT EXISTS remote_pack (
   kind                     TEXT NOT NULL CHECK (kind IN ('cas_object_pack', 'raw_source_pack')),
   entry_count              INTEGER NOT NULL,
   byte_length              BIGINT NOT NULL,
+  byte_hash                TEXT,
   object_set_root          TEXT NOT NULL,
   standalone_large_object  BOOLEAN NOT NULL DEFAULT FALSE,
   storage_uri              TEXT NOT NULL,
   ingested_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (tenant_id, pack_digest)
 );
+ALTER TABLE remote_pack ADD COLUMN IF NOT EXISTS byte_hash TEXT;
 CREATE INDEX IF NOT EXISTS remote_pack_tenant_idx ON remote_pack (tenant_id, ingested_at DESC);
 
 CREATE TABLE IF NOT EXISTS remote_pack_entry (

@@ -91,6 +91,33 @@ export class UploadObjectPackDeviceMismatchError extends Error {
   }
 }
 
+// CQ-141: catalog says `(tenant, pack_digest)` is already known
+// but the bytes at the canonical storage key disagree (wrong
+// hash or length) with what the client is uploading right now.
+// Fail closed without deleting the stored bytes — destructive
+// repair from the request body is unsafe when `putIfAbsent` is
+// the only write primitive (a failed replacement leaves bytes
+// gone). An operator must reconcile catalog vs. storage out of
+// band before the pack can be linked to a promotion.
+export class UploadObjectPackBytesCorruptError extends Error {
+  override name = 'UploadObjectPackBytesCorruptError'
+  readonly code = 'PACK_BYTES_CORRUPT' as const
+  constructor(
+    readonly packDigest: string,
+    readonly storageKey: string,
+    readonly expectedHash: string,
+    readonly expectedSize: number,
+    readonly actualHash: string,
+    readonly actualSize: number,
+  ) {
+    super(
+      `pack ${packDigest} at ${storageKey}: stored bytes do not match ` +
+        `(expected hash=${expectedHash} size=${expectedSize}, ` +
+        `actual hash=${actualHash} size=${actualSize})`,
+    )
+  }
+}
+
 type StagingRow = { status: string; device_id: string }
 
 // CQ-131: materializing is in-flight authority-swap territory —
@@ -160,8 +187,8 @@ export async function uploadObjectPack(
   // catalogued. Still link the pack to this promotion so
   // SealPromotion can grant it (the catalog is tenant-wide and
   // may pre-exist from a prior promotion).
-  const existingRows = await deps.rawExec<{ entry_count: number; storage_uri: string }>(
-    `SELECT entry_count, storage_uri FROM remote_pack WHERE tenant_id = $1 AND pack_digest = $2 LIMIT 1`,
+  const existingRows = await deps.rawExec<{ entry_count: number; storage_uri: string; byte_hash: string | null }>(
+    `SELECT entry_count, storage_uri, byte_hash FROM remote_pack WHERE tenant_id = $1 AND pack_digest = $2 LIMIT 1`,
     [deps.tenantId, observedDigest],
   )
   if (existingRows.length > 0) {
@@ -171,33 +198,52 @@ export async function uploadObjectPack(
     //      uploaded bytes (correct hash AND length);
     //   2. missing — head() returns null;
     //   3. wrong-content — head() returns metadata whose hash or
-    //      length does NOT match the bytes the client just sent.
+    //      length does NOT match the canonical bytes.
     //
-    // We accept (1) verbatim. For (2) and (3) we repair from the
-    // uploaded body BEFORE linking the pack: the wire body has
-    // already passed `verifyCasPack`, so the bytes are
-    // authoritative for this pack_digest by definition. Without
-    // this guard, a corrupted storage object would still get
-    // linked into `promotion_uploaded_pack` and a later seal
-    // would grant a receipt for bytes the server can't actually
-    // serve. Concurrency is safe: `delete` is a no-op on a key
-    // a racer already removed, and `putIfAbsent` re-checks the
-    // key under its per-key lock.
+    // (1) accept verbatim. (2) repair via `putIfAbsent` (safe:
+    // no existing bytes to lose, and the put is per-key
+    // atomic). (3) FAIL CLOSED: the only write primitive is
+    // `putIfAbsent`, so any in-place replacement would have to
+    // `delete()` first — and a `putIfAbsent` failure after
+    // delete strands the catalog row pointing at empty storage.
+    // Reviewer 2026-05-20 rejected the destructive repair; an
+    // operator must heal the storage/catalog drift out of band.
     const storageKey = existingRows[0]!.storage_uri
     const expectedHash = observedTransportHash.slice('blake3:'.length).toLowerCase()
+    const expectedSize = params.body.byteLength
     const head = await deps.objectStore.head(storageKey)
-    const headHash = head?.hash.toLowerCase()
-    const matches = head !== null && headHash === expectedHash && head.compressedSize === params.body.byteLength
-    if (!matches) {
-      if (head !== null) {
-        await deps.objectStore.delete(storageKey)
-      }
+    if (head === null) {
+      // Missing-bytes repair: safe because nothing is deleted.
       await deps.objectStore.putIfAbsent(storageKey, asyncOnce(params.body), {
         hash: expectedHash,
         hashAlgorithm: 'blake3',
-        uncompressedSize: params.body.byteLength,
-        compressedSize: params.body.byteLength,
+        uncompressedSize: expectedSize,
+        compressedSize: expectedSize,
       })
+    } else {
+      const headHash = head.hash.toLowerCase()
+      const matches = headHash === expectedHash && head.compressedSize === expectedSize
+      if (!matches) {
+        throw new UploadObjectPackBytesCorruptError(
+          observedDigest,
+          storageKey,
+          expectedHash,
+          expectedSize,
+          headHash,
+          head.compressedSize,
+        )
+      }
+    }
+    // Backfill byte_hash for catalog rows that pre-date this
+    // column (rows inserted before the CQ-141 closure had
+    // byte_hash=null). After the matches-check passes, the
+    // expected hash is authoritative for this pack_digest.
+    if (existingRows[0]!.byte_hash === null) {
+      await deps.rawExec(
+        `UPDATE remote_pack SET byte_hash = $3
+          WHERE tenant_id = $1 AND pack_digest = $2 AND byte_hash IS NULL`,
+        [deps.tenantId, observedDigest, expectedHash],
+      )
     }
     await linkPackToPromotion(deps, params.promotionId, observedDigest)
     return {
@@ -237,15 +283,22 @@ export async function uploadObjectPack(
     await deps.transaction(async (tx) => {
       await tx(
         `INSERT INTO remote_pack (
-           tenant_id, pack_digest, kind, entry_count, byte_length,
+           tenant_id, pack_digest, kind, entry_count, byte_length, byte_hash,
            object_set_root, standalone_large_object, storage_uri
          )
-         VALUES ($1, $2, 'cas_object_pack', $3, $4, $5, $6, $7)`,
+         VALUES ($1, $2, 'cas_object_pack', $3, $4, $5, $6, $7, $8)`,
         [
           deps.tenantId,
           observedDigest,
           verified.header.entry_count,
           params.body.byteLength,
+          // CQ-141: persist the canonical transport (wire-byte)
+          // BLAKE3 alongside `byte_length` so SealPromotion can
+          // compare object-store head() against durable expected
+          // metadata before authority grant.
+          observedTransportHash
+            .slice('blake3:'.length)
+            .toLowerCase(),
           deriveObjectSetRoot(verified.entries.map((e) => e.entry.object_id)),
           verified.header.standalone_large_object,
           storageKey,

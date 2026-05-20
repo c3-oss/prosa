@@ -43,10 +43,12 @@ import {
   SealPromotionInventoryIncompleteError,
   SealPromotionLinkCorruptError,
   SealPromotionNotFoundError,
+  SealPromotionPackBytesMismatchError,
   SealPromotionPackBytesMissingError,
   sealPromotion,
 } from './sync/seal-promotion.js'
 import {
+  UploadObjectPackBytesCorruptError,
   UploadObjectPackDeviceMismatchError,
   UploadObjectPackNotFoundError,
   UploadObjectPackValidationError,
@@ -322,6 +324,27 @@ async function handleUploadObjectPack(
       reply.code(400)
       return { code: 'INVALID_REQUEST', op: 'UploadObjectPack', message: err.message, issues: err.issues }
     }
+    if (err instanceof UploadObjectPackBytesCorruptError) {
+      // CQ-141: catalog says (tenant, pack_digest) is known but
+      // stored bytes have wrong hash/length. Fail closed without
+      // touching the storage object — destructive repair can
+      // strand the catalog row pointing at empty bytes. The
+      // operator must reconcile out of band; until then the
+      // upload (and any seal that needs this pack) stays
+      // refused.
+      reply.code(409)
+      return {
+        code: err.code,
+        op: 'UploadObjectPack',
+        message: err.message,
+        packDigest: err.packDigest,
+        storageKey: err.storageKey,
+        expectedHash: err.expectedHash,
+        expectedSize: err.expectedSize,
+        actualHash: err.actualHash,
+        actualSize: err.actualSize,
+      }
+    }
     throw err
   }
 }
@@ -424,6 +447,21 @@ async function handleSealPromotion(
         op: 'SealPromotion',
         message: err.message,
         missingPackDigests: err.missingPackDigests,
+      }
+    }
+    if (err instanceof SealPromotionPackBytesMismatchError) {
+      // CQ-141: linked pack bytes are nonzero but disagree with
+      // the durable expected hash/length recorded at upload.
+      // Failing closed prevents granting authority over bytes
+      // the server would serve under a different pack_digest;
+      // staging is restored to its prior status by the CQ-135
+      // wrapper.
+      reply.code(409)
+      return {
+        code: err.code,
+        op: 'SealPromotion',
+        message: err.message,
+        mismatches: err.mismatches,
       }
     }
     throw err

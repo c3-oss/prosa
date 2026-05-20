@@ -146,6 +146,38 @@ export class SealPromotionPackBytesMissingError extends Error {
   }
 }
 
+// CQ-141: a linked pack's object-store head() returned nonzero
+// bytes but with a hash and/or length that disagrees with the
+// `remote_pack.byte_hash` / `byte_length` recorded at upload.
+// Granting authority for these bytes would serve a different
+// pack than what the receipt's `pack_digest` claims. Fail closed
+// — staging is restored to its prior status, and no
+// receipt / authority / grant rows are written.
+export class SealPromotionPackBytesMismatchError extends Error {
+  override name = 'SealPromotionPackBytesMismatchError'
+  readonly code = 'PACK_BYTES_MISMATCH' as const
+  constructor(
+    readonly mismatches: ReadonlyArray<{
+      packDigest: string
+      storageKey: string
+      expectedHash: string | null
+      expectedSize: number | null
+      actualHash: string
+      actualSize: number
+    }>,
+  ) {
+    super(
+      `linked packs have wrong nonzero object-store metadata: ${mismatches
+        .map(
+          (m) =>
+            `${m.packDigest} (expected hash=${m.expectedHash ?? '<unknown>'} size=${m.expectedSize ?? '<unknown>'}, ` +
+            `actual hash=${m.actualHash} size=${m.actualSize})`,
+        )
+        .join('; ')}`,
+    )
+  }
+}
+
 type StagingRow = {
   status: string
   user_id: string
@@ -314,33 +346,93 @@ export async function sealPromotion(
     }
 
     // CQ-141: catalog rows alone don't prove the bytes survive
-    // until seal. Resolve `(pack_digest -> storage_uri)` for
-    // every linked pack and `head()` each storage object. Any
-    // missing/zero-length pack must fail seal closed so the
-    // authority swap never grants a pack the server cannot
-    // serve. This runs after coverage so we don't pay the
-    // head-fanout when the catalog itself is short.
+    // until seal. Resolve every linked pack's
+    // `(storage_uri, byte_hash, byte_length)` and `head()` each
+    // storage object. The seal fails closed when:
+    //   - storage_uri is unknown / head() returns null /
+    //     head.compressedSize === 0 → bytes missing
+    //     (`SealPromotionPackBytesMissingError`);
+    //   - head returns nonzero bytes whose hash, hashAlgorithm,
+    //     or length disagrees with the durable expected metadata
+    //     (`SealPromotionPackBytesMismatchError`);
+    //   - the catalog row is missing its expected `byte_hash`
+    //     (legacy null), because size-only verification is not
+    //     strong enough to gate a cleanup-authorizing authority
+    //     grant — also surfaces as `PACK_BYTES_MISMATCH` so the
+    //     client / operator can heal by re-uploading.
+    // Without these checks, an out-of-band swap / corruption
+    // between upload and seal would let the authority swap grant
+    // bytes the server cannot honestly serve. This runs after
+    // coverage so we don't pay the head-fanout when the catalog
+    // itself is short.
     if (packDigests.length > 0) {
-      const packRows = await deps.rawExec<{ pack_digest: string; storage_uri: string }>(
-        `SELECT pack_digest, storage_uri
+      const packRows = await deps.rawExec<{
+        pack_digest: string
+        storage_uri: string
+        byte_hash: string | null
+        byte_length: string | number | null
+      }>(
+        `SELECT pack_digest, storage_uri, byte_hash, byte_length
            FROM remote_pack
           WHERE tenant_id = $1 AND pack_digest = ANY($2)`,
         [deps.tenantId, packDigests],
       )
-      const packByDigest = new Map<string, string>()
-      for (const row of packRows) packByDigest.set(row.pack_digest, row.storage_uri)
+      const packByDigest = new Map<string, { storageKey: string; byteHash: string | null; byteLength: number | null }>()
+      for (const row of packRows) {
+        packByDigest.set(row.pack_digest, {
+          storageKey: row.storage_uri,
+          byteHash: row.byte_hash ? row.byte_hash.toLowerCase() : null,
+          byteLength: row.byte_length === null || row.byte_length === undefined ? null : Number(row.byte_length),
+        })
+      }
       const missing: string[] = []
+      const mismatches: Array<{
+        packDigest: string
+        storageKey: string
+        expectedHash: string | null
+        expectedSize: number | null
+        actualHash: string
+        actualSize: number
+      }> = []
       for (const digest of packDigests) {
-        const storageKey = packByDigest.get(digest)
-        if (!storageKey) {
+        const meta = packByDigest.get(digest)
+        if (!meta) {
           missing.push(digest)
           continue
         }
-        const packHead = await deps.objectStore.head(storageKey)
-        if (!packHead || packHead.compressedSize === 0) missing.push(digest)
+        const packHead = await deps.objectStore.head(meta.storageKey)
+        if (!packHead || packHead.compressedSize === 0) {
+          missing.push(digest)
+          continue
+        }
+        const actualHash = packHead.hash.toLowerCase()
+        const actualSize = packHead.compressedSize
+        // `byte_hash` MUST be present and equal to the
+        // object-store hash; size MUST equal `byte_length`; and
+        // `hashAlgorithm` MUST be `blake3` (the only canonical
+        // algorithm for v2 transport hashes). Any missing /
+        // mismatched component fails closed — size-only is not
+        // sufficient for cleanup-authorizing authority grant.
+        const algorithmOk = packHead.hashAlgorithm === 'blake3'
+        const hashKnown = meta.byteHash !== null
+        const hashMatch = hashKnown && meta.byteHash === actualHash
+        const sizeMatch = meta.byteLength !== null && meta.byteLength === actualSize
+        if (!algorithmOk || !hashKnown || !hashMatch || !sizeMatch) {
+          mismatches.push({
+            packDigest: digest,
+            storageKey: meta.storageKey,
+            expectedHash: meta.byteHash,
+            expectedSize: meta.byteLength,
+            actualHash: algorithmOk ? actualHash : `${packHead.hashAlgorithm}:${actualHash}`,
+            actualSize,
+          })
+        }
       }
       if (missing.length > 0) {
         throw new SealPromotionPackBytesMissingError(missing)
+      }
+      if (mismatches.length > 0) {
+        throw new SealPromotionPackBytesMismatchError(mismatches)
       }
     }
 
