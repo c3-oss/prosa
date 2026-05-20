@@ -44,6 +44,7 @@
     "@c3-oss/prosa-bundle-v2": "workspace:*",
     "@c3-oss/prosa-db": "workspace:^",
     "@c3-oss/prosa-db-v2": "workspace:*",
+    "@c3-oss/prosa-importers-v2": "workspace:*",
     "@c3-oss/prosa-storage": "workspace:^",
     "@c3-oss/prosa-sync": "workspace:^",
     "@c3-oss/prosa-types-v2": "workspace:*",

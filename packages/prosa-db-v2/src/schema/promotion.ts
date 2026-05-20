@@ -71,6 +71,40 @@ CREATE TABLE IF NOT EXISTS legacy_receipt_archive (
   archived_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Lane 9: v1 source-file catalog the server-side re-projection
+-- walks to migrate a tenant. Rows are seeded by the Lane 10 cutover
+-- shim (or by POST /v2/migrate/tenant in test environments) and
+-- consumed by the tenant migrator. The table is migration-only;
+-- v2 reads do not query it.
+CREATE TABLE IF NOT EXISTS legacy_v1_source_files (
+  tenant_id        TEXT NOT NULL,
+  store_id         TEXT NOT NULL,
+  source_file_id   TEXT NOT NULL,
+  source_tool      TEXT NOT NULL,
+  path             TEXT NOT NULL,
+  file_kind        TEXT NOT NULL,
+  content_hash     TEXT NOT NULL,
+  storage_key      TEXT NOT NULL,
+  size_bytes       BIGINT,
+  inserted_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (tenant_id, source_file_id)
+);
+CREATE INDEX IF NOT EXISTS legacy_v1_source_files_store_idx
+  ON legacy_v1_source_files (tenant_id, store_id);
+
+-- Lane 9: migration gap log. Each row records a v1 source file the
+-- migrator could not re-project (raw bytes missing, decompression
+-- failed, object store reported wrong size). Audit-only.
+CREATE TABLE IF NOT EXISTS legacy_v1_migration_gap (
+  tenant_id        TEXT NOT NULL,
+  source_file_id   TEXT NOT NULL,
+  source_tool      TEXT NOT NULL,
+  reason           TEXT NOT NULL,
+  detail           TEXT,
+  recorded_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (tenant_id, source_file_id)
+);
+
 -- Per-promotion linkage from a staging slot to the object packs the
 -- client uploaded. SealPromotion reads this to determine which pack
 -- digests need a receipt_pack_grant row. Idempotent under retries

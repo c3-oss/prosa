@@ -136,6 +136,8 @@ export const V2_PROMOTION_SUBSET_TABLES: readonly string[] = [
   'remote_authority_v2',
   'receipt',
   'legacy_receipt_archive',
+  'legacy_v1_source_files',
+  'legacy_v1_migration_gap',
   'promotion_uploaded_pack',
   'remote_pack',
   'remote_pack_entry',
