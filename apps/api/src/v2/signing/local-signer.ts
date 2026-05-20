@@ -11,7 +11,7 @@
 
 import {
   type KeyObject,
-  createPrivateKey,
+  createPublicKey,
   generateKeyPairSync,
   sign as nodeSign,
   verify as nodeVerify,
@@ -74,7 +74,7 @@ function makeKeyEntry(kid: string): KeyEntry {
 }
 
 function publicJwkToKeyObject(jwk: JwkOkp): KeyObject {
-  return createPrivateKey({
+  return createPublicKey({
     key: { kty: jwk.kty, crv: jwk.crv, x: jwk.x } as unknown as Record<string, string>,
     format: 'jwk',
   })

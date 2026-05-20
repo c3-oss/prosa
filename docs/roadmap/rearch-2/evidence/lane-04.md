@@ -103,3 +103,35 @@ Required smokes:
   - `pnpm --filter @c3-oss/prosa-api test` → 138 passed, 1 skipped (no regressions in v1 surface).
   - `pnpm --filter @c3-oss/prosa-api lint` → clean.
   - Workspace `pnpm typecheck` → 13/13.
+
+## Slice 3 (invariant I5 sign+verify gate) — 2026-05-20
+
+- Pre-existing bug fixed in `apps/api/src/v2/signing/local-signer.ts`:
+  `publicJwkToKeyObject` was calling `createPrivateKey` against a
+  public JWK; switched to `createPublicKey`. Without this, rotation
+  verification failed because the helper was only used on the
+  historical/look-up path (the current entry kept its full
+  `privateKey` KeyObject and dodged the bug).
+- New `apps/api/test/v2/kms-sign-verify.test.ts` exercises invariant
+  I5 across six cases:
+  1. Sign + verify roundtrip — `keyId` matches `currentKeyId()`,
+     signature is non-empty base64url, the kid appears in `publishJwks`,
+     and `verifyReceipt(payload, sig)` is `true`.
+  2. Tampered payload — same key, mutated bytes → `false`.
+  3. Cross-signer rejection — signature from `signerB` does not
+     verify on `signerA` (unknown kid).
+  4. Rotation — old kid stays in JWKS, both old and new receipts
+     verify against the same signer instance after rotation, the new
+     kid is reported by `currentKeyId()`.
+  5. Unknown kid in signature → `false`.
+  6. Non-EdDSA `alg` field → `false`.
+- Gates:
+  - `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/` → 9/9
+    (skeleton + sign-verify).
+  - `pnpm --filter @c3-oss/prosa-api lint` → clean.
+  - Workspace `pnpm typecheck` → 13/13.
+- Invariant I5 gate is satisfied for the local signer adapter.
+  Production-mode boot still needs a KMS-backed implementation; that
+  is a Lane 4 task 4 follow-up. The `ReceiptSigner` interface and the
+  `BuildAppOptions.v2Signer` hook allow KMS to drop in without
+  changing any caller.
