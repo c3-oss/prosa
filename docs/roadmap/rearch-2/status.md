@@ -81,8 +81,10 @@ The blocker is implementation work, not environment.
 - CQ-132: cleanup-on-catalog-failure has focused tests, but closure is rejected
   until a concurrent interleaving proves a failed request cannot delete bytes
   after another request catalogues the same pack.
-- CQ-133: per-promotion pack linkage exists, but full acceptance remains blocked
-  by CQ-141's missing-byte fast-path case.
+- CQ-133: per-promotion pack linkage exists. Its CQ-141 dependency
+  (missing-byte / wrong-metadata fast path + seal pack-presence) is closed;
+  the remaining CQ-133 acceptance is the linkage itself surviving Docker
+  E2E.
 - CQ-134: SealPromotion can emit receipt/authority before proving object
   coverage by object id, pack-byte presence, or projection/search
   materialization; receipt verification flags can claim success for deferred
@@ -105,9 +107,14 @@ The blocker is implementation work, not environment.
 - CQ-140: focused v2 E2E can pass with Docker env, but the documented `just e2e`
   recipe fails and the gate still does not prove command-level `prosa sync-v2`,
   API container, or second-device remote read.
-- CQ-141: `UploadObjectPack` repairs catalog rows whose object-store bytes are
-  missing, but closure is rejected until wrong-metadata fast paths and
-  seal-after-pack-byte-loss fail closed.
+- CQ-141: closed (2026-05-20). UploadObjectPack's catalog fast path now
+  handles healthy / missing / wrong-content storage states via a
+  `delete() + putIfAbsent()` rewrite when stored bytes disagree with the
+  uploaded body's hash or length, and `SealPromotion` `head()`s every
+  linked pack before the authority swap (missing/zero-length packs throw
+  `SealPromotionPackBytesMissingError` → `409 PACK_BYTES_MISSING`). Pinned
+  by `apps/api/test/v2/sync/cq-141-wrong-metadata-and-seal-presence.test.ts`
+  (4/4).
 
 ## Current gate caveats
 
@@ -148,9 +155,10 @@ The blocker is implementation work, not environment.
   remains tenant-wide.
 - CQ-123 closure from `3f313f0` is rejected as partial until lifecycle evidence
   proves real Better Auth ids parse and verify through client receipt handling.
-- CQ-125/CQ-141 closure claims from `41642b3`/`f1d15b3` are rejected pending
-  reviewer-smoked device-mismatch, malformed-signature, wrong pack metadata,
-  and seal-after-pack-byte-loss cases.
+- CQ-125 closure from `41642b3` is rejected pending reviewer-smoked
+  device-mismatch and malformed-signature cases. CQ-141's earlier `f1d15b3`
+  rejection (wrong-metadata fast path + seal-after-pack-byte-loss) is
+  resolved by the 2026-05-20 closure above.
 - CQ-126 was reopened twice (rejection of `ea46899` and the earlier WIP
   helper slice). The 2026-05-20 closure addresses both: the
   `search_generation_current` legacy-shape upgrade is idempotent and pinned

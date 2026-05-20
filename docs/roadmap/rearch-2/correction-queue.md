@@ -1036,8 +1036,9 @@ edge case still seals cleanly.
 Outstanding for full closure (blocked on CQ-124):
 - Parse the uploaded object inventory and compare declared object ids to linked
   `remote_pack_entry.object_id` values; the current check is count-only.
-- Prove linked pack bytes still exist in object storage before granting them
-  (also tracked as CQ-141).
+- [x] Prove linked pack bytes still exist in object storage before granting
+  them (closed by CQ-141: seal now `head()`s every linked pack and throws
+  `SealPromotionPackBytesMissingError` → 409 PACK_BYTES_MISSING).
 - Materialize projection/search rows before authority swap.
 - Receipt `rowCountsByEntity` reflects actual catalog state.
 - Truthful `verification.projectionRowsLoaded` (schema currently
@@ -1735,38 +1736,63 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 5 object-pack integrity and seal acceptance)
-Status: open (partial closure rejected 2026-05-20)
+Status: closed (2026-05-20)
 Owner: Ralph
 
-Partial closure: `apps/api/src/v2/sync/upload-object-pack.ts`'s catalog
-fast path now calls `objectStore.head(storage_uri)` after the
-`remote_pack` SELECT. If the storage object is missing, the
-handler repairs it from the request body via
-`putIfAbsent(storage_uri, params.body, meta)` BEFORE linking the
-pack to the current promotion. The wire body was already
-verified by `verifyCasPack`, so repair is safe; a concurrent
-race that restored the bytes meanwhile observes
-`alreadyExisted=true` and the `MemoryObjectStore`/`S3ObjectStore`
-verifyBytes guard catches any inconsistency.
+Closure (2026-05-20): both axes the reviewer flagged are now closed.
 
-Pinned by two cases in
-`apps/api/test/v2/sync/cq-141-catalog-only-repair.test.ts`:
-1. Catalog-only state (bytes deleted out-of-band, link dropped)
-   replays the upload: bytes are restored, link is recreated,
-   route returns `already_present`.
-2. Catalog + bytes present: fast path is a no-op (object store
-   size unchanged) and the route still returns `already_present`.
+1. **UploadObjectPack wrong-metadata fast path** —
+   `apps/api/src/v2/sync/upload-object-pack.ts` now treats the
+   catalog fast path as three distinct cases:
+   - healthy: head meta hash + length match the uploaded body →
+     accept verbatim.
+   - missing: head returns null → `putIfAbsent` from the verified
+     request body.
+   - wrong-content: head returns meta whose hash or length does
+     NOT match the uploaded body → `delete()` the corrupt object,
+     then `putIfAbsent` the canonical bytes.
 
-The closure is not accepted. Security reviewer smoke confirmed the fast path
-only repairs missing `head()`; if the storage key exists with the wrong
-hash/size, the route still links and returns `already_present`:
+   The body has already passed `verifyCasPack`, so it is
+   authoritative for the canonical `(tenant, pack_digest)`
+   storage key. Concurrency is safe: `delete()` is a no-op when a
+   racer already removed the corrupt object, and `putIfAbsent`
+   re-checks the key under its per-key lock.
+
+2. **SealPromotion pack-bytes presence check** —
+   `apps/api/src/v2/sync/seal-promotion.ts` resolves
+   `(pack_digest → storage_uri)` for every pack linked to this
+   promotion and `head()`s each storage object before the
+   authority swap. Any missing / zero-length pack throws the new
+   `SealPromotionPackBytesMissingError` (mapped to
+   `409 PACK_BYTES_MISSING` by the route in
+   `apps/api/src/v2/promotion.ts`). The CQ-135 wrapper restores
+   the staging row from `materializing` so the client can
+   re-upload the affected pack and retry.
+
+Pinned by four cases in
+`apps/api/test/v2/sync/cq-141-wrong-metadata-and-seal-presence.test.ts`:
+1. Catalog row + WRONG-CONTENT storage key — replaces the
+   corrupt bytes and links the pack.
+2. Catalog row + MISSING storage key — writes the canonical
+   bytes and links the pack.
+3. Catalog row + MATCHING storage key — no-op repair (the
+   `MemoryObjectStore` size stays at exactly one entry).
+4. SealPromotion with a linked pack whose storage URI is empty
+   throws `SealPromotionPackBytesMissingError`, restores the
+   staging row to `open`, and writes no
+   `receipt` / `remote_authority_v2` / `receipt_pack_grant` rows.
+
+Earlier partial closure (left for context): the prior slice
+wrote only the catalog-only/missing-byte repair plus the
+existing two-case `cq-141-catalog-only-repair.test.ts`. Reviewer
+smoke confirmed the gap on a wrong-content-at-key body, and seal
+still granted catalog-only packs without bytes:
 
 ```text
 wrong-meta-fast-path 200 already_present storedHashMatchesUploaded false storedSize 11
 ```
 
-Seal also still grants linked packs without proving the object-store bytes
-remain present and match the linked pack metadata.
+Both axes are now covered by the new test file above.
 
 Problem:
 

@@ -879,3 +879,57 @@ CQ-137 closure rider — 2026-05-20:
   `cq-137-schema-migration.test.ts` (legacy migration) and
   `cq-137-store-scoped-generation.test.ts` (two-store coexistence).
 - CQ-137 acceptance bullets are all proven; the CQ is closed.
+
+## CQ-141 closure (object-pack catalog/bytes invariant) — 2026-05-20
+
+Scope:
+
+- `apps/api/src/v2/sync/upload-object-pack.ts` catalog fast path
+  now handles three storage-side states (healthy / missing /
+  wrong-content). On wrong-content it `delete()`s the corrupt
+  object and `putIfAbsent()`s the canonical verified bytes
+  BEFORE linking the pack into `promotion_uploaded_pack`. The
+  body has already passed `verifyCasPack`, so it is the
+  authoritative source for the canonical
+  `(tenant, pack_digest)` storage key.
+- `apps/api/src/v2/sync/seal-promotion.ts` adds
+  `SealPromotionPackBytesMissingError` and `head()`s every
+  linked pack's storage URI before the authority swap. Any
+  missing / zero-length pack fails seal closed; the CQ-135
+  wrapper restores `materializing` → `open` so the client can
+  re-upload and retry.
+- `apps/api/src/v2/promotion.ts` maps the new error to
+  `409 PACK_BYTES_MISSING` so the surface is observable to the
+  client.
+
+Pinned by four cases in
+`apps/api/test/v2/sync/cq-141-wrong-metadata-and-seal-presence.test.ts`:
+
+1. Catalog row + WRONG-CONTENT storage key — corrupt bytes are
+   deleted and replaced with the canonical pack bytes; the pack
+   is linked; route returns `already_present`.
+2. Catalog row + MISSING storage key — canonical bytes are
+   written; the pack is linked; route returns `already_present`.
+3. Catalog row + MATCHING storage key — fast path is a no-op
+   (object store still has exactly one entry); route returns
+   `already_present`.
+4. SealPromotion with a linked pack whose storage URI is empty
+   throws `SealPromotionPackBytesMissingError`, the staging row
+   is restored to `open` by the CQ-135 wrapper, and zero
+   `receipt` / `remote_authority_v2` / `receipt_pack_grant` rows
+   were written.
+
+Gates:
+
+- `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/sync/cq-141-wrong-metadata-and-seal-presence.test.ts`
+  → pass, 4/4.
+- `pnpm --filter @c3-oss/prosa-api test` → pass, 274 / 4 skipped.
+- `pnpm lint` repo-wide → clean.
+- `pnpm typecheck` repo-wide → clean.
+
+Earlier partial closure (left for context): the prior slice
+only repaired the missing-byte case via the existing two-case
+`cq-141-catalog-only-repair.test.ts`. Reviewer smoke caught both
+the wrong-content fast path and the seal-after-pack-byte-loss
+gap; both are now covered by the new test file above. CQ-141
+acceptance bullets are all proven; the CQ is closed.
