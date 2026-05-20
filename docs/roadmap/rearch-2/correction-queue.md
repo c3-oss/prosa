@@ -905,10 +905,10 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 5 idempotency and receipt correctness)
-Status: closed (2026-05-20)
+Status: open (closure rejected 2026-05-20)
 Owner: Ralph
 
-Closure: `packages/prosa-db-v2/src/schema/promotion.ts` adds a
+Closure rejection: `packages/prosa-db-v2/src/schema/promotion.ts` adds a
 `sealed_receipt_id TEXT` column to `promotion_staging` (with
 `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` for re-applied schemas).
 `apps/api/src/v2/sync/seal-promotion.ts` sets that column inside
@@ -920,6 +920,13 @@ then B for the same store and re-seal A returns A's receiptId
 (while remote_authority_v2 still points at B); plus a direct row
 assertion that `sealed_receipt_id` is NULL before seal and equals
 the returned receiptId after.
+
+The closure is not accepted because replay trusts `sealed_receipt_id` by
+`(receipt_id, tenant_id)` only. Reviewer smoke confirmed a sealed promotion for
+`store-a/dev-a` with `sealed_receipt_id` pointing to a same-tenant
+`store-b/dev-b` receipt returned HTTP 200 with the wrong receipt. Re-seal must
+validate the linked receipt row and signed payload against the sealed staging
+row's store/device/bundle tuple, or fail closed.
 
 Problem:
 
@@ -968,15 +975,17 @@ Acceptance:
 - [ ] Missing/corrupt sealed receipt link fails closed.
 - [ ] Returned replay receipt validates against the same tuple as the staging
       row.
+- [ ] Tests cover wrong-store, wrong-device, wrong-bundle, missing-row, and
+      malformed-payload/signature `sealed_receipt_id` links.
 
 ### CQ-137: `search_generation_current` is tenant-wide while authority is store-scoped
 
 Severity: high
 Blocking: yes (blocks Lane 5 search/projection authority acceptance)
-Status: closed (2026-05-20)
+Status: open (closure rejected 2026-05-20)
 Owner: Ralph
 
-Closure: `packages/prosa-db-v2/src/schema/search.ts` rewrites
+Closure rejection: `packages/prosa-db-v2/src/schema/search.ts` rewrites
 `search_generation_current` with a composite PK
 `(tenant_id, store_id)` — matching `remote_authority_v2`'s
 scoping. The seal handler UPSERTs against that key, supplying
@@ -989,6 +998,13 @@ with v1 via `search_doc` — CQ-124). Pinned by
 sealing two stores in the same tenant leaves two distinct rows
 in `search_generation_current`, each pointing at its own
 receipt id.
+
+The fresh-schema test is useful, but closure is rejected until upgrade/idempotent
+schema application is handled. Reviewer smoke created the old
+`search_generation_current(tenant_id PRIMARY KEY, ...)` shape, applied the new
+`SEARCH_SCHEMA_SQL`, then attempted the new seal-style insert; it failed with
+`column "store_id" of relation "search_generation_current" does not exist`.
+`CREATE TABLE IF NOT EXISTS` does not migrate existing databases.
 
 Problem:
 
@@ -1025,15 +1041,18 @@ Acceptance:
       rows, or one documented merged generation containing both stores.
 - [ ] Tests prove promoting store B does not make store A's remote read/search
       authority disappear or point to B's receipt.
+- [ ] Upgrade/idempotency test starts from the old tenant-wide table shape,
+      applies the current schema/migration path, and proves per-store seal
+      writes work.
 
 ### CQ-138: GetReceipt returns unvalidated same-tenant receipts as authority
 
 Severity: high
 Blocking: yes (blocks Lane 5 GetReceipt, CLI resume, and receipt-verification acceptance)
-Status: closed (2026-05-20)
+Status: open (partial closure rejected 2026-05-20)
 Owner: Ralph
 
-Closure: `apps/api/src/v2/sync/get-receipt.ts` now validates the
+Partial closure: `apps/api/src/v2/sync/get-receipt.ts` now validates the
 stored row before returning it:
 1. payload + signature parse to objects;
 2. `payload.receiptId === :receiptId`;
@@ -1051,6 +1070,12 @@ return 404, and a tuple-matched row signed by an unknown key
 also returns 404. The happy path in `get-receipt.test.ts`
 continues to pass — sealed receipts verify against the
 publishing JWKS by construction.
+
+This does not fully close CQ-138. Reviewer noted the handler still does not
+parse the shared `promotionReceiptV2Schema` or prove the requested receipt id
+equals the derived receipt id for the canonical payload. CLI receipt validation
+for BeginPromotion, SealPromotion, and recovery responses is still part of the
+CQ acceptance surface.
 
 Problem:
 

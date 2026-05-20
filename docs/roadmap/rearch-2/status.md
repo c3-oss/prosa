@@ -83,13 +83,15 @@ The blocker is implementation work, not environment.
   work.
 - CQ-135: signer or transaction failure after the seal status flip can strand
   staging in `materializing`, blocking retry/resume.
-- CQ-136: idempotent re-seal of an old promotion can return the current store
-  receipt instead of that promotion's receipt.
-- CQ-137: `search_generation_current` is tenant-wide while remote authority is
-  store-scoped; the scope decision needs implementation and tests.
-- CQ-138: GetReceipt returns object-shaped same-tenant receipts without proving
-  request id, row/payload tuple, shared receipt schema, JWKS signature, or the
-  accepted device/user access policy; CLI WIP also trusts receipts by cast.
+- CQ-136: sealed replay now links to `sealed_receipt_id`, but closure is
+  rejected until replay validates the linked receipt row/payload against the
+  sealed staging tuple and fails closed on corrupt links.
+- CQ-137: fresh per-store `search_generation_current` tests pass, but closure is
+  rejected until existing tenant-wide table shapes migrate or fail boot before
+  seal routes serve.
+- CQ-138: GetReceipt now checks id/tuple/signature, but closure remains open
+  until shared receipt schema/derived-id validation and CLI receipt validation
+  are proven.
 - CQ-140: focused v2 E2E can pass with Docker env, but the documented `just e2e`
   recipe fails and the gate still does not prove command-level `prosa sync-v2`,
   API container, or second-device remote read.
@@ -124,6 +126,9 @@ The blocker is implementation work, not environment.
   still desirable.
 - CQ-135 closure from `a867e93` is rejected pending explicit failure-injection
   tests for signer, transaction, and post-flip pre-sign failures.
+- CQ-136/CQ-137/CQ-138 closure claims from `cba2b90`/`6557852` are rejected
+  pending the reviewer-smoked corrupt-link, schema-upgrade, and shared-schema
+  validation cases.
 - Reviewer aggregate smoke
   `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/` failed 77/78 with
   a timeout in the malformed-body BeginPromotion case, while the same file
