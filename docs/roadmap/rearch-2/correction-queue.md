@@ -1892,8 +1892,96 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 5 object-pack integrity and seal acceptance)
-Status: open (closure rejected by governor/reviewer 2026-05-20)
+Status: closure attempt #3 (2026-05-20); awaiting governor review
 Owner: Ralph
+
+Closure attempt 3 (2026-05-20):
+
+1. **Non-destructive upload fast path** —
+   `apps/api/src/v2/sync/upload-object-pack.ts` no longer deletes
+   existing storage bytes. The catalog fast path now has three
+   non-destructive branches:
+   - healthy (head.hash + length match the uploaded body) → link
+     verbatim;
+   - missing (head returns null) → `putIfAbsent` from the
+     verified request body (safe: nothing is deleted);
+   - wrong-content (head returns nonzero bytes with wrong hash
+     or length) → throw the new `UploadObjectPackBytesCorruptError`
+     (route mapped to `409 PACK_BYTES_CORRUPT`). The catalog row
+     and the stored bytes are both left intact; an operator must
+     reconcile storage/catalog drift out of band before another
+     upload can link the pack.
+
+2. **Durable expected pack metadata** —
+   `packages/prosa-db-v2/src/schema/packs.ts` adds a
+   `byte_hash TEXT` column to `remote_pack` (idempotent via
+   `ALTER TABLE ADD COLUMN IF NOT EXISTS`). `uploadObjectPack`
+   writes the canonical transport BLAKE3 of the wire body into
+   that column on every catalog INSERT, and backfills it on the
+   `already_present` fast path when a legacy row has
+   `byte_hash IS NULL`.
+
+3. **SealPromotion metadata verification** —
+   `apps/api/src/v2/sync/seal-promotion.ts` now resolves
+   `(storage_uri, byte_hash, byte_length)` for every linked pack
+   and `head()`s each storage object. Authority grant is gated on:
+   - `head` non-null and `compressedSize > 0` (else
+     `SealPromotionPackBytesMissingError` → 409 `PACK_BYTES_MISSING`);
+   - `head.hashAlgorithm === 'blake3'` (canonical CAS algorithm);
+   - `remote_pack.byte_hash` present and equal to `head.hash`
+     (size-only is insufficient — legacy null byte_hash fails
+     closed);
+   - `remote_pack.byte_length` equal to `head.compressedSize`.
+
+   Any mismatch throws `SealPromotionPackBytesMismatchError`
+   (route mapped to `409 PACK_BYTES_MISMATCH`); the CQ-135
+   wrapper restores `promotion_staging.status` from
+   `materializing` to the prior status, and writes ZERO rows to
+   `receipt`, `remote_authority_v2`, `search_generation_current`,
+   or `receipt_pack_grant`.
+
+Pinned by ten focused cases in
+`apps/api/test/v2/sync/cq-141-wrong-metadata-and-seal-presence.test.ts`:
+
+Upload side (4 cases):
+1. Wrong-content storage key → `UploadObjectPackBytesCorruptError`;
+   the corrupt bytes are NOT deleted; the pack is NOT linked.
+2. Missing storage key → canonical bytes written via
+   `putIfAbsent`; legacy null `byte_hash` is backfilled.
+3. Matching storage key → no-op (object store size stays 1).
+4. Injected `putIfAbsent` failure on the missing-bytes repair
+   path → upload throws, the storage key stays empty, and the
+   pack is NOT linked to the promotion.
+
+Seal side (6 cases):
+5. Linked pack with missing storage bytes →
+   `SealPromotionPackBytesMissingError`; staging restored to `open`;
+   0 receipts/authorities/grants.
+6. Linked pack with head().hash != remote_pack.byte_hash (same
+   size) → `SealPromotionPackBytesMismatchError`; staging
+   restored; 0 receipts/authorities/grants.
+7. Linked pack with head().compressedSize != byte_length →
+   same.
+8. Legacy null `remote_pack.byte_hash` with matching size and
+   wrong nonzero bytes → fails closed (size-only is insufficient).
+9. Linked pack with head().hashAlgorithm === 'sha256' (forged
+   via `PUT_PREVERIFIED_BYTES`) → fails closed even when hex /
+   size match.
+10. Linked pack with matching head().hash, size, and
+    hashAlgorithm === 'blake3' → seal succeeds and writes one
+    `receipt_pack_grant`.
+
+Gate evidence (2026-05-20):
+
+- `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/sync/cq-141-wrong-metadata-and-seal-presence.test.ts`
+  → pass, 10/10.
+- `pnpm --filter @c3-oss/prosa-api test` → pass, 291/4 skipped
+  (4 env-gated E2E + 1 pre-existing v1 skip).
+- `pnpm --filter @c3-oss/prosa test` → pass, 296/3 skipped.
+- `pnpm --filter @c3-oss/prosa-db-v2 test` → pass, 6/6.
+- `pnpm typecheck` → pass, 13/13.
+- `pnpm lint` → pass, 13/13.
+- `git diff --check` → clean.
 
 Governor rejection (2026-05-20): the `f6d0f93` / `3ef057c` closure is not
 accepted. The WIP is core Lane 5 integrity work, but it still leaves two

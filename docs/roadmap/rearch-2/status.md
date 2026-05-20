@@ -68,10 +68,15 @@ lives in `docs/roadmap/rearch-2/correction-queue.md`.
   reopened; the projection / search materialization sub-bullets are blocked on
   CQ-124 and remain Lane 6 / Lane 10 scope unless the governor explicitly
   accepts that deferral.
-- CQ-141: reopened by governor/reviewer on 2026-05-20. Seal only checks that
-  linked pack storage exists and is non-empty; it does not compare hash/size
-  against durable expected metadata before authority grant. Upload wrong-content
-  repair also deletes existing bytes before proving replacement succeeded.
+- CQ-141: closure attempt #3 landed 2026-05-20; awaiting governor review.
+  `remote_pack` gained a `byte_hash` column; uploads write/backfill it on every
+  insert/already-present path; seal compares head().hash/hashAlgorithm/length
+  against the durable `byte_hash`/`byte_length` and fails closed via
+  `SealPromotionPackBytesMismatchError` (incl. legacy null byte_hash and wrong
+  hashAlgorithm). Wrong-content upload is now fail-closed via
+  `UploadObjectPackBytesCorruptError` — no bytes are deleted before a guaranteed
+  replacement. Pinned by 10 cases in
+  `apps/api/test/v2/sync/cq-141-wrong-metadata-and-seal-presence.test.ts`.
 
 ## Closed this cycle
 

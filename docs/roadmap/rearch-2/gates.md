@@ -115,10 +115,14 @@ These are NOT Lane 5 scope per the initial plan — Lane 5 uses the
 `applyV2PromotionSubsetSchema` workaround.
 
 Governor rejection after Ralph finalization (2026-05-20): L5.2 and L5.3 are
-not accepted while CQ-141 remains open. The previous CQ-141 closure proves
-missing pack bytes fail closed, but not wrong nonzero object-store metadata at
-seal time, and the wrong-content upload repair can delete existing bytes before
-replacement succeeds.
+not accepted while CQ-141 remains open. Closure attempt #3 landed on
+2026-05-20 and is awaiting governor review: `remote_pack.byte_hash` is now
+durable, seal compares head().hash/hashAlgorithm/length against the persisted
+metadata (legacy null `byte_hash` and `hashAlgorithm !== 'blake3'` both fail
+closed), and the upload wrong-content fast path is fail-closed via
+`UploadObjectPackBytesCorruptError` without deleting any bytes. Pinned by 10
+focused cases in
+`apps/api/test/v2/sync/cq-141-wrong-metadata-and-seal-presence.test.ts`.
 
 Minimum command evidence:
 

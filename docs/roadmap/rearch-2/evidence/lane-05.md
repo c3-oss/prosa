@@ -1283,3 +1283,53 @@ CQ-140 acceptance bullets are all proven; the CQ is closed.
 Remaining Lane 5 acceptance caveats are Lane 10 cutover work
 (CQ-124, CQ-134) — explicitly scoped out of Lane 5 per the
 initial plan.
+
+## CQ-141 closure attempt #3 — 2026-05-20
+
+Scope:
+
+- `packages/prosa-db-v2/src/schema/packs.ts` adds `byte_hash TEXT`
+  to `remote_pack` with `ALTER TABLE ADD COLUMN IF NOT EXISTS` so
+  the change is idempotent on fresh boots and existing databases.
+- `apps/api/src/v2/sync/upload-object-pack.ts` writes the
+  canonical transport BLAKE3 into `remote_pack.byte_hash` on
+  every catalog INSERT and backfills it on the
+  `already_present` fast path when legacy rows have null. The
+  wrong-content branch now throws
+  `UploadObjectPackBytesCorruptError` without deleting any
+  bytes (route → 409 `PACK_BYTES_CORRUPT`).
+- `apps/api/src/v2/sync/seal-promotion.ts` resolves
+  `(storage_uri, byte_hash, byte_length)` for every linked pack
+  and gates authority grant on `head.hashAlgorithm === 'blake3'`,
+  `byte_hash` present and equal to `head.hash`, and
+  `byte_length` equal to `head.compressedSize`. Mismatches
+  surface as `SealPromotionPackBytesMismatchError`
+  (route → 409 `PACK_BYTES_MISMATCH`); missing/zero-length bytes
+  still surface as `SealPromotionPackBytesMissingError`. Both
+  paths restore staging via the CQ-135 wrapper and write zero
+  receipt/authority/grant rows.
+
+Pinned by 10 cases in
+`apps/api/test/v2/sync/cq-141-wrong-metadata-and-seal-presence.test.ts`
+(4 upload cases including injected-put-failure + 6 seal cases
+including legacy-null-byte_hash and wrong-hashAlgorithm).
+
+Gate evidence (2026-05-20):
+
+```text
+pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/sync/cq-141-wrong-metadata-and-seal-presence.test.ts
+   Test Files 1 passed (1) — 10/10
+
+pnpm --filter @c3-oss/prosa-api test
+   Test Files 54 passed | 2 skipped (56) — 291 passed | 4 skipped
+
+pnpm --filter @c3-oss/prosa test
+   Test Files 36 passed | 2 skipped (38) — 296 passed | 3 skipped
+
+pnpm --filter @c3-oss/prosa-db-v2 test
+   Test Files 1 passed (1) — 6/6
+
+pnpm typecheck      # 13/13
+pnpm lint           # 13/13
+git diff --check    # clean
+```
