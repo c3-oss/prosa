@@ -54,16 +54,19 @@ Read `docs/roadmap/rearch-2/correction-queue.md` before the next slice.
   transcript/tool-calls cursors must pin the authority snapshot, not just sort
   tuples. A promotion between page 1 and page 2 must not silently change the
   visible row set. Malformed/tampered cursors must fail closed with a 400-style
-  response.
+  response. The first closure attempt is rejected: an unsigned client-supplied
+  snapshot can be forged to name a superseded `(store_id, receipt_id)` pair.
+  Fix with signed/HMAC cursors or server-side cursor state; shape validation is
+  not sufficient, and `cursor: ""` must not mean "first page".
 - CQ-143 is open and blocks Lane 6 remote-read safety: promoted v2 stores must
   not keep using legacy `/trpc/sessions.*` through `prosa sessions`. This is
   required support work, not permission to implement full Lane 7. Safe default:
   fail closed for promoted v2 session reads with `--local` guidance until Lane
   7 wires `/v2/reads/*`.
-- CQ-144 is open and blocks artifacts acceptance if the artifacts route lands:
-  `artifacts.getText` must not expose distinct miss reasons for no grant,
-  missing object, invisible projection, or fetch/decode failure. Return one
-  opaque not-readable/403-style shape and add tests.
+- CQ-144 is closed and accepted by Codex/governor. `artifacts.getText` now
+  returns one opaque `{ found: false }` shape for invisible projection, no
+  grant, no object, and fetch/decode failure. Final Lane 6 acceptance still
+  needs route-level artifacts evidence.
 - CQ-141 is closed and accepted. Do not keep iterating on CQ-141 unless a fresh
   focused smoke command proves a new regression.
 - CQ-124 remains open for Lane 10: the full v1/v2 table-name cutover is not
@@ -93,7 +96,9 @@ contract with the tests below.
 - Authority refresh returns only the caller's store authority and uses a 30 s
   in-process cache without bypassing tenant scope.
 - Cursors are opaque base64url JSON over stable sort tuples plus the authority
-  snapshot, not offsets.
+  snapshot, not offsets. Snapshot cursors must be integrity protected; never
+  trust a client-provided `(store_id, receipt_id)` tuple unless the server can
+  prove it issued that cursor.
 - Search uses Postgres FTS and preserves filters for role, tool name,
   canonical tool type, errors-only, session, and time bounds.
 - Artifact reads verify projection authority and object/pack grants before

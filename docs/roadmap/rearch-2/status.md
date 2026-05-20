@@ -1,6 +1,6 @@
 # rearch-2 Current Status
 
-Updated: 2026-05-20 after Lane 6 read-surface reviewer findings.
+Updated: 2026-05-20 after CQ-142/CQ-144 closure review.
 
 ## Summary
 
@@ -11,10 +11,9 @@ Updated: 2026-05-20 after Lane 6 read-surface reviewer findings.
   stabilization cycles.
 - Lane 4 Server: **accepted** by Codex/governor on 2026-05-20.
 - Lane 5 Sync protocol: **accepted** by Codex/governor on 2026-05-20.
-- Lane 6 Read API: **active**, slice 6 landed. CQ-142
-  (receipt-snapshot cursors) and CQ-144 (artifacts opacity) closed;
-  CQ-143 (CLI fail-closed for promoted v2 stores) remains open as
-  the only blocking reviewer finding.
+- Lane 6 Read API: **active**, slice 6 landed. CQ-144 artifacts opacity is
+  accepted; CQ-142 receipt-snapshot cursors remain open because snapshots are
+  forgeable without cursor integrity; CQ-143 CLI fail-closed remains open.
 - Lanes 7–10: **not started**.
 
 ## Current Lane 6 focus
@@ -82,15 +81,15 @@ under "Closed this cycle" below; the full closure detail lives in
   search materialization sub-bullets are blocked on CQ-124 and remain Lane 10
   cutover scope. Lane 6 reads may only expose rows that already exist and are
   proven by current authority; they must not fake materialization.
-- CQ-142: paginated v2 reads re-resolve current authority on each page instead
-  of pinning the original `(store_id, receipt_id)` snapshot in the cursor.
-  Blocks sessions/search/transcript/tool-calls pagination acceptance.
+- CQ-142: paginated v2 reads now pin an authority snapshot for honest
+  pagination, but the embedded snapshot is unsigned and can be forged to name
+  superseded receipts. Blocks sessions/search/transcript/tool-calls pagination
+  acceptance until cursor integrity or server-side cursor state lands.
 - CQ-143: promoted `prosa sessions` reads still route through legacy
   `/trpc/sessions.*`. Until Lane 7 wires `/v2/reads/*`, they must fail closed
   for promoted v2 stores instead of bypassing the Lane 6 authority gate.
-- CQ-144: `artifacts.getText` must not expose distinct no-grant/no-object/fetch
-  miss reasons and needs route-level tests that prove opaque fail-closed
-  behavior.
+- CQ-144: accepted by Codex/governor for handler-level artifacts opacity.
+  Final Lane 6 acceptance still needs route-level artifacts evidence.
 
 ## Closed this cycle
 

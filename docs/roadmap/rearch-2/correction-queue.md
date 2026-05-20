@@ -1,6 +1,6 @@
 # rearch-2 Correction Queue
 
-Updated: 2026-05-20 after Lane 6 read-surface reviewer findings.
+Updated: 2026-05-20 after CQ-142/CQ-144 closure review.
 
 ## Open blocking corrections
 
@@ -8,10 +8,10 @@ Updated: 2026-05-20 after Lane 6 read-surface reviewer findings.
 
 Severity: high
 Blocking: yes (blocks Lane 6 sessions/search/tool-calls pagination acceptance)
-Status: closed (2026-05-20) — pending governor acceptance
+Status: open (2026-05-20) — closure attempt rejected by Codex/governor
 Owner: Ralph
 
-Closure (2026-05-20):
+Closure attempt (2026-05-20; rejected):
 
 - `apps/api/src/v2/reads/shared/authority-snapshot.ts` ships
   `resolveAuthoritySnapshot`, `verifiedProjectionInSnapshotWhere`,
@@ -28,6 +28,21 @@ Closure (2026-05-20):
 - `cursor-snapshot.test.ts` (8 tests) covers the four
   promotion-between-pages cases plus tampered-cursor rejection for
   each route.
+
+Governor re-review rejection (2026-05-20):
+
+The new cursors are receipt-snapshot pinned for honest page-2 use, but they are
+not tamper-resistant. `decodeRequiredCursor` only base64/JSON-decodes, and
+`parseCursorSnapshot` only shape-validates `snapshot`. A client can forge a
+well-formed cursor whose embedded `(store_id, receipt_id)` set names a
+superseded receipt. Because the handlers trust that embedded snapshot, the page
+query can expose rows no longer covered by `remote_authority_v2.current_receipt_id`.
+
+Reviewer smoke forged a `sessions/list` cursor and observed a row with
+`receiptId: "rcp_old"` while current authority pointed elsewhere. The same
+trust pattern exists in sessions/transcript, search/query, and tool-calls/list.
+`decodeRequiredCursor` also treats `cursor: ""` as first-page semantics, despite
+the CQ requiring malformed/tampered cursors to fail closed.
 
 Problem:
 
@@ -67,6 +82,10 @@ Required fix:
   silently re-resolve newer `remote_authority_v2` rows.
 - Tampered or malformed cursors must fail closed with a clear 400-style error;
   do not treat a bad cursor as "first page".
+- Cursor snapshots must be integrity protected. Use signed cursors, HMAC over
+  the sort tuple and snapshot, or server-side cursor state. Shape validation is
+  not sufficient because the client must not be able to choose arbitrary
+  `(store_id, receipt_id)` pairs.
 - Keep query-time cross-store conflict resolution deterministic inside the
   pinned snapshot.
 
@@ -81,6 +100,13 @@ Acceptance:
       acceptance.
 - [ ] Malformed/tampered cursor tests prove 400/fail-closed behavior for all
       paginated routes.
+- [ ] Forged but well-formed cursor tests prove a client cannot add a
+      superseded or unauthorized `(store_id, receipt_id)` tuple.
+- [ ] Empty string cursor input is rejected as invalid, not treated as page 1.
+- [ ] HTTP route tests prove `/v2/reads/sessions/list`,
+      `/v2/reads/sessions/transcript`, `/v2/reads/search/query`, and
+      `/v2/reads/tool-calls/list` return 400 `INVALID_CURSOR` for invalid or
+      forged cursors.
 
 ### CQ-143: Promoted CLI session reads bypass the Lane 6 v2 read API
 
@@ -135,7 +161,7 @@ Acceptance:
 
 Severity: medium
 Blocking: yes (blocks Lane 6 artifacts.getText acceptance if the artifacts route lands)
-Status: closed (2026-05-20) — pending governor acceptance
+Status: closed (2026-05-20) — accepted by Codex/governor
 Owner: Ralph
 
 Closure (2026-05-20):
@@ -150,6 +176,13 @@ Closure (2026-05-20):
   and asserts both the opaque caller-visible response shape AND
   the `onMiss` reason — including a new `fetch_failed` case
   where the storage URI is missing from the object store.
+
+Governor acceptance (2026-05-20): CQ-144 is accepted. `getArtifactText`
+returns a single caller-visible miss shape, `{ found: false }`, across
+invisible artifact, no grant, no object, and fetch/decode failure paths.
+Internal diagnostics remain behind `onMiss` only. Residual risk: current
+evidence is handler-level; final Lane 6 acceptance still needs route-level
+artifacts evidence.
 
 Problem:
 
@@ -180,12 +213,12 @@ Required fix:
 
 Acceptance:
 
-- [ ] Test proves missing projection authority is opaque/fail-closed.
-- [ ] Test proves missing receipt/object grant is opaque/fail-closed and does
+- [x] Test proves missing projection authority is opaque/fail-closed.
+- [x] Test proves missing receipt/object grant is opaque/fail-closed and does
       not reveal that the artifact row exists.
-- [ ] Test proves missing object bytes/fetch failure is opaque/fail-closed.
-- [ ] Test proves a valid small UTF-8 artifact returns bounded text.
-- [ ] Test proves a >1 MiB or binary artifact is bounded/fail-closed per the
+- [x] Test proves missing object bytes/fetch failure is opaque/fail-closed.
+- [x] Test proves a valid small UTF-8 artifact returns bounded text.
+- [x] Test proves a >1 MiB or binary artifact is bounded/fail-closed per the
       Lane 6 contract.
 
 ### CQ-123: Better Auth tenant_id values do not satisfy `canonicalIdSchema`

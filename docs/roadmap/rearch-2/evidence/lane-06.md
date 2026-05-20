@@ -283,14 +283,41 @@ pnpm typecheck                         → EXIT=0
 pnpm --filter @c3-oss/prosa-api lint   → EXIT=0
 ```
 
+Governor closure review (2026-05-20):
+
+- CQ-144 is accepted. `artifacts.getText` now returns one caller-visible
+  `{ found: false }` miss shape for invisible projection, no grant, no object,
+  and fetch/decode failure. Internal diagnostics are limited to `onMiss`.
+- CQ-142 is **not** accepted. The cursor snapshot is used for honest page-2
+  pagination, but it is not integrity-protected. A forged well-formed cursor can
+  embed a superseded `(store_id, receipt_id)` pair and expose rows outside the
+  live authority. `cursor: ""` is also treated as first-page semantics.
+
+Additional reviewer evidence:
+
+```text
+pnpm --filter @c3-oss/prosa-api exec vitest run \
+  test/v2/reads/cursor-snapshot.test.ts \
+  test/v2/reads/artifacts-get-text.test.ts
+# 16/16 passed
+
+inline forged sessions/list cursor smoke
+# returned a superseded receipt row (`receiptId: "rcp_old"`)
+```
+
+Next valid CQ-142 closeout must add signed/HMAC cursors or server-side cursor
+state, reject forged snapshots and `cursor: ""`, and prove HTTP 400
+`INVALID_CURSOR` on the four paginated routes.
+
 Remaining slices (per `docs/rearch-2/07-lane-6-read-api.md` and the
 reviewer's correction queue):
 
-1. CQ-143: fail-closed CLI session reads for promoted v2 stores
+1. CQ-142: tamper-resistant receipt-snapshot cursors.
+2. CQ-143: fail-closed CLI session reads for promoted v2 stores
    (or accept Lane 7 surface — pending governor decision).
-2. Analytics summary/report and cross-store distinct aggregation.
-3. p95 latency evidence under fixture load.
-4. Five consecutive 180 s stabilization cycles before RALPH_DONE.
+3. Analytics summary/report and cross-store distinct aggregation.
+4. p95 latency evidence under fixture load.
+5. Five consecutive 180 s stabilization cycles before RALPH_DONE.
 
 ## Scope
 
