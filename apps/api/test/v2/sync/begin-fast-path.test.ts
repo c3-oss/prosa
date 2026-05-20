@@ -301,7 +301,7 @@ describe('POST /v2/promotions/begin — Lane 5 slice 1', () => {
     }
   })
 
-  it('returns needs_inventory with a deterministic promotionId for fresh bundles', async () => {
+  it('returns needs_inventory with a persisted promotion_staging row and idempotent retries (slice 2)', async () => {
     const t = await buildTestApp()
     try {
       const account = await signupWithTenant(t, 'begin-fresh@example.com', 'Acme', 'acme-fresh')
@@ -322,6 +322,38 @@ describe('POST /v2/promotions/begin — Lane 5 slice 1', () => {
       expect(firstBody.promotionId.startsWith('prm_')).toBe(true)
       expect(firstBody.missingInventories.map((s) => s.segmentId).sort()).toEqual(['seg-objects-1', 'seg-projection-1'])
 
+      // The handler must have INSERTed a real promotion_staging row.
+      const rows = await t.db.rawExec<{
+        id: string
+        tenant_id: string
+        user_id: string
+        device_id: string
+        store_id: string
+        store_path: string
+        status: string
+        head_json: unknown
+      }>(
+        `SELECT id, tenant_id, user_id, device_id, store_id, store_path, status, head_json
+           FROM promotion_staging
+          WHERE id = $1`,
+        [firstBody.promotionId],
+      )
+      expect(rows.length).toBe(1)
+      const row = rows[0]!
+      expect(row.tenant_id).toBe(account.tenant.id)
+      expect(row.user_id).toBe(account.user.id)
+      expect(row.device_id).toBe('dev-1')
+      expect(row.store_id).toBe('store-default')
+      expect(row.store_path).toBe('/home/test/store')
+      expect(row.status).toBe('open')
+      const head =
+        typeof row.head_json === 'string'
+          ? (JSON.parse(row.head_json) as { bundleRoot: string })
+          : (row.head_json as { bundleRoot: string })
+      expect(head.bundleRoot).toBe(FIXTURE_HEX_A)
+
+      // Idempotent retry: same (tenant, store, bundleRoot) → same promotion id,
+      // and no new staging row inserted.
       const second = await t.app.inject({
         method: 'POST',
         url: BEGIN_URL,
@@ -330,6 +362,80 @@ describe('POST /v2/promotions/begin — Lane 5 slice 1', () => {
       })
       const secondBody = second.json() as { promotionId: string }
       expect(secondBody.promotionId).toBe(firstBody.promotionId)
+
+      const countRows = await t.db.rawExec<{ count: string | number }>(
+        `SELECT count(*)::int AS count FROM promotion_staging WHERE tenant_id = $1 AND store_id = $2`,
+        [account.tenant.id, 'store-default'],
+      )
+      const count = Number(countRows[0]?.count ?? 0)
+      expect(count).toBe(1)
+    } finally {
+      await t.close()
+    }
+  })
+
+  it('opens distinct staging rows for distinct bundle roots in the same store', async () => {
+    const t = await buildTestApp()
+    try {
+      const account = await signupWithTenant(t, 'begin-multi@example.com', 'Acme', 'acme-multi')
+      const aBody = buildRequest({ tenantId: account.tenant.id, bundleRoot: '77'.repeat(32) })
+      const bBody = buildRequest({ tenantId: account.tenant.id, bundleRoot: '88'.repeat(32) })
+
+      const a = await t.app.inject({
+        method: 'POST',
+        url: BEGIN_URL,
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${account.token}` },
+        payload: aBody as never,
+      })
+      const b = await t.app.inject({
+        method: 'POST',
+        url: BEGIN_URL,
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${account.token}` },
+        payload: bBody as never,
+      })
+      const aJson = a.json() as { promotionId: string }
+      const bJson = b.json() as { promotionId: string }
+      expect(aJson.promotionId).not.toBe(bJson.promotionId)
+
+      const rows = await t.db.rawExec<{ count: string | number }>(
+        `SELECT count(*)::int AS count FROM promotion_staging WHERE tenant_id = $1`,
+        [account.tenant.id],
+      )
+      expect(Number(rows[0]?.count ?? 0)).toBe(2)
+    } finally {
+      await t.close()
+    }
+  })
+
+  it('skips terminal sealed/aborted staging rows when reopening a slot', async () => {
+    const t = await buildTestApp()
+    try {
+      const account = await signupWithTenant(t, 'begin-reopen@example.com', 'Acme', 'acme-reopen')
+      const payload = buildRequest({ tenantId: account.tenant.id, bundleRoot: '99'.repeat(32) })
+
+      // Pre-seed a row in a terminal state — the handler must not reuse it.
+      await t.db.rawExec(
+        `INSERT INTO promotion_staging (id, tenant_id, user_id, device_id, store_id, store_path, status, head_json)
+         VALUES ($1, $2, $3, $4, $5, $6, 'aborted', $7::jsonb)`,
+        [
+          'prm_dead0000000000000000000000',
+          account.tenant.id,
+          account.user.id,
+          'dev-1',
+          'store-default',
+          '/home/test/store',
+          JSON.stringify({ bundleRoot: '99'.repeat(32) }),
+        ],
+      )
+
+      const response = await t.app.inject({
+        method: 'POST',
+        url: BEGIN_URL,
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${account.token}` },
+        payload: payload as never,
+      })
+      const body = response.json() as { promotionId: string }
+      expect(body.promotionId).not.toBe('prm_dead0000000000000000000000')
     } finally {
       await t.close()
     }

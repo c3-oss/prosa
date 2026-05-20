@@ -55,7 +55,7 @@ export function registerPromotionRoutes(app: FastifyInstance, deps: V2AuthDeps):
           return { code: 'TENANT_REQUIRED', op: route.opName }
         }
         if (route.opName === 'BeginPromotion') {
-          return handleBeginPromotion(deps, ctx.tenantId, req, reply)
+          return handleBeginPromotion(deps, ctx.tenantId, ctx.user.id, req, reply)
         }
         reply.code(501)
         return {
@@ -71,11 +71,12 @@ export function registerPromotionRoutes(app: FastifyInstance, deps: V2AuthDeps):
 async function handleBeginPromotion(
   deps: V2AuthDeps,
   tenantId: string,
+  userId: string,
   req: FastifyRequest,
   reply: FastifyReply,
 ): Promise<unknown> {
   try {
-    const response = await beginPromotion({ rawExec: deps.rawExec, tenantId }, req.body)
+    const response = await beginPromotion({ rawExec: deps.rawExec, tenantId, userId }, req.body)
     reply.code(200)
     return response
   } catch (err) {

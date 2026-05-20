@@ -1,15 +1,20 @@
 // Lane 5 — BeginPromotion handler.
 //
-// Implements the no-op fast path against an already-promoted bundle:
-// when `(tenant_id, store_id, current_bundle_root)` exists in
-// `remote_authority_v2`, fetch the matching receipt row and return
-// `{ status: 'already_promoted', receipt }`.
+// Implements the no-op fast path against an already-promoted bundle
+// AND the staging-row open path for fresh bundles:
 //
-// Staging / `needs_inventory` / `needs_upload` paths are deferred to
-// later Lane 5 slices. Until they land, fresh bundles return a
-// `needs_inventory` placeholder so the wire response still validates but
-// the client cannot drive uploads — the next slice will replace this
-// with real staging/missing-segment computation.
+// - When `(tenant_id, store_id, current_bundle_root)` exists in
+//   `remote_authority_v2`, fetch the matching receipt row and return
+//   `{ status: 'already_promoted', receipt }`.
+// - Else, find or insert a `promotion_staging` row for the same
+//   `(tenant_id, store_id, bundleRoot)` and return its id with
+//   `{ status: 'needs_inventory', promotionId, missingInventories }`.
+//   Idempotent under retries: a second call with the same join key
+//   returns the same `promotionId` and does NOT insert a duplicate.
+//
+// Real inventory/object presence detection (the `needs_upload`
+// transition) is deferred to the slice that wires the segment + object
+// pack upload routes.
 //
 // Validation note: the public `prosa-wire-v2` `beginPromotionRequestSchema`
 // constrains `tenantId` to `canonicalIdSchema` (lowercase). Production
@@ -20,6 +25,7 @@
 // uses `ctx.tenantId` (Better Auth-resolved) as the authoritative tenant
 // for all queries. The bundle/segment/hash fields keep their canonical
 // schemas because they are content-addressed and producer-controlled.
+// CQ-123 tracks the broader receipt-side mismatch.
 //
 // Invariants enforced here:
 // - I1 tenant isolation: every query filters by `ctx.tenantId`. The body
@@ -28,6 +34,7 @@
 // - I5 receipt verifiability: the stored payload+signature shape is
 //   returned verbatim; clients re-verify against JWKS.
 
+import { randomBytes } from 'node:crypto'
 import type { PromotionReceiptV2, PromotionReceiptV2Payload, PromotionReceiptV2Signature } from '@c3-oss/prosa-types-v2'
 import type { BeginPromotionResponse } from '@c3-oss/prosa-wire-v2'
 import { bundleHeadV2Schema, segmentRefSchema } from '@c3-oss/prosa-wire-v2'
@@ -37,6 +44,7 @@ import type { RawExec } from '../../db.js'
 export type BeginPromotionDeps = {
   rawExec: RawExec
   tenantId: string
+  userId: string
 }
 
 export class BeginPromotionValidationError extends Error {
@@ -84,6 +92,15 @@ type ServerBeginPromotionRequest = z.infer<typeof serverBeginPromotionRequestSch
 
 type RemoteAuthorityRow = { current_receipt_id: string }
 type ReceiptRow = { payload: unknown; signature: unknown }
+type StagingRow = { id: string; status: string }
+
+// Promotion_staging statuses that represent an in-flight slot. A row
+// with status='sealed' is terminal-success; 'aborted' is
+// terminal-failure. Both must be ignored when looking up an active
+// slot for the same (tenant, store, bundleRoot) join key — a new
+// promotion should open a fresh slot rather than resurrect a closed
+// one.
+const ACTIVE_STAGING_STATUSES = ['open', 'uploading', 'materializing'] as const
 
 export async function beginPromotion(deps: BeginPromotionDeps, rawInput: unknown): Promise<BeginPromotionResponse> {
   const parsed = serverBeginPromotionRequestSchema.safeParse(rawInput)
@@ -124,20 +141,61 @@ export async function beginPromotion(deps: BeginPromotionDeps, rawInput: unknown
       return { status: 'already_promoted', receipt }
     }
     // Authority row references a missing receipt. This is a server
-    // inconsistency — treat as fresh promotion to avoid wedging the
-    // client. A separate audit task will heal the orphan.
+    // inconsistency — fall through to open a staging row so the client
+    // can re-promote. A separate audit task heals the orphan.
   }
 
-  // 2. Fresh bundle. Until the staging path lands, surface a
-  //    `needs_inventory` placeholder. The promotionId is deterministic
-  //    so repeated calls observe the same staging slot; staging row
-  //    creation is the next slice.
-  const placeholderPromotionId = derivePlaceholderPromotionId(deps.tenantId, input.storeId, input.head.bundleRoot)
+  // 2. Open (or reuse) a promotion_staging row for this bundle.
+  const promotionId = await findOrCreateStaging(deps, input)
+
   return {
     status: 'needs_inventory',
-    promotionId: placeholderPromotionId,
+    promotionId,
     missingInventories: [input.inventories.objectInventorySegment, input.inventories.projectionInventorySegment],
   }
+}
+
+async function findOrCreateStaging(deps: BeginPromotionDeps, input: ServerBeginPromotionRequest): Promise<string> {
+  // Idempotent lookup: an active staging row for the same
+  // (tenant, store, bundleRoot) wins. We compare bundleRoot through
+  // the JSONB head column so the lookup is exact even when the
+  // `head_json` payload changes across calls (e.g. counts differ).
+  const existing = await deps.rawExec<StagingRow>(
+    `SELECT id, status
+       FROM promotion_staging
+      WHERE tenant_id = $1
+        AND store_id = $2
+        AND head_json->>'bundleRoot' = $3
+        AND status = ANY($4)
+      ORDER BY created_at DESC
+      LIMIT 1`,
+    [deps.tenantId, input.storeId, input.head.bundleRoot, ACTIVE_STAGING_STATUSES as unknown as string[]],
+  )
+  if (existing.length > 0) {
+    return existing[0]!.id
+  }
+
+  // Fresh row. Generate a `prm_<base32-lower>` id; the alphabet
+  // satisfies `canonicalIdSchema` on the response side so the wire
+  // contract holds for promotionId.
+  const promotionId = newPromotionId()
+  await deps.rawExec(
+    `INSERT INTO promotion_staging (
+       id, tenant_id, user_id, device_id, store_id, store_path,
+       status, head_json
+     )
+     VALUES ($1, $2, $3, $4, $5, $6, 'open', $7::jsonb)`,
+    [
+      promotionId,
+      deps.tenantId,
+      deps.userId,
+      input.device.deviceId,
+      input.storeId,
+      input.storePath,
+      JSON.stringify(input.head),
+    ],
+  )
+  return promotionId
 }
 
 async function loadReceipt(deps: BeginPromotionDeps, receiptId: string): Promise<PromotionReceiptV2 | null> {
@@ -171,18 +229,19 @@ function coerceJsonbObject(value: unknown): Record<string, unknown> | null {
   return null
 }
 
-// Deterministic placeholder id (`prm_<...>`) so repeated `BeginPromotion`
-// calls for the same `(tenant, store, bundleRoot)` quote a stable
-// promotion id while the real staging row is still being implemented.
-// Uses lowercase hex over a short FNV-1a-64 of the join key to satisfy
-// canonicalIdSchema on the response side.
-function derivePlaceholderPromotionId(tenantId: string, storeId: string, bundleRoot: string): string {
-  const input = `${tenantId} ${storeId} ${bundleRoot}`
-  let hash = 0xcbf29ce484222325n
-  for (const codeUnit of input) {
-    hash ^= BigInt(codeUnit.charCodeAt(0))
-    hash = (hash * 0x100000001b3n) & 0xffffffffffffffffn
+// `prm_<26-char-base32-lower>` — 130 random bits, satisfies
+// canonicalIdSchema (lowercase alnum prefix + `[a-z0-9_:-]`). Base32
+// alphabet excludes `-`/`_`, so the result is purely [a-z2-7].
+const BASE32_LOWER = 'abcdefghijklmnopqrstuvwxyz234567'
+
+function newPromotionId(): string {
+  const bytes = randomBytes(16)
+  let out = 'prm_'
+  for (const byte of bytes) {
+    // Two base32 chars per byte (8 high bits + 8 low). 16 bytes →
+    // 32 chars; we truncate to 26 to keep ids compact.
+    out += BASE32_LOWER[byte >> 3]
+    out += BASE32_LOWER[((byte & 0b111) << 2) % 32]
   }
-  const hex = hash.toString(16).padStart(16, '0')
-  return `prm_${hex}`
+  return out.slice(0, 30)
 }

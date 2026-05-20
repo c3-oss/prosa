@@ -120,3 +120,52 @@ Slice 1 deferred (explicit):
   (lowercased canonical tenant id at the auth boundary or relaxed
   receipt schema). The slice 1 fast-path test asserts the receipt
   shape directly rather than via the strict wire schema.
+
+## Slice 2 (BeginPromotion opens a real `promotion_staging` row) — 2026-05-20
+
+Scope:
+
+- `apps/api/src/v2/sync/begin-promotion.ts` now persists a real
+  `promotion_staging` row when the fast-path lookup misses. The
+  handler:
+  - Threads `ctx.user.id` into `BeginPromotionDeps.userId`.
+  - Looks up an active (`status IN ('open','uploading','materializing')`)
+    staging row for `(tenant_id, store_id, head_json->>'bundleRoot')`.
+    On hit, returns its id — idempotent retry.
+  - Otherwise INSERTs a fresh row with status `'open'`, generating a
+    `prm_<base32-lower>` id whose alphabet satisfies `canonicalIdSchema`
+    for the response `promotionId`.
+  - Treats sealed/aborted rows as terminal and opens a new slot for
+    the same `(tenant, store, bundleRoot)` join key.
+- `apps/api/src/v2/promotion.ts` passes `ctx.user.id` to the handler.
+- New begin-promotion test cases:
+  - `returns needs_inventory with a persisted promotion_staging row
+    and idempotent retries (slice 2)` — asserts the staging row is
+    INSERTed with the expected `tenant_id`, `user_id`, `device_id`,
+    `store_id`, `store_path`, `status='open'`, and `head_json.bundleRoot`;
+    a second call reuses the row (`count(*) = 1`).
+  - `opens distinct staging rows for distinct bundle roots in the same
+    store` — proves the lookup key includes `bundleRoot`.
+  - `skips terminal sealed/aborted staging rows when reopening a slot`
+    — proves the active-status filter forces a fresh row when the
+    only existing row is terminal.
+
+Gates:
+
+- `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/sync/begin-fast-path.test.ts`
+  → pass, 7/7.
+- `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/` → pass,
+  51/51.
+- `pnpm --filter @c3-oss/prosa-api test` → pass, 186/187
+  (1 pre-existing skip).
+- `pnpm --filter @c3-oss/prosa-api lint` → clean.
+- `pnpm typecheck` → pass, 13/13 packages.
+- `git diff --check` → clean.
+
+Slice 2 deferred (explicit):
+
+- Real inventory-presence detection (`needs_upload` transition) needs
+  the segment upload route from slice 3 to record what has been
+  uploaded.
+- Inventory segment uploads, object pack uploads, seal, and
+  `GET /v2/receipts/:receiptId` remain 501.
