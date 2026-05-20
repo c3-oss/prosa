@@ -26,7 +26,7 @@ Current explicit milestone:
 3. Collect Docker-backed E2E evidence before Lane 5 acceptance.
 
 Do **not** add more pure-read/audit/CLI surfaces unless they directly unblock
-Lane 3 closeout or validate a Lane 4 gate.
+the Lane 5 promotion protocol or validate a Lane 5 gate.
 
 ## Lane 4 Server scope
 

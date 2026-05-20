@@ -35,6 +35,21 @@ client-side receipt verification, even though the server signed the
 receipt correctly. Invariant I5 (receipt verifiability end-to-end) is
 not satisfied until this mismatch resolves.
 
+Smoke evidence:
+
+```text
+node -e "const re=/^[a-z0-9][a-z0-9_:-]*$/u; for (const id of ['org_testLane5','z3EIp38VKKSqPFuAk238kNUxGVWWf4RP','store-ok','dev-1']) console.log(id, re.test(id) ? 'ok' : 'reject');"
+```
+
+Output:
+
+```text
+org_testLane5 reject
+z3EIp38VKKSqPFuAk238kNUxGVWWf4RP reject
+store-ok ok
+dev-1 ok
+```
+
 Required fix (one of):
 
 - Configure Better Auth to mint lowercase canonical ids for
@@ -63,7 +78,7 @@ Acceptance:
 ### CQ-124: v1 and v2 schemas share table names with incompatible columns
 
 Severity: high
-Blocking: no (does not block Lane 5 development; blocks Lane 10 cutover)
+Blocking: yes (blocks Lane 5 seal/materialization acceptance and Lane 10 cutover; does not block independent BeginPromotion/upload slices)
 Status: open
 Owner: Ralph
 
@@ -86,6 +101,19 @@ Risk:
   `PROMOTION_SCHEMA_SQL` block is safe. Materialization paths (Lane 5
   seal) need `projection_*` and `search_doc` schemas, so this must be
   resolved before slice 3.
+
+Smoke evidence:
+
+```text
+pnpm exec node --conditions=prosa-dev --import @swc-node/register/esm-register -e "import { PGlite } from '@electric-sql/pglite'; import { applySchema } from '@c3-oss/prosa-db'; import { applySchemaV2 } from '@c3-oss/prosa-db-v2'; const db = new PGlite(); await applySchema(db); try { await applySchemaV2(db); console.log('applySchemaV2-after-v1 ok'); } catch (error) { console.log('applySchemaV2-after-v1 failed'); console.log(error instanceof Error ? error.message : String(error)); process.exitCode = 1; } finally { await db.close(); }"
+```
+
+Run from `apps/api`; output:
+
+```text
+applySchemaV2-after-v1 failed
+column "end_ts" does not exist
+```
 
 Required fix (one of):
 

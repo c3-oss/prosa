@@ -45,6 +45,19 @@ Classify all new work against that milestone:
 If three consecutive commits are support or premature surface without core Lane
 5 progress, stop and redirect to the promotion protocol.
 
+## Current blocking corrections
+
+Read `docs/roadmap/rearch-2/correction-queue.md` before the next slice.
+
+- CQ-123 blocks Lane 5 acceptance: Better Auth mixed-case tenant ids do not
+  satisfy the current v2 receipt/wire schemas, so client-side receipt parsing
+  and I5 verification cannot pass end-to-end.
+- CQ-124 blocks Lane 5 seal/materialization acceptance: v1 and v2 schemas share
+  incompatible table names, so full v2 schema boot/materialization cannot be
+  validated on the current shared public schema. It does not block independent
+  BeginPromotion/upload slices, but it must be resolved before slice 3 seal
+  acceptance.
+
 ## Lane 5 invariants
 
 - Sync direction is one-way: local bundle to remote server.
