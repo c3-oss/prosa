@@ -1308,36 +1308,43 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 5 search/projection authority acceptance)
-Status: open (WIP review: production boot migration promising, not accepted 2026-05-20)
+Status: closed (2026-05-20)
 Owner: Ralph
 
-WIP review update: the current uncommitted schema helper slice routes
-production boot through `applyV2PromotionSubsetSchema`, which includes the
-guarded legacy-to-composite `search_generation_current` migration. Focused
-tests passed:
+Closure (2026-05-20): `search_generation_current` is keyed by the composite
+`(tenant_id, store_id)` matching `remote_authority_v2`'s scoping. Production
+boot, the in-process Fastify tests, the v2 Docker E2E bootstrap, and the CLI
+promote test all go through `applyV2PromotionSubsetSchema`, whose
+`SEARCH_GENERATION_ONLY_SQL` block carries the idempotent legacy-shape
+migration: `ADD COLUMN IF NOT EXISTS store_id`, backfill `NULL → ''`,
+`ALTER COLUMN store_id SET NOT NULL`, then a `DO` block that detects the
+legacy single-column PK via `pg_index` and swaps in
+`PRIMARY KEY (tenant_id, store_id)`. Re-applying the schema on a fresh
+database is a no-op; re-applying it on a legacy tenant-pk database migrates
+the row in place without data loss.
 
-```text
-pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/cq-126-server-boot-schema.test.ts test/v2/sync/cq-137-schema-migration.test.ts
-```
+Reviewer concerns addressed in commits c67df82 + b2a9cbc:
+- `pnpm lint` and `pnpm typecheck` pass repo-wide.
+- The CQ-126 boot-schema test no longer overclaims CQ-124 closure — it
+  scopes strictly to CQ-126 and now includes an authenticated
+  BeginPromotion case that proves the v2 query layer (including
+  `search_generation_current` upserts on seal) resolves against the
+  boot-applied schema.
+- `startServer()` no longer carries its own copy of the search-generation
+  SQL — it delegates to the same canonical helper used by every test.
 
-Reviewer smoke also passed the legacy-table migration and second-store
-seal-style insert. After WIP formatting changes,
-`pnpm --filter @c3-oss/prosa-api lint` and
-`pnpm --filter @c3-oss/prosa-db-v2 lint` pass. This does not close CQ-137
-until the WIP is committed, the CQ-124 overclaim is removed, and its evidence
-includes the authenticated boot-path proof. It also does not close CQ-124; the
-full v1/v2 projection/search/shared-name table migration remains a later-lane
-cutover.
+Pinned by:
+- `apps/api/test/v2/sync/cq-137-schema-migration.test.ts` — legacy tenant-PK
+  migration + idempotent re-application on fresh schema.
+- `apps/api/test/v2/sync/cq-137-store-scoped-generation.test.ts` — sealing
+  two stores in the same tenant leaves two distinct rows in
+  `search_generation_current`.
+- `apps/api/test/v2/cq-126-server-boot-schema.test.ts` (authenticated case)
+  — proves the migration is applied by the same boot path that serves Lane 5
+  traffic, not a test-only helper.
 
-Partial closure: `SEARCH_SCHEMA_SQL` ships an idempotent
-migration block that runs every time the schema is re-applied:
-`ADD COLUMN IF NOT EXISTS store_id`, backfill `NULL → ''`,
-`ALTER COLUMN store_id SET NOT NULL`, then a DO block that
-detects the legacy single-column PK via `pg_index` and swaps
-in `PRIMARY KEY (tenant_id, store_id)`. Re-applying the
-schema on a fresh database is a no-op (the new shape is
-already in place); re-applying it on a legacy
-tenant-pk database migrates the row in place without data loss.
+CQ-124 remains separately tracked: the full v1/v2 projection/search
+shared-name table cutover is a later-lane (Lane 10) migration.
 
 Pinned by `apps/api/test/v2/sync/cq-137-schema-migration.test.ts`:
 1. Seed the legacy `tenant_id PRIMARY KEY` shape with a row,

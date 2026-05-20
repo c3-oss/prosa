@@ -92,9 +92,11 @@ The blocker is implementation work, not environment.
 - CQ-136: normal sealed replay now validates tuple fields, but closure remains
   open until race-loser replay and linked-receipt schema/derived-id/signature
   validation fail closed.
-- CQ-137: current WIP routes production/startServer boot through the
-  `search_generation_current` migration helper, but closure remains open until
-  the same lint/commit/authenticated boot-path evidence above is clean.
+- CQ-137: closed (2026-05-20) alongside CQ-126. Production boot, every
+  test entry point, and the Docker E2E bootstrap apply the legacy-shape
+  migration through `applyV2PromotionSubsetSchema`'s
+  `SEARCH_GENERATION_ONLY_SQL` block; the authenticated CQ-126 boot-path
+  test exercises a real seal-style upsert against the boot-applied schema.
 - CQ-138: GetReceipt now checks id/tuple/derived-id/signature, but closure
   remains open until shared receipt schema validation is resolved and CLI
   receipt validation is proven.
@@ -132,12 +134,13 @@ The blocker is implementation work, not environment.
   still desirable.
 - CQ-135 closure from `a867e93` is rejected pending explicit failure-injection
   tests for signer, transaction, and post-flip pre-sign failures.
-- CQ-136/CQ-137/CQ-138 closure claims from `cba2b90`/`6557852` are rejected
-  pending the reviewer-smoked corrupt-link, schema-upgrade, and shared-schema
-  validation cases.
-- CQ-136/CQ-137/CQ-138 closure claims from `11447b7`/`9aff136` remain
-  rejected/partial pending race-loser sealed replay, production boot migration,
-  and CLI/shared-schema receipt validation.
+- CQ-136/CQ-138 closure claims from `cba2b90`/`6557852` are rejected pending
+  the reviewer-smoked corrupt-link and shared-schema validation cases.
+  CQ-137 was rejected on the schema-upgrade / production boot migration
+  axis; that gap is closed in 2026-05-20 alongside CQ-126.
+- CQ-136/CQ-138 closure claims from `11447b7`/`9aff136` remain
+  rejected/partial pending race-loser sealed replay and CLI/shared-schema
+  receipt validation.
 - CQ-127 closure from `0e59a43` is rejected because post-begin checks are
   optional via `x-prosa-device-id`, CLI does not send the header, and GetReceipt
   remains tenant-wide.

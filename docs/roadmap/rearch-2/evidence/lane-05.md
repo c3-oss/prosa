@@ -862,3 +862,20 @@ CQ-124 explicitly NOT closed by this slice:
   materialization remains v1-shaped. Lane 10 owns the namespace /
   rename / migration cutover. CQ-124 acceptance bullets stay open
   until that cutover lands.
+
+CQ-137 closure rider — 2026-05-20:
+
+- The same canonical helper carries the idempotent
+  `search_generation_current` legacy-shape migration (`ADD COLUMN
+  IF NOT EXISTS store_id`, backfill `NULL → ''`, then a guarded
+  `DO` block that swaps the legacy single-column PK for
+  `PRIMARY KEY (tenant_id, store_id)`). Production boot, the
+  in-process Fastify test, the v2 Docker E2E bootstrap, and the
+  CLI promote test all run this block before any seal is allowed
+  to upsert.
+- Pinned together with CQ-126 in `cq-126-server-boot-schema.test.ts`
+  (the authenticated case touches the boot-applied
+  `search_generation_current`), plus the existing
+  `cq-137-schema-migration.test.ts` (legacy migration) and
+  `cq-137-store-scoped-generation.test.ts` (two-store coexistence).
+- CQ-137 acceptance bullets are all proven; the CQ is closed.
