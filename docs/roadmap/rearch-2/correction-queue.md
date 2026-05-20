@@ -237,8 +237,31 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 5 production/Docker E2E acceptance)
-Status: open
+Status: closed (2026-05-20)
 Owner: Ralph
+
+Closure: `apps/api/src/server.ts` applies the conflict-free
+v2 slice during boot, immediately after the v1 `applySchema`:
+- `PROMOTION_SCHEMA_SQL` (promotion_staging, remote_authority_v2,
+  receipt, legacy_receipt_archive, promotion_uploaded_pack);
+- `PACKS_SCHEMA_SQL` with the colliding `remote_object` block
+  stripped (CQ-124 owns the full migration);
+- the per-(tenant, store) `search_generation_current` pointer
+  (matches CQ-137 shape).
+The required-tables check then includes every Lane 5 v2 table
+the routes touch: `promotion_staging`, `remote_authority_v2`,
+`receipt`, `promotion_uploaded_pack`, `remote_pack`,
+`remote_pack_entry`, `receipt_pack_grant`, and
+`search_generation_current`. Missing any of these fails boot
+before the port binds — the route surface can no longer 500
+on "relation does not exist" at runtime.
+
+Pinned by two cases in `apps/api/test/v2/cq-126-server-boot-schema.test.ts`:
+1. Running the boot SQL block on a fresh PGlite + v1 schema
+   produces every required v2 table.
+2. After boot, hitting `POST /v2/promotions/begin` returns
+   401 UNAUTHENTICATED rather than crashing on a missing
+   relation — proof the SQL queries run cleanly.
 
 Problem:
 
