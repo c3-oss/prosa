@@ -475,6 +475,22 @@ Gates:
 - `pnpm typecheck` → pass, 13/13 packages.
 - `git diff --check` → clean.
 
+Governor review caveat (2026-05-20):
+
+- Slice 6 focused GetReceipt smoke was re-run and passed 4/4.
+- Focused CLI WIP smoke
+  `pnpm --filter @c3-oss/prosa exec vitest run test/cli/v2/sync/promote.test.ts`
+  passed 3/3.
+- Reviewer aggregate smoke
+  `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/` failed 77/78 with
+  a timeout in the malformed-body BeginPromotion case; the same file passed 7/7
+  in isolation. The recorded aggregate 78/78 gate is not accepted until a fresh
+  aggregate run is green or the timeout is fixed/documented.
+- GetReceipt happy-path tests prove tenant-scoped retrieval only. CQ-138 blocks
+  Lane 5 acceptance until GetReceipt and CLI receipt handling validate request
+  id, row/payload tuple, shared schema, JWKS signature, and the accepted
+  device/user access policy.
+
 Server scope summary at slice 6 close:
 
 - All five Lane 5 routes implemented and tested:

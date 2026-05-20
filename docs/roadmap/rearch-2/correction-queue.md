@@ -870,6 +870,93 @@ Acceptance:
 - [ ] Tests prove promoting store B does not make store A's remote read/search
       authority disappear or point to B's receipt.
 
+### CQ-138: GetReceipt returns unvalidated same-tenant receipts as authority
+
+Severity: high
+Blocking: yes (blocks Lane 5 GetReceipt, CLI resume, and receipt-verification acceptance)
+Status: open
+Owner: Ralph
+
+Problem:
+
+Commit `07c8002` implements `GET /v2/receipts/:receiptId` as a tenant-scoped
+lookup, but the handler returns the stored JSONB payload/signature after only
+checking that both values are object-shaped. It does not validate the request
+id, prove `payload.receiptId === :receiptId`, load and compare row
+`tenant_id/store_id/device_id` against the signed payload tuple, parse the
+shared v2 receipt schema, or verify the signature against the receipt key/JWKS.
+
+This also leaves same-tenant receipt access policy unresolved: any tenant
+member that knows a receipt id can fetch receipt metadata for another
+user/device unless CQ-127 explicitly accepts a broader tenant-wide policy and
+tests it.
+
+Risk:
+
+The CLI resume/no-op path can accept a stale, corrupt, mismatched, or
+schema-invalid receipt as authoritative. A same-tenant user can recover another
+device's receipt metadata, and a corrupted `receipt` row can be returned as
+`status='found'`.
+
+Smoke evidence:
+
+Security reviewer seeded a corrupt same-tenant receipt row and fetched it
+through GetReceipt:
+
+```text
+requestedReceiptId=rcpt_aaaaaaaaaaaaaaaa
+payloadReceiptId=rcpt_bbbbbbbbbbbbbbbb
+payloadTenantId=other-tenant
+signatureAlg=none
+result=200 found
+```
+
+Security reviewer also sealed and fetched a real receipt after Better Auth
+signup:
+
+```text
+tenantId=y2VV5cohha5QphRznIo6kHFo3jEqHM0H
+getStatus=200
+schemaOk=false
+first issue: receipt.payload.tenantId expected lowercase canonical id
+```
+
+Test reviewer smoke showed the focused GetReceipt happy path passes but does
+not prove JWKS/schema verification:
+
+```text
+pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/sync/get-receipt.test.ts
+-> pass, 4/4
+```
+
+Required fix:
+
+- Validate `GET /v2/receipts/:receiptId` params with the shared request schema.
+- Load receipt row columns needed for tuple comparison, not only JSONB payload
+  and signature.
+- Fail closed when row tuple and payload tuple disagree, when
+  `payload.receiptId` does not match the requested id, when the receipt fails
+  the shared v2 schema, or when signature verification fails.
+- Resolve and implement the receipt access policy from CQ-127: device-scoped
+  by default, or an explicit tenant-wide policy with tests.
+- Make CLI `sync-v2` validate every `already_promoted`, `sealed`, and
+  GetReceipt recovery receipt before persisting checkpoints or printing success.
+
+Acceptance:
+
+- [ ] GetReceipt returns a closed error for malformed payload/signature JSONB,
+      payload receipt-id mismatch, row/payload tenant/store/device mismatch, and
+      invalid signature.
+- [ ] GetReceipt happy path parses with the shared v2 schema and verifies the
+      fetched receipt signature against JWKS.
+- [ ] Same-tenant different-user/device access is either rejected, or allowed
+      only under a documented tenant-wide policy with explicit tests.
+- [ ] CLI tests prove `promoteBundleV2` rejects malformed, tuple-mismatched, or
+      wrongly signed receipts from BeginPromotion, SealPromotion, and GetReceipt
+      recovery.
+- [ ] CQ-123 is resolved or this CQ remains open because real Better Auth
+      receipts still fail client-side schema parsing.
+
 ## Closed during this cycle
 
 ### CQ-122: Streaming validation is header-only and does not satisfy the Lane 4 pack-validation gate

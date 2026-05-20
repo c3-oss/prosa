@@ -1,6 +1,6 @@
 # rearch-2 Current Status
 
-Updated: 2026-05-20 after Lane 5 slice 1 (BeginPromotion fast path).
+Updated: 2026-05-20 after Lane 5 slice 6 review and CLI sync-v2 WIP.
 
 ## Summary
 
@@ -93,6 +93,23 @@ The blocker is implementation work, not environment.
   receipt instead of that promotion's receipt.
 - CQ-137: `search_generation_current` is tenant-wide while remote authority is
   store-scoped; the scope decision needs implementation and tests.
+- CQ-138: GetReceipt returns object-shaped same-tenant receipts without proving
+  request id, row/payload tuple, shared receipt schema, JWKS signature, or the
+  accepted device/user access policy; CLI WIP also trusts receipts by cast.
+
+## Current gate caveats
+
+- Slice 6 focused GetReceipt smoke is green:
+  `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/sync/get-receipt.test.ts`
+  passed 4/4.
+- CLI WIP focused smoke is green:
+  `pnpm --filter @c3-oss/prosa exec vitest run test/cli/v2/sync/promote.test.ts`
+  passed 3/3.
+- Reviewer aggregate smoke
+  `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/` failed 77/78 with
+  a timeout in the malformed-body BeginPromotion case, while the same file
+  passed 7/7 in isolation. Do not accept the recorded 78/78 aggregate gate until
+  a fresh aggregate run is green or the timeout is fixed/documented.
 
 ## Supporting documents
 

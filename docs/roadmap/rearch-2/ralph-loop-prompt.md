@@ -91,6 +91,9 @@ Read `docs/roadmap/rearch-2/correction-queue.md` before the next slice.
   promotion's receipt, not current store authority.
 - CQ-137 blocks Lane 5 search authority: `search_generation_current` scope must
   align with store-scoped remote authority.
+- CQ-138 blocks Lane 5 GetReceipt/CLI acceptance: `GET /v2/receipts/:receiptId`
+  and `prosa sync-v2` must not accept unvalidated, tuple-mismatched, or
+  wrongly signed same-tenant receipts as authority.
 
 ## Lane 5 invariants
 
@@ -122,11 +125,13 @@ Work in committed slices with focused evidence:
 3. `SealPromotion`: verify all declared segments/objects/materialized rows,
    materialize projection/search docs, sign a receipt, and perform the authority
    swap in one Postgres transaction.
-4. `GET /v2/receipts/:receiptId`: tenant-scoped receipt fetch that verifies
-   against JWKS and returns 404 for wrong tenant.
+4. `GET /v2/receipts/:receiptId`: tenant-scoped receipt fetch that validates
+   request id, row/payload tuple, shared receipt schema, and JWKS signature;
+   return 404 for wrong tenant and fail closed for corrupt same-tenant rows.
 5. CLI `prosa sync-v2`: build inventories, upload missing data, seal, persist
-   receipt/checkpoint state, support retry/resume, `--no-resume`, `--dry-run`,
-   `--json`, and useful failure output.
+   receipt/checkpoint state only after schema/JWKS/tuple validation, support
+   retry/resume, `--no-resume`, `--dry-run`, `--json`, and useful failure
+   output.
 6. Docker-backed E2E: API + Postgres + object storage + CLI sync + second device
    remote read.
 
