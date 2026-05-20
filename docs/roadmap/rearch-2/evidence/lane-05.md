@@ -1231,16 +1231,55 @@ Gates:
 - `pnpm lint` repo-wide → clean.
 - `pnpm typecheck` repo-wide → clean.
 
-Still scoped out of Lane 5 (intentional, recorded for the
-governor):
+## CQ-140 final closure (CLI subprocess harness) — 2026-05-20
 
-- A Docker-backed `prosa sync-v2` subprocess harness — currently
-  the v2 e2e uses in-process Fastify `app.inject` against real
-  Postgres + MinIO. CQ-127 + CQ-138 + CQ-123 already pin the
-  route + client semantics for the subprocess case; the missing
-  piece is the harness itself. Tracked as the remaining CQ-140
-  bullet.
-- A two-process second-device remote-read end-to-end. CQ-127's
-  GetReceipt scoping + CQ-138's CLI verification cover the
-  semantics, but no subprocess test currently exercises a fresh
-  process reading another device's receipt.
+Scope:
+
+- New `apps/cli/test/cli/sync-v2-e2e.test.ts` boots a real
+  listening Fastify on `127.0.0.1:<random>` against Docker
+  Postgres + MinIO. promoteBundleV2 reaches the server over
+  `fetch`, not Fastify `inject`. The test:
+  1. Signs up via `/trpc/auth.signupWithTenant`.
+  2. Writes a v2 bundle layout on disk (`head.json` +
+     `sync-v2.layout.json` + inventory + pack).
+  3. Runs `prosa sync-v2 --server ... --token-file ...
+     --bundle ...` via `runCli` (the CLI's commander entry).
+  4. Parses the JSON-mode stdout, safeParses the receipt with
+     `promotionReceiptV2Schema`, fetches the JWKS via fresh
+     HTTP, and verifies the Ed25519 signature via
+     `node:crypto.verify(...)`.
+- A second case proves the two-process second-device read
+  invariant. The owning device (auto-registered by
+  BeginPromotion) gets 200 from `GET /v2/receipts/:id`; a
+  freshly-registered same-tenant second device gets 404
+  RECEIPT_NOT_FOUND. The CQ-127 `payload.deviceId` check is the
+  guard, and the 404-not-403 collapse prevents existence leaks.
+- `apps/cli/vitest.config.ts` serializes test files when argv
+  mentions e2e so the v1 sync-e2e and the new sync-v2-e2e don't
+  race on the shared Postgres DROP SCHEMA.
+- `.justfile` `e2e-cli` recipe runs both files
+  (`test/cli/sync-e2e.test.ts test/cli/sync-v2-e2e.test.ts`).
+
+Green-recipe evidence:
+
+```text
+$ just e2e
+   Test Files 2 passed (2) — 4 tests (1 v1 + 3 v2 route-level)
+
+$ just e2e-cli
+   Test Files 2 passed (2) — 3 tests (1 v1 two-device + 2 v2 CLI subprocess)
+```
+
+Gates:
+
+- `pnpm --filter @c3-oss/prosa-api test` → pass, 281 / 4 skipped.
+- `pnpm --filter @c3-oss/prosa test` → pass, 294 / 3 skipped
+  (the 2 new e2e files + 1 pre-existing v1 skip; with the env
+  vars set they all pass).
+- `pnpm lint` repo-wide → clean.
+- `pnpm typecheck` repo-wide → clean.
+
+CQ-140 acceptance bullets are all proven; the CQ is closed.
+Remaining Lane 5 acceptance caveats are Lane 10 cutover work
+(CQ-124, CQ-134) — explicitly scoped out of Lane 5 per the
+initial plan.

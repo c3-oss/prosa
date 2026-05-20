@@ -67,10 +67,6 @@ lives in `docs/roadmap/rearch-2/correction-queue.md`.
   pack-byte-presence sub-bullet is closed by CQ-141; the projection /
   search materialization sub-bullets are blocked on CQ-124 and remain
   Lane 6 / Lane 10 scope.
-- CQ-140 (partial): `just e2e` is green (4/4: 1 v1 + 3 v2). Still open:
-  a Docker-backed `prosa sync-v2` subprocess harness + a two-process
-  second-device remote-read test. CQ-127 + CQ-138 + CQ-123 already
-  pin the route + client semantics; the missing piece is the harness.
 
 ## Closed this cycle
 
@@ -88,6 +84,9 @@ All closed on 2026-05-20 — see `correction-queue.md` for full detail:
 - **CQ-137** (store-scoped `search_generation_current` + idempotent legacy migration).
 - **CQ-138** (CLI `promoteBundleV2` schema + deriveReceiptId + JWKS verify every receipt).
 - **CQ-141** (UploadObjectPack wrong-content rewrite + seal pack-bytes-missing fail-closed).
+- **CQ-140** (`just e2e` + `just e2e-cli` both green; CLI subprocess harness in
+  `apps/cli/test/cli/sync-v2-e2e.test.ts` covers `prosa sync-v2` over HTTP
+  fetch + JWKS verify + second-device 404).
 
 ## Current gate caveats
 
@@ -98,8 +97,10 @@ All closed on 2026-05-20 — see `correction-queue.md` for full detail:
 - `pnpm --filter @c3-oss/prosa test` runs the CLI suite green: 295
   passed / 1 skipped.
 - `pnpm typecheck` + `pnpm lint` repo-wide → clean (13/13 packages).
-- `just e2e` (Docker harness up) → pass, 4/4 (1 v1 + 3 v2). Fresh
-  no-env run → 3 skipped (skip ≠ gate proof).
+- `just e2e` (Docker harness up) → pass, 4/4 (1 v1 + 3 v2 route-level).
+  `just e2e-cli` → pass, 3/3 (1 v1 two-device + 2 v2 CLI subprocess +
+  second-device read). Fresh no-env runs skip the e2e blocks (skip ≠
+  gate proof).
 - Slice 8 watch point (CQ-128): `packDigest !== transportHash`, so
   pack-skip resume compares different digest domains and normally
   re-uploads packs. Status-assisted inventory skip relies on
@@ -108,9 +109,10 @@ All closed on 2026-05-20 — see `correction-queue.md` for full detail:
   CQ-128 core.
 - CQ-129, CQ-130, CQ-131, CQ-139 accepted by the governor on
   2026-05-20.
-- The remaining CQ-140 sub-bullet (Docker-backed `prosa sync-v2`
-  subprocess harness + two-process second-device read) is the only
-  Lane 5 gate caveat besides Lane 10 cutover work (CQ-124, CQ-134).
+- CQ-140 is closed (route-level + CLI subprocess gates both green).
+  Remaining Lane 5 acceptance caveats are Lane 10 cutover work
+  (CQ-124, CQ-134) — explicitly out of Lane 5 scope per the
+  initial plan.
 
 ## Supporting documents
 
