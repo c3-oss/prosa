@@ -1,6 +1,6 @@
 # rearch-2 Current Status
 
-Updated: 2026-05-20 after Lane 6 slice 8 reviewer findings.
+Updated: 2026-05-20 after Lane 6 slice 9 governor review.
 
 ## Summary
 
@@ -11,10 +11,12 @@ Updated: 2026-05-20 after Lane 6 slice 8 reviewer findings.
   stabilization cycles.
 - Lane 4 Server: **accepted** by Codex/governor on 2026-05-20.
 - Lane 5 Sync protocol: **accepted** by Codex/governor on 2026-05-20.
-- Lane 6 Read API: **active**, slice 8 landed. CQ-142 is accepted for signed
-  cursors and route-level invalid-cursor coverage. CQ-146 production wiring is
-  functionally accepted but still needs docs/compose guidance. CQ-143, CQ-145,
-  and CQ-147 remain open; p95 evidence and five stabilization cycles remain.
+- Lane 6 Read API: **active**, slice 9 landed. CQ-142, CQ-143, CQ-144, and
+  CQ-145 are accepted by Codex/governor. CQ-146 remains open for Docker Compose
+  env wiring; CQ-147 remains open for stale tool-result gating and route-level
+  analytics tests. L6.8 p95 remains incomplete until `artifacts/getText` 1 MiB
+  has explicit measured p95 evidence. Five 180 s stabilization cycles remain
+  before RALPH_DONE.
 - Lanes 7–10: **not started**.
 
 ## Current Lane 6 focus
@@ -85,23 +87,22 @@ under "Closed this cycle" below; the full closure detail lives in
 - CQ-142: accepted by Codex/governor for cursor integrity, empty cursor
   rejection, and HTTP 400 `INVALID_CURSOR` route coverage on all four
   paginated routes. Residual production key wiring is CQ-146.
-- CQ-143: promoted `prosa sessions` reads still route through legacy
-  `/trpc/sessions.*`. Until Lane 7 wires `/v2/reads/*`, they must fail closed
-  for promoted v2 stores instead of bypassing the Lane 6 authority gate.
-  Current tests prove sessions and sessions count fail closed before network
-  access; session detail/show still needs an executable no-call pin.
+- CQ-143: accepted by Codex/governor. CLI subprocess tests pin sessions,
+  sessions count, and session show with `--local` guidance and no network
+  markers for v2-promoted stores.
 - CQ-144: accepted by Codex/governor for handler-level artifacts opacity.
-  Final Lane 6 acceptance still needs route-level artifacts evidence.
-- CQ-145: the missing-artifact route no longer returns 500, but route-level
-  tests still need missing grant/object, missing bytes/fetch, valid small text,
-  and bounded large/binary cases.
-- CQ-146: production cursor HMAC signer wiring is missing; production currently
-  rejects missing cursor secrets and configured secrets are stable across
-  plugin instances, but docs/compose do not yet name
-  `PROSA_CURSOR_HMAC_SECRET`.
-- CQ-147: analytics summary/report are tenant/authority gated, but unsupported
-  filters are silently ignored and summary/tools/errors/models can double count
-  duplicate logical sessions across current stores.
+- CQ-145: accepted by Codex/governor. `artifacts-route.test.ts` now exercises
+  every miss path, valid small UTF-8, and bounded >1 MiB binary through the live
+  Fastify route.
+- CQ-146: production config/boot behavior is accepted, and server-sync docs
+  name `PROSA_CURSOR_HMAC_SECRET`, but `docker-compose.yml` still omits the env
+  var while running the API in production mode.
+- CQ-147: strict input and cross-store distinct mostly landed, but analytics
+  tools/errors can still count superseded `projection_tool_result` rows; route
+  tests for analytics auth/input behavior are still missing.
+- L6.8: PGlite p95 smoke covers sessions/list, search/query, and transcript
+  first page. `artifacts/getText` 1 MiB has functional coverage only, not
+  explicit p95 measurement.
 
 ## Closed this cycle
 

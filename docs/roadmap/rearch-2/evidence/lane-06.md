@@ -637,9 +637,56 @@ pnpm --filter @c3-oss/prosa exec vitest run test/cli/sessions-v2-failclose.test.
                                        → 3/3 passed
 ```
 
+Governor review (2026-05-20):
+
+- CQ-143 accepted. Codex and reviewer validation passed
+  `apps/cli/test/cli/sessions-v2-failclose.test.ts` with 3/3 tests covering
+  `prosa sessions`, `prosa sessions count`, and `prosa session show`.
+- CQ-145 accepted. Route-level artifacts tests now cover missing row, missing
+  grant, missing object id, fetch failure, valid small UTF-8, and >1 MiB binary
+  bounded behavior through the live Fastify route.
+- CQ-146 remains open. Production config/boot and docs are good, but
+  `docker-compose.yml` still runs the API with `PROSA_RUNTIME_MODE=production`
+  and no `PROSA_CURSOR_HMAC_SECRET`; reviewer smoke with
+  `docker compose config --format json` confirmed the env is missing.
+- CQ-147 remains open. Tools/errors analytics still let a superseded
+  `projection_tool_result` affect current reports because the error-result
+  `EXISTS` subqueries do not apply `verifiedProjectionWhere('r')` or tuple-match
+  `session_id`, `store_id`, and `receipt_id` against the current call.
+- L6.8 remains open. `p95-latency.test.ts` measures sessions/list,
+  search/query, and transcript first page only. `artifacts/getText` 1 MiB is
+  functionally covered in `artifacts-route.test.ts`, but there is no explicit
+  p95 measurement.
+
+Codex/reviewer validation:
+
+```text
+pnpm --filter @c3-oss/prosa-api exec vitest run \
+  test/v2/reads/ test/config.test.ts test/v2/production-signer.test.ts
+# 17 files / 132 tests passed
+
+pnpm --filter @c3-oss/prosa exec vitest run test/cli/sessions-v2-failclose.test.ts
+# 3/3 passed
+
+pnpm typecheck
+pnpm lint
+git diff --check
+# clean
+
+docker compose config --format json
+# API env contains no PROSA_CURSOR_HMAC_SECRET
+
+inline PGlite smoke for superseded projection_tool_result
+# current tools/errors reports counted a stale non-current error result
+```
+
 Remaining slices:
 
-1. Five consecutive 180 s stabilization cycles before RALPH_DONE.
+1. CQ-146 Docker Compose / production env wiring for `PROSA_CURSOR_HMAC_SECRET`.
+2. CQ-147 gate `projection_tool_result` rows in tools/errors and add route-level
+   analytics auth/input tests.
+3. L6.8 explicit `artifacts/getText` 1 MiB p95 measurement.
+4. Five consecutive 180 s stabilization cycles before RALPH_DONE.
 
 ## Scope
 

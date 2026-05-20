@@ -1,6 +1,6 @@
 # rearch-2 Correction Queue
 
-Updated: 2026-05-20 after Lane 6 slice 8 reviewer findings.
+Updated: 2026-05-20 after Lane 6 slice 9 governor review.
 
 ## Open blocking corrections
 
@@ -156,7 +156,7 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 6 remote-read safety; Lane 7 can later replace the fail-closed stop)
-Status: open (2026-05-20) — closure attempt has acceptance gaps
+Status: closed (2026-05-20) — accepted by Codex/governor
 Owner: Ralph
 
 Closure attempt (2026-05-20):
@@ -184,6 +184,18 @@ acceptance also requires command/client-boundary proof for session detail/show
 paths, including no legacy `/trpc/sessions.get` call for a v2-promoted store.
 Inspection shows `prosa session show` uses `remoteSupported: false`, but the CQ
 requires an executable test pin.
+
+Closure follow-up (2026-05-20):
+
+- `apps/cli/test/cli/sessions-v2-failclose.test.ts` now includes
+  `prosa session show <id>` against a v2-promoted store.
+- The subprocess test proves non-zero exit, `--local` guidance, and no
+  `ECONNREFUSED`, `EAI_AGAIN`, or HTTP markers for sessions, sessions count,
+  and session show.
+
+Governor acceptance (2026-05-20): CQ-143 is accepted. The CLI fails closed
+before any legacy `/trpc/sessions.*` network path for v2-promoted stores, and
+the test preserves local `--local` guidance.
 
 Problem:
 
@@ -221,19 +233,19 @@ Required fix:
 
 Acceptance:
 
-- [ ] Command/client-boundary CLI tests execute `prosa sessions`,
+- [x] Command/client-boundary CLI tests execute `prosa sessions`,
       `prosa sessions count`, and session detail/show paths with a fetch spy or
       equivalent proof that a promoted v2 store does not call legacy
       `/trpc/sessions.list`, `/trpc/sessions.count`, or `/trpc/sessions.get`.
-- [ ] CLI tests prove the promoted-store default fails closed with clear
+- [x] CLI tests prove the promoted-store default fails closed with clear
       `--local` guidance.
-- [ ] Existing local session read behavior remains unchanged.
+- [x] Existing local session read behavior remains unchanged.
 
 ### CQ-145: artifacts.getText route returns 500 instead of opaque miss
 
 Severity: high
 Blocking: yes (blocks Lane 6 artifacts route acceptance and L6.4)
-Status: open (2026-05-20) — closure attempt has route-evidence gaps
+Status: closed (2026-05-20) — accepted by Codex/governor
 Owner: Ralph
 
 Closure attempt (2026-05-20):
@@ -260,6 +272,17 @@ route test successfully. CQ-145 remains open because the written route-level
 acceptance still lacks route tests for missing receipt/object grant, missing
 object bytes/fetch failure, valid small UTF-8 artifact text, and bounded
 large/binary artifact behavior.
+
+Closure follow-up (2026-05-20):
+
+- `apps/api/test/v2/reads/artifacts-route.test.ts` now drives the live Fastify
+  route through missing grant, missing object id, missing object-store bytes,
+  valid small UTF-8 text, and >1 MiB binary bounded behavior.
+- Focused route tests passed under Codex validation.
+
+Governor acceptance (2026-05-20): CQ-145 is accepted. Route-level behavior now
+matches the accepted handler opacity contract and covers the success/bounds
+matrix required by L6.4.
 
 Problem:
 
@@ -288,14 +311,14 @@ Required fix:
 
 Acceptance:
 
-- [ ] Route-level test proves missing artifact/projection returns opaque
+- [x] Route-level test proves missing artifact/projection returns opaque
       `{ found: false }`, not HTTP 500.
-- [ ] Route-level test proves missing receipt/object grant returns opaque
+- [x] Route-level test proves missing receipt/object grant returns opaque
       `{ found: false }`.
-- [ ] Route-level test proves missing object bytes/fetch failure returns opaque
+- [x] Route-level test proves missing object bytes/fetch failure returns opaque
       `{ found: false }`.
-- [ ] Route-level test proves valid small UTF-8 artifact returns bounded text.
-- [ ] Route-level test proves >1 MiB or binary artifacts are bounded/fail
+- [x] Route-level test proves valid small UTF-8 artifact returns bounded text.
+- [x] Route-level test proves >1 MiB or binary artifacts are bounded/fail
       closed per the Lane 6 contract.
 
 ### CQ-146: Cursor HMAC signer is not production-configured
@@ -337,6 +360,21 @@ and dev/test random fallback is explicit. CQ-146 remains open only because
 operator-facing docs/compose omit the new required secret. Add
 `PROSA_CURSOR_HMAC_SECRET` to the production compose/env guidance with the
 minimum length and same-value-across-workers requirement.
+
+Slice 9 follow-up review (2026-05-20):
+
+`docs/architecture/server-sync.md` now names the env var, but the production
+compose service still omits it while setting `PROSA_RUNTIME_MODE=production`.
+Reviewer smoke:
+
+```text
+docker compose config --format json
+# API environment contains no PROSA_CURSOR_HMAC_SECRET
+```
+
+CQ-146 remains open until `docker-compose.yml` or the compose guidance provides
+an explicit `PROSA_CURSOR_HMAC_SECRET` path, preferably required via
+`${PROSA_CURSOR_HMAC_SECRET?...}` for production.
 
 Problem:
 
@@ -382,6 +420,8 @@ Acceptance:
       accepted by `registerV2Routes()`.
 - [ ] Test proves two route/plugin instances sharing the configured key accept
       each other's cursors, while a different key rejects them.
+- [ ] Docker Compose / production env guidance names `PROSA_CURSOR_HMAC_SECRET`
+      and prevents accidental production boot without it.
 - [ ] Documentation/evidence names the env var or derivation source and the
       minimum key length.
 
@@ -415,6 +455,29 @@ inline PGlite/applySchemaV2 smoke with duplicate logical session in two stores
 # summarySessions: 2, sessionsRows: 1,
 # tools.invocation_count: 2, models.message_count: 2
 ```
+
+Slice 9 closure attempt (2026-05-20; rejected):
+
+- `analyticsReportInput` is now strict, so unknown filter keys reject instead
+  of being silently dropped.
+- Summary/tools/errors/models now use a `picked_sessions` CTE for cross-store
+  distinct.
+- `cross-store-distinct.test.ts` pins summary, sessions, tools, and models
+  against a duplicate logical-session fixture.
+
+Governor rejection (2026-05-20):
+
+CQ-147 is not accepted. `tools` and `errors` reports can still count a
+superseded `projection_tool_result` row. The `EXISTS` subqueries only match
+`tenant_id`, `tool_call_id`, and `is_error`; they do not require
+`verifiedProjectionWhere('r')` or tuple-match `session_id`, `store_id`, and
+`receipt_id` to the current call. Reviewer smoke seeded a current successful
+tool call plus a stale error result with the same `tool_call_id`; tools returned
+`error_count: 1` and the errors report included a row.
+
+Route-level analytics acceptance is also still incomplete: strictness is tested
+at schema level, not at the `/v2/reads/analytics/report` HTTP boundary, and
+`/v2/reads/analytics/summary` auth/input behavior lacks route tests.
 
 Additional review notes:
 
@@ -452,6 +515,8 @@ Acceptance:
       sessions across current stores.
 - [ ] Route-level tests prove auth and invalid-input behavior for summary and
       report.
+- [ ] Tools/errors tests prove superseded or wrong-receipt
+      `projection_tool_result` rows cannot affect error counts or errors rows.
 - [ ] Tests document and pin any intentional difference from the local
       `packages/prosa-core` analytics report columns and timestamp semantics.
 

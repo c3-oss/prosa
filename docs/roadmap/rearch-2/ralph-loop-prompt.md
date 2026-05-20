@@ -54,31 +54,27 @@ Read `docs/roadmap/rearch-2/correction-queue.md` before the next slice.
   receipt-snapshot pagination, empty-cursor rejection, and HTTP-route
   `INVALID_CURSOR` coverage. Do not keep iterating on CQ-142 unless a fresh
   focused smoke command proves a new regression.
-- CQ-143 is open and blocks Lane 6 remote-read safety: promoted v2 stores must
-  not keep using legacy `/trpc/sessions.*` through `prosa sessions`. This is
-  required support work, not permission to implement full Lane 7. Safe default:
-  fail closed for promoted v2 session reads with `--local` guidance until Lane
-  7 wires `/v2/reads/*`. Closure requires command/client-boundary proof that
-  `prosa sessions`, `prosa sessions count`, and session detail/show do not call
-  `/trpc/sessions.*` for v2-promoted stores. The latest attempt proves
-  sessions/count but still needs a detail/show executable pin.
+- CQ-143 is closed and accepted by Codex/governor. `prosa sessions`,
+  `prosa sessions count`, and `prosa session show` fail closed for v2-promoted
+  stores with `--local` guidance and no legacy `/trpc/sessions.*` network path.
 - CQ-144 is closed and accepted by Codex/governor. `artifacts.getText` now
   returns one opaque `{ found: false }` shape for invisible projection, no
   grant, no object, and fetch/decode failure. Final Lane 6 acceptance still
   needs route-level artifacts evidence.
-- CQ-145 is open and blocks Lane 6 artifacts route acceptance: current
-  route-level WIP fixed the missing-artifact 500, but route tests still need to
-  cover missing receipt/object grant, missing bytes/fetch failure, valid small
-  UTF-8 text, and bounded large/binary behavior.
+- CQ-145 is closed and accepted by Codex/governor. Route-level
+  `artifacts.getText` evidence covers opaque miss paths, valid small UTF-8
+  text, and bounded >1 MiB binary behavior.
 - CQ-146 is open and blocks Lane 6 production readiness: signed cursor support
   now rejects random production cursor keys and accepts a configured
-  `PROSA_CURSOR_HMAC_SECRET`, but operational docs/compose must name the env
-  var, minimum length, and same-value-across-workers rule before closure.
+  `PROSA_CURSOR_HMAC_SECRET`, but `docker-compose.yml` still omits the secret
+  while setting `PROSA_RUNTIME_MODE=production`. Add the compose/env path; docs
+  alone are not enough.
 - CQ-147 is open and blocks L6.5/L6.6 analytics acceptance: unsupported
-  analytics filters are silently ignored, and summary/tools/errors/models can
-  double count duplicate logical sessions across current stores. Fix by
-  rejecting unsupported filters or implementing them, and apply deterministic
-  cross-store distinct consistently across analytics reports.
+  analytics filters now reject and cross-store distinct mostly landed, but
+  tools/errors can still count superseded `projection_tool_result` rows. Gate
+  result subqueries with `verifiedProjectionWhere('r')` and tuple-match
+  `session_id/store_id/receipt_id`, then add route-level analytics auth/input
+  tests.
 - CQ-141 is closed and accepted. Do not keep iterating on CQ-141 unless a fresh
   focused smoke command proves a new regression.
 - CQ-124 remains open for Lane 10: the full v1/v2 table-name cutover is not
