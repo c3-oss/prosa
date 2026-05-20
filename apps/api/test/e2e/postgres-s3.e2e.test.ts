@@ -48,6 +48,12 @@ describe.skipIf(!shouldRun)('e2e: prosa-api against real Postgres + S3 (MinIO)',
     }
 
     const config = loadConfig({
+      // CQ-140: the v2 plugin requires either a configured signer
+      // or runtimeMode != production. The v1 e2e doesn't carry a
+      // signer, so we run it in test mode so the in-process Ed25519
+      // signer is acceptable and `MissingV2SignerError` doesn't
+      // fire on boot.
+      PROSA_RUNTIME_MODE: 'test',
       PROSA_DATABASE_URL: PG_URL,
       PROSA_AUTH_SECRET: 'e2e-secret-1234567890abcdef',
       PROSA_API_URL: 'http://127.0.0.1:3000',
