@@ -72,6 +72,9 @@ The blocker is implementation work, not environment.
 - CQ-128: BeginPromotion staging idempotency is sequential only; concurrent
   same-tuple calls can create two active `promotion_staging` rows and two
   promotion ids.
+- CQ-129: UploadObjectPack WIP writes object-store metadata with canonical
+  `packDigest` instead of the BLAKE3 transport hash of the stored bytes, causing
+  valid pack uploads to fail storage verification.
 
 ## Supporting documents
 

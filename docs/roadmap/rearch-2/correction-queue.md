@@ -373,6 +373,75 @@ Acceptance:
 - [ ] Same `(tenant, store, bundleRoot)` with changed inventory refs is either
       rejected as conflict or returns the originally persisted inventory plan.
 
+### CQ-129: UploadObjectPack stores pack bytes with the wrong object-store hash
+
+Severity: high
+Blocking: yes (blocks Lane 5 object-pack upload acceptance)
+Status: open
+Owner: Ralph
+
+Problem:
+
+The slice 4 WIP correctly distinguishes the transport hash (BLAKE3 of bytes
+received on the wire) from the canonical CAS `packDigest` embedded in the pack
+header. However, the object-store write passes `packDigest` as the storage
+metadata hash. `RemoteObjectStore.putIfAbsent` verifies metadata hash against
+the actual bytes before storing, so a valid CAS pack whose `packDigest` differs
+from the transport hash fails storage verification and returns a route-level
+500 on the happy path.
+
+Risk:
+
+Object-pack uploads cannot accept valid packs, or a future bypass would store
+bytes under metadata that does not describe the stored bytes. This would violate
+CQ-012's separation of transport hash from canonical content identity and make
+object-store audit/verification unreliable.
+
+Smoke evidence:
+
+```text
+pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/sync/upload-object-pack.test.ts
+```
+
+Current WIP output:
+
+```text
+FAIL test/v2/sync/upload-object-pack.test.ts
+expected 500 to be 200
+```
+
+Direct pack hash smoke:
+
+```text
+pnpm --filter @c3-oss/prosa-api exec tsx --conditions=prosa-dev <<'TS'
+...buildCasPack(...); compare built.packDigest to blake3(built.bytes)...
+TS
+```
+
+Output:
+
+```json
+{"packDigest":"blake3:75fd62782100f5f29d3c05045633062f9dd35305ad53e3d220b2c2f0fbf18bc9","transportHash":"blake3:dd87284bea7e2630f8a3e0ac3b1ecfe8f00f72fd0b36fd8c94f0047647bf36b6","equal":false}
+```
+
+Required fix:
+
+- Use the observed transport hash (without the `blake3:` prefix) as the
+  object-store metadata `hash`.
+- Keep `remote_pack.pack_digest` and API response `packDigest` as the verified
+  canonical CAS pack digest.
+- Add assertions that object-store `head(storageKey).hash` equals the transport
+  hash while `remote_pack.pack_digest` equals the verified CAS pack digest.
+
+Acceptance:
+
+- [ ] Happy-path object-pack upload returns 200 and stores bytes successfully.
+- [ ] Test proves object-store metadata hash is the transport-byte hash, not the
+      canonical pack digest, when the two differ.
+- [ ] Re-upload remains idempotent with the same stored bytes/metadata.
+- [ ] Mismatched declared transport hash and mismatched declared pack digest
+      remain separate 400 failures.
+
 ## Closed during this cycle
 
 ### CQ-122: Streaming validation is header-only and does not satisfy the Lane 4 pack-validation gate
