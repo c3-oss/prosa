@@ -414,16 +414,24 @@ async function archiveLegacyV1Receipts(tx: RawExec, tenantId: string, storeId: s
   // When the table is missing we skip silently — the route still
   // works for environments that never persisted v1 receipts on the
   // server.
-  let rows: Array<{ receipt_id: string; payload: unknown; signature: unknown }>
-  try {
-    rows = await tx<{ receipt_id: string; payload: unknown; signature: unknown }>(
-      `SELECT receipt_id, payload, signature FROM legacy_v1_receipt
-        WHERE tenant_id = $1 AND store_id = $2`,
-      [tenantId, storeId],
-    )
-  } catch {
-    return []
-  }
+  // Probe `information_schema.tables` first: a failed SELECT
+  // inside the Postgres transaction would mark the whole tx as
+  // aborted and force every subsequent statement (including the
+  // receipt + projection inserts) to fail too. PGlite mirrors that
+  // behaviour.
+  const tableProbe = await tx<{ exists: boolean }>(
+    `SELECT EXISTS(
+       SELECT 1 FROM information_schema.tables
+        WHERE table_schema = current_schema() AND table_name = 'legacy_v1_receipt'
+     ) AS exists`,
+    [],
+  )
+  if (!tableProbe[0]?.exists) return []
+  const rows = await tx<{ receipt_id: string; payload: unknown; signature: unknown }>(
+    `SELECT receipt_id, payload, signature FROM legacy_v1_receipt
+      WHERE tenant_id = $1 AND store_id = $2`,
+    [tenantId, storeId],
+  )
   if (rows.length === 0) return []
   const archived: string[] = []
   for (const row of rows) {

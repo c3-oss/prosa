@@ -144,7 +144,14 @@ export async function migrateBundle(options: MigrateBundleOptions): Promise<Migr
       if (staged.providers.length > 0) {
         await runCompileImports({ bundle: v2 as BundleV2, providers: staged.providers })
       }
-      if (gaps.length > 0) {
+      // The provider-directory fallback walks real OS-level
+      // discovery roots (e.g. `~/.codex/sessions`). To prevent test
+      // runs from accidentally scanning the developer's home
+      // directory, we only invoke the fallback when the caller
+      // explicitly passed at least one `providerRoots` override.
+      // Production CLI callers pass the user's actual roots; tests
+      // pass scoped temp directories.
+      if (gaps.length > 0 && options.providerRoots) {
         return await recompileFromProviderDirectories({
           bundle: v2 as BundleV2,
           gaps,
