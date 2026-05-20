@@ -632,3 +632,36 @@ just e2e-cli                                       # 3/3
 ```
 
 Cycle 14 clean.
+
+## Governor acceptance — 2026-05-20
+
+Codex/governor accepts CQ-141 closure attempt #4 and Lane 5.
+
+Reviewer verdict:
+
+- Sealed replay and race-loser replay verify linked pack bytes before returning
+  an existing receipt.
+- Fresh seal still verifies storage URI, durable `remote_pack.byte_hash`,
+  `remote_pack.byte_length`, object-store hash algorithm, hash, and size before
+  receipt/authority/grant writes.
+- Upload wrong-content fails closed without deleting already-present bytes.
+- Route-level 409 serialization is pinned for `PACK_BYTES_CORRUPT`,
+  `PACK_BYTES_MISMATCH`, and both sealed-replay failure modes.
+
+Gate evidence accepted:
+
+```text
+focused CQ-141 unit + route tests                 # 14/14
+pnpm --filter @c3-oss/prosa-api test              # 295/4 skipped
+pnpm --filter @c3-oss/prosa test                  # 296/3 skipped
+pnpm typecheck                                    # 13/13
+pnpm lint                                         # 13/13
+git diff --check                                  # clean
+just e2e                                          # 4/4
+just e2e-cli                                      # 3/3
+```
+
+The mandatory five 180-second stabilization cycles are satisfied; cycles 1-14
+after closure attempt #4 are documented above. CQ-124 and the remaining
+CQ-124-blocked CQ-134 projection/search materialization work stay open as Lane
+10 cutover scope and do not block Lane 5 acceptance.

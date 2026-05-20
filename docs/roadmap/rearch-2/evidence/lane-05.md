@@ -1381,3 +1381,8 @@ git diff --check    # clean
 just e2e            # 4/4
 just e2e-cli        # 3/3
 ```
+
+Governor acceptance (2026-05-20): CQ-141 closure attempt #4 is accepted.
+Together with the previously closed Lane 5 CQs, L5.1-L5.9 are accepted. Lane 5
+is complete with CQ-124 and the remaining CQ-124-blocked CQ-134
+projection/search materialization explicitly deferred to Lane 10 cutover.

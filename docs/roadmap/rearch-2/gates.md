@@ -82,14 +82,15 @@ Lane 5 Sync protocol is functionally complete; the gate checklist is:
 
 - [x] L5.1 — `POST /v2/promotions/begin` implements the no-op fast path and
   staging path without widening tenant scope. (CQ-125, CQ-128.)
-- [ ] L5.2 — Inventory and object-pack uploads validate transport hashes
+- [x] L5.2 — Inventory and object-pack uploads validate transport hashes
   separately from canonical BLAKE3 object identity and abort/cleanup on
-  failure. (CQ-129, CQ-130, CQ-132 accepted; CQ-141 reopened.)
-- [ ] L5.3 — `SealPromotion` performs the load-bearing authority swap
+  failure. (CQ-129, CQ-130, CQ-132 accepted; CQ-141 accepted after closure
+  attempt #4.)
+- [x] L5.3 — `SealPromotion` performs the load-bearing authority swap
   transactionally: receipt insert, `remote_authority_v2`,
   `search_generation_current`, `receipt_pack_grant`, and sealed staging
-  status. (Slice 5 + CQ-135 + CQ-136 + CQ-137 accepted; CQ-141 reopened for
-  pack-byte metadata proof before authority grant.)
+  status. (Slice 5 + CQ-135 + CQ-136 + CQ-137 accepted; CQ-141 accepted for
+  pack-byte metadata proof before authority grant and sealed replay.)
 - [x] L5.4 — `GET /v2/receipts/:receiptId` is device-scoped (CQ-127) and
   verifies against JWKS (CQ-138 server side + CQ-123 + CQ-138 client side).
 - [x] L5.5 — `prosa sync-v2` promotes a fresh bundle, resumes after
@@ -114,16 +115,15 @@ CQ-124-blocked portions of CQ-134 (projection / search materialization).
 These are NOT Lane 5 scope per the initial plan — Lane 5 uses the
 `applyV2PromotionSubsetSchema` workaround.
 
-Governor rejection after Ralph finalization (2026-05-20): L5.2 and L5.3 are
-not accepted while CQ-141 remains open. Closure attempt #4 landed on
-2026-05-20 and is awaiting governor review. In addition to closure attempt
-#3 (durable `remote_pack.byte_hash` + seal hash/algorithm/length verification
-+ non-destructive upload), attempt #4 makes the `status='sealed'` and
-race-loser replay branches re-run linked-pack byte verification before
-returning the existing receipt, and adds route-level (Fastify HTTP
-injection) evidence for 409 `PACK_BYTES_CORRUPT`, 409 `PACK_BYTES_MISMATCH`,
-and both sealed-replay failure modes. Pinned by 14 focused cases
-across
+Governor acceptance after Ralph finalization (2026-05-20): L5.2 and L5.3 are
+accepted. Closure attempt #4 was reviewed and accepted by Codex/governor. In
+addition to closure attempt #3 (durable `remote_pack.byte_hash` + seal
+hash/algorithm/length verification + non-destructive upload), attempt #4 makes
+the `status='sealed'` and race-loser replay branches re-run linked-pack byte
+verification before returning the existing receipt, and adds route-level
+(Fastify HTTP injection) evidence for 409 `PACK_BYTES_CORRUPT`, 409
+`PACK_BYTES_MISMATCH`, and both sealed-replay failure modes. Pinned by 14
+focused cases across
 `apps/api/test/v2/sync/cq-141-wrong-metadata-and-seal-presence.test.ts`
 (10 unit) and
 `apps/api/test/v2/sync/cq-141-route-409-and-sealed-replay.test.ts`
@@ -140,6 +140,34 @@ git diff --check                       # clean
 just e2e                               # 4/4 with Docker up
 just e2e-cli                           # 3/3 with Docker up
 ```
+
+Lane 5 is accepted by Codex/governor on 2026-05-20. CQ-124 and the remaining
+CQ-124-blocked CQ-134 projection/search materialization work remain Lane 10
+scope and are not silently accepted here.
+
+## Lane 6 completion gates
+
+Lane 6 Read API is the next active milestone. Initial gate checklist:
+
+- [ ] L6.1 — `GET /v2/stores/:storeId/authority` returns
+  `unchanged | updated | gone_or_forbidden`, verifies tenant/store authority,
+  and pins the 30 s cache TTL behavior.
+- [ ] L6.2 — Sessions list/count/detail/transcript reads are receipt-pinned,
+  tenant scoped, cursor-stable, and fail closed for unverified rows.
+- [ ] L6.3 — Search query uses Postgres FTS with role/tool/type/error filters,
+  snippets, stable cursors, and verified-authority gating.
+- [ ] L6.4 — Tool-calls list and artifacts.getText enforce verified projection
+  plus receipt/object grants; large/binary artifact behavior is bounded.
+- [ ] L6.5 — Analytics summary/report expose the fixed report contracts from
+  Lane 3-equivalent shapes without widening tenant scope.
+- [ ] L6.6 — Cross-store aggregation returns one row per logical session using
+  deterministic conflict resolution.
+- [ ] L6.7 — No read path bypasses the shared verified-projection/authority
+  gate; lint/integration tests pin the rule.
+- [ ] L6.8 — Performance evidence records p95 targets for sessions list,
+  search, transcript first page, and artifacts.getText.
+- [ ] L6.9 — `pnpm --filter @c3-oss/prosa-api test`, `pnpm typecheck`,
+  `pnpm lint`, and `git diff --check` are clean.
 
 ## Known historical notes
 

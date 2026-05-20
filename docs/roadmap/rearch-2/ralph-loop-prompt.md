@@ -1,220 +1,159 @@
-# Ralph Loop: rearch-2 Lane 5 sync protocol
+# Ralph Loop: rearch-2 Lane 6 read API
 
 ## Mission
 
-Continue `rearch-2` after accepted Lane 4 Server closeout. The next core milestone is
-**Lane 5 Sync protocol: BeginPromotion -> Upload -> Seal -> GetReceipt, plus
-CLI sync-v2 and Docker-backed E2E evidence**.
+Continue `rearch-2` after accepted Lane 5 Sync protocol closeout. The next
+core milestone is **Lane 6 Read API: receipt-pinned remote reads for authority,
+sessions, search, tool calls, artifacts, and analytics**.
 
-Lane 4 is accepted by Codex/governor. Start Lane 5; do not start Lane 6 or any
-read/CLI/MCP expansion outside the sync protocol.
+Lane 5 is accepted by Codex/governor on 2026-05-20. Do not reopen Lane 5 unless
+a fresh smoke command proves a regression that blocks Lane 6. Do not start Lane
+7 CLI/MCP read surfaces, Lane 8 audit/GC, or Lane 10 schema cutover work.
 
 ## Read first
 
 1. `AGENTS.md`
 2. `docs/rearch-2/00-README.md`
-3. `docs/rearch-2/05-lane-4-server.md`
-4. `docs/rearch-2/06-lane-5-sync-protocol.md`
-5. `docs/architecture/server-sync.md`
+3. `docs/rearch-2/07-lane-6-read-api.md`
+4. `docs/architecture/server-sync.md`
+5. `docs/architecture/search-engines.md`
 6. `docs/roadmap/rearch-2/status.md`
 7. `docs/roadmap/rearch-2/correction-queue.md`
 8. `docs/roadmap/rearch-2/gates.md`
-9. `docs/roadmap/rearch-2/evidence/lane-04.md`
-10. `docs/roadmap/rearch-2/evidence/lane-05.md`
+9. `docs/roadmap/rearch-2/evidence/lane-05.md`
+10. `docs/roadmap/rearch-2/evidence/stabilization-lane-05.md`
+11. `docs/roadmap/rearch-2/evidence/lane-06.md`
 
 ## Current milestone
 
-Lane 5 Sync protocol.
+Lane 6 Read API.
 
 Classify all new work against that milestone:
 
-- Core milestone work: server endpoints under `apps/api/src/v2/sync/`,
-  inventory upload handling, object-pack upload handling using the Lane 4
-  validator, transactional `SealPromotion`, `GET /v2/receipts/:receiptId`,
-  `apps/cli/src/cli/v2/sync/`, `prosa sync-v2`, resume/no-op behavior, and
-  Docker-backed E2E.
-- Required support work: protocol fixtures, inventory builders, focused
-  route/transaction tests, idempotency helpers, local object-store/MinIO harness
-  glue, signer/JWKS test helpers, and evidence updates directly validating Lane
-  5 gates.
-- Premature/later-lane surface: Lane 6 read API expansion, Lane 7 CLI/MCP read
-  surfaces, Lane 8 audit/GC implementation beyond the Lane 4 cron skeleton,
-  dashboards, broad diagnostics, migration/cutover work, or any read-side
-  feature that does not directly validate the promotion protocol.
+- Core milestone work: `GET /v2/stores/:storeId/authority`,
+  `/v2/reads/*` server handlers, shared verified-projection/authority gating,
+  sessions list/count/detail/transcript, Postgres FTS search, tool-calls list,
+  artifacts.getText, analytics summary/report, cursor encoding, cross-store
+  conflict resolution, cache/performance evidence, and focused read-route tests.
+- Required support work: read fixtures, tenant/store/receipt/projection/search
+  row builders, cache test helpers, SQL helpers, bounded byte fixtures, and
+  evidence updates that directly validate Lane 6 gates.
+- Premature/later-lane surface: Lane 7 CLI/MCP consumers, web console pages,
+  broad dashboards, Lane 8 audit/GC implementation, Lane 10 v1/v2 schema
+  cutover/renames, or pure diagnostics that do not directly validate a Lane 6
+  read route.
 
-If three consecutive commits are support or premature surface without core Lane
-5 progress, stop and redirect to the promotion protocol.
+If three consecutive commits are support or later-lane surface without core
+Lane 6 progress, stop and redirect to the read API.
 
-## Current blocking corrections
+## Current corrections and deferrals
 
 Read `docs/roadmap/rearch-2/correction-queue.md` before the next slice.
 
-- CQ-123 blocks Lane 5 acceptance: Better Auth mixed-case tenant ids do not
-  satisfy the current v2 receipt/wire schemas, so client-side receipt parsing
-  and I5 verification cannot pass end-to-end.
-- CQ-124 blocks Lane 5 seal/materialization acceptance: v1 and v2 schemas share
-  incompatible table names, so full v2 schema boot/materialization cannot be
-  validated on the current shared public schema. It does not block independent
-  BeginPromotion/upload slices, but it must be resolved before slice 3 seal
-  acceptance.
-- CQ-125 blocks Lane 5 BeginPromotion acceptance: the no-op fast path must fail
-  closed when `remote_authority_v2` points to a missing, malformed, or mismatched
-  receipt, and valid `already_promoted` replies must prove the receipt matches
-  the requested authority tuple.
-- CQ-126 blocks Lane 5 production/Docker E2E acceptance: server boot must apply
-  or verify the conflict-free v2 promotion tables before registering usable v2
-  promotion routes.
-- CQ-127 blocks Lane 5 authorization acceptance: BeginPromotion must verify
-  device ownership/policy and must not return another device's receipt by only
-  proving tenant membership.
-- CQ-128 blocks Lane 5 retry/resume and upload/seal acceptance: concurrent
-  `BeginPromotion` calls for the same active tuple must be atomic and return a
-  single promotion id / staging row.
-- CQ-129 blocks Lane 5 object-pack upload acceptance: object-store metadata must
-  use the transport-byte hash, while `remote_pack.pack_digest` remains the
-  canonical CAS pack digest.
-- CQ-130 blocks Lane 5 upload-segment acceptance: missing
-  `x-prosa-transport-hash` must reject, not accept, on segment and object-pack
-  uploads.
-- CQ-131 blocks Lane 5 seal/upload phase acceptance: uploads must reject once
-  staging is `materializing`.
-- CQ-132 blocks Lane 5 object-pack cleanup acceptance: bytes written before a
-  catalog failure must be deleted or explicitly queued for cleanup.
-- CQ-133 blocks Lane 5 seal grant correctness: uploaded object packs must be
-  durably linked to the promotion that uploaded or claimed them.
-- CQ-134 blocks Lane 5 seal acceptance: do not emit authority receipts until
-  object coverage, projection rows, and search docs are proven or seal fails
-  closed.
-- CQ-135 blocks Lane 5 retry/resume acceptance: signer/transaction failure after
-  seal status flip must not strand staging in `materializing`.
-- CQ-136 blocks Lane 5 idempotency: re-sealing an old promotion must return that
-  promotion's receipt, not current store authority.
-- CQ-137 blocks Lane 5 search authority: `search_generation_current` scope must
-  align with store-scoped remote authority.
-- CQ-138 blocks Lane 5 GetReceipt/CLI acceptance: `GET /v2/receipts/:receiptId`
-  and `prosa sync-v2` must not accept unvalidated, tuple-mismatched, or
-  wrongly signed same-tenant receipts as authority.
-- CQ-139 blocks Lane 5 CLI acceptance: `prosa sync-v2` must not require bearer
-  tokens in argv for the normal command path.
-- CQ-140 blocks Lane 5 Docker E2E acceptance: the documented `just e2e` recipe
-  must be green and the evidence must distinguish route-level Postgres/S3 E2E
-  from the still-required command-level `prosa sync-v2` gate.
-- CQ-141 is reopened and blocks Lane 5 object-pack / seal acceptance:
-  `SealPromotion` must compare linked pack object-store metadata against
-  durable expected pack-byte metadata before authority grant, and
-  `UploadObjectPack` wrong-content repair must not delete existing bytes before
-  replacement is guaranteed. Fix the wrong-nonzero-metadata seal case and the
-  injected repair-failure case before claiming Lane 5 clean.
+- CQ-141 is closed and accepted. Do not keep iterating on CQ-141 unless a fresh
+  focused smoke command proves a new regression.
+- CQ-124 remains open for Lane 10: the full v1/v2 table-name cutover is not
+  Lane 6 scope. Do not rename or namespace the whole v2 schema unless you first
+  prove a direct Lane 6 blocker with a smoke command and ask Codex/governor for
+  a binary decision. Safe default: do not start Lane 10 cutover.
+- CQ-134 object-pack byte coverage is closed for Lane 5 through CQ-141. The
+  projection/search materialization sub-bullets remain blocked on CQ-124 and
+  Lane 10. Lane 6 reads may expose only rows that already exist and pass the
+  verified-authority gate; do not fake materialized rows.
 
-## Governor restart note — 2026-05-20
+Existing `apps/api/src/trpc/routers/reads/*` code is not accepted as Lane 6 by
+itself. Inventory it, adapt or replace it as needed, and prove the Lane 6
+contract with the tests below.
 
-Codex/governor rejected the Lane 5 completion claim. Do not output
-`RALPH_DONE`. The five recorded stabilization cycles are invalidated because
-CQ-141 is open and L5.2/L5.3 are unchecked again.
+## Lane 6 invariants
 
-Next slice classification: **core Lane 5 milestone work**.
-
-Required work before another completion attempt:
-
-- Fix CQ-141 without destructive repair: wrong-content upload replay must either
-  atomically replace bytes or fail closed without deleting already-present
-  bytes.
-- Persist or derive expected pack transport metadata and make `SealPromotion`
-  fail closed when a linked pack's object-store `head()` has wrong nonzero
-  hash/size, before any receipt/authority/grant writes.
-- Do not treat `remote_pack.byte_hash IS NULL` as sufficient evidence for seal.
-  Seal must fail closed when expected transport hash metadata is absent, unless
-  it derives and verifies that expected hash before authority grant.
-- Require `objectStore.head(...).hashAlgorithm === 'blake3'`; wrong algorithm
-  must fail closed even if the hash string and size happen to match.
-- Add focused tests for wrong nonzero seal metadata, null-byte_hash same-size
-  wrong bytes, wrong hash algorithm, and injected repair failure.
-- Also fix sealed replay: the `status='sealed'` branch must not return an
-  existing receipt before proving linked pack bytes still satisfy CQ-141, or it
-  must fail closed/quarantine when that proof cannot be made.
-- Add route-level tests for the new 409 surfaces:
-  `PACK_BYTES_CORRUPT` on object-pack wrong-content fast path and
-  `PACK_BYTES_MISMATCH` on seal wrong metadata.
-- Re-run focused CQ-141 tests plus `pnpm --filter @c3-oss/prosa-api test`,
-  `pnpm lint`, `pnpm typecheck`, `git diff --check`, and Docker object-store
-  evidence before starting a fresh five-cycle stabilization.
-
-## Lane 5 invariants
-
-- Sync direction is one-way: local bundle to remote server.
-- The server is an authoritative replica of promoted data; it must not derive
-  canonical rows the client did not promote.
-- Object identity is canonical BLAKE3 over original bytes; transport hash is
-  separate and must be verified independently.
-- Tenant membership, device ownership, and object routes share authorization
-  semantics. Never widen queries past tenant/device scope.
-- `verifyPromotion` is the cleanup gate and must prove declared objects, source
-  files, raw records, sessions, and search docs before any receipt is accepted.
-- Seal is the only authority-swap path. No code except the seal implementation
-  may write `remote_authority_v2`, `search_generation_current`, or
-  `receipt_pack_grant`.
-- Orphan uploaded bytes must be cleaned up or aborted when catalog/materialization
-  fails.
+- Reads are remote-authoritative: the server returns only data already promoted
+  to and verified by the server.
+- Every read is tenant scoped. Never trust a client-supplied tenant/store id
+  without auth-context membership.
+- Every projection/search read is receipt pinned. Rows without current
+  `remote_authority_v2` coverage for the tenant/store are invisible.
+- Authority refresh returns only the caller's store authority and uses a 30 s
+  in-process cache without bypassing tenant scope.
+- Cursors are opaque base64url JSON over stable sort tuples, not offsets.
+- Search uses Postgres FTS and preserves filters for role, tool name,
+  canonical tool type, errors-only, session, and time bounds.
+- Artifact reads verify projection authority and object/pack grants before
+  returning bytes. Large or binary content must be bounded/fail closed.
+- Query-time cross-store aggregation returns one row per logical session with
+  deterministic conflict resolution.
 
 ## Implementation order
 
 Work in committed slices with focused evidence:
 
-1. Server `BeginPromotion` route: validate `BundleHeadV2`, resolve tenant/device,
-   implement already-promoted no-op fast path, open staging, and return missing
-   inventory/object requirements.
-2. Inventory and object uploads: stream validate bytes, verify transport hash
-   separately from canonical object identity, persist missing objects, and keep
-   uploads idempotent.
-3. `SealPromotion`: verify all declared segments/objects/materialized rows,
-   materialize projection/search docs, sign a receipt, and perform the authority
-   swap in one Postgres transaction.
-4. `GET /v2/receipts/:receiptId`: tenant-scoped receipt fetch that validates
-   request id, row/payload tuple, shared receipt schema, and JWKS signature;
-   return 404 for wrong tenant and fail closed for corrupt same-tenant rows.
-5. CLI `prosa sync-v2`: build inventories, upload missing data, seal, persist
-   receipt/checkpoint state only after schema/JWKS/tuple validation, support
-   retry/resume, `--no-resume`, `--dry-run`, `--json`, safe token sourcing, and
-   useful failure output.
-6. Docker-backed E2E: API + Postgres + object storage + CLI sync + second device
-   remote read.
+1. Authority refresh endpoint and cache TTL tests.
+2. Shared verified-projection/authority helper plus fail-closed integration
+   tests.
+3. Sessions list/count/detail with stable filters and cursors.
+4. Sessions transcript pagination with bounded inline text.
+5. Search query with FTS, snippets, filters, and cursors.
+6. Tool-calls list and artifacts.getText.
+7. Analytics summary/report and cross-store distinct aggregation.
+8. Performance/cache smoke evidence and final gate cleanup.
+
+## Required tests
+
+Create or update the Lane 6 tests under `apps/api/test/v2/reads/`:
+
+- `authority-refresh.test.ts`
+- `verified-projection-gate.test.ts`
+- `sessions-list.test.ts`
+- `search-fts.test.ts`
+- `transcript-pagination.test.ts`
+- `artifacts-get-text.test.ts`
+- `analytics-report.test.ts`
+- `cross-store-distinct.test.ts`
+- lint/integration coverage proving no read path bypasses the shared gate.
 
 ## Blocker verification
 
-Any blocker claim about Docker, Postgres, object storage, KMS/signing, native
-dependencies, package manager policy, or missing APIs must include a direct
-smoke command and exact output before rerouting.
+Any blocker claim about Docker, Postgres, object storage, native dependencies,
+package-manager policy, missing projection rows, FTS support, or schema
+conflicts must include a direct smoke command and exact output before rerouting.
 
 If the blocker is architectural, ask one explicit binary question with a safe
 default. Do not spin on vague external acceptance.
 
 ## Gates
 
-Lane 5 is not accepted until these are green and recorded in
-`docs/roadmap/rearch-2/evidence/lane-05.md`:
+Lane 6 is not accepted until these are green and recorded in
+`docs/roadmap/rearch-2/evidence/lane-06.md`:
 
 ```text
 pnpm --filter @c3-oss/prosa-api test
-pnpm --filter @c3-oss/prosa test
 pnpm typecheck
 pnpm lint
 git diff --check
 ```
 
-Required smoke/E2E evidence:
+Required Lane 6 evidence:
 
-- Fresh `prosa sync-v2` promotion succeeds against Docker-backed API/Postgres/
-  object storage.
-- Re-promoting the same bundle uses the no-op fast path and completes in under
-  2 seconds.
-- Resume after interruption does not re-upload already-staged bytes.
-- `prosa sync-v2 --no-resume` ignores checkpoint state and still succeeds.
-- Receipt verifies against JWKS.
-- A second device can read the promoted remote data.
-- Invariants I1, I2, I3, I4, and I5 pass for the promotion path.
+- Authority refresh returns `unchanged | updated | gone_or_forbidden` and the
+  30 s cache produces one Postgres query per `(tenant, store)` per TTL window.
+- Verified-projection gate enforced: a projection/search row without current
+  authority is invisible.
+- Sessions list/count/detail/transcript are tenant scoped, cursor-stable, and
+  receipt pinned.
+- Search query supports the required filters and snippets via Postgres FTS.
+- Tool-calls list and artifacts.getText enforce verified projection plus
+  receipt/object grants.
+- Analytics summary/report return the fixed contract shapes.
+- Cross-store conflict resolution returns one row per logical session.
+- p95 latency evidence under fixture load:
+  - sessions/list < 200 ms
+  - search/query < 200 ms
+  - sessions/transcript first page < 500 ms for a typical session
+  - artifacts/getText for 1 MiB < 1 s
 
 ## Completion rule
 
-Do not output `RALPH_DONE` unless all gates/evidence/CQs are clean and five
-consecutive 180-second stabilization cycles for Lane 5 are documented. If Lane 5
-reaches its gate, stop for Codex/governor acceptance before starting Lane 6.
+Do not output `RALPH_DONE` unless all Lane 6 gates/evidence/CQs are clean and
+five consecutive 180-second stabilization cycles for Lane 6 are documented. If
+Lane 6 reaches its gate, stop for Codex/governor acceptance before starting
+Lane 7.

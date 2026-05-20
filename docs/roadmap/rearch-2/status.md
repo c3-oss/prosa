@@ -1,6 +1,6 @@
 # rearch-2 Current Status
 
-Updated: 2026-05-20 after Lane 5 CQ batch validation.
+Updated: 2026-05-20 after Lane 5 governor acceptance and Lane 6 prep.
 
 ## Summary
 
@@ -10,23 +10,28 @@ Updated: 2026-05-20 after Lane 5 CQ batch validation.
 - Lane 3 Derived layer: **accepted** after five documented 180-second
   stabilization cycles.
 - Lane 4 Server: **accepted** by Codex/governor on 2026-05-20.
-- Lane 5 Sync protocol: **next active milestone**.
-- Lanes 6–10: **not started**.
+- Lane 5 Sync protocol: **accepted** by Codex/governor on 2026-05-20.
+- Lane 6 Read API: **next active milestone**.
+- Lanes 7–10: **not started**.
 
-## Current Lane 5 focus
+## Current Lane 6 focus
 
-Lane 4 final gates are green and CQ-119, CQ-120, CQ-121, and CQ-122 are closed.
-Codex/governor accepts Lane 4 after the user explicitly waived the remaining
-fresh stabilization wait on 2026-05-20. Lane 5 is now the active milestone.
+Lane 5 final gates are green. CQ-141 closure attempt #4 is accepted by
+Codex/governor after the focused replay/route reviewer passed the integrity
+checks. Five or more fresh 180-second stabilization cycles are documented in
+`evidence/stabilization-lane-05.md`; the loop continued through cycle 14 while
+awaiting governor acceptance.
 
 Current explicit milestone:
 
-1. Implement the Lane 5 four-call promotion protocol.
-2. Add CLI `prosa sync-v2`, resume/no-op behavior, and receipt verification.
-3. Collect Docker-backed E2E evidence before Lane 5 acceptance.
+1. Implement the Lane 6 receipt-pinned remote read API from
+   `docs/rearch-2/07-lane-6-read-api.md`.
+2. Gate every read on verified current authority for the tenant/store.
+3. Add focused read-route tests plus performance/cache evidence before Lane 6
+   acceptance.
 
-Do **not** add more pure-read/audit/CLI surfaces unless they directly unblock
-the Lane 5 promotion protocol or validate a Lane 5 gate.
+Do **not** add Lane 7 CLI/MCP read surfaces, broad dashboards, or audit/GC
+implementation unless they directly validate the Lane 6 API contract.
 
 ## Lane 4 Server scope
 
@@ -36,9 +41,14 @@ Lane 4 scope is limited to the server foundation from
 server receipt signing/JWKS, bounded streaming pack validation, cron/advisory
 lock skeleton, and v2 promotion route definitions that return 501.
 
-Lane 5 scope is the four-call promotion protocol: `BeginPromotion` -> upload
+Lane 5 scope was the four-call promotion protocol: `BeginPromotion` -> upload
 inventory/object packs -> `SealPromotion` -> `GetReceipt`, plus CLI `sync-v2`,
 resume/no-op behavior, receipt verification, and Docker-backed E2E evidence.
+
+Lane 6 scope is the receipt-pinned read API: authority refresh, sessions
+list/count/detail/transcript, search, tool calls, artifacts.getText, analytics,
+cursor stability, query-time cross-store aggregation, cache TTL evidence, and
+verified-projection gates.
 
 ## Important correction
 
@@ -51,9 +61,9 @@ The blocker is implementation work, not environment.
 
 ## Open blockers
 
-Only CQs that remain BLOCKING for Lane 5 acceptance. Closed CQs are
-summarized under "Closed this cycle" below; the full closure detail
-lives in `docs/roadmap/rearch-2/correction-queue.md`.
+Only CQs that remain BLOCKING for future acceptance. Closed CQs are summarized
+under "Closed this cycle" below; the full closure detail lives in
+`docs/roadmap/rearch-2/correction-queue.md`.
 
 - CQ-124: v1 and v2 schemas share table names with incompatible
   columns. The conflict-free subset is now centralized behind
@@ -61,24 +71,14 @@ lives in `docs/roadmap/rearch-2/correction-queue.md`.
   test entry point), but the underlying v1/v2 cutover is deferred to
   Lane 10 — CQ-124 acceptance (full `applySchemaV2` over v1, projection
   / search materialization) remains open until that cutover lands.
-  Lane 5 acceptance proceeds with the subset workaround documented.
+  Lane 5 is accepted with the subset workaround documented. Full acceptance of
+  CQ-124 remains Lane 10 scope and must not be silently folded into Lane 6.
 - CQ-134: SealPromotion can emit receipt/authority before proving object
   coverage by object id, projection rows, and search docs. The
-  pack-byte-presence sub-bullet is not fully closed because CQ-141 is
-  reopened; the projection / search materialization sub-bullets are blocked on
-  CQ-124 and remain Lane 6 / Lane 10 scope unless the governor explicitly
-  accepts that deferral.
-- CQ-141: closure attempt #4 landed 2026-05-20; awaiting governor review.
-  Closure attempt #3 fixed the durable byte_hash + seal hash/algorithm/length
-  verification + non-destructive upload (10 cases in
-  `cq-141-wrong-metadata-and-seal-presence.test.ts`). Closure attempt #4
-  closes the two remaining governor-flagged gaps: the `status='sealed'` and
-  race-loser replay branches now re-run linked-pack byte verification before
-  returning the existing receipt (shared `verifyLinkedPackBytes()` helper),
-  and route-level 409 mapping is pinned by 4 Fastify-injection cases in
-  `cq-141-route-409-and-sealed-replay.test.ts` covering 409
-  `PACK_BYTES_CORRUPT`, 409 `PACK_BYTES_MISMATCH`, and both sealed-replay
-  failure modes.
+  pack-byte-presence sub-bullet is closed by accepted CQ-141. The projection /
+  search materialization sub-bullets are blocked on CQ-124 and remain Lane 10
+  cutover scope. Lane 6 reads may only expose rows that already exist and are
+  proven by current authority; they must not fake materialization.
 
 ## Closed this cycle
 
@@ -95,10 +95,12 @@ All closed on 2026-05-20 — see `correction-queue.md` for full detail:
 - **CQ-136** (both sealed-replay branches go through `loadAndValidateLinkedReceipt`).
 - **CQ-137** (store-scoped `search_generation_current` + idempotent legacy migration).
 - **CQ-138** (CLI `promoteBundleV2` schema + deriveReceiptId + JWKS verify every receipt).
-- **CQ-141** rejected after review; previous closure attempt covered missing
-  bytes but not wrong nonzero seal metadata or destructive repair failure.
-  Closure attempt #3 fixes those fresh/unsealed paths but remains rejected
-  pending sealed-replay byte verification and route-level 409 tests.
+- **CQ-141** accepted by Codex/governor after closure attempt #4. Attempt #3
+  fixed durable `remote_pack.byte_hash`, seal hash/algorithm/length
+  verification, and non-destructive upload repair. Attempt #4 fixed sealed
+  replay and race-loser replay by re-running linked-pack byte verification
+  before returning an existing receipt, and added route-level 409 tests for
+  `PACK_BYTES_CORRUPT`, `PACK_BYTES_MISMATCH`, and both replay failure modes.
 - **CQ-140** (`just e2e` + `just e2e-cli` both green; CLI subprocess harness in
   `apps/cli/test/cli/sync-v2-e2e.test.ts` covers `prosa sync-v2` over HTTP
   fetch + JWKS verify + second-device 404).
@@ -111,8 +113,8 @@ All closed on 2026-05-20 — see `correction-queue.md` for full detail:
   all pass).
 - `pnpm --filter @c3-oss/prosa test` runs the CLI suite green: 295
   passed / 1 skipped.
-- `pnpm typecheck` + `pnpm lint` repo-wide were reported clean by Ralph, but
-  Lane 5 acceptance is rejected while CQ-141 remains open.
+- `pnpm typecheck` + `pnpm lint` repo-wide were reported clean by Ralph and
+  reviewer. Lane 5 acceptance is complete.
 - `just e2e` (Docker harness up) → pass, 4/4 (1 v1 + 3 v2 route-level).
   `just e2e-cli` → pass, 3/3 (1 v1 two-device + 2 v2 CLI subprocess +
   second-device read). Fresh no-env runs skip the e2e blocks (skip ≠
@@ -126,8 +128,9 @@ All closed on 2026-05-20 — see `correction-queue.md` for full detail:
 - CQ-129, CQ-130, CQ-131, CQ-139 accepted by the governor on
   2026-05-20.
 - CQ-140 is closed (route-level + CLI subprocess gates both green).
-  Remaining acceptance blockers are CQ-141 plus the unresolved CQ-124/CQ-134
-  materialization deferral decision. `RALPH_DONE` is not accepted.
+- CQ-124 and CQ-134 materialization remain explicit Lane 10 deferrals, not
+  Lane 5 blockers. `RALPH_DONE` for Lane 5 may be accepted; the next prompt
+  starts Lane 6.
 
 ## Supporting documents
 

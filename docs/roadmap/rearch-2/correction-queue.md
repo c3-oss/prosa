@@ -1892,8 +1892,19 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 5 object-pack integrity and seal acceptance)
-Status: closure attempt #4 (2026-05-20); awaiting governor review
+Status: closed (2026-05-20); closure attempt #4 accepted by Codex/governor
 Owner: Ralph
+
+Governor acceptance (2026-05-20): closure attempt #4 is accepted for Lane 5.
+The replay/route reviewer confirmed that sealed replay and race-loser replay
+both verify linked pack bytes before returning an existing receipt; the upload
+wrong-content fast path fails closed without deleting stored bytes; fresh seal
+still checks storage URI, durable byte hash, byte length, object-store
+hashAlgorithm/hash/size before receipt/authority/grant; and route-level 409
+serialization is pinned for `PACK_BYTES_CORRUPT`, `PACK_BYTES_MISMATCH`, and
+sealed-replay failure modes. Evidence: focused CQ-141 unit+route tests 14/14,
+full API test suite 295/4 skipped, `pnpm typecheck`, `pnpm lint`, and
+`git diff --check` clean.
 
 Closure attempt 4 (2026-05-20): addresses the two governor-flagged
 gaps left by closure attempt 3.
@@ -2208,31 +2219,31 @@ Required fix:
 
 Acceptance:
 
-- [ ] Test seeds `remote_pack`/`remote_pack_entry` without object-store bytes,
+- [x] Test seeds `remote_pack`/`remote_pack_entry` without object-store bytes,
       POSTs the valid pack, and proves either repair/write or fail-closed
       behavior.
-- [ ] Test proves the route does not link a catalog-only missing-byte pack to
+- [x] Test proves the route does not link a catalog-only missing-byte pack to
       `promotion_uploaded_pack` unless bytes are repaired and verified.
-- [ ] Test proves an existing storage key with wrong hash/size fails closed or
+- [x] Test proves an existing storage key with wrong hash/size fails closed or
       is repaired before linking.
-- [ ] Test injects repair failure after detecting wrong-content storage state
+- [x] Test injects repair failure after detecting wrong-content storage state
       and proves no catalog-only state is created and no already-granted bytes
       are destroyed.
-- [ ] Seal test proves a linked pack with missing object-store bytes cannot be
+- [x] Seal test proves a linked pack with missing object-store bytes cannot be
       granted in a cleanup-authorizing receipt.
-- [ ] Seal test proves a linked pack with wrong nonzero object-store hash/size
+- [x] Seal test proves a linked pack with wrong nonzero object-store hash/size
       fails closed with restored staging and zero
       `receipt` / `remote_authority_v2` / `receipt_pack_grant` writes.
-- [ ] Seal test proves `byte_hash IS NULL` plus same-size wrong bytes fails
+- [x] Seal test proves `byte_hash IS NULL` plus same-size wrong bytes fails
       closed before authority/grant writes.
-- [ ] Seal test proves wrong `hashAlgorithm` fails closed before
+- [x] Seal test proves wrong `hashAlgorithm` fails closed before
       authority/grant writes.
-- [ ] Sealed-replay test proves a legacy/corrupt sealed promotion with linked
+- [x] Sealed-replay test proves a legacy/corrupt sealed promotion with linked
       pack bytes missing, wrong metadata, or `byte_hash IS NULL` fails closed
       instead of returning the receipt.
-- [ ] Route-level test proves upload wrong-content returns
+- [x] Route-level test proves upload wrong-content returns
       `409 PACK_BYTES_CORRUPT` with the expected body and does not link.
-- [ ] Route-level test proves seal wrong metadata returns
+- [x] Route-level test proves seal wrong metadata returns
       `409 PACK_BYTES_MISMATCH` with the expected body and writes zero
       authority/grant rows.
 
