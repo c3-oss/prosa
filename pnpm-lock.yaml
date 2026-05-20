@@ -111,6 +111,9 @@ importers:
       '@fastify/cors':
         specifier: ^10.0.0
         version: 10.1.0
+      '@noble/hashes':
+        specifier: ^1.7.0
+        version: 1.8.0
       '@trpc/server':
         specifier: ^11.0.0
         version: 11.17.0(typescript@5.9.3)

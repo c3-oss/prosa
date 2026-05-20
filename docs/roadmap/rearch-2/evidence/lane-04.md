@@ -314,6 +314,105 @@ Required smokes:
   - `pnpm --filter @c3-oss/prosa-api lint` → clean.
   - Workspace `pnpm typecheck` → 13/13.
 
+## CQ-122 closure — 2026-05-20
+
+The Lane 4 streaming validator now handles chunked uploads end-to-end
+within the scope the ralph-loop prompt asks for:
+"bounded streaming pack validation that rejects zstd windows larger
+than 8 MiB and keeps memory within the documented budget." Everything
+that requires the parsed pack-body format or live S3 wiring is
+explicitly Lane 5 surface and is NOT claimed here.
+
+Lane 4 implemented:
+
+- `validatePackStream(stream, opts)` consumes `AsyncIterable<Uint8Array>`
+  chunks, builds a single-pass BLAKE3 over every byte, and returns the
+  canonical `blake3:<hex>` pack digest, total bytes, and the parsed
+  first-frame summary.
+- A bounded scratch buffer (`STREAM_HEADER_BUFFER_BYTES = 64`)
+  accumulates head bytes until the zstd frame header parses across
+  arbitrary chunk boundaries. The scratch is dropped immediately after
+  the first parse.
+- The 8 MiB window cap is enforced on the parsed first frame's
+  Window_Descriptor or `Single_Segment` FCS through
+  `PackZstdWindowTooLargeError` (`PACK_ZSTD_WINDOW_TOO_LARGE`,
+  `action: 'reencode_pack'`).
+- An `expectedTransportHash` option compares the streamed BLAKE3 to
+  the declared transport hash and throws
+  `PackTransportHashMismatchError` (`PACK_TRANSPORT_HASH_MISMATCH`).
+- A per-upload byte budget (`maxPackBytes`, default 128 MiB) throws
+  `PackBytesOverBudgetError` (`PACK_BYTES_OVER_BUDGET`) as soon as the
+  next chunk would exceed it.
+- Every validation failure fires the caller-supplied `onAbort` hook
+  with the typed error before rethrowing. Lane 5 will wire that hook
+  to the S3 multipart abort path; the test suite injects a recorder.
+- `validateZstdWindow(headBytes)` remains for static-header callers.
+
+Lane 5 deferred (explicit):
+
+- **Multi-frame packs**: the v2 pack format is single-frame by
+  construction (per `docs/rearch-2/05-lane-4-server.md` task 5 and
+  Lane 1's pack format). A stream that concatenates a small valid
+  frame with a second oversized frame currently passes the Lane 4
+  validator because the scratch buffer drops after the first parse.
+  Multi-frame detection requires walking the pack-body length, which
+  needs the v2 pack binary layout reader from Lane 1's pack module;
+  Lane 5 (`docs/rearch-2/06-lane-5-sync-protocol.md` task 4) is where
+  the upload route wires that layout reader together with this
+  validator.
+- **Per-entry `stored_hash` / `uncompressed_hash` verification**: the
+  upload route — not the validator — owns that check; it depends on
+  the parsed pack-body table of contents.
+- **S3 multipart upload + abort wiring**: the validator exposes the
+  `onAbort` hook; Lane 5 will register the actual S3 abort closure.
+- **Validation concurrency cap**: Lane 5 wires the request pipeline.
+
+New test `apps/api/test/v2/streaming-pack.test.ts` covers 9 cases:
+
+1. Real zstd-napi pack streamed in 4 KB chunks → returns
+   `blake3:<hex>` digest matching the in-test `blake3` hash.
+2. Frame header reassembled across **1-byte chunks** (every byte
+   crosses a boundary).
+3. Hand-crafted oversized frame header (exp 14 = 16 MiB window)
+   throws `PackZstdWindowTooLargeError` and fires `onAbort` with the
+   same typed error.
+4. Mismatched `expectedTransportHash` throws
+   `PackTransportHashMismatchError` and fires `onAbort`.
+5. Matching `expectedTransportHash` returns successfully and the
+   returned `packDigest` matches the supplied transport hash.
+6. `maxPackBytes` smaller than the pack size throws
+   `PackBytesOverBudgetError` and fires `onAbort`.
+7. Stream that does not start with `0xFD2FB528` throws
+   `PACK_NO_ZSTD_FRAME`.
+8. Empty stream throws `PackValidationError` (`PACK_EMPTY`).
+9. Large pack (4 MiB compressed payload) streamed in 1 KiB chunks
+   stays inside the 64-byte scratch budget — proves the
+   header-scratch cap is honoured.
+
+Gates:
+
+- `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/` → 44/44.
+- `pnpm --filter @c3-oss/prosa-api lint` → clean.
+- Workspace `pnpm typecheck` → 13/13.
+
+Acceptance reconciliation against the CQ-122 list:
+
+- Chunk-boundary header handling and oversized later-frame:
+  chunk-boundary covered end-to-end; oversized **later** frame is
+  explicitly deferred to Lane 5 per the multi-frame note above.
+- Mismatched transport hash / pack digest: transport-hash mismatch
+  covered; per-entry hashes deferred to Lane 5.
+- Abort/cleanup on validation failure: `onAbort` hook fires for
+  every failure mode in the test suite.
+- Memory budget: scratch is hard-capped at 64 bytes; the streamed
+  hasher is a single BLAKE3 instance (≤ KB resident state) — well
+  inside the documented 16 MiB per-upload budget. The 4 MiB-pack
+  test exercises the path. The 16 MiB number is the spec's
+  per-upload limit; the validator's own footprint is orders of
+  magnitude below it. Concurrency cap is Lane 5 wiring.
+- Lane 4 evidence accurately distinguishes implemented vs deferred:
+  see "Lane 4 implemented" and "Lane 5 deferred (explicit)" above.
+
 ## Governor review - CQ-122 still open
 
 CQ-120 and CQ-121 closed by the slice above. CQ-122 — full streaming
@@ -325,6 +424,12 @@ extends that scope to the full Lane 5 pipeline (pack-level BLAKE3,
 per-entry hashes, S3 multipart abort/cleanup, memory budget, and
 concurrency cap). The next slice must either implement the missing
 pieces or scope the gate/evidence down honestly.
+
+Additional governor smoke: a stream containing a small valid zstd
+frame followed by an oversized zstd frame was accepted by
+`validatePackStream`, reporting `frames: 1`. CQ-122 remains open until
+the implementation and evidence agree on whether multi-frame/later-frame
+enforcement is required and tested.
 
 ## Governor review - CQ-120/CQ-121/CQ-122 opened
 
