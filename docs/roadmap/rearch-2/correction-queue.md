@@ -237,10 +237,10 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 5 production/Docker E2E acceptance)
-Status: closed (2026-05-20)
+Status: open (closure rejected 2026-05-20)
 Owner: Ralph
 
-Closure: `apps/api/src/server.ts` applies the conflict-free
+Closure rejection: `apps/api/src/server.ts` applies the conflict-free
 v2 slice during boot, immediately after the v1 `applySchema`:
 - `PROMOTION_SCHEMA_SQL` (promotion_staging, remote_authority_v2,
   receipt, legacy_receipt_archive, promotion_uploaded_pack);
@@ -262,6 +262,22 @@ Pinned by two cases in `apps/api/test/v2/cq-126-server-boot-schema.test.ts`:
 2. After boot, hitting `POST /v2/promotions/begin` returns
    401 UNAUTHENTICATED rather than crashing on a missing
    relation — proof the SQL queries run cleanly.
+
+The closure is not accepted. Reviewer smoke showed an existing
+tenant-wide `search_generation_current(tenant_id PRIMARY KEY, ...)`
+table passes the boot table-name check because boot uses
+`CREATE TABLE IF NOT EXISTS`; seal then fails when inserting
+`store_id`:
+
+```text
+columns=tenant_id,generation_id,receipt_id,promoted_at,updated_at
+insert=failed
+column "store_id" of relation "search_generation_current" does not exist
+```
+
+The route test also returns 401 before executing the BeginPromotion SQL path, so
+it is useful boot-surface evidence but not proof that authenticated Lane 5
+queries run cleanly against the boot-applied schema.
 
 Problem:
 
@@ -300,8 +316,11 @@ Required fix:
   server boot, or fail closed and do not register v2 promotion routes unless the
   required promotion tables exist.
 - Add boot-time verification for `promotion_staging`, `remote_authority_v2`,
-  `receipt`, and any other Lane 5 tables used before seal.
+  `receipt`, and any other Lane 5 tables used before seal. Verification must
+  include required column/key shape, not just table names.
 - Preserve CQ-124 separately for the full v2 projection/search schema conflict.
+- Add an upgrade/idempotency path for old `search_generation_current` shape, or
+  fail boot before serving v2 routes when that old shape is detected.
 
 Acceptance:
 
@@ -312,6 +331,10 @@ Acceptance:
       `BeginPromotion`.
 - [ ] Docker-backed Lane 5 E2E starts from fresh services and completes
       `BeginPromotion` without manual schema setup.
+- [ ] Old tenant-wide `search_generation_current` shape is migrated or rejected
+      at boot; seal cannot fail later on missing `store_id`.
+- [ ] Authenticated `BeginPromotion` against the boot-applied schema reaches a
+      protocol response, not only the unauthenticated pre-SQL path.
 
 ### CQ-127: BeginPromotion does not prove device ownership or bind receipts to the requested device
 

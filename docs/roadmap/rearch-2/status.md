@@ -64,9 +64,9 @@ The blocker is implementation work, not environment.
   receipt tuple, but closure is rejected until requested device binding,
   malformed/schema-invalid receipt rejection, and signature verification are
   proven.
-- CQ-126: production-style boot registers v2 promotion routes without
-  applying/verifying v2 promotion tables, so a v1-only database can pass
-  health and fail the first BeginPromotion query.
+- CQ-126: production-style boot now applies conflict-free v2 tables, but closure
+  is rejected until boot verifies/migrates old `search_generation_current`
+  column shape and an authenticated BeginPromotion reaches the SQL path cleanly.
 - CQ-127: BeginPromotion proves tenant membership but not device
   ownership/policy; UploadSegment inherits the same gap and can accept staged
   bytes from another same-tenant user/device.
@@ -133,6 +133,8 @@ The blocker is implementation work, not environment.
 - CQ-125/CQ-141 closure claims from `41642b3`/`f1d15b3` are rejected pending
   reviewer-smoked device-mismatch, malformed-signature, wrong pack metadata,
   and seal-after-pack-byte-loss cases.
+- CQ-126 closure from `ea46899` is rejected pending reviewer-smoked old
+  `search_generation_current` shape and authenticated boot-path proof.
 - Reviewer aggregate smoke
   `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/` failed 77/78 with
   a timeout in the malformed-body BeginPromotion case, while the same file
