@@ -94,3 +94,31 @@ git diff --check -> clean
 ```
 
 Cycle 2 counts.
+
+## Cycle 3 — 2026-05-20T13:21:05Z
+
+- **Interval since cycle 2**: 13:00:27Z → 13:21:05Z = 1238 s
+  (≥ 180 s minimum honoured).
+- **Lane HEAD**: still `ce71cfd`. The only new commit between
+  cycle 2 and cycle 3 is `cf20f72 chore(docs): lane 5
+  stabilization cycle 2` — governance, not lane work.
+- **Worktree**: only `.claude/scheduled_tasks.lock` untracked.
+- **correction-queue.md / gates.md / status.md**: unchanged
+  since cycle 2. No new CQs, no new gate caveats, no new closed
+  items. Scope-split (Lane 10 = CQ-124 + CQ-134) intact.
+
+Lane 5 minimum gate evidence:
+
+```text
+pnpm --filter @c3-oss/prosa-api test
+ -> Tests 285 passed | 4 skipped (289)
+
+pnpm --filter @c3-oss/prosa test
+ -> Tests 296 passed | 3 skipped (299)
+
+pnpm typecheck   -> 13/13 packages clean (turbo cache hit)
+pnpm lint        -> 13/13 packages clean (turbo cache hit)
+git diff --check -> clean
+```
+
+Cycle 3 counts.
