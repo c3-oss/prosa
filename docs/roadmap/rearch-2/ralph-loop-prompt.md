@@ -82,6 +82,15 @@ Read `docs/roadmap/rearch-2/correction-queue.md` before the next slice.
   catalog failure must be deleted or explicitly queued for cleanup.
 - CQ-133 blocks Lane 5 seal grant correctness: uploaded object packs must be
   durably linked to the promotion that uploaded or claimed them.
+- CQ-134 blocks Lane 5 seal acceptance: do not emit authority receipts until
+  object coverage, projection rows, and search docs are proven or seal fails
+  closed.
+- CQ-135 blocks Lane 5 retry/resume acceptance: signer/transaction failure after
+  seal status flip must not strand staging in `materializing`.
+- CQ-136 blocks Lane 5 idempotency: re-sealing an old promotion must return that
+  promotion's receipt, not current store authority.
+- CQ-137 blocks Lane 5 search authority: `search_generation_current` scope must
+  align with store-scoped remote authority.
 
 ## Lane 5 invariants
 

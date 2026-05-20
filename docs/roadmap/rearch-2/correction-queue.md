@@ -659,6 +659,217 @@ Acceptance:
 - [ ] Seal test with two active promotions in one tenant proves receipt grants
       include only packs linked to the sealed promotion.
 
+### CQ-134: SealPromotion emits authority receipts before proving promoted data
+
+Severity: critical
+Blocking: yes (blocks Lane 5 SealPromotion acceptance and any cleanup/no-local-data promise)
+Status: open
+Owner: Ralph
+
+Problem:
+
+Commit `280f2a3` allows `SealPromotion` to write `receipt`,
+`remote_authority_v2`, `search_generation_current`, and `receipt_pack_grant`
+after checking only that the two inventory segment blobs exist in object
+storage. It does not parse the object/projection inventories, prove declared
+objects are covered by `remote_pack_entry`, or materialize projection/search
+rows before the authority swap. The receipt records zero
+`rowCountsByEntity` values while still setting `verification.projectionRowsLoaded
+= true`.
+
+Risk:
+
+The server can emit a cleanup-authorizing receipt even though the remote cannot
+replace local authority. A client or later workflow could trust the receipt,
+purge local data, and leave the remote without declared objects, projection
+rows, or search docs.
+
+Smoke evidence:
+
+Reviewer smoke sealed a promotion declaring objects/projection/search, with
+both inventory blobs uploaded but no object pack:
+
+```json
+{"sealStatus":200,"remotePackCount":0,"grantCount":0,"authorityRows":1}
+```
+
+Security reviewer smoke:
+
+```text
+no-pack-seal status=200 result=sealed receiptObjects=99 rowCountsSession=0 projectionRowsLoaded=true grants=0
+```
+
+Required fix:
+
+- Parse and validate uploaded inventories during seal or fail closed before
+  writing authority.
+- Prove every declared object needed by the promotion is present in linked
+  `remote_pack_entry` rows.
+- Materialize projection/search rows before setting verification flags, or make
+  seal fail closed until CQ-124 enables that materialization.
+- Receipt counts and verification flags must reflect actual checks.
+
+Acceptance:
+
+- [ ] Seal without object-pack coverage for declared objects returns a conflict
+      and writes no receipt/authority/grants.
+- [ ] Seal without projection/search materialization either fails closed or
+      records truthful non-success verification state accepted by the wire
+      schema/architecture.
+- [ ] Happy-path seal proves object coverage and projection/search count parity
+      before authority swap.
+- [ ] Tests assert no `remote_authority_v2`, `receipt`, or
+      `receipt_pack_grant` rows are written on failed verification.
+
+### CQ-135: SealPromotion failure after status flip strands staging in `materializing`
+
+Severity: high
+Blocking: yes (blocks Lane 5 retry/resume acceptance)
+Status: open
+Owner: Ralph
+
+Problem:
+
+`SealPromotion` flips `promotion_staging.status` from `open|uploading` to
+`materializing` before signing the receipt and before the final authority
+transaction. If signing or the transaction fails, there is no catch/rollback path
+that restores a retryable status or records a resumable failure state.
+
+Risk:
+
+Transient KMS/signer/database failures can wedge a promotion permanently. All
+retries observe `SEAL_IN_PROGRESS`, so CLI resume cannot recover.
+
+Smoke evidence:
+
+Reviewer smoke with a signer throwing `kms down`:
+
+```json
+{"signerError":"kms down","stagingStatusAfterFailure":"materializing","retryStatus":409,"retryCode":"SEAL_IN_PROGRESS"}
+```
+
+Security reviewer smoke:
+
+```text
+seal-error=kms unavailable
+post-failure-status=materializing
+```
+
+Required fix:
+
+- Make seal failure after the status flip recoverable. Acceptable approaches:
+  a lease/heartbeat with retry takeover, transition back to a retryable
+  `uploading`/`open` state on caught failure, or an explicit failed state with a
+  retry operation.
+- Ensure no authority/receipt/grant rows are committed on signer/transaction
+  failure.
+
+Acceptance:
+
+- [ ] Throwing signer test leaves no authority/receipt/grant rows and allows a
+      later successful retry.
+- [ ] Injected transaction failure test leaves no authority/receipt/grant rows
+      and allows a later successful retry.
+- [ ] Concurrent seal still permits only one successful authority transaction.
+
+### CQ-136: Re-sealing an old sealed promotion can return the current store receipt
+
+Severity: high
+Blocking: yes (blocks Lane 5 idempotency and receipt correctness)
+Status: open
+Owner: Ralph
+
+Problem:
+
+When a `promotion_staging` row is already `sealed`, `SealPromotion` calls
+`loadSealedReceipt(deps, staging.store_id)`. That helper loads
+`remote_authority_v2` by `(tenant_id, store_id)` and returns the current store
+receipt, not necessarily the receipt created by the promotion being replayed.
+After promoting bundle B for the same store, re-sealing old promotion A can
+return B's receipt.
+
+Risk:
+
+Idempotent retry semantics are wrong: a client retrying an old promotion can
+receive a different receipt/root/device than the one originally sealed. This
+breaks checkpointing, no-op behavior, and audit trails.
+
+Smoke evidence:
+
+Reviewer smoke:
+
+```text
+first receipt root aaaa...
+second receipt root bbbb...
+re-seal of first promotion returned the second receipt/root
+```
+
+Security reviewer smoke:
+
+```text
+sealed-old-promotion status=200 returnedReceipt=rcpt_new returnedDevice=dev-new
+```
+
+Required fix:
+
+- Store or otherwise link the exact sealed receipt id on `promotion_staging`.
+- Re-seal must load that exact receipt and verify it matches the promotion's
+  tenant/store/device/bundle tuple, or return a terminal conflict if the link is
+  missing/corrupt.
+- Do not resolve idempotent seal replay through current `remote_authority_v2`
+  alone.
+
+Acceptance:
+
+- [ ] Promote bundle A then bundle B for the same store; re-sealing A returns
+      A's original receipt or a terminal conflict, never B's current receipt.
+- [ ] Missing/corrupt sealed receipt link fails closed.
+- [ ] Returned replay receipt validates against the same tuple as the staging
+      row.
+
+### CQ-137: `search_generation_current` is tenant-wide while authority is store-scoped
+
+Severity: high
+Blocking: yes (blocks Lane 5 search/projection authority acceptance)
+Status: open
+Owner: Ralph
+
+Problem:
+
+Seal writes `search_generation_current` with `ON CONFLICT (tenant_id)`, and the
+schema key is only `tenant_id`. Remote authority is scoped by `(tenant_id,
+store_id)`. Promoting a second store in the same tenant overwrites the
+generation/receipt pointer for the first store unless the generation is
+explicitly tenant-wide and includes all authoritative stores.
+
+Risk:
+
+Remote read/search surfaces can point to the wrong store's receipt or omit data
+from previously promoted stores. This undermines search authority and
+second-device read behavior.
+
+Smoke evidence:
+
+Reviewer finding from `280f2a3`: seal writes
+`search_generation_current (tenant_id, generation_id, receipt_id)` with
+`ON CONFLICT (tenant_id)`, while `remote_authority_v2` is keyed by
+`(tenant_id, store_id)`.
+
+Required fix:
+
+- Decide whether search generations are per-store or tenant-wide.
+- If per-store, add `store_id` to `search_generation_current` keying and
+  callsites.
+- If tenant-wide, seal must build a merged generation containing all
+  authoritative stores before updating the tenant-wide pointer.
+
+Acceptance:
+
+- [ ] Two stores in one tenant produce either two independent current generation
+      rows, or one documented merged generation containing both stores.
+- [ ] Tests prove promoting store B does not make store A's remote read/search
+      authority disappear or point to B's receipt.
+
 ## Closed during this cycle
 
 ### CQ-122: Streaming validation is header-only and does not satisfy the Lane 4 pack-validation gate

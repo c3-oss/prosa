@@ -84,6 +84,15 @@ The blocker is implementation work, not environment.
 - CQ-133: UploadObjectPack commit `154ba25` did not link tenant-wide pack
   catalog rows to the promotion that uploaded them; current WIP appears to add
   `promotion_uploaded_pack`, but it is not yet committed/gated.
+- CQ-134: SealPromotion can emit receipt/authority before proving object
+  coverage or projection/search materialization; receipt verification flags can
+  claim success for deferred work.
+- CQ-135: signer or transaction failure after the seal status flip can strand
+  staging in `materializing`, blocking retry/resume.
+- CQ-136: idempotent re-seal of an old promotion can return the current store
+  receipt instead of that promotion's receipt.
+- CQ-137: `search_generation_current` is tenant-wide while remote authority is
+  store-scoped; the scope decision needs implementation and tests.
 
 ## Supporting documents
 
