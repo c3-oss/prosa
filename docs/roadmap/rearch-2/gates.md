@@ -54,16 +54,19 @@ Tests       7 passed (7)
 - [x] CLI authority cache implements 60 s TTL, `--refresh`, `--offline`, and
   explicit stop on HTTP 412 (see `apps/cli/test/v2/authority-cache.test.ts`
   and `apps/cli/test/v2/reads-client.test.ts`).
-- [ ] `prosa mcp serve --authority {auto|local|remote}` pins authority at
-  startup. The runtime `prosa.refresh_authority` MCP tool is deferred to
-  CQ-149 (restart-to-refresh today).
-- [ ] MCP tools cover search, sessions, tool calls, analytics, artifact, and
-  compile behavior without widening tenant/store authority. The existing
-  prosa-core tool set is unchanged; v2 authority-aware tool wiring is
-  tracked under CQ-149.
-- [ ] Web data layer consumes `/v2/reads/*` while preserving route shapes.
-  Typed client lives at `apps/web/src/lib/api-v2.ts`; full route-by-route
-  migration off tRPC is tracked as a follow-up slice (Lane 7 slice 10b).
+- [x] `prosa mcp serve --authority {auto|local|remote}` pins authority at
+  startup; `prosa.refresh_authority` MCP tool registered when the
+  remote context is resolved (CQ-149 closed at `a3d25c8`).
+- [x] MCP tools cover search, sessions, tool calls, analytics, artifact, and
+  compile behavior without widening tenant/store authority; the
+  `prosa.refresh_authority` tool is now exposed via
+  `packages/prosa-core/src/mcp/tools.ts` when `onRefreshAuthority` is
+  passed.
+- [~] Web data layer consumes `/v2/reads/*` while preserving route shapes.
+  Six routes migrated to `apiV2` (sessions, search, tool-calls, analytics,
+  session-detail, dashboard); dashboard widgets (4) + artifact route +
+  cas-text helper remain on legacy tRPC pending new v2 endpoints — tracked
+  under CQ-153 follow-up.
 - [x] Focused CLI, MCP, and web tests from `docs/rearch-2/08-lane-7-cli-and-mcp.md`
   pass for the authority cache, reads client, read-context routing, and
   web v2 data layer.
