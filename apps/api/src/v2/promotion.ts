@@ -23,6 +23,7 @@ import type { DatabaseHandle } from '../db.js'
 import { type V2AuthDeps, resolveV2AuthContext } from './context.js'
 import type { ReceiptSigner } from './signing/local-signer.js'
 import {
+  BeginPromotionAuthorityCorruptError,
   BeginPromotionTenantMismatchError,
   BeginPromotionValidationError,
   beginPromotion,
@@ -136,6 +137,13 @@ async function handleBeginPromotion(
     if (err instanceof BeginPromotionTenantMismatchError) {
       reply.code(403)
       return { code: 'TENANT_MISMATCH', op: 'BeginPromotion', message: err.message }
+    }
+    if (err instanceof BeginPromotionAuthorityCorruptError) {
+      // CQ-125: corrupt authority state surfaces as 500. The route
+      // intentionally avoids 200/409 here — a client should not
+      // retry around this; an operator must heal the orphan.
+      reply.code(500)
+      return { code: err.code, op: 'BeginPromotion', message: err.message }
     }
     throw err
   }

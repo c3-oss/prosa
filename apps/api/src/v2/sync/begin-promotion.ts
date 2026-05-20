@@ -64,6 +64,16 @@ export class BeginPromotionTenantMismatchError extends Error {
   }
 }
 
+// CQ-125: a `remote_authority_v2` row pointing at a missing or
+// tuple-mismatched receipt is corrupt server state. The fast path
+// MUST NOT silently reopen promotion — that would mask catalog
+// drift behind a needs_inventory response. Refuse to serve until
+// an operator/audit task heals the orphan.
+export class BeginPromotionAuthorityCorruptError extends Error {
+  override name = 'BeginPromotionAuthorityCorruptError'
+  readonly code = 'AUTHORITY_CORRUPT' as const
+}
+
 // Server-local request schema. Tenant/store/device ids are opaque on
 // the server side (see file header). The bundle and segment refs still
 // go through the canonical wire schemas.
@@ -136,13 +146,22 @@ export async function beginPromotion(deps: BeginPromotionDeps, rawInput: unknown
     [deps.tenantId, input.storeId, input.head.bundleRoot],
   )
   if (authority.length > 0) {
-    const receipt = await loadReceipt(deps, authority[0]!.current_receipt_id)
-    if (receipt) {
-      return { status: 'already_promoted', receipt }
+    // CQ-125: load the receipt scoped to the same authority tuple
+    // and verify the loaded row + signed payload BOTH match the
+    // requested store/bundleRoot/tenant. A mismatch (or a missing
+    // receipt for a present authority row) is corrupt state — fail
+    // closed rather than silently reopen the promotion.
+    const loaded = await loadAuthorityReceipt(deps, {
+      receiptId: authority[0]!.current_receipt_id,
+      storeId: input.storeId,
+      bundleRoot: input.head.bundleRoot,
+    })
+    if (loaded === 'missing' || loaded === 'mismatch') {
+      throw new BeginPromotionAuthorityCorruptError(
+        `remote_authority_v2 row for (${deps.tenantId}, ${input.storeId}, ${input.head.bundleRoot}) references a ${loaded === 'missing' ? 'missing' : 'tuple-mismatched'} receipt`,
+      )
     }
-    // Authority row references a missing receipt. This is a server
-    // inconsistency — fall through to open a staging row so the client
-    // can re-promote. A separate audit task heals the orphan.
+    return { status: 'already_promoted', receipt: loaded }
   }
 
   // 2. Open (or reuse) a promotion_staging row for this bundle.
@@ -236,20 +255,37 @@ async function findOrCreateStaging(deps: BeginPromotionDeps, input: ServerBeginP
   return winner[0]!.id
 }
 
-async function loadReceipt(deps: BeginPromotionDeps, receiptId: string): Promise<PromotionReceiptV2 | null> {
-  const rows = await deps.rawExec<ReceiptRow>(
-    `SELECT payload, signature
+// CQ-125: load the receipt referenced by an authority row and
+// prove it matches the expected (store, bundleRoot) tuple on
+// BOTH the row columns (store_id) and the signed payload
+// (storeId / bundleRoot / tenantId). Returns:
+//   - 'missing' when the receipt row is gone or has malformed
+//     payload/signature JSONB,
+//   - 'mismatch' when the row or payload disagrees with the
+//     expected tuple,
+//   - the receipt otherwise.
+async function loadAuthorityReceipt(
+  deps: BeginPromotionDeps,
+  opts: { receiptId: string; storeId: string; bundleRoot: string },
+): Promise<PromotionReceiptV2 | 'missing' | 'mismatch'> {
+  const rows = await deps.rawExec<ReceiptRow & { row_store_id: string }>(
+    `SELECT payload, signature, store_id AS row_store_id
        FROM receipt
       WHERE receipt_id = $1
         AND tenant_id = $2
       LIMIT 1`,
-    [receiptId, deps.tenantId],
+    [opts.receiptId, deps.tenantId],
   )
-  if (rows.length === 0) return null
+  if (rows.length === 0) return 'missing'
   const row = rows[0]!
   const payload = coerceJsonbObject(row.payload) as PromotionReceiptV2Payload | null
   const signature = coerceJsonbObject(row.signature) as PromotionReceiptV2Signature | null
-  if (!payload || !signature) return null
+  if (!payload || !signature) return 'missing'
+  if (row.row_store_id !== opts.storeId) return 'mismatch'
+  if (payload.tenantId !== deps.tenantId) return 'mismatch'
+  if (payload.storeId !== opts.storeId) return 'mismatch'
+  if (payload.bundleRoot !== opts.bundleRoot) return 'mismatch'
+  if (payload.receiptId !== opts.receiptId) return 'mismatch'
   return { payload, signature }
 }
 
