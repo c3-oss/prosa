@@ -11,6 +11,15 @@ const baseSchema = z.object({
   PROSA_RUNTIME_MODE: runtimeModeSchema,
   PROSA_DATABASE_URL: z.string().min(1).optional(),
   PROSA_AUTH_SECRET: z.string().min(16).optional(),
+  /**
+   * Shared HMAC secret used to sign paginated read cursors
+   * (CQ-142 / CQ-146). Must be at least 32 ASCII bytes (or the
+   * equivalent length when base64-decoded). The same secret is
+   * required across every worker so cursors round-trip in a
+   * multi-instance deployment; production refuses to boot
+   * without it.
+   */
+  PROSA_CURSOR_HMAC_SECRET: z.string().min(32).optional(),
   PROSA_AUTH_COOKIE_CACHE_MAX_AGE_SECONDS: z.coerce.number().int().min(0).max(300).default(0),
   /**
    * Comma-separated list of additional origins (in addition to PROSA_API_URL)
@@ -38,6 +47,14 @@ export type ProsaApiConfig = {
   runtimeMode: RuntimeMode
   databaseUrl: string | null
   authSecret: string | null
+  /**
+   * CQ-146: HMAC key used to sign paginated read cursors. Null
+   * outside production / development boots that omitted the
+   * variable; `registerV2ReadRoutes` falls back to a
+   * per-process random key when null. Production rejects null
+   * at boot.
+   */
+  cursorHmacSecret: string | null
   /**
    * Optional Better Auth cookie session cache window in seconds. Disabled by
    * default because cached sessions have delayed revocation semantics and are
@@ -124,6 +141,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ProsaApiConfig
         'PROSA_OBJECT_STORE_DRIVER=memory is only allowed in test runs. Set driver to s3 or fs in production.',
       )
     }
+    if (!v.PROSA_CURSOR_HMAC_SECRET) {
+      throw new ConfigError(
+        'PROSA_CURSOR_HMAC_SECRET is required in production (>=32 chars). Refusing to start with a per-process random cursor signer that does not round-trip across workers (CQ-146).',
+      )
+    }
   }
   if (v.PROSA_RUNTIME_MODE === 'development' && v.PROSA_OBJECT_STORE_DRIVER === 'memory') {
     // dev mode is allowed to use memory, but warn loudly via stderr
@@ -191,6 +213,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ProsaApiConfig
     runtimeMode: v.PROSA_RUNTIME_MODE,
     databaseUrl: v.PROSA_DATABASE_URL ?? null,
     authSecret: v.PROSA_AUTH_SECRET ?? null,
+    cursorHmacSecret: v.PROSA_CURSOR_HMAC_SECRET ?? null,
     authCookieCacheMaxAgeSeconds: v.PROSA_AUTH_COOKIE_CACHE_MAX_AGE_SECONDS,
     webOrigins,
     objectStore,

@@ -302,8 +302,32 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 6 production readiness for paginated reads)
-Status: open (2026-05-20)
+Status: closure attempt (2026-05-20) — pending governor acceptance
 Owner: Ralph
+
+Closure attempt (2026-05-20):
+
+- `apps/api/src/config.ts` adds `PROSA_CURSOR_HMAC_SECRET` (min 32
+  chars). Production boot rejects an empty value with a clear
+  `ConfigError` message naming the variable and CQ-146.
+  `ProsaApiConfig.cursorHmacSecret: string | null` carries the
+  parsed value through the rest of the stack.
+- `apps/api/src/v2/index.ts` adds `MissingCursorSecretError` +
+  `resolveCursorSigner(deps)`. Production with no secret + no
+  signer override throws the error. Dev/test boots fall back to
+  `createInProcessCursorSigner()`. A configured production secret
+  is wired through `createCursorSigner(Buffer.from(secret,
+  'utf8'))`.
+- `apps/api/src/app.ts` threads `opts.config.cursorHmacSecret`
+  into `registerV2Routes`.
+- `apps/api/test/config.test.ts` (4 new tests): rejection without
+  secret, rejection too-short secret, acceptance ≥32-byte secret,
+  dev/test boots may omit it.
+- `apps/api/test/v2/production-signer.test.ts` (4 new tests):
+  `MissingCursorSecretError` when production omits the secret;
+  two plugin instances sharing the secret accept each other's
+  cursors; a different secret rejects; dev fallback uses an
+  in-process signer that does not verify a foreign token.
 
 Problem:
 

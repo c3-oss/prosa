@@ -8,6 +8,8 @@
 import type { RemoteObjectStore } from '@c3-oss/prosa-storage'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { type V2AuthContext, type V2AuthDeps, resolveV2AuthContext } from '../context.js'
+import { analyticsReportInput, getAnalyticsReport } from './analytics/report.js'
+import { getAnalyticsSummary } from './analytics/summary.js'
 import { artifactGetTextInput, getArtifactText } from './artifacts/get-text.js'
 import { AuthorityTtlCache } from './authority-cache.js'
 import { type AuthorityRefreshResponse, type CachedAuthority, getAuthority } from './authority.js'
@@ -66,6 +68,8 @@ export const V2_READ_ROUTES = [
   { method: 'POST' as const, url: '/v2/reads/search/query' as const, opName: 'ReadSearchQuery' as const },
   { method: 'POST' as const, url: '/v2/reads/tool-calls/list' as const, opName: 'ReadToolCallsList' as const },
   { method: 'POST' as const, url: '/v2/reads/artifacts/getText' as const, opName: 'ReadArtifactsGetText' as const },
+  { method: 'GET' as const, url: '/v2/reads/analytics/summary' as const, opName: 'ReadAnalyticsSummary' as const },
+  { method: 'POST' as const, url: '/v2/reads/analytics/report' as const, opName: 'ReadAnalyticsReport' as const },
 ]
 
 export function registerV2ReadRoutes(app: FastifyInstance, deps: V2ReadRoutesDeps): V2ReadPluginHandle {
@@ -240,6 +244,40 @@ export function registerV2ReadRoutes(app: FastifyInstance, deps: V2ReadRoutesDep
     },
   })
 
+  app.route({
+    method: 'GET',
+    url: '/v2/reads/analytics/summary',
+    handler: async (req: FastifyRequest, reply: FastifyReply) => {
+      const ctx = await resolveV2AuthContext(deps, req)
+      const gate = requireV2Tenant(ctx, reply, 'ReadAnalyticsSummary')
+      if (!gate) return reply.sent ? undefined : reply
+      return await getAnalyticsSummary(
+        { rawExec: deps.rawExec, now: now ? () => new Date(now()) : undefined },
+        gate.tenantId,
+      )
+    },
+  })
+
+  app.route({
+    method: 'POST',
+    url: '/v2/reads/analytics/report',
+    handler: async (req: FastifyRequest, reply: FastifyReply) => {
+      const ctx = await resolveV2AuthContext(deps, req)
+      const gate = requireV2Tenant(ctx, reply, 'ReadAnalyticsReport')
+      if (!gate) return reply.sent ? undefined : reply
+      const parsed = analyticsReportInput.safeParse(req.body ?? {})
+      if (!parsed.success) {
+        reply.code(400)
+        return { code: 'INVALID_INPUT', op: 'ReadAnalyticsReport', issues: parsed.error.issues }
+      }
+      return await getAnalyticsReport(
+        { rawExec: deps.rawExec, now: now ? () => new Date(now()) : undefined },
+        gate.tenantId,
+        parsed.data,
+      )
+    },
+  })
+
   return { authorityCache, cursorSigner }
 }
 
@@ -280,6 +318,15 @@ export type {
 } from './sessions/transcript.js'
 export { searchQuery, searchQueryInput } from './search/query.js'
 export type { SearchHit, SearchQueryInput, SearchQueryResponse } from './search/query.js'
+export { getAnalyticsSummary } from './analytics/summary.js'
+export type { AnalyticsSummaryResponse } from './analytics/summary.js'
+export { ANALYTICS_REPORTS, analyticsReportInput, getAnalyticsReport } from './analytics/report.js'
+export type {
+  AnalyticsReportInput,
+  AnalyticsReportKind,
+  AnalyticsReportResponse,
+  AnalyticsReportRow,
+} from './analytics/report.js'
 export { listToolCalls, toolCallsListInput } from './tool-calls/list.js'
 export type { ToolCallHit, ToolCallsListInput, ToolCallsListResponse } from './tool-calls/list.js'
 export {

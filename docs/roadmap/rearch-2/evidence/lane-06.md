@@ -469,6 +469,74 @@ Remaining slices (per `docs/rearch-2/07-lane-6-read-api.md`):
 5. p95 latency evidence under fixture load.
 6. Five consecutive 180 s stabilization cycles before RALPH_DONE.
 
+## Slice 8 — Analytics + cross-store distinct + CQ-146 cursor secret wiring (2026-05-20)
+
+Landed:
+
+- `apps/api/src/v2/reads/analytics/summary.ts` — `getAnalyticsSummary`.
+  Single round-trip with eight gate-aware count subqueries plus a
+  per-`source_tool` breakdown and a per-store breakdown that joins
+  to `remote_authority_v2` for the latest `promoted_at`. Every count
+  composes `verifiedProjectionWhere` / `verifiedSearchWhere`.
+- `apps/api/src/v2/reads/analytics/report.ts` — `getAnalyticsReport`.
+  Five fixed reports (sessions / tools / errors / models / projects)
+  filtered by `sourceTools`, `since`, `until`, capped at 5000 rows.
+  The sessions and projects reports apply cross-store distinct via
+  `DISTINCT ON (source_tool, source_session_id)` keeping the freshest
+  `(end_ts, receipt_id)`; the tools / errors / models reports use a
+  gate-aware EXISTS subquery to bound the aggregate set by visible
+  sessions.
+- `GET /v2/reads/analytics/summary` and `POST /v2/reads/analytics/report`
+  registered through `registerV2ReadRoutes` with Zod input
+  validation and the shared `requireV2Tenant` gate ladder.
+- **CQ-146 cursor secret wiring:**
+  - `apps/api/src/config.ts` adds `PROSA_CURSOR_HMAC_SECRET`
+    (min 32 chars). Production refuses to boot without it.
+    `loadConfig` exposes `cursorHmacSecret: string | null`.
+  - `apps/api/src/v2/index.ts` adds `MissingCursorSecretError` and
+    `resolveCursorSigner(deps)`. Production with no secret + no
+    signer override throws. Dev / test fall back to
+    `createInProcessCursorSigner()`. A configured secret is wired
+    through `createCursorSigner(Buffer.from(secret, 'utf8'))`.
+  - `apps/api/src/app.ts` threads `config.cursorHmacSecret` into
+    `registerV2Routes`.
+- `apps/api/test/config.test.ts` (4 new tests): production refuses
+  to boot without the secret, refuses too-short secrets, accepts a
+  ≥32-byte secret, and lets test/development boot without one.
+- `apps/api/test/v2/production-signer.test.ts` (4 new tests):
+  production without a cursor secret throws
+  `MissingCursorSecretError`; two plugin instances sharing the
+  configured secret accept each other's cursors; a different secret
+  rejects them; dev boot uses a per-process random signer that does
+  not verify a foreign signer's token.
+- `apps/api/test/v2/reads/analytics-report.test.ts` (9 tests):
+  summary reports gate-aware counts + source + store breakdown;
+  summary is tenant-scoped; cross-store distinct collapses
+  `src_shared` to one row keeping `s_b`'s newer receipt; sessions
+  report honours sourceTools / since / until; tools report
+  aggregates invocations + errors per tool; errors report only
+  surfaces tools with at least one error; models report buckets
+  by model excluding superseded rows; projects report groups by
+  project after the cross-store distinct collapse.
+
+Slice 8 gates on the contributor checkout:
+
+```text
+pnpm exec vitest run test/v2/reads/   → 13 files / 95/95 tests passed
+pnpm typecheck                         → repo-wide green
+pnpm lint                              → repo-wide green
+pnpm --filter @c3-oss/prosa-api exec vitest run \
+  test/config.test.ts test/v2/production-signer.test.ts
+                                       → 22/22 passed
+```
+
+Remaining slices:
+
+1. p95 latency evidence under fixture load (sessions/list,
+   search/query, sessions/transcript first page, artifacts/getText
+   1 MiB).
+2. Five consecutive 180 s stabilization cycles before RALPH_DONE.
+
 ## Scope
 
 Lane 6 implements the receipt-pinned remote read API from

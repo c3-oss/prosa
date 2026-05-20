@@ -166,6 +166,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     objectStore: opts.objectStore,
     runtimeMode: opts.config.runtimeMode,
     signer: opts.v2Signer,
+    cursorHmacSecret: opts.config.cursorHmacSecret,
   })
 
   await app.register(fastifyTRPCPlugin, {
