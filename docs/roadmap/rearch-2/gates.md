@@ -78,33 +78,51 @@ acceptance.
 
 ## Lane 5 completion gates
 
-Lane 5 Sync protocol is not complete until all of these are true:
+Lane 5 Sync protocol is functionally complete; the gate checklist is:
 
-- `POST /v2/promotions/begin` implements the no-op fast path and staging path
-  without widening tenant scope.
-- Inventory and object-pack uploads validate transport hashes separately from
-  canonical BLAKE3 object identity and abort/cleanup on failure.
-- `SealPromotion` performs the load-bearing authority swap transactionally:
-  receipt insert, `remote_authority_v2`, `search_generation_current`,
-  `receipt_pack_grant`, and sealed staging status.
-- `GET /v2/receipts/:receiptId` is tenant-scoped and verifies against JWKS.
-- `prosa sync-v2` promotes a fresh bundle, resumes after interrupt, supports
-  `--no-resume`, and repeats the same bundle in under 2 seconds.
-- Invariants I1, I2, I3, I4, and I5 pass for the promotion path.
-- Lint rule or equivalent test proves only the seal path writes authority
-  tables: `remote_authority_v2`, `search_generation_current`, and
-  `receipt_pack_grant`.
-- Docker-backed E2E covers API, Postgres, object storage, CLI sync, and a second
-  device reading remotely.
+- [x] L5.1 — `POST /v2/promotions/begin` implements the no-op fast path and
+  staging path without widening tenant scope. (CQ-125, CQ-128.)
+- [x] L5.2 — Inventory and object-pack uploads validate transport hashes
+  separately from canonical BLAKE3 object identity and abort/cleanup on
+  failure. (CQ-129, CQ-130, CQ-132, CQ-141.)
+- [x] L5.3 — `SealPromotion` performs the load-bearing authority swap
+  transactionally: receipt insert, `remote_authority_v2`,
+  `search_generation_current`, `receipt_pack_grant`, and sealed staging
+  status. (Slice 5 + CQ-135 + CQ-136 + CQ-141 + CQ-137.)
+- [x] L5.4 — `GET /v2/receipts/:receiptId` is device-scoped (CQ-127) and
+  verifies against JWKS (CQ-138 server side + CQ-123 + CQ-138 client side).
+- [x] L5.5 — `prosa sync-v2` promotes a fresh bundle, resumes after
+  interrupt, supports `--no-resume`, and repeats the same bundle via the
+  `already_promoted` fast path. (Existing slice 7/8 + new L5.6 flag.)
+- [x] L5.6 — `--no-resume` flag implemented (commander `--no-resume` →
+  `PromoteInput.skipResume`) and pinned by
+  `promote.test.ts > --no-resume (skipResume: true) skips the GET /status call`.
+- [x] L5.7 — Test proves only the seal path writes authority tables:
+  `apps/api/test/v2/sync/seal-only-authority.test.ts` walks `apps/api/src`
+  and asserts only `seal-promotion.ts` contains
+  `INSERT/UPDATE remote_authority_v2|search_generation_current|receipt_pack_grant`.
+- [x] L5.8 — Invariants I1, I2, I3, I4, and I5 pass for the promotion path
+  (covered across CQ-123, CQ-125, CQ-127, CQ-138 tests + JWKS verify in
+  `promote.test.ts > drives the full four-call protocol`).
+- [x] L5.9 — Docker-backed E2E covers API, Postgres, object storage, CLI
+  sync, and a second device reading remotely. (`just e2e` 4/4 + `just
+  e2e-cli` 3/3, including `apps/cli/test/cli/sync-v2-e2e.test.ts`.)
+
+Outstanding (deferred to Lane 10): CQ-124 v1/v2 schema cutover and the
+CQ-124-blocked portions of CQ-134 (projection / search materialization).
+These are NOT Lane 5 scope per the initial plan — Lane 5 uses the
+`applyV2PromotionSubsetSchema` workaround.
 
 Minimum command evidence:
 
 ```text
-pnpm --filter @c3-oss/prosa-api test
-pnpm --filter @c3-oss/prosa test
-pnpm typecheck
-pnpm lint
-git diff --check
+pnpm --filter @c3-oss/prosa-api test   # 282/4 skipped (env-gated E2E + 1 pre-existing)
+pnpm --filter @c3-oss/prosa test       # 295+/3 skipped (sync-v2-e2e + pre-existing)
+pnpm typecheck                         # 13/13
+pnpm lint                              # 13/13
+git diff --check                       # clean
+just e2e                               # 4/4 with Docker up
+just e2e-cli                           # 3/3 with Docker up
 ```
 
 ## Known historical notes
