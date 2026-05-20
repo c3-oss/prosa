@@ -237,6 +237,16 @@ export async function sealPromotion(
     if (staging.sealed_receipt_id) {
       const existing = await loadAndValidateLinkedReceipt(deps, staging, staging.sealed_receipt_id, params.promotionId)
       if (existing) {
+        // CQ-141: re-running the sealed replay must also prove
+        // that the linked packs are still readable AND that
+        // their bytes match the durable expected metadata. If
+        // an out-of-band swap / loss happened after the original
+        // seal, replaying the receipt would otherwise claim
+        // authority over bytes the server can't honestly serve.
+        // Throws `SealPromotionPackBytesMissingError` or
+        // `SealPromotionPackBytesMismatchError` on failure (the
+        // same error types the fresh-seal path uses).
+        await verifyLinkedPackBytes(deps, params.promotionId)
         return { status: 'sealed', receipt: existing }
       }
     }
@@ -290,7 +300,15 @@ export async function sealPromotion(
         refreshed[0]!.sealed_receipt_id,
         params.promotionId,
       )
-      if (validated) return { status: 'sealed', receipt: validated }
+      if (validated) {
+        // CQ-141: see the sealed-replay branch above — pack-byte
+        // verification runs on every replay path, not just the
+        // pre-flip read, so an attacker / corruption window
+        // between the original seal and this race-loser replay
+        // can't return a stale-but-valid-looking receipt.
+        await verifyLinkedPackBytes(deps, params.promotionId)
+        return { status: 'sealed', receipt: validated }
+      }
     }
     throw new SealPromotionInProgressError(`promotion ${params.promotionId} is mid-seal`)
   }
@@ -346,95 +364,13 @@ export async function sealPromotion(
     }
 
     // CQ-141: catalog rows alone don't prove the bytes survive
-    // until seal. Resolve every linked pack's
-    // `(storage_uri, byte_hash, byte_length)` and `head()` each
-    // storage object. The seal fails closed when:
-    //   - storage_uri is unknown / head() returns null /
-    //     head.compressedSize === 0 → bytes missing
-    //     (`SealPromotionPackBytesMissingError`);
-    //   - head returns nonzero bytes whose hash, hashAlgorithm,
-    //     or length disagrees with the durable expected metadata
-    //     (`SealPromotionPackBytesMismatchError`);
-    //   - the catalog row is missing its expected `byte_hash`
-    //     (legacy null), because size-only verification is not
-    //     strong enough to gate a cleanup-authorizing authority
-    //     grant — also surfaces as `PACK_BYTES_MISMATCH` so the
-    //     client / operator can heal by re-uploading.
-    // Without these checks, an out-of-band swap / corruption
-    // between upload and seal would let the authority swap grant
-    // bytes the server cannot honestly serve. This runs after
-    // coverage so we don't pay the head-fanout when the catalog
+    // until seal. `verifyLinkedPackBytes` resolves every linked
+    // pack's `(storage_uri, byte_hash, byte_length)` and `head()`s
+    // each storage object. Fails closed on missing / mismatched
+    // bytes (see helper docstring). This runs after the coverage
+    // check so we don't pay the head-fanout when the catalog
     // itself is short.
-    if (packDigests.length > 0) {
-      const packRows = await deps.rawExec<{
-        pack_digest: string
-        storage_uri: string
-        byte_hash: string | null
-        byte_length: string | number | null
-      }>(
-        `SELECT pack_digest, storage_uri, byte_hash, byte_length
-           FROM remote_pack
-          WHERE tenant_id = $1 AND pack_digest = ANY($2)`,
-        [deps.tenantId, packDigests],
-      )
-      const packByDigest = new Map<string, { storageKey: string; byteHash: string | null; byteLength: number | null }>()
-      for (const row of packRows) {
-        packByDigest.set(row.pack_digest, {
-          storageKey: row.storage_uri,
-          byteHash: row.byte_hash ? row.byte_hash.toLowerCase() : null,
-          byteLength: row.byte_length === null || row.byte_length === undefined ? null : Number(row.byte_length),
-        })
-      }
-      const missing: string[] = []
-      const mismatches: Array<{
-        packDigest: string
-        storageKey: string
-        expectedHash: string | null
-        expectedSize: number | null
-        actualHash: string
-        actualSize: number
-      }> = []
-      for (const digest of packDigests) {
-        const meta = packByDigest.get(digest)
-        if (!meta) {
-          missing.push(digest)
-          continue
-        }
-        const packHead = await deps.objectStore.head(meta.storageKey)
-        if (!packHead || packHead.compressedSize === 0) {
-          missing.push(digest)
-          continue
-        }
-        const actualHash = packHead.hash.toLowerCase()
-        const actualSize = packHead.compressedSize
-        // `byte_hash` MUST be present and equal to the
-        // object-store hash; size MUST equal `byte_length`; and
-        // `hashAlgorithm` MUST be `blake3` (the only canonical
-        // algorithm for v2 transport hashes). Any missing /
-        // mismatched component fails closed — size-only is not
-        // sufficient for cleanup-authorizing authority grant.
-        const algorithmOk = packHead.hashAlgorithm === 'blake3'
-        const hashKnown = meta.byteHash !== null
-        const hashMatch = hashKnown && meta.byteHash === actualHash
-        const sizeMatch = meta.byteLength !== null && meta.byteLength === actualSize
-        if (!algorithmOk || !hashKnown || !hashMatch || !sizeMatch) {
-          mismatches.push({
-            packDigest: digest,
-            storageKey: meta.storageKey,
-            expectedHash: meta.byteHash,
-            expectedSize: meta.byteLength,
-            actualHash: algorithmOk ? actualHash : `${packHead.hashAlgorithm}:${actualHash}`,
-            actualSize,
-          })
-        }
-      }
-      if (missing.length > 0) {
-        throw new SealPromotionPackBytesMissingError(missing)
-      }
-      if (mismatches.length > 0) {
-        throw new SealPromotionPackBytesMismatchError(mismatches)
-      }
-    }
+    await verifyLinkedPackBytes(deps, params.promotionId)
 
     const payload = buildReceiptPayload({
       tenantId: deps.tenantId,
@@ -530,6 +466,92 @@ export async function sealPromotion(
   }
 
   return { status: 'sealed', receipt: { payload: finalPayload, signature } }
+}
+
+// CQ-141: shared linked-pack byte verification. Runs on every
+// authority-relevant code path:
+//   - fresh seal (before signer + transaction);
+//   - idempotent sealed-replay (status='sealed' branch);
+//   - race-loser replay (refreshed after CAS lost the flip).
+// Without the replay-branch verification, an out-of-band swap /
+// loss after the original seal would let `sealPromotion` return
+// the originally signed receipt as if the bytes were still
+// trustworthy. Fails closed via the same error types the fresh
+// seal uses so callers (route layer + CQ-135 wrapper) handle
+// every replay the same way.
+async function verifyLinkedPackBytes(
+  deps: Pick<SealPromotionDeps, 'rawExec' | 'tenantId' | 'objectStore'>,
+  promotionId: string,
+): Promise<void> {
+  const packDigestRows = await deps.rawExec<{ pack_digest: string }>(
+    `SELECT pack_digest FROM promotion_uploaded_pack
+      WHERE promotion_id = $1 AND tenant_id = $2`,
+    [promotionId, deps.tenantId],
+  )
+  if (packDigestRows.length === 0) return
+  const packDigests = packDigestRows.map((r) => r.pack_digest)
+  const packRows = await deps.rawExec<{
+    pack_digest: string
+    storage_uri: string
+    byte_hash: string | null
+    byte_length: string | number | null
+  }>(
+    `SELECT pack_digest, storage_uri, byte_hash, byte_length
+       FROM remote_pack
+      WHERE tenant_id = $1 AND pack_digest = ANY($2)`,
+    [deps.tenantId, packDigests],
+  )
+  const packByDigest = new Map<string, { storageKey: string; byteHash: string | null; byteLength: number | null }>()
+  for (const row of packRows) {
+    packByDigest.set(row.pack_digest, {
+      storageKey: row.storage_uri,
+      byteHash: row.byte_hash ? row.byte_hash.toLowerCase() : null,
+      byteLength: row.byte_length === null || row.byte_length === undefined ? null : Number(row.byte_length),
+    })
+  }
+  const missing: string[] = []
+  const mismatches: Array<{
+    packDigest: string
+    storageKey: string
+    expectedHash: string | null
+    expectedSize: number | null
+    actualHash: string
+    actualSize: number
+  }> = []
+  for (const digest of packDigests) {
+    const meta = packByDigest.get(digest)
+    if (!meta) {
+      missing.push(digest)
+      continue
+    }
+    const packHead = await deps.objectStore.head(meta.storageKey)
+    if (!packHead || packHead.compressedSize === 0) {
+      missing.push(digest)
+      continue
+    }
+    const actualHash = packHead.hash.toLowerCase()
+    const actualSize = packHead.compressedSize
+    const algorithmOk = packHead.hashAlgorithm === 'blake3'
+    const hashKnown = meta.byteHash !== null
+    const hashMatch = hashKnown && meta.byteHash === actualHash
+    const sizeMatch = meta.byteLength !== null && meta.byteLength === actualSize
+    if (!algorithmOk || !hashKnown || !hashMatch || !sizeMatch) {
+      mismatches.push({
+        packDigest: digest,
+        storageKey: meta.storageKey,
+        expectedHash: meta.byteHash,
+        expectedSize: meta.byteLength,
+        actualHash: algorithmOk ? actualHash : `${packHead.hashAlgorithm}:${actualHash}`,
+        actualSize,
+      })
+    }
+  }
+  if (missing.length > 0) {
+    throw new SealPromotionPackBytesMissingError(missing)
+  }
+  if (mismatches.length > 0) {
+    throw new SealPromotionPackBytesMismatchError(mismatches)
+  }
 }
 
 async function restoreStagingStatus(deps: SealPromotionDeps, promotionId: string, priorStatus: string): Promise<void> {
