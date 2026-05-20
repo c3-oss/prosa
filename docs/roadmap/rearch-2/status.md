@@ -105,9 +105,13 @@ The blocker is implementation work, not environment.
   its prior status. Pinned by three failure-injection cases in
   `cq-135-seal-restore.test.ts` (signer failure, currentKeyId failure,
   transaction failure); retry with a working signer seals successfully.
-- CQ-136: normal sealed replay now validates tuple fields, but closure remains
-  open until race-loser replay and linked-receipt schema/derived-id/signature
-  validation fail closed.
+- CQ-136: closed (2026-05-20). Both sealed-replay branches (normal
+  `status='sealed'` and race-loser) now go through
+  `loadAndValidateLinkedReceipt`, which validates tuple integrity,
+  content-addressed derived id, and Ed25519 signature against the server
+  JWKS. Pinned by `cq-136-resale.test.ts` (3 tuple cases) plus
+  `cq-136-link-validation.test.ts` (3 cases: derived-id mismatch, bogus
+  signature, foreign-signer signature).
 - CQ-137: closed (2026-05-20) alongside CQ-126. Production boot, every
   test entry point, and the Docker E2E bootstrap apply the legacy-shape
   migration through `applyV2PromotionSubsetSchema`'s
@@ -158,13 +162,14 @@ The blocker is implementation work, not environment.
 - CQ-135's earlier `a867e93` rejection (no failure-injection tests) is
   resolved by the 2026-05-20 closure adding three failure-injection cases
   in `cq-135-seal-restore.test.ts`.
-- CQ-136/CQ-138 closure claims from `cba2b90`/`6557852` are rejected pending
-  the reviewer-smoked corrupt-link and shared-schema validation cases.
-  CQ-137 was rejected on the schema-upgrade / production boot migration
-  axis; that gap is closed in 2026-05-20 alongside CQ-126.
-- CQ-136/CQ-138 closure claims from `11447b7`/`9aff136` remain
-  rejected/partial pending race-loser sealed replay and CLI/shared-schema
-  receipt validation.
+- CQ-138 closure claims from `cba2b90`/`6557852` are rejected pending the
+  reviewer-smoked shared-schema validation case. CQ-137 was rejected on
+  the schema-upgrade / production boot migration axis; that gap is closed
+  in 2026-05-20 alongside CQ-126. CQ-136 was rejected on the race-loser
+  + derived-id/signature axis; both are resolved by the 2026-05-20
+  closure (`loadAndValidateLinkedReceipt` covers both replay branches).
+- CQ-138 closure claims from `11447b7`/`9aff136` remain rejected/partial
+  pending CLI/shared-schema receipt validation.
 - CQ-127 closure from `0e59a43` is rejected because post-begin checks are
   optional via `x-prosa-device-id`, CLI does not send the header, and GetReceipt
   remains tenant-wide.

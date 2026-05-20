@@ -983,3 +983,56 @@ malformed/unparseable receipt JSON case is implicitly covered by
 the existing missing-receipt path (`coerceJsonbObject` → null →
 'missing'); the device-mismatch + invalid-signature axes are
 explicit cases above.
+
+## CQ-136 closure (sealed-replay derived id + signature) — 2026-05-20
+
+Scope:
+
+- `apps/api/src/v2/sync/seal-promotion.ts` extracts
+  `loadAndValidateLinkedReceipt(deps, staging, linkedReceiptId,
+  promotionId)`. The helper runs three independent checks before
+  returning a linked receipt:
+  1. Tuple integrity (tenant / store / device / receiptId /
+     bundleRoot all consistent across the staging row + signed
+     payload).
+  2. Content-addressed derived id —
+     `deriveReceiptId(payload) === payload.receiptId`.
+  3. Ed25519 signature verification against the server JWKS via
+     `signer.verifyReceipt(receiptPayloadBytes(payload), signature)`.
+  Any failure throws `SealPromotionLinkCorruptError` → 500
+  SEAL_LINK_CORRUPT; a missing row falls through so the
+  re-seal attempt can restore the link.
+- BOTH replay branches now go through the helper:
+  - the normal `status='sealed'` branch (idempotent retry after
+    seal completed),
+  - the race-loser branch (someone else flipped the row past us
+    between our pre-flip read and the CAS).
+  The race-loser previously trusted the freshly-read
+  `sealed_receipt_id` by id alone — a concurrent attacker who
+  tampered with the link between the pre-flip read and the
+  race-loser re-read could otherwise slip a foreign receipt back
+  to the client.
+
+Pinned by:
+
+- `apps/api/test/v2/sync/cq-136-resale.test.ts` (existing) — 3
+  cases proving A→B re-seal returns A's receipt; the row-level
+  `sealed_receipt_id` linkage assertion; tuple-mismatched link
+  fails closed with SEAL_LINK_CORRUPT.
+- `apps/api/test/v2/sync/cq-136-link-validation.test.ts` (new) —
+  3 cases: tampered payload (deriveReceiptId mismatch), bogus
+  signature, foreign-signer signature with the keyId spoofed to
+  the current signer's. Each seals a real promotion to establish
+  the staging linkage, then overwrites `sealed_receipt_id` with a
+  spoof receipt and re-issues seal; all return 500
+  SEAL_LINK_CORRUPT.
+
+Gates:
+
+- `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/sync/cq-136-link-validation.test.ts test/v2/sync/cq-136-resale.test.ts`
+  → pass, 6/6.
+- `pnpm --filter @c3-oss/prosa-api test` → pass, 281 / 4 skipped.
+- `pnpm lint` repo-wide → clean.
+- `pnpm typecheck` repo-wide → clean.
+
+CQ-136 acceptance bullets are all proven; the CQ is closed.

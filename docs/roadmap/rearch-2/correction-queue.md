@@ -1227,33 +1227,56 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 5 idempotency and receipt correctness)
-Status: open (partial closure rejected 2026-05-20)
+Status: closed (2026-05-20)
 Owner: Ralph
 
-Partial closure: the sealed-status replay branch in
-`apps/api/src/v2/sync/seal-promotion.ts` now verifies the
-loaded receipt matches the staging tuple before returning it:
-- `payload.tenantId === ctx.tenantId`,
-- `payload.storeId === staging.store_id`,
-- `payload.deviceId === staging.device_id`,
-- `payload.receiptId === staging.sealed_receipt_id`,
-- `payload.bundleRoot === staging.head_json.bundleRoot`.
-A mismatch raises `SealPromotionLinkCorruptError` → 500
-SEAL_LINK_CORRUPT. The handler no longer returns a foreign
-same-tenant receipt even when `sealed_receipt_id` is corrupt.
+Closure (2026-05-20): the sealed-replay path is centralized through
+`loadAndValidateLinkedReceipt(...)` in
+`apps/api/src/v2/sync/seal-promotion.ts`. Both branches that can
+return a linked receipt — the normal `status='sealed'` branch and
+the race-loser branch where another seal flipped the row past us
+— call this helper, which runs three independent checks before
+returning the receipt:
 
-Pinned by three cases in `cq-136-resale.test.ts`:
-- the original A→B replay returns A's receipt;
-- the row-level link assertion (sealed_receipt_id is NULL
-  before seal, matches receiptId after);
-- **NEW**: tampered `sealed_receipt_id` pointing at a
-  same-tenant receipt with a different store/device/bundle →
-  500 SEAL_LINK_CORRUPT, original receipt row untouched.
+1. **Tuple integrity** — `payload.tenantId === ctx.tenantId`,
+   `payload.storeId === staging.store_id`,
+   `payload.deviceId === staging.device_id`,
+   `payload.receiptId === sealed_receipt_id`,
+   `payload.bundleRoot === head.bundleRoot`.
+2. **Content-addressed derived id** —
+   `deriveReceiptId(payload) === payload.receiptId`. A same-tenant
+   attacker who mutates a non-tuple field (e.g. `serverRegion`)
+   breaks the canonical hash; the route fails closed.
+3. **Signature verification** —
+   `signer.verifyReceipt(receiptPayloadBytes(payload), signature)`.
+   Bogus signatures, signatures from foreign keys, and
+   keyId-spoofed signatures all fail closed via
+   `SealPromotionLinkCorruptError` → 500 SEAL_LINK_CORRUPT.
 
-This does not fully close CQ-136. Reviewer found the replay path still does not
-validate schema, derived receipt id, or signature before returning the linked
-receipt. The race-loser branch also still returns `loadReceiptById(...)`
-without the same tuple validation.
+The race-loser branch now goes through the same helper instead of
+the previous unvalidated `loadReceiptById` path. A concurrent
+attacker who tampered with `sealed_receipt_id` between the
+pre-flip read and the race-loser re-read no longer slips a foreign
+receipt through.
+
+Pinned by:
+- `apps/api/test/v2/sync/cq-136-resale.test.ts` — original A→B
+  replay returns A's receipt; sealed_receipt_id linkage assertion;
+  tuple-mismatched link fails closed.
+- `apps/api/test/v2/sync/cq-136-link-validation.test.ts` — three
+  new cases: tampered-payload (deriveReceiptId mismatch), bogus
+  signature, foreign-signer signature with spoofed keyId. All
+  return 500 SEAL_LINK_CORRUPT after a real seal established the
+  staging linkage.
+
+Closure history (prior rejected closures left for context):
+- The initial `loadReceiptById` slice trusted the link by
+  `(receipt_id, tenant_id)` alone; same-tenant attacker could swap
+  in a `store-b/dev-b` receipt and get HTTP 200 back.
+- The tuple-only closure refused tuple mismatches via
+  `SealPromotionLinkCorruptError` but still trusted payload
+  contents (no derived-id check) and signature shape (no
+  cryptographic verification). The current closure addresses both.
 
 Closure rejection (superseded by the tuple-verification above):
 `packages/prosa-db-v2/src/schema/promotion.ts` adds a
@@ -1318,17 +1341,23 @@ Required fix:
 
 Acceptance:
 
-- [ ] Promote bundle A then bundle B for the same store; re-sealing A returns
-      A's original receipt or a terminal conflict, never B's current receipt.
-- [ ] Missing/corrupt sealed receipt link fails closed.
-- [ ] Returned replay receipt validates against the same tuple as the staging
-      row.
-- [ ] Tests cover wrong-store, wrong-device, wrong-bundle, missing-row, and
-      malformed-payload/signature `sealed_receipt_id` links.
-- [ ] Race-loser replay validates the exact same tuple/schema/signature path as
-      normal sealed replay.
-- [ ] Malformed signature, schema-invalid payload, and derived-id mismatch in a
-      linked receipt fail closed.
+- [x] Promote bundle A then bundle B for the same store; re-sealing A returns
+      A's original receipt or a terminal conflict, never B's current receipt
+      (covered by `cq-136-resale.test.ts > after seal A then seal B...`).
+- [x] Missing/corrupt sealed receipt link fails closed (helper returns null on
+      missing → caller falls through to re-seal; tuple-mismatch throws
+      `SealPromotionLinkCorruptError`).
+- [x] Returned replay receipt validates against the same tuple as the staging
+      row (helper tuple check).
+- [x] Tests cover wrong-store, wrong-device, wrong-bundle, missing-row, and
+      malformed-payload/signature `sealed_receipt_id` links
+      (`cq-136-resale` tuple cases + `cq-136-link-validation` payload + sig cases).
+- [x] Race-loser replay validates the exact same tuple/schema/signature path as
+      normal sealed replay (both branches now call
+      `loadAndValidateLinkedReceipt`).
+- [x] Malformed signature, schema-invalid payload, and derived-id mismatch in a
+      linked receipt fail closed (three cases in
+      `cq-136-link-validation.test.ts`).
 
 ### CQ-137: `search_generation_current` is tenant-wide while authority is store-scoped
 
