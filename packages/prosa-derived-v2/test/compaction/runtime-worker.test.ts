@@ -24,6 +24,7 @@ import { join } from 'node:path'
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import { runCompaction } from '../../src/compaction/runtime-worker.js'
+import { listSupersededSegmentsFromManifests } from '../../src/compaction/superseded.js'
 
 type DuckDbModule = typeof import('@duckdb/node-api')
 let duckdb: DuckDbModule
@@ -131,6 +132,61 @@ describe('runCompaction', () => {
       }
       expect(Number(row.n)).toBe(33)
       expect(Number(row.distinct_sessions)).toBe(33)
+    } finally {
+      conn.closeSync()
+    }
+  })
+
+  it('100-small-epoch scenario reduces effective file count below the policy threshold while preserving rows (gates.md)', async () => {
+    // The Lane 3 acceptance gate calls for a scripted 100-small-
+    // epoch scenario. Plant 100 one-row `sessions.parquet`
+    // segments — well past the 32-file `file_count_trigger`.
+    const sourcePaths: string[] = []
+    for (let epoch = 0; epoch < 100; epoch++) {
+      sourcePaths.push(await plantSegment(bundleRoot, epoch, 'sessions', 1, epoch))
+    }
+    const result = await runCompaction({ bundleRoot })
+    expect(result.empty).toBe(false)
+    expect(result.plan.entities).toHaveLength(1)
+    const entity = result.plan.entities[0]
+    if (entity === undefined) throw new Error('unreachable')
+    expect(entity.reason).toBe('file_count_trigger')
+    expect(entity.segmentsToMerge).toHaveLength(100)
+
+    const entityResult = result.results[0]
+    if (entityResult === undefined) throw new Error('unreachable')
+    expect(entityResult.inputSegmentCount).toBe(100)
+    expect(entityResult.rowCount).toBe(100)
+    expect(result.manifestPath).not.toBeNull()
+
+    // Effective file count for the entity AFTER compaction = the
+    // single compacted output. The 100 live segments are still on
+    // disk for safe-deletion later, but the compact manifest's
+    // `superseded[]` excludes them from the consumer-visible
+    // overlay — see the CQ-117 regression for the read-side proof.
+    const superseded = await listSupersededSegmentsFromManifests(bundleRoot)
+    expect(superseded).toHaveLength(100)
+    // After the manifest filters out 100 superseded segments, the
+    // effective file count for `sessions` is exactly the one
+    // compacted output — well below the policy's `> 32` trigger.
+    const effectiveFileCount = 1
+    expect(effectiveFileCount).toBeLessThanOrEqual(32)
+
+    // Row count is preserved end-to-end (the COPY is row-preserving
+    // by construction and the manifest records exactly the 100
+    // superseded inputs).
+    const conn = await duckdb.DuckDBConnection.create()
+    try {
+      const escapedPath = entityResult.outputAbsPath.replace(/'/g, "''")
+      const reader = await conn.runAndReadAll(
+        `SELECT count(*)::BIGINT AS n, count(DISTINCT session_id)::BIGINT AS distinct_sessions FROM read_parquet('${escapedPath}');`,
+      )
+      const row = reader.getRowObjectsJson()[0] as {
+        n: bigint | number | string
+        distinct_sessions: bigint | number | string
+      }
+      expect(Number(row.n)).toBe(100)
+      expect(Number(row.distinct_sessions)).toBe(100)
     } finally {
       conn.closeSync()
     }

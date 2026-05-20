@@ -68,6 +68,7 @@
     "@c3-oss/prosa-storage": "workspace:^",
     "@c3-oss/prosa-sync": "workspace:^",
     "@electric-sql/pglite": "^0.4.5",
+    "@oxdev03/node-tantivy-binding": "0.2.0",
     "postgres": "^3.4.9",
     "@types/better-sqlite3": "^7.6.12",
     "@types/react": "^19.2.14",

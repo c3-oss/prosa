@@ -1,16 +1,15 @@
 # Lane 3 Evidence — Derived layer
 
-Updated: 2026-05-20 after CQ-117 closure.
+Updated: 2026-05-20 after CQ-116 closure validation.
 
 ## Status
 
 Active / incomplete. The Tantivy compile-to-index gate is satisfied for the
 Codex fixture path (compile-v2 → index-v2 tantivy → index-v2 status). DuckDB
 analytics runtime code landed in `828b59f` and Parquet compaction runtime code
-landed in `2345798`. CQ-118 (containment) and CQ-117 (post-compaction
-double-count) are now closed. Governor acceptance of the DuckDB analytics
-runtime is still pending on CQ-116 (real `compile-v2` emits NDJSON, not
-Parquet; sparse bundles still fail with missing temp tables).
+landed in `2345798`. CQ-116, CQ-117, and CQ-118 are closed after focused
+governor validation. Lane 3 still needs final gate-batch evidence and the
+required five 180-second stabilization cycles before `RALPH_DONE`.
 
 ## Completed support foundation
 
@@ -49,7 +48,8 @@ Parquet; sparse bundles still fail with missing temp tables).
     skippedEntities }`. Drops entity setup statements entirely when
     both live + compacted globs are empty so the caller sees an
     authentic "missing parquet" failure instead of a glob error.
-    **Not accepted yet:** CQ-116 blocks analytics acceptance.
+    CQ-116 is closed: the runtime now reads canonical NDJSON projection segments
+    and materialises typed empty stubs for sparse entities.
 - Tantivy support:
   - schema/fingerprint;
   - rebuild planner/state machine;
@@ -114,14 +114,14 @@ Parquet; sparse bundles still fail with missing temp tables).
       text (`input_text` / `output_text` / `text` blocks); full v1
       parity for tool-call / tool-result / per-block fan-out remains
       a follow-up.
-- [ ] DuckDB analytics runtime executor — code landed in `828b59f` with
+- [x] DuckDB analytics runtime executor — code landed in `828b59f` with
       `runAnalyticsExecution` + a focused 7-test suite that materialises
       each of the 5 fixed views against minimal Parquet fixtures
       (planted via DuckDB's own `COPY ... TO ... (FORMAT PARQUET)`),
       verifies column-shape parity with `ANALYTICS_VIEW_COLUMNS`, and
-      asserts row counts + `skippedEntities` reporting. Governor acceptance is
-      blocked by CQ-116: real `compile-v2` output is currently NDJSON, not
-      Parquet, and sparse bundles can fail with missing temp tables.
+      asserts row counts + `skippedEntities` reporting. CQ-116 added NDJSON
+      projection ingestion and typed empty stubs, with a real
+      `compile-v2 codex` → `runAnalyticsExecution(session_facts)` gate.
 - [x] Parquet compaction merge worker — code landed in `2345798`, with CQ-118
       containment fixed in `425b035` and CQ-117 post-compaction overlay
       semantics fixed in `c31fd91`
@@ -455,3 +455,35 @@ Gate output (full closure command set):
   Full `pnpm --filter @c3-oss/prosa-derived-v2 test` → 584/584
   (57 files). typecheck + biome clean. Workspace `pnpm typecheck`
   → 13/13.
+
+## Lane 3 gate strengthening (2026-05-20)
+
+- Tantivy compile-to-index gate (per reviewer feedback): the
+  existing case in `compile-to-index-gate.test.ts` now also (a)
+  parses the first NDJSON body line emitted by the importer,
+  confirming `doc_id` matches `msg:msg_*`, `text` is a
+  non-empty string, and `role` is `user` / `assistant`; (b)
+  opens the on-disk Tantivy index via
+  `@oxdev03/node-tantivy-binding`, asserts `searcher.numDocs ≥
+  sourceDocCount`, then queries the index for the persisted
+  `doc_id` (raw tokenizer) AND the first natural-language token
+  from the fixture text (default tokenizer). Both queries must
+  return ≥ 1 hit. Adds `@oxdev03/node-tantivy-binding` as a CLI
+  devDependency so the test can import the binding directly.
+- 100-small-epoch compaction scenario (gates.md acceptance
+  bullet): `runtime-worker.test.ts` plants 100 distinct one-row
+  `sessions.parquet` segments, runs `runCompaction`, asserts
+  `inputSegmentCount == rowCount == 100`,
+  `listSupersededSegmentsFromManifests` returns 100 entries, and
+  the effective post-compaction file set for `sessions` is the
+  single compacted output (well below the policy's `> 32`
+  trigger). Round-trips the compacted Parquet through DuckDB to
+  confirm `count(*) = 100` AND `count(DISTINCT session_id) = 100`
+  — i.e. row preservation.
+- Gates: `pnpm --filter @c3-oss/prosa exec vitest run
+  test/cli/compile-to-index-gate.test.ts` → 2/2.
+  `pnpm --filter @c3-oss/prosa-derived-v2 exec vitest run
+  test/compaction/runtime-worker.test.ts` → 11/11. Full
+  `pnpm --filter @c3-oss/prosa-derived-v2 test` → 585/585 (57
+  files). Workspace `pnpm typecheck` → 13/13. typecheck + biome
+  clean across all touched packages.

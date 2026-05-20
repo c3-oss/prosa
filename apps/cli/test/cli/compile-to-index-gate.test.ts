@@ -247,6 +247,31 @@ describe('Lane 3 compile-to-index gate', () => {
       statusSnapshot.tantivy.checkpoint?.source_doc_count,
     )
     expect(statusSnapshot.tantivy.checkpoint?.indexed_doc_count).toBe(indexResult.sourceDocCount)
+
+    // Reviewer-requested strengthening: parse the emitted search_doc
+    // row from the projection segment AND query the on-disk Tantivy
+    // index for the fixture text / doc_id. Without these, the gate
+    // could pass on an index that merely reaches `ready` without
+    // ever surfacing the fixture content for a real search query.
+    // First doc_id from the NDJSON segment body.
+    const ndjsonRow = JSON.parse(nonHeaderLines[1] as string) as { doc_id: string; text: string; role: string }
+    expect(ndjsonRow.doc_id).toMatch(/^msg:msg_/)
+    expect(typeof ndjsonRow.text).toBe('string')
+    expect(ndjsonRow.text.length).toBeGreaterThan(0)
+    expect(['user', 'assistant']).toContain(ndjsonRow.role)
+    // Open the on-disk Tantivy index and confirm the fixture text
+    // is searchable and the persisted doc_id matches.
+    const tantivy = await import('@oxdev03/node-tantivy-binding')
+    const index = tantivy.Index.open(join(storeRoot, 'derived', 'tantivy', 'index'))
+    const searcher = index.searcher()
+    expect(searcher.numDocs).toBeGreaterThanOrEqual(indexResult.sourceDocCount ?? 0)
+    // 1) Exact-match the doc_id (raw tokenizer).
+    const docIdHits = searcher.search(index.parseQuery(`"${ndjsonRow.doc_id}"`, ['doc_id']), 5).hits.length
+    expect(docIdHits).toBeGreaterThan(0)
+    // 2) Natural-language match against a token from the fixture text.
+    const firstToken = ndjsonRow.text.split(/\s+/)[0] as string
+    const textHits = searcher.search(index.parseQuery(firstToken, ['text']), 5).hits.length
+    expect(textHits).toBeGreaterThan(0)
   }, 90_000)
 
   it('compile-all-v2 → index-v2 tantivy → index-v2 status covers codex/claude/gemini/hermes search_doc emission', async () => {

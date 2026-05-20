@@ -218,6 +218,9 @@ importers:
       '@electric-sql/pglite':
         specifier: ^0.4.5
         version: 0.4.5
+      '@oxdev03/node-tantivy-binding':
+        specifier: 0.2.0
+        version: 0.2.0
       '@types/better-sqlite3':
         specifier: ^7.6.12
         version: 7.6.13
