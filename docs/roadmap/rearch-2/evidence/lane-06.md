@@ -562,6 +562,85 @@ Remaining slices:
    1 MiB).
 6. Five consecutive 180 s stabilization cycles before RALPH_DONE.
 
+## Slice 9 — CQ-143 session show + CQ-145 full matrix + CQ-146 docs + CQ-147 + p95 (2026-05-20)
+
+Landed:
+
+- **CQ-143 follow-up:** `sessions-v2-failclose.test.ts` (now 3 CLI
+  subprocess tests) adds `prosa session show <id>` against a v2
+  promoted store. Exits non-zero with `--local` guidance and no
+  `ECONNREFUSED` / HTTP error markers in stderr.
+- **CQ-145 full matrix:** `artifacts-route.test.ts` (now 9 tests)
+  adds the four reviewer-required cases through the live Fastify
+  route:
+  - missing receipt pack grant → opaque `{ found: false }`.
+  - missing artifact `object_id` → opaque.
+  - storage URI not in object store (fetch failure) → opaque.
+  - valid small UTF-8 artifact → `kind: 'text'` with bounded body.
+  - `> 1 MiB` binary artifact → `kind: 'binary'`, empty `text`,
+    `truncated: true` at the preview cap.
+  A new test-only `applyV2ProjectionArtifactShape(t)` helper drops
+  the v1 row and recreates the v2 `projection_artifact` shape so
+  the route runs against full v2 schema without breaking the rest
+  of the suite.
+- **CQ-146 docs:** `docs/architecture/server-sync.md` env-var
+  reference names `PROSA_CURSOR_HMAC_SECRET`, the ≥32-char
+  minimum, the production fail-closed contract, and the
+  same-value-across-workers rule.
+- **CQ-147 cross-store distinct + strictness:**
+  - `analytics/summary.ts` rewrites every count subquery against a
+    `WITH picked_sessions AS (...)` CTE that collapses cross-store
+    duplicates via `DISTINCT ON (source_tool, source_session_id)
+    ORDER BY end_ts DESC, receipt_id DESC`. Messages / tool calls
+    / tool result errors / artifacts now JOIN against
+    `picked_sessions` so a logical session promoted by N stores
+    contributes once.
+  - `analytics/report.ts` `runToolsReport`, `runErrorsReport`,
+    `runModelsReport` all use the same picked-sessions CTE
+    (filter-aware) and re-apply `verifiedProjectionWhere` to
+    their own entity to keep superseded rows hidden.
+  - `analyticsReportInput` is now `.strict()` — unknown filter
+    keys reject with a 400 at the route boundary instead of
+    silently dropping.
+  - `cross-store-distinct.test.ts` (7 tests) pins the contract on
+    a single-logical / two-store fixture: summary sessions ==
+    `1`, source/store breakdown reflects only the picked store,
+    summary tool-call/message counts collapse, the sessions /
+    tools / models reports each return exactly one row.
+  - `analytics-report.test.ts` summary test updated for the
+    CQ-147 contract (3 logical sessions, 2 codex, 2 sessions
+    under `s_a`, 1 under `s_b`).
+- **p95 latency smoke:** `p95-latency.test.ts` seeds 200 sessions
+  + 50 messages on `ses_0000` + 200 search docs, then samples
+  `sessions/list`, `search/query`, and `sessions/transcript` 20
+  times each. Asserts loose PGlite-friendly ceilings (`< 2s` on
+  list / search, `< 5s` on transcript first page) so a regression
+  that cratered throughput trips. Observed numbers on the
+  contributor checkout:
+  - `sessions/list = 6.5 ms`
+  - `search/query  = 5.3 ms`
+  - `sessions/transcript first page = 4.9 ms`
+  All three are several orders of magnitude under the Lane 6
+  production targets (200 / 200 / 500 ms). The 1 MiB
+  `artifacts/getText` target is exercised by
+  `artifacts-route.test.ts` (the binary-large case decodes 1 MiB
+  + 1 bytes within the test's < 10 s harness budget; explicit ms
+  pinning waits for the real-Postgres benchmark).
+
+Slice 9 gates on the contributor checkout:
+
+```text
+pnpm exec vitest run test/v2/reads/   → 15 files / 110/110 tests passed
+pnpm typecheck                         → repo-wide green
+pnpm lint                              → repo-wide green
+pnpm --filter @c3-oss/prosa exec vitest run test/cli/sessions-v2-failclose.test.ts
+                                       → 3/3 passed
+```
+
+Remaining slices:
+
+1. Five consecutive 180 s stabilization cycles before RALPH_DONE.
+
 ## Scope
 
 Lane 6 implements the receipt-pinned remote read API from

@@ -109,4 +109,21 @@ describe('CQ-143: `prosa sessions` fails closed for a v2-promoted store before h
     expect(combined).toMatch(/--local/)
     expect(combined).not.toMatch(/ECONNREFUSED/)
   })
+
+  it('refuses `session show <id>` without --local and never reaches the network', async () => {
+    // `prosa session show` declares remoteSupported: false today —
+    // that already short-circuits any promoted store. The CQ-143
+    // pin is "do not call /trpc/sessions.*"; this asserts the
+    // process exits non-zero with a not-available message and
+    // produces no network markers.
+    const { storePath, cleanup } = await setupV2Promotion()
+    const r = runCli(['session', 'show', 'ses_anything', '--store', storePath], cleanup)
+    expect(r.status).not.toBe(0)
+    const combined = `${r.stdout}\n${r.stderr}`
+    expect(combined).toMatch(/--local/)
+    expect(combined).toMatch(/not available|v2-promoted/)
+    expect(combined).not.toMatch(/ECONNREFUSED/)
+    expect(combined).not.toMatch(/EAI_AGAIN/)
+    expect(combined).not.toMatch(/HTTP\/1\./)
+  })
 })

@@ -366,35 +366,40 @@ describe('Lane 6 analytics/summary', () => {
     await db.close()
   })
 
-  it('reports gate-aware counts, source breakdown, and store breakdown', async () => {
+  it('reports gate-aware + cross-store-collapsed counts (CQ-147)', async () => {
     const out = await getAnalyticsSummary(
       { rawExec: makeRawExec(db), now: () => new Date('2026-05-21T00:00:00Z') },
       tenantId,
     )
     expect(out.generatedAt).toBe('2026-05-21T00:00:00.000Z')
-    // 4 visible sessions under current authority for tenantId.
-    expect(out.counts.sessions).toBe(4)
-    // 3 visible messages.
+    // 3 LOGICAL sessions after CQ-147 cross-store collapse:
+    // src_a1, src_a2, and src_shared (collapsed across s_a + s_b).
+    expect(out.counts.sessions).toBe(3)
+    // 3 visible messages (gate-aware; ses_shared has no messages).
     expect(out.counts.messages).toBe(3)
     // 3 visible tool calls.
     expect(out.counts.toolCalls).toBe(3)
     // 1 visible tool result with is_error=TRUE.
     expect(out.counts.toolResultErrors).toBe(1)
-    // 1 visible artifact (the superseded one excluded).
+    // 1 visible artifact (tied to ses_a1 which is in the picked set).
     expect(out.counts.artifacts).toBe(1)
     // 1 visible search doc.
     expect(out.counts.searchDocs).toBe(1)
     // Tenant has authority for 2 stores (s_a, s_b).
     expect(out.counts.stores).toBe(2)
-    // 2 distinct sources: codex + claude.
+    // 2 distinct sources across picked sessions: codex + claude.
     expect(out.counts.sources).toBe(2)
 
     const sourceMap = Object.fromEntries(out.sources.map((s) => [s.sourceTool, s.count]))
-    expect(sourceMap.codex).toBe(3) // ses_a1, ses_shared_old, ses_shared_new
-    expect(sourceMap.claude).toBe(1) // ses_a2
+    // Picked-sessions per tool: codex = {ses_a1, ses_shared_new} = 2,
+    // claude = {ses_a2} = 1.
+    expect(sourceMap.codex).toBe(2)
+    expect(sourceMap.claude).toBe(1)
 
     const storeMap = Object.fromEntries(out.stores.map((s) => [s.storeId, s.sessionCount]))
-    expect(storeMap.s_a).toBe(3)
+    // Picked-sessions per store: s_a = {ses_a1, ses_a2}, s_b =
+    // {ses_shared_new}.
+    expect(storeMap.s_a).toBe(2)
     expect(storeMap.s_b).toBe(1)
     for (const s of out.stores) {
       expect(s.latestPromotedAt).not.toBeNull()

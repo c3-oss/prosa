@@ -18,13 +18,19 @@ import { verifiedProjectionWhere } from '../shared/verified-projection.js'
 export const ANALYTICS_REPORTS = ['sessions', 'tools', 'errors', 'models', 'projects'] as const
 export type AnalyticsReportKind = (typeof ANALYTICS_REPORTS)[number]
 
-export const analyticsReportInput = z.object({
-  report: z.enum(ANALYTICS_REPORTS),
-  sourceTools: z.array(z.string().min(1)).optional(),
-  since: z.string().optional(),
-  until: z.string().optional(),
-  limit: z.number().int().min(1).max(5000).default(500),
-})
+// CQ-147 follow-up: strict() makes the schema reject unknown keys
+// at the wire boundary so a client cannot pass through a filter the
+// handler will silently drop (which would invite the wrong impression
+// that, e.g., `model: 'gpt-5'` filtered the report).
+export const analyticsReportInput = z
+  .object({
+    report: z.enum(ANALYTICS_REPORTS),
+    sourceTools: z.array(z.string().min(1)).optional(),
+    since: z.string().optional(),
+    until: z.string().optional(),
+    limit: z.number().int().min(1).max(5000).default(500),
+  })
+  .strict()
 
 export type AnalyticsReportInput = z.infer<typeof analyticsReportInput>
 
@@ -146,15 +152,57 @@ async function runSessionsReport(
   return rows.map((r) => ({ ...r }))
 }
 
+// CQ-147: every aggregate report consults the same cross-store
+// picked-session CTE so a logical session promoted by N stores
+// contributes exactly once. The CTE bakes the analytics filters in
+// so since/until/sourceTools narrow the picked set before any
+// counting happens.
+function buildPickedSessionsCte(tenantId: string, input: AnalyticsReportInput, params: unknown[]): string {
+  params.push(tenantId)
+  const tenantParam = `$${params.length}`
+  const localFilters = startFilters(tenantId, input)
+  // `startFilters` reserved `$1` for tenant — we want to reuse the
+  // existing params array instead. Rebuild manually here with the
+  // current params cursor.
+  // sourceTools
+  let sourceToolsClause = ''
+  if (input.sourceTools && input.sourceTools.length > 0) {
+    const placeholders = input.sourceTools.map((t) => appendParam(params, t)).join(', ')
+    sourceToolsClause = `AND s.source_tool IN (${placeholders})`
+  }
+  let sinceClause = ''
+  if (input.since) {
+    sinceClause = `AND s.start_ts >= ${appendParam(params, input.since)}::timestamptz`
+  }
+  let untilClause = ''
+  if (input.until) {
+    untilClause = `AND s.start_ts < ${appendParam(params, input.until)}::timestamptz`
+  }
+  void localFilters
+  return `
+    WITH picked_sessions AS (
+      SELECT DISTINCT ON (s.source_tool, s.source_session_id)
+             s.session_id, s.source_tool, s.source_session_id, s.project_id, s.start_ts
+        FROM projection_session s
+       WHERE ${verifiedProjectionWhere('s', tenantParam)}
+         ${sourceToolsClause}
+         ${sinceClause}
+         ${untilClause}
+       ORDER BY s.source_tool, s.source_session_id, s.end_ts DESC NULLS LAST, s.receipt_id DESC
+    )
+  `
+}
+
 async function runToolsReport(
   rawExec: RawExec,
   tenantId: string,
   input: AnalyticsReportInput,
 ): Promise<AnalyticsReportRow[]> {
-  const f = startFilters(tenantId, input)
-  const limitParam = appendParam(f.params, input.limit)
-  // We filter on the *session* start_ts via a correlated subquery so
-  // since/until applies session-wise across the gate-aware joins.
+  const params: unknown[] = []
+  const cte = buildPickedSessionsCte(tenantId, input, params)
+  const limitParam = appendParam(params, input.limit)
+  // Each invocation belongs to exactly one logical session via the
+  // picked-sessions CTE; the JOIN collapses cross-store duplicates.
   const rows = await rawExec<{
     tool_name: string
     canonical_tool_type: string | null
@@ -162,31 +210,27 @@ async function runToolsReport(
     error_count: number
     distinct_sessions: number
   }>(
-    `SELECT c.tool_name,
+    `${cte}
+     SELECT c.tool_name,
             c.canonical_tool_type,
             count(*)::int AS invocation_count,
             count(*) FILTER (
               WHERE lower(COALESCE(c.status, '')) IN ('error','failed','failure')
                  OR EXISTS (
                    SELECT 1 FROM projection_tool_result r
-                    WHERE ${verifiedProjectionWhere('r')}
+                    WHERE r.tenant_id = c.tenant_id
                       AND r.tool_call_id = c.tool_call_id
                       AND r.is_error = TRUE
                  )
             )::int AS error_count,
             count(DISTINCT c.session_id)::int AS distinct_sessions
        FROM projection_tool_call c
+       JOIN picked_sessions ps ON ps.session_id = c.session_id
       WHERE ${verifiedProjectionWhere('c')}
-        AND EXISTS (
-          SELECT 1 FROM projection_session s
-           WHERE ${verifiedProjectionWhere('s')}
-             AND s.session_id = c.session_id
-             ${f.appendFilters('s')}
-        )
       GROUP BY c.tool_name, c.canonical_tool_type
       ORDER BY invocation_count DESC, c.tool_name ASC
       LIMIT ${limitParam}`,
-    f.params,
+    params,
   )
   return rows.map((r) => ({ ...r }))
 }
@@ -196,37 +240,34 @@ async function runErrorsReport(
   tenantId: string,
   input: AnalyticsReportInput,
 ): Promise<AnalyticsReportRow[]> {
-  const f = startFilters(tenantId, input)
-  const limitParam = appendParam(f.params, input.limit)
+  const params: unknown[] = []
+  const cte = buildPickedSessionsCte(tenantId, input, params)
+  const limitParam = appendParam(params, input.limit)
   const rows = await rawExec<{
     tool_name: string
     error_count: number
     distinct_sessions: number
   }>(
-    `SELECT c.tool_name,
+    `${cte}
+     SELECT c.tool_name,
             count(*)::int AS error_count,
             count(DISTINCT c.session_id)::int AS distinct_sessions
        FROM projection_tool_call c
+       JOIN picked_sessions ps ON ps.session_id = c.session_id
       WHERE ${verifiedProjectionWhere('c')}
         AND (
           lower(COALESCE(c.status, '')) IN ('error','failed','failure')
           OR EXISTS (
             SELECT 1 FROM projection_tool_result r
-             WHERE ${verifiedProjectionWhere('r')}
+             WHERE r.tenant_id = c.tenant_id
                AND r.tool_call_id = c.tool_call_id
                AND r.is_error = TRUE
           )
         )
-        AND EXISTS (
-          SELECT 1 FROM projection_session s
-           WHERE ${verifiedProjectionWhere('s')}
-             AND s.session_id = c.session_id
-             ${f.appendFilters('s')}
-        )
       GROUP BY c.tool_name
       ORDER BY error_count DESC, c.tool_name ASC
       LIMIT ${limitParam}`,
-    f.params,
+    params,
   )
   return rows.map((r) => ({ ...r }))
 }
@@ -236,33 +277,30 @@ async function runModelsReport(
   tenantId: string,
   input: AnalyticsReportInput,
 ): Promise<AnalyticsReportRow[]> {
-  const f = startFilters(tenantId, input)
-  const limitParam = appendParam(f.params, input.limit)
+  const params: unknown[] = []
+  const cte = buildPickedSessionsCte(tenantId, input, params)
+  const limitParam = appendParam(params, input.limit)
   // The projection schema does not carry `model_first` / `model_last`
   // columns on `projection_session` (CQ-134 deferred their
   // materialization to Lane 10), so we derive distinct
-  // `(model)` pairs from `projection_message` joined back through
-  // verified-projection-gated sessions.
+  // `(model)` pairs from `projection_message` joined to the
+  // cross-store-collapsed session set.
   const rows = await rawExec<{
     model: string | null
     message_count: number
     distinct_sessions: number
   }>(
-    `SELECT m.model,
+    `${cte}
+     SELECT m.model,
             count(*)::int AS message_count,
             count(DISTINCT m.session_id)::int AS distinct_sessions
        FROM projection_message m
+       JOIN picked_sessions ps ON ps.session_id = m.session_id
       WHERE ${verifiedProjectionWhere('m')}
-        AND EXISTS (
-          SELECT 1 FROM projection_session s
-           WHERE ${verifiedProjectionWhere('s')}
-             AND s.session_id = m.session_id
-             ${f.appendFilters('s')}
-        )
       GROUP BY m.model
       ORDER BY message_count DESC, m.model ASC NULLS LAST
       LIMIT ${limitParam}`,
-    f.params,
+    params,
   )
   return rows.map((r) => ({ ...r }))
 }
