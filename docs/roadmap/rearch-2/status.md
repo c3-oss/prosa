@@ -11,10 +11,10 @@ Updated: 2026-05-20 after Codex/governor acceptance of Lane 6.
 - Lane 4 Server: **accepted** by Codex/governor on 2026-05-20.
 - Lane 5 Sync protocol: **accepted** by Codex/governor on 2026-05-20.
 - Lane 6 Read API: **accepted** by Codex/governor on 2026-05-20.
-- Lane 7 CLI and MCP: **blocked, not accepted** — slices 1-10 landed, but
-  governor review found CQ-150/CQ-151/CQ-152/CQ-153 still open after
-  `a1a21d7`. Also open: slice 11 E2E smoke and CQ-149
-  (`prosa.refresh_authority` MCP tool).
+- Lane 7 CLI and MCP: **blocked, not accepted** — CQ-150/CQ-151/CQ-152
+  accepted after `bf5a601`. Open: CQ-149 (`prosa.refresh_authority` MCP
+  tool), CQ-153 (web console routes still use legacy tRPC), and slice 11
+  E2E/manual smoke.
 - Lane 8 Audit and GC: **implemented but not governor-accepted** — audit cron handlers
   (hourly/daily/weekly/monthly), GC three-phase lifecycle, drift
   surface (quarantine + receipt_audit_state + repair field), 503

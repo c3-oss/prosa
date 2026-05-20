@@ -1,21 +1,18 @@
-// Lane 7 — `prosa mcp serve --authority {auto|local|remote} [--refresh]`.
+// Lane 7 — `prosa mcp-v2 serve --authority {auto|local|remote} [--refresh]`.
 //
-// Wraps the existing local-bundle MCP server with the v2 authority
-// pinning policy from L11:
+// Wraps the prosa-core MCP server with the v2 authority pinning
+// policy from L11:
 //   - `auto`: try the v2 authority cache for a recorded promotion;
-//             when the local bundle root matches the cached receipt,
-//             resolve to local; otherwise prefer remote and surface
-//             the pinned receipt id to stderr.
+//             otherwise serve the local bundle.
 //   - `local`: skip authority resolution; serve the local bundle.
+//             The `prosa.refresh_authority` tool is NOT registered.
 //   - `remote`: require a recorded v2 promotion + cached/refreshed
 //               authority; refuse to start otherwise.
 //
-// The actual `prosa.refresh_authority` MCP tool registration is
-// tracked as a follow-up CQ (CQ-149); registering it inside the
-// running McpServer requires extending prosa-core's tool factory
-// to accept an `onRefreshAuthority` callback. The pinned context
-// surfaced here lets Lane 8 reason about audit drift without a
-// second tool-registration pass.
+// CQ-149 close: the server registers `prosa.refresh_authority` when
+// the resolved context is remote. The tool refreshes via the
+// shared authority resolver and updates the pinned receipt id in
+// place. Local-mode servers never expose the tool.
 
 import path from 'node:path'
 import {
@@ -26,10 +23,17 @@ import {
   listenMcpStdioServer,
   openOrInitBundle,
 } from '@c3-oss/prosa-core'
+import type { RefreshAuthorityResult } from '@c3-oss/prosa-core'
 import { Command } from 'commander'
 import { CliUserError } from '../../errors.js'
 import { parseMcpTransport, parseSearchEngine } from '../../parsers.js'
-import { type AuthorityMode, type V2ReadContext, resolveV2ReadContext } from '../read-context.js'
+import { defaultV2AuthorityDir, refreshAuthorityNow } from '../authority/index.js'
+import {
+  type AuthorityMode,
+  type V2ReadContext,
+  type V2ReadContextRemote,
+  resolveV2ReadContext,
+} from '../read-context.js'
 
 type McpServeV2Options = {
   store: string
@@ -77,6 +81,8 @@ export function mcpServeV2Command(): Command {
 
       logPinnedAuthority(ctx)
 
+      const onRefreshAuthority = ctx.kind === 'remote' ? makeRefreshCallback(ctx) : undefined
+
       const bundle = await openOrInitBundle(storePath)
       try {
         const transport = parseMcpTransport(options.transport)
@@ -92,13 +98,14 @@ export function mcpServeV2Command(): Command {
             path: options.path,
             searchEngine,
             storePath,
+            onRefreshAuthority,
           })
           process.stdout.write(`prosa mcp v2 server listening at ${httpServer.url}\n`)
           process.stdout.write('press Ctrl+C to stop\n')
           registerShutdown(httpServer.close, bundle)
           return
         }
-        const stdioServer = await listenMcpStdioServer(bundle, { searchEngine, storePath })
+        const stdioServer = await listenMcpStdioServer(bundle, { searchEngine, storePath, onRefreshAuthority })
         registerShutdown(stdioServer.close, bundle)
       } catch (error) {
         closeBundle(bundle)
@@ -107,13 +114,50 @@ export function mcpServeV2Command(): Command {
     })
 }
 
+/**
+ * CQ-149 — build the `prosa.refresh_authority` callback. It refreshes
+ * the v2 authority via the shared resolver, mutates the pinned
+ * read-context receipt id, and returns the receipt id the MCP
+ * server is now bound to. Errors propagate to the caller as a
+ * tool-level error (the prosa-core registration catches them).
+ */
+function makeRefreshCallback(ctx: V2ReadContextRemote): () => Promise<RefreshAuthorityResult> {
+  return async () => {
+    if (!ctx.entry.token) {
+      throw new Error('MCP server has no auth token; restart `prosa auth login` and `prosa mcp-v2 serve`.')
+    }
+    const refreshed = await refreshAuthorityNow({
+      configDir: defaultV2AuthorityDir(),
+      serverUrl: ctx.entry.url,
+      tenantId: ctx.client.tenantId,
+      storeId: ctx.storeId,
+      token: ctx.entry.token,
+      knownReceiptId: ctx.authority.receiptId,
+    })
+    // Mutate the captured context in place so subsequent
+    // refresh_authority calls compare against the latest receipt id.
+    ctx.authority.receiptId = refreshed.receiptId
+    ctx.authority.receipt = refreshed.receipt
+    ctx.authority.auditStatus = refreshed.auditStatus
+    ctx.authority.checkedAt = refreshed.checkedAt
+    ctx.authority.expiresAt = refreshed.expiresAt
+    return {
+      receiptId: refreshed.receiptId,
+      auditStatus: refreshed.auditStatus,
+      refreshedAt: refreshed.checkedAt,
+    }
+  }
+}
+
 function logPinnedAuthority(ctx: V2ReadContext): void {
   if (ctx.kind === 'local') {
-    process.stderr.write('prosa mcp serve: authority pinned to local bundle.\n')
+    process.stderr.write(
+      'prosa mcp serve: authority pinned to local bundle. The `prosa.refresh_authority` MCP tool is not registered in --authority local.\n',
+    )
     return
   }
   process.stderr.write(
-    `prosa mcp serve: authority pinned to ${ctx.entry.url} (storeId=${ctx.storeId} receiptId=${ctx.authority.receiptId} auditStatus=${ctx.authority.auditStatus}).\nCQ-149: the \`prosa.refresh_authority\` MCP tool is not yet exposed; restart the server to refresh.\n`,
+    `prosa mcp serve: authority pinned to ${ctx.entry.url} (storeId=${ctx.storeId} receiptId=${ctx.authority.receiptId} auditStatus=${ctx.authority.auditStatus}). The \`prosa.refresh_authority\` MCP tool is registered; callers invoke it to refresh in place.\n`,
   )
 }
 

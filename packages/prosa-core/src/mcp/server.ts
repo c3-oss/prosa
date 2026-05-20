@@ -10,7 +10,7 @@ import { getErrorMessage } from '../core/errors.js'
 import { PROSA_PARSER_VERSION } from '../core/version.js'
 import type { SearchEngine } from '../services/indexing.js'
 import { PROSA_MCP_INSTRUCTIONS } from './guidance.js'
-import { registerProsaTools } from './tools.js'
+import { type RefreshAuthorityResult, registerProsaTools } from './tools.js'
 
 interface SessionEntry {
   server: McpServer
@@ -29,6 +29,13 @@ export interface McpServerOptions {
   searchEngine?: SearchEngine
   /** Bundle path reopened by long-lived tool handlers. Defaults to `bundle.path`. */
   storePath?: string
+  /**
+   * CQ-149: when provided, the server registers a
+   * `prosa.refresh_authority` MCP tool that invokes this callback.
+   * Local-mode callers should leave this undefined so the tool
+   * stays absent.
+   */
+  onRefreshAuthority?: () => Promise<RefreshAuthorityResult>
 }
 
 /** Handle returned by the HTTP MCP server listener. */
@@ -51,6 +58,8 @@ export interface McpStdioServerOptions {
   searchEngine?: SearchEngine
   /** Bundle path reopened by long-lived tool handlers. Defaults to `bundle.path`. */
   storePath?: string
+  /** CQ-149: register `prosa.refresh_authority` when defined. */
+  onRefreshAuthority?: () => Promise<RefreshAuthorityResult>
 }
 
 /** Start a stdio MCP server backed by an already-open prosa bundle. */
@@ -58,7 +67,7 @@ export async function listenMcpStdioServer(
   bundle: Bundle,
   options: McpStdioServerOptions = {},
 ): Promise<RunningStdioServer> {
-  const server = createMcpServer(bundle, options.searchEngine ?? 'fts5', options.storePath)
+  const server = createMcpServer(bundle, options.searchEngine ?? 'fts5', options.storePath, options.onRefreshAuthority)
   const transport = new StdioServerTransport()
   await server.connect(transport)
 
@@ -85,11 +94,14 @@ export async function listenMcpServer(bundle: Bundle, options: McpServerOptions)
 
   const searchEngine = options.searchEngine ?? 'fts5'
   const storePath = options.storePath ?? bundle.path
+  const onRefreshAuthority = options.onRefreshAuthority
 
   const httpServer = http.createServer((req, res) => {
-    handleRequest(req, res, mcpPath, sessions, bundle, searchEngine, storePath).catch((error: unknown) => {
-      writeError(res, error)
-    })
+    handleRequest(req, res, mcpPath, sessions, bundle, searchEngine, storePath, onRefreshAuthority).catch(
+      (error: unknown) => {
+        writeError(res, error)
+      },
+    )
   })
 
   await new Promise<void>((resolve, reject) => {
@@ -123,6 +135,7 @@ async function handleRequest(
   bundle: Bundle,
   searchEngine: SearchEngine,
   storePath: string,
+  onRefreshAuthority?: () => Promise<RefreshAuthorityResult>,
 ): Promise<void> {
   // Keep HTTP routing deliberately small: this listener owns exactly one MCP
   // endpoint and delegates protocol details to StreamableHTTPServerTransport.
@@ -158,7 +171,7 @@ async function handleRequest(
       res.writeHead(404).end()
       return
     }
-    entry = await openSession(bundle, sessions, searchEngine, storePath)
+    entry = await openSession(bundle, sessions, searchEngine, storePath, onRefreshAuthority)
   }
 
   const bodyText = await readBody(req)
@@ -172,10 +185,11 @@ async function openSession(
   store: Map<string, SessionEntry>,
   searchEngine: SearchEngine,
   storePath: string,
+  onRefreshAuthority?: () => Promise<RefreshAuthorityResult>,
 ): Promise<SessionEntry> {
   // We need to assemble server + transport together because the transport's
   // `onsessioninitialized` callback wants to register both into the map.
-  const server = createMcpServer(bundle, searchEngine, storePath)
+  const server = createMcpServer(bundle, searchEngine, storePath, onRefreshAuthority)
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: () => randomUUID(),
     onsessioninitialized: (id: string) => {
@@ -196,7 +210,12 @@ async function openSession(
 }
 
 /** Build a per-session MCP server instance with prosa instructions and tools attached. */
-function createMcpServer(bundle: Bundle, searchEngine: SearchEngine, storePath?: string): McpServer {
+function createMcpServer(
+  bundle: Bundle,
+  searchEngine: SearchEngine,
+  storePath?: string,
+  onRefreshAuthority?: () => Promise<RefreshAuthorityResult>,
+): McpServer {
   const server = new McpServer(
     {
       name: 'prosa',
@@ -204,7 +223,7 @@ function createMcpServer(bundle: Bundle, searchEngine: SearchEngine, storePath?:
     },
     { instructions: PROSA_MCP_INSTRUCTIONS },
   )
-  registerProsaTools(server, bundle, { ensureStore: true, searchEngine, storePath })
+  registerProsaTools(server, bundle, { ensureStore: true, searchEngine, storePath, onRefreshAuthority })
   return server
 }
 

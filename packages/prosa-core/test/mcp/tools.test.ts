@@ -362,6 +362,50 @@ describe('prosa MCP surface', () => {
       await t.cleanup()
     }
   })
+  it('CQ-149 — registers `prosa.refresh_authority` only when onRefreshAuthority is provided', async () => {
+    const t = await createTempBundle()
+    try {
+      const without = new FakeMcpServer()
+      registerProsaTools(without as unknown as McpServer, t.bundle, {})
+      expect(without.tools.has('prosa.refresh_authority')).toBe(false)
+
+      let refreshes = 0
+      const onRefreshAuthority = async () => {
+        refreshes += 1
+        return { receiptId: 'r-fresh', auditStatus: 'ok', refreshedAt: '2026-05-20T11:00:00.000Z' }
+      }
+      const withRefresh = new FakeMcpServer()
+      registerProsaTools(withRefresh as unknown as McpServer, t.bundle, { onRefreshAuthority })
+      expect(withRefresh.tools.has('prosa.refresh_authority')).toBe(true)
+
+      const tool = withRefresh.tools.get('prosa.refresh_authority')!
+      const result = await tool.callback({}, {})
+      expect(refreshes).toBe(1)
+      const parsed = JSON.parse(extractText(result)) as { receiptId: string; auditStatus: string }
+      expect(parsed.receiptId).toBe('r-fresh')
+      expect(parsed.auditStatus).toBe('ok')
+    } finally {
+      await t.cleanup()
+    }
+  })
+
+  it('CQ-149 — refresh_authority surfaces callback errors as isError', async () => {
+    const t = await createTempBundle()
+    try {
+      const server = new FakeMcpServer()
+      registerProsaTools(server as unknown as McpServer, t.bundle, {
+        onRefreshAuthority: async () => {
+          throw new Error('upstream refresh failed')
+        },
+      })
+      const tool = server.tools.get('prosa.refresh_authority')!
+      const result = (await tool.callback({}, {})) as { isError?: boolean; content: Array<{ text: string }> }
+      expect(result.isError).toBe(true)
+      expect(result.content[0]!.text).toContain('upstream refresh failed')
+    } finally {
+      await t.cleanup()
+    }
+  })
 })
 
 async function pathExists(p: string): Promise<boolean> {
