@@ -26,8 +26,11 @@
 // failure mode (the caller asked to analyse a bundle that has no
 // Parquet for the entity).
 
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 
+import { ENTITY_SCHEMA_ORDER } from '@c3-oss/prosa-types-v2'
+
+import { listProjectionNdjsonSegments } from '../compaction/ndjson-segments.js'
 import { listCompactedOutputs } from '../compaction/outputs.js'
 import { listProjectionSegments } from '../compaction/segments.js'
 import { listSupersededSegmentsFromManifests } from '../compaction/superseded.js'
@@ -133,38 +136,75 @@ export async function runAnalyticsExecution(input: RunAnalyticsExecutionInput): 
   }
 }
 
-/** Enumerate live + compacted Parquet segments for each canonical
- *  entity, filtering out live segments superseded by a persisted
- *  compact manifest, then rewrite the composer-built setup
- *  statements to read from the explicit file list. CQ-117: without
- *  the superseded filter, the analytics overlay double-counts rows
- *  after compaction. CQ-116: the composer's glob would fail with
- *  `IO Error: No files found` when the compacted overlay glob has
- *  zero matches; the explicit-file-list form sidesteps that. */
+/** Bidirectional map between an analytics entity table name
+ *  (plural, e.g. `sessions`) and its canonical singular form
+ *  (e.g. `session`, used by the projection writer for filenames and
+ *  by `ENTITY_SCHEMA_ORDER` for the field list). Kept centralised
+ *  so the runtime never has to rederive the inflection.
+ *
+ *  `artifact` / `edge` / `content_block` are canonical entities but
+ *  do not appear in `ANALYTICS_ENTITY_TABLES`; the runtime never
+ *  needs to materialise them as analytics temp views, so they are
+ *  not in this map. */
+const ANALYTICS_ENTITY_TO_CANONICAL: Record<AnalyticsEntityTable, keyof typeof ENTITY_SCHEMA_ORDER> = {
+  sessions: 'session',
+  turns: 'turn',
+  messages: 'message',
+  tool_calls: 'tool_call',
+  tool_results: 'tool_result',
+  events: 'event',
+  search_docs: 'search_doc',
+  projects: 'project',
+  raw_records: 'raw_record',
+  source_files: 'source_file',
+}
+
+/** Enumerate live + compacted Parquet segments + live NDJSON
+ *  segments for each canonical entity, filtering out live segments
+ *  superseded by a persisted compact manifest, then rewrite the
+ *  composer-built setup statements to read from the explicit file
+ *  list. CQ-117: without the superseded filter, the analytics
+ *  overlay double-counts rows after compaction. CQ-116: the v2
+ *  importers emit NDJSON projection segments, so the runtime needs
+ *  to ingest those alongside Parquet; entities with no files at
+ *  all materialise as a typed-but-empty stub so a view body that
+ *  joins them does not crash with `Table … does not exist`. */
 async function resolveRuntimeSetupStatements(
   plan: AnalyticsExecutionPlan,
   bundleRoot: string,
 ): Promise<{ executedSetupStatements: string[]; skippedEntities: AnalyticsEntityTable[] }> {
-  // One pass over the bundle for the three pieces of state the
+  // One pass over the bundle for the four pieces of state the
   // runtime needs to make consistent per-entity decisions:
   //
   //   - `liveSegments`: every `epochs/<n>/projection/<entity>.parquet`.
-  //   - `supersededPaths`: bundle-relative paths the compact
-  //     manifests claim as superseded (CQ-117 source of truth).
+  //   - `liveNdjsonSegments`: every
+  //     `epochs/<n>/projection/<entity>.prosa-projection.ndjson`
+  //     (canonical-entity filename, singular).
+  //   - `superseded`: bundle-relative paths the compact manifests
+  //     claim as superseded (CQ-117 source of truth). Currently
+  //     only covers Parquet; the NDJSON path is unaffected.
   //   - `compactedAudits`: which `epochs/compact-<NNNN>/
   //     projection/<entity>.compacted.parquet` files exist on disk.
-  const [liveSegments, superseded, compactedAudits] = await Promise.all([
+  const [liveSegments, liveNdjsonSegments, superseded, compactedAudits] = await Promise.all([
     listProjectionSegments(bundleRoot),
+    listProjectionNdjsonSegments(bundleRoot),
     listSupersededSegmentsFromManifests(bundleRoot),
     listCompactedOutputs(bundleRoot),
   ])
   const supersededPaths = new Set(superseded.map((s) => s.path))
-  const liveByEntity = new Map<string, string[]>()
+  const liveParquetByEntity = new Map<string, string[]>()
   for (const segment of liveSegments) {
     if (supersededPaths.has(segment.path)) continue
-    const list = liveByEntity.get(segment.entityType) ?? []
+    const list = liveParquetByEntity.get(segment.entityType) ?? []
     list.push(segment.absPath)
-    liveByEntity.set(segment.entityType, list)
+    liveParquetByEntity.set(segment.entityType, list)
+  }
+  const liveNdjsonByEntity = new Map<string, string[]>()
+  for (const segment of liveNdjsonSegments) {
+    if (supersededPaths.has(segment.path)) continue
+    const list = liveNdjsonByEntity.get(segment.entityType) ?? []
+    list.push(segment.absPath)
+    liveNdjsonByEntity.set(segment.entityType, list)
   }
   const compactedByEntity = new Map<string, string[]>()
   for (const audit of compactedAudits) {
@@ -179,11 +219,6 @@ async function resolveRuntimeSetupStatements(
   const executedSetupStatements: string[] = []
   const skippedEntities: AnalyticsEntityTable[] = []
 
-  // The plan emits one `CREATE OR REPLACE TEMP VIEW <entity> …`
-  // statement per canonical entity, followed by exactly one analytics
-  // `CREATE OR REPLACE VIEW <view> …` body. The runtime walks the
-  // statements in order: entity statements are rewritten / skipped;
-  // the analytics view body is passed through verbatim.
   for (let i = 0; i < plan.setupStatements.length; i++) {
     const stmt = plan.setupStatements[i] as string
     const entity = entityFromTempViewStatement(stmt)
@@ -191,18 +226,94 @@ async function resolveRuntimeSetupStatements(
       executedSetupStatements.push(stmt)
       continue
     }
-    const filesForEntity: string[] = [...(liveByEntity.get(entity) ?? []), ...(compactedByEntity.get(entity) ?? [])]
-    if (filesForEntity.length === 0) {
+    const canonical = ANALYTICS_ENTITY_TO_CANONICAL[entity]
+    // Parquet sources: live (analytics plural filename, the
+    // shape the compaction worker / fixtures emit) +
+    // compacted outputs.
+    const parquetFiles = [...(liveParquetByEntity.get(entity) ?? []), ...(compactedByEntity.get(entity) ?? [])]
+    // NDJSON sources: live segments emitted by the v2 importers
+    // (canonical singular filename).
+    const ndjsonFiles = liveNdjsonByEntity.get(canonical) ?? []
+    const replacement = composeEntitySourceSql(entity, canonical, parquetFiles, ndjsonFiles)
+    if (replacement === null) {
       skippedEntities.push(entity)
       continue
     }
-    const fileList = filesForEntity.map((p) => quoteSqlString(p)).join(', ')
-    const replacement = `read_parquet([${fileList}], union_by_name => true)`
     executedSetupStatements.push(rewriteReadParquetClause(stmt, replacement))
   }
 
   return { executedSetupStatements, skippedEntities }
 }
+
+/** Build the SQL fragment that replaces the composer's
+ *  `read_parquet([...], union_by_name => true)` call. Combines
+ *  Parquet (live + compacted) and NDJSON (live) sources, falling
+ *  back to a typed empty stub when no files exist. Returns `null`
+ *  when the entity has no files AND no known canonical column
+ *  list (should not happen for the curated
+ *  `ANALYTICS_ENTITY_TABLES` set, but kept defensively). */
+function composeEntitySourceSql(
+  entity: AnalyticsEntityTable,
+  canonical: keyof typeof ENTITY_SCHEMA_ORDER,
+  parquetFiles: string[],
+  ndjsonFiles: string[],
+): string | null {
+  // Each fragment must be valid in a `FROM` position — either a
+  // bare table function like `read_parquet([...])` or a
+  // parenthesised SELECT subquery.
+  const fragments: string[] = []
+  if (parquetFiles.length > 0) {
+    const fileList = parquetFiles.map((p) => quoteSqlString(p)).join(', ')
+    fragments.push(`read_parquet([${fileList}], union_by_name => true)`)
+  }
+  if (ndjsonFiles.length > 0) {
+    const fileList = ndjsonFiles.map((p) => quoteSqlString(p)).join(', ')
+    // `format='newline_delimited'` keeps DuckDB parsing one JSON
+    // object per line. `union_by_name=true` smooths over the
+    // header line's disjoint key set (`bundleFormat` /
+    // `segmentKind` / `entityType` / `rowCount`). The
+    // `WHERE entityType IS NULL` filter drops that header line —
+    // only the canonical-projection header carries an
+    // `entityType` field; the entity rows (`SessionV2`, etc.) do
+    // not. The result is the entity rows, with the header's
+    // columns showing up as `NULL` (DuckDB ignores extras when
+    // the outer setup-statement view only selects the entity's
+    // own columns).
+    fragments.push(
+      `(SELECT * FROM read_json_auto([${fileList}], format='newline_delimited', union_by_name=true) WHERE entityType IS NULL)`,
+    )
+  }
+  if (fragments.length === 0) {
+    // CQ-116 sparse-bundle path: emit a typed-but-empty stub so a
+    // view body that LEFT JOINs against this entity does not crash
+    // with `Table … does not exist`. The column list comes from
+    // the canonical `ENTITY_SCHEMA_ORDER` so every field the v2
+    // schema declares is present; `WHERE FALSE` guarantees zero
+    // rows.
+    const fields = ENTITY_SCHEMA_ORDER[canonical]
+    // Emit each stub column as `NULL AS <field>` without an
+    // explicit cast. DuckDB infers the type from context (COALESCE
+    // default, SUM expression, JOIN predicate), so a stub field
+    // used in a numeric expression coerces to BIGINT and a field
+    // used in a string compare coerces to VARCHAR. Forcing VARCHAR
+    // here breaks expressions like `COALESCE(duration_ms, 0)` that
+    // mix the stub column with an integer literal.
+    const stubColumns = fields.map((f) => `NULL AS ${f}`).join(', ')
+    void entity
+    return `(SELECT ${stubColumns} WHERE FALSE)`
+  }
+  if (fragments.length === 1) return fragments[0] as string
+  // Multiple sources → UNION ALL BY NAME the per-fragment SELECTs
+  // inside a single parenthesised subquery. Each fragment is
+  // already in FROM-position form, so wrap each in `SELECT * FROM
+  // <fragment>` for the UNION.
+  return `(${fragments.map((f) => `SELECT * FROM ${f}`).join(' UNION ALL BY NAME ')})`
+}
+
+// Suppress an unused import warning when `sep` is only referenced by
+// types in development. Kept here in case future per-platform path
+// rewriting is needed.
+void sep
 
 /** Pull the canonical entity name out of a
  *  `CREATE OR REPLACE TEMP VIEW <entity> AS …` statement. Returns

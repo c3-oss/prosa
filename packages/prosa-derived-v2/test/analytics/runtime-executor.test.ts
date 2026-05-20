@@ -331,15 +331,16 @@ describe('runAnalyticsExecution', () => {
     expect(Number(alpha.tool_error_count)).toBe(1)
   })
 
-  it('reports skippedEntities when an entity has no parquet on disk and still drives the view body', async () => {
-    // Plant every entity EXCEPT events. The view bodies do not
-    // reference `events`, so the report should still succeed and
-    // skippedEntities should list exactly `events`.
+  it('CQ-116 sparse-bundle path: entities with no parquet materialise as a typed empty stub and skippedEntities stays empty', async () => {
+    // Plant every entity EXCEPT events. Pre-CQ-116 the runtime
+    // listed `events` in `skippedEntities`; post-fix it materialises
+    // the entity as a `SELECT NULL::VARCHAR AS ... WHERE FALSE`
+    // stub so view bodies that LEFT JOIN against it do not crash.
     const fixtures = defaultRows()
     fixtures.events = []
     await plantBundle(bundleRoot, fixtures)
     const result = await runAnalyticsExecution({ bundleRoot, view: 'session_facts' })
-    expect(result.skippedEntities).toEqual(['events'])
+    expect(result.skippedEntities).toEqual([])
     expect(result.rows).toHaveLength(2)
   })
 

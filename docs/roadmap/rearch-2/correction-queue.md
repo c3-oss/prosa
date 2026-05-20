@@ -1,14 +1,18 @@
 # rearch-2 Correction Queue
 
-Updated: 2026-05-20 after CQ-118 closure was governor-accepted.
+Updated: 2026-05-20 after CQ-116 closure.
 
 ## Open blocking corrections
+
+None currently recorded.
+
+## Closed during this cycle
 
 ### CQ-116: DuckDB analytics is not wired to real v2 compile output and fails sparse bundles
 
 Severity: high
 Blocking: yes
-Status: open
+Status: closed (2026-05-20)
 Owner: Ralph
 
 Problem:
@@ -50,12 +54,34 @@ correctly without `Table ... does not exist`.
 
 Acceptance:
 
-- [ ] A fixture-backed `compile-v2` flow produces analytics-readable inputs.
-- [ ] `runAnalyticsExecution` succeeds on a sparse real or realistic bundle
-      with no projects/tool calls/tool results/events.
-- [ ] Focused tests cover the sparse-table case and the real compile-output
+- [x] A fixture-backed `compile-v2` flow produces analytics-readable inputs.
+      `apps/cli/test/cli/compile-to-analytics-gate.test.ts` spawns the real
+      `prosa compile-v2 codex` subprocess against a synthetic codex JSONL
+      (session_meta + user message + assistant message), then drives
+      `runAnalyticsExecution({view:'session_facts'})` in-process against the
+      resulting bundle. Asserts the report row reports `source_session_id` =
+      `sess_cq116_codex`, `message_count` = 2, `user_message_count` = 1,
+      `assistant_message_count` = 1, and `skippedEntities` is `[]`.
+- [x] `runAnalyticsExecution` succeeds on a sparse real or realistic bundle
+      with no projects/tool calls/tool results/events. The runtime now
+      materialises every analytics entity that has no on-disk file as a
+      typed-but-empty stub
+      (`(SELECT NULL AS field1, ..., NULL AS fieldN WHERE FALSE)`)
+      with the column list derived from `ENTITY_SCHEMA_ORDER`. Stub columns
+      use bare `NULL` so DuckDB infers the type from the surrounding
+      expression context, which avoids `Cannot mix values of type VARCHAR and
+      INTEGER_LITERAL in COALESCE`-style errors in view bodies.
+- [x] Focused tests cover the sparse-table case and the real compile-output
       path, not only planted Parquet fixtures.
-- [ ] Evidence is recorded in `docs/roadmap/rearch-2/evidence/lane-03.md`.
+      `packages/prosa-derived-v2/test/analytics/cq116-sparse-and-ndjson.test.ts`
+      covers the sparse-bundle Parquet path (one entity has Parquet; the
+      others get typed empty stubs) and the NDJSON-only path
+      (`<entity>.prosa-projection.ndjson` segments are read via DuckDB's
+      `read_json_auto` with `format='newline_delimited'`, filtering the
+      canonical header line via `WHERE entityType IS NULL`). The CLI-level
+      `compile-to-analytics-gate.test.ts` covers the full real-compile-v2
+      path end-to-end.
+- [x] Evidence is recorded in `docs/roadmap/rearch-2/evidence/lane-03.md`.
 
 ### CQ-117: Compaction double-counts rows through the analytics overlay
 
@@ -121,9 +147,11 @@ Acceptance:
       against; pre-compaction the overlay sees 33 sessions; post-compaction
       the overlay still sees 33 (not 66) AND
       `listSupersededSegmentsFromManifests` returns 33 entries.
+- [x] Governor re-ran focused gates on 2026-05-19 local time:
+      `test/compaction/compaction-analytics-overlay.test.ts` → 2/2,
+      `test/compaction/runtime-worker.test.ts` → 10/10,
+      `test/analytics/runtime-executor.test.ts` → 7/7.
 - [x] Evidence is recorded in `docs/roadmap/rearch-2/evidence/lane-03.md`.
-
-## Closed during this cycle
 
 ### CQ-118: Compaction caller-supplied plans can escape bundleRoot
 

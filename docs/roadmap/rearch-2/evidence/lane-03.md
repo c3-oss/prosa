@@ -36,7 +36,8 @@ Parquet; sparse bundles still fail with missing temp tables).
     per-entity stats. Non-destructive: the worker never touches the
     live `epochs/<n>/projection/` segments. Supports a `dryRun`
     mode that returns the planned work without opening DuckDB.
-    **Not accepted yet:** CQ-117 blocks compaction acceptance.
+    CQ-118 containment and CQ-117 post-compaction overlay semantics are closed;
+    compaction acceptance is now tied to the remaining Lane 3 end-to-end gates.
 - DuckDB analytics support:
   - fixed analytics view definitions;
   - pure execution-plan composer;
@@ -121,8 +122,9 @@ Parquet; sparse bundles still fail with missing temp tables).
       asserts row counts + `skippedEntities` reporting. Governor acceptance is
       blocked by CQ-116: real `compile-v2` output is currently NDJSON, not
       Parquet, and sparse bundles can fail with missing temp tables.
-- [ ] Parquet compaction merge worker — code landed in `2345798` but is not
-      accepted while CQ-117 remains open
+- [x] Parquet compaction merge worker — code landed in `2345798`, with CQ-118
+      containment fixed in `425b035` and CQ-117 post-compaction overlay
+      semantics fixed in `c31fd91`
       (`packages/prosa-derived-v2/src/compaction/runtime-worker.ts`).
       Five focused tests under
       `packages/prosa-derived-v2/test/compaction/runtime-worker.test.ts`
@@ -133,9 +135,11 @@ Parquet; sparse bundles still fail with missing temp tables).
       `segmentsToMerge.slice(...)` exactly), and on-disk byte-length
       reporting parity. Source live segments confirmed unchanged
       after the worker runs (non-destructive contract). Reviewer/direct smoke
-      evidence shows that this non-destructive contract currently makes the
-      analytics overlay double-count rows after compaction unless a manifest or
-      superseded filter is applied.
+      evidence showed that this non-destructive contract made the analytics
+      overlay double-count rows after compaction; CQ-117 now persists a compact
+      manifest and makes the analytics runtime read `live - superseded +
+      compacted`, with a regression proving 33 sessions remain 33 after
+      compaction.
 - [ ] End-to-end Lane 3 gates in `gates.md`.
 
 ## Deviation from original plan
@@ -175,10 +179,8 @@ passed 10/10, and the direct post-fix smoke rejected the original traversal with
 `assertPlanContained: segmentsToMerge[].path for entity sessions
 "../outside-input.parquet" contains '..' traversal`.
 
-Current CQ-117 WIP is not accepted: the focused analytics suite now passes 7/7,
-but `test/compaction/compaction-analytics-overlay.test.ts` fails 2/2 because
-the planted `sessions.parquet` rows omit the `raw_record_id` column required by
-`session_facts`.
+CQ-117 closure was accepted after `c31fd91`: the overlay regression passes 2/2,
+compaction runtime tests pass 10/10, and analytics runtime tests pass 7/7.
 
 Focused tests that still pass and should remain green while fixing the CQs:
 
@@ -401,3 +403,55 @@ Gate output (full closure command set):
   run test/compaction/compaction-analytics-overlay.test.ts` → 2/2.
   Full `pnpm --filter @c3-oss/prosa-derived-v2 test` → 582/582 (56
   files). typecheck + biome clean.
+
+## CQ-116 closure (2026-05-20)
+
+- Added `listProjectionNdjsonSegments(bundleRoot)` — companion to
+  `listProjectionSegments` that enumerates the canonical
+  `<entity>.prosa-projection.ndjson` segments emitted by
+  `compile-v2`. Same CQ-094/CQ-096-style containment guards
+  (symlink rejection on epochs root, per-epoch dir, projection
+  dir, and per-file).
+- `runAnalyticsExecution` now does one filesystem pass over four
+  sources: live Parquet, live NDJSON, persisted compact-manifest
+  superseded paths, and existing compacted outputs. Per-entity it
+  builds a `FROM`-position SQL fragment:
+  - Parquet present → `read_parquet([...], union_by_name => true)`.
+  - NDJSON present → `(SELECT * FROM read_json_auto([...],
+    format='newline_delimited', union_by_name=true) WHERE entityType IS NULL)`.
+    The `entityType IS NULL` filter drops the canonical-projection
+    header line (only the header carries the `entityType` key).
+  - Both → both fragments UNIONed `ALL BY NAME`.
+  - Neither → typed-but-empty stub `(SELECT NULL AS field1, ...,
+    NULL AS fieldN WHERE FALSE)` derived from `ENTITY_SCHEMA_ORDER`.
+    Bare `NULL` (no `::VARCHAR` cast) lets DuckDB infer the column
+    type from the surrounding view-body expression context so
+    numeric COALESCEs do not crash with "Cannot mix VARCHAR and
+    INTEGER_LITERAL".
+- The pre-CQ-116 `skippedEntities` reporter is preserved as the
+  semantic for "no parquet-style read", but in practice the only
+  way to land in that list now is the defensive `ENTITY_SCHEMA_ORDER`
+  lookup failing — which the type system prevents for the curated
+  `ANALYTICS_ENTITY_TABLES` set.
+- `packages/prosa-derived-v2/test/analytics/cq116-sparse-and-ndjson.test.ts`
+  covers the sparse Parquet path (one entity has a Parquet, the
+  others get typed empty stubs; `session_facts.count(*)` returns
+  the seeded session count, `skippedEntities` is `[]`) and the
+  NDJSON-only path (`session.prosa-projection.ndjson` segments
+  drive `session_facts` end-to-end with the expected rows).
+- `apps/cli/test/cli/compile-to-analytics-gate.test.ts` is the
+  governance gate: spawns the real `prosa compile-v2 codex`
+  subprocess against a synthetic codex JSONL (session_meta + user
+  message + assistant message), then drives
+  `runAnalyticsExecution({view:'session_facts'})` in-process
+  against the resulting NDJSON bundle. Asserts the report row
+  reports `source_session_id` = `sess_cq116_codex`,
+  `message_count` = 2, `user_message_count` = 1,
+  `assistant_message_count` = 1, and `skippedEntities` is `[]`.
+- Gate output: `pnpm --filter @c3-oss/prosa-derived-v2 exec vitest
+  run test/analytics/cq116-sparse-and-ndjson.test.ts` → 2/2.
+  `pnpm --filter @c3-oss/prosa exec vitest run
+  test/cli/compile-to-analytics-gate.test.ts` → 1/1.
+  Full `pnpm --filter @c3-oss/prosa-derived-v2 test` → 584/584
+  (57 files). typecheck + biome clean. Workspace `pnpm typecheck`
+  → 13/13.

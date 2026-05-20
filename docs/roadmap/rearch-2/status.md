@@ -1,6 +1,6 @@
 # rearch-2 Current Status
 
-Updated: 2026-05-20 after CQ-118 closure was governor-accepted.
+Updated: 2026-05-20 after CQ-116 closure.
 
 ## Summary
 
@@ -24,17 +24,17 @@ feedback says the gate should still be strengthened before Lane 3 finalization
 by parsing the emitted `search_doc` row and/or querying the Tantivy index for the
 fixture text/doc_id; this does not reopen CQ-115.
 
+CQ-116 closed: the analytics runtime now reads canonical-projection NDJSON
+segments emitted by `compile-v2` (via DuckDB's `read_json_auto` with a
+`WHERE entityType IS NULL` header-filter) and materialises every analytics
+entity that has no on-disk file as a typed-but-empty stub built from
+`ENTITY_SCHEMA_ORDER`. A fixture-backed `compile-v2 codex` → `runAnalyticsExecution(session_facts)`
+end-to-end test asserts the expected row counts.
+
 Current explicit milestone:
 
-1. Fix CQ-117: post-compaction consumer visibility must not double-count rows.
-   WIP exists in `packages/prosa-derived-v2/src/analytics/runtime-executor.ts`
-   and `packages/prosa-derived-v2/src/compaction/runtime-worker.ts`, but the
-   current WIP is not acceptable while the new CQ-117 overlay test fails because
-   its `sessions.parquet` fixture lacks the `raw_record_id` column required by
-   `session_facts`.
-2. Fix CQ-116: DuckDB analytics must connect to real v2 compile output and
-   handle sparse bundles.
-3. Continue per-provider `search_doc` emission parity only as required support
+1. Lane-3 end-to-end gate wiring and final acceptance (no open blockers).
+2. Continue per-provider `search_doc` emission parity only as required support
    for the Tantivy gate, and do not present partial provider wiring as full
    Lane 3 completion.
 
@@ -51,13 +51,8 @@ The blocker is implementation work, not environment.
 
 ## Open blockers
 
-Open blocking corrections:
-
-- CQ-116: DuckDB analytics is not wired to real v2 compile output and fails
-  sparse bundles.
-- CQ-117: Compaction double-counts rows through the analytics overlay.
-
-No `RALPH_DONE` is valid while any of these remain open.
+No open correction-queue blockers are currently recorded. CQ-115, CQ-116,
+CQ-117, and CQ-118 closed during this cycle — see `correction-queue.md`.
 
 ## Supporting documents
 
