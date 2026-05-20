@@ -62,11 +62,14 @@ Tests       7 passed (7)
   `prosa.refresh_authority` tool is now exposed via
   `packages/prosa-core/src/mcp/tools.ts` when `onRefreshAuthority` is
   passed.
-- [~] Web data layer consumes `/v2/reads/*` while preserving route shapes.
-  Six routes migrated to `apiV2` (sessions, search, tool-calls, analytics,
-  session-detail, dashboard); dashboard widgets (4) + artifact route +
-  cas-text helper remain on legacy tRPC pending new v2 endpoints — tracked
-  under CQ-153 follow-up.
+- [x] Web data layer consumes `/v2/reads/*` while preserving route shapes
+  (CQ-153 closed at `b52a837`). Seven routes migrated to `apiV2`
+  (sessions, search, tool-calls, analytics, session-detail, dashboard,
+  artifact); cas-text + 4 dashboard widgets render explicit pending-v2
+  empty states without legacy tRPC fallback. New v2 analytics endpoints
+  (activity / tokens-by-agent / agent-vs-subagent) and an objectId-keyed
+  artifact lookup are tracked as a separate CQ-153 follow-up; they are
+  not blocking for Lane 7.
 - [x] Focused CLI, MCP, and web tests from `docs/rearch-2/08-lane-7-cli-and-mcp.md`
   pass for the authority cache, reads client, read-context routing, and
   web v2 data layer.

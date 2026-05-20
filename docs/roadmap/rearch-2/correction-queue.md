@@ -162,7 +162,9 @@ Governor review after `bf5a601`:
 
 Severity: critical
 
-Blocking: yes for Lane 7.
+Blocking: no — closed at `b52a837`.
+
+Status: closed.
 
 Affected lane: Lane 7.
 
@@ -227,16 +229,47 @@ Update at `6b19d5c` + `7f6f3c8`:
   migrated route calls `apiV2.v2.*` and never invokes the legacy tRPC
   procedures. Web suite: 13 files, 35 tests passed.
 
-Still open under **CQ-153 follow-up** — these consumers stay on legacy
-tRPC because they need additional v2 read endpoints before migration:
+Update at `b357854` → `b52a837`:
 
-- `apps/web/src/routes/console/dashboard.tsx` → `api.analytics.summary`.
-- `apps/web/src/components/console/dashboard/widgets/{activity,daily-threads,tokens-by-agent,agent-vs-subagent}-widget.tsx`
-  — bespoke `api.analytics.*` procedures with no v2 equivalent yet.
-- `apps/web/src/routes/console/artifact.tsx` → `api.artifacts.getText`.
-- `apps/web/src/components/console/transcript/cas-text.tsx` →
-  `api.artifacts.getText` (the v2 client has `artifactGetText` but the
-  component still wires through the legacy client; needs a leaf change).
+- `ConsoleDashboard` now reads through `apiV2.v2.analytics.summary`
+  (CQ-153 close).
+- `ConsoleArtifact` now reads through `apiV2.v2.artifacts.getText`.
+- `cas-text`, `activity-widget`, `daily-threads-widget`,
+  `tokens-by-agent-widget`, `agent-vs-subagent-widget` render an
+  explicit "pending a `/v2/reads/...` endpoint" empty state and
+  make **no network call** — they no longer fall back to the
+  legacy tRPC procedures.
+
+No remaining `api.{sessions,search,analytics,toolCalls,artifacts}`
+read calls live under `apps/web/src/`.
+
+**CQ-153 follow-up (new tracking, non-blocking for Lane 7)** — Lane 7
+ships an explicit-unavailable state for these surfaces; the follow-up
+is to actually add the missing v2 endpoints:
+
+- `/v2/reads/analytics/activity` for the activity heatmap + daily
+  threads chart.
+- `/v2/reads/analytics/tokens-by-agent` for the per-source-tool
+  daily-token chart.
+- `/v2/reads/analytics/agent-vs-subagent` for the user-vs-subagent
+  ratio chart.
+- Either extend the v2 transcript block schema to surface
+  `artifactId` per block, or add an `/v2/reads/artifacts/getTextByObjectId`
+  endpoint so `cas-text` can expand CAS-backed bodies.
+
+Acceptance:
+- [x] Route-level tests prove console read routes call `/v2/reads/*`,
+  not legacy `/trpc` read procedures (`apps/web/src/routes/console/sessions-v2.test.tsx`
+  and `apps/web/src/routes/console/v2-reads.test.tsx` cover sessions,
+  search, tool-calls, analytics, dashboard, session-detail, artifact).
+- [x] Missing-tenant v2 client test proves no network request is made
+  (`apps/web/src/lib/api-v2.test.ts`).
+- [x] Filter translation tests prove source/project/time/search filters
+  are preserved or rejected explicitly (sessions v1
+  `sourceKinds` → v2 `sourceTools`, CQ-150/151 CLI command tests).
+- [x] Transcript large-body rendering renders an explicit unavailable
+  state without legacy fallback (`cas-text` shows the CAS object id
+  and the named follow-up endpoint).
 
 ### CQ-149: `prosa.refresh_authority` MCP tool not yet registered
 
