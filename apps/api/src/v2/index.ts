@@ -4,6 +4,7 @@
 // from `buildApp` and reused so v1 and v2 share the same Better Auth
 // session, tenant resolution, and database handle.
 
+import type { RemoteObjectStore } from '@c3-oss/prosa-storage'
 import type { FastifyInstance } from 'fastify'
 import type { ProsaAuth } from '../auth.js'
 import type { RuntimeMode } from '../config.js'
@@ -25,6 +26,7 @@ export class MissingV2SignerError extends Error {
 export type V2PluginDeps = {
   auth: ProsaAuth
   rawExec: RawExec
+  objectStore: RemoteObjectStore
   /**
    * Runtime mode from `loadConfig`. In `production`, `signer` is
    * required — the plugin refuses to fall back to the in-process local
@@ -47,7 +49,11 @@ export type V2PluginHandle = {
 export function registerV2Routes(app: FastifyInstance, deps: V2PluginDeps): V2PluginHandle {
   const signer = resolveSigner(deps)
   registerReceiptKeysRoute(app, { signer })
-  registerPromotionRoutes(app, { auth: deps.auth, rawExec: deps.rawExec })
+  registerPromotionRoutes(app, {
+    auth: deps.auth,
+    rawExec: deps.rawExec,
+    objectStore: deps.objectStore,
+  })
   return { signer }
 }
 

@@ -2,6 +2,7 @@
 // signer is supplied. Tests/development may still use the in-process
 // local signer.
 
+import { MemoryObjectStore } from '@c3-oss/prosa-storage'
 import Fastify from 'fastify'
 import { describe, expect, it } from 'vitest'
 import { MissingV2SignerError, registerV2Routes } from '../../src/v2/index.js'
@@ -25,6 +26,7 @@ describe('v2 plugin production-mode signer policy', () => {
       registerV2Routes(app, {
         auth: stubAuth(),
         rawExec: stubRawExec,
+        objectStore: new MemoryObjectStore(),
         runtimeMode: 'production',
         // signer intentionally omitted
       }),
@@ -37,6 +39,7 @@ describe('v2 plugin production-mode signer policy', () => {
     const handle = registerV2Routes(app, {
       auth: stubAuth(),
       rawExec: stubRawExec,
+      objectStore: new MemoryObjectStore(),
       runtimeMode: 'production',
       signer,
     })
@@ -48,6 +51,7 @@ describe('v2 plugin production-mode signer policy', () => {
     const handle = registerV2Routes(app, {
       auth: stubAuth(),
       rawExec: stubRawExec,
+      objectStore: new MemoryObjectStore(),
       runtimeMode: 'development',
     })
     expect(handle.signer).toBeDefined()
@@ -60,6 +64,7 @@ describe('v2 plugin production-mode signer policy', () => {
     const handle = registerV2Routes(app, {
       auth: stubAuth(),
       rawExec: stubRawExec,
+      objectStore: new MemoryObjectStore(),
       runtimeMode: 'test',
     })
     expect(handle.signer).toBeDefined()

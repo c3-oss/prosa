@@ -72,7 +72,7 @@ describe('v2 plugin skeleton', () => {
     // that still return 501 are listed below; routes already implemented
     // (e.g. `BeginPromotion` in slice 1) are exercised by their own
     // focused tests under `test/v2/sync/`.
-    const unimplemented = new Set(['UploadSegment', 'UploadObjectPack', 'SealPromotion', 'GetReceipt'])
+    const unimplemented = new Set(['UploadObjectPack', 'SealPromotion', 'GetReceipt'])
     const t = await buildTestApp()
     try {
       const account = await signupWithTenant(t, 'v2-501@example.com', 'Acme', 'acme-501')

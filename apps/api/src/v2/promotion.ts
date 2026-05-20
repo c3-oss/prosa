@@ -3,9 +3,9 @@
 // Lane 4 shipped these as 501 placeholders. Lane 5 fills the protocol
 // handler by handler:
 //
-// - `POST /v2/promotions/begin` — implemented (no-op fast path; staging
-//   path lands in a follow-up slice).
-// - `PUT /v2/promotions/:promotionId/segments/:segmentId` — 501.
+// - `POST /v2/promotions/begin` — implemented (fast path + staging row).
+// - `PUT /v2/promotions/:promotionId/segments/:segmentId` — implemented
+//   (slice 3: inventory + projection segment upload, BLAKE3-verified).
 // - `POST /v2/promotions/:promotionId/object-packs` — 501.
 // - `POST /v2/promotions/:promotionId/seal` — 501.
 // - `GET /v2/receipts/:receiptId` — 501.
@@ -15,6 +15,7 @@
 // matches the v1 enforcement order: identity first, then authorization,
 // then route logic.
 
+import type { RemoteObjectStore } from '@c3-oss/prosa-storage'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { type V2AuthDeps, resolveV2AuthContext } from './context.js'
 import {
@@ -22,6 +23,7 @@ import {
   BeginPromotionValidationError,
   beginPromotion,
 } from './sync/begin-promotion.js'
+import { UploadSegmentNotFoundError, UploadSegmentValidationError, uploadSegment } from './sync/upload-segment.js'
 
 export const V2_PROMOTION_ROUTES = [
   { method: 'POST' as const, url: '/v2/promotions/begin' as const, opName: 'BeginPromotion' as const },
@@ -39,7 +41,11 @@ export const V2_PROMOTION_ROUTES = [
   { method: 'GET' as const, url: '/v2/receipts/:receiptId' as const, opName: 'GetReceipt' as const },
 ]
 
-export function registerPromotionRoutes(app: FastifyInstance, deps: V2AuthDeps): void {
+export type PromotionRoutesDeps = V2AuthDeps & {
+  objectStore: RemoteObjectStore
+}
+
+export function registerPromotionRoutes(app: FastifyInstance, deps: PromotionRoutesDeps): void {
   for (const route of V2_PROMOTION_ROUTES) {
     app.route({
       method: route.method,
@@ -57,6 +63,9 @@ export function registerPromotionRoutes(app: FastifyInstance, deps: V2AuthDeps):
         if (route.opName === 'BeginPromotion') {
           return handleBeginPromotion(deps, ctx.tenantId, ctx.user.id, req, reply)
         }
+        if (route.opName === 'UploadSegment') {
+          return handleUploadSegment(deps, ctx.tenantId, req, reply)
+        }
         reply.code(501)
         return {
           code: 'NOT_IMPLEMENTED',
@@ -69,7 +78,7 @@ export function registerPromotionRoutes(app: FastifyInstance, deps: V2AuthDeps):
 }
 
 async function handleBeginPromotion(
-  deps: V2AuthDeps,
+  deps: PromotionRoutesDeps,
   tenantId: string,
   userId: string,
   req: FastifyRequest,
@@ -90,4 +99,58 @@ async function handleBeginPromotion(
     }
     throw err
   }
+}
+
+async function handleUploadSegment(
+  deps: PromotionRoutesDeps,
+  tenantId: string,
+  req: FastifyRequest,
+  reply: FastifyReply,
+): Promise<unknown> {
+  const params = req.params as { promotionId?: string; segmentId?: string }
+  if (!params.promotionId || !params.segmentId) {
+    reply.code(400)
+    return { code: 'INVALID_REQUEST', op: 'UploadSegment', message: 'promotionId and segmentId are required' }
+  }
+  const body = toUint8Array(req.body)
+  if (!body) {
+    reply.code(400)
+    return {
+      code: 'INVALID_REQUEST',
+      op: 'UploadSegment',
+      message: 'octet-stream body required (Content-Type: application/octet-stream)',
+    }
+  }
+  const rawTransport = req.headers['x-prosa-transport-hash']
+  const transportHash = Array.isArray(rawTransport) ? rawTransport[0] : rawTransport
+  try {
+    const result = await uploadSegment(
+      { rawExec: deps.rawExec, tenantId, objectStore: deps.objectStore },
+      {
+        promotionId: params.promotionId,
+        segmentId: params.segmentId,
+        body,
+        transportHash,
+      },
+    )
+    reply.code(200)
+    return result
+  } catch (err) {
+    if (err instanceof UploadSegmentNotFoundError) {
+      reply.code(404)
+      return { code: err.code, op: 'UploadSegment', message: err.message }
+    }
+    if (err instanceof UploadSegmentValidationError) {
+      reply.code(400)
+      return { code: 'INVALID_REQUEST', op: 'UploadSegment', message: err.message, issues: err.issues }
+    }
+    throw err
+  }
+}
+
+function toUint8Array(body: unknown): Uint8Array | null {
+  if (body == null) return null
+  if (body instanceof Uint8Array) return body
+  if (Buffer.isBuffer(body)) return new Uint8Array(body.buffer, body.byteOffset, body.byteLength)
+  return null
 }

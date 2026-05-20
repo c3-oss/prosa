@@ -182,9 +182,9 @@ async function findOrCreateStaging(deps: BeginPromotionDeps, input: ServerBeginP
   await deps.rawExec(
     `INSERT INTO promotion_staging (
        id, tenant_id, user_id, device_id, store_id, store_path,
-       status, head_json
+       status, head_json, inventory_object_ref, inventory_projection_ref
      )
-     VALUES ($1, $2, $3, $4, $5, $6, 'open', $7::jsonb)`,
+     VALUES ($1, $2, $3, $4, $5, $6, 'open', $7::jsonb, $8, $9)`,
     [
       promotionId,
       deps.tenantId,
@@ -193,6 +193,8 @@ async function findOrCreateStaging(deps: BeginPromotionDeps, input: ServerBeginP
       input.storeId,
       input.storePath,
       JSON.stringify(input.head),
+      JSON.stringify(input.inventories.objectInventorySegment),
+      JSON.stringify(input.inventories.projectionInventorySegment),
     ],
   )
   return promotionId

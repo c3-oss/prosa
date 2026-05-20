@@ -169,3 +169,85 @@ Slice 2 deferred (explicit):
   uploaded.
 - Inventory segment uploads, object pack uploads, seal, and
   `GET /v2/receipts/:receiptId` remain 501.
+
+## Slice 3 (UploadSegment route) — 2026-05-20
+
+Scope:
+
+- New `apps/api/src/v2/sync/upload-segment.ts` implements
+  `PUT /v2/promotions/:promotionId/segments/:segmentId`:
+  - Resolves the staging row by `(id, tenant_id)` so the tenant scope
+    is preserved on every lookup (I1). A miss — or a row in
+    sealed/aborted status — is `404 PROMOTION_NOT_FOUND`. The status
+    check folds into the same code so callers cannot drive new
+    uploads against a closed slot.
+  - Pulls the declared segment ref from `inventory_object_ref` /
+    `inventory_projection_ref`. Unknown `segmentId` → `404
+    SEGMENT_NOT_DECLARED`.
+  - Verifies the body bytes against the declared segment:
+    `byteLength` exact match, BLAKE3 of the body equals the
+    canonical `digest`, and the optional
+    `x-prosa-transport-hash: blake3:<hex>` header matches the same
+    streamed BLAKE3. Any mismatch returns `400 INVALID_REQUEST` with
+    a structured `issues` array.
+  - `putIfAbsent` writes the bytes to the object store at
+    `staging/<tenant>/<promotion_id>/<segment_id>`. Re-upload of the
+    same bytes is idempotent and returns `already_present`.
+  - Touches `promotion_staging.updated_at`. Status transitions are
+    reserved for the seal slice.
+- `apps/api/src/v2/sync/begin-promotion.ts` now persists the declared
+  `objectInventorySegment` and `projectionInventorySegment` into the
+  dedicated `inventory_object_ref` / `inventory_projection_ref`
+  columns so the upload route can resolve them by id.
+- `apps/api/src/v2/promotion.ts` dispatches `UploadSegment` to the
+  new handler, translates `UploadSegmentNotFoundError` →
+  `404 <code>` and `UploadSegmentValidationError` →
+  `400 INVALID_REQUEST` with `issues`.
+- `apps/api/src/v2/index.ts` and `apps/api/src/app.ts` thread the
+  `RemoteObjectStore` into the promotion route deps.
+- `apps/api/test/v2/skeleton.test.ts` removes `UploadSegment` from
+  the 501 set; the slice now owns its own focused tests.
+- `apps/api/test/v2/production-signer.test.ts` passes a
+  `MemoryObjectStore` into `registerV2Routes` to satisfy the new
+  required dep.
+- New `apps/api/test/v2/sync/upload-segment.test.ts` covers 9 cases:
+  1. unauth → 401.
+  2. unknown `promotionId` → 404 PROMOTION_NOT_FOUND.
+  3. cross-tenant promotion id → 404 PROMOTION_NOT_FOUND (I1 — no
+     existence-by-status leak across tenants).
+  4. undeclared `segmentId` → 404 SEGMENT_NOT_DECLARED.
+  5. body bytes hash to the wrong digest → 400 with `digest` issue.
+  6. body length disagrees with the declared `byteLength` → 400 with
+     `byteLength` issue.
+  7. `x-prosa-transport-hash` header disagrees with the streamed
+     BLAKE3 → 400 with `transportHash` issue.
+  8. happy-path upload → 200 `accepted`, body present at
+     `staging/<tenant>/<promotion>/<segment>`, re-upload returns
+     `already_present`, second declared inventory uploads too.
+  9. sealed/aborted staging row refuses new uploads with
+     `404 PROMOTION_NOT_FOUND`.
+
+Gates:
+
+- `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/sync/upload-segment.test.ts`
+  → pass, 9/9.
+- `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/` → pass,
+  60/60.
+- `pnpm --filter @c3-oss/prosa-api test` → pass, 195/196
+  (1 pre-existing skip).
+- `pnpm --filter @c3-oss/prosa-api lint` → clean.
+- `pnpm typecheck` → pass, 13/13 packages.
+- `git diff --check` → clean.
+
+Slice 3 deferred (explicit):
+
+- `BeginPromotion` does not yet flip from `needs_inventory` to
+  `needs_upload` when the inventories are uploaded. That transition
+  needs the inventory parser + object pack upload route, and ships
+  in slice 4.
+- Streaming body validation uses the buffered raw body for now; the
+  Lane 4 `validatePackStream` pipeline applies to object packs
+  (slice 4), not inventory segments which ship as opaque bytes whose
+  canonical digest is checked directly.
+- Object pack uploads (`POST /v2/promotions/:id/object-packs`),
+  seal, and `GET /v2/receipts/:receiptId` remain 501.
