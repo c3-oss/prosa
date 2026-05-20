@@ -43,6 +43,7 @@ import {
   SealPromotionInventoryIncompleteError,
   SealPromotionLinkCorruptError,
   SealPromotionNotFoundError,
+  SealPromotionPackBytesMissingError,
   sealPromotion,
 } from './sync/seal-promotion.js'
 import {
@@ -388,6 +389,20 @@ async function handleSealPromotion(
       // operator/audit must heal the staging row.
       reply.code(500)
       return { code: err.code, op: 'SealPromotion', message: err.message }
+    }
+    if (err instanceof SealPromotionPackBytesMissingError) {
+      // CQ-141: linked pack bytes vanished out-of-band before
+      // seal could verify them. 409 PACK_BYTES_MISSING so the
+      // client can re-upload the failed packs; the staging slot
+      // is restored from `materializing` by the surrounding
+      // CQ-135 wrapper.
+      reply.code(409)
+      return {
+        code: err.code,
+        op: 'SealPromotion',
+        message: err.message,
+        missingPackDigests: err.missingPackDigests,
+      }
     }
     throw err
   }

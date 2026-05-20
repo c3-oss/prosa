@@ -165,18 +165,35 @@ export async function uploadObjectPack(
     [deps.tenantId, observedDigest],
   )
   if (existingRows.length > 0) {
-    // CQ-141: a catalog row whose object-store bytes are missing
-    // is corrupt fast-path state. We have valid pack bytes in
-    // params.body (verifyCasPack already accepted them), so
-    // repair the object store from this request before linking
-    // and returning. `putIfAbsent` is safe here: if a concurrent
-    // race already restored the bytes, the second call sees
-    // `alreadyExisted=true` and verifies the hash matches.
+    // CQ-141: the catalog says `(tenant, pack_digest)` is already
+    // known, but the object-store side can be in three states:
+    //   1. healthy — head() returns metadata that matches the
+    //      uploaded bytes (correct hash AND length);
+    //   2. missing — head() returns null;
+    //   3. wrong-content — head() returns metadata whose hash or
+    //      length does NOT match the bytes the client just sent.
+    //
+    // We accept (1) verbatim. For (2) and (3) we repair from the
+    // uploaded body BEFORE linking the pack: the wire body has
+    // already passed `verifyCasPack`, so the bytes are
+    // authoritative for this pack_digest by definition. Without
+    // this guard, a corrupted storage object would still get
+    // linked into `promotion_uploaded_pack` and a later seal
+    // would grant a receipt for bytes the server can't actually
+    // serve. Concurrency is safe: `delete` is a no-op on a key
+    // a racer already removed, and `putIfAbsent` re-checks the
+    // key under its per-key lock.
     const storageKey = existingRows[0]!.storage_uri
+    const expectedHash = observedTransportHash.slice('blake3:'.length).toLowerCase()
     const head = await deps.objectStore.head(storageKey)
-    if (!head) {
+    const headHash = head?.hash.toLowerCase()
+    const matches = head !== null && headHash === expectedHash && head.compressedSize === params.body.byteLength
+    if (!matches) {
+      if (head !== null) {
+        await deps.objectStore.delete(storageKey)
+      }
       await deps.objectStore.putIfAbsent(storageKey, asyncOnce(params.body), {
-        hash: observedTransportHash.slice('blake3:'.length),
+        hash: expectedHash,
         hashAlgorithm: 'blake3',
         uncompressedSize: params.body.byteLength,
         compressedSize: params.body.byteLength,

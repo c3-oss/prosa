@@ -133,6 +133,19 @@ export class SealPromotionCoverageError extends Error {
   }
 }
 
+// CQ-141: every pack linked to this promotion must still be
+// readable from object storage at seal time. A catalog row with
+// no bytes (or out-of-band byte loss between upload and seal)
+// would otherwise be granted by `receipt_pack_grant`, leaving
+// the receipt authoritative for data the server cannot serve.
+export class SealPromotionPackBytesMissingError extends Error {
+  override name = 'SealPromotionPackBytesMissingError'
+  readonly code = 'PACK_BYTES_MISSING' as const
+  constructor(readonly missingPackDigests: readonly string[]) {
+    super(`linked packs are missing from object storage: ${missingPackDigests.join(', ')}`)
+  }
+}
+
 type StagingRow = {
   status: string
   user_id: string
@@ -300,6 +313,37 @@ export async function sealPromotion(
       const catalogObjectCount = Number(coverageRows[0]?.count ?? 0)
       if (catalogObjectCount < declaredObjectCount) {
         throw new SealPromotionCoverageError(declaredObjectCount, catalogObjectCount)
+      }
+    }
+
+    // CQ-141: catalog rows alone don't prove the bytes survive
+    // until seal. Resolve `(pack_digest -> storage_uri)` for
+    // every linked pack and `head()` each storage object. Any
+    // missing/zero-length pack must fail seal closed so the
+    // authority swap never grants a pack the server cannot
+    // serve. This runs after coverage so we don't pay the
+    // head-fanout when the catalog itself is short.
+    if (packDigests.length > 0) {
+      const packRows = await deps.rawExec<{ pack_digest: string; storage_uri: string }>(
+        `SELECT pack_digest, storage_uri
+           FROM remote_pack
+          WHERE tenant_id = $1 AND pack_digest = ANY($2)`,
+        [deps.tenantId, packDigests],
+      )
+      const packByDigest = new Map<string, string>()
+      for (const row of packRows) packByDigest.set(row.pack_digest, row.storage_uri)
+      const missing: string[] = []
+      for (const digest of packDigests) {
+        const storageKey = packByDigest.get(digest)
+        if (!storageKey) {
+          missing.push(digest)
+          continue
+        }
+        const packHead = await deps.objectStore.head(storageKey)
+        if (!packHead || packHead.compressedSize === 0) missing.push(digest)
+      }
+      if (missing.length > 0) {
+        throw new SealPromotionPackBytesMissingError(missing)
       }
     }
 
