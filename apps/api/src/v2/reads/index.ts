@@ -240,7 +240,20 @@ export function registerV2ReadRoutes(app: FastifyInstance, deps: V2ReadRoutesDep
         reply.code(400)
         return { code: 'INVALID_INPUT', op: 'ReadArtifactsGetText', issues: parsed.error.issues }
       }
-      return await getArtifactText({ rawExec: deps.rawExec, objectStore: deps.objectStore }, gate.tenantId, parsed.data)
+      const result = await getArtifactText(
+        { rawExec: deps.rawExec, objectStore: deps.objectStore },
+        gate.tenantId,
+        parsed.data,
+      )
+      // Lane 8: pack quarantined by the audit cron returns a typed
+      // `data_unavailable` shape; map it to `503 DATA_UNAVAILABLE`
+      // so callers can distinguish a recoverable failure from an
+      // opaque miss (CQ-144).
+      if (result.found === false && 'reason' in result && result.reason === 'data_unavailable') {
+        reply.code(503)
+        return { code: 'DATA_UNAVAILABLE', op: 'ReadArtifactsGetText', artifactId: result.artifactId }
+      }
+      return result
     },
   })
 

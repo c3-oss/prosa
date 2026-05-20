@@ -26,18 +26,34 @@ import { type AuthorityTtlCache, authorityCacheKey } from './authority-cache.js'
 
 export type AuthorityAuditStatus = 'ok' | 'audit_pending' | 'drift' | 'quarantined'
 
+/**
+ * Lane 8 repair hint. Surfaced on `unchanged` / `updated` responses
+ * whenever the receipt has an entry in `receipt_audit_state` with a
+ * non-`ok` status. The CLI / web layer uses this to suggest a
+ * re-promotion to the operator.
+ */
+export type AuthorityRepairHint = {
+  kind: 're_promote_requested'
+  reason: 'missing_pack' | 'hash_mismatch' | 'invalidated'
+  affectedReceiptId: string
+  affectedPackCount: number
+  message: string
+}
+
 export type AuthorityRefreshResponse =
   | {
       status: 'unchanged'
       receiptId: string
       expiresAt: string
       auditStatus: AuthorityAuditStatus
+      repair?: AuthorityRepairHint
     }
   | {
       status: 'updated'
       receipt: PromotionReceiptV2
       expiresAt: string
       auditStatus: AuthorityAuditStatus
+      repair?: AuthorityRepairHint
     }
   | { status: 'gone_or_forbidden' }
 
@@ -45,6 +61,7 @@ export type CachedAuthority = {
   receiptId: string
   receipt: PromotionReceiptV2
   auditStatus: AuthorityAuditStatus
+  repair?: AuthorityRepairHint
 }
 
 export type GetAuthorityDeps = {
@@ -65,6 +82,8 @@ type AuthorityRow = {
   payload: unknown
   signature: unknown
   store_pack_status: string | null
+  receipt_audit_status: string | null
+  receipt_audit_pack_count: string | number | null
 }
 
 export async function getAuthority(
@@ -104,12 +123,17 @@ export async function getAuthority(
                           ELSE 4
                         END
                LIMIT 1
-            ) AS store_pack_status
+            ) AS store_pack_status,
+            ras.status AS receipt_audit_status,
+            ras.affected_pack_count AS receipt_audit_pack_count
        FROM remote_authority_v2 a
        JOIN receipt r
          ON r.tenant_id = a.tenant_id
         AND r.store_id = a.store_id
         AND r.receipt_id = a.current_receipt_id
+       LEFT JOIN receipt_audit_state ras
+         ON ras.receipt_id = a.current_receipt_id
+        AND ras.tenant_id = a.tenant_id
       WHERE a.tenant_id = $1
         AND a.store_id = $2
       LIMIT 1`,
@@ -130,8 +154,11 @@ export async function getAuthority(
 
   const receipt = { payload, signature } as unknown as PromotionReceiptV2
   const auditStatus = mapAuditStatus(row.store_pack_status)
+  const repair = buildRepairHint(row, auditStatus)
 
-  const value: CachedAuthority = { receiptId: row.current_receipt_id, receipt, auditStatus }
+  const value: CachedAuthority = repair
+    ? { receiptId: row.current_receipt_id, receipt, auditStatus, repair }
+    : { receiptId: row.current_receipt_id, receipt, auditStatus }
   const entry = deps.cache.set(key, value, now)
   return respondFromCache(value, entry.expiresAt, input.knownReceiptId)
 }
@@ -143,9 +170,44 @@ function respondFromCache(
 ): AuthorityRefreshResponse {
   const expiresAt = new Date(expiresAtMs).toISOString()
   if (knownReceiptId === value.receiptId) {
-    return { status: 'unchanged', receiptId: value.receiptId, expiresAt, auditStatus: value.auditStatus }
+    const out: AuthorityRefreshResponse = {
+      status: 'unchanged',
+      receiptId: value.receiptId,
+      expiresAt,
+      auditStatus: value.auditStatus,
+    }
+    if (value.repair) out.repair = value.repair
+    return out
   }
-  return { status: 'updated', receipt: value.receipt, expiresAt, auditStatus: value.auditStatus }
+  const out: AuthorityRefreshResponse = {
+    status: 'updated',
+    receipt: value.receipt,
+    expiresAt,
+    auditStatus: value.auditStatus,
+  }
+  if (value.repair) out.repair = value.repair
+  return out
+}
+
+function buildRepairHint(row: AuthorityRow, auditStatus: AuthorityAuditStatus): AuthorityRepairHint | undefined {
+  const receiptAuditStatus = (row.receipt_audit_status ?? '').toString()
+  if (receiptAuditStatus === 'degraded' || receiptAuditStatus === 'invalidated') {
+    const affectedPackCount = Number(row.receipt_audit_pack_count ?? 0) || 0
+    const reason: AuthorityRepairHint['reason'] =
+      receiptAuditStatus === 'invalidated'
+        ? 'invalidated'
+        : auditStatus === 'quarantined'
+          ? 'missing_pack'
+          : 'hash_mismatch'
+    return {
+      kind: 're_promote_requested',
+      reason,
+      affectedReceiptId: row.current_receipt_id,
+      affectedPackCount,
+      message: `Receipt has ${affectedPackCount} affected pack(s). Re-promotion recommended.`,
+    }
+  }
+  return undefined
 }
 
 function mapAuditStatus(raw: string | null | undefined): AuthorityAuditStatus {
