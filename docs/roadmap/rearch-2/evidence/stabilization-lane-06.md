@@ -134,3 +134,73 @@ git diff --check -> clean (EXIT=0)
 
 No contradictions across `correction-queue.md`, `gates.md`,
 `status.md`. Cycle 3 counts.
+
+## Slice 11 reset note
+
+Slice 11 (`2121b59 fix(api,docs): lane 6 slice 11 — CQ-147
+wrong-session tuple + CQ-146 compose fail-closed` and
+`dada569 docs(docs): lane 6 slice 11 closure attempts for CQ-146 +
+CQ-147`) introduced new code/test/doc changes, so the stabilization
+counter resets per the rule above. Cycles 1–3 against the slice 10
+HEAD no longer count toward Lane 6 acceptance. Per current governor
+direction (recorded in slice 10's lane-06 evidence), the
+five-cycle stabilization lane is OPTIONAL once no useful Ralph work
+remains. Cycle 4 below is recorded as a single fresh confirmation
+cycle on the slice 11 HEAD; further cycles are at governor request.
+
+## Cycle 4 — 2026-05-20T19:32:00Z (slice 11 reset)
+
+- **HEAD**: `dada569 docs(docs): lane 6 slice 11 closure attempts for CQ-146 + CQ-147`.
+- **Branch**: `feature/rearch` (47 commits ahead of `origin/feature/rearch`).
+- **Worktree**: only `apps/api/.claude/` untracked (Ralph loop
+  runner state — not Lane 6 code or docs). No code `M` lines.
+- **correction-queue.md**: CQ-124 + CQ-134 (partial) remain Lane 10
+  scope. CQ-142, CQ-143, CQ-144, CQ-145 are accepted. CQ-146
+  carries closure attempt #4 (compose fail-closed for production
+  secrets + `web-deployment.md` env table updated). CQ-147 carries
+  closure attempt #3 (tools/errors tuple-match
+  `r.session_id = c.session_id` + governor's wrong-session smoke
+  pinned as a regression + new `analytics-route.test.ts` covering
+  auth/INVALID_INPUT at the live Fastify boundary). Both pending
+  governor acceptance.
+- **gates.md**: Lane 6 L6.1–L6.9 checklist now lists each item as
+  proven by the referenced focused test file or smoke evidence;
+  L6.8 p95 + L6.9 repo-wide gates green on slice 11.
+- **status.md**: "Open blockers" enumerates CQ-124 + CQ-134
+  (Lane 10 deferrals); CQ-146 + CQ-147 are both in slice 11
+  closure attempts pending governor acceptance.
+- **Recent commits** (most recent first):
+  - `dada569 docs(docs): lane 6 slice 11 closure attempts for CQ-146 + CQ-147`
+  - `2121b59 fix(api,docs): lane 6 slice 11 — CQ-147 wrong-session tuple + CQ-146 compose fail-closed`
+  - `4949409 docs(docs): review lane 6 slice 10`
+  - `7038f59 docs(docs): lane 6 stabilization log — cycle 3`
+  - `5c3d1f7 docs(docs): lane 6 stabilization log — cycle 2`
+  - `7b24376 docs(docs): lane 6 stabilization log — cycle 1`
+  - `5755547 fix(api): lane 6 slice 10 — CQ-147 superseded tool_result + CQ-146 compose + p95 artifacts`
+
+Lane 6 minimum gate evidence on the slice 11 contributor checkout:
+
+```text
+pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/reads/
+ -> Test Files  16 passed (16)
+    Tests       119 passed (119)
+    Duration    75.18 s
+
+pnpm --filter @c3-oss/prosa-api test
+ -> Test Files  71 passed | 2 skipped (73)
+    Tests       422 passed | 4 skipped (426)
+
+pnpm typecheck   -> 13/13 packages clean
+pnpm lint        -> 13/13 packages clean (FULL TURBO)
+git diff --check -> clean (EXIT=0)
+
+(unset PROSA_AUTH_SECRET PROSA_CURSOR_HMAC_SECRET; \
+ docker compose config --format json)
+ -> error while interpolating
+    services.api.environment.PROSA_AUTH_SECRET: required variable
+    PROSA_AUTH_SECRET is missing a value: set PROSA_AUTH_SECRET to
+    a 16+ character Better Auth signing secret shared across workers
+```
+
+No contradictions across `correction-queue.md`, `gates.md`,
+`status.md`. Cycle 4 counts as the slice 11 confirmation cycle.
