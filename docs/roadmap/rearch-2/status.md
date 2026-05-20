@@ -1,6 +1,6 @@
 # rearch-2 Current Status
 
-Updated: 2026-05-20 after Lane 6 slice 11 governor review.
+Updated: 2026-05-20 after Lane 6 slice 12 CQ-148 close-out.
 
 ## Summary
 
@@ -11,13 +11,15 @@ Updated: 2026-05-20 after Lane 6 slice 11 governor review.
   stabilization cycles.
 - Lane 4 Server: **accepted** by Codex/governor on 2026-05-20.
 - Lane 5 Sync protocol: **accepted** by Codex/governor on 2026-05-20.
-- Lane 6 Read API: **active**, slice 11 landed. CQ-142, CQ-143, CQ-144,
-  CQ-145, CQ-146, CQ-147, and L6.8 p95 evidence are accepted by
-  Codex/governor. Lane 6 is still blocked by CQ-148: `tool-calls/list` can
-  attach a current-authority `projection_tool_result` from the wrong session
-  because its LATERAL result join matches only `tool_call_id`. Stabilization is
-  optional when no useful Ralph work remains; it does not block lane acceptance
-  once all CQs/gates/evidence are clean.
+- Lane 6 Read API: **slice 12 landed; pending governor acceptance**.
+  CQ-142, CQ-143, CQ-144, CQ-145, CQ-146, CQ-147, and L6.8 p95 evidence
+  are accepted by Codex/governor. CQ-148 is closed by slice 12:
+  `tool-calls/list` LATERAL result join now tuple-matches
+  `tool_call_id/session_id/store_id/receipt_id` and wrong-session,
+  wrong-receipt, wrong-store, and `errorsOnly` regressions are pinned.
+  All Lane 6 CQs that gate acceptance are clean. Stabilization is
+  optional when no useful Ralph work remains; it does not block lane
+  acceptance once all CQs/gates/evidence are clean.
 - Lanes 7–10: **not started**.
 
 ## Current Lane 6 focus
@@ -108,11 +110,12 @@ under "Closed this cycle" below; the full closure detail lives in
   governor's wrong-session smoke is pinned as a regression in
   `cross-store-distinct.test.ts`, and `analytics-route.test.ts` (6 tests) proves
   auth/INVALID_INPUT at the live Fastify boundary.
-- CQ-148: `tool-calls/list` can attach a current-authority
-  `projection_tool_result` row from a different `session_id`. The LATERAL join
-  must tuple-match the result to the current call by `session_id`, `store_id`,
-  and `receipt_id` as well as `tool_call_id`, and tests must pin
-  wrong-session/wrong-receipt/wrong-store rows.
+- CQ-148: closed by Lane 6 slice 12 — pending governor acceptance.
+  `apps/api/src/v2/reads/tool-calls/list.ts` LATERAL
+  `projection_tool_result` join now tuple-matches
+  `tool_call_id/session_id/store_id/receipt_id` while preserving the
+  snapshot/authority gate. `tool-calls-list.test.ts` pins wrong-session,
+  wrong-receipt, wrong-store, and `errorsOnly` regressions.
 - L6.8: accepted by Codex/governor based on explicit p95 smoke output for all
   four targets, including `artifacts/getText` 1 MiB at 226.2 ms in the
   governor run.

@@ -932,14 +932,54 @@ pnpm exec node --conditions=prosa-dev --import @swc-node/register/esm-register -
 #   latestResult.isError: true
 ```
 
-Next slice:
+## Slice 12 — CQ-148 tool-calls/list wrong-tuple result close-out (2026-05-20)
 
-1. CQ-148: tuple-match the `tool-calls/list` LATERAL result join on
-   `tool_call_id/session_id/store_id/receipt_id`.
-2. Add wrong-session, wrong-receipt, wrong-store, and `errorsOnly`
-   regressions to `tool-calls-list.test.ts`.
-3. Re-run focused `tool-calls-list.test.ts`, full API test, `pnpm typecheck`,
-   `pnpm lint`, and `git diff --check`.
+Landed:
+
+- `apps/api/src/v2/reads/tool-calls/list.ts` — the LATERAL
+  `projection_tool_result` join now tuple-matches the current call:
+  `r.tool_call_id = c.tool_call_id`, `r.session_id = c.session_id`,
+  `r.store_id = c.store_id`, and `r.receipt_id = c.receipt_id`. The
+  existing snapshot/authority gate on the inner subquery is preserved,
+  so the join is filtered first by `(store_id, receipt_id) IN snapshot`
+  and then again by the full call tuple. Cursor behavior is unchanged.
+- `apps/api/test/v2/reads/tool-calls-list.test.ts` — four new
+  CQ-148 regressions:
+  1. wrong-session result row under current authority is ignored
+     (`latestResult` stays `null`) — pins the governor's slice 11
+     smoke output.
+  2. wrong-receipt result row is ignored.
+  3. wrong-store result row is ignored when a second store authority
+     is present in the same snapshot (so the snapshot gate alone would
+     allow it; only the tuple match rejects it).
+  4. `errorsOnly` no longer matches a wrong-tuple `is_error=true`
+     result; the healthy call stays out of the page.
+
+Slice 12 gates on the contributor checkout:
+
+```text
+pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/reads/tool-calls-list.test.ts
+# Test Files  1 passed (1)
+# Tests       10 passed (10)
+
+pnpm --filter @c3-oss/prosa-api test
+# Test Files  72 passed | 2 skipped (74)
+# Tests       430 passed | 4 skipped (434)
+
+pnpm typecheck
+# EXIT=0, 13 tasks successful
+
+pnpm lint
+# EXIT=0, 13 tasks successful
+
+git diff --check
+# EXIT=0
+```
+
+Slice 12 closes CQ-148. With CQ-142 / CQ-143 / CQ-144 / CQ-145 / CQ-146
+/ CQ-147 / CQ-148 / L6.8 all accepted or closed, all Lane 6 CQs that
+gate acceptance are now clean. Lane 6 is ready for governor acceptance;
+stabilization is optional when no useful Ralph work remains.
 
 ## Scope
 

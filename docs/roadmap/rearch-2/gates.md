@@ -163,11 +163,13 @@ Lane 6 Read API is the next active milestone. Initial gate checklist:
 - [x] L6.3 — Search query uses Postgres FTS with role/tool/type/error filters,
   snippets, stable cursors, and verified-authority gating.
   (`search-fts.test.ts`.)
-- [ ] L6.4 — Tool-calls list and artifacts.getText enforce verified projection
+- [x] L6.4 — Tool-calls list and artifacts.getText enforce verified projection
   plus receipt/object grants; large/binary artifact behavior is bounded.
   (`tool-calls-list.test.ts`, `artifacts-get-text.test.ts`,
-  `artifacts-route.test.ts`.) Reopened by CQ-148: tool-calls/list must not
-  attach a result row from the wrong session/store/receipt.
+  `artifacts-route.test.ts`.) Slice 12 closes CQ-148 by tuple-matching
+  the `tool-calls/list` LATERAL result join on
+  `tool_call_id/session_id/store_id/receipt_id` and pinning wrong-session,
+  wrong-receipt, wrong-store, and `errorsOnly` regressions.
 - [x] L6.5 — Analytics summary/report expose the fixed report contracts from
   Lane 3-equivalent shapes without widening tenant scope. Strict input
   pinned by `analytics-report.test.ts` + `analytics-route.test.ts`.
@@ -182,8 +184,8 @@ Lane 6 Read API is the next active milestone. Initial gate checklist:
 - [x] L6.8 — Performance evidence records p95 targets for sessions list,
   search, transcript first page, and artifacts.getText.
 - [x] L6.9 — `pnpm --filter @c3-oss/prosa-api test`, `pnpm typecheck`,
-  `pnpm lint`, and `git diff --check` are clean (slice 11 contributor
-  checkout: 422 passed / 4 skipped on the api filter, 13/13 typecheck,
+  `pnpm lint`, and `git diff --check` are clean (slice 12 contributor
+  checkout: 430 passed / 4 skipped on the api filter, 13/13 typecheck,
   13/13 lint, `git diff --check` empty).
 
 ## Known historical notes

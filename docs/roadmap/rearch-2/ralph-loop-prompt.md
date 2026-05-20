@@ -71,14 +71,14 @@ Read `docs/roadmap/rearch-2/correction-queue.md` before the next slice.
   tuple-match result rows by `tool_call_id/session_id/store_id/receipt_id`,
   route-level analytics auth/input tests exist, and the v2/local analytics
   contract narrowing is pinned.
-- CQ-148 is open and blocks L6.4/final Lane 6 acceptance: `tool-calls/list`
-  can still attach a current-authority `projection_tool_result` row from the
-  wrong call tuple. Its LATERAL result join gates result rows by current
-  authority, but only matches `r.tool_call_id = c.tool_call_id`; it must also
-  match `r.session_id = c.session_id`, `r.store_id = c.store_id`, and
-  `r.receipt_id = c.receipt_id`. Add handler tests proving wrong-session,
-  wrong-receipt, and wrong-store result rows are ignored, including under
-  `errorsOnly`.
+- CQ-148 is closed by Lane 6 slice 12 and pending governor acceptance.
+  `apps/api/src/v2/reads/tool-calls/list.ts` LATERAL
+  `projection_tool_result` join now tuple-matches
+  `tool_call_id/session_id/store_id/receipt_id` while preserving the
+  snapshot/authority gate. `tool-calls-list.test.ts` pins wrong-session
+  (governor smoke), wrong-receipt, wrong-store, and `errorsOnly`
+  regressions. Do not reopen CQ-148 unless a fresh smoke command proves a
+  new regression.
 - CQ-141 is closed and accepted. Do not keep iterating on CQ-141 unless a fresh
   focused smoke command proves a new regression.
 - CQ-124 remains open for Lane 10: the full v1/v2 table-name cutover is not

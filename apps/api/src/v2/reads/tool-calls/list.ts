@@ -180,6 +180,9 @@ export async function listToolCalls(
           FROM projection_tool_result r
          WHERE ${lateralGate}
            AND r.tool_call_id = c.tool_call_id
+           AND r.session_id = c.session_id
+           AND r.store_id = c.store_id
+           AND r.receipt_id = c.receipt_id
          ORDER BY r.tool_result_id DESC
          LIMIT 1
       ) latest ON TRUE

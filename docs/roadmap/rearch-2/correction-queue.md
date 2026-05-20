@@ -648,8 +648,31 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 6 L6.4 and final Lane 6 acceptance)
-Status: open (2026-05-20)
+Status: closed (2026-05-20) — pending governor acceptance
 Owner: Ralph
+
+Closure (2026-05-20, Lane 6 slice 12):
+
+- `apps/api/src/v2/reads/tool-calls/list.ts` LATERAL
+  `projection_tool_result` join now tuple-matches the current call on
+  `r.tool_call_id = c.tool_call_id`, `r.session_id = c.session_id`,
+  `r.store_id = c.store_id`, and `r.receipt_id = c.receipt_id`. The
+  existing snapshot/authority gate on the inner subquery is preserved.
+- `apps/api/test/v2/reads/tool-calls-list.test.ts` adds four
+  regressions:
+  - wrong-session current-authority result row pinned (the governor's
+    slice 11 smoke output) — `latestResult` stays `null` and the
+    visible call's `sessionId` is unaffected.
+  - wrong-receipt result row is ignored.
+  - wrong-store result row is ignored when a second store authority
+    is in the snapshot, so the snapshot gate alone would allow it
+    and only the tuple match rejects it.
+  - `errorsOnly` no longer matches a wrong-tuple `is_error=true`
+    result; the healthy call stays out of the page.
+- Focused `tool-calls-list.test.ts` (10 tests) and
+  `pnpm --filter @c3-oss/prosa-api test` (430 passed / 4 skipped) plus
+  `pnpm typecheck`, `pnpm lint`, and `git diff --check` are clean on
+  the contributor checkout.
 
 Problem:
 
@@ -697,13 +720,13 @@ Required fix:
 
 Acceptance:
 
-- [ ] `tool-calls/list` result join tuple-matches
+- [x] `tool-calls/list` result join tuple-matches
       `tool_call_id/session_id/store_id/receipt_id`.
-- [ ] Handler tests prove a wrong-session result row with the same
+- [x] Handler tests prove a wrong-session result row with the same
       `tool_call_id` is ignored.
-- [ ] Handler tests prove wrong-receipt and wrong-store result rows are ignored.
-- [ ] Tests prove `errorsOnly` is not satisfied by wrong-tuple result rows.
-- [ ] Focused `tool-calls-list.test.ts`, `pnpm --filter @c3-oss/prosa-api test`,
+- [x] Handler tests prove wrong-receipt and wrong-store result rows are ignored.
+- [x] Tests prove `errorsOnly` is not satisfied by wrong-tuple result rows.
+- [x] Focused `tool-calls-list.test.ts`, `pnpm --filter @c3-oss/prosa-api test`,
       `pnpm typecheck`, `pnpm lint`, and `git diff --check` are clean.
 
 ### CQ-144: `artifacts.getText` WIP leaks miss reasons and lacks route-level tests
