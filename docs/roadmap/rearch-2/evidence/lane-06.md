@@ -113,14 +113,47 @@ pnpm typecheck                         → EXIT=0
 pnpm --filter @c3-oss/prosa-api lint   → EXIT=0
 ```
 
+## Slice 3 — Sessions transcript pagination (2026-05-20)
+
+Landed:
+
+- `apps/api/src/v2/reads/sessions/transcript.ts` — `getTranscriptPage`
+  multi-pass reconstruction. Step 1 resolves the session header
+  through the verified-projection gate (returns `null` when the
+  session is not under current authority). Step 2 fetches the next
+  page of messages with a `row_number()` derived ordinal so the
+  cursor `(ord, message_id)` is stable across pages. Step 3 fetches
+  the content blocks for that page; bodies > 8 KiB defer to
+  `artifacts.getText` (handler in the next slice). Step 4 fetches
+  tool calls for the page's turns plus unattached tool calls on the
+  first page, then joins each call to its latest tool result.
+- `INLINE_TEXT_BUDGET_BYTES = 8 * 1024` enforced by `mapBlock` —
+  bodies past the budget surface as `objectId` only.
+- `POST /v2/reads/sessions/transcript` wired through
+  `registerV2ReadRoutes` with Zod input validation and the shared
+  `requireV2Tenant` gate ladder.
+- `apps/api/test/v2/reads/transcript-pagination.test.ts` (6 tests):
+  null when not visible, null when only a superseded receipt
+  exists, cursor stability across pages, 8 KiB inline budget +
+  CAS hand-off, within-page tool call dedup + unattached-on-first-
+  page-only, and superseded rows hidden across messages / blocks /
+  calls.
+
+Slice 3 gates on the contributor checkout:
+
+```text
+pnpm exec vitest run test/v2/reads/   → 5 files / 29/29 tests passed
+pnpm typecheck                         → EXIT=0
+pnpm --filter @c3-oss/prosa-api lint   → EXIT=0
+```
+
 Remaining slices (per `docs/rearch-2/07-lane-6-read-api.md`):
 
-1. Sessions transcript pagination with bounded inline text.
-2. Search query with FTS, snippets, filters.
-3. Tool-calls list and artifacts.getText.
-4. Analytics summary/report and cross-store aggregation.
-5. p95 latency evidence under fixture load.
-6. Five consecutive 180 s stabilization cycles before RALPH_DONE.
+1. Search query with FTS, snippets, filters.
+2. Tool-calls list and artifacts.getText.
+3. Analytics summary/report and cross-store aggregation.
+4. p95 latency evidence under fixture load.
+5. Five consecutive 180 s stabilization cycles before RALPH_DONE.
 
 ## Scope
 

@@ -11,9 +11,10 @@ Updated: 2026-05-20 after Lane 5 governor acceptance and Lane 6 prep.
   stabilization cycles.
 - Lane 4 Server: **accepted** by Codex/governor on 2026-05-20.
 - Lane 5 Sync protocol: **accepted** by Codex/governor on 2026-05-20.
-- Lane 6 Read API: **active**, slice 2 landed (sessions list / count /
-  detail with cursor stability, cross-store conflict resolution, and
-  gate-aware counts; plus inner-alias fix on the gate helper).
+- Lane 6 Read API: **active**, slice 3 landed (sessions transcript
+  pagination with bounded 8 KiB inline budget, derived-ordinal cursor,
+  within-page tool-call dedup, and superseded-row hiding across the
+  message / block / call joins).
 - Lanes 7–10: **not started**.
 
 ## Current Lane 6 focus

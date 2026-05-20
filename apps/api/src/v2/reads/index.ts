@@ -12,6 +12,7 @@ import { type AuthorityRefreshResponse, type CachedAuthority, getAuthority } fro
 import { countSessions, countSessionsInput } from './sessions/count.js'
 import { getSessionDetail, sessionDetailInput } from './sessions/detail.js'
 import { listSessions, listSessionsInput } from './sessions/list.js'
+import { getTranscriptPage, transcriptPageInput } from './sessions/transcript.js'
 
 export type V2ReadRoutesDeps = V2AuthDeps & {
   /**
@@ -36,6 +37,11 @@ export const V2_READ_ROUTES = [
   { method: 'POST' as const, url: '/v2/reads/sessions/list' as const, opName: 'ReadSessionsList' as const },
   { method: 'POST' as const, url: '/v2/reads/sessions/count' as const, opName: 'ReadSessionsCount' as const },
   { method: 'POST' as const, url: '/v2/reads/sessions/detail' as const, opName: 'ReadSessionsDetail' as const },
+  {
+    method: 'POST' as const,
+    url: '/v2/reads/sessions/transcript' as const,
+    opName: 'ReadSessionsTranscript' as const,
+  },
 ]
 
 export function registerV2ReadRoutes(app: FastifyInstance, deps: V2ReadRoutesDeps): V2ReadPluginHandle {
@@ -113,6 +119,22 @@ export function registerV2ReadRoutes(app: FastifyInstance, deps: V2ReadRoutesDep
     },
   })
 
+  app.route({
+    method: 'POST',
+    url: '/v2/reads/sessions/transcript',
+    handler: async (req: FastifyRequest, reply: FastifyReply) => {
+      const ctx = await resolveV2AuthContext(deps, req)
+      const gate = requireV2Tenant(ctx, reply, 'ReadSessionsTranscript')
+      if (!gate) return reply.sent ? undefined : reply
+      const parsed = transcriptPageInput.safeParse(req.body ?? {})
+      if (!parsed.success) {
+        reply.code(400)
+        return { code: 'INVALID_INPUT', op: 'ReadSessionsTranscript', issues: parsed.error.issues }
+      }
+      return await getTranscriptPage({ rawExec: deps.rawExec }, gate.tenantId, parsed.data)
+    },
+  })
+
   return { authorityCache }
 }
 
@@ -142,6 +164,15 @@ export { getSessionDetail, sessionDetailInput } from './sessions/detail.js'
 export type { SessionDetailResponse } from './sessions/detail.js'
 export { listSessions, listSessionsInput } from './sessions/list.js'
 export type { ListSessionsResponse, SessionRow } from './sessions/list.js'
+export { INLINE_TEXT_BUDGET_BYTES, getTranscriptPage, transcriptPageInput } from './sessions/transcript.js'
+export type {
+  TranscriptBlock,
+  TranscriptPageInput,
+  TranscriptPageResponse,
+  TranscriptToolCall,
+  TranscriptToolResult,
+  TranscriptTurn,
+} from './sessions/transcript.js'
 export { buildSessionWhere, sessionListFilters } from './sessions/filters.js'
 export type { SessionListFilters } from './sessions/filters.js'
 export {
