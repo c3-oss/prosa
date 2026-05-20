@@ -1,5 +1,5 @@
 import { applySchema } from '@c3-oss/prosa-db'
-import { PACKS_SCHEMA_SQL, PROMOTION_SCHEMA_SQL } from '@c3-oss/prosa-db-v2'
+import { applyV2PromotionSubsetSchema } from '@c3-oss/prosa-db-v2'
 import { MemoryObjectStore } from '@c3-oss/prosa-storage'
 import { PGlite } from '@electric-sql/pglite'
 import type { FastifyInstance } from 'fastify'
@@ -28,36 +28,12 @@ export async function buildTestApp(overrides: Partial<NodeJS.ProcessEnv> = {}): 
   } as NodeJS.ProcessEnv)
   const pglite = new PGlite()
   await applySchema(pglite)
-  // v1 + v2 share table names (`projection_session`, `search_doc`,
-  // `remote_object`, `device`) with incompatible column sets, so we
-  // can't blanket-apply `applySchemaV2` on top of v1. Lane 10 cutover
-  // handles the production migration. For Lane 5 tests we apply the
-  // v2 promotion tables (`promotion_staging`, `remote_authority_v2`,
-  // `receipt`, `legacy_receipt_archive`) and the v2 packs tables
-  // (`remote_pack`, `remote_pack_entry`, `receipt_pack_grant`,
-  // `pack_audit_state`, `pack_gc_state`). `remote_object` from the
-  // packs block is the conflicting v1/v2 name, so we strip it before
-  // applying.
-  await pglite.exec(PROMOTION_SCHEMA_SQL)
-  await pglite.exec(PACKS_SCHEMA_SQL.replace(/CREATE TABLE IF NOT EXISTS remote_object[\s\S]*?\);/u, ''))
-  // search_generation_current is the small per-tenant pointer the
-  // seal transaction upserts. The full v2 search_doc table collides
-  // with v1; the generation pointer does not, so we apply it on its
-  // own here.
-  // CQ-137: per-(tenant, store) generation pointer. The full
-  // search_doc schema collides with v1 (CQ-124); only the pointer
-  // table is safe to apply standalone.
-  await pglite.exec(`
-    CREATE TABLE IF NOT EXISTS search_generation_current (
-      tenant_id              TEXT NOT NULL,
-      store_id               TEXT NOT NULL,
-      generation_id          TEXT NOT NULL,
-      receipt_id             TEXT NOT NULL,
-      promoted_at            TIMESTAMPTZ NOT NULL,
-      updated_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
-      PRIMARY KEY (tenant_id, store_id)
-    );
-  `)
+  // CQ-124: v1 and v2 share table names (`projection_session`,
+  // `search_doc`, `remote_object`, `device`) with incompatible
+  // columns, so we apply only the conflict-free subset of v2 on
+  // top of v1 via the canonical helper that the production
+  // server uses.
+  await applyV2PromotionSubsetSchema(pglite)
   const db = openPgliteDatabase(pglite)
   const auth = createAuth({ config, db: db.db })
   const objectStore = new MemoryObjectStore()

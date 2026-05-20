@@ -26,7 +26,7 @@ import path from 'node:path'
 import { CreateBucketCommand, HeadBucketCommand, S3Client } from '@aws-sdk/client-s3'
 import { buildCasPack } from '@c3-oss/prosa-bundle-v2'
 import { applySchema } from '@c3-oss/prosa-db'
-import { PACKS_SCHEMA_SQL, PROMOTION_SCHEMA_SQL } from '@c3-oss/prosa-db-v2'
+import { applyV2PromotionSubsetSchema } from '@c3-oss/prosa-db-v2'
 import { S3ObjectStore } from '@c3-oss/prosa-storage'
 import { receiptPayloadBytes } from '@c3-oss/prosa-types-v2'
 import { blake3 } from '@noble/hashes/blake3'
@@ -57,20 +57,12 @@ async function resetPostgresSchema(pgUrl: string): Promise<void> {
   const bootstrap = postgres(pgUrl, { max: 1, prepare: false })
   try {
     await bootstrap.unsafe('DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;')
-    await applySchema({ exec: async (sql) => void (await bootstrap.unsafe(sql)) })
-    await bootstrap.unsafe(PROMOTION_SCHEMA_SQL)
-    await bootstrap.unsafe(PACKS_SCHEMA_SQL.replace(/CREATE TABLE IF NOT EXISTS remote_object[\s\S]*?\);/u, ''))
-    await bootstrap.unsafe(`
-      CREATE TABLE IF NOT EXISTS search_generation_current (
-        tenant_id              TEXT NOT NULL,
-        store_id               TEXT NOT NULL,
-        generation_id          TEXT NOT NULL,
-        receipt_id             TEXT NOT NULL,
-        promoted_at            TIMESTAMPTZ NOT NULL,
-        updated_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
-        PRIMARY KEY (tenant_id, store_id)
-      );
-    `)
+    // CQ-124: route both bootstrap calls through the same
+    // conflict-free subset helper used by production boot and
+    // the in-process Fastify tests.
+    const sqlClient = { exec: async (sql: string) => void (await bootstrap.unsafe(sql)) }
+    await applySchema(sqlClient)
+    await applyV2PromotionSubsetSchema(sqlClient)
   } finally {
     await bootstrap.end({ timeout: 2 })
   }

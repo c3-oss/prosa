@@ -16,7 +16,7 @@
 import { buildApp, createAuth, loadConfig, openPgliteDatabase } from '@c3-oss/prosa-api'
 import { buildCasPack } from '@c3-oss/prosa-bundle-v2'
 import { applySchema } from '@c3-oss/prosa-db'
-import { PACKS_SCHEMA_SQL, PROMOTION_SCHEMA_SQL } from '@c3-oss/prosa-db-v2'
+import { applyV2PromotionSubsetSchema } from '@c3-oss/prosa-db-v2'
 import { MemoryObjectStore } from '@c3-oss/prosa-storage'
 import { receiptPayloadBytes } from '@c3-oss/prosa-types-v2'
 import { PGlite } from '@electric-sql/pglite'
@@ -46,19 +46,9 @@ async function buildPromoteTestApp(): Promise<TestApp> {
   } as NodeJS.ProcessEnv)
   const pglite = new PGlite()
   await applySchema(pglite)
-  await pglite.exec(PROMOTION_SCHEMA_SQL)
-  await pglite.exec(PACKS_SCHEMA_SQL.replace(/CREATE TABLE IF NOT EXISTS remote_object[\s\S]*?\);/u, ''))
-  await pglite.exec(`
-    CREATE TABLE IF NOT EXISTS search_generation_current (
-      tenant_id              TEXT NOT NULL,
-      store_id               TEXT NOT NULL,
-      generation_id          TEXT NOT NULL,
-      receipt_id             TEXT NOT NULL,
-      promoted_at            TIMESTAMPTZ NOT NULL,
-      updated_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
-      PRIMARY KEY (tenant_id, store_id)
-    );
-  `)
+  // CQ-124: use the canonical conflict-free subset helper so
+  // server + CLI tests both go through the same boot path.
+  await applyV2PromotionSubsetSchema(pglite)
   const db = openPgliteDatabase(pglite)
   const auth = createAuth({ config, db: db.db })
   const app = await buildApp({

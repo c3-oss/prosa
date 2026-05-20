@@ -17,7 +17,7 @@
 
 import { buildCasPack } from '@c3-oss/prosa-bundle-v2'
 import { applySchema } from '@c3-oss/prosa-db'
-import { PACKS_SCHEMA_SQL, PROMOTION_SCHEMA_SQL } from '@c3-oss/prosa-db-v2'
+import { applyV2PromotionSubsetSchema } from '@c3-oss/prosa-db-v2'
 import { MemoryObjectStore } from '@c3-oss/prosa-storage'
 import { PGlite } from '@electric-sql/pglite'
 import { blake3 } from '@noble/hashes/blake3'
@@ -38,8 +38,7 @@ import {
 async function buildSandbox() {
   const pglite = new PGlite()
   await applySchema(pglite)
-  await pglite.exec(PROMOTION_SCHEMA_SQL)
-  await pglite.exec(PACKS_SCHEMA_SQL.replace(/CREATE TABLE IF NOT EXISTS remote_object[\s\S]*?\);/u, ''))
+  await applyV2PromotionSubsetSchema(pglite)
   const db = openPgliteDatabase(pglite)
   const objectStore = new MemoryObjectStore()
   const tenantId = 'tenant-cq132'

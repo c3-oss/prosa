@@ -55,6 +55,96 @@ export async function applySchemaV2(client: SqlClient): Promise<void> {
   }
 }
 
+// CQ-124: v1 (`packages/prosa-db`) and v2 (`packages/prosa-db-v2`)
+// share four table names with incompatible column sets:
+// `device`, `remote_object`, `projection_session`, `search_doc`.
+// Running `applySchemaV2` on top of v1 fails because
+// `CREATE TABLE IF NOT EXISTS` skips the colliding tables and
+// later `CREATE INDEX` statements reference columns the v1
+// shapes don't have. Until Lane 10 cutover migrates the v1 rows
+// off those names, production + tests apply only the
+// CONFLICT-FREE subset of v2 here:
+//
+// - promotion (`promotion_staging`, `remote_authority_v2`,
+//   `receipt`, `legacy_receipt_archive`, `promotion_uploaded_pack`);
+// - packs (`remote_pack`, `remote_pack_entry`,
+//   `receipt_pack_grant`, `pack_audit_state`, `pack_gc_state`,
+//   minus the colliding `remote_object` block);
+// - the per-(tenant, store) `search_generation_current` pointer
+//   from the search schema. The colliding `search_doc` block
+//   stays v1-only.
+//
+// `device`, `remote_object`, `projection_*`, and `search_doc`
+// remain v1-owned for Lane 5; CQ-124 outlines the v1->v2
+// migration that Lane 10 will land.
+const SEARCH_GENERATION_ONLY_SQL = `
+CREATE TABLE IF NOT EXISTS search_generation_current (
+  tenant_id              TEXT NOT NULL,
+  store_id               TEXT NOT NULL,
+  generation_id          TEXT NOT NULL,
+  receipt_id             TEXT NOT NULL,
+  promoted_at            TIMESTAMPTZ NOT NULL,
+  updated_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (tenant_id, store_id)
+);
+ALTER TABLE search_generation_current ADD COLUMN IF NOT EXISTS store_id TEXT;
+UPDATE search_generation_current SET store_id = '' WHERE store_id IS NULL;
+ALTER TABLE search_generation_current ALTER COLUMN store_id SET NOT NULL;
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+      FROM pg_index i
+      JOIN pg_class c ON c.oid = i.indrelid
+     WHERE c.relname = 'search_generation_current'
+       AND i.indisprimary
+       AND (SELECT count(*) FROM pg_attribute a
+              WHERE a.attrelid = c.oid
+                AND a.attnum = ANY(i.indkey)) = 1
+  ) THEN
+    ALTER TABLE search_generation_current DROP CONSTRAINT search_generation_current_pkey;
+    ALTER TABLE search_generation_current ADD PRIMARY KEY (tenant_id, store_id);
+  END IF;
+END;
+$$;
+`
+
+const PACKS_NO_REMOTE_OBJECT_SQL = PACKS_SCHEMA_SQL.replace(/CREATE TABLE IF NOT EXISTS remote_object[\s\S]*?\);/u, '')
+
+/**
+ * Apply the conflict-free subset of the v2 schema on top of the
+ * v1 schema. See the comment above for which tables are
+ * included / excluded. Idempotent — every CREATE uses
+ * `IF NOT EXISTS`, every ALTER uses `IF NOT EXISTS` or a guarded
+ * DO block.
+ *
+ * The caller is responsible for running `applySchema` (v1)
+ * first; this helper assumes v1 already exists in the database.
+ */
+export async function applyV2PromotionSubsetSchema(client: SqlClient): Promise<void> {
+  await execSql(client, PROMOTION_SCHEMA_SQL)
+  await execSql(client, PACKS_NO_REMOTE_OBJECT_SQL)
+  await execSql(client, SEARCH_GENERATION_ONLY_SQL)
+}
+
+/**
+ * Tables the conflict-free subset creates. Production boot uses
+ * this list as a fail-fast gate after applying the subset.
+ */
+export const V2_PROMOTION_SUBSET_TABLES: readonly string[] = [
+  'promotion_staging',
+  'remote_authority_v2',
+  'receipt',
+  'legacy_receipt_archive',
+  'promotion_uploaded_pack',
+  'remote_pack',
+  'remote_pack_entry',
+  'receipt_pack_grant',
+  'pack_audit_state',
+  'pack_gc_state',
+  'search_generation_current',
+]
+
 /**
  * Tables that must exist for the API server to boot. Missing any of
  * these implies an incomplete migration; the server refuses to start.
