@@ -1,6 +1,6 @@
 # rearch-2 Correction Queue
 
-Updated: 2026-05-20 after CQ-142/CQ-144 closure review.
+Updated: 2026-05-20 after Lane 6 WIP reviewer findings.
 
 ## Open blocking corrections
 
@@ -43,6 +43,19 @@ Reviewer smoke forged a `sessions/list` cursor and observed a row with
 trust pattern exists in sessions/transcript, search/query, and tool-calls/list.
 `decodeRequiredCursor` also treats `cursor: ""` as first-page semantics, despite
 the CQ requiring malformed/tampered cursors to fail closed.
+
+WIP re-review (2026-05-20):
+
+- New signed/HMAC cursor WIP appears to prevent forged snapshot tuples for the
+  four handlers by verifying cursor integrity before parsing the snapshot.
+- CQ-142 still cannot close because `decodeRequiredCursor(signer, "")` returns
+  `null`, giving page-1 semantics instead of `INVALID_CURSOR`.
+- Route-level CQ-142 evidence is still missing. Handler tests are not enough;
+  the four HTTP routes must prove invalid, wrong-signed/forged, and empty
+  string cursors return HTTP 400 with `code: "INVALID_CURSOR"`.
+- Forged well-formed snapshot coverage currently exists for `sessions/list`;
+  duplicate it for transcript, search, and tool-calls, preferably through the
+  route tests.
 
 Problem:
 
@@ -107,6 +120,8 @@ Acceptance:
       `/v2/reads/sessions/transcript`, `/v2/reads/search/query`, and
       `/v2/reads/tool-calls/list` return 400 `INVALID_CURSOR` for invalid or
       forged cursors.
+- [ ] Route-level tests include `cursor: ""` and wrong-signed forged snapshots
+      for all four paginated routes.
 
 ### CQ-143: Promoted CLI session reads bypass the Lane 6 v2 read API
 
@@ -151,11 +166,57 @@ Required fix:
 
 Acceptance:
 
-- [ ] CLI tests prove a promoted v2 store does not call legacy
+- [ ] Command/client-boundary CLI tests execute `prosa sessions`,
+      `prosa sessions count`, and session detail/show paths with a fetch spy or
+      equivalent proof that a promoted v2 store does not call legacy
       `/trpc/sessions.list`, `/trpc/sessions.count`, or `/trpc/sessions.get`.
 - [ ] CLI tests prove the promoted-store default fails closed with clear
       `--local` guidance.
 - [ ] Existing local session read behavior remains unchanged.
+
+### CQ-145: artifacts.getText route returns 500 instead of opaque miss
+
+Severity: high
+Blocking: yes (blocks Lane 6 artifacts route acceptance and L6.4)
+Status: open (2026-05-20)
+Owner: Ralph
+
+Problem:
+
+CQ-144 accepted the handler-level opacity behavior, but Lane 6 also requires
+route-level evidence. Current uncommitted route evidence shows
+`POST /v2/reads/artifacts/getText` returning HTTP 500 for a missing artifact
+case where the accepted contract is an opaque `{ found: false }` response.
+
+Smoke evidence:
+
+Remote-read reviewer on 2026-05-20:
+
+```text
+pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/reads/artifacts-route.test.ts
+# failed: missing-artifact route returned 500 instead of expected opaque found:false
+```
+
+Required fix:
+
+- Wire the route/dependency error handling so missing projection visibility,
+  missing grants, missing object bytes, and fetch/decode failures all return
+  the same caller-visible opaque miss shape.
+- Preserve internal diagnostics only behind logs/hooks; do not expose miss
+  reasons in the HTTP response.
+- Keep valid small UTF-8 artifact and bounded large/binary behavior intact.
+
+Acceptance:
+
+- [ ] Route-level test proves missing artifact/projection returns opaque
+      `{ found: false }`, not HTTP 500.
+- [ ] Route-level test proves missing receipt/object grant returns opaque
+      `{ found: false }`.
+- [ ] Route-level test proves missing object bytes/fetch failure returns opaque
+      `{ found: false }`.
+- [ ] Route-level test proves valid small UTF-8 artifact returns bounded text.
+- [ ] Route-level test proves >1 MiB or binary artifacts are bounded/fail
+      closed per the Lane 6 contract.
 
 ### CQ-144: `artifacts.getText` WIP leaks miss reasons and lacks route-level tests
 

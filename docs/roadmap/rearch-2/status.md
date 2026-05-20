@@ -1,6 +1,6 @@
 # rearch-2 Current Status
 
-Updated: 2026-05-20 after CQ-142/CQ-144 closure review.
+Updated: 2026-05-20 after Lane 6 WIP reviewer findings.
 
 ## Summary
 
@@ -11,9 +11,11 @@ Updated: 2026-05-20 after CQ-142/CQ-144 closure review.
   stabilization cycles.
 - Lane 4 Server: **accepted** by Codex/governor on 2026-05-20.
 - Lane 5 Sync protocol: **accepted** by Codex/governor on 2026-05-20.
-- Lane 6 Read API: **active**, slice 6 landed. CQ-144 artifacts opacity is
-  accepted; CQ-142 receipt-snapshot cursors remain open because snapshots are
-  forgeable without cursor integrity; CQ-143 CLI fail-closed remains open.
+- Lane 6 Read API: **active**, slice 6 landed and WIP continues. CQ-144
+  handler-level artifacts opacity is accepted; CQ-142 remains open for
+  empty-cursor and route-level `INVALID_CURSOR` evidence; CQ-143 remains open
+  pending command/client-boundary no-call proof; CQ-145 is open because the
+  artifacts route-level WIP returns 500 for a missing artifact case.
 - Lanes 7–10: **not started**.
 
 ## Current Lane 6 focus
@@ -81,15 +83,18 @@ under "Closed this cycle" below; the full closure detail lives in
   search materialization sub-bullets are blocked on CQ-124 and remain Lane 10
   cutover scope. Lane 6 reads may only expose rows that already exist and are
   proven by current authority; they must not fake materialization.
-- CQ-142: paginated v2 reads now pin an authority snapshot for honest
-  pagination, but the embedded snapshot is unsigned and can be forged to name
-  superseded receipts. Blocks sessions/search/transcript/tool-calls pagination
-  acceptance until cursor integrity or server-side cursor state lands.
+- CQ-142: signed/HMAC cursor WIP appears to address forged snapshots for the
+  handlers, but `cursor: ""` still gets page-1 semantics and HTTP route-level
+  `INVALID_CURSOR` evidence is missing for all four paginated routes.
 - CQ-143: promoted `prosa sessions` reads still route through legacy
   `/trpc/sessions.*`. Until Lane 7 wires `/v2/reads/*`, they must fail closed
   for promoted v2 stores instead of bypassing the Lane 6 authority gate.
+  Current resolver WIP looks directionally correct, but command/client-boundary
+  tests must prove no legacy tRPC call for sessions/count/detail/show.
 - CQ-144: accepted by Codex/governor for handler-level artifacts opacity.
   Final Lane 6 acceptance still needs route-level artifacts evidence.
+- CQ-145: `POST /v2/reads/artifacts/getText` route-level WIP returns HTTP 500
+  for a missing artifact case; it must return the opaque miss contract instead.
 
 ## Closed this cycle
 

@@ -57,16 +57,24 @@ Read `docs/roadmap/rearch-2/correction-queue.md` before the next slice.
   response. The first closure attempt is rejected: an unsigned client-supplied
   snapshot can be forged to name a superseded `(store_id, receipt_id)` pair.
   Fix with signed/HMAC cursors or server-side cursor state; shape validation is
-  not sufficient, and `cursor: ""` must not mean "first page".
+  not sufficient, and `cursor: ""` must not mean "first page". Current WIP with
+  signed cursors still fails if empty string decodes to page 1, and handler
+  tests do not replace HTTP route tests for `INVALID_CURSOR`.
 - CQ-143 is open and blocks Lane 6 remote-read safety: promoted v2 stores must
   not keep using legacy `/trpc/sessions.*` through `prosa sessions`. This is
   required support work, not permission to implement full Lane 7. Safe default:
   fail closed for promoted v2 session reads with `--local` guidance until Lane
-  7 wires `/v2/reads/*`.
+  7 wires `/v2/reads/*`. Closure requires command/client-boundary proof that
+  `prosa sessions`, `prosa sessions count`, and session detail/show do not call
+  `/trpc/sessions.*` for v2-promoted stores.
 - CQ-144 is closed and accepted by Codex/governor. `artifacts.getText` now
   returns one opaque `{ found: false }` shape for invisible projection, no
   grant, no object, and fetch/decode failure. Final Lane 6 acceptance still
   needs route-level artifacts evidence.
+- CQ-145 is open and blocks Lane 6 artifacts route acceptance: current
+  route-level WIP for `POST /v2/reads/artifacts/getText` returns HTTP 500 for a
+  missing artifact case instead of the opaque `{ found: false }` contract. Fix
+  route/dependency wiring and add route-level artifact tests.
 - CQ-141 is closed and accepted. Do not keep iterating on CQ-141 unless a fresh
   focused smoke command proves a new regression.
 - CQ-124 remains open for Lane 10: the full v1/v2 table-name cutover is not
@@ -166,6 +174,8 @@ Required Lane 6 evidence:
 - Search query supports the required filters and snippets via Postgres FTS.
 - Tool-calls list and artifacts.getText enforce verified projection plus
   receipt/object grants.
+- Artifacts route tests prove the same opaque fail-closed shape as the handler;
+  a route-level 500 for a missing artifact is not accepted.
 - Analytics summary/report return the fixed contract shapes.
 - Cross-store conflict resolution returns one row per logical session.
 - p95 latency evidence under fixture load:

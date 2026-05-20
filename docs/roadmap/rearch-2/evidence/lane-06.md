@@ -309,15 +309,53 @@ Next valid CQ-142 closeout must add signed/HMAC cursors or server-side cursor
 state, reject forged snapshots and `cursor: ""`, and prove HTTP 400
 `INVALID_CURSOR` on the four paginated routes.
 
+WIP reviewer follow-up (2026-05-20):
+
+- Signed/HMAC cursor WIP appears directionally correct for forged snapshots in
+  the handlers, but CQ-142 remains open because `cursor: ""` still returns
+  first-page semantics.
+- CQ-142 still lacks HTTP route-level tests proving invalid, wrong-signed /
+  forged, and empty-string cursors return 400 `INVALID_CURSOR` on
+  sessions/list, sessions/transcript, search/query, and tool-calls/list.
+- CQ-143 resolver WIP appears to fail closed for v2 promotions before
+  constructing the legacy client, but acceptance still needs command/client
+  boundary tests proving `prosa sessions`, `prosa sessions count`, and session
+  detail/show do not call `/trpc/sessions.*`.
+- CQ-145 opened because route-level artifact evidence is failing:
+  `artifacts-route.test.ts` returned HTTP 500 for a missing artifact instead of
+  the opaque `{ found: false }` miss contract.
+
+Reviewer commands:
+
+```text
+pnpm --filter @c3-oss/prosa-api exec vitest run \
+  test/v2/reads/cursor-snapshot.test.ts \
+  test/v2/reads/cursor-integrity.test.ts
+# 15/15 passed
+
+decodeRequiredCursor(signer, "") smoke
+# returned null, confirming page-1 semantics for empty cursor
+
+pnpm --filter @c3-oss/prosa exec vitest run \
+  test/cli/remote-authority-routing.test.ts
+# 9/9 passed
+
+pnpm --filter @c3-oss/prosa-api exec vitest run \
+  test/v2/reads/artifacts-route.test.ts
+# failed: missing-artifact route returned 500 instead of opaque found:false
+```
+
 Remaining slices (per `docs/rearch-2/07-lane-6-read-api.md` and the
 reviewer's correction queue):
 
-1. CQ-142: tamper-resistant receipt-snapshot cursors.
+1. CQ-142: tamper-resistant receipt-snapshot cursors plus empty-cursor and
+   HTTP-route `INVALID_CURSOR` evidence.
 2. CQ-143: fail-closed CLI session reads for promoted v2 stores
    (or accept Lane 7 surface — pending governor decision).
-3. Analytics summary/report and cross-store distinct aggregation.
-4. p95 latency evidence under fixture load.
-5. Five consecutive 180 s stabilization cycles before RALPH_DONE.
+3. CQ-145: route-level artifacts getText opaque miss behavior.
+4. Analytics summary/report and cross-store distinct aggregation.
+5. p95 latency evidence under fixture load.
+6. Five consecutive 180 s stabilization cycles before RALPH_DONE.
 
 ## Scope
 
