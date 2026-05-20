@@ -89,19 +89,20 @@ Tests       7 passed (7)
 
 ## Lane 9 Completion Gates — Migration
 
-- [ ] `prosa migrate-v2 bundle` converts a v1 bundle to v2 from preserved raw
+- [x] `prosa migrate-v2 bundle` converts a v1 bundle to v2 from preserved raw
   bytes and aborts before rename on validation failure.
-- [ ] Migration count validation covers source files, raw records, sessions,
+- [x] Migration count validation covers source files, raw records, sessions,
   objects, and search docs according to the Lane 9 policy.
-- [ ] Migration progress and JSON output are implemented.
-- [ ] Corrupt or missing raw bytes surface a gap and use the documented
+- [x] Migration progress and JSON output are implemented.
+- [x] Corrupt or missing raw bytes surface a gap and use the documented
   provider-history fallback when available.
-- [ ] `prosa migrate-v2 tenant` and `POST /v2/migrate/tenant` re-project a
+- [x] `prosa migrate-v2 tenant` and `POST /v2/migrate/tenant` re-project a
   tenant remotely with admin-only authorization.
-- [ ] `legacy_receipt_archive` stores v1 receipts for audit only; v2 reads do
+- [x] `legacy_receipt_archive` stores v1 receipts for audit only; v2 reads do
   not accept them as authority.
-- [ ] Focused migration tests from `docs/rearch-2/10-lane-9-migration.md` pass.
-- [ ] Atomic rename safety and synthetic remote migration E2E evidence are
+- [x] Focused migration tests from `docs/rearch-2/10-lane-9-migration.md` pass
+  (`pnpm --filter @c3-oss/prosa exec vitest run test/v2/migrate/`).
+- [x] Atomic rename safety and synthetic remote migration E2E evidence are
   recorded.
 
 ## Lane 10 Boundary

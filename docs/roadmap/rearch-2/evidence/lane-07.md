@@ -177,6 +177,37 @@ Test Files  72 passed | 2 skipped (74)
 Tests       431 passed | 4 skipped (435)
 ```
 
+## Slice 12 — CQ-150/151/152/153 wire-compat + retry policy
+
+- CQ-150: aligned CLI + web v2 client schemas with the actual Lane 6
+  route shapes (search/transcript/tool-calls/analytics). Added
+  `apps/cli/test/v2/reads-client-contract.test.ts` (9 tests)
+  importing the route schemas directly from `apps/api/src/v2/reads/`
+  to prevent silent drift.
+- CQ-151: local-mode fallbacks now reject unsupported filters
+  (`--project`/`--cursor` for sessions, all server-only filters
+  for search) rather than silently widening output.
+- CQ-152: new `with412RefreshAndRetry` helper refreshes authority
+  once and retries idempotent reads on HTTP 412; a second 412
+  stops with `AuthorityChangedError`. Streaming/multi-page commands
+  (transcript --all-pages) keep fail-closed semantics.
+- CQ-153: `createV2ApiClient` throws `MissingTenantError` before
+  any network round-trip when no active tenant is provided.
+
+Focused gate:
+
+```text
+pnpm --filter @c3-oss/prosa exec vitest run test/v2/
+Test Files  5+ passed
+Tests       28+ passed
+```
+
+```text
+pnpm --filter @c3-oss/prosa-web exec vitest run src/lib/
+Test Files  2 passed (2)
+Tests       9 passed (9)
+```
+
 ## Open Lane 7 slices
 
 - Slice 10b — migrate `apps/web/src/routes/console/*` off the tRPC
