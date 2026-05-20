@@ -44,13 +44,18 @@ export async function buildTestApp(overrides: Partial<NodeJS.ProcessEnv> = {}): 
   // seal transaction upserts. The full v2 search_doc table collides
   // with v1; the generation pointer does not, so we apply it on its
   // own here.
+  // CQ-137: per-(tenant, store) generation pointer. The full
+  // search_doc schema collides with v1 (CQ-124); only the pointer
+  // table is safe to apply standalone.
   await pglite.exec(`
     CREATE TABLE IF NOT EXISTS search_generation_current (
-      tenant_id              TEXT PRIMARY KEY,
+      tenant_id              TEXT NOT NULL,
+      store_id               TEXT NOT NULL,
       generation_id          TEXT NOT NULL,
       receipt_id             TEXT NOT NULL,
       promoted_at            TIMESTAMPTZ NOT NULL,
-      updated_at             TIMESTAMPTZ NOT NULL DEFAULT now()
+      updated_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (tenant_id, store_id)
     );
   `)
   const db = openPgliteDatabase(pglite)

@@ -294,15 +294,18 @@ export async function sealPromotion(
              promoted_at = EXCLUDED.promoted_at`,
         [deps.tenantId, staging.store_id, finalPayload.receiptId, head.bundleRoot],
       )
+      // CQ-137: search_generation_current is keyed by
+      // (tenant_id, store_id) — promoting a second store in the
+      // same tenant must not clobber the first store's generation.
       await tx(
-        `INSERT INTO search_generation_current (tenant_id, generation_id, receipt_id, promoted_at)
-       VALUES ($1, $2, $3, now())
-       ON CONFLICT (tenant_id) DO UPDATE
+        `INSERT INTO search_generation_current (tenant_id, store_id, generation_id, receipt_id, promoted_at)
+       VALUES ($1, $2, $3, $4, now())
+       ON CONFLICT (tenant_id, store_id) DO UPDATE
          SET generation_id = EXCLUDED.generation_id,
              receipt_id = EXCLUDED.receipt_id,
              promoted_at = EXCLUDED.promoted_at,
              updated_at = now()`,
-        [deps.tenantId, finalPayload.materialization.searchGenerationId, finalPayload.receiptId],
+        [deps.tenantId, staging.store_id, finalPayload.materialization.searchGenerationId, finalPayload.receiptId],
       )
       for (const digest of packDigests) {
         await tx(

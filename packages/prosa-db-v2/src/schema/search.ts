@@ -32,11 +32,17 @@ CREATE INDEX IF NOT EXISTS search_doc_tsv_idx ON search_doc USING GIN (text_tsv)
 CREATE INDEX IF NOT EXISTS search_doc_session_idx ON search_doc (tenant_id, session_id);
 CREATE INDEX IF NOT EXISTS search_doc_entity_idx ON search_doc (tenant_id, entity_type, entity_id);
 
+-- CQ-137: per-store scoping. remote_authority_v2 is keyed by
+-- (tenant_id, store_id); the generation pointer must follow the
+-- same shape or promoting a second store in the same tenant would
+-- overwrite the first.
 CREATE TABLE IF NOT EXISTS search_generation_current (
-  tenant_id              TEXT PRIMARY KEY,
+  tenant_id              TEXT NOT NULL,
+  store_id               TEXT NOT NULL,
   generation_id          TEXT NOT NULL,
   receipt_id             TEXT NOT NULL,
   promoted_at            TIMESTAMPTZ NOT NULL,
-  updated_at             TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (tenant_id, store_id)
 );
 `

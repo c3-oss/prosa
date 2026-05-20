@@ -973,8 +973,22 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 5 search/projection authority acceptance)
-Status: open
+Status: closed (2026-05-20)
 Owner: Ralph
+
+Closure: `packages/prosa-db-v2/src/schema/search.ts` rewrites
+`search_generation_current` with a composite PK
+`(tenant_id, store_id)` — matching `remote_authority_v2`'s
+scoping. The seal handler UPSERTs against that key, supplying
+`staging.store_id`. The PGlite-backed test helpers in
+`apps/api/test/helpers/test-app.ts`, the apps/api Docker E2E
+bootstrap, and the apps/cli promote suite all apply the new
+shape standalone (the full `SEARCH_SCHEMA_SQL` still collides
+with v1 via `search_doc` — CQ-124). Pinned by
+`apps/api/test/v2/sync/cq-137-store-scoped-generation.test.ts`:
+sealing two stores in the same tenant leaves two distinct rows
+in `search_generation_current`, each pointing at its own
+receipt id.
 
 Problem:
 
@@ -1016,8 +1030,27 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 5 GetReceipt, CLI resume, and receipt-verification acceptance)
-Status: open
+Status: closed (2026-05-20)
 Owner: Ralph
+
+Closure: `apps/api/src/v2/sync/get-receipt.ts` now validates the
+stored row before returning it:
+1. payload + signature parse to objects;
+2. `payload.receiptId === :receiptId`;
+3. row `tenant_id` / `store_id` / `device_id` match
+   `payload.tenantId` / `payload.storeId` / `payload.deviceId`;
+4. `signer.verifyReceipt(receiptPayloadBytes(payload), signature)`
+   succeeds.
+Any failure collapses to `{ status: 'not_found' }` / 404 so a
+malformed receipt cannot be returned as authority and existence
+does not leak. The signer is threaded into the handler via
+`GetReceiptDeps.signer`. Pinned by four cases in
+`apps/api/test/v2/sync/cq-138-receipt-validation.test.ts`:
+seeded rows with mismatched receiptId / storeId / deviceId all
+return 404, and a tuple-matched row signed by an unknown key
+also returns 404. The happy path in `get-receipt.test.ts`
+continues to pass — sealed receipts verify against the
+publishing JWKS by construction.
 
 Problem:
 

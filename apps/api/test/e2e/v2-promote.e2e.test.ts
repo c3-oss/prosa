@@ -62,11 +62,13 @@ async function resetPostgresSchema(pgUrl: string): Promise<void> {
     await bootstrap.unsafe(PACKS_SCHEMA_SQL.replace(/CREATE TABLE IF NOT EXISTS remote_object[\s\S]*?\);/u, ''))
     await bootstrap.unsafe(`
       CREATE TABLE IF NOT EXISTS search_generation_current (
-        tenant_id              TEXT PRIMARY KEY,
+        tenant_id              TEXT NOT NULL,
+        store_id               TEXT NOT NULL,
         generation_id          TEXT NOT NULL,
         receipt_id             TEXT NOT NULL,
         promoted_at            TIMESTAMPTZ NOT NULL,
-        updated_at             TIMESTAMPTZ NOT NULL DEFAULT now()
+        updated_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (tenant_id, store_id)
       );
     `)
   } finally {

@@ -329,7 +329,10 @@ async function handleGetReceipt(
     reply.code(400)
     return { code: 'INVALID_REQUEST', op: 'GetReceipt', message: 'receiptId is required' }
   }
-  const result = await getReceipt({ rawExec: deps.rawExec, tenantId }, { receiptId: params.receiptId })
+  const result = await getReceipt(
+    { rawExec: deps.rawExec, tenantId, signer: deps.signer },
+    { receiptId: params.receiptId },
+  )
   if (result.status === 'not_found') {
     reply.code(404)
     return { code: 'RECEIPT_NOT_FOUND', op: 'GetReceipt', status: 'not_found', receiptId: result.receiptId }
