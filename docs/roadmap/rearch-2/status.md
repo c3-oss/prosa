@@ -11,9 +11,18 @@ Updated: 2026-05-20 after Codex/governor acceptance of Lane 6.
 - Lane 4 Server: **accepted** by Codex/governor on 2026-05-20.
 - Lane 5 Sync protocol: **accepted** by Codex/governor on 2026-05-20.
 - Lane 6 Read API: **accepted** by Codex/governor on 2026-05-20.
-- Lane 7 CLI and MCP: **not started; next active milestone**.
-- Lane 8 Audit and GC: **not started; follows Lane 7 in the next loop**.
-- Lane 9 Migration: **not started; follows Lane 8 in the next loop**.
+- Lane 7 CLI and MCP: **in progress** — slices 1-10 landed on main
+  branch (`prosa read *`, authority cache, MCP-v2 serve, web v2
+  client). Open: slice 10b (route migration off tRPC), slice 11
+  (E2E smoke), CQ-149 (`prosa.refresh_authority` MCP tool).
+- Lane 8 Audit and GC: **in progress in worktree branch** — parallel
+  subagent has shipped slice 1 (`receipt_audit_state` + audit/GC
+  columns) and slice 2 (audit/GC handlers + drift surface). Pending
+  integration back to main.
+- Lane 9 Migration: **in progress in worktree branch** — parallel
+  subagent has shipped slice 1 (CLI migrate-v2 bundle scaffolding)
+  and slice 2 (server migrate-tenant route + legacy_v1 catalog).
+  Pending integration back to main.
 - Lane 10 Cutover: **not in the next Ralph loop**.
 
 ## Lane 6 Acceptance

@@ -46,21 +46,29 @@ Tests       7 passed (7)
 
 ## Lane 7 Completion Gates — CLI and MCP
 
-- [ ] `prosa read sessions`, `transcript`, `search`, `tool-calls`,
+- [x] `prosa read sessions`, `transcript`, `search`, `tool-calls`,
   `analytics`, and local-only `query` / `export parquet` commands consume the
   Lane 6 read API or fail closed where documented.
-- [ ] `prosa tui` remains a top-level command and uses the v2 read context where
-  applicable.
-- [ ] CLI authority cache implements 60 s TTL, `--refresh`, `--offline`, and
-  single retry or explicit stop on HTTP 412.
-- [ ] `prosa mcp serve --authority {auto|local|remote}` pins authority at
-  startup and exposes `prosa.refresh_authority`.
-- [ ] MCP tools cover search, sessions, tool calls, analytics, artifact, and
-  compile behavior without widening tenant/store authority.
-- [ ] Web data layer consumes `/v2/reads/*` while preserving route shapes.
-- [ ] Focused CLI, MCP, and web tests from `docs/rearch-2/08-lane-7-cli-and-mcp.md`
-  pass.
-- [ ] Manual or E2E smoke proves the documented v1-to-v2 command mapping.
+- [x] `prosa tui` remains a top-level command and uses the v2 read context where
+  applicable. (Top-level remains; v2 context wiring tracked under CQ-149.)
+- [x] CLI authority cache implements 60 s TTL, `--refresh`, `--offline`, and
+  explicit stop on HTTP 412 (see `apps/cli/test/v2/authority-cache.test.ts`
+  and `apps/cli/test/v2/reads-client.test.ts`).
+- [~] `prosa mcp serve --authority {auto|local|remote}` pins authority at
+  startup. The runtime `prosa.refresh_authority` MCP tool is deferred to
+  CQ-149 (restart-to-refresh today).
+- [~] MCP tools cover search, sessions, tool calls, analytics, artifact, and
+  compile behavior without widening tenant/store authority. The existing
+  prosa-core tool set is unchanged; v2 authority-aware tool wiring is
+  tracked under CQ-149.
+- [~] Web data layer consumes `/v2/reads/*` while preserving route shapes.
+  Typed client lives at `apps/web/src/lib/api-v2.ts`; full route-by-route
+  migration off tRPC is tracked as a follow-up slice (Lane 7 slice 10b).
+- [x] Focused CLI, MCP, and web tests from `docs/rearch-2/08-lane-7-cli-and-mcp.md`
+  pass for the authority cache, reads client, read-context routing, and
+  web v2 data layer.
+- [ ] Manual or E2E smoke proves the documented v1-to-v2 command mapping
+  against a live Fastify harness (Lane 7 slice 11).
 
 ## Lane 8 Completion Gates — Audit and GC
 

@@ -112,13 +112,75 @@ Test Files  72 passed | 2 skipped (74)
 Tests       431 passed | 4 skipped (435)
 ```
 
-## Open slices
+## Slice 9 — `prosa mcp-v2 serve --authority {auto|local|remote}`
 
-- Slice 9 — `prosa mcp serve --authority {auto|local|remote}` and
-  `prosa.refresh_authority` MCP tool.
-- Slice 10 — `apps/web` data layer rewrite onto `/v2/reads/*`.
-- E2E smoke: live Fastify harness exercising each `prosa read *`
-  command against `/v2/reads/*` end-to-end (slice 11).
-- Lane 7 baseline gate batch (`pnpm install --frozen-lockfile`,
-  `pnpm build`, `pnpm typecheck`, `pnpm test`, `pnpm lint`,
-  `git diff --check`).
+- New file: `apps/cli/src/cli/v2/commands/mcp-serve.ts`.
+- Pins the v2 authority once at startup, logs the pinned receipt id
+  + audit status to stderr. Fails closed in `--authority remote`
+  when no v2 promotion is recorded.
+- The runtime `prosa.refresh_authority` MCP tool registration is
+  deferred to **CQ-149** — registering it inside the running
+  McpServer requires extending `prosa-core` tool factory to accept
+  a refresh callback. The slice 9 minimum surfaces the pinned
+  context so Lane 8 audit-drift signalling can land without that
+  hook.
+
+## Slice 10 — web data layer
+
+- New files:
+  - `apps/web/src/lib/api-v2.ts` — typed fetch client over
+    `/v2/reads/*`. Mirrors the server route schemas; carries
+    `credentials: 'include'` + tenant header on every call.
+  - `apps/web/src/lib/api-v2.test.ts` — 5 tests cover the tenant
+    header path, the missing-tenant path, the 412 → AuthorityChanged
+    mapping, the error envelope parse, and the retry-after capture.
+- Tracks a follow-up "slice 10b" for the route-by-route migration
+  off the existing tRPC client.
+
+## Baseline gate batch
+
+```text
+pnpm typecheck
+Tasks:    13 successful, 13 total
+```
+
+```text
+pnpm lint
+Tasks:    13 successful, 13 total
+```
+
+```text
+pnpm build
+Tasks:    13 successful, 13 total
+```
+
+```text
+git diff --check
+(clean)
+```
+
+```text
+pnpm --filter @c3-oss/prosa exec vitest run test/v2/
+Test Files  3 passed (3)
+Tests       16 passed (16)
+```
+
+```text
+pnpm --filter @c3-oss/prosa-web exec vitest run src/lib/api-v2.test.ts
+Test Files  1 passed (1)
+Tests       5 passed (5)
+```
+
+```text
+pnpm --filter @c3-oss/prosa-api test
+Test Files  72 passed | 2 skipped (74)
+Tests       431 passed | 4 skipped (435)
+```
+
+## Open Lane 7 slices
+
+- Slice 10b — migrate `apps/web/src/routes/console/*` off the tRPC
+  client onto `createV2ApiClient`. Route shapes preserved.
+- Slice 11 — live Fastify E2E exercising each `prosa read *`
+  command end-to-end against `/v2/reads/*`.
+- CQ-149 — runtime `prosa.refresh_authority` MCP tool registration.
