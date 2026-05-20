@@ -1072,10 +1072,10 @@ Acceptance:
 
 Severity: high
 Blocking: yes (blocks Lane 5 idempotency and receipt correctness)
-Status: closed (2026-05-20) — tuple verification on replay added
+Status: open (partial closure rejected 2026-05-20)
 Owner: Ralph
 
-Full closure: the sealed-status replay branch in
+Partial closure: the sealed-status replay branch in
 `apps/api/src/v2/sync/seal-promotion.ts` now verifies the
 loaded receipt matches the staging tuple before returning it:
 - `payload.tenantId === ctx.tenantId`,
@@ -1094,6 +1094,11 @@ Pinned by three cases in `cq-136-resale.test.ts`:
 - **NEW**: tampered `sealed_receipt_id` pointing at a
   same-tenant receipt with a different store/device/bundle →
   500 SEAL_LINK_CORRUPT, original receipt row untouched.
+
+This does not fully close CQ-136. Reviewer found the replay path still does not
+validate schema, derived receipt id, or signature before returning the linked
+receipt. The race-loser branch also still returns `loadReceiptById(...)`
+without the same tuple validation.
 
 Closure rejection (superseded by the tuple-verification above):
 `packages/prosa-db-v2/src/schema/promotion.ts` adds a
@@ -1165,15 +1170,19 @@ Acceptance:
       row.
 - [ ] Tests cover wrong-store, wrong-device, wrong-bundle, missing-row, and
       malformed-payload/signature `sealed_receipt_id` links.
+- [ ] Race-loser replay validates the exact same tuple/schema/signature path as
+      normal sealed replay.
+- [ ] Malformed signature, schema-invalid payload, and derived-id mismatch in a
+      linked receipt fail closed.
 
 ### CQ-137: `search_generation_current` is tenant-wide while authority is store-scoped
 
 Severity: high
 Blocking: yes (blocks Lane 5 search/projection authority acceptance)
-Status: closed (2026-05-20) — idempotent migration added
+Status: open (partial closure rejected 2026-05-20)
 Owner: Ralph
 
-Full closure: `SEARCH_SCHEMA_SQL` ships an idempotent
+Partial closure: `SEARCH_SCHEMA_SQL` ships an idempotent
 migration block that runs every time the schema is re-applied:
 `ADD COLUMN IF NOT EXISTS store_id`, backfill `NULL → ''`,
 `ALTER COLUMN store_id SET NOT NULL`, then a DO block that
@@ -1191,6 +1200,11 @@ Pinned by `apps/api/test/v2/sync/cq-137-schema-migration.test.ts`:
    same tenant.
 2. Apply the schema twice on a fresh database — the second
    application is a no-op (PK shape unchanged).
+
+This does not fully close CQ-137/CQ-126 production behavior because
+`startServer()` still applies its local `V2_SEARCH_GENERATION_SQL` rather than
+the reusable `SEARCH_SCHEMA_SQL` migration block. The focused test proves the
+package schema block, not the boot path that serves Lane 5 traffic.
 
 Closure rejection (superseded by the migration block above):
 `packages/prosa-db-v2/src/schema/search.ts` rewrites
@@ -1252,15 +1266,17 @@ Acceptance:
 - [ ] Upgrade/idempotency test starts from the old tenant-wide table shape,
       applies the current schema/migration path, and proves per-store seal
       writes work.
+- [ ] Production/startServer-style bootstrap uses the same migration path and
+      handles the old tenant-wide table shape before serving v2 routes.
 
 ### CQ-138: GetReceipt returns unvalidated same-tenant receipts as authority
 
 Severity: high
 Blocking: yes (blocks Lane 5 GetReceipt, CLI resume, and receipt-verification acceptance)
-Status: closed (2026-05-20) — deriveReceiptId tamper check added
+Status: open (partial closure rejected 2026-05-20)
 Owner: Ralph
 
-Full closure: `apps/api/src/v2/sync/get-receipt.ts` now also
+Partial closure: `apps/api/src/v2/sync/get-receipt.ts` now also
 asserts `deriveReceiptId(payload) === payload.receiptId` —
 the content-addressed canonical hash of the stored payload
 bytes must match the signed receipt id. A same-tenant
@@ -1281,6 +1297,11 @@ seed a row where `payload.receiptId` matches the request
 but the payload bytes have been mutated post-derivation
 (serverRegion changed). GetReceipt returns 404
 RECEIPT_NOT_FOUND.
+
+This does not fully close CQ-138. Shared receipt schema validation is explicitly
+skipped due to CQ-123, and CLI `sync-v2` still casts BeginPromotion/SealPromotion
+responses as `PromotionReceiptV2` without schema, derived-id, tuple, or JWKS
+validation before returning/printing authority.
 
 Partial closure (superseded by the deriveReceiptId check above):
 `apps/api/src/v2/sync/get-receipt.ts` now validates the

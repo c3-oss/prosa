@@ -84,15 +84,15 @@ The blocker is implementation work, not environment.
   work.
 - CQ-135: signer or transaction failure after the seal status flip can strand
   staging in `materializing`, blocking retry/resume.
-- CQ-136: sealed replay now links to `sealed_receipt_id`, but closure is
-  rejected until replay validates the linked receipt row/payload against the
-  sealed staging tuple and fails closed on corrupt links.
-- CQ-137: fresh per-store `search_generation_current` tests pass, but closure is
-  rejected until existing tenant-wide table shapes migrate or fail boot before
-  seal routes serve.
-- CQ-138: GetReceipt now checks id/tuple/signature, but closure remains open
-  until shared receipt schema/derived-id validation and CLI receipt validation
-  are proven.
+- CQ-136: normal sealed replay now validates tuple fields, but closure remains
+  open until race-loser replay and linked-receipt schema/derived-id/signature
+  validation fail closed.
+- CQ-137: package schema migration for `search_generation_current` exists, but
+  closure remains open until production/startServer boot uses that migration
+  path for old tenant-wide table shapes.
+- CQ-138: GetReceipt now checks id/tuple/derived-id/signature, but closure
+  remains open until shared receipt schema validation is resolved and CLI
+  receipt validation is proven.
 - CQ-140: focused v2 E2E can pass with Docker env, but the documented `just e2e`
   recipe fails and the gate still does not prove command-level `prosa sync-v2`,
   API container, or second-device remote read.
@@ -130,6 +130,9 @@ The blocker is implementation work, not environment.
 - CQ-136/CQ-137/CQ-138 closure claims from `cba2b90`/`6557852` are rejected
   pending the reviewer-smoked corrupt-link, schema-upgrade, and shared-schema
   validation cases.
+- CQ-136/CQ-137/CQ-138 closure claims from `11447b7`/`9aff136` remain
+  rejected/partial pending race-loser sealed replay, production boot migration,
+  and CLI/shared-schema receipt validation.
 - CQ-125/CQ-141 closure claims from `41642b3`/`f1d15b3` are rejected pending
   reviewer-smoked device-mismatch, malformed-signature, wrong pack metadata,
   and seal-after-pack-byte-loss cases.
