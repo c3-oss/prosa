@@ -64,20 +64,20 @@ Tests       7 passed (7)
 
 ## Lane 8 Completion Gates — Audit and GC
 
-- [ ] Audit cron handlers implement hourly, daily, weekly, and monthly cadences
+- [x] Audit cron handlers implement hourly, daily, weekly, and monthly cadences
   under advisory locks.
-- [ ] Audit detects missing or mismatched packs, quarantines affected packs, and
+- [x] Audit detects missing or mismatched packs, quarantines affected packs, and
   degrades affected receipts.
-- [ ] Authority refresh surfaces `auditStatus` and `repair` for degraded
+- [x] Authority refresh surfaces `auditStatus` and `repair` for degraded
   receipts.
-- [ ] `artifacts.getText` returns `503 DATA_UNAVAILABLE` for quarantined pack
+- [x] `artifacts.getText` returns `503 DATA_UNAVAILABLE` for quarantined pack
   bytes.
-- [ ] GC transitions unreferenced packs through tombstone and delete phases
+- [x] GC transitions unreferenced packs through tombstone and delete phases
   without deleting packs referenced by receipts or open staging rows.
-- [ ] Metrics exist for audit findings and GC delete/failure volume.
-- [ ] Focused audit/GC/read tests from
+- [x] Metrics exist for audit findings and GC delete/failure volume.
+- [x] Focused audit/GC/read tests from
   `docs/rearch-2/09-lane-8-audit-and-gc.md` pass.
-- [ ] E2E drift and GC scenarios are recorded.
+- [x] E2E drift and GC scenarios are recorded.
 
 ## Lane 9 Completion Gates — Migration
 
