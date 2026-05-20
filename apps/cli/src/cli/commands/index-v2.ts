@@ -18,6 +18,7 @@
 
 import { resolve as resolvePath } from 'node:path'
 
+import { openBundle } from '@c3-oss/prosa-bundle-v2'
 import {
   ANALYTICS_VIEW_NAMES,
   type AnalyticsViewName,
@@ -50,6 +51,7 @@ import {
   readCompactManifestV2,
   readSessionBlobHeader,
   recommendMaintenanceActions,
+  runTantivyRebuildForBundle,
   summariseCompactionEffectiveness,
   summariseDerivedLayerFootprint,
   summariseProjectionSegments,
@@ -68,6 +70,14 @@ function parseNonNegativeInteger(label: string, raw: string): number {
   const n = Number.parseInt(raw, 10)
   if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0 || String(n) !== raw) {
     throw new Error(`invalid ${label}: ${raw} (expected non-negative integer)`)
+  }
+  return n
+}
+
+function parsePositiveInteger(label: string, raw: string): number {
+  const n = parseNonNegativeInteger(label, raw)
+  if (n === 0) {
+    throw new Error(`invalid ${label}: ${raw} (expected positive integer)`)
   }
   return n
 }
@@ -223,6 +233,50 @@ export function indexV2Command(): Command {
       })
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
     })
+
+  root
+    .command('tantivy')
+    .description(
+      "Run the Tantivy native runtime writer against a bundle v2 store. Reads `<store>/epochs/<epoch>/projection/search_doc.prosa-projection.ndjson` and applies the planner-decided full/incremental/skip rebuild. Defaults --epoch to the bundle head's current epoch. Acquires the bundle write lock for the duration of the run.",
+    )
+    .requiredOption('--store <path>', 'bundle directory')
+    .option('--epoch <n>', 'epoch to source search_doc rows from (defaults to head.epoch)')
+    .option('--overwrite', 'request a full rebuild regardless of checkpoint state', false)
+    .option('--heap-bytes <n>', 'native writer heap budget in bytes (default 300 MiB)')
+    .option('--num-threads <n>', 'native writer thread count (default 4)')
+    .action(
+      async (options: {
+        store: string
+        epoch?: string
+        overwrite: boolean
+        heapBytes?: string
+        numThreads?: string
+      }) => {
+        const storePath = resolvePath(options.store)
+        const heapBytes =
+          options.heapBytes !== undefined ? parsePositiveInteger('--heap-bytes', options.heapBytes) : undefined
+        const numThreads =
+          options.numThreads !== undefined ? parsePositiveInteger('--num-threads', options.numThreads) : undefined
+        const explicitEpoch = options.epoch !== undefined ? parseNonNegativeInteger('--epoch', options.epoch) : null
+        // Open the bundle so the run holds the bundle's write lock — a
+        // concurrent `compile-v2` and `index-v2 tantivy` against the same
+        // store would otherwise race on the derived tree.
+        const bundle = await openBundle(storePath)
+        try {
+          const epoch = explicitEpoch ?? bundle.head.epoch
+          const result = await runTantivyRebuildForBundle({
+            bundleRoot: storePath,
+            epoch,
+            overwriteRequested: options.overwrite,
+            heapBytes,
+            numThreads,
+          })
+          process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
+        } finally {
+          await bundle.close()
+        }
+      },
+    )
 
   root
     .command('compaction-plan')

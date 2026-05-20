@@ -48,6 +48,14 @@ Active / incomplete. Tantivy native runtime writer is in. DuckDB analytics runti
     the reader into the runtime writer for a given `(bundleRoot, epoch)`
     pair. Reports `no_search_docs` when the segment is absent and
     forwards the inner `RuntimeResult` otherwise.
+  - `prosa index-v2 tantivy` CLI subcommand — opens the bundle write
+    lock, defaults `--epoch` to `head.epoch`, accepts
+    `--overwrite / --heap-bytes / --num-threads`, prints the
+    orchestrator's JSON result. Integration test runs the actual CLI
+    subprocess against a synthetic v2 bundle + planted projection
+    segment and confirms a follow-up `prosa index-v2 status` reports
+    `tantivy.ready_for_read === true` with the matching
+    `indexed_doc_count`.
 - Operational/read surfaces:
   - `bundleDerivedStatus`, `derivedLayerMaintenanceSummary`, `recommendMaintenanceActions`, `derivedLayerFootprint`, `derivedLayerCapabilities`, `derivedLayerSnapshot`.
   - `prosa index-v2` read/audit subcommands in `apps/cli/src/cli/commands/index-v2.ts`.
@@ -56,14 +64,15 @@ Active / incomplete. Tantivy native runtime writer is in. DuckDB analytics runti
 
 - [x] Tantivy native writer / incremental rebuild runtime — landed
       with `runTantivyRebuild` + bundle orchestrator
-      (`runTantivyRebuildForBundle`) + NDJSON projection reader.
-      End-to-end test runs a real synthetic projection segment through
-      the orchestrator → runtime writer → native binding and confirms
-      `indexed_doc_count == source_doc_count` plus `ready_for_read`.
-      Next step: `prosa index-v2 tantivy` CLI command should invoke
-      the bundle orchestrator and a scripted-bundle CLI gate should
-      run `compile-v2 && index-v2 tantivy && index-v2 status` against
-      a real importer-produced bundle.
+      (`runTantivyRebuildForBundle`) + NDJSON projection reader +
+      `prosa index-v2 tantivy` CLI command. CLI integration test
+      runs the runtime through the spawned subprocess and asserts
+      both the per-call result and the follow-up
+      `index-v2 status.tantivy.ready_for_read`. Next step: a
+      scripted compile-then-index gate (`compile-v2 <provider> &&
+      index-v2 tantivy && index-v2 status`) against an
+      importer-produced bundle, to cover the projection-segment
+      shape end-to-end rather than the planted-fixture shape.
 - [ ] DuckDB analytics runtime executor.
 - [ ] Parquet compaction merge worker.
 - [ ] End-to-end Lane 3 gates in `gates.md`.
@@ -99,3 +108,11 @@ The next loop may continue adding safe read-only utilities instead of tackling t
 - Full `pnpm --filter @c3-oss/prosa-derived-v2 test` (556/556) +
   `typecheck` + `biome check .` + workspace `pnpm typecheck` all
   clean.
+- `prosa index-v2 tantivy` CLI integration test (137/137 in
+  `apps/cli/test/cli/index-v2.test.ts`, 17 tantivy-related)
+  exercises the help text, missing-store error, no-search-docs
+  fast path, full-rebuild end-to-end, `--overwrite` forced-full,
+  and the `--heap-bytes 0` rejection branch. The full-rebuild case
+  spawns a real `prosa index-v2 tantivy` subprocess, then spawns
+  `prosa index-v2 status` and asserts `tantivy.ready_for_read ===
+  true` with the matching `indexed_doc_count`.

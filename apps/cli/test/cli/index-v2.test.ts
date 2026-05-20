@@ -55,6 +55,7 @@ describe('prosa index-v2 CLI', () => {
     expect(r.stdout).toContain('projection-segments')
     expect(r.stdout).toContain('tantivy-schema')
     expect(r.stdout).toContain('tantivy-rebuild-plan')
+    expect(r.stdout).toMatch(/^\s+tantivy\s/m)
     expect(r.stdout).toContain('compaction-plan')
     expect(r.stdout).toContain('compaction-manifest')
     expect(r.stdout).toContain('compaction-execution-plan')
@@ -2349,5 +2350,162 @@ describe('prosa index-v2 CLI', () => {
     ])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/invalid --start-ordinal/i)
+  })
+
+  it('`index-v2 tantivy --help` documents the runtime executor flags', async () => {
+    const r = runCli(['index-v2', 'tantivy', '--help'])
+    expect(r.status).toBe(0)
+    expect(r.stdout).toContain('Tantivy native runtime writer')
+    expect(r.stdout).toContain('--store')
+    expect(r.stdout).toContain('--epoch')
+    expect(r.stdout).toContain('--overwrite')
+    expect(r.stdout).toContain('--heap-bytes')
+    expect(r.stdout).toContain('--num-threads')
+  })
+
+  it('`index-v2 tantivy` against an uninitialised store errors with the openBundle message', async () => {
+    const storeRoot = join(await mkdtemp(join(tmpdir(), 'prosa-cli-tantivy-')), 'never-initialised')
+    const r = runCli(['index-v2', 'tantivy', '--store', storeRoot])
+    expect(r.status).not.toBe(0)
+    expect(r.stderr).toMatch(/head\.json not found|did you call initBundle/i)
+  })
+
+  it('`index-v2 tantivy` against a fresh v2 bundle with no search_doc segment returns no_search_docs', async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-tantivy-'))
+    const { initBundle: initBundleV2 } = await import('@c3-oss/prosa-bundle-v2')
+    const bundle = await initBundleV2(storeRoot)
+    await bundle.close()
+    const r = runCli(['index-v2', 'tantivy', '--store', storeRoot, '--heap-bytes', '15000000', '--num-threads', '1'])
+    expect(r.status).toBe(0)
+    const out = JSON.parse(r.stdout) as { kind: string; epoch: number; segmentPath: string }
+    expect(out.kind).toBe('no_search_docs')
+    expect(out.epoch).toBe(0)
+    expect(out.segmentPath).toContain('epochs/0/projection/search_doc.prosa-projection.ndjson')
+  })
+
+  it('`index-v2 tantivy` runs the runtime end-to-end against a planted projection segment and satisfies the Lane 3 gate', async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-tantivy-'))
+    const { initBundle: initBundleV2 } = await import('@c3-oss/prosa-bundle-v2')
+    const bundle = await initBundleV2(storeRoot)
+    await bundle.close()
+
+    const projectionDir = join(storeRoot, 'epochs', '0', 'projection')
+    await mkdir(projectionDir, { recursive: true })
+    const rows = Array.from({ length: 6 }, (_, i) => ({
+      doc_id: `doc-${String(i + 1).padStart(3, '0')}`,
+      entity_type: 'message',
+      entity_id: `msg-${i + 1}`,
+      session_id: 'ses_test',
+      project_id: 'proj_test',
+      timestamp: '2026-05-20T00:00:00Z',
+      role: 'user',
+      tool_name: null,
+      canonical_tool_type: null,
+      field_kind: 'message_text',
+      errors_only: false,
+      text: `payload ${i + 1}`,
+    }))
+    const header = JSON.stringify({
+      bundleFormat: 2,
+      segmentKind: 'projection_ndjson',
+      entityType: 'search_doc',
+      rowCount: rows.length,
+    })
+    const sorted = [...rows].sort((a, b) => (a.doc_id < b.doc_id ? -1 : a.doc_id > b.doc_id ? 1 : 0))
+    await writeFile(
+      join(projectionDir, 'search_doc.prosa-projection.ndjson'),
+      `${[header, ...sorted.map((r) => JSON.stringify(r))].join('\n')}\n`,
+      'utf-8',
+    )
+
+    const r = runCli(['index-v2', 'tantivy', '--store', storeRoot, '--heap-bytes', '15000000', '--num-threads', '1'])
+    expect(r.status).toBe(0)
+    const out = JSON.parse(r.stdout) as {
+      kind: string
+      sourceDocCount: number
+      result: {
+        kind: string
+        plan: { kind: string }
+        indexedDocCount?: number
+        checkpoint: { status: string; indexed_doc_count: number | null; source_doc_count: number | null }
+      }
+    }
+    expect(out.kind).toBe('ran')
+    expect(out.sourceDocCount).toBe(rows.length)
+    expect(out.result.kind).toBe('rebuilt')
+    expect(out.result.plan.kind).toBe('full')
+    expect(out.result.indexedDocCount).toBe(rows.length)
+    expect(out.result.checkpoint.status).toBe('ready')
+    expect(out.result.checkpoint.indexed_doc_count).toBe(rows.length)
+    expect(out.result.checkpoint.source_doc_count).toBe(rows.length)
+
+    // A follow-up status call should see the index as ready_for_read.
+    const status = runCli(['index-v2', 'status', '--store', storeRoot])
+    expect(status.status).toBe(0)
+    const snapshot = JSON.parse(status.stdout) as {
+      tantivy: { ready_for_read: boolean; checkpoint?: { indexed_doc_count: number | null } }
+    }
+    expect(snapshot.tantivy.ready_for_read).toBe(true)
+    expect(snapshot.tantivy.checkpoint?.indexed_doc_count).toBe(rows.length)
+  })
+
+  it('`index-v2 tantivy --overwrite` against the same bundle re-runs full', async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-tantivy-'))
+    const { initBundle: initBundleV2 } = await import('@c3-oss/prosa-bundle-v2')
+    const bundle = await initBundleV2(storeRoot)
+    await bundle.close()
+
+    const projectionDir = join(storeRoot, 'epochs', '0', 'projection')
+    await mkdir(projectionDir, { recursive: true })
+    const rows = Array.from({ length: 3 }, (_, i) => ({
+      doc_id: `doc-${i + 1}`,
+      entity_type: 'message',
+      entity_id: `m-${i + 1}`,
+      session_id: null,
+      project_id: null,
+      timestamp: null,
+      role: null,
+      tool_name: null,
+      canonical_tool_type: null,
+      field_kind: 'message_text',
+      errors_only: false,
+      text: `p${i}`,
+    }))
+    const header = JSON.stringify({
+      bundleFormat: 2,
+      segmentKind: 'projection_ndjson',
+      entityType: 'search_doc',
+      rowCount: rows.length,
+    })
+    await writeFile(
+      join(projectionDir, 'search_doc.prosa-projection.ndjson'),
+      `${[header, ...rows.map((r) => JSON.stringify(r))].join('\n')}\n`,
+      'utf-8',
+    )
+
+    runCli(['index-v2', 'tantivy', '--store', storeRoot, '--heap-bytes', '15000000', '--num-threads', '1'])
+    const forced = runCli([
+      'index-v2',
+      'tantivy',
+      '--store',
+      storeRoot,
+      '--overwrite',
+      '--heap-bytes',
+      '15000000',
+      '--num-threads',
+      '1',
+    ])
+    expect(forced.status).toBe(0)
+    const out = JSON.parse(forced.stdout) as { result: { kind: string; plan: { kind: string; reason: string } } }
+    expect(out.result.kind).toBe('rebuilt')
+    expect(out.result.plan.kind).toBe('full')
+    expect(out.result.plan.reason).toBe('caller_requested_overwrite')
+  })
+
+  it('`index-v2 tantivy` rejects --heap-bytes 0', async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-tantivy-'))
+    const r = runCli(['index-v2', 'tantivy', '--store', storeRoot, '--heap-bytes', '0'])
+    expect(r.status).not.toBe(0)
+    expect(r.stderr).toMatch(/invalid --heap-bytes/i)
   })
 })
