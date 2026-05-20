@@ -11,6 +11,7 @@ import type { ReactNode } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 
 import { ConsoleAnalytics } from './analytics.js'
+import { ConsoleDashboard } from './dashboard.js'
 import { ConsoleSearch } from './search.js'
 import { ConsoleSessionDetail } from './session-detail.js'
 import { ConsoleToolCalls } from './tool-calls.js'
@@ -19,11 +20,27 @@ const searchSpy = vi.fn(async () => ({ rows: [], nextCursor: null }))
 const toolCallsSpy = vi.fn(async () => ({ rows: [], nextCursor: null }))
 const analyticsSpy = vi.fn(async () => ({ report: 'sessions', generatedAt: '2026-05-20T11:00:00.000Z', rows: [] }))
 const transcriptSpy = vi.fn(async () => null)
+const summarySpy = vi.fn(async () => ({
+  generatedAt: '2026-05-20T11:00:00.000Z',
+  counts: {
+    sessions: 0,
+    messages: 0,
+    toolCalls: 0,
+    toolResultErrors: 0,
+    artifacts: 0,
+    searchDocs: 0,
+    stores: 0,
+    sources: 0,
+  },
+  sources: [],
+  stores: [],
+}))
 
 const legacySearch = vi.fn()
 const legacyToolCalls = vi.fn()
 const legacyAnalytics = vi.fn()
 const legacyTranscript = vi.fn()
+const legacySummary = vi.fn()
 
 vi.mock('~/app/auth-context.js', () => ({
   useAuth: () => ({
@@ -45,7 +62,7 @@ vi.mock('~/app/providers.js', async () => {
       api: {
         search: { query: { query: legacySearch } },
         toolCalls: { list: { query: legacyToolCalls } },
-        analytics: { report: { query: legacyAnalytics } },
+        analytics: { report: { query: legacyAnalytics }, summary: { query: legacySummary } },
         sessions: { transcript: { query: legacyTranscript } },
       } as unknown as ReturnType<typeof actual.useAppContext>['api'],
       apiV2: {
@@ -53,7 +70,8 @@ vi.mock('~/app/providers.js', async () => {
           sessions: { list: vi.fn(), count: vi.fn(), transcript: transcriptSpy },
           search: { query: searchSpy },
           toolCalls: { list: toolCallsSpy },
-          analytics: { report: analyticsSpy },
+          analytics: { report: analyticsSpy, summary: summarySpy },
+          artifacts: { getText: vi.fn() },
         },
       } as unknown as ReturnType<typeof actual.useAppContext>['apiV2'],
       auth: {} as unknown as ReturnType<typeof actual.useAppContext>['auth'],
@@ -114,6 +132,16 @@ describe('CQ-153 — v2 console routes use apiV2 (not legacy tRPC)', () => {
     expect(legacyAnalytics).not.toHaveBeenCalled()
     const first = analyticsSpy.mock.calls[0] as [{ report: string }] | undefined
     expect(first?.[0]?.report).toBe('sessions')
+  })
+
+  it('ConsoleDashboard calls apiV2.v2.analytics.summary', async () => {
+    render(
+      <Harness>
+        <ConsoleDashboard />
+      </Harness>,
+    )
+    await waitFor(() => expect(summarySpy).toHaveBeenCalled())
+    expect(legacySummary).not.toHaveBeenCalled()
   })
 
   it('ConsoleSessionDetail calls apiV2.v2.sessions.transcript', async () => {

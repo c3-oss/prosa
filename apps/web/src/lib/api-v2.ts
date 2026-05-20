@@ -219,6 +219,35 @@ export type V2AnalyticsReportResponse = {
   rows: V2AnalyticsReportRow[]
 }
 
+export type V2AnalyticsSummaryResponse = {
+  generatedAt: string
+  counts: {
+    sessions: number
+    messages: number
+    toolCalls: number
+    toolResultErrors: number
+    artifacts: number
+    searchDocs: number
+    stores: number
+    sources: number
+  }
+  sources: Array<{ sourceTool: string; count: number }>
+  stores: Array<{ storeId: string; sessionCount: number; latestPromotedAt: string | null }>
+}
+
+export type V2ArtifactGetTextInput = {
+  storeId: string
+  receiptId: string
+  bodyDigest: string
+  maxBytes?: number
+}
+export type V2ArtifactGetTextResponse = {
+  text: string
+  truncated: boolean
+  bytesReturned: number
+  totalBytes: number
+}
+
 export type V2ApiClient = {
   v2: {
     sessions: {
@@ -234,6 +263,10 @@ export type V2ApiClient = {
     }
     analytics: {
       report: (input: V2AnalyticsReportInput) => Promise<V2AnalyticsReportResponse>
+      summary: () => Promise<V2AnalyticsSummaryResponse>
+    }
+    artifacts: {
+      getText: (input: V2ArtifactGetTextInput) => Promise<V2ArtifactGetTextResponse>
     }
   }
 }
@@ -242,7 +275,7 @@ export function createV2ApiClient(opts: CreateV2ClientOptions): V2ApiClient {
   const fetchFn = opts.fetch ?? globalThis.fetch
   const baseUrl = opts.config.apiUrl.replace(/\/+$/, '')
 
-  async function post<T>(route: string, body: unknown): Promise<T> {
+  async function request<T>(route: string, method: 'GET' | 'POST', body: unknown): Promise<T> {
     const tenantId = opts.getTenantId?.() ?? null
     if (!tenantId) {
       // CQ-153: fail closed before the network round-trip. The
@@ -253,15 +286,15 @@ export function createV2ApiClient(opts: CreateV2ClientOptions): V2ApiClient {
     }
     const headers: Record<string, string> = {
       accept: 'application/json',
-      'content-type': 'application/json',
       [TENANT_HEADER]: tenantId,
     }
+    if (method === 'POST') headers['content-type'] = 'application/json'
 
     const response = await fetchFn(`${baseUrl}${route}`, {
-      method: 'POST',
+      method,
       credentials: 'include',
       headers,
-      body: JSON.stringify(body ?? {}),
+      ...(method === 'POST' ? { body: JSON.stringify(body ?? {}) } : {}),
     })
     if (response.status === 412) throw new AuthorityChangedError(route)
 
@@ -283,6 +316,9 @@ export function createV2ApiClient(opts: CreateV2ClientOptions): V2ApiClient {
     throw new ApiV2Error(route, response.status, code, message, retrySeconds)
   }
 
+  const post = <T>(route: string, body: unknown) => request<T>(route, 'POST', body)
+  const get = <T>(route: string) => request<T>(route, 'GET', undefined)
+
   return {
     v2: {
       sessions: {
@@ -298,6 +334,10 @@ export function createV2ApiClient(opts: CreateV2ClientOptions): V2ApiClient {
       },
       analytics: {
         report: (input) => post('/v2/reads/analytics/report', input),
+        summary: () => get('/v2/reads/analytics/summary'),
+      },
+      artifacts: {
+        getText: (input) => post('/v2/reads/artifacts/getText', input),
       },
     },
   }

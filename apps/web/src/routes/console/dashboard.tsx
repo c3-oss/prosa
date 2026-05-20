@@ -13,14 +13,29 @@ type AnalyticsSummary = {
 }
 
 export function ConsoleDashboard() {
-  const { api } = useAppContext()
+  const { apiV2 } = useAppContext()
   const { me } = useAuth()
   const tenantId = me?.tenantId ?? null
 
   const summary = useQuery({
     enabled: Boolean(tenantId),
     queryKey: tenantId ? queryKeys.analyticsSummary(tenantId) : ['analytics', 'summary', 'no-tenant'],
-    queryFn: async (): Promise<AnalyticsSummary> => api.analytics.summary.query(),
+    queryFn: async (): Promise<AnalyticsSummary> => {
+      const response = await apiV2.v2.analytics.summary()
+      // CQ-153: shim v2 summary shape to the legacy component shape.
+      // The dashboard's MetricCardGrid reads `counts.{sessions, docs,
+      // sources, objects}`; v2 surfaces `searchDocs` for docs and
+      // `artifacts` for objects.
+      return {
+        counts: {
+          sessions: response.counts.sessions,
+          objects: response.counts.artifacts,
+          docs: response.counts.searchDocs,
+          sources: response.counts.sources,
+        },
+        sources: response.sources.map((row) => ({ sourceKind: row.sourceTool, count: row.count })),
+      }
+    },
   })
 
   const empty = summary.data && summary.data.counts.sessions === 0
