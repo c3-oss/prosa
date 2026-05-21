@@ -64,6 +64,53 @@ describe('merkleLeaf', () => {
     )
   })
 
+  it('accepts mixed-case external ids on source_*_id fields (regression)', () => {
+    // Regression: source_message_id / source_call_id / etc. carry the
+    // external tool's id verbatim (Claude `msg_0158LWs9...`, OpenAI
+    // `call_XhfaCqYd...`). When these fields were typed as the
+    // canonical-id kind, `validateFieldValue` rejected any value with
+    // uppercase characters, blocking real codex/claude compiles at
+    // seal time. They are now declared as plain strings.
+    const messageRow = {
+      message_id: 'msg_abc123',
+      session_id: 'ses_abc',
+      turn_id: null,
+      event_id: null,
+      source_message_id: 'msg_0158LWs9utihf4Sf9eQf4omQ',
+      role: 'assistant',
+      author_name: null,
+      model: null,
+      timestamp: '2025-01-02T03:04:05.123Z',
+      ordinal: 0,
+      parent_message_id: null,
+      request_id: 'req_AbCdEf01ZyXw',
+      status: null,
+      raw_record_id: 'rrec_abc',
+    } as const
+    expect(() => merkleLeaf('message', messageRow)).not.toThrow()
+
+    const toolCallRow = {
+      tool_call_id: 'tc_abc',
+      session_id: 'ses_abc',
+      turn_id: null,
+      message_id: null,
+      event_id: null,
+      source_call_id: 'call_XhfaCqYdmFaEDU9Y2kH6h4Oo',
+      tool_name: 'bash',
+      canonical_tool_type: 'shell',
+      args_object_id: null,
+      command: null,
+      cwd: null,
+      path: null,
+      query: null,
+      timestamp_start: '2025-01-02T03:04:05.123Z',
+      timestamp_end: null,
+      status: null,
+      raw_record_id: 'rrec_abc',
+    } as const
+    expect(() => merkleLeaf('tool_call', toolCallRow)).not.toThrow()
+  })
+
   it('respects field ordering', () => {
     // Re-order fields in input: the leaf must be unchanged because
     // canonical_cbor pulls fields in schema order.
