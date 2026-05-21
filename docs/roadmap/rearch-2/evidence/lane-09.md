@@ -1,7 +1,7 @@
 # Lane 9 Evidence — Migration
 
-Status: implementation landed, but not governor-accepted. Focused review on
-2026-05-20 opened CQ-158 through CQ-161.
+Status: accepted by Codex/governor on 2026-05-21. Focused review on
+2026-05-20 opened CQ-158 through CQ-161; all are now closed for Lane 9.
 
 Required source plan: `docs/rearch-2/10-lane-9-migration.md`.
 

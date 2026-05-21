@@ -4,9 +4,8 @@ Updated: 2026-05-21 after the CQ-155 GC-wins inside-tx rollback regression lande
 
 ## Active Corrections For Lanes 7-9
 
-CQ-155, CQ-156, CQ-158, CQ-159, CQ-160, and CQ-161 are closed pending
-governor acceptance. CQ-157 closed earlier. No open blockers remain for
-Lanes 7-9.
+CQ-155, CQ-156, CQ-158, CQ-159, CQ-160, and CQ-161 are closed and accepted by
+Codex/governor. CQ-157 closed earlier. No open blockers remain for Lanes 7-9.
 
 ### CQ-161: local bundle migration lacks read-only and crash-safety proof
 
@@ -15,7 +14,7 @@ Severity: high
 Blocking: no — closed 2026-05-21 after read-only temp-copy + content-hashed
 snapshot + marker-owned pre-archive cleanup landed.
 
-Status: closed pending governor acceptance.
+Status: closed; accepted by Codex/governor on 2026-05-21.
 
 Affected lane: Lane 9.
 
@@ -375,7 +374,7 @@ cadence rescope (durable gates for monthly rehash and GC; bounded
 duplicate work allowed for hourly/daily/weekly sampling, capped by
 advisory lock + per-tenant sampling caps).
 
-Status: closed pending governor acceptance.
+Status: closed; accepted by Codex/governor on 2026-05-21.
 
 Affected lane: Lane 8.
 
@@ -495,7 +494,7 @@ the pre-tx fail-closed and seal-wins cases. Three production
 `sealPromotion()` regressions now cover all required orderings, plus the
 inline-SQL ordering regressions in `gc-seal-interleaving.test.ts`.
 
-Status: closed pending governor acceptance.
+Status: closed; accepted by Codex/governor on 2026-05-21.
 
 Affected lane: Lane 8.
 

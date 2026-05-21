@@ -1,6 +1,6 @@
 # rearch-2 Current Status
 
-Updated: 2026-05-21 after the CQ-155 GC-wins inside-tx rollback regression landed.
+Updated: 2026-05-21 after Codex/governor accepted Lanes 8 and 9.
 
 ## Summary
 
@@ -12,7 +12,7 @@ Updated: 2026-05-21 after the CQ-155 GC-wins inside-tx rollback regression lande
 - Lane 5 Sync protocol: **accepted** by Codex/governor on 2026-05-20.
 - Lane 6 Read API: **accepted** by Codex/governor on 2026-05-20.
 - Lane 7 CLI and MCP: **accepted** by Codex/governor on 2026-05-20.
-- Lane 8 Audit and GC: **ready for governor acceptance**. CQ-156 closed
+- Lane 8 Audit and GC: **accepted** by Codex/governor on 2026-05-21. CQ-156 closed
   under the narrower cadence rescope now documented in code/evidence.
   CQ-155 closed with `gc-seal-interleaving.test.ts` (inline-SQL ordering
   invariants + production-shape `promotion_uploaded_pack` reversion) AND
@@ -22,7 +22,7 @@ Updated: 2026-05-21 after the CQ-155 GC-wins inside-tx rollback regression lande
   between verify and the inside-tx FOR UPDATE — assertions: no
   receipt/authority/search_generation/grant visible; staging restored —
   and seal-wins GC reversion).
-- Lane 9 Migration: **ready for governor acceptance**. CQ-161 is
+- Lane 9 Migration: **accepted** by Codex/governor on 2026-05-21. CQ-161 is
   governor-acceptable after read-only review and clean broad migration
   gate. CQ-161 closed
   via temp-copy read-only proof (operator's v1 bundle is never opened
@@ -72,10 +72,9 @@ and evidence are clean and no useful executor work remains.
 
 ## Current Milestone
 
-Lane 7 is accepted. Lanes 8 and 9 are clean and ready for governor
-acceptance. All Lane 7-9 CQs are closed pending governor validation.
+Lanes 7, 8, and 9 are accepted. All Lane 7-9 CQs are closed and accepted.
 Keep Lane 10 stopped. Lane 10 requires a cutover-specific governor decision
-after Lane 9 is accepted.
+before a new Ralph loop starts.
 
 ## Open Future Blockers
 

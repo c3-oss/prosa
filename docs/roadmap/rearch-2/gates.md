@@ -85,7 +85,7 @@ Tests       7 passed (7)
 
 ## Lane 8 Completion Gates — Audit and GC
 
-Lane 8 is ready for governor acceptance. CQ-156 closed under the narrower
+Lane 8 is accepted by Codex/governor on 2026-05-21. CQ-156 closed under the narrower
 documented cadence rescope. CQ-155 closed with the full suite of
 seal-vs-GC regressions: inline-SQL ordering invariants
 (`gc-seal-interleaving.test.ts`), production `sealPromotion()` pre-tx
@@ -144,7 +144,7 @@ where GC reverts to `live` (same file).
 
 ## Lane 9 Completion Gates — Migration
 
-Lane 9 is ready for governor acceptance. CQ-161 closed with the
+Lane 9 is accepted by Codex/governor on 2026-05-21. CQ-161 closed with the
 temp-copy read-only proof, the content-hashed snapshot regression
 for same-name/same-size raw_sources corruption, and the marker-owned
 pre-archive cleanup regression.

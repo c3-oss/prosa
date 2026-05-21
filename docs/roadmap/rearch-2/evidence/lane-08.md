@@ -1,8 +1,8 @@
 // markdownlint-disable MD041
 # Lane 8 Evidence — Audit and GC
 
-Status: implementation landed, but not governor-accepted. Focused review on
-2026-05-20 opened CQ-155 through CQ-157.
+Status: accepted by Codex/governor on 2026-05-21. Focused review on
+2026-05-20 opened CQ-155 through CQ-157; all are now closed for Lane 8.
 
 Required source plan: `docs/rearch-2/09-lane-8-audit-and-gc.md`.
 
@@ -110,7 +110,7 @@ pnpm build       # 13/13 packages clean
 
 ## Governor Review Blockers — validation rejected 2026-05-21
 
-- **CQ-155 (open after final production-path review):** `apps/api/src/cron/gc.ts` now does the final
+- **CQ-155 (closed and accepted):** `apps/api/src/cron/gc.ts` now does the final
   reference recheck + catalog delete inside a SINGLE transaction
   guarded by `SELECT ... FOR UPDATE` on `pack_gc_state` plus a row
   lock on `remote_pack`. `apps/api/src/v2/sync/seal-promotion.ts`
