@@ -37,6 +37,7 @@
   "dependencies": {
     "@c3-oss/prosa-bundle-v2": "workspace:*",
     "@c3-oss/prosa-types-v2": "workspace:*",
+    "@duckdb/node-api": "1.5.2-r.1",
     "@noble/hashes": "^1.7.0",
     "better-sqlite3": "^12.10.0"
   },

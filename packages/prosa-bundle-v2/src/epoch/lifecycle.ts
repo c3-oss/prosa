@@ -598,8 +598,7 @@ async function verifyRegisteredSegments(
         out.hasRawSourcePack = true
         break
       }
-      case 'projection_arrow':
-      case 'projection_parquet': {
+      case 'projection_arrow': {
         if (!ref.entityType) {
           throw new DurabilityError(`sealEpoch: projection ref ${ref.path} has no entityType`)
         }
@@ -611,6 +610,24 @@ async function verifyRegisteredSegments(
         }
         await verifyProjectionSegmentMatchesRows(ref, bytes, rowsByEntity[ref.entityType] ?? [])
         out.projectionEntities.add(ref.entityType)
+        break
+      }
+      case 'projection_parquet': {
+        // The Parquet sibling is derived from the NDJSON canonical
+        // segment. Recomputing it via `writeProjectionSegment` (which
+        // emits NDJSON) would never match byte-for-byte, so we limit
+        // this kind to a digest check — the manifest carries the same
+        // digest and the NDJSON byte-match above guarantees the rows
+        // the Parquet was derived from.
+        if (!ref.entityType) {
+          throw new DurabilityError(`sealEpoch: projection ref ${ref.path} has no entityType`)
+        }
+        const actualDigest = `blake3:${toHex(blake3(bytes))}`
+        if (actualDigest !== ref.digest) {
+          throw new DurabilityError(
+            `sealEpoch: ref ${ref.path}: blake3 mismatch (declared ${ref.digest}, actual ${actualDigest})`,
+          )
+        }
         break
       }
       default: {

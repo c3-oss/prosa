@@ -46,14 +46,7 @@ import type {
 } from '@c3-oss/prosa-types-v2'
 import { canonicalTimestamp } from '@c3-oss/prosa-types-v2'
 
-import type {
-  Bundle,
-  CasPackEmission,
-  DurableSegmentRef,
-  EpochHandle,
-  RawSourcePackEmission,
-  ShardActor,
-} from '@c3-oss/prosa-bundle-v2'
+import type { Bundle, CasPackEmission, EpochHandle, RawSourcePackEmission, ShardActor } from '@c3-oss/prosa-bundle-v2'
 import {
   CasPackWriterPool,
   RawSourcePackWriterPool,
@@ -63,6 +56,7 @@ import {
 } from '@c3-oss/prosa-bundle-v2'
 
 import { type PriorEpochSessionInventory, resolveLateBindings } from './graph-resolver.js'
+import { writeProjectionParquet } from './projection-parquet.js'
 import type { CanonicalProjectionDraft, DiscoveredSourceFile, LogicalImportUnit, Provider } from './types.js'
 import { PROJECTION_ENTITY_ORDER } from './types.js'
 
@@ -327,13 +321,34 @@ export async function runCompileImports(options: RunCompileImportsOptions): Prom
   // parent_resolution populated).
   for (const s of resolved) handle.putRow('session', s.session_id, s as unknown as Record<string, CborValue>)
 
-  // Emit projection segments per entity and register them.
+  // Emit projection segments per entity and register them. Each
+  // entity gets the canonical NDJSON (manifest-backed) plus a
+  // `projection_parquet` sibling so `read analytics --authority local`
+  // and other DuckDB consumers get a fast column-scan target without
+  // re-deriving from NDJSON every read.
+  const projectionDir = `${handle.tmpDir}/projection`
   for (const entity of PROJECTION_ENTITY_ORDER) {
     const rows = (handle.rowsByEntity() as Record<CanonicalEntityType, Record<string, CborValue>[]>)[entity]
     if (!rows || rows.length === 0) continue
     const r = await writeProjectionSegment(entity, rows, { outDir: handle.tmpDir })
-    const ref: DurableSegmentRef = r.ref
-    handle.registerSegment(ref)
+    handle.registerSegment(r.ref)
+    try {
+      const parquet = await writeProjectionParquet({
+        entityType: entity,
+        ndjsonPath: r.ref.path,
+        outDir: projectionDir,
+      })
+      handle.registerSegment(parquet.ref)
+    } catch (err) {
+      // Parquet emission is a derived optimisation; a DuckDB load
+      // failure on a thin worker (no native binding installed, no
+      // disk space, etc.) must not brick the seal. Log and keep
+      // going — the NDJSON segment is still the source of truth.
+      // eslint-disable-next-line no-console
+      console.warn(
+        `compile-v2: writeProjectionParquet failed for entity=${entity}: ${(err as Error).message}; continuing with NDJSON only`,
+      )
+    }
   }
 
   // Seal.
