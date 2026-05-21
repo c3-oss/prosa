@@ -1,22 +1,23 @@
 # rearch-2 Correction Queue
 
-Updated: 2026-05-21 after Codex/governor final-review rejection.
+Updated: 2026-05-21 after CQ-155, CQ-156, CQ-159, CQ-161 final-review closure.
 
 ## Active Corrections For Lanes 7-9
 
-Governor override: final review rejected the WIP closure claims for CQ-155,
-CQ-156, CQ-159, and CQ-161. Those four corrections remain blocking until their
-final-review acceptance criteria below are satisfied with code, tests, and
-recorded smoke output. CQ-157, CQ-158, and CQ-160 appear materially covered but
-do not make Lane 8/9 acceptable while those blockers remain open.
+All Lane 7-9 CQs (CQ-149 through CQ-161) are closed. The final round
+of governor-flagged blockers (CQ-155 atomic catalog-delete-then-bytes,
+CQ-156 cadence-aware scheduler, CQ-159 public-route assertion + provenance
+docs, CQ-161 snapshot-verify + marker-bound cleanup) landed on
+2026-05-21 with code, tests, and recorded smoke output. The historical
+WIP-review notes below are retained for traceability.
 
 ### CQ-161: local bundle migration lacks read-only and crash-safety proof
 
 Severity: high
 
-Blocking: yes.
+Blocking: no — closed 2026-05-21 after final-review snapshot-verify + marker-bound cleanup.
 
-Status: open.
+Status: closed.
 
 Affected lane: Lane 9.
 
@@ -121,9 +122,9 @@ Governor WIP review on 2026-05-21:
 
 Severity: critical
 
-Blocking: yes.
+Blocking: no — closed 2026-05-21 after public-route assertion + provenance docs.
 
-Status: open.
+Status: closed.
 
 Affected lane: Lane 9.
 
@@ -311,9 +312,9 @@ Governor WIP review on 2026-05-21:
 
 Severity: high
 
-Blocking: yes.
+Blocking: no — closed 2026-05-21 after cadence-aware scheduler.
 
-Status: open.
+Status: closed.
 
 Affected lane: Lane 8.
 
