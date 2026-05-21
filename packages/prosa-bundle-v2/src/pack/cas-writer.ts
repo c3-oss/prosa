@@ -150,6 +150,16 @@ export class CasPackWriterPool {
   private largeRotor = 0
   /** Aggregated set of object_ids the pool has admitted. */
   private readonly seenObjectIds: Set<string> = new Set()
+  /**
+   * Accumulates every pack emission this pool produces — mid-flight
+   * rollovers of small writers, every large-pack emission, and the final
+   * flush. `flushAll` drains this buffer so the caller registers every
+   * on-disk pack as a durable segment. Without this accumulation,
+   * mid-flight packs land on disk but stay invisible to `sealEpoch`,
+   * which would break FK closure on any compile that rolls over more
+   * than once per shard. Mirrors `RawSourcePackWriterPool.emittedPacks`.
+   */
+  private readonly emittedPacks: CasPackEmission[] = []
 
   constructor(options: CasPoolOptions) {
     this.casDir = options.casDir
@@ -186,6 +196,7 @@ export class CasPackWriterPool {
       this.largeRotor = (this.largeRotor + 1) % LARGE_WRITER_COUNT
       const writer = this.larges[shardId] as LargePackWriter
       const emission = await writer.append(input)
+      this.emittedPacks.push(emission)
       return {
         object_id: objectId,
         shardId,
@@ -199,6 +210,7 @@ export class CasPackWriterPool {
     const shard = Number(shardId)
     const writer = this.smalls[shard] as SmallPackWriter
     const emission = await writer.append(input)
+    if (emission) this.emittedPacks.push(emission)
     return {
       object_id: objectId,
       shardId: shard,
@@ -208,14 +220,18 @@ export class CasPackWriterPool {
     }
   }
 
-  /** Force-finalize every open small pack. Large writers have no buffered state. */
+  /**
+   * Drain every emission the pool has produced so far — mid-flight
+   * rollovers (small + large) plus any still-buffered small-writer
+   * residue finalized here. Caller must register each returned
+   * emission as a durable segment before sealing.
+   */
   async flushAll(): Promise<CasPackEmission[]> {
-    const out: CasPackEmission[] = []
     for (const s of this.smalls) {
       const e = await s.finalize()
-      if (e) out.push(e)
+      if (e) this.emittedPacks.push(e)
     }
-    return out
+    return this.emittedPacks.splice(0, this.emittedPacks.length)
   }
 
   /** Number of objects currently buffered in any small writer. */

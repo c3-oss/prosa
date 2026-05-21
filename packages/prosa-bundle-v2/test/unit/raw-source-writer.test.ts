@@ -81,6 +81,52 @@ describe('RawSourcePackWriterPool', () => {
     expect(pool.bufferedCount()).toBe(1)
   })
 
+  it('flushAll surfaces mid-flight rollover emissions (regression: orphan-pack bug)', async () => {
+    // Reviewer-style regression. Earlier, mid-flight rollovers triggered
+    // inside `appendSourceFile` returned the emission to the caller but
+    // were NOT remembered by the pool; `flushAll()` only returned the
+    // last-batch finalize per writer. The orchestrator discarded the
+    // appendSourceFile return value, so any rollover-triggered pack
+    // landed on disk yet stayed invisible to `sealEpoch`, breaking
+    // FK closure on real-data compiles.
+    const dir = await tmp()
+    const pool = new RawSourcePackWriterPool({
+      rawSourcesDir: dir,
+      createdAt: created,
+      // Force a rotation after every two appends on the same shard.
+      triggers: {
+        targetPackBytes: 64 * 1024 * 1024,
+        maxPackBytes: 128 * 1024 * 1024,
+        maxObjects: 2,
+        maxOpenMs: 60_000,
+      },
+    })
+    // Feed enough inputs across all four shards to guarantee multiple
+    // rollovers. 4 shards × 2 maxObjects = 8 entries per rollover wave;
+    // pushing 32 inputs yields at least 4 mid-flight rollovers.
+    for (let i = 0; i < 32; i++) {
+      await pool.appendSourceFile(input(`src_rotate_${i}`, `payload-${i}`))
+    }
+    // `flushAll` MUST surface every mid-flight emission and every final
+    // flush; the caller registers every returned pack as a durable
+    // segment, so dropping any one of them silently leaves an
+    // unregistered pack on disk and breaks FK closure.
+    const emissions = await pool.flushAll()
+    // Each rollover wrote one pack to disk; the final flush per shard
+    // may write more. The on-disk count and the emissions count MUST
+    // match exactly — that is the contract the orchestrator depends on.
+    const files = await readdir(join(dir, 'packs'))
+    expect(emissions.length).toBe(files.length)
+    expect(emissions.length).toBeGreaterThan(RAW_WRITER_COUNT) // proves rollovers happened
+    // A second flush must be empty: the buffer was drained.
+    expect((await pool.flushAll()).length).toBe(0)
+    // Every emission verifies.
+    for (const e of emissions) {
+      const v = verifyRawSourcePack(e.built.bytes)
+      expect(v.entries.length).toBeGreaterThan(0)
+    }
+  })
+
   it('rotates when max_open_ms elapses', async () => {
     const dir = await tmp()
     let t = 1000

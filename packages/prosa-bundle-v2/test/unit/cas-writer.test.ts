@@ -154,6 +154,55 @@ describe('CasPackWriterPool', () => {
     if (!pack?.packDigest) throw new Error('expected emission via target-bytes trigger')
   })
 
+  it('flushAll surfaces every emission — small mid-flight rollovers and large packs (regression)', async () => {
+    // Preventive regression. The CAS pool used to discard mid-flight
+    // emissions: small-writer rollovers AND every large-pack append
+    // produced packs on disk whose metadata only existed in the
+    // appendObject return value. flushAll only finalized any residual
+    // small-writer buffer, so any caller that ignored the per-append
+    // return (as the orchestrator does) lost segments — exact mirror of
+    // the raw-source-writer bug. flushAll must surface every emission.
+    const dir = await tmp()
+    const pool = new CasPackWriterPool({
+      casDir: dir,
+      createdAt: created,
+      largeObjectThresholdBytes: 1024,
+      // Tight trigger so every two small appends on the same shard rotate.
+      triggers: {
+        targetPackBytes: 64 * 1024 * 1024,
+        maxPackBytes: 128 * 1024 * 1024,
+        maxObjects: 2,
+        maxOpenMs: 60_000,
+      },
+    })
+    // Mix small (rotate-via-maxObjects) + large (single-pack emission).
+    let smallAppends = 0
+    for (let i = 0; i < 48; i++) {
+      await pool.appendObject({ bytes: new TextEncoder().encode(`small-payload-${i}`.padEnd(64, 'x')) })
+      smallAppends++
+    }
+    for (let i = 0; i < 3; i++) {
+      // Each large append emits one standalone pack.
+      await pool.appendObject({ bytes: bytes(2048, i + 1) })
+    }
+    const emissions = await pool.flushAll()
+    // On-disk count includes both small packs (cas/packs/) and large packs
+    // (cas/large/); flushAll must report all of them.
+    const smallFiles = await readdir(join(dir, 'packs'))
+    const largeFiles = await readdir(join(dir, 'large'))
+    expect(emissions.length).toBe(smallFiles.length + largeFiles.length)
+    expect(largeFiles.length).toBe(3)
+    expect(emissions.length).toBeGreaterThan(largeFiles.length) // small rollovers happened
+    // A second flush is empty — the buffer was drained.
+    expect((await pool.flushAll()).length).toBe(0)
+    // Every emission verifies; every small pack has ≥1 entry.
+    for (const e of emissions) {
+      const v = verifyCasPack(e.built.bytes)
+      expect(v.entries.length).toBeGreaterThan(0)
+    }
+    expect(smallAppends).toBe(48)
+  })
+
   it('large-object threshold default is 32 MiB', () => {
     expect(LARGE_OBJECT_THRESHOLD_BYTES).toBe(32 * 1024 * 1024)
   })

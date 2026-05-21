@@ -111,6 +111,16 @@ export class RawSourcePackWriterPool {
    * first writer (CQ-047 / reviewer-F2).
    */
   private readonly seenSourceFileIds: Map<string, string> = new Map()
+  /**
+   * Accumulates every pack emission produced by this pool — both the
+   * mid-flight rollovers triggered inside `appendSourceFile` and the
+   * final emissions returned by per-writer `finalize()`. `flushAll`
+   * drains this buffer so callers can register every on-disk pack as a
+   * durable segment. Without this accumulation, mid-flight packs land
+   * on disk but stay invisible to `sealEpoch`, breaking FK closure on
+   * any compile that rolls over more than once per writer.
+   */
+  private readonly emittedPacks: RawSourcePackEmission[] = []
 
   constructor(options: RawSourcePoolOptions) {
     this.rawSourcesDir = options.rawSourcesDir
@@ -144,6 +154,7 @@ export class RawSourcePackWriterPool {
     const shardId = Number(readU64BE(blake3(new TextEncoder().encode(input.source_file_id))) % BigInt(RAW_WRITER_COUNT))
     const writer = this.writers[shardId] as RawShardWriter
     const emission = await writer.append(input)
+    if (emission) this.emittedPacks.push(emission)
     return {
       source_file_id: input.source_file_id,
       shardId,
@@ -153,11 +164,11 @@ export class RawSourcePackWriterPool {
   }
 
   async flushAll(): Promise<RawSourcePackEmission[]> {
-    const out: RawSourcePackEmission[] = []
     for (const w of this.writers) {
       const e = await w.finalize()
-      if (e) out.push(e)
+      if (e) this.emittedPacks.push(e)
     }
+    const out = this.emittedPacks.splice(0, this.emittedPacks.length)
     return out
   }
 
