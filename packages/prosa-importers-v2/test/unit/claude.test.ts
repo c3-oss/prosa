@@ -278,19 +278,29 @@ describe('ClaudeProvider', () => {
     expect(p.tool_calls[0]!.canonical_tool_type).toBe('shell')
     expect(p.tool_calls[0]!.source_call_id).toBe('tu_1')
     expect(p.tool_calls[0]!.command).toBe('ls /repo')
-    expect(p.tool_calls[0]!.args_object_id).toBeNull()
+    expect(p.tool_calls[0]!.args_object_id).toMatch(/^blake3:[0-9a-f]{64}$/)
     // 1 tool_result linked back to that tool_call by source_call_id.
     expect(p.tool_results.length).toBe(1)
     expect(p.tool_results[0]!.tool_call_id).toBe(p.tool_calls[0]!.tool_call_id)
     expect(p.tool_results[0]!.source_call_id).toBe('tu_1')
     expect(p.tool_results[0]!.preview).toBe('file1\nfile2\n')
-    expect(p.tool_results[0]!.output_object_id).toBeNull()
+    expect(p.tool_results[0]!.output_object_id).toMatch(/^blake3:[0-9a-f]{64}$/)
     expect(p.tool_results[0]!.is_error).toBe(false)
     expect(p.tool_results[0]!.status).toBe('success')
-    // 1 EventV2 from the `system` record.
+    // 1 EventV2 from the `system` record; payload bytes are staged in CAS.
     expect(p.events.length).toBe(1)
     expect(p.events[0]!.event_type).toBe('system_operational')
     expect(p.events[0]!.subtype).toBe('hook')
+    expect(p.events[0]!.payload_object_id).toMatch(/^blake3:[0-9a-f]{64}$/)
+    // Every CAS-tagged column maps to a candidate the orchestrator can
+    // admit before sealEpoch's FK closure check runs.
+    const candidateIds = new Set(r.unit.cas_object_candidates.map((c) => c.object_id))
+    expect(candidateIds.has(p.tool_calls[0]!.args_object_id as string)).toBe(true)
+    expect(candidateIds.has(p.tool_results[0]!.output_object_id as string)).toBe(true)
+    expect(candidateIds.has(p.events[0]!.payload_object_id as string)).toBe(true)
+    const parsedRawRecord = p.raw_records.find((rr) => rr.parser_status === 'parsed')
+    expect(parsedRawRecord?.decoded_object_id).toMatch(/^blake3:[0-9a-f]{64}$/)
+    expect(candidateIds.has(parsedRawRecord!.decoded_object_id as string)).toBe(true)
     // Session model accumulated across the per-record pass.
     expect(p.sessions[0]!.model_first).toBe('claude-opus-4-7')
     expect(p.sessions[0]!.model_last).toBe('claude-opus-4-7')

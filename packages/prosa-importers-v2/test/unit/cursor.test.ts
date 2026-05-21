@@ -209,14 +209,19 @@ describe('CursorProvider', () => {
     expect(p.tool_calls[0]!.canonical_tool_type).toBe('shell')
     expect(p.tool_calls[0]!.source_call_id).toBe('tc1')
     expect(p.tool_calls[0]!.command).toBe('ls /repo')
-    expect(p.tool_calls[0]!.args_object_id).toBeNull()
+    expect(p.tool_calls[0]!.args_object_id).toMatch(/^blake3:[0-9a-f]{64}$/)
     // 1 tool result linked by source_call_id.
     expect(p.tool_results.length).toBe(1)
     expect(p.tool_results[0]!.tool_call_id).toBe(p.tool_calls[0]!.tool_call_id)
     expect(p.tool_results[0]!.source_call_id).toBe('tc1')
     expect(p.tool_results[0]!.preview).toBe('file1\nfile2\n')
+    expect(p.tool_results[0]!.output_object_id).toMatch(/^blake3:[0-9a-f]{64}$/)
     expect(p.tool_results[0]!.is_error).toBe(false)
     expect(p.tool_results[0]!.status).toBe('success')
+    // CAS candidates carry the bytes the orchestrator hands to the pool.
+    const candidateIds = new Set(r.unit.cas_object_candidates.map((c) => c.object_id))
+    expect(candidateIds.has(p.tool_calls[0]!.args_object_id as string)).toBe(true)
+    expect(candidateIds.has(p.tool_results[0]!.output_object_id as string)).toBe(true)
     // Session enrichment from meta.
     const s = p.sessions[0]!
     expect(s.title).toBe('Test Session')

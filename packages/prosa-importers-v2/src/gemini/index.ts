@@ -30,6 +30,7 @@ import {
   type Actor,
   type MessageRole,
   canonicalTimestamp,
+  computeObjectId,
   deriveRawRecordId,
   deriveSourceFileId,
   isValidCanonicalTimestamp,
@@ -39,6 +40,7 @@ import { blake3 } from '@noble/hashes/blake3'
 
 import { buildSearchDocsFromMessageBlocks } from '../search-doc-builder.js'
 import {
+  type CasObjectCandidate,
   type CheapIdentification,
   type DiscoveredSourceFile,
   type LogicalImportUnit,
@@ -177,6 +179,31 @@ export class GeminiProvider implements Provider {
     const bytes = file.bytes ?? (await readFile(file.path))
     const contentHash = `blake3:${toHex(blake3(bytes))}`
     const draft = emptyDraft()
+
+    // CAS staging — mirror of the codex/claude/cursor pattern.
+    const casCandidates: CasObjectCandidate[] = []
+    const seenCasIds = new Set<string>()
+    const utf8Encoder = new TextEncoder()
+    const enqueueCas = (payload: Uint8Array, mimeType?: string): string => {
+      const objectId = computeObjectId(payload)
+      if (!seenCasIds.has(objectId)) {
+        seenCasIds.add(objectId)
+        const candidate: CasObjectCandidate = { object_id: objectId, bytes: payload }
+        if (mimeType !== undefined) candidate.mime_type = mimeType
+        casCandidates.push(candidate)
+      }
+      return objectId
+    }
+    const enqueueCasFromText = (textPayload: string, mimeType?: string): string =>
+      enqueueCas(utf8Encoder.encode(textPayload), mimeType)
+    const enqueueCasFromJson = (value: unknown): string | null => {
+      try {
+        return enqueueCasFromText(JSON.stringify(value), 'application/json')
+      } catch {
+        return null
+      }
+    }
+
     let parsed: GeminiSessionFile | null = null
     try {
       parsed = JSON.parse(new TextDecoder().decode(bytes)) as GeminiSessionFile
@@ -194,6 +221,7 @@ export class GeminiProvider implements Provider {
         record_kind: 'session_jsonl_line',
       })
       rawRecordIds.push(rawRecordId)
+      const decodedObjectId = msg ? enqueueCasFromJson(msg) : null
       draft.raw_records.push({
         raw_record_id: rawRecordId,
         source_tool: SOURCE_TOOL,
@@ -210,7 +238,7 @@ export class GeminiProvider implements Provider {
         confidence: msg ? 'high' : 'low',
         content_hash: contentHash,
         object_id: contentHash,
-        decoded_object_id: null,
+        decoded_object_id: decodedObjectId,
         created_at: input.createdAt,
       })
     }
@@ -224,6 +252,7 @@ export class GeminiProvider implements Provider {
         record_kind: 'session_jsonl_line',
       })
       rawRecordIds.push(rawRecordId)
+      const decodedObjectId = parsed !== null ? enqueueCasFromJson(parsed) : null
       draft.raw_records.push({
         raw_record_id: rawRecordId,
         source_tool: SOURCE_TOOL,
@@ -238,7 +267,7 @@ export class GeminiProvider implements Provider {
         confidence: parsed ? 'high' : 'low',
         content_hash: contentHash,
         object_id: contentHash,
-        decoded_object_id: null,
+        decoded_object_id: decodedObjectId,
         created_at: input.createdAt,
       })
     }
@@ -349,7 +378,9 @@ export class GeminiProvider implements Provider {
         // → one block per item; thoughts → trailing thinking blocks.
         let blockOrdinal = 0
         const content = msg.content
+        const overflowsInline = (t: string): boolean => utf8Encoder.encode(t).length > PREVIEW_MAX
         if (typeof content === 'string' && content.length > 0) {
+          const textObjectId = overflowsInline(content) ? enqueueCasFromText(content, 'text/plain') : null
           draft.content_blocks.push({
             block_id: rowIdFromKey('blk', `gemini:blk:${messageRowId}:${blockOrdinal}`),
             message_id: messageRowId,
@@ -357,7 +388,7 @@ export class GeminiProvider implements Provider {
             session_id: sessionRowId,
             ordinal: blockOrdinal,
             block_type: 'text',
-            text_object_id: null,
+            text_object_id: textObjectId,
             text_inline: content.slice(0, PREVIEW_MAX),
             mime_type: 'text/plain',
             token_count: null,
@@ -374,6 +405,7 @@ export class GeminiProvider implements Provider {
             const blockType = typeof item.type === 'string' && item.type.length > 0 ? item.type : 'text'
             const text = typeof item.text === 'string' ? item.text : ''
             if (text.length === 0) continue
+            const textObjectId = overflowsInline(text) ? enqueueCasFromText(text, 'text/plain') : null
             draft.content_blocks.push({
               block_id: rowIdFromKey('blk', `gemini:blk:${messageRowId}:${blockOrdinal}`),
               message_id: messageRowId,
@@ -381,7 +413,7 @@ export class GeminiProvider implements Provider {
               session_id: sessionRowId,
               ordinal: blockOrdinal,
               block_type: blockType,
-              text_object_id: null,
+              text_object_id: textObjectId,
               text_inline: text.slice(0, PREVIEW_MAX),
               mime_type: 'text/plain',
               token_count: null,
@@ -399,6 +431,7 @@ export class GeminiProvider implements Provider {
           if (!th) continue
           const text = [th.subject, th.description].filter((s): s is string => typeof s === 'string').join('\n\n')
           if (text.length === 0) continue
+          const textObjectId = overflowsInline(text) ? enqueueCasFromText(text, 'text/plain') : null
           draft.content_blocks.push({
             block_id: rowIdFromKey('blk', `gemini:blk:${messageRowId}:thought:${ti}`),
             message_id: messageRowId,
@@ -406,7 +439,7 @@ export class GeminiProvider implements Provider {
             session_id: sessionRowId,
             ordinal: blockOrdinal,
             block_type: 'thinking',
-            text_object_id: null,
+            text_object_id: textObjectId,
             text_inline: text.slice(0, PREVIEW_MAX),
             mime_type: 'text/plain',
             token_count: null,
@@ -438,6 +471,7 @@ export class GeminiProvider implements Provider {
                 : null
           const query = typeof argsObj?.query === 'string' ? (argsObj.query as string) : null
           const tcStatus = typeof tc.status === 'string' ? tc.status : null
+          const argsObjectId = argsObj !== null ? enqueueCasFromJson(argsObj) : null
           draft.tool_calls.push({
             tool_call_id: toolCallRowId,
             session_id: sessionRowId,
@@ -447,7 +481,7 @@ export class GeminiProvider implements Provider {
             source_call_id: sourceCallId,
             tool_name: toolName,
             canonical_tool_type: canonicalToolType(toolName),
-            args_object_id: null,
+            args_object_id: argsObjectId,
             command,
             cwd,
             path,
@@ -460,6 +494,7 @@ export class GeminiProvider implements Provider {
 
           const resultText = renderToolResultText(tc.result)
           const preview = resultText.length > 0 ? resultText.slice(0, PREVIEW_MAX) : null
+          const outputObjectId = resultText.length > 0 ? enqueueCasFromText(resultText, 'text/plain') : null
           draft.tool_results.push({
             tool_result_id: rowIdFromKey('tre', `gemini:tre:${sessionRowId}:${sourceCallId}`),
             tool_call_id: toolCallRowId,
@@ -473,7 +508,7 @@ export class GeminiProvider implements Provider {
             duration_ms: null,
             stdout_object_id: null,
             stderr_object_id: null,
-            output_object_id: null,
+            output_object_id: outputObjectId,
             preview,
             raw_record_id: rawRecordId,
           })
@@ -485,6 +520,7 @@ export class GeminiProvider implements Provider {
         typeof msg.id === 'string' && msg.id.length > 0
           ? rowIdFromKey('evt', `gemini:evt:${sessionRowId}:${msg.id}`)
           : rowIdFromKey('evt', `gemini:evt:${sessionRowId}:ord:${i}`)
+      const payloadObjectId = enqueueCasFromJson(msg)
       draft.events.push({
         event_id: eventRowId,
         session_id: sessionRowId,
@@ -496,7 +532,7 @@ export class GeminiProvider implements Provider {
         timestamp: ts,
         ordinal: eventOrdinal,
         actor: actorFromGeminiKind(kind),
-        payload_object_id: null,
+        payload_object_id: payloadObjectId,
         raw_record_id: rawRecordId,
         confidence: 'high',
         is_derived: false,
@@ -525,7 +561,7 @@ export class GeminiProvider implements Provider {
           stored_hash: contentHash,
         },
       ],
-      cas_object_candidates: [],
+      cas_object_candidates: casCandidates,
       merge: { merge_strategy: 'gemini_session_versions' },
     }
     return { unit, summary: { files: 1, sessions: 1, rawRecords: rawRecordIds.length } }

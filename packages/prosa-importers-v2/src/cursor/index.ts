@@ -30,12 +30,13 @@
 import { readFile } from 'node:fs/promises'
 import { normalize } from 'node:path'
 
-import { type MessageRole, deriveRawRecordId, deriveSourceFileId, toHex } from '@c3-oss/prosa-types-v2'
+import { type MessageRole, computeObjectId, deriveRawRecordId, deriveSourceFileId, toHex } from '@c3-oss/prosa-types-v2'
 import { blake3 } from '@noble/hashes/blake3'
 import Database from 'better-sqlite3'
 
 import { buildSearchDocsFromMessageBlocks } from '../search-doc-builder.js'
 import {
+  type CasObjectCandidate,
   type CheapIdentification,
   type DiscoveredSourceFile,
   type LogicalImportUnit,
@@ -205,6 +206,32 @@ export class CursorProvider implements Provider {
     const draft = emptyDraft()
     const enriched = file as DiscoveredCursorFile
 
+    // CAS staging — mirror of the codex/claude pattern. Importer
+    // computes the canonical object_id locally and pushes a candidate
+    // the orchestrator hands to `CasPackWriterPool.appendObject`.
+    const casCandidates: CasObjectCandidate[] = []
+    const seenCasIds = new Set<string>()
+    const utf8Encoder = new TextEncoder()
+    const enqueueCas = (payload: Uint8Array, mimeType?: string): string => {
+      const objectId = computeObjectId(payload)
+      if (!seenCasIds.has(objectId)) {
+        seenCasIds.add(objectId)
+        const candidate: CasObjectCandidate = { object_id: objectId, bytes: payload }
+        if (mimeType !== undefined) candidate.mime_type = mimeType
+        casCandidates.push(candidate)
+      }
+      return objectId
+    }
+    const enqueueCasFromText = (textPayload: string, mimeType?: string): string =>
+      enqueueCas(utf8Encoder.encode(textPayload), mimeType)
+    const enqueueCasFromJson = (value: unknown): string | null => {
+      try {
+        return enqueueCasFromText(JSON.stringify(value), 'application/json')
+      } catch {
+        return null
+      }
+    }
+
     // Logical session id from (workspace, agent). Deterministic across
     // re-imports of the same Cursor store.
     const logicalKey = `cursor:${enriched.workspace_id ?? 'unknown-ws'}:${enriched.agent_id ?? 'unknown-agent'}`
@@ -254,6 +281,7 @@ export class CursorProvider implements Provider {
             record_kind: 'session_sqlite_row',
           })
           rawRecordIds.push(metaRawId)
+          const metaDecodedId = enqueueCasFromText(metaText, 'application/json')
           draft.raw_records.push({
             raw_record_id: metaRawId,
             source_tool: SOURCE_TOOL,
@@ -268,7 +296,7 @@ export class CursorProvider implements Provider {
             confidence: 'high',
             content_hash: contentHash,
             object_id: contentHash,
-            decoded_object_id: null,
+            decoded_object_id: metaDecodedId,
             created_at: input.createdAt,
           })
           if (typeof meta.lastUsedModel === 'string') {
@@ -308,6 +336,7 @@ export class CursorProvider implements Provider {
             record_kind: 'session_sqlite_row',
           })
           rawRecordIds.push(blobRawId)
+          const blobDecodedId = parsed !== null ? enqueueCasFromJson(parsed) : null
           draft.raw_records.push({
             raw_record_id: blobRawId,
             source_tool: SOURCE_TOOL,
@@ -323,7 +352,7 @@ export class CursorProvider implements Provider {
             confidence: parsed !== null ? 'medium' : 'low',
             content_hash: contentHash,
             object_id: contentHash,
-            decoded_object_id: null,
+            decoded_object_id: blobDecodedId,
             created_at: input.createdAt,
           })
           if (!parsed || typeof parsed.role !== 'string') continue
@@ -357,6 +386,8 @@ export class CursorProvider implements Provider {
 
           const content = parsed.content
           if (typeof content === 'string' && content.length > 0) {
+            const textObjectId =
+              utf8Encoder.encode(content).length > PREVIEW_MAX ? enqueueCasFromText(content, 'text/plain') : null
             draft.content_blocks.push({
               block_id: rowIdFromKey('blk', `cursor:blk:${messageRowId}:0`),
               message_id: messageRowId,
@@ -364,7 +395,7 @@ export class CursorProvider implements Provider {
               session_id: sessionRowId,
               ordinal: 0,
               block_type: 'text',
-              text_object_id: null,
+              text_object_id: textObjectId,
               text_inline: content.slice(0, PREVIEW_MAX),
               mime_type: 'text/plain',
               token_count: null,
@@ -384,6 +415,8 @@ export class CursorProvider implements Provider {
                 ordinal: bi,
                 item,
                 rawRecordId: blobRawId,
+                enqueueCasFromText,
+                enqueueCasFromJson,
               })
             }
           }
@@ -492,7 +525,7 @@ export class CursorProvider implements Provider {
           stored_hash: contentHash,
         },
       ],
-      cas_object_candidates: [],
+      cas_object_candidates: casCandidates,
       merge: { merge_strategy: 'single_source' },
     }
     return {
@@ -509,14 +542,19 @@ interface ProjectContentItemInput {
   ordinal: number
   item: CursorContentItem
   rawRecordId: string
+  enqueueCasFromText: (text: string, mimeType?: string) => string
+  enqueueCasFromJson: (value: unknown) => string | null
 }
 
 function projectCursorContentItem(args: ProjectContentItemInput): void {
-  const { draft, sessionRowId, messageRowId, ordinal, item, rawRecordId } = args
+  const { draft, sessionRowId, messageRowId, ordinal, item, rawRecordId, enqueueCasFromText, enqueueCasFromJson } = args
   const blockRowId = rowIdFromKey('blk', `cursor:blk:${messageRowId}:${ordinal}`)
+  const utf8 = new TextEncoder()
+  const overflowsInline = (text: string): boolean => utf8.encode(text).length > PREVIEW_MAX
   const t = item.type
   if (t === 'text') {
     const text = typeof item.text === 'string' ? item.text : ''
+    const textObjectId = text.length > 0 && overflowsInline(text) ? enqueueCasFromText(text, 'text/plain') : null
     draft.content_blocks.push({
       block_id: blockRowId,
       message_id: messageRowId,
@@ -524,7 +562,7 @@ function projectCursorContentItem(args: ProjectContentItemInput): void {
       session_id: sessionRowId,
       ordinal,
       block_type: 'text',
-      text_object_id: null,
+      text_object_id: textObjectId,
       text_inline: text.slice(0, PREVIEW_MAX),
       mime_type: 'text/plain',
       token_count: null,
@@ -537,6 +575,7 @@ function projectCursorContentItem(args: ProjectContentItemInput): void {
   }
   if (t === 'reasoning') {
     const text = typeof item.text === 'string' ? item.text : ''
+    const textObjectId = text.length > 0 && overflowsInline(text) ? enqueueCasFromText(text, 'text/plain') : null
     draft.content_blocks.push({
       block_id: blockRowId,
       message_id: messageRowId,
@@ -544,7 +583,7 @@ function projectCursorContentItem(args: ProjectContentItemInput): void {
       session_id: sessionRowId,
       ordinal,
       block_type: 'thinking',
-      text_object_id: null,
+      text_object_id: textObjectId,
       text_inline: text.slice(0, PREVIEW_MAX),
       mime_type: 'text/plain',
       token_count: null,
@@ -579,6 +618,7 @@ function projectCursorContentItem(args: ProjectContentItemInput): void {
       typeof item.toolCallId === 'string' && item.toolCallId.length > 0 ? item.toolCallId : `${messageRowId}:${ordinal}`
     const toolName = typeof item.toolName === 'string' && item.toolName.length > 0 ? item.toolName : 'unknown'
     const toolCallRowId = rowIdFromKey('tcl', `cursor:tcl:${sessionRowId}:${sourceCallId}`)
+    const argsObjectId = item.args !== undefined && item.args !== null ? enqueueCasFromJson(item.args) : null
     draft.content_blocks.push({
       block_id: blockRowId,
       message_id: messageRowId,
@@ -604,7 +644,7 @@ function projectCursorContentItem(args: ProjectContentItemInput): void {
       source_call_id: sourceCallId,
       tool_name: toolName,
       canonical_tool_type: canonicalCursorToolType(toolName),
-      args_object_id: null,
+      args_object_id: argsObjectId,
       command: inferCommandFromArgs(item.args),
       cwd: null,
       path: inferPathFromArgs(item.args),
@@ -624,6 +664,8 @@ function projectCursorContentItem(args: ProjectContentItemInput): void {
     const isError = item.isError === true
     const toolCallRowId = rowIdFromKey('tcl', `cursor:tcl:${sessionRowId}:${sourceCallId}`)
     const matched = draft.tool_calls.find((c) => c.tool_call_id === toolCallRowId) ?? null
+    const outputObjectId = text !== null ? enqueueCasFromText(text, 'text/plain') : null
+    const textObjectId = text !== null && overflowsInline(text) ? outputObjectId : null
     draft.content_blocks.push({
       block_id: blockRowId,
       message_id: messageRowId,
@@ -631,7 +673,7 @@ function projectCursorContentItem(args: ProjectContentItemInput): void {
       session_id: sessionRowId,
       ordinal,
       block_type: 'tool_result',
-      text_object_id: null,
+      text_object_id: textObjectId,
       text_inline: preview,
       mime_type: text !== null ? 'text/plain' : null,
       token_count: null,
@@ -653,7 +695,7 @@ function projectCursorContentItem(args: ProjectContentItemInput): void {
       duration_ms: null,
       stdout_object_id: null,
       stderr_object_id: null,
-      output_object_id: null,
+      output_object_id: outputObjectId,
       preview,
       raw_record_id: rawRecordId,
     })

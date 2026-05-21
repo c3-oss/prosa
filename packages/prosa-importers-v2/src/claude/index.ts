@@ -34,6 +34,7 @@ import {
   type Actor,
   type MessageRole,
   canonicalTimestamp,
+  computeObjectId,
   deriveRawRecordId,
   deriveSourceFileId,
   isValidCanonicalTimestamp,
@@ -43,6 +44,7 @@ import { blake3 } from '@noble/hashes/blake3'
 
 import { buildSearchDocsFromMessageBlocks } from '../search-doc-builder.js'
 import {
+  type CasObjectCandidate,
   type CheapIdentification,
   type DiscoveredSourceFile,
   type LogicalImportUnit,
@@ -234,6 +236,34 @@ export class ClaudeProvider implements Provider {
     const draft = emptyDraft()
     const text = new TextDecoder().decode(bytes)
     const lines = text.split('\n')
+
+    // CAS staging mirror of the codex importer: importer computes the
+    // canonical object_id locally, stores it on the row, and pushes a
+    // candidate the orchestrator hands to `CasPackWriterPool` so the
+    // bytes land in a registered pack before sealEpoch enforces FK
+    // closure on `OBJECT_ID_FIELDS`.
+    const casCandidates: CasObjectCandidate[] = []
+    const seenCasIds = new Set<string>()
+    const utf8Encoder = new TextEncoder()
+    const enqueueCas = (payload: Uint8Array, mimeType?: string): string => {
+      const objectId = computeObjectId(payload)
+      if (!seenCasIds.has(objectId)) {
+        seenCasIds.add(objectId)
+        const candidate: CasObjectCandidate = { object_id: objectId, bytes: payload }
+        if (mimeType !== undefined) candidate.mime_type = mimeType
+        casCandidates.push(candidate)
+      }
+      return objectId
+    }
+    const enqueueCasFromText = (textPayload: string, mimeType?: string): string =>
+      enqueueCas(utf8Encoder.encode(textPayload), mimeType)
+    const enqueueCasFromJson = (value: unknown): string | null => {
+      try {
+        return enqueueCasFromText(JSON.stringify(value), 'application/json')
+      } catch {
+        return null
+      }
+    }
     const rawRecordIds: string[] = []
     let ordinal = 0
     let logicalOffset = 0
@@ -283,6 +313,7 @@ export class ClaudeProvider implements Provider {
         record_kind: 'session_jsonl_line',
       })
       rawRecordIds.push(rawRecordId)
+      const decodedObjectId = rec ? enqueueCasFromJson(rec) : null
       draft.raw_records.push({
         raw_record_id: rawRecordId,
         source_tool: SOURCE_TOOL,
@@ -297,7 +328,7 @@ export class ClaudeProvider implements Provider {
         confidence: rec ? 'high' : 'low',
         content_hash: contentHash,
         object_id: contentHash,
-        decoded_object_id: null,
+        decoded_object_id: decodedObjectId,
         created_at: input.createdAt,
       })
       parsed.push({ rec, rawRecordId, ordinal })
@@ -447,6 +478,10 @@ export class ClaudeProvider implements Provider {
 
           if (blockType === 'text') {
             const text = typeof (block as { text?: unknown }).text === 'string' ? (block as { text: string }).text : ''
+            const textObjectId =
+              text.length > 0 && utf8Encoder.encode(text).length > PREVIEW_MAX
+                ? enqueueCasFromText(text, 'text/plain')
+                : null
             draft.content_blocks.push({
               block_id: blockRowId,
               message_id: messageRowId,
@@ -454,7 +489,7 @@ export class ClaudeProvider implements Provider {
               session_id: sessionRowId,
               ordinal: bi,
               block_type: 'text',
-              text_object_id: null,
+              text_object_id: textObjectId,
               text_inline: text.slice(0, PREVIEW_MAX),
               mime_type: 'text/plain',
               token_count: null,
@@ -470,6 +505,10 @@ export class ClaudeProvider implements Provider {
               typeof (block as { thinking?: unknown }).thinking === 'string'
                 ? (block as { thinking: string }).thinking
                 : ''
+            const textObjectId =
+              text.length > 0 && utf8Encoder.encode(text).length > PREVIEW_MAX
+                ? enqueueCasFromText(text, 'text/plain')
+                : null
             draft.content_blocks.push({
               block_id: blockRowId,
               message_id: messageRowId,
@@ -477,7 +516,7 @@ export class ClaudeProvider implements Provider {
               session_id: sessionRowId,
               ordinal: bi,
               block_type: 'thinking',
-              text_object_id: null,
+              text_object_id: textObjectId,
               text_inline: text.slice(0, PREVIEW_MAX),
               mime_type: 'text/plain',
               token_count: null,
@@ -494,6 +533,7 @@ export class ClaudeProvider implements Provider {
             const toolName = typeof tu.name === 'string' && tu.name.length > 0 ? tu.name : 'unknown'
             const toolCallId = rowIdFromKey('tcl', `claude:tcl:${sessionRowId}:${sourceCallId}`)
             toolCallBySourceId.set(sourceCallId, toolCallId)
+            const argsObjectId = tu.input !== undefined && tu.input !== null ? enqueueCasFromJson(tu.input) : null
             draft.content_blocks.push({
               block_id: blockRowId,
               message_id: messageRowId,
@@ -519,7 +559,7 @@ export class ClaudeProvider implements Provider {
               source_call_id: sourceCallId,
               tool_name: toolName,
               canonical_tool_type: canonicalToolType(toolName),
-              args_object_id: null,
+              args_object_id: argsObjectId,
               command: inferCommandFromArgs(toolName, tu.input),
               cwd: null,
               path: inferPathFromArgs(tu.input),
@@ -538,6 +578,12 @@ export class ClaudeProvider implements Provider {
             const text = stringifyOrNull(tr.content)
             const preview = text !== null ? text.slice(0, PREVIEW_MAX) : null
             const matchedToolCallId = toolCallBySourceId.get(sourceCallId) ?? null
+            // Full tool-result payload to CAS. Codex collapses output
+            // into a single field; Claude only has `content`, so all
+            // bytes land under `output_object_id`. stdout/stderr stay
+            // null (provider has no split).
+            const outputObjectId = text !== null ? enqueueCasFromText(text, 'text/plain') : null
+            const textObjectId = text !== null && utf8Encoder.encode(text).length > PREVIEW_MAX ? outputObjectId : null
             draft.content_blocks.push({
               block_id: blockRowId,
               message_id: messageRowId,
@@ -545,7 +591,7 @@ export class ClaudeProvider implements Provider {
               session_id: sessionRowId,
               ordinal: bi,
               block_type: 'tool_result',
-              text_object_id: null,
+              text_object_id: textObjectId,
               text_inline: preview,
               mime_type: text !== null ? 'text/plain' : null,
               token_count: null,
@@ -567,7 +613,7 @@ export class ClaudeProvider implements Provider {
               duration_ms: null,
               stdout_object_id: null,
               stderr_object_id: null,
-              output_object_id: null,
+              output_object_id: outputObjectId,
               preview,
               raw_record_id: p.rawRecordId,
             })
@@ -604,6 +650,10 @@ export class ClaudeProvider implements Provider {
           typeof rec.uuid === 'string' && rec.uuid.length > 0
             ? rowIdFromKey('evt', `claude:evt:${sessionRowId}:${rec.uuid}`)
             : rowIdFromKey('evt', `claude:evt:${sessionRowId}:ord:${p.ordinal}`)
+        // Claude operational records have no dedicated payload field;
+        // the entire record IS the payload. Stage it to CAS so
+        // downstream consumers can audit the bytes verbatim.
+        const payloadObjectId = enqueueCasFromJson(rec)
         draft.events.push({
           event_id: eventRowId,
           session_id: sessionRowId,
@@ -615,7 +665,7 @@ export class ClaudeProvider implements Provider {
           timestamp: ts,
           ordinal: eventOrdinal,
           actor: actorFromEventType(recType),
-          payload_object_id: null,
+          payload_object_id: payloadObjectId,
           raw_record_id: p.rawRecordId,
           confidence: 'high',
           is_derived: false,
@@ -665,7 +715,7 @@ export class ClaudeProvider implements Provider {
           stored_hash: contentHash,
         },
       ],
-      cas_object_candidates: [],
+      cas_object_candidates: casCandidates,
       merge: { merge_strategy: 'single_source' },
     }
     return {

@@ -34,6 +34,7 @@ import { basename, normalize } from 'node:path'
 import {
   type MessageRole,
   canonicalTimestamp,
+  computeObjectId,
   deriveRawRecordId,
   deriveSourceFileId,
   isValidCanonicalTimestamp,
@@ -44,6 +45,7 @@ import { blake3 } from '@noble/hashes/blake3'
 import { buildSearchDocsFromMessageBlocks } from '../search-doc-builder.js'
 import {
   type CanonicalProjectionDraft,
+  type CasObjectCandidate,
   type CheapIdentification,
   type DiscoveredSourceFile,
   type LogicalImportUnit,
@@ -202,14 +204,22 @@ interface ParsedEnvelope {
  * ToolCallV2 / ToolResultV2 / EventV2 for one envelope. Shared by the
  * JSONL and JSON-snapshot paths.
  */
+interface ProjectHermesEnvelopeCasHelpers {
+  enqueueCasFromText: (text: string, mimeType?: string) => string
+  enqueueCasFromJson: (value: unknown) => string | null
+}
+
 function projectHermesEnvelope(
   draft: CanonicalProjectionDraft,
   sessionRowId: string,
   p: ParsedEnvelope,
   counters: { messageOrdinal: number; eventOrdinal: number },
   toolCallBySourceId: Map<string, string>,
+  cas: ProjectHermesEnvelopeCasHelpers,
 ): { modelSeen: string | null } {
   const env = p.env
+  const utf8 = new TextEncoder()
+  const overflowsInline = (text: string): boolean => utf8.encode(text).length > PREVIEW_MAX
   const ts =
     typeof env.timestamp === 'string' && isValidCanonicalTimestamp(env.timestamp)
       ? canonicalTimestamp(env.timestamp)
@@ -219,6 +229,7 @@ function projectHermesEnvelope(
       typeof env.id === 'string' && env.id.length > 0
         ? rowIdFromKey('evt', `hermes:evt:${sessionRowId}:${env.id}`)
         : rowIdFromKey('evt', `hermes:evt:${sessionRowId}:ord:${p.ordinal}`)
+    const payloadObjectId = cas.enqueueCasFromJson(env)
     draft.events.push({
       event_id: eventRowId,
       session_id: sessionRowId,
@@ -230,7 +241,7 @@ function projectHermesEnvelope(
       timestamp: ts,
       ordinal: counters.eventOrdinal,
       actor: 'system',
-      payload_object_id: null,
+      payload_object_id: payloadObjectId,
       raw_record_id: p.rawRecordId,
       confidence: 'high',
       is_derived: false,
@@ -267,6 +278,7 @@ function projectHermesEnvelope(
   const text = renderContentText(env.content)
   let blockOrdinal = 0
   if (text.length > 0) {
+    const textObjectId = overflowsInline(text) ? cas.enqueueCasFromText(text, 'text/plain') : null
     draft.content_blocks.push({
       block_id: rowIdFromKey('blk', `hermes:blk:${messageRowId}:${blockOrdinal}`),
       message_id: messageRowId,
@@ -274,7 +286,7 @@ function projectHermesEnvelope(
       session_id: sessionRowId,
       ordinal: blockOrdinal,
       block_type: 'text',
-      text_object_id: null,
+      text_object_id: textObjectId,
       text_inline: text.slice(0, PREVIEW_MAX),
       mime_type: 'text/plain',
       token_count: typeof env.token_count === 'number' ? env.token_count : null,
@@ -297,6 +309,7 @@ function projectHermesEnvelope(
     const decoded = decodeMaybeJson(raw)
     const ht = renderContentText(decoded)
     if (ht.length === 0) continue
+    const textObjectId = overflowsInline(ht) ? cas.enqueueCasFromText(ht, 'text/plain') : null
     draft.content_blocks.push({
       block_id: rowIdFromKey('blk', `hermes:blk:${messageRowId}:${kind}`),
       message_id: messageRowId,
@@ -304,7 +317,7 @@ function projectHermesEnvelope(
       session_id: sessionRowId,
       ordinal: blockOrdinal,
       block_type: kind,
-      text_object_id: null,
+      text_object_id: textObjectId,
       text_inline: ht.slice(0, PREVIEW_MAX),
       mime_type: 'text/plain',
       token_count: null,
@@ -326,6 +339,7 @@ function projectHermesEnvelope(
     const args = getToolArgs(call)
     const toolCallRowId = rowIdFromKey('tcl', `hermes:tcl:${sessionRowId}:${sourceCallId}`)
     toolCallBySourceId.set(sourceCallId, toolCallRowId)
+    const argsObjectId = args !== null && args !== undefined ? cas.enqueueCasFromJson(args) : null
     draft.tool_calls.push({
       tool_call_id: toolCallRowId,
       session_id: sessionRowId,
@@ -335,7 +349,7 @@ function projectHermesEnvelope(
       source_call_id: sourceCallId,
       tool_name: toolName,
       canonical_tool_type: canonicalToolTypeHermes(toolName),
-      args_object_id: null,
+      args_object_id: argsObjectId,
       command: stringField(args, 'command'),
       cwd: stringField(args, 'cwd'),
       path: stringField(args, 'path') ?? stringField(args, 'file_path'),
@@ -353,6 +367,7 @@ function projectHermesEnvelope(
     const sourceCallId = env.tool_call_id
     const matchedToolCallId = toolCallBySourceId.get(sourceCallId) ?? null
     const isError = env.finish_reason === 'error'
+    const outputObjectId = text.length > 0 ? cas.enqueueCasFromText(text, 'text/plain') : null
     draft.tool_results.push({
       tool_result_id: rowIdFromKey('tre', `hermes:tre:${sessionRowId}:${sourceCallId}`),
       tool_call_id: matchedToolCallId,
@@ -366,7 +381,7 @@ function projectHermesEnvelope(
       duration_ms: null,
       stdout_object_id: null,
       stderr_object_id: null,
-      output_object_id: null,
+      output_object_id: outputObjectId,
       preview: text.length > 0 ? text.slice(0, PREVIEW_MAX) : null,
       raw_record_id: p.rawRecordId,
     })
@@ -453,6 +468,31 @@ export class HermesProvider implements Provider {
     const contentHash = `blake3:${toHex(blake3(bytes))}`
     const draft = emptyDraft()
     const enriched = file as DiscoveredHermesFile
+
+    // CAS staging — mirror of the codex/claude/cursor/gemini pattern.
+    const casCandidates: CasObjectCandidate[] = []
+    const seenCasIds = new Set<string>()
+    const utf8Encoder = new TextEncoder()
+    const enqueueCas = (payload: Uint8Array, mimeType?: string): string => {
+      const objectId = computeObjectId(payload)
+      if (!seenCasIds.has(objectId)) {
+        seenCasIds.add(objectId)
+        const candidate: CasObjectCandidate = { object_id: objectId, bytes: payload }
+        if (mimeType !== undefined) candidate.mime_type = mimeType
+        casCandidates.push(candidate)
+      }
+      return objectId
+    }
+    const enqueueCasFromText = (textPayload: string, mimeType?: string): string =>
+      enqueueCas(utf8Encoder.encode(textPayload), mimeType)
+    const enqueueCasFromJson = (value: unknown): string | null => {
+      try {
+        return enqueueCasFromText(JSON.stringify(value), 'application/json')
+      } catch {
+        return null
+      }
+    }
+
     const rawRecordIds: string[] = []
     let sessionId: string | null = null
     let sessionStartTs: string | null = null
@@ -504,6 +544,7 @@ export class HermesProvider implements Provider {
           record_kind: 'session_jsonl_line',
         })
         rawRecordIds.push(rawRecordId)
+        const decodedObjectId = env ? enqueueCasFromJson(env) : null
         draft.raw_records.push({
           raw_record_id: rawRecordId,
           source_tool: SOURCE_TOOL,
@@ -518,7 +559,7 @@ export class HermesProvider implements Provider {
           confidence: env ? 'high' : 'low',
           content_hash: contentHash,
           object_id: contentHash,
-          decoded_object_id: null,
+          decoded_object_id: decodedObjectId,
           created_at: input.createdAt,
         })
         if (env) parsedEnvelopes.push({ env, rawRecordId, ordinal })
@@ -559,6 +600,7 @@ export class HermesProvider implements Provider {
             record_kind: 'session_jsonl_line',
           })
           rawRecordIds.push(rawRecordId)
+          const decodedObjectId = m ? enqueueCasFromJson(m) : null
           draft.raw_records.push({
             raw_record_id: rawRecordId,
             source_tool: SOURCE_TOOL,
@@ -573,7 +615,7 @@ export class HermesProvider implements Provider {
             confidence: m ? 'high' : 'low',
             content_hash: contentHash,
             object_id: contentHash,
-            decoded_object_id: null,
+            decoded_object_id: decodedObjectId,
             created_at: input.createdAt,
           })
           if (m) parsedEnvelopes.push({ env: m, rawRecordId, ordinal: i })
@@ -586,6 +628,7 @@ export class HermesProvider implements Provider {
           record_kind: 'session_jsonl_line',
         })
         rawRecordIds.push(rawRecordId)
+        const decodedObjectId = snap ? enqueueCasFromJson(snap) : null
         draft.raw_records.push({
           raw_record_id: rawRecordId,
           source_tool: SOURCE_TOOL,
@@ -600,7 +643,7 @@ export class HermesProvider implements Provider {
           confidence: snap ? 'high' : 'low',
           content_hash: contentHash,
           object_id: contentHash,
-          decoded_object_id: null,
+          decoded_object_id: decodedObjectId,
           created_at: input.createdAt,
         })
       }
@@ -653,8 +696,9 @@ export class HermesProvider implements Provider {
     // from assistant envelopes that may post-date the first-pass scan.
     const counters = { messageOrdinal: 0, eventOrdinal: 0 }
     const toolCallBySourceId = new Map<string, string>()
+    const casHelpers = { enqueueCasFromText, enqueueCasFromJson }
     for (const p of parsedEnvelopes) {
-      const { modelSeen } = projectHermesEnvelope(draft, sessionRowId, p, counters, toolCallBySourceId)
+      const { modelSeen } = projectHermesEnvelope(draft, sessionRowId, p, counters, toolCallBySourceId, casHelpers)
       if (modelSeen !== null) {
         if (modelFirst === null) modelFirst = modelSeen
         modelLast = modelSeen
@@ -687,7 +731,7 @@ export class HermesProvider implements Provider {
           stored_hash: contentHash,
         },
       ],
-      cas_object_candidates: [],
+      cas_object_candidates: casCandidates,
       // The minimal slice treats each file as its own LogicalImportUnit;
       // the full `hermes_sqlite_plus_jsonl` strategy lands in a follow-up.
       merge: { merge_strategy: 'single_source' },
