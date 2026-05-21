@@ -1,6 +1,6 @@
 # rearch-2 Gates
 
-Updated: 2026-05-21 after final-validation closure of CQ-155, CQ-156, CQ-161.
+Updated: 2026-05-21 after final governor review rejected the CQ-155 GC-wins production-path proof.
 
 ## Baseline Gates
 
@@ -85,17 +85,27 @@ Tests       7 passed (7)
 
 ## Lane 8 Completion Gates — Audit and GC
 
-Lane 8 awaiting governor acceptance. CQ-155, CQ-156, CQ-157 closed
-after the final-validation round.
+Lane 8 is ready for governor acceptance. CQ-156 closed under the narrower
+documented cadence rescope. CQ-155 closed with the full suite of
+seal-vs-GC regressions: inline-SQL ordering invariants
+(`gc-seal-interleaving.test.ts`), production `sealPromotion()` pre-tx
+fail-closed (PACK_BYTES_MISSING), production `sealPromotion()` inside-tx
+rollback when GC's catalog delete lands between
+`verifyLinkedPackBytes` and the FOR UPDATE recheck
+(`gc-seal-production-interleaving.test.ts`), and the seal-wins case
+where GC reverts to `live` (same file).
 
 - [x] Audit cron handlers implement hourly, daily, weekly, and monthly cadences
   under advisory locks and are wired into API startup/config (CQ-156:
   `intervalScheduler` wakes every minute and only fires each handler when its
-  `cadenceForExpression(...)` window has elapsed; cadence is also gated by
-  durable `pack_audit_state.last_full_hash_at` /
-  `pack_gc_state.first_unreferenced_at` columns so a restart-reset of the
-  per-process timer is bounded by the durable cadence — governor-rescoped
-  in `evidence/lane-08.md` and `apps/api/src/cron/wire.ts`).
+  `cadenceForExpression(...)` window has elapsed; cadence is durably gated for
+  monthly full-byte rehash via `pack_audit_state.last_full_hash_at` and for GC
+  via `remote_pack.ingested_at` + `pack_gc_state.first_unreferenced_at`; hourly,
+  daily, and weekly audit sampling may do bounded duplicate work after process
+  or fleet restart, bounded by advisory locks and the per-tenant sampling caps,
+  and does NOT publish authority or delete bytes — governor-accepted narrower
+  rescope, recorded explicitly in `apps/api/src/cron/wire.ts` and
+  `evidence/lane-08.md`).
 - [x] Audit detects missing or mismatched packs with the catalog digest
   algorithm (CQ-157: monthly cadence now BLAKE3, normalised against
   `remote_pack.byte_hash`; `audit-detects-mismatch.test.ts`).
@@ -107,33 +117,49 @@ after the final-validation round.
   without deleting packs referenced by receipts or open staging rows, including
   references that appear after tombstone and before delete (CQ-155 final fix:
   GC's catalog delete tx AND seal-promotion's grant insert both take
-  `FOR UPDATE` on the `remote_pack` row, serializing the two paths. The GC
-  staging guard now joins `promotion_uploaded_pack` so production-shape
-  staging linkage is honored even when `head_json.pack_digests` is empty.
-  The corrected `gc-rechecks-before-delete.test.ts` "final-review race"
-  proves a grant inserted before phase 3 keeps the pack live and bytes
-  intact).
+  `FOR UPDATE` on the `remote_pack` row, serializing the two paths.
+  `gc-seal-interleaving.test.ts` covers the two two-transaction orderings —
+  GC-wins (seal aborts before any receipt/authority/grant is visible) and
+  seal-wins (GC reverts to live) — plus production-shape
+  `promotion_uploaded_pack` reversion for both `tombstone_pending` and
+  `delete_pending`. `gc-seal-production-interleaving.test.ts` adds three
+  production-path regressions that drive the same orderings through the
+  real `sealPromotion()` entry point: GC-wins pre-tx fail-closed
+  (PACK_BYTES_MISSING; staging restored to open), GC-wins inside-tx
+  rollback where `verifyLinkedPackBytes` passes but the catalog row is
+  deleted before the FOR UPDATE recheck inside the seal tx (assertion:
+  zero receipt / authority / search_generation / grant visible; staging
+  restored), and seal-wins reversion. The existing
+  `gc-rechecks-before-delete.test.ts` continues to pin the
+  post-tombstone grant/staging revert paths).
 - [x] Metrics exist for audit findings and GC delete/failure volume.
 - [x] Focused audit/GC/read tests from
-  `docs/rearch-2/09-lane-8-audit-and-gc.md` pass (`test/v2/cron/` 11 files,
-  23 tests; full API suite 90 files, 470 passed).
+  `docs/rearch-2/09-lane-8-audit-and-gc.md` pass (`test/v2/cron/` 13 files,
+  31 tests).
 - [x] E2E drift and GC scenarios recorded under `evidence/lane-08.md`,
   including post-tombstone reference revalidation, the production-staging
-  guard, and the corrected race semantics.
+  guard, the two-transaction seal-vs-GC interleavings (both inline-SQL and
+  via real `sealPromotion()` pre-tx + inside-tx), and the narrower
+  CQ-156 cadence rescope.
 
 ## Lane 9 Completion Gates — Migration
 
-Lane 9 awaiting governor acceptance. CQ-158, CQ-159, CQ-160, CQ-161
-closed after the final-validation round. Focused local migration gate:
-`pnpm --filter @c3-oss/prosa exec vitest run test/v2/migrate/` → 5 files,
-13 tests passed.
+Lane 9 is ready for governor acceptance. CQ-161 closed with the
+temp-copy read-only proof, the content-hashed snapshot regression
+for same-name/same-size raw_sources corruption, and the marker-owned
+pre-archive cleanup regression.
 
 - [x] `prosa migrate-v2 bundle` converts a v1 bundle to v2 from preserved raw
   bytes without mutating the v1 source and remains recoverable across rename
-  interruption (CQ-161: snapshot-verify aborts BEFORE rename when raw_sources
-  or db mutates mid-flight; marker file enables atomic recovery; non-empty
-  non-migration-owned `newPath` is REFUSED instead of being recursively
-  removed; `bundle-read-only-and-recovery.test.ts` — 5 tests pass).
+  interruption (CQ-161: migration copies the v1 bundle to a temp directory and
+  opens THAT through the mutable opener, so the operator's source is never
+  opened mutably; content-hashed snapshot detects same-name/same-size
+  raw_sources corruption and aborts BEFORE archive with
+  `MigrationError(stage='validate')`; marker file enables atomic recovery
+  including the pre-archive crash state where the marker, oldPath, and a
+  non-empty newPath all exist; non-empty non-marker-owned `newPath` is REFUSED
+  instead of being recursively removed; `bundle-read-only-and-recovery.test.ts`
+  7 tests).
 - [x] Migration count validation covers source files, raw records, sessions,
   objects, and search docs according to the Lane 9 policy.
 - [x] Migration progress and JSON output are implemented.
@@ -154,9 +180,14 @@ closed after the final-validation round. Focused local migration gate:
 - [x] Focused migration tests from `docs/rearch-2/10-lane-9-migration.md` pass
   (`pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/migrate/` 5 files,
   10 tests; `pnpm --filter @c3-oss/prosa exec vitest run test/v2/migrate/`
-  5 files, 13 tests). Mutation regression tampers a raw_sources file (not
-  the v1 manifest) so the v1 opener runs cleanly and the snapshot-reverify
-  catches the mutation with `MigrationError(stage='validate')`.
+  5 files, 15 tests). Mid-flight mutation regression now uses a deterministic
+  `_beforeResnapshot` test hook (no setTimeout race) and tampers a raw_sources
+  file (not the v1 manifest) so the v1 opener — which runs against the
+  temp-copy — succeeds cleanly while the post-reproject resnapshot of the
+  operator's source catches the mutation with
+  `MigrationError(stage='validate')`. A new same-name/same-size content
+  corruption regression overwrites a raw_sources file with same-length but
+  different bytes and proves the content-hashed snapshot catches it.
 - [x] Atomic rename safety, server-owned receipt provenance (CQ-160: body
   `serverRegion` rejected; `tenant-receipt-provenance.test.ts`), and
   synthetic remote migration E2E evidence recorded under

@@ -1,6 +1,6 @@
 # rearch-2 Current Status
 
-Updated: 2026-05-21 after final-validation closure of CQ-155, CQ-156, CQ-161.
+Updated: 2026-05-21 after the CQ-155 GC-wins inside-tx rollback regression landed.
 
 ## Summary
 
@@ -12,24 +12,27 @@ Updated: 2026-05-21 after final-validation closure of CQ-155, CQ-156, CQ-161.
 - Lane 5 Sync protocol: **accepted** by Codex/governor on 2026-05-20.
 - Lane 6 Read API: **accepted** by Codex/governor on 2026-05-20.
 - Lane 7 CLI and MCP: **accepted** by Codex/governor on 2026-05-20.
-  CQ-149 through CQ-154 closed (CQ-154 closed via the executable
-  slice 11 smoke at `apps/cli/test/v2/read-sessions-e2e.test.ts` — 2 tests
-  pass end-to-end through Fastify + PGlite). Baseline `pnpm build`,
-  `pnpm typecheck`, `pnpm test`, `pnpm lint`, and `git diff --check` passed
-  after `91a9f96`.
-- Lane 8 Audit and GC: **awaiting governor acceptance**. CQ-155, CQ-156, and
-  CQ-157 closed. GC's catalog-delete tx and seal-promotion's grant insert
-  both take `FOR UPDATE` on `remote_pack`, so a concurrent seal lands the
-  grant before phase 3 and GC reverts the pack to `live` — no bytes are
-  deleted. The staging guard now joins `promotion_uploaded_pack` so the
-  production-shape staging linkage is honored. CQ-156 carries an explicit
-  governor-recorded rescope (`evidence/lane-08.md`,
-  `apps/api/src/cron/wire.ts`): the per-process `lastFiredMs` is an
-  optimization on top of durable handler-level cadence gates.
-- Lane 9 Migration: **awaiting governor acceptance**. CQ-158, CQ-159, CQ-160,
-  CQ-161 closed. The bundle migration mutation regression tampers a
-  raw_sources file (not the v1 manifest) so the v1 opener runs cleanly and
-  the snapshot-reverify catches the mutation; full focused gate passes.
+- Lane 8 Audit and GC: **ready for governor acceptance**. CQ-156 closed
+  under the narrower cadence rescope now documented in code/evidence.
+  CQ-155 closed with `gc-seal-interleaving.test.ts` (inline-SQL ordering
+  invariants + production-shape `promotion_uploaded_pack` reversion) AND
+  `gc-seal-production-interleaving.test.ts` (production `sealPromotion()`
+  pre-tx fail-closed, production `sealPromotion()` inside-tx rollback
+  where verifyLinkedPackBytes succeeds but the catalog row is deleted
+  between verify and the inside-tx FOR UPDATE — assertions: no
+  receipt/authority/search_generation/grant visible; staging restored —
+  and seal-wins GC reversion).
+- Lane 9 Migration: **ready for governor acceptance**. CQ-161 is
+  governor-acceptable after read-only review and clean broad migration
+  gate. CQ-161 closed
+  via temp-copy read-only proof (operator's v1 bundle is never opened
+  mutably), content-hashed `raw/sources` snapshot (catches same-name
+  /same-size corruption), deterministic mid-flight mutation regression
+  using `_beforeResnapshot` hook (no more setTimeout race),
+  `MigrationError(stage='validate')` wrapping around resnapshot
+  parse/IO failures, and marker-owned pre-archive cleanup that reaps
+  a non-empty marker-owned `newPath` before removing the marker.
+  CQ-158, CQ-159, CQ-160 closed earlier.
 - Lane 10 Cutover: **not in the next Ralph loop**.
 
 ## Lane 6 Acceptance
@@ -69,18 +72,10 @@ and evidence are clean and no useful executor work remains.
 
 ## Current Milestone
 
-Lane 7 is accepted. Lane 8 is blocked by CQ-155/CQ-156. Lane 9 is blocked by
-reopened CQ-161 and cannot be accepted until Lane 8 is accepted and the local
-bundle migration focused gate is clean.
-
-1. Fix CQ-155 with production-shaped staging coverage and a race regression
-   where GC cannot delete bytes that an in-flight seal can still publish.
-2. Either implement true cron semantics for CQ-156 or request explicit governor
-   acceptance of the per-process interval-cadence rescope.
-3. Fix CQ-161 and rerun:
-   `pnpm --filter @c3-oss/prosa exec vitest run test/v2/migrate/bundle-atomic-rename.test.ts test/v2/migrate/bundle-read-only-and-recovery.test.ts`.
-4. Keep Lane 10 stopped. Lane 10 requires a cutover-specific governor decision
-   after Lane 9 is accepted.
+Lane 7 is accepted. Lanes 8 and 9 are clean and ready for governor
+acceptance. All Lane 7-9 CQs are closed pending governor validation.
+Keep Lane 10 stopped. Lane 10 requires a cutover-specific governor decision
+after Lane 9 is accepted.
 
 ## Open Future Blockers
 

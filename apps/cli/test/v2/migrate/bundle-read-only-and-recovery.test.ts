@@ -46,6 +46,49 @@ describe('migrateBundle CQ-161: v1 source bundle is not mutated', () => {
     expect(afterManifest).toBe(beforeManifest)
     expect(afterDb).toBe(beforeDb)
   }, 60_000)
+
+  it('CQ-161: snapshot detects same-name same-size raw_sources corruption', async () => {
+    // Same-name + same-size content corruption (e.g. file replaced
+    // with different bytes of identical length) used to slip past the
+    // old name/size-only snapshot. The content-hash snapshot must
+    // detect this and abort BEFORE archive.
+    const { bundlePath: oldPath } = await buildV1CodexBundle({})
+    const newPath = await mktmp('prosa-v2-tmp')
+    await rm(newPath, { recursive: true, force: true })
+
+    const rawSourcesDir = join(oldPath, 'raw', 'sources')
+    let targetName = ''
+    let targetSize = 0
+    const { readdir, stat: statFs } = await import('node:fs/promises')
+    const entries = await readdir(rawSourcesDir)
+    for (const name of entries) {
+      const info = await statFs(join(rawSourcesDir, name))
+      if (info.isFile() && info.size > 0) {
+        targetName = name
+        targetSize = info.size
+        break
+      }
+    }
+    expect(targetName).not.toBe('')
+    expect(targetSize).toBeGreaterThan(0)
+
+    await expect(
+      migrateBundle({
+        oldPath,
+        newPath,
+        _beforeResnapshot: async () => {
+          // Overwrite with same-length but different content.
+          const corrupted = Buffer.alloc(targetSize, 0x5a)
+          await writeFile(join(rawSourcesDir, targetName), corrupted)
+        },
+      }),
+    ).rejects.toMatchObject({ stage: 'validate' })
+
+    // The v1 bundle is still present (no archive happened) so an
+    // operator can inspect the bytes.
+    const v1Stat = await stat(oldPath)
+    expect(v1Stat.isDirectory()).toBe(true)
+  }, 60_000)
 })
 
 describe('migrateBundle CQ-161: crash recovery between renames', () => {
@@ -86,35 +129,61 @@ describe('migrateBundle CQ-161: crash recovery between renames', () => {
     const newPath = await mktmp('prosa-v2-tmp')
     await rm(newPath, { recursive: true, force: true })
 
-    // Snapshot the pre-migration v1 image (manifest + raw_sources)
-    // so we can prove tampering aborts the migrate before rename.
-    // We tamper a raw_sources file (NOT manifest.json) so the v1
-    // opener's JSON.parse + migrations succeed normally while the
-    // post-reproject re-snapshot still detects the mutation.
-    const beforeManifest = await hashFile(join(oldPath, 'manifest.json'))
-    expect(beforeManifest.length).toBeGreaterThan(0)
-
-    // Find a raw_sources file to tamper. The v1 importer always
-    // produces at least one preserved zstd file under raw/sources.
+    // Tamper a raw_sources file (NOT manifest.json) so the v1 opener
+    // succeeds normally; the post-reproject resnapshot must still
+    // detect the new file. The tamper runs via the `_beforeResnapshot`
+    // hook so the test is deterministic (no setTimeout race).
     const rawSourcesDir = join(oldPath, 'raw', 'sources')
-    const tamperPromise = new Promise<void>((resolve) => {
-      setTimeout(async () => {
-        try {
+
+    await expect(
+      migrateBundle({
+        oldPath,
+        newPath,
+        _beforeResnapshot: async () => {
           const entries = await (await import('node:fs/promises')).readdir(rawSourcesDir)
           const target = entries[0]
           if (target) {
             await writeFile(join(rawSourcesDir, `${target}.tampered`), 'unexpected operator data')
           }
-        } finally {
-          resolve()
-        }
-      }, 5)
-    })
-
-    await expect(migrateBundle({ oldPath, newPath })).rejects.toMatchObject({
+        },
+      }),
+    ).rejects.toMatchObject({
       stage: 'validate',
     })
-    await tamperPromise
+  }, 60_000)
+
+  it('CQ-161: pre-archive crash with marker + oldPath + non-empty newPath reaps newPath and clears marker', async () => {
+    // Simulate the pre-archive crash state by hand:
+    //  - v1 bundle still at oldPath (the first rename never landed)
+    //  - newPath is non-empty (the temp v2 bundle was written but
+    //    not yet swapped in)
+    //  - marker file is present, identifying the migration owner
+    // Recovery must reap the marker-owned newPath BEFORE removing
+    // the marker, otherwise the next run would see an unprovable
+    // non-empty operator path and refuse.
+    const { bundlePath: oldPath } = await buildV1CodexBundle({})
+    const newPath = await mktmp('prosa-v2-tmp')
+    // Non-empty marker-owned temp.
+    await writeFile(join(newPath, 'temp-v2-sentinel.txt'), 'in-flight v2 contents')
+
+    const archivePath = `${oldPath}-v0-archive-pre-archive-stamp`
+    const markerPath = migrationMarkerPath(oldPath)
+    await writeFile(markerPath, JSON.stringify({ oldPath, newPath, archivePath, createdAtMs: Date.now() }), 'utf8')
+
+    const result = await recoverFromMigrationMarker(oldPath)
+    // Nothing to restore (oldPath was already in place) but the
+    // marker-owned temp directory and marker file must both be gone
+    // so the next migration starts clean.
+    expect(result.restored).toBe(false)
+    const markerAfter = await stat(markerPath).catch(() => null)
+    expect(markerAfter).toBeNull()
+    const newAfter = await stat(newPath).catch(() => null)
+    expect(newAfter).toBeNull()
+
+    // The v1 bundle is still intact at oldPath.
+    const oldStat = await stat(oldPath)
+    expect(oldStat.isDirectory()).toBe(true)
+    expect(await stat(join(oldPath, 'manifest.json'))).toBeDefined()
   }, 60_000)
 
   it('CQ-161: refuses a pre-existing non-empty newPath that is not migration-owned', async () => {

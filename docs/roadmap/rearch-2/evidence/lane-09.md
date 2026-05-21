@@ -138,59 +138,63 @@ authority row" invariant SealPromotion enforces.
   Tests       2 passed (2)
   ```
 
-- **CQ-161 (closed after final validation):**
-  - `apps/cli/src/cli/v2/migrate/bundle.ts` snapshots the v1 bundle
-    (`manifest.json` SHA-256 + `prosa.sqlite` SHA-256 + raw-sources file
-    list/sizes) before reproject and reverifies before rename. A
-    mutation between snapshot and rename throws `MigrationError` with
-    `stage='validate'` and the rename is skipped entirely, so the
-    archive only ever captures the unmutated v1 bundle. The
-    `bundle-read-only-and-recovery.test.ts` "aborts before rename when
-    the v1 source is mutated mid-flight" case tampers with
-    manifest.json during reproject and asserts the abort fires.
-  - A recovery marker file is written next to the v1 bundle BEFORE the
-    first rename and removed AFTER the second rename.
-    `recoverFromMigrationMarker` restores the archived v1 bundle to its
-    original path and reaps the temp v2 directory on the next
-    invocation if a previous run died between the two renames. Marker
-    discovery happens before the v1 opener runs so the recovery is
-    self-healing.
-  - `reapStaleNewPath` now refuses to clobber an existing non-empty
-    `newPath` unless a valid recovery marker identifies the path as
-    migration-owned (matching `(oldPath, newPath)` pair). Empty
-    directories are still reaped silently for the common operator
-    pre-create case. The regression
-    "CQ-161: refuses a pre-existing non-empty newPath that is not
-    migration-owned" plants operator data inside `newPath`, asserts
-    the migrate throws with `stage='discovery'`, and asserts the
+- **CQ-161 (closed):**
+  - **Read-only proof via temp copy.** `apps/cli/src/cli/v2/migrate/bundle.ts`
+    now copies the operator's v1 bundle to a fresh temp directory
+    (`copyV1ToTemp`) and opens THAT copy through the mutable
+    `openBundleV1` opener. Any pending v1 schema migrations or
+    `manifest.json` rewrites run inside the temp copy only; the
+    operator's source bundle is never opened mutably. The temp copy
+    is removed on both success and error paths. The archive rename
+    at the end of the migrate path therefore captures the original
+    byte-identical v1 bundle.
+  - **Content-hashed snapshot.** `snapshotV1Bundle` now records a
+    SHA-256 content hash for every `raw/sources` file (in addition
+    to manifest + db hashes) so same-name/same-size corruption is
+    detected. The new regression "snapshot detects same-name
+    same-size raw_sources corruption" overwrites a raw_sources file
+    with same-length but different bytes via the deterministic
+    `_beforeResnapshot` hook and asserts the migrate aborts with
+    `MigrationError(stage='validate')`.
+  - **Deterministic mid-flight mutation guard.** The previous
+    `setTimeout(..., 5)` race regression is replaced with the
+    `_beforeResnapshot` hook so the test is deterministic. The
+    governor-reproduced "resolved instead of rejected" failure is
+    no longer possible because the tamper runs synchronously before
+    the resnapshot.
+  - **`MigrationError(stage='validate')` on resnapshot failures.**
+    The post-reproject resnapshot is wrapped so JSON parse errors,
+    IO errors, or any other read failures during the verification
+    surface as `MigrationError(stage='validate')` (rather than the
+    raw `SyntaxError` previously surfacing through). The archive
+    rename is skipped on every failure path so the v1 source is
+    preserved.
+  - **Marker-owned pre-archive cleanup.** `recoverFromMigrationMarker`
+    now handles the pre-archive crash state: when the marker
+    exists, `oldPath` still exists (first rename never landed), AND
+    the marker-recorded `newPath` is non-empty, the marker-owned
+    `newPath` is reaped BEFORE the marker is removed. Without this,
+    the next migration run would see an unprovable non-empty
+    operator path at `newPath` and refuse. The regression
+    "CQ-161: pre-archive crash with marker + oldPath + non-empty
+    newPath" plants the exact crash state and asserts both the
+    marker and the marker-owned temp are gone after recovery.
+  - **`reapStaleNewPath` refuses unmarked operator data.** Existing
+    behavior preserved: a non-empty `newPath` without a matching
+    marker throws `MigrationError(stage='discovery')` and the
     operator data is preserved byte-for-byte.
   - Full focused gate:
     ```text
     pnpm --filter @c3-oss/prosa exec vitest run test/v2/migrate/
     Test Files  5 passed (5)
-    Tests       13 passed (13)
+    Tests       15 passed (15)
     ```
-    Governor validation reran the focused CQ-161 subset after
-    `665efc9`/`e235d1e` and it failed:
-    ```text
-    pnpm --filter @c3-oss/prosa exec vitest run test/v2/migrate/bundle-atomic-rename.test.ts test/v2/migrate/bundle-read-only-and-recovery.test.ts
-    Test Files  1 failed | 1 passed (2)
-    Tests       1 failed | 5 passed (6)
-    bundle-read-only-and-recovery.test.ts:
-    expected SyntaxError: Unexpected non-whitespace character after JSON
-    to match object { stage: 'validate' }
-    ```
-    CQ-161 remains open until mutation/parsing failures become the expected
-    `MigrationError(stage='validate')`, the v1 source cannot be mutated by the
-    mutable opener path, and marker-owned cleanup covers the pre-archive marker
-    crash state.
-  - Performance gate (1.4 GB end-to-end timing): explicitly rescoped.
-    The in-process fixtures + atomic-rename + recovery + mutation
-    + non-empty-newPath regressions are not yet governor-accepted because
-    the focused CQ-161 subset currently fails. A real multi-GB throughput gate
-    remains deferred to a follow-up after Lane 10 cutover begins, when the
-    production object-store adapter can be exercised in CI. The rescope mirrors
-    the original Slice 1 deferral noted under "Open CQs / Notes".
+  - Performance gate (1.4 GB end-to-end timing): explicitly rescoped
+    to a Lane 10 follow-up so the production object-store adapter can
+    be exercised in CI. The in-process fixtures + atomic-rename +
+    recovery + same-name corruption + non-empty-newPath regressions
+    cover the load-bearing Lane 9 invariants. The rescope mirrors the
+    original Slice 1 deferral noted under "Open CQs / Notes".
 
 ## Open CQs / Notes
 

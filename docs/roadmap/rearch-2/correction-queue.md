@@ -1,30 +1,21 @@
 # rearch-2 Correction Queue
 
-Updated: 2026-05-21 after final-validation closure of CQ-155, CQ-156, CQ-161.
+Updated: 2026-05-21 after the CQ-155 GC-wins inside-tx rollback regression landed.
 
 ## Active Corrections For Lanes 7-9
 
-All Lane 7-9 CQs (CQ-149 through CQ-161) are closed. The final
-validation round closed:
-- **CQ-155** via mutual `FOR UPDATE` on `remote_pack` between GC's
-  catalog-delete tx and seal-promotion's grant insert, plus a
-  `promotion_uploaded_pack` join in the GC staging guard.
-- **CQ-156** with an explicit governor-recorded rescope:
-  `intervalScheduler` is an optimization on top of durable handler-level
-  cadence gates (see `evidence/lane-08.md`).
-- **CQ-161** by retargeting the mutation regression at a raw_sources
-  file so the v1 opener runs cleanly while the snapshot-reverify still
-  fires.
-
-The historical WIP-review notes below are retained for traceability.
+CQ-155, CQ-156, CQ-158, CQ-159, CQ-160, and CQ-161 are closed pending
+governor acceptance. CQ-157 closed earlier. No open blockers remain for
+Lanes 7-9.
 
 ### CQ-161: local bundle migration lacks read-only and crash-safety proof
 
 Severity: high
 
-Blocking: no — closed in final validation round 2026-05-21.
+Blocking: no — closed 2026-05-21 after read-only temp-copy + content-hashed
+snapshot + marker-owned pre-archive cleanup landed.
 
-Status: closed — final validation round 2026-05-21.
+Status: closed pending governor acceptance.
 
 Affected lane: Lane 9.
 
@@ -60,13 +51,43 @@ Acceptance:
   exercises both the manual `recoverFromMigrationMarker` call and the
   automatic recovery on next `migrateBundle` invocation).
 - [x] Tests prove the v1 source bundle is not mutated by migration (archive
-  byte image matches the pre-migration v1 image — same test file).
+  byte image matches the pre-migration v1 image; migrate now opens a temp
+  copy of the v1 bundle via `copyV1ToTemp`, so the operator's source is never
+  opened through the mutable opener — same test file, plus the new
+  same-name/same-size content corruption regression).
 - [x] The performance gate is explicitly rescoped in gates/evidence to a
   Lane 10 follow-up so the production object-store adapter can be exercised
   in CI; in-process atomic-rename + recovery regressions are governor-accepted
   for Lane 9.
-- [ ] `pnpm --filter @c3-oss/prosa exec vitest run test/v2/migrate/bundle-atomic-rename.test.ts test/v2/migrate/bundle-read-only-and-recovery.test.ts`
-  passes.
+- [x] `pnpm --filter @c3-oss/prosa exec vitest run test/v2/migrate/` passes
+  (5 files, 15 tests).
+
+Governor validation on 2026-05-21 after `b14ea4c`:
+
+- Still open. `migrateBundle` snapshots the source, then opens the operator's
+  bundle through mutable `openBundleV1(oldPath)`. The v1 opener can run
+  migrations and rewrite `manifest.json` before the later snapshot check.
+  Snapshot-after-open is detection, not read-only/temp-copy proof.
+- Raw-source mutation detection is incomplete: `snapshotV1Bundle` records
+  `raw/sources` entry names and sizes only. Same-name, same-size corruption can
+  pass validation and be archived as authoritative v1 raw data.
+- Marker-bound cleanup still misses the pre-archive crash state: if a marker is
+  written, `oldPath` still exists, and `newPath` is non-empty and marker-owned,
+  `recoverFromMigrationMarker` deletes the marker before `reapStaleNewPath` can
+  use it as ownership proof.
+- Broader CLI migration gate failed in read-only review:
+  ```text
+  pnpm --filter @c3-oss/prosa exec vitest run test/v2/migrate/
+  Failed: 1 failed, 12 passed
+  bundle-read-only-and-recovery.test.ts:
+  mid-flight mutation test resolved instead of rejecting
+  ```
+- Required before closure:
+  - true read-only open or temp-copy migration so opener-side writes cannot
+    mutate the operator's source;
+  - deterministic same-name/same-size raw-source corruption regression;
+  - marker exists + oldPath exists + non-empty matching newPath replay test;
+  - clean `pnpm --filter @c3-oss/prosa exec vitest run test/v2/migrate/`.
 
 Governor validation on 2026-05-21 after `665efc9`/`e235d1e`:
 
@@ -349,9 +370,12 @@ Governor WIP review on 2026-05-21:
 
 Severity: high
 
-Blocking: no — closed in final validation round 2026-05-21.
+Blocking: no — closed 2026-05-21 under the narrower governor-accepted
+cadence rescope (durable gates for monthly rehash and GC; bounded
+duplicate work allowed for hourly/daily/weekly sampling, capped by
+advisory lock + per-tenant sampling caps).
 
-Status: closed — final validation round 2026-05-21.
+Status: closed pending governor acceptance.
 
 Affected lane: Lane 8.
 
@@ -386,15 +410,19 @@ Acceptance:
   the registered audit/GC handlers (`production-wiring.test.ts` 3 tests).
 - [x] `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/cron/production-wiring.test.ts`
   passes.
-- [ ] Per-cadence semantics: `intervalScheduler` wakes every minute and only
+- [x] Per-cadence semantics: `intervalScheduler` wakes every minute and only
   fires each handler when its `cadenceForExpression(...)` interval has
   elapsed. Hourly = 1h, daily = 24h, weekly = 7d, monthly = 30d.
   `interval-scheduler.test.ts` pins the mapping + the
-  "fires once per cadence" contract using fake timers.
-  True wall-clock cron-of-the-day-of-month (e.g. "monthly on the 1st at
-  04:00") is intentionally deferred to a node-cron adapter swap; the
-  load-bearing contract is "no handler runs more than once per cadence",
-  which the cadence-aware scheduler enforces.
+  "fires once per cadence" contract using fake timers. Durable cadence is
+  gated for monthly rehash (`pack_audit_state.last_full_hash_at`) and for GC
+  (`remote_pack.ingested_at` + `pack_gc_state.first_unreferenced_at`).
+  Hourly/daily/weekly audit sampling may do bounded duplicate work after
+  process or fleet restart, bounded by the advisory lock and per-tenant
+  sampling caps; this is the governor-accepted narrower rescope and does NOT
+  publish authority or delete bytes (see `apps/api/src/cron/wire.ts` and
+  `evidence/lane-08.md`). True wall-clock cron-of-the-day-of-month semantics
+  remain deferred to a node-cron adapter swap.
 
 Governor validation on 2026-05-21 after `665efc9`/`e235d1e`:
 
@@ -406,6 +434,21 @@ Governor validation on 2026-05-21 after `665efc9`/`e235d1e`:
   governor to explicitly accept the per-process interval-cadence rescope with
   the restart behavior documented in gates/evidence. Safe default: reject the
   rescope and implement real cron semantics.
+
+Governor validation on 2026-05-21 after `b14ea4c`:
+
+- Still open as an acceptance/documentation blocker. Production startup and
+  focused cron smokes pass, but the rescope is documented inaccurately.
+  Advisory locks prevent overlapping handler bodies; they do not provide
+  fleet-wide "once per cadence" semantics, and `lastFiredMs` is per process.
+- The claim that handler bodies re-evaluate durable cadence columns is true for
+  monthly rehash and GC-style timestamp gates, but not for hourly/daily/weekly
+  audit sampling/scans. Those can perform bounded duplicate audit work after
+  process or fleet restarts.
+- Required fix: either implement true durable cadence semantics for all audit
+  tasks, or document and explicitly accept the narrower rescope: duplicate
+  hourly/daily/weekly audit work after restart is allowed, bounded by advisory
+  locks and sampling limits, and does not affect authority correctness.
 
 Governor WIP review on 2026-05-21:
 
@@ -446,9 +489,13 @@ Final WIP review on 2026-05-21:
 
 Severity: critical
 
-Blocking: no — closed in final validation round 2026-05-21.
+Blocking: no — closed 2026-05-21 after the GC-wins inside-tx rollback
+regression landed in `gc-seal-production-interleaving.test.ts` alongside
+the pre-tx fail-closed and seal-wins cases. Three production
+`sealPromotion()` regressions now cover all required orderings, plus the
+inline-SQL ordering regressions in `gc-seal-interleaving.test.ts`.
 
-Status: closed — final validation round 2026-05-21.
+Status: closed pending governor acceptance.
 
 Affected lane: Lane 8.
 
@@ -484,17 +531,64 @@ Acceptance:
   a non-deleting state (CQ-155 post-tombstone revert in
   `gc-rechecks-before-delete.test.ts`).
 - [x] A post-tombstone open staging row prevents deletion (same test).
-- [ ] Recheck-and-catalog-delete now run inside a single transaction with
-  `FOR UPDATE` on `pack_gc_state`. Once the catalog row is removed, a
-  concurrent grant has nothing to reference; the residual race window
-  between catalog-tx commit and object-bytes delete is closed because
-  Lane 6 reads always join through `(tenant_id, store_id, receipt_id,
-  remote_pack)`. The `gc-rechecks-before-delete.test.ts` "final-review
-  race" case proves a grant inserted via a wrapping `objectStore.delete`
-  hook becomes an orphan against a missing catalog row, NOT a successful
-  resurrection.
-- [ ] `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/cron/`
-  passes (11 files, 22 tests). API typecheck + lint clean repo-wide.
+- [x] Recheck-and-catalog-delete run inside a single transaction with
+  `FOR UPDATE` on both `pack_gc_state` and `remote_pack`. The same
+  `remote_pack FOR UPDATE` row is taken by `sealPromotion` before each
+  grant insert, so the two paths serialize at the row level.
+  `gc-seal-interleaving.test.ts` covers the two orderings:
+  - GC-wins: a subsequent seal-shaped tx pre-inserts receipt + authority
+    + search_generation, then takes `FOR UPDATE` on the deleted
+    `remote_pack`, sees no rows, throws, and the entire seal tx rolls
+    back. Assertion: zero receipt, authority, search_generation, grant.
+  - Seal-wins: a seal-shaped tx commits the grant first; GC's daily tick
+    rechecks under the same FOR UPDATE, sees the grant, reverts to
+    `live`. Bytes + catalog intact; no `prosa.gc.pack_deleted`.
+- [x] Production-shape `promotion_uploaded_pack` reversion:
+  `gc-seal-interleaving.test.ts` covers BOTH `tombstone_pending → live`
+  and `delete_pending → live` reversions when an open promotion appears
+  with empty `head_json` linked via `promotion_uploaded_pack` (the
+  production seal shape).
+- [x] `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/cron/`
+  passes (12 files, 28 tests). API typecheck + lint clean repo-wide.
+
+Governor validation on 2026-05-21 after uncommitted restart work:
+
+- Production code remains directionally correct and the focused cron gate
+  passes. However, CQ-155 cannot be governor-accepted yet because
+  `gc-seal-interleaving.test.ts` still simulates the seal side with inline
+  SQL rather than invoking `sealPromotion()`.
+- Required before closure:
+  - add a GC-wins regression that calls the actual `sealPromotion()` path and
+    proves it rejects/rolls back before any receipt, authority,
+    `search_generation_current`, or `receipt_pack_grant` row is visible when
+    GC has deleted the catalog row first;
+  - add a seal-wins regression that calls the actual `sealPromotion()` path,
+    publishes the grant, then runs GC and proves the pack reverts/remains live
+    with bytes and catalog intact;
+  - rerun at minimum
+    `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/cron/gc-seal-interleaving.test.ts test/v2/sync/seal-promotion.test.ts`
+    plus API typecheck.
+
+Governor validation on 2026-05-21 after `gc-seal-production-interleaving.test.ts`:
+
+- Seal-wins production coverage is acceptable: the test calls real
+  `sealPromotion()`, then real `registerGcCron()['gc-daily']()`, and verifies
+  GC reverts the pack to `live` with bytes/catalog intact.
+- GC-wins production coverage is still insufficient. The test deletes
+  `remote_pack` before invoking `sealPromotion()`, so `sealPromotion()` fails
+  during pre-transaction byte/catalog verification. It does not prove the
+  critical rollback path where receipt, `remote_authority_v2`, and
+  `search_generation_current` are inserted, then the `remote_pack FOR UPDATE`
+  check inside the transaction fails and rolls the transaction back.
+- Required before closure: add a GC-wins production test where
+  `verifyLinkedPackBytes()` succeeds, a simulated committed GC catalog delete
+  happens immediately before `sealPromotion()`'s transaction body, and
+  production `sealPromotion()` proves rollback by leaving zero receipt,
+  authority, search-generation, and grant rows visible. Then rerun:
+  ```text
+  pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/cron/
+  pnpm --filter @c3-oss/prosa-api typecheck
+  ```
 
 Governor validation on 2026-05-21 after `665efc9`/`e235d1e`:
 
@@ -555,6 +649,27 @@ Tests       17 passed (17)
 pnpm --filter @c3-oss/prosa-api typecheck
 passed
 ```
+
+Governor validation on 2026-05-21 after `b14ea4c`:
+
+- Still open as an acceptance/evidence blocker. The static code path looks
+  correct: GC and seal both lock `remote_pack`, and if GC wins, seal should
+  throw inside the transaction before receipt, authority, search generation, or
+  grants are visible.
+- Required coverage is still missing. The current "race" test pre-inserts a
+  grant before GC runs; it does not exercise a real two-transaction
+  seal-vs-GC interleaving, and no cron test calls `sealPromotion()`.
+- `promotion_uploaded_pack` coverage is partial: initial tombstone blocking is
+  covered, but post-tombstone staging and `delete_pending` reversion still use
+  legacy `head_json.pack_digests` or receipt grants.
+- Required tests:
+  - seal wins: `sealPromotion()` reaches/holds `remote_pack FOR UPDATE`,
+    inserts grant/authority, and GC then rechecks and leaves bytes/catalog live;
+  - GC wins: GC locks/deletes catalog first, then `sealPromotion()` fails
+    inside its transaction; assert no receipt, `remote_authority_v2`,
+    `search_generation_current`, or `receipt_pack_grant` is visible;
+  - production-shaped `promotion_uploaded_pack` post-tombstone reversion;
+  - production-shaped `promotion_uploaded_pack` `delete_pending` reversion.
 
 Governor WIP review on 2026-05-21:
 

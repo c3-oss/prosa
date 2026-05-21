@@ -159,11 +159,43 @@ Governor validation after closure commits, 2026-05-21:
   skips delete, and where GC wins and seal fails before any receipt, authority,
   or grant is visible. Also cover `promotion_uploaded_pack` post-tombstone and
   `delete_pending` reversion paths.
+- Final validation after `b14ea4c`: keep CQ-155 open. The code still appears
+  directionally correct, but no cron test calls `sealPromotion()` or proves a
+  real two-transaction seal-vs-GC interleaving. `promotion_uploaded_pack`
+  coverage is still partial: only initial tombstone blocking is proven.
 - CQ-156 is reopened pending decision: either implement real cron semantics or
   ask the governor to explicitly accept per-process interval cadence, including
   the fact that `lastFiredMs` resets on restart. Safe default: reject rescope
   and implement real cron semantics.
-- `RALPH_DONE` is invalid while CQ-155, CQ-156, or CQ-161 is open.
+- Final validation after `b14ea4c`: keep CQ-156 open unless the docs are
+  narrowed. The current rescope docs overstate durable cadence gating;
+  hourly/daily/weekly audit may do bounded duplicate work after process or
+  fleet restarts.
+- Final validation after `b14ea4c`: keep CQ-161 open. The code still opens the
+  operator v1 bundle through mutable `openBundleV1(oldPath)`, raw-source
+  snapshots compare only name/size, marker pre-archive replay is untested, and
+  `pnpm --filter @c3-oss/prosa exec vitest run test/v2/migrate/` failed in
+  read-only review with the mid-flight mutation test resolving instead of
+  rejecting.
+- Restart validation after the uncommitted CQ-155/CQ-156/CQ-161 work:
+  CQ-161 is acceptable after temp-copy read-only proof, content-hashed raw
+  source snapshots, marker-owned pre-archive cleanup, and clean
+  `pnpm --filter @c3-oss/prosa exec vitest run test/v2/migrate/`.
+  CQ-156 is acceptable under the narrower documented cadence rescope.
+  CQ-155 remains open: the new interleaving tests model the seal side with
+  inline SQL instead of invoking production `sealPromotion()`. Add actual
+  `sealPromotion()` GC-wins rejection/rollback and seal-wins GC reversion
+  regressions before claiming Lane 8 acceptance.
+- Final production-path review: the new seal-wins `sealPromotion()` test is
+  acceptable, but GC-wins remains open. The current GC-wins test deletes
+  `remote_pack` before calling `sealPromotion()`, so the failure occurs during
+  pre-transaction byte/catalog verification. Add a GC-wins test where
+  `verifyLinkedPackBytes()` succeeds, a simulated committed GC catalog delete
+  happens immediately before `sealPromotion()`'s transaction body, and
+  production `sealPromotion()` rolls back after the in-transaction
+  `remote_pack FOR UPDATE` check fails, leaving zero receipt, authority,
+  search-generation, and grant rows visible.
+- `RALPH_DONE` is invalid while CQ-155 is open.
 
 ## Milestone Order
 

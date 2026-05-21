@@ -22,8 +22,9 @@
 // further bookkeeping in the CLI command.
 
 import { createHash } from 'node:crypto'
-import { readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
-import { basename, dirname, resolve as resolvePath } from 'node:path'
+import { cp, mkdtemp, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { basename, dirname, join, resolve as resolvePath } from 'node:path'
 
 import {
   type Bundle as BundleV2,
@@ -72,6 +73,13 @@ export type MigrateBundleOptions = {
   providerRoots?: Partial<Record<SourceTool, string>>
   /** Optional `now` injection for deterministic archive paths in tests. */
   now?: () => number
+  /**
+   * CQ-161 test hook. Invoked AFTER reproject + v2 close but BEFORE
+   * the final v1 source resnapshot/comparison runs. Tests use this to
+   * deterministically tamper with the v1 source bytes and prove the
+   * snapshot guard fires. Production callers never set this.
+   */
+  _beforeResnapshot?: () => Promise<void>
 }
 
 export type MigrationPhase = 'discovery' | 'reproject' | 'validate' | 'rename'
@@ -139,14 +147,34 @@ export async function migrateBundle(options: MigrateBundleOptions): Promise<Migr
 
   // CQ-161: snapshot the v1 bundle so we can prove after migration
   // that it was not mutated. Captures `manifest.json` bytes, the
-  // SQLite DB digest, and a listing of `raw/sources` (file names +
-  // sizes). If any of these change between the snapshot and the
-  // rename phase, the migration aborts before the swap.
+  // SQLite DB digest, and BLAKE3-ish (SHA-256) content hashes for
+  // every `raw/sources` file. Same-name/same-size corruption is
+  // detected because the snapshot compares content digests, not just
+  // file metadata.
   const v1Snapshot = await snapshotV1Bundle(oldPath)
 
-  // Phase 1 — discovery. Open the v1 bundle and snapshot its source
-  // files; closing the v1 bundle happens in the `finally` below.
-  const v1 = await openBundleV1(oldPath)
+  // CQ-161 read-only proof: copy the v1 bundle to a temp directory
+  // and open THAT copy. The operator's source bundle is never opened
+  // through the mutable `openBundleV1` path. Manifest rewrites and
+  // schema migrations run inside the temp copy only and never touch
+  // the operator's bytes. The temp copy is removed on both success
+  // and error paths.
+  const readOnlyCopy = await copyV1ToTemp(oldPath)
+  let copyCleaned = false
+  const cleanupReadOnlyCopy = async (): Promise<void> => {
+    if (copyCleaned) return
+    copyCleaned = true
+    try {
+      await rm(readOnlyCopy, { recursive: true, force: true })
+    } catch {
+      // best-effort
+    }
+  }
+
+  // Phase 1 — discovery. Open the v1 bundle copy and read its source
+  // files. Closing the v1 bundle handle happens in the `finally`
+  // below; the temp directory itself is reaped after that.
+  const v1 = await openBundleV1(readOnlyCopy)
   let v2: BundleV2 | null = null
   try {
     const sourceFiles = await trackPhase('discovery', async () => readV1SourceFiles(v1))
@@ -195,11 +223,35 @@ export async function migrateBundle(options: MigrateBundleOptions): Promise<Migr
     await v2.close()
     v2 = null
 
-    // CQ-161: prove the v1 source bundle was not mutated. The v1
-    // opener applies pending migrations + may rewrite manifest.json,
-    // so the snapshot lets the migration fail closed when that
-    // happened (rather than swapping a mutated v1 into the archive).
-    const v1AfterSnapshot = await snapshotV1Bundle(oldPath)
+    // CQ-161 test hook: run any pre-resnapshot tampering before the
+    // final v1 source comparison so the snapshot guard is exercised
+    // deterministically.
+    if (options._beforeResnapshot) {
+      await options._beforeResnapshot()
+    }
+
+    // CQ-161: belt-and-suspenders mutation check. The migrate path
+    // now opens a temp copy of the v1 bundle (read-only proof), so
+    // the operator's source should not change during reproject. We
+    // re-snapshot the original anyway to catch external tampering
+    // (e.g. another process or operator overwriting a raw_sources
+    // file in place). `snapshotV1Bundle` hashes raw_sources content
+    // so same-name/same-size corruption fails closed here. Failures
+    // during the resnapshot (parse errors, unexpected JSON content)
+    // are converted into the documented `MigrationError(stage='validate')`
+    // contract so callers see a consistent failure shape.
+    let v1AfterSnapshot: V1Snapshot
+    try {
+      v1AfterSnapshot = await snapshotV1Bundle(oldPath)
+    } catch (snapshotErr) {
+      throw new MigrationError(
+        `migration aborted before rename: failed to re-verify v1 source bundle (${
+          snapshotErr instanceof Error ? snapshotErr.message : String(snapshotErr)
+        })`,
+        'validate',
+        { cause: String(snapshotErr) },
+      )
+    }
     if (!snapshotsEqual(v1Snapshot, v1AfterSnapshot)) {
       throw new MigrationError(
         'migration aborted before rename: v1 source bundle was mutated during reproject',
@@ -255,6 +307,7 @@ export async function migrateBundle(options: MigrateBundleOptions): Promise<Migr
     })
 
     closeBundle(v1)
+    await cleanupReadOnlyCopy()
 
     return {
       migratedAt: new Date().toISOString(),
@@ -281,6 +334,7 @@ export async function migrateBundle(options: MigrateBundleOptions): Promise<Migr
     } catch {
       // ignore
     }
+    await cleanupReadOnlyCopy()
     // On any error before the rename, clean up the temp v2 bundle
     // so the next invocation can re-run from a clean slate. The v1
     // bundle is left untouched at oldPath.
@@ -544,9 +598,19 @@ export async function recoverFromMigrationMarker(oldPath: string): Promise<{ res
   const oldExists = (await stat(oldPath).catch(() => null)) != null
   const archiveExists = (await stat(recordedArchive).catch(() => null)) != null
   if (oldExists) {
-    // Either the rename completed before the crash (oldPath now
-    // contains the v2 bundle) or the rollback succeeded. Either
-    // way, nothing to recover here.
+    // CQ-161 (pre-archive crash): the marker was written, but the
+    // first rename never landed. The temp `newPath` is non-empty and
+    // marker-owned (the marker proves it). Reap the marker-owned
+    // temp directory FIRST, then remove the marker — leaving a stale
+    // non-empty `newPath` without a marker would strand the directory
+    // as an unprovable operator path on the next run.
+    if (recordedNew) {
+      try {
+        await rm(recordedNew, { recursive: true, force: true })
+      } catch {
+        // best-effort
+      }
+    }
     await rm(markerPath, { force: true })
     return { restored: false }
   }
@@ -568,7 +632,11 @@ export async function recoverFromMigrationMarker(oldPath: string): Promise<{ res
 type V1Snapshot = {
   manifestHash: string
   dbHash: string
-  rawSources: Array<{ name: string; size: number }>
+  // CQ-161: raw_sources snapshot includes per-file content hash so
+  // same-name/same-size corruption is detected. The previous
+  // metadata-only listing could pass while bytes were silently
+  // rewritten.
+  rawSources: Array<{ name: string; size: number; hash: string }>
 }
 
 async function snapshotV1Bundle(oldPath: string): Promise<V1Snapshot> {
@@ -595,8 +663,12 @@ async function snapshotV1Bundle(oldPath: string): Promise<V1Snapshot> {
     names.sort()
     for (const name of names) {
       try {
-        const info = await stat(resolvePath(rawSourcesDir, name))
-        rawSources.push({ name, size: info.size })
+        const filePath = resolvePath(rawSourcesDir, name)
+        const info = await stat(filePath)
+        if (!info.isFile()) continue
+        const bytes = await readFile(filePath)
+        const hash = createHash('sha256').update(bytes).digest('hex')
+        rawSources.push({ name, size: info.size, hash })
       } catch {
         // skip
       }
@@ -615,7 +687,32 @@ function snapshotsEqual(a: V1Snapshot, b: V1Snapshot): boolean {
   for (let i = 0; i < a.rawSources.length; i++) {
     const x = a.rawSources[i]!
     const y = b.rawSources[i]!
-    if (x.name !== y.name || x.size !== y.size) return false
+    if (x.name !== y.name || x.size !== y.size || x.hash !== y.hash) return false
   }
   return true
+}
+
+/**
+ * CQ-161 read-only proof: copy the operator's v1 bundle to a fresh
+ * temp directory and return the temp path. The migration opens THIS
+ * copy through the mutable `openBundleV1` opener, so any pending
+ * schema migrations or manifest rewrites run inside the temp copy and
+ * never touch the operator's bytes.
+ *
+ * The copy uses `fs.cp({ recursive: true, dereference: false })` so
+ * symlinks under `raw/sources` are preserved as-is. Only the temp
+ * copy's files are mutable; the operator's v1 bundle remains
+ * byte-identical until the final archive rename.
+ */
+async function copyV1ToTemp(oldPath: string): Promise<string> {
+  const tmpRoot = await mkdtemp(join(tmpdir(), 'prosa-v1-readonly-'))
+  const dest = join(tmpRoot, 'v1')
+  await cp(oldPath, dest, {
+    recursive: true,
+    force: true,
+    errorOnExist: false,
+    dereference: false,
+    preserveTimestamps: true,
+  })
+  return dest
 }

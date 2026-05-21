@@ -98,20 +98,38 @@ export const NOOP_METRICS: DriftMetrics = {
  * cadences from running every wakeup while still leaving the
  * advisory-lock contract intact.
  *
- * CQ-156 governor-rescope (recorded under `evidence/lane-08.md`):
- * the load-bearing audit/GC contract is "each handler runs no more
- * than once per cadence, and the handler body re-evaluates against
- * the durable timestamp columns" — `pack_audit_state.last_full_hash_at`,
- * `pack_gc_state.first_unreferenced_at`, etc. The per-process
- * `lastFiredMs` timer is therefore an OPTIMIZATION (skip the SQL
- * round-trip when we know nothing changed); a restart resets the
- * timer but the next tick simply runs the handler again, and the
- * handler body's WHERE clauses no-op when the durable cadence has
- * not elapsed. Wall-clock cron-of-the-day-of-week semantics (e.g.
- * "monthly on the 1st at 04:00") are deferred to a node-cron
- * adapter swap; the per-handler cron expression is recorded in
- * `CRON_TASK_DEFINITIONS` and surfaces via the injected scheduler
- * so the swap can be transparent.
+ * CQ-156 governor-rescope (narrower than the previous draft;
+ * recorded under `evidence/lane-08.md`):
+ *
+ * - Monthly full-byte rehash and GC tombstone/delete transitions DO
+ *   have durable cadence gates. The monthly handler skips packs
+ *   whose `pack_audit_state.last_full_hash_at` is recent; GC's three
+ *   phases gate on `remote_pack.ingested_at`,
+ *   `pack_gc_state.first_unreferenced_at + GC_TOMBSTONE_GRACE_HOURS`,
+ *   and the unconditional ordering across phases. A restart resets
+ *   the per-process `lastFiredMs` but the next tick simply consults
+ *   those durable columns and no-ops when the cadence has not
+ *   elapsed.
+ *
+ * - Hourly, daily, and weekly audit sampling DO NOT have durable
+ *   cadence gates. After a process or fleet restart, the next tick
+ *   can re-run the same hourly sample or daily 4 KiB header probe
+ *   it ran before the restart. This duplicate work is bounded by
+ *   the advisory lock (only one worker runs a given task body at a
+ *   time), the per-tenant sampling caps
+ *   (`MAX_HOURLY_AUDIT_OPS_PER_TENANT` etc.), and the fact that
+ *   duplicate sampling never publishes new authority or deletes
+ *   bytes — it only re-reads `remote_pack` rows and may rewrite
+ *   `pack_audit_state.last_*_check_at` timestamps. Authority
+ *   correctness, read-side projection, and pack durability are
+ *   unaffected. This narrower rescope is the explicit
+ *   governor-accepted Lane 8 cadence contract.
+ *
+ * - Wall-clock cron-of-the-day-of-month semantics (e.g. "monthly on
+ *   the 1st at 04:00") are deferred to a node-cron adapter swap;
+ *   the per-handler cron expression is recorded in
+ *   `CRON_TASK_DEFINITIONS` and surfaces via the injected scheduler
+ *   so the swap can be transparent.
  */
 export function intervalScheduler(tickMs: number): CronScheduler {
   return (expression: string, handler: () => Promise<void>): (() => void) => {
