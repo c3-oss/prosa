@@ -7,8 +7,10 @@ export {
   acquireLock,
   writeStaleLock,
 } from './bundle/lock.js'
+export * from './epoch/inventory.js'
 export * from './epoch/lifecycle.js'
 export * from './epoch/manifest.js'
+export * from './epoch/sync-layout.js'
 export * from './pack/cas-pack.js'
 export * from './pack/cas-writer.js'
 export * from './pack/raw-source-pack.js'

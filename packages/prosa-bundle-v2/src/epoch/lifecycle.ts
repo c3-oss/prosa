@@ -53,12 +53,14 @@ import { epochDir, epochTmpDir } from '../bundle/layout.js'
 import { verifyCasPack } from '../pack/cas-pack.js'
 import { verifyRawSourcePack } from '../pack/raw-source-pack.js'
 import { syncDir, writeFileDurable } from '../util/durable-write.js'
+import { buildObjectInventory, buildProjectionInventory, writeInventorySegments } from './inventory.js'
 import {
   type EpochManifestV2,
   PLACEHOLDER_SIGNATURE,
   type SignedEpochManifestV2,
   epochManifestBytes,
 } from './manifest.js'
+import { writeSyncLayoutFile } from './sync-layout.js'
 
 const PARSER_VERSION = '2.0.0-lane1'
 
@@ -72,6 +74,8 @@ export type DurableSegmentRef = {
     | 'search_docs_arrow'
     | 'session_blob_pack'
     | 'manifest'
+    | 'inventory_object'
+    | 'inventory_projection'
   /** Absolute on-disk path inside the bundle. */
   path: string
   /** BLAKE3 digest of the segment bytes (tagged form). */
@@ -87,6 +91,14 @@ export type DurableSegmentRef = {
    * carry; CAS object inventory is recomputed from `verifyCasPack`.
    */
   objectIds?: readonly string[]
+  /** For inventory_object segments, the number of objects covered. */
+  objectCount?: number
+  /** For inventory_object segments, the Merkle root over sorted object_ids (hex, no `blake3:` prefix). */
+  objectSetRoot?: string
+  /** For inventory_object/inventory_projection segments, the canonical id assigned at seal time. */
+  segmentId?: string
+  /** For inventory_projection segments, the row count this manifest is summarising. */
+  rowCount?: number
 }
 
 /**
@@ -658,6 +670,11 @@ function enforceKindContainment(
       allowed.push(epochTmpAbs)
       allowed.push(epochPermanentAbs)
       break
+    case 'inventory_object':
+    case 'inventory_projection':
+      allowed.push(epochTmpAbs)
+      allowed.push(epochPermanentAbs)
+      break
     case 'search_docs_arrow':
     case 'session_blob_pack':
       // Lane 1 does not pin a sub-location for these kinds yet; require
@@ -802,6 +819,58 @@ export async function sealEpoch(handle: EpochHandle): Promise<SealedEpoch> {
   const bundleRoot = toHex(bundleRootFromRows(rowsByEntity))
   const rawSourceRoot = toHex(rawSourceRootFromEntries(handle.rawSourceEntries()))
 
+  // G4: emit inventory segments + sync-v2.layout.json so every sealed
+  // bundle is wire-ready for `prosa sync-v2`. Inventories are derived
+  // from `verified` (already byte-checked above) so they describe
+  // exactly what landed on disk; the seal then registers them as
+  // durable segments and the rename publishes them with the rest of
+  // the epoch.
+  const projectionSegmentSnapshot = handle
+    .registeredSegments()
+    .filter((s) => s.kind === 'projection_arrow' || s.kind === 'projection_parquet')
+    .map((s) => {
+      const entry: { digest: string; byteLength: number; entityType?: CanonicalEntityType } = {
+        digest: s.digest,
+        byteLength: s.byteLength,
+      }
+      if (s.entityType !== undefined) entry.entityType = s.entityType
+      return entry
+    })
+  const objectInventoryBuilt = buildObjectInventory({
+    casObjects: verified.casObjects,
+    rawSourceContent: verified.rawSourceContent,
+  })
+  const projectionInventoryBuilt = buildProjectionInventory({
+    segments: projectionSegmentSnapshot,
+    countsByEntity: {
+      // `project` is omitted because `BundleCountsV2` doesn't yet
+      // surface a per-entity project count (projects aren't emitted
+      // by Lane 1 importers); the inventory follows the same shape.
+      source_file: counts.sourceFiles,
+      raw_record: counts.rawRecords,
+      session: counts.sessions,
+      turn: counts.turns,
+      event: counts.events,
+      message: counts.messages,
+      content_block: counts.contentBlocks,
+      tool_call: counts.toolCalls,
+      tool_result: counts.toolResults,
+      artifact: counts.artifacts,
+      edge: counts.edges,
+      search_doc: counts.searchDocs,
+    },
+  })
+  const inventoryRefs = await writeInventorySegments({
+    tmpEpochDir: handle.tmpDir,
+    objectInventoryBytes: objectInventoryBuilt.bytes,
+    projectionInventoryBytes: projectionInventoryBuilt.bytes,
+    objectSetRoot: objectInventoryBuilt.objectSetRoot,
+    objectCount: objectInventoryBuilt.payload.totalObjects,
+    projectionRowCount: projectionInventoryBuilt.payload.totalRows,
+  })
+  handle.registerSegment(inventoryRefs.objectRef)
+  handle.registerSegment(inventoryRefs.projectionRef)
+
   const manifest: EpochManifestV2 = {
     bundleFormat: 2,
     storeId: handle.bundle.head.storeId,
@@ -848,6 +917,32 @@ export async function sealEpoch(handle: EpochHandle): Promise<SealedEpoch> {
   await mkdir(handle.bundle.paths.epochs, { recursive: true })
   await rename(handle.tmpDir, permanent)
   await syncDir(handle.bundle.paths.epochs)
+
+  // G4: publish `sync-v2.layout.json` after the epoch dir is in its
+  // permanent location so the layout's relative paths address files
+  // that exist post-rename. Inventory paths derived inside `tmpDir`
+  // become permanent paths via `epochDir`; CAS / raw_source pack
+  // paths are bundle-root-local and survive the rename unchanged.
+  const objectInventoryPermanent: DurableSegmentRef = {
+    ...inventoryRefs.objectRef,
+    path: join(permanent, inventoryRefs.objectRef.path.slice(handle.tmpDir.length + 1)),
+  }
+  const projectionInventoryPermanent: DurableSegmentRef = {
+    ...inventoryRefs.projectionRef,
+    path: join(permanent, inventoryRefs.projectionRef.path.slice(handle.tmpDir.length + 1)),
+  }
+  const objectPackPaths = handle
+    .registeredSegments()
+    .filter((s) => s.kind === 'cas_object_pack')
+    .map((s) => ({ path: s.path }))
+  await writeSyncLayoutFile({
+    bundleRoot: handle.bundle.paths.root,
+    storePath: handle.bundle.head.storePath,
+    objectInventory: objectInventoryPermanent,
+    projectionInventory: projectionInventoryPermanent,
+    objectPacks: objectPackPaths,
+  })
+  await syncDir(handle.bundle.paths.root)
 
   const manifestDigest = `blake3:${toHex(blake3(manifestBody))}`
   const nextHead: BundleHeadV2 = {
