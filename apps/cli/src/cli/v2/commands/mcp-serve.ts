@@ -28,6 +28,7 @@ import { Command } from 'commander'
 import { CliUserError } from '../../errors.js'
 import { parseMcpTransport, parseSearchEngine } from '../../parsers.js'
 import { defaultV2AuthorityDir, refreshAuthorityNow } from '../authority/index.js'
+import { listenV2McpHttp, listenV2McpStdio } from '../mcp/v2-server.js'
 import {
   type AuthorityMode,
   type V2ReadContext,
@@ -81,12 +82,41 @@ export function mcpServeV2Command(): Command {
 
       logPinnedAuthority(ctx)
 
-      const onRefreshAuthority = ctx.kind === 'remote' ? makeRefreshCallback(ctx) : undefined
+      const transport = parseMcpTransport(options.transport)
 
+      // Local mode: the v2 MCP server reads straight from the local
+      // bundle's NDJSON / Parquet / session-blob artifacts via the
+      // `local-reads/*` service. No v1 SQLite handle involved.
+      if (ctx.kind === 'local') {
+        if (transport === 'http') {
+          const port = Number.parseInt(options.port, 10)
+          if (!Number.isFinite(port) || port <= 0) {
+            throw new CliUserError(`invalid port: ${options.port}`)
+          }
+          const httpServer = await listenV2McpHttp({
+            bundleRoot: storePath,
+            host: options.host,
+            port,
+            path: options.path,
+          })
+          process.stdout.write(`prosa mcp v2 (local) listening at ${httpServer.url}\n`)
+          process.stdout.write('press Ctrl+C to stop\n')
+          registerV2Shutdown(httpServer.close)
+          return
+        }
+        const stdioServer = await listenV2McpStdio({ bundleRoot: storePath })
+        registerV2Shutdown(stdioServer.close)
+        return
+      }
+
+      // Remote mode keeps the prosa-core MCP server for now; the
+      // tools still talk to the v1 bundle handle. A v2 remote-backed
+      // MCP server is tracked as follow-up work — the local-reads
+      // path above already covers the common stress-test recipe.
+      const onRefreshAuthority = makeRefreshCallback(ctx)
+      const searchEngine = parseSearchEngine(options.searchEngine)
       const bundle = await openOrInitBundle(storePath)
       try {
-        const transport = parseMcpTransport(options.transport)
-        const searchEngine = parseSearchEngine(options.searchEngine)
         if (transport === 'http') {
           const port = Number.parseInt(options.port, 10)
           if (!Number.isFinite(port) || port <= 0) {
@@ -100,7 +130,7 @@ export function mcpServeV2Command(): Command {
             storePath,
             onRefreshAuthority,
           })
-          process.stdout.write(`prosa mcp v2 server listening at ${httpServer.url}\n`)
+          process.stdout.write(`prosa mcp v2 (remote) listening at ${httpServer.url}\n`)
           process.stdout.write('press Ctrl+C to stop\n')
           registerShutdown(httpServer.close, bundle)
           return
@@ -112,6 +142,15 @@ export function mcpServeV2Command(): Command {
         throw error
       }
     })
+}
+
+function registerV2Shutdown(closeServer: () => Promise<void>): void {
+  const shutdown = async (): Promise<void> => {
+    await closeServer()
+    process.exit(0)
+  }
+  process.once('SIGINT', shutdown)
+  process.once('SIGTERM', shutdown)
 }
 
 /**
