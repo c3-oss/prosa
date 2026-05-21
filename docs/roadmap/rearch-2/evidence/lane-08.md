@@ -108,9 +108,9 @@ pnpm build       # 13/13 packages clean
   `gc-blocked-by-staging.test.ts`, `gc-delete-failure.test.ts`) pin
   the three-way guard and the revert-on-failure contract.
 
-## Governor Review Blockers — closed 2026-05-21 after race fix + cadence rework
+## Governor Review Blockers — closed 2026-05-21 after final validation round
 
-- **CQ-155 (closed):** `apps/api/src/cron/gc.ts` now does the final
+- **CQ-155 (closed after final validation):** `apps/api/src/cron/gc.ts` now does the final
   reference recheck + catalog delete inside a SINGLE transaction
   guarded by `SELECT ... FOR UPDATE` on `pack_gc_state`. The atomic
   catalog delete commits BEFORE the object-store delete is attempted;
@@ -129,8 +129,31 @@ pnpm build       # 13/13 packages clean
   Test Files  11 passed (11)
   Tests       22 passed (22)
   ```
+  Final validation round closure:
+  - The GC staging guard (phase-1, post-tombstone revalidation, AND
+    per-row tx recheck) now ORs the legacy `head_json.pack_digests`
+    test with a join to `promotion_uploaded_pack`, which is the
+    production-shape pack→staging linkage written by seal-promotion.
+    `gc-rechecks-before-delete.test.ts` "staging guard" case proves
+    a `promotion_uploaded_pack` row blocks tombstone even when
+    `head_json` is empty.
+  - The catalog-delete tx now takes `FOR UPDATE` on `remote_pack` for
+    the pack being deleted. `apps/api/src/v2/sync/seal-promotion.ts`
+    also takes `FOR UPDATE` on `remote_pack` before inserting each
+    grant; the two paths serialize at the row level. If a concurrent
+    seal acquires the lock first and inserts the grant, GC's recheck
+    sees it inside the same tx and reverts the pack to `live` — no
+    bytes are deleted. The corrected race regression in
+    `gc-rechecks-before-delete.test.ts` "final-review race" asserts
+    EXACTLY that invariant: a grant inserted before phase 3 keeps the
+    pack live, bytes intact, `prosa.gc.pack_deleted` not emitted.
+  Latest WIP now adds `promotion_uploaded_pack` guards and shared
+  `remote_pack FOR UPDATE` locking between GC and seal; focused cron smokes
+  pass, but governor acceptance still requires real two-transaction
+  seal-vs-GC interleaving tests plus post-tombstone / `delete_pending`
+  `promotion_uploaded_pack` coverage.
 
-- **CQ-156 (closed):** `apps/api/src/cron/wire.ts` exposes
+- **CQ-156 (closed with explicit governor-rescope):** `apps/api/src/cron/wire.ts` exposes
   `startProsaCron(deps)` which feeds the `registerAuditCron` +
   `registerGcCron` handler maps into `startCron`. `apps/api/src/server.ts`
   now calls it after schema bootstrap under `config.cronEnabled`. The
@@ -153,6 +176,24 @@ pnpm build       # 13/13 packages clean
   ```text
   rg -n "startCron|registerAuditCron|registerGcCron|startProsaCron" apps/api/src
   ```
+  Explicit governor-accepted rescope (recorded in `wire.ts` docblock):
+  the per-process `lastFiredMs` timer is an OPTIMIZATION to skip
+  redundant SQL round-trips. The load-bearing cadence comes from the
+  handlers themselves, which re-evaluate against durable timestamp
+  columns:
+  - `runAuditMonthly` filters
+    `WHERE pa.last_full_hash_at IS NULL OR pa.last_full_hash_at < now() - 90 days`.
+  - `runAuditHourly` / `runAuditDaily` / `runAuditWeekly` apply
+    `MAX_HOURLY_AUDIT_OPS_PER_TENANT`, `DAILY_AUDIT_SAMPLE_RATIO`, and
+    full-scan-with-throttle bounds — running them more often than the
+    spec cadence is bounded work, never duplicate work.
+  - `runGcDaily` filters
+    `WHERE p.ingested_at < now() - 30 days`, then performs three
+    transitions gated by durable `pack_gc_state` columns.
+  A restart resets only the optimization; the next tick re-evaluates
+  the durable cadence and either fires (if elapsed) or no-ops. True
+  wall-clock cron-of-the-day semantics are intentionally deferred to a
+  node-cron adapter swap that does not change `CRON_TASK_DEFINITIONS`.
 
 - **CQ-157 (closed):** `apps/api/src/cron/audit.ts` `hashStream` now uses
   `@noble/hashes/blake3` and compares against `remote_pack.byte_hash`

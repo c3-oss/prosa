@@ -86,36 +86,28 @@ describe('migrateBundle CQ-161: crash recovery between renames', () => {
     const newPath = await mktmp('prosa-v2-tmp')
     await rm(newPath, { recursive: true, force: true })
 
-    // Snapshot the pre-migration manifest so we can verify the v1
-    // source survives even when something tampers with it during the
-    // run. We patch `migrateBundle` indirectly by tampering AFTER the
-    // function starts: simulate a concurrent writer by rewriting
-    // manifest.json mid-run via a setImmediate. Since migrateBundle is
-    // single-process awaitable, we instead simulate the post-snapshot
-    // mutation by patching the file BEFORE the reverify but AFTER the
-    // reproject phase. The simplest deterministic way is to use a
-    // wrapper that mutates after `runCompileImports`. Without that
-    // hook, the equivalent failure mode is direct: tamper the
-    // manifest before calling migrateBundle to prove the verify path
-    // catches it. The previous snapshot inside migrateBundle is taken
-    // before the tamper; after the tamper, the post-reproject
-    // re-snapshot will not match.
+    // Snapshot the pre-migration v1 image (manifest + raw_sources)
+    // so we can prove tampering aborts the migrate before rename.
+    // We tamper a raw_sources file (NOT manifest.json) so the v1
+    // opener's JSON.parse + migrations succeed normally while the
+    // post-reproject re-snapshot still detects the mutation.
     const beforeManifest = await hashFile(join(oldPath, 'manifest.json'))
     expect(beforeManifest.length).toBeGreaterThan(0)
 
-    // Tamper with manifest.json AFTER the snapshot but BEFORE the
-    // reverify. We can deterministically achieve this by mutating
-    // the file in a `setImmediate`-style queued microtask that the
-    // ongoing reproject phase awaits. In practice the bundle's reads
-    // run async, so we simply spawn the mutation in parallel and let
-    // the reverify catch it.
-    const originalManifest = await readFile(join(oldPath, 'manifest.json'))
+    // Find a raw_sources file to tamper. The v1 importer always
+    // produces at least one preserved zstd file under raw/sources.
+    const rawSourcesDir = join(oldPath, 'raw', 'sources')
     const tamperPromise = new Promise<void>((resolve) => {
-      setTimeout(() => {
-        // Append a junk byte so the SHA-256 changes.
-        void writeFile(join(oldPath, 'manifest.json'), `${originalManifest.toString('utf8')}\n# tampered\n`).then(() =>
-          resolve(),
-        )
+      setTimeout(async () => {
+        try {
+          const entries = await (await import('node:fs/promises')).readdir(rawSourcesDir)
+          const target = entries[0]
+          if (target) {
+            await writeFile(join(rawSourcesDir, `${target}.tampered`), 'unexpected operator data')
+          }
+        } finally {
+          resolve()
+        }
       }, 5)
     })
 

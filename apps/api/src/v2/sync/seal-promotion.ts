@@ -440,6 +440,24 @@ export async function sealPromotion(
         [deps.tenantId, staging.store_id, finalPayload.materialization.searchGenerationId, finalPayload.receiptId],
       )
       for (const digest of packDigests) {
+        // CQ-155 (final review): take a row-level lock on the
+        // catalog row for this pack before inserting the grant.
+        // If GC's atomic catalog-delete tx has already committed the
+        // removal, the lock returns no rows and seal-promotion fails
+        // closed instead of producing a dangling grant against a
+        // missing pack. Concurrent GC runs are blocked on the same
+        // row, so the grant is either visible to GC's recheck (which
+        // reverts the pack to `live`) or GC has already deleted the
+        // pack and seal-promotion aborts.
+        const catalog = await tx<{ ok: boolean }>(
+          `SELECT 1 AS ok FROM remote_pack WHERE tenant_id = $1 AND pack_digest = $2 FOR UPDATE`,
+          [deps.tenantId, digest],
+        )
+        if (catalog.length === 0) {
+          throw new Error(
+            `seal-promotion: remote_pack(${digest}) was deleted before grant insert; aborting seal to keep authority consistent`,
+          )
+        }
         await tx(
           `INSERT INTO receipt_pack_grant (receipt_id, tenant_id, pack_digest, grant_mode)
          VALUES ($1, $2, $3, 'all_entries')

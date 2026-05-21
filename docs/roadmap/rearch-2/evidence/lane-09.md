@@ -138,7 +138,7 @@ authority row" invariant SealPromotion enforces.
   Tests       2 passed (2)
   ```
 
-- **CQ-161 (closed):**
+- **CQ-161 (closed after final validation):**
   - `apps/cli/src/cli/v2/migrate/bundle.ts` snapshots the v1 bundle
     (`manifest.json` SHA-256 + `prosa.sqlite` SHA-256 + raw-sources file
     list/sizes) before reproject and reverifies before rename. A
@@ -170,15 +170,27 @@ authority row" invariant SealPromotion enforces.
     Test Files  5 passed (5)
     Tests       13 passed (13)
     ```
+    Governor validation reran the focused CQ-161 subset after
+    `665efc9`/`e235d1e` and it failed:
+    ```text
+    pnpm --filter @c3-oss/prosa exec vitest run test/v2/migrate/bundle-atomic-rename.test.ts test/v2/migrate/bundle-read-only-and-recovery.test.ts
+    Test Files  1 failed | 1 passed (2)
+    Tests       1 failed | 5 passed (6)
+    bundle-read-only-and-recovery.test.ts:
+    expected SyntaxError: Unexpected non-whitespace character after JSON
+    to match object { stage: 'validate' }
+    ```
+    CQ-161 remains open until mutation/parsing failures become the expected
+    `MigrationError(stage='validate')`, the v1 source cannot be mutated by the
+    mutable opener path, and marker-owned cleanup covers the pre-archive marker
+    crash state.
   - Performance gate (1.4 GB end-to-end timing): explicitly rescoped.
     The in-process fixtures + atomic-rename + recovery + mutation
-    + non-empty-newPath regressions are governor-accepted for Lane 9;
-    a real multi-GB throughput gate is deferred to a follow-up after
-    Lane 10 cutover begins, when the production object-store adapter
-    can be exercised in CI. The rescope mirrors the original Slice 1
-    deferral noted under "Open CQs / Notes".
-  and tests proving stale/missing-dir aborts leave v1 unchanged while a
-  pre-existing non-marker `--new` path is preserved or rejected.
+    + non-empty-newPath regressions are not yet governor-accepted because
+    the focused CQ-161 subset currently fails. A real multi-GB throughput gate
+    remains deferred to a follow-up after Lane 10 cutover begins, when the
+    production object-store adapter can be exercised in CI. The rescope mirrors
+    the original Slice 1 deferral noted under "Open CQs / Notes".
 
 ## Open CQs / Notes
 

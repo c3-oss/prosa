@@ -77,7 +77,15 @@ export async function runGcDaily(deps: GcCronDeps): Promise<void> {
           SELECT 1 FROM promotion_staging s
            WHERE s.tenant_id = p.tenant_id
              AND s.status IN ('open','uploading','materializing')
-             AND s.head_json @> jsonb_build_object('pack_digests', jsonb_build_array(p.pack_digest))
+             AND (
+               s.head_json @> jsonb_build_object('pack_digests', jsonb_build_array(p.pack_digest))
+               OR EXISTS (
+                 SELECT 1 FROM promotion_uploaded_pack pup
+                  WHERE pup.tenant_id = s.tenant_id
+                    AND pup.promotion_id = s.id
+                    AND pup.pack_digest = p.pack_digest
+               )
+             )
         )
         AND NOT EXISTS (
           SELECT 1 FROM pack_gc_state existing
@@ -91,7 +99,9 @@ export async function runGcDaily(deps: GcCronDeps): Promise<void> {
   // A grant or open promotion_staging row appearing AFTER tombstone
   // must return the pack to `live` so phase 3 cannot delete it. The
   // revert clears `first_unreferenced_at` so the 30-day clock starts
-  // over the next time the pack is unreferenced.
+  // over the next time the pack is unreferenced. Production staging
+  // rows associate packs through `promotion_uploaded_pack`; legacy
+  // head_json arrays are kept as a belt-and-suspenders fallback.
   await deps.rawExec(
     `UPDATE pack_gc_state s
         SET status = 'live', first_unreferenced_at = NULL
@@ -104,7 +114,15 @@ export async function runGcDaily(deps: GcCronDeps): Promise<void> {
               SELECT 1 FROM promotion_staging ps
                WHERE ps.tenant_id = s.tenant_id
                  AND ps.status IN ('open','uploading','materializing')
-                 AND ps.head_json @> jsonb_build_object('pack_digests', jsonb_build_array(s.pack_digest))
+                 AND (
+                   ps.head_json @> jsonb_build_object('pack_digests', jsonb_build_array(s.pack_digest))
+                   OR EXISTS (
+                     SELECT 1 FROM promotion_uploaded_pack pup
+                      WHERE pup.tenant_id = ps.tenant_id
+                        AND pup.promotion_id = ps.id
+                        AND pup.pack_digest = s.pack_digest
+                   )
+                 )
              ))`,
     [],
   )
@@ -162,6 +180,13 @@ export async function runGcDaily(deps: GcCronDeps): Promise<void> {
           // Row already changed under us (re-evaluated elsewhere).
           return
         }
+        // Lock the catalog row inside the same tx; seal-promotion
+        // also takes FOR UPDATE on this row before inserting a
+        // grant, so the two paths serialize at the row level.
+        await tx(`SELECT 1 FROM remote_pack WHERE tenant_id = $1 AND pack_digest = $2 FOR UPDATE`, [
+          row.tenant_id,
+          row.pack_digest,
+        ])
         const refs = await tx<{ referenced: boolean }>(
           `SELECT (
               EXISTS (SELECT 1 FROM receipt_pack_grant g
@@ -169,7 +194,15 @@ export async function runGcDaily(deps: GcCronDeps): Promise<void> {
               OR EXISTS (SELECT 1 FROM promotion_staging ps
                           WHERE ps.tenant_id = $1
                             AND ps.status IN ('open','uploading','materializing')
-                            AND ps.head_json @> jsonb_build_object('pack_digests', jsonb_build_array($2::text)))
+                            AND (
+                              ps.head_json @> jsonb_build_object('pack_digests', jsonb_build_array($2::text))
+                              OR EXISTS (
+                                SELECT 1 FROM promotion_uploaded_pack pup
+                                 WHERE pup.tenant_id = ps.tenant_id
+                                   AND pup.promotion_id = ps.id
+                                   AND pup.pack_digest = $2
+                              )
+                            ))
            ) AS referenced`,
           [row.tenant_id, row.pack_digest],
         )

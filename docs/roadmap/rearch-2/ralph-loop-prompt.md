@@ -130,6 +130,41 @@ Final reviewer update, 2026-05-21:
   `/v2/stores/<store>/authority` assertions and a documented/tested per-store
   or tenant-wide receipt provenance model.
 
+Governor validation after closure commits, 2026-05-21:
+
+- Ralph committed `665efc9` and `e235d1e`, but CQ-161 is reopened because the
+  focused local bundle migration gate fails:
+  ```text
+  pnpm --filter @c3-oss/prosa exec vitest run test/v2/migrate/bundle-atomic-rename.test.ts test/v2/migrate/bundle-read-only-and-recovery.test.ts
+  Test Files  1 failed | 1 passed (2)
+  Tests       1 failed | 5 passed (6)
+  bundle-read-only-and-recovery.test.ts:
+  expected SyntaxError: Unexpected non-whitespace character after JSON
+  to match object { stage: 'validate' }
+  ```
+- Treat CQ-161 as open and blocking. Convert source-bundle mutation/parsing
+  failures in the post-snapshot validation path into the expected
+  `MigrationError` with `stage: 'validate'`, preserve the v1 source, reject
+  the swap, and rerun the exact focused command above.
+- CQ-155 is also reopened and blocking. The GC staging guard checks
+  `head_json.pack_digests`, but production promotion staging uses bundle-head
+  `segments` plus `promotion_uploaded_pack`; add production-shaped staging
+  coverage. The current final race test expects bytes to be deleted after a
+  late grant, which contradicts the invariant. Add a race/replay regression
+  where GC must skip delete or seal must fail before authority/grants.
+- Latest CQ-155 WIP review: the current uncommitted code looks directionally
+  correct (`promotion_uploaded_pack` guards and shared `remote_pack FOR UPDATE`
+  locks), and focused cron/typecheck smokes pass. Do not close CQ-155 yet:
+  add actual two-transaction interleaving tests where seal wins the lock and GC
+  skips delete, and where GC wins and seal fails before any receipt, authority,
+  or grant is visible. Also cover `promotion_uploaded_pack` post-tombstone and
+  `delete_pending` reversion paths.
+- CQ-156 is reopened pending decision: either implement real cron semantics or
+  ask the governor to explicitly accept per-process interval cadence, including
+  the fact that `lastFiredMs` resets on restart. Safe default: reject rescope
+  and implement real cron semantics.
+- `RALPH_DONE` is invalid while CQ-155, CQ-156, or CQ-161 is open.
+
 ## Milestone Order
 
 ### Lane 7 — CLI and MCP

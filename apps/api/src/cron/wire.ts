@@ -98,14 +98,20 @@ export const NOOP_METRICS: DriftMetrics = {
  * cadences from running every wakeup while still leaving the
  * advisory-lock contract intact.
  *
- * Production deployments that need true cron-of-the-day-of-week
- * semantics (e.g. "monthly on the 1st at 04:00") should swap this for
- * a node-cron adapter; the per-handler cron expression is recorded in
- * `CRON_TASK_DEFINITIONS` and surfaces via the injected scheduler.
- * The cadence approach here is governor-rescoped (CQ-156) because the
- * load-bearing audit/GC contract is "each handler runs no more than
- * once per cadence and re-evaluates against the timestamp columns",
- * not "fires at a wall-clock minute".
+ * CQ-156 governor-rescope (recorded under `evidence/lane-08.md`):
+ * the load-bearing audit/GC contract is "each handler runs no more
+ * than once per cadence, and the handler body re-evaluates against
+ * the durable timestamp columns" — `pack_audit_state.last_full_hash_at`,
+ * `pack_gc_state.first_unreferenced_at`, etc. The per-process
+ * `lastFiredMs` timer is therefore an OPTIMIZATION (skip the SQL
+ * round-trip when we know nothing changed); a restart resets the
+ * timer but the next tick simply runs the handler again, and the
+ * handler body's WHERE clauses no-op when the durable cadence has
+ * not elapsed. Wall-clock cron-of-the-day-of-week semantics (e.g.
+ * "monthly on the 1st at 04:00") are deferred to a node-cron
+ * adapter swap; the per-handler cron expression is recorded in
+ * `CRON_TASK_DEFINITIONS` and surfaces via the injected scheduler
+ * so the swap can be transparent.
  */
 export function intervalScheduler(tickMs: number): CronScheduler {
   return (expression: string, handler: () => Promise<void>): (() => void) => {

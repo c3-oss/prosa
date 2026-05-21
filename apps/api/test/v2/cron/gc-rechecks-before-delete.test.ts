@@ -133,17 +133,13 @@ describe('Lane 8 GC daily — CQ-155 post-tombstone revalidation', () => {
     expect(deletedEvents).toHaveLength(0)
   })
 
-  it('CQ-155 final-review race: a grant inserted between recheck-tx and object-delete cannot resurrect a pack', async () => {
-    // The atomic catalog-delete tx removes `remote_pack` BEFORE we
-    // touch the object store. A concurrent `seal-promotion` that
-    // attempts to insert a grant after the tx commits has nothing to
-    // grant against (no remote_pack row). The test simulates this by
-    // mutating the catalog after our tx commits via a wrapping
-    // `objectStore.delete` hook that inserts a grant row right before
-    // performing the bytes delete; we assert that the pack stays
-    // logically deleted and the grant is recorded as an orphan
-    // (visible in the audit error metric, since the catalog row that
-    // would have been required for the grant is already gone).
+  it('CQ-155 final-review race: a grant inserted BEFORE the catalog-tx commits keeps the pack alive', async () => {
+    // The atomic catalog-delete tx serializes against seal-promotion
+    // via row-level FOR UPDATE on `remote_pack`. If a concurrent
+    // seal acquires the lock first and inserts a grant, GC's tx
+    // sees the grant in its recheck and reverts the pack to `live`
+    // — no bytes are deleted. This test simulates the production
+    // serialization by inserting the grant BEFORE GC runs phase 3.
     const tenantId = 't_gc_race'
     const packDigest = 'pack_gc_race'
     const storageUri = `object-packs/${tenantId}/test/${packDigest}.pack`
@@ -159,48 +155,79 @@ describe('Lane 8 GC daily — CQ-155 post-tombstone revalidation', () => {
          VALUES ($1, $2, $3, $3, 'delete_pending')`,
       [tenantId, packDigest, new Date(Date.now() - 26 * 60 * 60 * 1000).toISOString()],
     )
-
-    const racingStore = {
-      delete: async (uri: string) => {
-        // Pretend a concurrent seal inserts a grant AFTER the catalog
-        // tx committed and BEFORE the object bytes are removed. With
-        // the atomic catalog delete the `remote_pack` row is already
-        // gone, so the grant is orphaned. We still expect the
-        // existing object bytes to be deleted by GC.
-        await seedReceiptGrant(h, { tenantId, packDigest, receiptId: 'rcp_race' })
-        await h.store.delete(uri)
-      },
-    }
+    // Concurrent seal-promotion landed first and inserted a grant.
+    // CQ-155 invariant: bytes MUST NOT be deleted now.
+    await seedReceiptGrant(h, { tenantId, packDigest, receiptId: 'rcp_race' })
 
     const handlers = registerGcCron({
       rawExec: h.rawExec,
       transaction: h.transaction,
-      objectStore: racingStore,
+      objectStore: h.store,
       logger: h.logger,
       metrics: h.metrics,
     })
     await handlers['gc-daily']()
 
-    // The pack is logically deleted; the catalog row is gone.
+    // The pack remains live; catalog row + bytes are intact.
     const rows = await h.rawExec<{ status: string }>(
       `SELECT status FROM pack_gc_state WHERE tenant_id = $1 AND pack_digest = $2`,
       [tenantId, packDigest],
     )
-    expect(rows[0]!.status).toBe('deleted')
+    expect(rows[0]!.status).toBe('live')
     const catalog = await h.rawExec(`SELECT 1 FROM remote_pack WHERE tenant_id = $1 AND pack_digest = $2`, [
       tenantId,
       packDigest,
     ])
-    expect(catalog).toHaveLength(0)
-    // The orphan grant inserted by the racer survives in the DB but
-    // points at no `remote_pack` row, so Lane 6 reads cannot resolve
-    // any authority for it. A periodic catalog audit can sweep these.
-    const grants = await h.rawExec(`SELECT 1 FROM receipt_pack_grant WHERE tenant_id = $1 AND pack_digest = $2`, [
-      tenantId,
-      packDigest,
-    ])
-    expect(grants).toHaveLength(1)
-    expect(await h.store.head(storageUri)).toBeNull()
+    expect(catalog).toHaveLength(1)
+    expect(await h.store.head(storageUri)).not.toBeNull()
+    const deleted = h.metrics.events.filter((e) => e.name === 'prosa.gc.pack_deleted')
+    expect(deleted).toHaveLength(0)
+  })
+
+  it('CQ-155 final-review staging guard: an open promotion linked via promotion_uploaded_pack blocks tombstone', async () => {
+    // Production seal-promotion writes pack associations into
+    // `promotion_uploaded_pack`, NOT `head_json.pack_digests`. The
+    // guard must honor that linkage too.
+    const tenantId = 't_gc_pup'
+    const packDigest = 'pack_gc_pup'
+    const storageUri = `object-packs/${tenantId}/test/${packDigest}.pack`
+    const fortyDaysAgo = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000).toISOString()
+    await h.rawExec(
+      `INSERT INTO remote_pack (tenant_id, pack_digest, kind, entry_count, byte_length, object_set_root, storage_uri, ingested_at)
+         VALUES ($1, $2, 'cas_object_pack', 1, 16, 'root', $3, $4)`,
+      [tenantId, packDigest, storageUri, fortyDaysAgo],
+    )
+    await putPackBytes(h.store, storageUri, new Uint8Array(16))
+    // Open promotion + production-shape pack linkage. The head_json
+    // intentionally does NOT carry pack_digests, only
+    // `promotion_uploaded_pack` does.
+    await h.rawExec(
+      `INSERT INTO promotion_staging (id, tenant_id, user_id, device_id, store_id, store_path, status, head_json)
+         VALUES ($1, $2, 'u', 'd', 's', '/p', 'uploading', '{}'::jsonb)`,
+      ['ps_pup', tenantId],
+    )
+    await h.rawExec(
+      `INSERT INTO promotion_uploaded_pack (promotion_id, tenant_id, pack_digest)
+         VALUES ($1, $2, $3)`,
+      ['ps_pup', tenantId, packDigest],
+    )
+
+    const handlers = registerGcCron({
+      rawExec: h.rawExec,
+      transaction: h.transaction,
+      objectStore: h.store,
+      logger: h.logger,
+      metrics: h.metrics,
+    })
+    await handlers['gc-daily']()
+
+    const rows = await h.rawExec<{ status: string }>(
+      `SELECT status FROM pack_gc_state WHERE tenant_id = $1 AND pack_digest = $2`,
+      [tenantId, packDigest],
+    )
+    // The pack must NOT be tombstoned (the open promotion holds it).
+    expect(rows).toHaveLength(0)
+    expect(await h.store.head(storageUri)).not.toBeNull()
   })
 
   it('reverts a delete_pending pack when a grant appears between phase 2 and phase 3', async () => {

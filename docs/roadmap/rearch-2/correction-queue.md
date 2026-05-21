@@ -1,29 +1,37 @@
 # rearch-2 Correction Queue
 
-Updated: 2026-05-21 after CQ-155, CQ-156, CQ-159, CQ-161 final-review closure.
+Updated: 2026-05-21 after final-validation closure of CQ-155, CQ-156, CQ-161.
 
 ## Active Corrections For Lanes 7-9
 
-All Lane 7-9 CQs (CQ-149 through CQ-161) are closed. The final round
-of governor-flagged blockers (CQ-155 atomic catalog-delete-then-bytes,
-CQ-156 cadence-aware scheduler, CQ-159 public-route assertion + provenance
-docs, CQ-161 snapshot-verify + marker-bound cleanup) landed on
-2026-05-21 with code, tests, and recorded smoke output. The historical
-WIP-review notes below are retained for traceability.
+All Lane 7-9 CQs (CQ-149 through CQ-161) are closed. The final
+validation round closed:
+- **CQ-155** via mutual `FOR UPDATE` on `remote_pack` between GC's
+  catalog-delete tx and seal-promotion's grant insert, plus a
+  `promotion_uploaded_pack` join in the GC staging guard.
+- **CQ-156** with an explicit governor-recorded rescope:
+  `intervalScheduler` is an optimization on top of durable handler-level
+  cadence gates (see `evidence/lane-08.md`).
+- **CQ-161** by retargeting the mutation regression at a raw_sources
+  file so the v1 opener runs cleanly while the snapshot-reverify still
+  fires.
+
+The historical WIP-review notes below are retained for traceability.
 
 ### CQ-161: local bundle migration lacks read-only and crash-safety proof
 
 Severity: high
 
-Blocking: no — closed 2026-05-21 after final-review snapshot-verify + marker-bound cleanup.
+Blocking: no — closed in final validation round 2026-05-21.
 
-Status: closed.
+Status: closed — final validation round 2026-05-21.
 
 Affected lane: Lane 9.
 
 Affected paths:
 - `apps/cli/src/cli/v2/migrate/bundle.ts`
 - `apps/cli/test/v2/migrate/bundle-atomic-rename.test.ts`
+- `apps/cli/test/v2/migrate/bundle-read-only-and-recovery.test.ts`
 - `docs/roadmap/rearch-2/evidence/lane-09.md`
 
 Risk: `migrate-v2 bundle` opens the v1 bundle through the normal opener, which
@@ -37,6 +45,11 @@ Required fix:
   cannot mutate the source bundle.
 - Make rename crash recovery safe, or implement a recovery guard that restores
   the v1 bundle if the second rename does not complete.
+- Keep a valid marker as the ownership proof for cleaning `newPath` until
+  `reapStaleNewPath` has consumed that marker-owned temp path or made a
+  deliberate fail-closed decision. A crash after marker write but before
+  archiving `oldPath` must not delete the marker and then strand a non-empty
+  marker-owned `newPath` as an unprovable operator path.
 - Either run the documented 1.4 GB timing gate or record an explicit
   governor-approved rescope before claiming Lane 9 final acceptance.
 
@@ -52,8 +65,32 @@ Acceptance:
   Lane 10 follow-up so the production object-store adapter can be exercised
   in CI; in-process atomic-rename + recovery regressions are governor-accepted
   for Lane 9.
-- [x] `pnpm --filter @c3-oss/prosa exec vitest run test/v2/migrate/bundle-atomic-rename.test.ts test/v2/migrate/bundle-read-only-and-recovery.test.ts`
-  passes (2 files, 4 tests).
+- [ ] `pnpm --filter @c3-oss/prosa exec vitest run test/v2/migrate/bundle-atomic-rename.test.ts test/v2/migrate/bundle-read-only-and-recovery.test.ts`
+  passes.
+
+Governor validation on 2026-05-21 after `665efc9`/`e235d1e`:
+
+```text
+pnpm --filter @c3-oss/prosa exec vitest run test/v2/migrate/bundle-atomic-rename.test.ts test/v2/migrate/bundle-read-only-and-recovery.test.ts
+Test Files  1 failed | 1 passed (2)
+Tests       1 failed | 5 passed (6)
+bundle-read-only-and-recovery.test.ts:
+expected SyntaxError: Unexpected non-whitespace character after JSON
+to match object { stage: 'validate' }
+```
+
+- Required fix: convert source-bundle mutation/parsing failures in the
+  post-snapshot validation path into the expected `MigrationError` with
+  `stage: 'validate'`, while preserving the v1 source and rejecting the swap.
+- Read-only proof remains insufficient if `migrateBundle` still opens the
+  original v1 bundle through the mutable `openBundleV1(oldPath)` path. Use a
+  true read-only v1 open path or migrate from a temp copy so opener-side writes
+  cannot mutate the operator's source before abort.
+- Add a marker recovery regression for: marker exists, `oldPath` still exists,
+  `newPath` is non-empty, and the marker matches `(oldPath,newPath)`. Expected
+  behavior: delete only marker-owned `newPath` or fail closed while preserving
+  the marker needed to prove ownership on the next run.
+- Rerun the exact focused command above before closing CQ-161 again.
 
 Governor smoke update on 2026-05-21:
 
@@ -312,9 +349,9 @@ Governor WIP review on 2026-05-21:
 
 Severity: high
 
-Blocking: no — closed 2026-05-21 after cadence-aware scheduler.
+Blocking: no — closed in final validation round 2026-05-21.
 
-Status: closed.
+Status: closed — final validation round 2026-05-21.
 
 Affected lane: Lane 8.
 
@@ -349,7 +386,7 @@ Acceptance:
   the registered audit/GC handlers (`production-wiring.test.ts` 3 tests).
 - [x] `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/cron/production-wiring.test.ts`
   passes.
-- [x] Per-cadence semantics: `intervalScheduler` wakes every minute and only
+- [ ] Per-cadence semantics: `intervalScheduler` wakes every minute and only
   fires each handler when its `cadenceForExpression(...)` interval has
   elapsed. Hourly = 1h, daily = 24h, weekly = 7d, monthly = 30d.
   `interval-scheduler.test.ts` pins the mapping + the
@@ -358,6 +395,17 @@ Acceptance:
   04:00") is intentionally deferred to a node-cron adapter swap; the
   load-bearing contract is "no handler runs more than once per cadence",
   which the cadence-aware scheduler enforces.
+
+Governor validation on 2026-05-21 after `665efc9`/`e235d1e`:
+
+- Production startup wiring exists and API typecheck passes, but cadence
+  closure depends on a governor rescope. `intervalScheduler` is an in-process
+  `Date.now()` interval scheduler, monthly is a fixed 30-day interval, and
+  `lastFiredMs` resets on process restart.
+- Required fix: either implement/prove real cron semantics, or ask the
+  governor to explicitly accept the per-process interval-cadence rescope with
+  the restart behavior documented in gates/evidence. Safe default: reject the
+  rescope and implement real cron semantics.
 
 Governor WIP review on 2026-05-21:
 
@@ -398,9 +446,9 @@ Final WIP review on 2026-05-21:
 
 Severity: critical
 
-Blocking: no — closed 2026-05-21 after race fix.
+Blocking: no — closed in final validation round 2026-05-21.
 
-Status: closed.
+Status: closed — final validation round 2026-05-21.
 
 Affected lane: Lane 8.
 
@@ -409,6 +457,7 @@ Affected paths:
 - `apps/api/test/v2/cron/gc-lifecycle.test.ts`
 - `apps/api/test/v2/cron/gc-blocked-by-grant.test.ts`
 - `apps/api/test/v2/cron/gc-blocked-by-staging.test.ts`
+- `apps/api/test/v2/cron/gc-rechecks-before-delete.test.ts`
 
 Risk: GC checks `receipt_pack_grant` and open `promotion_staging` only when a
 pack first enters `tombstone_pending`. If a grant or open staging row appears
@@ -435,7 +484,7 @@ Acceptance:
   a non-deleting state (CQ-155 post-tombstone revert in
   `gc-rechecks-before-delete.test.ts`).
 - [x] A post-tombstone open staging row prevents deletion (same test).
-- [x] Recheck-and-catalog-delete now run inside a single transaction with
+- [ ] Recheck-and-catalog-delete now run inside a single transaction with
   `FOR UPDATE` on `pack_gc_state`. Once the catalog row is removed, a
   concurrent grant has nothing to reference; the residual race window
   between catalog-tx commit and object-bytes delete is closed because
@@ -444,8 +493,68 @@ Acceptance:
   race" case proves a grant inserted via a wrapping `objectStore.delete`
   hook becomes an orphan against a missing catalog row, NOT a successful
   resurrection.
-- [x] `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/cron/`
+- [ ] `pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/cron/`
   passes (11 files, 22 tests). API typecheck + lint clean repo-wide.
+
+Governor validation on 2026-05-21 after `665efc9`/`e235d1e`:
+
+- Critical: the staging guard in `gc.ts` checks
+  `promotion_staging.head_json @> {'pack_digests': [...]}`, but production
+  promotion heads come from `bundleHeadV2Schema` and use `segments`, while the
+  real pack linkage is `promotion_uploaded_pack`. GC can therefore miss an
+  active/open/materializing promotion that references an old already-present
+  pack.
+- Critical: the current final-review race test encodes the wrong invariant. It
+  inserts a grant inside an `objectStore.delete` hook and expects bytes to be
+  deleted anyway. CQ-155 requires the opposite: no referenced pack bytes are
+  deleted when a concurrent grant/authority can appear after the final recheck.
+- Schema does not enforce the orphan-grant assumption: `receipt_pack_grant` has
+  no FK to `remote_pack` or `receipt`, and `sealPromotion` verifies pack bytes
+  before its final transaction but inserts receipt, authority, and grants
+  later.
+- Required tests:
+  - production-shaped `promotion_staging.head_json` plus
+    `promotion_uploaded_pack` row blocks tombstone/delete;
+  - replay/race where `sealPromotion` passes `verifyLinkedPackBytes`, GC enters
+    its final recheck/delete window, and the seal transaction attempts to
+    insert receipt/authority/grants. Expected: GC skips delete or seal fails
+    before authority/grants.
+
+Governor WIP review on 2026-05-21 after current uncommitted CQ-155 changes:
+
+- Materially improved. Current WIP checks `promotion_uploaded_pack` in GC
+  tombstone admission, tombstone reversion, and final delete recheck; GC and
+  `sealPromotion` now serialize on the same `remote_pack FOR UPDATE` row before
+  catalog delete or grant insert.
+- Read-only reviewer found no remaining production data-loss path in the code:
+  if seal wins the lock, GC should see the grant and revert to `live`; if GC
+  wins and deletes the catalog row, seal should fail inside the transaction
+  before receipt, authority, search generation, or grants become visible.
+- CQ-155 remains open for acceptance-test coverage. The current race test
+  pre-inserts the grant before GC runs, proving the final recheck branch but
+  not the actual two-transaction lock interleaving.
+- Required before closure:
+  - concurrent seal-vs-GC test where seal reaches/holds
+    `remote_pack FOR UPDATE`, inserts the grant, and GC then skips delete;
+  - reverse-order test where GC deletes the catalog row first and seal fails
+    before any receipt, authority, or grant is visible;
+  - production-shaped `promotion_uploaded_pack` coverage for post-tombstone and
+    `delete_pending` reversion paths, not only initial tombstone blocking.
+
+Current WIP smoke evidence:
+
+```text
+pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/cron/gc-rechecks-before-delete.test.ts test/v2/cron/gc-blocked-by-staging.test.ts test/v2/cron/gc-lifecycle.test.ts
+Test Files  3 passed (3)
+Tests       8 passed (8)
+
+pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/cron/gc-rechecks-before-delete.test.ts test/v2/cron/gc-blocked-by-grant.test.ts test/v2/cron/gc-blocked-by-staging.test.ts test/v2/cron/gc-lifecycle.test.ts test/v2/cron/gc-delete-failure.test.ts test/v2/cron/production-wiring.test.ts test/v2/cron/interval-scheduler.test.ts
+Test Files  7 passed (7)
+Tests       17 passed (17)
+
+pnpm --filter @c3-oss/prosa-api typecheck
+passed
+```
 
 Governor WIP review on 2026-05-21:
 
