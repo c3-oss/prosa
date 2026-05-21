@@ -76,6 +76,25 @@ export function emptyDraft(): CanonicalProjectionDraft {
   }
 }
 
+/**
+ * One CAS-bound payload an importer has already referenced via
+ * `*_object_id` in a projection row. The importer computes the
+ * canonical `object_id` with `computeObjectId(bytes)` and stores it on
+ * the staged row; the orchestrator hands the bytes to
+ * `CasPackWriterPool.appendObject`, which derives the same object_id
+ * and packs the bytes. The pool dedupes on object_id, so duplicate
+ * candidates across importers (and within a single importer) are
+ * cheap.
+ */
+export type CasObjectCandidate = {
+  /** Canonical CAS identity (`blake3:<hex>`) the importer already wrote into the row. */
+  object_id: string
+  /** Bytes the pool admits; pool re-derives object_id from `blake3(bytes)` and rejects any mismatch. */
+  bytes: Uint8Array
+  /** Optional MIME hint persisted alongside the pack entry. */
+  mime_type?: string
+}
+
 export type LogicalImportUnit = {
   unit_id: string
   source_tool: SourceTool
@@ -88,6 +107,15 @@ export type LogicalImportUnit = {
   projection: CanonicalProjectionDraft
   /** Each source file's raw-source leaf input. */
   raw_source_leaves: RawSourceLeafInput[]
+  /**
+   * Every `*_object_id` reference the importer wrote into a projection
+   * row. The orchestrator drives `CasPackWriterPool.appendObject` for
+   * each entry so the bytes land in a registered `cas_object_pack`
+   * segment before `sealEpoch` validates FK closure on
+   * `OBJECT_ID_FIELDS`. Empty when the importer references no CAS
+   * objects in this unit.
+   */
+  cas_object_candidates: CasObjectCandidate[]
   merge: {
     merge_strategy: MergeStrategy
     selected_source_file_id?: string

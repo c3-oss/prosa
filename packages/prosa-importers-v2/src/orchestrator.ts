@@ -46,8 +46,21 @@ import type {
 } from '@c3-oss/prosa-types-v2'
 import { canonicalTimestamp } from '@c3-oss/prosa-types-v2'
 
-import type { Bundle, DurableSegmentRef, EpochHandle, RawSourcePackEmission, ShardActor } from '@c3-oss/prosa-bundle-v2'
-import { RawSourcePackWriterPool, beginEpoch, sealEpoch, writeProjectionSegment } from '@c3-oss/prosa-bundle-v2'
+import type {
+  Bundle,
+  CasPackEmission,
+  DurableSegmentRef,
+  EpochHandle,
+  RawSourcePackEmission,
+  ShardActor,
+} from '@c3-oss/prosa-bundle-v2'
+import {
+  CasPackWriterPool,
+  RawSourcePackWriterPool,
+  beginEpoch,
+  sealEpoch,
+  writeProjectionSegment,
+} from '@c3-oss/prosa-bundle-v2'
 
 import { type PriorEpochSessionInventory, resolveLateBindings } from './graph-resolver.js'
 import type { CanonicalProjectionDraft, DiscoveredSourceFile, LogicalImportUnit, Provider } from './types.js'
@@ -125,9 +138,18 @@ export async function runCompileImports(options: RunCompileImportsOptions): Prom
   const ownerId = options.ownerId ?? `worker-${randomUUID()}`
 
   const handle = await beginEpoch(bundle, { createdAt })
-  // Per-provider raw-source pack writer pool, scoped to this bundle.
+  // Per-epoch raw-source pack writer pool, scoped to this bundle.
   const rawPool = new RawSourcePackWriterPool({
     rawSourcesDir: `${bundle.paths.root}/raw_sources`,
+    createdAt: () => createdAt,
+  })
+  // Per-epoch CAS pool. Importers stage every `*_object_id` reference
+  // via `LogicalImportUnit.cas_object_candidates`; the orchestrator
+  // drives `appendObject` for each entry below so the bytes land in a
+  // registered `cas_object_pack` segment before sealEpoch enforces
+  // FK closure on `OBJECT_ID_FIELDS`.
+  const casPool = new CasPackWriterPool({
+    casDir: `${bundle.paths.root}/cas`,
     createdAt: () => createdAt,
   })
 
@@ -186,6 +208,23 @@ export async function runCompileImports(options: RunCompileImportsOptions): Prom
     for (const unit of units) {
       mergeProjectionIntoHandle(handle, unit.projection)
       for (const leaf of unit.raw_source_leaves) handle.putRawSource(leaf)
+      // Stage every CAS-tagged column the importer wrote into a row.
+      // The pool re-derives `object_id` from `blake3(bytes)` so we
+      // assert it matches the importer's pre-computed identity; any
+      // drift would surface as a sealEpoch FK closure failure later,
+      // and catching it here keeps the message attributable to the
+      // staging importer.
+      for (const candidate of unit.cas_object_candidates) {
+        const append = await casPool.appendObject({
+          bytes: candidate.bytes,
+          ...(candidate.mime_type !== undefined ? { mime_type: candidate.mime_type } : {}),
+        })
+        if (append.object_id !== candidate.object_id) {
+          throw new Error(
+            `cas candidate object_id mismatch: importer staged ${candidate.object_id}, pool admitted ${append.object_id}`,
+          )
+        }
+      }
     }
 
     perProvider.push({
@@ -203,6 +242,21 @@ export async function runCompileImports(options: RunCompileImportsOptions): Prom
   for (const e of rawEmissions) {
     handle.registerSegment({
       kind: 'raw_source_pack',
+      path: e.packPath,
+      digest: e.packDigest,
+      byteLength: e.built.bytes.length,
+    })
+  }
+
+  // Flush CAS pool + register every cas_object_pack segment so
+  // sealEpoch's FK closure check finds every `*_object_id` reference
+  // the importers staged. The pool already accumulates mid-flight
+  // rollovers internally (small + large), so `flushAll()` returns
+  // every pack on disk in one shot.
+  const casEmissions: CasPackEmission[] = await casPool.flushAll()
+  for (const e of casEmissions) {
+    handle.registerSegment({
+      kind: 'cas_object_pack',
       path: e.packPath,
       digest: e.packDigest,
       byteLength: e.built.bytes.length,

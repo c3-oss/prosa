@@ -14,6 +14,7 @@ import { join, normalize } from 'node:path'
 
 import {
   canonicalTimestamp,
+  computeObjectId,
   deriveRawRecordId,
   deriveSourceFileId,
   isValidCanonicalTimestamp,
@@ -23,6 +24,7 @@ import { blake3 } from '@noble/hashes/blake3'
 
 import { buildSearchDocsFromMessageBlocks } from '../search-doc-builder.js'
 import {
+  type CasObjectCandidate,
   type CheapIdentification,
   type DiscoveredSourceFile,
   type LogicalImportUnit,
@@ -159,6 +161,44 @@ export class CodexProvider implements Provider {
     const text = new TextDecoder().decode(bytes)
     const lines = text.split('\n')
 
+    // CAS staging — every `*_object_id` field we populate flows through
+    // here. We compute the canonical CAS identity locally so the row
+    // can carry its `*_object_id` before the pool has run; the
+    // orchestrator hands these bytes to `CasPackWriterPool.appendObject`
+    // which re-derives the same identity and packs the payload. The
+    // pool dedupes on object_id, so duplicate enqueues are cheap; we
+    // also keep a local `seenCasIds` set to avoid hammering it from
+    // hot paths (every raw_record stages its decoded payload).
+    const casCandidates: CasObjectCandidate[] = []
+    const seenCasIds = new Set<string>()
+    const enqueueCas = (payload: Uint8Array, mimeType?: string): string => {
+      const objectId = computeObjectId(payload)
+      if (!seenCasIds.has(objectId)) {
+        seenCasIds.add(objectId)
+        const candidate: CasObjectCandidate = { object_id: objectId, bytes: payload }
+        if (mimeType !== undefined) candidate.mime_type = mimeType
+        casCandidates.push(candidate)
+      }
+      return objectId
+    }
+    const utf8Encoder = new TextEncoder()
+    const enqueueCasFromText = (textPayload: string, mimeType?: string): string => {
+      return enqueueCas(utf8Encoder.encode(textPayload), mimeType)
+    }
+    const enqueueCasFromJson = (value: unknown): string | null => {
+      try {
+        return enqueueCasFromText(JSON.stringify(value), 'application/json')
+      } catch {
+        return null
+      }
+    }
+    // Inline payloads ≤ this threshold stay in projection columns
+    // (`text_inline`, `preview`, etc.) without consuming a CAS slot.
+    // Anything past it gets the bytes pushed into CAS and the
+    // `*_object_id` column populated for downstream `read transcript`
+    // and full-text consumers.
+    const INLINE_OVERFLOW_BYTES = 4096
+
     // ── First pass: parse every line into a CodexEnvelope (or null),
     //    emit one raw_record per line, find sessionMetaId, capture
     //    session_meta payload for later use.
@@ -204,6 +244,11 @@ export class CodexProvider implements Provider {
       })
       rawRecordIds.push(rawRecordId)
       envelopes.push({ env, rawRecordId, lineNo: i + 1 })
+      // Parsed envelope decoded to canonical JSON lives in CAS so
+      // analytics + transcript consumers can re-hydrate the structured
+      // record without re-reading the source pack. Unparseable lines
+      // stay null — there is no decoded form to admit.
+      const decodedObjectId = env ? enqueueCasFromJson(env) : null
       draft.raw_records.push({
         raw_record_id: rawRecordId,
         source_tool: SOURCE_TOOL,
@@ -218,7 +263,7 @@ export class CodexProvider implements Provider {
         confidence: env ? 'high' : 'low',
         content_hash: contentHash,
         object_id: contentHash,
-        decoded_object_id: null,
+        decoded_object_id: decodedObjectId,
         created_at: input.createdAt,
       })
       ordinal += 1
@@ -342,6 +387,16 @@ export class CodexProvider implements Provider {
             if (typeof argsObj.pattern === 'string' && queryPreview === null) queryPreview = argsObj.pattern
             if (typeof argsObj.cwd === 'string') cwdPreview = argsObj.cwd
           }
+          // Args go to CAS: preserves the full input even when the
+          // preview columns above only carry a slice. Use the raw
+          // string form when available so `read tool-calls` can
+          // re-hydrate the exact argument the model emitted.
+          const argsObjectId =
+            typeof ri.arguments === 'string'
+              ? enqueueCasFromText(ri.arguments, 'application/json')
+              : ri.arguments !== null && ri.arguments !== undefined
+                ? enqueueCasFromJson(ri.arguments)
+                : null
           draft.tool_calls.push({
             tool_call_id: toolCallId,
             session_id: sessionId,
@@ -351,7 +406,7 @@ export class CodexProvider implements Provider {
             source_call_id: callId,
             tool_name: toolName,
             canonical_tool_type: null,
-            args_object_id: null,
+            args_object_id: argsObjectId,
             command: commandPreview,
             cwd: cwdPreview,
             path: pathPreview,
@@ -381,6 +436,13 @@ export class CodexProvider implements Provider {
             }
           }
           const preview = outputText !== null ? outputText.slice(0, 4096) : null
+          // Codex collapses tool stdout/stderr/output into a single
+          // `output` field on the response item; surface the full
+          // bytes via `output_object_id` for downstream consumers.
+          const outputObjectId =
+            outputText !== null
+              ? enqueueCasFromText(outputText, typeof ri.output === 'string' ? 'text/plain' : 'application/json')
+              : null
           draft.tool_results.push({
             tool_result_id: toolResultId,
             tool_call_id: toolCallId,
@@ -394,7 +456,7 @@ export class CodexProvider implements Provider {
             duration_ms: null,
             stdout_object_id: null,
             stderr_object_id: null,
-            output_object_id: null,
+            output_object_id: outputObjectId,
             preview,
             raw_record_id: rawRecordId,
           })
@@ -444,6 +506,13 @@ export class CodexProvider implements Provider {
             const text =
               typeof item.text === 'string' ? item.text : typeof item.thinking === 'string' ? item.thinking : null
             const blockRowId = `blk_${toHex(blake3(new TextEncoder().encode(`codex:blk:${messageRowId}:${cIdx}`))).slice(0, 32)}`
+            // Anything longer than the inline budget overflows into
+            // CAS; readers can still fall back to `text_inline` for a
+            // preview without touching the pack.
+            const textObjectId =
+              text !== null && utf8Encoder.encode(text).length > INLINE_OVERFLOW_BYTES
+                ? enqueueCasFromText(text, 'text/plain')
+                : null
             draft.content_blocks.push({
               block_id: blockRowId,
               message_id: messageRowId,
@@ -451,7 +520,7 @@ export class CodexProvider implements Provider {
               session_id: sessionId,
               ordinal: cIdx,
               block_type: blockType,
-              text_object_id: null,
+              text_object_id: textObjectId,
               text_inline: text,
               mime_type: text !== null ? 'text/plain' : null,
               token_count: null,
@@ -466,6 +535,10 @@ export class CodexProvider implements Provider {
         const ev = (env.payload as CodexEventMsgPayload | undefined) ?? {}
         const sourceEventId = typeof ev.id === 'string' && ev.id.length > 0 ? ev.id : `ev_${envIdx}`
         const eventRowId = `evt_${toHex(blake3(new TextEncoder().encode(`codex:evt:${sessionId}:${sourceEventId}`))).slice(0, 32)}`
+        // Full event payload goes to CAS so consumers can audit the
+        // exact bytes the model/runtime emitted without re-reading
+        // raw source. `subtype` + `actor` stay on the row for indexing.
+        const payloadObjectId = env.payload !== undefined ? enqueueCasFromJson(env.payload) : null
         draft.events.push({
           event_id: eventRowId,
           session_id: sessionId,
@@ -477,7 +550,7 @@ export class CodexProvider implements Provider {
           timestamp: envTs,
           ordinal: eventOrdinal,
           actor: mapCodexActor(typeof ev.actor === 'string' ? ev.actor : null),
-          payload_object_id: null,
+          payload_object_id: payloadObjectId,
           raw_record_id: rawRecordId,
           confidence: 'high',
           is_derived: false,
@@ -533,6 +606,7 @@ export class CodexProvider implements Provider {
           stored_hash: contentHash,
         },
       ],
+      cas_object_candidates: casCandidates,
       merge: { merge_strategy: 'single_source' },
     }
     return {

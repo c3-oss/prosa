@@ -687,6 +687,7 @@ export class HermesProvider implements Provider {
           stored_hash: contentHash,
         },
       ],
+      cas_object_candidates: [],
       // The minimal slice treats each file as its own LogicalImportUnit;
       // the full `hermes_sqlite_plus_jsonl` strategy lands in a follow-up.
       merge: { merge_strategy: 'single_source' },

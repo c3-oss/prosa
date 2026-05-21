@@ -492,6 +492,7 @@ export class CursorProvider implements Provider {
           stored_hash: contentHash,
         },
       ],
+      cas_object_candidates: [],
       merge: { merge_strategy: 'single_source' },
     }
     return {

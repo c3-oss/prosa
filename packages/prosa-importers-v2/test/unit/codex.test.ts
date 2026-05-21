@@ -200,17 +200,34 @@ describe('CodexProvider', () => {
     expect(p.tool_calls[0]!.tool_name).toBe('shell')
     expect(p.tool_calls[0]!.source_call_id).toBe('call_abc')
     expect(p.tool_calls[0]!.command).toBe('grep -rn foo')
-    expect(p.tool_calls[0]!.args_object_id).toBeNull()
+    // CAS-tagged columns now flow through the importer's CAS staging
+    // helper: args/output/event payload bytes get an object_id the
+    // pool can admit. The bytes themselves live in `cas_object_candidates`.
+    expect(p.tool_calls[0]!.args_object_id).toMatch(/^blake3:[0-9a-f]{64}$/)
     expect(p.tool_calls[0]!.status).toBe('in_progress')
     expect(p.tool_results.length).toBe(1)
     expect(p.tool_results[0]!.tool_call_id).toBe(p.tool_calls[0]!.tool_call_id)
     expect(p.tool_results[0]!.source_call_id).toBe('call_abc')
     expect(p.tool_results[0]!.preview).toBe('src/foo.ts:42:foo()')
-    expect(p.tool_results[0]!.output_object_id).toBeNull()
+    expect(p.tool_results[0]!.output_object_id).toMatch(/^blake3:[0-9a-f]{64}$/)
     expect(p.tool_results[0]!.is_error).toBe(false)
     expect(p.events.length).toBe(1)
     expect(p.events[0]!.event_type).toBe('token_usage')
     expect(p.events[0]!.turn_id).toBe(p.turns[0]!.turn_id)
+    expect(p.events[0]!.payload_object_id).toMatch(/^blake3:[0-9a-f]{64}$/)
+    // Every populated *_object_id must appear in cas_object_candidates
+    // so the orchestrator can admit the bytes into a registered pack
+    // before sealEpoch enforces FK closure.
+    const candidates = r.unit.cas_object_candidates
+    const candidateIds = new Set(candidates.map((c) => c.object_id))
+    expect(candidateIds.has(p.tool_calls[0]!.args_object_id as string)).toBe(true)
+    expect(candidateIds.has(p.tool_results[0]!.output_object_id as string)).toBe(true)
+    expect(candidateIds.has(p.events[0]!.payload_object_id as string)).toBe(true)
+    // raw_record.decoded_object_id is populated for parsed envelopes;
+    // the unparseable case stays null.
+    const parsedRawRecord = p.raw_records.find((rr) => rr.parser_status === 'parsed')
+    expect(parsedRawRecord?.decoded_object_id).toMatch(/^blake3:[0-9a-f]{64}$/)
+    expect(candidateIds.has(parsedRawRecord!.decoded_object_id as string)).toBe(true)
     // Session fields enriched from turn_context/response_item.
     expect(p.sessions[0]!.cwd_initial).toBe('/repo')
     expect(p.sessions[0]!.model_first).toBe('gpt-5-turbo')

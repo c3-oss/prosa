@@ -525,6 +525,7 @@ export class GeminiProvider implements Provider {
           stored_hash: contentHash,
         },
       ],
+      cas_object_candidates: [],
       merge: { merge_strategy: 'gemini_session_versions' },
     }
     return { unit, summary: { files: 1, sessions: 1, rawRecords: rawRecordIds.length } }

@@ -122,6 +122,7 @@ function mockProvider(args: { sourceTool: 'codex' | 'claude' }): Provider {
             stored_hash: objectId,
           },
         ],
+        cas_object_candidates: [],
         merge: { merge_strategy: 'single_source' },
       }
       return { unit, summary: { files: 1, sessions: 1, rawRecords: 1 } }

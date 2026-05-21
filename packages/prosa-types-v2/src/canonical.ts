@@ -684,6 +684,18 @@ export function toHex(bytes: Uint8Array): string {
   return out
 }
 
+/**
+ * Canonical CAS object identity. Importers stage CAS-tagged columns
+ * (tool_call.args_object_id, tool_result.stdout_object_id, etc.) by
+ * computing this hash on the raw bytes they would otherwise inline; the
+ * orchestrator hands the same bytes to `CasPackWriterPool.appendObject`,
+ * which derives the same identity from `blake3(bytes)` so the two
+ * agree (verified by `seenObjectIds` in the pool).
+ */
+export function computeObjectId(bytes: Uint8Array): string {
+  return `blake3:${toHex(blake3(bytes))}`
+}
+
 const BASE32_ALPHABET = 'abcdefghijklmnopqrstuvwxyz234567'
 
 /**
