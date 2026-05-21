@@ -7,6 +7,7 @@
 // Each row is a `Record<string, string | number | null>`; the
 // column rendering layer falls back to the row's natural keys.
 
+import { type LocalAnalyticsReport, runAnalyticsLocal } from '@c3-oss/prosa-derived-v2'
 import { Command } from 'commander'
 import { CliUserError } from '../../../errors.js'
 import { printRows } from '../../../output.js'
@@ -61,9 +62,32 @@ export function readAnalyticsCommand(): Command {
 
       const ctx = await prepareV2Read({ commandName: 'prosa read analytics', options })
       if (ctx.kind === 'local') {
-        throw new CliUserError(
-          'prosa read analytics requires a remote-promoted store; for local analytics use `prosa analytics`.',
-        )
+        const result = await runAnalyticsLocal({
+          bundleRoot: ctx.storePath,
+          report: kind as LocalAnalyticsReport,
+          ...(options.source ? { sourceTools: options.source } : {}),
+          sinceIso: options.since ?? null,
+          untilIso: options.until ?? null,
+          limit,
+        })
+        const columnsLocal = options.columns
+          ? options.columns
+              .split(',')
+              .map((c) => c.trim())
+              .filter((c) => c.length > 0)
+          : result.columns
+        printRows(result.rows, {
+          format,
+          columns: columnsLocal,
+          meta: {
+            source: 'local',
+            store: ctx.storePath,
+            epoch: result.epoch,
+            view: result.view,
+            report: kind,
+          },
+        })
+        return
       }
 
       const response = await with412RefreshAndRetry(ctx, (cur) => {

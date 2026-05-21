@@ -6,9 +6,8 @@
 // Parquet would lie about the receipt-pinned authority surface.
 
 import path from 'node:path'
-import { exportBundleParquet } from '@c3-oss/prosa-core'
+import { exportParquetLocal } from '@c3-oss/prosa-derived-v2'
 import { Command } from 'commander'
-import { asCliBundleOpenError } from '../../../bundle.js'
 import { CliUserError } from '../../../errors.js'
 import { type CommonReadOptions, addCommonReadOptions, prepareV2Read } from './common.js'
 
@@ -30,14 +29,10 @@ export function readExportCommand(): Command {
           'prosa read export parquet is local-only; rerun with --authority local against a local bundle.',
         )
       }
-      const result = await exportBundleParquet({
-        bundlePath: ctx.storePath,
-        outDir: options.out ? path.resolve(options.out) : undefined,
-      }).catch((error: unknown) => {
-        throw asCliBundleOpenError(error)
-      })
-      process.stdout.write(`wrote parquet export to ${result.outDir}\n`)
-      process.stdout.write(`manifest=${result.manifestPath}\n`)
+      const outDir = options.out ? path.resolve(options.out) : path.join(ctx.storePath, 'parquet')
+      const result = await exportParquetLocal({ bundleRoot: ctx.storePath, out: outDir })
+      process.stdout.write(`wrote parquet export to ${result.destination}\n`)
+      process.stdout.write(`epoch=${result.epoch} files=${result.files.length}\n`)
     })
 
   cmd.addCommand(parquet)

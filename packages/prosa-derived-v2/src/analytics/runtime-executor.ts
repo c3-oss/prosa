@@ -227,10 +227,16 @@ async function resolveRuntimeSetupStatements(
       continue
     }
     const canonical = ANALYTICS_ENTITY_TO_CANONICAL[entity]
-    // Parquet sources: live (analytics plural filename, the
-    // shape the compaction worker / fixtures emit) +
-    // compacted outputs.
-    const parquetFiles = [...(liveParquetByEntity.get(entity) ?? []), ...(compactedByEntity.get(entity) ?? [])]
+    // Parquet sources: live (compile-v2 emits canonical singular
+    // filenames; older compaction workers / fixtures may also
+    // produce the analytics plural shape) + compacted outputs.
+    // Look both names up so both source flavours stay readable.
+    const parquetFiles = [
+      ...(liveParquetByEntity.get(canonical) ?? []),
+      ...(liveParquetByEntity.get(entity) ?? []),
+      ...(compactedByEntity.get(canonical) ?? []),
+      ...(compactedByEntity.get(entity) ?? []),
+    ]
     // NDJSON sources: live segments emitted by the v2 importers
     // (canonical singular filename).
     const ndjsonFiles = liveNdjsonByEntity.get(canonical) ?? []
@@ -261,12 +267,21 @@ function composeEntitySourceSql(
   // Each fragment must be valid in a `FROM` position — either a
   // bare table function like `read_parquet([...])` or a
   // parenthesised SELECT subquery.
+  //
+  // Source-priority rule: when both Parquet and NDJSON describe the
+  // same entity for the same epoch we PREFER Parquet and skip the
+  // NDJSON sibling. The two formats are equivalent on row content,
+  // but DuckDB's `read_json_auto` infers any all-null column as JSON,
+  // which then fails an outer `SUM(COALESCE(field, 0))` aggregation
+  // ("No function matches the given name `sum(JSON)`"). The Parquet
+  // sibling carries the typed schema directly, so falling back to it
+  // is both correct AND faster. NDJSON-only consumers (no Parquet
+  // sibling produced) still work — the loader walks the JSON path.
   const fragments: string[] = []
   if (parquetFiles.length > 0) {
     const fileList = parquetFiles.map((p) => quoteSqlString(p)).join(', ')
     fragments.push(`read_parquet([${fileList}], union_by_name => true)`)
-  }
-  if (ndjsonFiles.length > 0) {
+  } else if (ndjsonFiles.length > 0) {
     const fileList = ndjsonFiles.map((p) => quoteSqlString(p)).join(', ')
     // `format='newline_delimited'` keeps DuckDB parsing one JSON
     // object per line. `union_by_name=true` smooths over the

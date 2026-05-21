@@ -8,9 +8,8 @@
 // mid-walk 412 surfaces `AuthorityChangedError` so the operator can
 // rerun rather than emit a transcript that mixes two snapshots.
 
-import { formatTranscriptText, loadTranscript } from '@c3-oss/prosa-core'
+import { formatTranscriptTextV2, loadTranscriptLocal } from '@c3-oss/prosa-derived-v2'
 import { Command } from 'commander'
-import { withBundle } from '../../../bundle.js'
 import { CliUserError } from '../../../errors.js'
 import { AuthorityChangedError } from '../../authority/index.js'
 import {
@@ -55,22 +54,27 @@ export function readTranscriptCommand(): Command {
       const ctx = await prepareV2Read({ commandName: 'prosa read transcript', options })
 
       if (ctx.kind === 'local') {
-        await withBundle(ctx.storePath, async (bundle) => {
-          const transcript = await loadTranscript(bundle, sessionId)
-          if (!transcript) {
-            throw new CliUserError(`session ${sessionId} not found in local bundle.`)
-          }
-          if (format === 'json') {
-            process.stdout.write(`${JSON.stringify(transcript, null, 2)}\n`)
-            return
-          }
-          if (format === 'markdown') {
-            throw new CliUserError(
-              'prosa read transcript --format markdown is not supported in --authority local; use `prosa export session` for local markdown.',
-            )
-          }
-          process.stdout.write(`${formatTranscriptText(transcript, { showThinking: false })}\n`)
-        })
+        let transcript: Awaited<ReturnType<typeof loadTranscriptLocal>>
+        try {
+          transcript = await loadTranscriptLocal({ bundleRoot: ctx.storePath, sessionId })
+        } catch (err) {
+          // The session-blob loader throws ENOENT / "pack not found"
+          // when the requested session has no pack in any sealed
+          // epoch. Surface that as a clean user error instead of a
+          // raw stack trace.
+          const msg = err instanceof Error ? err.message : String(err)
+          throw new CliUserError(`session ${sessionId} not found in local bundle (${msg}).`)
+        }
+        if (format === 'json') {
+          process.stdout.write(`${JSON.stringify(transcript, null, 2)}\n`)
+          return
+        }
+        if (format === 'markdown') {
+          throw new CliUserError(
+            'prosa read transcript --format markdown is not supported in --authority local; use `prosa export session` for local markdown.',
+          )
+        }
+        process.stdout.write(`${formatTranscriptTextV2(transcript.messages)}\n`)
         return
       }
 

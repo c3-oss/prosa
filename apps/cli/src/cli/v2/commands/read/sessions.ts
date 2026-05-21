@@ -5,9 +5,8 @@
 // (no v2 promotion recorded), falls back to the local bundle via
 // `prosa-core` so the command stays usable on un-promoted stores.
 
-import { countSessions as countLocalSessions, listSessions as listLocalSessions } from '@c3-oss/prosa-core'
+import { countSessionsLocal, listSessionsLocal } from '@c3-oss/prosa-derived-v2'
 import { Command } from 'commander'
-import { withBundle } from '../../../bundle.js'
 import { type ColumnSet, maxWidthsForColumns, resolveColumns, tailColumnsFor } from '../../../columns.js'
 import { CliUserError } from '../../../errors.js'
 import { printRows } from '../../../output.js'
@@ -126,20 +125,19 @@ async function runList(options: SessionsOptions): Promise<void> {
 
   if (ctx.kind === 'local') {
     rejectUnsupportedLocalFilters('prosa read sessions', options)
-    await withBundle(ctx.storePath, (bundle) => {
-      const rows = listLocalSessions(bundle, {
-        sourceTool,
-        sinceIso: options.since,
-        untilIso: options.until,
-        limit,
-      })
-      printRows(rows, {
-        format,
-        columns,
-        maxColumnWidths: maxWidthsForColumns(SESSION_COLUMNS, columns),
-        tailColumns: tailColumnsFor(SESSION_COLUMNS, columns),
-        meta: { source: 'local', store: ctx.storePath },
-      })
+    const result = await listSessionsLocal({
+      bundleRoot: ctx.storePath,
+      sourceTool: sourceTool ?? null,
+      sinceIso: options.since ?? null,
+      untilIso: options.until ?? null,
+      limit,
+    })
+    printRows(result.rows, {
+      format,
+      columns,
+      maxColumnWidths: maxWidthsForColumns(SESSION_COLUMNS, columns),
+      tailColumns: tailColumnsFor(SESSION_COLUMNS, columns),
+      meta: { source: 'local', store: ctx.storePath, epoch: result.epoch },
     })
     return
   }
@@ -211,14 +209,13 @@ async function runCount(options: SessionsOptions): Promise<void> {
 
   if (ctx.kind === 'local') {
     rejectUnsupportedLocalFilters('prosa read sessions --count', { ...options, cursor: undefined })
-    await withBundle(ctx.storePath, (bundle) => {
-      const count = countLocalSessions(bundle, {
-        sourceTool,
-        sinceIso: options.since,
-        untilIso: options.until,
-      })
-      process.stdout.write(`${count}\n`)
+    const { count } = await countSessionsLocal({
+      bundleRoot: ctx.storePath,
+      sourceTool: sourceTool ?? null,
+      sinceIso: options.since ?? null,
+      untilIso: options.until ?? null,
     })
+    process.stdout.write(`${count}\n`)
     return
   }
 

@@ -13,9 +13,8 @@
 // `--until`, `--canonical-tool-type`, `--entity-type`, or
 // `--tool-name` — passing those flags in local mode fails closed.
 
-import { searchFullText } from '@c3-oss/prosa-core'
+import { searchLocal } from '@c3-oss/prosa-derived-v2'
 import { Command } from 'commander'
-import { withBundle } from '../../../bundle.js'
 import { type ColumnSet, maxWidthsForColumns, resolveColumns, tailColumnsFor } from '../../../columns.js'
 import { CliUserError } from '../../../errors.js'
 import { printRows } from '../../../output.js'
@@ -116,15 +115,13 @@ export function readSearchCommand(): Command {
 
       if (ctx.kind === 'local') {
         rejectUnsupportedLocalFilters(options)
-        await withBundle(ctx.storePath, (bundle) => {
-          const rows = searchFullText(bundle, { query, limit })
-          printRows(rows, {
-            format,
-            columns,
-            maxColumnWidths: maxWidthsForColumns(SEARCH_COLUMNS, columns),
-            tailColumns: tailColumnsFor(SEARCH_COLUMNS, columns),
-            meta: { source: 'local', query },
-          })
+        const result = await searchLocal({ bundleRoot: ctx.storePath, query, limit })
+        printRows(result.rows, {
+          format,
+          columns,
+          maxColumnWidths: maxWidthsForColumns(SEARCH_COLUMNS, columns),
+          tailColumns: tailColumnsFor(SEARCH_COLUMNS, columns),
+          meta: { source: 'local', query, epoch: result.epoch },
         })
         return
       }

@@ -21,10 +21,36 @@
 
 import { join } from 'node:path'
 
-import { type CanonicalEntityType, computeObjectId, toHex } from '@c3-oss/prosa-types-v2'
+import {
+  type CanonicalEntityType,
+  ENTITY_FIELD_KINDS,
+  type FieldKind,
+  computeObjectId,
+  toHex,
+} from '@c3-oss/prosa-types-v2'
 import { blake3 } from '@noble/hashes/blake3'
 
 import type { DurableSegmentRef } from '@c3-oss/prosa-bundle-v2'
+
+/**
+ * Map prosa-types-v2 `FieldKind` to the DuckDB type that should back
+ * the corresponding Parquet column. Pinning a type here keeps the
+ * Parquet schema deterministic across runs — read_json_auto picks
+ * VARCHAR when a column is entirely null, and that VARCHAR carries
+ * through into the Parquet, which then breaks downstream aggregates
+ * like `SUM(COALESCE(duration_ms, 0))` because the column is no
+ * longer numeric.
+ */
+function duckdbTypeFor(kind: FieldKind): string {
+  switch (kind) {
+    case 'integer':
+      return 'BIGINT'
+    case 'boolean':
+      return 'BOOLEAN'
+    default:
+      return 'VARCHAR'
+  }
+}
 
 export type WriteProjectionParquetInput = {
   entityType: CanonicalEntityType
@@ -57,9 +83,20 @@ export async function writeProjectionParquet(
   const parquetPath = join(input.outDir, `${input.entityType}.parquet`)
   // SQL string escaping: DuckDB single-quote literals double a single quote.
   const sqlString = (value: string): string => `'${value.replace(/'/g, "''")}'`
-  const copy = `COPY (SELECT * FROM read_json_auto(${sqlString(
+  // Per-column TRY_CAST keeps the Parquet schema deterministic even
+  // when a column is entirely null in this epoch (read_json_auto
+  // would otherwise pick VARCHAR / JSON and the analytics view's
+  // SUM/COALESCE on `duration_ms` etc. would fail at bind time).
+  const fields = ENTITY_FIELD_KINDS[input.entityType]
+  const columnProjection =
+    fields !== undefined
+      ? Object.entries(fields)
+          .map(([name, kind]) => `TRY_CAST(${name} AS ${duckdbTypeFor(kind)}) AS ${name}`)
+          .join(', ')
+      : '*'
+  const copy = `COPY (SELECT ${columnProjection} FROM read_json_auto(${sqlString(
     input.ndjsonPath,
-  )}, format='newline_delimited') WHERE entityType IS NULL) TO ${sqlString(
+  )}, format='newline_delimited', union_by_name=true) WHERE entityType IS NULL) TO ${sqlString(
     parquetPath,
   )} (FORMAT PARQUET, COMPRESSION 'zstd')`
   try {

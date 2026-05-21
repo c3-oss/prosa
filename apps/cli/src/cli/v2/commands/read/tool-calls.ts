@@ -6,6 +6,7 @@
 // Each hit carries `timestampStart` + `latestResult`; the CLI shows
 // the result status alongside the call status when available.
 
+import { listToolCallsLocal } from '@c3-oss/prosa-derived-v2'
 import { Command } from 'commander'
 import { type ColumnSet, maxWidthsForColumns, resolveColumns, tailColumnsFor } from '../../../columns.js'
 import { CliUserError } from '../../../errors.js'
@@ -102,9 +103,43 @@ export function readToolCallsCommand(): Command {
       const ctx = await prepareV2Read({ commandName: 'prosa read tool-calls', options })
 
       if (ctx.kind === 'local') {
-        throw new CliUserError(
-          'prosa read tool-calls requires a remote-promoted store; this command is unavailable in --authority local.',
-        )
+        if (options.cursor) {
+          throw new CliUserError(
+            'prosa read tool-calls local mode does not support --cursor; rerun against a promoted store with --authority remote, or drop the flag.',
+          )
+        }
+        const result = await listToolCallsLocal({
+          bundleRoot: ctx.storePath,
+          sessionId: options.session ?? null,
+          ...(options.toolName ? { toolNames: options.toolName } : {}),
+          ...(options.canonicalToolType ? { canonicalToolTypes: options.canonicalToolType } : {}),
+          errorsOnly: options.errorsOnly,
+          sinceIso: options.since ?? null,
+          untilIso: options.until ?? null,
+          limit,
+        })
+        const shapedLocal = result.rows.map((row) => ({
+          timestamp_start: row.timestamp_start,
+          tool_name: row.tool_name,
+          session_id: row.session_id,
+          turn_id: null,
+          canonical_tool_type: row.canonical_tool_type,
+          status: row.status,
+          result_status: row.status,
+          result_is_error: row.is_error,
+          result_exit_code: null,
+          result_duration_ms: null,
+          store_id: null,
+          receipt_id: null,
+        }))
+        printRows(shapedLocal, {
+          format,
+          columns,
+          maxColumnWidths: maxWidthsForColumns(TOOL_CALL_COLUMNS, columns),
+          tailColumns: tailColumnsFor(TOOL_CALL_COLUMNS, columns),
+          meta: { source: 'local', store: ctx.storePath, epoch: result.epoch },
+        })
+        return
       }
 
       const response = await with412RefreshAndRetry(ctx, (cur) => {

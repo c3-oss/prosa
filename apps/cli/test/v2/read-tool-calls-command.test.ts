@@ -192,9 +192,15 @@ describe('prosa read tool-calls — command-level (CQ-150)', () => {
     expect(row.receipt_id).toBe('r-current')
   })
 
-  it('fails closed in --authority local', async () => {
+  it('local mode now reads tool_call / tool_result projection segments — fails on a non-compiled bundle', async () => {
+    // Prior behaviour: `read tool-calls --authority local` failed
+    // closed because the v2 local-read service did not exist yet.
+    // Lane 7 wires `listToolCallsLocal`, so the command no longer
+    // rejects up front. The harness here points at a tmp dir with
+    // no compiled v2 bundle (no `head.json`), so the local read
+    // service surfaces a "bundle has never been compiled" error.
     await expect(
       capture(['read', 'tool-calls', '--store', h.storePath, '--config', h.configPath, '--authority', 'local']),
-    ).rejects.toThrow(/unavailable in --authority local/)
+    ).rejects.toThrow(/head\.json not found/)
   })
 })
