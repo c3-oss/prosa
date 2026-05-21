@@ -51,6 +51,7 @@ import {
   readCompactManifestV2,
   readSessionBlobHeader,
   recommendMaintenanceActions,
+  runSessionBlobBuild,
   runTantivyRebuildForBundle,
   summariseCompactionEffectiveness,
   summariseDerivedLayerFootprint,
@@ -277,6 +278,45 @@ export function indexV2Command(): Command {
         }
       },
     )
+
+  root
+    .command('build-derived')
+    .description(
+      "Run the post-seal derived-layer build (Tantivy index + session-blob packs) against a bundle v2 store. Equivalent to what `compile-v2 --build-derived` triggers after the seal. Defaults --epoch to the bundle head's current epoch. Acquires the bundle write lock for the duration of the run.",
+    )
+    .requiredOption('--store <path>', 'bundle directory')
+    .option('--epoch <n>', 'epoch to build derived artifacts from (defaults to head.epoch)')
+    .option('--overwrite', 'request a full Tantivy rebuild regardless of checkpoint state', false)
+    .action(async (options: { store: string; epoch?: string; overwrite: boolean }) => {
+      const storePath = resolvePath(options.store)
+      const explicitEpoch = options.epoch !== undefined ? parseNonNegativeInteger('--epoch', options.epoch) : null
+      const bundle = await openBundle(storePath)
+      try {
+        const epoch = explicitEpoch ?? bundle.head.epoch
+        const tantivyResult = await runTantivyRebuildForBundle({
+          bundleRoot: storePath,
+          epoch,
+          overwriteRequested: options.overwrite,
+        })
+        const sessionBlobResult = await runSessionBlobBuild({ bundleRoot: storePath, epoch })
+        process.stdout.write(
+          `${JSON.stringify(
+            {
+              epoch,
+              tantivy: tantivyResult,
+              sessionBlob: {
+                packs: sessionBlobResult.packs.length,
+                skippedSessions: sessionBlobResult.skippedSessions.length,
+              },
+            },
+            null,
+            2,
+          )}\n`,
+        )
+      } finally {
+        await bundle.close()
+      }
+    })
 
   root
     .command('compaction-plan')

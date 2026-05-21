@@ -20,6 +20,7 @@ import { homedir } from 'node:os'
 import { resolve as resolvePath } from 'node:path'
 
 import { initBundle, openBundle } from '@c3-oss/prosa-bundle-v2'
+import { runSessionBlobBuild, runTantivyRebuildForBundle } from '@c3-oss/prosa-derived-v2'
 import {
   ClaudeProvider,
   CodexProvider,
@@ -30,6 +31,32 @@ import {
   runCompileImports,
 } from '@c3-oss/prosa-importers-v2'
 import { Command } from 'commander'
+
+/**
+ * Drive the post-seal derived layer (Tantivy index + session-blob
+ * packs) for `epoch`. Returns a small summary the caller appends to
+ * its JSON output. Failures are surfaced as `error: string` rather
+ * than throwing so a derived-layer hiccup doesn't roll back a seal
+ * that already committed.
+ */
+async function buildDerivedForEpoch(opts: {
+  storePath: string
+  epoch: number
+}): Promise<{ tantivy: unknown; sessionBlob: unknown }> {
+  let tantivy: unknown
+  try {
+    tantivy = await runTantivyRebuildForBundle({ bundleRoot: opts.storePath, epoch: opts.epoch })
+  } catch (err) {
+    tantivy = { error: (err as Error).message }
+  }
+  let sessionBlob: unknown
+  try {
+    sessionBlob = await runSessionBlobBuild({ bundleRoot: opts.storePath, epoch: opts.epoch })
+  } catch (err) {
+    sessionBlob = { error: (err as Error).message }
+  }
+  return { tantivy, sessionBlob }
+}
 
 type ProviderName = 'codex' | 'claude' | 'cursor' | 'gemini' | 'hermes'
 
@@ -89,37 +116,51 @@ export function compileV2Command(): Command {
     .requiredOption('--store <path>', 'bundle directory')
     .option('--root <path>', 'discovery root (defaults to the per-provider $HOME convention)')
     .option('--quiet', 'suppress the per-provider summary JSON', false)
-    .action(async (providerName: string, options: { store: string; root?: string; quiet: boolean }) => {
-      const name = providerName.toLowerCase() as ProviderName
-      if (!['codex', 'claude', 'cursor', 'gemini', 'hermes'].includes(name)) {
-        process.stderr.write(`unknown provider: ${providerName}\n`)
-        process.exit(2)
-      }
-      const storePath = resolvePath(options.store)
-      const discoveryRoot = options.root !== undefined ? resolvePath(options.root) : defaultRootFor(name)
-      const bundle = await openOrInit(storePath)
-      try {
-        const result = await runCompileImports({
-          bundle,
-          providers: [{ provider: providerFor(name), root: discoveryRoot }],
-        })
-        if (!options.quiet) {
-          process.stdout.write(
-            `${JSON.stringify(
-              {
-                sealedEpoch: result.sealedEpoch,
-                perProvider: result.perProvider,
-                fixups: result.fixups.length,
-              },
-              null,
-              2,
-            )}\n`,
-          )
+    .option(
+      '--no-build-derived',
+      'skip the post-seal derived-layer build (Tantivy index + session-blob packs). Defaults to true so `index-v2 status` reports `ready_for_read: true` after compile.',
+    )
+    .action(
+      async (
+        providerName: string,
+        options: { store: string; root?: string; quiet: boolean; buildDerived: boolean },
+      ) => {
+        const name = providerName.toLowerCase() as ProviderName
+        if (!['codex', 'claude', 'cursor', 'gemini', 'hermes'].includes(name)) {
+          process.stderr.write(`unknown provider: ${providerName}\n`)
+          process.exit(2)
         }
-      } finally {
-        await bundle.close()
-      }
-    })
+        const storePath = resolvePath(options.store)
+        const discoveryRoot = options.root !== undefined ? resolvePath(options.root) : defaultRootFor(name)
+        const bundle = await openOrInit(storePath)
+        let derived: { tantivy: unknown; sessionBlob: unknown } | null = null
+        try {
+          const result = await runCompileImports({
+            bundle,
+            providers: [{ provider: providerFor(name), root: discoveryRoot }],
+          })
+          if (options.buildDerived) {
+            derived = await buildDerivedForEpoch({ storePath, epoch: result.sealedEpoch })
+          }
+          if (!options.quiet) {
+            process.stdout.write(
+              `${JSON.stringify(
+                {
+                  sealedEpoch: result.sealedEpoch,
+                  perProvider: result.perProvider,
+                  fixups: result.fixups.length,
+                  derived,
+                },
+                null,
+                2,
+              )}\n`,
+            )
+          }
+        } finally {
+          await bundle.close()
+        }
+      },
+    )
 }
 
 export function compileAllV2Command(): Command {
@@ -132,6 +173,10 @@ export function compileAllV2Command(): Command {
     .option('--gemini-root <path>', 'discovery root for the Gemini CLI provider (defaults to $HOME/.gemini/tmp)')
     .option('--hermes-root <path>', 'discovery root for the Hermes provider (defaults to $HOME/.hermes/sessions)')
     .option('--quiet', 'suppress the per-provider summary JSON', false)
+    .option(
+      '--no-build-derived',
+      'skip the post-seal derived-layer build (Tantivy index + session-blob packs). Defaults to true so `index-v2 status` reports `ready_for_read: true` after compile.',
+    )
     .action(
       async (options: {
         store: string
@@ -141,6 +186,7 @@ export function compileAllV2Command(): Command {
         geminiRoot?: string
         hermesRoot?: string
         quiet: boolean
+        buildDerived: boolean
       }) => {
         const storePath = resolvePath(options.store)
         const providers: { provider: Provider; root: string }[] = [
@@ -151,8 +197,12 @@ export function compileAllV2Command(): Command {
           { provider: new HermesProvider(), root: resolvePath(options.hermesRoot ?? defaultRootFor('hermes')) },
         ]
         const bundle = await openOrInit(storePath)
+        let derived: { tantivy: unknown; sessionBlob: unknown } | null = null
         try {
           const result = await runCompileImports({ bundle, providers })
+          if (options.buildDerived) {
+            derived = await buildDerivedForEpoch({ storePath, epoch: result.sealedEpoch })
+          }
           if (!options.quiet) {
             process.stdout.write(
               `${JSON.stringify(
@@ -160,6 +210,7 @@ export function compileAllV2Command(): Command {
                   sealedEpoch: result.sealedEpoch,
                   perProvider: result.perProvider,
                   fixups: result.fixups.length,
+                  derived,
                 },
                 null,
                 2,

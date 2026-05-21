@@ -143,8 +143,11 @@ describe('Lane 3 compile-to-index gate', () => {
     await mkdir(join(codexRoot, '2025', '01', '02'), { recursive: true })
     await writeFile(join(codexRoot, '2025', '01', '02', 'gate-rollout.jsonl'), codexFixtureJsonl())
 
-    // Step 1 — compile-v2 codex.
-    const compile = runCli(['compile-v2', 'codex', '--store', storeRoot, '--root', codexRoot])
+    // Step 1 — compile-v2 codex. `--no-build-derived` keeps the
+    // derived layer untouched here so the gate proves `index-v2
+    // tantivy` is the runtime that materialises it; the auto-build
+    // path is covered separately in compile-v2's own tests.
+    const compile = runCli(['compile-v2', 'codex', '--store', storeRoot, '--root', codexRoot, '--no-build-derived'])
     if (compile.status !== 0) {
       throw new Error(`compile-v2 failed (status=${compile.status}): ${compile.stderr}\nstdout: ${compile.stdout}`)
     }
@@ -306,6 +309,10 @@ describe('Lane 3 compile-to-index gate', () => {
       geminiRoot,
       '--hermes-root',
       hermesRoot,
+      // Keep the derived layer untouched so `index-v2 tantivy` below
+      // is the runtime that actually materialises it. The auto-build
+      // path is covered separately in compile-v2's own tests.
+      '--no-build-derived',
     ])
     if (compile.status !== 0) {
       throw new Error(`compile-all-v2 failed (status=${compile.status}): ${compile.stderr}\nstdout: ${compile.stdout}`)
