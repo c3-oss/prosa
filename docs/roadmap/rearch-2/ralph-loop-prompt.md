@@ -195,7 +195,15 @@ Governor validation after closure commits, 2026-05-21:
   production `sealPromotion()` rolls back after the in-transaction
   `remote_pack FOR UPDATE` check fails, leaving zero receipt, authority,
   search-generation, and grant rows visible.
-- `RALPH_DONE` is invalid while CQ-155 is open.
+- Final review after the inside-transaction rollback regression: CQ-155 is
+  acceptable. The new production-path rollback test is a sufficient PGlite
+  simulation for the load-bearing invariant: `verifyLinkedPackBytes()` runs,
+  `remote_pack` is absent before production `sealPromotion()` reaches the
+  in-transaction `FOR UPDATE`, and the seal callback rolls back receipt,
+  authority, search-generation, and grant writes. Residual risk: this is not a
+  real concurrent Postgres lock test, but it is acceptable for Lane 8.
+- `RALPH_DONE` is invalid only if new open Lane 7-9 blockers appear, gates fail,
+  evidence is stale, or the worktree is not committed/clean.
 
 ## Milestone Order
 
