@@ -11,6 +11,14 @@ import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { BundleHeadV2Wire, SegmentRefWire } from '@c3-oss/prosa-wire-v2'
 import { Command, Option } from 'commander'
+import {
+  type PromotionRecord,
+  defaultConfigPath,
+  loadCliConfig,
+  recordPromotion,
+  saveCliConfig,
+  upsertServer,
+} from '../auth/config.js'
 import { CliUserError } from '../errors.js'
 import { type PromoteHttpClient, type PromoteResult, promoteBundleV2 } from '../v2/sync/promote.js'
 
@@ -71,8 +79,51 @@ export function syncV2Command(): Command {
         // commander maps `--no-resume` to `opts.resume = false`.
         skipResume: opts.resume === false,
       })
+      await persistPromotion({
+        server: opts.server,
+        token,
+        bundleRoot: path.resolve(opts.bundle),
+        tenantId: opts.tenant,
+        result,
+      })
       reportResult(opts.json === true, result)
     })
+}
+
+/**
+ * After a successful promote, persist the receipt into
+ * `~/.config/prosa/config.json` so `prosa read --authority remote` /
+ * `prosa mcp-v2 serve --authority remote` can resolve the bundle's
+ * promotion without an extra round-trip. Without this, every sync
+ * leaves the operator stuck in `--authority local` even though the
+ * receipt is sealed server-side.
+ */
+async function persistPromotion(input: {
+  server: string
+  token: string
+  bundleRoot: string
+  tenantId: string
+  result: PromoteResult
+}): Promise<void> {
+  const configPath = defaultConfigPath()
+  const config = await loadCliConfig(configPath)
+  const existing = config.servers[input.server]
+  // Preserve the existing token / user / active tenant when present;
+  // only thread in the freshly used token if the entry is empty.
+  const baseEntry = existing ?? { url: input.server, token: input.token }
+  const promotedAt =
+    typeof input.result.receipt.payload.issuedAt === 'string'
+      ? input.result.receipt.payload.issuedAt
+      : new Date().toISOString()
+  const record: PromotionRecord = {
+    batchId: input.result.status === 'sealed' ? input.result.promotionId : input.result.receipt.payload.receiptId,
+    tenantId: input.tenantId,
+    promotedAt,
+    receipt: input.result.receipt,
+  }
+  const nextEntry = recordPromotion(baseEntry, input.bundleRoot, record)
+  const nextConfig = upsertServer(config, nextEntry, existing === undefined)
+  await saveCliConfig(nextConfig, configPath)
 }
 
 // CQ-139: bearer tokens MUST NOT be passed via argv where they are
