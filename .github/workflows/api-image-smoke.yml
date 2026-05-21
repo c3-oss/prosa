@@ -1,0 +1,43 @@
+name: API Image Smoke
+
+# Builds the prosa-api Docker image and boots the full production stack
+# (postgres + minio + api) to confirm the runtime image carries every
+# package it needs. Regression guard against missing COPY lines in
+# apps/api/Dockerfile that only surface at runtime when the API tries
+# to import a v2 package.
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main, 'feature/**']
+    paths:
+      - 'apps/api/**'
+      - 'packages/**'
+      - 'docker-compose.yml'
+      - 'docker-compose.override.yml'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/api-image-smoke.yml'
+
+concurrency:
+  group: api-image-smoke-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: docker compose build + /health probe
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Run smoke
+        run: apps/api/scripts/docker-smoke.sh

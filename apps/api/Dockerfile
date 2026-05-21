@@ -37,6 +37,26 @@ COPY --from=build --chown=node:node /repo/packages/prosa-sync/package.json ./pac
 COPY --from=build --chown=node:node /repo/packages/prosa-sync/node_modules ./packages/prosa-sync/node_modules
 COPY --from=build --chown=node:node /repo/packages/prosa-sync/dist ./packages/prosa-sync/dist
 
+COPY --from=build --chown=node:node /repo/packages/prosa-types-v2/package.json ./packages/prosa-types-v2/package.json
+COPY --from=build --chown=node:node /repo/packages/prosa-types-v2/node_modules ./packages/prosa-types-v2/node_modules
+COPY --from=build --chown=node:node /repo/packages/prosa-types-v2/dist ./packages/prosa-types-v2/dist
+
+COPY --from=build --chown=node:node /repo/packages/prosa-wire-v2/package.json ./packages/prosa-wire-v2/package.json
+COPY --from=build --chown=node:node /repo/packages/prosa-wire-v2/node_modules ./packages/prosa-wire-v2/node_modules
+COPY --from=build --chown=node:node /repo/packages/prosa-wire-v2/dist ./packages/prosa-wire-v2/dist
+
+COPY --from=build --chown=node:node /repo/packages/prosa-bundle-v2/package.json ./packages/prosa-bundle-v2/package.json
+COPY --from=build --chown=node:node /repo/packages/prosa-bundle-v2/node_modules ./packages/prosa-bundle-v2/node_modules
+COPY --from=build --chown=node:node /repo/packages/prosa-bundle-v2/dist ./packages/prosa-bundle-v2/dist
+
+COPY --from=build --chown=node:node /repo/packages/prosa-db-v2/package.json ./packages/prosa-db-v2/package.json
+COPY --from=build --chown=node:node /repo/packages/prosa-db-v2/node_modules ./packages/prosa-db-v2/node_modules
+COPY --from=build --chown=node:node /repo/packages/prosa-db-v2/dist ./packages/prosa-db-v2/dist
+
+COPY --from=build --chown=node:node /repo/packages/prosa-importers-v2/package.json ./packages/prosa-importers-v2/package.json
+COPY --from=build --chown=node:node /repo/packages/prosa-importers-v2/node_modules ./packages/prosa-importers-v2/node_modules
+COPY --from=build --chown=node:node /repo/packages/prosa-importers-v2/dist ./packages/prosa-importers-v2/dist
+
 USER node
 
 EXPOSE 3000
