@@ -633,6 +633,17 @@ export class ClaudeProvider implements Provider {
       sessionRow.model_last = modelLast
     }
 
+    // Null out parent_message_id when the parent uuid lives outside this
+    // JSONL file. Claude's `parentUuid` can point to a message in a
+    // forked or compacted parent session, which we do not see here; the
+    // FK closure check would otherwise refuse the seal.
+    const stagedMessageIds = new Set(draft.messages.map((m) => m.message_id))
+    for (const m of draft.messages) {
+      if (m.parent_message_id !== null && !stagedMessageIds.has(m.parent_message_id)) {
+        m.parent_message_id = null
+      }
+    }
+
     // Lane 3 compile-to-index gate: emit one SearchDocV2 per
     // message-with-indexable-text via the shared helper.
     buildSearchDocsFromMessageBlocks(draft)

@@ -296,6 +296,55 @@ describe('ClaudeProvider', () => {
     expect(p.sessions[0]!.model_last).toBe('claude-opus-4-7')
   })
 
+  it('nulls parent_message_id when parentUuid points outside the same JSONL (regression)', async () => {
+    // Regression. Claude's `parentUuid` can reference a message in a
+    // forked or compacted parent session that lives in a different
+    // JSONL file. The importer derived `parent_message_id` from that
+    // UUID verbatim; sealEpoch then refused the seal because the
+    // referenced message_id wasn't in any staged row. Local cleanup
+    // nulls the field when the parent is not present in this file's
+    // staged messages, so FK closure passes.
+    const root = await tmp()
+    const provider = new ClaudeProvider()
+    const lines = [
+      {
+        // parentUuid points to a uuid that is NOT present in this file.
+        type: 'user',
+        uuid: 'first',
+        parentUuid: 'belongs-to-another-session',
+        sessionId: 'sess_fork',
+        timestamp: '2025-01-02T03:04:05.123Z',
+        cwd: '/repo',
+        gitBranch: 'main',
+        message: { role: 'user', content: [{ type: 'text', text: 'continued from elsewhere' }] },
+      },
+      {
+        type: 'assistant',
+        uuid: 'second',
+        parentUuid: 'first',
+        sessionId: 'sess_fork',
+        timestamp: '2025-01-02T03:04:06.000Z',
+        message: { role: 'assistant', model: 'claude-3.5-sonnet', content: [{ type: 'text', text: 'reply' }] },
+      },
+    ]
+    await mkdir(join(root, 'demo'), { recursive: true })
+    await writeFile(join(root, 'demo', 'sess_fork.jsonl'), jsonlBytes(lines))
+    const files = await provider.discover(root)
+    const result = await provider.parseAndProject({
+      files,
+      identification: await provider.cheapIdentify(files[0]!),
+      createdAt: '2025-01-02T03:04:05.123Z',
+    })
+    const messages = result.unit.projection.messages
+    expect(messages.length).toBe(2)
+    // First message had a dangling parentUuid; the importer must null it
+    // out so FK closure passes when the bundle seals.
+    expect(messages[0]?.parent_message_id).toBeNull()
+    // Second message's parentUuid IS in this file; the cross-reference
+    // must resolve and stay populated.
+    expect(messages[1]?.parent_message_id).toBe(messages[0]?.message_id)
+  })
+
   it('runCompileImports orchestrates Claude through a real bundle seal', async () => {
     const bundleRoot = await tmp()
     const discoveryRoot = await tmp()
