@@ -14,8 +14,9 @@
 // node-cron scheduling. `registerAuditCron` returns the handler map
 // ready to be passed to `startCron({ handlers })`.
 
-import { createHash } from 'node:crypto'
 import type { RemoteObjectStore } from '@c3-oss/prosa-storage'
+import { toHex } from '@c3-oss/prosa-types-v2'
+import { blake3 } from '@noble/hashes/blake3'
 import type { RawExec } from '../db.js'
 import {
   type DriftDeps,
@@ -138,7 +139,12 @@ export async function runAuditMonthly(deps: AuditCronDeps): Promise<void> {
       try {
         const stream = await deps.objectStore.get(pack.storage_uri)
         const hash = await hashStream(stream)
-        if (pack.byte_hash && pack.byte_hash !== hash) {
+        // CQ-157: `remote_pack.byte_hash` is the BLAKE3 wire-byte
+        // digest persisted by `upload-object-pack` as lowercase hex
+        // without the `blake3:` prefix. Normalize both sides before
+        // comparing so a healthy pack is never falsely quarantined.
+        const expected = pack.byte_hash ? pack.byte_hash.toLowerCase().replace(/^blake3:/, '') : null
+        if (expected && expected !== hash) {
           await markPackHashMismatch(driftDepsFrom(deps), tenant_id, pack.pack_digest, 'byte_hash_mismatch')
           continue
         }
@@ -304,16 +310,18 @@ async function readHeaderProbe(
 }
 
 async function hashStream(stream: ReadableStream<Uint8Array>): Promise<string> {
-  const hash = createHash('sha256')
+  // CQ-157: BLAKE3 to match the wire-byte digest written by
+  // `upload-object-pack` into `remote_pack.byte_hash`.
+  const hasher = blake3.create()
   const reader = stream.getReader()
   try {
     while (true) {
       const { value, done } = await reader.read()
       if (done) break
-      if (value) hash.update(value)
+      if (value) hasher.update(value)
     }
   } finally {
     reader.releaseLock()
   }
-  return hash.digest('hex')
+  return toHex(hasher.digest())
 }

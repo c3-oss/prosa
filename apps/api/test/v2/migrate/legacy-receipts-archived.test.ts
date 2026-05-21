@@ -94,7 +94,7 @@ describe('migrate-tenant: legacy receipts archived', () => {
     }
   }, 60_000)
 
-  it('records gaps for missing storage and still archives any v1 receipts', async () => {
+  it('CQ-158: records gaps for missing storage and fails closed without authority or archive', async () => {
     const t = await buildTestApp()
     try {
       const auth = await signupWithTenant(t, 'gaps@example.com', 'GapsCo', 'gaps')
@@ -133,12 +133,42 @@ describe('migrate-tenant: legacy receipts archived', () => {
       const body = response.json() as {
         gaps: Array<{ source_file_id: string; reason: string }>
         archivedReceiptIds: string[]
+        receiptId: string | null
+        storeIds: string[]
+        receiptIdsByStore: Record<string, string>
       }
       expect(body.gaps.length).toBeGreaterThan(0)
       expect(body.gaps[0]!.reason).toBe('raw_bytes_missing')
-      expect(body.archivedReceiptIds).toContain(legacyReceiptId)
 
-      // The gap is also persisted to the audit table.
+      // CQ-158: a gap blocks authority publish for the store. The
+      // archive must NOT have run either, so the v1 receipt is still
+      // resolvable from `legacy_v1_receipt` and is not in
+      // `legacy_receipt_archive`. The published store list excludes
+      // this store.
+      expect(body.archivedReceiptIds).not.toContain(legacyReceiptId)
+      expect(body.storeIds).not.toContain(storeId)
+      expect(body.receiptIdsByStore[storeId]).toBeUndefined()
+
+      const legacyStill = await t.db.rawExec<{ receipt_id: string }>(
+        `SELECT receipt_id FROM legacy_v1_receipt WHERE receipt_id = $1`,
+        [legacyReceiptId],
+      )
+      expect(legacyStill).toHaveLength(1)
+
+      const archived = await t.db.rawExec<{ receipt_id: string }>(
+        `SELECT receipt_id FROM legacy_receipt_archive WHERE receipt_id = $1`,
+        [legacyReceiptId],
+      )
+      expect(archived).toHaveLength(0)
+
+      const authorityRows = await t.db.rawExec<{ store_id: string }>(
+        `SELECT store_id FROM remote_authority_v2 WHERE tenant_id = $1 AND store_id = $2`,
+        [tenantId, storeId],
+      )
+      expect(authorityRows).toHaveLength(0)
+
+      // The gap is persisted to the audit table even when authority
+      // publish is blocked, so an operator can see why.
       const persistedGaps = await t.db.rawExec<{ source_file_id: string; reason: string }>(
         `SELECT source_file_id, reason FROM legacy_v1_migration_gap WHERE tenant_id = $1`,
         [tenantId],

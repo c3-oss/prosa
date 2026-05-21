@@ -35,6 +35,25 @@ const baseSchema = z.object({
   PROSA_OBJECT_STORE_REGION: z.string().optional(),
   PROSA_OBJECT_STORE_ACCESS_KEY_ID: z.string().optional(),
   PROSA_OBJECT_STORE_SECRET_ACCESS_KEY: z.string().optional(),
+  /**
+   * CQ-156: Lane 8 audit + GC cron switch. Enabled by default so
+   * production fleets exercise the drift/quarantine + GC contract
+   * without an opt-in flag. Set to `false` for local dev / tooling
+   * runs that never want background cron ticks.
+   */
+  PROSA_CRON_ENABLED: z
+    .union([z.boolean(), z.string()])
+    .default(true)
+    .transform((v) => (typeof v === 'boolean' ? v : !['0', 'false', 'no'].includes(v.toLowerCase()))),
+  /**
+   * Wake-up tick (ms) for the production cron scheduler. The
+   * cadence-aware scheduler (see `cron/wire.ts`) wakes up every
+   * `PROSA_CRON_INTERVAL_MS` ms and runs each registered handler
+   * only when its per-cadence interval has elapsed since the last
+   * fire. Default = 60 s so the audit hourly cadence stays close to
+   * its spec'd wall-clock cadence.
+   */
+  PROSA_CRON_INTERVAL_MS: z.coerce.number().int().positive().default(60_000),
 })
 
 export type RuntimeMode = 'production' | 'development' | 'test'
@@ -63,6 +82,10 @@ export type ProsaApiConfig = {
   authCookieCacheMaxAgeSeconds: number
   /** Additional trusted browser origins (beyond `apiUrl`) for CORS and Better Auth. */
   webOrigins: string[]
+  /** CQ-156: enable / disable Lane 8 audit + GC cron handlers. */
+  cronEnabled: boolean
+  /** CQ-156: production cron tick interval in milliseconds. */
+  cronIntervalMs: number
   objectStore:
     | {
         driver: 's3'
@@ -216,6 +239,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ProsaApiConfig
     cursorHmacSecret: v.PROSA_CURSOR_HMAC_SECRET ?? null,
     authCookieCacheMaxAgeSeconds: v.PROSA_AUTH_COOKIE_CACHE_MAX_AGE_SECONDS,
     webOrigins,
+    cronEnabled: v.PROSA_CRON_ENABLED,
+    cronIntervalMs: v.PROSA_CRON_INTERVAL_MS,
     objectStore,
   }
 }

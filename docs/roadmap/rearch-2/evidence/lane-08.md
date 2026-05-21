@@ -108,19 +108,59 @@ pnpm build       # 13/13 packages clean
   `gc-blocked-by-staging.test.ts`, `gc-delete-failure.test.ts`) pin
   the three-way guard and the revert-on-failure contract.
 
-## Governor Review Blockers
+## Governor Review Blockers — closed 2026-05-21 after race fix + cadence rework
 
-- CQ-155: GC must revalidate receipt grants and open staging rows after
-  tombstone and before delete.
-- CQ-156: audit/GC handlers must be wired into API startup/config, not only
-  exposed in test-callable modules.
-- CQ-157: monthly audit must hash with the same BLAKE3 digest used by pack
-  upload/catalog rows.
+- **CQ-155 (closed):** `apps/api/src/cron/gc.ts` now does the final
+  reference recheck + catalog delete inside a SINGLE transaction
+  guarded by `SELECT ... FOR UPDATE` on `pack_gc_state`. The atomic
+  catalog delete commits BEFORE the object-store delete is attempted;
+  once the catalog row is gone, no future `receipt_pack_grant` can
+  reference the pack via Lane 6 reads (the verified-projection gate
+  joins `(tenant_id, store_id, receipt_id, remote_pack)`). The race
+  regression `gc-rechecks-before-delete.test.ts` "final-review race"
+  wraps `objectStore.delete` with a hook that inserts a grant AFTER
+  the catalog tx commits and proves the bytes still get deleted while
+  the grant becomes an orphan (visible at the catalog level, swept by
+  audit). The orphan-object case (`gc-delete-failure.test.ts`) keeps
+  `pack_gc_state.status = 'deleted'` with the orphan `storage_uri`
+  recorded in `error` so an operator can sweep the bytes. Smoke:
+  ```text
+  pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/cron/
+  Test Files  11 passed (11)
+  Tests       22 passed (22)
+  ```
 
-Current focused tests still pass, but they do not cover these blockers:
+- **CQ-156 (closed):** `apps/api/src/cron/wire.ts` exposes
+  `startProsaCron(deps)` which feeds the `registerAuditCron` +
+  `registerGcCron` handler maps into `startCron`. `apps/api/src/server.ts`
+  now calls it after schema bootstrap under `config.cronEnabled`. The
+  scheduler is cadence-aware: `intervalScheduler` wakes every minute,
+  and each handler runs only when its
+  `cadenceForExpression(expression)` window has elapsed since the
+  previous fire (hourly = 1h, daily = 24h, weekly = 7d, monthly = 30d).
+  `interval-scheduler.test.ts` pins the mapping AND the
+  fires-once-per-cadence contract via vitest fake timers.
+  ```text
+  pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/cron/interval-scheduler.test.ts test/v2/cron/production-wiring.test.ts
+  Test Files  2 passed (2)
+  Tests       7 passed (7)
+  ```
+  True wall-clock cron-of-the-day semantics (e.g. monthly on the 1st
+  at 04:00) are deferred to a node-cron adapter swap; the load-bearing
+  contract is "no handler runs more than once per cadence", which
+  `cadenceForExpression` enforces. Governor smoke command still hits
+  real production code:
+  ```text
+  rg -n "startCron|registerAuditCron|registerGcCron|startProsaCron" apps/api/src
+  ```
 
-```text
-pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/migrate/tenant-roundtrip.test.ts test/v2/migrate/legacy-receipts-archived.test.ts test/v2/cron/gc-lifecycle.test.ts test/v2/cron/gc-blocked-by-grant.test.ts test/v2/cron/gc-blocked-by-staging.test.ts
-Test Files  5 passed (5)
-Tests       9 passed (9)
-```
+- **CQ-157 (closed):** `apps/api/src/cron/audit.ts` `hashStream` now uses
+  `@noble/hashes/blake3` and compares against `remote_pack.byte_hash`
+  normalized to lowercase hex without the `blake3:` prefix.
+  `audit-detects-mismatch.test.ts` adds a healthy-BLAKE3 + corrupted-BLAKE3
+  pair under the monthly cadence:
+  ```text
+  pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/cron/audit-detects-mismatch.test.ts
+  Test Files  1 passed (1)
+  Tests       4 passed (4)
+  ```

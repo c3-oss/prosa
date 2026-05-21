@@ -56,7 +56,22 @@ export function registerMigrateRoutes(app: FastifyInstance, deps: MigrateRoutesD
             message: 'migrate-tenant requires admin/owner role on the active tenant',
           }
         }
-        const body = (req.body ?? {}) as { tenantId?: string; storeId?: string; serverRegion?: string }
+        // CQ-160: receipt provenance must be server-owned. We
+        // intentionally ignore any caller-supplied `serverRegion`
+        // value and reject the request when present rather than
+        // silently dropping it, so an admin who tries to forge a
+        // region gets a clear 400 instead of a misleading
+        // success.
+        const rawBody = (req.body ?? {}) as Record<string, unknown>
+        if (Object.prototype.hasOwnProperty.call(rawBody, 'serverRegion')) {
+          reply.code(400)
+          return {
+            code: 'INVALID_REQUEST',
+            op: route.opName,
+            message: 'serverRegion is server-owned and must not be supplied by callers',
+          }
+        }
+        const body = rawBody as { tenantId?: string; storeId?: string }
         if (!body.tenantId) {
           reply.code(400)
           return { code: 'INVALID_REQUEST', op: route.opName, message: 'tenantId is required' }
@@ -74,7 +89,7 @@ export function registerMigrateRoutes(app: FastifyInstance, deps: MigrateRoutesD
               signer: deps.signer,
               serverRegion: deps.serverRegion,
             },
-            { tenantId: body.tenantId, storeId: body.storeId, serverRegion: body.serverRegion },
+            { tenantId: body.tenantId, storeId: body.storeId },
           )
           reply.code(200)
           return result

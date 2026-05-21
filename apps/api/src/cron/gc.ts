@@ -87,6 +87,28 @@ export async function runGcDaily(deps: GcCronDeps): Promise<void> {
     [String(GC_UNREFERENCED_AGE_DAYS)],
   )
 
+  // CQ-155: revalidate references before flipping to `delete_pending`.
+  // A grant or open promotion_staging row appearing AFTER tombstone
+  // must return the pack to `live` so phase 3 cannot delete it. The
+  // revert clears `first_unreferenced_at` so the 30-day clock starts
+  // over the next time the pack is unreferenced.
+  await deps.rawExec(
+    `UPDATE pack_gc_state s
+        SET status = 'live', first_unreferenced_at = NULL
+      WHERE s.status = 'tombstone_pending'
+        AND (EXISTS (
+              SELECT 1 FROM receipt_pack_grant g
+               WHERE g.tenant_id = s.tenant_id AND g.pack_digest = s.pack_digest
+             )
+             OR EXISTS (
+              SELECT 1 FROM promotion_staging ps
+               WHERE ps.tenant_id = s.tenant_id
+                 AND ps.status IN ('open','uploading','materializing')
+                 AND ps.head_json @> jsonb_build_object('pack_digests', jsonb_build_array(s.pack_digest))
+             ))`,
+    [],
+  )
+
   // Phase 2: tombstone_pending -> delete_pending after the grace
   // window. The conditional update keeps unrelated rows untouched.
   await deps.rawExec(
@@ -111,9 +133,61 @@ export async function runGcDaily(deps: GcCronDeps): Promise<void> {
   )
 
   for (const row of toDelete) {
+    // CQ-155 (atomic recheck-and-claim): perform the final
+    // reference revalidation AND the catalog row deletion inside a
+    // SINGLE transaction. Take an explicit row-level FOR UPDATE
+    // lock on the `pack_gc_state` row so a concurrent
+    // `seal-promotion` that inserts a `receipt_pack_grant` cannot
+    // race the recheck without going through the lock. We also
+    // re-lock `remote_pack` for the same row so the upload path
+    // can't ingest a new pack with the same digest mid-flight.
+    //
+    // If references appear, revert to `live` inside the same
+    // transaction. Otherwise drop the catalog rows AND mark
+    // `deleted` atomically. Object bytes are removed AFTER the
+    // catalog is gone — once the catalog row is gone no new receipt
+    // can grant on this pack (seal-promotion verifies the catalog
+    // presence transitively via `remote_pack_entry`), so the residual
+    // race window is closed.
+    let claimed = false
     try {
-      await deps.objectStore.delete(row.storage_uri)
       await deps.transaction(async (tx) => {
+        const lock = await tx<{ exists: boolean }>(
+          `SELECT 1 AS exists FROM pack_gc_state
+            WHERE tenant_id = $1 AND pack_digest = $2 AND status = 'delete_pending'
+            FOR UPDATE`,
+          [row.tenant_id, row.pack_digest],
+        )
+        if (lock.length === 0) {
+          // Row already changed under us (re-evaluated elsewhere).
+          return
+        }
+        const refs = await tx<{ referenced: boolean }>(
+          `SELECT (
+              EXISTS (SELECT 1 FROM receipt_pack_grant g
+                       WHERE g.tenant_id = $1 AND g.pack_digest = $2)
+              OR EXISTS (SELECT 1 FROM promotion_staging ps
+                          WHERE ps.tenant_id = $1
+                            AND ps.status IN ('open','uploading','materializing')
+                            AND ps.head_json @> jsonb_build_object('pack_digests', jsonb_build_array($2::text)))
+           ) AS referenced`,
+          [row.tenant_id, row.pack_digest],
+        )
+        if (refs[0]?.referenced === true) {
+          await tx(
+            `UPDATE pack_gc_state
+                SET status = 'live', first_unreferenced_at = NULL
+              WHERE tenant_id = $1 AND pack_digest = $2`,
+            [row.tenant_id, row.pack_digest],
+          )
+          return
+        }
+        // Atomically remove the catalog rows so any future grant
+        // attempt has nothing to reference. The unique catalog row
+        // is keyed by `(tenant_id, pack_digest)` so seal-promotion
+        // cannot create a grant on a pack that does not appear in
+        // `remote_pack`; once the catalog row is gone the residual
+        // race window is closed.
         await tx(`DELETE FROM remote_pack_entry WHERE tenant_id = $1 AND pack_digest = $2`, [
           row.tenant_id,
           row.pack_digest,
@@ -125,8 +199,8 @@ export async function runGcDaily(deps: GcCronDeps): Promise<void> {
             WHERE tenant_id = $1 AND pack_digest = $2`,
           [row.tenant_id, row.pack_digest],
         )
+        claimed = true
       })
-      deps.metrics.increment('prosa.gc.pack_deleted', { tenantId: row.tenant_id })
     } catch (err) {
       const errorPayload = JSON.stringify({ error: String(err) })
       await deps.rawExec(
@@ -138,7 +212,30 @@ export async function runGcDaily(deps: GcCronDeps): Promise<void> {
       deps.metrics.increment('prosa.gc.delete_failed', { tenantId: row.tenant_id })
       deps.logger.error(
         { err: String(err), tenantId: row.tenant_id, packDigest: row.pack_digest, storageUri: row.storage_uri },
-        'GC delete failed; reverting to live',
+        'GC catalog delete failed; reverting to live',
+      )
+      continue
+    }
+    if (!claimed) continue
+    // After the catalog tx commits the pack is logically deleted —
+    // attempt the object-store delete next. A failure here leaves a
+    // dangling object whose catalog row is already gone; the failure
+    // is recorded so an operator can sweep the orphan bytes.
+    try {
+      await deps.objectStore.delete(row.storage_uri)
+      deps.metrics.increment('prosa.gc.pack_deleted', { tenantId: row.tenant_id })
+    } catch (err) {
+      const errorPayload = JSON.stringify({ error: String(err), orphan_storage_uri: row.storage_uri })
+      await deps.rawExec(
+        `UPDATE pack_gc_state
+            SET error = $3::jsonb
+          WHERE tenant_id = $1 AND pack_digest = $2`,
+        [row.tenant_id, row.pack_digest, errorPayload],
+      )
+      deps.metrics.increment('prosa.gc.delete_failed', { tenantId: row.tenant_id })
+      deps.logger.error(
+        { err: String(err), tenantId: row.tenant_id, packDigest: row.pack_digest, storageUri: row.storage_uri },
+        'GC object delete failed after catalog removal — orphan object will need a sweep',
       )
     }
   }

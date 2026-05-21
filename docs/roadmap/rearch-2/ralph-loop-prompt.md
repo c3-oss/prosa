@@ -87,6 +87,49 @@ These current tests pass, but they do not cover the new blockers. Do not claim
 Lane 8 or Lane 9 acceptance until the open CQs are closed with code, tests, and
 recorded command evidence. Do not close these blockers with docs-only commits.
 
+Latest governor WIP review, 2026-05-21:
+
+- CQ-155 still open: current WIP rechecks references before delete, but a race
+  remains between the final recheck and `objectStore.delete`; add a regression
+  that inserts a grant/authority during that window and proves no delete occurs.
+- CQ-156 still open: production wiring exists, but API typecheck currently
+  fails on a `ProsaApiConfig` fixture missing `cronEnabled`/`cronIntervalMs`;
+  fixed-interval scheduler semantics also need proof or explicit rescope.
+- CQ-157 appears covered by current WIP, pending commit and clean typecheck /
+  Lane 8 gate batch.
+- CQ-158 still open: remote migration must prove `POST /v2/migrate/tenant`
+  followed by `/v2/reads/sessions/list` returns the migrated session; same-size
+  corrupted raw bytes must fail closed before authority/archive.
+- CQ-159 still open: current multi-store test fails with
+  `non-canonical id "sess_codex_B"` and must prove public per-store authority
+  resolution after fixture repair.
+- CQ-160 appears covered by current WIP, pending commit and clean Lane 9 gates
+  after Lane 8 acceptance.
+
+Latest governor smoke update, 2026-05-21:
+
+- Focused cron tests pass, but `pnpm --filter @c3-oss/prosa-api typecheck`
+  still fails in `apps/api/test/storage.test.ts` because `cronEnabled` and
+  `cronIntervalMs` are missing from a config fixture.
+- Focused migrate API tests now pass, including `tenant-reads-e2e`,
+  `tenant-multistore`, and `tenant-receipt-provenance`; keep Lane 9 blocked
+  until Lane 8 is accepted and all gate batches are clean.
+- CQ-161 is now actively touched but failing:
+  `pnpm --filter @c3-oss/prosa exec vitest run test/v2/migrate/bundle-atomic-rename.test.ts`
+  fails with `ReferenceError: recoverFromMigrationMarker is not defined`.
+
+Final reviewer update, 2026-05-21:
+
+- Do not accept Lane 8. CQ-155 still has the final recheck-to-delete race; add
+  a regression that inserts grant/authority after the final recheck and before
+  object deletion, and prove no delete occurs. CQ-156 still needs real cadence
+  scheduling or an explicit governor-approved fixed-interval rescope.
+- Do not accept Lane 9. CQ-161 still opens the v1 bundle through the mutable
+  opener and can delete arbitrary existing `--new` paths; add true read-only or
+  temp-copy behavior and marker-bound cleanup only. CQ-159 still needs public
+  `/v2/stores/<store>/authority` assertions and a documented/tested per-store
+  or tenant-wide receipt provenance model.
+
 ## Milestone Order
 
 ### Lane 7 — CLI and MCP

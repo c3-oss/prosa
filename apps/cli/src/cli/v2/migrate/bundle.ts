@@ -21,8 +21,9 @@
 // so `--verbose` and `--json` output can render it without any
 // further bookkeeping in the CLI command.
 
-import { readFile, rename, rm, stat } from 'node:fs/promises'
-import { resolve as resolvePath } from 'node:path'
+import { createHash } from 'node:crypto'
+import { readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { basename, dirname, resolve as resolvePath } from 'node:path'
 
 import {
   type Bundle as BundleV2,
@@ -111,10 +112,19 @@ export async function migrateBundle(options: MigrateBundleOptions): Promise<Migr
   const oldPath = resolvePath(options.oldPath)
   const newPath = resolvePath(options.newPath)
 
-  // Pre-flight: refuse to clobber an existing target directory. The
-  // v1 atomic-rename contract requires us to know which side a
-  // crashed previous run left dangling.
-  await reapStaleNewPath(newPath)
+  // CQ-161: recover any partial migration from a previous crash.
+  // The marker (`migrationMarkerPath`) is written before the first
+  // rename and deleted only after the second rename succeeds. If we
+  // find one with `oldPath` missing, restore the archived v1 bundle
+  // and reap the temp v2 bundle so this run can start fresh.
+  await recoverFromMigrationMarker(oldPath)
+
+  // CQ-161 (final review): refuse to clobber an existing target
+  // directory unless a valid recovery marker identifies it as
+  // migration-owned. A pre-existing non-marker `newPath` belongs to
+  // the operator (could be a real directory pointed at by a typo)
+  // and recursive cleanup would destroy unrelated data.
+  await reapStaleNewPath(newPath, oldPath)
 
   const phases: MigrationPhaseTiming[] = []
   const gaps: MigrationGap[] = []
@@ -126,6 +136,13 @@ export async function migrateBundle(options: MigrateBundleOptions): Promise<Migr
       phases.push({ phase, startedAtMs, durationMs: Date.now() - startedAtMs })
     }
   }
+
+  // CQ-161: snapshot the v1 bundle so we can prove after migration
+  // that it was not mutated. Captures `manifest.json` bytes, the
+  // SQLite DB digest, and a listing of `raw/sources` (file names +
+  // sizes). If any of these change between the snapshot and the
+  // rename phase, the migration aborts before the swap.
+  const v1Snapshot = await snapshotV1Bundle(oldPath)
 
   // Phase 1 — discovery. Open the v1 bundle and snapshot its source
   // files; closing the v1 bundle happens in the `finally` below.
@@ -178,11 +195,40 @@ export async function migrateBundle(options: MigrateBundleOptions): Promise<Migr
     await v2.close()
     v2 = null
 
+    // CQ-161: prove the v1 source bundle was not mutated. The v1
+    // opener applies pending migrations + may rewrite manifest.json,
+    // so the snapshot lets the migration fail closed when that
+    // happened (rather than swapping a mutated v1 into the archive).
+    const v1AfterSnapshot = await snapshotV1Bundle(oldPath)
+    if (!snapshotsEqual(v1Snapshot, v1AfterSnapshot)) {
+      throw new MigrationError(
+        'migration aborted before rename: v1 source bundle was mutated during reproject',
+        'validate',
+        { before: v1Snapshot, after: v1AfterSnapshot },
+      )
+    }
+
     let archivedAt: string | null = null
     let v2Path = newPath
     await trackPhase('rename', async () => {
       if (options.dryRun) return
       const stamp = options.archivePath ?? `${oldPath}-v0-archive-${formatStamp(now())}`
+      // CQ-161: write a recovery marker BEFORE the first rename so a
+      // crash between the two renames can be repaired by the next
+      // invocation. The marker lives next to `oldPath` so it is
+      // discoverable even when both `oldPath` and `newPath` are
+      // gone.
+      const markerPath = migrationMarkerPath(oldPath)
+      await writeFile(
+        markerPath,
+        JSON.stringify({
+          oldPath,
+          newPath,
+          archivePath: stamp,
+          createdAtMs: now(),
+        }),
+        'utf8',
+      )
       await rename(oldPath, stamp)
       try {
         await rename(newPath, oldPath)
@@ -195,6 +241,14 @@ export async function migrateBundle(options: MigrateBundleOptions): Promise<Migr
           // best-effort
         }
         throw err
+      } finally {
+        // Whether the second rename succeeded or we rolled back, the
+        // marker has no further consumers.
+        try {
+          await rm(markerPath, { force: true })
+        } catch {
+          // ignore
+        }
       }
       archivedAt = stamp
       v2Path = oldPath
@@ -375,13 +429,54 @@ function inferCorruptionReason(err: unknown): MigrationGap['reason'] {
   return 'raw_bytes_corrupted'
 }
 
-async function reapStaleNewPath(newPath: string): Promise<void> {
+async function reapStaleNewPath(newPath: string, oldPath: string): Promise<void> {
   const info = await stat(newPath).catch(() => null)
   if (!info) return
-  // If a previous run crashed mid-flight the temp v2 bundle remains;
-  // remove it before starting so the new init isn't blocked by a
-  // stale lock.
-  await rm(newPath, { recursive: true, force: true })
+  // CQ-161 (final review): only delete a pre-existing `newPath`
+  // when one of these is true:
+  //   1. The directory is EMPTY (there is nothing operator-owned to
+  //      destroy; this is the common "operator pre-created the
+  //      target" case).
+  //   2. A recovery marker proves the path belongs to a prior
+  //      (crashed) migration run targeting the SAME
+  //      `(oldPath, newPath)` pair.
+  // Otherwise we refuse — recursively removing an arbitrary
+  // existing directory would destroy unrelated data on a typo.
+  if (info.isDirectory()) {
+    let entries: string[] = []
+    try {
+      entries = await readdir(newPath)
+    } catch {
+      entries = []
+    }
+    if (entries.length === 0) {
+      await rm(newPath, { recursive: true, force: true })
+      return
+    }
+  }
+  const markerPath = migrationMarkerPath(oldPath)
+  const markerInfo = await stat(markerPath).catch(() => null)
+  if (markerInfo) {
+    try {
+      const raw = await readFile(markerPath, 'utf8')
+      const parsed = JSON.parse(raw) as { oldPath?: string; newPath?: string }
+      const recordedOld = parsed.oldPath ? resolvePath(parsed.oldPath) : null
+      const recordedNew = parsed.newPath ? resolvePath(parsed.newPath) : null
+      if (recordedOld === oldPath && recordedNew === newPath) {
+        // Marker matches — safe to reap.
+        await rm(newPath, { recursive: true, force: true })
+        return
+      }
+    } catch {
+      // Malformed marker: fall through to the refusal path.
+    }
+  }
+  throw new MigrationError(
+    `migration target path already exists and is not owned by a prior migration: ${newPath}. ` +
+      `Refusing to delete operator data. Remove or rename ${newPath} manually before retrying.`,
+    'discovery',
+    { newPath },
+  )
 }
 
 function formatStamp(ms: number): string {
@@ -406,4 +501,121 @@ export async function readV1SourceBytes(v1: BundleV1, objectId: string): Promise
 /** Read manifest.json contents as text; used by JSON-output mode. */
 export async function readV1ManifestText(oldPath: string): Promise<string> {
   return readFile(`${oldPath}/manifest.json`, 'utf8')
+}
+
+/** Path of the marker file used by CQ-161 crash-recovery. */
+export function migrationMarkerPath(oldPath: string): string {
+  const parent = dirname(oldPath)
+  const name = basename(oldPath)
+  return resolvePath(parent, `.prosa-migrate-${name}.json`)
+}
+
+/**
+ * CQ-161: if a previous `migrateBundle` run died between the archive
+ * and the final rename, the marker file remains and `oldPath` is
+ * missing. Restore the archived v1 bundle back to `oldPath` so the
+ * caller can either re-run migration or keep using v1.
+ */
+export async function recoverFromMigrationMarker(oldPath: string): Promise<{ restored: boolean }> {
+  const markerPath = migrationMarkerPath(oldPath)
+  const markerInfo = await stat(markerPath).catch(() => null)
+  if (!markerInfo) return { restored: false }
+  let raw: string
+  try {
+    raw = await readFile(markerPath, 'utf8')
+  } catch {
+    return { restored: false }
+  }
+  let parsed: { oldPath?: string; archivePath?: string; newPath?: string }
+  try {
+    parsed = JSON.parse(raw) as typeof parsed
+  } catch {
+    // Malformed marker; remove it so the next run can proceed.
+    await rm(markerPath, { force: true })
+    return { restored: false }
+  }
+  const recordedOld = parsed.oldPath ? resolvePath(parsed.oldPath) : null
+  const recordedArchive = parsed.archivePath ? resolvePath(parsed.archivePath) : null
+  const recordedNew = parsed.newPath ? resolvePath(parsed.newPath) : null
+  if (!recordedOld || !recordedArchive || recordedOld !== oldPath) {
+    await rm(markerPath, { force: true })
+    return { restored: false }
+  }
+  const oldExists = (await stat(oldPath).catch(() => null)) != null
+  const archiveExists = (await stat(recordedArchive).catch(() => null)) != null
+  if (oldExists) {
+    // Either the rename completed before the crash (oldPath now
+    // contains the v2 bundle) or the rollback succeeded. Either
+    // way, nothing to recover here.
+    await rm(markerPath, { force: true })
+    return { restored: false }
+  }
+  if (!archiveExists) {
+    // No source to restore from. Drop the marker so the next run can
+    // start fresh; the caller will see "bundle not initialized" at
+    // openBundleV1.
+    await rm(markerPath, { force: true })
+    return { restored: false }
+  }
+  await rename(recordedArchive, oldPath)
+  if (recordedNew) {
+    await rm(recordedNew, { recursive: true, force: true })
+  }
+  await rm(markerPath, { force: true })
+  return { restored: true }
+}
+
+type V1Snapshot = {
+  manifestHash: string
+  dbHash: string
+  rawSources: Array<{ name: string; size: number }>
+}
+
+async function snapshotV1Bundle(oldPath: string): Promise<V1Snapshot> {
+  const manifestPath = resolvePath(oldPath, 'manifest.json')
+  const manifestBytes = await readFile(manifestPath)
+  const manifestHash = createHash('sha256').update(manifestBytes).digest('hex')
+
+  const dbPath = resolvePath(oldPath, 'prosa.sqlite')
+  let dbHash = ''
+  try {
+    const dbBytes = await readFile(dbPath)
+    dbHash = createHash('sha256').update(dbBytes).digest('hex')
+  } catch {
+    // The db file may not exist in some odd test fixtures; treat
+    // missing as a stable empty digest so the comparison still
+    // detects a later creation.
+    dbHash = ''
+  }
+
+  const rawSourcesDir = resolvePath(oldPath, 'raw', 'sources')
+  const rawSources: V1Snapshot['rawSources'] = []
+  try {
+    const names = await readdir(rawSourcesDir)
+    names.sort()
+    for (const name of names) {
+      try {
+        const info = await stat(resolvePath(rawSourcesDir, name))
+        rawSources.push({ name, size: info.size })
+      } catch {
+        // skip
+      }
+    }
+  } catch {
+    // directory may be absent in synthetic fixtures
+  }
+
+  return { manifestHash, dbHash, rawSources }
+}
+
+function snapshotsEqual(a: V1Snapshot, b: V1Snapshot): boolean {
+  if (a.manifestHash !== b.manifestHash) return false
+  if (a.dbHash !== b.dbHash) return false
+  if (a.rawSources.length !== b.rawSources.length) return false
+  for (let i = 0; i < a.rawSources.length; i++) {
+    const x = a.rawSources[i]!
+    const y = b.rawSources[i]!
+    if (x.name !== y.name || x.size !== y.size) return false
+  }
+  return true
 }

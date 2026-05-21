@@ -1,7 +1,12 @@
 // Lane 8 — GC delete failure path.
 //
-// When the object store delete throws, the pack must revert to
-// `live` and the error must be recorded on `pack_gc_state.error`.
+// CQ-155: the catalog delete and recheck-and-claim run inside a
+// single SQL transaction. Once that transaction commits, the
+// catalog rows are gone and a future grant cannot reference the
+// pack. If the object-store delete then fails, the pack stays at
+// `deleted` (the catalog is already gone) but `error` records the
+// orphaned `storage_uri` so an operator can sweep the bytes. The
+// `prosa.gc.delete_failed` metric still fires.
 
 import type { RemoteObjectStore } from '@c3-oss/prosa-storage'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -17,7 +22,7 @@ describe('Lane 8 GC daily — delete failure', () => {
     await h.close()
   })
 
-  it('reverts a `delete_pending` pack to `live` and records the error when S3 delete throws', async () => {
+  it('leaves the gc state at `deleted` with an orphan error when the object-store delete fails after the catalog tx commits', async () => {
     const tenantId = 't_gc_fail'
     const packDigest = 'pack_gc_fail'
     const storageUri = `object-packs/${tenantId}/test/${packDigest}.pack`
@@ -53,20 +58,24 @@ describe('Lane 8 GC daily — delete failure', () => {
     })
     await handlers['gc-daily']()
 
-    const rows = await h.rawExec<{ status: string; error: unknown }>(
+    const rows = await h.rawExec<{ status: string; error: { orphan_storage_uri?: string } | null }>(
       `SELECT status, error FROM pack_gc_state WHERE tenant_id = $1 AND pack_digest = $2`,
       [tenantId, packDigest],
     )
     expect(rows).toHaveLength(1)
-    expect(rows[0]!.status).toBe('live')
+    // Catalog row deletion already committed before the object
+    // delete was attempted; reverting to `live` would lie about a
+    // catalog row that no longer exists.
+    expect(rows[0]!.status).toBe('deleted')
     expect(rows[0]!.error).not.toBeNull()
+    expect(rows[0]!.error?.orphan_storage_uri).toBe(storageUri)
 
-    // Catalog row still present (no half-deletion).
+    // Catalog row is gone (atomic catalog tx already committed).
     const cat = await h.rawExec(`SELECT 1 FROM remote_pack WHERE tenant_id = $1 AND pack_digest = $2`, [
       tenantId,
       packDigest,
     ])
-    expect(cat).toHaveLength(1)
+    expect(cat).toHaveLength(0)
 
     const failed = h.metrics.events.filter((e) => e.name === 'prosa.gc.delete_failed')
     expect(failed).toHaveLength(1)

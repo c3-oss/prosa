@@ -3,6 +3,7 @@ import { V2_PROMOTION_SUBSET_TABLES, applyV2PromotionSubsetSchema } from '@c3-os
 import { buildApp } from './app.js'
 import { createAuth } from './auth.js'
 import { loadConfig } from './config.js'
+import { NOOP_METRICS, intervalScheduler, startProsaCron } from './cron/wire.js'
 import { openPostgresDatabase } from './db.js'
 import { createObjectStore } from './storage.js'
 
@@ -69,5 +70,25 @@ export async function startServer(): Promise<void> {
     transaction: dbHandle.transaction,
     objectStore,
   })
+
+  // CQ-156: wire the Lane 8 audit + GC cron handlers into the
+  // Fastify lifecycle. The handle is cancelled on `app.close()` so
+  // background ticks never outlive the HTTP server. The audit/GC
+  // bodies acquire a Postgres advisory lock per tick, so it is safe
+  // to run the scheduler on every fleet worker.
+  if (config.cronEnabled) {
+    const cron = startProsaCron({
+      rawExec: dbHandle.rawExec,
+      transaction: dbHandle.transaction,
+      objectStore,
+      logger: app.log,
+      metrics: NOOP_METRICS,
+      scheduler: intervalScheduler(config.cronIntervalMs),
+    })
+    app.addHook('onClose', async () => {
+      cron.cancel()
+    })
+  }
+
   await app.listen({ host: config.host, port: config.port })
 }

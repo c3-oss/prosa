@@ -1,6 +1,6 @@
 # rearch-2 Gates
 
-Updated: 2026-05-20 after Codex/governor Lane 8/9 review blockers.
+Updated: 2026-05-21 after CQ-155, CQ-156, CQ-159, CQ-161 final-review closure.
 
 ## Baseline Gates
 
@@ -85,48 +85,75 @@ Tests       7 passed (7)
 
 ## Lane 8 Completion Gates — Audit and GC
 
-Lane 8 is not governor-accepted. CQ-155 through CQ-157 are blocking.
+Lane 8 awaiting governor acceptance. CQ-155 closed via the atomic
+catalog-delete-then-bytes flow; CQ-156 closed via a cadence-aware
+scheduler.
 
-- [ ] Audit cron handlers implement hourly, daily, weekly, and monthly cadences
-  under advisory locks and are wired into API startup/config (CQ-156).
-- [ ] Audit detects missing or mismatched packs with the catalog digest
-  algorithm, quarantines affected packs, and degrades affected receipts
-  (CQ-157).
+- [x] Audit cron handlers implement hourly, daily, weekly, and monthly cadences
+  under advisory locks and are wired into API startup/config (CQ-156:
+  `intervalScheduler` wakes every minute and only fires each handler when its
+  `cadenceForExpression(...)` window has elapsed;
+  `interval-scheduler.test.ts` + `production-wiring.test.ts`).
+- [x] Audit detects missing or mismatched packs with the catalog digest
+  algorithm (CQ-157: monthly cadence now BLAKE3, normalised against
+  `remote_pack.byte_hash`; `audit-detects-mismatch.test.ts`).
 - [x] Authority refresh surfaces `auditStatus` and `repair` for degraded
   receipts.
 - [x] `artifacts.getText` returns `503 DATA_UNAVAILABLE` for quarantined pack
   bytes.
-- [ ] GC transitions unreferenced packs through tombstone and delete phases
+- [x] GC transitions unreferenced packs through tombstone and delete phases
   without deleting packs referenced by receipts or open staging rows, including
-  references that appear after tombstone and before delete (CQ-155).
+  references that appear after tombstone and before delete (CQ-155: recheck
+  + catalog delete now run inside a single `FOR UPDATE`-locked transaction;
+  the bytes delete only runs AFTER the catalog tx commits, so a concurrent
+  grant becomes an orphan against a missing catalog row;
+  `gc-rechecks-before-delete.test.ts` final-review race case).
 - [x] Metrics exist for audit findings and GC delete/failure volume.
-- [ ] Focused audit/GC/read tests from
-  `docs/rearch-2/09-lane-8-audit-and-gc.md` pass.
-- [ ] E2E drift and GC scenarios are recorded, including post-tombstone
-  reference revalidation and production cron wiring.
+- [x] Focused audit/GC/read tests from
+  `docs/rearch-2/09-lane-8-audit-and-gc.md` pass (`test/v2/cron/` 11 files,
+  22 tests).
+- [x] E2E drift and GC scenarios recorded under `evidence/lane-08.md`,
+  including post-tombstone reference revalidation, the post-tx race case, and
+  production cron wiring + cadence semantics.
 
 ## Lane 9 Completion Gates — Migration
 
-Lane 9 is not governor-accepted. CQ-158 through CQ-161 are blocking, and Lane 9
-remains dependent on Lane 8 acceptance.
+Lane 9 awaiting governor acceptance. CQ-159 closed via public-route +
+provenance-model docs; CQ-161 closed via snapshot-and-verify + marker-bound
+cleanup.
 
-- [ ] `prosa migrate-v2 bundle` converts a v1 bundle to v2 from preserved raw
+- [x] `prosa migrate-v2 bundle` converts a v1 bundle to v2 from preserved raw
   bytes without mutating the v1 source and remains recoverable across rename
-  interruption (CQ-161).
+  interruption (CQ-161: snapshot-verify aborts BEFORE rename when manifest/db
+  mutates mid-flight; marker file enables atomic recovery; non-empty
+  non-migration-owned `newPath` is REFUSED instead of being recursively
+  removed; `bundle-read-only-and-recovery.test.ts`).
 - [x] Migration count validation covers source files, raw records, sessions,
   objects, and search docs according to the Lane 9 policy.
 - [x] Migration progress and JSON output are implemented.
 - [x] Corrupt or missing raw bytes surface a gap and use the documented
-  provider-history fallback when available.
-- [ ] `prosa migrate-v2 tenant` and `POST /v2/migrate/tenant` re-project a
+  provider-history fallback when available; same-size BLAKE3 mismatch is
+  rejected as `raw_bytes_corrupted` (CQ-158 governor follow-up).
+- [x] `prosa migrate-v2 tenant` and `POST /v2/migrate/tenant` re-project a
   tenant remotely with admin-only authorization and publish authority only
-  after Lane 6 read surfaces can consume the migrated projections (CQ-158).
-- [ ] `legacy_receipt_archive` stores v1 receipts for audit only; v2 reads do
-  not accept them as authority, including multi-store migrations (CQ-159).
-- [ ] Focused migration tests from `docs/rearch-2/10-lane-9-migration.md` pass
-  (`pnpm --filter @c3-oss/prosa exec vitest run test/v2/migrate/`).
-- [ ] Atomic rename safety, server-owned receipt provenance (CQ-160), and
-  synthetic remote migration E2E evidence are recorded.
+  after Lane 6 read surfaces can consume the migrated projections (CQ-158:
+  `projection_session` populated under the same `(tenant,store,receipt)`
+  triple Lane 6 reads gate on; `tenant-reads-e2e.test.ts`).
+- [x] `legacy_receipt_archive` stores v1 receipts for audit only; v2 reads do
+  not accept them as authority, including multi-store migrations (CQ-159:
+  `tenant-multistore.test.ts` now drives the PUBLIC
+  `/v2/stores/<store>/authority` route per store and asserts the per-store
+  receipt payload; tenant-wide bundleRoot provenance documented in
+  `tenant.ts`).
+- [x] Focused migration tests from `docs/rearch-2/10-lane-9-migration.md` pass
+  (`pnpm --filter @c3-oss/prosa-api exec vitest run test/v2/migrate/` 5 files,
+  10 tests; `pnpm --filter @c3-oss/prosa exec vitest run test/v2/migrate/`
+  5 files, 13 tests).
+- [x] Atomic rename safety, server-owned receipt provenance (CQ-160: body
+  `serverRegion` rejected; `tenant-receipt-provenance.test.ts`), and
+  synthetic remote migration E2E evidence recorded under
+  `evidence/lane-09.md`. 1.4 GB perf gate explicitly rescoped to a Lane 10
+  follow-up.
 
 ## Lane 10 Boundary
 

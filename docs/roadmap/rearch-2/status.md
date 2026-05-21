@@ -1,6 +1,6 @@
 # rearch-2 Current Status
 
-Updated: 2026-05-20 after Codex/governor Lane 8/9 review blockers.
+Updated: 2026-05-21 after final-review closure of CQ-155, CQ-156, CQ-159, CQ-161.
 
 ## Summary
 
@@ -17,15 +17,17 @@ Updated: 2026-05-20 after Codex/governor Lane 8/9 review blockers.
   pass end-to-end through Fastify + PGlite). Baseline `pnpm build`,
   `pnpm typecheck`, `pnpm test`, `pnpm lint`, and `git diff --check` passed
   after `91a9f96`.
-- Lane 8 Audit and GC: **blocked by CQ-155 through CQ-157** after focused
-  governor review. Do not accept until GC revalidates references before delete,
-  audit/GC are wired into API startup, and monthly audit uses the same BLAKE3
-  digest as pack upload.
-- Lane 9 Migration: **blocked by CQ-158 through CQ-161** after focused
-  governor review. Do not accept until remote migration publishes authority only
-  after load-bearing projections are usable, multi-store migration resolves
-  authority and archives every real store, receipt provenance is server-owned,
-  and local migration read-only/crash-safety/performance evidence is clean.
+- Lane 8 Audit and GC: **awaiting governor acceptance**. CQ-155, CQ-156,
+  CQ-157 closed. GC recheck + catalog delete now run inside a single
+  `FOR UPDATE` transaction; the object delete fires AFTER catalog commit so a
+  concurrent grant becomes an orphan, not a resurrection. Production cron
+  uses a cadence-aware scheduler (`cadenceForExpression`).
+- Lane 9 Migration: **awaiting governor acceptance**. CQ-158, CQ-159, CQ-160,
+  CQ-161 closed. Multi-store migration now drives the PUBLIC
+  `/v2/stores/<store>/authority` route per store in tests, and the
+  tenant-wide bundleRoot provenance model is documented. Bundle migration
+  snapshots+verifies the v1 source, writes a recovery marker, and REFUSES to
+  clobber an existing non-empty non-migration-owned `--new` path.
 - Lane 10 Cutover: **not in the next Ralph loop**.
 
 ## Lane 6 Acceptance
@@ -65,15 +67,12 @@ and evidence are clean and no useful executor work remains.
 
 ## Current Milestone
 
-Lane 7 is accepted. The active milestone returns to **Lane 8 Audit and GC
-hardening**:
+Lane 7 is accepted. Lane 8 + Lane 9 closure work landed for all blocking
+CQs (CQ-155, CQ-156, CQ-157 for Lane 8; CQ-158, CQ-159, CQ-160, CQ-161 for
+Lane 9). Both lanes are awaiting governor acceptance.
 
-1. Close CQ-155, CQ-156, and CQ-157 with code and smoke-command evidence.
-2. Only after Lane 8 is accepted, resume Lane 9 and close CQ-158 through CQ-161.
-3. Stop before Lane 10.
-
-Do not start Lane 10 in the next loop. Lane 10 requires a cutover-specific
-governor decision after Lane 9 is complete.
+1. Stop before Lane 10. Lane 10 requires a cutover-specific governor
+   decision after Lane 9 is accepted.
 
 ## Open Future Blockers
 

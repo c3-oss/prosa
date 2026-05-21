@@ -18,6 +18,8 @@ const baseConfig: Omit<ProsaApiConfig, 'objectStore'> = {
   cursorHmacSecret: null,
   authCookieCacheMaxAgeSeconds: 0,
   webOrigins: [],
+  cronEnabled: false,
+  cronIntervalMs: 60_000,
 }
 
 function configWithObjectStore(objectStore: ProsaApiConfig['objectStore']): ProsaApiConfig {
