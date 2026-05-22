@@ -143,8 +143,8 @@ jobs:
 
       - name: Bring up stack
         run: |
-          docker compose --env-file /tmp/v2-e2e.env -f docker-compose.yml -f docker-compose.override.yml -f /tmp/v2-e2e-override.yml build api
-          docker compose --env-file /tmp/v2-e2e.env -f docker-compose.yml -f docker-compose.override.yml -f /tmp/v2-e2e-override.yml up -d
+          docker compose --env-file /tmp/v2-e2e.env -f docker-compose.yml -f /tmp/v2-e2e-override.yml build api
+          docker compose --env-file /tmp/v2-e2e.env -f docker-compose.yml -f /tmp/v2-e2e-override.yml up -d
           for i in $(seq 1 60); do
             if curl -sf http://127.0.0.1:3010/health >/dev/null 2>&1; then echo "api up"; break; fi
             sleep 2
@@ -201,4 +201,4 @@ jobs:
 
       - name: Tear down
         if: always()
-        run: docker compose --env-file /tmp/v2-e2e.env -f docker-compose.yml -f docker-compose.override.yml -f /tmp/v2-e2e-override.yml down -v
+        run: docker compose --env-file /tmp/v2-e2e.env -f docker-compose.yml -f /tmp/v2-e2e-override.yml down -v
