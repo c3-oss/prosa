@@ -6,9 +6,9 @@ name: V2 End-to-End
 # 3. every `prosa read --authority local` subcommand returns rows
 # 4. bring up postgres+minio+api via docker compose
 # 5. auth signup + sync-v2 → expect `sealed`
-# 6. config persists the promotion record (read --authority remote
-#    is currently blocked by a server-side materialization gap;
-#    Vikunja G7 tracks unblocking that surface)
+# 6. config persists the promotion record
+# 7. read --authority remote returns the materialized rows (G7
+#    cutover closed the server-side projection gap)
 
 on:
   push:
@@ -190,13 +190,14 @@ jobs:
             console.log("promotion record OK:", JSON.stringify({tenant: rec.tenantId, receiptId: rec.receipt.payload.receiptId}));
           '
 
-      # NOTE: `prosa read --authority remote` is currently blocked by
-      # the server-side materialization gap (G7 in the rearch followup
-      # board) — the seal step signs the receipt but does not populate
-      # the projection_* tables, so a remote read crashes with
-      # "column s.session_id does not exist". When G7 lands, this
-      # workflow should re-enable a `read --authority remote --count`
-      # step at the end.
+      - name: read sessions --authority remote
+        run: |
+          STORE_ID=$(cat /tmp/v2-e2e-store/head.json | node -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>process.stdout.write(JSON.parse(s).storeId))')
+          TENANT_ID=$(cat /tmp/v2-e2e-tenant)
+          COUNT=$(pnpm dev -- read sessions --store /tmp/v2-e2e-store --authority remote --count 2>&1 | tail -1)
+          test "$COUNT" = "1" || (echo "expected 1 remote session, got $COUNT" && exit 1)
+          pnpm dev -- read sessions --store /tmp/v2-e2e-store --authority remote --output-format json --limit 1 > /tmp/v2-e2e-remote-sessions.json
+          grep -q '"session_id"' /tmp/v2-e2e-remote-sessions.json
 
       - name: Tear down
         if: always()

@@ -61,9 +61,18 @@ export async function applySchemaV2(client: SqlClient): Promise<void> {
 // Running `applySchemaV2` on top of v1 fails because
 // `CREATE TABLE IF NOT EXISTS` skips the colliding tables and
 // later `CREATE INDEX` statements reference columns the v1
-// shapes don't have. Until Lane 10 cutover migrates the v1 rows
-// off those names, production + tests apply only the
-// CONFLICT-FREE subset of v2 here:
+// shapes don't have. The conflict-free subset applied here keeps
+// the v1 shapes intact so legacy tRPC routes (sync.commit,
+// sync.verifyPromotion, reads-v0.*) keep working against existing
+// projection rows.
+//
+// G7 cutover lives in a dedicated helper (`applyV2ProjectionCutover`,
+// below) that production boot calls separately. Tests that exercise
+// only the v2 surface call `applySchemaV2` directly; tests that
+// exercise legacy v1 routes go through `applyV2PromotionSubsetSchema`
+// and skip the cutover so v1 paths keep their v1 projection shape.
+//
+// What the subset creates:
 //
 // - promotion (`promotion_staging`, `remote_authority_v2`,
 //   `receipt`, `legacy_receipt_archive`, `promotion_uploaded_pack`);
@@ -111,11 +120,36 @@ $$;
 
 const PACKS_NO_REMOTE_OBJECT_SQL = PACKS_SCHEMA_SQL.replace(/CREATE TABLE IF NOT EXISTS remote_object[\s\S]*?\);/u, '')
 
+// G7 cutover: drop v1 projection_* tables before applying v2
+// `PROJECTION_SCHEMA_SQL`. v1 left these empty (CQ-124 documents
+// the constraint), so the drop is safe on fresh deploys and on
+// Lane 5 deployments alike. `IF EXISTS` keeps the call
+// idempotent: a fresh database with no v1 tables proceeds
+// silently; a re-applied cutover is also a no-op because the v2
+// `CREATE TABLE IF NOT EXISTS` skips already-present tables.
+//
+// Owned by `applyV2ProjectionCutover` (below). The subset never
+// runs this drop so legacy tRPC routes (sync.commit,
+// sync.verifyPromotion, reads-v0.*) keep working in tests that
+// exercise the v1 path.
+const DROP_V1_PROJECTION_TABLES_SQL = `
+DROP TABLE IF EXISTS projection_session CASCADE;
+DROP TABLE IF EXISTS projection_message CASCADE;
+DROP TABLE IF EXISTS projection_tool_call CASCADE;
+DROP TABLE IF EXISTS projection_tool_result CASCADE;
+DROP TABLE IF EXISTS projection_event CASCADE;
+DROP TABLE IF EXISTS projection_content_block CASCADE;
+DROP TABLE IF EXISTS projection_artifact CASCADE;
+DROP TABLE IF EXISTS projection_edge CASCADE;
+DROP TABLE IF EXISTS projection_project CASCADE;
+DROP TABLE IF EXISTS projection_turn CASCADE;
+`
+
 // CQ-124 + Lane 9: `projection_source_file` and
 // `projection_raw_record` exist only in v2 (the v1 schema has neither
 // table). The migration flow needs them when re-projecting a tenant,
 // so the conflict-free subset applies them explicitly. The rest of
-// `projection_*` stays v1-owned until Lane 10 cutover.
+// `projection_*` stays v1-owned until the cutover runs.
 const PROJECTION_V2_ONLY_SQL = `
 CREATE TABLE IF NOT EXISTS projection_source_file (
   tenant_id        TEXT NOT NULL,
@@ -160,6 +194,28 @@ export async function applyV2PromotionSubsetSchema(client: SqlClient): Promise<v
 }
 
 /**
+ * G7 cutover — drop the v1 projection tables (and their FK cascade)
+ * and apply the full v2 `PROJECTION_SCHEMA_SQL`. After this runs,
+ * the v2 `read --authority remote` endpoints can serve rows from
+ * `projection_session` etc. with their `store_id` + `receipt_id`
+ * columns intact.
+ *
+ * Production boot calls this AFTER `applyV2PromotionSubsetSchema`
+ * so the v1 projection rows (empty per CQ-124) are cleared before
+ * the v2 shape replaces them. Legacy tRPC test paths that still
+ * expect the v1 projection shape skip the cutover — they apply
+ * only the subset.
+ *
+ * Idempotent: the drops are `IF EXISTS` and the v2 schema uses
+ * `CREATE TABLE IF NOT EXISTS`, so a re-applied cutover is a no-op
+ * once the cutover has run successfully once.
+ */
+export async function applyV2ProjectionCutover(client: SqlClient): Promise<void> {
+  await execSql(client, DROP_V1_PROJECTION_TABLES_SQL)
+  await execSql(client, PROJECTION_SCHEMA_SQL)
+}
+
+/**
  * Tables the conflict-free subset creates. Production boot uses
  * this list as a fail-fast gate after applying the subset.
  */
@@ -180,6 +236,25 @@ export const V2_PROMOTION_SUBSET_TABLES: readonly string[] = [
   'search_generation_current',
   'projection_source_file',
   'projection_raw_record',
+]
+
+/**
+ * G7 cutover — the v2 projection tables created by
+ * `applyV2ProjectionCutover`. Production boot includes these in
+ * the post-cutover fail-fast gate so a missing table after the
+ * drop+create cycle crashes the process before traffic.
+ */
+export const V2_PROJECTION_CUTOVER_TABLES: readonly string[] = [
+  'projection_session',
+  'projection_message',
+  'projection_tool_call',
+  'projection_tool_result',
+  'projection_event',
+  'projection_content_block',
+  'projection_artifact',
+  'projection_edge',
+  'projection_project',
+  'projection_turn',
 ]
 
 /**

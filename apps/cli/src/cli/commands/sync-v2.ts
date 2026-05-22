@@ -76,6 +76,7 @@ export function syncV2Command(): Command {
         objectInventory: layout.objectInventory,
         projectionInventory: layout.projectionInventory,
         objectPacks: layout.objectPacks,
+        projectionSegments: layout.projectionSegments,
         // commander maps `--no-resume` to `opts.resume = false`.
         skipResume: opts.resume === false,
       })
@@ -156,6 +157,7 @@ async function readBundleLayout(bundlePath: string): Promise<{
   objectInventory: { ref: SegmentRefWire; bytes: Uint8Array }
   projectionInventory: { ref: SegmentRefWire; bytes: Uint8Array }
   objectPacks: Array<{ bytes: Uint8Array }>
+  projectionSegments: Array<{ ref: SegmentRefWire; bytes: Uint8Array }>
 }> {
   const root = path.resolve(bundlePath)
   const headBytes = await readFileOrThrow(path.join(root, 'head.json'))
@@ -165,6 +167,11 @@ async function readBundleLayout(bundlePath: string): Promise<{
     objectInventory: { ref: SegmentRefWire; file: string }
     projectionInventory: { ref: SegmentRefWire; file: string }
     objectPacks: Array<{ file: string }>
+    // G7 cutover: bundles sealed before the field existed have
+    // no `projectionSegments` entry — fall back to an empty list
+    // so the CLI keeps working against legacy bundles even though
+    // the server then can't materialize their rows.
+    projectionSegments?: Array<{ ref: SegmentRefWire; file: string }>
   }
   const head = JSON.parse(new TextDecoder().decode(headBytes)) as BundleHeadV2Wire
   const objectInventory = {
@@ -180,7 +187,20 @@ async function readBundleLayout(bundlePath: string): Promise<{
       bytes: await readFileOrThrow(path.join(root, p.file)),
     })),
   )
-  return { storePath: layout.storePath, head, objectInventory, projectionInventory, objectPacks }
+  const projectionSegments = await Promise.all(
+    (layout.projectionSegments ?? []).map(async (p) => ({
+      ref: p.ref,
+      bytes: await readFileOrThrow(path.join(root, p.file)),
+    })),
+  )
+  return {
+    storePath: layout.storePath,
+    head,
+    objectInventory,
+    projectionInventory,
+    objectPacks,
+    projectionSegments,
+  }
 }
 
 async function readFileOrThrow(filePath: string): Promise<Uint8Array> {

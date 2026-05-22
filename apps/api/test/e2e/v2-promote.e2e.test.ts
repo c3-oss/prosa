@@ -26,7 +26,7 @@ import path from 'node:path'
 import { CreateBucketCommand, HeadBucketCommand, S3Client } from '@aws-sdk/client-s3'
 import { buildCasPack } from '@c3-oss/prosa-bundle-v2'
 import { applySchema } from '@c3-oss/prosa-db'
-import { applyV2PromotionSubsetSchema } from '@c3-oss/prosa-db-v2'
+import { applyV2ProjectionCutover, applyV2PromotionSubsetSchema } from '@c3-oss/prosa-db-v2'
 import { S3ObjectStore } from '@c3-oss/prosa-storage'
 import { receiptPayloadBytes } from '@c3-oss/prosa-types-v2'
 import { blake3 } from '@noble/hashes/blake3'
@@ -63,6 +63,9 @@ async function resetPostgresSchema(pgUrl: string): Promise<void> {
     const sqlClient = { exec: async (sql: string) => void (await bootstrap.unsafe(sql)) }
     await applySchema(sqlClient)
     await applyV2PromotionSubsetSchema(sqlClient)
+    // G7 cutover: e2e mirrors production boot so seal-promotion's
+    // projection materialization has the v2-shape projection_* tables.
+    await applyV2ProjectionCutover(sqlClient)
   } finally {
     await bootstrap.end({ timeout: 2 })
   }

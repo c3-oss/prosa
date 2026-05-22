@@ -43,6 +43,14 @@ export type PromoteInput = {
   projectionInventory: { ref: SegmentRefWire; bytes: Uint8Array }
   objectPacks: Array<{ bytes: Uint8Array }>
   /**
+   * G7 cutover: every projection_arrow NDJSON segment to upload
+   * before sealing. The server materializes them into
+   * `projection_<entity>` rows during seal; without them
+   * `read --authority remote` would surface zero rows for every
+   * entity.
+   */
+  projectionSegments?: Array<{ ref: SegmentRefWire; bytes: Uint8Array }>
+  /**
    * When true, skip the server-side resume optimisation
    * (status fetch + uploaded-pack-digest short-circuit) and
    * re-upload every inventory + pack. Wired from CLI
@@ -141,6 +149,21 @@ export async function promoteBundleV2(client: PromoteHttpClient, input: PromoteI
       segmentId: input.projectionInventory.ref.segmentId,
       bytes: input.projectionInventory.bytes,
       digest: input.projectionInventory.ref.digest,
+      deviceId: input.deviceId,
+    })
+  }
+  // G7 cutover: upload every projection_arrow NDJSON segment.
+  // The server's upload-segment handler accepts them because
+  // `head_json.segments[]` (already persisted on BeginPromotion)
+  // declares each one. Uploads are idempotent server-side, so a
+  // resume after an interrupt re-sends the same bytes without
+  // tracking per-segment state.
+  for (const segment of input.projectionSegments ?? []) {
+    await uploadSegment(client, {
+      promotionId,
+      segmentId: segment.ref.segmentId,
+      bytes: segment.bytes,
+      digest: segment.ref.digest,
       deviceId: input.deviceId,
     })
   }

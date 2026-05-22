@@ -49,6 +49,12 @@ import {
 import { blake3 } from '@noble/hashes/blake3'
 import type { DatabaseHandle, RawExec } from '../../db.js'
 import type { ReceiptSigner } from '../signing/local-signer.js'
+import {
+  type MaterializedRowCounts,
+  type ParsedProjection,
+  insertParsedProjection,
+  parseProjectionSegments,
+} from './seal-materialize.js'
 import { stagingObjectKey } from './upload-segment.js'
 
 export type SealPromotionDeps = {
@@ -326,6 +332,7 @@ export async function sealPromotion(
   let signature: PromotionReceiptV2Signature
   let packDigests: string[]
   let bundleRoot: string
+  let parsedProjection: ParsedProjection
   try {
     // Look up uploaded packs for this promotion.
     const packRows = await deps.rawExec<{ pack_digest: string }>(
@@ -372,6 +379,17 @@ export async function sealPromotion(
     // itself is short.
     await verifyLinkedPackBytes(deps, params.promotionId)
 
+    // G7 cutover phase 1: parse every projection_arrow NDJSON
+    // segment uploaded for this promotion so we know exactly how
+    // many rows will land in each `projection_<entity>` table.
+    // The receipt's `materialization.rowCountsByEntity` is built
+    // from these counts, which means the signed receipt id only
+    // settles when the materialization shape settles.
+    parsedProjection = await parseProjectionSegments(
+      { objectStore: deps.objectStore, tenantId: deps.tenantId },
+      { promotionId: params.promotionId, segments: head.segments ?? [] },
+    )
+
     const payload = buildReceiptPayload({
       tenantId: deps.tenantId,
       storeId: staging.store_id,
@@ -387,6 +405,7 @@ export async function sealPromotion(
       previousBundleRoot: null,
       searchGenerationId: deriveSearchGenerationId(deps.tenantId, staging.store_id, head.bundleRoot),
       postgresCommitId: derivePostgresCommitId(deps.tenantId, staging.store_id, head.bundleRoot),
+      rowCountsByEntity: parsedProjection.counts,
     })
     const receiptIdAttempt = deriveReceiptId(payload)
     finalPayload = { ...payload, receiptId: receiptIdAttempt }
@@ -465,6 +484,17 @@ export async function sealPromotion(
           [finalPayload.receiptId, deps.tenantId, digest],
         )
       }
+      // G7 cutover phase 2: insert the parsed projection rows
+      // stamped with the just-signed receipt id. The transaction
+      // commit is what makes (a) the rows visible to read
+      // endpoints AND (b) authority swap atomic. Any failure
+      // here rolls everything back via the surrounding try/catch.
+      await insertParsedProjection(tx, {
+        tenantId: deps.tenantId,
+        storeId: staging.store_id,
+        receiptId: finalPayload.receiptId,
+        parsed: parsedProjection,
+      })
       await tx(
         `UPDATE promotion_staging
             SET status = 'sealed',
@@ -672,11 +702,22 @@ function buildReceiptPayload(input: {
   previousBundleRoot: string | null
   searchGenerationId: string
   postgresCommitId: string
+  rowCountsByEntity: MaterializedRowCounts
 }): PromotionReceiptV2Payload {
+  // G7 cutover: every canonical entity gets a count entry, defaulting
+  // to 0 for entity types the bundle did not project. Materialized
+  // counts come from the phase-1 parse of projection_arrow NDJSON
+  // segments; entities the server does not yet materialize (event,
+  // content_block, edge, raw_record, source_file, project, turn,
+  // search_doc) stay at 0 because no INSERT will hit their
+  // projection_<entity> table.
   const rowCountsByEntity = Object.fromEntries(CANONICAL_ENTITY_TYPES.map((t) => [t, 0])) as Record<
     CanonicalEntityType,
     number
   >
+  for (const [entity, count] of Object.entries(input.rowCountsByEntity) as Array<[CanonicalEntityType, number]>) {
+    rowCountsByEntity[entity] = count
+  }
   return {
     receiptVersion: 2,
     receiptId: 'rcpt_placeholder',
@@ -743,6 +784,7 @@ type HeadShape = {
   bundleRoot: string
   rawSourceRoot: string
   counts: PromotionReceiptV2Payload['counts']
+  segments: ReadonlyArray<{ segmentId: string; kind: string; entityType?: CanonicalEntityType }>
 }
 
 function coerceHead(raw: unknown): HeadShape | null {
@@ -753,11 +795,31 @@ function coerceHead(raw: unknown): HeadShape | null {
   const counts = (obj as { counts?: unknown }).counts
   if (typeof bundleRoot !== 'string' || typeof rawSourceRoot !== 'string') return null
   if (!counts || typeof counts !== 'object') return null
+  const segments = coerceSegmentList((obj as { segments?: unknown }).segments)
   return {
     bundleRoot,
     rawSourceRoot,
     counts: counts as PromotionReceiptV2Payload['counts'],
+    segments,
   }
+}
+
+function coerceSegmentList(
+  raw: unknown,
+): ReadonlyArray<{ segmentId: string; kind: string; entityType?: CanonicalEntityType }> {
+  if (!Array.isArray(raw)) return []
+  const out: Array<{ segmentId: string; kind: string; entityType?: CanonicalEntityType }> = []
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') continue
+    const segmentId = (entry as { segmentId?: unknown }).segmentId
+    const kind = (entry as { kind?: unknown }).kind
+    if (typeof segmentId !== 'string' || typeof kind !== 'string') continue
+    const segment: { segmentId: string; kind: string; entityType?: CanonicalEntityType } = { segmentId, kind }
+    const entityType = (entry as { entityType?: unknown }).entityType
+    if (typeof entityType === 'string') segment.entityType = entityType as CanonicalEntityType
+    out.push(segment)
+  }
+  return out
 }
 
 function coerceJsonbObject(value: unknown): Record<string, unknown> | null {

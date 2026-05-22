@@ -96,6 +96,7 @@ type StagingRow = {
   device_id: string
   inventory_object_ref: unknown
   inventory_projection_ref: unknown
+  head_json: unknown
 }
 
 // CQ-131: once seal moves the slot to `materializing`, the upload
@@ -109,7 +110,7 @@ export async function uploadSegment(
   params: UploadSegmentParams,
 ): Promise<UploadSegmentResult> {
   const rows = await deps.rawExec<StagingRow>(
-    `SELECT status, device_id, inventory_object_ref, inventory_projection_ref
+    `SELECT status, device_id, inventory_object_ref, inventory_projection_ref, head_json
        FROM promotion_staging
       WHERE id = $1 AND tenant_id = $2
       LIMIT 1`,
@@ -133,7 +134,15 @@ export async function uploadSegment(
     parseSegmentRef(row.inventory_object_ref),
     parseSegmentRef(row.inventory_projection_ref),
   ]
-  const segment = candidates.find((s): s is SegmentRefWire => s != null && s.segmentId === params.segmentId)
+  let segment = candidates.find((s): s is SegmentRefWire => s != null && s.segmentId === params.segmentId)
+  // G7 cutover: in addition to the two inventory refs, accept any
+  // projection_arrow segment declared in the head's segments list.
+  // BeginPromotion persisted the full head via `head_json`, so the
+  // segment ids the CLI uploads are already known here without a
+  // schema change.
+  if (!segment) {
+    segment = findProjectionSegment(row.head_json, params.segmentId) ?? undefined
+  }
   if (!segment) {
     throw new UploadSegmentNotFoundError(
       `segment ${params.segmentId} is not declared on promotion ${params.promotionId}`,
@@ -208,6 +217,34 @@ function parseSegmentRef(value: unknown): SegmentRefWire | null {
     }
   }
   if (typeof value === 'object') return value as SegmentRefWire
+  return null
+}
+
+// G7 cutover: locate a projection_arrow segment declared in the
+// bundle head's `segments` list. The list is stored verbatim on
+// BeginPromotion (`head_json` JSONB column), so the lookup runs
+// without an extra schema change. Returns null on parse failure
+// or no match — the caller surfaces SEGMENT_NOT_DECLARED.
+function findProjectionSegment(headJson: unknown, segmentId: string): SegmentRefWire | null {
+  let head: { segments?: unknown[] } | null = null
+  if (headJson == null) return null
+  if (typeof headJson === 'string') {
+    try {
+      head = JSON.parse(headJson) as { segments?: unknown[] }
+    } catch {
+      return null
+    }
+  } else if (typeof headJson === 'object' && !Array.isArray(headJson)) {
+    head = headJson as { segments?: unknown[] }
+  }
+  if (!head || !Array.isArray(head.segments)) return null
+  for (const raw of head.segments) {
+    if (!raw || typeof raw !== 'object') continue
+    const candidate = raw as SegmentRefWire
+    if (candidate.kind !== 'projection_arrow') continue
+    if (candidate.segmentId !== segmentId) continue
+    return candidate
+  }
   return null
 }
 

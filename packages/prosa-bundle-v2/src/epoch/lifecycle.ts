@@ -952,12 +952,25 @@ export async function sealEpoch(handle: EpochHandle): Promise<SealedEpoch> {
     .registeredSegments()
     .filter((s) => s.kind === 'cas_object_pack')
     .map((s) => ({ path: s.path }))
+  // G7 cutover: every projection_arrow segment is uploaded by
+  // `prosa sync-v2` so the server can materialize the
+  // `projection_<entity>` rows on seal. Their paths survive the
+  // tmp -> permanent rename via the same prefix swap the
+  // inventory refs use.
+  const projectionSegmentRefs = handle
+    .registeredSegments()
+    .filter((s): s is DurableSegmentRef => s.kind === 'projection_arrow')
+    .map((s) => ({
+      ...s,
+      path: s.path.startsWith(handle.tmpDir) ? join(permanent, s.path.slice(handle.tmpDir.length + 1)) : s.path,
+    }))
   await writeSyncLayoutFile({
     bundleRoot: handle.bundle.paths.root,
     storePath: handle.bundle.head.storePath,
     objectInventory: objectInventoryPermanent,
     projectionInventory: projectionInventoryPermanent,
     objectPacks: objectPackPaths,
+    projectionSegments: projectionSegmentRefs,
   })
   await syncDir(handle.bundle.paths.root)
 
