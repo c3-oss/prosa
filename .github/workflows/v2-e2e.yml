@@ -66,11 +66,11 @@ jobs:
         run: |
           export PROSA_STORE=/tmp/v2-e2e-store
           rm -rf "$PROSA_STORE" && mkdir -p "$PROSA_STORE"
-          pnpm dev -- compile-v2 codex --store "$PROSA_STORE" --root /tmp/v2-e2e-codex --quiet
+          pnpm -s dev -- compile-v2 codex --store "$PROSA_STORE" --root /tmp/v2-e2e-codex --quiet
 
       - name: index-v2 status reports ready_for_read
         run: |
-          pnpm dev -- index-v2 status --store /tmp/v2-e2e-store > /tmp/v2-e2e-status.json
+          pnpm -s dev -- index-v2 status --store /tmp/v2-e2e-store > /tmp/v2-e2e-status.json
           node -e '
             const status = require("/tmp/v2-e2e-status.json");
             if (status.tantivy.ready_for_read !== true) {
@@ -86,14 +86,14 @@ jobs:
 
       - name: read sessions --authority local
         run: |
-          COUNT=$(pnpm dev -- read sessions --store /tmp/v2-e2e-store --authority local --offline --count | tail -1)
+          COUNT=$(pnpm -s dev -- read sessions --store /tmp/v2-e2e-store --authority local --offline --count | tail -1)
           test "$COUNT" = "1" || (echo "expected 1 session, got $COUNT" && exit 1)
-          pnpm dev -- read sessions --store /tmp/v2-e2e-store --authority local --offline --output-format json --limit 1 > /tmp/v2-e2e-sessions.json
+          pnpm -s dev -- read sessions --store /tmp/v2-e2e-store --authority local --offline --output-format json --limit 1 > /tmp/v2-e2e-sessions.json
           grep -q '"session_id"' /tmp/v2-e2e-sessions.json
 
       - name: read transcript --authority local
         run: |
-          SES=$(pnpm dev -- read sessions --store /tmp/v2-e2e-store --authority local --offline --output-format json --limit 1 2>/dev/null | sed -n '/^{/,$p' | node -e '
+          SES=$(pnpm -s dev -- read sessions --store /tmp/v2-e2e-store --authority local --offline --output-format json --limit 1 2>/dev/null | sed -n '/^{/,$p' | node -e '
             let chunks = "";
             process.stdin.on("data", c => chunks += c);
             process.stdin.on("end", () => {
@@ -102,26 +102,26 @@ jobs:
             });
           ')
           test -n "$SES" || (echo "no session id" && exit 1)
-          pnpm dev -- read transcript "$SES" --store /tmp/v2-e2e-store --authority local --offline --format text | head -5
+          pnpm -s dev -- read transcript "$SES" --store /tmp/v2-e2e-store --authority local --offline --format text | head -5
 
       - name: read search --authority local
-        run: pnpm dev -- read search "hello" --store /tmp/v2-e2e-store --authority local --offline --limit 3
+        run: pnpm -s dev -- read search "hello" --store /tmp/v2-e2e-store --authority local --offline --limit 3
 
       - name: read tool-calls --authority local
-        run: pnpm dev -- read tool-calls --store /tmp/v2-e2e-store --authority local --offline --limit 5
+        run: pnpm -s dev -- read tool-calls --store /tmp/v2-e2e-store --authority local --offline --limit 5
 
       - name: read analytics sessions --authority local
-        run: pnpm dev -- read analytics sessions --store /tmp/v2-e2e-store --authority local --offline --limit 3
+        run: pnpm -s dev -- read analytics sessions --store /tmp/v2-e2e-store --authority local --offline --limit 3
 
       - name: read query --authority local
         run: |
-          OUT=$(pnpm dev -- read query "SELECT count(*) AS n FROM sessions" --store /tmp/v2-e2e-store --authority local --offline 2>&1 | tail -3)
+          OUT=$(pnpm -s dev -- read query "SELECT count(*) AS n FROM sessions" --store /tmp/v2-e2e-store --authority local --offline 2>&1 | tail -3)
           echo "$OUT"
           echo "$OUT" | grep -E '^\s*1\b'
 
       - name: read export parquet --authority local
         run: |
-          pnpm dev -- read export parquet --store /tmp/v2-e2e-store --authority local --offline --out /tmp/v2-e2e-parquet
+          pnpm -s dev -- read export parquet --store /tmp/v2-e2e-store --authority local --offline --out /tmp/v2-e2e-parquet
           ls /tmp/v2-e2e-parquet | grep -q '\.parquet$'
 
       - name: Compose env
@@ -153,7 +153,7 @@ jobs:
 
       - name: auth signup
         run: |
-          OUT=$(pnpm dev -- auth signup --server http://127.0.0.1:3010 --email v2e2e@example.com --password 'V2E2eRun!' --name V2E2E --tenant V2E2E --json)
+          OUT=$(pnpm -s dev -- auth signup --server http://127.0.0.1:3010 --email v2e2e@example.com --password 'V2E2eRun!' --name V2E2E --tenant V2E2E --json)
           echo "$OUT"
           TENANT_ID=$(echo "$OUT" | sed -n '/^{/,$p' | node -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>process.stdout.write(JSON.parse(s).tenant.id))')
           TOKEN=$(cat ~/.config/prosa/config.json | node -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>process.stdout.write(JSON.parse(s).servers["http://127.0.0.1:3010"].token))')
@@ -166,7 +166,7 @@ jobs:
         run: |
           STORE_ID=$(cat /tmp/v2-e2e-store/head.json | node -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>process.stdout.write(JSON.parse(s).storeId))')
           TENANT_ID=$(cat /tmp/v2-e2e-tenant)
-          OUT=$(pnpm dev -- sync-v2 --server http://127.0.0.1:3010 --token-file /tmp/v2-e2e-token --tenant "$TENANT_ID" --store "$STORE_ID" --device dev_ci --bundle /tmp/v2-e2e-store --json)
+          OUT=$(pnpm -s dev -- sync-v2 --server http://127.0.0.1:3010 --token-file /tmp/v2-e2e-token --tenant "$TENANT_ID" --store "$STORE_ID" --device dev_ci --bundle /tmp/v2-e2e-store --json)
           echo "$OUT" | head -c 200
           echo
           echo "$OUT" | sed -n '/^{/,$p' | grep -q '"status":"sealed"'
@@ -194,9 +194,9 @@ jobs:
         run: |
           STORE_ID=$(cat /tmp/v2-e2e-store/head.json | node -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>process.stdout.write(JSON.parse(s).storeId))')
           TENANT_ID=$(cat /tmp/v2-e2e-tenant)
-          COUNT=$(pnpm dev -- read sessions --store /tmp/v2-e2e-store --authority remote --count 2>&1 | tail -1)
+          COUNT=$(pnpm -s dev -- read sessions --store /tmp/v2-e2e-store --authority remote --count 2>&1 | tail -1)
           test "$COUNT" = "1" || (echo "expected 1 remote session, got $COUNT" && exit 1)
-          pnpm dev -- read sessions --store /tmp/v2-e2e-store --authority remote --output-format json --limit 1 > /tmp/v2-e2e-remote-sessions.json
+          pnpm -s dev -- read sessions --store /tmp/v2-e2e-store --authority remote --output-format json --limit 1 > /tmp/v2-e2e-remote-sessions.json
           grep -q '"session_id"' /tmp/v2-e2e-remote-sessions.json
 
       - name: Tear down
