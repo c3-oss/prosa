@@ -8,6 +8,7 @@ import type { DatabaseHandle, ProsaDatabase, RawExec } from './db.js'
 import { registerObjectRoutes } from './http/objects.js'
 import { buildCreateContext } from './trpc/context.js'
 import { type AppRouter, appRouter } from './trpc/router.js'
+import { type ReceiptSigner, registerV2Routes } from './v2/index.js'
 import { readPackageVersion } from './version.js'
 
 export type BuildAppOptions = {
@@ -18,6 +19,12 @@ export type BuildAppOptions = {
   transaction: DatabaseHandle['transaction']
   objectStore: RemoteObjectStore
   loggerEnabled?: boolean
+  /**
+   * Optional v2 receipt signer. When omitted, `registerV2Routes` falls
+   * back to an in-process Ed25519 signer so production-mode boot and
+   * tests share the same JWKS shape until a KMS adapter lands.
+   */
+  v2Signer?: ReceiptSigner
 }
 
 export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> {
@@ -150,6 +157,16 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     rawExec: opts.rawExec,
     transaction: opts.transaction,
     objectStore: opts.objectStore,
+  })
+
+  registerV2Routes(app, {
+    auth: opts.auth,
+    rawExec: opts.rawExec,
+    transaction: opts.transaction,
+    objectStore: opts.objectStore,
+    runtimeMode: opts.config.runtimeMode,
+    signer: opts.v2Signer,
+    cursorHmacSecret: opts.config.cursorHmacSecret,
   })
 
   await app.register(fastifyTRPCPlugin, {

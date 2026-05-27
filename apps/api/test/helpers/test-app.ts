@@ -1,4 +1,5 @@
 import { applySchema } from '@c3-oss/prosa-db'
+import { applyV2PromotionSubsetSchema } from '@c3-oss/prosa-db-v2'
 import { MemoryObjectStore } from '@c3-oss/prosa-storage'
 import { PGlite } from '@electric-sql/pglite'
 import type { FastifyInstance } from 'fastify'
@@ -6,6 +7,7 @@ import { buildApp } from '../../src/app.js'
 import { type ProsaAuth, createAuth } from '../../src/auth.js'
 import { type ProsaApiConfig, loadConfig } from '../../src/config.js'
 import { type DatabaseHandle, openPgliteDatabase } from '../../src/db.js'
+import { type ReceiptSigner, createLocalReceiptSigner } from '../../src/v2/signing/local-signer.js'
 
 export type TestApp = {
   app: FastifyInstance
@@ -14,6 +16,14 @@ export type TestApp = {
   db: DatabaseHandle
   pglite: PGlite
   objectStore: MemoryObjectStore
+  /**
+   * CQ-125: tests that need to seed a valid `receipt` row must
+   * sign the payload with the SAME signer instance the v2 plugin
+   * uses, so the BeginPromotion fast path's signature
+   * verification succeeds. Exposing the signer here keeps the
+   * helper test-only without leaking it into production code.
+   */
+  signer: ReceiptSigner
   close: () => Promise<void>
 }
 
@@ -27,9 +37,18 @@ export async function buildTestApp(overrides: Partial<NodeJS.ProcessEnv> = {}): 
   } as NodeJS.ProcessEnv)
   const pglite = new PGlite()
   await applySchema(pglite)
+  // CQ-124: v1 and v2 share table names (`projection_session`,
+  // `search_doc`, `remote_object`, `device`) with incompatible
+  // columns, so we apply only the conflict-free subset of v2 on
+  // top of v1 via the canonical helper that the production
+  // server uses.
+  await applyV2PromotionSubsetSchema(pglite)
   const db = openPgliteDatabase(pglite)
   const auth = createAuth({ config, db: db.db })
   const objectStore = new MemoryObjectStore()
+  // CQ-125: build the signer here so the test can sign seeded
+  // receipts with the same instance the route uses to verify them.
+  const signer = createLocalReceiptSigner({ kidPrefix: 'test-app' })
   const app = await buildApp({
     config,
     auth,
@@ -37,6 +56,7 @@ export async function buildTestApp(overrides: Partial<NodeJS.ProcessEnv> = {}): 
     rawExec: db.rawExec,
     transaction: db.transaction,
     objectStore,
+    v2Signer: signer,
     loggerEnabled: false,
   })
   return {
@@ -46,6 +66,7 @@ export async function buildTestApp(overrides: Partial<NodeJS.ProcessEnv> = {}): 
     db,
     pglite,
     objectStore,
+    signer,
     close: async () => {
       await app.close()
       await pglite.close()

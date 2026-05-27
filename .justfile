@@ -87,6 +87,10 @@ e2e:
    pnpm --filter @c3-oss/prosa-api test test/e2e
 
 # run the Docker-backed CLI two-device E2E (requires `just e2e-up` first)
+#
+# Runs both the v1 two-device sync test and the CQ-140 Lane 5
+# `prosa sync-v2` command-level harness (CLI fetch against a real
+# listening server + Docker Postgres/MinIO + second-device read).
 [group('ALIASES')]
 e2e-cli:
   @PROSA_TEST_POSTGRES_URL="postgres://prosa:prosa@127.0.0.1:${PROSA_TEST_POSTGRES_PORT:-54329}/prosa_test" \
@@ -94,7 +98,7 @@ e2e-cli:
    PROSA_TEST_S3_BUCKET="prosa-test" \
    PROSA_TEST_S3_ACCESS_KEY="prosa" \
    PROSA_TEST_S3_SECRET_KEY="prosa-minio" \
-   pnpm --filter @c3-oss/prosa test test/cli/sync-e2e.test.ts
+   pnpm --filter @c3-oss/prosa test test/cli/sync-e2e.test.ts test/cli/sync-v2-e2e.test.ts
 
 # run the standard pre-release quality gate
 [group('ALIASES')]

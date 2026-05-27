@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "../..",
+    "baseUrl": ".",
+    "paths": {
+      "~/*": ["./src/*"],
+      "@c3-oss/prosa-types-v2": ["../prosa-types-v2/src/index.ts"],
+      "@c3-oss/prosa-bundle-v2": ["../prosa-bundle-v2/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts"],
+  "exclude": ["dist", "coverage", "node_modules"]
+}

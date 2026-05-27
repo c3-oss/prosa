@@ -32,7 +32,7 @@ const TRANSCRIPT_PAGE_SIZE = 50
 
 export function ConsoleSessionDetail() {
   const { sessionId } = useParams({ strict: false }) as { sessionId?: string }
-  const { api } = useAppContext()
+  const { apiV2 } = useAppContext()
   const { me } = useAuth()
   const tenantId = me?.tenantId ?? null
 
@@ -57,11 +57,96 @@ export function ConsoleSessionDetail() {
         : ['sessions', 'transcript', 'no-tenant'],
     queryFn: async (): Promise<TranscriptPage> => {
       if (!sessionId) return null
-      return (await api.sessions.transcript.query({
+      const response = await apiV2.v2.sessions.transcript({
         sessionId,
         limit: TRANSCRIPT_PAGE_SIZE,
         ...(pageCursor ? { cursor: pageCursor } : {}),
-      })) as TranscriptPage
+      })
+      if (!response) return null
+      // CQ-153: shim v2 transcript payload into the existing
+      // component shape. The v2 schema does not surface
+      // messageCount/toolCallCount/errorCount on the session
+      // payload — they're derived from projection rows the
+      // dedicated endpoints (CQ-153 follow-up) will eventually
+      // own. Default to 0 to keep the existing summary row stable.
+      return {
+        session: {
+          id: response.session.id,
+          sourceKind: response.session.sourceTool,
+          title: response.session.title,
+          startedAt: response.session.startedAt,
+          endedAt: response.session.endedAt,
+          durationMs: response.session.durationMs,
+          messageCount: 0,
+          toolCallCount: 0,
+          errorCount: 0,
+        },
+        turns: response.turns.map((t) => ({
+          messageId: t.messageId,
+          ordinal: t.ordinal,
+          role: t.role,
+          model: t.model,
+          timestamp: t.timestamp,
+          blocks: t.blocks.map((b) => ({
+            blockId: b.blockId,
+            blockType: b.blockType,
+            textInline: b.textInline,
+            textObjectId: b.textObjectId,
+            hidden: b.hidden,
+            isError: b.isError,
+            mimeType: b.mimeType,
+          })),
+          toolCalls: t.toolCalls.map((c) => ({
+            toolCallId: c.toolCallId,
+            toolName: c.toolName,
+            canonicalToolType: c.canonicalToolType,
+            argsInline: null,
+            argsObjectId: null,
+            command: null,
+            path: null,
+            status: c.status,
+            timestampStart: c.timestampStart,
+            result: c.result
+              ? {
+                  toolResultId: c.result.toolResultId,
+                  status: c.result.status,
+                  isError: c.result.isError,
+                  exitCode: c.result.exitCode,
+                  durationMs: c.result.durationMs,
+                  preview: null,
+                  stdoutObjectId: null,
+                  stderrObjectId: null,
+                  outputObjectId: null,
+                }
+              : null,
+          })),
+        })),
+        nextCursor: response.nextCursor,
+        unattachedToolCalls: response.unattachedToolCalls.map((c) => ({
+          toolCallId: c.toolCallId,
+          toolName: c.toolName,
+          canonicalToolType: c.canonicalToolType,
+          argsInline: null,
+          argsObjectId: null,
+          command: null,
+          path: null,
+          status: c.status,
+          timestampStart: c.timestampStart,
+          result: c.result
+            ? {
+                toolResultId: c.result.toolResultId,
+                status: c.result.status,
+                isError: c.result.isError,
+                exitCode: c.result.exitCode,
+                durationMs: c.result.durationMs,
+                preview: null,
+                stdoutObjectId: null,
+                stderrObjectId: null,
+                outputObjectId: null,
+              }
+            : null,
+        })),
+      }
     },
     placeholderData: keepPreviousData,
   })

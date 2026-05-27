@@ -1,0 +1,197 @@
+// Raw-source pack writer pool.
+//
+// 4 writers sharded by `blake3(source_file_id)[0:8] mod 4`. Rollover
+// triggers mirror the CAS pool (size, count, age) so the same operational
+// shape governs both. Each finalized pack lands at
+// `raw_sources/packs/source-pack-<digest>.prosa-raw-pack`.
+
+import { join } from 'node:path'
+
+import { blake3 } from '@noble/hashes/blake3'
+
+import { writeFileDurable } from '../util/durable-write.js'
+import { type CasRolloverTriggers, DEFAULT_CAS_TRIGGERS } from './cas-writer.js'
+import { type RawSourcePackBuilt, type RawSourcePackInput, buildRawSourcePack } from './raw-source-pack.js'
+
+export const RAW_WRITER_COUNT = 4
+
+export class RawSourcePoolConflictError extends Error {
+  override name = 'RawSourcePoolConflictError'
+  constructor(
+    public readonly source_file_id: string,
+    public readonly firstHash: string,
+    public readonly secondHash: string,
+  ) {
+    super(
+      `raw-source pool: source_file_id ${source_file_id} appended twice with different content (first=${firstHash}, second=${secondHash}) — refusing to silently dedup mismatched bytes`,
+    )
+  }
+}
+
+export type RawSourcePoolOptions = {
+  /** Root directory of `raw_sources/`. */
+  rawSourcesDir: string
+  triggers?: Partial<CasRolloverTriggers>
+  createdAt: () => string
+  now?: () => number
+}
+
+export type RawSourcePoolAppendResult = {
+  source_file_id: string
+  shardId: number
+  packDigest: string | null
+  packPath: string | null
+}
+
+export type RawSourcePackEmission = {
+  shardId: number
+  packDigest: string
+  packPath: string
+  built: RawSourcePackBuilt
+}
+
+class RawShardWriter {
+  private buffered: RawSourcePackInput[] = []
+  private bytesPending = 0
+  private openedAt: number | null = null
+
+  constructor(
+    public readonly shardId: number,
+    private readonly pool: RawSourcePackWriterPool,
+    private readonly triggers: CasRolloverTriggers,
+  ) {}
+
+  bufferedSize(): number {
+    return this.buffered.length
+  }
+
+  async append(input: RawSourcePackInput): Promise<RawSourcePackEmission | null> {
+    if (this.bytesPending + input.bytes.length > this.triggers.maxPackBytes && this.buffered.length > 0) {
+      const emission = await this.finalize()
+      this.buffered.push(input)
+      this.bytesPending = input.bytes.length
+      this.openedAt = this.pool.now()
+      return emission
+    }
+    if (this.openedAt === null) this.openedAt = this.pool.now()
+    this.buffered.push(input)
+    this.bytesPending += input.bytes.length
+    if (
+      this.bytesPending >= this.triggers.targetPackBytes ||
+      this.buffered.length >= this.triggers.maxObjects ||
+      this.pool.now() - this.openedAt >= this.triggers.maxOpenMs
+    ) {
+      return this.finalize()
+    }
+    return null
+  }
+
+  async finalize(): Promise<RawSourcePackEmission | null> {
+    if (this.buffered.length === 0) return null
+    const inputs = this.buffered
+    this.buffered = []
+    this.bytesPending = 0
+    this.openedAt = null
+    return this.pool.emitPack(this.shardId, inputs)
+  }
+}
+
+export class RawSourcePackWriterPool {
+  readonly rawSourcesDir: string
+  readonly packsDir: string
+  readonly triggers: CasRolloverTriggers
+  readonly createdAt: () => string
+  readonly now: () => number
+
+  private readonly writers: RawShardWriter[]
+  /**
+   * Tracks the BLAKE3 of bytes previously appended under each
+   * source_file_id so re-appending the same id with *different* bytes
+   * is surfaced as a hard error instead of silently winning to the
+   * first writer (CQ-047 / reviewer-F2).
+   */
+  private readonly seenSourceFileIds: Map<string, string> = new Map()
+  /**
+   * Accumulates every pack emission produced by this pool — both the
+   * mid-flight rollovers triggered inside `appendSourceFile` and the
+   * final emissions returned by per-writer `finalize()`. `flushAll`
+   * drains this buffer so callers can register every on-disk pack as a
+   * durable segment. Without this accumulation, mid-flight packs land
+   * on disk but stay invisible to `sealEpoch`, breaking FK closure on
+   * any compile that rolls over more than once per writer.
+   */
+  private readonly emittedPacks: RawSourcePackEmission[] = []
+
+  constructor(options: RawSourcePoolOptions) {
+    this.rawSourcesDir = options.rawSourcesDir
+    this.packsDir = join(options.rawSourcesDir, 'packs')
+    this.triggers = { ...DEFAULT_CAS_TRIGGERS, ...options.triggers }
+    this.createdAt = options.createdAt
+    this.now = options.now ?? Date.now
+    this.writers = Array.from({ length: RAW_WRITER_COUNT }, (_, i) => new RawShardWriter(i, this, this.triggers))
+  }
+
+  /**
+   * Append a raw-source file. Returns the assigned shard plus, when the
+   * append closes a pack, the finalized pack metadata.
+   *
+   * Dedup is enforced at the `source_file_id` level: re-appending the
+   * same source_file_id with identical bytes is a no-op. Re-appending
+   * with *different* bytes is rejected (CQ-047): silently keeping the
+   * first writer would otherwise hide a cross-provider source-byte
+   * disagreement and let the orchestrator backfill paper over it.
+   */
+  async appendSourceFile(input: RawSourcePackInput): Promise<RawSourcePoolAppendResult> {
+    const incomingHash = `blake3:${Buffer.from(blake3(input.bytes)).toString('hex')}`
+    const seen = this.seenSourceFileIds.get(input.source_file_id)
+    if (seen !== undefined) {
+      if (seen !== incomingHash) {
+        throw new RawSourcePoolConflictError(input.source_file_id, seen, incomingHash)
+      }
+      return { source_file_id: input.source_file_id, shardId: -1, packDigest: null, packPath: null }
+    }
+    this.seenSourceFileIds.set(input.source_file_id, incomingHash)
+    const shardId = Number(readU64BE(blake3(new TextEncoder().encode(input.source_file_id))) % BigInt(RAW_WRITER_COUNT))
+    const writer = this.writers[shardId] as RawShardWriter
+    const emission = await writer.append(input)
+    if (emission) this.emittedPacks.push(emission)
+    return {
+      source_file_id: input.source_file_id,
+      shardId,
+      packDigest: emission?.packDigest ?? null,
+      packPath: emission?.packPath ?? null,
+    }
+  }
+
+  async flushAll(): Promise<RawSourcePackEmission[]> {
+    for (const w of this.writers) {
+      const e = await w.finalize()
+      if (e) this.emittedPacks.push(e)
+    }
+    const out = this.emittedPacks.splice(0, this.emittedPacks.length)
+    return out
+  }
+
+  bufferedCount(): number {
+    let n = 0
+    for (const w of this.writers) n += w.bufferedSize()
+    return n
+  }
+
+  async emitPack(shardId: number, inputs: readonly RawSourcePackInput[]): Promise<RawSourcePackEmission> {
+    const built = buildRawSourcePack(inputs, { createdAt: this.createdAt() })
+    const packPath = join(this.packsDir, `source-pack-${stripBlake3(built.packDigest)}.prosa-raw-pack`)
+    await writeFileDurable(packPath, built.bytes)
+    return { shardId, packDigest: built.packDigest, packPath, built }
+  }
+}
+
+function readU64BE(bytes: Uint8Array): bigint {
+  let acc = 0n
+  for (let i = 0; i < 8; i++) acc = (acc << 8n) | BigInt(bytes[i] as number)
+  return acc
+}
+
+function stripBlake3(d: string): string {
+  return d.startsWith('blake3:') ? d.slice('blake3:'.length) : d
+}

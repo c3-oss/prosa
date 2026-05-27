@@ -216,6 +216,12 @@ aborts startup.
 - `PROSA_DATABASE_URL` — Postgres connection string (required outside test).
 - `PROSA_AUTH_SECRET` — Better Auth secret (>= 16 chars; required in
   production).
+- `PROSA_CURSOR_HMAC_SECRET` — HMAC key used to sign paginated read
+  cursors (CQ-142 / CQ-146). Minimum 32 characters. **Production
+  refuses to boot without it.** The same secret must be configured
+  on every worker / instance so cursors round-trip across the fleet
+  — a per-process random fallback only happens in `development` and
+  `test` runs.
 - `PROSA_OBJECT_STORE_DRIVER` — `s3` | `fs` | `memory` (memory is
   test-only).
 - `PROSA_OBJECT_STORE_BUCKET`, `PROSA_OBJECT_STORE_PREFIX`,

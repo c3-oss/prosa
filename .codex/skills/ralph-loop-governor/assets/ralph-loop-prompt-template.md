@@ -10,6 +10,36 @@ through `correction-queue.md`, `gates.md`, and updates to this prompt. Those
 review findings are part of the implementation contract, not optional advice.
 Expect Codex to reject `RALPH_DONE` if subagent findings remain open.
 
+## Invocation Contract
+
+This prompt is intentionally self-contained. When Ralph is launched with
+`/ralph-loop:ralph-loop @docs/roadmap/<feature>/ralph-loop-prompt.md`, treat
+this section as the full kickoff/restart instruction:
+
+- Read this prompt, `docs/roadmap/<feature>/correction-queue.md`,
+  `docs/roadmap/<feature>/gates.md`, `docs/roadmap/<feature>/status.md`, and
+  every feature source document listed below.
+- Close every implementable blocking correction with code, tests, and evidence.
+  Blocking corrections prevent final acceptance, `RALPH_DONE`, and dependent
+  downstream lane acceptance; they do not forbid independent useful work that
+  cannot invalidate the blocked decision.
+- Do not count out-of-sequence or downstream WIP as accepted progress while any
+  prerequisite lane or correction remains open.
+- If a blocker depends on Codex/governor accepting or rejecting an architecture
+  re-scope, ask a single explicit binary question with a safe default. Example:
+  `Decision needed: accept the NDJSON projection re-scope? Default: reject and
+  implement Parquet.`
+- If no independent useful work remains after asking that binary question, stop
+  and wait for the answer. Do not continue empty iterations that only repeat
+  "waiting for Codex" or "external acceptance required".
+- In this prompt, "Codex" means the governor/reviewer available through
+  correction-queue steering, not an unavailable third party.
+- If no blocking correction remains, run the mandatory final stabilization
+  wait: five clean cycles of sleep 180 seconds, then reread correction queue,
+  gates, status, git status, and recent commits.
+- Output `RALPH_DONE` only after all lanes are complete, all blockers are
+  closed, required gates pass or are classified, and the five cycles stay clean.
+
 ## Read First
 
 - AGENTS.md
@@ -17,6 +47,18 @@ Expect Codex to reject `RALPH_DONE` if subagent findings remain open.
 - <matching Codex skills, e.g. .codex/skills/prosa-server-sync/SKILL.md>
 - <canonical architecture docs, e.g. docs/architecture/server-sync.md>
 - <add feature-specific docs>
+
+## Current Milestone
+
+Current milestone: `<one concrete deliverable, not a broad lane name>`.
+
+Every implementation slice must be classified as one of:
+
+- core milestone work;
+- required support work;
+- premature/later-lane surface area.
+
+Do not add pure-read/audit/diagnostic surfaces unless they are directly required for this milestone. If you believe the milestone is blocked, first run a direct smoke test and record the exact output. A blocker claim without a command is not accepted.
 
 ## Product Contract
 
@@ -35,7 +77,8 @@ At the start of each iteration:
 - inspect `git status --short --branch`;
 - identify the first incomplete lane or open correction;
 - reread `correction-queue.md` and treat every `Blocking: yes` correction as
-  higher priority than new feature work;
+  higher priority than dependent new feature work;
+- continue independent work only when it cannot invalidate the open blocker;
 - continue from there without restarting completed work;
 - preserve user changes and unrelated agent changes;
 - do not touch generated directories by hand.
@@ -59,6 +102,10 @@ Keep these files current:
 - Do not leave destructive behavior guarded only by optimistic assumptions.
 - If a command cannot run, document the blocker and add a reproducible fallback
   when possible.
+- Do not reroute work based on an unverified blocker. For dependency/environment
+  claims, run a direct smoke command first and paste the output into evidence.
+- Batch routine evidence/status hash pins unless closing a blocking CQ; avoid one
+  status-only commit per implementation commit.
 
 ## Required Gates
 

@@ -61,6 +61,48 @@ describe('loadConfig', () => {
     ).toThrow(/memory/)
   })
 
+  it('CQ-146: refuses production startup without PROSA_CURSOR_HMAC_SECRET', () => {
+    expect(() =>
+      loadConfig({
+        PROSA_RUNTIME_MODE: 'production',
+        PROSA_AUTH_SECRET: 'a-real-production-secret-1234',
+        PROSA_DATABASE_URL: 'postgres://x',
+        PROSA_OBJECT_STORE_DRIVER: 's3',
+        PROSA_OBJECT_STORE_BUCKET: 'b',
+      } as NodeJS.ProcessEnv),
+    ).toThrow(/PROSA_CURSOR_HMAC_SECRET/)
+  })
+
+  it('CQ-146: rejects PROSA_CURSOR_HMAC_SECRET shorter than 32 chars even in production', () => {
+    expect(() =>
+      loadConfig({
+        PROSA_RUNTIME_MODE: 'production',
+        PROSA_AUTH_SECRET: 'a-real-production-secret-1234',
+        PROSA_DATABASE_URL: 'postgres://x',
+        PROSA_OBJECT_STORE_DRIVER: 's3',
+        PROSA_OBJECT_STORE_BUCKET: 'b',
+        PROSA_CURSOR_HMAC_SECRET: 'too-short',
+      } as NodeJS.ProcessEnv),
+    ).toThrow(/Invalid configuration/)
+  })
+
+  it('CQ-146: production accepts a sufficient PROSA_CURSOR_HMAC_SECRET', () => {
+    const config = loadConfig({
+      PROSA_RUNTIME_MODE: 'production',
+      PROSA_AUTH_SECRET: 'a-real-production-secret-1234',
+      PROSA_DATABASE_URL: 'postgres://x',
+      PROSA_OBJECT_STORE_DRIVER: 's3',
+      PROSA_OBJECT_STORE_BUCKET: 'b',
+      PROSA_CURSOR_HMAC_SECRET: 'a-real-cursor-hmac-secret-of-32+-bytes',
+    } as NodeJS.ProcessEnv)
+    expect(config.cursorHmacSecret).toBe('a-real-cursor-hmac-secret-of-32+-bytes')
+  })
+
+  it('CQ-146: test/development boots may omit the cursor secret', () => {
+    const test = loadConfig({ PROSA_RUNTIME_MODE: 'test' } as NodeJS.ProcessEnv)
+    expect(test.cursorHmacSecret).toBeNull()
+  })
+
   it('accepts a complete s3 config', () => {
     const config = loadConfig({
       PROSA_RUNTIME_MODE: 'test',

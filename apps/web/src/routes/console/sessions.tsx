@@ -47,19 +47,24 @@ function writeFiltersOpen(open: boolean): void {
   }
 }
 
+/**
+ * CQ-153: translate the existing filter shape (v1 `sourceKinds`) to
+ * the Lane 6 v2 `sourceTools` input. Route component shape is
+ * preserved; the underlying data fetch now goes to `/v2/reads/sessions/list`.
+ */
 function buildListInput(filters: SessionsFilters, cursor: string | null) {
   return {
     limit: 50,
     ...(cursor ? { cursor } : {}),
     ...(filters.q ? { q: filters.q } : {}),
-    ...(filters.sourceKinds.length > 0 ? { sourceKinds: filters.sourceKinds } : {}),
+    ...(filters.sourceKinds.length > 0 ? { sourceTools: filters.sourceKinds } : {}),
     ...(toIsoOrUndefined(filters.since) ? { since: toIsoOrUndefined(filters.since) } : {}),
     ...(toIsoOrUndefined(filters.until) ? { until: toIsoOrUndefined(filters.until) } : {}),
   }
 }
 
 export function ConsoleSessions() {
-  const { api } = useAppContext()
+  const { apiV2 } = useAppContext()
   const { me } = useAuth()
   const tenantId = me?.tenantId ?? null
   const [filters, setFilters] = useState<SessionsFilters>(DEFAULT_FILTERS)
@@ -91,7 +96,28 @@ export function ConsoleSessions() {
   const sessions = useQuery({
     enabled: Boolean(tenantId),
     queryKey: tenantId ? queryKeys.sessionsList(tenantId, listInput) : ['sessions', 'list', 'no-tenant'],
-    queryFn: async (): Promise<SessionsPage> => api.sessions.list.query(listInput),
+    queryFn: async (): Promise<SessionsPage> => {
+      const response = await apiV2.v2.sessions.list(listInput)
+      return {
+        rows: response.rows.map((row) => ({
+          id: row.id,
+          sourceKind: row.sourceTool,
+          title: row.title,
+          startedAt: row.startedAt,
+          endedAt: row.endedAt,
+          durationMs: null,
+          projectId: row.projectId,
+          // v2 list does not return counts on each row; the table
+          // accepts zeros and the dedicated detail route fetches the
+          // per-session metrics. See CQ-153 follow-up for per-row
+          // count surface.
+          messageCount: 0,
+          toolCallCount: 0,
+          errorCount: 0,
+        })),
+        nextCursor: response.nextCursor,
+      }
+    },
     placeholderData: keepPreviousData,
   })
 
@@ -106,9 +132,9 @@ export function ConsoleSessions() {
         })
       : ['sessions', 'count', 'no-tenant'],
     queryFn: async (): Promise<{ count: number }> =>
-      api.sessions.count.query({
+      apiV2.v2.sessions.count({
         ...(filters.q ? { q: filters.q } : {}),
-        ...(filters.sourceKinds.length > 0 ? { sourceKinds: filters.sourceKinds } : {}),
+        ...(filters.sourceKinds.length > 0 ? { sourceTools: filters.sourceKinds } : {}),
         ...(toIsoOrUndefined(filters.since) ? { since: toIsoOrUndefined(filters.since) } : {}),
         ...(toIsoOrUndefined(filters.until) ? { until: toIsoOrUndefined(filters.until) } : {}),
       }),

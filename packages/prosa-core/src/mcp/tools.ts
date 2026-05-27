@@ -21,6 +21,25 @@ export interface ProsaToolOptions {
   storePath?: string
   /** Reopen or initialize the bundle per call instead of reusing the startup handle. */
   ensureStore?: boolean
+  /**
+   * CQ-149: when present, register the `prosa.refresh_authority`
+   * MCP tool. The callback refreshes the pinned v2 authority and
+   * returns the receipt id the server is now bound to. Without
+   * this callback the tool is intentionally absent: local-mode
+   * MCP servers (`--authority local`) and v1 callers should never
+   * see a refresh_authority surface.
+   */
+  onRefreshAuthority?: () => Promise<RefreshAuthorityResult>
+}
+
+/** Shape returned by the `prosa.refresh_authority` MCP tool. */
+export type RefreshAuthorityResult = {
+  /** Receipt id the MCP server is now bound to. */
+  receiptId: string
+  /** Audit status hint from the authority refresh response. */
+  auditStatus?: string
+  /** ISO timestamp at which the refresh was performed. */
+  refreshedAt?: string
 }
 
 const CANONICAL_TOOL_TYPES = [
@@ -60,6 +79,43 @@ export function registerProsaTools(server: McpServer, bundle: Bundle, options: P
   const storePath = options.storePath ?? bundle.path
   const ensureStore = options.ensureStore ?? false
   registerProsaPrompts(server)
+
+  if (options.onRefreshAuthority) {
+    const onRefresh = options.onRefreshAuthority
+    server.registerTool(
+      'prosa.refresh_authority',
+      {
+        title: 'Refresh the pinned authority',
+        description:
+          'Force a remote authority refresh for the store this MCP server is pinned to. Returns the receipt id the server is now bound to. The server does NOT auto-refresh on HTTP 412; tool callers must invoke this explicitly when a read returns AUTHORITY_CHANGED.',
+        inputSchema: {},
+        annotations: { readOnlyHint: false, idempotentHint: true },
+      },
+      async () => {
+        try {
+          const result = await onRefresh()
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify(result),
+              },
+            ],
+          }
+        } catch (err) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text',
+                text: `refresh_authority failed: ${getErrorMessage(err)}`,
+              },
+            ],
+          }
+        }
+      },
+    )
+  }
 
   server.registerTool(
     'search',

@@ -81,6 +81,7 @@ explicitly for that hostname, including `VITE_PROSA_API_URL` and
 | `PROSA_API_URL` | yes | Public API origin (used by Better Auth `baseURL` and trusted-origin list). |
 | `PROSA_DATABASE_URL` | yes in production | Postgres connection string. Refusal to boot in production without one (`apps/api/src/config.ts`). |
 | `PROSA_AUTH_SECRET` | yes in production | Better Auth signing secret, ≥16 chars. Production startup refuses fallback secrets. |
+| `PROSA_CURSOR_HMAC_SECRET` | yes in production | HMAC-SHA256 key for signing paginated read cursors (Lane 6 / CQ-146). Minimum 32 bytes (UTF-8 chars). Every API worker MUST share the same value so cursors round-trip across the fleet. Production startup refuses to boot when this is missing or too short (`apps/api/src/config.ts`); dev / test boots fall back to a per-process random key. The bundled `docker-compose.yml` requires the operator to supply this via env (`${PROSA_CURSOR_HMAC_SECRET:?...}`) — there is no public fallback. |
 | `PROSA_WEB_ORIGIN` | yes for cross-origin web | Comma-separated browser origins that may use credentialed CORS + Better Auth trusted-origin. Each entry must be a valid full origin (`https://console.prosa.dev`) — `apps/api/src/config.ts` enforces this. |
 | `PROSA_OBJECT_STORE_DRIVER` | yes in production | `s3` or `fs`. Memory driver is rejected outside test runs. |
 | `PROSA_OBJECT_STORE_BUCKET` | s3 only | S3 bucket name. |
@@ -96,6 +97,13 @@ The fail-closed startup invariants live in
 - Production without `PROSA_AUTH_SECRET` is refused.
 - Production without `PROSA_DATABASE_URL` is refused.
 - Production with `PROSA_OBJECT_STORE_DRIVER=memory` is refused.
+- Production without a ≥32-byte `PROSA_CURSOR_HMAC_SECRET` is refused
+  (CQ-146). The bundled `docker-compose.yml` propagates the same
+  fail-closed contract: `docker compose up` and `docker compose config`
+  abort when `PROSA_AUTH_SECRET` or `PROSA_CURSOR_HMAC_SECRET` is
+  missing from the operator's env or `.env` file. Workers behind a
+  load balancer MUST share the same `PROSA_CURSOR_HMAC_SECRET` value
+  so a cursor minted on worker A verifies on worker B.
 
 ## CORS and Better Auth trusted origins
 

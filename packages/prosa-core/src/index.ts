@@ -177,4 +177,4 @@ export {
   type RunningServer,
   type RunningStdioServer,
 } from './mcp/server.js'
-export { registerProsaTools, type ProsaToolOptions } from './mcp/tools.js'
+export { registerProsaTools, type ProsaToolOptions, type RefreshAuthorityResult } from './mcp/tools.js'

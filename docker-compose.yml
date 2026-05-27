@@ -56,7 +56,18 @@ services:
       PROSA_WEB_ORIGIN: http://localhost:5173,http://127.0.0.1:5173
       PROSA_LOG_LEVEL: info
       PROSA_DATABASE_URL: postgres://prosa:prosa@postgres:5432/prosa
-      PROSA_AUTH_SECRET: ${PROSA_AUTH_SECRET:-compose-development-secret-please-change}
+      # CQ-146 production fail-closed: the compose file runs the API
+      # in `PROSA_RUNTIME_MODE=production`, so `PROSA_AUTH_SECRET` and
+      # `PROSA_CURSOR_HMAC_SECRET` MUST come from the operator's env
+      # (or `.env` file alongside this compose file). The
+      # `${VAR:?message}` form causes `docker compose up` /
+      # `docker compose config` to fail fast when the variable is
+      # missing — there is no public fallback that would let
+      # production silently boot with a known secret. See
+      # `docs/architecture/web-deployment.md` for the required values
+      # and the same-value-across-workers rule.
+      PROSA_AUTH_SECRET: ${PROSA_AUTH_SECRET:?set PROSA_AUTH_SECRET to a 16+ character Better Auth signing secret shared across workers}
+      PROSA_CURSOR_HMAC_SECRET: ${PROSA_CURSOR_HMAC_SECRET:?set PROSA_CURSOR_HMAC_SECRET to a 32+ byte shared cursor HMAC secret (same value on every worker)}
       PROSA_OBJECT_STORE_DRIVER: s3
       PROSA_OBJECT_STORE_BUCKET: prosa
       PROSA_OBJECT_STORE_PREFIX: prosa/

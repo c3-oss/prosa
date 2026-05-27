@@ -244,4 +244,88 @@ describe('resolveReadAuthorityOrFailClosed', () => {
       }),
     ).rejects.toThrow('cannot resolve the promoted store tenant')
   })
+
+  describe('CQ-143: v2 promotions must not bypass the v2 read gate', () => {
+    async function writeV2Config(): Promise<void> {
+      await writeFile(
+        paths.configPath,
+        `${JSON.stringify(
+          {
+            activeServer: SERVER_A,
+            servers: {
+              [SERVER_A]: {
+                url: SERVER_A,
+                token: 'token-a',
+                promotions: {
+                  [paths.promotedStore]: {
+                    batchId: 'batch_v2',
+                    tenantId: 'tenant-a',
+                    promotedAt: '2026-05-20T00:00:00.000Z',
+                    // Minimal v2-shape receipt — the routing code
+                    // only inspects `payload.receiptVersion`.
+                    receipt: {
+                      payload: {
+                        receiptVersion: 2,
+                        receiptId: 'rcp_v2_demo',
+                        tenantId: 'tenant-a',
+                        storeId: 'store_v2_demo',
+                      },
+                      signature: { alg: 'Ed25519', keyId: 'k', sig: 'AA' },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          null,
+          2,
+        )}\n`,
+        { encoding: 'utf8', mode: 0o600 },
+      )
+    }
+
+    it('fails closed for a v2-promoted store on the legacy session-read path with --local guidance', async () => {
+      await writeV2Config()
+      const promise = resolveReadAuthorityOrFailClosed({
+        commandName: 'prosa sessions',
+        storePath: paths.promotedStore,
+        configPath: paths.configPath,
+        remoteSupported: true,
+      })
+      await expect(promise).rejects.toBeInstanceOf(CliUserError)
+      await expect(promise).rejects.toThrow(/v2-promoted/)
+      await expect(promise).rejects.toThrow(/--local/)
+    })
+
+    it('allows --local on a v2-promoted store with the stale warning', async () => {
+      await writeV2Config()
+      const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+      await expect(
+        resolveReadAuthorityOrFailClosed({
+          commandName: 'prosa sessions',
+          storePath: paths.promotedStore,
+          forceLocal: true,
+          configPath: paths.configPath,
+          remoteSupported: true,
+        }),
+      ).resolves.toEqual({ kind: 'local', storePath: paths.promotedStore })
+      expect(stderr).toHaveBeenCalledWith(expect.stringContaining('Results may be stale.'))
+    })
+
+    it('does not affect v1-promoted stores (legacy /trpc/sessions.* still allowed)', async () => {
+      await writeConfig(paths.configPath, {
+        activeServer: SERVER_A,
+        promotedStore: paths.promotedStore,
+        token: 'token-a',
+        tenantId: 'tenant-a',
+      })
+      const authority = await resolveReadAuthorityOrFailClosed({
+        commandName: 'prosa sessions',
+        storePath: paths.promotedStore,
+        configPath: paths.configPath,
+        remoteSupported: true,
+      })
+      expect(authority.kind).toBe('remote')
+    })
+  })
 })

@@ -1,0 +1,204 @@
+name: V2 End-to-End
+
+# Walk the full v2 operator recipe against a minimal fixture:
+# 1. compile-v2 codex on a single synthesized session JSONL
+# 2. index-v2 status confirms tantivy.ready_for_read=true
+# 3. every `prosa read --authority local` subcommand returns rows
+# 4. bring up postgres+minio+api via docker compose
+# 5. auth signup + sync-v2 → expect `sealed`
+# 6. config persists the promotion record
+# 7. read --authority remote returns the materialized rows (G7
+#    cutover closed the server-side projection gap)
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main, 'feature/**']
+
+concurrency:
+  group: v2-e2e-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: compile + read local + sync
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.8.1
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build prosa-derived-v2 + prosa-importers-v2 (dist used by local-reads)
+        run: pnpm --filter @c3-oss/prosa-derived-v2 --filter @c3-oss/prosa-importers-v2 build
+
+      - name: Stage codex fixture (1 session)
+        run: |
+          mkdir -p /tmp/v2-e2e-codex/2026/05/01
+          cat > /tmp/v2-e2e-codex/2026/05/01/rollout.jsonl <<'EOF'
+          {"type":"session_meta","timestamp":"2026-05-01T00:00:00.000Z","payload":{"id":"019e2d51-551d-75ff-0000-000000000001","cwd":"/repo","model":"gpt-5-turbo"}}
+          {"type":"turn_context","timestamp":"2026-05-01T00:00:01.000Z","payload":{"turn_id":"turn_1","model":"gpt-5-turbo","cwd":"/repo","sandbox_policy":"workspace-write","approval_policy":"on_request"}}
+          {"type":"response_item","timestamp":"2026-05-01T00:00:02.000Z","payload":{"type":"message","role":"user","id":"msg_1","content":[{"type":"input_text","text":"hello"}]}}
+          {"type":"response_item","timestamp":"2026-05-01T00:00:03.000Z","payload":{"type":"function_call","id":"call_aa","call_id":"call_aa","name":"shell","arguments":"{\"command\":[\"ls\"]}","status":"in_progress"}}
+          {"type":"response_item","timestamp":"2026-05-01T00:00:04.000Z","payload":{"type":"function_call_output","id":"call_aa","call_id":"call_aa","output":"file1\nfile2","status":"success"}}
+          {"type":"event_msg","timestamp":"2026-05-01T00:00:05.000Z","payload":{"id":"ev_1","subtype":"token_usage","actor":"cli"}}
+          EOF
+
+      - name: compile-v2 codex with auto derived-build
+        run: |
+          export PROSA_STORE=/tmp/v2-e2e-store
+          rm -rf "$PROSA_STORE" && mkdir -p "$PROSA_STORE"
+          pnpm -s dev -- compile-v2 codex --store "$PROSA_STORE" --root /tmp/v2-e2e-codex --quiet
+
+      - name: index-v2 status reports ready_for_read
+        run: |
+          pnpm -s dev -- index-v2 status --store /tmp/v2-e2e-store > /tmp/v2-e2e-status.json
+          node -e '
+            const status = require("/tmp/v2-e2e-status.json");
+            if (status.tantivy.ready_for_read !== true) {
+              console.error("expected tantivy.ready_for_read=true, got", JSON.stringify(status.tantivy));
+              process.exit(1);
+            }
+            if (status.session_count < 1) {
+              console.error("expected session_count >= 1, got", status.session_count);
+              process.exit(1);
+            }
+            console.log("status OK:", JSON.stringify({tantivy: status.tantivy.ready_for_read, session_count: status.session_count}));
+          '
+
+      - name: read sessions --authority local
+        run: |
+          COUNT=$(pnpm -s dev -- read sessions --store /tmp/v2-e2e-store --authority local --offline --count | tail -1)
+          test "$COUNT" = "1" || (echo "expected 1 session, got $COUNT" && exit 1)
+          pnpm -s dev -- read sessions --store /tmp/v2-e2e-store --authority local --offline --output-format json --limit 1 > /tmp/v2-e2e-sessions.json
+          grep -q '"session_id"' /tmp/v2-e2e-sessions.json
+
+      - name: read transcript --authority local
+        run: |
+          SES=$(pnpm -s dev -- read sessions --store /tmp/v2-e2e-store --authority local --offline --output-format json --limit 1 2>/dev/null | sed -n '/^{/,$p' | node -e '
+            let chunks = "";
+            process.stdin.on("data", c => chunks += c);
+            process.stdin.on("end", () => {
+              const d = JSON.parse(chunks);
+              process.stdout.write(d.rows[0].session_id);
+            });
+          ')
+          test -n "$SES" || (echo "no session id" && exit 1)
+          pnpm -s dev -- read transcript "$SES" --store /tmp/v2-e2e-store --authority local --offline --format text | head -5
+
+      - name: read search --authority local
+        run: pnpm -s dev -- read search "hello" --store /tmp/v2-e2e-store --authority local --offline --limit 3
+
+      - name: read tool-calls --authority local
+        run: pnpm -s dev -- read tool-calls --store /tmp/v2-e2e-store --authority local --offline --limit 5
+
+      - name: read analytics sessions --authority local
+        run: pnpm -s dev -- read analytics sessions --store /tmp/v2-e2e-store --authority local --offline --limit 3
+
+      - name: read query --authority local
+        run: |
+          OUT=$(pnpm -s dev -- read query "SELECT count(*) AS n FROM sessions" --store /tmp/v2-e2e-store --authority local --offline 2>&1 | tail -3)
+          echo "$OUT"
+          echo "$OUT" | grep -E '^\s*1\b'
+
+      - name: read export parquet --authority local
+        run: |
+          pnpm -s dev -- read export parquet --store /tmp/v2-e2e-store --authority local --offline --out /tmp/v2-e2e-parquet
+          ls /tmp/v2-e2e-parquet | grep -q '\.parquet$'
+
+      - name: Compose env
+        run: |
+          {
+            echo "PROSA_AUTH_SECRET=$(openssl rand -hex 32)"
+            echo "PROSA_CURSOR_HMAC_SECRET=$(openssl rand -hex 32)"
+            echo "PROSA_COMPOSE_API_PORT=3010"
+            echo "PROSA_COMPOSE_POSTGRES_PORT=54329"
+            echo "PROSA_COMPOSE_MINIO_PORT=9100"
+            echo "PROSA_COMPOSE_MINIO_CONSOLE_PORT=9101"
+          } > /tmp/v2-e2e.env
+          cat > /tmp/v2-e2e-override.yml <<'EOF'
+          services:
+            api:
+              environment:
+                PROSA_RUNTIME_MODE: development
+          EOF
+
+      - name: Bring up stack
+        run: |
+          docker compose --env-file /tmp/v2-e2e.env -f docker-compose.yml -f /tmp/v2-e2e-override.yml build api
+          docker compose --env-file /tmp/v2-e2e.env -f docker-compose.yml -f /tmp/v2-e2e-override.yml up -d
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:3010/health >/dev/null 2>&1; then echo "api up"; break; fi
+            sleep 2
+          done
+          curl -s http://127.0.0.1:3010/health
+
+      - name: auth signup
+        run: |
+          OUT=$(pnpm -s dev -- auth signup --server http://127.0.0.1:3010 --email v2e2e@example.com --password 'V2E2eRun!' --name V2E2E --tenant V2E2E --json)
+          echo "$OUT"
+          TENANT_ID=$(echo "$OUT" | sed -n '/^{/,$p' | node -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>process.stdout.write(JSON.parse(s).tenant.id))')
+          TOKEN=$(cat ~/.config/prosa/config.json | node -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>process.stdout.write(JSON.parse(s).servers["http://127.0.0.1:3010"].token))')
+          echo "$TENANT_ID" > /tmp/v2-e2e-tenant
+          echo "$TOKEN" > /tmp/v2-e2e-token
+          chmod 600 /tmp/v2-e2e-token
+          test -n "$TENANT_ID" && test -n "$TOKEN"
+
+      - name: sync-v2 promote
+        run: |
+          STORE_ID=$(cat /tmp/v2-e2e-store/head.json | node -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>process.stdout.write(JSON.parse(s).storeId))')
+          TENANT_ID=$(cat /tmp/v2-e2e-tenant)
+          OUT=$(pnpm -s dev -- sync-v2 --server http://127.0.0.1:3010 --token-file /tmp/v2-e2e-token --tenant "$TENANT_ID" --store "$STORE_ID" --device dev_ci --bundle /tmp/v2-e2e-store --json)
+          echo "$OUT" | head -c 200
+          echo
+          echo "$OUT" | sed -n '/^{/,$p' | grep -q '"status":"sealed"'
+
+      - name: Promotion record persists in CLI config
+        run: |
+          node -e '
+            const cfg = require(`${process.env.HOME}/.config/prosa/config.json`);
+            const entry = cfg.servers["http://127.0.0.1:3010"];
+            const promos = (entry && entry.promotions) || {};
+            const keys = Object.keys(promos);
+            if (!keys.includes("/tmp/v2-e2e-store")) {
+              console.error("expected /tmp/v2-e2e-store in promotions; got", keys);
+              process.exit(1);
+            }
+            const rec = promos["/tmp/v2-e2e-store"];
+            if (!rec.tenantId || !rec.receipt) {
+              console.error("incomplete promotion record", JSON.stringify(rec));
+              process.exit(1);
+            }
+            console.log("promotion record OK:", JSON.stringify({tenant: rec.tenantId, receiptId: rec.receipt.payload.receiptId}));
+          '
+
+      - name: read sessions --authority remote
+        run: |
+          STORE_ID=$(cat /tmp/v2-e2e-store/head.json | node -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>process.stdout.write(JSON.parse(s).storeId))')
+          TENANT_ID=$(cat /tmp/v2-e2e-tenant)
+          COUNT=$(pnpm -s dev -- read sessions --store /tmp/v2-e2e-store --authority remote --count 2>&1 | tail -1)
+          test "$COUNT" = "1" || (echo "expected 1 remote session, got $COUNT" && exit 1)
+          pnpm -s dev -- read sessions --store /tmp/v2-e2e-store --authority remote --output-format json --limit 1 > /tmp/v2-e2e-remote-sessions.json
+          grep -q '"session_id"' /tmp/v2-e2e-remote-sessions.json
+
+      - name: Tear down
+        if: always()
+        run: docker compose --env-file /tmp/v2-e2e.env -f docker-compose.yml -f /tmp/v2-e2e-override.yml down -v

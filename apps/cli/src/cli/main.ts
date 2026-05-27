@@ -3,18 +3,25 @@ import { PROSA_PARSER_VERSION } from '@c3-oss/prosa-core'
 import { Command } from 'commander'
 import { analyticsCommand } from './commands/analytics.js'
 import { authCommand } from './commands/auth.js'
+import { bundleCommand } from './commands/bundle.js'
+import { compileAllV2Command, compileV2Command } from './commands/compile-v2.js'
 import { compileAllCommand, compileCommand } from './commands/compile.js'
 import { doctorCommand } from './commands/doctor.js'
 import { exportCommand } from './commands/export.js'
+import { indexV2Command } from './commands/index-v2.js'
 import { indexCommand } from './commands/index.js'
 import { initCommand } from './commands/init.js'
 import { mcpCommand } from './commands/mcp.js'
+import { migrateV2Command } from './commands/migrate-v2.js'
 import { queryCommand } from './commands/query.js'
 import { searchCommand } from './commands/search.js'
 import { sessionCommand } from './commands/session.js'
 import { sessionsCommand } from './commands/sessions.js'
+import { syncV2Command } from './commands/sync-v2.js'
 import { syncCommand } from './commands/sync.js'
 import { tuiCommand } from './commands/tui.js'
+import { mcpV2Command } from './v2/commands/mcp-serve.js'
+import { readCommand } from './v2/commands/read/index.js'
 /**
  * Drop a leading literal `--` token from the user-args portion of argv.
  *
@@ -59,6 +66,14 @@ export async function runCli(argv: readonly string[]): Promise<void> {
   program.addCommand(tuiCommand())
   program.addCommand(authCommand())
   program.addCommand(syncCommand())
+  program.addCommand(syncV2Command())
+  program.addCommand(bundleCommand())
+  program.addCommand(compileV2Command())
+  program.addCommand(compileAllV2Command())
+  program.addCommand(indexV2Command())
+  program.addCommand(readCommand())
+  program.addCommand(mcpV2Command())
+  program.addCommand(migrateV2Command())
 
   await program.parseAsync(stripLeadingDoubleDash(argv))
 }

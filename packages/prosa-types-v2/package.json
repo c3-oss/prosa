@@ -1,0 +1,51 @@
+{
+  "name": "@c3-oss/prosa-types-v2",
+  "version": "0.1.0",
+  "description": "Canonical entity, segment, pack, bundle, and receipt types plus canonical CBOR + Merkle helpers for prosa v2.",
+  "author": "Caian Ertl <hi@caian.org>",
+  "license": "MIT",
+  "type": "module",
+  "private": true,
+  "homepage": "https://github.com/c3-oss/prosa#readme",
+  "bugs": {
+    "url": "https://github.com/c3-oss/prosa/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/c3-oss/prosa.git",
+    "directory": "packages/prosa-types-v2"
+  },
+  "files": ["dist", "CANONICAL.md"],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "prosa-dev": "./src/index.ts",
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./canonical": {
+      "prosa-dev": "./src/canonical.ts",
+      "import": "./dist/canonical.js",
+      "types": "./dist/canonical.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "lint": "biome check .",
+    "lint:fix": "biome check --fix .",
+    "clean": "rm -rf dist coverage .turbo"
+  },
+  "dependencies": {
+    "@noble/hashes": "^1.7.0"
+  },
+  "devDependencies": {
+    "@c3-oss/config-biome": "^0.3.1",
+    "@c3-oss/config-tsup": "^0.2.0",
+    "@c3-oss/config-typescript": "^0.1.0",
+    "@c3-oss/config-vitest": "^0.3.0"
+  }
+}

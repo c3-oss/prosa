@@ -11,6 +11,15 @@ const baseSchema = z.object({
   PROSA_RUNTIME_MODE: runtimeModeSchema,
   PROSA_DATABASE_URL: z.string().min(1).optional(),
   PROSA_AUTH_SECRET: z.string().min(16).optional(),
+  /**
+   * Shared HMAC secret used to sign paginated read cursors
+   * (CQ-142 / CQ-146). Must be at least 32 ASCII bytes (or the
+   * equivalent length when base64-decoded). The same secret is
+   * required across every worker so cursors round-trip in a
+   * multi-instance deployment; production refuses to boot
+   * without it.
+   */
+  PROSA_CURSOR_HMAC_SECRET: z.string().min(32).optional(),
   PROSA_AUTH_COOKIE_CACHE_MAX_AGE_SECONDS: z.coerce.number().int().min(0).max(300).default(0),
   /**
    * Comma-separated list of additional origins (in addition to PROSA_API_URL)
@@ -26,6 +35,25 @@ const baseSchema = z.object({
   PROSA_OBJECT_STORE_REGION: z.string().optional(),
   PROSA_OBJECT_STORE_ACCESS_KEY_ID: z.string().optional(),
   PROSA_OBJECT_STORE_SECRET_ACCESS_KEY: z.string().optional(),
+  /**
+   * CQ-156: Lane 8 audit + GC cron switch. Enabled by default so
+   * production fleets exercise the drift/quarantine + GC contract
+   * without an opt-in flag. Set to `false` for local dev / tooling
+   * runs that never want background cron ticks.
+   */
+  PROSA_CRON_ENABLED: z
+    .union([z.boolean(), z.string()])
+    .default(true)
+    .transform((v) => (typeof v === 'boolean' ? v : !['0', 'false', 'no'].includes(v.toLowerCase()))),
+  /**
+   * Wake-up tick (ms) for the production cron scheduler. The
+   * cadence-aware scheduler (see `cron/wire.ts`) wakes up every
+   * `PROSA_CRON_INTERVAL_MS` ms and runs each registered handler
+   * only when its per-cadence interval has elapsed since the last
+   * fire. Default = 60 s so the audit hourly cadence stays close to
+   * its spec'd wall-clock cadence.
+   */
+  PROSA_CRON_INTERVAL_MS: z.coerce.number().int().positive().default(60_000),
 })
 
 export type RuntimeMode = 'production' | 'development' | 'test'
@@ -39,6 +67,14 @@ export type ProsaApiConfig = {
   databaseUrl: string | null
   authSecret: string | null
   /**
+   * CQ-146: HMAC key used to sign paginated read cursors. Null
+   * outside production / development boots that omitted the
+   * variable; `registerV2ReadRoutes` falls back to a
+   * per-process random key when null. Production rejects null
+   * at boot.
+   */
+  cursorHmacSecret: string | null
+  /**
    * Optional Better Auth cookie session cache window in seconds. Disabled by
    * default because cached sessions have delayed revocation semantics and are
    * not proven to optimize bearer-token CLI sync traffic.
@@ -46,6 +82,10 @@ export type ProsaApiConfig = {
   authCookieCacheMaxAgeSeconds: number
   /** Additional trusted browser origins (beyond `apiUrl`) for CORS and Better Auth. */
   webOrigins: string[]
+  /** CQ-156: enable / disable Lane 8 audit + GC cron handlers. */
+  cronEnabled: boolean
+  /** CQ-156: production cron tick interval in milliseconds. */
+  cronIntervalMs: number
   objectStore:
     | {
         driver: 's3'
@@ -124,6 +164,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ProsaApiConfig
         'PROSA_OBJECT_STORE_DRIVER=memory is only allowed in test runs. Set driver to s3 or fs in production.',
       )
     }
+    if (!v.PROSA_CURSOR_HMAC_SECRET) {
+      throw new ConfigError(
+        'PROSA_CURSOR_HMAC_SECRET is required in production (>=32 chars). Refusing to start with a per-process random cursor signer that does not round-trip across workers (CQ-146).',
+      )
+    }
   }
   if (v.PROSA_RUNTIME_MODE === 'development' && v.PROSA_OBJECT_STORE_DRIVER === 'memory') {
     // dev mode is allowed to use memory, but warn loudly via stderr
@@ -191,8 +236,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ProsaApiConfig
     runtimeMode: v.PROSA_RUNTIME_MODE,
     databaseUrl: v.PROSA_DATABASE_URL ?? null,
     authSecret: v.PROSA_AUTH_SECRET ?? null,
+    cursorHmacSecret: v.PROSA_CURSOR_HMAC_SECRET ?? null,
     authCookieCacheMaxAgeSeconds: v.PROSA_AUTH_COOKIE_CACHE_MAX_AGE_SECONDS,
     webOrigins,
+    cronEnabled: v.PROSA_CRON_ENABLED,
+    cronIntervalMs: v.PROSA_CRON_INTERVAL_MS,
     objectStore,
   }
 }

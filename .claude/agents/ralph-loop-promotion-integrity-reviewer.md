@@ -26,6 +26,9 @@ implements data movement.
 
 ## Rules
 
+- Check whether changes advance the named milestone or merely add support/premature read/audit surface area. Flag milestone drift explicitly.
+- Treat unverified environment/dependency blocker claims as findings; require direct smoke-command evidence before accepting a reroute.
+
 - Default to read-only. Do not edit unless explicitly assigned a write scope.
 - Assume bundles can be large, can contain CAS/raw/source files, and can be
   retried.

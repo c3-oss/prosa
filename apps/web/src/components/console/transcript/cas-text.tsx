@@ -1,65 +1,38 @@
-import { useQuery } from '@tanstack/react-query'
-import { useState } from 'react'
-
 import { useAppContext } from '~/app/providers.js'
-import { queryKeys } from '~/lib/query-keys.js'
-
-/** Initial CAS fetch budget. 64KB keeps the typical "expand" snappy. */
-const DEFAULT_MAX_BYTES = 64 * 1024
-/** Upper cap on a single fetch; matches the API procedure's hard maximum. */
-const SHOW_ALL_MAX_BYTES = 1_900_000
 
 export type CasTextProps = {
+  /** CAS object id of the body (transcript block's `textObjectId`). */
   objectId: string
-  /** Initial byte budget. Defaults to 64KB. */
+  /** Initial byte budget; kept for compatibility with existing call sites. */
   maxBytes?: number
   /** Optional className for the outer `<pre>`. */
   className?: string
 }
 
 /**
- * Lazy fetch for CAS-backed block bodies. Renders a loading skeleton, then
- * the decoded text. If the response is truncated the user can request a
- * larger window (capped at the API's `maxBytes` ceiling).
+ * CQ-153 — explicit unavailable state without legacy tRPC fallback.
+ *
+ * Lane 6's `/v2/reads/artifacts/getText` is keyed by
+ * `projection_artifact.artifact_id`. The v2 transcript surfaces
+ * the CAS `textObjectId` per block but does not yet carry the
+ * paired `artifactId`. Until the transcript schema is extended (or
+ * a v2 endpoint accepts objectId lookups) we render an explicit
+ * "expand unavailable" notice — never falling back to the legacy
+ * tRPC `artifacts.getText.query({ objectId })`.
+ *
+ * The CAS object id is shown so an operator can correlate the body
+ * with the CAS layer via the CLI (`prosa artifact get <objectId>`).
  */
-export function CasText({ objectId, maxBytes = DEFAULT_MAX_BYTES, className }: CasTextProps) {
-  // The CAS text needs a tenant for the query key. We read it from the app
-  // context (not the auth context) so the component renders inside tests
-  // that skip the auth provider.
-  const { api, tenantId } = useAppContext()
-  const [budget, setBudget] = useState(maxBytes)
-  const query = useQuery({
-    enabled: Boolean(tenantId && objectId),
-    queryKey: tenantId ? queryKeys.artifactText(tenantId, { objectId, maxBytes: budget }) : ['cas', 'no-tenant'],
-    queryFn: () => api.artifacts.getText.query({ objectId, maxBytes: budget }),
-  })
-
+export function CasText({ objectId, className }: CasTextProps) {
+  const { tenantId } = useAppContext()
   if (!tenantId) return null
-  if (query.isLoading) {
-    return <div className="transcript-cas-loading" aria-busy="true" aria-live="polite" />
-  }
-  if (query.error) {
-    return (
-      <p className="transcript-cas-error">
-        Failed to load: {query.error instanceof Error ? query.error.message : 'unknown error'}
-      </p>
-    )
-  }
-  const data = query.data
-  if (!data) return null
   return (
     <div>
-      <pre className={className ?? 'transcript-tool-output'}>{data.text}</pre>
-      {data.truncated && budget < SHOW_ALL_MAX_BYTES ? (
-        <button
-          type="button"
-          className="transcript-show-full-btn"
-          onClick={() => setBudget(SHOW_ALL_MAX_BYTES)}
-          disabled={query.isFetching}
-        >
-          {query.isFetching ? 'Loading…' : 'Show all'}
-        </button>
-      ) : null}
+      <pre className={className ?? 'transcript-tool-output'}>
+        <em style={{ color: 'var(--color-text-muted)' }}>Expanding CAS-backed bodies is pending a v2 read surface.</em>
+        {'\n'}
+        <small style={{ color: 'var(--color-text-faint)' }}>CAS object id: {objectId}</small>
+      </pre>
     </div>
   )
 }

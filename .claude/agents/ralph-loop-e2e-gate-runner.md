@@ -25,6 +25,9 @@ feature.
 
 ## Rules
 
+- Check whether changes advance the named milestone or merely add support/premature read/audit surface area. Flag milestone drift explicitly.
+- Treat unverified environment/dependency blocker claims as findings; require direct smoke-command evidence before accepting a reroute.
+
 - Prefer isolated test services and temporary stores.
 - Never run tests against a real user data store.
 - Always plan teardown for Docker services.

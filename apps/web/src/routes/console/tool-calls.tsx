@@ -30,7 +30,7 @@ function statusTone(status: string | null): 'success' | 'warning' | undefined {
 }
 
 export function ConsoleToolCalls() {
-  const { api } = useAppContext()
+  const { apiV2 } = useAppContext()
   const { me } = useAuth()
   const tenantId = me?.tenantId ?? null
   const [errorsOnly, setErrorsOnly] = useState(false)
@@ -45,7 +45,27 @@ export function ConsoleToolCalls() {
   const calls = useQuery({
     enabled: Boolean(tenantId),
     queryKey: tenantId ? queryKeys.toolCallsList(tenantId, input) : ['toolCalls', 'list', 'no-tenant'],
-    queryFn: async (): Promise<ToolCallPage> => api.toolCalls.list.query(input),
+    queryFn: async (): Promise<ToolCallPage> => {
+      const response = await apiV2.v2.toolCalls.list(input)
+      return {
+        rows: response.rows.map((row) => ({
+          id: row.toolCallId,
+          sessionId: row.sessionId,
+          sessionTitle: null,
+          // Lane 6 tool-calls list does not surface `sourceTool`
+          // per row; fall back to the canonical tool type for the
+          // existing "Source" column.
+          sourceKind: row.canonicalToolType ?? '—',
+          name: row.toolName,
+          status: row.status,
+          startedAt: row.timestampStart,
+          finishedAt: null,
+          durationMs: row.latestResult?.durationMs ?? null,
+          resultStatus: row.latestResult?.status ?? null,
+        })),
+        nextCursor: response.nextCursor,
+      }
+    },
     placeholderData: keepPreviousData,
   })
 
