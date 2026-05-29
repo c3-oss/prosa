@@ -1,7 +1,7 @@
-// `prosa compile-v2 <provider>` and `prosa compile-all-v2` — Lane 2
+// `prosa v2 compile <provider>` and `prosa v2 compile-all` — Lane 2
 // CLI surface. Wraps `runCompileImports` against the five real
 // providers (Codex, Claude Code, Cursor, Gemini, Hermes). Lives
-// alongside the v1 `prosa compile`/`compile-all` commands; v1 is
+// alongside the v1 `prosa v1 compile`/`compile-all` commands; v1 is
 // kept until Lane 10.
 //
 // Discovery roots default to the per-provider conventions:
@@ -110,7 +110,7 @@ async function openOrInit(storePath: string): Promise<Awaited<ReturnType<typeof 
 }
 
 export function compileV2Command(): Command {
-  return new Command('compile-v2')
+  return new Command('compile')
     .description('Compile a single provider into a bundle v2 store (alongside v1).')
     .argument('<provider>', 'one of: codex, claude, cursor, gemini, hermes')
     .requiredOption('--store <path>', 'bundle directory')
@@ -164,7 +164,7 @@ export function compileV2Command(): Command {
 }
 
 export function compileAllV2Command(): Command {
-  return new Command('compile-all-v2')
+  return new Command('compile-all')
     .description('Compile every supported provider into a bundle v2 store in one epoch.')
     .requiredOption('--store <path>', 'bundle directory')
     .option('--codex-root <path>', 'discovery root for the Codex provider (defaults to $HOME/.codex/sessions)')

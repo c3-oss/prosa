@@ -1,9 +1,9 @@
-// `prosa index-v2 status` — Lane 3 read-only status command.
+// `prosa v2 index status` — Lane 3 read-only status command.
 //
 // Wraps `bundleDerivedStatus(bundleRoot)` from `@c3-oss/prosa-derived-v2`
 // and prints the combined Tantivy + SessionBlob snapshot as JSON to
-// stdout. Companion to the `index-v2 tantivy` subcommand that will
-// land alongside the Tantivy native writer once
+// stdout. Companion to the `prosa v2 index tantivy` subcommand that
+// will land alongside the Tantivy native writer once
 // `@oxdev03/node-tantivy-binding` enters the workspace allowBuilds
 // list.
 //
@@ -84,7 +84,7 @@ function parsePositiveInteger(label: string, raw: string): number {
 }
 
 export function indexV2Command(): Command {
-  const root = new Command('index-v2').description(
+  const root = new Command('index').description(
     'Bundle v2 derived-layer index commands (Tantivy + SessionBlob + analytics).',
   )
 

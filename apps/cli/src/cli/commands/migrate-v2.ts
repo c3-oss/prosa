@@ -1,4 +1,4 @@
-// `prosa migrate-v2` — Lane 9 CLI surface.
+// `prosa v2 migrate` — Lane 9 CLI surface.
 //
 // Two subcommands:
 //   - `bundle` — local migration. Reads v1 bundle preserved bytes
@@ -36,7 +36,7 @@ type MigrateBundleCliOptions = {
 }
 
 export function migrateV2Command(): Command {
-  const cmd = new Command('migrate-v2').description(
+  const cmd = new Command('migrate').description(
     'Migrate a v1 prosa bundle (or tenant) to the v2 layout via the v2 importer pipeline.',
   )
 
@@ -76,7 +76,7 @@ function migrateV2BundleCommand(): Command {
         })
         if (options.verbose && !options.json) {
           for (const phase of result.phases) {
-            process.stderr.write(`migrate-v2 bundle: ${phase.phase} ${phase.durationMs}ms\n`)
+            process.stderr.write(`v2 migrate bundle: ${phase.phase} ${phase.durationMs}ms\n`)
           }
         }
         if (options.json) {
@@ -103,7 +103,7 @@ function migrateV2BundleCommand(): Command {
         if (options.json) {
           process.stderr.write(`${JSON.stringify({ ok: false, error: message }, null, 2)}\n`)
         } else {
-          process.stderr.write(`migrate-v2 bundle failed: ${message}\n`)
+          process.stderr.write(`v2 migrate bundle failed: ${message}\n`)
         }
         process.exit(1)
       }
@@ -144,13 +144,13 @@ function migrateV2TenantCommand(): Command {
         })
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
-        process.stderr.write(`migrate-v2 tenant failed: ${message}\n`)
+        process.stderr.write(`v2 migrate tenant failed: ${message}\n`)
         process.exit(1)
         return
       }
       const text = await response.text()
       if (options.verbose) {
-        process.stderr.write(`migrate-v2 tenant: HTTP ${response.status}\n`)
+        process.stderr.write(`v2 migrate tenant: HTTP ${response.status}\n`)
       }
       if (!response.ok) {
         process.stderr.write(text + (text.endsWith('\n') ? '' : '\n'))

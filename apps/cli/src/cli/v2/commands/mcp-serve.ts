@@ -1,4 +1,4 @@
-// Lane 7 — `prosa mcp-v2 serve --authority {auto|local|remote} [--refresh]`.
+// Lane 7 — `prosa v2 mcp serve --authority {auto|local|remote} [--refresh]`.
 //
 // Wraps the prosa-core MCP server with the v2 authority pinning
 // policy from L11:
@@ -72,7 +72,7 @@ export function mcpServeV2Command(): Command {
     .action(async (options: McpServeV2Options) => {
       const storePath = path.resolve(options.store)
       const ctx = await resolveV2ReadContext({
-        commandName: 'prosa mcp serve',
+        commandName: 'prosa v2 mcp serve',
         storePath,
         authorityMode: options.authority,
         forceRefresh: options.refresh,
@@ -99,7 +99,7 @@ export function mcpServeV2Command(): Command {
             port,
             path: options.path,
           })
-          process.stdout.write(`prosa mcp v2 (local) listening at ${httpServer.url}\n`)
+          process.stdout.write(`prosa v2 mcp (local) listening at ${httpServer.url}\n`)
           process.stdout.write('press Ctrl+C to stop\n')
           registerV2Shutdown(httpServer.close)
           return
@@ -130,7 +130,7 @@ export function mcpServeV2Command(): Command {
             storePath,
             onRefreshAuthority,
           })
-          process.stdout.write(`prosa mcp v2 (remote) listening at ${httpServer.url}\n`)
+          process.stdout.write(`prosa v2 mcp (remote) listening at ${httpServer.url}\n`)
           process.stdout.write('press Ctrl+C to stop\n')
           registerShutdown(httpServer.close, bundle)
           return
@@ -163,7 +163,7 @@ function registerV2Shutdown(closeServer: () => Promise<void>): void {
 function makeRefreshCallback(ctx: V2ReadContextRemote): () => Promise<RefreshAuthorityResult> {
   return async () => {
     if (!ctx.entry.token) {
-      throw new Error('MCP server has no auth token; restart `prosa auth login` and `prosa mcp-v2 serve`.')
+      throw new Error('MCP server has no auth token; restart `prosa auth login` and `prosa v2 mcp serve`.')
     }
     const refreshed = await refreshAuthorityNow({
       configDir: defaultV2AuthorityDir(),
@@ -191,12 +191,12 @@ function makeRefreshCallback(ctx: V2ReadContextRemote): () => Promise<RefreshAut
 function logPinnedAuthority(ctx: V2ReadContext): void {
   if (ctx.kind === 'local') {
     process.stderr.write(
-      'prosa mcp serve: authority pinned to local bundle. The `prosa.refresh_authority` MCP tool is not registered in --authority local.\n',
+      'prosa v2 mcp serve: authority pinned to local bundle. The `prosa.refresh_authority` MCP tool is not registered in --authority local.\n',
     )
     return
   }
   process.stderr.write(
-    `prosa mcp serve: authority pinned to ${ctx.entry.url} (storeId=${ctx.storeId} receiptId=${ctx.authority.receiptId} auditStatus=${ctx.authority.auditStatus}). The \`prosa.refresh_authority\` MCP tool is registered; callers invoke it to refresh in place.\n`,
+    `prosa v2 mcp serve: authority pinned to ${ctx.entry.url} (storeId=${ctx.storeId} receiptId=${ctx.authority.receiptId} auditStatus=${ctx.authority.auditStatus}). The \`prosa.refresh_authority\` MCP tool is registered; callers invoke it to refresh in place.\n`,
   )
 }
 
@@ -211,10 +211,10 @@ function registerShutdown(closeServer: () => Promise<void>, bundle: Bundle): voi
 }
 
 /**
- * Module-level export for the `mcp` command group used during
- * incremental adoption. The legacy `mcp serve` command stays
+ * Module-level export for the `mcp` command group used inside the
+ * `prosa v2` namespace. The v1 `prosa v1 mcp serve` command stays
  * registered alongside until Lane 10.
  */
 export function mcpV2Command(): Command {
-  return new Command('mcp-v2').description('MCP server commands (v2 authority-aware).').addCommand(mcpServeV2Command())
+  return new Command('mcp').description('MCP server commands (v2 authority-aware).').addCommand(mcpServeV2Command())
 }

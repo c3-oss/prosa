@@ -1,4 +1,4 @@
-// `prosa sync-v2` — Lane 5 CLI command.
+// `prosa v2 sync` — Lane 5 CLI command.
 //
 // Minimal v1 of the command: drives the promoteBundleV2 client against
 // the configured server using `fetch`. The on-disk bundle layout
@@ -43,7 +43,7 @@ type SyncV2Options = {
 const TOKEN_ENV_VAR = 'PROSA_SYNC_TOKEN'
 
 export function syncV2Command(): Command {
-  return new Command('sync-v2')
+  return new Command('sync')
     .description('Promote a v2 bundle to a remote prosa-api server (Lane 5 protocol).')
     .requiredOption('--server <url>', 'prosa-api server base URL (e.g. https://prosa.example.com)')
     .addOption(
@@ -93,8 +93,8 @@ export function syncV2Command(): Command {
 
 /**
  * After a successful promote, persist the receipt into
- * `~/.config/prosa/config.json` so `prosa read --authority remote` /
- * `prosa mcp-v2 serve --authority remote` can resolve the bundle's
+ * `~/.config/prosa/config.json` so `prosa v2 read --authority remote` /
+ * `prosa v2 mcp serve --authority remote` can resolve the bundle's
  * promotion without an extra round-trip. Without this, every sync
  * leaves the operator stuck in `--authority local` even though the
  * receipt is sealed server-side.

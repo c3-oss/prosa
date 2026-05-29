@@ -1,37 +1,19 @@
 #!/usr/bin/env node
 import { PROSA_PARSER_VERSION } from '@c3-oss/prosa-core'
 import { Command } from 'commander'
-import { analyticsCommand } from './commands/analytics.js'
 import { authCommand } from './commands/auth.js'
-import { bundleCommand } from './commands/bundle.js'
-import { compileAllV2Command, compileV2Command } from './commands/compile-v2.js'
-import { compileAllCommand, compileCommand } from './commands/compile.js'
-import { doctorCommand } from './commands/doctor.js'
-import { exportCommand } from './commands/export.js'
-import { indexV2Command } from './commands/index-v2.js'
-import { indexCommand } from './commands/index.js'
-import { initCommand } from './commands/init.js'
-import { mcpCommand } from './commands/mcp.js'
-import { migrateV2Command } from './commands/migrate-v2.js'
-import { queryCommand } from './commands/query.js'
-import { searchCommand } from './commands/search.js'
-import { sessionCommand } from './commands/session.js'
-import { sessionsCommand } from './commands/sessions.js'
-import { syncV2Command } from './commands/sync-v2.js'
-import { syncCommand } from './commands/sync.js'
-import { tuiCommand } from './commands/tui.js'
-import { mcpV2Command } from './v2/commands/mcp-serve.js'
-import { readCommand } from './v2/commands/read/index.js'
+import { v1Command } from './commands/v1.js'
+import { v2Command } from './commands/v2.js'
 /**
  * Drop a leading literal `--` token from the user-args portion of argv.
  *
- * `pnpm dev -- compile codex --overwrite` expands the script invocation to
- * `node prosa.ts -- compile codex --overwrite` — pnpm passes the `--`
+ * `pnpm dev -- v1 compile codex --overwrite` expands the script invocation
+ * to `node prosa.ts -- v1 compile codex --overwrite` — pnpm passes the `--`
  * through verbatim. Combined with Commander's `enablePositionalOptions()`,
  * Commander treats the `--` as the option terminator and silently ignores
  * every flag that follows. Stripping it once at the entrypoint lets both
- * `pnpm dev -- compile …` and the direct `node prosa.ts compile …` form
- * accept flags identically.
+ * `pnpm dev -- v1 compile …` and the direct `node prosa.ts v1 compile …`
+ * form accept flags identically.
  */
 function stripLeadingDoubleDash(argv: readonly string[]): string[] {
   if (argv.length >= 3 && argv[2] === '--') {
@@ -47,33 +29,17 @@ export async function runCli(argv: readonly string[]): Promise<void> {
     .enablePositionalOptions()
     .description(
       'Compile, search and export local agent session histories\n' +
-        '(Cursor, Codex CLI, Claude Code, Gemini CLI, Hermes) into one canonical store.',
+        '(Cursor, Codex CLI, Claude Code, Gemini CLI, Hermes) into one canonical store.\n' +
+        '\n' +
+        'Use `prosa v1 <command>` for the legacy SQLite-backed surface and\n' +
+        '`prosa v2 <command>` for the bundle v2 (NDJSON + Parquet) surface.\n' +
+        '`prosa auth` is shared between both versions.',
     )
     .version(PROSA_PARSER_VERSION, '-v, --version')
 
-  program.addCommand(initCommand())
-  program.addCommand(compileCommand())
-  program.addCommand(compileAllCommand())
-  program.addCommand(indexCommand())
-  program.addCommand(sessionsCommand())
-  program.addCommand(sessionCommand())
-  program.addCommand(searchCommand())
-  program.addCommand(exportCommand())
-  program.addCommand(queryCommand())
-  program.addCommand(analyticsCommand())
-  program.addCommand(doctorCommand())
-  program.addCommand(mcpCommand())
-  program.addCommand(tuiCommand())
+  program.addCommand(v1Command())
+  program.addCommand(v2Command())
   program.addCommand(authCommand())
-  program.addCommand(syncCommand())
-  program.addCommand(syncV2Command())
-  program.addCommand(bundleCommand())
-  program.addCommand(compileV2Command())
-  program.addCommand(compileAllV2Command())
-  program.addCommand(indexV2Command())
-  program.addCommand(readCommand())
-  program.addCommand(mcpV2Command())
-  program.addCommand(migrateV2Command())
 
   await program.parseAsync(stripLeadingDoubleDash(argv))
 }
