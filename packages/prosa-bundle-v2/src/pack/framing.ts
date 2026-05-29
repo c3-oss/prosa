@@ -127,14 +127,51 @@ export function canonicalJsonString(value: unknown): string {
     return String(value)
   }
   if (typeof value === 'bigint') return value.toString()
-  if (typeof value === 'string') return JSON.stringify(value)
+  if (typeof value === 'string') return JSON.stringify(sanitizeJsonString(value))
   if (Array.isArray(value)) {
     return `[${value.map((v) => canonicalJsonString(v)).join(',')}]`
   }
   if (typeof value === 'object') {
     const obj = value as Record<string, unknown>
     const keys = Object.keys(obj).sort()
-    return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalJsonString(obj[k])}`).join(',')}}`
+    return `{${keys.map((k) => `${JSON.stringify(sanitizeJsonString(k))}:${canonicalJsonString(obj[k])}`).join(',')}}`
   }
   throw new Error(`canonicalJson: unsupported value type ${typeof value}`)
+}
+
+/**
+ * Replace unpaired UTF-16 surrogate code units with U+FFFD (REPLACEMENT
+ * CHARACTER). `JSON.stringify` happily emits lone surrogates verbatim
+ * (e.g. `"\uD83D"` without its low half), but the resulting JSON is not
+ * valid UTF-8 and is rejected by RFC 8259-conformant parsers — DuckDB's
+ * `read_json_auto` in particular fails the projection→Parquet path with
+ * "no low surrogate in string". The substitution is idempotent: a
+ * sanitized string is a fixed point, so re-hashing stays deterministic.
+ * Valid surrogate pairs (e.g. emoji) survive intact.
+ */
+export function sanitizeJsonString(s: string): string {
+  let out: string | null = null
+  for (let i = 0; i < s.length; i++) {
+    const code = s.charCodeAt(i)
+    if (code >= 0xd800 && code <= 0xdbff) {
+      // High surrogate — must be followed by a low surrogate.
+      const next = i + 1 < s.length ? s.charCodeAt(i + 1) : 0
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        if (out !== null) out += String.fromCharCode(code, next)
+        i++
+        continue
+      }
+      if (out === null) out = s.slice(0, i)
+      out += '�'
+      continue
+    }
+    if (code >= 0xdc00 && code <= 0xdfff) {
+      // Low surrogate not preceded by a high surrogate.
+      if (out === null) out = s.slice(0, i)
+      out += '�'
+      continue
+    }
+    if (out !== null) out += String.fromCharCode(code)
+  }
+  return out === null ? s : out
 }
