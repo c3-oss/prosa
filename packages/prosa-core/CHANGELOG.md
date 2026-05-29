@@ -1,5 +1,11 @@
 # @c3-oss/prosa-core
 
+## 0.10.0
+
+### Minor Changes
+
+- CLIv2
+
 ## 0.9.0
 
 ### Minor Changes

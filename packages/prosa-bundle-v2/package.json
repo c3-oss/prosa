@@ -1,6 +1,6 @@
 {
   "name": "@c3-oss/prosa-bundle-v2",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Bundle v2 local store: directory layout, head.json atomic swap, pack formats, epoch lifecycle.",
   "author": "Caian Ertl <hi@caian.org>",
   "license": "MIT",

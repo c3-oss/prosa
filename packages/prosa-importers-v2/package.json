@@ -1,6 +1,6 @@
 {
   "name": "@c3-oss/prosa-importers-v2",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Bundle v2 provider importers (Codex, Claude Code, Cursor, Gemini, Hermes) and the runCompileImports orchestrator.",
   "author": "Caian Ertl <hi@caian.org>",
   "license": "MIT",

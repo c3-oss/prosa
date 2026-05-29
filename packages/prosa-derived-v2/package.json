@@ -1,6 +1,6 @@
 {
   "name": "@c3-oss/prosa-derived-v2",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Bundle v2 derived layer: Tantivy local index, SessionBlobPackV2 paged transcripts, DuckDB analytics views, Parquet compaction.",
   "author": "Caian Ertl <hi@caian.org>",
   "license": "MIT",

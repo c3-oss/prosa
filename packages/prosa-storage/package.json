@@ -1,6 +1,6 @@
 {
   "name": "@c3-oss/prosa-storage",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Remote object store interface and adapters (memory, fs, s3) for prosa sync.",
   "author": "Caian Ertl <hi@caian.org>",
   "license": "MIT",

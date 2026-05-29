@@ -1,5 +1,16 @@
 # @c3-oss/prosa-web
 
+## 0.2.0
+
+### Minor Changes
+
+- CLIv2
+
+### Patch Changes
+
+- Updated dependencies
+  - @c3-oss/prosa-api@0.2.0
+
 ## 0.1.0
 
 ### Minor Changes
