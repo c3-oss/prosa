@@ -1,10 +1,10 @@
 // v2 MCP server — local-bundle backed.
 //
-// `prosa mcp-v2 serve --authority local` lands here. The server
+// `prosa v2 mcp serve --authority local` lands here. The server
 // registers a small set of v2-aware tools (`prosa.sessions`,
 // `prosa.transcript`, `prosa.search`, `prosa.tool_calls`,
 // `prosa.analytics`, `prosa.query`) and routes them through the
-// `local-reads/*` services that already back the `prosa read *`
+// `local-reads/*` services that already back the `prosa v2 read *`
 // CLI commands. The same Streamable HTTP / stdio transports from
 // the MCP SDK are reused so existing MCP clients don't need to
 // change.

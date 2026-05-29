@@ -11,7 +11,7 @@ import { Command } from 'commander'
 import { resolveReadAuthorityOrFailClosed } from '../auth/routing.js'
 import { parseMcpTransport, parseSearchEngine } from '../parsers.js'
 
-/** Create the `prosa mcp` command group for stdio and HTTP MCP servers. */
+/** Create the `prosa v1 mcp` command group for stdio and HTTP MCP servers. */
 export function mcpCommand(): Command {
   const serve = new Command('serve')
     .description('Start a local MCP server over the prosa bundle.')
@@ -34,7 +34,7 @@ export function mcpCommand(): Command {
       }) => {
         const storePath = path.resolve(options.store)
         await resolveReadAuthorityOrFailClosed({
-          commandName: 'prosa mcp serve',
+          commandName: 'prosa v1 mcp serve',
           storePath,
           forceLocal: options.local,
           remoteSupported: false,
@@ -56,7 +56,7 @@ export function mcpCommand(): Command {
               storePath,
             })
 
-            process.stdout.write(`prosa mcp server listening at ${server.url}\n`)
+            process.stdout.write(`prosa v1 mcp server listening at ${server.url}\n`)
             process.stdout.write('press Ctrl+C to stop\n')
             registerShutdown(server.close, bundle)
             return

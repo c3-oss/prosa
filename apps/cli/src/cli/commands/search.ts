@@ -6,7 +6,7 @@ import { CliUserError } from '../errors.js'
 import { printRows } from '../output.js'
 import { parseOutputFormat, parseSearchEngine } from '../parsers.js'
 
-/** Create the `prosa search` command for full-text session history queries. */
+/** Create the `prosa v1 search` command for full-text session history queries. */
 export function searchCommand(): Command {
   return new Command('search')
     .description('Full-text search across messages, tool calls and tool outputs.')
@@ -24,7 +24,7 @@ export function searchCommand(): Command {
       ) => {
         const format = parseOutputFormat(options.outputFormat, 'table')
         const authority = await resolveReadAuthorityOrFailClosed({
-          commandName: 'prosa search',
+          commandName: 'prosa v1 search',
           storePath: options.store,
           forceLocal: options.local,
           remoteSupported: true,

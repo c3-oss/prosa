@@ -11,7 +11,7 @@ interface DoctorOptions {
   outputFormat: string
 }
 
-/** Create the `prosa doctor` command for bundle health checks. */
+/** Create the `prosa v1 doctor` command for bundle health checks. */
 export function doctorCommand(): Command {
   return new Command('doctor')
     .description('Run health checks against a prosa bundle.')

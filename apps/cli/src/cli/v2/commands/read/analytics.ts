@@ -1,4 +1,4 @@
-// Lane 7 — `prosa read analytics <report>`.
+// Lane 7 — `prosa v2 read analytics <report>`.
 //
 // Consumes `/v2/reads/analytics/report`. The server schema is
 // strict: it accepts `report`, `sourceTools`, `since`, `until`,
@@ -60,7 +60,7 @@ export function readAnalyticsCommand(): Command {
         throw new CliUserError(`invalid --limit: ${options.limit}`)
       }
 
-      const ctx = await prepareV2Read({ commandName: 'prosa read analytics', options })
+      const ctx = await prepareV2Read({ commandName: 'prosa v2 read analytics', options })
       if (ctx.kind === 'local') {
         const result = await runAnalyticsLocal({
           bundleRoot: ctx.storePath,

@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react'
 import { shouldUseInk } from './messages.js'
 
 /**
- * Live phase + progress for `prosa sync`. The driver (sync command) emits
+ * Live phase + progress for `prosa v1 sync`. The driver (sync command) emits
  * events; the React component re-renders to reflect them. We deliberately
  * keep the state machine tiny — the existing imperative pipeline owns the
  * work, this is presentation only.

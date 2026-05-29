@@ -1,4 +1,4 @@
-// Lane 7 — `prosa read export parquet`.
+// Lane 7 — `prosa v2 read export parquet`.
 //
 // Local-only. Refreshes the analytics Parquet export from the local
 // bundle. Fails closed for promoted stores until the operator runs
@@ -23,10 +23,10 @@ export function readExportCommand(): Command {
   parquet
     .option('--out <path>', 'output directory (default: <store>/parquet)')
     .action(async (options: ExportOptions) => {
-      const ctx = await prepareV2Read({ commandName: 'prosa read export parquet', options })
+      const ctx = await prepareV2Read({ commandName: 'prosa v2 read export parquet', options })
       if (ctx.kind !== 'local') {
         throw new CliUserError(
-          'prosa read export parquet is local-only; rerun with --authority local against a local bundle.',
+          'prosa v2 read export parquet is local-only; rerun with --authority local against a local bundle.',
         )
       }
       const outDir = options.out ? path.resolve(options.out) : path.join(ctx.storePath, 'parquet')

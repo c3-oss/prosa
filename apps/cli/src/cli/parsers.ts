@@ -2,7 +2,7 @@ import { SOURCE_TOOLS, type SearchEngine, type SourceTool } from '@c3-oss/prosa-
 
 export { parseOutputFormat } from './output.js'
 
-/** MCP transports supported by the `prosa mcp serve` command. */
+/** MCP transports supported by the `prosa v1 mcp serve` and `prosa v2 mcp serve` commands. */
 export type McpTransport = 'stdio' | 'http'
 
 /** Parse and validate a search engine CLI option. */

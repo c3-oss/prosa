@@ -14,7 +14,7 @@ import { openCliBundle } from '../bundle.js'
 import { CliUserError } from '../errors.js'
 import { type CliLoggerOptions, createCliLogger } from '../logger.js'
 
-/** Create the provider-specific `prosa compile` command group. */
+/** Create the provider-specific `prosa v1 compile` command group. */
 export function compileCommand(): Command {
   const command = addCompileLogOptions(
     new Command('compile').description('Import session histories from one agent CLI into the bundle.'),
@@ -31,7 +31,7 @@ export function compileCommand(): Command {
   return command
 }
 
-/** Create the `prosa compile-all` command that imports every configured provider. */
+/** Create the `prosa v1 compile-all` command that imports every configured provider. */
 export function compileAllCommand(): Command {
   return addCompileLogOptions(new Command('compile-all'))
     .description('Import all agent CLI session histories using default source paths.')
@@ -128,7 +128,7 @@ async function runCompiles(options: {
   // opens its own bundle handle and DuckDB attaches the SQLite file
   // directly, so we avoid any contention. As with Tantivy, failures are
   // logged but don't fail the compile — the user can re-run with
-  // `prosa export parquet`.
+  // `prosa v1 export parquet`.
   const shouldExportParquet = importedAny || options.overwrite === true
   if (shouldExportParquet) {
     try {

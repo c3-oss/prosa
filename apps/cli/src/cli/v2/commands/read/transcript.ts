@@ -1,4 +1,4 @@
-// Lane 7 — `prosa read transcript <session-id>`.
+// Lane 7 — `prosa v2 read transcript <session-id>`.
 //
 // Consumes `/v2/reads/sessions/transcript`. The response is either
 // the full page (session + turns + unattachedToolCalls + nextCursor)
@@ -51,7 +51,7 @@ export function readTranscriptCommand(): Command {
         throw new CliUserError(`invalid --limit: ${options.limit}`)
       }
 
-      const ctx = await prepareV2Read({ commandName: 'prosa read transcript', options })
+      const ctx = await prepareV2Read({ commandName: 'prosa v2 read transcript', options })
 
       if (ctx.kind === 'local') {
         let transcript: Awaited<ReturnType<typeof loadTranscriptLocal>>
@@ -71,7 +71,7 @@ export function readTranscriptCommand(): Command {
         }
         if (format === 'markdown') {
           throw new CliUserError(
-            'prosa read transcript --format markdown is not supported in --authority local; use `prosa export session` for local markdown.',
+            'prosa v2 read transcript --format markdown is not supported in --authority local; use `prosa v1 export session` for local markdown.',
           )
         }
         process.stdout.write(`${formatTranscriptTextV2(transcript.messages)}\n`)

@@ -1,4 +1,4 @@
-// Lane 7 — `prosa read tool-calls`.
+// Lane 7 — `prosa v2 read tool-calls`.
 //
 // Consumes `/v2/reads/tool-calls/list`. Input + output shapes match
 // the server route schema verbatim: `sessionId` (singular),
@@ -100,12 +100,12 @@ export function readToolCallsCommand(): Command {
         throw new CliUserError(`invalid --limit: ${options.limit}`)
       }
 
-      const ctx = await prepareV2Read({ commandName: 'prosa read tool-calls', options })
+      const ctx = await prepareV2Read({ commandName: 'prosa v2 read tool-calls', options })
 
       if (ctx.kind === 'local') {
         if (options.cursor) {
           throw new CliUserError(
-            'prosa read tool-calls local mode does not support --cursor; rerun against a promoted store with --authority remote, or drop the flag.',
+            'prosa v2 read tool-calls local mode does not support --cursor; rerun against a promoted store with --authority remote, or drop the flag.',
           )
         }
         const result = await listToolCallsLocal({

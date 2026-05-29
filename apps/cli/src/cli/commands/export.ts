@@ -5,7 +5,7 @@ import { Command } from 'commander'
 import { resolveReadAuthorityOrFailClosed } from '../auth/routing.js'
 import { asCliBundleOpenError, withBundle } from '../bundle.js'
 
-/** Create the `prosa export` command group for session and Parquet exports. */
+/** Create the `prosa v1 export` command group for session and Parquet exports. */
 export function exportCommand(): Command {
   const session = new Command('session')
     .description('Export a single session to a human-readable format.')
@@ -19,7 +19,7 @@ export function exportCommand(): Command {
         throw new Error(`unsupported format: ${options.format} (try --format markdown)`)
       }
       await resolveReadAuthorityOrFailClosed({
-        commandName: 'prosa export session',
+        commandName: 'prosa v1 export session',
         storePath: options.store,
         forceLocal: options.local,
         remoteSupported: false,
@@ -42,7 +42,7 @@ export function exportCommand(): Command {
     .option('--local', 'read the local bundle even if this store is remote-authoritative', false)
     .action(async (options: { store: string; out?: string; local: boolean }) => {
       await resolveReadAuthorityOrFailClosed({
-        commandName: 'prosa export parquet',
+        commandName: 'prosa v1 export parquet',
         storePath: options.store,
         forceLocal: options.local,
         remoteSupported: false,

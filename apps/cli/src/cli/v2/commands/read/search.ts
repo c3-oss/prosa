@@ -1,4 +1,4 @@
-// Lane 7 — `prosa read search <query>`.
+// Lane 7 — `prosa v2 read search <query>`.
 //
 // Consumes `/v2/reads/search/query`. Filter flags map directly to
 // the server schema (`roles`, `toolNames`, `canonicalToolTypes`,
@@ -111,7 +111,7 @@ export function readSearchCommand(): Command {
         throw new CliUserError(`invalid --limit: ${options.limit}`)
       }
 
-      const ctx = await prepareV2Read({ commandName: 'prosa read search', options })
+      const ctx = await prepareV2Read({ commandName: 'prosa v2 read search', options })
 
       if (ctx.kind === 'local') {
         rejectUnsupportedLocalFilters(options)
@@ -189,7 +189,7 @@ function rejectUnsupportedLocalFilters(options: SearchOptions): void {
   if (options.cursor) unsupported.push('--cursor')
   if (unsupported.length > 0) {
     throw new CliUserError(
-      `prosa read search local mode does not support ${unsupported.join(', ')}; rerun against a promoted store with --authority remote, or drop the unsupported filter.`,
+      `prosa v2 read search local mode does not support ${unsupported.join(', ')}; rerun against a promoted store with --authority remote, or drop the unsupported filter.`,
     )
   }
 }

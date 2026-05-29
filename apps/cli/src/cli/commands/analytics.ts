@@ -264,7 +264,7 @@ const COLUMN_SETS: Record<AnalyticsReport, ColumnSet<string>> = {
   projects: PROJECTS_COLUMNS,
 }
 
-/** Create the `prosa analytics` command group and its built-in report subcommands. */
+/** Create the `prosa v1 analytics` command group and its built-in report subcommands. */
 export function analyticsCommand(): Command {
   const command = new Command('analytics').description('Run high-level analytics reports over exported Parquet files.')
 
@@ -311,7 +311,7 @@ function reportCommand(report: AnalyticsReport, description: string): Command {
   return command.action(async (options: AnalyticsCliOptions) => {
     const format = parseOutputFormat(options.outputFormat, 'table')
     await resolveReadAuthorityOrFailClosed({
-      commandName: `prosa analytics ${report}`,
+      commandName: `prosa v1 analytics ${report}`,
       storePath: options.store,
       forceLocal: options.local,
       remoteSupported: false,

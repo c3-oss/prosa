@@ -5,7 +5,7 @@ import { withBundle } from '../bundle.js'
 import { CliUserError } from '../errors.js'
 import { renderTranscriptInk } from '../ink/transcript.js'
 
-/** Output formats supported by `prosa session show`. */
+/** Output formats supported by `prosa v1 session show`. */
 type SessionShowFormat = 'text' | 'markdown' | 'json'
 
 function parseFormat(value: string): SessionShowFormat {
@@ -21,7 +21,7 @@ function parseMaxLines(value: string): number {
   return n
 }
 
-/** Create the `prosa session` command group with the `show` subcommand. */
+/** Create the `prosa v1 session` command group with the `show` subcommand. */
 export function sessionCommand(): Command {
   const show = new Command('show')
     .description('Render a session transcript in text, markdown, or JSON.')
@@ -51,7 +51,7 @@ export function sessionCommand(): Command {
         // Remote authority is not implemented for transcript rendering yet
         // (Fase 4); fail-closed unless the store is local-authoritative.
         await resolveReadAuthorityOrFailClosed({
-          commandName: 'prosa session show',
+          commandName: 'prosa v1 session show',
           storePath: options.store,
           forceLocal: options.local,
           remoteSupported: false,
@@ -94,5 +94,7 @@ export function sessionCommand(): Command {
       },
     )
 
-  return new Command('session').description('Inspect a single session (use `prosa sessions` to list).').addCommand(show)
+  return new Command('session')
+    .description('Inspect a single session (use `prosa v1 sessions` to list).')
+    .addCommand(show)
 }

@@ -1,4 +1,4 @@
-// Lane 7 — resolve the read context for a `prosa read *` command.
+// Lane 7 — resolve the read context for a `prosa v2 read *` command.
 //
 // Bridges the existing CLI promotion config + auth state with the
 // new v2 authority cache + reads client. The `auto` authority mode
@@ -9,7 +9,7 @@
 // The L11 "auto chooses local if a local bundle exists AND its
 // bundleRoot matches the cached receipt's bundleRoot" branch is
 // delegated to the MCP serve slice (which fully owns the local v2
-// bundle openers). For the `prosa read *` group, `auto` resolves to
+// bundle openers). For the `prosa v2 read *` group, `auto` resolves to
 // `remote` for promoted stores and `local` otherwise — surfacing the
 // same fail-closed guidance the v1 routing already emits via
 // CQ-143.
@@ -92,7 +92,7 @@ export async function resolveV2ReadContext(opts: ResolveV2ReadContextOptions): P
   }
   if (!promotion.tenantId) {
     throw new CliUserError(
-      `${opts.commandName} cannot resolve the promoted store tenant for ${resolvedStore}.\nRun \`prosa sync status\` to inspect promotion state.`,
+      `${opts.commandName} cannot resolve the promoted store tenant for ${resolvedStore}.\nRun \`prosa v1 sync status\` to inspect promotion state.`,
     )
   }
 

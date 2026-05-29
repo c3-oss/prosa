@@ -3,7 +3,7 @@ import { Command } from 'commander'
 import { resolveReadAuthorityOrFailClosed } from '../auth/routing.js'
 import { withBundle } from '../bundle.js'
 
-/** Create the `prosa tui` command that opens the Ink session explorer. */
+/** Create the `prosa v1 tui` command that opens the Ink session explorer. */
 export function tuiCommand(): Command {
   return new Command('tui')
     .description('Open the interactive Ink-based explorer.')
@@ -11,7 +11,7 @@ export function tuiCommand(): Command {
     .option('--local', 'read the local bundle even if this store is remote-authoritative', false)
     .action(async (options: { store: string; local: boolean }) => {
       await resolveReadAuthorityOrFailClosed({
-        commandName: 'prosa tui',
+        commandName: 'prosa v1 tui',
         storePath: options.store,
         forceLocal: options.local,
         remoteSupported: false,

@@ -1,4 +1,4 @@
-// Lane 7 — `prosa read query '<sql>' [--engine duckdb]`.
+// Lane 7 — `prosa v2 read query '<sql>' [--engine duckdb]`.
 //
 // Local-only by contract. The CLI fails closed when the resolved
 // authority is remote: ad-hoc DuckDB queries operate on the
@@ -31,9 +31,11 @@ export function readQueryCommand(): Command {
       }
       const format = parseOutputFormat(options.outputFormat, 'table')
 
-      const ctx = await prepareV2Read({ commandName: 'prosa read query', options })
+      const ctx = await prepareV2Read({ commandName: 'prosa v2 read query', options })
       if (ctx.kind !== 'local') {
-        throw new CliUserError('prosa read query is local-only; rerun with --authority local against a local bundle.')
+        throw new CliUserError(
+          'prosa v2 read query is local-only; rerun with --authority local against a local bundle.',
+        )
       }
 
       const result = await runQueryLocal({ bundleRoot: ctx.storePath, sql })

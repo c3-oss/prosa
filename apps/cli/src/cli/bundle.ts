@@ -33,8 +33,8 @@ function formatMissingBundleMessage(bundlePath: string): string {
   const resolved = path.resolve(bundlePath)
   const defaultPath = defaultBundlePath()
   if (resolved === defaultPath && !process.env.PROSA_STORE) {
-    return `No default prosa store found at ${resolved}.\nRun \`prosa init\` to create it.`
+    return `No default prosa store found at ${resolved}.\nRun \`prosa v1 init\` to create it.`
   }
 
-  return `No prosa store found at ${resolved}.\nRun \`prosa init --store ${resolved}\` to create it.`
+  return `No prosa store found at ${resolved}.\nRun \`prosa v1 init --store ${resolved}\` to create it.`
 }

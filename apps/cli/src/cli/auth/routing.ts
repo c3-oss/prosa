@@ -109,7 +109,7 @@ export async function resolveReadAuthorityOrFailClosed(opts: {
 
   if (!promoted.promotion.tenantId) {
     throw new CliUserError(
-      `${opts.commandName} cannot resolve the promoted store tenant for ${resolvedStore}.\nRun \`prosa sync status\` to inspect promotion state, or use --local to read local state explicitly.`,
+      `${opts.commandName} cannot resolve the promoted store tenant for ${resolvedStore}.\nRun \`prosa v1 sync status\` to inspect promotion state, or use --local to read local state explicitly.`,
     )
   }
 

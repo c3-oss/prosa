@@ -57,7 +57,7 @@ const SESSION_COLUMNS: ColumnSet<SessionCol> = {
   tail: new Set(['cwd_initial']),
 }
 
-/** Create the `prosa sessions` command and its count subcommand. */
+/** Create the `prosa v1 sessions` command and its count subcommand. */
 export function sessionsCommand(): Command {
   const command = new Command('sessions')
     .description('List sessions in the bundle, with filters.')
@@ -88,7 +88,7 @@ export function sessionsCommand(): Command {
         const columns = resolveColumns(SESSION_COLUMNS, options.columns)
         const sourceTool = parseSourceTool(options.source)
         const authority = await resolveReadAuthorityOrFailClosed({
-          commandName: 'prosa sessions',
+          commandName: 'prosa v1 sessions',
           storePath: options.store,
           forceLocal: options.local,
           remoteSupported: true,
@@ -159,7 +159,7 @@ export function sessionsCommand(): Command {
         }) => {
           const sourceTool = parseSourceTool(options.source)
           const authority = await resolveReadAuthorityOrFailClosed({
-            commandName: 'prosa sessions count',
+            commandName: 'prosa v1 sessions count',
             storePath: options.store,
             forceLocal: options.local,
             remoteSupported: true,

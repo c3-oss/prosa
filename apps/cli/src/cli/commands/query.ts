@@ -5,7 +5,7 @@ import { resolveReadAuthorityOrFailClosed } from '../auth/routing.js'
 import { withBundle } from '../bundle.js'
 import { parseOutputFormat, printRows } from '../output.js'
 
-/** Create the `prosa query` command group for derived analytical queries. */
+/** Create the `prosa v1 query` command group for derived analytical queries. */
 export function queryCommand(): Command {
   const duckdb = new Command('duckdb')
     .description('Run a DuckDB SQL query over exported Parquet tables.')
@@ -18,7 +18,7 @@ export function queryCommand(): Command {
       async (sql: string, options: { store: string; parquetDir?: string; local: boolean; outputFormat: string }) => {
         const format = parseOutputFormat(options.outputFormat, 'table')
         await resolveReadAuthorityOrFailClosed({
-          commandName: 'prosa query duckdb',
+          commandName: 'prosa v1 query duckdb',
           storePath: options.store,
           forceLocal: options.local,
           remoteSupported: false,

@@ -1,4 +1,4 @@
-// Lane 7 — `prosa read sessions` and `prosa read sessions --count`.
+// Lane 7 — `prosa v2 read sessions` and `prosa v2 read sessions --count`.
 //
 // Consumes `/v2/reads/sessions/list` and `/v2/reads/sessions/count`
 // for promoted stores. When the authority resolver returns `local`
@@ -121,10 +121,10 @@ async function runList(options: SessionsOptions): Promise<void> {
     throw new Error(`invalid --limit: ${options.limit}`)
   }
 
-  const ctx = await prepareV2Read({ commandName: 'prosa read sessions', options })
+  const ctx = await prepareV2Read({ commandName: 'prosa v2 read sessions', options })
 
   if (ctx.kind === 'local') {
-    rejectUnsupportedLocalFilters('prosa read sessions', options)
+    rejectUnsupportedLocalFilters('prosa v2 read sessions', options)
     const result = await listSessionsLocal({
       bundleRoot: ctx.storePath,
       sourceTool: sourceTool ?? null,
@@ -205,10 +205,10 @@ function rejectUnsupportedLocalFilters(commandName: string, options: SessionsOpt
 
 async function runCount(options: SessionsOptions): Promise<void> {
   const sourceTool = parseSourceTool(options.source)
-  const ctx = await prepareV2Read({ commandName: 'prosa read sessions --count', options })
+  const ctx = await prepareV2Read({ commandName: 'prosa v2 read sessions --count', options })
 
   if (ctx.kind === 'local') {
-    rejectUnsupportedLocalFilters('prosa read sessions --count', { ...options, cursor: undefined })
+    rejectUnsupportedLocalFilters('prosa v2 read sessions --count', { ...options, cursor: undefined })
     const { count } = await countSessionsLocal({
       bundleRoot: ctx.storePath,
       sourceTool: sourceTool ?? null,

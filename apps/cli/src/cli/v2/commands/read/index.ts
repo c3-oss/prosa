@@ -1,4 +1,4 @@
-// Lane 7 — `prosa read` command group.
+// Lane 7 — `prosa v2 read` command group.
 import { Command } from 'commander'
 import { readAnalyticsCommand } from './analytics.js'
 import { readExportCommand } from './export.js'

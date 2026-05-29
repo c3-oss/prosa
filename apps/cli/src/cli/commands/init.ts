@@ -3,7 +3,7 @@ import path from 'node:path'
 import { closeBundle, defaultBundlePath, initBundle, openBundle } from '@c3-oss/prosa-core'
 import { Command } from 'commander'
 
-/** Create the `prosa init` command that initializes or verifies a bundle directory. */
+/** Create the `prosa v1 init` command that initializes or verifies a bundle directory. */
 export function initCommand(): Command {
   return new Command('init')
     .description('Initialize a new prosa bundle (SQLite + manifest + objects/).')

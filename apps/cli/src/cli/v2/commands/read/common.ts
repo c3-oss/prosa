@@ -1,4 +1,4 @@
-// Lane 7 — shared options + helpers for `prosa read *` commands.
+// Lane 7 — shared options + helpers for `prosa v2 read *` commands.
 //
 // Centralizes:
 //   - the common option set (--store, --authority, --refresh,
@@ -33,7 +33,7 @@ export type CommonReadOptions = {
   config?: string
 }
 
-/** Add the shared option set used by every `prosa read *` subcommand. */
+/** Add the shared option set used by every `prosa v2 read *` subcommand. */
 export function addCommonReadOptions(cmd: Command): Command {
   return cmd
     .option('--store <path>', 'bundle directory', defaultBundlePath())

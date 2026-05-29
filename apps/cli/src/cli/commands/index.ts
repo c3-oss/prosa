@@ -4,7 +4,7 @@ import { resolveReadAuthorityOrFailClosed } from '../auth/routing.js'
 import { withBundle } from '../bundle.js'
 import { parseOutputFormat, printRows } from '../output.js'
 
-/** Create the `prosa index` command group for rebuilding and inspecting search indexes. */
+/** Create the `prosa v1 index` command group for rebuilding and inspecting search indexes. */
 export function indexCommand(): Command {
   const fts5 = new Command('fts5')
     .description('Rebuild the SQLite FTS5 index from search_docs.')
@@ -17,7 +17,7 @@ export function indexCommand(): Command {
     .option('--local', 'read the local bundle even if this store is remote-authoritative', false)
     .action(async (options: { store: string; overwrite: boolean; local: boolean }) => {
       await resolveReadAuthorityOrFailClosed({
-        commandName: 'prosa index fts5',
+        commandName: 'prosa v1 index fts5',
         storePath: options.store,
         forceLocal: options.local,
         remoteSupported: false,
@@ -38,7 +38,7 @@ export function indexCommand(): Command {
     .option('--local', 'read the local bundle even if this store is remote-authoritative', false)
     .action(async (options: { store: string; overwrite: boolean; local: boolean }) => {
       await resolveReadAuthorityOrFailClosed({
-        commandName: 'prosa index tantivy',
+        commandName: 'prosa v1 index tantivy',
         storePath: options.store,
         forceLocal: options.local,
         remoteSupported: false,
@@ -56,7 +56,7 @@ export function indexCommand(): Command {
     .action(async (options: { store: string; local: boolean; outputFormat: string }) => {
       const format = parseOutputFormat(options.outputFormat, 'table')
       await resolveReadAuthorityOrFailClosed({
-        commandName: 'prosa index status',
+        commandName: 'prosa v1 index status',
         storePath: options.store,
         forceLocal: options.local,
         remoteSupported: false,
