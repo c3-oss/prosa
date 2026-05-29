@@ -175,24 +175,12 @@ importers:
 
   apps/cli:
     dependencies:
-      '@c3-oss/prosa-bundle-v2':
-        specifier: workspace:^
-        version: link:../../packages/prosa-bundle-v2
       '@c3-oss/prosa-core':
         specifier: workspace:^
         version: link:../../packages/prosa-core
-      '@c3-oss/prosa-derived-v2':
-        specifier: workspace:^
-        version: link:../../packages/prosa-derived-v2
-      '@c3-oss/prosa-importers-v2':
-        specifier: workspace:^
-        version: link:../../packages/prosa-importers-v2
-      '@c3-oss/prosa-types-v2':
-        specifier: workspace:*
-        version: link:../../packages/prosa-types-v2
-      '@c3-oss/prosa-wire-v2':
-        specifier: workspace:*
-        version: link:../../packages/prosa-wire-v2
+      '@duckdb/node-api':
+        specifier: 1.5.2-r.1
+        version: 1.5.2-r.1
       '@inkjs/ui':
         specifier: ^2.0.0
         version: 2.0.0(ink@7.0.1(@types/react@19.2.14)(react@19.2.5))
@@ -202,6 +190,12 @@ importers:
       '@noble/hashes':
         specifier: ^1.7.0
         version: 1.8.0
+      '@oxdev03/node-tantivy-binding':
+        specifier: 0.2.0
+        version: 0.2.0
+      better-sqlite3:
+        specifier: ^12.10.0
+        version: 12.10.0
       commander:
         specifier: ^12.1.0
         version: 12.1.0
@@ -220,6 +214,9 @@ importers:
       zod:
         specifier: ^3.23.8
         version: 3.25.76
+      zstd-napi:
+        specifier: ^0.0.10
+        version: 0.0.10
     devDependencies:
       '@aws-sdk/client-s3':
         specifier: ^3.700.0
@@ -239,33 +236,42 @@ importers:
       '@c3-oss/prosa-api':
         specifier: workspace:^
         version: link:../api
+      '@c3-oss/prosa-bundle-v2':
+        specifier: workspace:^
+        version: link:../../packages/prosa-bundle-v2
       '@c3-oss/prosa-db':
         specifier: workspace:^
         version: link:../../packages/prosa-db
       '@c3-oss/prosa-db-v2':
         specifier: workspace:*
         version: link:../../packages/prosa-db-v2
+      '@c3-oss/prosa-derived-v2':
+        specifier: workspace:^
+        version: link:../../packages/prosa-derived-v2
+      '@c3-oss/prosa-importers-v2':
+        specifier: workspace:^
+        version: link:../../packages/prosa-importers-v2
       '@c3-oss/prosa-storage':
         specifier: workspace:^
         version: link:../../packages/prosa-storage
       '@c3-oss/prosa-sync':
         specifier: workspace:^
         version: link:../../packages/prosa-sync
+      '@c3-oss/prosa-types-v2':
+        specifier: workspace:*
+        version: link:../../packages/prosa-types-v2
+      '@c3-oss/prosa-wire-v2':
+        specifier: workspace:*
+        version: link:../../packages/prosa-wire-v2
       '@electric-sql/pglite':
         specifier: ^0.4.5
         version: 0.4.5
-      '@oxdev03/node-tantivy-binding':
-        specifier: 0.2.0
-        version: 0.2.0
       '@types/better-sqlite3':
         specifier: ^7.6.12
         version: 7.6.13
       '@types/react':
         specifier: ^19.2.14
         version: 19.2.14
-      better-sqlite3:
-        specifier: ^12.10.0
-        version: 12.10.0
       fastify:
         specifier: ^5.0.0
         version: 5.8.5
