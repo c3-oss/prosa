@@ -309,7 +309,7 @@ export async function runCompileImports(options: RunCompileImportsOptions): Prom
   const rowsByEntity = handle.rowsByEntity()
   const sessions = (rowsByEntity.session ?? []) as unknown as SessionV2[]
   const edges = (rowsByEntity.edge ?? []) as unknown as EdgeV2[]
-  const { resolved, fixups } = resolveLateBindings({
+  const { resolved, fixups, orphanEdgeIds } = resolveLateBindings({
     sessions,
     edges,
     epoch: handle.epoch,
@@ -320,6 +320,18 @@ export async function runCompileImports(options: RunCompileImportsOptions): Prom
   // Replace session rows with resolved ones (parent_session_id +
   // parent_resolution populated).
   for (const s of resolved) handle.putRow('session', s.session_id, s as unknown as Record<string, CborValue>)
+  // Drop spawned edges whose parent session never materialised. Without
+  // this, `validateFkClosure` rejects the seal because the edge's
+  // `src_id` (session) has no matching row. The subagent session itself
+  // survives with `parent_resolution='unresolved'` so the orphan
+  // subagent file is still queryable.
+  if (orphanEdgeIds.length > 0) {
+    for (const edgeId of orphanEdgeIds) handle.deleteRow('edge', edgeId)
+    // eslint-disable-next-line no-console
+    console.warn(
+      `compile-v2: dropped ${orphanEdgeIds.length} orphan spawned edge${orphanEdgeIds.length === 1 ? '' : 's'} (parent session absent in current and prior epochs)`,
+    )
+  }
 
   // Emit projection segments per entity and register them. Each
   // entity gets the canonical NDJSON (manifest-backed) plus a

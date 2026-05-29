@@ -49,6 +49,15 @@ export type ResolveResult = {
   /** SessionFixupV2 entries for cross-epoch references the orchestrator
    * should record on the bundle. Empty under the current-epoch policy. */
   fixups: SessionFixupV2[]
+  /** `edge_id`s of `spawned` edges whose `src_id` (the parent session)
+   * is missing from BOTH the current epoch's sessions and the prior-epoch
+   * inventory. The orchestrator must drop these edges before sealing
+   * because `validateFkClosure` enforces strict edge endpoint closure
+   * and would otherwise reject the seal. Subagent files orphaned at
+   * the source (e.g. Claude's `<sid>/subagents/...` directory present
+   * but the parent `<sid>.jsonl` deleted) trigger this; the subagent
+   * session itself is preserved with `parent_resolution='unresolved'`. */
+  orphanEdgeIds: string[]
 }
 
 export function resolveLateBindings(args: {
@@ -71,6 +80,16 @@ export function resolveLateBindings(args: {
 
   const resolved: SessionV2[] = []
   const fixups: SessionFixupV2[] = []
+  const orphanEdgeIds: string[] = []
+  // Walk every spawned edge and decide if its src parent is materialised
+  // anywhere reachable from this epoch. Edges with no resolvable parent
+  // get reported up so the orchestrator can drop them; otherwise
+  // sealEpoch's FK closure walk would reject the seal.
+  for (const e of index.spawnedEdges) {
+    if (index.sessionsSeenThisEpoch.has(e.src_id)) continue
+    if (index.sessionsSeenPriorEpochs?.hasSession(e.src_id)) continue
+    orphanEdgeIds.push(e.edge_id)
+  }
   for (const session of args.sessions) {
     const next: SessionV2 = { ...session }
     if (next.parent_session_id != null) {
@@ -114,5 +133,5 @@ export function resolveLateBindings(args: {
     resolved.push(next)
   }
 
-  return { resolved, fixups }
+  return { resolved, fixups, orphanEdgeIds }
 }

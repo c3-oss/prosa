@@ -168,6 +168,53 @@ describe('ClaudeProvider', () => {
     expect(subResult2.unit.projection.edges[0]!.edge_id).toBe(edge.edge_id)
   })
 
+  it('compiles a subagent .jsonl whose parent main .jsonl is absent — drops the orphan spawned edge', async () => {
+    // Real-world condition observed in `~/.claude/projects/<slug>/<sid>/
+    // subagents/agent-*.jsonl`: the subagent file remains on disk after
+    // Claude deletes or never persists the parent rollout. The
+    // orchestrator must drop the spawned edge so `validateFkClosure`
+    // does not reject the seal; the subagent session itself survives
+    // with `parent_resolution='unresolved'`.
+    const bundleRoot = await tmp()
+    const discoveryRoot = await tmp()
+    await mkdir(join(discoveryRoot, 'p1', 'sess_orphan_parent', 'subagents'), { recursive: true })
+    await writeFile(
+      join(discoveryRoot, 'p1', 'sess_orphan_parent', 'subagents', 'agent-agent_001.jsonl'),
+      jsonlBytes([
+        {
+          type: 'user',
+          uuid: 'orphan-rec-1',
+          parentUuid: null,
+          sessionId: 'sess_orphan_parent',
+          agentId: 'agent_001',
+          isSidechain: true,
+          timestamp: '2025-01-02T03:04:07.000Z',
+          message: { role: 'user', content: [{ type: 'text', text: 'orphan task' }] },
+        },
+      ]),
+    )
+    const bundle = await initBundle(bundleRoot, {
+      storeId: 'st_claude_orphan',
+      createdAt: '2025-01-02T03:04:05.123Z',
+    })
+    try {
+      const result = await runCompileImports({
+        bundle,
+        providers: [{ provider: new ClaudeProvider(), root: discoveryRoot }],
+        createdAt: '2025-01-02T03:04:06.000Z',
+      })
+      // Seal succeeded — `validateFkClosure` would have thrown otherwise.
+      expect(result.sealedEpoch).toBe(1)
+      // Only the subagent session landed; no orphan parent row was
+      // synthesized.
+      expect(bundle.head.counts.sessions).toBe(1)
+      // The spawned edge to the missing parent was dropped.
+      expect(bundle.head.counts.edges).toBe(0)
+    } finally {
+      await bundle.close()
+    }
+  })
+
   it('CQ-068: GraphResolver fills parent_session_id when main + subagent files compile in the same epoch', async () => {
     const bundleRoot = await tmp()
     const discoveryRoot = await tmp()

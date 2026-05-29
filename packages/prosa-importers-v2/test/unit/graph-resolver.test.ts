@@ -54,6 +54,7 @@ describe('resolveLateBindings', () => {
     expect(r.resolved[0]?.parent_resolution).toBe('inline')
     expect(r.resolved[0]?.parent_session_id).toBe('ses_a')
     expect(r.fixups.length).toBe(0)
+    expect(r.orphanEdgeIds).toEqual([])
   })
 
   it('sets parent_resolution=edge_derived when the parent is in the same epoch', () => {
@@ -114,5 +115,43 @@ describe('resolveLateBindings', () => {
     expect(r.resolved[0]?.parent_resolution).toBe('unresolved')
     expect(r.resolved[0]?.parent_session_id).toBe(null)
     expect(r.fixups.length).toBe(0)
+    expect(r.orphanEdgeIds).toEqual(['edg_1'])
+  })
+
+  it('does not flag the edge as orphan when the parent is in the current epoch', () => {
+    const r = resolveLateBindings({
+      sessions: [sess('ses_a'), sess('ses_b')],
+      edges: [spawnEdge('edg_1', 'ses_a', 'ses_b')],
+      epoch: 1,
+      createdAt: '2025-01-02T03:04:05.123Z',
+      generateFixupId: () => 'fix_0',
+    })
+    expect(r.orphanEdgeIds).toEqual([])
+  })
+
+  it('does not flag the edge as orphan when the parent resolves via prior epochs', () => {
+    const r = resolveLateBindings({
+      sessions: [sess('ses_child')],
+      edges: [spawnEdge('edg_1', 'ses_prior_parent', 'ses_child')],
+      epoch: 2,
+      createdAt: '2025-01-02T03:04:05.123Z',
+      priorEpochs: {
+        hasSession: (id) => id === 'ses_prior_parent',
+        pendingFixupTargets: () => [],
+      },
+      generateFixupId: () => 'fix_xyz',
+    })
+    expect(r.orphanEdgeIds).toEqual([])
+  })
+
+  it('reports every orphan spawned edge when multiple parents are missing', () => {
+    const r = resolveLateBindings({
+      sessions: [sess('ses_child1'), sess('ses_child2')],
+      edges: [spawnEdge('edg_1', 'ses_missing_a', 'ses_child1'), spawnEdge('edg_2', 'ses_missing_b', 'ses_child2')],
+      epoch: 1,
+      createdAt: '2025-01-02T03:04:05.123Z',
+      generateFixupId: () => 'fix_0',
+    })
+    expect(new Set(r.orphanEdgeIds)).toEqual(new Set(['edg_1', 'edg_2']))
   })
 })

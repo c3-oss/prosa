@@ -132,6 +132,18 @@ export class EpochHandle {
     m.set(primaryKey, row)
   }
 
+  /**
+   * Remove a single row. Returns `true` when the row existed, `false`
+   * otherwise. Used by the orchestrator's pre-seal pass to drop edges
+   * the GraphResolver flagged as unresolvable (e.g. spawned edges whose
+   * parent session never landed in any reachable epoch).
+   */
+  deleteRow(entityType: CanonicalEntityType, primaryKey: string): boolean {
+    const m = this.rows.get(entityType)
+    if (!m) return false
+    return m.delete(primaryKey)
+  }
+
   putRawSource(entry: RawSourceLeafInput): void {
     this.rawSources.set(entry.source_file_id, entry)
   }
