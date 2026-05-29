@@ -1,6 +1,6 @@
 {
   "name": "@c3-oss/prosa-db-v2",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Postgres v2 schema (lean profile) for prosa: device, promotion staging, packs, projection mirrors, search, archive.",
   "author": "Caian Ertl <hi@caian.org>",
   "license": "MIT",

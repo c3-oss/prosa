@@ -1,6 +1,6 @@
 {
   "name": "@c3-oss/prosa-wire-v2",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Zod wire schemas for the prosa v2 four-call promotion protocol.",
   "author": "Caian Ertl <hi@caian.org>",
   "license": "MIT",

@@ -1,5 +1,11 @@
 # @c3-oss/prosa-core
 
+## 0.10.1
+
+### Patch Changes
+
+- Fix broken release of `v0.10.0`
+
 ## 0.10.0
 
 ### Minor Changes

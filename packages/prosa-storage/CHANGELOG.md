@@ -1,5 +1,11 @@
 # @c3-oss/prosa-storage
 
+## 0.2.1
+
+### Patch Changes
+
+- Fix broken release of `v0.10.0`
+
 ## 0.2.0
 
 ### Minor Changes

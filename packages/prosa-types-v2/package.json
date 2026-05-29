@@ -1,6 +1,6 @@
 {
   "name": "@c3-oss/prosa-types-v2",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Canonical entity, segment, pack, bundle, and receipt types plus canonical CBOR + Merkle helpers for prosa v2.",
   "author": "Caian Ertl <hi@caian.org>",
   "license": "MIT",

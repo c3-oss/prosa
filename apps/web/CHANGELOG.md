@@ -1,5 +1,13 @@
 # @c3-oss/prosa-web
 
+## 0.2.1
+
+### Patch Changes
+
+- Fix broken release of `v0.10.0`
+- Updated dependencies
+  - @c3-oss/prosa-api@0.2.1
+
 ## 0.2.0
 
 ### Minor Changes
