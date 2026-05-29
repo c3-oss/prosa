@@ -35,7 +35,7 @@
     "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
-    "dev": "node --conditions=prosa-dev --import @swc-node/register/esm-register src/bin/prosa.ts",
+    "dev": "node --max-old-space-size=8192 --conditions=prosa-dev --import @swc-node/register/esm-register src/bin/prosa.ts",
     "build": "tsup",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
