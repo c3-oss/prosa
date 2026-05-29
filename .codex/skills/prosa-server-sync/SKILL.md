@@ -30,7 +30,7 @@ correction queues, status files, or Ralph completion gates directly.
 
 - Fastify hosts a tRPC adapter plus raw HTTP routes for object byte transfer. tRPC handles the structured RPCs; bulk object PUT/GET stays on plain HTTP to keep streaming simple.
 - Better Auth provides email/password and the organization plugin. Tenancy is multi-org: every authenticated request resolves an active `organizationId` via the tRPC context, and every read/write is scoped to it.
-- Device tokens authenticate non-interactive CLI clients (`prosa auth login`, `prosa sync …`). Tokens carry the tenant and device identity and are validated in the tRPC context.
+- Device tokens authenticate non-interactive CLI clients (`prosa auth login`, `prosa v1 sync …`). Tokens carry the tenant and device identity and are validated in the tRPC context.
 - Postgres holds auth tables, the remote projection (the same canonical projection the local bundle exposes), and the sync ledger. Drizzle owns the schema; migrations live next to the schema in `packages/prosa-db/`.
 - The object store is driver-pluggable. `memory` powers tests, `fs` powers single-node deployments, `s3` powers production (and MinIO in the Docker harness). All three implement the same `verify`-able contract.
 
@@ -47,7 +47,7 @@ The sync direction is one-way: the local bundle is the source of truth, the serv
 ## CLI Surface
 
 - `prosa auth login|logout|whoami|use-org` configures device tokens and the active organization through `apps/cli/src/cli/auth/`.
-- `prosa sync push` (and any chunked-sync subcommands) promotes the local bundle, driven by helpers in `apps/cli/src/cli/sync/{bundle,limits,promotion}.ts`.
+- `prosa v1 sync push` (and any chunked-sync subcommands) promotes the local bundle, driven by helpers in `apps/cli/src/cli/sync/{bundle,limits,promotion}.ts`.
 - Both surfaces resolve the API URL, tenant, and token through the shared auth client; never hardcode endpoints.
 
 ## Configuration

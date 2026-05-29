@@ -20,7 +20,7 @@ in `docs/` (see `docs/README.md`). Generated output belongs in package-local
 Use pnpm from a `devbox shell` when possible.
 
 - `pnpm install` installs dependencies from `pnpm-lock.yaml`.
-- `pnpm dev -- <command>` runs the CLI through SWC, for example `pnpm dev -- sessions`.
+- `pnpm dev -- <command>` runs the CLI through SWC, for example `pnpm dev -- v1 sessions`.
 - `pnpm dev:all` runs all workspace `dev` tasks through Turbo.
 - `pnpm build` bundles ESM output and declarations with tsup.
 - `pnpm test` runs the Vitest suite once.

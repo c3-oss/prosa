@@ -294,7 +294,7 @@ importer applies a **first-sorted-snapshot-wins** contract:
 
 ## Transcript fidelity
 
-What `loadTranscript` / `prosa session show` surface for Gemini sessions:
+What `loadTranscript` / `prosa v1 session show` surface for Gemini sessions:
 
 - **Preserved verbatim**: user prompts and Gemini responses (each
   `messages[]` entry projects to a `content_blocks` row), tool-call

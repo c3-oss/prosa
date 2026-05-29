@@ -1,6 +1,6 @@
 # Import pipeline
 
-`prosa compile <provider>` and `prosa compile-all` walk a provider's local
+`prosa v1 compile <provider>` and `prosa v1 compile-all` walk a provider's local
 session tree and produce a fully-indexed bundle. This doc describes how
 that pipeline is structured, the contracts each importer must honor, and
 the per-provider trade-offs.
@@ -76,7 +76,7 @@ After all providers in a single `runCompiles(...)` invocation finish:
 
 Index rebuild failures are logged at error level but do not throw; the
 canonical SQLite/CAS layer is already committed and the user can re-run
-`prosa index fts5`, `prosa index tantivy`, or `prosa export parquet`
+`prosa v1 index fts5`, `prosa v1 index tantivy`, or `prosa v1 export parquet`
 manually.
 
 ## CAS staging contract
@@ -138,7 +138,7 @@ rows from older imports remain valid alongside newer ones.
 
 ## Idempotency contract
 
-Re-running `prosa compile-all` against an unchanged source tree must
+Re-running `prosa v1 compile-all` against an unchanged source tree must
 produce zero new rows, zero new files, and skip the post-import
 Tantivy/Parquet rebuilds. The keys that enforce this:
 
@@ -193,7 +193,7 @@ provenance is preserved separately in `raw_records`.
 
 | Path | Role |
 |---|---|
-| `apps/cli/src/cli/commands/compile.ts` | `compile <provider>` / `compile-all` driver, including post-import Tantivy/Parquet step |
+| `apps/cli/src/cli/commands/compile.ts` | `v1 compile <provider>` / `v1 compile-all` driver, including post-import Tantivy/Parquet step |
 | `packages/prosa-core/src/core/cas/index.ts` | CAS, staging API, `ensureDir` cache |
 | `packages/prosa-core/src/core/cas/compress.ts`, `packages/prosa-core/src/core/cas/hash.ts` | zstd policy, BLAKE3 |
 | `packages/prosa-core/src/core/ingest/idempotency.ts` | `registerSourceFile`, `preserveRawSourceBytes` |
@@ -212,7 +212,7 @@ provenance is preserved separately in `raw_records`.
   or first run). Parquet rebuilds are **full**, not incremental — cost is
   proportional to bundle size, not import delta. Acceptable while bundles
   stay in the gigabyte range.
-- The `compile-all` driver runs providers sequentially. A single
+- The `v1 compile-all` driver runs providers sequentially. A single
   provider's failure logs an `import_errors` row but does not abort the
   others.
 - An importer that crashes mid-file leaves committed

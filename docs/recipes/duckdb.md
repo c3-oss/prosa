@@ -3,16 +3,16 @@
 Run these recipes after exporting Parquet:
 
 ```bash
-prosa export parquet
+prosa v1 export parquet
 ```
 
-You can also use `prosa analytics <report> --refresh` when a built-in report
+You can also use `prosa v1 analytics <report> --refresh` when a built-in report
 covers the question.
 
 ## Session Inventory By Source
 
 ```bash
-prosa query duckdb "
+prosa v1 query duckdb "
   select source_tool, count(*) as sessions
   from session_facts
   group by 1
@@ -23,7 +23,7 @@ prosa query duckdb "
 ## Recent Sessions By Project
 
 ```bash
-prosa query duckdb "
+prosa v1 query duckdb "
   select start_ts, source_tool, project_name, model_last, message_count, tool_call_count, title
   from session_facts
   order by start_ts desc nulls last
@@ -34,7 +34,7 @@ prosa query duckdb "
 ## Most Used Tools
 
 ```bash
-prosa query duckdb "
+prosa v1 query duckdb "
   select tool_name, canonical_tool_type, count(*) as calls
   from tool_usage_facts
   group by 1, 2
@@ -46,7 +46,7 @@ prosa query duckdb "
 ## Tool Error Rates
 
 ```bash
-prosa query duckdb "
+prosa v1 query duckdb "
   select tool_name,
          count(*) as calls,
          sum(case when is_error = 1 or call_status = 'error' then 1 else 0 end) as errors
@@ -59,7 +59,7 @@ prosa query duckdb "
 ## Failed Commands With Preview
 
 ```bash
-prosa query duckdb "
+prosa v1 query duckdb "
   select timestamp, source_tool, project_name, tool_name, status, exit_code, preview
   from error_facts
   where error_category = 'tool_result'
@@ -71,7 +71,7 @@ prosa query duckdb "
 ## Long-Running Tool Results
 
 ```bash
-prosa query duckdb "
+prosa v1 query duckdb "
   select timestamp_start, source_tool, project_name, tool_name, result_duration_ms, command
   from tool_usage_facts
   where result_duration_ms is not null
@@ -83,7 +83,7 @@ prosa query duckdb "
 ## Model Usage By Project
 
 ```bash
-prosa query duckdb "
+prosa v1 query duckdb "
   select model, source_tool, project_name, session_count, message_count, first_seen_ts, last_seen_ts
   from model_usage
   order by session_count desc, observation_count desc
@@ -93,7 +93,7 @@ prosa query duckdb "
 ## Low-Confidence Timelines
 
 ```bash
-prosa query duckdb "
+prosa v1 query duckdb "
   select start_ts, source_tool, project_name, session_id, title
   from session_facts
   where timeline_confidence = 'low'
@@ -104,7 +104,7 @@ prosa query duckdb "
 ## Project Activity
 
 ```bash
-prosa query duckdb "
+prosa v1 query duckdb "
   select latest_session_ts, source_tool, project_name, session_count, message_count,
          tool_call_count, tool_error_count
   from project_activity
@@ -115,7 +115,7 @@ prosa query duckdb "
 ## Searchable Text By Field
 
 ```bash
-prosa query duckdb "
+prosa v1 query duckdb "
   select field_kind, count(*) as docs
   from search_docs
   group by 1
@@ -126,7 +126,7 @@ prosa query duckdb "
 ## Commands Matching A Term
 
 ```bash
-prosa query duckdb "
+prosa v1 query duckdb "
   select timestamp, session_id, tool_name, text
   from search_docs
   where field_kind = 'command'
@@ -139,7 +139,7 @@ prosa query duckdb "
 ## Import And Normalization Issues
 
 ```bash
-prosa query duckdb "
+prosa v1 query duckdb "
   select error_category, source_tool, status, count(*) as n
   from error_facts
   group by 1, 2, 3

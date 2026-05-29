@@ -18,7 +18,7 @@ Imported by `packages/prosa-core/src/importers/hermes/`.
       ...
 ```
 
-`prosa compile hermes` defaults to `~/.hermes/sessions`. The importer looks
+`prosa v1 compile hermes` defaults to `~/.hermes/sessions`. The importer looks
 for the sibling `state.db`, top-level `.jsonl` transcripts, top-level
 `session_*.json` snapshots, and `sessions.json` as an index/source file.
 Nested directories such as `saved/` are ignored for now.
@@ -148,7 +148,7 @@ done
 
 ## Transcript fidelity
 
-What `loadTranscript` / `prosa session show` surface for Hermes sessions:
+What `loadTranscript` / `prosa v1 session show` surface for Hermes sessions:
 
 - **Preserved verbatim**: `messages.content` for every role, plus
   `messages.tool_calls` (parsed and re-emitted as `tool_calls` rows

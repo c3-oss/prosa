@@ -47,15 +47,15 @@ Tests       7 passed (7)
 
 ## Lane 7 Completion Gates — CLI and MCP
 
-- [x] `prosa read sessions`, `transcript`, `search`, `tool-calls`,
+- [x] `prosa v2 read sessions`, `transcript`, `search`, `tool-calls`,
   `analytics`, and local-only `query` / `export parquet` commands consume the
   Lane 6 read API or fail closed where documented.
-- [x] `prosa tui` remains a top-level command and uses the v2 read context where
+- [x] `prosa v1 tui` remains a top-level command and uses the v2 read context where
   applicable. (Top-level remains; v2 context wiring tracked under CQ-149.)
 - [x] CLI authority cache implements 60 s TTL, `--refresh`, `--offline`, and
   explicit stop on HTTP 412 (see `apps/cli/test/v2/authority-cache.test.ts`
   and `apps/cli/test/v2/reads-client.test.ts`).
-- [x] `prosa mcp serve --authority {auto|local|remote}` pins authority at
+- [x] `prosa v2 mcp serve --authority {auto|local|remote}` pins authority at
   startup; `prosa.refresh_authority` MCP tool registered when the
   remote context is resolved (CQ-149 closed at `a3d25c8`).
 - [x] MCP tools cover search, sessions, tool calls, analytics, artifact, and
@@ -79,7 +79,7 @@ Tests       7 passed (7)
   minimal Fastify with the Lane 6 v2 read plugin against a v2-only
   PGlite, stubs Better Auth's `getSession` to bypass the CQ-124 schema
   conflict, seeds `remote_authority_v2` + `projection_session`, and
-  drives `prosa read sessions` end-to-end via a stub fetch adapter that
+  drives `prosa v2 read sessions` end-to-end via a stub fetch adapter that
   routes through `app.inject(...)`. Both the list and `--count` smoke
   cases pass.
 
@@ -149,7 +149,7 @@ temp-copy read-only proof, the content-hashed snapshot regression
 for same-name/same-size raw_sources corruption, and the marker-owned
 pre-archive cleanup regression.
 
-- [x] `prosa migrate-v2 bundle` converts a v1 bundle to v2 from preserved raw
+- [x] `prosa v2 migrate bundle` converts a v1 bundle to v2 from preserved raw
   bytes without mutating the v1 source and remains recoverable across rename
   interruption (CQ-161: migration copies the v1 bundle to a temp directory and
   opens THAT through the mutable opener, so the operator's source is never
@@ -166,7 +166,7 @@ pre-archive cleanup regression.
 - [x] Corrupt or missing raw bytes surface a gap and use the documented
   provider-history fallback when available; same-size BLAKE3 mismatch is
   rejected as `raw_bytes_corrupted` (CQ-158 governor follow-up).
-- [x] `prosa migrate-v2 tenant` and `POST /v2/migrate/tenant` re-project a
+- [x] `prosa v2 migrate tenant` and `POST /v2/migrate/tenant` re-project a
   tenant remotely with admin-only authorization and publish authority only
   after Lane 6 read surfaces can consume the migrated projections (CQ-158:
   `projection_session` populated under the same `(tenant,store,receipt)`

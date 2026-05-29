@@ -23,11 +23,19 @@ Architecture and source-format references live in `docs/`; start at `docs/README
 
 ## CLI Surface
 
-The published CLI exposes these subcommands (see `apps/cli/src/cli/main.ts`):
+The published CLI splits its subcommand surface across two namespaces plus the
+root-level `auth` group (see `apps/cli/src/cli/main.ts`):
 
-`init`, `compile`, `compile-all`, `index`, `sessions`, `search`, `export`, `query`, `analytics`, `doctor`, `mcp`, `tui`, `auth`, `sync`.
+- `prosa v1 <cmd>` — legacy SQLite-backed bundle: `init`, `compile`,
+  `compile-all`, `index`, `sessions`, `session show`, `search`, `export`,
+  `query`, `analytics`, `doctor`, `mcp serve`, `tui`, `sync`.
+- `prosa v2 <cmd>` — bundle-v2 NDJSON + Parquet: `compile`, `compile-all`,
+  `index`, `sync`, `bundle`, `read`, `mcp serve`, `migrate bundle|tenant`.
+- `prosa auth …` — cross-cutting auth surface (unchanged).
 
-Use `pnpm dev -- <subcommand> …` for manual runs (for example `pnpm dev -- compile codex --store <tmp>`). Do not point manual checks at the user's real `~/.prosa` store.
+Use `pnpm dev -- <subcommand> …` for manual runs (for example
+`pnpm dev -- v1 compile codex --store <tmp>` or `pnpm dev -- v2 read sessions`).
+Do not point manual checks at the user's real `~/.prosa` store.
 
 ## Commands
 

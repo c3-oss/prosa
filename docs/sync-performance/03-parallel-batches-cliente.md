@@ -129,7 +129,7 @@ Mais simples se a pré-paginação for chata: dividir CAS objects por prefixo de
 ## Como validar
 
 1. **Bench A/B com `~/.prosa`**: medir wall-clock total com pool=1 vs pool=2/4/6/8. Espera-se sublinear scaling pico em pool=6.
-2. **Integridade**: rodar `prosa sync` em paralelo e depois `prosa analytics sessions` — todas as 3 141 sessions devem aparecer.
+2. **Integridade**: rodar `prosa v1 sync` em paralelo e depois `prosa v1 analytics sessions` — todas as 3 141 sessions devem aparecer.
 3. **Stress**: rodar 2 syncs concorrentes do mesmo store para validar idempotência sob concorrência (também ajuda em #09).
 4. **PG locks**: monitorar `pg_stat_activity` durante o sync — não pode haver waits longos.
 

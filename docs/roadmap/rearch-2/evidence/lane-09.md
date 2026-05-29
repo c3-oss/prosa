@@ -18,7 +18,7 @@ Required source plan: `docs/rearch-2/10-lane-9-migration.md`.
      `staging.ts` — provider-directory recompile fallback when v1
      raw bytes are missing/corrupt; staging tree mirrors each
      provider's discovery convention.
-   - `apps/cli/src/cli/commands/migrate-v2.ts` — `prosa migrate-v2
+   - `apps/cli/src/cli/commands/migrate-v2.ts` — `prosa v2 migrate
      bundle|tenant` Commander surface with `--verbose` / `--json`
      output. Hooked into `apps/cli/src/cli/main.ts`.
 

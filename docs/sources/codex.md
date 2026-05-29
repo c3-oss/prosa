@@ -1,7 +1,7 @@
 # Codex CLI source format
 
 Codex CLI stores session histories as append-only JSONL under
-`~/.codex/sessions/`. This is the format `prosa compile codex` reads.
+`~/.codex/sessions/`. This is the format `prosa v1 compile codex` reads.
 
 Imported by `packages/prosa-core/src/importers/codex/`.
 
@@ -202,7 +202,7 @@ jq -r '
   | "## " + (.role|ascii_upcase) + "\n\n" + .text + "\n"' "$f"
 ```
 
-`prosa export session <session-id> --format markdown` does this with
+`prosa v1 export session <session-id> --format markdown` does this with
 metadata and tool-call summaries; the recipe above is for raw inspection.
 
 ## Notes for prosa importers
@@ -230,7 +230,7 @@ metadata and tool-call summaries; the recipe above is for raw inspection.
 
 ## Transcript fidelity
 
-What `loadTranscript` / `prosa session show` surface for Codex sessions:
+What `loadTranscript` / `prosa v1 session show` surface for Codex sessions:
 
 - **Preserved verbatim**: user `input_text`, assistant `output_text`, and
   tool-call `arguments` (raw JSON). Tool results from

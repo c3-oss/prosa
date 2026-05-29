@@ -219,7 +219,7 @@ meta_agent="$(sqlite3 "$ro" "SELECT value FROM meta WHERE key='0';" \
 
 ## Transcript fidelity
 
-What `loadTranscript` / `prosa session show` surface for Cursor sessions:
+What `loadTranscript` / `prosa v1 session show` surface for Cursor sessions:
 
 - **Preserved verbatim**: text-content blocks of `user`, `assistant`,
   and `tool` messages, `tool-call.args` (raw JSON), and the

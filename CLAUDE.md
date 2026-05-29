@@ -29,7 +29,7 @@ Pointer doc for Claude Code agents working in `prosa`.
 Canonical command surface:
 
 - `pnpm install` — install dependencies from `pnpm-lock.yaml`.
-- `pnpm dev -- <command>` — run the CLI through SWC, for example `pnpm dev -- sessions`.
+- `pnpm dev -- <command>` — run the CLI through SWC, for example `pnpm dev -- v1 sessions`.
 - `pnpm build` — bundle ESM output and declarations with tsup.
 - `pnpm typecheck` — run `tsc --noEmit`.
 - `pnpm test` — run the Vitest suite once.
@@ -61,9 +61,9 @@ Storage layout:
 
 Analytics read surfaces:
 
-- `prosa analytics sessions|tools|errors|models|projects` runs fixed DuckDB reports over exported Parquet.
-- `prosa analytics <report> --refresh` refreshes Parquet before querying.
-- `prosa query duckdb` exposes canonical table views plus `session_facts`,
+- `prosa v1 analytics sessions|tools|errors|models|projects` runs fixed DuckDB reports over exported Parquet.
+- `prosa v1 analytics <report> --refresh` refreshes Parquet before querying.
+- `prosa v1 query duckdb` exposes canonical table views plus `session_facts`,
   `tool_usage_facts`, `error_facts`, `model_usage`, and `project_activity`.
 - Keep analytics changes in the `prosa-search-export` lane and validate with
   `test/services/parquet.test.ts` and `test/cli/analytics.test.ts`.

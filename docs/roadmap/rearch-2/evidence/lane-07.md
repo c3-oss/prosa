@@ -23,13 +23,13 @@ Source plan: `docs/rearch-2/08-lane-7-cli-and-mcp.md`.
     412 → `AuthorityChangedHttpError` mapping, and the retry-after
     capture.
 
-## Slice 2 — `prosa read sessions` (+ `--count`) + read-context routing
+## Slice 2 — `prosa v2 read sessions` (+ `--count`) + read-context routing
 
 - New files:
   - `apps/cli/src/cli/v2/commands/read/common.ts`
   - `apps/cli/src/cli/v2/commands/read/sessions.ts`
   - `apps/cli/src/cli/v2/commands/read/index.ts`
-- Registered the top-level `prosa read` group in
+- Registered the top-level `prosa v2 read` group in
   `apps/cli/src/cli/main.ts`.
 - New test:
   - `apps/cli/test/v2/read-sessions-routing.test.ts` — 5 tests cover
@@ -37,17 +37,17 @@ Source plan: `docs/rearch-2/08-lane-7-cli-and-mcp.md`.
     forcing local, `--authority remote` fail-closed, and v1-shaped
     receipts being treated as un-promoted.
 
-## Slice 3 — `prosa read transcript`
+## Slice 3 — `prosa v2 read transcript`
 
 - New file: `apps/cli/src/cli/v2/commands/read/transcript.ts`.
 - Supports `--format text|markdown|json`, `--cursor`, `--all-pages`,
   and surfaces `AuthorityChangedError` on a mid-walk 412.
 - Local fallback delegates to `loadTranscript` + `formatTranscriptText`
   from `@c3-oss/prosa-core`; local markdown returns a clear "use
-  `prosa export session`" message rather than silently producing
+  `prosa v1 export session`" message rather than silently producing
   partial output.
 
-## Slice 4 — `prosa read search`
+## Slice 4 — `prosa v2 read search`
 
 - New file: `apps/cli/src/cli/v2/commands/read/search.ts`.
 - Remote path consumes `/v2/reads/search/query` with all CLI filter
@@ -55,22 +55,22 @@ Source plan: `docs/rearch-2/08-lane-7-cli-and-mcp.md`.
   `--errors-only`, `--source`, `--project`, `--limit`, `--cursor`).
 - Local fallback delegates to `searchFullText`.
 
-## Slice 5 — `prosa read tool-calls`
+## Slice 5 — `prosa v2 read tool-calls`
 
 - New file: `apps/cli/src/cli/v2/commands/read/tool-calls.ts`.
 - Remote path consumes `/v2/reads/tool-calls/list`.
 - Local mode fails closed; the audit view requires receipt-pinned
   authority and is not derivable from the local bundle.
 
-## Slice 6 — `prosa read analytics`
+## Slice 6 — `prosa v2 read analytics`
 
 - New file: `apps/cli/src/cli/v2/commands/read/analytics.ts`.
 - Remote path consumes `/v2/reads/analytics/report` for the five
   fixed reports (sessions|tools|errors|models|projects).
 - Local mode redirects the operator to the existing local
-  `prosa analytics` command.
+  `prosa v1 analytics` command.
 
-## Slice 7 — `prosa read query` + `prosa read export parquet`
+## Slice 7 — `prosa v2 read query` + `prosa v2 read export parquet`
 
 - New files:
   - `apps/cli/src/cli/v2/commands/read/query.ts`
@@ -112,7 +112,7 @@ Test Files  72 passed | 2 skipped (74)
 Tests       431 passed | 4 skipped (435)
 ```
 
-## Slice 9 — `prosa mcp-v2 serve --authority {auto|local|remote}`
+## Slice 9 — `prosa v2 mcp serve --authority {auto|local|remote}`
 
 - New file: `apps/cli/src/cli/v2/commands/mcp-serve.ts`.
 - Pins the v2 authority once at startup, logs the pinned receipt id
@@ -215,7 +215,7 @@ Tests       9 passed (9)
   registered. Callback errors surface as `isError: true` content.
 - `listenMcpServer` and `listenMcpStdioServer` thread the callback
   through to the per-session tool factory.
-- `prosa mcp-v2 serve` builds the refresh callback inside
+- `prosa v2 mcp serve` builds the refresh callback inside
   `makeRefreshCallback`; calls `refreshAuthorityNow` and mutates the
   pinned `V2ReadContext` in place. `--authority local` leaves the
   callback undefined so the tool stays absent.

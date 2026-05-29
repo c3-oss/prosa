@@ -171,9 +171,9 @@ Combinado com #03 (paralelismo cliente, pool=6): 167 / 6 ≈ **28 ondas**. Ganho
 
 ## Como validar
 
-1. **Teste E2E**: `pnpm dev -- sync` contra fixture com 5 sessions + 50 rawRecords + 10 CAS objects → deve gerar 1 batch, não 4.
+1. **Teste E2E**: `pnpm dev -- v1 sync` contra fixture com 5 sessions + 50 rawRecords + 10 CAS objects → deve gerar 1 batch, não 4.
 2. **Bench**: contar batches gerados para `~/.prosa` antes/depois (`--verbose | grep 'plan ' | wc -l`).
-3. **Integridade**: `prosa analytics sessions` pós-sync deve mostrar todas as 3 141 sessions e cross-checks de FK.
+3. **Integridade**: `prosa v1 analytics sessions` pós-sync deve mostrar todas as 3 141 sessions e cross-checks de FK.
 
 ## Dependências e ordem
 

@@ -10,6 +10,10 @@ SQLite schema, and the rules that keep raw, projection, and derived layers in
 sync. It is implemented by `packages/prosa-core/src/core/bundle.ts`, `packages/prosa-core/src/core/schema/`, and
 `packages/prosa-core/src/core/cas/`.
 
+This page describes the v1 (SQLite-backed) bundle format used by the
+`prosa v1` command surface. The new bundle-v2 (NDJSON + Parquet) layout
+documented elsewhere is exposed via `prosa v2`.
+
 ## On-disk layout
 
 ```text
@@ -28,7 +32,7 @@ sync. It is implemented by `packages/prosa-core/src/core/bundle.ts`, `packages/p
   exports/               # ad-hoc exports (Markdown, etc.)
 ```
 
-`manifest.json` is written at `prosa init` and refreshed on every
+`manifest.json` is written at `prosa v1 init` and refreshed on every
 `openBundle` if `parser_version` advanced. Its shape is:
 
 ```json
@@ -148,7 +152,7 @@ no-ops at the record level.
 the matrix.
 
 #### `import_batches`, `import_errors`, `uncertainties`
-- `import_batches`: one row per `prosa compile <provider>` invocation —
+- `import_batches`: one row per `prosa v1 compile <provider>` invocation —
   parser version, status, JSON counts.
 - `import_errors`: parse failures, missing files, broken references; a
   single bad file does not abort the batch.
@@ -253,7 +257,7 @@ purpose: `message_text`, `user_prompt`, `assistant_text`, `command`,
 mirrors `search_docs` via `content='search_docs'` and
 `tokenize='unicode61 remove_diacritics 2'`. Triggers
 (`search_docs_ai/ad/au`) keep them in sync for direct writes outside of
-compile. During `prosa compile` the triggers are disabled and the FTS5
+compile. During `prosa v1 compile` the triggers are disabled and the FTS5
 index is rebuilt in bulk at the end — see
 [Import pipeline](./import-pipeline.md) and
 [Search engines](./search-engines.md).
@@ -265,18 +269,18 @@ Tracks the FTS5 and Tantivy engines:
 [Search engines](./search-engines.md).
 
 #### Parquet and DuckDB analytics
-`prosa export parquet` writes one `.parquet` file per canonical table under
+`prosa v1 export parquet` writes one `.parquet` file per canonical table under
 `parquet/`, plus a manifest. These files are derived snapshots and can be
 deleted or rebuilt from SQLite/CAS.
 
-`prosa query duckdb` creates one DuckDB view per canonical Parquet file and
+`prosa v1 query duckdb` creates one DuckDB view per canonical Parquet file and
 also creates query-time analytics views:
 
 ```text
 session_facts, tool_usage_facts, error_facts, model_usage, project_activity
 ```
 
-`prosa analytics sessions|tools|errors|models|projects` runs fixed reports over
+`prosa v1 analytics sessions|tools|errors|models|projects` runs fixed reports over
 those views. The reports can use `--refresh` to rebuild Parquet before
 querying, but they do not make Parquet authoritative. See
 [Analytics](./analytics.md) and [`docs/recipes/duckdb.md`](../recipes/duckdb.md)
@@ -333,7 +337,7 @@ an ordered turn list:
   `tool_call`, and `tool_result` manifest entries. CAS bodies are not
   inlined: the procedure returns `objectId`s and the web fetches via
   `artifacts.getText` on demand.
-- **CLI surfaces**: `prosa session show <id> [--format text|markdown|json]`
+- **CLI surfaces**: `prosa v1 session show <id> [--format text|markdown|json]`
   reuses `loadTranscript`; the markdown exporter (`exportSessionMarkdown`)
   builds on the same primitive so all three views stay synchronized.
 
@@ -348,7 +352,7 @@ an ordered turn list:
 | `projects` | `(source_tool, source_project_id)` | UNIQUE |
 | `edges` | `(src_type, src_id, dst_type, dst_id, edge_type)` | UNIQUE |
 
-The compile path is wired so re-running `prosa compile-all` twice in a row
+The compile path is wired so re-running `prosa v1 compile-all` twice in a row
 produces zero new rows, zero new objects, and skips the post-import
 Tantivy/Parquet rebuilds (`importedAny === false`). See the
 [Import pipeline](./import-pipeline.md) for the runtime path.

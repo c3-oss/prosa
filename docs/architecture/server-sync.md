@@ -17,7 +17,7 @@ instead of the local bundle.
 | Package | Responsibility |
 |---|---|
 | `apps/api` | Fastify host that mounts Better Auth at `/api/auth/*`, the object I/O routes at `/objects/:objectId`, and tRPC at `/trpc`. |
-| `apps/cli` | `prosa` CLI: bundle commands, `prosa auth ...`, `prosa sync ...`. |
+| `apps/cli` | `prosa` CLI: bundle commands, `prosa auth ...`, `prosa v1 sync ...`. |
 | `packages/prosa-db` | Drizzle ORM schema for Postgres: Better Auth tables, server-owned sync state, CAS metadata, canonical projection mirror, search support. |
 | `packages/prosa-storage` | `RemoteObjectStore` interface with `memory`, `fs`, and `s3` adapters; CAS-keyed path helpers and verification helpers. |
 | `packages/prosa-sync` | Zod schemas, TypeScript types, and the constant `PROTOCOL_VERSION` for the promotion protocol shared by CLI and API. |
@@ -165,7 +165,7 @@ repaired on load.
 - `tenants [--json]`
 - `use <tenant-id-or-slug>`
 
-`prosa sync` promotes the bundle at `--store` to the active server / tenant.
+`prosa v1 sync` promotes the bundle at `--store` to the active server / tenant.
 Flags:
 
 - `--server <url>` / `--tenant <id-or-slug>` — override the active entry.
@@ -177,23 +177,23 @@ Flags:
 - `--json` / `--verbose` — output controls.
 - `--config <path>` — override the config file.
 
-`prosa sync status` prints whether the local bundle still exists and which
+`prosa v1 sync status` prints whether the local bundle still exists and which
 promotion receipts are recorded.
 
 ## Remote-authoritative reads
 
-After `prosa sync` succeeds, the CLI stores the promotion receipt under
+After `prosa v1 sync` succeeds, the CLI stores the promotion receipt under
 the server entry's `promotions[storePath]`. `resolveReadAuthorityOrFailClosed`
 (`apps/cli/src/cli/auth/routing.ts`) decides per command whether reads go
 remote or local:
 
 - If the store has no promotion receipt, reads stay local.
 - If a receipt exists and the command sets `remoteSupported: true`
-  (`prosa sessions list`, `prosa sessions show`, `prosa search`), reads go
+  (`prosa v1 sessions list`, `prosa v1 sessions show`, `prosa v1 search`), reads go
   to the server's tenant via tRPC (`sessions.*`, `search.query`).
 - If a receipt exists and the command sets `remoteSupported: false`
-  (`prosa export`, `prosa analytics`, `prosa query duckdb`, `prosa tui`,
-  `prosa mcp`), the command fails closed and asks the caller to use
+  (`prosa v1 export`, `prosa v1 analytics`, `prosa v1 query duckdb`, `prosa v1 tui`,
+  `prosa v1 mcp`), the command fails closed and asks the caller to use
   `--local` explicitly.
 - `--local` reads the local bundle and prints a stale-data warning when
   the store has been promoted.

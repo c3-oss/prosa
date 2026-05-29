@@ -760,7 +760,7 @@ Required fix:
 
 Acceptance:
 - [x] `pnpm --filter @c3-oss/prosa exec vitest run test/v2/read-sessions-e2e.test.ts`
-  passes: 1 file, 2 tests (list + count). Both drive `prosa read sessions`
+  passes: 1 file, 2 tests (list + count). Both drive `prosa v2 read sessions`
   end-to-end through a real Fastify route + handler + PGlite.
 - [x] `apps/cli/package.json` adds `fastify@^5.0.0` as a devDependency —
   required for the slice 11 harness to mount the route plugin in process.
@@ -831,7 +831,7 @@ Acceptance:
 Governor review after `a1a21d7`:
 
 - Still open. The added client contract tests validate request/response schemas,
-  but they are not command-level tests for `prosa read search`,
+  but they are not command-level tests for `prosa v2 read search`,
   `transcript`, `tool-calls`, or `analytics` rendering/routing against
   representative Lane 6 payloads.
 - Required evidence command is still missing; if command-level files do not
@@ -1064,7 +1064,7 @@ Closure summary:
   surface as `isError: true` content; the server never auto-refreshes.
 - `listenMcpServer` and `listenMcpStdioServer` thread the callback
   through to the per-session tool factory.
-- `prosa mcp-v2 serve` builds the callback in `makeRefreshCallback`
+- `prosa v2 mcp serve` builds the callback in `makeRefreshCallback`
   (CLI-side), threads it through both transports, and mutates the
   pinned `V2ReadContext` in place so subsequent refreshes compare
   against the latest receipt id. Local mode leaves the callback

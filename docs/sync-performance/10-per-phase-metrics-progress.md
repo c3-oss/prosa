@@ -186,7 +186,7 @@ A mudança subjetiva é tão grande quanto a real. *Não* é decorativo — sem 
 
 ## Como validar
 
-1. **Visual smoke**: rodar `prosa sync` em um terminal real e ver a barra atualizar.
+1. **Visual smoke**: rodar `prosa v1 sync` em um terminal real e ver a barra atualizar.
 2. **CI**: rodar com `--events-json` e validar que cada batch produz exatamente 1 linha NDJSON parseável.
 3. **Não-TTY**: redirecionar para arquivo, validar que não tem `\r` ou ANSI escape.
 4. **Cancelamento**: SIGINT durante o sync deve imprimir o resumo parcial limpo (`finally` block).

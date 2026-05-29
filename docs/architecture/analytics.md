@@ -1,6 +1,6 @@
 # Analytics
 
-`prosa analytics` runs five fixed reports — `sessions`, `tools`, `errors`,
+`prosa v1 analytics` runs five fixed reports — `sessions`, `tools`, `errors`,
 `models`, `projects` — by querying canonical bundle data through DuckDB views
 that read exported Parquet files. The same reports also run directly against
 the SQLite bundle via equivalent analytics views.
@@ -46,7 +46,7 @@ long as the view shapes stay compatible.
 
 ## CLI surface
 
-`prosa analytics <report>` runs the named report and prints rows. Shared
+`prosa v1 analytics <report>` runs the named report and prints rows. Shared
 flags on every subcommand:
 
 - `--store <path>` — bundle directory (defaults to `~/.prosa`).
@@ -75,7 +75,7 @@ analytics views.
 
 ## Ad-hoc queries
 
-`prosa query duckdb '<sql>'` opens the Parquet directory, creates the same
+`prosa v1 query duckdb '<sql>'` opens the Parquet directory, creates the same
 table views and analytics views, and runs raw SQL. It accepts `--store`,
 `--parquet-dir`, `--local`, and `--output-format`.
 

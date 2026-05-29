@@ -211,10 +211,10 @@ Governor validation after closure commits, 2026-05-21:
 
 Core milestone work:
 
-- `prosa read *` command group consumes the Lane 6 read API.
+- `prosa v2 read *` command group consumes the Lane 6 read API.
 - CLI authority cache supports 60 s TTL, `--refresh`, `--offline`, and 412
   handling.
-- `prosa mcp serve --authority {auto|local|remote}` pins authority and exposes
+- `prosa v2 mcp serve --authority {auto|local|remote}` pins authority and exposes
   `prosa.refresh_authority`.
 - Web data layer consumes `/v2/reads/*` while preserving existing route shapes.
 
@@ -260,11 +260,11 @@ Start only after Lane 8 gates are clean and recorded.
 
 Core milestone work:
 
-- `prosa migrate-v2 bundle` local migration from v1 preserved raw bytes.
+- `prosa v2 migrate bundle` local migration from v1 preserved raw bytes.
 - Count validation and abort-before-rename safety.
 - Progress reporting and JSON output.
 - Provider-history fallback for corrupted or missing raw bytes.
-- `prosa migrate-v2 tenant` / `POST /v2/migrate/tenant` remote re-projection.
+- `prosa v2 migrate tenant` / `POST /v2/migrate/tenant` remote re-projection.
 - `legacy_receipt_archive` for v1 receipt audit history.
 
 Required support work:

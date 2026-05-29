@@ -34,7 +34,7 @@ Keep this layering intact:
 
 1. Raw immutable layer: `source_files`, `raw_records`, `objects`, `import_batches`, `import_errors`.
 2. Canonical projection: `projects`, `sessions`, `turns`, `events`, `messages`, `content_blocks`, `tool_calls`, `tool_results`, `artifacts`, `edges`.
-3. Derived indexes and analytics views: `search_docs`, `search_docs_fts` (FTS5 triggers disabled during `prosa compile`, bulk-rebuilt at the end), and the five analytics views (`session_facts`, `tool_usage_facts`, `error_facts`, `model_usage`, `project_activity`) created by migration v3.
+3. Derived indexes and analytics views: `search_docs`, `search_docs_fts` (FTS5 triggers disabled during `prosa v1 compile`, bulk-rebuilt at the end), and the five analytics views (`session_facts`, `tool_usage_facts`, `error_facts`, `model_usage`, `project_activity`) created by migration v3.
 
 ## Schema Rules
 

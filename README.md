@@ -21,17 +21,17 @@ Requires Node.js 22.15.1 through 26.x.
 ## Quickstart
 
 ```bash
-prosa init
-prosa compile-all
-prosa sessions
-prosa search "package.json"
+prosa v1 init
+prosa v1 compile-all
+prosa v1 sessions
+prosa v1 search "package.json"
 ```
 
 The bundle defaults to `~/.prosa`. Override with `--store <path>` per command or `PROSA_STORE=<path>` for the shell:
 
 ```bash
-PROSA_STORE=/tmp/prosa-demo prosa init
-prosa compile codex --store /tmp/prosa-demo
+PROSA_STORE=/tmp/prosa-demo prosa v1 init
+prosa v1 compile codex --store /tmp/prosa-demo
 ```
 
 ## Supported sources
@@ -60,11 +60,11 @@ The full command surface and flags live in [`docs/README.md`](./docs/README.md).
 
 ## MCP
 
-`prosa mcp serve` exposes the bundle as an MCP server with six tools (`search`, `sessions`, `tool_calls`, `analytics`, `artifact`, `compile`) and three prompts (`investigate_prior_work`, `find_file_history`, `audit_tool_failures`):
+`prosa v1 mcp serve` exposes the bundle as an MCP server with six tools (`search`, `sessions`, `tool_calls`, `analytics`, `artifact`, `compile`) and three prompts (`investigate_prior_work`, `find_file_history`, `audit_tool_failures`):
 
 ```bash
-prosa mcp serve
-prosa mcp serve --transport http --host 127.0.0.1 --port 7331 --path /mcp
+prosa v1 mcp serve
+prosa v1 mcp serve --transport http --host 127.0.0.1 --port 7331 --path /mcp
 ```
 
 Stdio mode reserves stdout for MCP JSON-RPC frames. Example stdio client config:
@@ -72,7 +72,7 @@ Stdio mode reserves stdout for MCP JSON-RPC frames. Example stdio client config:
 ```json
 {
   "command": "npx",
-  "args": ["--package", "@c3-oss/prosa", "prosa", "mcp", "serve"]
+  "args": ["--package", "@c3-oss/prosa", "prosa", "v1", "mcp", "serve"]
 }
 ```
 
@@ -104,8 +104,8 @@ pnpm lint
 Run the CLI through SWC while developing:
 
 ```bash
-pnpm dev -- init --store /tmp/prosa-dev
-pnpm dev -- compile codex --store /tmp/prosa-dev
+pnpm dev -- v1 init --store /tmp/prosa-dev
+pnpm dev -- v1 compile codex --store /tmp/prosa-dev
 ```
 
 The repo is a pnpm + Turbo monorepo with `apps/{cli,api}` and `packages/prosa-{core,db,storage,sync}`. See [`AGENTS.md`](./AGENTS.md) for repo conventions and [`docs/README.md`](./docs/README.md) for subsystem references.
@@ -125,7 +125,7 @@ just release
 ## Status and limitations
 
 - `prosa` is early software. The CLI surface is stable, but importer coverage continues to evolve as agent tools change their on-disk formats. Raw bytes are preserved so projections can be improved later.
-- FTS5 is available by default. Tantivy requires `prosa index tantivy` before use.
-- `prosa query duckdb` and `prosa analytics` require Parquet exports — run `prosa export parquet` first, or pass `--refresh` to rebuild before querying.
+- FTS5 is available by default. Tantivy requires `prosa v1 index tantivy` before use.
+- `prosa v1 query duckdb` and `prosa v1 analytics` require Parquet exports — run `prosa v1 export parquet` first, or pass `--refresh` to rebuild before querying.
 - Markdown export is optimized for readable transcripts and previews, not exhaustive dumps.
 - The default store may contain private local history. Be careful before sharing exports, Parquet snapshots, or the bundle itself.

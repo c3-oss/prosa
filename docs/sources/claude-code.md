@@ -216,7 +216,7 @@ jq -r '
   else empty end' "$session"
 ```
 
-`prosa export session <session-id> --format markdown` produces a
+`prosa v1 export session <session-id> --format markdown` produces a
 metadata-rich version with tool-call summaries.
 
 ## Notes for prosa importers
@@ -245,7 +245,7 @@ metadata-rich version with tool-call summaries.
 
 ## Transcript fidelity
 
-What `loadTranscript` / `prosa session show` surface for Claude Code sessions:
+What `loadTranscript` / `prosa v1 session show` surface for Claude Code sessions:
 
 - **Preserved verbatim**: `content[].type='text'` blocks (user + assistant),
   `content[].type='tool_use'` arguments, and the matched `tool_result`
