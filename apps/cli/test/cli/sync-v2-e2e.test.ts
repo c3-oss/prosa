@@ -1,10 +1,10 @@
-// CQ-140 (subprocess harness): the `prosa sync-v2` command must
+// CQ-140 (subprocess harness): the `prosa v2 sync` command must
 // drive the Lane 5 four-call protocol end-to-end against a real
 // listening prosa-api + Docker Postgres + MinIO, NOT just an
 // in-process Fastify route harness. This file is the command-level
 // gate the reviewer asked for: it boots a real Fastify listener on
 // 127.0.0.1, signs up a user, writes a bundle layout to disk, and
-// runs `runCli([..., 'sync-v2', ...])` with `--server <real URL>`
+// runs `runCli([..., 'v2', 'sync', ...])` with `--server <real URL>`
 // so promoteBundleV2 reaches the server over HTTP fetch.
 //
 // A second device + tenant then fetches the promoted receipt
@@ -240,7 +240,7 @@ async function capturedRun(args: string[]): Promise<{ stdout: string }> {
   return { stdout: captured.join('') }
 }
 
-describe.skipIf(!shouldRun)('CQ-140: prosa sync-v2 end-to-end via runCli + listening server + Docker', () => {
+describe.skipIf(!shouldRun)('CQ-140: prosa v2 sync end-to-end via runCli + listening server + Docker', () => {
   let h: Harness
   beforeEach(async () => {
     h = await bootHarness()
@@ -249,7 +249,7 @@ describe.skipIf(!shouldRun)('CQ-140: prosa sync-v2 end-to-end via runCli + liste
     await h.close()
   })
 
-  it('promotes a bundle from disk via `prosa sync-v2` (fetch over HTTP) and the receipt verifies against JWKS', async () => {
+  it('promotes a bundle from disk via `prosa v2 sync` (fetch over HTTP) and the receipt verifies against JWKS', async () => {
     const account = await signupViaApi(h.baseUrl, 'sync-v2-cli@example.com', 'Acme', 'acme-sync-v2-cli')
     await buildBundleOnDisk(h.bundlePath, { storeId: 'store-sync-v2-cli', bundleRoot: 'aa'.repeat(32) })
 
@@ -257,7 +257,8 @@ describe.skipIf(!shouldRun)('CQ-140: prosa sync-v2 end-to-end via runCli + liste
     await writeFile(tokenFile, account.token)
 
     const out = await capturedRun([
-      'sync-v2',
+      'v2',
+      'sync',
       '--server',
       h.baseUrl,
       '--token-file',
@@ -309,7 +310,8 @@ describe.skipIf(!shouldRun)('CQ-140: prosa sync-v2 end-to-end via runCli + liste
     await writeFile(tokenFile, account.token)
 
     const out = await capturedRun([
-      'sync-v2',
+      'v2',
+      'sync',
       '--server',
       h.baseUrl,
       '--token-file',

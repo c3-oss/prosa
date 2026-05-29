@@ -3,15 +3,15 @@
 // Drives the full chain the governor's "Tantivy compile-to-index
 // gate" requires:
 //
-//   1. Spawn `prosa compile-v2 codex` against a synthetic Codex
+//   1. Spawn `prosa v2 compile codex` against a synthetic Codex
 //      rollout fixture that contains at least one user message
 //      whose content_block carries indexable text.
-//   2. Spawn `prosa index-v2 tantivy` against the resulting v2
+//   2. Spawn `prosa v2 index tantivy` against the resulting v2
 //      bundle. The runtime reads the importer-produced
 //      `epochs/<n>/projection/search_doc.prosa-projection.ndjson`,
 //      runs `@oxdev03/node-tantivy-binding`, and persists the
 //      checkpoint.
-//   3. Spawn `prosa index-v2 status` and assert
+//   3. Spawn `prosa v2 index status` and assert
 //      `tantivy.ready_for_read === true` with
 //      `indexed_doc_count === source_doc_count >= 1`.
 //
@@ -137,19 +137,19 @@ function hermesFixtureJsonl(): string {
 }
 
 describe('Lane 3 compile-to-index gate', () => {
-  it('compile-v2 → index-v2 tantivy → index-v2 status reports ready_for_read with matching counts', async () => {
+  it('v2 compile → v2 index tantivy → v2 index status reports ready_for_read with matching counts', async () => {
     const storeRoot = await tmp()
     const codexRoot = await tmp()
     await mkdir(join(codexRoot, '2025', '01', '02'), { recursive: true })
     await writeFile(join(codexRoot, '2025', '01', '02', 'gate-rollout.jsonl'), codexFixtureJsonl())
 
-    // Step 1 — compile-v2 codex. `--no-build-derived` keeps the
-    // derived layer untouched here so the gate proves `index-v2
+    // Step 1 — v2 compile codex. `--no-build-derived` keeps the
+    // derived layer untouched here so the gate proves `v2 index
     // tantivy` is the runtime that materialises it; the auto-build
-    // path is covered separately in compile-v2's own tests.
-    const compile = runCli(['compile-v2', 'codex', '--store', storeRoot, '--root', codexRoot, '--no-build-derived'])
+    // path is covered separately in v2 compile's own tests.
+    const compile = runCli(['v2', 'compile', 'codex', '--store', storeRoot, '--root', codexRoot, '--no-build-derived'])
     if (compile.status !== 0) {
-      throw new Error(`compile-v2 failed (status=${compile.status}): ${compile.stderr}\nstdout: ${compile.stdout}`)
+      throw new Error(`v2 compile failed (status=${compile.status}): ${compile.stderr}\nstdout: ${compile.stdout}`)
     }
     const compileSummary = JSON.parse(compile.stdout) as {
       sealedEpoch: number
@@ -181,10 +181,11 @@ describe('Lane 3 compile-to-index gate', () => {
     // Header + at least one search_doc row.
     expect(nonHeaderLines.length).toBeGreaterThanOrEqual(2)
 
-    // Step 2 — index-v2 tantivy. Use the small writer tuning so the
+    // Step 2 — v2 index tantivy. Use the small writer tuning so the
     // 15 MB / 1-thread floor stays well under any realistic CI cap.
     const indexRun = runCli([
-      'index-v2',
+      'v2',
+      'index',
       'tantivy',
       '--store',
       storeRoot,
@@ -195,7 +196,7 @@ describe('Lane 3 compile-to-index gate', () => {
     ])
     if (indexRun.status !== 0) {
       throw new Error(
-        `index-v2 tantivy failed (status=${indexRun.status}): ${indexRun.stderr}\nstdout: ${indexRun.stdout}`,
+        `v2 index tantivy failed (status=${indexRun.status}): ${indexRun.stderr}\nstdout: ${indexRun.stdout}`,
       )
     }
     const indexResult = JSON.parse(indexRun.stdout) as {
@@ -222,10 +223,10 @@ describe('Lane 3 compile-to-index gate', () => {
     expect(indexResult.result?.indexedDocCount).toBe(indexResult.sourceDocCount)
     expect(indexResult.result?.checkpoint.indexed_doc_count).toBe(indexResult.result?.checkpoint.source_doc_count)
 
-    // Step 3 — index-v2 status. The governor's gate.
-    const status = runCli(['index-v2', 'status', '--store', storeRoot])
+    // Step 3 — v2 index status. The governor's gate.
+    const status = runCli(['v2', 'index', 'status', '--store', storeRoot])
     if (status.status !== 0) {
-      throw new Error(`index-v2 status failed (status=${status.status}): ${status.stderr}\nstdout: ${status.stdout}`)
+      throw new Error(`v2 index status failed (status=${status.status}): ${status.stderr}\nstdout: ${status.stdout}`)
     }
     const statusSnapshot = JSON.parse(status.stdout) as {
       tantivy: {
@@ -277,7 +278,7 @@ describe('Lane 3 compile-to-index gate', () => {
     expect(textHits).toBeGreaterThan(0)
   }, 90_000)
 
-  it('compile-all-v2 → index-v2 tantivy → index-v2 status covers codex/claude/gemini/hermes search_doc emission', async () => {
+  it('v2 compile-all → v2 index tantivy → v2 index status covers codex/claude/gemini/hermes search_doc emission', async () => {
     const storeRoot = await tmp()
     const codexRoot = await tmp()
     const claudeRoot = await tmp()
@@ -298,7 +299,8 @@ describe('Lane 3 compile-to-index gate', () => {
     // purpose — the gate covers the four importers that can produce
     // indexable text via the shared helper.
     const compile = runCli([
-      'compile-all-v2',
+      'v2',
+      'compile-all',
       '--store',
       storeRoot,
       '--codex-root',
@@ -309,13 +311,13 @@ describe('Lane 3 compile-to-index gate', () => {
       geminiRoot,
       '--hermes-root',
       hermesRoot,
-      // Keep the derived layer untouched so `index-v2 tantivy` below
+      // Keep the derived layer untouched so `v2 index tantivy` below
       // is the runtime that actually materialises it. The auto-build
-      // path is covered separately in compile-v2's own tests.
+      // path is covered separately in v2 compile's own tests.
       '--no-build-derived',
     ])
     if (compile.status !== 0) {
-      throw new Error(`compile-all-v2 failed (status=${compile.status}): ${compile.stderr}\nstdout: ${compile.stdout}`)
+      throw new Error(`v2 compile-all failed (status=${compile.status}): ${compile.stderr}\nstdout: ${compile.stdout}`)
     }
     const compileSummary = JSON.parse(compile.stdout) as {
       sealedEpoch: number
@@ -323,7 +325,7 @@ describe('Lane 3 compile-to-index gate', () => {
     }
     expect(compileSummary.sealedEpoch).toBe(1)
     const tools = compileSummary.perProvider.map((p) => p.source_tool).sort()
-    // compile-all-v2 always lists every provider; cursor is included
+    // v2 compile-all always lists every provider; cursor is included
     // but won zero sessions because we did not seed its discovery
     // root. The four providers we seeded all produced a session.
     expect(tools).toContain('codex')
@@ -344,9 +346,10 @@ describe('Lane 3 compile-to-index gate', () => {
       await bundle.close()
     }
 
-    // Step 2 — index-v2 tantivy.
+    // Step 2 — v2 index tantivy.
     const indexRun = runCli([
-      'index-v2',
+      'v2',
+      'index',
       'tantivy',
       '--store',
       storeRoot,
@@ -357,7 +360,7 @@ describe('Lane 3 compile-to-index gate', () => {
     ])
     if (indexRun.status !== 0) {
       throw new Error(
-        `index-v2 tantivy failed (status=${indexRun.status}): ${indexRun.stderr}\nstdout: ${indexRun.stdout}`,
+        `v2 index tantivy failed (status=${indexRun.status}): ${indexRun.stderr}\nstdout: ${indexRun.stdout}`,
       )
     }
     const indexResult = JSON.parse(indexRun.stdout) as {
@@ -379,10 +382,10 @@ describe('Lane 3 compile-to-index gate', () => {
     expect(indexResult.sourceDocCount).toBeGreaterThanOrEqual(8)
     expect(indexResult.result?.indexedDocCount).toBe(indexResult.sourceDocCount)
 
-    // Step 3 — index-v2 status.
-    const status = runCli(['index-v2', 'status', '--store', storeRoot])
+    // Step 3 — v2 index status.
+    const status = runCli(['v2', 'index', 'status', '--store', storeRoot])
     if (status.status !== 0) {
-      throw new Error(`index-v2 status failed (status=${status.status}): ${status.stderr}\nstdout: ${status.stdout}`)
+      throw new Error(`v2 index status failed (status=${status.status}): ${status.stderr}\nstdout: ${status.stdout}`)
     }
     const statusSnapshot = JSON.parse(status.stdout) as {
       tantivy: {

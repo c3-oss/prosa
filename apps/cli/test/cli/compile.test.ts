@@ -25,7 +25,7 @@ describe('compile CLI', () => {
     try {
       await copyFixture(CODEX_FIXTURES, path.join(t.homePath, '.codex', 'sessions'))
 
-      const { stderr } = await runProsa(['compile', 'codex'], t.env)
+      const { stderr } = await runProsa(['v1', 'compile', 'codex'], t.env)
 
       expect(stderr).toContain('codex batch completed')
       expect(stderr).toContain('"source_files_seen": 2')
@@ -46,7 +46,7 @@ describe('compile CLI', () => {
       await makeCursorFixture(path.join(t.homePath, '.cursor', 'chats'))
       await makeHermesFixture(path.join(t.homePath, '.hermes', 'sessions'))
 
-      const { stderr } = await runProsa(['compile-all', '--verbose'], t.env)
+      const { stderr } = await runProsa(['v1', 'compile-all', '--verbose'], t.env)
 
       expect(stderr).toMatch(/codex batch completed/)
       expect(stderr).toMatch(/claude batch completed/)
@@ -104,7 +104,7 @@ describe('compile CLI', () => {
     try {
       await copyFixture(CODEX_FIXTURES, path.join(t.homePath, '.codex', 'sessions'))
 
-      const { stderr } = await runProsa(['compile', '--verbose', 'codex'], t.env)
+      const { stderr } = await runProsa(['v1', 'compile', '--verbose', 'codex'], t.env)
 
       expect(stderr).toContain('DEBUG')
       expect(stderr).toContain('codex source file discovered')
@@ -118,7 +118,7 @@ describe('compile CLI', () => {
     try {
       await copyFixture(CODEX_FIXTURES, path.join(t.homePath, '.codex', 'sessions'))
 
-      const { stderr } = await runProsa(['compile', 'codex', '--json-logs'], t.env)
+      const { stderr } = await runProsa(['v1', 'compile', 'codex', '--json-logs'], t.env)
 
       const lines = stderr
         .trim()
@@ -149,7 +149,7 @@ describe('compile CLI', () => {
       const env = envWithInvocationRoot(homePath)
 
       const { stderr } = await runProsa(
-        ['compile', 'codex', '--sessions-path', 'packages/prosa-core/test/fixtures/codex', '--store', storePath],
+        ['v1', 'compile', 'codex', '--sessions-path', 'packages/prosa-core/test/fixtures/codex', '--store', storePath],
         env,
       )
 
@@ -168,7 +168,7 @@ describe('compile CLI', () => {
       const missingPath = path.join(REPO_ROOT, 'packages/prosa-core/test/fixtures/missing-codex')
 
       const error = await runProsa(
-        ['compile', 'codex', '--sessions-path', 'packages/prosa-core/test/fixtures/missing-codex'],
+        ['v1', 'compile', 'codex', '--sessions-path', 'packages/prosa-core/test/fixtures/missing-codex'],
         env,
       ).catch((err: unknown) => err)
 
@@ -186,7 +186,7 @@ describe('compile CLI', () => {
   it('rejects the legacy provider flag syntax', async () => {
     const t = await makeTempRun()
     try {
-      const error = await runProsa(['compile', '--codex', CODEX_FIXTURES], t.env).catch((err: unknown) => err)
+      const error = await runProsa(['v1', 'compile', '--codex', CODEX_FIXTURES], t.env).catch((err: unknown) => err)
 
       expect(error).toMatchObject({
         stderr: expect.stringContaining("unknown option '--codex'"),
@@ -199,7 +199,7 @@ describe('compile CLI', () => {
   it('rejects unknown flags on compile-all', async () => {
     const t = await makeTempRun()
     try {
-      const error = await runProsa(['compile-all', '--not-a-flag'], t.env).catch((err: unknown) => err)
+      const error = await runProsa(['v1', 'compile-all', '--not-a-flag'], t.env).catch((err: unknown) => err)
 
       expect(error).toMatchObject({
         stderr: expect.stringContaining("unknown option '--not-a-flag'"),

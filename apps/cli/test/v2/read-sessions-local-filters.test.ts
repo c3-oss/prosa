@@ -35,8 +35,9 @@ describe('CQ-151 — local fallback rejects unsupported filters', () => {
     await import('node:fs/promises').then((m) => m.rm(h.root, { recursive: true, force: true }))
   })
 
-  it('prosa read sessions --project fails closed in local mode', async () => {
+  it('prosa v2 read sessions --project fails closed in local mode', async () => {
     const err = await expectThrows([
+      'v2',
       'read',
       'sessions',
       '--store',
@@ -51,8 +52,9 @@ describe('CQ-151 — local fallback rejects unsupported filters', () => {
     expect((err as Error).message).toMatch(/local mode does not support --project/)
   })
 
-  it('prosa read sessions --cursor fails closed in local mode', async () => {
+  it('prosa v2 read sessions --cursor fails closed in local mode', async () => {
     const err = await expectThrows([
+      'v2',
       'read',
       'sessions',
       '--store',
@@ -67,8 +69,9 @@ describe('CQ-151 — local fallback rejects unsupported filters', () => {
     expect((err as Error).message).toMatch(/local mode does not support --cursor/)
   })
 
-  it('prosa read sessions --count --project fails closed in local mode', async () => {
+  it('prosa v2 read sessions --count --project fails closed in local mode', async () => {
     const err = await expectThrows([
+      'v2',
       'read',
       'sessions',
       '--count',
@@ -82,8 +85,9 @@ describe('CQ-151 — local fallback rejects unsupported filters', () => {
     expect((err as Error).message).toMatch(/local mode does not support --project/)
   })
 
-  it('prosa read search --role fails closed in local mode', async () => {
+  it('prosa v2 read search --role fails closed in local mode', async () => {
     const err = await expectThrows([
+      'v2',
       'read',
       'search',
       'q',
@@ -97,8 +101,9 @@ describe('CQ-151 — local fallback rejects unsupported filters', () => {
     expect((err as Error).message).toMatch(/local mode does not support --role/)
   })
 
-  it('prosa read search --tool-name fails closed in local mode', async () => {
+  it('prosa v2 read search --tool-name fails closed in local mode', async () => {
     const err = await expectThrows([
+      'v2',
       'read',
       'search',
       'q',
@@ -112,8 +117,9 @@ describe('CQ-151 — local fallback rejects unsupported filters', () => {
     expect((err as Error).message).toMatch(/local mode does not support --tool-name/)
   })
 
-  it('prosa read search --errors-only fails closed in local mode', async () => {
+  it('prosa v2 read search --errors-only fails closed in local mode', async () => {
     const err = await expectThrows([
+      'v2',
       'read',
       'search',
       'q',

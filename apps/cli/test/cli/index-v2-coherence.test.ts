@@ -1,4 +1,4 @@
-// Cross-subcommand coherence test for the `prosa index-v2` CLI
+// Cross-subcommand coherence test for the `prosa v2 index` CLI
 // group. The individual subcommand tests in `index-v2.test.ts`
 // each exercise a single wrapper; this file proves the surface
 // *composes*: when a bundle is populated with a realistic
@@ -29,7 +29,7 @@ function runCli(args: string[]): { stdout: string; stderr: string; status: numbe
   return { stdout: result.stdout, stderr: result.stderr, status: result.status }
 }
 
-describe('prosa index-v2 cross-subcommand coherence', () => {
+describe('prosa v2 index cross-subcommand coherence', () => {
   it('status / sessions / epochs / projection-segments / transcript / compaction-plan all agree on the same populated bundle', async () => {
     const { writeSessionBlobPack, zstdSessionBlobCompressor } = await import('@c3-oss/prosa-derived-v2')
     const { sessionBlobEpochDir, sessionBlobPackPath } = await import('@c3-oss/prosa-derived-v2')
@@ -76,41 +76,43 @@ describe('prosa index-v2 cross-subcommand coherence', () => {
     }
 
     // Run the read-side subcommands.
-    const status = JSON.parse(runCli(['index-v2', 'status', '--store', storeRoot]).stdout) as {
+    const status = JSON.parse(runCli(['v2', 'index', 'status', '--store', storeRoot]).stdout) as {
       session_summaries: Array<{ session_id: string; epochs: number[]; latest_epoch: number; message_count: number }>
       session_count: number
       session_blob_epochs: number[]
     }
-    const sessions = JSON.parse(runCli(['index-v2', 'sessions', '--store', storeRoot]).stdout) as Array<{
+    const sessions = JSON.parse(runCli(['v2', 'index', 'sessions', '--store', storeRoot]).stdout) as Array<{
       session_id: string
       epochs: number[]
       latest_epoch: number
       message_count: number
     }>
-    const epochs = JSON.parse(runCli(['index-v2', 'epochs', '--store', storeRoot]).stdout) as number[]
-    const projection = JSON.parse(runCli(['index-v2', 'projection-segments', '--store', storeRoot]).stdout) as Array<{
+    const epochs = JSON.parse(runCli(['v2', 'index', 'epochs', '--store', storeRoot]).stdout) as number[]
+    const projection = JSON.parse(
+      runCli(['v2', 'index', 'projection-segments', '--store', storeRoot]).stdout,
+    ) as Array<{
       entityType: string
       epoch: number
       byteLength: number
       path: string
     }>
     const projectionSummary = JSON.parse(
-      runCli(['index-v2', 'projection-segments', '--store', storeRoot, '--summary']).stdout,
+      runCli(['v2', 'index', 'projection-segments', '--store', storeRoot, '--summary']).stdout,
     ) as {
       total_segments: number
       total_bytes: number
       by_entity: Record<string, { count: number; bytes: number }>
       by_epoch: Record<string, { count: number; bytes: number }>
     }
-    const compactionPlan = JSON.parse(runCli(['index-v2', 'compaction-plan', '--store', storeRoot]).stdout) as {
+    const compactionPlan = JSON.parse(runCli(['v2', 'index', 'compaction-plan', '--store', storeRoot]).stdout) as {
       empty: boolean
       entities: Array<{ entityType: string; reason: string; segmentsToMerge: Array<{ epoch: number }> }>
     }
     const alphaTranscript = JSON.parse(
-      runCli(['index-v2', 'transcript', '--store', storeRoot, '--session-id', 'ses_alpha']).stdout,
+      runCli(['v2', 'index', 'transcript', '--store', storeRoot, '--session-id', 'ses_alpha']).stdout,
     ) as { epoch: number; messages: unknown[] }
     const alphaTranscriptOlder = JSON.parse(
-      runCli(['index-v2', 'transcript', '--store', storeRoot, '--session-id', 'ses_alpha', '--epoch', '1']).stdout,
+      runCli(['v2', 'index', 'transcript', '--store', storeRoot, '--session-id', 'ses_alpha', '--epoch', '1']).stdout,
     ) as { epoch: number; messages: unknown[] }
 
     // Coherence assertions:
@@ -196,7 +198,8 @@ describe('prosa index-v2 cross-subcommand coherence', () => {
       await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(1024))
     }
     runCli([
-      'index-v2',
+      'v2',
+      'index',
       'compaction-manifest',
       '--store',
       storeRoot,
@@ -206,7 +209,7 @@ describe('prosa index-v2 cross-subcommand coherence', () => {
     ])
 
     // Read the maintenance dashboard.
-    const maintenance = JSON.parse(runCli(['index-v2', 'maintenance', '--store', storeRoot]).stdout) as {
+    const maintenance = JSON.parse(runCli(['v2', 'index', 'maintenance', '--store', storeRoot]).stdout) as {
       status: { session_count: number }
       projection: { total_segments: number; total_bytes: number }
       compaction: { empty: boolean; entity_count: number }
@@ -217,25 +220,25 @@ describe('prosa index-v2 cross-subcommand coherence', () => {
 
     // Cross-reference each rollup against the corresponding
     // single-purpose subcommand.
-    const status = JSON.parse(runCli(['index-v2', 'status', '--store', storeRoot]).stdout) as {
+    const status = JSON.parse(runCli(['v2', 'index', 'status', '--store', storeRoot]).stdout) as {
       session_count: number
     }
     const projection = JSON.parse(
-      runCli(['index-v2', 'projection-segments', '--store', storeRoot, '--summary']).stdout,
+      runCli(['v2', 'index', 'projection-segments', '--store', storeRoot, '--summary']).stdout,
     ) as { total_segments: number; total_bytes: number }
-    const compactionPlan = JSON.parse(runCli(['index-v2', 'compaction-plan', '--store', storeRoot]).stdout) as {
+    const compactionPlan = JSON.parse(runCli(['v2', 'index', 'compaction-plan', '--store', storeRoot]).stdout) as {
       empty: boolean
       entities: unknown[]
     }
     const compactedOutputs = JSON.parse(
-      runCli(['index-v2', 'compacted-outputs', '--store', storeRoot]).stdout,
+      runCli(['v2', 'index', 'compacted-outputs', '--store', storeRoot]).stdout,
     ) as Array<{ consistent: boolean }>
-    const gcPlan = JSON.parse(runCli(['index-v2', 'gc-plan', '--store', storeRoot]).stdout) as {
+    const gcPlan = JSON.parse(runCli(['v2', 'index', 'gc-plan', '--store', storeRoot]).stdout) as {
       candidates: unknown[]
       safe_to_delete: { count: number }
       blocked: { count: number }
     }
-    const overlaps = JSON.parse(runCli(['index-v2', 'compaction-overlaps', '--store', storeRoot]).stdout) as Array<{
+    const overlaps = JSON.parse(runCli(['v2', 'index', 'compaction-overlaps', '--store', storeRoot]).stdout) as Array<{
       path: string
     }>
 

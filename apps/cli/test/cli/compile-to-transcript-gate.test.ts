@@ -8,7 +8,7 @@
 // preview lines) so the on-disk pack contents stay scannable.
 // What this gate proves is the v2 transcript flow round-trips:
 //
-//   compile-v2 → session-blob runtime writer → `index-v2 transcript
+//   v2 compile → session-blob runtime writer → `v2 index transcript
 //   --format text` → output contains the fixture's user + assistant
 //   text and the canonical session_id matches the importer's row.
 //
@@ -73,17 +73,17 @@ function codexFixtureJsonl(): string {
 }
 
 describe('Lane 3 compile-to-transcript gate', () => {
-  it('compile-v2 → runSessionBlobBuild → index-v2 transcript renders the fixture content', async () => {
+  it('v2 compile → runSessionBlobBuild → v2 index transcript renders the fixture content', async () => {
     const storeRoot = await tmp()
     const codexRoot = await tmp()
     await mkdir(join(codexRoot, '2025', '01', '02'), { recursive: true })
     await writeFile(join(codexRoot, '2025', '01', '02', 'transcript-rollout.jsonl'), codexFixtureJsonl())
 
-    // Step 1 — compile-v2 codex emits canonical NDJSON projection
+    // Step 1 — v2 compile codex emits canonical NDJSON projection
     // segments (no SessionBlob packs).
-    const compile = runCli(['compile-v2', 'codex', '--store', storeRoot, '--root', codexRoot])
+    const compile = runCli(['v2', 'compile', 'codex', '--store', storeRoot, '--root', codexRoot])
     if (compile.status !== 0) {
-      throw new Error(`compile-v2 failed (status=${compile.status}): ${compile.stderr}\nstdout: ${compile.stdout}`)
+      throw new Error(`v2 compile failed (status=${compile.status}): ${compile.stderr}\nstdout: ${compile.stdout}`)
     }
     const bundle = await openBundle(storeRoot)
     let sealedEpoch: number
@@ -107,13 +107,14 @@ describe('Lane 3 compile-to-transcript gate', () => {
     expect(pack.byteLength).toBeGreaterThan(0)
     expect(buildResult.skippedSessions).toEqual([])
 
-    // Step 3 — index-v2 transcript --format text drives the v2
+    // Step 3 — v2 index transcript --format text drives the v2
     // transcript renderer through the SessionBlob pack. Output must
     // contain both the user and assistant texts from the fixture
     // (the semantic equivalence the v1 renderer would also surface
     // for the same input).
     const transcriptRun = runCli([
-      'index-v2',
+      'v2',
+      'index',
       'transcript',
       '--store',
       storeRoot,
@@ -124,7 +125,7 @@ describe('Lane 3 compile-to-transcript gate', () => {
     ])
     if (transcriptRun.status !== 0) {
       throw new Error(
-        `index-v2 transcript failed (status=${transcriptRun.status}): ${transcriptRun.stderr}\nstdout: ${transcriptRun.stdout}`,
+        `v2 index transcript failed (status=${transcriptRun.status}): ${transcriptRun.stderr}\nstdout: ${transcriptRun.stdout}`,
       )
     }
     const text = transcriptRun.stdout

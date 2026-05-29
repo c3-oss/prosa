@@ -172,6 +172,7 @@ describe.skipIf(!shouldRun)('CLI + API + Postgres + S3 — two-device E2E', () =
     ])
 
     const syncOut = await capturedRun([
+      'v1',
       'sync',
       '--server',
       h.baseUrl,

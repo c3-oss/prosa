@@ -1,4 +1,4 @@
-// CQ-150 + CQ-152 — command-level test for `prosa read transcript`.
+// CQ-150 + CQ-152 — command-level test for `prosa v2 read transcript`.
 //
 // Covers:
 //   - JSON rendering against a representative Lane 6 transcript
@@ -147,7 +147,7 @@ async function capture(args: string[]): Promise<{ stdout: string; stderr: string
   return { stdout: out.join(''), stderr: err.join('') }
 }
 
-describe('prosa read transcript — command-level (CQ-150 + CQ-152)', () => {
+describe('prosa v2 read transcript — command-level (CQ-150 + CQ-152)', () => {
   let h: { root: string; configPath: string; storePath: string; authorityDir: string }
   let originalAuthorityDir: string | undefined
 
@@ -177,6 +177,7 @@ describe('prosa read transcript — command-level (CQ-150 + CQ-152)', () => {
     )
 
     const out = await capture([
+      'v2',
       'read',
       'transcript',
       'sess-1',
@@ -228,6 +229,7 @@ describe('prosa read transcript — command-level (CQ-150 + CQ-152)', () => {
     )
 
     const out = await capture([
+      'v2',
       'read',
       'transcript',
       'sess-1',
@@ -267,7 +269,18 @@ describe('prosa read transcript — command-level (CQ-150 + CQ-152)', () => {
     )
 
     await expect(
-      capture(['read', 'transcript', 'sess-1', '--store', h.storePath, '--config', h.configPath, '--format', 'json']),
+      capture([
+        'v2',
+        'read',
+        'transcript',
+        'sess-1',
+        '--store',
+        h.storePath,
+        '--config',
+        h.configPath,
+        '--format',
+        'json',
+      ]),
     ).rejects.toThrow(/authority changed twice/i)
   })
 
@@ -298,6 +311,7 @@ describe('prosa read transcript — command-level (CQ-150 + CQ-152)', () => {
 
     await expect(
       capture([
+        'v2',
         'read',
         'transcript',
         'sess-1',

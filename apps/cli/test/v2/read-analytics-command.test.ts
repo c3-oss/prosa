@@ -1,4 +1,4 @@
-// CQ-150 — command-level test for `prosa read analytics`.
+// CQ-150 — command-level test for `prosa v2 read analytics`.
 
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -91,7 +91,7 @@ async function capture(args: string[]): Promise<{ stdout: string }> {
   return { stdout: out.join('') }
 }
 
-describe('prosa read analytics — command-level (CQ-150)', () => {
+describe('prosa v2 read analytics — command-level (CQ-150)', () => {
   let h: { root: string; configPath: string; storePath: string; authorityDir: string }
   let originalAuthorityDir: string | undefined
 
@@ -130,6 +130,7 @@ describe('prosa read analytics — command-level (CQ-150)', () => {
     )
 
     const out = await capture([
+      'v2',
       'read',
       'analytics',
       'sessions',
@@ -169,7 +170,7 @@ describe('prosa read analytics — command-level (CQ-150)', () => {
 
   it('rejects invalid report names with a clear message', async () => {
     await expect(
-      capture(['read', 'analytics', 'nope', '--store', h.storePath, '--config', h.configPath]),
+      capture(['v2', 'read', 'analytics', 'nope', '--store', h.storePath, '--config', h.configPath]),
     ).rejects.toThrow(/invalid report/)
   })
 })

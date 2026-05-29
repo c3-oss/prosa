@@ -20,6 +20,7 @@ describe('analytics CLI', () => {
       await compileCodex(t.bundle, CODEX_FIXTURES)
 
       const sessions = await execProsa([
+        'v1',
         'analytics',
         'sessions',
         '--store',
@@ -37,6 +38,7 @@ describe('analytics CLI', () => {
       expect(sessionsPayload.rows.every((row) => row.source_tool === 'codex')).toBe(true)
 
       const tools = await execProsa([
+        'v1',
         'analytics',
         'tools',
         '--store',
@@ -56,7 +58,7 @@ describe('analytics CLI', () => {
       expect(toolsPayload.rows[0]?.call_count).toBe('2')
 
       for (const report of ['errors', 'models', 'projects'] as const) {
-        const { stdout } = await execProsa(['analytics', report, '--store', t.path, '--output-format', 'json'])
+        const { stdout } = await execProsa(['v1', 'analytics', report, '--store', t.path, '--output-format', 'json'])
         const payload = JSON.parse(stdout) as { report: string; rows: unknown[] }
         expect(payload.report).toBe(report)
         expect(Array.isArray(payload.rows)).toBe(true)
@@ -71,7 +73,7 @@ describe('analytics CLI', () => {
     try {
       await compileCodex(t.bundle, CODEX_FIXTURES)
 
-      const def = await execProsa(['analytics', 'sessions', '--store', t.path, '--refresh'])
+      const def = await execProsa(['v1', 'analytics', 'sessions', '--store', t.path, '--refresh'])
       // The default header omits source_file_path / session_id / source_session_id.
       const header = def.stdout.split('\n')[0] ?? ''
       expect(header).toContain('start_ts')
@@ -82,7 +84,7 @@ describe('analytics CLI', () => {
       expect(header).not.toContain('session_id ') // bare session_id column
 
       // --columns all brings back the full set.
-      const wide = await execProsa(['analytics', 'sessions', '--store', t.path, '--columns', 'all'])
+      const wide = await execProsa(['v1', 'analytics', 'sessions', '--store', t.path, '--columns', 'all'])
       const wideHeader = wide.stdout.split('\n')[0] ?? ''
       expect(wideHeader).toContain('source_file_path')
       expect(wideHeader).toContain('source_session_id')
@@ -97,6 +99,7 @@ describe('analytics CLI', () => {
       await compileCodex(t.bundle, CODEX_FIXTURES)
 
       const error = await execProsa([
+        'v1',
         'analytics',
         'sessions',
         '--store',

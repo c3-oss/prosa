@@ -299,7 +299,16 @@ describe('CLI sync uploads CAS objects', () => {
       '--json',
     ])
 
-    const syncOut = await capturedRun(['sync', '--server', h.baseUrl, '--store', h.storePath, '--verbose', '--json'])
+    const syncOut = await capturedRun([
+      'v1',
+      'sync',
+      '--server',
+      h.baseUrl,
+      '--store',
+      h.storePath,
+      '--verbose',
+      '--json',
+    ])
     expect(syncOut.stdout).toContain('"ok":true')
     const syncJson = JSON.parse(syncOut.stdout) as {
       metrics: { objectsMissing: number; objectsUploaded: number; bytesUploaded: number }

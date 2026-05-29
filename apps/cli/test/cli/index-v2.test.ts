@@ -1,12 +1,12 @@
-// Integration tests for `prosa index-v2 status` — the Lane 3 CLI
+// Integration tests for `prosa v2 index status` — the Lane 3 CLI
 // surface that wraps `bundleDerivedStatus` from
 // `@c3-oss/prosa-derived-v2`. We spawn the CLI as a subprocess so
 // the test exercises the same `commander` wiring real users hit;
 // the assertions inspect the printed JSON snapshot.
 //
-// Lane 3 lists `prosa index-v2 status` as a deliverable alongside
-// `prosa index-v2 tantivy` (Tantivy writer, blocked on the native
-// binding) and `prosa export-v2 parquet` (blocked on the DuckDB
+// Lane 3 lists `prosa v2 index status` as a deliverable alongside
+// `prosa v2 index tantivy` (Tantivy writer, blocked on the native
+// binding) and `prosa v2 export parquet` (blocked on the DuckDB
 // runtime executor). The `status` form is pure-read and can ship
 // independently.
 
@@ -40,9 +40,9 @@ interface StatusSnapshot {
   session_blob_epochs: number[]
 }
 
-describe('prosa index-v2 CLI', () => {
-  it('`index-v2 --help` lists every subcommand (status, sessions, epochs, analytics-views, analytics-execution-plan, projection-segments, tantivy-schema, tantivy-rebuild-plan, compaction-plan, compaction-manifest, compaction-execution-plan, verify-packs, transcript-header, transcript)', async () => {
-    const r = runCli(['index-v2', '--help'])
+describe('prosa v2 index CLI', () => {
+  it('`v2 index --help` lists every subcommand (status, sessions, epochs, analytics-views, analytics-execution-plan, projection-segments, tantivy-schema, tantivy-rebuild-plan, compaction-plan, compaction-manifest, compaction-execution-plan, verify-packs, transcript-header, transcript)', async () => {
+    const r = runCli(['v2', 'index', '--help'])
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('Bundle v2 derived-layer index commands')
     expect(r.stdout).toContain('maintenance')
@@ -75,16 +75,16 @@ describe('prosa index-v2 CLI', () => {
     expect(r.stdout).toContain('transcript')
   })
 
-  it('`index-v2 maintenance --help` documents --store', async () => {
-    const r = runCli(['index-v2', 'maintenance', '--help'])
+  it('`v2 index maintenance --help` documents --store', async () => {
+    const r = runCli(['v2', 'index', 'maintenance', '--help'])
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('One-call dashboard read')
     expect(r.stdout).toContain('--store')
   })
 
-  it('`index-v2 maintenance` against a fresh bundle returns the zero-state snapshot', async () => {
+  it('`v2 index maintenance` against a fresh bundle returns the zero-state snapshot', async () => {
     const storeRoot = join(await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-')), 'never-initialised')
-    const r = runCli(['index-v2', 'maintenance', '--store', storeRoot])
+    const r = runCli(['v2', 'index', 'maintenance', '--store', storeRoot])
     expect(r.status).toBe(0)
     const summary = JSON.parse(r.stdout) as {
       status: { session_count: number; tantivy: { ready_for_read: boolean } }
@@ -106,14 +106,14 @@ describe('prosa index-v2 CLI', () => {
     expect(summary.gc.candidate_count).toBe(0)
   })
 
-  it('`index-v2 maintenance` flags a fired compaction-plan once projection segments cross the threshold', async () => {
+  it('`v2 index maintenance` flags a fired compaction-plan once projection segments cross the threshold', async () => {
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
     for (let epoch = 1; epoch <= 17; epoch++) {
       const dir = join(storeRoot, 'epochs', String(epoch), 'projection')
       await mkdir(dir, { recursive: true })
       await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(1024))
     }
-    const r = runCli(['index-v2', 'maintenance', '--store', storeRoot])
+    const r = runCli(['v2', 'index', 'maintenance', '--store', storeRoot])
     expect(r.status).toBe(0)
     const summary = JSON.parse(r.stdout) as {
       projection: { total_segments: number }
@@ -125,7 +125,7 @@ describe('prosa index-v2 CLI', () => {
     expect(summary.compaction.reasons).toEqual(['low_count_byte_ceiling'])
   })
 
-  it('`index-v2 maintenance` reports persisted-compaction consistency + GC partition after --write', async () => {
+  it('`v2 index maintenance` reports persisted-compaction consistency + GC partition after --write', async () => {
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
     for (let epoch = 1; epoch <= 17; epoch++) {
       const dir = join(storeRoot, 'epochs', String(epoch), 'projection')
@@ -133,7 +133,8 @@ describe('prosa index-v2 CLI', () => {
       await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(1024))
     }
     runCli([
-      'index-v2',
+      'v2',
+      'index',
       'compaction-manifest',
       '--store',
       storeRoot,
@@ -142,7 +143,7 @@ describe('prosa index-v2 CLI', () => {
       '2026-05-19T12:00:00.000Z',
     ])
 
-    const beforeOutput = runCli(['index-v2', 'maintenance', '--store', storeRoot])
+    const beforeOutput = runCli(['v2', 'index', 'maintenance', '--store', storeRoot])
     expect(beforeOutput.status).toBe(0)
     const before = JSON.parse(beforeOutput.stdout) as {
       persisted_compactions: { count: number; consistent_count: number; inconsistent_count: number }
@@ -158,7 +159,7 @@ describe('prosa index-v2 CLI', () => {
     await mkdir(compactedDir, { recursive: true })
     await writeFile(join(compactedDir, 'sessions.compacted.parquet'), Buffer.alloc(2048))
 
-    const afterOutput = runCli(['index-v2', 'maintenance', '--store', storeRoot])
+    const afterOutput = runCli(['v2', 'index', 'maintenance', '--store', storeRoot])
     expect(afterOutput.status).toBe(0)
     const after = JSON.parse(afterOutput.stdout) as {
       persisted_compactions: { count: number; consistent_count: number; inconsistent_count: number }
@@ -169,34 +170,34 @@ describe('prosa index-v2 CLI', () => {
     expect(after.gc.blocked.count).toBe(0)
   })
 
-  it('`index-v2 maintenance` fails when --store is missing', async () => {
-    const r = runCli(['index-v2', 'maintenance'])
+  it('`v2 index maintenance` fails when --store is missing', async () => {
+    const r = runCli(['v2', 'index', 'maintenance'])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/required option.*--store/i)
   })
 
-  it('`index-v2 next-action --help` documents --store and the prescriptive layer', async () => {
-    const r = runCli(['index-v2', 'next-action', '--help'])
+  it('`v2 index next-action --help` documents --store and the prescriptive layer', async () => {
+    const r = runCli(['v2', 'index', 'next-action', '--help'])
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('Prescriptive layer')
     expect(r.stdout).toContain('--store')
   })
 
-  it('`index-v2 next-action` against an idle bundle returns []', async () => {
+  it('`v2 index next-action` against an idle bundle returns []', async () => {
     const storeRoot = join(await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-')), 'never-initialised')
-    const r = runCli(['index-v2', 'next-action', '--store', storeRoot])
+    const r = runCli(['v2', 'index', 'next-action', '--store', storeRoot])
     expect(r.status).toBe(0)
     expect(JSON.parse(r.stdout)).toEqual([])
   })
 
-  it('`index-v2 next-action` emits `run_compaction` once the planner fires (no persisted manifest yet)', async () => {
+  it('`v2 index next-action` emits `run_compaction` once the planner fires (no persisted manifest yet)', async () => {
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
     for (let epoch = 1; epoch <= 17; epoch++) {
       const dir = join(storeRoot, 'epochs', String(epoch), 'projection')
       await mkdir(dir, { recursive: true })
       await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(1024))
     }
-    const r = runCli(['index-v2', 'next-action', '--store', storeRoot])
+    const r = runCli(['v2', 'index', 'next-action', '--store', storeRoot])
     expect(r.status).toBe(0)
     const actions = JSON.parse(r.stdout) as Array<{ kind: string; entity_count?: number; reasons?: string[] }>
     expect(actions.map((a) => a.kind)).toEqual(['run_compaction'])
@@ -204,7 +205,7 @@ describe('prosa index-v2 CLI', () => {
     expect(actions[0].reasons).toEqual(['low_count_byte_ceiling'])
   })
 
-  it('`index-v2 next-action` reorders to resume_compaction → run_compaction when a manifest is persisted without compacted output', async () => {
+  it('`v2 index next-action` reorders to resume_compaction → run_compaction when a manifest is persisted without compacted output', async () => {
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
     for (let epoch = 1; epoch <= 17; epoch++) {
       const dir = join(storeRoot, 'epochs', String(epoch), 'projection')
@@ -212,7 +213,8 @@ describe('prosa index-v2 CLI', () => {
       await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(1024))
     }
     runCli([
-      'index-v2',
+      'v2',
+      'index',
       'compaction-manifest',
       '--store',
       storeRoot,
@@ -221,7 +223,7 @@ describe('prosa index-v2 CLI', () => {
       '2026-05-19T12:00:00.000Z',
     ])
 
-    const r = runCli(['index-v2', 'next-action', '--store', storeRoot])
+    const r = runCli(['v2', 'index', 'next-action', '--store', storeRoot])
     expect(r.status).toBe(0)
     const actions = JSON.parse(r.stdout) as Array<{ kind: string; inconsistent_count?: number }>
     // resume first (mid-merge crash takes precedence), then run_compaction.
@@ -230,7 +232,7 @@ describe('prosa index-v2 CLI', () => {
     expect(actions[0].inconsistent_count).toBe(1)
   })
 
-  it('`index-v2 next-action` collapses to gc_superseded once the compacted output is planted', async () => {
+  it('`v2 index next-action` collapses to gc_superseded once the compacted output is planted', async () => {
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
     for (let epoch = 1; epoch <= 17; epoch++) {
       const dir = join(storeRoot, 'epochs', String(epoch), 'projection')
@@ -238,7 +240,8 @@ describe('prosa index-v2 CLI', () => {
       await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(1024))
     }
     runCli([
-      'index-v2',
+      'v2',
+      'index',
       'compaction-manifest',
       '--store',
       storeRoot,
@@ -251,7 +254,7 @@ describe('prosa index-v2 CLI', () => {
     await mkdir(compactedDir, { recursive: true })
     await writeFile(join(compactedDir, 'sessions.compacted.parquet'), Buffer.alloc(2048))
 
-    const r = runCli(['index-v2', 'next-action', '--store', storeRoot])
+    const r = runCli(['v2', 'index', 'next-action', '--store', storeRoot])
     expect(r.status).toBe(0)
     const actions = JSON.parse(r.stdout) as Array<{ kind: string; safe_count?: number }>
     // gc_superseded surfaces; run_compaction stays off because the
@@ -264,25 +267,25 @@ describe('prosa index-v2 CLI', () => {
     expect(gc?.safe_count).toBe(17)
   })
 
-  it('`index-v2 next-action` fails when --store is missing', async () => {
-    const r = runCli(['index-v2', 'next-action'])
+  it('`v2 index next-action` fails when --store is missing', async () => {
+    const r = runCli(['v2', 'index', 'next-action'])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/required option.*--store/i)
   })
 
-  it('`index-v2 status --help` documents --store', async () => {
-    const r = runCli(['index-v2', 'status', '--help'])
+  it('`v2 index status --help` documents --store', async () => {
+    const r = runCli(['v2', 'index', 'status', '--help'])
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('Print the combined Tantivy + SessionBlob status snapshot')
     expect(r.stdout).toContain('--store')
   })
 
-  it('`index-v2 status` against a fresh (nonexistent) bundle prints the empty snapshot', async () => {
+  it('`v2 index status` against a fresh (nonexistent) bundle prints the empty snapshot', async () => {
     // Point at a path that does not exist on disk yet. `bundleDerivedStatus`
     // is documented to collapse to the fresh-bundle snapshot rather than
     // error — that contract is what makes the command safe to script.
     const storeRoot = join(await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-')), 'never-initialised')
-    const r = runCli(['index-v2', 'status', '--store', storeRoot])
+    const r = runCli(['v2', 'index', 'status', '--store', storeRoot])
     expect(r.status).toBe(0)
     const snapshot = JSON.parse(r.stdout) as StatusSnapshot
     expect(snapshot.tantivy.checkpoint_present).toBe(false)
@@ -294,7 +297,7 @@ describe('prosa index-v2 CLI', () => {
     expect(snapshot.session_blob_epochs).toEqual([])
   })
 
-  it('`index-v2 status` reflects SessionBlob packs that have been written to the bundle', async () => {
+  it('`v2 index status` reflects SessionBlob packs that have been written to the bundle', async () => {
     const { writeSessionBlobPack, identityCompressor } = await import('@c3-oss/prosa-derived-v2')
     const { sessionBlobEpochDir, sessionBlobPackPath } = await import('@c3-oss/prosa-derived-v2')
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
@@ -319,7 +322,7 @@ describe('prosa index-v2 CLI', () => {
     await mkdir(sessionBlobEpochDir(storeRoot, 1), { recursive: true })
     await writeFile(sessionBlobPackPath(storeRoot, 'ses_alpha', 1), result.pack)
 
-    const r = runCli(['index-v2', 'status', '--store', storeRoot])
+    const r = runCli(['v2', 'index', 'status', '--store', storeRoot])
     expect(r.status).toBe(0)
     const snapshot = JSON.parse(r.stdout) as StatusSnapshot
     expect(snapshot.session_summaries.map((s) => s.session_id)).toEqual(['ses_alpha'])
@@ -330,27 +333,27 @@ describe('prosa index-v2 CLI', () => {
     expect(snapshot.tantivy.ready_for_read).toBe(false)
   })
 
-  it('`index-v2 status` fails when --store is missing', async () => {
-    const r = runCli(['index-v2', 'status'])
+  it('`v2 index status` fails when --store is missing', async () => {
+    const r = runCli(['v2', 'index', 'status'])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/required option.*--store/i)
   })
 
-  it('`index-v2 sessions --help` documents --store', async () => {
-    const r = runCli(['index-v2', 'sessions', '--help'])
+  it('`v2 index sessions --help` documents --store', async () => {
+    const r = runCli(['v2', 'index', 'sessions', '--help'])
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('SessionBlob inventory')
     expect(r.stdout).toContain('--store')
   })
 
-  it('`index-v2 sessions` against a fresh bundle prints []', async () => {
+  it('`v2 index sessions` against a fresh bundle prints []', async () => {
     const storeRoot = join(await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-')), 'never-initialised')
-    const r = runCli(['index-v2', 'sessions', '--store', storeRoot])
+    const r = runCli(['v2', 'index', 'sessions', '--store', storeRoot])
     expect(r.status).toBe(0)
     expect(JSON.parse(r.stdout)).toEqual([])
   })
 
-  it('`index-v2 sessions` reflects SessionBlob inventory rows when packs exist', async () => {
+  it('`v2 index sessions` reflects SessionBlob inventory rows when packs exist', async () => {
     const { writeSessionBlobPack, identityCompressor } = await import('@c3-oss/prosa-derived-v2')
     const { sessionBlobEpochDir, sessionBlobPackPath } = await import('@c3-oss/prosa-derived-v2')
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
@@ -381,7 +384,7 @@ describe('prosa index-v2 CLI', () => {
     await writePack('ses_bravo', 1)
     await writePack('ses_alpha', 3) // newer epoch for alpha
 
-    const r = runCli(['index-v2', 'sessions', '--store', storeRoot])
+    const r = runCli(['v2', 'index', 'sessions', '--store', storeRoot])
     expect(r.status).toBe(0)
     const summaries = JSON.parse(r.stdout) as Array<{
       session_id: string
@@ -399,13 +402,13 @@ describe('prosa index-v2 CLI', () => {
     expect(alpha?.message_count).toBe(1)
   })
 
-  it('`index-v2 sessions` fails when --store is missing', async () => {
-    const r = runCli(['index-v2', 'sessions'])
+  it('`v2 index sessions` fails when --store is missing', async () => {
+    const r = runCli(['v2', 'index', 'sessions'])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/required option.*--store/i)
   })
 
-  it('`index-v2 sessions --session-id <id>` filters to a single session summary', async () => {
+  it('`v2 index sessions --session-id <id>` filters to a single session summary', async () => {
     const { writeSessionBlobPack, identityCompressor } = await import('@c3-oss/prosa-derived-v2')
     const { sessionBlobEpochDir, sessionBlobPackPath } = await import('@c3-oss/prosa-derived-v2')
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
@@ -434,7 +437,7 @@ describe('prosa index-v2 CLI', () => {
     await writePack('ses_bravo', 1)
     await writePack('ses_alpha', 3)
 
-    const r = runCli(['index-v2', 'sessions', '--store', storeRoot, '--session-id', 'ses_alpha'])
+    const r = runCli(['v2', 'index', 'sessions', '--store', storeRoot, '--session-id', 'ses_alpha'])
     expect(r.status).toBe(0)
     const summaries = JSON.parse(r.stdout) as Array<{
       session_id: string
@@ -447,28 +450,28 @@ describe('prosa index-v2 CLI', () => {
     expect(summaries[0]?.latest_epoch).toBe(3)
   })
 
-  it('`index-v2 sessions --session-id <missing>` returns [] when the session has no packs', async () => {
+  it('`v2 index sessions --session-id <missing>` returns [] when the session has no packs', async () => {
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
-    const r = runCli(['index-v2', 'sessions', '--store', storeRoot, '--session-id', 'ses_missing'])
+    const r = runCli(['v2', 'index', 'sessions', '--store', storeRoot, '--session-id', 'ses_missing'])
     expect(r.status).toBe(0)
     expect(JSON.parse(r.stdout)).toEqual([])
   })
 
-  it('`index-v2 epochs --help` documents --store', async () => {
-    const r = runCli(['index-v2', 'epochs', '--help'])
+  it('`v2 index epochs --help` documents --store', async () => {
+    const r = runCli(['v2', 'index', 'epochs', '--help'])
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('sorted set of epoch numbers')
     expect(r.stdout).toContain('--store')
   })
 
-  it('`index-v2 epochs` against a fresh bundle prints []', async () => {
+  it('`v2 index epochs` against a fresh bundle prints []', async () => {
     const storeRoot = join(await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-')), 'never-initialised')
-    const r = runCli(['index-v2', 'epochs', '--store', storeRoot])
+    const r = runCli(['v2', 'index', 'epochs', '--store', storeRoot])
     expect(r.status).toBe(0)
     expect(JSON.parse(r.stdout)).toEqual([])
   })
 
-  it('`index-v2 epochs` returns the sorted deduplicated union of SessionBlob + projection epochs', async () => {
+  it('`v2 index epochs` returns the sorted deduplicated union of SessionBlob + projection epochs', async () => {
     const { writeSessionBlobPack, identityCompressor } = await import('@c3-oss/prosa-derived-v2')
     const { sessionBlobEpochDir, sessionBlobPackPath } = await import('@c3-oss/prosa-derived-v2')
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
@@ -505,19 +508,19 @@ describe('prosa index-v2 CLI', () => {
       await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(100))
     }
 
-    const r = runCli(['index-v2', 'epochs', '--store', storeRoot])
+    const r = runCli(['v2', 'index', 'epochs', '--store', storeRoot])
     expect(r.status).toBe(0)
     expect(JSON.parse(r.stdout)).toEqual([1, 2, 4])
   })
 
-  it('`index-v2 epochs` fails when --store is missing', async () => {
-    const r = runCli(['index-v2', 'epochs'])
+  it('`v2 index epochs` fails when --store is missing', async () => {
+    const r = runCli(['v2', 'index', 'epochs'])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/required option.*--store/i)
   })
 
-  it('`index-v2 analytics-views --help` documents the catalog and takes no --store option', async () => {
-    const r = runCli(['index-v2', 'analytics-views', '--help'])
+  it('`v2 index analytics-views --help` documents the catalog and takes no --store option', async () => {
+    const r = runCli(['v2', 'index', 'analytics-views', '--help'])
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('analytics-view catalog')
     // No `--store <path>` option line should appear in the Options block.
@@ -526,8 +529,8 @@ describe('prosa index-v2 CLI', () => {
     expect(r.stdout).not.toMatch(/--store\s+<path>/)
   })
 
-  it('`index-v2 analytics-views` prints the five canonical view descriptors', async () => {
-    const r = runCli(['index-v2', 'analytics-views'])
+  it('`v2 index analytics-views` prints the five canonical view descriptors', async () => {
+    const r = runCli(['v2', 'index', 'analytics-views'])
     expect(r.status).toBe(0)
     const catalog = JSON.parse(r.stdout) as Array<{
       name: string
@@ -550,22 +553,22 @@ describe('prosa index-v2 CLI', () => {
     }
   })
 
-  it('`index-v2 projection-segments --help` documents --store and --summary', async () => {
-    const r = runCli(['index-v2', 'projection-segments', '--help'])
+  it('`v2 index projection-segments --help` documents --store and --summary', async () => {
+    const r = runCli(['v2', 'index', 'projection-segments', '--help'])
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('Parquet projection segments')
     expect(r.stdout).toContain('--store')
     expect(r.stdout).toContain('--summary')
   })
 
-  it('`index-v2 projection-segments` against a fresh bundle prints []', async () => {
+  it('`v2 index projection-segments` against a fresh bundle prints []', async () => {
     const storeRoot = join(await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-')), 'never-initialised')
-    const r = runCli(['index-v2', 'projection-segments', '--store', storeRoot])
+    const r = runCli(['v2', 'index', 'projection-segments', '--store', storeRoot])
     expect(r.status).toBe(0)
     expect(JSON.parse(r.stdout)).toEqual([])
   })
 
-  it('`index-v2 projection-segments` reflects planted Parquet segments across epochs', async () => {
+  it('`v2 index projection-segments` reflects planted Parquet segments across epochs', async () => {
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
     // Plant two segments across two epochs: epoch 1 sessions.parquet (100B),
     // epoch 2 messages.parquet (300B). The listing returns one ProjectionSegment
@@ -579,7 +582,7 @@ describe('prosa index-v2 CLI', () => {
       await writeFile(join(dir, file), Buffer.alloc(size))
     }
 
-    const r = runCli(['index-v2', 'projection-segments', '--store', storeRoot])
+    const r = runCli(['v2', 'index', 'projection-segments', '--store', storeRoot])
     expect(r.status).toBe(0)
     const segments = JSON.parse(r.stdout) as Array<{
       entityType: string
@@ -594,7 +597,7 @@ describe('prosa index-v2 CLI', () => {
     ])
   })
 
-  it('`index-v2 projection-segments --summary` emits the byte+count rollup', async () => {
+  it('`v2 index projection-segments --summary` emits the byte+count rollup', async () => {
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
     for (const [epoch, file, size] of [
       [1, 'sessions.parquet', 100],
@@ -606,7 +609,7 @@ describe('prosa index-v2 CLI', () => {
       await writeFile(join(dir, file), Buffer.alloc(size))
     }
 
-    const r = runCli(['index-v2', 'projection-segments', '--store', storeRoot, '--summary'])
+    const r = runCli(['v2', 'index', 'projection-segments', '--store', storeRoot, '--summary'])
     expect(r.status).toBe(0)
     const summary = JSON.parse(r.stdout) as {
       total_bytes: number
@@ -622,14 +625,14 @@ describe('prosa index-v2 CLI', () => {
     expect(summary.by_epoch['2']).toEqual({ count: 1, bytes: 400 })
   })
 
-  it('`index-v2 projection-segments` fails when --store is missing', async () => {
-    const r = runCli(['index-v2', 'projection-segments'])
+  it('`v2 index projection-segments` fails when --store is missing', async () => {
+    const r = runCli(['v2', 'index', 'projection-segments'])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/required option.*--store/i)
   })
 
-  it('`index-v2 analytics-execution-plan --help` documents --store, --view, --report-query', async () => {
-    const r = runCli(['index-v2', 'analytics-execution-plan', '--help'])
+  it('`v2 index analytics-execution-plan --help` documents --store, --view, --report-query', async () => {
+    const r = runCli(['v2', 'index', 'analytics-execution-plan', '--help'])
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('ordered DuckDB statement sequence')
     expect(r.stdout).toContain('--store')
@@ -637,9 +640,9 @@ describe('prosa index-v2 CLI', () => {
     expect(r.stdout).toContain('--report-query')
   })
 
-  it('`index-v2 analytics-execution-plan --view session_facts` prints the entity preamble + view body + default report query', async () => {
+  it('`v2 index analytics-execution-plan --view session_facts` prints the entity preamble + view body + default report query', async () => {
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
-    const r = runCli(['index-v2', 'analytics-execution-plan', '--store', storeRoot, '--view', 'session_facts'])
+    const r = runCli(['v2', 'index', 'analytics-execution-plan', '--store', storeRoot, '--view', 'session_facts'])
     expect(r.status).toBe(0)
     const plan = JSON.parse(r.stdout) as {
       view: string
@@ -659,10 +662,11 @@ describe('prosa index-v2 CLI', () => {
     expect(plan.reportQuery).toBe('SELECT * FROM session_facts;')
   })
 
-  it('`index-v2 analytics-execution-plan --report-query` overrides the report query verbatim', async () => {
+  it('`v2 index analytics-execution-plan --report-query` overrides the report query verbatim', async () => {
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
     const r = runCli([
-      'index-v2',
+      'v2',
+      'index',
       'analytics-execution-plan',
       '--store',
       storeRoot,
@@ -677,29 +681,29 @@ describe('prosa index-v2 CLI', () => {
     expect(plan.reportQuery).toBe('SELECT model_name FROM model_usage LIMIT 5;')
   })
 
-  it('`index-v2 analytics-execution-plan` rejects an unknown --view', async () => {
+  it('`v2 index analytics-execution-plan` rejects an unknown --view', async () => {
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
-    const r = runCli(['index-v2', 'analytics-execution-plan', '--store', storeRoot, '--view', 'not_a_real_view'])
+    const r = runCli(['v2', 'index', 'analytics-execution-plan', '--store', storeRoot, '--view', 'not_a_real_view'])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/invalid --view/i)
   })
 
-  it('`index-v2 analytics-execution-plan` fails when --view is missing', async () => {
+  it('`v2 index analytics-execution-plan` fails when --view is missing', async () => {
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
-    const r = runCli(['index-v2', 'analytics-execution-plan', '--store', storeRoot])
+    const r = runCli(['v2', 'index', 'analytics-execution-plan', '--store', storeRoot])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/required option.*--view/i)
   })
 
-  it('`index-v2 tantivy-schema --help` documents the schema endpoint and takes no --store option', async () => {
-    const r = runCli(['index-v2', 'tantivy-schema', '--help'])
+  it('`v2 index tantivy-schema --help` documents the schema endpoint and takes no --store option', async () => {
+    const r = runCli(['v2', 'index', 'tantivy-schema', '--help'])
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('Tantivy field schema')
     expect(r.stdout).not.toMatch(/--store\s+<path>/)
   })
 
-  it('`index-v2 tantivy-schema` prints the canonical fields + fingerprint', async () => {
-    const r = runCli(['index-v2', 'tantivy-schema'])
+  it('`v2 index tantivy-schema` prints the canonical fields + fingerprint', async () => {
+    const r = runCli(['v2', 'index', 'tantivy-schema'])
     expect(r.status).toBe(0)
     const out = JSON.parse(r.stdout) as {
       fingerprint: string
@@ -718,21 +722,21 @@ describe('prosa index-v2 CLI', () => {
     expect(out.fields[0]?.name).toBe('doc_id')
   })
 
-  it('`index-v2 tantivy-schema` fingerprint matches `index-v2 status.tantivy.current_schema_fingerprint`', async () => {
-    const schemaResult = runCli(['index-v2', 'tantivy-schema'])
+  it('`v2 index tantivy-schema` fingerprint matches `v2 index status.tantivy.current_schema_fingerprint`', async () => {
+    const schemaResult = runCli(['v2', 'index', 'tantivy-schema'])
     expect(schemaResult.status).toBe(0)
     const schemaFingerprint = (JSON.parse(schemaResult.stdout) as { fingerprint: string }).fingerprint
 
     const storeRoot = join(await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-')), 'never-initialised')
-    const statusResult = runCli(['index-v2', 'status', '--store', storeRoot])
+    const statusResult = runCli(['v2', 'index', 'status', '--store', storeRoot])
     expect(statusResult.status).toBe(0)
     const statusFingerprint = (JSON.parse(statusResult.stdout) as { tantivy: { current_schema_fingerprint: string } })
       .tantivy.current_schema_fingerprint
     expect(schemaFingerprint).toBe(statusFingerprint)
   })
 
-  it('`index-v2 tantivy-rebuild-plan --help` documents --store, --current-max-rowid, --overwrite', async () => {
-    const r = runCli(['index-v2', 'tantivy-rebuild-plan', '--help'])
+  it('`v2 index tantivy-rebuild-plan --help` documents --store, --current-max-rowid, --overwrite', async () => {
+    const r = runCli(['v2', 'index', 'tantivy-rebuild-plan', '--help'])
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('Tantivy rebuild plan')
     expect(r.stdout).toContain('--store')
@@ -740,9 +744,9 @@ describe('prosa index-v2 CLI', () => {
     expect(r.stdout).toContain('--overwrite')
   })
 
-  it('`index-v2 tantivy-rebuild-plan` on a fresh bundle returns full / index_dir_invalid', async () => {
+  it('`v2 index tantivy-rebuild-plan` on a fresh bundle returns full / index_dir_invalid', async () => {
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
-    const r = runCli(['index-v2', 'tantivy-rebuild-plan', '--store', storeRoot, '--current-max-rowid', '0'])
+    const r = runCli(['v2', 'index', 'tantivy-rebuild-plan', '--store', storeRoot, '--current-max-rowid', '0'])
     expect(r.status).toBe(0)
     const result = JSON.parse(r.stdout) as {
       plan: { kind: string; reason: string; fingerprint: string; currentMaxRowid: number }
@@ -759,10 +763,11 @@ describe('prosa index-v2 CLI', () => {
     expect(result.checkpoint.status).toBe(null)
   })
 
-  it('`index-v2 tantivy-rebuild-plan --overwrite` forces caller_requested_overwrite', async () => {
+  it('`v2 index tantivy-rebuild-plan --overwrite` forces caller_requested_overwrite', async () => {
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
     const r = runCli([
-      'index-v2',
+      'v2',
+      'index',
       'tantivy-rebuild-plan',
       '--store',
       storeRoot,
@@ -779,37 +784,37 @@ describe('prosa index-v2 CLI', () => {
     expect(result.plan.currentMaxRowid).toBe(42)
   })
 
-  it('`index-v2 tantivy-rebuild-plan` rejects a negative --current-max-rowid', async () => {
+  it('`v2 index tantivy-rebuild-plan` rejects a negative --current-max-rowid', async () => {
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
-    const r = runCli(['index-v2', 'tantivy-rebuild-plan', '--store', storeRoot, '--current-max-rowid', '-5'])
+    const r = runCli(['v2', 'index', 'tantivy-rebuild-plan', '--store', storeRoot, '--current-max-rowid', '-5'])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/invalid --current-max-rowid/i)
   })
 
-  it('`index-v2 tantivy-rebuild-plan` fails when --current-max-rowid is missing', async () => {
+  it('`v2 index tantivy-rebuild-plan` fails when --current-max-rowid is missing', async () => {
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
-    const r = runCli(['index-v2', 'tantivy-rebuild-plan', '--store', storeRoot])
+    const r = runCli(['v2', 'index', 'tantivy-rebuild-plan', '--store', storeRoot])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/required option.*--current-max-rowid/i)
   })
 
-  it('`index-v2 compaction-plan --help` documents --store', async () => {
-    const r = runCli(['index-v2', 'compaction-plan', '--help'])
+  it('`v2 index compaction-plan --help` documents --store', async () => {
+    const r = runCli(['v2', 'index', 'compaction-plan', '--help'])
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('Parquet compaction plan')
     expect(r.stdout).toContain('--store')
   })
 
-  it('`index-v2 compaction-plan` against a fresh bundle prints an empty plan', async () => {
+  it('`v2 index compaction-plan` against a fresh bundle prints an empty plan', async () => {
     const storeRoot = join(await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-')), 'never-initialised')
-    const r = runCli(['index-v2', 'compaction-plan', '--store', storeRoot])
+    const r = runCli(['v2', 'index', 'compaction-plan', '--store', storeRoot])
     expect(r.status).toBe(0)
     const plan = JSON.parse(r.stdout) as { empty: boolean; entities: unknown[] }
     expect(plan.empty).toBe(true)
     expect(plan.entities).toEqual([])
   })
 
-  it('`index-v2 compaction-plan` fires when 17 small projection segments exist for an entity', async () => {
+  it('`v2 index compaction-plan` fires when 17 small projection segments exist for an entity', async () => {
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
     // Plant 17 tiny `sessions.parquet` segments across 17 epochs — each
     // <32 MiB ("small") + total <256 MiB → fires the `low_count_byte_ceiling`
@@ -820,7 +825,7 @@ describe('prosa index-v2 CLI', () => {
       await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(1024))
     }
 
-    const r = runCli(['index-v2', 'compaction-plan', '--store', storeRoot])
+    const r = runCli(['v2', 'index', 'compaction-plan', '--store', storeRoot])
     expect(r.status).toBe(0)
     const plan = JSON.parse(r.stdout) as {
       empty: boolean
@@ -843,21 +848,21 @@ describe('prosa index-v2 CLI', () => {
     expect(sessionsPlan?.outputPath.length).toBeGreaterThan(0)
   })
 
-  it('`index-v2 compaction-plan` fails when --store is missing', async () => {
-    const r = runCli(['index-v2', 'compaction-plan'])
+  it('`v2 index compaction-plan` fails when --store is missing', async () => {
+    const r = runCli(['v2', 'index', 'compaction-plan'])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/required option.*--store/i)
   })
 
-  it('`index-v2 compaction-manifest --help` documents --store and --generated-at', async () => {
-    const r = runCli(['index-v2', 'compaction-manifest', '--help'])
+  it('`v2 index compaction-manifest --help` documents --store and --generated-at', async () => {
+    const r = runCli(['v2', 'index', 'compaction-manifest', '--help'])
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('compact.manifest.cbor')
     expect(r.stdout).toContain('--store')
     expect(r.stdout).toContain('--generated-at')
   })
 
-  it('`index-v2 compaction-manifest` emits the manifest for a fired plan', async () => {
+  it('`v2 index compaction-manifest` emits the manifest for a fired plan', async () => {
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
     for (let epoch = 1; epoch <= 17; epoch++) {
       const dir = join(storeRoot, 'epochs', String(epoch), 'projection')
@@ -865,7 +870,8 @@ describe('prosa index-v2 CLI', () => {
       await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(1024))
     }
     const r = runCli([
-      'index-v2',
+      'v2',
+      'index',
       'compaction-manifest',
       '--store',
       storeRoot,
@@ -896,14 +902,14 @@ describe('prosa index-v2 CLI', () => {
     expect(manifest.entities[0]?.superseded.map((s) => s.epoch)).toEqual(Array.from({ length: 17 }, (_, i) => i + 1))
   })
 
-  it('`index-v2 compaction-manifest` refuses to emit a manifest for an empty plan', async () => {
+  it('`v2 index compaction-manifest` refuses to emit a manifest for an empty plan', async () => {
     const storeRoot = join(await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-')), 'never-initialised')
-    const r = runCli(['index-v2', 'compaction-manifest', '--store', storeRoot])
+    const r = runCli(['v2', 'index', 'compaction-manifest', '--store', storeRoot])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/empty plan/i)
   })
 
-  it('`index-v2 compaction-manifest --write` persists the manifest and returns the path', async () => {
+  it('`v2 index compaction-manifest --write` persists the manifest and returns the path', async () => {
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
     for (let epoch = 1; epoch <= 17; epoch++) {
       const dir = join(storeRoot, 'epochs', String(epoch), 'projection')
@@ -911,7 +917,8 @@ describe('prosa index-v2 CLI', () => {
       await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(1024))
     }
     const r = runCli([
-      'index-v2',
+      'v2',
+      'index',
       'compaction-manifest',
       '--store',
       storeRoot,
@@ -934,7 +941,7 @@ describe('prosa index-v2 CLI', () => {
     expect(st.size).toBeGreaterThan(0)
   })
 
-  it('`index-v2 compaction-manifest --read --compaction-seq <n>` round-trips a persisted manifest', async () => {
+  it('`v2 index compaction-manifest --read --compaction-seq <n>` round-trips a persisted manifest', async () => {
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
     for (let epoch = 1; epoch <= 17; epoch++) {
       const dir = join(storeRoot, 'epochs', String(epoch), 'projection')
@@ -942,7 +949,8 @@ describe('prosa index-v2 CLI', () => {
       await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(1024))
     }
     const written = runCli([
-      'index-v2',
+      'v2',
+      'index',
       'compaction-manifest',
       '--store',
       storeRoot,
@@ -953,42 +961,42 @@ describe('prosa index-v2 CLI', () => {
     expect(written.status).toBe(0)
     const persistedManifest = (JSON.parse(written.stdout) as { manifest: unknown }).manifest
 
-    const read = runCli(['index-v2', 'compaction-manifest', '--store', storeRoot, '--read', '--compaction-seq', '1'])
+    const read = runCli(['v2', 'index', 'compaction-manifest', '--store', storeRoot, '--read', '--compaction-seq', '1'])
     expect(read.status).toBe(0)
     expect(JSON.parse(read.stdout)).toEqual(persistedManifest)
   })
 
-  it('`index-v2 compaction-manifest --read` requires --compaction-seq', async () => {
+  it('`v2 index compaction-manifest --read` requires --compaction-seq', async () => {
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
-    const r = runCli(['index-v2', 'compaction-manifest', '--store', storeRoot, '--read'])
+    const r = runCli(['v2', 'index', 'compaction-manifest', '--store', storeRoot, '--read'])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/--read requires --compaction-seq/i)
   })
 
-  it('`index-v2 compaction-manifest --read --write` is rejected', async () => {
+  it('`v2 index compaction-manifest --read --write` is rejected', async () => {
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
-    const r = runCli(['index-v2', 'compaction-manifest', '--store', storeRoot, '--read', '--write'])
+    const r = runCli(['v2', 'index', 'compaction-manifest', '--store', storeRoot, '--read', '--write'])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/mutually exclusive/i)
   })
 
-  it('`index-v2 compaction-manifest --read --compaction-seq <missing>` surfaces ENOENT', async () => {
+  it('`v2 index compaction-manifest --read --compaction-seq <missing>` surfaces ENOENT', async () => {
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
-    const r = runCli(['index-v2', 'compaction-manifest', '--store', storeRoot, '--read', '--compaction-seq', '99'])
+    const r = runCli(['v2', 'index', 'compaction-manifest', '--store', storeRoot, '--read', '--compaction-seq', '99'])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/ENOENT|compact-0099/)
   })
 
-  it('`index-v2 gc-plan --help` documents --store', async () => {
-    const r = runCli(['index-v2', 'gc-plan', '--help'])
+  it('`v2 index gc-plan --help` documents --store', async () => {
+    const r = runCli(['v2', 'index', 'gc-plan', '--help'])
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('GC plan')
     expect(r.stdout).toContain('--store')
   })
 
-  it('`index-v2 gc-plan` against a fresh bundle prints an empty plan', async () => {
+  it('`v2 index gc-plan` against a fresh bundle prints an empty plan', async () => {
     const storeRoot = join(await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-')), 'never-initialised')
-    const r = runCli(['index-v2', 'gc-plan', '--store', storeRoot])
+    const r = runCli(['v2', 'index', 'gc-plan', '--store', storeRoot])
     expect(r.status).toBe(0)
     expect(JSON.parse(r.stdout)).toEqual({
       candidates: [],
@@ -997,7 +1005,7 @@ describe('prosa index-v2 CLI', () => {
     })
   })
 
-  it('`index-v2 gc-plan` flags every superseded segment as blocked when no compacted output exists', async () => {
+  it('`v2 index gc-plan` flags every superseded segment as blocked when no compacted output exists', async () => {
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
     for (let epoch = 1; epoch <= 17; epoch++) {
       const dir = join(storeRoot, 'epochs', String(epoch), 'projection')
@@ -1005,7 +1013,8 @@ describe('prosa index-v2 CLI', () => {
       await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(1024))
     }
     runCli([
-      'index-v2',
+      'v2',
+      'index',
       'compaction-manifest',
       '--store',
       storeRoot,
@@ -1014,7 +1023,7 @@ describe('prosa index-v2 CLI', () => {
       '2026-05-19T12:00:00.000Z',
     ])
 
-    const r = runCli(['index-v2', 'gc-plan', '--store', storeRoot])
+    const r = runCli(['v2', 'index', 'gc-plan', '--store', storeRoot])
     expect(r.status).toBe(0)
     const plan = JSON.parse(r.stdout) as {
       candidates: Array<{ safe_to_delete: boolean; blocked_reason: string | null }>
@@ -1028,7 +1037,7 @@ describe('prosa index-v2 CLI', () => {
     expect(plan.blocked).toEqual({ count: 17, bytes: 17 * 1024 })
   })
 
-  it('`index-v2 gc-plan` flips all candidates to safe_to_delete once the compacted output is planted', async () => {
+  it('`v2 index gc-plan` flips all candidates to safe_to_delete once the compacted output is planted', async () => {
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
     for (let epoch = 1; epoch <= 17; epoch++) {
       const dir = join(storeRoot, 'epochs', String(epoch), 'projection')
@@ -1036,7 +1045,8 @@ describe('prosa index-v2 CLI', () => {
       await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(1024))
     }
     runCli([
-      'index-v2',
+      'v2',
+      'index',
       'compaction-manifest',
       '--store',
       storeRoot,
@@ -1048,7 +1058,7 @@ describe('prosa index-v2 CLI', () => {
     await mkdir(compactedDir, { recursive: true })
     await writeFile(join(compactedDir, 'sessions.compacted.parquet'), Buffer.alloc(64))
 
-    const r = runCli(['index-v2', 'gc-plan', '--store', storeRoot])
+    const r = runCli(['v2', 'index', 'gc-plan', '--store', storeRoot])
     expect(r.status).toBe(0)
     const plan = JSON.parse(r.stdout) as {
       candidates: Array<{ safe_to_delete: boolean; blocked_reason: string | null }>
@@ -1061,27 +1071,27 @@ describe('prosa index-v2 CLI', () => {
     expect(plan.blocked).toEqual({ count: 0, bytes: 0 })
   })
 
-  it('`index-v2 gc-plan` fails when --store is missing', async () => {
-    const r = runCli(['index-v2', 'gc-plan'])
+  it('`v2 index gc-plan` fails when --store is missing', async () => {
+    const r = runCli(['v2', 'index', 'gc-plan'])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/required option.*--store/i)
   })
 
-  it('`index-v2 gc-execution-plan --help` documents --store and the unlink-step shape', async () => {
-    const r = runCli(['index-v2', 'gc-execution-plan', '--help'])
+  it('`v2 index gc-execution-plan --help` documents --store and the unlink-step shape', async () => {
+    const r = runCli(['v2', 'index', 'gc-execution-plan', '--help'])
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('GC execution plan')
     expect(r.stdout).toContain('--store')
   })
 
-  it('`index-v2 gc-execution-plan` returns `{ empty: true, total_bytes: 0, steps: [] }` for a fresh bundle', async () => {
+  it('`v2 index gc-execution-plan` returns `{ empty: true, total_bytes: 0, steps: [] }` for a fresh bundle', async () => {
     const storeRoot = join(await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-')), 'never-initialised')
-    const r = runCli(['index-v2', 'gc-execution-plan', '--store', storeRoot])
+    const r = runCli(['v2', 'index', 'gc-execution-plan', '--store', storeRoot])
     expect(r.status).toBe(0)
     expect(JSON.parse(r.stdout)).toEqual({ empty: true, total_bytes: 0, steps: [] })
   })
 
-  it('`index-v2 gc-execution-plan` returns empty when the only persisted manifest is inconsistent (all candidates blocked)', async () => {
+  it('`v2 index gc-execution-plan` returns empty when the only persisted manifest is inconsistent (all candidates blocked)', async () => {
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
     for (let epoch = 1; epoch <= 17; epoch++) {
       const dir = join(storeRoot, 'epochs', String(epoch), 'projection')
@@ -1089,7 +1099,8 @@ describe('prosa index-v2 CLI', () => {
       await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(1024))
     }
     runCli([
-      'index-v2',
+      'v2',
+      'index',
       'compaction-manifest',
       '--store',
       storeRoot,
@@ -1097,12 +1108,12 @@ describe('prosa index-v2 CLI', () => {
       '--generated-at',
       '2026-05-19T12:00:00.000Z',
     ])
-    const r = runCli(['index-v2', 'gc-execution-plan', '--store', storeRoot])
+    const r = runCli(['v2', 'index', 'gc-execution-plan', '--store', storeRoot])
     expect(r.status).toBe(0)
     expect(JSON.parse(r.stdout)).toEqual({ empty: true, total_bytes: 0, steps: [] })
   })
 
-  it('`index-v2 gc-execution-plan` emits one step per safe-to-delete candidate once the compacted output is planted', async () => {
+  it('`v2 index gc-execution-plan` emits one step per safe-to-delete candidate once the compacted output is planted', async () => {
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
     for (let epoch = 1; epoch <= 17; epoch++) {
       const dir = join(storeRoot, 'epochs', String(epoch), 'projection')
@@ -1110,7 +1121,8 @@ describe('prosa index-v2 CLI', () => {
       await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(1024))
     }
     runCli([
-      'index-v2',
+      'v2',
+      'index',
       'compaction-manifest',
       '--store',
       storeRoot,
@@ -1122,7 +1134,7 @@ describe('prosa index-v2 CLI', () => {
     await mkdir(compactedDir, { recursive: true })
     await writeFile(join(compactedDir, 'sessions.compacted.parquet'), Buffer.alloc(2048))
 
-    const r = runCli(['index-v2', 'gc-execution-plan', '--store', storeRoot])
+    const r = runCli(['v2', 'index', 'gc-execution-plan', '--store', storeRoot])
     expect(r.status).toBe(0)
     const plan = JSON.parse(r.stdout) as {
       empty: boolean
@@ -1140,22 +1152,22 @@ describe('prosa index-v2 CLI', () => {
     ])
   })
 
-  it('`index-v2 gc-execution-plan` fails when --store is missing', async () => {
-    const r = runCli(['index-v2', 'gc-execution-plan'])
+  it('`v2 index gc-execution-plan` fails when --store is missing', async () => {
+    const r = runCli(['v2', 'index', 'gc-execution-plan'])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/required option.*--store/i)
   })
 
-  it('`index-v2 compaction-effectiveness --help` documents --store and the rollup contract', async () => {
-    const r = runCli(['index-v2', 'compaction-effectiveness', '--help'])
+  it('`v2 index compaction-effectiveness --help` documents --store and the rollup contract', async () => {
+    const r = runCli(['v2', 'index', 'compaction-effectiveness', '--help'])
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('effectiveness rollup')
     expect(r.stdout).toContain('--store')
   })
 
-  it('`index-v2 compaction-effectiveness` against a fresh bundle returns the zero-state summary', async () => {
+  it('`v2 index compaction-effectiveness` against a fresh bundle returns the zero-state summary', async () => {
     const storeRoot = join(await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-')), 'never-initialised')
-    const r = runCli(['index-v2', 'compaction-effectiveness', '--store', storeRoot])
+    const r = runCli(['v2', 'index', 'compaction-effectiveness', '--store', storeRoot])
     expect(r.status).toBe(0)
     expect(JSON.parse(r.stdout)).toEqual({
       rows: [],
@@ -1170,7 +1182,7 @@ describe('prosa index-v2 CLI', () => {
     })
   })
 
-  it('`index-v2 compaction-effectiveness` reports the inconsistent row with bytes_out === null when no output is planted', async () => {
+  it('`v2 index compaction-effectiveness` reports the inconsistent row with bytes_out === null when no output is planted', async () => {
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
     for (let epoch = 1; epoch <= 17; epoch++) {
       const dir = join(storeRoot, 'epochs', String(epoch), 'projection')
@@ -1178,7 +1190,8 @@ describe('prosa index-v2 CLI', () => {
       await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(1024))
     }
     runCli([
-      'index-v2',
+      'v2',
+      'index',
       'compaction-manifest',
       '--store',
       storeRoot,
@@ -1186,7 +1199,7 @@ describe('prosa index-v2 CLI', () => {
       '--generated-at',
       '2026-05-19T12:00:00.000Z',
     ])
-    const r = runCli(['index-v2', 'compaction-effectiveness', '--store', storeRoot])
+    const r = runCli(['v2', 'index', 'compaction-effectiveness', '--store', storeRoot])
     expect(r.status).toBe(0)
     const summary = JSON.parse(r.stdout) as {
       rows: Array<{
@@ -1217,7 +1230,7 @@ describe('prosa index-v2 CLI', () => {
     expect(summary.totals.bytes_in_consistent).toBe(0)
   })
 
-  it('`index-v2 compaction-effectiveness` reports a consistent row with a real reduction ratio once the compacted output is planted', async () => {
+  it('`v2 index compaction-effectiveness` reports a consistent row with a real reduction ratio once the compacted output is planted', async () => {
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
     for (let epoch = 1; epoch <= 17; epoch++) {
       const dir = join(storeRoot, 'epochs', String(epoch), 'projection')
@@ -1225,7 +1238,8 @@ describe('prosa index-v2 CLI', () => {
       await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(1024))
     }
     runCli([
-      'index-v2',
+      'v2',
+      'index',
       'compaction-manifest',
       '--store',
       storeRoot,
@@ -1237,7 +1251,7 @@ describe('prosa index-v2 CLI', () => {
     await mkdir(compactedDir, { recursive: true })
     await writeFile(join(compactedDir, 'sessions.compacted.parquet'), Buffer.alloc(2048))
 
-    const r = runCli(['index-v2', 'compaction-effectiveness', '--store', storeRoot])
+    const r = runCli(['v2', 'index', 'compaction-effectiveness', '--store', storeRoot])
     expect(r.status).toBe(0)
     const summary = JSON.parse(r.stdout) as {
       rows: Array<{
@@ -1260,27 +1274,27 @@ describe('prosa index-v2 CLI', () => {
     expect(summary.totals.bytes_out).toBe(2048)
   })
 
-  it('`index-v2 compaction-effectiveness` fails when --store is missing', async () => {
-    const r = runCli(['index-v2', 'compaction-effectiveness'])
+  it('`v2 index compaction-effectiveness` fails when --store is missing', async () => {
+    const r = runCli(['v2', 'index', 'compaction-effectiveness'])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/required option.*--store/i)
   })
 
-  it('`index-v2 compaction-history --help` documents --store and the timeline shape', async () => {
-    const r = runCli(['index-v2', 'compaction-history', '--help'])
+  it('`v2 index compaction-history --help` documents --store and the timeline shape', async () => {
+    const r = runCli(['v2', 'index', 'compaction-history', '--help'])
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('compaction timeline')
     expect(r.stdout).toContain('--store')
   })
 
-  it('`index-v2 compaction-history` against a fresh bundle returns []', async () => {
+  it('`v2 index compaction-history` against a fresh bundle returns []', async () => {
     const storeRoot = join(await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-')), 'never-initialised')
-    const r = runCli(['index-v2', 'compaction-history', '--store', storeRoot])
+    const r = runCli(['v2', 'index', 'compaction-history', '--store', storeRoot])
     expect(r.status).toBe(0)
     expect(JSON.parse(r.stdout)).toEqual([])
   })
 
-  it('`index-v2 compaction-history` emits one row per persisted manifest with verbatim generated_at and the audit consistency flag', async () => {
+  it('`v2 index compaction-history` emits one row per persisted manifest with verbatim generated_at and the audit consistency flag', async () => {
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
     for (let epoch = 1; epoch <= 17; epoch++) {
       const dir = join(storeRoot, 'epochs', String(epoch), 'projection')
@@ -1288,7 +1302,8 @@ describe('prosa index-v2 CLI', () => {
       await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(1024))
     }
     runCli([
-      'index-v2',
+      'v2',
+      'index',
       'compaction-manifest',
       '--store',
       storeRoot,
@@ -1297,7 +1312,7 @@ describe('prosa index-v2 CLI', () => {
       '2026-05-19T12:00:00.000Z',
     ])
 
-    const beforePlant = runCli(['index-v2', 'compaction-history', '--store', storeRoot])
+    const beforePlant = runCli(['v2', 'index', 'compaction-history', '--store', storeRoot])
     expect(beforePlant.status).toBe(0)
     const beforeRows = JSON.parse(beforePlant.stdout) as Array<{
       compaction_seq: number
@@ -1317,33 +1332,33 @@ describe('prosa index-v2 CLI', () => {
     await mkdir(compactedDir, { recursive: true })
     await writeFile(join(compactedDir, 'sessions.compacted.parquet'), Buffer.alloc(2048))
 
-    const afterPlant = runCli(['index-v2', 'compaction-history', '--store', storeRoot])
+    const afterPlant = runCli(['v2', 'index', 'compaction-history', '--store', storeRoot])
     expect(afterPlant.status).toBe(0)
     const afterRows = JSON.parse(afterPlant.stdout) as Array<{ consistent: boolean }>
     expect(afterRows[0]!.consistent).toBe(true)
   })
 
-  it('`index-v2 compaction-history` fails when --store is missing', async () => {
-    const r = runCli(['index-v2', 'compaction-history'])
+  it('`v2 index compaction-history` fails when --store is missing', async () => {
+    const r = runCli(['v2', 'index', 'compaction-history'])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/required option.*--store/i)
   })
 
-  it('`index-v2 compaction-overlaps --help` documents --store and the correctness-audit contract', async () => {
-    const r = runCli(['index-v2', 'compaction-overlaps', '--help'])
+  it('`v2 index compaction-overlaps --help` documents --store and the correctness-audit contract', async () => {
+    const r = runCli(['v2', 'index', 'compaction-overlaps', '--help'])
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('correctness violation')
     expect(r.stdout).toContain('--store')
   })
 
-  it('`index-v2 compaction-overlaps` returns `[]` for a fresh bundle (healthy case)', async () => {
+  it('`v2 index compaction-overlaps` returns `[]` for a fresh bundle (healthy case)', async () => {
     const storeRoot = join(await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-')), 'never-initialised')
-    const r = runCli(['index-v2', 'compaction-overlaps', '--store', storeRoot])
+    const r = runCli(['v2', 'index', 'compaction-overlaps', '--store', storeRoot])
     expect(r.status).toBe(0)
     expect(JSON.parse(r.stdout)).toEqual([])
   })
 
-  it('`index-v2 compaction-overlaps` returns `[]` for a bundle with one well-formed manifest (no cross-seq overlap possible)', async () => {
+  it('`v2 index compaction-overlaps` returns `[]` for a bundle with one well-formed manifest (no cross-seq overlap possible)', async () => {
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
     for (let epoch = 1; epoch <= 17; epoch++) {
       const dir = join(storeRoot, 'epochs', String(epoch), 'projection')
@@ -1351,7 +1366,8 @@ describe('prosa index-v2 CLI', () => {
       await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(1024))
     }
     runCli([
-      'index-v2',
+      'v2',
+      'index',
       'compaction-manifest',
       '--store',
       storeRoot,
@@ -1359,27 +1375,27 @@ describe('prosa index-v2 CLI', () => {
       '--generated-at',
       '2026-05-19T12:00:00.000Z',
     ])
-    const r = runCli(['index-v2', 'compaction-overlaps', '--store', storeRoot])
+    const r = runCli(['v2', 'index', 'compaction-overlaps', '--store', storeRoot])
     expect(r.status).toBe(0)
     expect(JSON.parse(r.stdout)).toEqual([])
   })
 
-  it('`index-v2 compaction-overlaps` fails when --store is missing', async () => {
-    const r = runCli(['index-v2', 'compaction-overlaps'])
+  it('`v2 index compaction-overlaps` fails when --store is missing', async () => {
+    const r = runCli(['v2', 'index', 'compaction-overlaps'])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/required option.*--store/i)
   })
 
-  it('`index-v2 footprint --help` documents --store and the per-subsystem breakdown', async () => {
-    const r = runCli(['index-v2', 'footprint', '--help'])
+  it('`v2 index footprint --help` documents --store and the per-subsystem breakdown', async () => {
+    const r = runCli(['v2', 'index', 'footprint', '--help'])
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('derived/ subtree')
     expect(r.stdout).toContain('--store')
   })
 
-  it('`index-v2 footprint` against a fresh bundle returns the all-zero shape', async () => {
+  it('`v2 index footprint` against a fresh bundle returns the all-zero shape', async () => {
     const storeRoot = join(await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-')), 'never-initialised')
-    const r = runCli(['index-v2', 'footprint', '--store', storeRoot])
+    const r = runCli(['v2', 'index', 'footprint', '--store', storeRoot])
     expect(r.status).toBe(0)
     expect(JSON.parse(r.stdout)).toEqual({
       total_bytes: 0,
@@ -1390,7 +1406,7 @@ describe('prosa index-v2 CLI', () => {
     })
   })
 
-  it('`index-v2 footprint` aggregates session-blob packs + tantivy index files into total_bytes', async () => {
+  it('`v2 index footprint` aggregates session-blob packs + tantivy index files into total_bytes', async () => {
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
     await mkdir(join(storeRoot, 'derived', 'session-blob', 'epoch-1'), { recursive: true })
     await writeFile(join(storeRoot, 'derived', 'session-blob', 'epoch-1', 'alpha.pack'), Buffer.alloc(1024))
@@ -1399,7 +1415,7 @@ describe('prosa index-v2 CLI', () => {
     await writeFile(join(storeRoot, 'derived', 'tantivy', 'checkpoint.json'), 'x'.repeat(100))
     await writeFile(join(storeRoot, 'derived', 'tantivy', 'index', 'segment-0.idx'), Buffer.alloc(4096))
 
-    const r = runCli(['index-v2', 'footprint', '--store', storeRoot])
+    const r = runCli(['v2', 'index', 'footprint', '--store', storeRoot])
     expect(r.status).toBe(0)
     const footprint = JSON.parse(r.stdout) as {
       total_bytes: number
@@ -1415,22 +1431,22 @@ describe('prosa index-v2 CLI', () => {
     expect(footprint.total_bytes).toBe(3072 + 100 + 4096)
   })
 
-  it('`index-v2 footprint` fails when --store is missing', async () => {
-    const r = runCli(['index-v2', 'footprint'])
+  it('`v2 index footprint` fails when --store is missing', async () => {
+    const r = runCli(['v2', 'index', 'footprint'])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/required option.*--store/i)
   })
 
-  it('`index-v2 capabilities --help` documents the content-free introspection contract and takes no --store', async () => {
-    const r = runCli(['index-v2', 'capabilities', '--help'])
+  it('`v2 index capabilities --help` documents the content-free introspection contract and takes no --store', async () => {
+    const r = runCli(['v2', 'index', 'capabilities', '--help'])
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('capability snapshot')
     // Content-free: should NOT advertise --store.
     expect(r.stdout).not.toMatch(/--store <path>/)
   })
 
-  it('`index-v2 capabilities` emits the schema discriminators, compaction policy, analytics view set, and tantivy schema', async () => {
-    const r = runCli(['index-v2', 'capabilities'])
+  it('`v2 index capabilities` emits the schema discriminators, compaction policy, analytics view set, and tantivy schema', async () => {
+    const r = runCli(['v2', 'index', 'capabilities'])
     expect(r.status).toBe(0)
     const caps = JSON.parse(r.stdout) as {
       schema_ids: { compact_manifest: string }
@@ -1457,24 +1473,24 @@ describe('prosa index-v2 CLI', () => {
     expect(caps.tantivy.fields.length).toBe(caps.tantivy.field_names.length)
   })
 
-  it('`index-v2 capabilities` is deterministic across invocations (same JSON output)', async () => {
-    const a = runCli(['index-v2', 'capabilities'])
-    const b = runCli(['index-v2', 'capabilities'])
+  it('`v2 index capabilities` is deterministic across invocations (same JSON output)', async () => {
+    const a = runCli(['v2', 'index', 'capabilities'])
+    const b = runCli(['v2', 'index', 'capabilities'])
     expect(a.status).toBe(0)
     expect(b.status).toBe(0)
     expect(JSON.parse(a.stdout)).toEqual(JSON.parse(b.stdout))
   })
 
-  it('`index-v2 snapshot --help` documents --store and the bulk-read contract', async () => {
-    const r = runCli(['index-v2', 'snapshot', '--help'])
+  it('`v2 index snapshot --help` documents --store and the bulk-read contract', async () => {
+    const r = runCli(['v2', 'index', 'snapshot', '--help'])
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('bulk read')
     expect(r.stdout).toContain('--store')
   })
 
-  it('`index-v2 snapshot` emits maintenance + recommendations + footprint + capabilities for a fresh bundle', async () => {
+  it('`v2 index snapshot` emits maintenance + recommendations + footprint + capabilities for a fresh bundle', async () => {
     const storeRoot = join(await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-')), 'never-initialised')
-    const r = runCli(['index-v2', 'snapshot', '--store', storeRoot])
+    const r = runCli(['v2', 'index', 'snapshot', '--store', storeRoot])
     expect(r.status).toBe(0)
     const snap = JSON.parse(r.stdout) as {
       maintenance: { compaction: { empty: boolean } }
@@ -1488,14 +1504,14 @@ describe('prosa index-v2 CLI', () => {
     expect(snap.capabilities.schema_ids.compact_manifest).toBe('prosa.compact-manifest.v2')
   })
 
-  it('`index-v2 snapshot` recommendations are coherent with the surfaced maintenance (fired planner → run_compaction)', async () => {
+  it('`v2 index snapshot` recommendations are coherent with the surfaced maintenance (fired planner → run_compaction)', async () => {
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
     for (let epoch = 1; epoch <= 17; epoch++) {
       const dir = join(storeRoot, 'epochs', String(epoch), 'projection')
       await mkdir(dir, { recursive: true })
       await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(1024))
     }
-    const r = runCli(['index-v2', 'snapshot', '--store', storeRoot])
+    const r = runCli(['v2', 'index', 'snapshot', '--store', storeRoot])
     expect(r.status).toBe(0)
     const snap = JSON.parse(r.stdout) as {
       maintenance: { compaction: { empty: boolean; reasons: string[] } }
@@ -1506,22 +1522,22 @@ describe('prosa index-v2 CLI', () => {
     expect(snap.recommendations.map((r) => r.kind)).toEqual(['run_compaction'])
   })
 
-  it('`index-v2 snapshot` fails when --store is missing', async () => {
-    const r = runCli(['index-v2', 'snapshot'])
+  it('`v2 index snapshot` fails when --store is missing', async () => {
+    const r = runCli(['v2', 'index', 'snapshot'])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/required option.*--store/i)
   })
 
-  it('`index-v2 derived-layout --help` documents --store and the path-resolution contract', async () => {
-    const r = runCli(['index-v2', 'derived-layout', '--help'])
+  it('`v2 index derived-layout --help` documents --store and the path-resolution contract', async () => {
+    const r = runCli(['v2', 'index', 'derived-layout', '--help'])
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('resolved absolute paths')
     expect(r.stdout).toContain('--store')
   })
 
-  it('`index-v2 derived-layout` emits the canonical subsystem paths anchored at --store', async () => {
+  it('`v2 index derived-layout` emits the canonical subsystem paths anchored at --store', async () => {
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
-    const r = runCli(['index-v2', 'derived-layout', '--store', storeRoot])
+    const r = runCli(['v2', 'index', 'derived-layout', '--store', storeRoot])
     expect(r.status).toBe(0)
     const layout = JSON.parse(r.stdout) as {
       root: string
@@ -1543,36 +1559,36 @@ describe('prosa index-v2 CLI', () => {
     expect(layout.analytics).toBe(join(storeRoot, 'derived', 'analytics'))
   })
 
-  it('`index-v2 derived-layout` does not touch the filesystem (works on a non-existent store)', async () => {
+  it('`v2 index derived-layout` does not touch the filesystem (works on a non-existent store)', async () => {
     const ghostStore = join(await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-')), 'this-does-not-exist')
-    const r = runCli(['index-v2', 'derived-layout', '--store', ghostStore])
+    const r = runCli(['v2', 'index', 'derived-layout', '--store', ghostStore])
     expect(r.status).toBe(0)
     const layout = JSON.parse(r.stdout) as { root: string; derived: string }
     expect(layout.root).toBe(ghostStore)
     expect(layout.derived).toBe(join(ghostStore, 'derived'))
   })
 
-  it('`index-v2 derived-layout` fails when --store is missing', async () => {
-    const r = runCli(['index-v2', 'derived-layout'])
+  it('`v2 index derived-layout` fails when --store is missing', async () => {
+    const r = runCli(['v2', 'index', 'derived-layout'])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/required option.*--store/i)
   })
 
-  it('`index-v2 compacted-outputs --help` documents --store', async () => {
-    const r = runCli(['index-v2', 'compacted-outputs', '--help'])
+  it('`v2 index compacted-outputs --help` documents --store', async () => {
+    const r = runCli(['v2', 'index', 'compacted-outputs', '--help'])
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('Audit every persisted')
     expect(r.stdout).toContain('--store')
   })
 
-  it('`index-v2 compacted-outputs` against a fresh bundle prints []', async () => {
+  it('`v2 index compacted-outputs` against a fresh bundle prints []', async () => {
     const storeRoot = join(await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-')), 'never-initialised')
-    const r = runCli(['index-v2', 'compacted-outputs', '--store', storeRoot])
+    const r = runCli(['v2', 'index', 'compacted-outputs', '--store', storeRoot])
     expect(r.status).toBe(0)
     expect(JSON.parse(r.stdout)).toEqual([])
   })
 
-  it('`index-v2 compacted-outputs` after --write but no compacted file reports `consistent: false`', async () => {
+  it('`v2 index compacted-outputs` after --write but no compacted file reports `consistent: false`', async () => {
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
     for (let epoch = 1; epoch <= 17; epoch++) {
       const dir = join(storeRoot, 'epochs', String(epoch), 'projection')
@@ -1580,7 +1596,8 @@ describe('prosa index-v2 CLI', () => {
       await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(1024))
     }
     runCli([
-      'index-v2',
+      'v2',
+      'index',
       'compaction-manifest',
       '--store',
       storeRoot,
@@ -1588,7 +1605,7 @@ describe('prosa index-v2 CLI', () => {
       '--generated-at',
       '2026-05-19T12:00:00.000Z',
     ])
-    const r = runCli(['index-v2', 'compacted-outputs', '--store', storeRoot])
+    const r = runCli(['v2', 'index', 'compacted-outputs', '--store', storeRoot])
     expect(r.status).toBe(0)
     const rows = JSON.parse(r.stdout) as Array<{
       compaction_seq: number
@@ -1602,7 +1619,7 @@ describe('prosa index-v2 CLI', () => {
     expect(rows[0]?.entity_outputs[0]?.exists).toBe(false)
   })
 
-  it('`index-v2 compacted-outputs` reports consistent=true when the compacted file is planted alongside', async () => {
+  it('`v2 index compacted-outputs` reports consistent=true when the compacted file is planted alongside', async () => {
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
     for (let epoch = 1; epoch <= 17; epoch++) {
       const dir = join(storeRoot, 'epochs', String(epoch), 'projection')
@@ -1610,7 +1627,8 @@ describe('prosa index-v2 CLI', () => {
       await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(1024))
     }
     runCli([
-      'index-v2',
+      'v2',
+      'index',
       'compaction-manifest',
       '--store',
       storeRoot,
@@ -1623,7 +1641,7 @@ describe('prosa index-v2 CLI', () => {
     await mkdir(compactedDir, { recursive: true })
     await writeFile(join(compactedDir, 'sessions.compacted.parquet'), Buffer.alloc(2048))
 
-    const r = runCli(['index-v2', 'compacted-outputs', '--store', storeRoot])
+    const r = runCli(['v2', 'index', 'compacted-outputs', '--store', storeRoot])
     expect(r.status).toBe(0)
     const rows = JSON.parse(r.stdout) as Array<{
       consistent: boolean
@@ -1634,28 +1652,28 @@ describe('prosa index-v2 CLI', () => {
     expect(rows[0]?.entity_outputs[0]?.byte_length).toBe(2048)
   })
 
-  it('`index-v2 compacted-outputs` fails when --store is missing', async () => {
-    const r = runCli(['index-v2', 'compacted-outputs'])
+  it('`v2 index compacted-outputs` fails when --store is missing', async () => {
+    const r = runCli(['v2', 'index', 'compacted-outputs'])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/required option.*--store/i)
   })
 
-  it('`index-v2 superseded-segments --help` documents --store + --summary', async () => {
-    const r = runCli(['index-v2', 'superseded-segments', '--help'])
+  it('`v2 index superseded-segments --help` documents --store + --summary', async () => {
+    const r = runCli(['v2', 'index', 'superseded-segments', '--help'])
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('superseded')
     expect(r.stdout).toContain('--store')
     expect(r.stdout).toContain('--summary')
   })
 
-  it('`index-v2 superseded-segments` against a fresh bundle prints []', async () => {
+  it('`v2 index superseded-segments` against a fresh bundle prints []', async () => {
     const storeRoot = join(await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-')), 'never-initialised')
-    const r = runCli(['index-v2', 'superseded-segments', '--store', storeRoot])
+    const r = runCli(['v2', 'index', 'superseded-segments', '--store', storeRoot])
     expect(r.status).toBe(0)
     expect(JSON.parse(r.stdout)).toEqual([])
   })
 
-  it('`index-v2 superseded-segments` after --write returns the rows the manifest recorded', async () => {
+  it('`v2 index superseded-segments` after --write returns the rows the manifest recorded', async () => {
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
     for (let epoch = 1; epoch <= 17; epoch++) {
       const dir = join(storeRoot, 'epochs', String(epoch), 'projection')
@@ -1663,7 +1681,8 @@ describe('prosa index-v2 CLI', () => {
       await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(1024))
     }
     const writeResult = runCli([
-      'index-v2',
+      'v2',
+      'index',
       'compaction-manifest',
       '--store',
       storeRoot,
@@ -1673,7 +1692,7 @@ describe('prosa index-v2 CLI', () => {
     ])
     expect(writeResult.status).toBe(0)
 
-    const r = runCli(['index-v2', 'superseded-segments', '--store', storeRoot])
+    const r = runCli(['v2', 'index', 'superseded-segments', '--store', storeRoot])
     expect(r.status).toBe(0)
     const rows = JSON.parse(r.stdout) as Array<{
       path: string
@@ -1689,7 +1708,7 @@ describe('prosa index-v2 CLI', () => {
     expect(rows.map((r) => r.epoch)).toEqual(Array.from({ length: 17 }, (_, i) => i + 1))
   })
 
-  it('`index-v2 superseded-segments --summary` rolls up totals per-entity and per-compaction-seq', async () => {
+  it('`v2 index superseded-segments --summary` rolls up totals per-entity and per-compaction-seq', async () => {
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
     for (let epoch = 1; epoch <= 17; epoch++) {
       const dir = join(storeRoot, 'epochs', String(epoch), 'projection')
@@ -1697,7 +1716,8 @@ describe('prosa index-v2 CLI', () => {
       await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(1024))
     }
     const writeResult = runCli([
-      'index-v2',
+      'v2',
+      'index',
       'compaction-manifest',
       '--store',
       storeRoot,
@@ -1707,7 +1727,7 @@ describe('prosa index-v2 CLI', () => {
     ])
     expect(writeResult.status).toBe(0)
 
-    const r = runCli(['index-v2', 'superseded-segments', '--store', storeRoot, '--summary'])
+    const r = runCli(['v2', 'index', 'superseded-segments', '--store', storeRoot, '--summary'])
     expect(r.status).toBe(0)
     const rollup = JSON.parse(r.stdout) as {
       total_segments: number
@@ -1721,22 +1741,22 @@ describe('prosa index-v2 CLI', () => {
     expect(rollup.by_compaction_seq['1']).toEqual({ count: 17, bytes: 17 * 1024 })
   })
 
-  it('`index-v2 superseded-segments` fails when --store is missing', async () => {
-    const r = runCli(['index-v2', 'superseded-segments'])
+  it('`v2 index superseded-segments` fails when --store is missing', async () => {
+    const r = runCli(['v2', 'index', 'superseded-segments'])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/required option.*--store/i)
   })
 
-  it('`index-v2 compaction-execution-plan --help` documents --store', async () => {
-    const r = runCli(['index-v2', 'compaction-execution-plan', '--help'])
+  it('`v2 index compaction-execution-plan --help` documents --store', async () => {
+    const r = runCli(['v2', 'index', 'compaction-execution-plan', '--help'])
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('ordered DuckDB COPY statement sequence')
     expect(r.stdout).toContain('--store')
   })
 
-  it('`index-v2 compaction-execution-plan` against a fresh bundle returns empty plan + no statements', async () => {
+  it('`v2 index compaction-execution-plan` against a fresh bundle returns empty plan + no statements', async () => {
     const storeRoot = join(await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-')), 'never-initialised')
-    const r = runCli(['index-v2', 'compaction-execution-plan', '--store', storeRoot])
+    const r = runCli(['v2', 'index', 'compaction-execution-plan', '--store', storeRoot])
     expect(r.status).toBe(0)
     const execution = JSON.parse(r.stdout) as {
       plan: { empty: boolean; entities: unknown[] }
@@ -1747,7 +1767,7 @@ describe('prosa index-v2 CLI', () => {
     expect(execution.statements).toEqual([])
   })
 
-  it('`index-v2 compaction-execution-plan` emits one COPY statement per entity when the trigger fires', async () => {
+  it('`v2 index compaction-execution-plan` emits one COPY statement per entity when the trigger fires', async () => {
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
     // Plant 17 tiny `sessions.parquet` segments → low_count_byte_ceiling fires.
     for (let epoch = 1; epoch <= 17; epoch++) {
@@ -1756,7 +1776,7 @@ describe('prosa index-v2 CLI', () => {
       await writeFile(join(dir, 'sessions.parquet'), Buffer.alloc(1024))
     }
 
-    const r = runCli(['index-v2', 'compaction-execution-plan', '--store', storeRoot])
+    const r = runCli(['v2', 'index', 'compaction-execution-plan', '--store', storeRoot])
     expect(r.status).toBe(0)
     const execution = JSON.parse(r.stdout) as {
       plan: { empty: boolean; entities: Array<{ entityType: string; reason: string }> }
@@ -1782,20 +1802,20 @@ describe('prosa index-v2 CLI', () => {
     }
   })
 
-  it('`index-v2 compaction-execution-plan` fails when --store is missing', async () => {
-    const r = runCli(['index-v2', 'compaction-execution-plan'])
+  it('`v2 index compaction-execution-plan` fails when --store is missing', async () => {
+    const r = runCli(['v2', 'index', 'compaction-execution-plan'])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/required option.*--store/i)
   })
 
-  it('`index-v2 verify-packs --help` documents --store', async () => {
-    const r = runCli(['index-v2', 'verify-packs', '--help'])
+  it('`v2 index verify-packs --help` documents --store', async () => {
+    const r = runCli(['v2', 'index', 'verify-packs', '--help'])
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('Verify every SessionBlob pack')
     expect(r.stdout).toContain('--store')
   })
 
-  it('`index-v2 verify-packs` on a clean bundle returns verified rows with exit 0', async () => {
+  it('`v2 index verify-packs` on a clean bundle returns verified rows with exit 0', async () => {
     const { writeSessionBlobPack, identityCompressor } = await import('@c3-oss/prosa-derived-v2')
     const { sessionBlobEpochDir, sessionBlobPackPath } = await import('@c3-oss/prosa-derived-v2')
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
@@ -1821,7 +1841,7 @@ describe('prosa index-v2 CLI', () => {
       await writeFile(sessionBlobPackPath(storeRoot, sessionId, 1), result.pack)
     }
 
-    const r = runCli(['index-v2', 'verify-packs', '--store', storeRoot])
+    const r = runCli(['v2', 'index', 'verify-packs', '--store', storeRoot])
     expect(r.status).toBe(0)
     const out = JSON.parse(r.stdout) as {
       verified: Array<{ session_id: string; epoch: number; pack_digest: string }>
@@ -1831,7 +1851,7 @@ describe('prosa index-v2 CLI', () => {
     expect(out.failed).toEqual([])
   })
 
-  it('`index-v2 verify-packs` exits non-zero when a pack is corrupted', async () => {
+  it('`v2 index verify-packs` exits non-zero when a pack is corrupted', async () => {
     const { writeSessionBlobPack, identityCompressor } = await import('@c3-oss/prosa-derived-v2')
     const { sessionBlobEpochDir, sessionBlobPackPath } = await import('@c3-oss/prosa-derived-v2')
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
@@ -1861,7 +1881,7 @@ describe('prosa index-v2 CLI', () => {
     bytes[bytes.length - 16] = (bytes[bytes.length - 16] ?? 0) ^ 0xff
     await writeFile(packPath, bytes)
 
-    const r = runCli(['index-v2', 'verify-packs', '--store', storeRoot])
+    const r = runCli(['v2', 'index', 'verify-packs', '--store', storeRoot])
     expect(r.status).toBe(1)
     const out = JSON.parse(r.stdout) as {
       verified: unknown[]
@@ -1873,17 +1893,17 @@ describe('prosa index-v2 CLI', () => {
     expect(out.failed[0]?.epoch).toBe(1)
   })
 
-  it('`index-v2 verify-packs` on a fresh bundle returns empty arrays with exit 0', async () => {
+  it('`v2 index verify-packs` on a fresh bundle returns empty arrays with exit 0', async () => {
     const storeRoot = join(await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-')), 'never-initialised')
-    const r = runCli(['index-v2', 'verify-packs', '--store', storeRoot])
+    const r = runCli(['v2', 'index', 'verify-packs', '--store', storeRoot])
     expect(r.status).toBe(0)
     const out = JSON.parse(r.stdout) as { verified: unknown[]; failed: unknown[] }
     expect(out.verified).toEqual([])
     expect(out.failed).toEqual([])
   })
 
-  it('`index-v2 transcript-header --help` documents --store, --session-id, --epoch', async () => {
-    const r = runCli(['index-v2', 'transcript-header', '--help'])
+  it('`v2 index transcript-header --help` documents --store, --session-id, --epoch', async () => {
+    const r = runCli(['v2', 'index', 'transcript-header', '--help'])
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('pack header')
     expect(r.stdout).toContain('--store')
@@ -1891,7 +1911,7 @@ describe('prosa index-v2 CLI', () => {
     expect(r.stdout).toContain('--epoch')
   })
 
-  it('`index-v2 transcript-header` returns the page-aggregate header for the latest epoch', async () => {
+  it('`v2 index transcript-header` returns the page-aggregate header for the latest epoch', async () => {
     const { writeSessionBlobPack, identityCompressor } = await import('@c3-oss/prosa-derived-v2')
     const { sessionBlobEpochDir, sessionBlobPackPath } = await import('@c3-oss/prosa-derived-v2')
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
@@ -1915,7 +1935,7 @@ describe('prosa index-v2 CLI', () => {
     await mkdir(sessionBlobEpochDir(storeRoot, 3), { recursive: true })
     await writeFile(sessionBlobPackPath(storeRoot, 'ses_alpha', 3), result.pack)
 
-    const r = runCli(['index-v2', 'transcript-header', '--store', storeRoot, '--session-id', 'ses_alpha'])
+    const r = runCli(['v2', 'index', 'transcript-header', '--store', storeRoot, '--session-id', 'ses_alpha'])
     expect(r.status).toBe(0)
     const out = JSON.parse(r.stdout) as {
       epoch: number
@@ -1933,7 +1953,7 @@ describe('prosa index-v2 CLI', () => {
     expect(out.header.pack_digest).toBe(out.pack_digest)
   })
 
-  it('`index-v2 transcript-header --epoch <n>` reads the specific epoch instead of the latest', async () => {
+  it('`v2 index transcript-header --epoch <n>` reads the specific epoch instead of the latest', async () => {
     const { writeSessionBlobPack, identityCompressor } = await import('@c3-oss/prosa-derived-v2')
     const { sessionBlobEpochDir, sessionBlobPackPath } = await import('@c3-oss/prosa-derived-v2')
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
@@ -1961,12 +1981,13 @@ describe('prosa index-v2 CLI', () => {
     await plant(1)
     await plant(4)
 
-    const rLatest = runCli(['index-v2', 'transcript-header', '--store', storeRoot, '--session-id', 'ses_alpha'])
+    const rLatest = runCli(['v2', 'index', 'transcript-header', '--store', storeRoot, '--session-id', 'ses_alpha'])
     expect(rLatest.status).toBe(0)
     expect((JSON.parse(rLatest.stdout) as { epoch: number }).epoch).toBe(4)
 
     const rOlder = runCli([
-      'index-v2',
+      'v2',
+      'index',
       'transcript-header',
       '--store',
       storeRoot,
@@ -1979,10 +2000,11 @@ describe('prosa index-v2 CLI', () => {
     expect((JSON.parse(rOlder.stdout) as { epoch: number }).epoch).toBe(1)
   })
 
-  it('`index-v2 transcript-header` rejects a negative --epoch', async () => {
+  it('`v2 index transcript-header` rejects a negative --epoch', async () => {
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
     const r = runCli([
-      'index-v2',
+      'v2',
+      'index',
       'transcript-header',
       '--store',
       storeRoot,
@@ -1995,8 +2017,8 @@ describe('prosa index-v2 CLI', () => {
     expect(r.stderr).toMatch(/invalid --epoch/i)
   })
 
-  it('`index-v2 transcript --help` documents --store, --session-id, --format, --epoch, --start-ordinal/--end-ordinal', async () => {
-    const r = runCli(['index-v2', 'transcript', '--help'])
+  it('`v2 index transcript --help` documents --store, --session-id, --format, --epoch, --start-ordinal/--end-ordinal', async () => {
+    const r = runCli(['v2', 'index', 'transcript', '--help'])
     expect(r.status).toBe(0)
     expect(r.stdout).toContain("Print a session's transcript")
     expect(r.stdout).toContain('--store')
@@ -2008,7 +2030,7 @@ describe('prosa index-v2 CLI', () => {
     expect(r.stdout).toContain('json|text|markdown')
   })
 
-  it('`index-v2 transcript` round-trips a real zstd-compressed pack and prints the messages', async () => {
+  it('`v2 index transcript` round-trips a real zstd-compressed pack and prints the messages', async () => {
     const { writeSessionBlobPack, zstdSessionBlobCompressor } = await import('@c3-oss/prosa-derived-v2')
     const { sessionBlobEpochDir, sessionBlobPackPath } = await import('@c3-oss/prosa-derived-v2')
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
@@ -2049,7 +2071,7 @@ describe('prosa index-v2 CLI', () => {
     await mkdir(sessionBlobEpochDir(storeRoot, 2), { recursive: true })
     await writeFile(sessionBlobPackPath(storeRoot, 'ses_alpha', 2), result.pack)
 
-    const r = runCli(['index-v2', 'transcript', '--store', storeRoot, '--session-id', 'ses_alpha'])
+    const r = runCli(['v2', 'index', 'transcript', '--store', storeRoot, '--session-id', 'ses_alpha'])
     expect(r.status).toBe(0)
     const transcript = JSON.parse(r.stdout) as {
       epoch: number
@@ -2065,21 +2087,21 @@ describe('prosa index-v2 CLI', () => {
     expect(transcript.messages.map((m) => m.role)).toEqual(['user', 'assistant'])
   })
 
-  it('`index-v2 transcript` fails on an unknown session_id', async () => {
+  it('`v2 index transcript` fails on an unknown session_id', async () => {
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
-    const r = runCli(['index-v2', 'transcript', '--store', storeRoot, '--session-id', 'ses_missing'])
+    const r = runCli(['v2', 'index', 'transcript', '--store', storeRoot, '--session-id', 'ses_missing'])
     expect(r.status).not.toBe(0)
     expect(r.stderr.length).toBeGreaterThan(0)
   })
 
-  it('`index-v2 transcript` fails when --session-id is missing', async () => {
+  it('`v2 index transcript` fails when --session-id is missing', async () => {
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
-    const r = runCli(['index-v2', 'transcript', '--store', storeRoot])
+    const r = runCli(['v2', 'index', 'transcript', '--store', storeRoot])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/required option.*--session-id/i)
   })
 
-  it('`index-v2 transcript --format text` renders a plain-text transcript with header', async () => {
+  it('`v2 index transcript --format text` renders a plain-text transcript with header', async () => {
     const { writeSessionBlobPack, zstdSessionBlobCompressor } = await import('@c3-oss/prosa-derived-v2')
     const { sessionBlobEpochDir, sessionBlobPackPath } = await import('@c3-oss/prosa-derived-v2')
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
@@ -2103,7 +2125,17 @@ describe('prosa index-v2 CLI', () => {
     await mkdir(sessionBlobEpochDir(storeRoot, 2), { recursive: true })
     await writeFile(sessionBlobPackPath(storeRoot, 'ses_alpha', 2), result.pack)
 
-    const r = runCli(['index-v2', 'transcript', '--store', storeRoot, '--session-id', 'ses_alpha', '--format', 'text'])
+    const r = runCli([
+      'v2',
+      'index',
+      'transcript',
+      '--store',
+      storeRoot,
+      '--session-id',
+      'ses_alpha',
+      '--format',
+      'text',
+    ])
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('epoch:        2')
     expect(r.stdout).toContain('pack_digest:')
@@ -2113,7 +2145,7 @@ describe('prosa index-v2 CLI', () => {
     expect(r.stdout).toContain('  hello')
   })
 
-  it('`index-v2 transcript --format markdown` renders a Markdown transcript with header', async () => {
+  it('`v2 index transcript --format markdown` renders a Markdown transcript with header', async () => {
     const { writeSessionBlobPack, zstdSessionBlobCompressor } = await import('@c3-oss/prosa-derived-v2')
     const { sessionBlobEpochDir, sessionBlobPackPath } = await import('@c3-oss/prosa-derived-v2')
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
@@ -2138,7 +2170,8 @@ describe('prosa index-v2 CLI', () => {
     await writeFile(sessionBlobPackPath(storeRoot, 'ses_alpha', 3), result.pack)
 
     const r = runCli([
-      'index-v2',
+      'v2',
+      'index',
       'transcript',
       '--store',
       storeRoot,
@@ -2156,7 +2189,7 @@ describe('prosa index-v2 CLI', () => {
     expect(r.stdout).toContain('\nhello\n')
   })
 
-  it('`index-v2 transcript --format json` is the default behaviour', async () => {
+  it('`v2 index transcript --format json` is the default behaviour', async () => {
     const { writeSessionBlobPack, zstdSessionBlobCompressor } = await import('@c3-oss/prosa-derived-v2')
     const { sessionBlobEpochDir, sessionBlobPackPath } = await import('@c3-oss/prosa-derived-v2')
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
@@ -2180,18 +2213,38 @@ describe('prosa index-v2 CLI', () => {
     await mkdir(sessionBlobEpochDir(storeRoot, 1), { recursive: true })
     await writeFile(sessionBlobPackPath(storeRoot, 'ses_alpha', 1), result.pack)
 
-    const r = runCli(['index-v2', 'transcript', '--store', storeRoot, '--session-id', 'ses_alpha', '--format', 'json'])
+    const r = runCli([
+      'v2',
+      'index',
+      'transcript',
+      '--store',
+      storeRoot,
+      '--session-id',
+      'ses_alpha',
+      '--format',
+      'json',
+    ])
     expect(r.status).toBe(0)
     const out = JSON.parse(r.stdout) as { epoch: number }
     expect(out.epoch).toBe(1)
   })
 
-  it('CQ-105: `index-v2 transcript --format yaml` rejects unknown formats BEFORE any bundle read', async () => {
+  it('CQ-105: `v2 index transcript --format yaml` rejects unknown formats BEFORE any bundle read', async () => {
     // Point at a never-initialised store so a load attempt would fail with
     // "no pack found" / ENOENT. The format validation must run first so the
     // user sees "invalid --format" instead of a misleading bundle-read error.
     const storeRoot = join(await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-')), 'never-initialised')
-    const r = runCli(['index-v2', 'transcript', '--store', storeRoot, '--session-id', 'ses_alpha', '--format', 'yaml'])
+    const r = runCli([
+      'v2',
+      'index',
+      'transcript',
+      '--store',
+      storeRoot,
+      '--session-id',
+      'ses_alpha',
+      '--format',
+      'yaml',
+    ])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/invalid --format/i)
     expect(r.stderr).not.toMatch(/loadLatestSessionBlobPack|no pack found/i)
@@ -2199,7 +2252,7 @@ describe('prosa index-v2 CLI', () => {
     expect(r.stderr).toMatch(/json\|text\|markdown/)
   })
 
-  it('`index-v2 transcript --start-ordinal / --end-ordinal` filters messages by ordinal range', async () => {
+  it('`v2 index transcript --start-ordinal / --end-ordinal` filters messages by ordinal range', async () => {
     const { writeSessionBlobPack, zstdSessionBlobCompressor } = await import('@c3-oss/prosa-derived-v2')
     const { sessionBlobEpochDir, sessionBlobPackPath } = await import('@c3-oss/prosa-derived-v2')
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
@@ -2222,7 +2275,8 @@ describe('prosa index-v2 CLI', () => {
     await writeFile(sessionBlobPackPath(storeRoot, 'ses_alpha', 1), result.pack)
 
     const r = runCli([
-      'index-v2',
+      'v2',
+      'index',
       'transcript',
       '--store',
       storeRoot,
@@ -2238,10 +2292,11 @@ describe('prosa index-v2 CLI', () => {
     expect(out.messages.map((m) => m.ordinal)).toEqual([1, 2])
   })
 
-  it('`index-v2 transcript` rejects an inverted range', async () => {
+  it('`v2 index transcript` rejects an inverted range', async () => {
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
     const r = runCli([
-      'index-v2',
+      'v2',
+      'index',
       'transcript',
       '--store',
       storeRoot,
@@ -2256,7 +2311,7 @@ describe('prosa index-v2 CLI', () => {
     expect(r.stderr).toMatch(/invalid range.*start-ordinal.*5.*end-ordinal.*2/i)
   })
 
-  it('`index-v2 transcript --epoch <n>` reads a specific historical epoch instead of the latest', async () => {
+  it('`v2 index transcript --epoch <n>` reads a specific historical epoch instead of the latest', async () => {
     const { writeSessionBlobPack, zstdSessionBlobCompressor } = await import('@c3-oss/prosa-derived-v2')
     const { sessionBlobEpochDir, sessionBlobPackPath } = await import('@c3-oss/prosa-derived-v2')
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
@@ -2285,14 +2340,24 @@ describe('prosa index-v2 CLI', () => {
     await plant(9, 7)
 
     // Default (no --epoch) returns the latest pack (epoch 9, 7 messages).
-    const rLatest = runCli(['index-v2', 'transcript', '--store', storeRoot, '--session-id', 'ses_alpha'])
+    const rLatest = runCli(['v2', 'index', 'transcript', '--store', storeRoot, '--session-id', 'ses_alpha'])
     expect(rLatest.status).toBe(0)
     const latest = JSON.parse(rLatest.stdout) as { epoch: number; messages: unknown[] }
     expect(latest.epoch).toBe(9)
     expect(latest.messages).toHaveLength(7)
 
     // `--epoch 4` returns the historical pack (epoch 4, 3 messages).
-    const rOlder = runCli(['index-v2', 'transcript', '--store', storeRoot, '--session-id', 'ses_alpha', '--epoch', '4'])
+    const rOlder = runCli([
+      'v2',
+      'index',
+      'transcript',
+      '--store',
+      storeRoot,
+      '--session-id',
+      'ses_alpha',
+      '--epoch',
+      '4',
+    ])
     expect(rOlder.status).toBe(0)
     const older = JSON.parse(rOlder.stdout) as { epoch: number; path: string; messages: unknown[] }
     expect(older.epoch).toBe(4)
@@ -2300,7 +2365,7 @@ describe('prosa index-v2 CLI', () => {
     expect(older.path).toMatch(/epoch-4/)
   })
 
-  it('`index-v2 transcript --epoch <n>` surfaces ENOENT when the epoch has no pack', async () => {
+  it('`v2 index transcript --epoch <n>` surfaces ENOENT when the epoch has no pack', async () => {
     const { writeSessionBlobPack, zstdSessionBlobCompressor } = await import('@c3-oss/prosa-derived-v2')
     const { sessionBlobEpochDir, sessionBlobPackPath } = await import('@c3-oss/prosa-derived-v2')
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
@@ -2330,16 +2395,17 @@ describe('prosa index-v2 CLI', () => {
     await mkdir(sessionBlobEpochDir(storeRoot, 1), { recursive: true })
     await writeFile(sessionBlobPackPath(storeRoot, 'ses_alpha', 1), result.pack)
 
-    const r = runCli(['index-v2', 'transcript', '--store', storeRoot, '--session-id', 'ses_alpha', '--epoch', '99'])
+    const r = runCli(['v2', 'index', 'transcript', '--store', storeRoot, '--session-id', 'ses_alpha', '--epoch', '99'])
     expect(r.status).not.toBe(0)
     // The library propagates the original ENOENT / path error verbatim.
     expect(r.stderr).toMatch(/epoch-99|ENOENT/)
   })
 
-  it('`index-v2 transcript` rejects a negative ordinal', async () => {
+  it('`v2 index transcript` rejects a negative ordinal', async () => {
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-'))
     const r = runCli([
-      'index-v2',
+      'v2',
+      'index',
       'transcript',
       '--store',
       storeRoot,
@@ -2352,8 +2418,8 @@ describe('prosa index-v2 CLI', () => {
     expect(r.stderr).toMatch(/invalid --start-ordinal/i)
   })
 
-  it('`index-v2 tantivy --help` documents the runtime executor flags', async () => {
-    const r = runCli(['index-v2', 'tantivy', '--help'])
+  it('`v2 index tantivy --help` documents the runtime executor flags', async () => {
+    const r = runCli(['v2', 'index', 'tantivy', '--help'])
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('Tantivy native runtime writer')
     expect(r.stdout).toContain('--store')
@@ -2363,19 +2429,19 @@ describe('prosa index-v2 CLI', () => {
     expect(r.stdout).toContain('--num-threads')
   })
 
-  it('`index-v2 tantivy` against an uninitialised store errors with the openBundle message', async () => {
+  it('`v2 index tantivy` against an uninitialised store errors with the openBundle message', async () => {
     const storeRoot = join(await mkdtemp(join(tmpdir(), 'prosa-cli-tantivy-')), 'never-initialised')
-    const r = runCli(['index-v2', 'tantivy', '--store', storeRoot])
+    const r = runCli(['v2', 'index', 'tantivy', '--store', storeRoot])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/head\.json not found|did you call initBundle/i)
   })
 
-  it('`index-v2 tantivy` against a fresh v2 bundle with no search_doc segment returns no_search_docs', async () => {
+  it('`v2 index tantivy` against a fresh v2 bundle with no search_doc segment returns no_search_docs', async () => {
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-tantivy-'))
     const { initBundle: initBundleV2 } = await import('@c3-oss/prosa-bundle-v2')
     const bundle = await initBundleV2(storeRoot)
     await bundle.close()
-    const r = runCli(['index-v2', 'tantivy', '--store', storeRoot, '--heap-bytes', '15000000', '--num-threads', '1'])
+    const r = runCli(['v2', 'index', 'tantivy', '--store', storeRoot, '--heap-bytes', '15000000', '--num-threads', '1'])
     expect(r.status).toBe(0)
     const out = JSON.parse(r.stdout) as { kind: string; epoch: number; segmentPath: string }
     expect(out.kind).toBe('no_search_docs')
@@ -2383,7 +2449,7 @@ describe('prosa index-v2 CLI', () => {
     expect(out.segmentPath).toContain('epochs/0/projection/search_doc.prosa-projection.ndjson')
   })
 
-  it('`index-v2 tantivy` runs the runtime end-to-end against a planted projection segment and satisfies the Lane 3 gate', async () => {
+  it('`v2 index tantivy` runs the runtime end-to-end against a planted projection segment and satisfies the Lane 3 gate', async () => {
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-tantivy-'))
     const { initBundle: initBundleV2 } = await import('@c3-oss/prosa-bundle-v2')
     const bundle = await initBundleV2(storeRoot)
@@ -2418,7 +2484,7 @@ describe('prosa index-v2 CLI', () => {
       'utf-8',
     )
 
-    const r = runCli(['index-v2', 'tantivy', '--store', storeRoot, '--heap-bytes', '15000000', '--num-threads', '1'])
+    const r = runCli(['v2', 'index', 'tantivy', '--store', storeRoot, '--heap-bytes', '15000000', '--num-threads', '1'])
     expect(r.status).toBe(0)
     const out = JSON.parse(r.stdout) as {
       kind: string
@@ -2440,7 +2506,7 @@ describe('prosa index-v2 CLI', () => {
     expect(out.result.checkpoint.source_doc_count).toBe(rows.length)
 
     // A follow-up status call should see the index as ready_for_read.
-    const status = runCli(['index-v2', 'status', '--store', storeRoot])
+    const status = runCli(['v2', 'index', 'status', '--store', storeRoot])
     expect(status.status).toBe(0)
     const snapshot = JSON.parse(status.stdout) as {
       tantivy: { ready_for_read: boolean; checkpoint?: { indexed_doc_count: number | null } }
@@ -2449,7 +2515,7 @@ describe('prosa index-v2 CLI', () => {
     expect(snapshot.tantivy.checkpoint?.indexed_doc_count).toBe(rows.length)
   })
 
-  it('`index-v2 tantivy --overwrite` against the same bundle re-runs full', async () => {
+  it('`v2 index tantivy --overwrite` against the same bundle re-runs full', async () => {
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-tantivy-'))
     const { initBundle: initBundleV2 } = await import('@c3-oss/prosa-bundle-v2')
     const bundle = await initBundleV2(storeRoot)
@@ -2483,9 +2549,10 @@ describe('prosa index-v2 CLI', () => {
       'utf-8',
     )
 
-    runCli(['index-v2', 'tantivy', '--store', storeRoot, '--heap-bytes', '15000000', '--num-threads', '1'])
+    runCli(['v2', 'index', 'tantivy', '--store', storeRoot, '--heap-bytes', '15000000', '--num-threads', '1'])
     const forced = runCli([
-      'index-v2',
+      'v2',
+      'index',
       'tantivy',
       '--store',
       storeRoot,
@@ -2502,9 +2569,9 @@ describe('prosa index-v2 CLI', () => {
     expect(out.result.plan.reason).toBe('caller_requested_overwrite')
   })
 
-  it('`index-v2 tantivy` rejects --heap-bytes 0', async () => {
+  it('`v2 index tantivy` rejects --heap-bytes 0', async () => {
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-tantivy-'))
-    const r = runCli(['index-v2', 'tantivy', '--store', storeRoot, '--heap-bytes', '0'])
+    const r = runCli(['v2', 'index', 'tantivy', '--store', storeRoot, '--heap-bytes', '0'])
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/invalid --heap-bytes/i)
   })

@@ -21,7 +21,7 @@ const CODEX_FIXTURES = path.join(ROOT, '../../packages/prosa-core/test/fixtures/
 async function runShow(args: readonly string[], cwd: string): Promise<string> {
   const { stdout } = await execFileAsync(
     process.execPath,
-    ['--conditions=prosa-dev', '--import', '@swc-node/register/esm-register', BIN, 'session', 'show', ...args],
+    ['--conditions=prosa-dev', '--import', '@swc-node/register/esm-register', BIN, 'v1', 'session', 'show', ...args],
     { cwd: ROOT, env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' } },
   )
   return stdout

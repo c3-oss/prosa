@@ -87,7 +87,7 @@ async function setupV2Promotion(): Promise<{ configPath: string; storePath: stri
 describe('CQ-143: `prosa sessions` fails closed for a v2-promoted store before hitting /trpc/sessions.*', () => {
   it('refuses `sessions` without --local and never reaches the network', async () => {
     const { storePath, cleanup } = await setupV2Promotion()
-    const r = runCli(['sessions', '--store', storePath, '--limit', '5'], cleanup)
+    const r = runCli(['v1', 'sessions', '--store', storePath, '--limit', '5'], cleanup)
     expect(r.status).not.toBe(0)
     const combined = `${r.stdout}\n${r.stderr}`
     expect(combined).toMatch(/v2-promoted/)
@@ -102,7 +102,7 @@ describe('CQ-143: `prosa sessions` fails closed for a v2-promoted store before h
 
   it('refuses `sessions count` without --local and never reaches the network', async () => {
     const { storePath, cleanup } = await setupV2Promotion()
-    const r = runCli(['sessions', 'count', '--store', storePath], cleanup)
+    const r = runCli(['v1', 'sessions', 'count', '--store', storePath], cleanup)
     expect(r.status).not.toBe(0)
     const combined = `${r.stdout}\n${r.stderr}`
     expect(combined).toMatch(/v2-promoted/)
@@ -117,7 +117,7 @@ describe('CQ-143: `prosa sessions` fails closed for a v2-promoted store before h
     // process exits non-zero with a not-available message and
     // produces no network markers.
     const { storePath, cleanup } = await setupV2Promotion()
-    const r = runCli(['session', 'show', 'ses_anything', '--store', storePath], cleanup)
+    const r = runCli(['v1', 'session', 'show', 'ses_anything', '--store', storePath], cleanup)
     expect(r.status).not.toBe(0)
     const combined = `${r.stdout}\n${r.stderr}`
     expect(combined).toMatch(/--local/)

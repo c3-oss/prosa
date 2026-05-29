@@ -1,7 +1,7 @@
-// CQ-116 acceptance gate: fixture-backed `compile-v2` produces
+// CQ-116 acceptance gate: fixture-backed `v2 compile` produces
 // analytics-readable inputs.
 //
-// Spawns `prosa compile-v2 codex` against a synthetic Codex
+// Spawns `prosa v2 compile codex` against a synthetic Codex
 // rollout fixture to produce a real v2 bundle with NDJSON
 // projection segments, then drives `runAnalyticsExecution` against
 // that bundle. Asserts the report query returns the expected row
@@ -66,18 +66,18 @@ function codexFixtureJsonl(): string {
 }
 
 describe('CQ-116 compile-to-analytics gate', () => {
-  it('runAnalyticsExecution drives session_facts against a real compile-v2 NDJSON bundle', async () => {
+  it('runAnalyticsExecution drives session_facts against a real v2 compile NDJSON bundle', async () => {
     const storeRoot = await tmp()
     const codexRoot = await tmp()
     await mkdir(join(codexRoot, '2025', '01', '02'), { recursive: true })
     await writeFile(join(codexRoot, '2025', '01', '02', 'cq116-rollout.jsonl'), codexFixtureJsonl())
 
-    // compile-v2 codex — emits canonical NDJSON projection segments
+    // v2 compile codex — emits canonical NDJSON projection segments
     // (no Parquet) so this exercises the NDJSON ingest path in the
     // analytics runtime.
-    const compile = runCli(['compile-v2', 'codex', '--store', storeRoot, '--root', codexRoot])
+    const compile = runCli(['v2', 'compile', 'codex', '--store', storeRoot, '--root', codexRoot])
     if (compile.status !== 0) {
-      throw new Error(`compile-v2 failed (status=${compile.status}): ${compile.stderr}\nstdout: ${compile.stdout}`)
+      throw new Error(`v2 compile failed (status=${compile.status}): ${compile.stderr}\nstdout: ${compile.stdout}`)
     }
 
     // Drive the analytics runtime in-process. session_facts joins

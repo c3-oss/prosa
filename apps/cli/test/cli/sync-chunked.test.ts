@@ -442,7 +442,7 @@ describe('CLI chunked sync batching', () => {
   })
 
   it('mixes CAS objects and projection rows in the same chunked commits', async () => {
-    const out = await capturedRun(['sync', '--server', h.baseUrl, '--store', h.storePath, '--json'])
+    const out = await capturedRun(['v1', 'sync', '--server', h.baseUrl, '--store', h.storePath, '--json'])
     const payload = JSON.parse(out.stdout) as { ok: boolean; chunked: boolean; batchCount: number }
 
     expect(payload.ok).toBe(true)
@@ -459,7 +459,7 @@ describe('CLI chunked sync batching', () => {
   it('waits for parent source files before committing raw records', async () => {
     await replaceHarness({ bundleFactory: createDependentRawRecordBundle })
 
-    const out = await capturedRun(['sync', '--server', h.baseUrl, '--store', h.storePath, '--json'])
+    const out = await capturedRun(['v1', 'sync', '--server', h.baseUrl, '--store', h.storePath, '--json'])
     const payload = JSON.parse(out.stdout) as { ok: boolean; chunked: boolean; batchCount: number }
 
     expect(payload.ok).toBe(true)
@@ -474,7 +474,7 @@ describe('CLI chunked sync batching', () => {
   it('resumes chunked sync by skipping chunks that already verified', async () => {
     await replaceHarness({ failPlanOnceAt: 3 })
 
-    await expect(capturedRun(['sync', '--server', h.baseUrl, '--store', h.storePath, '--json'])).rejects.toThrow(
+    await expect(capturedRun(['v1', 'sync', '--server', h.baseUrl, '--store', h.storePath, '--json'])).rejects.toThrow(
       /planned test failure/,
     )
     expect(h.commits).toEqual([
@@ -482,7 +482,7 @@ describe('CLI chunked sync batching', () => {
       { objectCount: 1, rowCount: 2, sourceFileCount: 1, sessionCount: 1, rawRecordCount: 0 },
     ])
 
-    const out = await capturedRun(['sync', '--server', h.baseUrl, '--store', h.storePath, '--json'])
+    const out = await capturedRun(['v1', 'sync', '--server', h.baseUrl, '--store', h.storePath, '--json'])
     const payload = JSON.parse(out.stdout) as { ok: boolean; chunked: boolean; batchCount: number }
 
     expect(payload.ok).toBe(true)
@@ -498,7 +498,7 @@ describe('CLI chunked sync batching', () => {
   it('retries a transient verifyPromotion failure before checkpointing chunks', async () => {
     await replaceHarness({ failVerifyOnceAt: 1 })
 
-    await capturedRun(['sync', '--server', h.baseUrl, '--store', h.storePath, '--json'])
+    await capturedRun(['v1', 'sync', '--server', h.baseUrl, '--store', h.storePath, '--json'])
 
     expect(h.commits).toEqual([
       { objectCount: 2, rowCount: 2, sourceFileCount: 2, sessionCount: 0, rawRecordCount: 0 },
@@ -509,16 +509,25 @@ describe('CLI chunked sync batching', () => {
   })
 
   it('supports disabling and resetting chunked sync checkpoints', async () => {
-    await capturedRun(['sync', '--server', h.baseUrl, '--store', h.storePath, '--json'])
+    await capturedRun(['v1', 'sync', '--server', h.baseUrl, '--store', h.storePath, '--json'])
     expect(h.commits).toHaveLength(3)
 
-    await capturedRun(['sync', '--server', h.baseUrl, '--store', h.storePath, '--json'])
+    await capturedRun(['v1', 'sync', '--server', h.baseUrl, '--store', h.storePath, '--json'])
     expect(h.commits).toHaveLength(3)
 
-    await capturedRun(['sync', '--server', h.baseUrl, '--store', h.storePath, '--no-resume', '--json'])
+    await capturedRun(['v1', 'sync', '--server', h.baseUrl, '--store', h.storePath, '--no-resume', '--json'])
     expect(h.commits).toHaveLength(6)
 
-    await capturedRun(['sync', '--server', h.baseUrl, '--store', h.storePath, '--reset-sync-checkpoint', '--json'])
+    await capturedRun([
+      'v1',
+      'sync',
+      '--server',
+      h.baseUrl,
+      '--store',
+      h.storePath,
+      '--reset-sync-checkpoint',
+      '--json',
+    ])
     expect(h.commits).toHaveLength(9)
   })
 })

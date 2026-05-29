@@ -1,4 +1,4 @@
-// CQ-150 — command-level test for `prosa read search`.
+// CQ-150 — command-level test for `prosa v2 read search`.
 //
 // Verifies that the CLI command (a) sends the actual Lane 6
 // `/v2/reads/search/query` input shape, (b) renders the
@@ -103,7 +103,7 @@ async function capture(args: string[]): Promise<{ stdout: string; stderr: string
   return { stdout: out.join(''), stderr: err.join('') }
 }
 
-describe('prosa read search — command-level (CQ-150)', () => {
+describe('prosa v2 read search — command-level (CQ-150)', () => {
   let h: { root: string; configPath: string; storePath: string; authorityDir: string }
   let originalAuthorityDir: string | undefined
 
@@ -156,6 +156,7 @@ describe('prosa read search — command-level (CQ-150)', () => {
     )
 
     const out = await capture([
+      'v2',
       'read',
       'search',
       'needle',
@@ -218,6 +219,7 @@ describe('prosa read search — command-level (CQ-150)', () => {
   it('rejects server-only filters in --authority local', async () => {
     await expect(
       capture([
+        'v2',
         'read',
         'search',
         'q',

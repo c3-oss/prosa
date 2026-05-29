@@ -174,6 +174,7 @@ describe('remote-authoritative CLI reads', () => {
     // CQ-005: remote-authoritative search v0 fails closed. The CLI must
     // surface a clear error rather than masquerade a partial result.
     const searchError = await capturedRun([
+      'v1',
       'search',
       'needle',
       '--store',
@@ -186,7 +187,7 @@ describe('remote-authoritative CLI reads', () => {
     expect(searchError).toBeInstanceOf(Error)
     expect((searchError as Error).message).toMatch(/remote-authoritative search is unavailable/i)
 
-    const sessionsOut = await capturedRun(['sessions', '--store', h.storePath, '--output-format', 'json'])
+    const sessionsOut = await capturedRun(['v1', 'sessions', '--store', h.storePath, '--output-format', 'json'])
     const sessions = JSON.parse(sessionsOut.stdout) as {
       source: string
       rows: Array<{ session_id: string; source_tool: string }>
@@ -194,7 +195,7 @@ describe('remote-authoritative CLI reads', () => {
     expect(sessions.source).toBe('remote')
     expect(sessions.rows).toEqual([expect.objectContaining({ session_id: 'sess-remote-1', source_tool: 'codex' })])
 
-    const countOut = await capturedRun(['sessions', 'count', '--store', h.storePath, '--source', 'codex'])
+    const countOut = await capturedRun(['v1', 'sessions', 'count', '--store', h.storePath, '--source', 'codex'])
     expect(countOut.stdout).toBe('1\n')
   })
 
@@ -202,12 +203,12 @@ describe('remote-authoritative CLI reads', () => {
     await makeRemoteAuthoritativeWithMissingBundle(h)
 
     for (const args of [
-      ['analytics', 'sessions', '--store', h.storePath],
-      ['query', 'duckdb', 'select 1', '--store', h.storePath],
-      ['export', 'session', 'sess-remote-1', '--format', 'markdown', '--store', h.storePath],
-      ['export', 'parquet', '--store', h.storePath],
-      ['mcp', 'serve', '--store', h.storePath],
-      ['tui', '--store', h.storePath],
+      ['v1', 'analytics', 'sessions', '--store', h.storePath],
+      ['v1', 'query', 'duckdb', 'select 1', '--store', h.storePath],
+      ['v1', 'export', 'session', 'sess-remote-1', '--format', 'markdown', '--store', h.storePath],
+      ['v1', 'export', 'parquet', '--store', h.storePath],
+      ['v1', 'mcp', 'serve', '--store', h.storePath],
+      ['v1', 'tui', '--store', h.storePath],
     ]) {
       const error = await capturedRun(args).catch((err: unknown) => err)
       expect(error).toBeInstanceOf(Error)
@@ -219,7 +220,7 @@ describe('remote-authoritative CLI reads', () => {
   it('rejects local-only search engines after promotion unless --local is explicit', async () => {
     await makeRemoteAuthoritativeWithMissingBundle(h)
 
-    const error = await capturedRun(['search', 'needle', '--store', h.storePath, '--engine', 'tantivy']).catch(
+    const error = await capturedRun(['v1', 'search', 'needle', '--store', h.storePath, '--engine', 'tantivy']).catch(
       (err: unknown) => err,
     )
 

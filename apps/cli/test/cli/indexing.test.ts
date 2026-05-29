@@ -28,7 +28,7 @@ describe('index CLI', () => {
   })
 
   it('compile auto-rebuilds the FTS5 index so search works immediately', async () => {
-    await runProsa(['compile', 'codex', '--sessions-path', CODEX_FIXTURES, '--store', storePath])
+    await runProsa(['v1', 'compile', 'codex', '--sessions-path', CODEX_FIXTURES, '--store', storePath])
 
     const bundle = await openBundle(storePath)
     try {
@@ -41,9 +41,9 @@ describe('index CLI', () => {
   })
 
   it('index fts5 standalone command rebuilds from search_docs', async () => {
-    await runProsa(['compile', 'codex', '--sessions-path', CODEX_FIXTURES, '--store', storePath])
+    await runProsa(['v1', 'compile', 'codex', '--sessions-path', CODEX_FIXTURES, '--store', storePath])
 
-    const { stdout } = await runProsa(['index', 'fts5', '--store', storePath])
+    const { stdout } = await runProsa(['v1', 'index', 'fts5', '--store', storePath])
     expect(stdout).toContain('fts5 index: ready')
 
     const bundle = await openBundle(storePath)

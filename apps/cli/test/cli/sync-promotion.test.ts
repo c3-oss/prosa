@@ -121,6 +121,7 @@ describe('CLI auth + sync end-to-end', () => {
     expect(signupOut.stdout).toContain('"ok":true')
 
     const syncOut = await capturedRun([
+      'v1',
       'sync',
       '--server',
       h.baseUrl,
@@ -193,7 +194,7 @@ describe('CLI auth + sync end-to-end', () => {
       'Dry Co',
       '--json',
     ])
-    const out = await capturedRun(['sync', '--server', h.baseUrl, '--store', h.storePath, '--dry-run', '--json'])
+    const out = await capturedRun(['v1', 'sync', '--server', h.baseUrl, '--store', h.storePath, '--dry-run', '--json'])
     expect(out.stdout).toContain('"dryRun":true')
     // Local bundle should still exist.
     const manifestExists = await stat(`${h.storePath}/manifest.json`).then(
@@ -219,7 +220,7 @@ describe('CLI auth + sync end-to-end', () => {
       'Purge Co',
       '--json',
     ])
-    await capturedRun(['sync', '--server', h.baseUrl, '--store', h.storePath, '--purge-bundle', '--json'])
+    await capturedRun(['v1', 'sync', '--server', h.baseUrl, '--store', h.storePath, '--purge-bundle', '--json'])
     const manifestExists = await stat(`${h.storePath}/manifest.json`).then(
       () => true,
       () => false,
@@ -243,7 +244,7 @@ describe('CLI auth + sync end-to-end', () => {
       'Keep Co',
       '--json',
     ])
-    await capturedRun(['sync', '--server', h.baseUrl, '--store', h.storePath, '--keep-local', '--json'])
+    await capturedRun(['v1', 'sync', '--server', h.baseUrl, '--store', h.storePath, '--keep-local', '--json'])
     const manifestExists = await stat(`${h.storePath}/manifest.json`).then(
       () => true,
       () => false,

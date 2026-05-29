@@ -52,11 +52,11 @@ describe('bundle error mapping', () => {
     try {
       const defaultError = asCliBundleOpenError(new BundleNotInitializedError(defaultBundlePath(), 'missing-directory'))
       expect(defaultError).toBeInstanceOf(Error)
-      expect(String((defaultError as Error).message)).toContain('Run `prosa init`')
+      expect(String((defaultError as Error).message)).toContain('Run `prosa v1 init`')
 
       const explicitError = asCliBundleOpenError(new BundleNotInitializedError('/tmp/prosa-custom', 'missing-manifest'))
       expect(explicitError).toBeInstanceOf(Error)
-      expect(String((explicitError as Error).message)).toContain('prosa init --store /tmp/prosa-custom')
+      expect(String((explicitError as Error).message)).toContain('prosa v1 init --store /tmp/prosa-custom')
 
       const unknown = new Error('boom')
       expect(asCliBundleOpenError(unknown)).toBe(unknown)

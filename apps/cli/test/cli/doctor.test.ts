@@ -52,7 +52,7 @@ describe('doctor CLI', () => {
   it('runs successfully on a freshly initialized bundle and exits 0', async () => {
     const t = await makeTempRun()
     try {
-      const res = await runProsa(['doctor', '--store', t.storePath])
+      const res = await runProsa(['v1', 'doctor', '--store', t.storePath])
       expect(res.code).toBe(0)
       expect(res.stdout).toContain('bundle.dir')
       expect(res.stdout).toContain('schema.version')
@@ -65,7 +65,7 @@ describe('doctor CLI', () => {
   it('emits a well-formed JSON report with summary metadata', async () => {
     const t = await makeTempRun()
     try {
-      const res = await runProsa(['doctor', '--store', t.storePath, '--output-format', 'json'])
+      const res = await runProsa(['v1', 'doctor', '--store', t.storePath, '--output-format', 'json'])
       expect(res.code).toBe(0)
       const parsed = JSON.parse(res.stdout) as {
         store_path: string
@@ -86,7 +86,16 @@ describe('doctor CLI', () => {
   it('--checks filters the emitted check list', async () => {
     const t = await makeTempRun()
     try {
-      const res = await runProsa(['doctor', '--store', t.storePath, '--checks', 'sqlite', '--output-format', 'json'])
+      const res = await runProsa([
+        'v1',
+        'doctor',
+        '--store',
+        t.storePath,
+        '--checks',
+        'sqlite',
+        '--output-format',
+        'json',
+      ])
       expect(res.code).toBe(0)
       const parsed = JSON.parse(res.stdout) as {
         rows: Array<{ check: string }>
@@ -104,7 +113,7 @@ describe('doctor CLI', () => {
     const t = await makeTempRun()
     try {
       await unlink(path.join(t.storePath, 'manifest.json'))
-      const res = await runProsa(['doctor', '--store', t.storePath, '--output-format', 'json'])
+      const res = await runProsa(['v1', 'doctor', '--store', t.storePath, '--output-format', 'json'])
       expect(res.code).toBe(2)
       const parsed = JSON.parse(res.stdout) as {
         bundle_opened: boolean
@@ -132,10 +141,10 @@ describe('doctor CLI', () => {
       `)
       db.close()
 
-      const lenient = await runProsa(['doctor', '--store', t.storePath])
+      const lenient = await runProsa(['v1', 'doctor', '--store', t.storePath])
       expect(lenient.code).toBe(0)
 
-      const strict = await runProsa(['doctor', '--store', t.storePath, '--strict'])
+      const strict = await runProsa(['v1', 'doctor', '--store', t.storePath, '--strict'])
       expect(strict.code).toBe(1)
       expect(strict.stdout).toContain('import_batches.stuck')
     } finally {

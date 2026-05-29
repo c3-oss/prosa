@@ -1,4 +1,4 @@
-// Lane 7 slice 11 — live E2E smoke for `prosa read sessions`.
+// Lane 7 slice 11 — live E2E smoke for `prosa v2 read sessions`.
 //
 // Boots a minimal Fastify with the Lane 6 v2 read plugin mounted
 // against a v2-only PGlite, stubs ProsaAuth so `auth.api.getSession`
@@ -275,7 +275,7 @@ function bindFetchToApp(app: FastifyInstance): typeof fetch {
   }) as typeof fetch
 }
 
-describe('Lane 7 slice 11 — live `prosa read sessions` E2E', () => {
+describe('Lane 7 slice 11 — live `prosa v2 read sessions` E2E', () => {
   let h: Harness
   let originalConfigPath: string | undefined
   let originalAuthorityDir: string | undefined
@@ -300,8 +300,8 @@ describe('Lane 7 slice 11 — live `prosa read sessions` E2E', () => {
     await h.close()
   })
 
-  it('`prosa read sessions --output-format json` lists the seeded session', async () => {
-    const out = await captureRun(['read', 'sessions', '--store', h.storePath, '--output-format', 'json'])
+  it('`prosa v2 read sessions --output-format json` lists the seeded session', async () => {
+    const out = await captureRun(['v2', 'read', 'sessions', '--store', h.storePath, '--output-format', 'json'])
     const payload = JSON.parse(out.stdout) as {
       source: string
       server: string
@@ -330,8 +330,8 @@ describe('Lane 7 slice 11 — live `prosa read sessions` E2E', () => {
     expect(row.receipt_id).toBe(RECEIPT_ID)
   })
 
-  it('`prosa read sessions --count` returns the integer count', async () => {
-    const out = await captureRun(['read', 'sessions', '--count', '--store', h.storePath])
+  it('`prosa v2 read sessions --count` returns the integer count', async () => {
+    const out = await captureRun(['v2', 'read', 'sessions', '--count', '--store', h.storePath])
     expect(out.stdout.trim()).toBe('1')
   })
 })

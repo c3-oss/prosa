@@ -1,5 +1,5 @@
-// Integration tests for `prosa compile-v2 <provider>` and
-// `prosa compile-all-v2` — the Lane 2 CLI surface that wraps
+// Integration tests for `prosa v2 compile <provider>` and
+// `prosa v2 compile-all` — the Lane 2 CLI surface that wraps
 // `runCompileImports` against the five real providers.
 //
 // We spawn the CLI as a subprocess to exercise the same code path
@@ -54,17 +54,17 @@ const HERMES_LINE = {
   content: 'hi',
 }
 
-describe('prosa compile-v2 / compile-all-v2 CLI', () => {
-  it('CQ-072: `compile-v2 --help` prints the usage banner and exits 0', async () => {
-    const r = runCli(['compile-v2', '--help'])
+describe('prosa v2 compile / v2 compile-all CLI', () => {
+  it('CQ-072: `v2 compile --help` prints the usage banner and exits 0', async () => {
+    const r = runCli(['v2', 'compile', '--help'])
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('Compile a single provider into a bundle v2 store')
     expect(r.stdout).toContain('<provider>')
     expect(r.stdout).toContain('--store')
   })
 
-  it('CQ-072: `compile-all-v2 --help` prints the usage banner and exits 0', async () => {
-    const r = runCli(['compile-all-v2', '--help'])
+  it('CQ-072: `v2 compile-all --help` prints the usage banner and exits 0', async () => {
+    const r = runCli(['v2', 'compile-all', '--help'])
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('Compile every supported provider')
     expect(r.stdout).toContain('--codex-root')
@@ -74,12 +74,12 @@ describe('prosa compile-v2 / compile-all-v2 CLI', () => {
     expect(r.stdout).toContain('--hermes-root')
   })
 
-  it('compile-v2 codex against a synthetic Codex rollout seals one epoch', async () => {
+  it('v2 compile codex against a synthetic Codex rollout seals one epoch', async () => {
     const storeRoot = await tmp()
     const codexRoot = await tmp()
     await mkdir(join(codexRoot, '2025', '01', '02'), { recursive: true })
     await writeFile(join(codexRoot, '2025', '01', '02', 'rollout-cli.jsonl'), `${JSON.stringify(CODEX_LINE)}\n`)
-    const r = runCli(['compile-v2', 'codex', '--store', storeRoot, '--root', codexRoot])
+    const r = runCli(['v2', 'compile', 'codex', '--store', storeRoot, '--root', codexRoot])
     expect(r.status).toBe(0)
     const summary = JSON.parse(r.stdout) as {
       sealedEpoch: number
@@ -98,14 +98,14 @@ describe('prosa compile-v2 / compile-all-v2 CLI', () => {
     }
   })
 
-  it('compile-v2 rejects unknown provider names with exit code 2', async () => {
+  it('v2 compile rejects unknown provider names with exit code 2', async () => {
     const storeRoot = await tmp()
-    const r = runCli(['compile-v2', 'bogus-provider', '--store', storeRoot])
+    const r = runCli(['v2', 'compile', 'bogus-provider', '--store', storeRoot])
     expect(r.status).toBe(2)
     expect(r.stderr).toContain('unknown provider')
   })
 
-  it('compile-all-v2 runs every provider against per-provider roots and seals one epoch', async () => {
+  it('v2 compile-all runs every provider against per-provider roots and seals one epoch', async () => {
     const storeRoot = await tmp()
     const codexRoot = await tmp()
     const claudeRoot = await tmp()
@@ -130,7 +130,8 @@ describe('prosa compile-v2 / compile-all-v2 CLI', () => {
     await writeFile(join(hermesRoot, 'sess_hermes_cli.jsonl'), `${JSON.stringify(HERMES_LINE)}\n`)
 
     const r = runCli([
-      'compile-all-v2',
+      'v2',
+      'compile-all',
       '--store',
       storeRoot,
       '--codex-root',
@@ -145,7 +146,7 @@ describe('prosa compile-v2 / compile-all-v2 CLI', () => {
       hermesRoot,
     ])
     if (r.status !== 0) {
-      throw new Error(`compile-all-v2 failed (status=${r.status}): ${r.stderr}\nstdout: ${r.stdout}`)
+      throw new Error(`v2 compile-all failed (status=${r.status}): ${r.stderr}\nstdout: ${r.stdout}`)
     }
     const summary = JSON.parse(r.stdout) as {
       sealedEpoch: number

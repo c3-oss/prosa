@@ -1,4 +1,4 @@
-// End-to-end compaction-lifecycle test for the `prosa index-v2`
+// End-to-end compaction-lifecycle test for the `prosa v2 index`
 // CLI group. Per-subcommand tests in `index-v2.test.ts` and the
 // coherence test in `index-v2-coherence.test.ts` exercise discrete
 // surfaces; this file walks the entire pure-TS compaction lifecycle
@@ -38,7 +38,7 @@ function runCli(args: string[]): { stdout: string; stderr: string; status: numbe
   return { stdout: result.stdout, stderr: result.stderr, status: result.status }
 }
 
-describe('prosa index-v2 compaction-lifecycle (end-to-end)', () => {
+describe('prosa v2 index compaction-lifecycle (end-to-end)', () => {
   it('walks compaction-plan → manifest-write → superseded → compacted-outputs → gc-plan consistently', async () => {
     const storeRoot = await mkdtemp(join(tmpdir(), 'prosa-cli-index-v2-lifecycle-'))
 
@@ -51,7 +51,7 @@ describe('prosa index-v2 compaction-lifecycle (end-to-end)', () => {
     }
 
     // 2. Compaction plan should fire for sessions.
-    const planResult = runCli(['index-v2', 'compaction-plan', '--store', storeRoot])
+    const planResult = runCli(['v2', 'index', 'compaction-plan', '--store', storeRoot])
     expect(planResult.status).toBe(0)
     const plan = JSON.parse(planResult.stdout) as {
       empty: boolean
@@ -65,7 +65,8 @@ describe('prosa index-v2 compaction-lifecycle (end-to-end)', () => {
 
     // 3. Persist the manifest.
     const writeResult = runCli([
-      'index-v2',
+      'v2',
+      'index',
       'compaction-manifest',
       '--store',
       storeRoot,
@@ -83,7 +84,8 @@ describe('prosa index-v2 compaction-lifecycle (end-to-end)', () => {
 
     // 4. The persisted manifest is readable via `--read` and matches the write output.
     const readResult = runCli([
-      'index-v2',
+      'v2',
+      'index',
       'compaction-manifest',
       '--store',
       storeRoot,
@@ -96,7 +98,7 @@ describe('prosa index-v2 compaction-lifecycle (end-to-end)', () => {
 
     // 5. `superseded-segments` lists every source segment the
     //    manifest recorded as merged-away.
-    const supersededResult = runCli(['index-v2', 'superseded-segments', '--store', storeRoot])
+    const supersededResult = runCli(['v2', 'index', 'superseded-segments', '--store', storeRoot])
     expect(supersededResult.status).toBe(0)
     const supersededRows = JSON.parse(supersededResult.stdout) as Array<{
       compaction_seq: number
@@ -107,13 +109,13 @@ describe('prosa index-v2 compaction-lifecycle (end-to-end)', () => {
     expect(supersededRows.every((r) => r.compaction_seq === 1 && r.entity_type === 'sessions')).toBe(true)
 
     // 6. `compacted-outputs` reports inconsistent (runtime worker has not landed).
-    const outputsBefore = runCli(['index-v2', 'compacted-outputs', '--store', storeRoot])
+    const outputsBefore = runCli(['v2', 'index', 'compacted-outputs', '--store', storeRoot])
     expect(outputsBefore.status).toBe(0)
     const outputsBeforeRows = JSON.parse(outputsBefore.stdout) as Array<{ consistent: boolean }>
     expect(outputsBeforeRows[0]?.consistent).toBe(false)
 
     // 7. `gc-plan` partitions every superseded candidate as blocked.
-    const gcBefore = runCli(['index-v2', 'gc-plan', '--store', storeRoot])
+    const gcBefore = runCli(['v2', 'index', 'gc-plan', '--store', storeRoot])
     expect(gcBefore.status).toBe(0)
     const gcBeforePlan = JSON.parse(gcBefore.stdout) as {
       candidates: Array<{ safe_to_delete: boolean; blocked_reason: string | null }>
@@ -130,7 +132,7 @@ describe('prosa index-v2 compaction-lifecycle (end-to-end)', () => {
     await writeFile(join(compactedDir, 'sessions.compacted.parquet'), Buffer.alloc(2048))
 
     // 9. `compacted-outputs` flips to consistent.
-    const outputsAfter = runCli(['index-v2', 'compacted-outputs', '--store', storeRoot])
+    const outputsAfter = runCli(['v2', 'index', 'compacted-outputs', '--store', storeRoot])
     expect(outputsAfter.status).toBe(0)
     const outputsAfterRows = JSON.parse(outputsAfter.stdout) as Array<{
       consistent: boolean
@@ -141,7 +143,7 @@ describe('prosa index-v2 compaction-lifecycle (end-to-end)', () => {
     expect(outputsAfterRows[0]?.entity_outputs[0]?.byte_length).toBe(2048)
 
     // 10. `gc-plan` flips every candidate to safe_to_delete, totals move.
-    const gcAfter = runCli(['index-v2', 'gc-plan', '--store', storeRoot])
+    const gcAfter = runCli(['v2', 'index', 'gc-plan', '--store', storeRoot])
     expect(gcAfter.status).toBe(0)
     const gcAfterPlan = JSON.parse(gcAfter.stdout) as {
       candidates: Array<{ safe_to_delete: boolean; blocked_reason: string | null }>

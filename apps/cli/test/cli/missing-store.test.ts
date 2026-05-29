@@ -18,13 +18,13 @@ describe('missing store CLI guidance', () => {
     const homePath = path.join(rootPath, 'home')
     await mkdir(homePath, { recursive: true })
     try {
-      const error = await runProsa(['compile-all'], envWithHomeOnly(homePath)).catch((err: unknown) => err)
+      const error = await runProsa(['v1', 'compile-all'], envWithHomeOnly(homePath)).catch((err: unknown) => err)
 
       expect(error).toMatchObject({
         code: 1,
         stderr: expect.stringContaining(`No default prosa store found at ${path.join(homePath, '.prosa')}.`),
       })
-      expect(error.stderr).toContain('Run `prosa init` to create it.')
+      expect(error.stderr).toContain('Run `prosa v1 init` to create it.')
       expect(error.stderr).not.toContain('CliUserError')
       expect(error.stderr).not.toContain('BundleNotInitializedError')
       expect(error.stderr).not.toContain('openBundle')
@@ -37,13 +37,13 @@ describe('missing store CLI guidance', () => {
     const rootPath = await mkdtemp(path.join(os.tmpdir(), 'prosa-missing-store-'))
     const storePath = path.join(rootPath, 'store')
     try {
-      const error = await runProsa(['sessions', '--store', storePath]).catch((err: unknown) => err)
+      const error = await runProsa(['v1', 'sessions', '--store', storePath]).catch((err: unknown) => err)
 
       expect(error).toMatchObject({
         code: 1,
         stderr: expect.stringContaining(`No prosa store found at ${storePath}.`),
       })
-      expect(error.stderr).toContain(`Run \`prosa init --store ${storePath}\` to create it.`)
+      expect(error.stderr).toContain(`Run \`prosa v1 init --store ${storePath}\` to create it.`)
       expect(error.stderr).not.toContain('CliUserError')
       expect(error.stderr).not.toContain('BundleNotInitializedError')
       expect(error.stderr).not.toContain('openBundle')
@@ -56,13 +56,13 @@ describe('missing store CLI guidance', () => {
     const rootPath = await mkdtemp(path.join(os.tmpdir(), 'prosa-missing-store-'))
     const storePath = path.join(rootPath, 'store')
     try {
-      const error = await runProsa(['export', 'parquet', '--store', storePath]).catch((err: unknown) => err)
+      const error = await runProsa(['v1', 'export', 'parquet', '--store', storePath]).catch((err: unknown) => err)
 
       expect(error).toMatchObject({
         code: 1,
         stderr: expect.stringContaining(`No prosa store found at ${storePath}.`),
       })
-      expect(error.stderr).toContain(`Run \`prosa init --store ${storePath}\` to create it.`)
+      expect(error.stderr).toContain(`Run \`prosa v1 init --store ${storePath}\` to create it.`)
       expect(error.stderr).not.toContain('CliUserError')
       expect(error.stderr).not.toContain('BundleNotInitializedError')
       expect(error.stderr).not.toContain('openBundle')
