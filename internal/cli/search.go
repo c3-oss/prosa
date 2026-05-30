@@ -334,7 +334,20 @@ func remoteHitsToLocal(in []*prosav1.SearchHit) []store.SearchHit {
 			v := h.Session.Model
 			s.Model = &v
 		}
-		out = append(out, store.SearchHit{Session: s, Snippet: h.Snippet, Role: h.Role})
+		hit := store.SearchHit{
+			Session:    s,
+			Snippet:    h.Snippet,
+			Role:       h.Role,
+			TurnID:     h.TurnId,
+			Kind:       h.Kind,
+			ToolName:   h.ToolName,
+			MatchField: h.MatchField,
+			Rank:       h.Rank,
+		}
+		if h.TurnTs != nil {
+			hit.TurnTS = h.TurnTs.AsTime()
+		}
+		out = append(out, hit)
 	}
 	return out
 }

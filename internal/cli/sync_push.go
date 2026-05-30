@@ -134,10 +134,16 @@ func sessionToProto(s session.Session) *prosav1.Session {
 func turnsToProto(turns []session.Turn) []*prosav1.Turn {
 	out := make([]*prosav1.Turn, 0, len(turns))
 	for _, t := range turns {
+		kind := t.Kind
+		if kind == "" {
+			kind = session.KindMessage
+		}
 		out = append(out, &prosav1.Turn{
-			Role:    t.Role,
-			Content: t.Content,
-			Ts:      timestamppb.New(t.Timestamp),
+			Role:     t.Role,
+			Content:  t.Content,
+			Ts:       timestamppb.New(t.Timestamp),
+			Kind:     kind,
+			ToolName: t.ToolName,
 		})
 	}
 	return out
