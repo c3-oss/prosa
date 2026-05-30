@@ -1,0 +1,48 @@
+// Package paths centralizes resolution of prosa's on-disk locations so the
+// rest of the codebase never hard-codes ~/... or XDG layouts.
+package paths
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+)
+
+// Home returns the prosa data root. Resolution order:
+//  1. $PROSA_HOME if set (escape hatch for tests and exotic installs).
+//  2. $XDG_DATA_HOME/prosa  (or $HOME/.local/share/prosa if XDG_DATA_HOME is unset).
+//
+// Cut 1 does not deviate per-OS — XDG layout is used on macOS too, per
+// INTENT.md §4.
+func Home() (string, error) {
+	if v := os.Getenv("PROSA_HOME"); v != "" {
+		return v, nil
+	}
+	if v := os.Getenv("XDG_DATA_HOME"); v != "" {
+		return filepath.Join(v, "prosa"), nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve home: %w", err)
+	}
+	return filepath.Join(home, ".local", "share", "prosa"), nil
+}
+
+// StorePath returns the absolute SQLite database file path.
+func StorePath() (string, error) {
+	h, err := Home()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(h, "store.db"), nil
+}
+
+// RawRoot returns the raw preservation directory for the given agent
+// (e.g. "claude-code" -> $PROSA_HOME/raw/claude-code).
+func RawRoot(agent string) (string, error) {
+	h, err := Home()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(h, "raw", agent), nil
+}
