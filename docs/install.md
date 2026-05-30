@@ -59,7 +59,7 @@ and either `sha256sum` or `shasum -a 256`. It:
 
 | Variable | Default | What it does |
 | --- | --- | --- |
-| `PROSA_VERSION` | `latest` | Pin to a specific tag (e.g. `v3.0.0`). |
+| `PROSA_VERSION` | `latest` | Pin to a specific tag (e.g. `v0.11.0`). |
 | `INSTALL_DIR` | `$HOME/.local/bin` | Where binaries land. Created if missing. |
 | `INSTALL_BINS` | `prosa` | Space-separated list. Use `"prosa prosa-server prosa-panel"` to install all three. |
 
@@ -67,7 +67,7 @@ Examples:
 
 ```sh
 # Install a specific version
-PROSA_VERSION=v3.0.0 curl -fsSL https://raw.githubusercontent.com/c3-oss/prosa/master/install.sh | sh
+PROSA_VERSION=v0.11.0 curl -fsSL https://raw.githubusercontent.com/c3-oss/prosa/master/install.sh | sh
 
 # Install all three binaries to /usr/local/bin
 INSTALL_DIR=/usr/local/bin INSTALL_BINS="prosa prosa-server prosa-panel" \

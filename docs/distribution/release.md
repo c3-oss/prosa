@@ -8,9 +8,9 @@ maintainer cutting this release, you don't need this file.
 ```sh
 just ci                              # all lights green locally
 just snapshot                        # dry-run goreleaser into dist/
-docker build -t prosa:local .        # check the image builds for your host arch
+just docker-build                    # check the three images build for your host arch
 ./bin/prosa --version                # sanity check
-git tag v3.0.0
+git tag v0.11.0
 git push --tags
 ```
 
@@ -37,10 +37,11 @@ Run from a clean checkout of `master`:
    - Use to confirm there are no GoReleaser config errors before the real
      tag.
 
-3. **`docker build -t prosa:local .`** — Dockerfile builds for the host
-   arch.
+3. **`just docker-build`** — Dockerfile builds for the host arch,
+   producing `prosa:local`, `prosa-server:local`, and `prosa-panel:local`.
    - `docker run --rm prosa:local --version` should print the same
-     version/commit metadata.
+     version/commit metadata as `./bin/prosa --version`. The other two
+     images carry their named binaries.
 
 4. **`./bin/prosa --version`** — confirms the buildinfo ldflags injected
    `Version`, `Commit`, `BuildDate`.
@@ -65,7 +66,7 @@ prosa follows semver. Pre-releases use `-rc`, `-beta`, etc.; GoReleaser is
 configured with `prerelease: auto`.
 
 ```sh
-git tag v3.0.0                       # or v3.0.0-rc1, v3.0.0-beta1, etc.
+git tag v0.11.0                      # or v0.11.0-rc1, v0.11.0-beta1, etc.
 git push --tags
 ```
 
@@ -82,7 +83,7 @@ GitHub Actions runs `.github/workflows/release.yml`. One job, multi-step:
 - Builds the 12 binaries (3 binaries × 2 OS × 2 arch).
 - Produces `tar.gz` archives.
 - Computes `checksums.txt`.
-- Renders the GitHub Release (title = `prosa v3.0.0`, body = grouped
+- Renders the GitHub Release (title = `prosa v0.11.0`, body = grouped
   changelog).
 - Pushes `Casks/prosa.rb` to `c3-oss/homebrew-prosa` using
   `HOMEBREW_TAP_TOKEN`.
@@ -94,9 +95,9 @@ Secrets used: `GITHUB_TOKEN` (auto), `HOMEBREW_TAP_TOKEN` (manual,
 
 `scripts/publish-npm.sh` runs after GoReleaser.
 
-- Reads `GITHUB_REF_NAME` (e.g. `v3.0.0`), strips `v` → `3.0.0`.
-- Stamps `3.0.0` into all five `npm/*/package.json` files (and into the
-  metapackage's `optionalDependencies`).
+- Reads `GITHUB_REF_NAME` (e.g. `v0.11.0`), strips `v` → `0.11.0`.
+- Stamps `0.11.0` into all five `npm/*/package.json` files (and into
+  the metapackage's `optionalDependencies`).
 - Copies binaries from `dist/prosa_<os>_<arch>/prosa` into
   `npm/prosa-<platform>/bin/prosa`.
 - Verifies all five versions match (aborts otherwise).
@@ -106,11 +107,17 @@ Secret used: `NPM_TOKEN` (granular, `@c3-oss` org publish scope).
 
 ### Step 3 — Docker push
 
-QEMU + Buildx multi-arch build and push.
+QEMU + Buildx multi-arch build and push. Three images, one per binary,
+share the QEMU/Buildx setup and GHCR login. Each image is published with
+the release tag and `latest`, for `linux/amd64` and `linux/arm64`:
 
-- Logs into `ghcr.io` with `GITHUB_TOKEN`.
-- Builds for `linux/amd64,linux/arm64`.
-- Tags: `ghcr.io/c3-oss/prosa:v3.0.0` and `ghcr.io/c3-oss/prosa:latest`.
+- `ghcr.io/c3-oss/prosa` (CLI)
+- `ghcr.io/c3-oss/prosa-server`
+- `ghcr.io/c3-oss/prosa-panel`
+
+The Dockerfile is multi-target (one named final stage per binary). The
+shared `build` stage is cached by Buildx so all three targets reuse the
+same compiled binaries.
 
 Secret used: `GITHUB_TOKEN` (auto).
 
@@ -124,20 +131,25 @@ brew update && brew install c3-oss/prosa/prosa
 prosa --version
 
 # install.sh
-PROSA_VERSION=v3.0.0 \
+PROSA_VERSION=v0.11.0 \
   curl -fsSL https://raw.githubusercontent.com/c3-oss/prosa/master/install.sh | sh
 ~/.local/bin/prosa --version
 
 # npm
-npm install -g @c3-oss/prosa@3.0.0
+npm install -g @c3-oss/prosa@0.11.0
 prosa --version
 
-# Docker
-docker pull ghcr.io/c3-oss/prosa:v3.0.0
-docker run --rm --entrypoint prosa ghcr.io/c3-oss/prosa:v3.0.0 --version
+# Docker — three images, one per binary
+docker pull ghcr.io/c3-oss/prosa:v0.11.0
+docker pull ghcr.io/c3-oss/prosa-server:v0.11.0
+docker pull ghcr.io/c3-oss/prosa-panel:v0.11.0
+docker run --rm ghcr.io/c3-oss/prosa:v0.11.0 --version
+docker run --rm ghcr.io/c3-oss/prosa-server:v0.11.0 --version
+docker run --rm ghcr.io/c3-oss/prosa-panel:v0.11.0 --version
 ```
 
-All four should print the same version, commit, and build date.
+Each should print the same version, commit, and build date as the
+GitHub Release.
 
 ## When something fails
 

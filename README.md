@@ -114,14 +114,14 @@ By default data lives under `~/.local/share/prosa` (XDG). Override with
 
 ## Self-hosting (server + panel)
 
-If you only use `prosa` locally, skip this. The Docker image ships all three
-binaries with `prosa-server` as the default entrypoint:
+If you only use `prosa` locally, skip this. Each binary ships as its own
+distroless Docker image — the image name tells you what it runs:
 
 ```sh
-docker compose up -d                                  # Postgres + MinIO dev stack
-docker run --rm ghcr.io/c3-oss/prosa:latest          # server
-docker run --rm --entrypoint prosa-panel ghcr.io/c3-oss/prosa:latest
-docker run --rm --entrypoint prosa ghcr.io/c3-oss/prosa:latest --help
+docker compose up -d                                          # Postgres + MinIO dev stack
+docker run --rm ghcr.io/c3-oss/prosa-server:latest            # server
+docker run --rm ghcr.io/c3-oss/prosa-panel:latest             # panel
+docker run --rm ghcr.io/c3-oss/prosa:latest --help            # CLI
 ```
 
 Env vars, auth, dev-login bypass, OAuth, schema details:
@@ -199,7 +199,7 @@ Releases are tag-driven. Pushing a `v*` tag runs GoReleaser and publishes:
 - `checksums.txt` (sha256);
 - the Homebrew cask in [`c3-oss/homebrew-prosa`][brew-tap];
 - the npm metapackage and four platform sub-packages;
-- a multi-arch Docker image at `ghcr.io/c3-oss/prosa:<tag>` and `:latest`.
+- three multi-arch Docker images at `ghcr.io/c3-oss/{prosa,prosa-server,prosa-panel}:<tag>` and `:latest`.
 
 Maintainer runbook: [`docs/distribution/release.md`][docs-release].
 

@@ -101,7 +101,7 @@ Lives in `scripts/publish-npm.sh`. Runs from `.github/workflows/release.yml`
 after GoReleaser finishes producing artifacts in `dist/`.
 
 ```
-1. read GITHUB_REF_NAME (e.g. "v3.0.0"), strip leading "v" → "3.0.0"
+1. read GITHUB_REF_NAME (e.g. "v0.11.0"), strip leading "v" → "0.11.0"
 2. stamp the version into 5 package.json files
 3. update optionalDependencies versions in the main package
 4. for each platform { darwin-arm64, darwin-amd64, linux-amd64, linux-arm64 }:
@@ -136,7 +136,7 @@ permission. Notes:
 ## First-time setup of the npm packages
 
 Before the very first release, the five package names must exist on the
-registry. Reserve them by publishing a dummy `3.0.0` of each:
+registry. Reserve them by publishing a dummy `0.11.0` of each:
 
 ```sh
 cd npm/prosa-darwin-arm64 && npm publish --access public

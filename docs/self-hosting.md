@@ -140,26 +140,30 @@ route is the wrong shape for a public deployment.
 
 ## Docker
 
-The Dockerfile is multi-stage, multi-arch, and produces a distroless image
-with all three binaries at `/usr/local/bin/`. The entrypoint is
-`prosa-server`.
+The Dockerfile is multi-stage, multi-arch, and produces **three**
+distroless images — one per binary, so the image name conveys what runs:
+
+- `ghcr.io/c3-oss/prosa` (the CLI)
+- `ghcr.io/c3-oss/prosa-server`
+- `ghcr.io/c3-oss/prosa-panel`
 
 ```sh
 # pull
-docker pull ghcr.io/c3-oss/prosa:latest
+docker pull ghcr.io/c3-oss/prosa-server:latest
+docker pull ghcr.io/c3-oss/prosa-panel:latest
+docker pull ghcr.io/c3-oss/prosa:latest   # CLI; optional for self-hosting
 
-# server (default entrypoint)
+# server
 docker run --rm \
   -e PROSA_DB_URL=... \
   -e PROSA_S3_ENDPOINT=... \
   -e PROSA_ADMIN_TOKEN=... \
   -e PROSA_VERIFICATION_URI=... \
   -p 7070:7070 \
-  ghcr.io/c3-oss/prosa:latest
+  ghcr.io/c3-oss/prosa-server:latest
 
-# panel — override entrypoint
+# panel
 docker run --rm \
-  --entrypoint prosa-panel \
   -e PROSA_PANEL_SERVER_URL=http://server:7070 \
   -e PROSA_ADMIN_TOKEN=... \
   -e PROSA_PANEL_OAUTH_GH_CLIENT_ID=... \
@@ -168,15 +172,15 @@ docker run --rm \
   -e PROSA_OWNER_EMAILS=you@example.com \
   -e PROSA_PANEL_PUBLIC_URL=https://panel.example.com \
   -p 8080:8080 \
-  ghcr.io/c3-oss/prosa:latest
+  ghcr.io/c3-oss/prosa-panel:latest
 
-# CLI — also from the same image
-docker run --rm \
-  --entrypoint prosa \
-  ghcr.io/c3-oss/prosa:latest --help
+# CLI — useful for scripted/CI contexts
+docker run --rm ghcr.io/c3-oss/prosa:latest --help
 ```
 
-Multi-arch tags built on every release: `linux/amd64`, `linux/arm64`.
+Each image carries exactly one binary with that binary set as its
+`ENTRYPOINT`. Multi-arch tags built on every release: `linux/amd64`,
+`linux/arm64`.
 
 The image build itself is documented in
 [distribution/docker.md](distribution/docker.md).

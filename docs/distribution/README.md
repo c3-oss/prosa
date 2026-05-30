@@ -23,26 +23,28 @@ Every channel publishes the **same binary set** built by GoReleaser:
 ## Release flow at a glance
 
 ```
-git tag v3.0.0                                ┐
+git tag v0.11.0                               ┐
 git push --tags                               │  human step
                                               ▼
 .github/workflows/release.yml triggers        ┐
    ├─ goreleaser release --clean              │
-   │    ├─ build 12 binaries (3 × 2 × 2)     │
-   │    ├─ tar.gz archives                   │
-   │    ├─ sha256 checksums.txt              │  one workflow run
-   │    ├─ GitHub Release with notes         │
-   │    └─ push Homebrew cask to             │
-   │       c3-oss/homebrew-prosa             │
+   │    ├─ build 12 binaries (3 × 2 × 2)      │
+   │    ├─ tar.gz archives                    │
+   │    ├─ sha256 checksums.txt               │  one workflow run
+   │    ├─ GitHub Release with notes          │
+   │    └─ push Homebrew cask to              │
+   │       c3-oss/homebrew-prosa              │
    │                                          │
    ├─ scripts/publish-npm.sh                  │
-   │    ├─ stamp version into 5 package.json │
-   │    ├─ copy goreleaser bins into npm/    │
+   │    ├─ stamp version into 5 package.json  │
+   │    ├─ copy goreleaser bins into npm/     │
    │    ├─ publish 4 platform sub-packages    │
    │    └─ publish @c3-oss/prosa metapackage  │
    │                                          │
-   └─ docker build & push (QEMU + Buildx)     │
-        └─ ghcr.io/c3-oss/prosa:<tag>, :latest┘
+   └─ docker buildx — three images            │
+        ├─ ghcr.io/c3-oss/prosa:<tag>, :latest│
+        ├─ ghcr.io/c3-oss/prosa-server:…      │
+        └─ ghcr.io/c3-oss/prosa-panel:…       ┘
 ```
 
 Maintainer runbook: [release.md](release.md). The runbook covers the
@@ -89,10 +91,11 @@ What ends up where on a single `v*` push:
                                      ├─▶  @c3-oss/prosa-linux-amd64
                                      └─▶  @c3-oss/prosa-linux-arm64
 
-                  Docker build + push
+                  Docker build + push (three images)
                             │
-                            └─▶  ghcr.io/c3-oss/prosa:<tag>
-                                  + ghcr.io/c3-oss/prosa:latest
+                            ├─▶  ghcr.io/c3-oss/prosa:<tag>, :latest
+                            ├─▶  ghcr.io/c3-oss/prosa-server:<tag>, :latest
+                            └─▶  ghcr.io/c3-oss/prosa-panel:<tag>, :latest
 ```
 
 `install.sh` is not a "publish" step — it sits in the repo and pulls from
