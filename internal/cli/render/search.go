@@ -39,26 +39,37 @@ func SearchHitsWithOptions(w io.Writer, hits []store.SearchHit, now time.Time, o
 		}
 		first := ""
 		if h.Session.FirstPrompt != nil {
-			first = truncateWidth(*h.Session.FirstPrompt, 60)
+			first = truncateWidth(normalizeDisplayText(*h.Session.FirstPrompt), 60)
 		}
 
 		if opts.Interactive {
-			id := padTrunc(shortSessionID(h.Session.ID), 12)
 			meta := fmt.Sprintf("%s · %s · %s · %s",
 				StyleProject.Render(project),
 				StyleAgent.Render(agentLabel(h.Session.Agent)),
 				StyleDevice.Render(h.Session.DeviceID),
 				StyleMuted.Render(date),
 			)
-			fmt.Fprintf(w, "%s %s %s\n", StyleRail.Render("│"), StyleAccent.Render(id), meta)
-			fmt.Fprintf(w, "%s   %s %s\n",
+			fmt.Fprintf(w, "%s %s\n", StyleRail.Render("│"), meta)
+			fmt.Fprintf(w, "%s   %s %s %s\n",
 				StyleRail.Render("│"),
+				StyleRail.Render("├"),
+				StyleMuted.Render(padRight("id", 9)),
+				StyleAccent.Render(h.Session.ID),
+			)
+			snippetBranch := "└"
+			if first != "" {
+				snippetBranch = "├"
+			}
+			fmt.Fprintf(w, "%s   %s %s %s\n",
+				StyleRail.Render("│"),
+				StyleRail.Render(snippetBranch),
 				StyleAgent.Render(padTrunc(h.Role, 9)),
 				highlightSnippet(truncateMarkedSnippet(h.Snippet, opts.Width-16)),
 			)
 			if first != "" {
-				fmt.Fprintf(w, "%s   %s %q\n",
+				fmt.Fprintf(w, "%s   %s %s %q\n",
 					StyleRail.Render("│"),
+					StyleRail.Render("└"),
 					StyleMuted.Render(padRight("session", 9)),
 					first,
 				)
@@ -110,6 +121,7 @@ func truncateMarkedSnippet(s string, n int) string {
 	if n <= 0 {
 		return ""
 	}
+	s = normalizeDisplayText(s)
 	if len(s) == 0 {
 		return s
 	}
@@ -125,11 +137,11 @@ func truncateMarkedSnippet(s string, n int) string {
 func flattenSnippet(s string) string {
 	s = strings.ReplaceAll(s, snippetMarkStart, "")
 	s = strings.ReplaceAll(s, snippetMarkEnd, "")
-	return strings.Join(strings.Fields(s), " ")
+	return normalizeDisplayText(s)
 }
 
-func shortSessionID(id string) string {
-	return truncateWidth(id, 12)
+func normalizeDisplayText(s string) string {
+	return strings.Join(strings.Fields(s), " ")
 }
 
 func searchTimeLabel(t, now time.Time) string {

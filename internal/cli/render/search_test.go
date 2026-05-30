@@ -16,7 +16,7 @@ func TestSearchHitsInteractiveEvidenceBlocks(t *testing.T) {
 	now := time.Date(2026, 5, 30, 15, 0, 0, 0, time.Local)
 	hits := []store.SearchHit{{
 		Session: session.Session{
-			ID:             "codex-2026-05-30-1342",
+			ID:             "57f476a0-8e11-4f6d-83a0-5b1e4df16337",
 			Agent:          "codex",
 			DeviceID:       "laptop",
 			ProjectPath:    strp("/Users/upsetbit/Projects/c3/c3-oss/prosa"),
@@ -24,8 +24,10 @@ func TestSearchHitsInteractiveEvidenceBlocks(t *testing.T) {
 			LastActivityAt: now.Add(-30 * time.Minute),
 			FirstPrompt:    strp("index importer sessions"),
 		},
-		Role:    "user",
-		Snippet: "add a local «sqlite» store for session metadata and FTS",
+		Role: "user",
+		Snippet: `Verifique e corrija em «@iac/»
+
+Utilize newrelic, se quiser.`,
 	}}
 
 	var b bytes.Buffer
@@ -34,12 +36,15 @@ func TestSearchHitsInteractiveEvidenceBlocks(t *testing.T) {
 	out := b.String()
 
 	require.Contains(t, out, "│")
-	require.Contains(t, out, "codex-2026-")
+	require.Contains(t, out, "id")
+	require.Contains(t, out, "57f476a0-8e11-4f6d-83a0-5b1e4df16337")
 	require.Contains(t, out, "prosa")
 	require.Contains(t, out, "codex")
 	require.Contains(t, out, "laptop")
 	require.Contains(t, out, "user")
-	require.Contains(t, out, "sqlite")
+	require.Contains(t, out, "@iac/")
+	require.Contains(t, out, "Utilize newrelic")
+	require.NotContains(t, out, "\n\nUtilize")
 	require.Contains(t, out, "session")
 	require.Contains(t, out, `"index importer sessions"`)
 	require.Contains(t, out, "1 matches")

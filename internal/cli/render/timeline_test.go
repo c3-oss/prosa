@@ -18,13 +18,13 @@ func TestTimelineItemsInteractiveRailAndTools(t *testing.T) {
 	now := time.Date(2026, 5, 30, 12, 0, 0, 0, time.Local)
 	item := TimelineItem{
 		Session: session.Session{
-			ID:             "s1",
+			ID:             "12345678-abcd-4ef0-9012-3456789abcde",
 			Agent:          "claude-code",
 			DeviceID:       "laptop",
 			ProjectPath:    strp("/Users/upsetbit/Projects/c3/c3-oss/prosa"),
 			StartedAt:      now.Add(-10 * time.Minute),
 			LastActivityAt: now.Add(-5 * time.Minute),
-			FirstPrompt:    strp("setup importer tests"),
+			FirstPrompt:    strp("setup importer\n\ntests"),
 		},
 		Tools: []session.ToolUsage{
 			{Name: "write", Count: 3},
@@ -50,6 +50,9 @@ func TestTimelineItemsInteractiveRailAndTools(t *testing.T) {
 	require.Contains(t, out, "claude")
 	require.Contains(t, out, "prosa")
 	require.Contains(t, out, `"setup importer tests"`)
+	require.NotContains(t, out, "setup importer\n\ntests")
+	require.Contains(t, out, "id")
+	require.Contains(t, out, "12345678-abcd-4ef0-9012-3456789abcde")
 	require.Contains(t, out, "└")
 	require.Contains(t, out, "5min · write, grep, bash")
 	require.NotContains(t, out, "read")

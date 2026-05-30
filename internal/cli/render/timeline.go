@@ -98,7 +98,7 @@ func renderSessionTTY(w io.Writer, item TimelineItem, now time.Time, opts Timeli
 
 	first := ""
 	if s.FirstPrompt != nil {
-		first = *s.FirstPrompt
+		first = normalizeDisplayText(*s.FirstPrompt)
 	}
 
 	prefixRaw, prefixStyled := timelinePrefix(opts.Layout, timeStr, activeRaw, activeMark, device, agent, project)
@@ -112,6 +112,13 @@ func renderSessionTTY(w io.Writer, item TimelineItem, now time.Time, opts Timeli
 	first = truncateWidth(first, promptWidth)
 
 	fmt.Fprintf(w, "%s%q\n", prefixStyled, first)
+
+	fmt.Fprintf(w, "%s        %s %s %s\n",
+		StyleRail.Render("│"),
+		StyleRail.Render("├"),
+		StyleMuted.Render(padRight("id", 8)),
+		StyleAccent.Render(s.ID),
+	)
 
 	detail := humanDuration(s.LastActivityAt.Sub(s.StartedAt))
 	if tools := topTools(item.Tools, 3); tools != "" {
