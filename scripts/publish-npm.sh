@@ -10,7 +10,7 @@
 set -eu
 
 if [ -z "${GITHUB_REF_NAME:-}" ]; then
-    echo "GITHUB_REF_NAME not set (expected the tag, e.g. v3.0.0)" >&2
+    echo "GITHUB_REF_NAME not set (expected the tag, e.g. v0.11.0)" >&2
     exit 1
 fi
 VERSION="${GITHUB_REF_NAME#v}"

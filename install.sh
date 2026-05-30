@@ -13,7 +13,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/c3-oss/prosa/master/install.sh | sh
 #
 # Env overrides:
-#   PROSA_VERSION   pin to a specific tag, e.g. v3.0.0; skips the GH API lookup
+#   PROSA_VERSION   pin to a specific tag, e.g. v0.11.0; skips the GH API lookup
 #   INSTALL_DIR     where to drop the binaries (default ~/.local/bin)
 #   INSTALL_BINS    space-separated binaries to install
 #                     (default "prosa"; full set: "prosa prosa-server prosa-panel")

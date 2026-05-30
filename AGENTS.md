@@ -1,4 +1,4 @@
-# Agent guide — prosa v3
+# Agent guide — prosa
 
 This file is the operating guide for AI coding agents working in the prosa
 repo. The product direction, scope, and trade-offs live in
