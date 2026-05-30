@@ -31,6 +31,11 @@ service SessionsService {
   // before pushing so they can detect and catch up sessions that exist
   // locally but never reached the server.
   rpc Manifest(ManifestRequest) returns (ManifestResponse);
+
+  // GetRaw streams the verbatim raw transcript bytes via a byte-range
+  // window. The panel's side panel uses it to render the JSONL body
+  // incrementally without loading the whole object into memory.
+  rpc GetRaw(GetRawRequest) returns (GetRawResponse);
 }
 
 // Session mirrors pkg/session.Session. Nullable client-side fields use
@@ -148,4 +153,23 @@ message ManifestResponse {
   repeated ManifestEntry entries = 1;
   // Empty when the caller has paged through every row.
   string next_after_id = 2;
+}
+
+message GetRawRequest {
+  string id = 1;
+  // Byte offset into the raw transcript. 0 starts a fresh read.
+  int64 offset = 2;
+  // Bytes to return in this chunk. Clamped to [1, 1_048_576]; 0 falls
+  // back to the server default of 65 536 (64 KiB).
+  int32 limit = 3;
+}
+
+message GetRawResponse {
+  bytes chunk = 1;
+  // Full object size in bytes, as reported by the object store. Lets
+  // the client compute a progress percentage without a separate Stat.
+  int64 total_size = 2;
+  // True when offset + len(chunk) >= total_size; the client should
+  // stop calling GetRaw for this id.
+  bool eof = 3;
 }

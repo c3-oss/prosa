@@ -1,0 +1,43 @@
+syntax = "proto3";
+
+package prosa.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/c3-oss/prosa/gen/go/prosa/v1;prosav1";
+
+// AnalyticsService exposes the five fixed reports from INTENT §9 to
+// remote callers (panel, CLI --remote). Each report returns a
+// renderer-ready (headers, rows) shape so the panel templates and the
+// CLI table renderer can share code paths.
+service AnalyticsService {
+  // GetReport runs one of the fixed reports against the server's
+  // Postgres. The report name selects the SQL; the remaining fields
+  // mirror the CLI filter set (since/until/project/agent/device).
+  rpc GetReport(GetReportRequest) returns (GetReportResponse);
+}
+
+message GetReportRequest {
+  // One of: sessions | tools | models | projects | errors.
+  string report = 1;
+
+  google.protobuf.Timestamp since = 2;
+  google.protobuf.Timestamp until = 3;
+
+  string project_remote = 4;
+  string project_marker = 5;
+  string agent = 6;
+  string device_name = 7;
+}
+
+message GetReportResponse {
+  // Column headers for the report; rendered as-is by the panel and CLI.
+  repeated string headers = 1;
+  repeated AnalyticsRow rows = 2;
+}
+
+message AnalyticsRow {
+  // Cells stringified — keeps the wire shape uniform across reports
+  // that mix counts, ratios, and names.
+  repeated string values = 1;
+}
