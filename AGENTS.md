@@ -58,6 +58,11 @@ goes through `just` (the project's task runner). There is no Makefile.
 - `just cover` — coverage profile + per-function totals
 - `just vet` — `go vet ./...`
 - `just lint` — `golangci-lint run ./...`
+- `just quality` — docs, links, agent config, and secret scanning
+- `just lint-md` — markdownlint over tracked Markdown
+- `just lint-links` — lychee over tracked Markdown links
+- `just lint-agents` — agnix over agent-facing config
+- `just lint-secrets` — gitleaks over the current tree
 - `just tools` — installs `protoc-gen-go` + `protoc-gen-connect-go` into `./bin`
 - `just gen` — `buf lint` + `buf generate` + `gofumpt gen/`
 - `just gen-check` — regeneration must not produce a diff
@@ -78,7 +83,11 @@ goes through `just` (the project's task runner). There is no Makefile.
 - **Tests** use stdlib `testing` plus `github.com/stretchr/testify/require`.
   No mocking frameworks.
 - **Commit messages** keep the `type(scope): subject` convention from the v2
-  history for continuity. Scopes are free-form.
+  history for continuity. Scopes are free-form and commitlint enforces the
+  shape locally and in CI.
+- **Git hooks** are managed by Husky and installed by `devbox shell`; they run
+  commitlint, lint-staged Markdown checks, agnix, gitleaks, and the pre-push
+  quality gate.
 - **Generated files** (`gen/`) are committed; CI fails if regeneration
   produces a diff.
 
@@ -110,10 +119,10 @@ INTENT § **Out of scope, intentionally** is the source of truth. Highlights:
   pre-baked).
 - No redaction at upload time.
 - No automatic retention / pruning.
-- No pre-commit hooks, lint-staged, commitlint, or husky — CI is trusted.
 
-Adding any of those is a product decision that requires reading INTENT and
-updating it.
+Developer hooks are intentionally present now as repo-local quality guardrails.
+Adding new runtime scope is still a product decision that requires reading
+INTENT and updating it.
 
 ## Specialist agents and skills
 

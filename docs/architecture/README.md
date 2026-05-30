@@ -143,11 +143,12 @@ If you find a hardcoded path elsewhere, that is a bug.
 Pinned via `devbox.json`:
 
 - Go 1.26, buf 1.70, protobuf 34.1, golangci-lint 2.12, gofumpt 0.10
-- sqlite 3.51, ripgrep 15.1, just 1.51, node 24
+- sqlite 3.51, gitleaks 8.28, lychee 0.23, markdownlint-cli2 0.21
+- ripgrep 15.1, just 1.51, node 24, pnpm 10.20
 
-Inside `devbox shell`, `GOBIN=./bin` is exported. `just build` produces
-the three binaries into `./bin/`. CI uses devbox too — mirroring it is the
-safe path locally.
+Inside `devbox shell`, `GOBIN=./bin` is exported, Node tooling is installed,
+and Husky hooks are installed. `just build` produces the three binaries into
+`./bin/`. CI uses devbox too — mirroring it is the safe path locally.
 
 ## What lives where (quick map)
 

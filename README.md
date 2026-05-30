@@ -140,9 +140,13 @@ The repo uses [`devbox`][devbox] + [`just`][just]. Inside `devbox shell`:
 ```sh
 just build               # builds ./bin/{prosa,prosa-server,prosa-panel}
 just test                # go test ./...
+just quality             # docs, links, agents, and secret scanning
 just ci                  # full local pipeline (tidy/gen/vet/lint/test-race/build)
 just snapshot            # local GoReleaser dry-run into dist/
 ```
+
+The Devbox shell also installs the repo's Husky hooks for commit messages,
+staged Markdown, agent config, and staged secret scanning.
 
 The deeper guide — conventions, how to add a new importer, commit style —
 lives in [`docs/contributing.md`][docs-contributing].

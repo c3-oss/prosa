@@ -15,12 +15,17 @@ prosa pins its toolchain via [`../devbox.json`](../devbox.json). Inside
 - golangci-lint 2.12
 - gofumpt 0.10
 - sqlite 3.51
+- gitleaks 8.28
+- lychee 0.23
+- markdownlint-cli2 0.21
 - ripgrep 15.1
 - just 1.51
 - node 24
+- pnpm 10.20
 
 You don't need to install any of those by hand. The shell exports `GOBIN`
-into the repo's `./bin/`.
+into the repo's `./bin/`, installs the Node tooling with pnpm, and installs
+the Husky git hooks.
 
 ```sh
 git clone https://github.com/c3-oss/prosa.git
@@ -47,6 +52,11 @@ The full recipe set is in [`../.justfile`](../.justfile). Highlights:
 | `just cover` | coverage profile + per-function summary |
 | `just vet` | `go vet ./...` |
 | `just lint` | `golangci-lint run ./...` |
+| `just quality` | Markdown, link, agent-config, and secret checks |
+| `just lint-md` | markdownlint over tracked Markdown |
+| `just lint-links` | lychee over tracked Markdown links |
+| `just lint-agents` | agnix over agent-facing config |
+| `just lint-secrets` | gitleaks over the current tree |
 | `just gen` | `buf lint` + `buf generate` + `gofumpt gen/` |
 | `just gen-check` | regeneration must be no-op |
 | `just tidy-check` | `go.mod`/`go.sum` must be tidy |
@@ -57,6 +67,17 @@ The full recipe set is in [`../.justfile`](../.justfile). Highlights:
 
 The repo has no Makefile. `just` is the canonical task runner — CI workflows
 call it directly.
+
+## Quality hooks
+
+`devbox shell` installs Husky hooks through pnpm:
+
+- `commit-msg` runs commitlint against `type(scope): subject`.
+- `pre-commit` runs lint-staged Markdown checks, agnix, and staged gitleaks.
+- `pre-push` runs `just hooks-pre-push`, currently the same non-Go gate as
+  `just quality`.
+
+CI also runs commitlint over pull-request commits and `just quality`.
 
 ## Conventions
 
@@ -81,7 +102,8 @@ they are enforced by reviewers (human or agent).
 
 ## Commit messages
 
-The project follows `type(scope): subject` in the imperative.
+The project follows `type(scope): subject` in the imperative. Commitlint
+enforces the shape locally and in CI.
 
 Examples that match the existing history:
 

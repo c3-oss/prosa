@@ -172,6 +172,9 @@ When I'm writing prosa, the rules in my head:
   call site needs it.
 - **Don't add a feature flag where a delete would do.**
 - **A small, finished thing is worth more than a large, half-finished one.**
+- **Developer guardrails stay repo-local.** Hooks and linters are fine when
+  they are pinned in `devbox`, reproducible through `just`, and protect this
+  repository without becoming product runtime machinery.
 
 If you are an agent and you find yourself wanting to add a config knob, a
 strategy interface, a registry, or a "future-proof" abstraction, push back on

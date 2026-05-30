@@ -50,6 +50,7 @@ just test-race      # go test -race -count=1 ./...
 just cover          # coverage profile + per-function totals
 just vet            # go vet ./...
 just lint           # golangci-lint run ./...
+just quality        # docs, links, agent config, and secret checks
 just tools          # installs protoc generators into ./bin
 just gen            # buf lint + buf generate + gofumpt gen/
 just gen-check      # regeneration must not produce a diff
@@ -71,8 +72,9 @@ Smallest useful check first:
 - Server change: `go test ./internal/server/... -race`.
 - Panel change: `go test ./internal/panel/... -race`.
 - Proto change: `just gen`, inspect `gen/`, then `just gen-check`.
-- Project tooling/release change: `just ci`; when GoReleaser or Docker
-  changes, also `just snapshot` and `docker build -t prosa:local .`.
+- Project tooling/release change: `just quality` plus `just ci`; when
+  GoReleaser or Docker changes, also `just snapshot` and
+  `docker build -t prosa:local .`.
 
 ## Implementation rules
 
