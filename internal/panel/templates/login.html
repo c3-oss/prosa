@@ -1,0 +1,31 @@
+{{define "login"}}<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Login · prosa</title>
+  <link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+  <div class="center">
+    <div class="login-box">
+      <h1>prosa</h1>
+      <p>{{.Tagline}}</p>
+      {{if .GitHubURL}}
+        <a class="btn btn-primary" href="{{.GitHubURL}}">Sign in with GitHub</a>
+      {{end}}
+      {{if .DevLoginEnabled}}
+        <form method="post" action="/dev-login" style="margin-top:14px">
+          <button class="btn" type="submit">Dev login as {{.DevLoginEmail}}</button>
+        </form>
+        <div class="dev-warn">
+          PROSA_PANEL_DEV_LOGIN is set — OAuth is bypassed locally.<br>
+          Do NOT enable in production.
+        </div>
+      {{end}}
+      {{if .Error}}
+        <p style="color: var(--danger); margin-top: 14px">{{.Error}}</p>
+      {{end}}
+    </div>
+  </div>
+</body>
+</html>{{end}}
