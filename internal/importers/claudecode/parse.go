@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/c3-oss/prosa/internal/sessiontext"
 	"github.com/c3-oss/prosa/pkg/session"
 )
 
@@ -35,6 +36,13 @@ const (
 	// prompt projected onto Session.FirstPrompt; balances timeline
 	// readability against information density.
 	firstPromptMaxRunes = 200
+
+	// toolPreviewMaxBytes / toolPreviewMaxLines cap what we project as a
+	// tool_result Turn for the searchable index. Raw JSONL stays
+	// verbatim on disk. Constants on purpose: INTENT says no config
+	// knobs without three call sites.
+	toolPreviewMaxBytes = 4096
+	toolPreviewMaxLines = 40
 )
 
 type rawRecord struct {
@@ -58,9 +66,12 @@ type rawMessage struct {
 }
 
 type rawContentBlock struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
-	Name string `json:"name"`
+	Type      string          `json:"type"`
+	Text      string          `json:"text"`
+	Name      string          `json:"name"`
+	ID        string          `json:"id"`
+	ToolUseID string          `json:"tool_use_id"`
+	Content   json.RawMessage `json:"content"`
 }
 
 type claudeUsage struct {
@@ -132,15 +143,16 @@ func parseSession(ctx context.Context, path string) (session.Session, []session.
 	sc.Buffer(make([]byte, 0, scanBufferInitial), scanBufferMax)
 
 	var (
-		sess           session.Session
-		turns          []session.Turn
-		toolCounts     = map[string]int{}
-		usageByKey     = map[string]claudeUsage{}
-		sessIDSet      bool
-		cwdSet         bool
-		modelSet       bool
-		firstPromptSet bool
-		line           int
+		sess             session.Session
+		turns            []session.Turn
+		toolCounts       = map[string]int{}
+		toolUseIDToName  = map[string]string{}
+		usageByKey       = map[string]claudeUsage{}
+		sessIDSet        bool
+		cwdSet           bool
+		modelSet         bool
+		firstPromptSet   bool
+		line             int
 	)
 
 	for sc.Scan() {
@@ -181,22 +193,28 @@ func parseSession(ctx context.Context, path string) (session.Session, []session.
 			if r.IsMeta {
 				continue
 			}
+			ts, _ := parseTimestamp(r.Timestamp)
 			content := extractUserText(r.Message)
 			if content != "" {
-				if !firstPromptSet {
-					// Slash-command and tool-result payloads can carry
-					// embedded newlines; collapse whitespace so the
-					// timeline cell stays single-line. FTS-bound `turns`
-					// keep the original content unchanged.
-					p := truncRunes(strings.Join(strings.Fields(content), " "), firstPromptMaxRunes)
-					sess.FirstPrompt = &p
-					firstPromptSet = true
+				setFirstPromptIfHuman(&sess, &firstPromptSet, content)
+				cleaned := strings.TrimSpace(sessiontext.CleanPrompt(content))
+				if cleaned == "" {
+					cleaned = content
 				}
-				ts, _ := parseTimestamp(r.Timestamp)
 				turns = append(turns, session.Turn{
 					Role:      "user",
-					Content:   content,
+					Content:   cleaned,
 					Timestamp: ts,
+					Kind:      session.KindMessage,
+				})
+			}
+			for _, tr := range extractToolResults(r.Message, toolUseIDToName) {
+				turns = append(turns, session.Turn{
+					Role:      "tool",
+					Content:   truncatePreview(tr.text),
+					Timestamp: ts,
+					Kind:      session.KindToolResult,
+					ToolName:  tr.toolName,
 				})
 			}
 
@@ -209,6 +227,7 @@ func parseSession(ctx context.Context, path string) (session.Session, []session.
 					Role:      "assistant",
 					Content:   text,
 					Timestamp: ts,
+					Kind:      session.KindMessage,
 				})
 			}
 			if !modelSet {
@@ -218,7 +237,7 @@ func parseSession(ctx context.Context, path string) (session.Session, []session.
 					modelSet = true
 				}
 			}
-			collectToolUses(r.Message, toolCounts)
+			collectToolUses(r.Message, toolCounts, toolUseIDToName)
 		}
 	}
 
@@ -370,7 +389,7 @@ func extractModel(msg json.RawMessage) string {
 	return m.Model
 }
 
-func collectToolUses(msg json.RawMessage, counts map[string]int) {
+func collectToolUses(msg json.RawMessage, counts map[string]int, idToName map[string]string) {
 	if len(msg) == 0 {
 		return
 	}
@@ -385,8 +404,119 @@ func collectToolUses(msg json.RawMessage, counts map[string]int) {
 	for _, b := range blocks {
 		if b.Type == "tool_use" && b.Name != "" {
 			counts[b.Name]++
+			if b.ID != "" {
+				idToName[b.ID] = b.Name
+			}
 		}
 	}
+}
+
+// toolResultEntry pairs a projected tool_result body with the
+// originating tool's name (resolved via tool_use_id when possible).
+type toolResultEntry struct {
+	text     string
+	toolName string
+}
+
+// extractToolResults walks a user message's content for tool_result
+// blocks and projects each one into a (text, tool_name) tuple. The
+// tool_use id → name map is built earlier from the matching assistant
+// tool_use block; when missing, toolName is "" and the renderer falls
+// back to the generic "tool:" label.
+func extractToolResults(msg json.RawMessage, idToName map[string]string) []toolResultEntry {
+	if len(msg) == 0 {
+		return nil
+	}
+	var m rawMessage
+	if err := json.Unmarshal(msg, &m); err != nil {
+		return nil
+	}
+	var blocks []rawContentBlock
+	if err := json.Unmarshal(m.Content, &blocks); err != nil {
+		return nil
+	}
+	var out []toolResultEntry
+	for _, b := range blocks {
+		if b.Type != "tool_result" {
+			continue
+		}
+		text := extractToolResultText(b.Content)
+		if text == "" {
+			continue
+		}
+		out = append(out, toolResultEntry{
+			text:     text,
+			toolName: idToName[b.ToolUseID],
+		})
+	}
+	return out
+}
+
+// extractToolResultText decodes a tool_result block's `content`, which
+// may be a plain string or an array of {type,text} blocks (image
+// blocks are dropped — only searchable text makes it into a Turn).
+func extractToolResultText(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var asString string
+	if err := json.Unmarshal(raw, &asString); err == nil {
+		return asString
+	}
+	var blocks []rawContentBlock
+	if err := json.Unmarshal(raw, &blocks); err == nil {
+		var parts []string
+		for _, b := range blocks {
+			if b.Type == "text" && b.Text != "" {
+				parts = append(parts, b.Text)
+			}
+		}
+		return strings.Join(parts, "\n")
+	}
+	return ""
+}
+
+// setFirstPromptIfHuman applies sessiontext to skip wholly meta
+// candidates and unwrap <local-command-caveat> + similar known
+// wrappers before committing the FirstPrompt.
+func setFirstPromptIfHuman(sess *session.Session, set *bool, text string) {
+	if *set {
+		return
+	}
+	if sessiontext.IsBoilerplatePrompt(text) {
+		return
+	}
+	cleaned := strings.TrimSpace(sessiontext.CleanPrompt(text))
+	if cleaned == "" {
+		return
+	}
+	prompt := truncRunes(strings.Join(strings.Fields(cleaned), " "), firstPromptMaxRunes)
+	sess.FirstPrompt = &prompt
+	*set = true
+}
+
+// truncatePreview caps a tool_result body for the searchable Turn.
+// Raw JSONL is always still on disk; this only shapes the FTS index
+// entry and the timeline-side previews.
+func truncatePreview(s string) string {
+	if s == "" {
+		return ""
+	}
+	lines := strings.Split(s, "\n")
+	truncated := false
+	if len(lines) > toolPreviewMaxLines {
+		lines = lines[:toolPreviewMaxLines]
+		truncated = true
+	}
+	out := strings.Join(lines, "\n")
+	if len(out) > toolPreviewMaxBytes {
+		out = out[:toolPreviewMaxBytes]
+		truncated = true
+	}
+	if truncated {
+		out += "\n…"
+	}
+	return out
 }
 
 func truncRunes(s string, max int) string {
