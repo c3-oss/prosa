@@ -82,6 +82,28 @@ func (s *Store) ListDevices(ctx context.Context) ([]Device, error) {
 //
 // No-op when fingerprint == "local" (defensive: avoids a self-rewrite
 // if the resolver ever returns the seed value).
+// ListDevicesMap returns id → friendly_name for every device row,
+// usable as a lookup table during render so the timeline can show
+// human-readable device names instead of the raw fingerprint hex.
+func (s *Store) ListDevicesMap(ctx context.Context) (map[string]string, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, COALESCE(NULLIF(friendly_name, ''), hostname) FROM devices`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	out := map[string]string{}
+	for rows.Next() {
+		var id, name string
+		if err := rows.Scan(&id, &name); err != nil {
+			return nil, err
+		}
+		out[id] = name
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) RebindLocalSessions(ctx context.Context, fingerprint string) (int64, error) {
 	if fingerprint == "" || fingerprint == "local" {
 		return 0, nil
