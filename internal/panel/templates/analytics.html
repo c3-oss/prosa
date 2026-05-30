@@ -3,14 +3,90 @@
 {{define "content"}}
   <div class="chips">
     {{$last := .Last}}
-    <a class="chip {{if eq $last "12h"}}active{{end}}" href="?last=12h">12h</a>
-    <a class="chip {{if or (eq $last "") (eq $last "7d")}}active{{end}}" href="?last=7d">7d</a>
-    <a class="chip {{if eq $last "30d"}}active{{end}}" href="?last=30d">30d</a>
-    <a class="chip {{if eq $last "365d"}}active{{end}}" href="?last=365d">1y</a>
+    <a class="chip {{if eq $last "12h"}}active{{end}}" href="{{index .Windows "12h"}}">12h</a>
+    <a class="chip {{if or (eq $last "") (eq $last "7d")}}active{{end}}" href="{{index .Windows "7d"}}">7d</a>
+    <a class="chip {{if eq $last "30d"}}active{{end}}" href="{{index .Windows "30d"}}">30d</a>
+    <a class="chip {{if eq $last "365d"}}active{{end}}" href="{{index .Windows "365d"}}">1y</a>
   </div>
 
+  <form class="filter-bar" method="get">
+    <input type="hidden" name="last" value="{{if .Last}}{{.Last}}{{else}}7d{{end}}">
+    <label>
+      Agent
+      <select name="agent">
+        <option value="">all</option>
+        {{$agent := .Agent}}
+        {{range .Agents}}<option value="{{.}}" {{if eq $agent .}}selected{{end}}>{{.}}</option>{{end}}
+      </select>
+    </label>
+    <label>
+      Project
+      <input name="project" value="{{.Project}}" placeholder="path contains">
+    </label>
+    <label>
+      Device
+      <input name="device" value="{{.Device}}" placeholder="friendly name">
+    </label>
+    <button class="btn" type="submit">Apply</button>
+  </form>
+
   <h2 style="font-size: 14px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted)">{{.Report}}</h2>
-  {{if .Rows}}
+  {{if eq .Report "heatmap"}}
+    {{if .HeatmapCells}}
+      <div class="heatmap-summary">
+        <span>{{.HeatmapTotal}} sessions</span>
+        <span>max {{.HeatmapMax}} / day</span>
+      </div>
+      <div class="heatmap-grid" aria-label="sessions per day">
+        {{range .HeatmapCells}}
+          {{if .Blank}}
+            <span class="heatmap-spacer"></span>
+          {{else}}
+            <span class="heatmap-cell level-{{.Level}}" title="{{.Date}}: {{.Count}} sessions"></span>
+          {{end}}
+        {{end}}
+      </div>
+    {{else}}
+      <div class="empty">No data for this window.</div>
+    {{end}}
+  {{else if eq .Report "usage"}}
+    {{if .UsageRows}}
+      <div class="usage-summary">
+        <div>
+          <span class="usage-summary-value">{{.UsageTotalTokens}}</span>
+          <span class="usage-summary-label">tokens</span>
+        </div>
+        <div>
+          <span class="usage-summary-value">{{.UsageTotalCost}}</span>
+          <span class="usage-summary-label">estimated spend</span>
+        </div>
+      </div>
+      <div class="usage-list">
+        {{range .UsageRows}}
+          <div class="usage-row">
+            <div class="usage-head">
+              <div>
+                <strong>{{.Agent}}</strong>
+                <span>{{.Sessions}} sessions · {{.Measured}} measured</span>
+              </div>
+              <div class="usage-cost">{{.Cost}}</div>
+            </div>
+            <div class="usage-bar" aria-label="{{.Agent}} token share">
+              <span style="width: {{.Percent}}%"></span>
+            </div>
+            <div class="usage-breakdown">
+              <span>{{.Total}} total</span>
+              <span>{{.Input}} input</span>
+              <span>{{.Output}} output</span>
+              <span>{{.Cached}} cached</span>
+            </div>
+          </div>
+        {{end}}
+      </div>
+    {{else}}
+      <div class="empty">No data for this window.</div>
+    {{end}}
+  {{else if .Rows}}
     <table>
       <thead><tr>
         {{range .Headers}}<th>{{.}}</th>{{end}}

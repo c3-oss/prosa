@@ -381,22 +381,220 @@ func (p *Panel) handleAnalytics(w http.ResponseWriter, r *http.Request) {
 	}
 	now := time.Now().UTC()
 	resp, err := p.clients.Analytics.GetReport(r.Context(),
-		connect.NewRequest(&prosav1.GetReportRequest{
-			Report: report,
-			Since:  timestamppb.New(now.Add(-window)),
-			Until:  timestamppb.New(now),
-		}))
+		connect.NewRequest(analyticsRequest(report, now.Add(-window), now, r.URL.Query())))
 	if err != nil {
 		slog.Error("analytics rpc failed", "report", report, "err", err)
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
-	p.render(w, "analytics", map[string]any{
+	data := map[string]any{
 		"Title":   "Analytics — " + report,
 		"Nav":     "analytics-" + report,
 		"Report":  report,
 		"Last":    r.URL.Query().Get("last"),
+		"Project": r.URL.Query().Get("project"),
+		"Agent":   r.URL.Query().Get("agent"),
+		"Device":  r.URL.Query().Get("device"),
+		"Agents":  []string{"codex", "claude-code", "gemini", "hermes", "cursor"},
+		"Windows": analyticsWindowLinks(r.URL.Query()),
 		"Headers": resp.Msg.Headers,
 		"Rows":    resp.Msg.Rows,
-	})
+	}
+	if report == "heatmap" {
+		cells, total, max := buildHeatmap(resp.Msg.Rows)
+		data["HeatmapCells"] = cells
+		data["HeatmapTotal"] = total
+		data["HeatmapMax"] = max
+	}
+	if report == "usage" {
+		rows, totalTokens, totalCost := buildUsage(resp.Msg.Rows)
+		data["UsageRows"] = rows
+		data["UsageTotalTokens"] = formatPanelInt(totalTokens)
+		data["UsageTotalCost"] = totalCost
+	}
+	p.render(w, "analytics", data)
+}
+
+func analyticsRequest(report string, since, until time.Time, q map[string][]string) *prosav1.GetReportRequest {
+	req := &prosav1.GetReportRequest{
+		Report: report,
+		Since:  timestamppb.New(since),
+		Until:  timestamppb.New(until),
+	}
+	get := func(key string) string {
+		if vals := q[key]; len(vals) > 0 {
+			return vals[0]
+		}
+		return ""
+	}
+	req.ProjectMatch = get("project")
+	req.Agent = get("agent")
+	req.DeviceName = get("device")
+	return req
+}
+
+func analyticsWindowLinks(q map[string][]string) map[string]string {
+	out := map[string]string{}
+	for _, last := range []string{"12h", "7d", "30d", "365d"} {
+		next := make(map[string][]string, len(q)+1)
+		for k, vals := range q {
+			cp := append([]string(nil), vals...)
+			next[k] = cp
+		}
+		next["last"] = []string{last}
+		out[last] = "?" + urlValues(next)
+	}
+	return out
+}
+
+func urlValues(q map[string][]string) string {
+	vals := make([]string, 0, len(q))
+	for k, vs := range q {
+		for _, v := range vs {
+			vals = append(vals, queryEscape(k)+"="+queryEscape(v))
+		}
+	}
+	sort.Strings(vals)
+	return strings.Join(vals, "&")
+}
+
+type heatmapCell struct {
+	Date  string
+	Count int64
+	Level int
+	Blank bool
+}
+
+func buildHeatmap(rows []*prosav1.AnalyticsRow) ([]heatmapCell, int64, int64) {
+	var (
+		cells []heatmapCell
+		max   int64
+		total int64
+	)
+	counts := make([]int64, 0, len(rows))
+	for _, row := range rows {
+		if len(row.Values) < 2 {
+			counts = append(counts, 0)
+			continue
+		}
+		n, _ := strconv.ParseInt(row.Values[1], 10, 64)
+		counts = append(counts, n)
+		if n > max {
+			max = n
+		}
+		total += n
+	}
+	if len(rows) > 0 && len(rows[0].Values) > 0 {
+		if t, err := time.Parse("2006-01-02", rows[0].Values[0]); err == nil {
+			for i := 0; i < int(t.Weekday()); i++ {
+				cells = append(cells, heatmapCell{Blank: true})
+			}
+		}
+	}
+	for i, row := range rows {
+		date := ""
+		if len(row.Values) > 0 {
+			date = row.Values[0]
+		}
+		count := counts[i]
+		level := 0
+		if max > 0 && count > 0 {
+			level = int((count*4 + max - 1) / max)
+			if level > 4 {
+				level = 4
+			}
+		}
+		cells = append(cells, heatmapCell{Date: date, Count: count, Level: level})
+	}
+	return cells, total, max
+}
+
+type usagePanelRow struct {
+	Agent    string
+	Sessions string
+	Measured string
+	Total    string
+	Input    string
+	Output   string
+	Cached   string
+	Cost     string
+	Percent  int
+}
+
+func buildUsage(rows []*prosav1.AnalyticsRow) ([]usagePanelRow, int64, string) {
+	type parsedRow struct {
+		values usagePanelRow
+		total  int64
+	}
+	parsed := make([]parsedRow, 0, len(rows))
+	var maxTotal, totalTokens int64
+	var totalCost float64
+	priced := false
+	for _, row := range rows {
+		if len(row.Values) < 8 {
+			continue
+		}
+		total := parsePanelInt(row.Values[3])
+		if total > maxTotal {
+			maxTotal = total
+		}
+		totalTokens += total
+		cost := strings.TrimSpace(row.Values[7])
+		costLabel := "n/a"
+		if cost != "" {
+			if f, err := strconv.ParseFloat(cost, 64); err == nil {
+				totalCost += f
+				priced = true
+			}
+			costLabel = "$" + cost
+		}
+		parsed = append(parsed, parsedRow{
+			total: total,
+			values: usagePanelRow{
+				Agent:    row.Values[0],
+				Sessions: formatPanelInt(parsePanelInt(row.Values[1])),
+				Measured: formatPanelInt(parsePanelInt(row.Values[2])),
+				Total:    formatPanelInt(total),
+				Input:    formatPanelInt(parsePanelInt(row.Values[4])),
+				Output:   formatPanelInt(parsePanelInt(row.Values[5])),
+				Cached:   formatPanelInt(parsePanelInt(row.Values[6])),
+				Cost:     costLabel,
+			},
+		})
+	}
+
+	out := make([]usagePanelRow, 0, len(parsed))
+	for _, row := range parsed {
+		percent := 0
+		if maxTotal > 0 && row.total > 0 {
+			percent = int((row.total*100 + maxTotal - 1) / maxTotal)
+			if percent < 3 {
+				percent = 3
+			}
+		}
+		row.values.Percent = percent
+		out = append(out, row.values)
+	}
+	if !priced {
+		return out, totalTokens, "n/a"
+	}
+	return out, totalTokens, fmt.Sprintf("$%.4f", totalCost)
+}
+
+func parsePanelInt(s string) int64 {
+	n, _ := strconv.ParseInt(strings.TrimSpace(s), 10, 64)
+	return n
+}
+
+func formatPanelInt(n int64) string {
+	sign := ""
+	if n < 0 {
+		sign = "-"
+		n = -n
+	}
+	s := strconv.FormatInt(n, 10)
+	for i := len(s) - 3; i > 0; i -= 3 {
+		s = s[:i] + "," + s[i:]
+	}
+	return sign + s
 }
