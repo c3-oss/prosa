@@ -8,8 +8,22 @@ import (
 	"strings"
 	"time"
 
+	"github.com/c3-oss/prosa/internal/sessiontext"
 	"github.com/c3-oss/prosa/pkg/session"
 )
+
+// escapeLikePattern escapes the SQLite LIKE meta-characters % and _
+// in a literal prefix so a value like "foo_bar" matches verbatim.
+// Uses backslash as the escape character (callers must append the
+// "%" wildcard themselves).
+func escapeLikePattern(s string) string {
+	r := strings.NewReplacer(
+		`\`, `\\`,
+		`%`, `\%`,
+		`_`, `\_`,
+	)
+	return r.Replace(s)
+}
 
 // UpsertSession writes (or replaces) a session row plus its normalized
 // session_tools rows in a single transaction. Existing session_tools rows
@@ -305,22 +319,23 @@ type BoilerplateCandidate struct {
 // prefixes. Used by `prosa sync` to one-shot denoise legacy data
 // without forcing a full reimport.
 //
-// The prefix list lives in the render package as
-// boilerplatePrefixes; we mirror it here as a SQL OR-chain. Keep the
-// two in lockstep when adding new patterns.
+// The pattern list is sourced from internal/sessiontext.Prefixes so
+// adding a new wrapper in one place automatically extends both the
+// importer-time classifier and the SQL denoise sweep — no silent
+// drift between Go and SQL anymore.
 func (s *Store) ListSessionsWithBoilerplatePrompt(ctx context.Context, limit int) ([]BoilerplateCandidate, error) {
-	q := `
-		SELECT id, raw_path FROM sessions
-		WHERE first_prompt IS NOT NULL AND (
-			   first_prompt LIKE '# AGENTS.md instructions for %'
-			OR first_prompt LIKE '<command-name>%'
-			OR first_prompt LIKE '<command-args>%'
-			OR first_prompt LIKE '<command-message>%'
-			OR first_prompt LIKE '<system-reminder>%'
-			OR first_prompt LIKE '<INSTRUCTIONS>%'
-			OR first_prompt LIKE '<environment_context>%'
-		)`
-	args := []any{}
+	if len(sessiontext.Prefixes) == 0 {
+		return nil, nil
+	}
+	clauses := make([]string, 0, len(sessiontext.Prefixes))
+	args := make([]any, 0, len(sessiontext.Prefixes)+1)
+	for _, p := range sessiontext.Prefixes {
+		clauses = append(clauses, `first_prompt LIKE ? ESCAPE '\'`)
+		args = append(args, escapeLikePattern(p)+"%")
+	}
+	q := `SELECT id, raw_path FROM sessions
+		WHERE first_prompt IS NOT NULL AND (` +
+		strings.Join(clauses, " OR ") + `)`
 	if limit > 0 {
 		q += ` LIMIT ?`
 		args = append(args, limit)
