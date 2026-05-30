@@ -31,8 +31,8 @@ func NewDevicesHandler(pool *pgxpool.Pool) *DevicesHandler {
 // are included with the revoked field set so the panel can show them
 // dimmed; clients usually filter.
 func (h *DevicesHandler) List(ctx context.Context, _ *connect.Request[prosav1.DevicesServiceListRequest]) (*connect.Response[prosav1.DevicesServiceListResponse], error) {
-	if _, ok := auth.DeviceFromContext(ctx); !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing device context"))
+	if _, ok := auth.DeviceFromContext(ctx); !ok && !auth.IsOwner(ctx) {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing device or owner context"))
 	}
 	rows, err := h.Pool.Query(ctx, `
 		SELECT d.id, d.hostname, d.friendly_name, d.fingerprinted_at, d.last_sync,
@@ -77,19 +77,22 @@ func (h *DevicesHandler) List(ctx context.Context, _ *connect.Request[prosav1.De
 }
 
 // Rename sets devices.friendly_name. Accepts id="self" → caller's id.
-// Renaming another device requires the admin token (not implemented in
-// this cut; surface a clear PermissionDenied so callers know to use
-// --admin in the panel/future devices CLI).
+// Device callers can only rename themselves; owner callers (panel) may
+// rename any device.
 func (h *DevicesHandler) Rename(ctx context.Context, req *connect.Request[prosav1.RenameRequest]) (*connect.Response[prosav1.RenameResponse], error) {
-	caller, ok := auth.DeviceFromContext(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing device context"))
+	caller, isDevice := auth.DeviceFromContext(ctx)
+	isOwner := auth.IsOwner(ctx)
+	if !isDevice && !isOwner {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing device or owner context"))
 	}
 	target := req.Msg.Id
 	if target == "" || target == "self" {
+		if !isDevice {
+			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("owner caller must specify an explicit id"))
+		}
 		target = caller
 	}
-	if target != caller {
+	if !isOwner && target != caller {
 		return nil, connect.NewError(connect.CodePermissionDenied,
 			fmt.Errorf("can only rename own device; got %s", target))
 	}
@@ -111,18 +114,22 @@ func (h *DevicesHandler) Rename(ctx context.Context, req *connect.Request[prosav
 }
 
 // Revoke marks all device_tokens for the target as revoked and stamps
-// devices.revoked_at. Same scoping as Rename: only "self" works until
-// the admin claim ships with the panel.
+// devices.revoked_at. Device callers can only revoke themselves; owner
+// callers (panel) may revoke any device.
 func (h *DevicesHandler) Revoke(ctx context.Context, req *connect.Request[prosav1.RevokeRequest]) (*connect.Response[prosav1.RevokeResponse], error) {
-	caller, ok := auth.DeviceFromContext(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing device context"))
+	caller, isDevice := auth.DeviceFromContext(ctx)
+	isOwner := auth.IsOwner(ctx)
+	if !isDevice && !isOwner {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing device or owner context"))
 	}
 	target := req.Msg.Id
 	if target == "" || target == "self" {
+		if !isDevice {
+			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("owner caller must specify an explicit id"))
+		}
 		target = caller
 	}
-	if target != caller {
+	if !isOwner && target != caller {
 		return nil, connect.NewError(connect.CodePermissionDenied,
 			fmt.Errorf("can only revoke own device; got %s", target))
 	}

@@ -108,11 +108,14 @@ func (h *SessionsHandler) Push(ctx context.Context, req *connect.Request[prosav1
 }
 
 // List returns sessions filtered by since/until + optional project /
-// agent / device dimensions. Scoped to the caller's device unless
-// device_name is explicitly set (and matches devices.friendly_name).
+// agent / device dimensions. Device callers are auto-scoped to their
+// own device_id (cannot see other devices' rows); owner callers
+// (panel) get a cross-device list and may further narrow via
+// device_name.
 func (h *SessionsHandler) List(ctx context.Context, req *connect.Request[prosav1.ListRequest]) (*connect.Response[prosav1.ListResponse], error) {
-	if _, ok := auth.DeviceFromContext(ctx); !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing device context"))
+	callerDevice, isDevice := auth.DeviceFromContext(ctx)
+	if !isDevice && !auth.IsOwner(ctx) {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing device or owner context"))
 	}
 	if req.Msg.Since == nil || req.Msg.Until == nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, missingFields("since", "until"))
@@ -120,6 +123,11 @@ func (h *SessionsHandler) List(ctx context.Context, req *connect.Request[prosav1
 	conds := []string{"s.started_at >= $1", "s.started_at <= $2"}
 	args := []any{tsToTime(req.Msg.Since), tsToTime(req.Msg.Until)}
 	idx := 3
+	if isDevice && !auth.IsOwner(ctx) {
+		conds = append(conds, fmt.Sprintf("s.device_id = $%d", idx))
+		args = append(args, callerDevice)
+		idx++
+	}
 	addEq := func(col, val string) {
 		conds = append(conds, fmt.Sprintf("s.%s = $%d", col, idx))
 		args = append(args, val)
@@ -182,9 +190,12 @@ func (h *SessionsHandler) List(ctx context.Context, req *connect.Request[prosav1
 }
 
 // Get returns one session by id along with its turns and tools.
+// Device callers may only fetch sessions belonging to their device;
+// owner callers (panel) can read any session.
 func (h *SessionsHandler) Get(ctx context.Context, req *connect.Request[prosav1.GetRequest]) (*connect.Response[prosav1.GetResponse], error) {
-	if _, ok := auth.DeviceFromContext(ctx); !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing device context"))
+	callerDevice, isDevice := auth.DeviceFromContext(ctx)
+	if !isDevice && !auth.IsOwner(ctx) {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing device or owner context"))
 	}
 	if req.Msg.Id == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, missingFields("id"))
@@ -202,6 +213,9 @@ func (h *SessionsHandler) Get(ctx context.Context, req *connect.Request[prosav1.
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
+	if isDevice && !auth.IsOwner(ctx) && s.DeviceId != callerDevice {
+		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("session belongs to another device"))
+	}
 
 	turns, err := selectTurns(ctx, h.Pool, req.Msg.Id)
 	if err != nil {
@@ -216,10 +230,12 @@ func (h *SessionsHandler) Get(ctx context.Context, req *connect.Request[prosav1.
 
 // Search runs the FTS query (tsvector + plainto_tsquery) against the
 // turns table and returns one hit per matching session with the
-// ts_headline-derived snippet.
+// ts_headline-derived snippet. Device callers are auto-scoped to their
+// own sessions; owner callers (panel) search across every device.
 func (h *SessionsHandler) Search(ctx context.Context, req *connect.Request[prosav1.SearchRequest]) (*connect.Response[prosav1.SearchResponse], error) {
-	if _, ok := auth.DeviceFromContext(ctx); !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing device context"))
+	callerDevice, isDevice := auth.DeviceFromContext(ctx)
+	if !isDevice && !auth.IsOwner(ctx) {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing device or owner context"))
 	}
 	if req.Msg.Query == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, missingFields("query"))
@@ -239,6 +255,11 @@ func (h *SessionsHandler) Search(ctx context.Context, req *connect.Request[prosa
 	}
 	args := []any{tsToTime(req.Msg.Since), tsToTime(req.Msg.Until), req.Msg.Query}
 	idx := 4
+	if isDevice && !auth.IsOwner(ctx) {
+		conds = append(conds, fmt.Sprintf("s.device_id = $%d", idx))
+		args = append(args, callerDevice)
+		idx++
+	}
 	addEq := func(col, val string) {
 		conds = append(conds, fmt.Sprintf("s.%s = $%d", col, idx))
 		args = append(args, val)
@@ -303,6 +324,8 @@ func (h *SessionsHandler) Search(ctx context.Context, req *connect.Request[prosa
 func (h *SessionsHandler) Manifest(ctx context.Context, req *connect.Request[prosav1.ManifestRequest]) (*connect.Response[prosav1.ManifestResponse], error) {
 	deviceID, ok := auth.DeviceFromContext(ctx)
 	if !ok {
+		// Manifest is a device-scoped reconcile primitive; owner callers
+		// (panel) have no meaningful device to scope to.
 		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing device context"))
 	}
 	limit := req.Msg.Limit

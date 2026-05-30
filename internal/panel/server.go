@@ -1,0 +1,177 @@
+package panel
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"html/template"
+	"io/fs"
+	"log/slog"
+	"net/http"
+	"strings"
+
+	"github.com/c3-oss/prosa/internal/panel/assets"
+	"github.com/c3-oss/prosa/internal/panel/rpc"
+	"github.com/c3-oss/prosa/internal/panel/session"
+	"github.com/c3-oss/prosa/internal/panel/templates"
+)
+
+// Panel is the assembled HTTP server. Build via New, drive with Serve.
+type Panel struct {
+	cfg     Config
+	mux     *http.ServeMux
+	views   map[string]*template.Template
+	cookie  *session.Manager
+	clients *rpc.Clients
+}
+
+// New parses the embedded templates and wires every route. Each view
+// is parsed into its own template set together with base.html so that
+// `{{define "content"}}` blocks don't collide between views.
+func New(cfg Config) (*Panel, error) {
+	views, err := loadViews()
+	if err != nil {
+		return nil, fmt.Errorf("parse templates: %w", err)
+	}
+	p := &Panel{
+		cfg:     cfg,
+		mux:     http.NewServeMux(),
+		views:   views,
+		cookie:  session.NewManager(cfg.CookieKey, cfg.CookieSecure),
+		clients: rpc.New(cfg.ServerURL, cfg.AdminToken),
+	}
+	p.routes()
+	return p, nil
+}
+
+// loadViews reads every *.html from the embedded FS and builds one
+// template tree per top-level view, each combining base.html with the
+// view's own definitions. Standalone helpers (side_panel, raw_chunk,
+// login) are parsed without base.html.
+func loadViews() (map[string]*template.Template, error) {
+	type viewSpec struct {
+		name  string
+		files []string
+	}
+	// Each view's file list includes everything its templates reference.
+	// Layered views start with base.html; standalone helpers stand alone.
+	specs := []viewSpec{
+		{"home", []string{"base.html", "home.html", "side_panel.html"}},
+		{"devices", []string{"base.html", "devices.html"}},
+		{"analytics", []string{"base.html", "analytics.html"}},
+		{"login", []string{"login.html"}},
+		{"side_panel", []string{"side_panel.html"}},
+		{"raw_chunk", []string{"raw_chunk.html"}},
+	}
+	out := make(map[string]*template.Template, len(specs))
+	for _, sp := range specs {
+		t := template.New("").Funcs(templateFuncs())
+		parsed, err := t.ParseFS(templates.FS, sp.files...)
+		if err != nil {
+			return nil, fmt.Errorf("parse %s: %w", sp.name, err)
+		}
+		out[sp.name] = parsed
+	}
+	return out, nil
+}
+
+// Serve binds the configured listener and blocks until ctx fires.
+func (p *Panel) Serve(ctx context.Context) error {
+	srv := &http.Server{
+		Addr:    p.cfg.ListenAddr,
+		Handler: p.mux,
+	}
+	errCh := make(chan error, 1)
+	go func() {
+		slog.Info("prosa-panel listening",
+			"addr", p.cfg.ListenAddr, "server", p.cfg.ServerURL,
+			"dev_login", p.cfg.DevLoginEmail != "")
+		errCh <- srv.ListenAndServe()
+	}()
+	select {
+	case <-ctx.Done():
+		slog.Info("shutdown signal received")
+		return srv.Shutdown(context.Background())
+	case err := <-errCh:
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return err
+	}
+}
+
+// routes wires every endpoint.
+func (p *Panel) routes() {
+	// Static assets.
+	sub, _ := fs.Sub(assets.FS, ".")
+	p.mux.Handle("/assets/", http.StripPrefix("/assets/", http.FileServer(http.FS(sub))))
+
+	// Health (public).
+	p.mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok\n"))
+	})
+
+	// Auth surfaces (public).
+	p.mux.HandleFunc("/login", p.handleLogin)
+	p.mux.HandleFunc("/oauth/github/callback", p.handleGitHubCallback)
+	p.mux.HandleFunc("/logout", p.handleLogout)
+	if p.cfg.DevLoginEmail != "" {
+		slog.Warn("dev-login enabled — DO NOT use in production",
+			"email", p.cfg.DevLoginEmail)
+		p.mux.HandleFunc("/dev-login", p.handleDevLogin)
+	}
+
+	// Gated app routes — each one wraps p.requireSession around its handler.
+	p.mux.HandleFunc("/", p.requireSession(p.handleHome))
+	p.mux.HandleFunc("/sessions/", p.requireSession(p.handleSessionDetail))
+	p.mux.HandleFunc("/raw/", p.requireSession(p.handleRawChunk))
+	p.mux.HandleFunc("/devices", p.requireSession(p.handleDevices))
+	p.mux.HandleFunc("/devices/", p.requireSession(p.handleDevicesAction))
+	p.mux.HandleFunc("/analytics/", p.requireSession(p.handleAnalytics))
+	p.mux.HandleFunc("/events", p.requireSession(p.handleSSE))
+}
+
+// requireSession is the auth gate. Anonymous browsers get a 302 to
+// /login; logged-in browsers proceed.
+func (p *Panel) requireSession(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := p.cookie.FromRequest(r); !ok {
+			http.Redirect(w, r, "/login", http.StatusFound)
+			return
+		}
+		next(w, r)
+	}
+}
+
+// render shells out a template by name into w. Wraps the
+// error-rendering boilerplate so handlers stay short. Each view has
+// its own template tree so block redefinitions ("content", "search",
+// "side") in sibling views don't shadow each other.
+func (p *Panel) render(w http.ResponseWriter, name string, data any) {
+	t, ok := p.views[name]
+	if !ok {
+		slog.Error("template not found", "name", name)
+		http.Error(w, "internal panel error", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	// Layered views render via "base"; standalone helpers render their
+	// own top-level define directly.
+	root := "base"
+	switch name {
+	case "login", "side_panel", "raw_chunk":
+		root = name
+	}
+	if err := t.ExecuteTemplate(w, root, data); err != nil {
+		slog.Error("template render failed", "name", name, "err", err)
+		http.Error(w, "internal panel error", http.StatusInternalServerError)
+	}
+}
+
+// templateFuncs are the helpers exposed to every template.
+func templateFuncs() template.FuncMap {
+	return template.FuncMap{
+		"hasPrefix": strings.HasPrefix,
+	}
+}
