@@ -122,7 +122,10 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stdout, "no matches for %q\n", query)
 		return nil
 	}
-	return render.SearchHits(os.Stdout, hits, now, IsInteractive())
+	return render.SearchHitsWithOptions(os.Stdout, hits, now, render.SearchOptions{
+		Interactive: IsInteractive(),
+		Width:       TerminalWidth(),
+	})
 }
 
 // runSearchRemote talks to Sessions.Search and projects the response
@@ -197,7 +200,10 @@ func runSearchRemote(ctx context.Context, query string, window time.Duration) er
 		fmt.Fprintf(os.Stdout, "no matches for %q (remote)\n", query)
 		return nil
 	}
-	return render.SearchHits(os.Stdout, hits, now, IsInteractive())
+	return render.SearchHitsWithOptions(os.Stdout, hits, now, render.SearchOptions{
+		Interactive: IsInteractive(),
+		Width:       TerminalWidth(),
+	})
 }
 
 // remoteHitsToLocal converts the proto wire shape into the local

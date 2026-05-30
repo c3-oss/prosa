@@ -93,5 +93,22 @@ func runNu(cmd *cobra.Command, _ []string) error {
 		fmt.Fprintf(os.Stdout, "no sessions in the last %s\n", g.Last)
 		return nil
 	}
-	return render.Timeline(os.Stdout, sessions, now, IsInteractive())
+
+	items := make([]render.TimelineItem, len(sessions))
+	for i := range sessions {
+		tools, err := s.GetSessionTools(ctx, sessions[i].ID)
+		if err != nil {
+			return err
+		}
+		items[i] = render.TimelineItem{Session: sessions[i], Tools: tools}
+	}
+	layout := render.TimelineGlobal
+	if g.Project != "" || filter.ProjectExact != nil || filter.ProjectRemote != nil || filter.ProjectMarker != nil {
+		layout = render.TimelineScoped
+	}
+	return render.TimelineItems(os.Stdout, items, now, render.TimelineOptions{
+		Interactive: IsInteractive(),
+		Width:       TerminalWidth(),
+		Layout:      layout,
+	})
 }
