@@ -37,6 +37,7 @@ $(BIN)/protoc-gen-connect-go:
 	go install connectrpc.com/connect/cmd/protoc-gen-connect-go@$(PROTOC_GEN_CONNECT_GO_VERSION)
 
 gen: tools
+	buf lint
 	buf generate
 	@if command -v gofumpt >/dev/null 2>&1; then gofumpt -w gen/ 2>/dev/null || true; fi
 

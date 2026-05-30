@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package prosa.v1;
+
+option go_package = "github.com/c3-oss/prosa/gen/go/prosa/v1;prosav1";
+
+// HealthService is a trivial readiness probe. Wired in cut 1 only to
+// exercise the buf + protoc-gen-go + protoc-gen-connect-go pipeline
+// end-to-end so CI catches regressions in codegen before the real
+// service surface lands.
+service HealthService {
+  rpc Check(CheckRequest) returns (CheckResponse);
+}
+
+message CheckRequest {}
+
+message CheckResponse {
+  Status status = 1;
+
+  enum Status {
+    STATUS_UNSPECIFIED = 0;
+    STATUS_SERVING = 1;
+    STATUS_NOT_SERVING = 2;
+  }
+}
