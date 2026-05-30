@@ -10,19 +10,24 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/c3-oss/prosa/internal/cli/render"
 	"github.com/c3-oss/prosa/internal/paths"
 	"github.com/c3-oss/prosa/internal/store"
 )
 
+var showRawFlag bool
+
 func newShowCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "show <session-id>",
-		Short: "Print the raw JSONL of a session",
-		Long: "Reads the preserved raw JSONL file from the local store and copies " +
-			"its bytes to stdout. The raw is already JSONL; --json is a no-op.",
+		Short: "Show a session",
+		Long: "In an interactive terminal, renders a compact human view of the session. " +
+			"Use --raw, --json, or pipe stdout to copy the preserved raw bytes exactly.",
 		Args: cobra.ExactArgs(1),
 		RunE: runShow,
 	}
+	cmd.Flags().BoolVar(&showRawFlag, "raw", false, "print preserved raw bytes exactly")
+	return cmd
 }
 
 func runShow(cmd *cobra.Command, args []string) error {
@@ -47,9 +52,30 @@ func runShow(cmd *cobra.Command, args []string) error {
 		}
 		return err
 	}
-	f, err := os.Open(sess.RawPath)
+	if showRawFlag || g.JSON || !IsInteractive() {
+		return copyRaw(sess.RawPath)
+	}
+
+	tools, err := s.GetSessionTools(ctx, sess.ID)
 	if err != nil {
-		return fmt.Errorf("open raw %s: %w", sess.RawPath, err)
+		return err
+	}
+	turns, err := s.GetTurns(ctx, sess.ID)
+	if err != nil {
+		return err
+	}
+	return render.ShowSession(os.Stdout, render.SessionDetail{
+		Session: sess,
+		Tools:   tools,
+		Turns:   turns,
+		Width:   TerminalWidth(),
+	})
+}
+
+func copyRaw(rawPath string) error {
+	f, err := os.Open(rawPath)
+	if err != nil {
+		return fmt.Errorf("open raw %s: %w", rawPath, err)
 	}
 	defer f.Close()
 	_, err = io.Copy(os.Stdout, f)
