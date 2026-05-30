@@ -1,0 +1,11 @@
+{
+  "name": "@c3-oss/prosa-darwin-arm64",
+  "version": "0.0.0-dev",
+  "description": "prosa CLI binary for macOS arm64 (Apple Silicon)",
+  "homepage": "https://github.com/c3-oss/prosa",
+  "license": "CC0-1.0",
+  "os": ["darwin"],
+  "cpu": ["arm64"],
+  "files": ["bin/prosa"],
+  "preferUnplugged": true
+}

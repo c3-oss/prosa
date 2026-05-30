@@ -1,0 +1,36 @@
+{
+  "name": "@c3-oss/prosa",
+  "version": "0.0.0-dev",
+  "description": "Unified history of AI agent sessions across devices",
+  "homepage": "https://github.com/c3-oss/prosa",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/c3-oss/prosa.git"
+  },
+  "license": "CC0-1.0",
+  "bin": {
+    "prosa": "bin/prosa.js"
+  },
+  "files": [
+    "bin/prosa.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "optionalDependencies": {
+    "@c3-oss/prosa-darwin-arm64": "0.0.0-dev",
+    "@c3-oss/prosa-darwin-amd64": "0.0.0-dev",
+    "@c3-oss/prosa-linux-amd64": "0.0.0-dev",
+    "@c3-oss/prosa-linux-arm64": "0.0.0-dev"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "ai",
+    "claude-code",
+    "codex",
+    "cli",
+    "history",
+    "agent"
+  ]
+}

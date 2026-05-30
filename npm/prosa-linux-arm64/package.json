@@ -1,0 +1,11 @@
+{
+  "name": "@c3-oss/prosa-linux-arm64",
+  "version": "0.0.0-dev",
+  "description": "prosa CLI binary for Linux arm64",
+  "homepage": "https://github.com/c3-oss/prosa",
+  "license": "CC0-1.0",
+  "os": ["linux"],
+  "cpu": ["arm64"],
+  "files": ["bin/prosa"],
+  "preferUnplugged": true
+}
