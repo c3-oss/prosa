@@ -48,6 +48,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newSyncCmd())
 	cmd.AddCommand(newShowCmd())
 	cmd.AddCommand(newSearchCmd())
+	cmd.AddCommand(newAnalyticsCmd())
 	return cmd
 }
 
