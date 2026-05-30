@@ -13,8 +13,9 @@ change, the corresponding file here gets updated and the importer adapts.
 | --- | --- | --- |
 | Claude Code | [claude-code.md](claude-code.md) | `internal/importers/claudecode/` |
 | Codex | [codex.md](codex.md) | `internal/importers/codex/` |
-| Cursor | _(planned)_ | `internal/importers/cursor/` |
-| Gemini | _(planned)_ | `internal/importers/gemini/` |
+| Cursor | [cursor.md](cursor.md) | `internal/importers/cursor/` |
+| Gemini CLI | [gemini.md](gemini.md) | `internal/importers/gemini/` |
+| Hermes | [hermes.md](hermes.md) | `internal/importers/hermes/` |
 
 ## What each file covers
 
