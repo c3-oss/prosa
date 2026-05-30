@@ -15,6 +15,9 @@ import (
 // globalFlags is the persistent flag set inherited by every sub-command.
 // Cut 1 only honors --last and --json; the rest are wired so the public
 // surface stays stable, but the query layer ignores them with a TODO.
+//
+// Limit is the only field bound to a non-persistent flag — it lives on
+// the root command (timeline) only. Search has its own --limit.
 type globalFlags struct {
 	Last    string
 	Since   string
@@ -24,6 +27,7 @@ type globalFlags struct {
 	Agent   string
 	All     bool
 	JSON    bool
+	Limit   int
 }
 
 var g globalFlags
@@ -48,6 +52,9 @@ func newRootCmd() *cobra.Command {
 	pf.StringVar(&g.Agent, "agent", "", "filter by agent (claude-code | codex)")
 	pf.BoolVar(&g.All, "all", false, "disable the cwd-based project auto-filter")
 	pf.BoolVar(&g.JSON, "json", false, "emit NDJSON instead of human-formatted output")
+	// --limit is only meaningful on the bare `prosa` timeline; sub-commands
+	// either have their own --limit (search) or don't need one.
+	cmd.Flags().IntVar(&g.Limit, "limit", 0, "cap the number of timeline sessions returned (0 = no limit)")
 
 	cmd.AddCommand(newSyncCmd())
 	cmd.AddCommand(newShowCmd())
