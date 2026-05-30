@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/c3-oss/prosa/pkg/session"
@@ -69,24 +70,91 @@ func (s *Store) UpsertSession(ctx context.Context, sess session.Session, tools [
 	return tx.Commit()
 }
 
-// ListSessionsByRange returns sessions whose started_at falls within
-// [since, until], newest first. Uses lexical comparison on RFC3339Nano
-// strings — safe because that format is ISO 8601 sortable.
+// SessionFilter narrows ListSessions. Since/Until are required; the
+// pointer fields are optional and combine with AND semantics. ProjectExact
+// is the cwd-anchored auto-filter (exact equality); ProjectMatch is
+// substring (used by the --project flag). Agent matches the canonical
+// agent string ("claude-code" | "codex"). DeviceName matches against
+// devices.friendly_name via JOIN.
+type SessionFilter struct {
+	Since, Until time.Time
+	ProjectExact *string
+	ProjectMatch *string
+	Agent        *string
+	DeviceName   *string
+}
+
+// ListSessionsByRange is a thin convenience wrapper preserving the cut-1
+// signature for callers that don't need the additional filter dimensions.
 func (s *Store) ListSessionsByRange(ctx context.Context, since, until time.Time) ([]session.Session, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, agent, device_id, project_path,
-		       started_at, last_activity_at,
-		       first_prompt, model,
-		       raw_path, raw_hash, raw_size
-		FROM sessions
-		WHERE started_at >= ? AND started_at <= ?
-		ORDER BY started_at DESC
-	`, formatTime(since), formatTime(until))
+	return s.ListSessions(ctx, SessionFilter{Since: since, Until: until})
+}
+
+// ListSessions runs the configurable session query. It assembles the
+// WHERE clause from the populated filter fields and returns sessions
+// ordered newest first. Empty result is not an error.
+func (s *Store) ListSessions(ctx context.Context, f SessionFilter) ([]session.Session, error) {
+	conds := []string{"s.started_at >= ?", "s.started_at <= ?"}
+	args := []any{formatTime(f.Since), formatTime(f.Until)}
+
+	if f.ProjectExact != nil {
+		conds = append(conds, "s.project_path = ?")
+		args = append(args, *f.ProjectExact)
+	}
+	if f.ProjectMatch != nil {
+		conds = append(conds, "s.project_path LIKE ?")
+		args = append(args, "%"+*f.ProjectMatch+"%")
+	}
+	if f.Agent != nil {
+		conds = append(conds, "s.agent = ?")
+		args = append(args, *f.Agent)
+	}
+
+	join := ""
+	if f.DeviceName != nil {
+		join = " JOIN devices d ON d.id = s.device_id"
+		conds = append(conds, "d.friendly_name = ?")
+		args = append(args, *f.DeviceName)
+	}
+
+	query := `
+		SELECT s.id, s.agent, s.device_id, s.project_path,
+		       s.started_at, s.last_activity_at,
+		       s.first_prompt, s.model,
+		       s.raw_path, s.raw_hash, s.raw_size
+		FROM sessions s` + join + `
+		WHERE ` + strings.Join(conds, " AND ") + `
+		ORDER BY s.started_at DESC
+	`
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	return scanSessions(rows)
+}
+
+// DistinctProjectPaths returns every non-null project_path stored. Used
+// by the CLI to drive auto-detection of the current project from cwd.
+func (s *Store) DistinctProjectPaths(ctx context.Context) ([]string, error) {
+	rows, err := s.db.QueryContext(
+		ctx,
+		`SELECT DISTINCT project_path FROM sessions WHERE project_path IS NOT NULL AND project_path != ''`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
 }
 
 // GetSession returns a single session by id, or sql.ErrNoRows if missing.

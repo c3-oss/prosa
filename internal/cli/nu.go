@@ -15,7 +15,15 @@ import (
 )
 
 // runNu implements the bare `prosa` invocation: list sessions in the
-// configured window. Default window is 7 days; override with --last.
+// configured window with filters applied. Default window is 7 days;
+// override with --last.
+//
+// Filter precedence:
+//  1. --project foo   → substring match on project_path; auto-detect off.
+//  2. --all           → auto-detect off; no project filter.
+//  3. (neither)       → auto-detect from cwd (longest matching ancestor wins).
+//
+// --agent / --device are independent and apply regardless.
 func runNu(cmd *cobra.Command, _ []string) error {
 	ctx := cmd.Context()
 	if ctx == nil {
@@ -37,7 +45,36 @@ func runNu(cmd *cobra.Command, _ []string) error {
 	defer func() { _ = s.Close() }()
 
 	now := time.Now().UTC()
-	sessions, err := s.ListSessionsByRange(ctx, now.Add(-window), now)
+	filter := store.SessionFilter{
+		Since: now.Add(-window),
+		Until: now,
+	}
+
+	switch {
+	case g.Project != "":
+		p := g.Project
+		filter.ProjectMatch = &p
+	case !g.All:
+		cwd, err := os.Getwd()
+		if err == nil {
+			if detected, found, _ := DetectProject(ctx, cwd, s); found {
+				filter.ProjectExact = &detected
+				if !g.JSON {
+					fmt.Fprintf(os.Stderr, "(filtered to: %s — use --all to show everything)\n", detected)
+				}
+			}
+		}
+	}
+	if g.Agent != "" {
+		a := g.Agent
+		filter.Agent = &a
+	}
+	if g.Device != "" {
+		d := g.Device
+		filter.DeviceName = &d
+	}
+
+	sessions, err := s.ListSessions(ctx, filter)
 	if err != nil {
 		return err
 	}

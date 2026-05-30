@@ -36,10 +36,10 @@ func newRootCmd() *cobra.Command {
 	}
 	pf := cmd.PersistentFlags()
 	pf.StringVar(&g.Last, "last", "7d", "window length (e.g. 7d, 30d, 12h)")
-	pf.StringVar(&g.Project, "project", "", "filter by project (TODO cut-2)")
-	pf.StringVar(&g.Device, "device", "", "filter by device (TODO cut-2)")
-	pf.StringVar(&g.Agent, "agent", "", "filter by agent (TODO cut-2)")
-	pf.BoolVar(&g.All, "all", false, "drop project auto-filter (TODO cut-2)")
+	pf.StringVar(&g.Project, "project", "", "filter by project path (substring match)")
+	pf.StringVar(&g.Device, "device", "", "filter by device friendly name")
+	pf.StringVar(&g.Agent, "agent", "", "filter by agent (claude-code | codex)")
+	pf.BoolVar(&g.All, "all", false, "disable the cwd-based project auto-filter")
 	pf.BoolVar(&g.JSON, "json", false, "emit NDJSON instead of human-formatted output")
 
 	cmd.AddCommand(newSyncCmd())
