@@ -10,7 +10,7 @@ architecture, schema, CLI surface, distribution — lives in [`INTENT.md`](INTEN
 ## Build
 
 ```
-devbox shell           # Go 1.24 + buf + linter pinned via Nix
+devbox shell           # Go 1.26 + buf 1.70 + linter pinned via Nix
 make tools             # install protoc-gen-go + protoc-gen-connect-go into ./bin
 make build             # produces ./bin/prosa, ./bin/prosa-server, ./bin/prosa-panel
 ```
