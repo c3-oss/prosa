@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/c3-oss/prosa/internal/sessiontext"
 	"github.com/c3-oss/prosa/pkg/session"
 )
 
@@ -27,6 +28,13 @@ const (
 
 	scanBufferInitial   = 64 << 10
 	firstPromptMaxRunes = 200
+
+	// toolPreviewMaxBytes / toolPreviewMaxLines cap what we project as a
+	// tool_result Turn. The raw JSONL is always preserved on disk — these
+	// limits only shape the searchable index entry. Constants on purpose:
+	// INTENT says no config knobs without three call sites.
+	toolPreviewMaxBytes = 4096
+	toolPreviewMaxLines = 40
 )
 
 // uuidSuffixRE pulls the session UUID out of a Codex filename suffix
@@ -66,7 +74,23 @@ type responseItemPayload struct {
 	Type    string          `json:"type"`
 	Role    string          `json:"role"`
 	Name    string          `json:"name"`
+	CallID  string          `json:"call_id"`
+	Output  json.RawMessage `json:"output"`
 	Content json.RawMessage `json:"content"`
+}
+
+// functionCallOutput is the inline payload Codex emits for a
+// function_call_output response_item. Newer files wrap the output in
+// {"type":"function_call_output","output":"..."} or
+// {"output":{"content":[{"type":"text","text":"..."}]}}.
+type functionCallOutput struct {
+	Output  json.RawMessage  `json:"output"`
+	Content []functionOutBlk `json:"content"`
+}
+
+type functionOutBlk struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
 }
 
 type contentBlock struct {
@@ -158,6 +182,7 @@ func parseSession(ctx context.Context, path string) (session.Session, []session.
 		sess           session.Session
 		turns          []session.Turn
 		toolCounts     = map[string]int{}
+		callIDToName   = map[string]string{}
 		bestUsage      *session.TokenUsage
 		sessIDSet      bool
 		cwdSet         bool
@@ -227,7 +252,7 @@ func parseSession(ctx context.Context, path string) (session.Session, []session.
 			if err := json.Unmarshal(r.Payload, &p); err != nil {
 				continue
 			}
-			handleResponseItem(p, r.Timestamp, &sess, &turns, &firstPromptSet, toolCounts)
+			handleResponseItem(p, r.Timestamp, &sess, &turns, &firstPromptSet, toolCounts, callIDToName)
 
 		case r.Type == "event_msg" && len(r.Payload) > 0:
 			if usage, ok := tokenUsageFromEvent(r.Payload); ok {
@@ -245,7 +270,30 @@ func parseSession(ctx context.Context, path string) (session.Session, []session.
 			// Legacy top-level function call.
 			if r.Name != "" {
 				toolCounts[r.Name]++
+				// Legacy records carry the call_id alongside; round-trip
+				// it via the raw payload so function_call_output can find
+				// the tool name later.
+				if id := legacyCallID(sc.Bytes()); id != "" {
+					callIDToName[id] = r.Name
+				}
 			}
+
+		case r.Type == "function_call_output":
+			// Legacy top-level tool output.
+			text := extractToolOutput(r.Content)
+			if text == "" {
+				break
+			}
+			id := legacyCallID(sc.Bytes())
+			name := callIDToName[id]
+			ts, _ := parseTimestamp(r.Timestamp)
+			turns = append(turns, session.Turn{
+				Role:      "tool",
+				Content:   truncatePreview(text),
+				Timestamp: ts,
+				Kind:      session.KindToolResult,
+				ToolName:  name,
+			})
 		}
 	}
 
@@ -310,6 +358,7 @@ func handleResponseItem(
 	turns *[]session.Turn,
 	firstPromptSet *bool,
 	toolCounts map[string]int,
+	callIDToName map[string]string,
 ) {
 	switch p.Type {
 	case "message":
@@ -317,26 +366,50 @@ func handleResponseItem(
 		if text == "" {
 			return
 		}
-		// `developer` role is intentionally dropped in cut 2 (analogous
-		// to Claude Code's system/operational events).
+		// `developer` and `system` roles never show up as first-prompt
+		// candidates — they hold scaffolding ("You are Codex, a coding
+		// agent", etc.) that sessiontext.IsBoilerplatePrompt would also
+		// flag, but skipping them outright avoids creating a turn for
+		// every system message.
 		switch p.Role {
 		case "user":
-			if !*firstPromptSet {
-				prompt := truncRunes(strings.Join(strings.Fields(text), " "), firstPromptMaxRunes)
-				sess.FirstPrompt = &prompt
-				*firstPromptSet = true
-			}
+			setFirstPromptIfHuman(sess, firstPromptSet, text)
 			ts, _ := parseTimestamp(timestamp)
-			*turns = append(*turns, session.Turn{Role: "user", Content: text, Timestamp: ts})
+			*turns = append(*turns, session.Turn{
+				Role: "user", Content: text, Timestamp: ts, Kind: session.KindMessage,
+			})
 		case "assistant":
 			ts, _ := parseTimestamp(timestamp)
-			*turns = append(*turns, session.Turn{Role: "assistant", Content: text, Timestamp: ts})
+			*turns = append(*turns, session.Turn{
+				Role: "assistant", Content: text, Timestamp: ts, Kind: session.KindMessage,
+			})
 		}
 
 	case "function_call":
 		if p.Name != "" {
 			toolCounts[p.Name]++
+			if p.CallID != "" {
+				callIDToName[p.CallID] = p.Name
+			}
 		}
+
+	case "function_call_output":
+		text := extractToolOutput(p.Output)
+		if text == "" {
+			return
+		}
+		name := p.Name
+		if name == "" && p.CallID != "" {
+			name = callIDToName[p.CallID]
+		}
+		ts, _ := parseTimestamp(timestamp)
+		*turns = append(*turns, session.Turn{
+			Role:      "tool",
+			Content:   truncatePreview(text),
+			Timestamp: ts,
+			Kind:      session.KindToolResult,
+			ToolName:  name,
+		})
 	}
 }
 
@@ -354,17 +427,105 @@ func handleLegacyMessage(
 	}
 	switch role {
 	case "user":
-		if !*firstPromptSet {
-			prompt := truncRunes(strings.Join(strings.Fields(text), " "), firstPromptMaxRunes)
-			sess.FirstPrompt = &prompt
-			*firstPromptSet = true
-		}
+		setFirstPromptIfHuman(sess, firstPromptSet, text)
 		ts, _ := parseTimestamp(timestamp)
-		*turns = append(*turns, session.Turn{Role: "user", Content: text, Timestamp: ts})
+		*turns = append(*turns, session.Turn{
+			Role: "user", Content: text, Timestamp: ts, Kind: session.KindMessage,
+		})
 	case "assistant":
 		ts, _ := parseTimestamp(timestamp)
-		*turns = append(*turns, session.Turn{Role: "assistant", Content: text, Timestamp: ts})
+		*turns = append(*turns, session.Turn{
+			Role: "assistant", Content: text, Timestamp: ts, Kind: session.KindMessage,
+		})
 	}
+}
+
+// setFirstPromptIfHuman applies the sessiontext classifier before
+// committing a first prompt. Skips when text is wholly meta (e.g. a
+// stray system message that leaked through) or empty after cleanup.
+func setFirstPromptIfHuman(sess *session.Session, set *bool, text string) {
+	if *set {
+		return
+	}
+	if sessiontext.IsBoilerplatePrompt(text) {
+		return
+	}
+	cleaned := strings.TrimSpace(sessiontext.CleanPrompt(text))
+	if cleaned == "" {
+		return
+	}
+	prompt := truncRunes(strings.Join(strings.Fields(cleaned), " "), firstPromptMaxRunes)
+	sess.FirstPrompt = &prompt
+	*set = true
+}
+
+// extractToolOutput pulls the textual body out of a function_call_output
+// payload. Codex emits either a plain string or a Connect/Responses
+// API style {"content":[{"type":"text","text":"..."}]} wrapper.
+func extractToolOutput(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var asString string
+	if err := json.Unmarshal(raw, &asString); err == nil {
+		return asString
+	}
+	var wrap functionCallOutput
+	if err := json.Unmarshal(raw, &wrap); err == nil {
+		if len(wrap.Output) > 0 {
+			var inner string
+			if err := json.Unmarshal(wrap.Output, &inner); err == nil {
+				return inner
+			}
+		}
+		if len(wrap.Content) > 0 {
+			parts := make([]string, 0, len(wrap.Content))
+			for _, b := range wrap.Content {
+				if b.Text != "" {
+					parts = append(parts, b.Text)
+				}
+			}
+			return strings.Join(parts, "\n")
+		}
+	}
+	return ""
+}
+
+// legacyCallID best-effort pulls call_id out of a legacy top-level
+// function_call / function_call_output record. The rawRecord struct
+// doesn't carry it, so we re-decode a tiny shape.
+func legacyCallID(line []byte) string {
+	var probe struct {
+		CallID string `json:"call_id"`
+	}
+	if err := json.Unmarshal(line, &probe); err != nil {
+		return ""
+	}
+	return probe.CallID
+}
+
+// truncatePreview caps tool output content at toolPreviewMaxLines /
+// toolPreviewMaxBytes for the searchable Turn, marking truncation with
+// a trailing "…" sentinel. The verbatim raw is always still on disk.
+func truncatePreview(s string) string {
+	if s == "" {
+		return ""
+	}
+	lines := strings.Split(s, "\n")
+	truncated := false
+	if len(lines) > toolPreviewMaxLines {
+		lines = lines[:toolPreviewMaxLines]
+		truncated = true
+	}
+	out := strings.Join(lines, "\n")
+	if len(out) > toolPreviewMaxBytes {
+		out = out[:toolPreviewMaxBytes]
+		truncated = true
+	}
+	if truncated {
+		out += "\n…"
+	}
+	return out
 }
 
 // extractMessageText returns the joined text for a message's content,
