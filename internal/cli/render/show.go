@@ -3,6 +3,7 @@ package render
 import (
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/c3-oss/prosa/pkg/session"
 )
@@ -12,6 +13,10 @@ type SessionDetail struct {
 	Tools   []session.ToolUsage
 	Turns   []session.Turn
 	Width   int
+	// MaxOutputLines caps the number of lines printed per turn. 0 means
+	// the renderer falls back to a single-line collapse — backwards
+	// compatible with callers that haven't opted into per-line preview.
+	MaxOutputLines int
 }
 
 func ShowSession(w io.Writer, d SessionDetail) error {
@@ -78,18 +83,58 @@ func ShowSession(w io.Writer, d SessionDetail) error {
 		contentWidth = 24
 	}
 	for i, turn := range d.Turns {
-		text := truncateWidth(normalizeDisplayText(turn.Content), contentWidth)
-		role := padTrunc(turn.Role, 9)
+		label := turnLabel(turn)
 		branch := "├"
 		if i+1 == len(d.Turns) {
 			branch = "└"
 		}
-		fmt.Fprintf(w, "%s %s %s %s\n",
+		railHead := fmt.Sprintf("%s %s %s ",
 			StyleRail.Render("│"),
 			StyleRail.Render(branch),
-			StyleAgent.Render(role),
-			text,
+			StyleAgent.Render(padTrunc(label, 11)),
 		)
+		railCont := fmt.Sprintf("%s   %s ",
+			StyleRail.Render("│"),
+			padTrunc("", 11),
+		)
+
+		lines := turnPreviewLines(turn.Content, d.MaxOutputLines)
+		for j, ln := range lines {
+			head := railHead
+			if j > 0 {
+				head = railCont
+			}
+			fmt.Fprintf(w, "%s%s\n", head, truncateWidth(ln, contentWidth))
+		}
 	}
 	return nil
+}
+
+// turnLabel renders the per-row identifier. Tool projections show as
+// "tool:<name>" so the reader instantly sees which command produced
+// the evidence; everything else stays on the bare role.
+func turnLabel(t session.Turn) string {
+	if t.Kind == session.KindToolResult && t.ToolName != "" {
+		return "tool:" + t.ToolName
+	}
+	return t.Role
+}
+
+// turnPreviewLines returns the lines to display for one turn. When
+// max <= 0 the renderer falls back to the legacy single-line collapse
+// (newlines/whitespace normalized to spaces) — keeps short scripts
+// stable. When max > 0 the content is split on newlines, capped to
+// max lines, and a trailing "…" sentinel marks truncation.
+func turnPreviewLines(content string, max int) []string {
+	if max <= 0 {
+		return []string{normalizeDisplayText(content)}
+	}
+	raw := strings.Split(content, "\n")
+	if len(raw) <= max {
+		return raw
+	}
+	out := make([]string, 0, max+1)
+	out = append(out, raw[:max]...)
+	out = append(out, "…")
+	return out
 }
