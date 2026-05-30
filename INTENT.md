@@ -18,20 +18,27 @@ I wanted to answer a simple question without having to dig:
 
 > **What did I work on in the last N days?**
 
-Not "what models did I use." Not "how many tokens did I spend." Not "give me a
-productivity score." Just: what did I do, where, when, and roughly what was it
-about.
+That is the load-bearing question. Everything around it earns its place by
+making *that* easier to answer — and the analytics around the work are part of
+that, not a separate ambition. Where did I work, on which projects, with which
+agents, on which models, using which tools, how long things took, how much they
+cost: all of it helps me understand my own work. As long as it fits inside
+SQLite locally or Postgres remotely, it is fair game.
 
-prosa exists to make that question cheap.
+What prosa is *not* trying to be is a warehouse-shaped analytics pipeline that
+happens to also ship a CLI on top.
+
+prosa exists to make all of that cheap.
 
 ---
 
 ## The central question rules everything
 
-Every decision in this project gets weighed against the central question. If a
-feature, an abstraction, a library, a UI surface, or a documentation page
-doesn't help the user answer **"what did I work on in the last N days?"** with
-less friction, it is a candidate for cutting.
+Every decision in this project gets weighed against the central question and
+its natural follow-ups — where, how, with which tools, on which models,
+costing roughly what. If a feature, an abstraction, a library, a UI surface, or
+a documentation page doesn't help me understand my own work with less friction,
+it is a candidate for cutting.
 
 This is not a slogan. It is the constraint that keeps the project from
 sprawling. When in doubt, return to it.
@@ -59,10 +66,14 @@ informally. Prosa lets you have a conversation with your own work history.
   what already happened.
 - **Not a residential TUI.** The CLI prints and exits. The panel is where
   long-form browsing lives. No `j/k` navigation in the terminal.
-- **Not an analytics platform.** No DuckDB, no Parquet, no warehouse-shaped
-  pipelines. SQLite local, Postgres for the server. Both are enough.
-- **Not multi-tenant.** Single-user, single-owner. The server has no
-  `user_id` column.
+- **Not an analytics warehouse.** Analytics live in SQLite locally and
+  Postgres remotely, and they earn their place — tokens, models, costs, tools,
+  projects all matter. What we avoid is the heavyweight side: no DuckDB, no
+  Parquet, no columnar pipelines. If plain SQL can answer the question, it
+  does. If it could only fit in a warehouse, we cut it.
+- **Not multi-tenant yet.** Single-user, single-owner today. Organizations and
+  users are a known post-MVP direction; the schema reflects today's reality,
+  not tomorrow's.
 - **Not a place that mutates your data.** Raw `.jsonl` from each agent is
   preserved as-is, hash-addressed, never altered.
 
@@ -72,7 +83,9 @@ informally. Prosa lets you have a conversation with your own work history.
 
 1. **Lean > complete.** New deps and abstractions have to earn their place.
    Standard library first.
-2. **Single-user.** No tenancy, no roles, no impersonation.
+2. **Single-user (MVP).** No tenancy, no roles, no impersonation today.
+   Organizations and users are a post-MVP direction; we don't pre-bake hooks
+   for them.
 3. **Push-only sync.** The client computes; the client pushes. The server
    stores and serves. There is no replication back.
 4. **Idempotent by hash.** A re-sync of unchanged data is a no-op. Re-syncs are
@@ -115,13 +128,15 @@ informally. Prosa lets you have a conversation with your own work history.
 
 ## Out of scope, intentionally
 
-These are not "missing." They are choices.
+These are not "missing." They are choices — some forever, some until we earn
+them.
 
-- **MCP server.** High-value, possibly later.
+- **MCP server.** High-value, possibly post-MVP.
 - **Residential TUI.** The panel handles long-form browsing.
 - **Export (CSV/Parquet/JSON).** The raw is already on disk; rolling your own
   is fine.
-- **Multi-user / multi-tenant.** The schema doesn't have a `user_id`.
+- **Multi-user / multi-tenant — for the MVP.** Single-owner today; the schema
+  has no `user_id`. Organizations and users are a known post-MVP direction.
 - **Redaction at upload time.** TLS in transit; trust at rest.
 - **Pull-down of remote sessions into the local store.** Push-only stays
   push-only.
@@ -130,6 +145,8 @@ These are not "missing." They are choices.
 - **Cold tier of object storage.** One bucket.
 - **Incremental upload by byte range or turn.** Hashing the whole file is
   fast enough.
+- **DuckDB / Parquet / columnar sidecars.** SQLite and Postgres cover what we
+  need for the analytics we want.
 
 If any of these become real pain, we revisit. Not before.
 
