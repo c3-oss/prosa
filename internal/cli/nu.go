@@ -34,7 +34,7 @@ func runNu(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	now := time.Now().UTC()
 	sessions, err := s.ListSessionsByRange(ctx, now.Add(-window), now)

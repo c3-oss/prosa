@@ -2,12 +2,11 @@ package cli
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
 	"os"
-
-	"database/sql"
 
 	"github.com/spf13/cobra"
 
@@ -39,7 +38,7 @@ func runShow(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	sess, err := s.GetSession(ctx, args[0])
 	if err != nil {

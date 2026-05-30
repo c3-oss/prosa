@@ -67,7 +67,8 @@ func renderSessionTTY(w io.Writer, s session.Session, now time.Time) {
 		first = truncateRunes(*s.FirstPrompt, promptMaxRunes)
 	}
 
-	fmt.Fprintf(w, "  %s%s  %s  %s  %s  %q\n",
+	fmt.Fprintf(
+		w, "  %s%s  %s  %s  %s  %q\n",
 		styleTime.Render(timeStr),
 		activeMark,
 		styleDevice.Render(padRight(s.DeviceID, 8)),
@@ -89,7 +90,8 @@ func timelinePlain(w io.Writer, sessions []session.Session) error {
 		if s.FirstPrompt != nil {
 			first = *s.FirstPrompt
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+		fmt.Fprintf(
+			w, "%s\t%s\t%s\t%s\t%s\t%s\n",
 			s.StartedAt.UTC().Format(time.RFC3339),
 			s.DeviceID,
 			s.Agent,

@@ -42,7 +42,7 @@ func runSync(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	imps := []importer.Importer{claudecode.New()}
 

@@ -44,7 +44,6 @@ type model struct {
 	spin      spinner.Model
 	ch        <-chan Update
 	doneCount int
-	closed    bool
 }
 
 type closedMsg struct{}
@@ -122,7 +121,8 @@ func (m model) View() string {
 			prefix = styleErr.Render("✗")
 			status = "error: " + m.errs[i]
 		}
-		out += fmt.Sprintf(" %s  %s  %s  %s\n",
+		out += fmt.Sprintf(
+			" %s  %s  %s  %s\n",
 			prefix,
 			styleAgent.Render(it.Agent),
 			shortPath(it.Path),
@@ -161,7 +161,7 @@ func Run(ctx context.Context, items []Item, updates <-chan Update) error {
 	}
 
 	p := tea.NewProgram(m, tea.WithContext(ctx))
-	defer p.ReleaseTerminal()
+	defer func() { _ = p.ReleaseTerminal() }()
 
 	final, err := p.Run()
 	if err != nil {

@@ -1,0 +1,27 @@
+version: "2"
+
+linters:
+  default: standard
+  settings:
+    errcheck:
+      exclude-functions:
+        # Close in defers is canonical Go even when the error is dropped —
+        # nothing actionable to do once a deferred Close fails. Write paths
+        # that need flush guarantees do the close explicitly elsewhere.
+        - (io.Closer).Close
+        - (*database/sql.DB).Close
+        - (*database/sql.Rows).Close
+        - (*database/sql.Stmt).Close
+        - (*database/sql.Tx).Rollback
+        - (*os.File).Close
+
+        # Writing to stdout/stderr text doesn't get meaningfully better
+        # with surfaced errors in a CLI — if stdout is gone the next
+        # write will fail visibly anyway.
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+
+formatters:
+  enable:
+    - gofumpt

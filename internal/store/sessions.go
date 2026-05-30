@@ -21,7 +21,8 @@ func (s *Store) UpsertSession(ctx context.Context, sess session.Session, tools [
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	if _, err := tx.ExecContext(ctx, `
+	if _, err := tx.ExecContext(
+		ctx, `
 		INSERT INTO sessions (
 			id, agent, device_id, project_path,
 			started_at, last_activity_at,
