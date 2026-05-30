@@ -8,8 +8,6 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
 
 	prosav1 "github.com/c3-oss/prosa/gen/go/prosa/v1"
 	"github.com/c3-oss/prosa/gen/go/prosa/v1/prosav1connect"
@@ -69,9 +67,14 @@ func (s *Server) Close() {
 // clients work without TLS. The painel / production deploy will sit
 // behind a TLS-terminating proxy. Blocks until ctx is cancelled.
 func (s *Server) Serve(ctx context.Context) error {
+	protocols := new(http.Protocols)
+	protocols.SetHTTP1(true)
+	protocols.SetUnencryptedHTTP2(true)
+
 	srv := &http.Server{
-		Addr:    s.cfg.ListenAddr,
-		Handler: h2c.NewHandler(s.mux, &http2.Server{}),
+		Addr:      s.cfg.ListenAddr,
+		Handler:   s.mux,
+		Protocols: protocols,
 	}
 	errCh := make(chan error, 1)
 	go func() {
