@@ -1,0 +1,6 @@
+[Unit]
+Description=prosa sync — import AI agent session histories
+
+[Service]
+Type=oneshot
+ExecStart={{ .Binary }} sync

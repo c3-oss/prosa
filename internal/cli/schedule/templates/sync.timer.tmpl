@@ -1,0 +1,10 @@
+[Unit]
+Description=prosa sync timer
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec={{ .IntervalSpec }}
+Persistent=true
+
+[Install]
+WantedBy=timers.target
