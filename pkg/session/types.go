@@ -72,7 +72,19 @@ type Session struct {
 // alongside the preserved raw transcript. Bump this when importers learn new
 // canonical fields from the same raw bytes so sync can refresh old rows even
 // when raw_hash did not change.
-const ProjectionVersion = 2
+//
+//	v1: original cut.
+//	v2: usage projection (session_usage table).
+//	v3: turn.kind/tool_name + sessiontext-cleaned FirstPrompt.
+const ProjectionVersion = 3
+
+// Turn kind constants. Empty Kind is treated as KindMessage so older rows
+// and zero-value test fixtures keep working without backfill.
+const (
+	KindMessage     = "message"
+	KindToolResult  = "tool_result"
+	KindOperational = "operational"
+)
 
 // TokenUsage is the canonical token aggregate for one session. InputTokens is
 // the provider-reported gross input count; CachedTokens is the public total of
@@ -87,14 +99,23 @@ type TokenUsage struct {
 	CacheCreationTokens int64
 }
 
-// Turn is a single user/assistant message body extracted from a session,
-// populated only with the textual signal that drives FTS5. Tool calls,
-// tool results, thinking blocks, and operational events are intentionally
-// excluded in cut 1 and added when prosa search needs them.
+// Turn is a single message body extracted from a session, populated
+// with the textual signal that drives FTS5. Chat content (Role
+// "user"/"assistant") arrives with Kind=KindMessage; projected tool
+// outputs arrive with Role="tool", Kind=KindToolResult, and ToolName
+// set to the originating tool. Thinking blocks and binary artifacts
+// are still intentionally excluded — only content worth searching
+// becomes a Turn.
 type Turn struct {
-	Role      string // "user" | "assistant"
+	Role      string // "user" | "assistant" | "tool"
 	Content   string
 	Timestamp time.Time
+	// Kind tags how the importer projected the original record. Empty
+	// string is equivalent to KindMessage.
+	Kind string
+	// ToolName carries the originating tool when Kind=KindToolResult;
+	// empty otherwise.
+	ToolName string
 }
 
 // ToolUsage aggregates one tool name's invocation count within a session.
