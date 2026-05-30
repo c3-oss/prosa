@@ -45,6 +45,38 @@ func TestOpenAndMigrate(t *testing.T) {
 	var n int
 	require.NoError(t, s.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM devices WHERE id = 'local'`).Scan(&n))
 	require.Equal(t, 1, n)
+
+	// schema_migrations should be at the latest version.
+	var version int
+	require.NoError(t, s.DB().QueryRowContext(ctx, `SELECT MAX(version) FROM schema_migrations`).Scan(&version))
+	require.GreaterOrEqual(t, version, 2)
+}
+
+func TestMigration0002AddsIdentityColumns(t *testing.T) {
+	ctx, s := newStore(t)
+
+	requireColumn := func(table, col string) {
+		t.Helper()
+		rows, err := s.DB().QueryContext(ctx, "PRAGMA table_info("+table+")")
+		require.NoError(t, err)
+		defer func() { _ = rows.Close() }()
+		var found bool
+		for rows.Next() {
+			var cid int
+			var name, ctype string
+			var notnull, pk int
+			var dflt any
+			require.NoError(t, rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk))
+			if name == col {
+				found = true
+			}
+		}
+		require.True(t, found, "table %s missing column %s", table, col)
+	}
+
+	requireColumn("sessions", "project_remote")
+	requireColumn("sessions", "project_marker")
+	requireColumn("devices", "fingerprinted_at")
 }
 
 func TestUpsertSessionIdempotent(t *testing.T) {
