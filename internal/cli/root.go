@@ -15,6 +15,11 @@ import (
 // globalFlags is the persistent flag set inherited by every sub-command.
 // Cut 1 only honors --last and --json; the rest are wired so the public
 // surface stays stable, but the query layer ignores them with a TODO.
+//
+// --remote is persistent (rather than local to analytics/search) so that
+// both `prosa --remote analytics usage` and `prosa analytics --remote
+// usage` succeed; cobra rejects a local flag placed before its
+// subcommand. Sub-commands that do not honor it ignore the value.
 type globalFlags struct {
 	Last    string
 	Since   string
@@ -24,6 +29,7 @@ type globalFlags struct {
 	Agent   string
 	All     bool
 	JSON    bool
+	Remote  bool
 }
 
 var g globalFlags
@@ -48,6 +54,7 @@ func newRootCmd() *cobra.Command {
 	pf.StringVar(&g.Agent, "agent", "", "filter by agent (claude-code | codex)")
 	pf.BoolVar(&g.All, "all", false, "disable the cwd-based project auto-filter")
 	pf.BoolVar(&g.JSON, "json", false, "emit NDJSON instead of human-formatted output")
+	pf.BoolVar(&g.Remote, "remote", false, "run the command against prosa-server (analytics, search; ignored elsewhere)")
 
 	cmd.AddCommand(newSyncCmd())
 	cmd.AddCommand(newShowCmd())

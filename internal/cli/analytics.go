@@ -20,13 +20,10 @@ import (
 	"github.com/c3-oss/prosa/internal/store"
 )
 
-var (
-	validAnalyticsReports = []string{"sessions", "tools", "models", "projects", "errors", "heatmap", "usage"}
-	analyticsRemoteFlag   bool
-)
+var validAnalyticsReports = []string{"sessions", "tools", "models", "projects", "errors", "heatmap", "usage"}
 
 func newAnalyticsCmd() *cobra.Command {
-	cmd := &cobra.Command{
+	return &cobra.Command{
 		Use:   "analytics <report>",
 		Short: "Run a fixed SQL report over the local store",
 		Long: "Runs one of the built-in reports against the local store. Available:\n" +
@@ -41,14 +38,13 @@ func newAnalyticsCmd() *cobra.Command {
 			"              (heuristic; matches the words in any context).\n\n" +
 			"All reports honor the global filter flags (--last / --project / --agent /\n" +
 			"--device) and emit NDJSON with --json.\n\n" +
-			"--remote re-runs the report on the prosa-server.",
+			"--remote re-runs the report on the prosa-server. It is a persistent\n" +
+			"flag, so both `prosa --remote analytics …` and `prosa analytics … --remote`\n" +
+			"work.",
 		ValidArgs: validAnalyticsReports,
 		Args:      cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
 		RunE:      runAnalytics,
 	}
-	cmd.Flags().BoolVar(&analyticsRemoteFlag, "remote", false,
-		"run the report against the prosa-server's Postgres")
-	return cmd
 }
 
 func runAnalytics(cmd *cobra.Command, args []string) error {
@@ -64,7 +60,7 @@ func runAnalytics(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if analyticsRemoteFlag {
+	if g.Remote {
 		return runAnalyticsRemote(ctx, report, w)
 	}
 
