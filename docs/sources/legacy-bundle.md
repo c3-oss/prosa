@@ -1,8 +1,8 @@
-# Legacy v2 bundle source
+# Legacy v1 bundle source
 
-`prosa sync --legacy-bundle <path>` re-ingests sessions from a prosa v2
+`prosa sync --legacy-bundle <path>` re-ingests sessions from a prosa v1
 data bundle (typically `~/.prosa/`). It exists for one specific reason:
-the v3 cutover dropped the v2 SQLite catalog and CAS object store from
+the v3 cutover dropped the v1 SQLite catalog and CAS object store from
 the user's machine, but the original source files referenced by that
 catalog had already been deleted by each upstream tool's own retention
 policy. The bundle is the only surviving copy.
@@ -22,14 +22,14 @@ cursor,gemini}`).
   while the legacy bundle still has hundreds of `store.db` snapshots.
 - Gemini's `~/.gemini/tmp/` keeps active session JSON but no long history.
 
-If you ran prosa v2 against these tools before the v3 rewrite, the
+If you ran prosa v1 against these tools before the v3 rewrite, the
 bundle has everything.
 
-## Bundle layout (v2)
+## Bundle layout (v1)
 
 ```text
 <bundle>/
-  prosa.sqlite                # v2 SQLite catalog
+  prosa.sqlite                # v1 SQLite catalog
   raw/
     sources/
       <blake3-hex>.zst        # one zstd-compressed verbatim copy
@@ -71,7 +71,7 @@ The bundle is **never modified**: the SQLite catalog opens read-only
 ## What does not get re-ingested
 
 - `hermes` (had zero rows in practice; not in the IN-list).
-- The v2 `content_blocks`, `messages`, `tool_calls`, `tool_results`,
+- The v1 `content_blocks`, `messages`, `tool_calls`, `tool_results`,
   `events`, `edges`, and `search_docs` tables. v3 builds its own
   normalized data from the raw source files.
 - `objects/` CAS blocks (intermediate chunks; not needed when full raw
@@ -105,5 +105,5 @@ remains an explicit user action.
   in this cut; smaller sessions would need a future multi-session walk.
 - Cursor's `store.db` blobs do not carry per-message timestamps;
   `StartedAt == LastActivityAt == meta.createdAt`.
-- v2 `is_subagent`, `parent_session_id`, and project-graph metadata are
+- v1 `is_subagent`, `parent_session_id`, and project-graph metadata are
   not projected; the v3 schema doesn't model them yet.

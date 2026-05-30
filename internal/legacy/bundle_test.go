@@ -12,7 +12,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// buildFixtureBundle stages a synthetic v2 prosa bundle at root:
+// buildFixtureBundle stages a synthetic v1 prosa bundle at root:
 //
 //	<root>/prosa.sqlite
 //	<root>/raw/sources/<oid>.zst   (per source_files row)

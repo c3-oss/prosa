@@ -1,4 +1,4 @@
-// Package legacy reads the prosa v2 ".prosa" data bundle (a SQLite
+// Package legacy reads the prosa v1 ".prosa" data bundle (a SQLite
 // catalog + content-addressed zstd-compressed raw source files) so the
 // v3 importers can re-ingest historical sessions whose original source
 // files have since disappeared from the filesystem (e.g., Claude Code
@@ -24,17 +24,17 @@ import (
 	_ "modernc.org/sqlite" // sqlite driver registered as "sqlite"
 )
 
-// Bundle wraps a read-only handle to a v2 prosa bundle directory. The
+// Bundle wraps a read-only handle to a v1 prosa bundle directory. The
 // caller MUST Close it when done.
 type Bundle struct {
 	Path string
 	db   *sql.DB
 }
 
-// SourceFile is one row from the v2 `source_files` table, scoped to the
+// SourceFile is one row from the v1 `source_files` table, scoped to the
 // fields the v3 re-ingestion pipeline actually consumes.
 type SourceFile struct {
-	// Tool is the v2 source_tool string: "claude" | "codex" | "cursor" |
+	// Tool is the v1 source_tool string: "claude" | "codex" | "cursor" |
 	// "gemini". sync.go maps this to a v3 importer instance.
 	Tool string
 
@@ -48,11 +48,11 @@ type SourceFile struct {
 	// matches the filename in <bundle>/raw/sources/<hex>.zst.
 	ObjectIDHex string
 
-	// SizeBytes is the uncompressed source file size at v2 import time.
+	// SizeBytes is the uncompressed source file size at v1 import time.
 	SizeBytes int64
 }
 
-// Open validates that path looks like a v2 bundle (has prosa.sqlite
+// Open validates that path looks like a v1 bundle (has prosa.sqlite
 // alongside raw/sources/) and opens the SQLite catalog read-only.
 func Open(path string) (*Bundle, error) {
 	dbPath := filepath.Join(path, "prosa.sqlite")
@@ -80,7 +80,7 @@ func (b *Bundle) Close() error {
 }
 
 // SourceFiles returns the catalog rows the v3 pipeline can re-ingest.
-// Only the tools v3 has importers for are returned; v2 also stored
+// Only the tools v3 has importers for are returned; v1 also stored
 // `hermes`, which had zero rows in practice and stays excluded.
 func (b *Bundle) SourceFiles(ctx context.Context) ([]SourceFile, error) {
 	const q = `
@@ -158,7 +158,7 @@ func (b *Bundle) Decompress(sf SourceFile, tmpDir string) (string, error) {
 }
 
 // extFor returns the canonical extension v3 importers expect on disk for
-// the given v2 source_tool. The temp filename uses this to keep things
+// the given v1 source_tool. The temp filename uses this to keep things
 // recognizable, but the importer flow keys off content and filename
 // fallback (not extension).
 func extFor(tool string) string {

@@ -30,14 +30,14 @@ func newSyncCmd() *cobra.Command {
 		Short: "Scan registered agents and import new sessions into the local store",
 		Long: "Walks every live importer root (~/.claude/projects, ~/.codex/sessions, " +
 			"~/.gemini/tmp) and imports new sessions into the local SQLite store. " +
-			"Pass --legacy-bundle <path> to additionally re-ingest a prosa v2 bundle " +
+			"Pass --legacy-bundle <path> to additionally re-ingest a prosa v1 bundle " +
 			"(typically ~/.prosa) — useful as a one-shot rescue after the v3 cutover " +
-			"when the v2 catalog still has source files that the live tools have " +
+			"when the v1 catalog still has source files that the live tools have " +
 			"since deleted.",
 		RunE: runSync,
 	}
 	cmd.Flags().StringVar(&legacyBundleFlag, "legacy-bundle", "",
-		"path to a prosa v2 bundle (e.g. ~/.prosa) to re-ingest before live walks")
+		"path to a prosa v1 bundle (e.g. ~/.prosa) to re-ingest before live walks")
 	return cmd
 }
 
@@ -48,10 +48,10 @@ type syncJob struct {
 	legacy  bool   // marks the job as coming from --legacy-bundle for the summary
 }
 
-// importerByLegacyTool maps the v2 source_tool string to the matching v3
-// importer instance. Returns nil for unknown tools (silently skipped by
-// the caller — keeps the iterator tolerant of future v2 tools without
-// breaking the import run).
+// importerByLegacyTool maps the v1 bundle's source_tool string to the
+// matching v3 importer instance. Returns nil for unknown tools (silently
+// skipped by the caller — keeps the iterator tolerant of future v1 tools
+// without breaking the import run).
 func importerByLegacyTool(tool string) importer.Importer {
 	switch tool {
 	case "claude":
