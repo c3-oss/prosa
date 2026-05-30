@@ -1,0 +1,50 @@
+syntax = "proto3";
+
+package prosa.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/c3-oss/prosa/gen/go/prosa/v1;prosav1";
+
+// DevicesService surfaces every machine that ever pushed to this server.
+// All RPCs require a valid Bearer; callers can only Rename/Revoke their
+// own device unless the request comes from the admin token.
+service DevicesService {
+  // List uses DevicesServiceListRequest/Response to avoid clashing with
+  // SessionsService.List's ListRequest/Response within the same package.
+  rpc List(DevicesServiceListRequest) returns (DevicesServiceListResponse);
+  rpc Rename(RenameRequest) returns (RenameResponse);
+  rpc Revoke(RevokeRequest) returns (RevokeResponse);
+}
+
+message Device {
+  string id = 1;
+  string hostname = 2;
+  string friendly_name = 3;
+  google.protobuf.Timestamp fingerprinted_at = 4;
+  google.protobuf.Timestamp last_sync = 5;
+  int32 sessions = 6;
+  bool revoked = 7;
+}
+
+message DevicesServiceListRequest {}
+
+message DevicesServiceListResponse {
+  repeated Device devices = 1;
+}
+
+message RenameRequest {
+  // Accepts "self" (the caller's device_id) or a literal id.
+  string id = 1;
+  string friendly_name = 2;
+}
+
+message RenameResponse {
+  Device device = 1;
+}
+
+message RevokeRequest {
+  string id = 1;
+}
+
+message RevokeResponse {}

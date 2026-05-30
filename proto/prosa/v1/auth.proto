@@ -1,0 +1,77 @@
+syntax = "proto3";
+
+package prosa.v1;
+
+option go_package = "github.com/c3-oss/prosa/gen/go/prosa/v1;prosav1";
+
+// AuthService implements the device-code OAuth-style flow described in
+// INTENT.md §6. CLI calls StartLogin, prints user_code +
+// verification_uri, then polls PollLogin until APPROVED or EXPIRED.
+// Until the painel (Grupo D) ships, ApproveLogin is the bridge — gated
+// on PROSA_ADMIN_TOKEN, called by `prosa-server --approve <user_code>`.
+service AuthService {
+  // Mints a fresh device_code/user_code pair and registers it as
+  // PENDING. Returns the polling interval the client should respect.
+  rpc StartLogin(StartLoginRequest) returns (StartLoginResponse);
+
+  // Returns the current state of the login attempt. When APPROVED,
+  // includes the bearer token; thereafter the row is single-use.
+  rpc PollLogin(PollLoginRequest) returns (PollLoginResponse);
+
+  // Bridges the missing painel: caller proves PROSA_ADMIN_TOKEN and
+  // flips a PENDING row to APPROVED. This RPC is excluded from the
+  // bearer middleware; the admin token is enforced inline.
+  rpc ApproveLogin(ApproveLoginRequest) returns (ApproveLoginResponse);
+
+  // Identifies the calling device.
+  rpc Whoami(WhoamiRequest) returns (WhoamiResponse);
+}
+
+message StartLoginRequest {
+  string hostname = 1;
+  string device_fingerprint = 2;
+}
+
+message StartLoginResponse {
+  string user_code = 1;         // human-readable e.g. "C4F-9PZ7"
+  string verification_uri = 2;
+  int32 expires_in = 3;         // seconds until PENDING auto-EXPIRES
+  int32 interval = 4;           // recommended poll cadence (seconds)
+  string device_code = 5;       // opaque, used only by PollLogin
+}
+
+message PollLoginRequest {
+  string device_code = 1;
+}
+
+message PollLoginResponse {
+  enum State {
+    STATE_UNSPECIFIED = 0;
+    STATE_PENDING = 1;
+    STATE_APPROVED = 2;
+    STATE_DENIED = 3;
+    STATE_EXPIRED = 4;
+  }
+  State state = 1;
+  // Populated only when state == APPROVED. Single-use: the row
+  // transitions to a terminal state after the first APPROVED Poll.
+  string token = 2;
+  string device_id = 3;
+}
+
+message ApproveLoginRequest {
+  string user_code = 1;
+  string admin_token = 2;       // checked via constant-time compare
+}
+
+message ApproveLoginResponse {
+  string device_id = 1;
+}
+
+message WhoamiRequest {}
+
+message WhoamiResponse {
+  string device_id = 1;
+  string hostname = 2;
+  string friendly_name = 3;
+}
