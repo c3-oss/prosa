@@ -1,0 +1,48 @@
+{{define "devices"}}{{template "base" .}}{{end}}
+
+{{define "content"}}
+  {{if .Notice}}<div class="empty" style="padding: 12px; color: var(--ok)">✓ {{.Notice}}</div>{{end}}
+  {{if .ApproveSuccess}}<div class="empty" style="padding: 12px; color: var(--ok)">✓ approved device {{.ApproveSuccess}}</div>{{end}}
+  {{if .ApproveError}}<div class="empty" style="padding: 12px; color: var(--danger)">✗ {{.ApproveError}}</div>{{end}}
+
+  <h2 style="font-size: 14px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin-top: 8px">Approve a login</h2>
+  <form method="post" action="/devices/approve" style="margin-bottom: 32px; display: flex; gap: 8px; align-items: center">
+    <input type="text" name="user_code" placeholder="USER-CODE" autocomplete="off"
+           style="background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px; padding: 8px 10px; color: var(--text); font-family: var(--mono); width: 200px">
+    <button class="btn btn-primary" type="submit">Approve</button>
+    <span style="color: var(--muted); font-size: 12px">Paste the code from <code>prosa login</code></span>
+  </form>
+
+  <h2 style="font-size: 14px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted)">Devices</h2>
+  <table>
+    <thead><tr>
+      <th>ID</th><th>Friendly</th><th>Hostname</th><th>Sessions</th>
+      <th>Last sync</th><th>State</th><th>Actions</th>
+    </tr></thead>
+    <tbody>
+      {{range .Devices}}
+        <tr>
+          <td style="font-family: var(--mono); font-size: 12px">{{.Id}}</td>
+          <td>
+            <form method="post" action="/devices/{{.Id}}/rename" style="display: inline-flex; gap: 6px">
+              <input name="friendly_name" value="{{.FriendlyName}}"
+                     style="background: var(--bg); border: 1px solid var(--border); border-radius: 3px; padding: 3px 6px; color: var(--text); width: 140px; font-size: 12px">
+              <button class="btn" type="submit">Save</button>
+            </form>
+          </td>
+          <td>{{.Hostname}}</td>
+          <td>{{.Sessions}}</td>
+          <td>{{if .LastSync}}{{(.LastSync.AsTime).Format "2006-01-02 15:04"}}{{else}}—{{end}}</td>
+          <td>{{if .Revoked}}<span style="color: var(--danger)">revoked</span>{{else}}<span style="color: var(--ok)">active</span>{{end}}</td>
+          <td>
+            {{if not .Revoked}}
+              <form method="post" action="/devices/{{.Id}}/revoke" onsubmit="return confirm('Revoke {{.FriendlyName}}? Bearer tokens will stop working.')">
+                <button class="btn btn-danger" type="submit">Revoke</button>
+              </form>
+            {{end}}
+          </td>
+        </tr>
+      {{end}}
+    </tbody>
+  </table>
+{{end}}

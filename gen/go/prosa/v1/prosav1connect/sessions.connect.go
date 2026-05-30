@@ -44,6 +44,8 @@ const (
 	// SessionsServiceManifestProcedure is the fully-qualified name of the SessionsService's Manifest
 	// RPC.
 	SessionsServiceManifestProcedure = "/prosa.v1.SessionsService/Manifest"
+	// SessionsServiceGetRawProcedure is the fully-qualified name of the SessionsService's GetRaw RPC.
+	SessionsServiceGetRawProcedure = "/prosa.v1.SessionsService/GetRaw"
 )
 
 // SessionsServiceClient is a client for the prosa.v1.SessionsService service.
@@ -65,6 +67,10 @@ type SessionsServiceClient interface {
 	// before pushing so they can detect and catch up sessions that exist
 	// locally but never reached the server.
 	Manifest(context.Context, *connect.Request[v1.ManifestRequest]) (*connect.Response[v1.ManifestResponse], error)
+	// GetRaw streams the verbatim raw transcript bytes via a byte-range
+	// window. The panel's side panel uses it to render the JSONL body
+	// incrementally without loading the whole object into memory.
+	GetRaw(context.Context, *connect.Request[v1.GetRawRequest]) (*connect.Response[v1.GetRawResponse], error)
 }
 
 // NewSessionsServiceClient constructs a client for the prosa.v1.SessionsService service. By
@@ -108,6 +114,12 @@ func NewSessionsServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			connect.WithSchema(sessionsServiceMethods.ByName("Manifest")),
 			connect.WithClientOptions(opts...),
 		),
+		getRaw: connect.NewClient[v1.GetRawRequest, v1.GetRawResponse](
+			httpClient,
+			baseURL+SessionsServiceGetRawProcedure,
+			connect.WithSchema(sessionsServiceMethods.ByName("GetRaw")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -118,6 +130,7 @@ type sessionsServiceClient struct {
 	get      *connect.Client[v1.GetRequest, v1.GetResponse]
 	search   *connect.Client[v1.SearchRequest, v1.SearchResponse]
 	manifest *connect.Client[v1.ManifestRequest, v1.ManifestResponse]
+	getRaw   *connect.Client[v1.GetRawRequest, v1.GetRawResponse]
 }
 
 // Push calls prosa.v1.SessionsService.Push.
@@ -145,6 +158,11 @@ func (c *sessionsServiceClient) Manifest(ctx context.Context, req *connect.Reque
 	return c.manifest.CallUnary(ctx, req)
 }
 
+// GetRaw calls prosa.v1.SessionsService.GetRaw.
+func (c *sessionsServiceClient) GetRaw(ctx context.Context, req *connect.Request[v1.GetRawRequest]) (*connect.Response[v1.GetRawResponse], error) {
+	return c.getRaw.CallUnary(ctx, req)
+}
+
 // SessionsServiceHandler is an implementation of the prosa.v1.SessionsService service.
 type SessionsServiceHandler interface {
 	// Push uploads one session's metadata + turns + tool counters along
@@ -164,6 +182,10 @@ type SessionsServiceHandler interface {
 	// before pushing so they can detect and catch up sessions that exist
 	// locally but never reached the server.
 	Manifest(context.Context, *connect.Request[v1.ManifestRequest]) (*connect.Response[v1.ManifestResponse], error)
+	// GetRaw streams the verbatim raw transcript bytes via a byte-range
+	// window. The panel's side panel uses it to render the JSONL body
+	// incrementally without loading the whole object into memory.
+	GetRaw(context.Context, *connect.Request[v1.GetRawRequest]) (*connect.Response[v1.GetRawResponse], error)
 }
 
 // NewSessionsServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -203,6 +225,12 @@ func NewSessionsServiceHandler(svc SessionsServiceHandler, opts ...connect.Handl
 		connect.WithSchema(sessionsServiceMethods.ByName("Manifest")),
 		connect.WithHandlerOptions(opts...),
 	)
+	sessionsServiceGetRawHandler := connect.NewUnaryHandler(
+		SessionsServiceGetRawProcedure,
+		svc.GetRaw,
+		connect.WithSchema(sessionsServiceMethods.ByName("GetRaw")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/prosa.v1.SessionsService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case SessionsServicePushProcedure:
@@ -215,6 +243,8 @@ func NewSessionsServiceHandler(svc SessionsServiceHandler, opts ...connect.Handl
 			sessionsServiceSearchHandler.ServeHTTP(w, r)
 		case SessionsServiceManifestProcedure:
 			sessionsServiceManifestHandler.ServeHTTP(w, r)
+		case SessionsServiceGetRawProcedure:
+			sessionsServiceGetRawHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -242,4 +272,8 @@ func (UnimplementedSessionsServiceHandler) Search(context.Context, *connect.Requ
 
 func (UnimplementedSessionsServiceHandler) Manifest(context.Context, *connect.Request[v1.ManifestRequest]) (*connect.Response[v1.ManifestResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("prosa.v1.SessionsService.Manifest is not implemented"))
+}
+
+func (UnimplementedSessionsServiceHandler) GetRaw(context.Context, *connect.Request[v1.GetRawRequest]) (*connect.Response[v1.GetRawResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("prosa.v1.SessionsService.GetRaw is not implemented"))
 }

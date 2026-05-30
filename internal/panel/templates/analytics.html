@@ -1,0 +1,29 @@
+{{define "analytics"}}{{template "base" .}}{{end}}
+
+{{define "content"}}
+  <div class="chips">
+    {{$last := .Last}}
+    <a class="chip {{if eq $last "12h"}}active{{end}}" href="?last=12h">12h</a>
+    <a class="chip {{if or (eq $last "") (eq $last "7d")}}active{{end}}" href="?last=7d">7d</a>
+    <a class="chip {{if eq $last "30d"}}active{{end}}" href="?last=30d">30d</a>
+    <a class="chip {{if eq $last "365d"}}active{{end}}" href="?last=365d">1y</a>
+  </div>
+
+  <h2 style="font-size: 14px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted)">{{.Report}}</h2>
+  {{if .Rows}}
+    <table>
+      <thead><tr>
+        {{range .Headers}}<th>{{.}}</th>{{end}}
+      </tr></thead>
+      <tbody>
+        {{range .Rows}}
+          <tr>
+            {{range .Values}}<td>{{.}}</td>{{end}}
+          </tr>
+        {{end}}
+      </tbody>
+    </table>
+  {{else}}
+    <div class="empty">No data for this window.</div>
+  {{end}}
+{{end}}

@@ -1,0 +1,41 @@
+{{define "base"}}<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{{.Title}} · prosa</title>
+  <link rel="stylesheet" href="/assets/style.css">
+  <script src="/assets/htmx.min.js"></script>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <a class="brand" href="/">prosa</a>
+      {{block "search" .}}{{end}}
+      <div class="topbar-right">
+        <a href="/devices" title="new sessions since last visit">
+          <span id="new-sessions-count" class="badge zero">0</span>
+        </a>
+        <form method="post" action="/logout" style="display:inline">
+          <button class="btn" type="submit">logout</button>
+        </form>
+      </div>
+    </header>
+    <nav class="sidebar">
+      <a href="/" class="{{if eq .Nav "home"}}active{{end}}">Home</a>
+      <a href="/devices" class="{{if eq .Nav "devices"}}active{{end}}">Devices</a>
+      <div style="margin: 12px 8px 4px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .6px;">Analytics</div>
+      <a href="/analytics/sessions" class="{{if eq .Nav "analytics-sessions"}}active{{end}}">Sessions</a>
+      <a href="/analytics/projects" class="{{if eq .Nav "analytics-projects"}}active{{end}}">Projects</a>
+      <a href="/analytics/tools" class="{{if eq .Nav "analytics-tools"}}active{{end}}">Tools</a>
+      <a href="/analytics/models" class="{{if eq .Nav "analytics-models"}}active{{end}}">Models</a>
+      <a href="/analytics/errors" class="{{if eq .Nav "analytics-errors"}}active{{end}}">Errors</a>
+    </nav>
+    <main class="main">
+      {{block "content" .}}{{end}}
+    </main>
+    <aside id="side-panel">{{block "side" .}}{{end}}</aside>
+  </div>
+  <script src="/assets/keyboard.js"></script>
+  <script src="/assets/sse.js"></script>
+</body>
+</html>{{end}}

@@ -1,0 +1,48 @@
+{{define "home"}}{{template "base" .}}{{end}}
+
+{{define "search"}}
+  <form method="get" action="/" style="flex: 1; max-width: 480px">
+    <input id="search" name="project" type="search" placeholder="filter projects (/)" value="{{.Project}}"
+           style="background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px; padding: 6px 10px; color: var(--text); width: 100%">
+  </form>
+{{end}}
+
+{{define "content"}}
+  <div class="chips">
+    {{$last := .Last}}
+    <a class="chip {{if eq $last "12h"}}active{{end}}" href="?last=12h&agent={{.Agent}}&device={{.Device}}&project={{.Project}}">12h</a>
+    <a class="chip {{if or (eq $last "") (eq $last "7d")}}active{{end}}" href="?last=7d&agent={{.Agent}}&device={{.Device}}&project={{.Project}}">7d</a>
+    <a class="chip {{if eq $last "30d"}}active{{end}}" href="?last=30d&agent={{.Agent}}&device={{.Device}}&project={{.Project}}">30d</a>
+    <a class="chip {{if eq $last "365d"}}active{{end}}" href="?last=365d&agent={{.Agent}}&device={{.Device}}&project={{.Project}}">1y</a>
+
+    {{$agent := .Agent}}
+    <a class="chip {{if eq $agent ""}}active{{end}}" href="?last={{$last}}&agent=&device={{.Device}}&project={{.Project}}">any agent</a>
+    <a class="chip {{if eq $agent "claude-code"}}active{{end}}" href="?last={{$last}}&agent=claude-code&device={{.Device}}&project={{.Project}}">claude-code</a>
+    <a class="chip {{if eq $agent "codex"}}active{{end}}" href="?last={{$last}}&agent=codex&device={{.Device}}&project={{.Project}}">codex</a>
+    <a class="chip {{if eq $agent "cursor"}}active{{end}}" href="?last={{$last}}&agent=cursor&device={{.Device}}&project={{.Project}}">cursor</a>
+    <a class="chip {{if eq $agent "gemini"}}active{{end}}" href="?last={{$last}}&agent=gemini&device={{.Device}}&project={{.Project}}">gemini</a>
+  </div>
+
+  {{if .DayGroups}}
+    {{range .DayGroups}}
+      <div class="day-header">{{.Label}}</div>
+      {{range .Sessions}}
+        <a class="session-row" href="?last={{$.Last}}&agent={{$.Agent}}&device={{$.Device}}&project={{$.Project}}&session={{.Id}}">
+          <span class="time">{{(.StartedAt.AsTime).Format "15:04"}}</span>
+          <span class="agent">{{.Agent}}</span>
+          <span class="project">{{or .ProjectMarker .ProjectRemote .ProjectPath "(unscoped)"}}</span>
+          <span class="prompt">{{.FirstPrompt}}</span>
+          <span class="dur">{{.RawSize}}b</span>
+        </a>
+      {{end}}
+    {{end}}
+  {{else}}
+    <div class="empty">No sessions in this window.</div>
+  {{end}}
+{{end}}
+
+{{define "side"}}
+  {{if .SidePanel}}
+    {{template "side_panel_body" .SidePanel}}
+  {{end}}
+{{end}}

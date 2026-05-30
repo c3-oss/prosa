@@ -1,0 +1,35 @@
+{{define "side_panel"}}{{template "side_panel_body" .SidePanel}}{{end}}
+
+{{define "side_panel_body"}}
+  <div class="panel-header">
+    <div>
+      <div style="font-family: var(--mono); font-size: 12px; color: var(--muted)">{{.Session.Agent}}</div>
+      <div style="font-weight: 600">{{or .Session.FirstPrompt "(no prompt)"}}</div>
+    </div>
+    <button class="close" onclick="document.getElementById('side-panel').innerHTML='';var u=new URL(window.location);u.searchParams.delete('session');window.history.replaceState({}, '', u);">esc</button>
+  </div>
+  <div class="panel-body">
+    <dl class="metadata">
+      <dt>ID</dt><dd>{{.Session.Id}}</dd>
+      <dt>Started</dt><dd>{{(.Session.StartedAt.AsTime).Format "2006-01-02 15:04:05"}}</dd>
+      <dt>Last activity</dt><dd>{{(.Session.LastActivityAt.AsTime).Format "2006-01-02 15:04:05"}}</dd>
+      <dt>Device</dt><dd>{{.Session.DeviceId}}</dd>
+      <dt>Project</dt><dd>{{or .Session.ProjectMarker .Session.ProjectRemote .Session.ProjectPath "(unscoped)"}}</dd>
+      {{if .Session.Model}}<dt>Model</dt><dd>{{.Session.Model}}</dd>{{end}}
+      <dt>Raw size</dt><dd>{{.Session.RawSize}} bytes ({{.Session.RawHash}})</dd>
+      <dt>Tools</dt><dd>
+        {{range .Tools}}<span class="chip" style="cursor: default">{{.Name}} ×{{.Count}}</span> {{end}}
+        {{if not .Tools}}—{{end}}
+      </dd>
+    </dl>
+    <h3 style="font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin-bottom: 8px">Raw transcript</h3>
+    <div id="raw-stream">
+      <pre class="raw">{{.Chunk}}</pre>
+      {{if not .EOF}}
+        <a class="raw-more" hx-get="{{.NextURL}}" hx-target="#raw-stream" hx-swap="beforeend">
+          load more ({{.Progress}} / {{.Total}})
+        </a>
+      {{end}}
+    </div>
+  </div>
+{{end}}
