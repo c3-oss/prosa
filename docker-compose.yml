@@ -1,0 +1,49 @@
+# Dev stack for prosa-server: Postgres for metadata + MinIO for raw
+# object storage. Boot with `docker compose up -d`. The Go server runs
+# natively against these (no container needed) — see docs/server.md.
+#
+# Production deploys swap Postgres for any managed instance and MinIO
+# for R2 / B2 / S3 by changing PROSA_* env vars; the server code path
+# is identical.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: prosa-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: prosa
+      POSTGRES_PASSWORD: prosa
+      POSTGRES_DB: prosa
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U prosa"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    container_name: prosa-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: prosa
+      MINIO_ROOT_PASSWORD: prosaprosa
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # web console
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+volumes:
+  pgdata:
+  miniodata:

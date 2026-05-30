@@ -1,0 +1,8 @@
+DROP TABLE IF EXISTS device_tokens;
+DROP TABLE IF EXISTS device_codes;
+DROP TABLE IF EXISTS sync_state;
+DROP TABLE IF EXISTS turns;
+DROP TABLE IF EXISTS session_tools;
+DROP TABLE IF EXISTS sessions;
+DROP TABLE IF EXISTS devices;
+DROP TABLE IF EXISTS schema_migrations;
