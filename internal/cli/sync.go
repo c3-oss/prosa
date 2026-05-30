@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -12,22 +13,57 @@ import (
 	"github.com/c3-oss/prosa/internal/cli/spinner"
 	"github.com/c3-oss/prosa/internal/importers/claudecode"
 	"github.com/c3-oss/prosa/internal/importers/codex"
+	"github.com/c3-oss/prosa/internal/importers/cursor"
+	"github.com/c3-oss/prosa/internal/importers/gemini"
+	"github.com/c3-oss/prosa/internal/legacy"
 	"github.com/c3-oss/prosa/internal/paths"
 	"github.com/c3-oss/prosa/internal/store"
 	"github.com/c3-oss/prosa/pkg/importer"
 )
 
+// legacyBundleFlag holds the value of --legacy-bundle for runSync.
+var legacyBundleFlag string
+
 func newSyncCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "sync",
 		Short: "Scan registered agents and import new sessions into the local store",
-		RunE:  runSync,
+		Long: "Walks every live importer root (~/.claude/projects, ~/.codex/sessions, " +
+			"~/.gemini/tmp) and imports new sessions into the local SQLite store. " +
+			"Pass --legacy-bundle <path> to additionally re-ingest a prosa v2 bundle " +
+			"(typically ~/.prosa) — useful as a one-shot rescue after the v3 cutover " +
+			"when the v2 catalog still has source files that the live tools have " +
+			"since deleted.",
+		RunE: runSync,
 	}
+	cmd.Flags().StringVar(&legacyBundleFlag, "legacy-bundle", "",
+		"path to a prosa v2 bundle (e.g. ~/.prosa) to re-ingest before live walks")
+	return cmd
 }
 
 type syncJob struct {
-	imp  importer.Importer
-	path string
+	imp     importer.Importer
+	path    string
+	cleanup func() // runs after Import; used by legacy bundle to delete decompressed temp
+	legacy  bool   // marks the job as coming from --legacy-bundle for the summary
+}
+
+// importerByLegacyTool maps the v2 source_tool string to the matching v3
+// importer instance. Returns nil for unknown tools (silently skipped by
+// the caller — keeps the iterator tolerant of future v2 tools without
+// breaking the import run).
+func importerByLegacyTool(tool string) importer.Importer {
+	switch tool {
+	case "claude":
+		return claudecode.New()
+	case "codex":
+		return codex.New()
+	case "cursor":
+		return cursor.New()
+	case "gemini":
+		return gemini.New()
+	}
+	return nil
 }
 
 func runSync(cmd *cobra.Command, _ []string) error {
@@ -48,9 +84,16 @@ func runSync(cmd *cobra.Command, _ []string) error {
 	imps := []importer.Importer{
 		claudecode.New(),
 		codex.New(),
+		cursor.New(),
+		gemini.New(),
 	}
 
-	var work []syncJob
+	var (
+		liveWork   []syncJob
+		legacyWork []syncJob
+		tmpDir     string
+		bundle     *legacy.Bundle
+	)
 	for _, imp := range imps {
 		for _, root := range imp.DefaultRoots() {
 			ps, err := imp.Walk(ctx, root)
@@ -59,36 +102,129 @@ func runSync(cmd *cobra.Command, _ []string) error {
 				continue
 			}
 			for _, p := range ps {
-				work = append(work, syncJob{imp: imp, path: p})
+				liveWork = append(liveWork, syncJob{imp: imp, path: p})
 			}
 		}
 	}
 
+	if legacyBundleFlag != "" {
+		bundle, err = legacy.Open(legacyBundleFlag)
+		if err != nil {
+			return fmt.Errorf("open legacy bundle: %w", err)
+		}
+		defer func() { _ = bundle.Close() }()
+
+		files, err := bundle.SourceFiles(ctx)
+		if err != nil {
+			return fmt.Errorf("read legacy bundle catalog: %w", err)
+		}
+		tmpDir, err = os.MkdirTemp("", "prosa-legacy-")
+		if err != nil {
+			return fmt.Errorf("create temp dir for legacy decompression: %w", err)
+		}
+		defer func() { _ = os.RemoveAll(tmpDir) }()
+
+		for _, sf := range files {
+			imp := importerByLegacyTool(sf.Tool)
+			if imp == nil {
+				continue
+			}
+			path, err := bundle.Decompress(sf, tmpDir)
+			if err != nil {
+				slog.Warn("legacy decompress failed",
+					"tool", sf.Tool, "oid", sf.ObjectIDHex, "err", err)
+				continue
+			}
+			p := path
+			legacyWork = append(legacyWork, syncJob{
+				imp:     imp,
+				path:    p,
+				legacy:  true,
+				cleanup: func() { _ = os.Remove(p) },
+			})
+		}
+	}
+
+	work := append(legacyWork, liveWork...)
 	if len(work) == 0 {
 		fmt.Fprintln(os.Stdout, "No sessions found.")
 		return nil
 	}
 
 	if IsInteractive() {
-		return runSyncTTY(ctx, work, s)
+		return runSyncTTY(ctx, work, s, len(legacyWork))
 	}
-	return runSyncPlain(ctx, work, s)
+	return runSyncPlain(ctx, work, s, len(legacyWork))
+}
+
+// syncCounts breaks results down by live vs legacy so the final banner can
+// nudge the user to free up the bundle directory.
+type syncCounts struct {
+	liveImp, liveSkip, liveErr       int
+	legacyImp, legacySkip, legacyErr int
+	legacyTotal                      int
+	bundlePath                       string
+}
+
+func (sc *syncCounts) record(w syncJob, res importer.ImportResult, err error) {
+	switch {
+	case err != nil:
+		if w.legacy {
+			sc.legacyErr++
+		} else {
+			sc.liveErr++
+		}
+	case res.Skipped:
+		if w.legacy {
+			sc.legacySkip++
+		} else {
+			sc.liveSkip++
+		}
+	default:
+		if w.legacy {
+			sc.legacyImp++
+		} else {
+			sc.liveImp++
+		}
+	}
+}
+
+func (sc *syncCounts) printSummary() {
+	fmt.Fprintf(os.Stdout, "Live:    imported %d, skipped %d, errors %d\n",
+		sc.liveImp, sc.liveSkip, sc.liveErr)
+	if sc.legacyTotal > 0 {
+		fmt.Fprintf(os.Stdout, "Legacy:  imported %d, skipped %d, errors %d (of %d catalog rows)\n",
+			sc.legacyImp, sc.legacySkip, sc.legacyErr, sc.legacyTotal)
+		fmt.Fprintf(os.Stdout,
+			"\nLegacy bundle is now mirrored in the v3 store. You can remove %s when ready.\n",
+			sc.bundlePath)
+	}
 }
 
 // runSyncTTY drives the Bubble Tea progress display. The importer
 // goroutine runs sequentially (SQLite writer-lock makes parallelism
 // counter-productive at small N) and feeds updates into a channel the
 // Bubble Tea program consumes.
-func runSyncTTY(ctx context.Context, work []syncJob, sink importer.Sink) error {
+func runSyncTTY(ctx context.Context, work []syncJob, sink importer.Sink, legacyTotal int) error {
 	items := make([]spinner.Item, len(work))
 	for i, w := range work {
-		items[i] = spinner.Item{Agent: w.imp.Name(), Path: w.path}
+		label := w.imp.Name()
+		if w.legacy {
+			label = "legacy/" + label
+		}
+		items[i] = spinner.Item{Agent: label, Path: w.path}
 	}
 	updates := make(chan spinner.Update, len(work))
+	counts := &syncCounts{legacyTotal: legacyTotal, bundlePath: legacyBundleFlag}
+
 	go func() {
 		defer close(updates)
 		for i, w := range work {
 			res, err := w.imp.Import(ctx, w.path, sink)
+			if w.cleanup != nil {
+				w.cleanup()
+			}
+			counts.record(w, res, err)
 			select {
 			case <-ctx.Done():
 				return
@@ -96,30 +232,40 @@ func runSyncTTY(ctx context.Context, work []syncJob, sink importer.Sink) error {
 			}
 		}
 	}()
-	return spinner.Run(ctx, items, updates)
+	if err := spinner.Run(ctx, items, updates); err != nil && !errors.Is(err, context.Canceled) {
+		return err
+	}
+	counts.printSummary()
+	return nil
 }
 
 // runSyncPlain is the non-TTY fallback used by LaunchAgent/cron. One
-// structured log line per session, plus a summary line on stdout at the
+// structured log line per session, plus a summary block on stdout at the
 // end. No escape codes, no alt-screen.
-func runSyncPlain(ctx context.Context, work []syncJob, sink importer.Sink) error {
-	var imported, skipped, errs int
+func runSyncPlain(ctx context.Context, work []syncJob, sink importer.Sink, legacyTotal int) error {
+	counts := &syncCounts{legacyTotal: legacyTotal, bundlePath: legacyBundleFlag}
 	for _, w := range work {
 		start := time.Now()
 		res, err := w.imp.Import(ctx, w.path, sink)
+		if w.cleanup != nil {
+			w.cleanup()
+		}
 		dur := time.Since(start)
+		counts.record(w, res, err)
 		switch {
 		case err != nil:
-			errs++
-			slog.Error("import failed", "agent", w.imp.Name(), "path", w.path, "err", err)
+			slog.Error("import failed",
+				"agent", w.imp.Name(), "path", w.path, "legacy", w.legacy, "err", err)
 		case res.Skipped:
-			skipped++
-			slog.Info("imported", "agent", w.imp.Name(), "session", res.SessionID, "status", "skipped", "dur", dur)
+			slog.Info("imported",
+				"agent", w.imp.Name(), "session", res.SessionID, "status", "skipped",
+				"legacy", w.legacy, "dur", dur)
 		default:
-			imported++
-			slog.Info("imported", "agent", w.imp.Name(), "session", res.SessionID, "status", "done", "dur", dur)
+			slog.Info("imported",
+				"agent", w.imp.Name(), "session", res.SessionID, "status", "done",
+				"legacy", w.legacy, "dur", dur)
 		}
 	}
-	fmt.Fprintf(os.Stdout, "Imported %d, skipped %d, errors %d\n", imported, skipped, errs)
+	counts.printSummary()
 	return nil
 }
