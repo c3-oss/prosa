@@ -309,19 +309,21 @@ func (sc *syncCounts) record(w syncJob, res importer.ImportResult, err error) {
 }
 
 func (sc *syncCounts) printSummary() {
-	fmt.Fprintf(os.Stdout, "Live:     imported %d, skipped %d, errors %d\n",
+	fmt.Fprintln(os.Stdout, "prosa sync · complete")
+	fmt.Fprintln(os.Stdout)
+	fmt.Fprintf(os.Stdout, "Live:     imported %d · skipped %d · errors %d\n",
 		sc.liveImp, sc.liveSkip, sc.liveErr)
 	if sc.legacyTotal > 0 {
-		fmt.Fprintf(os.Stdout, "Legacy:   imported %d, skipped %d, errors %d (of %d catalog rows)\n",
+		fmt.Fprintf(os.Stdout, "Legacy:   imported %d · skipped %d · errors %d (of %d catalog rows)\n",
 			sc.legacyImp, sc.legacySkip, sc.legacyErr, sc.legacyTotal)
 	}
 	if sc.pushEnabled {
-		fmt.Fprintf(os.Stdout, "Push:     sent %d, skipped %d, errors %d\n",
+		fmt.Fprintf(os.Stdout, "Push:     sent %d · skipped %d · errors %d\n",
 			sc.pushImp, sc.pushSkip, sc.pushErr)
 	}
 	if sc.reconcileRan {
 		fmt.Fprintf(os.Stdout,
-			"Catch-up: sent %d, skipped %d, errors %d  (local %d, remote %d)\n",
+			"Catch-up: sent %d · skipped %d · errors %d  (local %d · remote %d)\n",
 			sc.catchUpSent, sc.catchUpSkip, sc.catchUpErr,
 			sc.localTotal, sc.remoteTotal)
 	}
