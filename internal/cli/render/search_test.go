@@ -36,8 +36,10 @@ Utilize newrelic, se quiser.`,
 	out := b.String()
 
 	require.Contains(t, out, "│")
-	require.Contains(t, out, "id")
-	require.Contains(t, out, "57f476a0-8e11-4f6d-83a0-5b1e4df16337")
+	// ID is shortened into the header line.
+	require.Contains(t, out, "57f476a0-8e1")
+	require.NotContains(t, out, "57f476a0-8e11-4f6d-83a0-5b1e4df16337",
+		"full UUID should be shortened in the header")
 	require.Contains(t, out, "prosa")
 	require.Contains(t, out, "codex")
 	require.Contains(t, out, "laptop")
@@ -48,6 +50,9 @@ Utilize newrelic, se quiser.`,
 	require.Contains(t, out, "session")
 	require.Contains(t, out, `"index importer sessions"`)
 	require.Contains(t, out, "1 matches")
+	// New shape: no ├/└ branches in the body — only the rail │.
+	require.NotContains(t, out, "├",
+		"new search body should not use ├ branches")
 }
 
 func TestSearchHitsPlainStripsMarkers(t *testing.T) {

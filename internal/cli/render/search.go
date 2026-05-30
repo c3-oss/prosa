@@ -12,7 +12,20 @@ import (
 const (
 	snippetMarkStart = "«"
 	snippetMarkEnd   = "»"
+	// searchLabelWidth shares the label column across the search hit
+	// body so the role and the "session" label align flush.
+	searchLabelWidth = 9
 )
+
+// shortenID returns up to the first 12 runes of an id, trimming the
+// trailing UUID hex past that. Keeps the search header from being
+// dominated by a 36-char UUID.
+func shortenID(id string) string {
+	if len(id) <= 12 {
+		return id
+	}
+	return id[:12]
+}
 
 type SearchOptions struct {
 	Interactive bool
@@ -43,34 +56,27 @@ func SearchHitsWithOptions(w io.Writer, hits []store.SearchHit, now time.Time, o
 		}
 
 		if opts.Interactive {
-			meta := fmt.Sprintf("%s · %s · %s · %s",
+			// Header: `│ <short-id>  project · agent · device · time`.
+			// ID moves into the header line and the body uses plain
+			// indent + label (no ├/└ branches) for visual quietness.
+			idShort := shortenID(h.Session.ID)
+			fmt.Fprintf(w, "%s %s  %s · %s · %s · %s\n",
+				StyleRail.Render("│"),
+				StyleAccent.Render(idShort),
 				StyleProject.Render(project),
 				StyleAgent.Render(agentLabel(h.Session.Agent)),
 				StyleDevice.Render(h.Session.DeviceID),
 				StyleMuted.Render(date),
 			)
-			fmt.Fprintf(w, "%s %s\n", StyleRail.Render("│"), meta)
-			fmt.Fprintf(w, "%s   %s %s %s\n",
+			fmt.Fprintf(w, "%s   %s %s\n",
 				StyleRail.Render("│"),
-				StyleRail.Render("├"),
-				StyleMuted.Render(padRight("id", 9)),
-				StyleAccent.Render(h.Session.ID),
-			)
-			snippetBranch := "└"
-			if first != "" {
-				snippetBranch = "├"
-			}
-			fmt.Fprintf(w, "%s   %s %s %s\n",
-				StyleRail.Render("│"),
-				StyleRail.Render(snippetBranch),
-				StyleAgent.Render(padTrunc(h.Role, 9)),
+				StyleAgent.Render(padTrunc(h.Role, searchLabelWidth)),
 				highlightSnippet(truncateMarkedSnippet(h.Snippet, opts.Width-16)),
 			)
 			if first != "" {
-				fmt.Fprintf(w, "%s   %s %s %q\n",
+				fmt.Fprintf(w, "%s   %s %q\n",
 					StyleRail.Render("│"),
-					StyleRail.Render("└"),
-					StyleMuted.Render(padRight("session", 9)),
+					StyleMuted.Render(padRight("session", searchLabelWidth)),
 					first,
 				)
 			}

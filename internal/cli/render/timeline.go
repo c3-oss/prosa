@@ -116,7 +116,7 @@ func renderSessionTTY(w io.Writer, item TimelineItem, now time.Time, opts Timeli
 	fmt.Fprintf(w, "%s        %s %s %s\n",
 		StyleRail.Render("│"),
 		StyleRail.Render("├"),
-		StyleMuted.Render(padRight("id", 8)),
+		StyleMuted.Render(padRight("id", searchLabelWidth)),
 		StyleAccent.Render(s.ID),
 	)
 
