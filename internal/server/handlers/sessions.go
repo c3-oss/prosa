@@ -295,6 +295,65 @@ func (h *SessionsHandler) Search(ctx context.Context, req *connect.Request[prosa
 	return connect.NewResponse(out), rows.Err()
 }
 
+// Manifest returns the next page of (id, raw_hash, last_synced_at) for
+// the authenticated device's sessions, ordered by id ASC. Clients call
+// it before pushing to detect sessions that exist locally but never
+// reached the server. Scoped to the caller's device — the manifest of
+// device A never leaks to device B.
+func (h *SessionsHandler) Manifest(ctx context.Context, req *connect.Request[prosav1.ManifestRequest]) (*connect.Response[prosav1.ManifestResponse], error) {
+	deviceID, ok := auth.DeviceFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing device context"))
+	}
+	limit := req.Msg.Limit
+	if limit <= 0 {
+		limit = 1000
+	}
+	if limit > 5000 {
+		limit = 5000
+	}
+
+	rows, err := h.Pool.Query(
+		ctx, `
+		SELECT s.id, ss.last_hash, ss.last_synced_at
+		FROM sessions s
+		JOIN sync_state ss ON ss.session_id = s.id
+		WHERE s.device_id = $1 AND s.id > $2
+		ORDER BY s.id ASC
+		LIMIT $3
+	`, deviceID, req.Msg.AfterId, limit,
+	)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("manifest query: %w", err))
+	}
+	defer rows.Close()
+
+	out := &prosav1.ManifestResponse{}
+	for rows.Next() {
+		var (
+			id, hash string
+			synced   time.Time
+		)
+		if err := rows.Scan(&id, &hash, &synced); err != nil {
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
+		out.Entries = append(out.Entries, &prosav1.ManifestEntry{
+			Id:           id,
+			RawHash:      hash,
+			LastSyncedAt: timestamppb.New(synced),
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	// next_after_id is the last id on this page only when the page filled
+	// to limit; if the caller got fewer rows, they've reached the end.
+	if int32(len(out.Entries)) == limit && len(out.Entries) > 0 {
+		out.NextAfterId = out.Entries[len(out.Entries)-1].Id
+	}
+	return connect.NewResponse(out), nil
+}
+
 func joinAnd(parts []string) string {
 	out := ""
 	for i, p := range parts {
