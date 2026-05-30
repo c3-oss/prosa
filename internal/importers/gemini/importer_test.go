@@ -150,7 +150,8 @@ func TestImportEnvelope(t *testing.T) {
 
 	s := sink.sessions[fixtureEnvelopeID]
 	require.Equal(t, Name, s.Agent)
-	require.Equal(t, "local", s.DeviceID)
+	require.NotEmpty(t, s.DeviceID)
+	require.NotEqual(t, "local", s.DeviceID)
 	require.NotNil(t, s.FirstPrompt)
 	require.Equal(t, "Revise this PR for me", *s.FirstPrompt)
 	require.NotNil(t, s.Model)

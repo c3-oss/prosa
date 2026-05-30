@@ -159,7 +159,8 @@ func TestImportCursorStore(t *testing.T) {
 
 	s := sink.sessions[fixtureAgentID]
 	require.Equal(t, Name, s.Agent)
-	require.Equal(t, "local", s.DeviceID)
+	require.NotEmpty(t, s.DeviceID)
+	require.NotEqual(t, "local", s.DeviceID)
 	require.NotNil(t, s.FirstPrompt)
 	require.Equal(t, "explain quantum entanglement", *s.FirstPrompt)
 	require.NotNil(t, s.Model)

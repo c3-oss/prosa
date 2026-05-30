@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/c3-oss/prosa/internal/cli/spinner"
+	"github.com/c3-oss/prosa/internal/device"
 	"github.com/c3-oss/prosa/internal/importers/claudecode"
 	"github.com/c3-oss/prosa/internal/importers/codex"
 	"github.com/c3-oss/prosa/internal/importers/cursor"
@@ -87,6 +88,28 @@ func runSync(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	defer func() { _ = s.Close() }()
+
+	// Resolve this device's identity once and write it through the store
+	// so every sessions.device_id we insert below references a real row.
+	// Also migrate any session rows that were inserted under the seed
+	// `'local'` device id (the v1 bundle restore path) to the real
+	// fingerprint — those sessions necessarily came from this machine.
+	dev := store.Device{
+		ID:              device.IDOnce(),
+		Hostname:        device.Hostname(),
+		MachineID:       device.MachineID(),
+		FriendlyName:    device.FriendlyName(),
+		FingerprintedAt: time.Now().UTC(),
+	}
+	if err := s.UpsertDevice(ctx, dev); err != nil {
+		return fmt.Errorf("upsert device: %w", err)
+	}
+	if n, err := s.RebindLocalSessions(ctx, dev.ID); err != nil {
+		return fmt.Errorf("rebind 'local' sessions to %s: %w", dev.ID, err)
+	} else if n > 0 {
+		slog.Info("rebound legacy 'local' sessions to fingerprint",
+			"device_id", dev.ID, "rows", n)
+	}
 
 	imps := []importer.Importer{
 		claudecode.New(),

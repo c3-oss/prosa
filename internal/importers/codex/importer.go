@@ -12,14 +12,12 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/c3-oss/prosa/internal/device"
 	"github.com/c3-oss/prosa/pkg/importer"
 )
 
 // Name is the agent identifier used in session rows and CLI output.
 const Name = "codex"
-
-// Device id used until real fingerprinting ships with sync.
-const localDeviceID = "local"
 
 // Importer satisfies importer.Importer for Codex.
 type Importer struct{}
@@ -69,7 +67,7 @@ func (i *Importer) Import(ctx context.Context, jsonlPath string, sink importer.S
 		sess.ID = sessionID
 	}
 	sess.Agent = Name
-	sess.DeviceID = localDeviceID
+	sess.DeviceID = device.IDOnce()
 	sess.RawHash = hash
 	sess.RawSize = size
 
