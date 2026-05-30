@@ -1,5 +1,11 @@
 # @c3-oss/prosa-core
 
+## 0.10.2
+
+### Patch Changes
+
+- c321eba: Fix Hermes v1 reimports so parented sessions update in place instead of failing SQLite foreign key checks.
+
 ## 0.10.1
 
 ### Patch Changes
