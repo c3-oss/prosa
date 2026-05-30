@@ -67,6 +67,31 @@ archives:
       - README.md
       - LICENSE*
 
+homebrew_casks:
+  - name: prosa
+    binaries:
+      - prosa
+      - prosa-server
+      - prosa-panel
+    repository:
+      owner: c3-oss
+      name: homebrew-prosa
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    commit_author:
+      name: c3-oss-bot
+      email: bot@c3.do
+    homepage: "https://github.com/c3-oss/prosa"
+    description: "Unified history of AI agent sessions across devices"
+    directory: Casks
+    caveats: |
+      To finish setup, run:
+
+        prosa setup
+
+      That walks through device auth, installs the LaunchAgent
+      that keeps history in sync, and imports the first batch of
+      AI-agent sessions.
+
 checksum:
   name_template: checksums.txt
   algorithm: sha256

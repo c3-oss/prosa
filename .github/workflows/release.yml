@@ -33,6 +33,11 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # HOMEBREW_TAP_TOKEN is a classic PAT with repo scope on
+          # c3-oss/homebrew-prosa. goreleaser uses it to push the
+          # updated Formula/prosa.rb on each release. Rotate every
+          # 6 months (see docs/release-runbook.md).
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
