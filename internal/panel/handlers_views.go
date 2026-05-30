@@ -401,10 +401,13 @@ func (p *Panel) handleAnalytics(w http.ResponseWriter, r *http.Request) {
 		"Rows":    resp.Msg.Rows,
 	}
 	if report == "heatmap" {
-		cells, total, max := buildHeatmap(resp.Msg.Rows)
-		data["HeatmapCells"] = cells
-		data["HeatmapTotal"] = total
-		data["HeatmapMax"] = max
+		view := buildHeatmap(resp.Msg.Rows)
+		data["HeatmapCells"] = view.Cells
+		data["HeatmapTotal"] = view.Total
+		data["HeatmapMax"] = view.Max
+		data["HeatmapWeekdays"] = view.Weekdays
+		data["HeatmapMonths"] = view.Months
+		data["HeatmapColumns"] = view.Columns
 	}
 	if report == "usage" {
 		rows, totalTokens, totalCost := buildUsage(resp.Msg.Rows)
@@ -465,13 +468,30 @@ type heatmapCell struct {
 	Blank bool
 }
 
-func buildHeatmap(rows []*prosav1.AnalyticsRow) ([]heatmapCell, int64, int64) {
-	var (
-		cells []heatmapCell
-		max   int64
-		total int64
-	)
+// heatmapView is the rendered heatmap: the flat cell stream (laid out
+// column-by-column, 7 rows each), plus the axis labels the template
+// needs to draw weekday rows and month headers, plus the summary.
+type heatmapView struct {
+	Cells    []heatmapCell
+	Weekdays []string
+	Months   []heatmapMonth
+	Columns  int
+	Total    int64
+	Max      int64
+}
+
+// heatmapMonth is one band of the month axis. Span is the number of
+// weekly columns this month covers in the current window; Label is the
+// short month name, or empty when the band is too narrow to fit it
+// without crashing into the next band.
+type heatmapMonth struct {
+	Label string
+	Span  int
+}
+
+func buildHeatmap(rows []*prosav1.AnalyticsRow) heatmapView {
 	counts := make([]int64, 0, len(rows))
+	var max, total int64
 	for _, row := range rows {
 		if len(row.Values) < 2 {
 			counts = append(counts, 0)
@@ -484,10 +504,19 @@ func buildHeatmap(rows []*prosav1.AnalyticsRow) ([]heatmapCell, int64, int64) {
 		}
 		total += n
 	}
+
+	view := heatmapView{
+		Weekdays: []string{"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"},
+		Total:    total,
+		Max:      max,
+	}
+
+	var leadingBlanks int
 	if len(rows) > 0 && len(rows[0].Values) > 0 {
 		if t, err := time.Parse("2006-01-02", rows[0].Values[0]); err == nil {
-			for i := 0; i < int(t.Weekday()); i++ {
-				cells = append(cells, heatmapCell{Blank: true})
+			leadingBlanks = int(t.Weekday())
+			for i := 0; i < leadingBlanks; i++ {
+				view.Cells = append(view.Cells, heatmapCell{Blank: true})
 			}
 		}
 	}
@@ -504,9 +533,63 @@ func buildHeatmap(rows []*prosav1.AnalyticsRow) ([]heatmapCell, int64, int64) {
 				level = 4
 			}
 		}
-		cells = append(cells, heatmapCell{Date: date, Count: count, Level: level})
+		view.Cells = append(view.Cells, heatmapCell{Date: date, Count: count, Level: level})
 	}
-	return cells, total, max
+
+	view.Columns = (len(view.Cells) + 6) / 7
+	view.Months = monthBands(view.Cells, view.Columns)
+	return view
+}
+
+// monthBands collapses adjacent columns of the same calendar month into
+// one band so the template can render each month label with
+// `grid-column: span N` instead of overflowing into the next month.
+// Bands narrower than two columns drop their label (no room for "Apr"
+// in 12 px) but still occupy their grid slot.
+func monthBands(cells []heatmapCell, columns int) []heatmapMonth {
+	bands := make([]heatmapMonth, 0, columns)
+	var lastMonth time.Month
+	for col := 0; col < columns; col++ {
+		var t time.Time
+		var found bool
+		for row := 0; row < 7; row++ {
+			idx := col*7 + row
+			if idx >= len(cells) {
+				break
+			}
+			c := cells[idx]
+			if c.Blank || c.Date == "" {
+				continue
+			}
+			parsed, err := time.Parse("2006-01-02", c.Date)
+			if err != nil {
+				continue
+			}
+			t = parsed
+			found = true
+			break
+		}
+		if !found {
+			if len(bands) == 0 {
+				bands = append(bands, heatmapMonth{Span: 1})
+				continue
+			}
+			bands[len(bands)-1].Span++
+			continue
+		}
+		if t.Month() != lastMonth {
+			bands = append(bands, heatmapMonth{Label: t.Month().String()[:3], Span: 1})
+			lastMonth = t.Month()
+			continue
+		}
+		bands[len(bands)-1].Span++
+	}
+	for i := range bands {
+		if bands[i].Span < 2 {
+			bands[i].Label = ""
+		}
+	}
+	return bands
 }
 
 type usagePanelRow struct {

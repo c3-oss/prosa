@@ -34,17 +34,42 @@
   {{if eq .Report "heatmap"}}
     {{if .HeatmapCells}}
       <div class="heatmap-summary">
-        <span>{{.HeatmapTotal}} sessions</span>
-        <span>max {{.HeatmapMax}} / day</span>
+        <span>{{pluralize .HeatmapTotal "session" "sessions"}}</span>
+        <span>max {{pluralize .HeatmapMax "session" "sessions"}} / day</span>
       </div>
-      <div class="heatmap-grid" aria-label="sessions per day">
-        {{range .HeatmapCells}}
-          {{if .Blank}}
-            <span class="heatmap-spacer"></span>
-          {{else}}
-            <span class="heatmap-cell level-{{.Level}}" title="{{.Date}}: {{.Count}} sessions"></span>
-          {{end}}
-        {{end}}
+      <div class="heatmap">
+        <div class="heatmap-month-axis" style="--cols: {{.HeatmapColumns}}" aria-hidden="true">
+          {{range .HeatmapMonths}}<span style="grid-column: span {{.Span}}">{{.Label}}</span>{{end}}
+        </div>
+        <div class="heatmap-body">
+          <div class="heatmap-weekday-axis" aria-hidden="true">
+            {{range $i, $d := .HeatmapWeekdays}}
+              {{if or (eq $i 1) (eq $i 3) (eq $i 5)}}
+                <span>{{$d}}</span>
+              {{else}}
+                <span></span>
+              {{end}}
+            {{end}}
+          </div>
+          <div class="heatmap-grid" aria-label="sessions per day">
+            {{range .HeatmapCells}}
+              {{if .Blank}}
+                <span class="heatmap-spacer"></span>
+              {{else}}
+                <span class="heatmap-cell level-{{.Level}}" title="{{.Date}}: {{pluralize .Count "session" "sessions"}}"></span>
+              {{end}}
+            {{end}}
+          </div>
+        </div>
+        <div class="heatmap-legend" aria-hidden="true">
+          <span class="heatmap-legend-label">Less</span>
+          <span class="heatmap-cell level-0"></span>
+          <span class="heatmap-cell level-1"></span>
+          <span class="heatmap-cell level-2"></span>
+          <span class="heatmap-cell level-3"></span>
+          <span class="heatmap-cell level-4"></span>
+          <span class="heatmap-legend-label">More</span>
+        </div>
       </div>
     {{else}}
       <div class="empty">No data for this window.</div>
