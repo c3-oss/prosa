@@ -65,7 +65,7 @@ func runLogin(cmd *cobra.Command, _ []string) error {
 		DeviceFingerprint: device.IDOnce(),
 	}))
 	if err != nil {
-		return fmt.Errorf("StartLogin: %s", rpc.ConnectError(err))
+		return fmt.Errorf("start login rpc: %s", rpc.ConnectError(err))
 	}
 	msg := start.Msg
 
@@ -95,7 +95,7 @@ func runLogin(cmd *cobra.Command, _ []string) error {
 			DeviceCode: msg.DeviceCode,
 		}))
 		if err != nil {
-			return fmt.Errorf("PollLogin: %s", rpc.ConnectError(err))
+			return fmt.Errorf("poll login rpc: %s", rpc.ConnectError(err))
 		}
 		switch poll.Msg.State {
 		case prosav1.PollLoginResponse_STATE_PENDING:

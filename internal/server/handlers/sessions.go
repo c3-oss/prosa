@@ -107,6 +107,331 @@ func (h *SessionsHandler) Push(ctx context.Context, req *connect.Request[prosav1
 	return connect.NewResponse(&prosav1.PushResponse{Skipped: false, RawUri: uri}), nil
 }
 
+// List returns sessions filtered by since/until + optional project /
+// agent / device dimensions. Scoped to the caller's device unless
+// device_name is explicitly set (and matches devices.friendly_name).
+func (h *SessionsHandler) List(ctx context.Context, req *connect.Request[prosav1.ListRequest]) (*connect.Response[prosav1.ListResponse], error) {
+	if _, ok := auth.DeviceFromContext(ctx); !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing device context"))
+	}
+	if req.Msg.Since == nil || req.Msg.Until == nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, missingFields("since", "until"))
+	}
+	conds := []string{"s.started_at >= $1", "s.started_at <= $2"}
+	args := []any{tsToTime(req.Msg.Since), tsToTime(req.Msg.Until)}
+	idx := 3
+	addEq := func(col, val string) {
+		conds = append(conds, fmt.Sprintf("s.%s = $%d", col, idx))
+		args = append(args, val)
+		idx++
+	}
+	if req.Msg.ProjectPath != "" {
+		addEq("project_path", req.Msg.ProjectPath)
+	}
+	if req.Msg.ProjectMatch != "" {
+		conds = append(conds, fmt.Sprintf("s.project_path LIKE $%d", idx))
+		args = append(args, "%"+req.Msg.ProjectMatch+"%")
+		idx++
+	}
+	if req.Msg.ProjectRemote != "" {
+		addEq("project_remote", req.Msg.ProjectRemote)
+	}
+	if req.Msg.ProjectMarker != "" {
+		addEq("project_marker", req.Msg.ProjectMarker)
+	}
+	if req.Msg.Agent != "" {
+		addEq("agent", req.Msg.Agent)
+	}
+	join := ""
+	if req.Msg.DeviceName != "" {
+		join = " JOIN devices d ON d.id = s.device_id"
+		conds = append(conds, fmt.Sprintf("d.friendly_name = $%d", idx))
+		args = append(args, req.Msg.DeviceName)
+		idx++
+	}
+	limit := req.Msg.Limit
+	if limit <= 0 || limit > 1000 {
+		limit = 200
+	}
+	q := fmt.Sprintf(`
+		SELECT s.id, s.agent, s.device_id, s.project_path, s.project_remote, s.project_marker,
+		       s.started_at, s.last_activity_at, s.first_prompt, s.model,
+		       s.raw_uri, s.raw_hash, s.raw_size
+		FROM sessions s%s
+		WHERE %s
+		ORDER BY s.started_at DESC
+		LIMIT $%d
+	`, join, joinAnd(conds), idx)
+	args = append(args, limit)
+
+	rows, err := h.Pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	defer rows.Close()
+
+	out := &prosav1.ListResponse{}
+	for rows.Next() {
+		s, err := scanSessionRow(rows)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
+		out.Sessions = append(out.Sessions, s)
+	}
+	return connect.NewResponse(out), rows.Err()
+}
+
+// Get returns one session by id along with its turns and tools.
+func (h *SessionsHandler) Get(ctx context.Context, req *connect.Request[prosav1.GetRequest]) (*connect.Response[prosav1.GetResponse], error) {
+	if _, ok := auth.DeviceFromContext(ctx); !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing device context"))
+	}
+	if req.Msg.Id == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, missingFields("id"))
+	}
+	row := h.Pool.QueryRow(ctx, `
+		SELECT id, agent, device_id, project_path, project_remote, project_marker,
+		       started_at, last_activity_at, first_prompt, model,
+		       raw_uri, raw_hash, raw_size
+		FROM sessions WHERE id = $1
+	`, req.Msg.Id)
+	s, err := scanSessionRow(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("no session %s", req.Msg.Id))
+	}
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+
+	turns, err := selectTurns(ctx, h.Pool, req.Msg.Id)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	tools, err := selectTools(ctx, h.Pool, req.Msg.Id)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	return connect.NewResponse(&prosav1.GetResponse{Session: s, Turns: turns, Tools: tools}), nil
+}
+
+// Search runs the FTS query (tsvector + plainto_tsquery) against the
+// turns table and returns one hit per matching session with the
+// ts_headline-derived snippet.
+func (h *SessionsHandler) Search(ctx context.Context, req *connect.Request[prosav1.SearchRequest]) (*connect.Response[prosav1.SearchResponse], error) {
+	if _, ok := auth.DeviceFromContext(ctx); !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing device context"))
+	}
+	if req.Msg.Query == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, missingFields("query"))
+	}
+	if req.Msg.Since == nil || req.Msg.Until == nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, missingFields("since", "until"))
+	}
+	limit := req.Msg.Limit
+	if limit <= 0 || limit > 200 {
+		limit = 20
+	}
+
+	conds := []string{
+		"s.started_at >= $1",
+		"s.started_at <= $2",
+		"t.content_tsv @@ plainto_tsquery('simple', $3)",
+	}
+	args := []any{tsToTime(req.Msg.Since), tsToTime(req.Msg.Until), req.Msg.Query}
+	idx := 4
+	addEq := func(col, val string) {
+		conds = append(conds, fmt.Sprintf("s.%s = $%d", col, idx))
+		args = append(args, val)
+		idx++
+	}
+	if req.Msg.ProjectRemote != "" {
+		addEq("project_remote", req.Msg.ProjectRemote)
+	}
+	if req.Msg.ProjectMarker != "" {
+		addEq("project_marker", req.Msg.ProjectMarker)
+	}
+	if req.Msg.Agent != "" {
+		addEq("agent", req.Msg.Agent)
+	}
+	join := ""
+	if req.Msg.DeviceName != "" {
+		join = " JOIN devices d ON d.id = s.device_id"
+		conds = append(conds, fmt.Sprintf("d.friendly_name = $%d", idx))
+		args = append(args, req.Msg.DeviceName)
+		idx++
+	}
+
+	q := fmt.Sprintf(`
+		SELECT DISTINCT ON (s.id)
+		       s.id, s.agent, s.device_id, s.project_path, s.project_remote, s.project_marker,
+		       s.started_at, s.last_activity_at, s.first_prompt, s.model,
+		       s.raw_uri, s.raw_hash, s.raw_size,
+		       t.role,
+		       ts_headline('simple', t.content,
+		                   plainto_tsquery('simple', $3),
+		                   'StartSel=«, StopSel=», MaxFragments=1, MaxWords=16, MinWords=3, ShortWord=2') AS snippet
+		FROM sessions s
+		JOIN turns t ON t.session_id = s.id%s
+		WHERE %s
+		ORDER BY s.id, ts_rank(t.content_tsv, plainto_tsquery('simple', $3)) DESC
+		LIMIT $%d
+	`, join, joinAnd(conds), idx)
+	args = append(args, limit)
+
+	rows, err := h.Pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	defer rows.Close()
+
+	out := &prosav1.SearchResponse{}
+	for rows.Next() {
+		hit, err := scanSearchHit(rows)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
+		out.Hits = append(out.Hits, hit)
+	}
+	return connect.NewResponse(out), rows.Err()
+}
+
+func joinAnd(parts []string) string {
+	out := ""
+	for i, p := range parts {
+		if i > 0 {
+			out += " AND "
+		}
+		out += p
+	}
+	return out
+}
+
+// scanSessionRow scans the canonical session select columns into a
+// proto. Works with both pgx.Row and pgx.Rows.
+type scannable interface {
+	Scan(dest ...any) error
+}
+
+func scanSessionRow(r scannable) (*prosav1.Session, error) {
+	var (
+		s                                                             prosav1.Session
+		projectPath, projectRemote, projectMarker, firstPrompt, model *string
+		started, lastAct                                              time.Time
+	)
+	if err := r.Scan(
+		&s.Id, &s.Agent, &s.DeviceId,
+		&projectPath, &projectRemote, &projectMarker,
+		&started, &lastAct,
+		&firstPrompt, &model,
+		&s.RawUri, &s.RawHash, &s.RawSize,
+	); err != nil {
+		return nil, err
+	}
+	if projectPath != nil {
+		s.ProjectPath = *projectPath
+	}
+	if projectRemote != nil {
+		s.ProjectRemote = *projectRemote
+	}
+	if projectMarker != nil {
+		s.ProjectMarker = *projectMarker
+	}
+	if firstPrompt != nil {
+		s.FirstPrompt = *firstPrompt
+	}
+	if model != nil {
+		s.Model = *model
+	}
+	s.StartedAt = timestamppb.New(started)
+	s.LastActivityAt = timestamppb.New(lastAct)
+	return &s, nil
+}
+
+func scanSearchHit(r scannable) (*prosav1.SearchHit, error) {
+	var (
+		s                                                             prosav1.Session
+		projectPath, projectRemote, projectMarker, firstPrompt, model *string
+		started, lastAct                                              time.Time
+		role, snippet                                                 string
+	)
+	if err := r.Scan(
+		&s.Id, &s.Agent, &s.DeviceId,
+		&projectPath, &projectRemote, &projectMarker,
+		&started, &lastAct,
+		&firstPrompt, &model,
+		&s.RawUri, &s.RawHash, &s.RawSize,
+		&role, &snippet,
+	); err != nil {
+		return nil, err
+	}
+	if projectPath != nil {
+		s.ProjectPath = *projectPath
+	}
+	if projectRemote != nil {
+		s.ProjectRemote = *projectRemote
+	}
+	if projectMarker != nil {
+		s.ProjectMarker = *projectMarker
+	}
+	if firstPrompt != nil {
+		s.FirstPrompt = *firstPrompt
+	}
+	if model != nil {
+		s.Model = *model
+	}
+	s.StartedAt = timestamppb.New(started)
+	s.LastActivityAt = timestamppb.New(lastAct)
+	return &prosav1.SearchHit{Session: &s, Snippet: snippet, Role: role}, nil
+}
+
+func selectTurns(ctx context.Context, pool *pgxpool.Pool, sessionID string) ([]*prosav1.Turn, error) {
+	rows, err := pool.Query(
+		ctx,
+		`SELECT role, content, ts FROM turns WHERE session_id = $1 ORDER BY ts ASC, id ASC`,
+		sessionID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*prosav1.Turn
+	for rows.Next() {
+		var (
+			role, content string
+			ts            time.Time
+		)
+		if err := rows.Scan(&role, &content, &ts); err != nil {
+			return nil, err
+		}
+		out = append(out, &prosav1.Turn{Role: role, Content: content, Ts: timestamppb.New(ts)})
+	}
+	return out, rows.Err()
+}
+
+func selectTools(ctx context.Context, pool *pgxpool.Pool, sessionID string) ([]*prosav1.ToolUsage, error) {
+	rows, err := pool.Query(
+		ctx,
+		`SELECT name, count FROM session_tools WHERE session_id = $1 ORDER BY count DESC, name ASC`,
+		sessionID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*prosav1.ToolUsage
+	for rows.Next() {
+		var (
+			name  string
+			count int32
+		)
+		if err := rows.Scan(&name, &count); err != nil {
+			return nil, err
+		}
+		out = append(out, &prosav1.ToolUsage{Name: name, Count: count})
+	}
+	return out, rows.Err()
+}
+
 // rawKey computes the canonical S3 key. Mirrors paths.RawRoot semantics:
 //
 //	<device-id>/<agent>/<YYYY>/<MM>/<id>.<ext>
