@@ -1,9 +1,11 @@
 ---
 name: prosa-panel-ui-reviewer
 description: Read-only reviewer for prosa panel changes — html/template, HTMX, Alpine, inline SVG charts, CSS modules, OAuth flow, SSE.
-tools: Read, Grep, Glob, Bash
-skills:
-  - prosa-panel-rendering
+tools:
+  - Read
+  - Grep
+  - Glob
+  - Bash
 model: sonnet
 ---
 

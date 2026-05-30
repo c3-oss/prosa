@@ -1,9 +1,11 @@
 ---
 name: prosa-docs-reviewer
 description: Read-only reviewer that catches drift between docs and code, and enforces the documentation hierarchy of truth.
-tools: Read, Grep, Glob, Bash
-skills:
-  - prosa-dev-workflow
+tools:
+  - Read
+  - Grep
+  - Glob
+  - Bash
 model: sonnet
 ---
 

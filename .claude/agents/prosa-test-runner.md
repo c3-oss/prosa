@@ -1,9 +1,11 @@
 ---
 name: prosa-test-runner
 description: Runs the prosa validation suite and reports failures concisely. Use to validate a change end-to-end or refresh coverage. Never modifies code.
-tools: Read, Grep, Glob, Bash
-skills:
-  - prosa-dev-workflow
+tools:
+  - Read
+  - Grep
+  - Glob
+  - Bash
 model: haiku
 ---
 

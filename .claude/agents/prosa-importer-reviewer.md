@@ -1,9 +1,11 @@
 ---
 name: prosa-importer-reviewer
 description: Read-only reviewer for prosa importer changes. Use after changes to docs/architecture/canonical-session.md, docs/sources/*, pkg/session, pkg/importer, or internal/importers/*.
-tools: Read, Grep, Glob, Bash
-skills:
-  - prosa-importer-session
+tools:
+  - Read
+  - Grep
+  - Glob
+  - Bash
 model: sonnet
 ---
 

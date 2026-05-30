@@ -1,12 +1,13 @@
 ---
 name: prosa-architect
 description: Architecture specialist for prosa's importer/store/API boundaries, repository structure, and cross-package design. Use for changes that span importers, store, proto/API, CLI, server, or panel.
-tools: Read, Grep, Glob, Bash, Edit, Write
-skills:
-  - prosa-dev-workflow
-  - prosa-importer-session
-  - prosa-cli-rendering
-  - prosa-panel-rendering
+tools:
+  - Read
+  - Grep
+  - Glob
+  - Bash
+  - Edit
+  - Write
 model: sonnet
 ---
 

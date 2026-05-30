@@ -1,6 +1,6 @@
 ---
 name: prosa-importer-session
-description: Canonical session and importer rules for prosa. Use when changing pkg/session, pkg/importer, docs/architecture/canonical-session.md, or any internal/importers/<agent> implementation.
+description: Canonical session and importer rules for prosa. Use when changing pkg/session, pkg/importer, docs/architecture/canonical-session.md, or any agent importer implementation under internal/importers.
 ---
 
 # Prosa Importer Session

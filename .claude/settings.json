@@ -10,11 +10,22 @@
   "hooks": {
     "SessionStart": [
       {
-        "matcher": "*",
+        "matcher": "startup",
         "hooks": [
           {
             "type": "command",
-            "command": "printf '\\n=== prosa MVP boundaries (from INTENT.md) ===\\n- Three Go binaries: prosa (CLI), prosa-server (Postgres + S3), prosa-panel (server-rendered HTML + HTMX).\\n- SQLite local, Postgres remote. Push-only sync. Idempotent by sha256.\\n- Single-user for the MVP. Organizations/users are post-MVP; no pre-baked hooks.\\n- Out of scope: DuckDB/Parquet/columnar sidecars, multi-tenant, redaction-at-upload, residential TUI, pull-down sync.\\n- Toolchain via devbox + just (no Makefile). Generated code under gen/ is committed.\\nRead INTENT.md end-to-end before proposing anything substantial.\\n===\\n\\n'"
+            "command": "printf '\\n=== prosa MVP boundaries (from INTENT.md) ===\\n- Three Go binaries: prosa (CLI), prosa-server (Postgres + S3), prosa-panel (server-rendered HTML + HTMX).\\n- SQLite local, Postgres remote. Push-only sync. Idempotent by sha256.\\n- Single-user for the MVP. Organizations/users are post-MVP; no pre-baked hooks.\\n- Out of scope: DuckDB/Parquet/columnar sidecars, multi-tenant, redaction-at-upload, residential TUI, pull-down sync.\\n- Toolchain via devbox + just (no Makefile). Generated code under gen/ is committed.\\nRead INTENT.md end-to-end before proposing anything substantial.\\n===\\n\\n'",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "printf '\\n=== prosa MVP boundaries (from INTENT.md) ===\\n- Three Go binaries: prosa (CLI), prosa-server (Postgres + S3), prosa-panel (server-rendered HTML + HTMX).\\n- SQLite local, Postgres remote. Push-only sync. Idempotent by sha256.\\n- Single-user for the MVP. Organizations/users are post-MVP; no pre-baked hooks.\\n- Out of scope: DuckDB/Parquet/columnar sidecars, multi-tenant, redaction-at-upload, residential TUI, pull-down sync.\\n- Toolchain via devbox + just (no Makefile). Generated code under gen/ is committed.\\nRead INTENT.md end-to-end before proposing anything substantial.\\n===\\n\\n'",
+            "timeout": 5
           }
         ]
       }
@@ -25,7 +36,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "if printf '%s' \"$CLAUDE_TOOL_INPUT\" | grep -qE '\"file_path\"[^,]*\"[^\"]*/gen/'; then printf 'BLOCKED: gen/ is generated code. Run `just gen` to regenerate it; do not edit by hand.\\n' >&2; exit 2; fi"
+            "command": "if printf '%s' \"$CLAUDE_TOOL_INPUT\" | grep -qE '\"file_path\"[^,]*\"[^\"]*/gen/'; then printf 'BLOCKED: gen/ is generated code. Run `just gen` to regenerate it; do not edit by hand.\\n' >&2; exit 2; fi",
+            "timeout": 5
           }
         ]
       }

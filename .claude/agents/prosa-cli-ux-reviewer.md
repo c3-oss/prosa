@@ -1,9 +1,11 @@
 ---
 name: prosa-cli-ux-reviewer
 description: Read-only reviewer for prosa CLI behavior, flags, terminal rendering, JSON output, and TTY/plain fallback behavior.
-tools: Read, Grep, Glob, Bash
-skills:
-  - prosa-cli-rendering
+tools:
+  - Read
+  - Grep
+  - Glob
+  - Bash
 model: sonnet
 ---
 
