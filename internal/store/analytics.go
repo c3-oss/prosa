@@ -4,8 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
+
+	"github.com/c3-oss/prosa/internal/pricing"
+	"github.com/c3-oss/prosa/pkg/session"
 )
 
 // AnalyticsRow is the row emitted by every Analytics<X> query — a
@@ -65,6 +69,151 @@ func (s *Store) AnalyticsProjects(ctx context.Context, f SessionFilter) (Analyti
 		FROM sessions s
 	`, ` GROUP BY project, s.agent ORDER BY sessions DESC LIMIT 30`, f)
 	return scanAnalytics(ctx, s.db, q, args, []string{"PROJECT", "AGENT", "SESSIONS"})
+}
+
+// AnalyticsHeatmap returns one UTC calendar row per day in the selected
+// window, including zero-session days so callers can render a stable
+// GitHub-style contribution graph.
+func (s *Store) AnalyticsHeatmap(ctx context.Context, f SessionFilter) (AnalyticsResult, error) {
+	q, args := analyticsQuery(`
+		SELECT substr(s.started_at, 1, 10) AS day,
+		       COUNT(*) AS sessions
+		FROM sessions s
+	`, ` GROUP BY day ORDER BY day ASC`, f)
+
+	rows, err := s.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return AnalyticsResult{}, fmt.Errorf("analytics heatmap: %w", err)
+	}
+	defer rows.Close()
+
+	counts := map[string]int64{}
+	for rows.Next() {
+		var (
+			day string
+			n   int64
+		)
+		if err := rows.Scan(&day, &n); err != nil {
+			return AnalyticsResult{}, err
+		}
+		counts[day] = n
+	}
+	if err := rows.Err(); err != nil {
+		return AnalyticsResult{}, err
+	}
+
+	start := dayStart(f.Since)
+	end := dayStart(f.Until)
+	out := AnalyticsResult{Headers: []string{"DATE", "SESSIONS"}}
+	for d := start; !d.After(end); d = d.AddDate(0, 0, 1) {
+		key := d.Format("2006-01-02")
+		out.Rows = append(out.Rows, AnalyticsRow{Values: []any{key, fmt.Sprintf("%d", counts[key])}})
+	}
+	return out, nil
+}
+
+// AnalyticsUsage aggregates measured token consumption by agent and adds an
+// estimated USD cost where the embedded pricing table recognizes the model.
+func (s *Store) AnalyticsUsage(ctx context.Context, f SessionFilter) (AnalyticsResult, error) {
+	q, args := analyticsQuery(`
+		SELECT s.agent,
+		       COALESCE(s.model, '') AS model,
+		       COUNT(DISTINCT s.id) AS sessions,
+		       COUNT(su.session_id) AS measured,
+		       COALESCE(SUM(su.total_tokens), 0) AS total_tokens,
+		       COALESCE(SUM(su.input_tokens), 0) AS input_tokens,
+		       COALESCE(SUM(su.output_tokens), 0) AS output_tokens,
+		       COALESCE(SUM(su.cached_tokens), 0) AS cached_tokens,
+		       COALESCE(SUM(su.cache_read_tokens), 0) AS cache_read_tokens,
+		       COALESCE(SUM(su.cache_creation_tokens), 0) AS cache_creation_tokens
+		FROM sessions s
+		LEFT JOIN session_usage su ON su.session_id = s.id
+	`, ` GROUP BY s.agent, model ORDER BY sessions DESC`, f)
+
+	rows, err := s.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return AnalyticsResult{}, fmt.Errorf("analytics usage: %w", err)
+	}
+	defer rows.Close()
+
+	type usageAgg struct {
+		agent    string
+		sessions int64
+		measured int64
+		usage    session.TokenUsage
+		cost     float64
+		priced   bool
+	}
+	byAgent := map[string]*usageAgg{}
+	for rows.Next() {
+		var (
+			agent, model string
+			sessionsN    int64
+			measured     int64
+			u            session.TokenUsage
+		)
+		if err := rows.Scan(
+			&agent, &model, &sessionsN, &measured,
+			&u.TotalTokens, &u.InputTokens, &u.OutputTokens, &u.CachedTokens,
+			&u.CacheReadTokens, &u.CacheCreationTokens,
+		); err != nil {
+			return AnalyticsResult{}, err
+		}
+		agg := byAgent[agent]
+		if agg == nil {
+			agg = &usageAgg{agent: agent}
+			byAgent[agent] = agg
+		}
+		agg.sessions += sessionsN
+		agg.measured += measured
+		agg.usage.TotalTokens += u.TotalTokens
+		agg.usage.InputTokens += u.InputTokens
+		agg.usage.OutputTokens += u.OutputTokens
+		agg.usage.CachedTokens += u.CachedTokens
+		agg.usage.CacheReadTokens += u.CacheReadTokens
+		agg.usage.CacheCreationTokens += u.CacheCreationTokens
+		if measured > 0 {
+			if c, ok := pricing.CostUSD(model, u); ok {
+				agg.cost += c
+				agg.priced = true
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return AnalyticsResult{}, err
+	}
+
+	aggs := make([]*usageAgg, 0, len(byAgent))
+	for _, agg := range byAgent {
+		aggs = append(aggs, agg)
+	}
+	sort.Slice(aggs, func(i, j int) bool {
+		if aggs[i].sessions == aggs[j].sessions {
+			return aggs[i].agent < aggs[j].agent
+		}
+		return aggs[i].sessions > aggs[j].sessions
+	})
+
+	out := AnalyticsResult{Headers: []string{
+		"AGENT", "SESSIONS", "MEASURED", "TOTAL", "INPUT", "OUTPUT", "CACHED", "EST_COST_USD",
+	}}
+	for _, agg := range aggs {
+		cost := ""
+		if agg.priced {
+			cost = fmt.Sprintf("%.4f", agg.cost)
+		}
+		out.Rows = append(out.Rows, AnalyticsRow{Values: []any{
+			agg.agent,
+			fmt.Sprintf("%d", agg.sessions),
+			fmt.Sprintf("%d", agg.measured),
+			fmt.Sprintf("%d", agg.usage.TotalTokens),
+			fmt.Sprintf("%d", agg.usage.InputTokens),
+			fmt.Sprintf("%d", agg.usage.OutputTokens),
+			fmt.Sprintf("%d", agg.usage.CachedTokens),
+			cost,
+		}})
+	}
+	return out, nil
 }
 
 // errorTriggers are the FTS5 terms used by AnalyticsErrors. Documented in
@@ -172,6 +321,11 @@ func nullOrString(s sql.NullString) any {
 		return ""
 	}
 	return s.String
+}
+
+func dayStart(t time.Time) time.Time {
+	y, m, d := t.UTC().Date()
+	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
 }
 
 // FormatDuration is exposed for tests / renderers.

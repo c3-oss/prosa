@@ -123,6 +123,10 @@ func Sessions(server, token string) prosav1connect.SessionsServiceClient {
 	return prosav1connect.NewSessionsServiceClient(httpClient(token), NormalizeServerURL(server))
 }
 
+func Analytics(server, token string) prosav1connect.AnalyticsServiceClient {
+	return prosav1connect.NewAnalyticsServiceClient(httpClient(token), NormalizeServerURL(server))
+}
+
 func Devices(server, token string) prosav1connect.DevicesServiceClient {
 	return prosav1connect.NewDevicesServiceClient(httpClient(token), NormalizeServerURL(server))
 }

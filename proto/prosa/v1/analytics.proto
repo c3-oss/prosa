@@ -6,7 +6,7 @@ import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/c3-oss/prosa/gen/go/prosa/v1;prosav1";
 
-// AnalyticsService exposes the five fixed reports from INTENT §9 to
+// AnalyticsService exposes the fixed reports from INTENT §9 to
 // remote callers (panel, CLI --remote). Each report returns a
 // renderer-ready (headers, rows) shape so the panel templates and the
 // CLI table renderer can share code paths.
@@ -18,7 +18,7 @@ service AnalyticsService {
 }
 
 message GetReportRequest {
-  // One of: sessions | tools | models | projects | errors.
+  // One of: sessions | tools | models | projects | errors | heatmap | usage.
   string report = 1;
 
   google.protobuf.Timestamp since = 2;
@@ -28,6 +28,8 @@ message GetReportRequest {
   string project_marker = 5;
   string agent = 6;
   string device_name = 7;
+  string project_match = 8;
+  string project_path = 9;
 }
 
 message GetReportResponse {

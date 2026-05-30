@@ -4,14 +4,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	prosav1 "github.com/c3-oss/prosa/gen/go/prosa/v1"
 	"github.com/c3-oss/prosa/gen/go/prosa/v1/prosav1connect"
+	"github.com/c3-oss/prosa/internal/pricing"
 	"github.com/c3-oss/prosa/internal/server/auth"
+	"github.com/c3-oss/prosa/pkg/session"
 )
 
 // AnalyticsHandler implements AnalyticsService against Postgres. The
@@ -52,9 +56,13 @@ func (h *AnalyticsHandler) GetReport(ctx context.Context, req *connect.Request[p
 		return runReport(ctx, h.Pool, req.Msg, queryProjects, []string{"PROJECT", "AGENT", "SESSIONS"})
 	case "errors":
 		return runReport(ctx, h.Pool, req.Msg, queryErrors, []string{"STARTED", "AGENT", "PROJECT", "SESSION"})
+	case "heatmap":
+		return runHeatmap(ctx, h.Pool, req.Msg)
+	case "usage":
+		return runUsage(ctx, h.Pool, req.Msg)
 	default:
 		return nil, connect.NewError(connect.CodeInvalidArgument,
-			fmt.Errorf("unknown report %q (want sessions|tools|models|projects|errors)", req.Msg.Report))
+			fmt.Errorf("unknown report %q (want sessions|tools|models|projects|errors|heatmap|usage)", req.Msg.Report))
 	}
 }
 
@@ -123,6 +131,14 @@ func buildWhere(ctx context.Context, msg *prosav1.GetReportRequest) (string, []a
 	if msg.ProjectMarker != "" {
 		addEq("project_marker", msg.ProjectMarker)
 	}
+	if msg.ProjectPath != "" {
+		addEq("project_path", msg.ProjectPath)
+	}
+	if msg.ProjectMatch != "" {
+		conds = append(conds, fmt.Sprintf("s.project_path LIKE $%d", idx))
+		args = append(args, "%"+msg.ProjectMatch+"%")
+		idx++
+	}
 	if msg.Agent != "" {
 		addEq("agent", msg.Agent)
 	}
@@ -137,6 +153,169 @@ func buildWhere(ctx context.Context, msg *prosav1.GetReportRequest) (string, []a
 		idx++
 	}
 	return "WHERE " + strings.Join(conds, " AND "), args, nil
+}
+
+func runHeatmap(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	msg *prosav1.GetReportRequest,
+) (*connect.Response[prosav1.GetReportResponse], error) {
+	whereSQL, args, err := buildWhere(ctx, msg)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	q := `
+		SELECT to_char((s.started_at AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD') AS day,
+		       COUNT(*)::bigint AS sessions
+		FROM sessions s
+		` + whereSQL + `
+		GROUP BY day
+		ORDER BY day ASC`
+	rows, err := pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("analytics heatmap: %w", err))
+	}
+	defer rows.Close()
+
+	counts := map[string]int64{}
+	for rows.Next() {
+		var (
+			day string
+			n   int64
+		)
+		if err := rows.Scan(&day, &n); err != nil {
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
+		counts[day] = n
+	}
+	if err := rows.Err(); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+
+	out := &prosav1.GetReportResponse{Headers: []string{"DATE", "SESSIONS"}}
+	for d := dayStart(tsToTime(msg.Since)); !d.After(dayStart(tsToTime(msg.Until))); d = d.AddDate(0, 0, 1) {
+		key := d.Format("2006-01-02")
+		out.Rows = append(out.Rows, &prosav1.AnalyticsRow{
+			Values: []string{key, fmt.Sprintf("%d", counts[key])},
+		})
+	}
+	return connect.NewResponse(out), nil
+}
+
+func runUsage(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	msg *prosav1.GetReportRequest,
+) (*connect.Response[prosav1.GetReportResponse], error) {
+	whereSQL, args, err := buildWhere(ctx, msg)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	q := `
+		SELECT s.agent,
+		       COALESCE(s.model, '') AS model,
+		       COUNT(DISTINCT s.id)::bigint AS sessions,
+		       COUNT(su.session_id)::bigint AS measured,
+		       COALESCE(SUM(su.total_tokens), 0)::bigint AS total_tokens,
+		       COALESCE(SUM(su.input_tokens), 0)::bigint AS input_tokens,
+		       COALESCE(SUM(su.output_tokens), 0)::bigint AS output_tokens,
+		       COALESCE(SUM(su.cached_tokens), 0)::bigint AS cached_tokens,
+		       COALESCE(SUM(su.cache_read_tokens), 0)::bigint AS cache_read_tokens,
+		       COALESCE(SUM(su.cache_creation_tokens), 0)::bigint AS cache_creation_tokens
+		FROM sessions s
+		LEFT JOIN session_usage su ON su.session_id = s.id
+		` + whereSQL + `
+		GROUP BY s.agent, model
+		ORDER BY COUNT(DISTINCT s.id) DESC`
+	rows, err := pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("analytics usage: %w", err))
+	}
+	defer rows.Close()
+
+	type usageAgg struct {
+		agent    string
+		sessions int64
+		measured int64
+		usage    session.TokenUsage
+		cost     float64
+		priced   bool
+	}
+	byAgent := map[string]*usageAgg{}
+	for rows.Next() {
+		var (
+			agent, model string
+			sessionsN    int64
+			measured     int64
+			u            session.TokenUsage
+		)
+		if err := rows.Scan(
+			&agent, &model, &sessionsN, &measured,
+			&u.TotalTokens, &u.InputTokens, &u.OutputTokens, &u.CachedTokens,
+			&u.CacheReadTokens, &u.CacheCreationTokens,
+		); err != nil {
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
+		agg := byAgent[agent]
+		if agg == nil {
+			agg = &usageAgg{agent: agent}
+			byAgent[agent] = agg
+		}
+		agg.sessions += sessionsN
+		agg.measured += measured
+		agg.usage.TotalTokens += u.TotalTokens
+		agg.usage.InputTokens += u.InputTokens
+		agg.usage.OutputTokens += u.OutputTokens
+		agg.usage.CachedTokens += u.CachedTokens
+		agg.usage.CacheReadTokens += u.CacheReadTokens
+		agg.usage.CacheCreationTokens += u.CacheCreationTokens
+		if measured > 0 {
+			if c, ok := pricing.CostUSD(model, u); ok {
+				agg.cost += c
+				agg.priced = true
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+
+	aggs := make([]*usageAgg, 0, len(byAgent))
+	for _, agg := range byAgent {
+		aggs = append(aggs, agg)
+	}
+	sort.Slice(aggs, func(i, j int) bool {
+		if aggs[i].sessions == aggs[j].sessions {
+			return aggs[i].agent < aggs[j].agent
+		}
+		return aggs[i].sessions > aggs[j].sessions
+	})
+
+	out := &prosav1.GetReportResponse{Headers: []string{
+		"AGENT", "SESSIONS", "MEASURED", "TOTAL", "INPUT", "OUTPUT", "CACHED", "EST_COST_USD",
+	}}
+	for _, agg := range aggs {
+		cost := ""
+		if agg.priced {
+			cost = fmt.Sprintf("%.4f", agg.cost)
+		}
+		out.Rows = append(out.Rows, &prosav1.AnalyticsRow{Values: []string{
+			agg.agent,
+			fmt.Sprintf("%d", agg.sessions),
+			fmt.Sprintf("%d", agg.measured),
+			fmt.Sprintf("%d", agg.usage.TotalTokens),
+			fmt.Sprintf("%d", agg.usage.InputTokens),
+			fmt.Sprintf("%d", agg.usage.OutputTokens),
+			fmt.Sprintf("%d", agg.usage.CachedTokens),
+			cost,
+		}})
+	}
+	return connect.NewResponse(out), nil
+}
+
+func dayStart(t time.Time) time.Time {
+	y, m, d := t.UTC().Date()
+	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
 }
 
 func querySessions(whereSQL string, args []any) (string, []any) {

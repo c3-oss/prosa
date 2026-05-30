@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -23,6 +24,34 @@ func newAnalyticsStore(t *testing.T) (context.Context, *store.Store, time.Time) 
 	mk := func(id, agent, project, model string, dAgo time.Duration) {
 		p := project
 		m := model
+		var usage *session.TokenUsage
+		switch id {
+		case "a":
+			usage = &session.TokenUsage{
+				TotalTokens:         1250,
+				InputTokens:         1100,
+				OutputTokens:        100,
+				CachedTokens:        100,
+				CacheReadTokens:     100,
+				CacheCreationTokens: 50,
+			}
+		case "c":
+			usage = &session.TokenUsage{
+				TotalTokens:     2500,
+				InputTokens:     2000,
+				OutputTokens:    500,
+				CachedTokens:    400,
+				CacheReadTokens: 400,
+			}
+		case "d":
+			usage = &session.TokenUsage{
+				TotalTokens:     1100,
+				InputTokens:     1000,
+				OutputTokens:    100,
+				CachedTokens:    100,
+				CacheReadTokens: 100,
+			}
+		}
 		require.NoError(t, s.UpsertSession(ctx, session.Session{
 			ID:             id,
 			Agent:          agent,
@@ -34,6 +63,7 @@ func newAnalyticsStore(t *testing.T) (context.Context, *store.Store, time.Time) 
 			RawPath:        "/tmp/" + id + ".jsonl",
 			RawHash:        "h-" + id,
 			RawSize:        100,
+			Usage:          usage,
 		}, []session.ToolUsage{
 			{Name: "Read", Count: 5},
 			{Name: "Bash", Count: 2},
@@ -54,6 +84,41 @@ func newAnalyticsStore(t *testing.T) (context.Context, *store.Store, time.Time) 
 		{Role: "assistant", Content: "TypeError: nope; full traceback follows", Timestamp: now.Add(-4 * time.Hour)},
 	}))
 	return ctx, s, now
+}
+
+func TestAnalyticsHeatmap(t *testing.T) {
+	ctx, s, now := newAnalyticsStore(t)
+	r, err := s.AnalyticsHeatmap(ctx, filter(now))
+	require.NoError(t, err)
+	require.Equal(t, []string{"DATE", "SESSIONS"}, r.Headers)
+	require.NotEmpty(t, r.Rows)
+
+	var total int
+	for _, row := range r.Rows {
+		n, err := strconv.Atoi(row.Values[1].(string))
+		require.NoError(t, err)
+		total += n
+	}
+	require.Equal(t, 4, total)
+}
+
+func TestAnalyticsUsage(t *testing.T) {
+	ctx, s, now := newAnalyticsStore(t)
+	r, err := s.AnalyticsUsage(ctx, filter(now))
+	require.NoError(t, err)
+	require.Equal(t, []string{"AGENT", "SESSIONS", "MEASURED", "TOTAL", "INPUT", "OUTPUT", "CACHED", "EST_COST_USD"}, r.Headers)
+
+	byAgent := map[string][]any{}
+	for _, row := range r.Rows {
+		byAgent[row.Values[0].(string)] = row.Values
+	}
+	require.Equal(t, "2", byAgent["codex"][1])
+	require.Equal(t, "2", byAgent["codex"][2])
+	require.Equal(t, "3600", byAgent["codex"][3])
+	require.NotEmpty(t, byAgent["codex"][7])
+	require.Equal(t, "2", byAgent["claude-code"][1])
+	require.Equal(t, "1", byAgent["claude-code"][2])
+	require.NotEmpty(t, byAgent["claude-code"][7])
 }
 
 func filter(now time.Time) store.SessionFilter {

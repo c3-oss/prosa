@@ -21,7 +21,7 @@ import (
 )
 
 var (
-	validAnalyticsReports = []string{"sessions", "tools", "models", "projects", "errors"}
+	validAnalyticsReports = []string{"sessions", "tools", "models", "projects", "errors", "heatmap", "usage"}
 	analyticsRemoteFlag   bool
 )
 
@@ -34,20 +34,20 @@ func newAnalyticsCmd() *cobra.Command {
 			"  tools     — most-used tools across all sessions (top 20)\n" +
 			"  models    — sessions per model name\n" +
 			"  projects  — sessions per project, agent-grouped (top 30)\n" +
+			"  heatmap   — sessions per UTC day for a GitHub-style graph\n" +
+			"  usage     — token totals and estimated USD cost by agent\n" +
 			"  errors    — sessions whose assistant turns match common error\n" +
 			"              signals via FTS5: 'error OR exception OR traceback OR panic OR fatal'\n" +
 			"              (heuristic; matches the words in any context).\n\n" +
 			"All reports honor the global filter flags (--last / --project / --agent /\n" +
 			"--device) and emit NDJSON with --json.\n\n" +
-			"--remote re-runs the report on the prosa-server (when applicable).\n" +
-			"Group B ships only `sessions` and `projects` remotely; tools/models/errors\n" +
-			"remain local until Group D's panel needs them.",
+			"--remote re-runs the report on the prosa-server.",
 		ValidArgs: validAnalyticsReports,
 		Args:      cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
 		RunE:      runAnalytics,
 	}
 	cmd.Flags().BoolVar(&analyticsRemoteFlag, "remote", false,
-		"run the report against the prosa-server's Postgres (sessions/projects only)")
+		"run the report against the prosa-server's Postgres")
 	return cmd
 }
 
@@ -84,18 +84,7 @@ func runAnalytics(cmd *cobra.Command, args []string) error {
 	}
 	// Analytics inherits the same filter precedence as nu / search:
 	// --project wins; otherwise cwd auto-detect unless --all.
-	switch {
-	case g.Project != "":
-		p := g.Project
-		filter.ProjectMatch = &p
-	case !g.All:
-		cwd, err := os.Getwd()
-		if err == nil {
-			if m, err := DetectProject(ctx, cwd, s); err == nil && m.Found {
-				applyMatchFilter(&filter, m)
-			}
-		}
-	}
+	scope, scopeLabel := applyAnalyticsScope(ctx, s, &filter)
 	if g.Agent != "" {
 		a := g.Agent
 		filter.Agent = &a
@@ -103,6 +92,17 @@ func runAnalytics(cmd *cobra.Command, args []string) error {
 	if g.Device != "" {
 		d := g.Device
 		filter.DeviceName = &d
+	}
+	if IsInteractive() && !g.JSON {
+		fmt.Fprintln(os.Stderr, render.ContextLine(render.ContextLineOptions{
+			Command:    "analytics",
+			Source:     "local",
+			Scope:      scope,
+			ScopeLabel: scopeLabel,
+			Last:       w.LastLabel,
+			Since:      w.SinceLabel,
+			Between:    w.BetweenLabel,
+		}))
 	}
 
 	result, err := dispatchAnalytics(ctx, s, report, filter)
@@ -114,6 +114,25 @@ func runAnalytics(cmd *cobra.Command, args []string) error {
 		return emitAnalyticsJSON(os.Stdout, result)
 	}
 	return render.Analytics(os.Stdout, result, IsInteractive())
+}
+
+func applyAnalyticsScope(ctx context.Context, s *store.Store, filter *store.SessionFilter) (render.ContextScope, string) {
+	switch {
+	case g.Project != "":
+		p := g.Project
+		filter.ProjectMatch = &p
+		return render.ScopeScoped, p
+	case g.All:
+		return render.ScopeAll, ""
+	default:
+		if cwd, err := os.Getwd(); err == nil {
+			if m, err := DetectProject(ctx, cwd, s); err == nil && m.Found {
+				applyMatchFilter(filter, m)
+				return render.ScopeScoped, m.HintLabel()
+			}
+		}
+		return render.ScopeProjectNotDetected, ""
+	}
 }
 
 func dispatchAnalytics(ctx context.Context, s *store.Store, report string, f store.SessionFilter) (store.AnalyticsResult, error) {
@@ -128,20 +147,18 @@ func dispatchAnalytics(ctx context.Context, s *store.Store, report string, f sto
 		return s.AnalyticsProjects(ctx, f)
 	case "errors":
 		return s.AnalyticsErrors(ctx, f)
+	case "heatmap":
+		return s.AnalyticsHeatmap(ctx, f)
+	case "usage":
+		return s.AnalyticsUsage(ctx, f)
 	default:
 		return store.AnalyticsResult{}, fmt.Errorf("unknown report: %s", report)
 	}
 }
 
-// runAnalyticsRemote handles --remote. Only `sessions` and `projects`
-// reach the server in this cut; the rest surface a friendly error so
-// users know to drop --remote.
+// runAnalyticsRemote handles --remote through AnalyticsService so CLI and
+// panel see the same server-side reports.
 func runAnalyticsRemote(ctx context.Context, report string, w Window) error {
-	switch report {
-	case "sessions", "projects":
-	default:
-		return fmt.Errorf("--remote is not yet implemented for the %s report (try without --remote)", report)
-	}
 	auth, err := rpc.LoadAuth()
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -149,63 +166,84 @@ func runAnalyticsRemote(ctx context.Context, report string, w Window) error {
 		}
 		return err
 	}
-	client := rpc.Sessions(auth.Server, auth.Token)
-	resp, err := client.List(ctx, connect.NewRequest(&prosav1.ListRequest{
-		Since: timestamppb.New(w.Since),
-		Until: timestamppb.New(w.Until),
-		Limit: 1000,
-	}))
+	req := &prosav1.GetReportRequest{
+		Report: report,
+		Since:  timestamppb.New(w.Since),
+		Until:  timestamppb.New(w.Until),
+	}
+	scope, scopeLabel := applyAnalyticsRemoteScope(ctx, req)
+	if g.Agent != "" {
+		req.Agent = g.Agent
+	}
+	if g.Device != "" {
+		req.DeviceName = g.Device
+	}
+	if IsInteractive() && !g.JSON {
+		fmt.Fprintln(os.Stderr, render.ContextLine(render.ContextLineOptions{
+			Command:    "analytics",
+			Source:     "remote",
+			Scope:      scope,
+			ScopeLabel: scopeLabel,
+			Last:       w.LastLabel,
+			Since:      w.SinceLabel,
+			Between:    w.BetweenLabel,
+		}))
+	}
+	client := rpc.Analytics(auth.Server, auth.Token)
+	resp, err := client.GetReport(ctx, connect.NewRequest(req))
 	if err != nil {
-		return fmt.Errorf("list rpc: %s", rpc.ConnectError(err))
+		return fmt.Errorf("analytics rpc: %s", rpc.ConnectError(err))
 	}
-	var result store.AnalyticsResult
-	switch report {
-	case "sessions":
-		result = aggregateSessions(resp.Msg.Sessions)
-	case "projects":
-		result = aggregateProjects(resp.Msg.Sessions)
-	}
+	result := analyticsProtoResult(resp.Msg)
 	if g.JSON {
 		return emitAnalyticsJSON(os.Stdout, result)
 	}
 	return render.Analytics(os.Stdout, result, IsInteractive())
 }
 
-func aggregateSessions(in []*prosav1.Session) store.AnalyticsResult {
-	type key string
-	counts := map[string]int{}
-	for _, s := range in {
-		counts[s.Agent]++
+func applyAnalyticsRemoteScope(ctx context.Context, req *prosav1.GetReportRequest) (render.ContextScope, string) {
+	switch {
+	case g.Project != "":
+		req.ProjectMatch = g.Project
+		return render.ScopeScoped, g.Project
+	case g.All:
+		return render.ScopeAll, ""
+	default:
+		if cwd, err := os.Getwd(); err == nil {
+			storePath, perr := paths.StorePath()
+			if perr == nil {
+				s, oerr := store.Open(ctx, storePath)
+				if oerr == nil {
+					if m, derr := DetectProject(ctx, cwd, s); derr == nil && m.Found {
+						switch {
+						case m.Remote != "":
+							req.ProjectRemote = m.Remote
+						case m.Marker != "":
+							req.ProjectMarker = m.Marker
+						case m.Path != "":
+							req.ProjectPath = m.Path
+						}
+						_ = s.Close()
+						return render.ScopeScoped, m.HintLabel()
+					}
+					_ = s.Close()
+				}
+			}
+		}
+		return render.ScopeProjectNotDetected, ""
 	}
-	rows := make([]store.AnalyticsRow, 0, len(counts))
-	for agent, n := range counts {
-		rows = append(rows, store.AnalyticsRow{Values: []any{agent, fmt.Sprintf("%d", n)}})
-	}
-	_ = key("ignored")
-	return store.AnalyticsResult{Headers: []string{"AGENT", "SESSIONS"}, Rows: rows}
 }
 
-func aggregateProjects(in []*prosav1.Session) store.AnalyticsResult {
-	counts := map[string]int{}
-	for _, s := range in {
-		key := s.ProjectRemote
-		if key == "" {
-			key = s.ProjectMarker
+func analyticsProtoResult(resp *prosav1.GetReportResponse) store.AnalyticsResult {
+	out := store.AnalyticsResult{Headers: resp.Headers}
+	for _, row := range resp.Rows {
+		values := make([]any, len(row.Values))
+		for i, v := range row.Values {
+			values[i] = v
 		}
-		if key == "" {
-			key = s.ProjectPath
-		}
-		if key == "" {
-			key = "(unscoped)"
-		}
-		counts[key+"\x00"+s.Agent]++
+		out.Rows = append(out.Rows, store.AnalyticsRow{Values: values})
 	}
-	rows := make([]store.AnalyticsRow, 0, len(counts))
-	for k, n := range counts {
-		parts := strings.SplitN(k, "\x00", 2)
-		rows = append(rows, store.AnalyticsRow{Values: []any{parts[0], parts[1], fmt.Sprintf("%d", n)}})
-	}
-	return store.AnalyticsResult{Headers: []string{"PROJECT", "AGENT", "SESSIONS"}, Rows: rows}
+	return out
 }
 
 // emitAnalyticsJSON writes one JSON object per row, mapping each
