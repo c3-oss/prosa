@@ -1,7 +1,0 @@
-{"type":"session_meta","timestamp":"2025-01-02T03:04:05.123Z","payload":{"id":"sess_codex_demo","cwd":"/repo","cli_version":"2.0","git":{"branch":"main"}}}
-{"type":"turn_context","timestamp":"2025-01-02T03:04:06.000Z","payload":{"turn_id":"turn_001","cwd":"/repo","model":"gpt-5-turbo","effort":"medium","approval_policy":"on_request","sandbox_policy":{"mode":"workspace-write"}}}
-{"type":"response_item","timestamp":"2025-01-02T03:04:07.000Z","payload":{"id":"msg_user_1","type":"message","role":"user","content":[{"type":"input_text","text":"find the bug"}]}}
-{"type":"response_item","timestamp":"2025-01-02T03:04:08.000Z","payload":{"id":"msg_asst_1","type":"message","role":"assistant","model":"gpt-5-turbo","parent_message_id":"msg_user_1","content":[{"type":"reasoning","thinking":"examining the code"},{"type":"output_text","text":"I see the bug."}]}}
-{"type":"response_item","timestamp":"2025-01-02T03:04:09.000Z","payload":{"type":"function_call","call_id":"call_abc","name":"shell","arguments":{"command":["grep","-rn","foo"]},"status":"in_progress"}}
-{"type":"response_item","timestamp":"2025-01-02T03:04:10.000Z","payload":{"type":"function_call_output","call_id":"call_abc","output":"src/foo.ts:42:foo()","status":"completed"}}
-{"type":"event_msg","timestamp":"2025-01-02T03:04:11.000Z","payload":{"id":"ev_1","subtype":"token_usage","actor":"cli"}}

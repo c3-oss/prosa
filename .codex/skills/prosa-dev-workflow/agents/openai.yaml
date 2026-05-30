@@ -1,4 +1,0 @@
-interface:
-  display_name: "Prosa Dev Workflow"
-  short_description: "Local development workflow for prosa"
-  default_prompt: "Use $prosa-dev-workflow to set up, run, test, or validate prosa changes."

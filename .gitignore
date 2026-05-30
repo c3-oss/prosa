@@ -1,24 +1,10 @@
-node_modules/
-dist/
-coverage/
-apps/*/dist/
-apps/*/coverage/
-apps/*/.turbo/
-packages/*/dist/
-packages/*/coverage/
-packages/*/.turbo/
-docs/api/
-.turbo/
-.devbox/
-.cache/
-
-*.log
+/.devbox/
+/bin/
+/tmp/
+/vendor/
+*.test
+*.out
 .DS_Store
-
-# local prosa bundles used for smoke tests
-/.prosa-smoke/
-/tmp-prosa/
-docker-compose.override.yml
-
-# Ralph Loop session-local state (do not commit)
-.claude/ralph-loop.local.md
+coverage.txt
+coverage.html
+*.db

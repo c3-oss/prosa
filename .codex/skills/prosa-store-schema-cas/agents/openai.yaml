@@ -1,4 +1,0 @@
-interface:
-  display_name: "Prosa Store Schema CAS"
-  short_description: "Bundle, schema, raw, and CAS guidance"
-  default_prompt: "Use $prosa-store-schema-cas when changing prosa bundle storage, schema, raw records, or CAS behavior."

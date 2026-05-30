@@ -1,4 +1,0 @@
-interface:
-  display_name: "Ralph Loop Governor"
-  short_description: "Govern Claude Ralph Loop implementation runs"
-  default_prompt: "$ralph-loop-governor quero uma feature abc que faça X, Y e Z."

@@ -1,5 +1,0 @@
-export { sessionsRouter } from './reads/sessions.js'
-export { searchRouter } from './reads/search.js'
-export { toolCallsRouter } from './reads/tool-calls.js'
-export { artifactsRouter } from './reads/artifacts.js'
-export { analyticsRouter } from './reads/analytics.js'
