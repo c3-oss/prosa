@@ -8,6 +8,8 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+
+	"github.com/c3-oss/prosa/internal/buildinfo"
 )
 
 // globalFlags is the persistent flag set inherited by every sub-command.
@@ -33,6 +35,7 @@ func newRootCmd() *cobra.Command {
 		RunE:          runNu,
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		Version:       buildinfo.String(),
 	}
 	pf := cmd.PersistentFlags()
 	pf.StringVar(&g.Last, "last", "7d", "window length (e.g. 7d, 30d, 12h)")

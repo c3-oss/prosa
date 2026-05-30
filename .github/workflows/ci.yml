@@ -6,16 +6,77 @@ on:
   pull_request:
     branches: [master]
 
+permissions:
+  contents: read
+
 jobs:
+  test:
+    name: tidy + gen + vet + test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install devbox
+        uses: jetify-com/devbox-install-action@v0.13.0
+        with:
+          enable-cache: true
+
+      - name: Cache Go modules and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ubuntu-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ubuntu-go-
+
+      - name: Tidy check
+        run: devbox run -- just tidy-check
+
+      - name: Generated code check
+        run: devbox run -- just gen-check
+
+      - name: Vet
+        run: devbox run -- just vet
+
+      - name: Test
+        run: devbox run -- go test -race -count=1 -coverprofile=coverage.out ./...
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.out
+          retention-days: 7
+
+  lint:
+    name: golangci-lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install devbox
+        uses: jetify-com/devbox-install-action@v0.13.0
+        with:
+          enable-cache: true
+
+      - name: Run golangci-lint
+        run: devbox run -- just lint
+
   build:
-    name: ${{ matrix.os }}
+    name: build / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Install devbox
         uses: jetify-com/devbox-install-action@v0.13.0
@@ -33,5 +94,5 @@ jobs:
           restore-keys: |
             ${{ matrix.os }}-go-
 
-      - name: Run pipeline
-        run: devbox run -- make ci
+      - name: Build
+        run: devbox run -- just build

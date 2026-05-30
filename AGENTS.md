@@ -26,6 +26,23 @@ panel (`prosa-panel`). Source layout follows INTENT.md §11.
 
 Run inside `devbox shell` so the pinned toolchain is on `$PATH`.
 
+- `just build` — builds `prosa`, `prosa-server`, `prosa-panel` into `./bin`
+- `just run -- <args>` — builds, then runs `./bin/prosa`
+- `just test` — `go test ./...`
+- `just test-race` — `go test -race -count=1 ./...`
+- `just cover` — coverage profile + per-function totals
+- `just vet` — `go vet ./...`
+- `just lint` — `golangci-lint run ./...`
+- `just tools` — installs `protoc-gen-go` + `protoc-gen-connect-go` into `./bin`
+- `just gen` — `buf lint` + `buf generate` + `gofumpt gen/`
+- `just gen-check` — regeneration must not produce a diff
+- `just tidy-check` — `go.mod`/`go.sum` must already be tidy
+- `just ci` — full local pipeline + `git diff --exit-code`
+- `just snapshot` — GoReleaser snapshot build (requires `goreleaser` on `PATH`)
+- `just docker-build` — local Docker image
+
+The Makefile remains available for compatibility:
+
 - `make tidy` — `go mod tidy`
 - `make tools` — installs `protoc-gen-go` + `protoc-gen-connect-go` into `./bin`
 - `make gen` — runs `buf generate` and formats `gen/`

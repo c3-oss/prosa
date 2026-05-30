@@ -4,8 +4,12 @@
 // implemented in a later cut.
 package main
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/c3-oss/prosa/internal/buildinfo"
+)
 
 func main() {
-	fmt.Println("prosa-server: not implemented in first cut")
+	fmt.Printf("prosa-server %s: not implemented in first cut\n", buildinfo.String())
 }

@@ -1,6 +1,7 @@
 /.devbox/
 /.idea/
 /bin/
+/dist/
 /tmp/
 /vendor/
 *.test

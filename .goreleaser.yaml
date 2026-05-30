@@ -1,0 +1,98 @@
+version: 2
+
+project_name: prosa
+
+before:
+  hooks:
+    - go mod tidy
+    - go generate ./...
+
+builds:
+  - id: prosa
+    main: ./cmd/prosa
+    binary: prosa
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/c3-oss/prosa/internal/buildinfo.Version={{.Version}}
+      - -X github.com/c3-oss/prosa/internal/buildinfo.Commit={{.Commit}}
+      - -X github.com/c3-oss/prosa/internal/buildinfo.BuildDate={{.Date}}
+
+  - id: prosa-server
+    main: ./cmd/prosa-server
+    binary: prosa-server
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/c3-oss/prosa/internal/buildinfo.Version={{.Version}}
+      - -X github.com/c3-oss/prosa/internal/buildinfo.Commit={{.Commit}}
+      - -X github.com/c3-oss/prosa/internal/buildinfo.BuildDate={{.Date}}
+
+  - id: prosa-panel
+    main: ./cmd/prosa-panel
+    binary: prosa-panel
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/c3-oss/prosa/internal/buildinfo.Version={{.Version}}
+      - -X github.com/c3-oss/prosa/internal/buildinfo.Commit={{.Commit}}
+      - -X github.com/c3-oss/prosa/internal/buildinfo.BuildDate={{.Date}}
+
+archives:
+  - id: default
+    formats: [tar.gz]
+    name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}'
+    files:
+      - README.md
+      - LICENSE*
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+      - '^ci:'
+      - Merge pull request
+      - Merge branch
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\([[:word:]-]+\))??!?:.+$'
+      order: 0
+    - title: Bug Fixes
+      regexp: '^.*?fix(\([[:word:]-]+\))??!?:.+$'
+      order: 1
+    - title: Others
+      order: 999
+
+release:
+  draft: false
+  prerelease: auto
+  name_template: '{{ .ProjectName }} {{ .Version }}'

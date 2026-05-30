@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "_notes": {
+    "purpose": "Claude Code project settings for prosa. Canonical repo guidance lives in AGENTS.md; domain skills live in .codex/skills and specialist subagents live in .claude/agents.",
+    "todo": [
+      "Consider SessionStart summaries pinning the current INTENT.md MVP boundaries.",
+      "Consider PreToolUse guards before destructive changes to generated files under gen/."
+    ]
+  },
+  "hooks": {}
+}

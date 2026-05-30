@@ -1,0 +1,14 @@
+.git
+.devbox
+.idea
+bin
+dist
+tmp
+vendor
+coverage.out
+coverage.txt
+coverage.html
+*.test
+*.out
+*.db
+.DS_Store

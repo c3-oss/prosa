@@ -3,8 +3,12 @@
 // Real handlers (templ + HTMX SSR over the server API) land in a later cut.
 package main
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/c3-oss/prosa/internal/buildinfo"
+)
 
 func main() {
-	fmt.Println("prosa-panel: not implemented in first cut")
+	fmt.Printf("prosa-panel %s: not implemented in first cut\n", buildinfo.String())
 }
