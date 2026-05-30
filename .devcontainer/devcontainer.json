@@ -1,0 +1,27 @@
+{
+  "name": "prosa (Go + Node)",
+  "image": "mcr.microsoft.com/devcontainers/go:1-bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": { "version": "24" },
+    "ghcr.io/devcontainers-extra/features/just:1": {},
+    "ghcr.io/devcontainers-extra/features/buf:1": {}
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "golang.go",
+        "golangci-lint.golangci-lint",
+        "bufbuild.vscode-buf",
+        "redhat.vscode-yaml",
+        "tamasfe.even-better-toml"
+      ],
+      "settings": {
+        "go.useLanguageServer": true,
+        "go.lintTool": "golangci-lint",
+        "go.formatTool": "gofumpt"
+      }
+    }
+  },
+  "postCreateCommand": "go mod download && just gen",
+  "remoteUser": "vscode"
+}
