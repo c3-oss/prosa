@@ -33,6 +33,16 @@ type TimelineOptions struct {
 	Interactive bool
 	Width       int
 	Layout      TimelineLayout
+	// Slots controls scope-aware column suppression. Callers must set
+	// this explicitly (via ResolveSlots); leaving it zero means
+	// "render no device, no project" — which is intentional but rare,
+	// so the convenience wrapper Timeline() always passes both true
+	// for backward compatibility.
+	Slots RowSlots
+	// DeviceLabels maps device_id → friendly_name; the row uses it via
+	// DeviceLabel(...) so the column shows "Studio M4" instead of the
+	// raw hex fingerprint. Nil is OK — the fallback handles it.
+	DeviceLabels map[string]string
 }
 
 // Timeline writes sessions to w grouped by day with Lipgloss colors when
@@ -46,6 +56,7 @@ func Timeline(w io.Writer, sessions []session.Session, now time.Time, interactiv
 		Interactive: interactive,
 		Width:       80,
 		Layout:      TimelineScoped,
+		Slots:       RowSlots{Device: true, Project: true},
 	})
 }
 
@@ -92,16 +103,23 @@ func renderSessionTTY(w io.Writer, item TimelineItem, now time.Time, opts Timeli
 	}
 
 	widths := timelineColumnWidths(opts.Width)
-	device := padTrunc(s.DeviceID, widths.device)
+	device := ""
+	if opts.Slots.Device {
+		device = padTrunc(DeviceLabel(opts.DeviceLabels, s.DeviceID), widths.device)
+	}
 	agent := padTrunc(agentLabel(s.Agent), widths.agent)
-	project := padTrunc(projectLabel(s), widths.project)
-
-	first := ""
-	if s.FirstPrompt != nil {
-		first = normalizeDisplayText(*s.FirstPrompt)
+	project := ""
+	if opts.Slots.Project {
+		project = padTrunc(projectLabel(s), widths.project)
 	}
 
-	prefixRaw, prefixStyled := timelinePrefix(opts.Layout, timeStr, activeRaw, activeMark, device, agent, project)
+	first := ""
+	isClean := true
+	if s.FirstPrompt != nil {
+		first, isClean = CleanFirstPrompt(normalizeDisplayText(*s.FirstPrompt))
+	}
+
+	prefixRaw, prefixStyled := timelinePrefix(opts.Layout, opts.Slots, timeStr, activeRaw, activeMark, device, agent, project)
 	promptWidth := opts.Width - lipgloss.Width(prefixRaw) - 2
 	if promptWidth < 12 {
 		promptWidth = 12
@@ -109,9 +127,15 @@ func renderSessionTTY(w io.Writer, item TimelineItem, now time.Time, opts Timeli
 	if promptWidth > promptMaxRunes {
 		promptWidth = promptMaxRunes
 	}
-	first = truncateWidth(first, promptWidth)
 
-	fmt.Fprintf(w, "%s%q\n", prefixStyled, first)
+	if !isClean || first == "" {
+		// (meta) is rendered muted instead of quoted — it's a label,
+		// not user content.
+		fmt.Fprintf(w, "%s%s\n", prefixStyled, StyleMuted.Render(MetaPlaceholder))
+	} else {
+		first = truncateWidth(first, promptWidth)
+		fmt.Fprintf(w, "%s%q\n", prefixStyled, first)
+	}
 
 	fmt.Fprintf(w, "%s        %s %s %s\n",
 		StyleRail.Render("│"),
@@ -148,31 +172,47 @@ func timelineColumnWidths(width int) timelineWidths {
 	}
 }
 
-func timelinePrefix(layout TimelineLayout, timeStr, activeRaw, activeStyled, device, agent, project string) (string, string) {
+// timelinePrefix builds the row's left half. Slots drive which
+// optional columns appear; layout drives the order of what remains.
+//
+//	Global: time  project  device  agent
+//	Scoped: time  device   agent   project
+//
+// When Slots.Device or Slots.Project is false, the column is dropped
+// (the strings come in empty) and the surrounding double-space is
+// collapsed by buildPrefixSegments to avoid a visual gap.
+func timelinePrefix(layout TimelineLayout, slots RowSlots, timeStr, activeRaw, activeStyled, device, agent, project string) (string, string) {
 	timeRaw := timeStr + activeRaw
 	timeStyled := StyleMuted.Render(timeStr) + activeStyled
 	rail := StyleRail.Render("│")
 
+	type seg struct {
+		raw    string
+		styled string
+		show   bool
+	}
+	timeSeg := seg{timeRaw, timeStyled, true}
+	deviceSeg := seg{device, StyleDevice.Render(device), slots.Device}
+	agentSeg := seg{agent, StyleAgent.Render(agent), true}
+	projectSeg := seg{project, StyleProject.Render(project), slots.Project}
+
+	var order []seg
 	if layout == TimelineGlobal {
-		raw := fmt.Sprintf("│ %s  %s  %s  %s  ", timeRaw, project, device, agent)
-		styled := fmt.Sprintf("%s %s  %s  %s  %s  ",
-			rail,
-			timeStyled,
-			StyleProject.Render(project),
-			StyleDevice.Render(device),
-			StyleAgent.Render(agent),
-		)
-		return raw, styled
+		order = []seg{timeSeg, projectSeg, deviceSeg, agentSeg}
+	} else {
+		order = []seg{timeSeg, deviceSeg, agentSeg, projectSeg}
 	}
 
-	raw := fmt.Sprintf("│ %s  %s  %s  %s  ", timeRaw, device, agent, project)
-	styled := fmt.Sprintf("%s %s  %s  %s  %s  ",
-		rail,
-		timeStyled,
-		StyleDevice.Render(device),
-		StyleAgent.Render(agent),
-		StyleProject.Render(project),
-	)
+	var rawParts, styledParts []string
+	for _, sg := range order {
+		if !sg.show || sg.raw == "" {
+			continue
+		}
+		rawParts = append(rawParts, sg.raw)
+		styledParts = append(styledParts, sg.styled)
+	}
+	raw := "│ " + strings.Join(rawParts, "  ") + "  "
+	styled := rail + " " + strings.Join(styledParts, "  ") + "  "
 	return raw, styled
 }
 

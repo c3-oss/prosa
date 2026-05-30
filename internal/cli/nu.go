@@ -136,9 +136,15 @@ func runNu(cmd *cobra.Command, _ []string) error {
 	if g.Project != "" || filter.ProjectExact != nil || filter.ProjectRemote != nil || filter.ProjectMarker != nil {
 		layout = render.TimelineScoped
 	}
+	deviceLabels, derr := s.ListDevicesMap(ctx)
+	if derr != nil {
+		deviceLabels = nil // render falls back to truncated hex
+	}
 	return render.TimelineItems(os.Stdout, items, now, render.TimelineOptions{
-		Interactive: interactive,
-		Width:       TerminalWidth(),
-		Layout:      layout,
+		Interactive:  interactive,
+		Width:        TerminalWidth(),
+		Layout:       layout,
+		Slots:        render.ResolveSlots(items, layout),
+		DeviceLabels: deviceLabels,
 	})
 }

@@ -30,6 +30,16 @@ func shortenID(id string) string {
 type SearchOptions struct {
 	Interactive bool
 	Width       int
+	// DeviceLabels maps device_id → friendly_name so search hits show
+	// "Studio M4" instead of the raw fingerprint hex.
+	DeviceLabels map[string]string
+	// HideProject drops the project segment from the meta line. The
+	// timeline/search context line already names the project when the
+	// caller is scoped.
+	HideProject bool
+	// HideDevice drops the device segment from the meta line — used
+	// when every hit shares the same device (cardinality 1).
+	HideDevice bool
 }
 
 // SearchHits prints one block per hit: a session header line followed by
@@ -51,33 +61,56 @@ func SearchHitsWithOptions(w io.Writer, hits []store.SearchHit, now time.Time, o
 			project = *h.Session.ProjectPath
 		}
 		first := ""
+		firstIsMeta := false
 		if h.Session.FirstPrompt != nil {
-			first = truncateWidth(normalizeDisplayText(*h.Session.FirstPrompt), 60)
+			candidate := normalizeDisplayText(*h.Session.FirstPrompt)
+			cleaned, ok := CleanFirstPrompt(candidate)
+			switch {
+			case ok && cleaned != "":
+				first = truncateWidth(cleaned, 60)
+			case !ok:
+				firstIsMeta = true
+			}
 		}
 
 		if opts.Interactive {
 			// Header: `│ <short-id>  project · agent · device · time`.
 			// ID moves into the header line and the body uses plain
 			// indent + label (no ├/└ branches) for visual quietness.
+			// Project / device segments are dropped when the caller
+			// signals scope makes them redundant.
 			idShort := shortenID(h.Session.ID)
-			fmt.Fprintf(w, "%s %s  %s · %s · %s · %s\n",
+			segs := []string{}
+			if !opts.HideProject {
+				segs = append(segs, StyleProject.Render(project))
+			}
+			segs = append(segs, StyleAgent.Render(agentLabel(h.Session.Agent)))
+			if !opts.HideDevice {
+				segs = append(segs, StyleDevice.Render(DeviceLabel(opts.DeviceLabels, h.Session.DeviceID)))
+			}
+			segs = append(segs, StyleMuted.Render(date))
+			fmt.Fprintf(w, "%s %s  %s\n",
 				StyleRail.Render("│"),
 				StyleAccent.Render(idShort),
-				StyleProject.Render(project),
-				StyleAgent.Render(agentLabel(h.Session.Agent)),
-				StyleDevice.Render(h.Session.DeviceID),
-				StyleMuted.Render(date),
+				strings.Join(segs, " · "),
 			)
 			fmt.Fprintf(w, "%s   %s %s\n",
 				StyleRail.Render("│"),
 				StyleAgent.Render(padTrunc(h.Role, searchLabelWidth)),
 				highlightSnippet(truncateMarkedSnippet(h.Snippet, opts.Width-16)),
 			)
-			if first != "" {
+			switch {
+			case first != "":
 				fmt.Fprintf(w, "%s   %s %q\n",
 					StyleRail.Render("│"),
 					StyleMuted.Render(padRight("session", searchLabelWidth)),
 					first,
+				)
+			case firstIsMeta:
+				fmt.Fprintf(w, "%s   %s %s\n",
+					StyleRail.Render("│"),
+					StyleMuted.Render(padRight("session", searchLabelWidth)),
+					StyleMuted.Render(MetaPlaceholder),
 				)
 			}
 			fmt.Fprintf(w, "%s\n", StyleRail.Render("│"))

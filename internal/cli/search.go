@@ -144,10 +144,44 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stderr, "no matches for %q\n", query)
 		return nil
 	}
+	deviceLabels, _ := s.ListDevicesMap(ctx)
+	hideDevice := countDistinctDevices(hits) <= 1
+	hideProject := scope == render.ScopeScoped && countDistinctProjects(hits) <= 1
 	return render.SearchHitsWithOptions(os.Stdout, hits, now, render.SearchOptions{
-		Interactive: interactive,
-		Width:       TerminalWidth(),
+		Interactive:  interactive,
+		Width:        TerminalWidth(),
+		DeviceLabels: deviceLabels,
+		HideDevice:   hideDevice,
+		HideProject:  hideProject,
 	})
+}
+
+// countDistinctDevices / countDistinctProjects collapse a hit list
+// into the number of distinct device_ids / project labels so the
+// renderer can drop the column when cardinality is 1.
+func countDistinctDevices(hits []store.SearchHit) int {
+	seen := map[string]struct{}{}
+	for _, h := range hits {
+		seen[h.Session.DeviceID] = struct{}{}
+	}
+	return len(seen)
+}
+
+func countDistinctProjects(hits []store.SearchHit) int {
+	seen := map[string]struct{}{}
+	for _, h := range hits {
+		p := ""
+		switch {
+		case h.Session.ProjectMarker != nil && *h.Session.ProjectMarker != "":
+			p = *h.Session.ProjectMarker
+		case h.Session.ProjectPath != nil:
+			p = *h.Session.ProjectPath
+		case h.Session.ProjectRemote != nil:
+			p = *h.Session.ProjectRemote
+		}
+		seen[p] = struct{}{}
+	}
+	return len(seen)
 }
 
 // runSearchRemote talks to Sessions.Search and projects the response
@@ -245,9 +279,24 @@ func runSearchRemote(ctx context.Context, query string, window time.Duration) er
 		fmt.Fprintf(os.Stderr, "no matches for %q (remote)\n", query)
 		return nil
 	}
+	// Remote search: open the local store JUST to fetch device labels,
+	// so the hit rows render with friendly_names rather than the raw
+	// fingerprints embedded in the wire response.
+	var deviceLabels map[string]string
+	if storePath, perr := paths.StorePath(); perr == nil {
+		if s, oerr := store.Open(ctx, storePath); oerr == nil {
+			deviceLabels, _ = s.ListDevicesMap(ctx)
+			_ = s.Close()
+		}
+	}
+	hideDevice := countDistinctDevices(hits) <= 1
+	hideProject := scope == render.ScopeScoped && countDistinctProjects(hits) <= 1
 	return render.SearchHitsWithOptions(os.Stdout, hits, now, render.SearchOptions{
-		Interactive: interactive,
-		Width:       TerminalWidth(),
+		Interactive:  interactive,
+		Width:        TerminalWidth(),
+		DeviceLabels: deviceLabels,
+		HideDevice:   hideDevice,
+		HideProject:  hideProject,
 	})
 }
 

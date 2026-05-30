@@ -38,7 +38,11 @@ func TestTimelineItemsInteractiveRailAndTools(t *testing.T) {
 	err := TimelineItems(&b, []TimelineItem{item}, now, TimelineOptions{
 		Interactive: true,
 		Width:       96,
-		Layout:      TimelineScoped,
+		// Use Global + explicit slots so device + project both render
+		// (the scope-aware suppression for Scoped would drop project,
+		// and a single item naturally has cardinality 1).
+		Layout: TimelineGlobal,
+		Slots:  RowSlots{Device: true, Project: true},
 	})
 	require.NoError(t, err)
 	out := b.String()
