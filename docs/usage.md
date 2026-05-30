@@ -1,0 +1,210 @@
+# Usage
+
+The full command reference for the `prosa` CLI. For install, see
+[install.md](install.md). For the server + panel deployment, see
+[self-hosting.md](self-hosting.md).
+
+## First-time setup
+
+```sh
+prosa setup
+```
+
+A short wizard:
+
+1. Server URL (default `https://prosa.c3.do`; configurable).
+2. Browser-based device auth (the wizard prints a one-time user code, opens
+   the server's verification URL, and polls for approval).
+3. Detection of local agent histories (`~/.claude/projects`,
+   `~/.codex/sessions`, `~/.cursor/`, `~/.gemini/`).
+4. Scheduled sync install (LaunchAgent on macOS, systemd user timer on
+   Linux). Default interval: 15 minutes.
+5. The first scan (opt-in; you can skip it and run `prosa sync` later).
+
+Flags:
+
+| Flag | Default | Notes |
+| --- | --- | --- |
+| `--server <URL>` | `$PROSA_SERVER_URL` or `https://prosa.c3.do` | The server to register with. |
+| `--interval <duration>` | `15m` | How often the scheduled job runs. |
+| `--skip-scan` | | Skip the first scan after setup. |
+| `--non-interactive` | | Fail rather than prompt. Useful in scripts. |
+
+If you only want re-authentication, use `prosa login` instead of the full
+wizard.
+
+## Daily flow
+
+### Show the timeline
+
+```sh
+prosa                       # last 7 days, scoped to the current project if known
+prosa --all                 # every project
+prosa --last 30d            # broader window
+prosa --last 12h --device laptop
+```
+
+Output is grouped by relative day (`Today`, `Yesterday`, `2 days ago`, …)
+and shows for each session:
+
+- start time (with `*` if the session is currently active),
+- device,
+- agent,
+- project,
+- the first user prompt (truncated to fit),
+- duration,
+- main tools used.
+
+Inside a known project, prosa auto-scopes to that project; `--all` overrides.
+
+### Search across turns
+
+```sh
+prosa search "sqlite FTS"
+prosa search "deploy" --last 30d --project mz-iac
+prosa search "deploy" --remote        # cross-device, via the server
+```
+
+Local search uses SQLite's FTS5 (porter + unicode61). `--remote` uses the
+server's Postgres `tsvector` (simple tokenizer) — useful when you want to
+search across machines.
+
+### Read a session
+
+```sh
+prosa show <session-id>             # paginates through less by default
+prosa show <session-id> --raw       # raw JSONL, no preface
+prosa show <session-id> --json      # structured for scripting
+```
+
+The raw `.jsonl` is what the agent produced; prosa preserves it byte-for-byte.
+
+### Sync
+
+```sh
+prosa sync                          # ad-hoc; same job the scheduler runs
+prosa sync --verbose                # progress detail
+```
+
+In interactive mode `prosa sync` shows a Bubble Tea spinner with progress
+per importer. In a pipe or under a cron-style scheduler it falls back to a
+quiet, structured log.
+
+### Analytics
+
+```sh
+prosa analytics sessions            # count by agent + total turns
+prosa analytics tools               # top 20 tools across the window
+prosa analytics models              # session distribution by model
+prosa analytics projects            # top 30 projects
+prosa analytics errors              # sessions matching error heuristics
+```
+
+`--remote` runs the report against the server. All five reports honor the
+global filters below.
+
+### Devices (cross-device)
+
+```sh
+prosa devices list
+prosa devices rename <id|self> <friendly-name>
+prosa devices revoke <id|self>
+```
+
+The local store only knows about this machine; `prosa devices` always
+queries the server.
+
+### Schedule control
+
+```sh
+prosa schedule install --interval 15m
+prosa schedule status
+prosa schedule uninstall
+```
+
+On macOS this writes a LaunchAgent plist into
+`~/Library/LaunchAgents/`. On Linux it writes a user systemd timer into
+`~/.config/systemd/user/`.
+
+## Global flags
+
+Available across all commands (and as defaults for `prosa` with no
+subcommand):
+
+| Flag | Default | Notes |
+| --- | --- | --- |
+| `--last <duration>` | `7d` | Time window. Accepts `12h`, `7d`, `30d`, etc. |
+| `--since <date>` | | Anchor lower bound. ISO date or RFC3339. |
+| `--between <A..B>` | | Closed range, both ends ISO/RFC3339. |
+| `--project <name>` | | Substring filter on project path. |
+| `--device <name>` | | Match `friendly_name` (cross-device only). |
+| `--agent <name>` | | One of `claude-code`, `codex`, `cursor`, `gemini`. |
+| `--all` | | Drop the auto cwd-based project scoping. |
+| `--remote` | | Query the server instead of the local store. |
+| `--json` | | NDJSON output, one record per line. |
+| `--no-color` | | Suppress ANSI even on a TTY. |
+| `--help` | | Per-command help. |
+
+`--json` writes machine-readable NDJSON to stdout. Human logs (project
+scoping, progress messages) go to stderr so pipelines stay clean.
+
+## Output modes
+
+prosa renders for three audiences:
+
+- **TTY (default in a terminal)** — styled tables, day headings, color with
+  purpose. See [cli/rendering-contract.md](cli/rendering-contract.md) for
+  the full token palette and truncation rules.
+- **Plain** (when stdout is redirected) — no ANSI, no day grouping repeats,
+  no spinners. Safe for cron, scripts, pagers.
+- **JSON** (`--json`) — NDJSON, one session/result per line, stable schema
+  per command.
+
+Logs that aren't part of the command's primary output go to stderr —
+including project scope hints ("scoped to prosa · use --all for every
+project").
+
+## Environment variables
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `PROSA_HOME` | `~/.local/share/prosa` | Data root (store + raw). |
+| `PROSA_SERVER_URL` | `https://prosa.c3.do` | Server for `--remote` and sync. |
+| `PROSA_CONFIG_HOME` | `~/.config/prosa` | Auth token + setup state. |
+| `XDG_DATA_HOME` | | Honored for `PROSA_HOME` if set. |
+| `XDG_CONFIG_HOME` | | Honored for `PROSA_CONFIG_HOME` if set. |
+| `NO_COLOR` | | Standard. Forces plain output. |
+
+## Examples
+
+A few common one-liners:
+
+```sh
+# what did I do yesterday
+prosa --last 1d --since $(date -v-1d +%Y-%m-%d)
+
+# all my SQLite work, regardless of device
+prosa search "sqlite" --remote --last 90d
+
+# everything I did on mz-iac with codex
+prosa --all --project mz-iac --agent codex
+
+# pipe to jq
+prosa --last 30d --json | jq '[.[] | {agent, project, started_at}]'
+
+# show the raw of the most recent session
+prosa --last 1d --json \
+  | head -1 | jq -r '.id' \
+  | xargs prosa show
+```
+
+## Where this maps to code
+
+- Command implementations: `internal/cli/*.go` (see
+  [architecture/cli.md](architecture/cli.md)).
+- Rendering: `internal/cli/render/` (see
+  [cli/rendering-contract.md](cli/rendering-contract.md)).
+- Importers: `internal/importers/<agent>/` (see
+  [architecture/importers.md](architecture/importers.md)).
+- Store: `internal/store/` (see
+  [architecture/store.md](architecture/store.md)).
