@@ -148,6 +148,44 @@ started_at_utc	device	agent	project	duration	first_prompt
 
 Do not print day headers or rails in plain mode.
 
+## Scope-Aware Suppression
+
+When the set of rows about to render share the same value for a
+column, that column is dropped from every row and the value lives in
+the context line instead. Applies to:
+
+- `device`: dropped when there's only one distinct device id in the
+  rendered set.
+- `project`: dropped when the layout is scoped (the context line
+  already names the project), or when there's only one distinct
+  project label across rows.
+
+`agent` is never dropped, even when it's uniform — agent identity is
+central enough that repetition is preferable to absence.
+
+In plain mode (pipes / `--json`), the suppression rule does not apply:
+every column is always emitted so downstream scripts have a stable
+column shape.
+
+### First-prompt boilerplate
+
+`first_prompt` rows often carry agent-injected meta-messages
+(`# AGENTS.md instructions for …`, `<command-name>…</command-name>`,
+`<system-reminder>…</system-reminder>`, `<environment_context>…`).
+When the value matches one of those known prefixes, the renderer
+substitutes the muted placeholder `(meta)` so the row is honest about
+the absence of real user content. `prosa sync` runs a one-shot
+denoise pass that rewrites the row in place by reopening the raw
+JSONL and extracting the first non-boilerplate user message.
+
+### Device label
+
+`device_id` is the stable per-machine fingerprint hex. The renderer
+substitutes the device's `friendly_name` (from
+`prosa devices rename`) before display; when no friendly_name is
+known, falls back to the first 7 hex chars + `…`. Plain mode keeps
+the raw fingerprint hex for script stability.
+
 ## Auto Scope Notices
 
 When the command auto-detects a project from the current working directory,

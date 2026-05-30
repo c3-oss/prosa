@@ -13,23 +13,25 @@ Human TTY output prints scope context to `stderr` and timeline data to
 prosa · local · scoped to prosa · last 7d
 
 Today
-│ 11:24  laptop  claude-code  prosa  "refactor sync logic"
+│ 11:24  claude-code  "refactor sync logic"
 │        ├ id        claude-2026-05-30-1a2b3c4d
 │        └ 32min · edit, bash
 │
-│ 09:02* laptop  codex        prosa  "setup importer tests"
+│ 09:02* codex        "setup importer tests"
 │        ├ id        codex-2026-05-30-5e6f7g8h
 │        └ 18min · write, grep
 
 Yesterday
-│ 23:55  laptop  claude-code  prosa  "intent doc"
+│ 23:55  claude-code  "intent doc"
 │        ├ id        claude-2026-05-29-9i0j1k2l
 │        └ 1h12 · edit, write, bash
 ```
 
-The `id` row carries the full session id so `prosa show <id>` is a
-copy/paste away — the id is rendered in `accent` and the label in
-`muted`, so it reads as auxiliary metadata, not as the primary content.
+Scope-aware suppression drops `device` (cardinality 1) and `project`
+(already named in the context line) from each row. The `id` row
+carries the full session id so `prosa show <id>` is a copy/paste away
+— the id is rendered in `accent` and the label in `muted`, so it
+reads as auxiliary metadata, not as the primary content.
 
 Plain output omits human context and uses one stable row per session.
 
@@ -48,23 +50,28 @@ primary scanning anchor after time.
 prosa · local · all projects · last 7d
 
 Today
-│ 16:31  prosa       laptop    codex        "design CLI output docs"
+│ 16:31  prosa       Studio M4  codex        "design CLI output docs"
 │        ├ id        codex-2026-05-30-a1b2c3d4
 │        └ 41min · read, write, rg
 │
-│ 14:08  dotfiles    mbp       claude-code  "fix zsh completion path"
+│ 14:08  dotfiles    laptop     claude-code  "fix zsh completion path"
 │        ├ id        claude-2026-05-30-e5f6g7h8
 │        └ 22min · edit, bash
 │
-│ 11:56* infra-prod  remote-1  codex        "debug deploy health check"
+│ 11:56* infra-prod  remote-1   codex        "debug deploy health check"
 │        ├ id        codex-2026-05-30-i9j0k1l2
 │        └ 1h04 · read, bash, curl
 
 Yesterday
-│ 18:03  c3-api      remote-1  claude-code  "trace postgres migration failure"
+│ 18:03  c3-api      remote-1   claude-code  "trace postgres migration failure"
 │        ├ id        claude-2026-05-29-m3n4o5p6
 │        └ 49min · bash, edit
 ```
+
+The `device` column shows the device's `friendly_name` (settable via
+`prosa devices rename`). When there's only one device known to the
+store, the column is suppressed altogether — see `prosa` scoped (§1)
+above for that case.
 
 Plain output remains one row per session.
 
@@ -116,20 +123,26 @@ The `«sqlite»` markers below indicate where TTY highlighting is applied.
 ```text
 search · local · scoped to prosa · "sqlite"
 
-│ 57f476a0-8e1  prosa · codex · laptop · Today 13:42
+│ 57f476a0-8e1  codex · Today 13:42
 │   user       add a local «sqlite» store for session metadata and FTS
 │   session    "index importer sessions"
 │
-│ 6ffc5138-41a  prosa · claude-code · laptop · Yesterday 21:18
+│ 6ffc5138-41a  claude-code · Yesterday 21:18
 │   assistant  the «sqlite» migration needs the devices seed row before sessions
 │   session    "debug migration"
 │
-│ 019e240b-0ac  prosa · codex · mbp · Wednesday 10:04
+│ 019e240b-0ac  codex · Wednesday 10:04
 │   user       can FTS5 rank «sqlite» snippets by recency too?
 │   session    "search ranking"
 
 3 matches · use `prosa show <id>` for raw JSONL
 ```
+
+Scope-aware suppression at work: project is dropped because the
+context line already says "scoped to prosa", and device is dropped
+because every hit shares the same device. When either dimension
+varies across hits, that column comes back as a `·`-separated
+segment in the header.
 
 The session id is shortened to its first 12 runes in the header line —
 enough to identify and (almost always) enough to disambiguate a `prosa
@@ -177,10 +190,15 @@ Final output after the progress program exits:
 ```text
 prosa sync · complete
 
-Live:    imported 44 · skipped 51 · errors 1
-Store:   ~/.local/share/prosa/store.db
-Raw:     ~/.local/share/prosa/raw
+Live:     imported 44 · skipped 51 · errors 1
+Push:     sent 44 · skipped 0 · errors 0
+Catch-up: sent 0 · skipped 0 · errors 0  (local 2 815 · remote 2 815)
+Denoise:  cleaned 12 prompts
 ```
+
+`Push` and `Catch-up` only appear when the device is logged in to a
+prosa-server; `Denoise` only appears when at least one session's
+`first_prompt` got rewritten in place.
 
 ## 6. `prosa sync` Plain/Script Mode
 
