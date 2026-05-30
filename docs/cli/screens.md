@@ -218,7 +218,7 @@ With a legacy bundle:
 Live:    imported 12, skipped 38, errors 0
 Legacy:  imported 204, skipped 6810, errors 3 (of 7017 catalog rows)
 
-Legacy bundle mirrored in the v3 store: /Users/upsetbit/.prosa
+Legacy bundle mirrored in the prosa store: /Users/upsetbit/.prosa
 ```
 
 ## 7. `prosa setup` / `prosa login`

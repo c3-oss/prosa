@@ -37,16 +37,16 @@ func newSyncCmd() *cobra.Command {
 		Short: "Scan registered agents and import new sessions into the local store",
 		Long: "Walks every live importer root (~/.claude/projects, ~/.codex/sessions, " +
 			"~/.gemini/tmp) and imports new sessions into the local SQLite store. " +
-			"Pass --legacy-bundle <path> to additionally re-ingest a prosa v1 bundle " +
-			"(typically ~/.prosa) — useful as a one-shot rescue after the v3 cutover " +
-			"when the v1 catalog still has source files that the live tools have " +
-			"since deleted. " +
+			"Pass --legacy-bundle <path> to additionally re-ingest a legacy prosa " +
+			"bundle (typically ~/.prosa) — useful as a one-shot rescue when the " +
+			"legacy catalog still has source files that the live tools have since " +
+			"deleted. " +
 			"Use --verbose to force the plain (slog) output even in a TTY; handy " +
 			"for debugging long runs where the compact spinner hides per-item detail.",
 		RunE: runSync,
 	}
 	cmd.Flags().StringVar(&legacyBundleFlag, "legacy-bundle", "",
-		"path to a prosa v1 bundle (e.g. ~/.prosa) to re-ingest before live walks")
+		"path to a legacy prosa bundle (e.g. ~/.prosa) to re-ingest before live walks")
 	cmd.Flags().BoolVar(&syncVerboseFlag, "verbose", false,
 		"emit one slog line per imported session even when running in a TTY")
 	return cmd
@@ -339,7 +339,7 @@ func (sc *syncCounts) printSummary() {
 	}
 	if sc.legacyTotal > 0 {
 		fmt.Fprintf(os.Stdout,
-			"\nLegacy bundle is now mirrored in the v3 store. You can remove %s when ready.\n",
+			"\nLegacy bundle is now mirrored in the prosa store. You can remove %s when ready.\n",
 			sc.bundlePath)
 	}
 }
@@ -373,7 +373,7 @@ func (sc *syncCounts) printSummaryTTY() {
 		fmt.Fprintln(os.Stdout)
 		fmt.Fprintf(os.Stdout, "%s %s\n",
 			render.StyleRail.Render("│"),
-			render.StyleMuted.Render("Legacy bundle mirrored in the v3 store: "+sc.bundlePath),
+			render.StyleMuted.Render("Legacy bundle mirrored in the prosa store: "+sc.bundlePath),
 		)
 	}
 }
