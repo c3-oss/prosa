@@ -8,8 +8,12 @@
     "gofumpt@0.10",
     "sqlite@3.51",
     "ripgrep@15.1",
-    "just@1.51"
+    "just@1.51",
+    "nodejs@24"
   ],
+  "env": {
+    "DEVBOX_COREPACK_ENABLED": "true"
+  },
   "shell": {
     "init_hook": [
       "export GOBIN=$PWD/bin",
