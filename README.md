@@ -51,6 +51,19 @@ prosa                              # last 7 days
 prosa --last 30d --all             # broader timeline
 prosa search "sqlite FTS"           # full-text search over turns
 prosa show <session-id>             # print preserved raw JSONL
+prosa analytics sessions            # 5 fixed reports: sessions|tools|models|projects|errors
+```
+
+### Cross-device (Group B)
+
+```sh
+docker compose up -d                                       # Postgres + MinIO dev stack
+PROSA_DB_URL=... ./bin/prosa-server                        # boot the API (see docs/server.md)
+prosa login --server http://localhost:7070                 # device-code flow → ~/.config/prosa/auth.json
+prosa sync                                                  # imports + pushes to the server
+prosa devices                                               # list known machines
+prosa search "term" --remote                                # Postgres FTS instead of local FTS5
+prosa analytics sessions --remote                           # sessions / projects only in this cut
 ```
 
 Useful flags:
@@ -108,9 +121,10 @@ just snapshot                      # local GoReleaser dry-run into dist/
 
 `prosa` is one Go module with three binaries:
 
-- `prosa` — local CLI.
-- `prosa-server` — future Connect API server; stub in the current cut.
-- `prosa-panel` — future web panel; stub in the current cut.
+- `prosa` — local CLI with cross-device support via `--remote`.
+- `prosa-server` — Connect API server (Postgres + S3-compatible). Push, list,
+  search, devices; auth via device-code flow. See [`docs/server.md`](docs/server.md).
+- `prosa-panel` — future web panel; stub until Group D.
 
 The canonical importer contract lives in [`docs/canonical-session.md`](docs/canonical-session.md).
 The product and architecture source of truth lives in [`INTENT.md`](INTENT.md).
