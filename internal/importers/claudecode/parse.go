@@ -143,16 +143,16 @@ func parseSession(ctx context.Context, path string) (session.Session, []session.
 	sc.Buffer(make([]byte, 0, scanBufferInitial), scanBufferMax)
 
 	var (
-		sess             session.Session
-		turns            []session.Turn
-		toolCounts       = map[string]int{}
-		toolUseIDToName  = map[string]string{}
-		usageByKey       = map[string]claudeUsage{}
-		sessIDSet        bool
-		cwdSet           bool
-		modelSet         bool
-		firstPromptSet   bool
-		line             int
+		sess            session.Session
+		turns           []session.Turn
+		toolCounts      = map[string]int{}
+		toolUseIDToName = map[string]string{}
+		usageByKey      = map[string]claudeUsage{}
+		sessIDSet       bool
+		cwdSet          bool
+		modelSet        bool
+		firstPromptSet  bool
+		line            int
 	)
 
 	for sc.Scan() {

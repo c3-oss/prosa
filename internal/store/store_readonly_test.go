@@ -64,7 +64,7 @@ func TestOpenReadOnlyConcurrentReaders(t *testing.T) {
 				errs <- err
 				return
 			}
-			defer r.Close()
+			defer func() { _ = r.Close() }()
 			if _, err := r.ListSessions(ctx, SessionFilter{Since: since, Until: until}); err != nil {
 				errs <- err
 			}
@@ -76,7 +76,7 @@ func TestOpenReadOnlyConcurrentReaders(t *testing.T) {
 				errs <- err
 				return
 			}
-			defer r.Close()
+			defer func() { _ = r.Close() }()
 			if _, err := r.Search(ctx, "error", SessionFilter{Since: since, Until: until}, 10); err != nil {
 				errs <- err
 			}
@@ -88,7 +88,7 @@ func TestOpenReadOnlyConcurrentReaders(t *testing.T) {
 				errs <- err
 				return
 			}
-			defer r.Close()
+			defer func() { _ = r.Close() }()
 			if _, err := r.GetSession(ctx, "sess-1"); err != nil {
 				errs <- err
 			}
