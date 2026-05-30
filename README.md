@@ -6,14 +6,18 @@
 
 > a work log for AI-agent sessions
 
-`prosa` turns scattered Claude Code and Codex JSONL histories into one local,
-searchable timeline. It is built for a very specific daily question:
+> **prosa** /ˈpɾɔ.zɐ/ &nbsp;*noun*
+> A conversation, a chat, an informal exchange of ideas.
+> Prosa lets you have a conversation with your own work history.
 
-> what did I work on in the last few days?
+`prosa` turns scattered Claude Code, Codex, Cursor, and Gemini JSONL
+histories into one local, searchable timeline. It is built around a single
+load-bearing question:
 
-The v3 rewrite is intentionally small: SQLite for the local index, raw JSONL
-preserved on disk, a fast CLI for reading the history, and a typed server/panel
-shape ready for the next MVP cuts.
+> **What did I work on in the last N days?**
+
+— and the natural follow-ups around it: where, on which projects, with which
+agents and models, using which tools, taking how long, costing roughly what.
 
 [ci-shield]: https://img.shields.io/github/actions/workflow/status/c3-oss/prosa/ci.yml?label=ci&logo=github&style=flat-square
 [ci-url]: https://github.com/c3-oss/prosa/actions/workflows/ci.yml
@@ -23,32 +27,45 @@ shape ready for the next MVP cuts.
 [tag-url]: https://github.com/c3-oss/prosa/releases
 
 
+## What prosa is — and isn't
+
+prosa is a local-first, offline-friendly work log. Three small Go binaries
+share one module and one typed contract:
+
+- **`prosa`** — the CLI you actually use. Reads the local store by default.
+- **`prosa-server`** — a thin personal API server (Postgres + S3-compatible
+  object storage) for the cross-device view.
+- **`prosa-panel`** — a server-rendered web panel that talks to the server.
+
+It is **not** a chat manager, a residential TUI, an analytics warehouse, or a
+multi-user SaaS. The shape and the boundaries live in [`INTENT.md`](INTENT.md);
+read that file before proposing anything substantial.
+
+
 ## Install
 
 ```sh
-# macOS — Homebrew tap (publishes the cask on every release)
+# macOS — Homebrew tap (auto-published on every release)
 brew install c3-oss/prosa/prosa
 prosa setup
 
-# Linux + macOS — POSIX install.sh, sha256-verified against the release
+# Linux + macOS — POSIX install.sh with sha256 verification
 curl -fsSL https://raw.githubusercontent.com/c3-oss/prosa/master/install.sh | sh
 prosa setup
 
-# Anywhere with Node.js — npm filters the right platform binary
+# Anywhere with Node.js 22+ — npm picks the right platform binary
 npm install -g @c3-oss/prosa
 prosa setup
 ```
 
-After install, `prosa setup` walks the device through auth, installs
-a background sync job (LaunchAgent on macOS, systemd timer on Linux),
-and runs the first scan.
-
-Prefer to drive the install manually? Download the matching tarball
-from [the releases page][rel-url] and drop the `prosa` binary into
-your `PATH`.
+`prosa setup` is a short wizard: device auth, agent discovery, scheduled-sync
+install (LaunchAgent on macOS, systemd user timer on Linux), and the first
+scan. You can also drive it manually — see [`docs/install.md`][docs-install]
+for the full matrix (including `PROSA_VERSION`, `INSTALL_DIR`, and
+`INSTALL_BINS` for `install.sh`).
 
 
-## Timeline
+## First timeline
 
 ```text
 Today
@@ -63,92 +80,115 @@ Yesterday
          -> 1h12
 ```
 
-The default view is local and offline. When `prosa` can recognize the current
-project, it scopes the timeline automatically; use `--all` to read across
-everything.
+By default `prosa` reads the local store, scopes to the current project when
+it can detect one, and shows the last 7 days. `--all` lifts the scope.
 
 
-## Usage
+## Commands
 
-```sh
-prosa sync                         # import local agent sessions
-prosa                              # last 7 days
-prosa --last 30d --all             # broader timeline
-prosa search "sqlite FTS"           # full-text search over turns
-prosa show <session-id>             # print preserved raw JSONL
-prosa analytics sessions            # 5 fixed reports: sessions|tools|models|projects|errors
-```
+| Command                              | What it does                                       |
+| ------------------------------------ | -------------------------------------------------- |
+| `prosa`                              | Timeline (auto-scoped when inside a known project) |
+| `prosa --all`                        | Timeline across every project                      |
+| `prosa sync`                         | Import local agent sessions, push to the server    |
+| `prosa search <query>`               | Full-text search across turns (FTS5 local)         |
+| `prosa show <session-id>`            | Print the preserved raw JSONL                      |
+| `prosa analytics <report>`           | Fixed reports: `sessions`/`tools`/`errors`/`models`/`projects` |
+| `prosa devices list \| rename \| revoke` | Manage known machines (cross-device)             |
+| `prosa schedule install \| status \| uninstall` | Manage the background sync job              |
+| `prosa setup`                        | Interactive first-run wizard                       |
+| `prosa login`                        | Re-authenticate (sub-step of setup)                |
 
-### Cross-device (Group B)
-
-```sh
-docker compose up -d                                       # Postgres + MinIO dev stack
-PROSA_DB_URL=... ./bin/prosa-server                        # boot the API (see docs/server.md)
-prosa login --server http://localhost:7070                 # device-code flow → ~/.config/prosa/auth.json
-prosa sync                                                  # imports + pushes to the server
-prosa devices                                               # list known machines
-prosa search "term" --remote                                # Postgres FTS instead of local FTS5
-prosa analytics sessions --remote                           # sessions / projects only in this cut
-```
-
-Useful flags:
+Useful flags everywhere:
 
 - `--last 12h|7d|30d` — time window.
 - `--project <name>` — project filter.
-- `--agent claude-code|codex` — agent filter.
-- `--device <name>` — device filter.
-- `--json` — machine-readable output where supported.
+- `--agent claude-code|codex|cursor|gemini` — agent filter.
+- `--device <name>` — device filter (cross-device only).
+- `--remote` — query the server instead of the local store.
+- `--json` — machine-readable NDJSON output.
 
-By default, data lives under `~/.local/share/prosa`. Set `PROSA_HOME` to point
-the store somewhere else.
+By default data lives under `~/.local/share/prosa` (XDG). Override with
+`PROSA_HOME`. Full reference: [`docs/usage.md`][docs-usage].
 
 
-## Self-hosting the server + panel
+## Self-hosting (server + panel)
 
-Skip this section if you only use `prosa` locally. The Docker image
-bundles all three binaries; `prosa-server` is the default entrypoint:
+If you only use `prosa` locally, skip this. The Docker image ships all three
+binaries with `prosa-server` as the default entrypoint:
 
 ```sh
 docker compose up -d                                  # Postgres + MinIO dev stack
 docker run --rm ghcr.io/c3-oss/prosa:latest          # server
+docker run --rm --entrypoint prosa-panel ghcr.io/c3-oss/prosa:latest
 docker run --rm --entrypoint prosa ghcr.io/c3-oss/prosa:latest --help
 ```
 
+Env vars, auth, dev-login bypass, OAuth, schema details:
+[`docs/self-hosting.md`][docs-self-hosting].
 
-## Build from Source
 
-This repo uses [`devbox`][devbox] + [`just`][just]. Inside `devbox shell`:
+## Build from source
 
-```sh
-just build                         # builds ./bin/prosa*
-./bin/prosa --version
-```
-
-Common targets:
+The repo uses [`devbox`][devbox] + [`just`][just]. Inside `devbox shell`:
 
 ```sh
-just test                          # go test ./...
-just test-race                     # go test -race -count=1 ./...
-just lint                          # golangci-lint run ./...
-just gen-check                     # buf generate must not change gen/
-just snapshot                      # local GoReleaser dry-run into dist/
+just build               # builds ./bin/{prosa,prosa-server,prosa-panel}
+just test                # go test ./...
+just ci                  # full local pipeline (tidy/gen/vet/lint/test-race/build)
+just snapshot            # local GoReleaser dry-run into dist/
 ```
 
+The deeper guide — conventions, how to add a new importer, commit style —
+lives in [`docs/contributing.md`][docs-contributing].
+
+
+## Documentation map
+
+```
+INTENT.md                            philosophy, scope, trade-offs (read first)
+README.md                            you are here
+ROADMAP.md                           what is being worked on next
+TECH_DEBT.md                         known trade-offs we've accepted
+AGENTS.md                            operational guide for repo contributors
+CLAUDE.md                            pointer for Claude Code agents
+
+docs/
+├── README.md                        documentation index
+├── install.md                       end-user install across channels
+├── usage.md                         CLI tutorial + command reference
+├── self-hosting.md                  server + panel deployment
+├── concepts.md                      session lifecycle, identity, MVP scope
+├── contributing.md                  code conventions + adding an importer
+├── agents.md                        AI agent orientation (full)
+│
+├── architecture/                    how the code is really structured
+├── cli/                             CLI surface design (motion, rendering, screens)
+├── panel/                           web panel design (screens, components, mocks)
+├── sources/                         per-agent JSONL formats
+└── distribution/                    homebrew, npm, install.sh, docker, release flow
+```
+
+[docs-install]: docs/install.md
+[docs-usage]: docs/usage.md
+[docs-self-hosting]: docs/self-hosting.md
+[docs-contributing]: docs/contributing.md
 [devbox]: https://www.jetify.com/devbox
 [just]: https://github.com/casey/just
 
 
-## Project Shape
+## For AI agents
 
-`prosa` is one Go module with three binaries:
+If you are an AI agent working on this repo, orient yourself in this order:
 
-- `prosa` — local CLI with cross-device support via `--remote`.
-- `prosa-server` — Connect API server (Postgres + S3-compatible). Push, list,
-  search, devices; auth via device-code flow. See [`docs/server.md`](docs/server.md).
-- `prosa-panel` — future web panel; stub until Group D.
+1. [`INTENT.md`](INTENT.md) — read it end-to-end before proposing anything.
+2. [`AGENTS.md`](AGENTS.md) — operational guide (paths, commands, conventions).
+3. [`docs/agents.md`](docs/agents.md) — deeper orientation, decision
+   checklist, where each specialist agent lives.
 
-The canonical importer contract lives in [`docs/canonical-session.md`](docs/canonical-session.md).
-The product and architecture source of truth lives in [`INTENT.md`](INTENT.md).
+Specialist agents and skills are in `.codex/` and `.claude/`. They all point
+back to `INTENT.md` and `docs/`; if you find a path reference that doesn't
+exist, that is a bug — report it.
 
 
 ## Releases
@@ -156,8 +196,15 @@ The product and architecture source of truth lives in [`INTENT.md`](INTENT.md).
 Releases are tag-driven. Pushing a `v*` tag runs GoReleaser and publishes:
 
 - macOS/Linux archives for `amd64` and `arm64`;
-- `checksums.txt`;
+- `checksums.txt` (sha256);
+- the Homebrew cask in [`c3-oss/homebrew-prosa`][brew-tap];
+- the npm metapackage and four platform sub-packages;
 - a multi-arch Docker image at `ghcr.io/c3-oss/prosa:<tag>` and `:latest`.
+
+Maintainer runbook: [`docs/distribution/release.md`][docs-release].
+
+[brew-tap]: https://github.com/c3-oss/homebrew-prosa
+[docs-release]: docs/distribution/release.md
 
 
 ## License

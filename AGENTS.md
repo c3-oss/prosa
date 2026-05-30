@@ -1,33 +1,58 @@
 # Agent guide — prosa v3
 
-`INTENT.md` is the source of truth for product scope, architecture, schema,
-and CLI surface. Read it before proposing changes. This file is the operating
-guide for AI coding agents working in the repo.
+This file is the operating guide for AI coding agents working in the prosa
+repo. The product direction, scope, and trade-offs live in
+[`INTENT.md`](INTENT.md) — **read that first** before proposing anything
+substantial. The full agent orientation (decision checklists, where each
+specialist agent lives, how to avoid bloat) lives in
+[`docs/agents.md`](docs/agents.md).
+
+## Read INTENT first
+
+Before you propose a feature, a refactor, a dependency, or a doc edit, you
+must be able to answer:
+
+1. Does this make the central question (*"what did I work on in the last N
+   days?"* — and the natural follow-ups around it) easier to answer?
+2. Does it preserve everything in INTENT § **In scope (MVP)**?
+3. Does it touch anything in INTENT § **Out of scope, intentionally**? If
+   yes, you owe an explicit reason.
+4. Does it fit INTENT § **How I think when I code**?
+
+If you can't answer those, stop and read INTENT.
 
 ## Project shape
 
-Single Go module: `github.com/c3-oss/prosa`. Three binaries built from
-`cmd/`: the CLI (`prosa`), the API server (`prosa-server`), and the web
-panel (`prosa-panel`). Source layout follows INTENT.md §11.
+Single Go module: `github.com/c3-oss/prosa`. Three binaries built from `cmd/`:
+the CLI (`prosa`), the API server (`prosa-server`), and the web panel
+(`prosa-panel`). CLI and panel are clients of the server's Connect API; CLI
+and panel never talk to each other directly.
 
 | Path | Purpose |
-|---|---|
+| --- | --- |
 | `cmd/<bin>/main.go` | thin entrypoints |
 | `proto/prosa/v1/` | Protobuf source of truth |
 | `gen/go/prosa/v1/` | Buf-generated Go (committed) |
-| `pkg/` | exportable: `importer` interface, `session` domain types |
+| `pkg/importer/` | exportable plugin interface |
+| `pkg/session/` | exportable domain types |
 | `internal/cli/` | CLI commands, rendering, spinner |
 | `internal/store/` | SQLite open/migrate/queries |
+| `internal/server/` | Postgres + S3 + Connect handlers |
+| `internal/panel/` | `html/template` + HTMX views |
 | `internal/importers/<agent>/` | per-agent implementations |
+| `internal/paths/` | XDG-aware filesystem layout |
 | `migrations/local/` | SQLite migrations (embedded via `embed.FS`) |
-| `docs/` | architecture references, source-format specs |
+| `migrations/server/` | Postgres migrations |
+
+Deeper structure: [`docs/architecture/`](docs/architecture/).
 
 ## Commands
 
-Run inside `devbox shell` so the pinned toolchain is on `$PATH`.
+The toolchain is pinned via `devbox.json`. Inside `devbox shell`, everything
+goes through `just` (the project's task runner). There is no Makefile.
 
-- `just build` — builds `prosa`, `prosa-server`, `prosa-panel` into `./bin`
-- `just run -- <args>` — builds, then runs `./bin/prosa`
+- `just build` — builds `prosa`, `prosa-server`, `prosa-panel` into `./bin/`
+- `just run -- <args>` — builds, then runs `./bin/prosa <args>`
 - `just test` — `go test ./...`
 - `just test-race` — `go test -race -count=1 ./...`
 - `just cover` — coverage profile + per-function totals
@@ -38,45 +63,66 @@ Run inside `devbox shell` so the pinned toolchain is on `$PATH`.
 - `just gen-check` — regeneration must not produce a diff
 - `just tidy-check` — `go.mod`/`go.sum` must already be tidy
 - `just ci` — full local pipeline + `git diff --exit-code`
-- `just snapshot` — GoReleaser snapshot build (requires `goreleaser` on `PATH`)
-- `just docker-build` — local Docker image
-
-The Makefile remains available for compatibility:
-
-- `make tidy` — `go mod tidy`
-- `make tools` — installs `protoc-gen-go` + `protoc-gen-connect-go` into `./bin`
-- `make gen` — runs `buf generate` and formats `gen/`
-- `make lint` — `golangci-lint run ./...`
-- `make test` — `go test -race -count=1 ./...`
-- `make build` — `go build -o ./bin/ ./cmd/...`
-- `make ci` — full pipeline + `git diff --exit-code` (catches uncommitted regen)
+- `just snapshot` — GoReleaser snapshot build into `dist/`
+- `just docker-build` — local Docker image `prosa:local`
 
 ## Conventions
 
-- Standard library first. Reach for a dependency only when stdlib costs
+- **Standard library first.** Reach for a dependency only when stdlib costs
   measurably more.
-- Errors from `pkg/errors`-style wrapping are out; use `fmt.Errorf("...: %w", err)`.
-- Logging is `log/slog` with the default text handler in CLI commands.
-- Filesystem paths via `internal/paths` — never hard-code `~/...` or XDG layouts.
-- Tests use stdlib `testing` plus `github.com/stretchr/testify/require` for
-  assertions. No mocking frameworks.
-- Commit messages keep the `type(scope): subject` convention from the v2
-  history for continuity. Scopes are free-form (no enforced enum yet).
-- Generated files (`gen/`) are committed; CI fails if regeneration produces
-  a diff.
+- **Error wrapping** with `fmt.Errorf("...: %w", err)`. No `pkg/errors`-style
+  ladders.
+- **Logging** is `log/slog` with the default text handler in CLI commands.
+- **Filesystem paths** via `internal/paths` — never hardcode `~/...` or XDG
+  layouts in other packages.
+- **Tests** use stdlib `testing` plus `github.com/stretchr/testify/require`.
+  No mocking frameworks.
+- **Commit messages** keep the `type(scope): subject` convention from the v2
+  history for continuity. Scopes are free-form.
+- **Generated files** (`gen/`) are committed; CI fails if regeneration
+  produces a diff.
 
 ## Where to start
 
-1. Read `INTENT.md` end-to-end.
-2. Read `docs/canonical-session.md` for the JSONL → `session.Session` mapping
-   that every importer must satisfy.
-3. Read the relevant `docs/sources/<agent>.md` for the source format you are
-   touching.
+1. Read [`INTENT.md`](INTENT.md) end-to-end.
+2. Skim [`docs/architecture/README.md`](docs/architecture/README.md) for the
+   real shape of the code.
+3. Read the relevant lane:
+   - Importers → [`docs/architecture/importers.md`](docs/architecture/importers.md)
+     plus [`docs/sources/<agent>.md`](docs/sources/).
+   - CLI → [`docs/architecture/cli.md`](docs/architecture/cli.md) plus
+     [`docs/cli/`](docs/cli/).
+   - Server → [`docs/architecture/server.md`](docs/architecture/server.md).
+   - Panel → [`docs/architecture/panel.md`](docs/architecture/panel.md) plus
+     [`docs/panel/`](docs/panel/).
+   - Store → [`docs/architecture/store.md`](docs/architecture/store.md).
+   - Release / distribution → [`docs/distribution/`](docs/distribution/).
 4. Find an analogous file in the same lane and follow its shape.
+5. For decision support, see [`docs/agents.md`](docs/agents.md).
 
 ## What is intentionally not here
 
-- DuckDB, Parquet, content-addressable storage — v2 carried these; v3 does not.
-- Bidirectional sync, multi-tenancy, retention pipelines — push-only single-user
-  is the target. See INTENT.md §3.
-- Pre-commit hooks, lint-staged, commitlint enforcement, husky — v3 trusts CI.
+INTENT § **Out of scope, intentionally** is the source of truth. Highlights:
+
+- No DuckDB / Parquet / columnar sidecars.
+- No bidirectional sync — push-only stays push-only.
+- No multi-user / multi-tenant in the MVP (post-MVP direction; no hooks
+  pre-baked).
+- No redaction at upload time.
+- No automatic retention / pruning.
+- No pre-commit hooks, lint-staged, commitlint, or husky — CI is trusted.
+
+Adding any of those is a product decision that requires reading INTENT and
+updating it.
+
+## Specialist agents and skills
+
+- `.codex/agents/` and `.claude/agents/` — specialist subagents
+  (`prosa-architect`, `prosa-cli-ux-reviewer`, `prosa-importer-reviewer`,
+  `prosa-test-runner`, `prosa-panel-ui-reviewer`, `prosa-docs-reviewer`).
+- `.codex/skills/` — reusable skills (CLI rendering, dev workflow, importer
+  session, panel rendering).
+- `.codex/prompts/` — task-shaped prompts (importer change, release check).
+- `.claude/settings.json` — Claude Code project settings.
+
+When and how to invoke each is in [`docs/agents.md`](docs/agents.md).
