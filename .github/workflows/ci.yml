@@ -8,6 +8,32 @@ permissions:
   contents: read
 
 jobs:
+  quality:
+    name: commit + docs + secrets
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install devbox
+        uses: jetify-com/devbox-install-action@v0.15.0
+        with:
+          enable-cache: true
+
+      - name: Install Node tooling
+        run: devbox run -- pnpm install --frozen-lockfile
+
+      - name: Lint commit messages
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: devbox run -- pnpm exec commitlint --config commitlint.config.cjs --from "$BASE_SHA" --to "$HEAD_SHA"
+
+      - name: Run quality gates
+        run: devbox run -- just quality
+
   test:
     name: tidy + gen + vet + test
     runs-on: ubuntu-latest
