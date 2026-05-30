@@ -13,6 +13,8 @@ import (
 
 	prosav1 "github.com/c3-oss/prosa/gen/go/prosa/v1"
 	"github.com/c3-oss/prosa/gen/go/prosa/v1/prosav1connect"
+	"github.com/c3-oss/prosa/internal/server/auth"
+	"github.com/c3-oss/prosa/internal/server/handlers"
 	"github.com/c3-oss/prosa/internal/server/storage"
 )
 
@@ -44,7 +46,11 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	}
 
 	s := &Server{cfg: cfg, pool: pool, obj: obj, mux: http.NewServeMux()}
+	authSvc := auth.New(pool, cfg.AdminToken, cfg.VerificationURI)
+	interceptors := connect.WithInterceptors(auth.Interceptor(authSvc))
+
 	s.registerHealth()
+	s.registerAuth(authSvc, interceptors)
 	return s, nil
 }
 
@@ -84,6 +90,11 @@ func (s *Server) Serve(ctx context.Context) error {
 
 func (s *Server) registerHealth() {
 	path, handler := prosav1connect.NewHealthServiceHandler(healthHandler{})
+	s.mux.Handle(path, handler)
+}
+
+func (s *Server) registerAuth(svc *auth.Service, opts connect.HandlerOption) {
+	path, handler := prosav1connect.NewAuthServiceHandler(handlers.NewAuthHandler(svc), opts)
 	s.mux.Handle(path, handler)
 }
 
