@@ -192,10 +192,15 @@ func runSync(cmd *cobra.Command, _ []string) error {
 		return nil
 	}
 
-	if !syncVerboseFlag && IsInteractive() {
-		return runSyncTTY(ctx, work, s, len(legacyWork))
+	push, err := loadPusher(s)
+	if err != nil {
+		slog.Warn("push disabled (auth file unreadable)", "err", err)
 	}
-	return runSyncPlain(ctx, work, s, len(legacyWork))
+
+	if !syncVerboseFlag && IsInteractive() {
+		return runSyncTTY(ctx, work, s, len(legacyWork), push)
+	}
+	return runSyncPlain(ctx, work, s, len(legacyWork), push)
 }
 
 // backfillProjectIdentity iterates every distinct project_path lacking
@@ -236,10 +241,14 @@ func backfillProjectIdentity(ctx context.Context, s *store.Store) error {
 }
 
 // syncCounts breaks results down by live vs legacy so the final banner can
-// nudge the user to free up the bundle directory.
+// nudge the user to free up the bundle directory. The pushImp/Skip/Err
+// trio counts upstream replication outcomes when --legacy-bundle or live
+// imports land on a server-bound device.
 type syncCounts struct {
 	liveImp, liveSkip, liveErr       int
 	legacyImp, legacySkip, legacyErr int
+	pushImp, pushSkip, pushErr       int
+	pushEnabled                      bool
 	legacyTotal                      int
 	bundlePath                       string
 }
@@ -273,6 +282,12 @@ func (sc *syncCounts) printSummary() {
 	if sc.legacyTotal > 0 {
 		fmt.Fprintf(os.Stdout, "Legacy:  imported %d, skipped %d, errors %d (of %d catalog rows)\n",
 			sc.legacyImp, sc.legacySkip, sc.legacyErr, sc.legacyTotal)
+	}
+	if sc.pushEnabled {
+		fmt.Fprintf(os.Stdout, "Push:    sent %d, skipped %d, errors %d\n",
+			sc.pushImp, sc.pushSkip, sc.pushErr)
+	}
+	if sc.legacyTotal > 0 {
 		fmt.Fprintf(os.Stdout,
 			"\nLegacy bundle is now mirrored in the v3 store. You can remove %s when ready.\n",
 			sc.bundlePath)
@@ -283,7 +298,7 @@ func (sc *syncCounts) printSummary() {
 // goroutine runs sequentially (SQLite writer-lock makes parallelism
 // counter-productive at small N) and feeds updates into a channel the
 // Bubble Tea program consumes.
-func runSyncTTY(ctx context.Context, work []syncJob, sink importer.Sink, legacyTotal int) error {
+func runSyncTTY(ctx context.Context, work []syncJob, sink importer.Sink, legacyTotal int, push *pusher) error {
 	items := make([]spinner.Item, len(work))
 	for i, w := range work {
 		label := w.imp.Name()
@@ -293,7 +308,11 @@ func runSyncTTY(ctx context.Context, work []syncJob, sink importer.Sink, legacyT
 		items[i] = spinner.Item{Agent: label, Path: w.path}
 	}
 	updates := make(chan spinner.Update, len(work))
-	counts := &syncCounts{legacyTotal: legacyTotal, bundlePath: legacyBundleFlag}
+	counts := &syncCounts{
+		legacyTotal: legacyTotal,
+		bundlePath:  legacyBundleFlag,
+		pushEnabled: push != nil,
+	}
 
 	go func() {
 		defer close(updates)
@@ -303,6 +322,11 @@ func runSyncTTY(ctx context.Context, work []syncJob, sink importer.Sink, legacyT
 				w.cleanup()
 			}
 			counts.record(w, res, err)
+			// Push the just-imported session unless the Import itself
+			// failed; legacy + live both go up.
+			if err == nil && !res.Skipped {
+				counts.recordPush(push.pushSession(ctx, res.SessionID))
+			}
 			select {
 			case <-ctx.Done():
 				return
@@ -326,8 +350,12 @@ func runSyncTTY(ctx context.Context, work []syncJob, sink importer.Sink, legacyT
 // runSyncPlain is the non-TTY fallback used by LaunchAgent/cron and by
 // the --verbose flag. One structured log line per session, plus a
 // summary block on stdout at the end. No escape codes, no alt-screen.
-func runSyncPlain(ctx context.Context, work []syncJob, sink importer.Sink, legacyTotal int) error {
-	counts := &syncCounts{legacyTotal: legacyTotal, bundlePath: legacyBundleFlag}
+func runSyncPlain(ctx context.Context, work []syncJob, sink importer.Sink, legacyTotal int, push *pusher) error {
+	counts := &syncCounts{
+		legacyTotal: legacyTotal,
+		bundlePath:  legacyBundleFlag,
+		pushEnabled: push != nil,
+	}
 	for _, w := range work {
 		start := time.Now()
 		res, err := w.imp.Import(ctx, w.path, sink)
@@ -348,8 +376,30 @@ func runSyncPlain(ctx context.Context, work []syncJob, sink importer.Sink, legac
 			slog.Info("imported",
 				"agent", w.imp.Name(), "session", res.SessionID, "status", "done",
 				"legacy", w.legacy, "dur", dur)
+			if push != nil {
+				outcome, pushErr := push.pushSession(ctx, res.SessionID)
+				counts.recordPush(outcome, pushErr)
+				logPush(res.SessionID, outcome, pushErr)
+			}
 		}
 	}
 	counts.printSummary()
 	return nil
+}
+
+// recordPush updates the syncCounts based on the push outcome. Wraps
+// the outcome-to-counter mapping so both runSyncTTY and runSyncPlain
+// share the same routing logic.
+func (sc *syncCounts) recordPush(outcome pushOutcome, err error) {
+	if err != nil && outcome != pushFailed {
+		outcome = pushFailed
+	}
+	switch outcome {
+	case pushImported:
+		sc.pushImp++
+	case pushAlreadyHashed:
+		sc.pushSkip++
+	case pushFailed:
+		sc.pushErr++
+	}
 }

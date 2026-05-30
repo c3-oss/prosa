@@ -51,6 +51,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 
 	s.registerHealth()
 	s.registerAuth(authSvc, interceptors)
+	s.registerSessions(interceptors)
 	return s, nil
 }
 
@@ -95,6 +96,12 @@ func (s *Server) registerHealth() {
 
 func (s *Server) registerAuth(svc *auth.Service, opts connect.HandlerOption) {
 	path, handler := prosav1connect.NewAuthServiceHandler(handlers.NewAuthHandler(svc), opts)
+	s.mux.Handle(path, handler)
+}
+
+func (s *Server) registerSessions(opts connect.HandlerOption) {
+	h := handlers.NewSessionsHandler(s.pool, s.obj)
+	path, handler := prosav1connect.NewSessionsServiceHandler(h, opts)
 	s.mux.Handle(path, handler)
 }
 

@@ -40,3 +40,56 @@ func (s *Store) InsertTurns(ctx context.Context, sessionID string, turns []sessi
 
 	return tx.Commit()
 }
+
+// GetTurns returns every turn for sessionID in insertion (ts) order.
+// Used by the push pipeline to mirror the local store onto the server.
+func (s *Store) GetTurns(ctx context.Context, sessionID string) ([]session.Turn, error) {
+	rows, err := s.db.QueryContext(
+		ctx,
+		`SELECT role, content, ts FROM turns WHERE session_id = ? ORDER BY ts ASC, id ASC`,
+		sessionID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query turns %s: %w", sessionID, err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var out []session.Turn
+	for rows.Next() {
+		var (
+			t  session.Turn
+			ts string
+		)
+		if err := rows.Scan(&t.Role, &t.Content, &ts); err != nil {
+			return nil, fmt.Errorf("scan turn: %w", err)
+		}
+		if tt, ok := parseTime(ts); ok {
+			t.Timestamp = tt
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+// GetSessionTools returns the (name, count) tool-usage rows for sessionID.
+func (s *Store) GetSessionTools(ctx context.Context, sessionID string) ([]session.ToolUsage, error) {
+	rows, err := s.db.QueryContext(
+		ctx,
+		`SELECT name, count FROM session_tools WHERE session_id = ? ORDER BY count DESC, name ASC`,
+		sessionID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query session_tools %s: %w", sessionID, err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var out []session.ToolUsage
+	for rows.Next() {
+		var t session.ToolUsage
+		if err := rows.Scan(&t.Name, &t.Count); err != nil {
+			return nil, fmt.Errorf("scan tool: %w", err)
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
