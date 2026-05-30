@@ -25,6 +25,12 @@ service SessionsService {
   // Search runs a Postgres FTS query (tsvector + plainto_tsquery) over
   // every assistant/user turn the caller has access to.
   rpc Search(SearchRequest) returns (SearchResponse);
+
+  // Manifest returns a paginated catalog of (id, raw_hash) for every
+  // session the server has for the caller's device. Clients call this
+  // before pushing so they can detect and catch up sessions that exist
+  // locally but never reached the server.
+  rpc Manifest(ManifestRequest) returns (ManifestResponse);
 }
 
 // Session mirrors pkg/session.Session. Nullable client-side fields use
@@ -122,4 +128,24 @@ message SearchHit {
 
 message SearchResponse {
   repeated SearchHit hits = 1;
+}
+
+message ManifestRequest {
+  // Opaque cursor: the last session.id from the previous page, or ""
+  // for the first page.
+  string after_id = 1;
+  // 1..5000, default 1000.
+  int32 limit = 2;
+}
+
+message ManifestEntry {
+  string id = 1;
+  string raw_hash = 2;
+  google.protobuf.Timestamp last_synced_at = 3;
+}
+
+message ManifestResponse {
+  repeated ManifestEntry entries = 1;
+  // Empty when the caller has paged through every row.
+  string next_after_id = 2;
 }
