@@ -108,3 +108,150 @@ The full envelope reference is `docs/sources/codex.md`.
 ### Implementation pointer
 
 `internal/importers/codex/` mirrors `internal/importers/claudecode/`: `importer.go` (Import wrapper), `walk.go` (filename regex), `parse.go` (streaming JSONL with 16 MiB scan buffer; handles envelope + legacy in one loop), `raw.go` (write-tmp + rename copy). The `Importer` and `Sink` interfaces in `pkg/importer/` are unchanged across agents.
+
+## Cursor
+
+Source: `~/.cursor/chats/<workspace-id>/<agent-id>/store.db`. Each store
+is a SQLite database with two tables: `meta` (a single hex-encoded JSON
+header row) and `blobs` (chat messages, plain text, and protobuf state
+keyed by sha256-ish hex ids). The full reference is `docs/sources/cursor.md`.
+
+### `session.Session`
+
+| Field | Source |
+|---|---|
+| `ID` | `meta.agentId` (decoded from `meta.value` at `key='0'`); fallback: parent directory name (`<agent-id>`) |
+| `Agent` | constant `"cursor"` |
+| `DeviceID` | `device.IDOnce()` |
+| `ProjectPath` | not recorded by Cursor; filled by `internal/projectid` against the cwd at sync time (nil cross-device) |
+| `StartedAt` / `LastActivityAt` | both equal `meta.createdAt` (Unix ms, UTC) — Cursor blob rows carry no per-message timestamp |
+| `FirstPrompt` | first `blobs.data` JSON object with `role=="user"` whose `content[].text` is non-empty; whitespace-collapsed + truncated to 200 runes |
+| `Model` | `meta.lastUsedModel` (when present) |
+| `RawPath` / `RawHash` / `RawSize` | sha256 of `store.db`; copy to `$PROSA_HOME/raw/cursor/<YYYY>/<MM>/<session-id>.db` |
+
+### `session.Turn`
+
+| Role | Source |
+|---|---|
+| `user` | `blobs.data` JSON object with `role=="user"`; text = `content[*].text` joined by `\n` (or the string form of `content` when not an array) |
+| `assistant` | same shape with `role=="assistant"` |
+| `tool` / `system` | **Skipped** in cut 3. `tool` rows echo tool results; `system` rows carry session-level prompts. Re-evaluate when search needs them |
+
+Every projected turn shares the same `Timestamp == meta.createdAt` because Cursor blobs are not chronologically ordered on disk.
+
+### `session.ToolUsage`
+
+| Field | Source |
+|---|---|
+| `Name` | `content[].type=="tool-call".toolName` inside any message blob's content array |
+| `Count` | aggregated per name within the session |
+
+### Excluded from cut 3
+
+- Protobuf root state (`meta.latestRootBlobId` → blob). Carries the canonical message ordering; without decoding it, on-disk blob order is the only signal and `StartedAt == LastActivityAt`.
+- Plain-text blobs (diffs, code, paths) and any blob whose first byte is not `{` or `[`. Preserved in raw, ignored by the projection.
+- JSON blobs without a `role` field (root nodes, indices). Same.
+- `tool`-role messages and any non-`text` content item (`tool-call` items are counted in `ToolUsage` but their bodies are not echoed as turn text).
+- `WAL`/`SHM` siblings of `store.db`. Not copied into raw; Cursor's checkpoint behavior is enough for the projection contract.
+
+### Implementation pointer
+
+`internal/importers/cursor/` follows the four-file shape: `importer.go` (Import wrapper, sha256-based idempotency), `walk.go` (yields every `store.db` under root, skipping siblings), `parse.go` (opens SQLite with `mode=ro&immutable=1` via `modernc.org/sqlite`, decodes the hex meta, classifies blobs), `raw.go` (write-tmp + rename copy of the `.db` only).
+
+## Gemini CLI
+
+Source: `~/.gemini/tmp/<projectHash-or-slug>/` containing either
+`chats/session-*.json` (one envelope object per file) or `logs.json` (a
+flat array of standalone records). The full reference is `docs/sources/gemini.md`.
+
+### `session.Session`
+
+| Field | Source |
+|---|---|
+| `ID` | envelope: `sessionId`. Live array: the `sessionId` of the **dominant group** (most rows for any single id in the file). Fallback for both: filename stem |
+| `Agent` | constant `"gemini"` |
+| `DeviceID` | `device.IDOnce()` |
+| `ProjectPath` | not recorded by Gemini in the session; filled by `internal/projectid` against the cwd at sync time. The sibling `.project_root` file is observed but **not** consumed today |
+| `StartedAt` | envelope: `startTime`; live: earliest message `timestamp`. Falls back to the first message timestamp seen during projection if the top-level header field is missing |
+| `LastActivityAt` | envelope: `lastUpdated`; live: latest message `timestamp`. RFC3339Nano then RFC3339, UTC after parse |
+| `FirstPrompt` | first `messages[].type=="user"` (envelope) or `type=="user"` row (live) with non-empty text; whitespace-collapsed + truncated to 200 runes |
+| `Model` | envelope: first assistant message's `model`; live: first assistant-side `model` encountered |
+| `RawPath` / `RawHash` / `RawSize` | sha256 of the source `.json`; copy to `$PROSA_HOME/raw/gemini/<YYYY>/<MM>/<session-id>.json` |
+
+### `session.Turn`
+
+| Role | Source |
+|---|---|
+| `user` | `type=="user"` → text from `content` (string or `content[*].text`) for the envelope; from `message` (or `content` as fallback) for the live array |
+| `assistant` | `type=="gemini"` → text from the same fields |
+| `info` / `error` | **Skipped** in cut 4. Operational records, not chat turns. Reappear later as `Role: "operational"` if reports need them |
+
+Timestamps are per-message in both shapes.
+
+### `session.ToolUsage`
+
+| Field | Source |
+|---|---|
+| `Name` | `messages[].toolCalls[].name` (envelope only — the live `logs.json` shape carries user prompts, not assistant tool invocations) |
+| `Count` | aggregated per name within the session |
+
+### Excluded from cut 4
+
+- `messages[].thoughts[]` — model reasoning. Preserved in raw, hidden from turns.
+- `messages[].toolCalls[].args` / `.result` / `.resultDisplay` payloads. Counted via `ToolUsage`, body not echoed.
+- `info` and `error` messages. Routed to operational events in a future cut.
+- The `logs.json` rows belonging to non-dominant `sessionId`s in the same file. Preserved in raw, dropped from the projection.
+- `~/.gemini/tmp/<slug>/.project_root`. The importer does not consume it for `ProjectPath` today (the file is observed only).
+- The bundled `~/.gemini/tmp/bin/rg` binary. Not session data; never yielded by Walk.
+
+### Implementation pointer
+
+`internal/importers/gemini/` matches the four-file shape: `importer.go` (Import wrapper, sha256 idempotency), `walk.go` (yields `logs.json` plus every `session-*.json`), `parse.go` (dispatches on JSON shape — envelope vs. flat array — and applies the dominant-session rule to live arrays), `raw.go` (write-tmp + rename copy of the source `.json`).
+
+## Hermes
+
+Source: `~/.hermes/state.db` (canonical SQLite) and `~/.hermes/sessions/` (sibling
+directory holding top-level `*.jsonl` transcripts, `session_*.json` snapshots,
+and a `sessions.json` index). The full reference is `docs/sources/hermes.md`.
+
+### `session.Session`
+
+| Field | Source |
+|---|---|
+| `ID` | `state.db` rows: `sessions.id`. `.jsonl`: filename stem. `session_*.json`: `session_id` field; fallback: filename stem with the `session_` prefix stripped |
+| `Agent` | constant `"hermes"` |
+| `DeviceID` | `device.IDOnce()` |
+| `ProjectPath` | not recorded by Hermes; filled by `internal/projectid` against the cwd at sync time |
+| `StartedAt` | `sessions.started_at` (Unix seconds REAL → UTC) for SQLite rows. `session_start` for JSON snapshots. Earliest message `timestamp` for JSONL. Per-message timestamps may be Unix seconds or ISO strings |
+| `LastActivityAt` | `sessions.ended_at` when set; otherwise the latest message timestamp. `last_updated` for JSON snapshots |
+| `FirstPrompt` | first `messages.role=="user"` row (SQLite) or first user line/message (JSONL/JSON) with non-empty `content` (text or first text item of an array); whitespace-collapsed + truncated to 200 runes |
+| `Model` | `sessions.model` (SQLite); `model` (JSON snapshot); first assistant-side `model` encountered (JSONL) |
+| `RawPath` / `RawHash` / `RawSize` | sha256 of the source file; copy to `$PROSA_HOME/raw/hermes/<YYYY>/<MM>/<session-id>.<ext>` where `<ext>` is `db`, `jsonl`, or `json`. For `state.db`, one raw copy per session id — all copies are byte-identical |
+
+### `session.Turn`
+
+| Role | Source |
+|---|---|
+| `user` | `messages.role=="user"` / `messages[].role=="user"`. Content = string `content` or first text item of a content array |
+| `assistant` | `messages.role=="assistant"` / `messages[].role=="assistant"`. Same shape |
+| `tool` / `system` | **Skipped** in cut 5. `tool` rows are tool-result echoes; `system` rows carry session-level prompts. Reappear when search needs them |
+
+### `session.ToolUsage`
+
+| Field | Source |
+|---|---|
+| `Name` | `messages.tool_calls` JSON array → each element's `name` field. Shape is OpenAI-style `[{type, function:{name, arguments}}]` or the flat `[{name, arguments}]` variant Hermes also emits; both project to the same name |
+| `Count` | aggregated per name within the session |
+
+### Excluded from cut 5
+
+- Hidden reasoning columns: `messages.reasoning`, `messages.reasoning_content`, `messages.reasoning_details`, `messages.codex_reasoning_items`, `messages.codex_message_items`. Preserved in raw, never projected to turns.
+- `sessions.system_prompt`, `sessions.model_config`, `sessions.end_reason`, `sessions.title`. Preserved in raw, not yet on `session.Session`.
+- `sessions.parent_session_id`. Captured in raw; not surfaced as a subagent edge today (no `is_subagent` column on `session.Session`).
+- `~/.hermes/sessions/sessions.json`. Observed as an index; never yielded by Walk and never projected.
+- Nested directories under `~/.hermes/sessions/` (e.g. `saved/`). Walk is intentionally non-recursive.
+- **Dual-source dropped side**: when both `state.db` and a sibling `<id>.jsonl` / `session_<id>.json` describe the same session, the source with more messages wins. The other side is preserved in raw but not in the projection.
+
+### Implementation pointer
+
+`internal/importers/hermes/` matches the four-file shape, with a wider `parse.go`: `importer.go` dispatches on filename (`state.db`, `*.jsonl`, `session_*.json`); `walk.go` is non-recursive and yields the sibling `state.db` at `<root>/../state.db` plus top-level `.jsonl` and `session_*.json` files; `parse.go` opens SQLite with `mode=ro&immutable=1` for the multi-row state.db path, decodes JSONL with a `bufio.Scanner` for transcripts, and applies the message-count merge rule before each state.db row's projection; `raw.go` takes an explicit `ext` so the same state.db source produces N `<id>.db` raws (one per session id) without re-deriving the extension.

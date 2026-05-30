@@ -118,8 +118,9 @@ Listed in `internal/cli/sync.go`:
 | --- | --- | --- |
 | `claude-code` | `internal/importers/claudecode/` | `~/.claude/projects/` |
 | `codex` | `internal/importers/codex/` | `~/.codex/sessions/` |
-| `cursor` | `internal/importers/cursor/` | (per [sources/](../sources/)) |
-| `gemini` | `internal/importers/gemini/` | (per [sources/](../sources/)) |
+| `cursor` | `internal/importers/cursor/` | `~/.cursor/chats/` |
+| `gemini` | `internal/importers/gemini/` | `~/.gemini/tmp/` |
+| `hermes` | `internal/importers/hermes/` | `~/.hermes/sessions/` |
 
 For per-agent source format details, see [`../sources/`](../sources/).
 
