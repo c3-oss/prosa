@@ -98,24 +98,42 @@ func (s *Store) UpsertSession(ctx context.Context, sess session.Session, tools [
 	return tx.Commit()
 }
 
-// SessionFilter narrows ListSessions. Since/Until are required; the
-// pointer fields are optional and combine with AND semantics. ProjectExact
-// is the cwd-anchored auto-filter (exact equality); ProjectMatch is
-// substring (used by the --project flag). Agent matches the canonical
-// agent string ("claude-code" | "codex"). DeviceName matches against
-// devices.friendly_name via JOIN.
+// SessionFilter narrows ListSessions and Search. Since/Until are
+// required; the pointer fields are optional and combine with AND
+// semantics. ProjectExact is the cwd-anchored auto-filter (exact
+// equality on project_path); ProjectMatch is substring (used by the
+// --project flag) and ORs across project_path / project_remote /
+// project_marker so `--project movaincentivo` finds sessions stored
+// under any of the three columns. Agent matches the canonical agent
+// string ("claude-code" | "codex"). DeviceName matches against
+// devices.friendly_name via JOIN. Limit > 0 caps the returned rows.
 type SessionFilter struct {
 	Since, Until time.Time
 	ProjectExact *string // exact match on sessions.project_path
-	ProjectMatch *string // substring match on sessions.project_path
-	// ProjectRemote matches sessions.project_remote exactly. Used by the
-	// new git-remote-anchored auto-detect (INTENT §5 step 1).
+	// ProjectMatch is the substring filter from --project. Matches when
+	// any of project_path / project_remote / project_marker contains
+	// the value as a substring.
+	ProjectMatch *string
+	// ProjectRemote matches sessions.project_remote exactly. Used by
+	// the git-remote-anchored auto-detect (INTENT §5 step 1).
 	ProjectRemote *string
-	// ProjectMarker matches sessions.project_marker exactly. Used by the
-	// .prosa.yaml-anchored auto-detect (INTENT §5 step 2).
+	// ProjectMarker matches sessions.project_marker exactly. Used by
+	// the .prosa.yaml-anchored auto-detect (INTENT §5 step 2).
 	ProjectMarker *string
 	Agent         *string
 	DeviceName    *string
+	// Limit caps the number of rows returned. 0 means no limit.
+	Limit int
+}
+
+// applyProjectMatch appends the OR-chain WHERE fragment and three
+// matching args for a ProjectMatch filter. Centralized so ListSessions
+// and Search stay in lockstep.
+func applyProjectMatch(conds []string, args []any, match string) ([]string, []any) {
+	conds = append(conds, "(s.project_path LIKE ? OR s.project_remote LIKE ? OR s.project_marker LIKE ?)")
+	pattern := "%" + match + "%"
+	args = append(args, pattern, pattern, pattern)
+	return conds, args
 }
 
 // ListSessionsByRange is a thin convenience wrapper preserving the cut-1
@@ -136,8 +154,7 @@ func (s *Store) ListSessions(ctx context.Context, f SessionFilter) ([]session.Se
 		args = append(args, *f.ProjectExact)
 	}
 	if f.ProjectMatch != nil {
-		conds = append(conds, "s.project_path LIKE ?")
-		args = append(args, "%"+*f.ProjectMatch+"%")
+		conds, args = applyProjectMatch(conds, args, *f.ProjectMatch)
 	}
 	if f.ProjectRemote != nil {
 		conds = append(conds, "s.project_remote = ?")
@@ -172,6 +189,10 @@ func (s *Store) ListSessions(ctx context.Context, f SessionFilter) ([]session.Se
 		WHERE ` + strings.Join(conds, " AND ") + `
 		ORDER BY s.started_at DESC
 	`
+	if f.Limit > 0 {
+		query += ` LIMIT ?`
+		args = append(args, f.Limit)
+	}
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {

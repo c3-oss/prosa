@@ -44,8 +44,15 @@ func (s *Store) Search(ctx context.Context, query string, f SessionFilter, limit
 		args = append(args, *f.ProjectExact)
 	}
 	if f.ProjectMatch != nil {
-		conds = append(conds, "s.project_path LIKE ?")
-		args = append(args, "%"+*f.ProjectMatch+"%")
+		conds, args = applyProjectMatch(conds, args, *f.ProjectMatch)
+	}
+	if f.ProjectRemote != nil {
+		conds = append(conds, "s.project_remote = ?")
+		args = append(args, *f.ProjectRemote)
+	}
+	if f.ProjectMarker != nil {
+		conds = append(conds, "s.project_marker = ?")
+		args = append(args, *f.ProjectMarker)
 	}
 	if f.Agent != nil {
 		conds = append(conds, "s.agent = ?")

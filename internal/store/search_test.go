@@ -147,3 +147,62 @@ func TestSearchSnippetContainsMatch(t *testing.T) {
 		"snippet should wrap the matched term: got %q", hits[0].Snippet,
 	)
 }
+
+func TestSearchProjectMatchSpansPathRemoteMarker(t *testing.T) {
+	ctx, s, now := seedSearchStore(t)
+	// Tag the alpha sessions with a remote; the beta session with a marker.
+	_, _, err := s.FillProjectIdentity(ctx, "/u/proj-alpha", "git@github.com:movaincentivo/iac.git", "")
+	require.NoError(t, err)
+	_, _, err = s.FillProjectIdentity(ctx, "/u/proj-beta", "", "movaincentivo-monorepo")
+	require.NoError(t, err)
+
+	// Common query term that matches every session content.
+	hits, err := s.Search(ctx, "quantum OR terraform", SessionFilter{
+		Since:        now.Add(-24 * time.Hour),
+		Until:        now,
+		ProjectMatch: ptrStr("movaincentivo"),
+	}, 10)
+	require.NoError(t, err)
+	ids := map[string]struct{}{}
+	for _, h := range hits {
+		ids[h.Session.ID] = struct{}{}
+	}
+	require.Contains(t, ids, "a", "alpha session matches via project_remote")
+	require.Contains(t, ids, "c", "alpha session matches via project_remote")
+	require.Contains(t, ids, "b", "beta session matches via project_marker")
+}
+
+func TestSearchFilterByProjectRemote(t *testing.T) {
+	ctx, s, now := seedSearchStore(t)
+	_, _, err := s.FillProjectIdentity(ctx, "/u/proj-alpha", "git@github.com:org/alpha.git", "")
+	require.NoError(t, err)
+
+	url := "git@github.com:org/alpha.git"
+	hits, err := s.Search(ctx, "quantum", SessionFilter{
+		Since:         now.Add(-24 * time.Hour),
+		Until:         now,
+		ProjectRemote: &url,
+	}, 10)
+	require.NoError(t, err)
+	for _, h := range hits {
+		require.NotNil(t, h.Session.ProjectRemote)
+		require.Equal(t, url, *h.Session.ProjectRemote)
+	}
+	require.NotEmpty(t, hits)
+}
+
+func TestSearchFilterByProjectMarker(t *testing.T) {
+	ctx, s, now := seedSearchStore(t)
+	_, _, err := s.FillProjectIdentity(ctx, "/u/proj-beta", "", "beta-monorepo")
+	require.NoError(t, err)
+
+	marker := "beta-monorepo"
+	hits, err := s.Search(ctx, "terraform", SessionFilter{
+		Since:         now.Add(-24 * time.Hour),
+		Until:         now,
+		ProjectMarker: &marker,
+	}, 10)
+	require.NoError(t, err)
+	require.Len(t, hits, 1)
+	require.Equal(t, "b", hits[0].Session.ID)
+}
