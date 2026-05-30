@@ -166,7 +166,11 @@ func parseSession(ctx context.Context, path string) (session.Session, []session.
 			content := extractUserText(r.Message)
 			if content != "" {
 				if !firstPromptSet {
-					p := truncRunes(content, firstPromptMaxRunes)
+					// Slash-command and tool-result payloads can carry
+					// embedded newlines; collapse whitespace so the
+					// timeline cell stays single-line. FTS-bound `turns`
+					// keep the original content unchanged.
+					p := truncRunes(strings.Join(strings.Fields(content), " "), firstPromptMaxRunes)
 					sess.FirstPrompt = &p
 					firstPromptSet = true
 				}
