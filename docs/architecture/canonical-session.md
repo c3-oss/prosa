@@ -8,6 +8,37 @@ formats project into them.
 When introducing a new agent, add a column / section here so the next reader
 can see how each field is resolved without spelunking through importer code.
 
+## Turn shape
+
+`session.Turn` carries:
+
+| Field | Notes |
+|---|---|
+| `Role` | `user` \| `assistant` \| `tool` |
+| `Content` | searchable text (tool outputs are truncated to a preview — raw stays on disk) |
+| `Timestamp` | per-record time |
+| `Kind` | `message` \| `tool_result` \| `operational`; empty reads as `message` |
+| `ToolName` | populated when `Kind = tool_result`; empty otherwise |
+
+Importers tag user/assistant chat as `KindMessage` and projected tool
+outputs as `KindToolResult` with `ToolName` resolved via the agent's
+own call-id linkage. Anything binary, image-only, or thinking-only
+stays excluded.
+
+## Projection version
+
+`session.ProjectionVersion = 3`. The server's push handler compares
+`projection_version >= session.ProjectionVersion` before short-
+circuiting, so bumping this constant forces existing sessions to be
+re-projected on the next push from any client — no schema migration
+needed for downstream consumers.
+
+| Version | Brought |
+|---|---|
+| 1 | initial cut |
+| 2 | usage projection (`session_usage`) |
+| 3 | `turn.kind` / `turn.tool_name`, sessiontext-cleaned `FirstPrompt` |
+
 ## Claude Code
 
 Source: `~/.claude/projects/<project-slug>/<session-id>.jsonl`. Each line is

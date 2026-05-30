@@ -210,6 +210,17 @@ metadata and tool-call summaries; the recipe above is for raw inspection.
 - Recent files use the envelope; older files may emit top-level
   `message`, `reasoning`, `function_call`, `function_call_output`. Both
   shapes must be projected.
+- `FirstPrompt` candidates pass through `internal/sessiontext` so a
+  leaked "You are Codex, a coding agent" / "Knowledge cutoff: …"
+  user-role message never wins. The next real user prompt does.
+  Developer/system roles never enter the turn stream.
+- `function_call_output` (envelope) and the legacy top-level
+  `function_call_output` records project into the turn stream as
+  `Role: "tool"`, `Kind: "tool_result"`, `ToolName` resolved via the
+  `call_id → function_call.name` map built earlier in the file. The
+  content is truncated to `toolPreviewMaxLines` /
+  `toolPreviewMaxBytes` (constants in `internal/importers/codex/parse.go`)
+  so the FTS index stays compact — raw JSONL on disk is untouched.
 - `response_item.payload.type=="reasoning"` may carry
   `encrypted_content`. Treat as opaque; do not assume the text is
   readable.

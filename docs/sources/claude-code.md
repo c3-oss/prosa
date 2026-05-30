@@ -227,6 +227,19 @@ metadata-rich version with tool-call summaries.
   `*/subagents/*.jsonl` in any global query.
 - `type: "system"` is operational. Project to
   `messages.role='operational'`, never `system_prompt`.
+- `FirstPrompt` and projected user turns pass through
+  `internal/sessiontext.CleanPrompt` so a single user message wrapping
+  a real prompt inside `<local-command-caveat>…</local-command-caveat>`
+  resolves to the human content, not the wrapper. Wholly-meta user
+  messages (`<command-name>`, `<system-reminder>`, etc.) fall through
+  and the renderer shows `(meta)` instead.
+- `tool_result` blocks inside user-role messages now project as
+  separate `Role: "tool"`, `Kind: "tool_result"` turns. `ToolName`
+  comes from the matching assistant `tool_use.id` → `name` map.
+  Content is truncated to `toolPreviewMaxLines` /
+  `toolPreviewMaxBytes` (constants in
+  `internal/importers/claudecode/parse.go`). Binary / image
+  content is still excluded; the raw JSONL stays untouched.
 - Large outputs may live entirely in `tool-results/`; the JSONL contains
   a preview and a path. Project them as `artifacts` and reference the
   CAS object from `tool_results.output_object_id` (or

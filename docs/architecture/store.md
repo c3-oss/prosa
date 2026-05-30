@@ -50,15 +50,33 @@ Resolved via `internal/paths/`:
 `modernc.org/sqlite` (pure-Go, no CGO). Registered as `sqlite` in
 `internal/store/store.go`.
 
-Pragmas set on every open:
+Pragmas set on every writer open (`store.Open`):
 
 - `journal_mode = WAL` — concurrent reads, single writer.
 - `foreign_keys = ON` — schema integrity.
 - `synchronous = NORMAL` — safe under WAL, faster than `FULL`.
+- `busy_timeout = 5000` — ride out brief writer/reader contention
+  instead of failing with `database is locked`.
 
-Connections live for the process lifetime. The store is not designed for
-many writers; the CLI and the panel never write at the same time on the
-same machine.
+The read-only open path (`store.OpenReadOnly`) is intentionally
+different: it adds `mode=ro`, keeps `foreign_keys` + `busy_timeout`,
+omits `journal_mode(WAL)` and `synchronous(NORMAL)` (no writes
+possible), skips `mkdir` + `migrate`, and bounds the connection pool
+to `SetMaxOpenConns(4)` / `SetMaxIdleConns(2)` so a single process
+doesn't saturate SQLite's reader serialization. Timeline, search,
+show, and analytics use it; sync uses the writer.
+
+Two typed errors back the read-only path:
+
+- `ErrStoreNotInitialized` — file does not exist; CLI prints "run
+  `prosa sync` first".
+- `ErrStoreNeedsMigration` — embedded migrations include a newer
+  version than what's recorded on disk; CLI prints "run `prosa sync`
+  or another write command first".
+
+Connections live for the process lifetime. The store is not designed
+for many writers; the CLI and the panel never write at the same time
+on the same machine.
 
 ## Migrations
 
@@ -71,6 +89,8 @@ applied.
 | `0001_init` | `devices`, `sessions`, `session_tools`, `turns`, `turns_fts` + triggers, `sync_state` |
 | `0002_identity` | `sessions.project_remote`, `sessions.project_marker`, `devices.fingerprinted_at` |
 | `0003_manifest_index` | composite `(device_id, id)` index on `sessions` for reconcile |
+| `0004_usage_projection` | `session_usage` table + `sync_state.projection_version` |
+| `0005_turns_evidence` | `turns.kind` (default `'message'`), `turns.tool_name`, indexes on both |
 
 Each migration has an up and down `.sql` file. The store applies up only;
 down is for manual recovery.
@@ -135,11 +155,14 @@ Index: `idx_session_tools_name`.
 | --- | --- | --- |
 | `id` | INTEGER PRIMARY KEY | autoincrement rowid |
 | `session_id` | TEXT FK | → `sessions.id` |
-| `role` | TEXT | `user` or `assistant` |
-| `content` | TEXT | Plain text only (tool calls / results excluded in MVP) |
+| `role` | TEXT | `user` \| `assistant` \| `tool` |
+| `content` | TEXT | Searchable text; tool outputs land here truncated to a preview (raw stays on disk) |
 | `ts` | TEXT | RFC3339 UTC |
+| `kind` | TEXT NOT NULL DEFAULT `'message'` | `message` \| `tool_result` \| `operational` |
+| `tool_name` | TEXT NULL | Originating tool when `kind = 'tool_result'` |
 
-Index: `idx_turns_session`.
+Indexes: `idx_turns_session`, `idx_turns_kind`,
+`idx_turns_tool_name` (partial: `WHERE tool_name IS NOT NULL`).
 
 ### `turns_fts` (virtual, FTS5)
 
@@ -187,17 +210,19 @@ Selected functions (full list in `internal/store/`):
 
 | Function | What it does |
 | --- | --- |
-| `Open(ctx, path)` | Open + migrate |
+| `Open(ctx, path)` | Open + migrate (writer; sync/import only) |
+| `OpenReadOnly(ctx, path)` | Read-only handle for timeline/search/show/analytics |
 | `Close()` | Close the connection |
 | `UpsertSession(ctx, sess, tools)` | Insert/replace session + tools in one txn |
-| `InsertTurns(ctx, sessionID, turns)` | Append turns (triggers FTS index) |
+| `InsertTurns(ctx, sessionID, turns)` | Append turns (triggers FTS index); persists kind/tool_name |
 | `LastHash(ctx, sessionID)` | Read `sync_state.last_hash` |
 | `RecordSync(ctx, sessionID, hash)` | Update `sync_state` |
 | `GetSession(ctx, id)` | Read one session |
-| `GetTurns(ctx, sessionID)` | Read all turns for a session |
+| `GetTurns(ctx, sessionID)` | Read all turns (with kind/tool_name) |
 | `GetSessionTools(ctx, sessionID)` | Read tool aggregates |
-| `ListSessions(ctx, filter)` | Timeline list with structured filter |
-| `Search(ctx, query, filter, limit)` | FTS5 query joined to session metadata |
+| `ListSessions(ctx, filter)` | Timeline list; honors `SessionFilter.Limit` |
+| `Search(ctx, query, filter, limit)` | FTS5 query → `SearchHit` (snippet + turn metadata + rank) |
+| `ListSessionsWithBoilerplatePrompt(ctx, limit)` | Denoise sweep — iterates `internal/sessiontext.Prefixes` so SQL stays in lockstep with the Go classifier |
 | `ListSessionsManifest(ctx, deviceID, after, limit)` | Reconcile cursor |
 | `ListDevicesMap(ctx)` | `id → friendly_name` lookup |
 | `RebindLocalSessions(ctx, deviceID)` | Migrate `local` seed device |
@@ -207,11 +232,21 @@ The `SessionFilter` type carries the parsed `--since/--until/--project/...`
 flags. Importers and the CLI share it; the panel uses the equivalent
 proto-defined fields against the server.
 
+`SessionFilter.ProjectMatch` is a substring filter that ORs across
+`project_path`, `project_remote`, and `project_marker` — so
+`--project movaincentivo` finds sessions whether they were captured
+under a local subdirectory, a normalized git remote, or an explicit
+`.prosa.yaml` marker. `SessionFilter.Limit > 0` caps the returned
+rows (the bare `prosa --limit N` flag flows through here).
+
 ## Concurrency
 
 WAL allows concurrent readers + a single writer. The CLI is the writer
-during `prosa sync`; reads (`prosa`, `prosa search`) are non-blocking. The
-panel doesn't read the local store at all on this machine.
+during `prosa sync` (`store.Open`); read paths (`prosa`, `prosa show`,
+`prosa search`, `prosa analytics`) call `store.OpenReadOnly`, which
+adds `mode=ro` and a bounded pool — three parallel reader processes
+against the same store finish without `database is locked`. The panel
+doesn't read the local store at all on this machine.
 
 No long transactions. Each `UpsertSession` + `InsertTurns` is a short
 transaction wrapping the multi-statement work. The store does not use

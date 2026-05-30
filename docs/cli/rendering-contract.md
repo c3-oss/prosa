@@ -171,12 +171,17 @@ column shape.
 
 `first_prompt` rows often carry agent-injected meta-messages
 (`# AGENTS.md instructions for …`, `<command-name>…</command-name>`,
-`<system-reminder>…</system-reminder>`, `<environment_context>…`).
-When the value matches one of those known prefixes, the renderer
-substitutes the muted placeholder `(meta)` so the row is honest about
-the absence of real user content. `prosa sync` runs a one-shot
-denoise pass that rewrites the row in place by reopening the raw
-JSONL and extracting the first non-boilerplate user message.
+`<system-reminder>…</system-reminder>`, `<environment_context>…`,
+`<local-command-caveat>…</local-command-caveat>`, "You are Codex,
+a coding agent", "Knowledge cutoff: …"). When the value matches one
+of those known prefixes — or wraps a real prompt inside a known tag —
+the renderer substitutes the muted placeholder `(meta)` so the row
+is honest about the absence of real user content. The classifier
+lives in `internal/sessiontext` and is shared by importers, the
+renderer, and the SQL denoise sweep so the pattern list never
+drifts. `prosa sync` runs a one-shot denoise pass that rewrites the
+row in place by reopening the raw JSONL and extracting the first
+non-boilerplate user message.
 
 ### Device label
 
@@ -325,21 +330,27 @@ Rules:
 - Show recovery URLs plainly.
 - In plain mode, print stable key/value rows.
 
-## Show Raw
+## Show
 
-`prosa show <session-id>` prints preserved raw JSONL. The raw bytes are the main
-output.
+`prosa show <session-id>` has three output shapes; the renderer
+picks one based on flags and TTY context:
 
-Human TTY may print a short preface before the raw only when `stdout` is a TTY:
+1. **Rendered (default in a TTY)** — a structured human view:
+   header line with project · agent · device, a metadata block
+   (`id`, `started`, `duration`, `model`, `tools`, `raw`), then a
+   `turns` section. Tool projections appear as
+   `tool:<name>` rows (e.g. `tool:Bash npm test failed with exit 1`);
+   chat turns show the bare role.
+2. **JSON (`--json`)** — a single object with `session`, `tools`,
+   and `turns`. Stdout carries the JSON only; nothing else.
+3. **Raw (`--raw`, or non-TTY without flags)** — preserved raw
+   JSONL bytes, byte-identical to the source. Stdout carries only
+   the raw; no preface. Pipeable: `prosa show <id> --raw | jq`.
 
-```text
-session  codex-2026-05-30-1342
-agent    codex
-raw      ~/.local/share/prosa/raw/codex/2026/05/codex-2026-05-30-1342.jsonl
-
-```
-
-When piping or using `--json`, print raw content only.
+`--max-output-lines N` caps per-turn rendered/JSON line count;
+`0` means no cap. `--remote` fetches the same payload from
+prosa-server (mutually exclusive with `--raw`, which only exists on
+local disk).
 
 ## Analytics
 
