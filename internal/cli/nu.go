@@ -50,24 +50,38 @@ func runNu(cmd *cobra.Command, _ []string) error {
 		Since: now.Add(-window),
 		Until: now,
 	}
+	var scope render.ContextScope
 	scopeLabel := ""
 
 	switch {
 	case g.Project != "":
 		p := g.Project
 		filter.ProjectMatch = &p
+		scope = render.ScopeScoped
 		scopeLabel = p
-	case !g.All:
+	case g.All:
+		scope = render.ScopeAll
+	default:
+		// No --project, no --all: attempt auto-detect from cwd.
+		scope = render.ScopeProjectNotDetected
 		cwd, err := os.Getwd()
 		if err == nil {
 			if m, err := DetectProject(ctx, cwd, s); err == nil && m.Found {
 				applyMatchFilter(&filter, m)
+				scope = render.ScopeScoped
 				scopeLabel = m.HintLabel()
-				if interactive && !g.JSON {
-					fmt.Fprintf(os.Stderr, "prosa · local · scoped to %s · last %s\n", scopeLabel, g.Last)
-				}
 			}
 		}
+	}
+
+	if interactive && !g.JSON {
+		fmt.Fprintln(os.Stderr, render.ContextLine(render.ContextLineOptions{
+			Command:    "prosa",
+			Source:     "local",
+			Scope:      scope,
+			ScopeLabel: scopeLabel,
+			Last:       g.Last,
+		}))
 	}
 	if g.Agent != "" {
 		a := g.Agent
@@ -94,17 +108,19 @@ func runNu(cmd *cobra.Command, _ []string) error {
 	}
 
 	if len(sessions) == 0 {
+		// Empty state goes to stderr — stdout stays clean so
+		// `prosa | wc -l` returns 0 and `prosa | jq` doesn't choke.
 		if interactive {
 			if scopeLabel != "" {
-				fmt.Fprintf(os.Stdout, "no sessions found for %s\n", scopeLabel)
-				fmt.Fprintln(os.Stdout, "use `prosa --all` to show every project")
+				fmt.Fprintf(os.Stderr, "no sessions found for %s\n", scopeLabel)
+				fmt.Fprintln(os.Stderr, "use `prosa --all` to show every project")
 				return nil
 			}
-			fmt.Fprintln(os.Stdout, "no sessions found")
-			fmt.Fprintln(os.Stdout, "run `prosa sync` to import local agent history")
+			fmt.Fprintln(os.Stderr, "no sessions found")
+			fmt.Fprintln(os.Stderr, "run `prosa sync` to import local agent history")
 			return nil
 		}
-		fmt.Fprintf(os.Stdout, "no sessions in the last %s\n", g.Last)
+		fmt.Fprintf(os.Stderr, "no sessions in the last %s\n", g.Last)
 		return nil
 	}
 

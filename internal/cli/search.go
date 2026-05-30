@@ -80,21 +80,37 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		Until: now,
 	}
 
+	var scope render.ContextScope
+	scopeLabel := ""
 	switch {
 	case g.Project != "":
 		p := g.Project
 		filter.ProjectMatch = &p
-	case !g.All:
+		scope = render.ScopeScoped
+		scopeLabel = p
+	case g.All:
+		scope = render.ScopeAll
+	default:
+		scope = render.ScopeProjectNotDetected
 		cwd, err := os.Getwd()
 		if err == nil {
 			if m, err := DetectProject(ctx, cwd, s); err == nil && m.Found {
 				applyMatchFilter(&filter, m)
-				if interactive && !g.JSON {
-					fmt.Fprintf(os.Stderr, "search · local · scoped to %s · %q\n", m.HintLabel(), query)
-				}
+				scope = render.ScopeScoped
+				scopeLabel = m.HintLabel()
 			}
 		}
 	}
+	if interactive && !g.JSON {
+		fmt.Fprintln(os.Stderr, render.SearchContextLine(render.ContextLineOptions{
+			Command:    "search",
+			Source:     "local",
+			Scope:      scope,
+			ScopeLabel: scopeLabel,
+			Query:      query,
+		}))
+	}
+
 	if g.Agent != "" {
 		a := g.Agent
 		filter.Agent = &a
@@ -121,11 +137,11 @@ func runSearch(cmd *cobra.Command, args []string) error {
 
 	if len(hits) == 0 {
 		if interactive {
-			fmt.Fprintln(os.Stdout, "no matches")
-			fmt.Fprintln(os.Stdout, "try `--all`, increase `--last`, or search a broader term")
+			fmt.Fprintln(os.Stderr, "no matches")
+			fmt.Fprintln(os.Stderr, "try `--all`, increase `--last`, or search a broader term")
 			return nil
 		}
-		fmt.Fprintf(os.Stdout, "no matches for %q\n", query)
+		fmt.Fprintf(os.Stderr, "no matches for %q\n", query)
 		return nil
 	}
 	return render.SearchHitsWithOptions(os.Stdout, hits, now, render.SearchOptions{
@@ -165,7 +181,16 @@ func runSearchRemote(ctx context.Context, query string, window time.Duration) er
 	// Project identity: prefer git remote / marker; the substring
 	// --project flag stays local-only because the server doesn't
 	// expose ILIKE search to clients.
-	if g.Project == "" && !g.All {
+	var scope render.ContextScope
+	scopeLabel := ""
+	switch {
+	case g.Project != "":
+		scope = render.ScopeScoped
+		scopeLabel = g.Project
+	case g.All:
+		scope = render.ScopeAll
+	default:
+		scope = render.ScopeProjectNotDetected
 		if cwd, err := os.Getwd(); err == nil {
 			// Open the local store JUST to drive DetectProject — it's
 			// already populated even when --remote is in play.
@@ -180,14 +205,22 @@ func runSearchRemote(ctx context.Context, query string, window time.Duration) er
 						case m.Marker != "":
 							req.ProjectMarker = m.Marker
 						}
-						if interactive && !g.JSON {
-							fmt.Fprintf(os.Stderr, "search · remote · scoped to %s · %q\n", m.HintLabel(), query)
-						}
+						scope = render.ScopeScoped
+						scopeLabel = m.HintLabel()
 					}
 					_ = s.Close()
 				}
 			}
 		}
+	}
+	if interactive && !g.JSON {
+		fmt.Fprintln(os.Stderr, render.SearchContextLine(render.ContextLineOptions{
+			Command:    "search",
+			Source:     "remote",
+			Scope:      scope,
+			ScopeLabel: scopeLabel,
+			Query:      query,
+		}))
 	}
 	resp, err := client.Search(ctx, connect.NewRequest(req))
 	if err != nil {
@@ -205,11 +238,11 @@ func runSearchRemote(ctx context.Context, query string, window time.Duration) er
 	}
 	if len(hits) == 0 {
 		if interactive {
-			fmt.Fprintln(os.Stdout, "no matches")
-			fmt.Fprintln(os.Stdout, "try `--all`, increase `--last`, or search a broader term")
+			fmt.Fprintln(os.Stderr, "no matches")
+			fmt.Fprintln(os.Stderr, "try `--all`, increase `--last`, or search a broader term")
 			return nil
 		}
-		fmt.Fprintf(os.Stdout, "no matches for %q (remote)\n", query)
+		fmt.Fprintf(os.Stderr, "no matches for %q (remote)\n", query)
 		return nil
 	}
 	return render.SearchHitsWithOptions(os.Stdout, hits, now, render.SearchOptions{
