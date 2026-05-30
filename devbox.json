@@ -1,0 +1,19 @@
+{
+  "$schema": "https://raw.githubusercontent.com/jetify-com/devbox/main/.schema/devbox.schema.json",
+  "packages": [
+    "go@1.24",
+    "buf@latest",
+    "protobuf@latest",
+    "golangci-lint@latest",
+    "gofumpt@latest",
+    "sqlite@latest",
+    "ripgrep@latest",
+    "just@latest"
+  ],
+  "shell": {
+    "init_hook": [
+      "export GOBIN=$PWD/bin",
+      "export PATH=$GOBIN:$PATH"
+    ]
+  }
+}
