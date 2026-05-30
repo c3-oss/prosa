@@ -1,0 +1,4 @@
+exclude = [
+  # Private release tap. GitHub returns 404 without credentials.
+  "https://github.com/c3-oss/homebrew-prosa",
+]

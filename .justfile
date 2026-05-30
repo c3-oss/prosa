@@ -53,6 +53,28 @@ vet:
 lint:
     golangci-lint run ./...
 
+# lint agent-facing configuration and prompts
+lint-agents:
+    pnpm exec agnix .claude .codex
+
+# lint tracked Markdown files
+lint-md:
+    git ls-files -z -- "*.md" | xargs -0 markdownlint-cli2 --no-globs
+
+# check links in tracked Markdown files
+lint-links:
+    git ls-files -z -- "*.md" | xargs -0 lychee --config lychee.toml --no-progress --verbose
+
+# check the current tree for secrets
+lint-secrets:
+    gitleaks detect --source . --no-git --redact --verbose
+
+# focused non-Go quality gates
+quality: lint-md lint-links lint-agents lint-secrets
+
+# local pre-push hook gate
+hooks-pre-push: quality
+
 # go mod tidy
 tidy:
     go mod tidy

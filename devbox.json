@@ -6,10 +6,14 @@
     "protobuf@34.1",
     "golangci-lint@2.12",
     "gofumpt@0.10",
+    "gitleaks@8.28",
+    "lychee@0.23",
+    "markdownlint-cli2@0.21",
     "sqlite@3.51",
     "ripgrep@15.1",
     "just@1.51",
-    "nodejs@24"
+    "nodejs@24",
+    "pnpm@10.20"
   ],
   "env": {
     "DEVBOX_COREPACK_ENABLED": "true"
@@ -17,7 +21,8 @@
   "shell": {
     "init_hook": [
       "export GOBIN=$PWD/bin",
-      "export PATH=$GOBIN:$PATH"
+      "export PATH=$GOBIN:$PATH",
+      "if [ -z \"${CI:-}\" ]; then pnpm install --frozen-lockfile && pnpm exec husky; fi"
     ]
   }
 }

@@ -1,0 +1,22 @@
+{
+  "name": "@c3-oss/prosa-tooling",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Developer tooling for prosa.",
+  "packageManager": "pnpm@10.20.0",
+  "scripts": {
+    "commitlint": "commitlint --config commitlint.config.cjs",
+    "lint:agents": "agnix .claude .codex",
+    "lint:links": "just lint-links",
+    "lint:md": "just lint-md",
+    "lint:staged": "lint-staged",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^21.0.2",
+    "@commitlint/config-conventional": "^21.0.2",
+    "agnix": "0.24.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.0.6"
+  }
+}

@@ -1,0 +1,3 @@
+pnpm lint:staged
+pnpm lint:agents
+gitleaks protect --staged --redact --verbose

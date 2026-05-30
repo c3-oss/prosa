@@ -1,0 +1,26 @@
+{
+  // Baseline for the current docs corpus. Tighten individual rules in
+  // focused documentation cleanup PRs rather than blocking tooling adoption.
+  "MD010": false,
+  "MD012": false,
+  "MD013": false,
+  "MD022": false,
+  "MD024": false,
+  "MD025": {
+    "front_matter_title": ""
+  },
+  "MD028": false,
+  "MD029": {
+    "style": "ordered"
+  },
+  "MD030": false,
+  "MD032": false,
+  "MD033": false,
+  "MD036": false,
+  "MD038": false,
+  "MD040": false,
+  "MD041": false,
+  "MD049": false,
+  "MD050": false,
+  "MD060": false
+}
