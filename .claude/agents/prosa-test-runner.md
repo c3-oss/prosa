@@ -9,8 +9,8 @@ model: haiku
 
 # Prosa Test Runner
 
-Use this agent to execute validation commands and summarize the outcome. It
-does not modify code.
+Use this agent to execute validation commands and summarize the outcome.
+It does not modify code.
 
 ## Default invocation
 
@@ -36,25 +36,35 @@ Focused suites:
 
 ```bash
 go test ./internal/importers/claudecode/... -race
-go test ./internal/importers/codex/... -race
-go test ./internal/store/... -race
-go test ./internal/cli/... -race
+go test ./internal/importers/codex/...      -race
+go test ./internal/importers/cursor/...     -race
+go test ./internal/importers/gemini/...     -race
+go test ./internal/store/...                -race
+go test ./internal/cli/...                  -race
+go test ./internal/server/...               -race
+go test ./internal/panel/...                -race
 ```
 
 ## Reporting format
 
 - Pass/fail per command.
-- For failures: file:line plus the first useful assertion or compiler error.
+- For failures: file:line plus the first useful assertion or compiler
+  error.
 - Total package/test count when available.
 - Coverage totals when coverage was requested.
 
 ## Do first
 
-1. Read `.codex/skills/prosa-dev-workflow/SKILL.md` for the canonical commands.
-2. Identify touched packages so focused validation can run before the full lane.
+1. Read `.codex/skills/prosa-dev-workflow/SKILL.md` for the canonical
+   commands.
+2. Identify touched packages so focused validation can run before the
+   full lane.
 
 ## Out of scope
 
 - Modifying code.
 - Architecture recommendations.
-- Importer or CLI UX review beyond reporting test failures.
+- Importer/CLI/panel review beyond reporting test failures.
+- Doc drift.
+
+The project uses `just` exclusively; there is no Makefile.

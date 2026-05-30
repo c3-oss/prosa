@@ -17,8 +17,12 @@ For project-level/release changes:
 Focused suites:
 - go test ./internal/importers/claudecode/... -race
 - go test ./internal/importers/codex/... -race
+- go test ./internal/importers/cursor/... -race
+- go test ./internal/importers/gemini/... -race
 - go test ./internal/store/... -race
 - go test ./internal/cli/... -race
+- go test ./internal/server/... -race
+- go test ./internal/panel/... -race
 
 Reporting format:
 - Pass/fail per command.
@@ -33,6 +37,9 @@ Do first:
 Out of scope:
 - Modifying code.
 - Architecture recommendations.
-- Importer or CLI UX review beyond reporting test failures.
+- Importer/CLI/panel review beyond reporting test failures.
+- Doc drift.
+
+The project uses `just` exclusively; there is no Makefile.
 """
 model_reasoning_effort = "low"
