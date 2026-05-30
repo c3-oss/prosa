@@ -4,14 +4,16 @@
 
 # `prosa`
 
-> Unified AI-agent session history for answering one question quickly:
-> "what did I work on in the last N days?"
+> a work log for AI-agent sessions
 
-`prosa` consolidates Claude Code, Codex, and future agent sessions into a
-queryable work history. The v3 rewrite keeps the core deliberately small:
-import local JSONL, preserve raw files, index metadata and turns in SQLite,
-and render a fast terminal timeline. The server and web panel are staged as
-the next MVP cuts.
+`prosa` turns scattered Claude Code and Codex JSONL histories into one local,
+searchable timeline. It is built for a very specific daily question:
+
+> what did I work on in the last few days?
+
+The v3 rewrite is intentionally small: SQLite for the local index, raw JSONL
+preserved on disk, a fast CLI for reading the history, and a typed server/panel
+shape ready for the next MVP cuts.
 
 [ci-shield]: https://img.shields.io/github/actions/workflow/status/c3-oss/prosa/ci.yml?label=ci&logo=github&style=flat-square
 [ci-url]: https://github.com/c3-oss/prosa/actions/workflows/ci.yml
@@ -20,142 +22,119 @@ the next MVP cuts.
 [tag-shield]: https://img.shields.io/github/tag/c3-oss/prosa.svg?logo=git&logoColor=FFF&style=flat-square
 [tag-url]: https://github.com/c3-oss/prosa/releases
 
-## Status
 
-Go v3 rewrite. The current cut covers the local flow: Claude Code and Codex
-importers, SQLite store, preserved raw JSONL, timeline rendering, FTS5 search,
-and raw drill-down with `show`. `prosa-server` and `prosa-panel` compile as
-stubs so the three-binary contract from [`INTENT.md`](INTENT.md) stays honest.
+## Timeline
 
-Not in this cut yet: remote sync, Postgres/S3 storage, login, scheduler, HTMX
-panel, Homebrew tap, and `install.sh`.
+```text
+Today
+  11:24  laptop   claude-code   prosa       "refactor sync logic"
+         -> 32min
 
-## Build
+  09:02* laptop   codex         mz-iac      "setup terraform module"
+         -> 18min
 
-```sh
-devbox shell           # Go, buf, golangci-lint, gofumpt, just
-just tools             # install protoc plugins into ./bin
-just build             # builds ./bin/prosa, ./bin/prosa-server, ./bin/prosa-panel
-./bin/prosa --version
+Yesterday
+  23:55  laptop   claude-code   prosa       "intent doc"
+         -> 1h12
 ```
 
-Full local pipeline:
+The default view is local and offline. When `prosa` can recognize the current
+project, it scopes the timeline automatically; use `--all` to read across
+everything.
+
+
+## Usage
 
 ```sh
-just ci                # tidy + gen + vet + lint + race tests + build + diff check
+prosa sync                         # import local agent sessions
+prosa                              # last 7 days
+prosa --last 30d --all             # broader timeline
+prosa search "sqlite FTS"           # full-text search over turns
+prosa show <session-id>             # print preserved raw JSONL
 ```
 
-The `Makefile` remains available for compatibility, but `just` is the
-recommended day-to-day interface.
+Useful flags:
 
-### Docker
+- `--last 12h|7d|30d` — time window.
+- `--project <name>` — project filter.
+- `--agent claude-code|codex` — agent filter.
+- `--device <name>` — device filter.
+- `--json` — machine-readable output where supported.
+
+By default, data lives under `~/.local/share/prosa`. Set `PROSA_HOME` to point
+the store somewhere else.
+
+
+## Run with Docker
+
+Images are published to GitHub Container Registry:
 
 ```sh
 docker run --rm ghcr.io/c3-oss/prosa:latest
 ```
 
-The image contains all three binaries and uses `prosa-server` as its default
-entrypoint. To run the CLI inside the image:
+The image contains all three binaries. `prosa-server` is the default entrypoint;
+to run the CLI instead:
 
 ```sh
 docker run --rm --entrypoint prosa ghcr.io/c3-oss/prosa:latest --help
 ```
 
-## Quick Start
+
+## Build from Source
+
+This repo uses [`devbox`][devbox] + [`just`][just]. Inside `devbox shell`:
 
 ```sh
-just build
-./bin/prosa sync                    # import local Claude Code/Codex sessions
-./bin/prosa                         # timeline for the last 7 days
-./bin/prosa --last 30d --all        # global timeline for the last 30 days
-./bin/prosa search "sqlite FTS"      # full-text search over turns
-./bin/prosa show <session-id>        # print preserved raw JSONL
+just build                         # builds ./bin/prosa*
+./bin/prosa --version
 ```
 
-By default, the SQLite store lives at `~/.local/share/prosa/store.db` and raw
-files live under `~/.local/share/prosa/raw/...`. Set `PROSA_HOME` to use a
-different data directory.
-
-## Commands
-
-| Command | Purpose |
-|---|---|
-| `prosa` | Render the local timeline. Default: last 7 days, auto-scoped to the current project when possible. |
-| `prosa sync` | Scan known agent roots, import new or changed sessions, and preserve raw JSONL. |
-| `prosa search <query>` | Search turn content through SQLite FTS5. |
-| `prosa show <session-id>` | Copy the preserved raw JSONL for a session to stdout. |
-| `prosa-server` | Stub for the future Connect/Postgres/S3 server. |
-| `prosa-panel` | Stub for the future templ/HTMX web panel. |
-
-### Global Flags
-
-| Flag | Meaning |
-|---|---|
-| `--last` | Time window (`7d`, `30d`, `12h`). |
-| `--project` | Filter by project using textual match. |
-| `--device` | Filter by device friendly name. |
-| `--agent` | Filter by agent (`claude-code` or `codex`). |
-| `--all` | Disable cwd-based project auto-scoping. |
-| `--json` | Emit NDJSON where the command supports it. |
-
-## Architecture
-
-```
-cmd/prosa             -> local CLI: import, timeline, search, show
-cmd/prosa-server      -> future Connect server; stub in the current cut
-cmd/prosa-panel       -> future web panel; stub in the current cut
-proto/prosa/v1        -> protobuf contracts, source of truth
-gen/go/prosa/v1       -> Buf-generated Go, committed
-pkg/importer          -> public importer interface
-pkg/session           -> canonical session domain types
-internal/importers    -> Claude Code and Codex implementations
-internal/store        -> SQLite, migrations, sessions, turns, FTS5
-internal/cli          -> Cobra, rendering, search, sync, spinner
-internal/paths        -> XDG/PROSA_HOME path resolution
-migrations/local      -> embedded SQLite migrations
-docs/sources          -> agent source-format references
-```
-
-`docs/canonical-session.md` defines the JSONL -> `session.Session` contract
-that every importer must satisfy. `INTENT.md` is the source of truth for
-product scope, architecture, and future CLI/API shape.
-
-## Tests
+Common targets:
 
 ```sh
-just test             # go test ./...
-just test-race        # full suite with the race detector
-just cover            # coverage profile + per-function totals
-just lint             # golangci-lint
-just gen-check        # buf generate must not change gen/
+just test                          # go test ./...
+just test-race                     # go test -race -count=1 ./...
+just lint                          # golangci-lint run ./...
+just gen-check                     # buf generate must not change gen/
+just snapshot                      # local GoReleaser dry-run into dist/
 ```
 
-Before opening a PR:
+[devbox]: https://www.jetify.com/devbox
+[just]: https://github.com/casey/just
 
-```sh
-just ci
-```
 
-Changes under `proto/` must regenerate and commit `gen/` in the same change.
-Importer changes should include fixtures or tests covering the touched source
-format.
+## Project Shape
 
-## Release
+`prosa` is one Go module with three binaries:
 
-Tags matching `v*` trigger the release workflow:
+- `prosa` — local CLI.
+- `prosa-server` — future Connect API server; stub in the current cut.
+- `prosa-panel` — future web panel; stub in the current cut.
 
-- GoReleaser publishes tarballs for macOS/Linux on `amd64` and `arm64`.
-- SHA256 checksums are published as `checksums.txt`.
-- A multi-arch Docker image is pushed to `ghcr.io/c3-oss/prosa`.
+The canonical importer contract lives in [`docs/canonical-session.md`](docs/canonical-session.md).
+The product and architecture source of truth lives in [`INTENT.md`](INTENT.md).
 
-Local packaging checks:
 
-```sh
-just snapshot         # requires goreleaser on PATH
-docker build -t prosa:local .
-```
+## Releases
+
+Releases are tag-driven. Pushing a `v*` tag runs GoReleaser and publishes:
+
+- macOS/Linux archives for `amd64` and `arm64`;
+- `checksums.txt`;
+- a multi-arch Docker image at `ghcr.io/c3-oss/prosa:<tag>` and `:latest`.
+
 
 ## License
 
-To the extent possible under law, this project is dedicated to the public
-domain under [CC0 1.0 Universal](LICENSE).
+To the extent possible under law, [Caian Ertl][me] has waived __all copyright
+and related or neighboring rights to this work__. In the spirit of _freedom of
+information_, I encourage you to fork, modify, change, share, or do whatever
+you like with this project! [`^C ^V`][kopimi]
+
+[![License][cc-shield]][cc-url]
+
+[me]: https://github.com/upsetbit
+[cc-shield]: https://forthebadge.com/images/badges/cc-0.svg
+[cc-url]: http://creativecommons.org/publicdomain/zero/1.0
+[kopimi]: https://kopimi.com
