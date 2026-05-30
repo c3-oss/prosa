@@ -58,9 +58,26 @@ func TestViewIsBoundedByErrorWindow(t *testing.T) {
 
 	out := m.View()
 	// Sanity: contains progress line.
-	require.Contains(t, out, "[ 50 / 10000 ]")
+	require.Contains(t, out, "progress")
+	require.Contains(t, out, "50 / 10000")
 	// Way smaller than 10 000 * 80 ≈ 800 KB.
 	require.Less(t, len(out), 8_000, "view should not scale with item count")
+}
+
+func TestStartedUpdateSetsCurrentWithoutIncrementing(t *testing.T) {
+	m := newTestModel(2)
+	mm, cmd := m.Update(Update{Index: 1, Started: true})
+	m = mm.(model)
+
+	require.Equal(t, 1, m.activeIdx)
+	require.Equal(t, 0, m.done)
+	require.Equal(t, 0, m.skipped)
+	require.Equal(t, 0, m.errCount)
+	require.NotNil(t, cmd)
+
+	out := m.View()
+	require.Contains(t, out, "current")
+	require.Contains(t, out, "claude-code")
 }
 
 func TestActiveIndexBoundsCheck(t *testing.T) {

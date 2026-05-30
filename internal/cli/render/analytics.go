@@ -23,7 +23,7 @@ func Analytics(w io.Writer, r store.AnalyticsResult, interactive bool) error {
 
 func analyticsTTY(w io.Writer, r store.AnalyticsResult) error {
 	if len(r.Rows) == 0 {
-		fmt.Fprintln(w, "  (no rows)")
+		fmt.Fprintln(w, "no rows")
 		return nil
 	}
 	widths := make([]int, len(r.Headers))

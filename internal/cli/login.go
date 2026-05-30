@@ -40,6 +40,10 @@ func newLogoutCmd() *cobra.Command {
 			if err := rpc.DeleteAuth(); err != nil {
 				return err
 			}
+			if IsInteractive() {
+				fmt.Fprintf(os.Stdout, "%s auth cleared\n", render.StyleSuccess.Render("✓"))
+				return nil
+			}
 			fmt.Fprintln(os.Stdout, "logged out")
 			return nil
 		},
@@ -69,12 +73,25 @@ func runLogin(cmd *cobra.Command, _ []string) error {
 	}
 	msg := start.Msg
 
-	fmt.Fprintln(os.Stdout)
-	fmt.Fprintln(os.Stdout, "  prosa: open this URL and enter the code below")
-	fmt.Fprintln(os.Stdout)
-	fmt.Fprintf(os.Stdout, "    %s\n", styleURL.Render(msg.VerificationUri))
-	fmt.Fprintf(os.Stdout, "    %s\n", styleUserCode.Render(msg.UserCode))
-	fmt.Fprintln(os.Stdout)
+	interactive := IsInteractive()
+	if interactive {
+		fmt.Fprintln(os.Stdout, "prosa login")
+		fmt.Fprintln(os.Stdout)
+		fmt.Fprintf(os.Stdout, "%s device       %s\n", render.StyleSuccess.Render("✓"), device.Hostname())
+		fmt.Fprintf(os.Stdout, "%s server       %s\n", render.StyleSuccess.Render("✓"), styleURL.Render(server))
+		fmt.Fprintf(os.Stdout, "%s auth         waiting for browser approval\n", render.StyleAccent.Render("→"))
+		fmt.Fprintln(os.Stdout)
+		fmt.Fprintln(os.Stdout, "Open this URL if the browser did not start:")
+		fmt.Fprintln(os.Stdout, styleURL.Render(msg.VerificationUri))
+		fmt.Fprintln(os.Stdout, styleUserCode.Render(msg.UserCode))
+		fmt.Fprintln(os.Stdout)
+	} else {
+		fmt.Fprintf(os.Stdout, "device\t%s\n", device.Hostname())
+		fmt.Fprintf(os.Stdout, "server\t%s\n", server)
+		fmt.Fprintf(os.Stdout, "auth_url\t%s\n", msg.VerificationUri)
+		fmt.Fprintf(os.Stdout, "user_code\t%s\n", msg.UserCode)
+		fmt.Fprintln(os.Stdout, "status\twaiting_for_approval")
+	}
 
 	interval := time.Duration(msg.Interval) * time.Second
 	if interval < time.Second {
@@ -99,17 +116,24 @@ func runLogin(cmd *cobra.Command, _ []string) error {
 		}
 		switch poll.Msg.State {
 		case prosav1.PollLoginResponse_STATE_PENDING:
-			fmt.Fprintf(os.Stdout, "%s\r",
-				styleSubtle.Render(fmt.Sprintf("  waiting for approval … (expires in %ds)",
-					int(time.Until(deadline).Seconds()))))
+			if interactive {
+				fmt.Fprintf(os.Stdout, "%s\r",
+					styleSubtle.Render(fmt.Sprintf("waiting for approval … expires in %ds",
+						int(time.Until(deadline).Seconds()))))
+			}
 		case prosav1.PollLoginResponse_STATE_APPROVED:
 			if err := saveAuth(server, poll.Msg); err != nil {
 				return err
 			}
-			fmt.Fprintln(os.Stdout)
-			fmt.Fprintf(os.Stdout, "  %s logged in as %s\n",
-				render.StyleSuccess.Render("✓"),
-				device.Hostname())
+			if interactive {
+				fmt.Fprintln(os.Stdout)
+				fmt.Fprintf(os.Stdout, "%s auth         approved\n", render.StyleSuccess.Render("✓"))
+				fmt.Fprintf(os.Stdout, "%s token        ~/.config/prosa/auth.json\n", render.StyleSuccess.Render("✓"))
+				fmt.Fprintln(os.Stdout)
+				fmt.Fprintln(os.Stdout, "ready")
+			} else {
+				fmt.Fprintln(os.Stdout, "status\tapproved")
+			}
 			return nil
 		case prosav1.PollLoginResponse_STATE_DENIED:
 			return errors.New("login denied")

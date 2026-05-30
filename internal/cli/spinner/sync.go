@@ -40,6 +40,7 @@ type Item struct {
 // Update is produced by the importer goroutine for each completed session.
 type Update struct {
 	Index   int
+	Started bool
 	Skipped bool
 	Err     error
 }
@@ -51,6 +52,8 @@ type Options struct {
 	// Banner is a free-form second line displayed under Title (legacy
 	// bundle path, importer count, etc.). Optional.
 	Banner string
+	// Found summarizes discovered work per agent. Optional.
+	Found string
 }
 
 const maxErrorSlots = 5
@@ -105,6 +108,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if v.Index >= 0 && v.Index < len(m.items) {
 			m.activeIdx = v.Index
 		}
+		if v.Started {
+			return m, recvCmd(m.ch)
+		}
 		switch {
 		case v.Err != nil:
 			m.errCount++
@@ -153,62 +159,73 @@ func (m model) View() string {
 	// Header + banner.
 	title := m.opts.Title
 	if title == "" {
-		title = "prosa sync"
+		title = "prosa sync · local store"
 	}
-	b.WriteString(" ")
 	b.WriteString(styleHeader.Render(title))
 	if m.opts.Banner != "" {
-		b.WriteString("  ")
-		b.WriteString(styleBanner.Render("•  " + m.opts.Banner))
+		b.WriteString(styleBanner.Render(" · " + m.opts.Banner))
 	}
 	b.WriteString("\n")
-	b.WriteString(" ")
 	b.WriteString(styleSep.Render(strings.Repeat("─", 72)))
+	b.WriteString("\n")
+
+	phase := "scanning"
+	activeAgent := ""
+	activePath := ""
+	if m.activeIdx >= 0 && m.activeIdx < len(m.items) {
+		phase = "importing"
+		it := m.items[m.activeIdx]
+		activeAgent = it.Agent
+		activePath = shortPath(it.Path)
+	}
+	fmt.Fprintf(&b, "%s %-12s %-12s %s\n",
+		styleSpin.Render(m.spin.View()),
+		styleProgress.Render(phase),
+		styleAgent.Render(activeAgent),
+		styleBanner.Render(activePath),
+	)
 	b.WriteString("\n")
 
 	// Progress line.
 	elapsed := time.Since(m.start)
-	progress := fmt.Sprintf("[ %d / %d ]", m.done+m.skipped+m.errCount, m.total)
-	stats := fmt.Sprintf(
-		"%s %d   %s %d   %s %d",
-		styleDone.Render("✓"), m.done,
-		styleSkip.Render("↺"), m.skipped,
-		styleErr.Render("✗"), m.errCount,
-	)
-	right := fmt.Sprintf(
-		"%s   %s",
+	if m.opts.Found != "" {
+		fmt.Fprintf(&b, "%s          %s\n", styleBanner.Render("found"), m.opts.Found)
+	}
+	fmt.Fprintf(&b,
+		"%s       %s · %s %d · %s %d · %s %d · %s · %s\n",
+		styleBanner.Render("progress"),
+		styleProgress.Render(fmt.Sprintf("%d / %d", m.done+m.skipped+m.errCount, m.total)),
+		styleDone.Render("imported"), m.done,
+		styleSkip.Render("skipped"), m.skipped,
+		styleErr.Render("errors"), m.errCount,
 		styleTime.Render(humanDur(elapsed)),
 		styleTime.Render("eta "+m.eta()),
-	)
-	fmt.Fprintf(&b,
-		"   %s  %s   %s    %s\n",
-		styleSpin.Render(m.spin.View()),
-		styleProgress.Render(progress),
-		stats,
-		right,
 	)
 
 	// Active line.
 	if !m.finished() && m.activeIdx >= 0 && m.activeIdx < len(m.items) {
 		it := m.items[m.activeIdx]
 		fmt.Fprintf(&b,
-			"   %s  %s  %s\n",
-			styleSep.Render("⤷"),
+			"%s        %s · %s\n",
+			styleBanner.Render("current"),
 			styleAgent.Render(it.Agent),
 			styleBanner.Render(shortPath(it.Path)),
 		)
 	}
 
 	// Persistent errors.
-	for _, e := range m.errs {
+	if len(m.errs) > 0 {
 		b.WriteString("\n")
+		b.WriteString(styleErr.Render("errors"))
+		b.WriteString("\n")
+	}
+	for _, e := range m.errs {
 		fmt.Fprintf(&b,
-			"   %s  %s   %s\n",
-			styleErr.Render("✗"),
+			"  %s       %s\n",
 			styleAgent.Render(e.agent),
 			styleBanner.Render(shortPath(e.path)),
 		)
-		fmt.Fprintf(&b, "      %s\n", styleErr.Render(e.msg))
+		fmt.Fprintf(&b, "               %s\n", styleErr.Render(e.msg))
 	}
 
 	return b.String()
@@ -284,15 +301,8 @@ func Run(ctx context.Context, items []Item, updates <-chan Update, opts Options)
 	p := tea.NewProgram(m, tea.WithContext(ctx), tea.WithAltScreen())
 	defer func() { _ = p.ReleaseTerminal() }()
 
-	final, err := p.Run()
-	if err != nil {
+	if _, err := p.Run(); err != nil {
 		return err
 	}
-
-	fm, ok := final.(model)
-	if !ok {
-		return nil
-	}
-	fmt.Printf("Imported %d, skipped %d, errors %d\n", fm.done, fm.skipped, fm.errCount)
 	return nil
 }

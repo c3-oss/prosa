@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -307,7 +308,7 @@ func runSyncTTY(ctx context.Context, work []syncJob, sink importer.Sink, legacyT
 		}
 		items[i] = spinner.Item{Agent: label, Path: w.path}
 	}
-	updates := make(chan spinner.Update, len(work))
+	updates := make(chan spinner.Update, len(work)*2)
 	counts := &syncCounts{
 		legacyTotal: legacyTotal,
 		bundlePath:  legacyBundleFlag,
@@ -317,6 +318,11 @@ func runSyncTTY(ctx context.Context, work []syncJob, sink importer.Sink, legacyT
 	go func() {
 		defer close(updates)
 		for i, w := range work {
+			select {
+			case <-ctx.Done():
+				return
+			case updates <- spinner.Update{Index: i, Started: true}:
+			}
 			res, err := w.imp.Import(ctx, w.path, sink)
 			if w.cleanup != nil {
 				w.cleanup()
@@ -324,7 +330,7 @@ func runSyncTTY(ctx context.Context, work []syncJob, sink importer.Sink, legacyT
 			counts.record(w, res, err)
 			// Push the just-imported session unless the Import itself
 			// failed; legacy + live both go up.
-			if err == nil && !res.Skipped {
+			if push != nil && err == nil && !res.Skipped {
 				counts.recordPush(push.pushSession(ctx, res.SessionID))
 			}
 			select {
@@ -335,7 +341,8 @@ func runSyncTTY(ctx context.Context, work []syncJob, sink importer.Sink, legacyT
 		}
 	}()
 	opts := spinner.Options{
-		Title: "prosa sync",
+		Title: "prosa sync · local store",
+		Found: syncFoundSummary(items),
 	}
 	if legacyTotal > 0 {
 		opts.Banner = fmt.Sprintf("legacy bundle: %s", legacyBundleFlag)
@@ -345,6 +352,25 @@ func runSyncTTY(ctx context.Context, work []syncJob, sink importer.Sink, legacyT
 	}
 	counts.printSummary()
 	return nil
+}
+
+func syncFoundSummary(items []spinner.Item) string {
+	if len(items) == 0 {
+		return ""
+	}
+	counts := map[string]int{}
+	var order []string
+	for _, item := range items {
+		if _, ok := counts[item.Agent]; !ok {
+			order = append(order, item.Agent)
+		}
+		counts[item.Agent]++
+	}
+	parts := make([]string, 0, len(order))
+	for _, agent := range order {
+		parts = append(parts, fmt.Sprintf("%s %d", agent, counts[agent]))
+	}
+	return strings.Join(parts, " · ")
 }
 
 // runSyncPlain is the non-TTY fallback used by LaunchAgent/cron and by

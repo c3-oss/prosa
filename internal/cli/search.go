@@ -74,6 +74,7 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	defer func() { _ = s.Close() }()
 
 	now := time.Now().UTC()
+	interactive := IsInteractive()
 	filter := store.SessionFilter{
 		Since: now.Add(-window),
 		Until: now,
@@ -88,8 +89,8 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		if err == nil {
 			if m, err := DetectProject(ctx, cwd, s); err == nil && m.Found {
 				applyMatchFilter(&filter, m)
-				if !g.JSON {
-					fmt.Fprintf(os.Stderr, "(scoped to: %s — use --all to search everywhere)\n", m.HintLabel())
+				if interactive && !g.JSON {
+					fmt.Fprintf(os.Stderr, "search · local · scoped to %s · %q\n", m.HintLabel(), query)
 				}
 			}
 		}
@@ -119,11 +120,16 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(hits) == 0 {
+		if interactive {
+			fmt.Fprintln(os.Stdout, "no matches")
+			fmt.Fprintln(os.Stdout, "try `--all`, increase `--last`, or search a broader term")
+			return nil
+		}
 		fmt.Fprintf(os.Stdout, "no matches for %q\n", query)
 		return nil
 	}
 	return render.SearchHitsWithOptions(os.Stdout, hits, now, render.SearchOptions{
-		Interactive: IsInteractive(),
+		Interactive: interactive,
 		Width:       TerminalWidth(),
 	})
 }
@@ -143,6 +149,7 @@ func runSearchRemote(ctx context.Context, query string, window time.Duration) er
 	}
 	client := rpc.Sessions(auth.Server, auth.Token)
 	now := time.Now().UTC()
+	interactive := IsInteractive()
 	req := &prosav1.SearchRequest{
 		Query: query,
 		Since: timestamppb.New(now.Add(-window)),
@@ -173,8 +180,8 @@ func runSearchRemote(ctx context.Context, query string, window time.Duration) er
 						case m.Marker != "":
 							req.ProjectMarker = m.Marker
 						}
-						if !g.JSON {
-							fmt.Fprintf(os.Stderr, "(scoped to: %s — use --all to search everywhere)\n", m.HintLabel())
+						if interactive && !g.JSON {
+							fmt.Fprintf(os.Stderr, "search · remote · scoped to %s · %q\n", m.HintLabel(), query)
 						}
 					}
 					_ = s.Close()
@@ -197,11 +204,16 @@ func runSearchRemote(ctx context.Context, query string, window time.Duration) er
 		return nil
 	}
 	if len(hits) == 0 {
+		if interactive {
+			fmt.Fprintln(os.Stdout, "no matches")
+			fmt.Fprintln(os.Stdout, "try `--all`, increase `--last`, or search a broader term")
+			return nil
+		}
 		fmt.Fprintf(os.Stdout, "no matches for %q (remote)\n", query)
 		return nil
 	}
 	return render.SearchHitsWithOptions(os.Stdout, hits, now, render.SearchOptions{
-		Interactive: IsInteractive(),
+		Interactive: interactive,
 		Width:       TerminalWidth(),
 	})
 }

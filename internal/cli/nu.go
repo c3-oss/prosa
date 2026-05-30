@@ -45,22 +45,26 @@ func runNu(cmd *cobra.Command, _ []string) error {
 	defer func() { _ = s.Close() }()
 
 	now := time.Now().UTC()
+	interactive := IsInteractive()
 	filter := store.SessionFilter{
 		Since: now.Add(-window),
 		Until: now,
 	}
+	scopeLabel := ""
 
 	switch {
 	case g.Project != "":
 		p := g.Project
 		filter.ProjectMatch = &p
+		scopeLabel = p
 	case !g.All:
 		cwd, err := os.Getwd()
 		if err == nil {
 			if m, err := DetectProject(ctx, cwd, s); err == nil && m.Found {
 				applyMatchFilter(&filter, m)
-				if !g.JSON {
-					fmt.Fprintf(os.Stderr, "(filtered to: %s — use --all to show everything)\n", m.HintLabel())
+				scopeLabel = m.HintLabel()
+				if interactive && !g.JSON {
+					fmt.Fprintf(os.Stderr, "prosa · local · scoped to %s · last %s\n", scopeLabel, g.Last)
 				}
 			}
 		}
@@ -90,6 +94,16 @@ func runNu(cmd *cobra.Command, _ []string) error {
 	}
 
 	if len(sessions) == 0 {
+		if interactive {
+			if scopeLabel != "" {
+				fmt.Fprintf(os.Stdout, "no sessions found for %s\n", scopeLabel)
+				fmt.Fprintln(os.Stdout, "use `prosa --all` to show every project")
+				return nil
+			}
+			fmt.Fprintln(os.Stdout, "no sessions found")
+			fmt.Fprintln(os.Stdout, "run `prosa sync` to import local agent history")
+			return nil
+		}
 		fmt.Fprintf(os.Stdout, "no sessions in the last %s\n", g.Last)
 		return nil
 	}
@@ -107,7 +121,7 @@ func runNu(cmd *cobra.Command, _ []string) error {
 		layout = render.TimelineScoped
 	}
 	return render.TimelineItems(os.Stdout, items, now, render.TimelineOptions{
-		Interactive: IsInteractive(),
+		Interactive: interactive,
 		Width:       TerminalWidth(),
 		Layout:      layout,
 	})
