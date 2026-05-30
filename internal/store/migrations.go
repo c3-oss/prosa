@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"io/fs"
 	"sort"
@@ -86,18 +88,30 @@ func parseMigrationVersion(name string) (int, error) {
 
 // versionApplied returns true when schema_migrations contains the given
 // version. The schema_migrations table is created by 0001 itself, so on a
-// fresh database the query errors with "no such table"; we swallow that
-// case and treat the version as not yet applied.
+// fresh database the bookkeeping table does not exist yet — we detect
+// that via sqlite_master rather than swallowing whatever error Scan
+// returns, so corruption, lock contention, or disk-full surface instead
+// of being silently treated as "not applied".
 func (s *Store) versionApplied(ctx context.Context, version int) (bool, error) {
-	var n int
+	var name string
 	err := s.db.QueryRowContext(
+		ctx,
+		`SELECT name FROM sqlite_master WHERE type='table' AND name='schema_migrations'`,
+	).Scan(&name)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("check schema_migrations exists: %w", err)
+	}
+
+	var n int
+	if err := s.db.QueryRowContext(
 		ctx,
 		`SELECT COUNT(*) FROM schema_migrations WHERE version = ?`,
 		version,
-	).Scan(&n)
-	if err != nil {
-		// First run: schema_migrations doesn't exist yet. Apply.
-		return false, nil
+	).Scan(&n); err != nil {
+		return false, fmt.Errorf("read schema_migrations: %w", err)
 	}
 	return n > 0, nil
 }
