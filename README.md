@@ -23,6 +23,31 @@ shape ready for the next MVP cuts.
 [tag-url]: https://github.com/c3-oss/prosa/releases
 
 
+## Install
+
+```sh
+# macOS — Homebrew tap (publishes the cask on every release)
+brew install c3-oss/prosa/prosa
+prosa setup
+
+# Linux + macOS — POSIX install.sh, sha256-verified against the release
+curl -fsSL https://raw.githubusercontent.com/c3-oss/prosa/master/install.sh | sh
+prosa setup
+
+# Anywhere with Node.js — npm filters the right platform binary
+npm install -g @c3-oss/prosa
+prosa setup
+```
+
+After install, `prosa setup` walks the device through auth, installs
+a background sync job (LaunchAgent on macOS, systemd timer on Linux),
+and runs the first scan.
+
+Prefer to drive the install manually? Download the matching tarball
+from [the releases page][rel-url] and drop the `prosa` binary into
+your `PATH`.
+
+
 ## Timeline
 
 ```text
@@ -78,18 +103,14 @@ By default, data lives under `~/.local/share/prosa`. Set `PROSA_HOME` to point
 the store somewhere else.
 
 
-## Run with Docker
+## Self-hosting the server + panel
 
-Images are published to GitHub Container Registry:
-
-```sh
-docker run --rm ghcr.io/c3-oss/prosa:latest
-```
-
-The image contains all three binaries. `prosa-server` is the default entrypoint;
-to run the CLI instead:
+Skip this section if you only use `prosa` locally. The Docker image
+bundles all three binaries; `prosa-server` is the default entrypoint:
 
 ```sh
+docker compose up -d                                  # Postgres + MinIO dev stack
+docker run --rm ghcr.io/c3-oss/prosa:latest          # server
 docker run --rm --entrypoint prosa ghcr.io/c3-oss/prosa:latest --help
 ```
 

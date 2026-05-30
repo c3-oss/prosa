@@ -268,9 +268,10 @@ Yesterday
 
 ### Distribuição do binário
 
-- **Homebrew tap** (`brew install caian/prosa/prosa`) — fonte primária no macOS; funciona em Linux via brew.
-- **install.sh** (`curl -fsSL prosa.c3.do/install.sh | sh`) — instala em `~/.local/bin` ou `/usr/local/bin`; fetch da release mais recente no GH.
-- **GitHub releases** — tarballs por OS/arch como source-of-truth. Brew tap e install.sh apontam pra cá.
+- **Homebrew tap** (`brew install c3-oss/prosa/prosa`) — fonte primária no macOS; publicado via `homebrew_casks` em cada release.
+- **install.sh** (`curl -fsSL https://raw.githubusercontent.com/c3-oss/prosa/master/install.sh | sh`) — instala em `~/.local/bin` ou `/usr/local/bin`; fetch da release mais recente no GH com verificação sha256.
+- **npm** (`npm install -g @c3-oss/prosa`) — mantém continuidade com a base de usuários V2. Pattern esbuild/biome com `optionalDependencies` por plataforma; zero `postinstall` download.
+- **GitHub releases** — tarballs por OS/arch como source-of-truth. Brew tap, install.sh e npm apontam pra cá.
 - Plataformas-alvo no MVP: **macOS (arm64, amd64)** e **Linux (amd64, arm64)**. Windows fica para depois.
 - `prosa-server` e `prosa-panel` distribuídos no mesmo release; deploy é tarefa do owner (self-hosted ou PaaS).
 

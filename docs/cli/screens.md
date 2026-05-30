@@ -223,38 +223,55 @@ Legacy bundle mirrored in the v3 store: /Users/upsetbit/.prosa
 
 ## 7. `prosa setup` / `prosa login`
 
-`setup` is a short environment checklist. It may animate one current step, but
-completed steps stay readable after the command exits.
+`setup` walks a fresh machine from zero to a self-syncing install
+in six rows. Active step is `→`; completed steps stay on screen as
+`✓` after the command exits.
 
 ```text
 prosa setup
 cwd    /Users/upsetbit/Projects/c3/c3-oss/prosa
-store  ~/.local/share/prosa
+store  /Users/upsetbit/.local/share/prosa
 
-✓ device       laptop · darwin/arm64
+✓ agents       claude-code · codex · cursor · gemini
 ✓ server       https://prosa.c3.do
 → auth         waiting for browser approval
 
 Open this URL if the browser did not start:
-https://prosa.c3.do/device?code=7F4C-D91A
+  https://prosa.c3.do/device?code=7F4C-D91A
+  7F4C-D91A
 ```
 
-After approval:
+The agents row colors each importer by availability:
+agent-style for the ones whose default roots exist on this
+machine, muted for the ones with no data on disk yet.
+
+After approval, the URL block collapses in place into a single
+"✓ auth approved" line. The scheduler and first scan steps continue
+from there. The last line is the final ready banner, printed below
+sync's own progress UI:
 
 ```text
 prosa setup
 cwd    /Users/upsetbit/Projects/c3/c3-oss/prosa
-store  ~/.local/share/prosa
+store  /Users/upsetbit/.local/share/prosa
 
-✓ device       laptop · darwin/arm64
+✓ agents       claude-code · codex · cursor · gemini
 ✓ server       https://prosa.c3.do
 ✓ auth         approved
-✓ token        ~/.config/prosa/auth.json
-✓ scheduler    LaunchAgent · every 15min
-✓ first scan   imported 18 · skipped 0 · errors 0
+✓ scheduler    LaunchAgent · every 15m0s
+→ first scan
 
-ready · next sync in 15min
+prosa sync · complete
+
+Live:     imported 44 · skipped 0 · errors 0
+Push:     sent 44 · skipped 0 · errors 0
+Catch-up: sent 0 · skipped 0 · errors 0  (local 44 · remote 44)
+
+ready · next sync in 15m0s
 ```
+
+`prosa setup --skip-scan` exits right after the scheduler row,
+leaving sync for later (e.g. when the user is ready to wait).
 
 `login` uses the auth subset:
 
@@ -262,19 +279,38 @@ ready · next sync in 15min
 prosa login
 
 ✓ device       laptop
+✓ server       https://prosa.c3.do
 → auth         waiting for browser approval
 
 Open this URL if the browser did not start:
-https://prosa.c3.do/device?code=E20B-61C9
+  https://prosa.c3.do/device?code=E20B-61C9
+  E20B-61C9
 ```
 
-Plain/script mode does not run an animated wizard.
+Plain/script mode (either piped or `--non-interactive`) replaces
+the ANSI redraw with stable key=value rows on `stdout`:
+
+```text
+step=cwd	value=/Users/upsetbit/Projects/c3/c3-oss/prosa
+step=store	value=/Users/upsetbit/.local/share/prosa
+step=agents	value=claude-code,codex,cursor,gemini
+step=server	value=https://prosa.c3.do
+step=auth	status=cached
+step=scheduler	status=installed	kind=LaunchAgent	interval=15m0s
+step=first_scan	status=skipped
+status	ready
+```
+
+`prosa login` plain mode keeps the auth handshake intermediate
+states explicit:
 
 ```text
 device	laptop
 server	https://prosa.c3.do
 auth_url	https://prosa.c3.do/device?code=E20B-61C9
+user_code	E20B-61C9
 status	waiting_for_approval
+status	approved
 ```
 
 ## 8. Empty States And Errors
