@@ -18,6 +18,7 @@ import (
 	"github.com/c3-oss/prosa/internal/importers/codex"
 	"github.com/c3-oss/prosa/internal/importers/cursor"
 	"github.com/c3-oss/prosa/internal/importers/gemini"
+	"github.com/c3-oss/prosa/internal/importers/hermes"
 	"github.com/c3-oss/prosa/internal/legacy"
 	"github.com/c3-oss/prosa/internal/paths"
 	"github.com/c3-oss/prosa/internal/projectid"
@@ -36,7 +37,8 @@ func newSyncCmd() *cobra.Command {
 		Use:   "sync",
 		Short: "Scan registered agents and import new sessions into the local store",
 		Long: "Walks every live importer root (~/.claude/projects, ~/.codex/sessions, " +
-			"~/.gemini/tmp) and imports new sessions into the local SQLite store. " +
+			"~/.cursor/chats, ~/.gemini/tmp, ~/.hermes/sessions) and imports new " +
+			"sessions into the local SQLite store. " +
 			"Pass --legacy-bundle <path> to additionally re-ingest a legacy prosa " +
 			"bundle (typically ~/.prosa) — useful as a one-shot rescue when the " +
 			"legacy catalog still has source files that the live tools have since " +
@@ -73,6 +75,8 @@ func importerByLegacyTool(tool string) importer.Importer {
 		return cursor.New()
 	case "gemini":
 		return gemini.New()
+	case "hermes":
+		return hermes.New()
 	}
 	return nil
 }
@@ -129,6 +133,7 @@ func runSync(cmd *cobra.Command, _ []string) error {
 		codex.New(),
 		cursor.New(),
 		gemini.New(),
+		hermes.New(),
 	}
 
 	var (
