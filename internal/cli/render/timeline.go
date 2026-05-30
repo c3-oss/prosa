@@ -15,16 +15,6 @@ import (
 	"github.com/c3-oss/prosa/pkg/session"
 )
 
-var (
-	styleTime    = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
-	styleDur     = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
-	styleDevice  = lipgloss.NewStyle().Foreground(lipgloss.Color("51"))
-	styleAgent   = lipgloss.NewStyle().Foreground(lipgloss.Color("220"))
-	styleProject = lipgloss.NewStyle().Foreground(lipgloss.Color("46"))
-	styleActive  = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true)
-	styleDayHdr  = lipgloss.NewStyle().Bold(true).Underline(true)
-)
-
 const promptMaxRunes = 60
 
 // Timeline writes sessions to w grouped by day with Lipgloss colors when
@@ -41,7 +31,7 @@ func Timeline(w io.Writer, sessions []session.Session, now time.Time, interactiv
 			if lastHeader != "" {
 				fmt.Fprintln(w)
 			}
-			fmt.Fprintln(w, styleDayHdr.Render(hdr))
+			fmt.Fprintln(w, StyleHeader.Render(hdr))
 			lastHeader = hdr
 		}
 		renderSessionTTY(w, s, now)
@@ -55,7 +45,7 @@ func renderSessionTTY(w io.Writer, s session.Session, now time.Time) {
 
 	activeMark := " "
 	if IsActive(s.LastActivityAt, now) {
-		activeMark = styleActive.Render("*")
+		activeMark = StyleActive.Render("*")
 	}
 
 	project := "-"
@@ -69,15 +59,15 @@ func renderSessionTTY(w io.Writer, s session.Session, now time.Time) {
 
 	fmt.Fprintf(
 		w, "  %s%s  %s  %s  %s  %q\n",
-		styleTime.Render(timeStr),
+		StyleMuted.Render(timeStr),
 		activeMark,
-		styleDevice.Render(padRight(s.DeviceID, 8)),
-		styleAgent.Render(padRight(s.Agent, 12)),
-		styleProject.Render(padRight(project, 14)),
+		StyleDevice.Render(padRight(s.DeviceID, 8)),
+		StyleAgent.Render(padRight(s.Agent, 12)),
+		StyleProject.Render(padRight(project, 14)),
 		first,
 	)
 	dur := s.LastActivityAt.Sub(s.StartedAt)
-	fmt.Fprintf(w, "         %s\n", styleDur.Render("⤷ "+humanDuration(dur)))
+	fmt.Fprintf(w, "         %s\n", StyleMuted.Render("⤷ "+humanDuration(dur)))
 }
 
 func timelinePlain(w io.Writer, sessions []session.Session) error {

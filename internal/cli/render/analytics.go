@@ -10,14 +10,8 @@ import (
 	"github.com/c3-oss/prosa/internal/store"
 )
 
-var (
-	styleAnalyticsHeader  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("245"))
-	styleAnalyticsValue   = lipgloss.NewStyle().Foreground(lipgloss.Color("250"))
-	styleAnalyticsNumeric = lipgloss.NewStyle().Foreground(lipgloss.Color("51"))
-)
-
 // Analytics writes the result as a fixed-width table. In TTY mode the
-// header is bold/dim, numeric columns are cyan; out of TTY the same
+// header is bold/dim, numeric columns use a soft accent; out of TTY the same
 // data is tab-separated with no styling so shell pipelines parse it
 // trivially.
 func Analytics(w io.Writer, r store.AnalyticsResult, interactive bool) error {
@@ -50,7 +44,7 @@ func analyticsTTY(w io.Writer, r store.AnalyticsResult) error {
 		if i > 0 {
 			fmt.Fprint(w, "  ")
 		}
-		fmt.Fprint(w, styleAnalyticsHeader.Render(padRight(h, widths[i])))
+		fmt.Fprint(w, StyleHeader.Foreground(ColorMuted).Render(padRight(h, widths[i])))
 	}
 	fmt.Fprintln(w)
 
@@ -62,9 +56,9 @@ func analyticsTTY(w io.Writer, r store.AnalyticsResult) error {
 			}
 			s := padRight(toString(v), widths[i])
 			if isNumericCol(r.Headers[i]) {
-				fmt.Fprint(w, styleAnalyticsNumeric.Render(s))
+				fmt.Fprint(w, StyleAccent.Render(s))
 			} else {
-				fmt.Fprint(w, styleAnalyticsValue.Render(s))
+				fmt.Fprint(w, s)
 			}
 		}
 		fmt.Fprintln(w)

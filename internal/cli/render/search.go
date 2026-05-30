@@ -6,8 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/lipgloss"
-
 	"github.com/c3-oss/prosa/internal/store"
 )
 
@@ -16,12 +14,8 @@ const (
 	snippetMarkEnd   = "»"
 )
 
-var styleMatch = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true)
-
 // SearchHits prints one block per hit: a session header line followed by
-// a snippet sub-line with the matched terms highlighted (Lipgloss bold
-// red in TTY; plain `«»` markers otherwise so users searching for the
-// markers themselves still see what matched).
+// a snippet sub-line with the matched terms highlighted.
 func SearchHits(w io.Writer, hits []store.SearchHit, now time.Time, interactive bool) error {
 	for _, h := range hits {
 		startLocal := h.Session.StartedAt.Local()
@@ -42,15 +36,15 @@ func SearchHits(w io.Writer, hits []store.SearchHit, now time.Time, interactive 
 
 		if interactive {
 			fmt.Fprintf(w, "  %s  %s  %s  %s  %q\n",
-				styleTime.Render(date),
-				styleDevice.Render(padRight(h.Session.DeviceID, 8)),
-				styleAgent.Render(padRight(h.Session.Agent, 12)),
-				styleProject.Render(padRight(project, 14)),
+				StyleMuted.Render(date),
+				StyleDevice.Render(padRight(h.Session.DeviceID, 8)),
+				StyleAgent.Render(padRight(h.Session.Agent, 12)),
+				StyleProject.Render(padRight(project, 14)),
 				first,
 			)
 			fmt.Fprintf(w, "       %s %s: %s\n",
-				styleDur.Render("⤷"),
-				styleAgent.Render(h.Role),
+				StyleMuted.Render("⤷"),
+				StyleAgent.Render(h.Role),
 				highlightSnippet(h.Snippet),
 			)
 		} else {
@@ -86,7 +80,7 @@ func highlightSnippet(s string) string {
 		}
 		b.WriteString(rest[:i])
 		match := rest[i+len(snippetMarkStart) : i+len(snippetMarkStart)+j]
-		b.WriteString(styleMatch.Render(match))
+		b.WriteString(StyleMatch.Render(match))
 		rest = rest[i+len(snippetMarkStart)+j+len(snippetMarkEnd):]
 	}
 }

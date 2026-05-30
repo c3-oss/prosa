@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 
 	prosav1 "github.com/c3-oss/prosa/gen/go/prosa/v1"
+	"github.com/c3-oss/prosa/internal/cli/render"
 	"github.com/c3-oss/prosa/internal/cli/rpc"
 	"github.com/c3-oss/prosa/internal/device"
 )
@@ -47,9 +47,9 @@ func newLogoutCmd() *cobra.Command {
 }
 
 var (
-	styleUserCode = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("220"))
-	styleURL      = lipgloss.NewStyle().Foreground(lipgloss.Color("51"))
-	styleSubtle   = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+	styleUserCode = render.StyleHeader.Foreground(render.ColorAgent)
+	styleURL      = render.StyleAccent
+	styleSubtle   = render.StyleMuted
 )
 
 func runLogin(cmd *cobra.Command, _ []string) error {
@@ -108,7 +108,7 @@ func runLogin(cmd *cobra.Command, _ []string) error {
 			}
 			fmt.Fprintln(os.Stdout)
 			fmt.Fprintf(os.Stdout, "  %s logged in as %s\n",
-				lipgloss.NewStyle().Foreground(lipgloss.Color("46")).Render("✓"),
+				render.StyleSuccess.Render("✓"),
 				device.Hostname())
 			return nil
 		case prosav1.PollLoginResponse_STATE_DENIED:

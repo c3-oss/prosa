@@ -10,10 +10,10 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 
 	prosav1 "github.com/c3-oss/prosa/gen/go/prosa/v1"
+	"github.com/c3-oss/prosa/internal/cli/render"
 	"github.com/c3-oss/prosa/internal/cli/rpc"
 )
 
@@ -133,9 +133,9 @@ type devicesClient interface {
 }
 
 var (
-	devHdrStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("245"))
-	devCellRev  = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
-	devCellOK   = lipgloss.NewStyle().Foreground(lipgloss.Color("46"))
+	devHdrStyle = render.StyleHeader.Foreground(render.ColorMuted)
+	devCellRev  = render.StyleError
+	devCellOK   = render.StyleSuccess
 )
 
 func renderDeviceTable(w *os.File, devices []*prosav1.Device, interactive bool) error {

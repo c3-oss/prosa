@@ -26,7 +26,8 @@ import (
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+
+	"github.com/c3-oss/prosa/internal/cli/render"
 )
 
 // Item describes one session about to be imported. Index in the slice
@@ -132,16 +133,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 var (
-	styleHeader   = lipgloss.NewStyle().Bold(true)
-	styleBanner   = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
-	styleSep      = lipgloss.NewStyle().Foreground(lipgloss.Color("238"))
-	styleSpin     = lipgloss.NewStyle().Foreground(lipgloss.Color("220"))
-	styleDone     = lipgloss.NewStyle().Foreground(lipgloss.Color("46"))
-	styleSkip     = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
-	styleErr      = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
-	styleAgent    = lipgloss.NewStyle().Foreground(lipgloss.Color("220"))
-	styleProgress = lipgloss.NewStyle().Foreground(lipgloss.Color("51"))
-	styleTime     = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+	styleHeader   = render.StyleHeader
+	styleBanner   = render.StyleMuted
+	styleSep      = render.StyleRail
+	styleSpin     = render.StyleAccent
+	styleDone     = render.StyleSuccess
+	styleSkip     = render.StyleSkipped
+	styleErr      = render.StyleError
+	styleAgent    = render.StyleAgent
+	styleProgress = render.StyleAccent
+	styleTime     = render.StyleMuted
 )
 
 const pathMax = 70
