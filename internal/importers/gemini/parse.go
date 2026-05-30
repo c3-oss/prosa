@@ -36,11 +36,21 @@ type message struct {
 	Content   json.RawMessage `json:"content"` // legacy: string or array
 	Message   string          `json:"message"` // live: plain string body
 	Model     string          `json:"model"`
+	Tokens    *geminiTokens   `json:"tokens"`
 	ToolCalls []toolCall      `json:"toolCalls"`
 }
 
 type toolCall struct {
 	Name string `json:"name"`
+}
+
+type geminiTokens struct {
+	Cached  int64 `json:"cached"`
+	Input   int64 `json:"input"`
+	Output  int64 `json:"output"`
+	Thought int64 `json:"thoughts"`
+	Tool    int64 `json:"tool"`
+	Total   int64 `json:"total"`
 }
 
 func hashAndSize(path string) (string, int64, error) {
@@ -138,11 +148,17 @@ func projectEnvelope(ctx context.Context, env envelope) (session.Session, []sess
 	var (
 		turns          []session.Turn
 		toolCounts     = map[string]int{}
+		usage          session.TokenUsage
+		usageSeen      = map[string]struct{}{}
+		usageSet       bool
 		firstPromptSet bool
 	)
-	for _, m := range env.Messages {
+	for i, m := range env.Messages {
 		if err := ctx.Err(); err != nil {
 			return session.Session{}, nil, nil, err
+		}
+		if m.Type == "gemini" && collectGeminiUsage(m, i, usageSeen, &usage) {
+			usageSet = true
 		}
 		ts, _ := parseTimestamp(m.Timestamp)
 		if sess.StartedAt.IsZero() && !ts.IsZero() {
@@ -183,6 +199,9 @@ func projectEnvelope(ctx context.Context, env envelope) (session.Session, []sess
 	for name, count := range toolCounts {
 		tools = append(tools, session.ToolUsage{Name: name, Count: count})
 	}
+	if usageSet {
+		sess.Usage = &usage
+	}
 	return sess, turns, tools, nil
 }
 
@@ -214,12 +233,18 @@ func projectLiveArray(ctx context.Context, rows []message) (session.Session, []s
 	var (
 		sess           session.Session
 		turns          []session.Turn
+		usage          session.TokenUsage
+		usageSeen      = map[string]struct{}{}
+		usageSet       bool
 		firstPromptSet bool
 	)
 	sess.ID = bestID
-	for _, m := range groups[bestID] {
+	for i, m := range groups[bestID] {
 		if err := ctx.Err(); err != nil {
 			return session.Session{}, nil, nil, err
+		}
+		if m.Type == "gemini" && collectGeminiUsage(m, i, usageSeen, &usage) {
+			usageSet = true
 		}
 		ts, _ := parseTimestamp(m.Timestamp)
 		if sess.StartedAt.IsZero() || ts.Before(sess.StartedAt) {
@@ -253,7 +278,37 @@ func projectLiveArray(ctx context.Context, rows []message) (session.Session, []s
 		}
 		turns = append(turns, session.Turn{Role: role, Content: text, Timestamp: ts})
 	}
+	if usageSet {
+		sess.Usage = &usage
+	}
 	return sess, turns, nil, nil
+}
+
+func collectGeminiUsage(m message, idx int, seen map[string]struct{}, out *session.TokenUsage) bool {
+	if m.Tokens == nil {
+		return false
+	}
+	key := m.ID
+	if key == "" && m.MessageID != 0 {
+		key = fmt.Sprintf("message:%d", m.MessageID)
+	}
+	if key == "" {
+		key = fmt.Sprintf("index:%d", idx)
+	}
+	if _, ok := seen[key]; ok {
+		return false
+	}
+	seen[key] = struct{}{}
+	total := m.Tokens.Total
+	if total == 0 {
+		total = m.Tokens.Input + m.Tokens.Output + m.Tokens.Thought + m.Tokens.Tool
+	}
+	out.TotalTokens += total
+	out.InputTokens += m.Tokens.Input
+	out.OutputTokens += m.Tokens.Output
+	out.CachedTokens += m.Tokens.Cached
+	out.CacheReadTokens += m.Tokens.Cached
+	return true
 }
 
 func mapType(t string) string {

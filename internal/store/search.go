@@ -73,18 +73,22 @@ func (s *Store) Search(ctx context.Context, query string, f SessionFilter, limit
 		sqlLimit = 500
 	}
 
-	q := fmt.Sprintf(`
+	q := fmt.Sprintf(
+		`
 		SELECT s.id, s.agent, s.device_id, s.project_path,
 		       s.project_remote, s.project_marker,
 		       s.started_at, s.last_activity_at,
 		       s.first_prompt, s.model,
 		       s.raw_path, s.raw_hash, s.raw_size,
+		       su.session_id, su.total_tokens, su.input_tokens, su.output_tokens,
+		       su.cached_tokens, su.cache_read_tokens, su.cache_creation_tokens,
 		       t.role,
 		       snippet(turns_fts, 1, '%s', '%s', '…', 16) AS snippet,
 		       rank
 		FROM turns_fts
 		JOIN turns t ON t.id = turns_fts.rowid
-		JOIN sessions s ON s.id = t.session_id%s
+		JOIN sessions s ON s.id = t.session_id
+		LEFT JOIN session_usage su ON su.session_id = s.id%s
 		WHERE turns_fts MATCH ? AND %s
 		ORDER BY rank
 		LIMIT ?
@@ -111,6 +115,13 @@ func (s *Store) Search(ctx context.Context, query string, f SessionFilter, limit
 			projectMarker sql.NullString
 			firstPrompt   sql.NullString
 			model         sql.NullString
+			usageSession  sql.NullString
+			totalTokens   sql.NullInt64
+			inputTokens   sql.NullInt64
+			outputTokens  sql.NullInt64
+			cachedTokens  sql.NullInt64
+			cacheRead     sql.NullInt64
+			cacheCreate   sql.NullInt64
 			startedAt     string
 			lastAct       string
 			rank          float64
@@ -121,6 +132,8 @@ func (s *Store) Search(ctx context.Context, query string, f SessionFilter, limit
 			&startedAt, &lastAct,
 			&firstPrompt, &model,
 			&h.Session.RawPath, &h.Session.RawHash, &h.Session.RawSize,
+			&usageSession, &totalTokens, &inputTokens, &outputTokens,
+			&cachedTokens, &cacheRead, &cacheCreate,
 			&h.Role, &h.Snippet, &rank,
 		); err != nil {
 			return nil, err
@@ -155,6 +168,16 @@ func (s *Store) Search(ctx context.Context, query string, f SessionFilter, limit
 		}
 		if t, ok := parseTime(lastAct); ok {
 			h.Session.LastActivityAt = t
+		}
+		if usageSession.Valid {
+			h.Session.Usage = &session.TokenUsage{
+				TotalTokens:         totalTokens.Int64,
+				InputTokens:         inputTokens.Int64,
+				OutputTokens:        outputTokens.Int64,
+				CachedTokens:        cachedTokens.Int64,
+				CacheReadTokens:     cacheRead.Int64,
+				CacheCreationTokens: cacheCreate.Int64,
+			}
 		}
 		out = append(out, h)
 		if len(out) >= limit {

@@ -139,6 +139,21 @@ func writeFixtureEnvelope(t *testing.T, root string) string {
 			},
 		},
 		{
+			"type":      "event_msg",
+			"timestamp": base.Add(26 * time.Second).Format(time.RFC3339Nano),
+			"payload": map[string]any{
+				"type": "token_count",
+				"info": map[string]any{
+					"total_token_usage": map[string]any{
+						"input_tokens":        1000,
+						"cached_input_tokens": 250,
+						"output_tokens":       120,
+						"total_tokens":        1120,
+					},
+				},
+			},
+		},
+		{
 			"type":      "response_item",
 			"timestamp": base.Add(30 * time.Second).Format(time.RFC3339Nano),
 			"payload": map[string]any{
@@ -210,6 +225,11 @@ func TestImportEnvelopeSession(t *testing.T) {
 	require.Equal(t, "explain entanglement", *s.FirstPrompt)
 	require.NotNil(t, s.Model)
 	require.Equal(t, "gpt-5-codex", *s.Model)
+	require.NotNil(t, s.Usage)
+	require.Equal(t, int64(1120), s.Usage.TotalTokens)
+	require.Equal(t, int64(1000), s.Usage.InputTokens)
+	require.Equal(t, int64(120), s.Usage.OutputTokens)
+	require.Equal(t, int64(250), s.Usage.CachedTokens)
 	require.False(t, s.StartedAt.IsZero())
 	require.True(t, s.LastActivityAt.After(s.StartedAt))
 

@@ -168,8 +168,8 @@ func TestReconcileDivergentPushed(t *testing.T) {
 	// Server has s1 with a stale hash, s2 with the same hash.
 	fx.fake.manifestPages[""] = &prosav1.ManifestResponse{
 		Entries: []*prosav1.ManifestEntry{
-			{Id: "s1", RawHash: "stale", LastSyncedAt: timestamppb.Now()},
-			{Id: "s2", RawHash: "h-s2", LastSyncedAt: timestamppb.Now()},
+			{Id: "s1", RawHash: "stale", LastSyncedAt: timestamppb.Now(), ProjectionVersion: int32(session.ProjectionVersion)},
+			{Id: "s2", RawHash: "h-s2", LastSyncedAt: timestamppb.Now(), ProjectionVersion: int32(session.ProjectionVersion)},
 		},
 	}
 
@@ -193,8 +193,8 @@ func TestReconcileConverged(t *testing.T) {
 	// Server already has both with matching hashes → zero pushes.
 	fx.fake.manifestPages[""] = &prosav1.ManifestResponse{
 		Entries: []*prosav1.ManifestEntry{
-			{Id: "s1", RawHash: "h-s1", LastSyncedAt: timestamppb.Now()},
-			{Id: "s2", RawHash: "h-s2", LastSyncedAt: timestamppb.Now()},
+			{Id: "s1", RawHash: "h-s1", LastSyncedAt: timestamppb.Now(), ProjectionVersion: int32(session.ProjectionVersion)},
+			{Id: "s2", RawHash: "h-s2", LastSyncedAt: timestamppb.Now(), ProjectionVersion: int32(session.ProjectionVersion)},
 		},
 	}
 
@@ -235,14 +235,14 @@ func TestReconcilePaginatesManifest(t *testing.T) {
 	// page 2 with a divergent hash; s4 is absent entirely → should push.
 	fx.fake.manifestPages[""] = &prosav1.ManifestResponse{
 		Entries: []*prosav1.ManifestEntry{
-			{Id: "s1", RawHash: "h-s1", LastSyncedAt: timestamppb.Now()},
-			{Id: "s2", RawHash: "h-s2", LastSyncedAt: timestamppb.Now()},
+			{Id: "s1", RawHash: "h-s1", LastSyncedAt: timestamppb.Now(), ProjectionVersion: int32(session.ProjectionVersion)},
+			{Id: "s2", RawHash: "h-s2", LastSyncedAt: timestamppb.Now(), ProjectionVersion: int32(session.ProjectionVersion)},
 		},
 		NextAfterId: "s2",
 	}
 	fx.fake.manifestPages["s2"] = &prosav1.ManifestResponse{
 		Entries: []*prosav1.ManifestEntry{
-			{Id: "s3", RawHash: "stale", LastSyncedAt: timestamppb.Now()},
+			{Id: "s3", RawHash: "stale", LastSyncedAt: timestamppb.Now(), ProjectionVersion: int32(session.ProjectionVersion)},
 		},
 		// Empty NextAfterId — end of stream.
 	}

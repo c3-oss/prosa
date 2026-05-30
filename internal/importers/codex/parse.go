@@ -74,6 +74,24 @@ type contentBlock struct {
 	Text string `json:"text"`
 }
 
+type eventMsgPayload struct {
+	Type string          `json:"type"`
+	Info *tokenCountInfo `json:"info"`
+}
+
+type tokenCountInfo struct {
+	TotalTokenUsage *tokenUsageJSON `json:"total_token_usage"`
+	LastTokenUsage  *tokenUsageJSON `json:"last_token_usage"`
+}
+
+type tokenUsageJSON struct {
+	InputTokens          int64 `json:"input_tokens"`
+	OutputTokens         int64 `json:"output_tokens"`
+	TotalTokens          int64 `json:"total_tokens"`
+	CachedInputTokens    int64 `json:"cached_input_tokens"`
+	CacheReadInputTokens int64 `json:"cache_read_input_tokens"`
+}
+
 func hashAndSize(path string) (string, int64, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -140,6 +158,7 @@ func parseSession(ctx context.Context, path string) (session.Session, []session.
 		sess           session.Session
 		turns          []session.Turn
 		toolCounts     = map[string]int{}
+		bestUsage      *session.TokenUsage
 		sessIDSet      bool
 		cwdSet         bool
 		modelSet       bool
@@ -210,6 +229,14 @@ func parseSession(ctx context.Context, path string) (session.Session, []session.
 			}
 			handleResponseItem(p, r.Timestamp, &sess, &turns, &firstPromptSet, toolCounts)
 
+		case r.Type == "event_msg" && len(r.Payload) > 0:
+			if usage, ok := tokenUsageFromEvent(r.Payload); ok {
+				if bestUsage == nil || usage.TotalTokens >= bestUsage.TotalTokens {
+					u := usage
+					bestUsage = &u
+				}
+			}
+
 		case r.Type == "message":
 			// Legacy top-level message record.
 			handleLegacyMessage(r.Role, r.Content, r.Timestamp, &sess, &turns, &firstPromptSet)
@@ -235,7 +262,45 @@ func parseSession(ctx context.Context, path string) (session.Session, []session.
 	for name, count := range toolCounts {
 		tools = append(tools, session.ToolUsage{Name: name, Count: count})
 	}
+	if bestUsage != nil {
+		sess.Usage = bestUsage
+	}
 	return sess, turns, tools, nil
+}
+
+func tokenUsageFromEvent(raw json.RawMessage) (session.TokenUsage, bool) {
+	var p eventMsgPayload
+	if err := json.Unmarshal(raw, &p); err != nil || p.Type != "token_count" || p.Info == nil {
+		return session.TokenUsage{}, false
+	}
+	src := p.Info.TotalTokenUsage
+	if src == nil {
+		src = p.Info.LastTokenUsage
+	}
+	if src == nil {
+		return session.TokenUsage{}, false
+	}
+	cached := src.CachedInputTokens
+	if cached == 0 {
+		cached = src.CacheReadInputTokens
+	}
+	if cached > src.InputTokens {
+		cached = src.InputTokens
+	}
+	total := src.TotalTokens
+	if total == 0 {
+		total = src.InputTokens + src.OutputTokens
+	}
+	if total == 0 && src.InputTokens == 0 && src.OutputTokens == 0 && cached == 0 {
+		return session.TokenUsage{}, false
+	}
+	return session.TokenUsage{
+		TotalTokens:     total,
+		InputTokens:     src.InputTokens,
+		OutputTokens:    src.OutputTokens,
+		CachedTokens:    cached,
+		CacheReadTokens: cached,
+	}, true
 }
 
 func handleResponseItem(

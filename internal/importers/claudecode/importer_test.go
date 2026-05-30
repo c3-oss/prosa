@@ -82,11 +82,19 @@ func writeFixtureSmall(t *testing.T, dir string) string {
 		{
 			"type":      "assistant",
 			"sessionId": fixtureSessionID,
+			"requestId": "req-1",
 			"timestamp": base.Add(10 * time.Second).Format(time.RFC3339Nano),
 			"cwd":       "/Users/test/proj",
 			"message": map[string]any{
+				"id":    "msg-1",
 				"role":  "assistant",
 				"model": "claude-sonnet-4-6",
+				"usage": map[string]any{
+					"input_tokens":                100,
+					"output_tokens":               20,
+					"cache_read_input_tokens":     10,
+					"cache_creation_input_tokens": 5,
+				},
 				"content": []map[string]any{
 					{"type": "text", "text": "quantum entanglement is when particles share state"},
 					{"type": "tool_use", "id": "x1", "name": "Bash", "input": map[string]any{"command": "ls"}},
@@ -96,11 +104,19 @@ func writeFixtureSmall(t *testing.T, dir string) string {
 		{
 			"type":      "assistant",
 			"sessionId": fixtureSessionID,
+			"requestId": "req-1",
 			"timestamp": base.Add(20 * time.Second).Format(time.RFC3339Nano),
 			"cwd":       "/Users/test/proj",
 			"message": map[string]any{
+				"id":    "msg-1",
 				"role":  "assistant",
 				"model": "claude-sonnet-4-6",
+				"usage": map[string]any{
+					"input_tokens":                100,
+					"output_tokens":               20,
+					"cache_read_input_tokens":     10,
+					"cache_creation_input_tokens": 5,
+				},
 				"content": []map[string]any{
 					{"type": "tool_use", "id": "x2", "name": "Read", "input": map[string]any{"path": "/tmp/x"}},
 				},
@@ -174,6 +190,12 @@ func TestImportSmallSession(t *testing.T) {
 	require.Equal(t, "explain quantum entanglement", *s.FirstPrompt)
 	require.NotNil(t, s.Model)
 	require.Equal(t, "claude-sonnet-4-6", *s.Model)
+	require.NotNil(t, s.Usage)
+	require.Equal(t, int64(135), s.Usage.TotalTokens)
+	require.Equal(t, int64(115), s.Usage.InputTokens)
+	require.Equal(t, int64(20), s.Usage.OutputTokens)
+	require.Equal(t, int64(10), s.Usage.CachedTokens)
+	require.Equal(t, int64(5), s.Usage.CacheCreationTokens)
 	require.False(t, s.StartedAt.IsZero())
 	require.True(t, s.LastActivityAt.After(s.StartedAt))
 

@@ -61,6 +61,30 @@ type Session struct {
 
 	// RawSize is the byte size of the source file at import time.
 	RawSize int64
+
+	// Usage is the token consumption reported by the source agent, when
+	// available. Importers leave it nil when the raw transcript does not
+	// expose reliable usage counters.
+	Usage *TokenUsage
+}
+
+// ProjectionVersion identifies the current derived-data projection stored
+// alongside the preserved raw transcript. Bump this when importers learn new
+// canonical fields from the same raw bytes so sync can refresh old rows even
+// when raw_hash did not change.
+const ProjectionVersion = 2
+
+// TokenUsage is the canonical token aggregate for one session. InputTokens is
+// the provider-reported gross input count; CachedTokens is the public total of
+// reusable/cache-hit tokens. CacheReadTokens and CacheCreationTokens are split
+// for providers that price those dimensions differently.
+type TokenUsage struct {
+	TotalTokens         int64
+	InputTokens         int64
+	OutputTokens        int64
+	CachedTokens        int64
+	CacheReadTokens     int64
+	CacheCreationTokens int64
 }
 
 // Turn is a single user/assistant message body extracted from a session,

@@ -17,6 +17,7 @@ import (
 	"github.com/c3-oss/prosa/gen/go/prosa/v1/prosav1connect"
 	"github.com/c3-oss/prosa/internal/server/auth"
 	"github.com/c3-oss/prosa/internal/server/storage"
+	"github.com/c3-oss/prosa/pkg/session"
 )
 
 // SessionsHandler implements the SessionsService Connect interface.
@@ -53,12 +54,15 @@ func (h *SessionsHandler) Push(ctx context.Context, req *connect.Request[prosav1
 	sess.DeviceId = deviceID
 
 	// Idempotency short-circuit: same hash as what sync_state already has.
-	var lastHash string
+	var (
+		lastHash          string
+		projectionVersion int
+	)
 	err := h.Pool.QueryRow(
 		ctx,
-		`SELECT last_hash FROM sync_state WHERE session_id = $1`, sess.Id,
-	).Scan(&lastHash)
-	if err == nil && lastHash == sess.RawHash {
+		`SELECT last_hash, projection_version FROM sync_state WHERE session_id = $1`, sess.Id,
+	).Scan(&lastHash, &projectionVersion)
+	if err == nil && lastHash == sess.RawHash && projectionVersion >= session.ProjectionVersion {
 		return connect.NewResponse(&prosav1.PushResponse{Skipped: true}), nil
 	}
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
@@ -82,6 +86,9 @@ func (h *SessionsHandler) Push(ctx context.Context, req *connect.Request[prosav1
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	if err := upsertSession(ctx, tx, sess); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	if err := replaceSessionUsage(ctx, tx, sess.Id, sess.Usage); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	if err := replaceSessionTools(ctx, tx, sess.Id, req.Msg.Tools); err != nil {
@@ -164,8 +171,11 @@ func (h *SessionsHandler) List(ctx context.Context, req *connect.Request[prosav1
 	q := fmt.Sprintf(`
 		SELECT s.id, s.agent, s.device_id, s.project_path, s.project_remote, s.project_marker,
 		       s.started_at, s.last_activity_at, s.first_prompt, s.model,
-		       s.raw_uri, s.raw_hash, s.raw_size
-		FROM sessions s%s
+		       s.raw_uri, s.raw_hash, s.raw_size,
+		       su.session_id, su.total_tokens, su.input_tokens, su.output_tokens,
+		       su.cached_tokens, su.cache_read_tokens, su.cache_creation_tokens
+		FROM sessions s
+		LEFT JOIN session_usage su ON su.session_id = s.id%s
 		WHERE %s
 		ORDER BY s.started_at DESC
 		LIMIT $%d
@@ -203,8 +213,12 @@ func (h *SessionsHandler) Get(ctx context.Context, req *connect.Request[prosav1.
 	row := h.Pool.QueryRow(ctx, `
 		SELECT id, agent, device_id, project_path, project_remote, project_marker,
 		       started_at, last_activity_at, first_prompt, model,
-		       raw_uri, raw_hash, raw_size
-		FROM sessions WHERE id = $1
+		       raw_uri, raw_hash, raw_size,
+		       su.session_id, su.total_tokens, su.input_tokens, su.output_tokens,
+		       su.cached_tokens, su.cache_read_tokens, su.cache_creation_tokens
+		FROM sessions s
+		LEFT JOIN session_usage su ON su.session_id = s.id
+		WHERE s.id = $1
 	`, req.Msg.Id)
 	s, err := scanSessionRow(row)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -287,12 +301,15 @@ func (h *SessionsHandler) Search(ctx context.Context, req *connect.Request[prosa
 		       s.id, s.agent, s.device_id, s.project_path, s.project_remote, s.project_marker,
 		       s.started_at, s.last_activity_at, s.first_prompt, s.model,
 		       s.raw_uri, s.raw_hash, s.raw_size,
+		       su.session_id, su.total_tokens, su.input_tokens, su.output_tokens,
+		       su.cached_tokens, su.cache_read_tokens, su.cache_creation_tokens,
 		       t.role,
 		       ts_headline('simple', t.content,
 		                   plainto_tsquery('simple', $3),
 		                   'StartSel=«, StopSel=», MaxFragments=1, MaxWords=16, MinWords=3, ShortWord=2') AS snippet
 		FROM sessions s
-		JOIN turns t ON t.session_id = s.id%s
+		JOIN turns t ON t.session_id = s.id
+		LEFT JOIN session_usage su ON su.session_id = s.id%s
 		WHERE %s
 		ORDER BY s.id, ts_rank(t.content_tsv, plainto_tsquery('simple', $3)) DESC
 		LIMIT $%d
@@ -338,7 +355,7 @@ func (h *SessionsHandler) Manifest(ctx context.Context, req *connect.Request[pro
 
 	rows, err := h.Pool.Query(
 		ctx, `
-		SELECT s.id, ss.last_hash, ss.last_synced_at
+		SELECT s.id, ss.last_hash, ss.last_synced_at, ss.projection_version
 		FROM sessions s
 		JOIN sync_state ss ON ss.session_id = s.id
 		WHERE s.device_id = $1 AND s.id > $2
@@ -356,14 +373,16 @@ func (h *SessionsHandler) Manifest(ctx context.Context, req *connect.Request[pro
 		var (
 			id, hash string
 			synced   time.Time
+			version  int32
 		)
-		if err := rows.Scan(&id, &hash, &synced); err != nil {
+		if err := rows.Scan(&id, &hash, &synced, &version); err != nil {
 			return nil, connect.NewError(connect.CodeInternal, err)
 		}
 		out.Entries = append(out.Entries, &prosav1.ManifestEntry{
-			Id:           id,
-			RawHash:      hash,
-			LastSyncedAt: timestamppb.New(synced),
+			Id:                id,
+			RawHash:           hash,
+			LastSyncedAt:      timestamppb.New(synced),
+			ProjectionVersion: version,
 		})
 	}
 	if err := rows.Err(); err != nil {
@@ -398,6 +417,9 @@ func scanSessionRow(r scannable) (*prosav1.Session, error) {
 	var (
 		s                                                             prosav1.Session
 		projectPath, projectRemote, projectMarker, firstPrompt, model *string
+		usageSession                                                  *string
+		totalTokens, inputTokens, outputTokens                        *int64
+		cachedTokens, cacheReadTokens, cacheCreationTokens            *int64
 		started, lastAct                                              time.Time
 	)
 	if err := r.Scan(
@@ -406,6 +428,8 @@ func scanSessionRow(r scannable) (*prosav1.Session, error) {
 		&started, &lastAct,
 		&firstPrompt, &model,
 		&s.RawUri, &s.RawHash, &s.RawSize,
+		&usageSession, &totalTokens, &inputTokens, &outputTokens,
+		&cachedTokens, &cacheReadTokens, &cacheCreationTokens,
 	); err != nil {
 		return nil, err
 	}
@@ -426,6 +450,16 @@ func scanSessionRow(r scannable) (*prosav1.Session, error) {
 	}
 	s.StartedAt = timestamppb.New(started)
 	s.LastActivityAt = timestamppb.New(lastAct)
+	if usageSession != nil {
+		s.Usage = &prosav1.TokenUsage{
+			TotalTokens:         derefInt64(totalTokens),
+			InputTokens:         derefInt64(inputTokens),
+			OutputTokens:        derefInt64(outputTokens),
+			CachedTokens:        derefInt64(cachedTokens),
+			CacheReadTokens:     derefInt64(cacheReadTokens),
+			CacheCreationTokens: derefInt64(cacheCreationTokens),
+		}
+	}
 	return &s, nil
 }
 
@@ -433,6 +467,9 @@ func scanSearchHit(r scannable) (*prosav1.SearchHit, error) {
 	var (
 		s                                                             prosav1.Session
 		projectPath, projectRemote, projectMarker, firstPrompt, model *string
+		usageSession                                                  *string
+		totalTokens, inputTokens, outputTokens                        *int64
+		cachedTokens, cacheReadTokens, cacheCreationTokens            *int64
 		started, lastAct                                              time.Time
 		role, snippet                                                 string
 	)
@@ -442,6 +479,8 @@ func scanSearchHit(r scannable) (*prosav1.SearchHit, error) {
 		&started, &lastAct,
 		&firstPrompt, &model,
 		&s.RawUri, &s.RawHash, &s.RawSize,
+		&usageSession, &totalTokens, &inputTokens, &outputTokens,
+		&cachedTokens, &cacheReadTokens, &cacheCreationTokens,
 		&role, &snippet,
 	); err != nil {
 		return nil, err
@@ -463,6 +502,16 @@ func scanSearchHit(r scannable) (*prosav1.SearchHit, error) {
 	}
 	s.StartedAt = timestamppb.New(started)
 	s.LastActivityAt = timestamppb.New(lastAct)
+	if usageSession != nil {
+		s.Usage = &prosav1.TokenUsage{
+			TotalTokens:         derefInt64(totalTokens),
+			InputTokens:         derefInt64(inputTokens),
+			OutputTokens:        derefInt64(outputTokens),
+			CachedTokens:        derefInt64(cachedTokens),
+			CacheReadTokens:     derefInt64(cacheReadTokens),
+			CacheCreationTokens: derefInt64(cacheCreationTokens),
+		}
+	}
 	return &prosav1.SearchHit{Session: &s, Snippet: snippet, Role: role}, nil
 }
 
@@ -596,6 +645,36 @@ func replaceSessionTools(ctx context.Context, tx pgx.Tx, sessionID string, tools
 	return nil
 }
 
+func replaceSessionUsage(ctx context.Context, tx pgx.Tx, sessionID string, usage *prosav1.TokenUsage) error {
+	if usage == nil {
+		if _, err := tx.Exec(ctx, `DELETE FROM session_usage WHERE session_id = $1`, sessionID); err != nil {
+			return fmt.Errorf("clear session_usage: %w", err)
+		}
+		return nil
+	}
+	_, err := tx.Exec(
+		ctx, `
+		INSERT INTO session_usage (
+			session_id, total_tokens, input_tokens, output_tokens,
+			cached_tokens, cache_read_tokens, cache_creation_tokens
+		) VALUES ($1, $2, $3, $4, $5, $6, $7)
+		ON CONFLICT (session_id) DO UPDATE SET
+			total_tokens          = EXCLUDED.total_tokens,
+			input_tokens          = EXCLUDED.input_tokens,
+			output_tokens         = EXCLUDED.output_tokens,
+			cached_tokens         = EXCLUDED.cached_tokens,
+			cache_read_tokens     = EXCLUDED.cache_read_tokens,
+			cache_creation_tokens = EXCLUDED.cache_creation_tokens
+	`, sessionID,
+		usage.TotalTokens, usage.InputTokens, usage.OutputTokens,
+		usage.CachedTokens, usage.CacheReadTokens, usage.CacheCreationTokens,
+	)
+	if err != nil {
+		return fmt.Errorf("upsert session_usage: %w", err)
+	}
+	return nil
+}
+
 func replaceTurns(ctx context.Context, tx pgx.Tx, sessionID string, turns []*prosav1.Turn) error {
 	if _, err := tx.Exec(
 		ctx,
@@ -615,15 +694,23 @@ func replaceTurns(ctx context.Context, tx pgx.Tx, sessionID string, turns []*pro
 
 func recordSync(ctx context.Context, tx pgx.Tx, sessionID, hash string) error {
 	_, err := tx.Exec(ctx, `
-		INSERT INTO sync_state(session_id, last_hash, last_synced_at) VALUES ($1, $2, $3)
+		INSERT INTO sync_state(session_id, last_hash, last_synced_at, projection_version) VALUES ($1, $2, $3, $4)
 		ON CONFLICT (session_id) DO UPDATE SET
-			last_hash      = EXCLUDED.last_hash,
-			last_synced_at = EXCLUDED.last_synced_at
-	`, sessionID, hash, time.Now().UTC())
+			last_hash          = EXCLUDED.last_hash,
+			last_synced_at     = EXCLUDED.last_synced_at,
+			projection_version = EXCLUDED.projection_version
+	`, sessionID, hash, time.Now().UTC(), session.ProjectionVersion)
 	if err != nil {
 		return fmt.Errorf("record sync_state: %w", err)
 	}
 	return nil
+}
+
+func derefInt64(v *int64) int64 {
+	if v == nil {
+		return 0
+	}
+	return *v
 }
 
 func nullIfEmpty(s string) any {

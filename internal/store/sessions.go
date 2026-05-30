@@ -58,6 +58,30 @@ func (s *Store) UpsertSession(ctx context.Context, sess session.Session, tools [
 		return fmt.Errorf("clear session_tools %s: %w", sess.ID, err)
 	}
 
+	if sess.Usage == nil {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM session_usage WHERE session_id = ?`, sess.ID); err != nil {
+			return fmt.Errorf("clear session_usage %s: %w", sess.ID, err)
+		}
+	} else if _, err := tx.ExecContext(
+		ctx, `
+		INSERT INTO session_usage (
+			session_id, total_tokens, input_tokens, output_tokens,
+			cached_tokens, cache_read_tokens, cache_creation_tokens
+		) VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(session_id) DO UPDATE SET
+			total_tokens          = excluded.total_tokens,
+			input_tokens          = excluded.input_tokens,
+			output_tokens         = excluded.output_tokens,
+			cached_tokens         = excluded.cached_tokens,
+			cache_read_tokens     = excluded.cache_read_tokens,
+			cache_creation_tokens = excluded.cache_creation_tokens
+	`, sess.ID,
+		sess.Usage.TotalTokens, sess.Usage.InputTokens, sess.Usage.OutputTokens,
+		sess.Usage.CachedTokens, sess.Usage.CacheReadTokens, sess.Usage.CacheCreationTokens,
+	); err != nil {
+		return fmt.Errorf("upsert session_usage %s: %w", sess.ID, err)
+	}
+
 	if len(tools) > 0 {
 		stmt, err := tx.PrepareContext(ctx, `INSERT INTO session_tools(session_id, name, count) VALUES (?, ?, ?)`)
 		if err != nil {
@@ -140,8 +164,11 @@ func (s *Store) ListSessions(ctx context.Context, f SessionFilter) ([]session.Se
 		       s.project_remote, s.project_marker,
 		       s.started_at, s.last_activity_at,
 		       s.first_prompt, s.model,
-		       s.raw_path, s.raw_hash, s.raw_size
-		FROM sessions s` + join + `
+		       s.raw_path, s.raw_hash, s.raw_size,
+		       su.session_id, su.total_tokens, su.input_tokens, su.output_tokens,
+		       su.cached_tokens, su.cache_read_tokens, su.cache_creation_tokens
+		FROM sessions s
+		LEFT JOIN session_usage su ON su.session_id = s.id` + join + `
 		WHERE ` + strings.Join(conds, " AND ") + `
 		ORDER BY s.started_at DESC
 	`
@@ -214,8 +241,12 @@ func (s *Store) GetSession(ctx context.Context, id string) (session.Session, err
 		       project_remote, project_marker,
 		       started_at, last_activity_at,
 		       first_prompt, model,
-		       raw_path, raw_hash, raw_size
-		FROM sessions WHERE id = ?
+		       raw_path, raw_hash, raw_size,
+		       su.session_id, su.total_tokens, su.input_tokens, su.output_tokens,
+		       su.cached_tokens, su.cache_read_tokens, su.cache_creation_tokens
+		FROM sessions s
+		LEFT JOIN session_usage su ON su.session_id = s.id
+		WHERE s.id = ?
 	`, id)
 	if err != nil {
 		return session.Session{}, err
@@ -342,6 +373,13 @@ func scanSessions(rows *sql.Rows) ([]session.Session, error) {
 			projectMarker sql.NullString
 			firstPrompt   sql.NullString
 			model         sql.NullString
+			usageSession  sql.NullString
+			totalTokens   sql.NullInt64
+			inputTokens   sql.NullInt64
+			outputTokens  sql.NullInt64
+			cachedTokens  sql.NullInt64
+			cacheRead     sql.NullInt64
+			cacheCreate   sql.NullInt64
 			startedAt     string
 			lastAct       string
 		)
@@ -351,6 +389,8 @@ func scanSessions(rows *sql.Rows) ([]session.Session, error) {
 			&startedAt, &lastAct,
 			&firstPrompt, &model,
 			&sess.RawPath, &sess.RawHash, &sess.RawSize,
+			&usageSession, &totalTokens, &inputTokens, &outputTokens,
+			&cachedTokens, &cacheRead, &cacheCreate,
 		); err != nil {
 			return nil, err
 		}
@@ -379,6 +419,16 @@ func scanSessions(rows *sql.Rows) ([]session.Session, error) {
 		}
 		if t, ok := parseTime(lastAct); ok {
 			sess.LastActivityAt = t
+		}
+		if usageSession.Valid {
+			sess.Usage = &session.TokenUsage{
+				TotalTokens:         totalTokens.Int64,
+				InputTokens:         inputTokens.Int64,
+				OutputTokens:        outputTokens.Int64,
+				CachedTokens:        cachedTokens.Int64,
+				CacheReadTokens:     cacheRead.Int64,
+				CacheCreationTokens: cacheCreate.Int64,
+			}
 		}
 		out = append(out, sess)
 	}

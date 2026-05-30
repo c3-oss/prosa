@@ -10,6 +10,7 @@ import (
 
 	prosav1 "github.com/c3-oss/prosa/gen/go/prosa/v1"
 	"github.com/c3-oss/prosa/internal/cli/rpc"
+	"github.com/c3-oss/prosa/pkg/session"
 )
 
 // reconcileCounts aggregates the catch-up phase results.
@@ -56,7 +57,8 @@ func reconcileWithServer(
 	var work []string
 	for _, row := range local {
 		remote, ok := serverHas[row.ID]
-		if !ok || remote != row.RawHash {
+		staleProjection := ok && remote.ProjectionVersion < session.ProjectionVersion
+		if !ok || remote.RawHash != row.RawHash || staleProjection {
 			work = append(work, row.ID)
 		}
 	}
@@ -95,8 +97,13 @@ func reconcileWithServer(
 // fetchServerManifest pages the server's Manifest RPC until exhausted,
 // returning a map of session_id → raw_hash. Page size 1000 keeps the
 // hop count low for typical devices (≤ 3 round-trips at 2 800 sessions).
-func fetchServerManifest(ctx context.Context, push *pusher) (map[string]string, error) {
-	out := map[string]string{}
+type serverManifestRow struct {
+	RawHash           string
+	ProjectionVersion int
+}
+
+func fetchServerManifest(ctx context.Context, push *pusher) (map[string]serverManifestRow, error) {
+	out := map[string]serverManifestRow{}
 	after := ""
 	for {
 		if ctx.Err() != nil {
@@ -110,7 +117,10 @@ func fetchServerManifest(ctx context.Context, push *pusher) (map[string]string, 
 			return nil, fmt.Errorf("manifest rpc: %s", rpc.ConnectError(err))
 		}
 		for _, e := range resp.Msg.Entries {
-			out[e.Id] = e.RawHash
+			out[e.Id] = serverManifestRow{
+				RawHash:           e.RawHash,
+				ProjectionVersion: int(e.ProjectionVersion),
+			}
 		}
 		if resp.Msg.NextAfterId == "" {
 			return out, nil

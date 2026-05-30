@@ -118,6 +118,16 @@ func sessionToProto(s session.Session) *prosav1.Session {
 	if s.Model != nil {
 		out.Model = *s.Model
 	}
+	if s.Usage != nil {
+		out.Usage = &prosav1.TokenUsage{
+			TotalTokens:         s.Usage.TotalTokens,
+			InputTokens:         s.Usage.InputTokens,
+			OutputTokens:        s.Usage.OutputTokens,
+			CachedTokens:        s.Usage.CachedTokens,
+			CacheReadTokens:     s.Usage.CacheReadTokens,
+			CacheCreationTokens: s.Usage.CacheCreationTokens,
+		}
+	}
 	return out
 }
 

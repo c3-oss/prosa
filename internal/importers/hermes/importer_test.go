@@ -146,12 +146,14 @@ CREATE TABLE messages (
 	for _, r := range rows {
 		_, err = db.Exec(
 			`INSERT INTO sessions(id, source, model, started_at, message_count) VALUES (?, ?, ?, ?, ?)`,
-			r.id, "cli", r.model, r.startedAt, len(r.messages))
+			r.id, "cli", r.model, r.startedAt, len(r.messages),
+		)
 		require.NoError(t, err)
 		for _, m := range r.messages {
 			_, err = db.Exec(
 				`INSERT INTO messages(session_id, role, content, tool_calls, timestamp) VALUES (?, ?, ?, ?, ?)`,
-				r.id, m.role, m.content, m.toolCalls, m.timestamp)
+				r.id, m.role, m.content, m.toolCalls, m.timestamp,
+			)
 			require.NoError(t, err)
 		}
 	}
@@ -207,15 +209,17 @@ func TestImportJSONL(t *testing.T) {
 	base := time.Date(2026, 3, 14, 12, 0, 0, 0, time.UTC)
 	writeJSONLFixture(t, src, []map[string]any{
 		{
-			"role":      "user",
-			"content":   "explain quantum entanglement",
-			"timestamp": float64(base.Unix()),
+			"role":        "user",
+			"content":     "explain quantum entanglement",
+			"timestamp":   float64(base.Unix()),
+			"token_count": 5,
 		},
 		{
-			"role":      "assistant",
-			"content":   "two particles share state",
-			"timestamp": float64(base.Add(10 * time.Second).Unix()),
-			"model":     "claude-sonnet-4-6",
+			"role":        "assistant",
+			"content":     "two particles share state",
+			"timestamp":   float64(base.Add(10 * time.Second).Unix()),
+			"model":       "claude-sonnet-4-6",
+			"token_count": 17,
 			"tool_calls": []map[string]any{
 				{"name": "Read"},
 				{"name": "Bash"},
@@ -243,6 +247,8 @@ func TestImportJSONL(t *testing.T) {
 	require.Equal(t, "explain quantum entanglement", *s.FirstPrompt)
 	require.NotNil(t, s.Model)
 	require.Equal(t, "claude-sonnet-4-6", *s.Model)
+	require.NotNil(t, s.Usage)
+	require.Equal(t, int64(22), s.Usage.TotalTokens)
 	require.Equal(t, 2026, s.StartedAt.Year())
 	require.Equal(t, time.March, s.StartedAt.Month())
 	require.True(t, s.LastActivityAt.After(s.StartedAt))
@@ -286,8 +292,10 @@ func TestImportSnapshot(t *testing.T) {
 		"system_prompt": "you are helpful",
 		"messages": []map[string]any{
 			{"role": "user", "content": "hello world"},
-			{"role": "assistant", "content": "hi there",
-				"tool_calls": []map[string]any{{"name": "Edit"}}},
+			{
+				"role": "assistant", "content": "hi there",
+				"tool_calls": []map[string]any{{"name": "Edit"}},
+			},
 		},
 	})
 
@@ -342,9 +350,11 @@ func TestImportStateDB(t *testing.T) {
 			startedAt: float64(base.Unix()),
 			messages: []hermesStateMessage{
 				{role: "user", content: "first prompt one", timestamp: float64(base.Unix())},
-				{role: "assistant", content: "answer one",
+				{
+					role: "assistant", content: "answer one",
 					timestamp: float64(base.Add(5 * time.Second).Unix()),
-					toolCalls: `[{"name":"Read"}]`},
+					toolCalls: `[{"name":"Read"}]`,
+				},
 			},
 		},
 		{
@@ -353,8 +363,10 @@ func TestImportStateDB(t *testing.T) {
 			startedAt: float64(base.Add(time.Hour).Unix()),
 			messages: []hermesStateMessage{
 				{role: "user", content: "second prompt", timestamp: float64(base.Add(time.Hour).Unix())},
-				{role: "assistant", content: "second answer",
-					timestamp: float64(base.Add(time.Hour + 5*time.Second).Unix())},
+				{
+					role: "assistant", content: "second answer",
+					timestamp: float64(base.Add(time.Hour + 5*time.Second).Unix()),
+				},
 			},
 		},
 	}
@@ -417,11 +429,15 @@ func TestStateDBMergeYieldsToTranscript(t *testing.T) {
 	jsonlPath := filepath.Join(sessionsDir, "S.jsonl")
 	writeJSONLFixture(t, jsonlPath, []map[string]any{
 		{"role": "user", "content": "richer first prompt", "timestamp": float64(base.Unix())},
-		{"role": "assistant", "content": "richer reply",
+		{
+			"role": "assistant", "content": "richer reply",
 			"timestamp": float64(base.Add(5 * time.Second).Unix()),
-			"model":     "claude-sonnet-4-6"},
-		{"role": "user", "content": "follow-up",
-			"timestamp": float64(base.Add(10 * time.Second).Unix())},
+			"model":     "claude-sonnet-4-6",
+		},
+		{
+			"role": "user", "content": "follow-up",
+			"timestamp": float64(base.Add(10 * time.Second).Unix()),
+		},
 	})
 
 	sink := newSink()

@@ -31,12 +31,13 @@ const (
 // `messages[]` entries, and state.db `messages` rows. Fields absent in a
 // given shape stay zero-valued.
 type hermesMessage struct {
-	Role      string          `json:"role"`
-	Content   json.RawMessage `json:"content"`
-	Timestamp json.RawMessage `json:"timestamp"` // float seconds or ISO string
-	Model     string          `json:"model"`
-	SessionID string          `json:"session_id"`
-	ToolCalls json.RawMessage `json:"tool_calls"`
+	Role       string          `json:"role"`
+	Content    json.RawMessage `json:"content"`
+	Timestamp  json.RawMessage `json:"timestamp"` // float seconds or ISO string
+	Model      string          `json:"model"`
+	SessionID  string          `json:"session_id"`
+	ToolCalls  json.RawMessage `json:"tool_calls"`
+	TokenCount *int64          `json:"token_count"`
 }
 
 // snapshotEnvelope is the session_<id>.json shape.
@@ -163,6 +164,8 @@ func projectMessagesWithDefaults(msgs []hermesMessage, envStart, envEnd time.Tim
 		sess           session.Session
 		turns          []session.Turn
 		toolCounts     = map[string]int{}
+		tokenTotal     int64
+		tokenSet       bool
 		firstPromptSet bool
 	)
 	if !envStart.IsZero() {
@@ -173,6 +176,10 @@ func projectMessagesWithDefaults(msgs []hermesMessage, envStart, envEnd time.Tim
 	}
 
 	for _, m := range msgs {
+		if m.TokenCount != nil {
+			tokenTotal += *m.TokenCount
+			tokenSet = true
+		}
 		ts := messageTime(m.Timestamp)
 		if !ts.IsZero() {
 			if sess.StartedAt.IsZero() || ts.Before(sess.StartedAt) {
@@ -218,6 +225,9 @@ func projectMessagesWithDefaults(msgs []hermesMessage, envStart, envEnd time.Tim
 	tools := make([]session.ToolUsage, 0, len(toolCounts))
 	for name, count := range toolCounts {
 		tools = append(tools, session.ToolUsage{Name: name, Count: count})
+	}
+	if tokenSet {
+		sess.Usage = &session.TokenUsage{TotalTokens: tokenTotal}
 	}
 	return sess, turns, tools
 }
@@ -373,9 +383,15 @@ func projectStateDBSession(ctx context.Context, path string, row stateDBRow) (se
 	}
 	defer func() { _ = db.Close() }()
 
-	rows, err := db.QueryContext(ctx,
-		`SELECT role, content, tool_calls, timestamp FROM messages WHERE session_id = ? ORDER BY id`,
-		row.id)
+	hasTokenCount, err := tableHasColumn(ctx, db, "messages", "token_count")
+	if err != nil {
+		return session.Session{}, nil, nil, err
+	}
+	query := `SELECT role, content, tool_calls, timestamp FROM messages WHERE session_id = ? ORDER BY id`
+	if hasTokenCount {
+		query = `SELECT role, content, tool_calls, timestamp, token_count FROM messages WHERE session_id = ? ORDER BY id`
+	}
+	rows, err := db.QueryContext(ctx, query, row.id)
 	if err != nil {
 		return session.Session{}, nil, nil, fmt.Errorf("query messages: %w", err)
 	}
@@ -390,12 +406,22 @@ func projectStateDBSession(ctx context.Context, path string, row stateDBRow) (se
 			role      sql.NullString
 			content   sql.NullString
 			toolCalls sql.NullString
+			token     sql.NullInt64
 			ts        any
 		)
-		if err := rows.Scan(&role, &content, &toolCalls, &ts); err != nil {
+		if hasTokenCount {
+			err = rows.Scan(&role, &content, &toolCalls, &ts, &token)
+		} else {
+			err = rows.Scan(&role, &content, &toolCalls, &ts)
+		}
+		if err != nil {
 			return session.Session{}, nil, nil, fmt.Errorf("scan message: %w", err)
 		}
 		m := hermesMessage{Role: role.String}
+		if token.Valid {
+			v := token.Int64
+			m.TokenCount = &v
+		}
 		if content.Valid {
 			m.Content = json.RawMessage(rawStringToJSON(content.String))
 		}
@@ -436,6 +462,31 @@ func projectStateDBSession(ctx context.Context, path string, row stateDBRow) (se
 	sess, turns, tools := projectMessagesWithDefaults(msgs, envStart, time.Time{}, envModel)
 	sess.ID = row.id
 	return sess, turns, tools, nil
+}
+
+func tableHasColumn(ctx context.Context, db *sql.DB, table, column string) (bool, error) {
+	rows, err := db.QueryContext(ctx, "PRAGMA table_info("+table+")")
+	if err != nil {
+		return false, fmt.Errorf("inspect %s schema: %w", table, err)
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var (
+			cid     int
+			name    string
+			ctype   string
+			notNull int
+			dflt    any
+			pk      int
+		)
+		if err := rows.Scan(&cid, &name, &ctype, &notNull, &dflt, &pk); err != nil {
+			return false, err
+		}
+		if name == column {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
 }
 
 // rawStringToJSON wraps an arbitrary content string as a JSON string so

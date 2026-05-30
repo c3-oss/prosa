@@ -40,6 +40,8 @@ const (
 type rawRecord struct {
 	Type        string          `json:"type"`
 	SessionID   string          `json:"sessionId"`
+	UUID        string          `json:"uuid"`
+	RequestID   string          `json:"requestId"`
 	Timestamp   string          `json:"timestamp"`
 	CWD         string          `json:"cwd"`
 	IsSidechain bool            `json:"isSidechain"`
@@ -49,14 +51,29 @@ type rawRecord struct {
 
 type rawMessage struct {
 	Role    string          `json:"role"`
+	ID      string          `json:"id"`
 	Model   string          `json:"model"`
 	Content json.RawMessage `json:"content"`
+	Usage   *claudeUsage    `json:"usage"`
 }
 
 type rawContentBlock struct {
 	Type string `json:"type"`
 	Text string `json:"text"`
 	Name string `json:"name"`
+}
+
+type claudeUsage struct {
+	InputTokens              int64                    `json:"input_tokens"`
+	OutputTokens             int64                    `json:"output_tokens"`
+	CacheReadInputTokens     int64                    `json:"cache_read_input_tokens"`
+	CacheCreationInputTokens int64                    `json:"cache_creation_input_tokens"`
+	CacheCreation            claudeCacheCreationUsage `json:"cache_creation"`
+}
+
+type claudeCacheCreationUsage struct {
+	Ephemeral5mInputTokens int64 `json:"ephemeral_5m_input_tokens"`
+	Ephemeral1hInputTokens int64 `json:"ephemeral_1h_input_tokens"`
 }
 
 func hashAndSize(path string) (string, int64, error) {
@@ -118,6 +135,7 @@ func parseSession(ctx context.Context, path string) (session.Session, []session.
 		sess           session.Session
 		turns          []session.Turn
 		toolCounts     = map[string]int{}
+		usageByKey     = map[string]claudeUsage{}
 		sessIDSet      bool
 		cwdSet         bool
 		modelSet       bool
@@ -183,6 +201,7 @@ func parseSession(ctx context.Context, path string) (session.Session, []session.
 			}
 
 		case "assistant":
+			collectUsage(r, line, usageByKey)
 			text := extractAssistantText(r.Message)
 			if text != "" {
 				ts, _ := parseTimestamp(r.Timestamp)
@@ -216,7 +235,65 @@ func parseSession(ctx context.Context, path string) (session.Session, []session.
 	for name, count := range toolCounts {
 		tools = append(tools, session.ToolUsage{Name: name, Count: count})
 	}
+	if usage := buildClaudeUsage(usageByKey); usage != nil {
+		sess.Usage = usage
+	}
 	return sess, turns, tools, nil
+}
+
+func collectUsage(r rawRecord, line int, usageByKey map[string]claudeUsage) {
+	if len(r.Message) == 0 {
+		return
+	}
+	var m rawMessage
+	if err := json.Unmarshal(r.Message, &m); err != nil || m.Usage == nil {
+		return
+	}
+	key := r.RequestID
+	if key == "" {
+		key = m.ID
+	}
+	if key == "" {
+		key = r.UUID
+	}
+	if key == "" {
+		key = fmt.Sprintf("line:%d", line)
+	}
+	if prev, ok := usageByKey[key]; !ok || canonicalClaudeUsage(*m.Usage) >= canonicalClaudeUsage(prev) {
+		usageByKey[key] = *m.Usage
+	}
+}
+
+func buildClaudeUsage(usageByKey map[string]claudeUsage) *session.TokenUsage {
+	if len(usageByKey) == 0 {
+		return nil
+	}
+	var out session.TokenUsage
+	for _, u := range usageByKey {
+		cacheCreation := u.cacheCreationTokens()
+		input := u.InputTokens + u.CacheReadInputTokens + cacheCreation
+		out.InputTokens += input
+		out.OutputTokens += u.OutputTokens
+		out.CachedTokens += u.CacheReadInputTokens
+		out.CacheReadTokens += u.CacheReadInputTokens
+		out.CacheCreationTokens += cacheCreation
+		out.TotalTokens += input + u.OutputTokens
+	}
+	if out.TotalTokens == 0 && out.InputTokens == 0 && out.OutputTokens == 0 {
+		return nil
+	}
+	return &out
+}
+
+func canonicalClaudeUsage(u claudeUsage) int64 {
+	return u.InputTokens + u.OutputTokens + u.CacheReadInputTokens + u.cacheCreationTokens()
+}
+
+func (u claudeUsage) cacheCreationTokens() int64 {
+	if u.CacheCreationInputTokens > 0 {
+		return u.CacheCreationInputTokens
+	}
+	return u.CacheCreation.Ephemeral5mInputTokens + u.CacheCreation.Ephemeral1hInputTokens
 }
 
 func parseTimestamp(s string) (time.Time, bool) {

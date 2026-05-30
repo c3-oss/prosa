@@ -80,6 +80,14 @@ func writeEnvelopeFixture(t *testing.T, root string) string {
 				"type":      "gemini",
 				"model":     "gemini-2.5-pro",
 				"content":   "I will start by fetching the diff",
+				"tokens": map[string]any{
+					"input":    100,
+					"cached":   30,
+					"output":   20,
+					"thoughts": 10,
+					"tool":     5,
+					"total":    135,
+				},
 				"toolCalls": []map[string]any{
 					{"name": "list_directory"},
 					{"name": "list_directory"},
@@ -156,6 +164,11 @@ func TestImportEnvelope(t *testing.T) {
 	require.Equal(t, "Revise this PR for me", *s.FirstPrompt)
 	require.NotNil(t, s.Model)
 	require.Equal(t, "gemini-2.5-pro", *s.Model)
+	require.NotNil(t, s.Usage)
+	require.Equal(t, int64(135), s.Usage.TotalTokens)
+	require.Equal(t, int64(100), s.Usage.InputTokens)
+	require.Equal(t, int64(20), s.Usage.OutputTokens)
+	require.Equal(t, int64(30), s.Usage.CachedTokens)
 	require.Equal(t, 2026, s.StartedAt.Year())
 
 	turns := sink.turns[fixtureEnvelopeID]
