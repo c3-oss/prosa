@@ -2,15 +2,18 @@ package render
 
 import "github.com/charmbracelet/lipgloss"
 
+// Semantic palette from docs/cli/rendering-contract.md. Hex values are
+// resolved in truecolor when the terminal supports it; Lipgloss falls
+// back to the nearest 256-color index automatically when it doesn't.
 const (
-	ColorMuted   = lipgloss.Color("245")
-	ColorRail    = lipgloss.Color("238")
-	ColorAccent  = lipgloss.Color("110")
-	ColorDevice  = lipgloss.Color("109")
-	ColorAgent   = lipgloss.Color("179")
-	ColorProject = lipgloss.Color("108")
-	ColorActive  = lipgloss.Color("174")
-	ColorError   = lipgloss.Color("174")
+	ColorMuted   = lipgloss.Color("#8A8F98")
+	ColorRail    = lipgloss.Color("#3A3F46")
+	ColorAccent  = lipgloss.Color("#8AB4D6")
+	ColorDevice  = lipgloss.Color("#7FB3C8")
+	ColorAgent   = lipgloss.Color("#D6B97A")
+	ColorProject = lipgloss.Color("#8CBF88")
+	ColorActive  = lipgloss.Color("#D7827E")
+	ColorError   = lipgloss.Color("#D7827E")
 )
 
 var (
