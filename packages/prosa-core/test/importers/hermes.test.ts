@@ -158,6 +158,37 @@ describe('hermes importer', () => {
     }
   })
 
+  it('reimports parented sessions without breaking existing child foreign keys', async () => {
+    const t = await createTempBundle()
+    try {
+      const sessionsDir = await makeParentHermesFixture(t.path)
+      await compileHermes(t.bundle, sessionsDir)
+
+      const stateDb = new Database(path.join(sessionsDir, '..', 'state.db'))
+      stateDb.prepare(`UPDATE sessions SET title = 'Parent updated' WHERE id = 'parent'`).run()
+      stateDb.close()
+
+      await compileHermes(t.bundle, sessionsDir)
+
+      const parent = t.bundle.db
+        .prepare<[], { session_id: string; title: string }>(
+          `SELECT session_id, title FROM sessions WHERE source_session_id = 'parent'`,
+        )
+        .get()
+      const child = t.bundle.db
+        .prepare<[], { parent_session_id: string; is_subagent: 0 | 1 }>(
+          `SELECT parent_session_id, is_subagent FROM sessions WHERE source_session_id = 'child'`,
+        )
+        .get()
+
+      expect(parent?.title).toBe('Parent updated')
+      expect(child).toEqual({ parent_session_id: parent?.session_id, is_subagent: 1 })
+      expect(t.bundle.db.prepare(`PRAGMA foreign_key_check`).all()).toEqual([])
+    } finally {
+      await t.cleanup()
+    }
+  })
+
   it('is idempotent', async () => {
     const t = await createTempBundle()
     try {

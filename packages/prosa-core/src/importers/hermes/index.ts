@@ -1025,12 +1025,31 @@ function flushPending(bundle: Bundle, pending: PendingState): void {
 
   const insertSession = prepare(
     bundle.db,
-    `INSERT OR REPLACE INTO sessions (
+    `INSERT INTO sessions (
        session_id, source_tool, source_session_id, project_id, parent_session_id,
        is_subagent, agent_role, agent_nickname, title, summary,
        start_ts, end_ts, cwd_initial, git_branch_initial,
        model_first, model_last, status, timeline_confidence, raw_record_id
-     ) VALUES (?, 'hermes', ?, ?, ?, ?, NULL, NULL, ?, NULL, ?, ?, NULL, NULL, ?, ?, ?, 'high', ?)`,
+     ) VALUES (?, 'hermes', ?, ?, ?, ?, NULL, NULL, ?, NULL, ?, ?, NULL, NULL, ?, ?, ?, 'high', ?)
+     ON CONFLICT(session_id) DO UPDATE SET
+       source_tool = excluded.source_tool,
+       source_session_id = excluded.source_session_id,
+       project_id = excluded.project_id,
+       parent_session_id = excluded.parent_session_id,
+       is_subagent = excluded.is_subagent,
+       agent_role = excluded.agent_role,
+       agent_nickname = excluded.agent_nickname,
+       title = excluded.title,
+       summary = excluded.summary,
+       start_ts = excluded.start_ts,
+       end_ts = excluded.end_ts,
+       cwd_initial = excluded.cwd_initial,
+       git_branch_initial = excluded.git_branch_initial,
+       model_first = excluded.model_first,
+       model_last = excluded.model_last,
+       status = excluded.status,
+       timeline_confidence = excluded.timeline_confidence,
+       raw_record_id = excluded.raw_record_id`,
   )
   for (const session of pending.sessions) {
     insertSession.run(
@@ -1210,7 +1229,6 @@ function deleteSessionProjection(bundle: Bundle, sessionId: string): void {
   prepare<[string]>(bundle.db, `DELETE FROM artifacts WHERE session_id = ?`).run(sessionId)
   prepare<[string]>(bundle.db, `DELETE FROM events WHERE session_id = ?`).run(sessionId)
   prepare<[string]>(bundle.db, `DELETE FROM turns WHERE session_id = ?`).run(sessionId)
-  prepare<[string]>(bundle.db, `DELETE FROM sessions WHERE session_id = ?`).run(sessionId)
 }
 
 function unixToIso(value: number | null | undefined): string | null {
