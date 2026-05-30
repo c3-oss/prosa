@@ -59,16 +59,52 @@ Aggregated across the file: name → invocation count.
 - Subagent JSONL files under `<session-id>/subagents/`. The walker skips this whole subtree.
 - Large tool-result artifacts in `tool-results/`. Out of scope until cut 3 (artifact projection).
 
-## Codex (placeholder — cut 2)
+## Codex CLI
 
-The Codex JSONL format does not map directly onto Claude Code's envelope.
-When the Codex importer lands, add a column here mirroring the Claude one.
-Expected differences (from `docs/sources/codex.md`):
+Source: `~/.codex/sessions/<YYYY>/<MM>/<DD>/rollout-<local-date>T<local-time>-<UUID>.jsonl`.
+Each line is one JSON object, in **one of two shapes** the parser handles:
 
-- Records use `type:"response.completed"` (and friends) instead of `assistant`. Assistant text is at `response.output[*].content[*].text`, not `message.content[]`.
-- No top-level `cwd` per record — `ProjectPath` resolves from a per-session metadata file in `~/.codex/sessions/`.
-- Model id is `response.model`, not `message.model`.
-- Tool calls / results show up as `function_call` / `function_call_output` records, not embedded blocks inside an assistant message.
+- **Envelope** (modern files): `{type, timestamp, payload}` where `type ∈ {session_meta, turn_context, response_item, event_msg, compacted}`.
+- **Legacy** (older files): bare `{type: "message"|"function_call"|...}` at top level with no `payload` wrapper. The fields that would live under `payload` sit directly on the record.
 
-The `Importer` and `Sink` interfaces in `pkg/importer/` are unchanged across
-agents; only the per-agent projection in `internal/importers/<name>/` differs.
+The full envelope reference is `docs/sources/codex.md`.
+
+### `session.Session`
+
+| Field | Source |
+|---|---|
+| `ID` | envelope: `session_meta.payload.id`. Legacy/missing meta: UUID suffix of the filename (`...-<UUID>.jsonl`) |
+| `Agent` | constant `"codex"` |
+| `DeviceID` | constant `"local"` in cut 2 |
+| `ProjectPath` | first non-empty of `session_meta.payload.cwd`, then `turn_context.payload.cwd` |
+| `StartedAt` / `LastActivityAt` | `min`/`max` of every record's top-level `timestamp` (both envelope and legacy carry it) |
+| `FirstPrompt` | first `response_item.payload.type=="message"` with `role=="user"` and non-empty `content[*].input_text` (legacy: first `{type:"message", role:"user"}`); whitespace-collapsed + truncated to 200 runes |
+| `Model` | first `turn_context.payload.model` |
+| `RawPath` / `RawHash` / `RawSize` | identical pattern to claudecode (sha256 + os.Stat; copy to `$PROSA_HOME/raw/codex/<YYYY>/<MM>/<id>.jsonl`) |
+
+### `session.Turn`
+
+| Role | Source |
+|---|---|
+| `user` | envelope: `response_item.payload.type=="message"` with `role=="user"` → `content[*].input_text` joined by `\n`. Legacy: `{type:"message", role:"user", content}` where content is a string or `[{text}]` array. |
+| `assistant` | envelope: same record with `role=="assistant"` → `content[*].output_text`. Legacy: `{type:"message", role:"assistant", content}` projected the same way. |
+| `developer` role | **Skipped** in cut 2 (carries templated instructions; analogous to Claude Code's `system` events). Re-evaluate when search results show gaps. |
+
+### `session.ToolUsage`
+
+| Field | Source |
+|---|---|
+| `Name` | envelope: `response_item.payload.type=="function_call".name`. Legacy: top-level `{type:"function_call", name}`. |
+| `Count` | aggregated per name within the session |
+
+### Excluded from cut 2
+
+- `developer`-role messages (see note above).
+- `response_item.payload.type=="reasoning"` (carries `encrypted_content`; opaque).
+- `event_msg` operational events (exec_command_end, token_count, agent_reasoning, etc.). Their structured payloads live in the preserved raw — projection into a future `Role: "operational"` plus structured `tool_results.output_object_id` lands when reports need them.
+- Subagent linkage: Codex subagents are ordinary session files; the parent thread id at `session_meta.payload.source.subagent.thread_spawn.parent_thread_id` is **not** projected (no `is_subagent` column yet).
+- Legacy `{record_type: "state"}` markers — preserved in raw, ignored by the parser.
+
+### Implementation pointer
+
+`internal/importers/codex/` mirrors `internal/importers/claudecode/`: `importer.go` (Import wrapper), `walk.go` (filename regex), `parse.go` (streaming JSONL with 16 MiB scan buffer; handles envelope + legacy in one loop), `raw.go` (write-tmp + rename copy). The `Importer` and `Sink` interfaces in `pkg/importer/` are unchanged across agents.

@@ -11,6 +11,7 @@ import (
 
 	"github.com/c3-oss/prosa/internal/cli/spinner"
 	"github.com/c3-oss/prosa/internal/importers/claudecode"
+	"github.com/c3-oss/prosa/internal/importers/codex"
 	"github.com/c3-oss/prosa/internal/paths"
 	"github.com/c3-oss/prosa/internal/store"
 	"github.com/c3-oss/prosa/pkg/importer"
@@ -44,7 +45,10 @@ func runSync(cmd *cobra.Command, _ []string) error {
 	}
 	defer func() { _ = s.Close() }()
 
-	imps := []importer.Importer{claudecode.New()}
+	imps := []importer.Importer{
+		claudecode.New(),
+		codex.New(),
+	}
 
 	var work []syncJob
 	for _, imp := range imps {
