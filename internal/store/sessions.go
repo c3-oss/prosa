@@ -240,6 +240,66 @@ type ManifestRow struct {
 	RawPath string
 }
 
+// BoilerplateCandidate is one row returned by
+// ListSessionsWithBoilerplatePrompt: the bits the denoise pass needs
+// to reopen the raw and update the row.
+type BoilerplateCandidate struct {
+	ID      string
+	RawPath string
+}
+
+// ListSessionsWithBoilerplatePrompt returns rows whose stored
+// first_prompt starts with one of the known agent-injected meta
+// prefixes. Used by `prosa sync` to one-shot denoise legacy data
+// without forcing a full reimport.
+//
+// The prefix list lives in the render package as
+// boilerplatePrefixes; we mirror it here as a SQL OR-chain. Keep the
+// two in lockstep when adding new patterns.
+func (s *Store) ListSessionsWithBoilerplatePrompt(ctx context.Context, limit int) ([]BoilerplateCandidate, error) {
+	q := `
+		SELECT id, raw_path FROM sessions
+		WHERE first_prompt IS NOT NULL AND (
+			   first_prompt LIKE '# AGENTS.md instructions for %'
+			OR first_prompt LIKE '<command-name>%'
+			OR first_prompt LIKE '<command-args>%'
+			OR first_prompt LIKE '<command-message>%'
+			OR first_prompt LIKE '<system-reminder>%'
+			OR first_prompt LIKE '<INSTRUCTIONS>%'
+			OR first_prompt LIKE '<environment_context>%'
+		)`
+	args := []any{}
+	if limit > 0 {
+		q += ` LIMIT ?`
+		args = append(args, limit)
+	}
+	rows, err := s.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []BoilerplateCandidate
+	for rows.Next() {
+		var c BoilerplateCandidate
+		if err := rows.Scan(&c.ID, &c.RawPath); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// UpdateFirstPrompt rewrites just the first_prompt column for a
+// session. Used by the denoise pass; everything else stays untouched.
+func (s *Store) UpdateFirstPrompt(ctx context.Context, sessionID, prompt string) error {
+	_, err := s.db.ExecContext(
+		ctx,
+		`UPDATE sessions SET first_prompt = ? WHERE id = ?`,
+		prompt, sessionID,
+	)
+	return err
+}
+
 // ListSessionsManifest paginates every session for a given device by id
 // ASC. afterID = "" starts the scan; limit <= 0 means "all rows in one
 // page" (used by the CLI which holds the whole local set in memory

@@ -222,6 +222,12 @@ func runSync(cmd *cobra.Command, _ []string) error {
 	// the importer goroutine has exited.
 	runSyncReconcile(ctx, push, dev.ID, counts)
 
+	// One-shot denoise: rewrites first_prompt for any session whose
+	// stored value is agent-injected boilerplate (AGENTS.md preamble,
+	// <command-name>, system-reminder, …). Idempotent — runs against
+	// only the affected rows and reports a count of 0 on convergence.
+	counts.denoiseCleaned = runDenoisePass(ctx, s)
+
 	if interactive {
 		counts.printSummaryTTY()
 	} else {
@@ -279,6 +285,7 @@ type syncCounts struct {
 	pushImp, pushSkip, pushErr           int
 	catchUpSent, catchUpSkip, catchUpErr int
 	localTotal, remoteTotal              int
+	denoiseCleaned                       int
 	pushEnabled                          bool
 	reconcileRan                         bool
 	legacyTotal                          int
@@ -327,6 +334,9 @@ func (sc *syncCounts) printSummary() {
 			sc.catchUpSent, sc.catchUpSkip, sc.catchUpErr,
 			sc.localTotal, sc.remoteTotal)
 	}
+	if sc.denoiseCleaned > 0 {
+		fmt.Fprintf(os.Stdout, "Denoise:  cleaned %d prompts\n", sc.denoiseCleaned)
+	}
 	if sc.legacyTotal > 0 {
 		fmt.Fprintf(os.Stdout,
 			"\nLegacy bundle is now mirrored in the v3 store. You can remove %s when ready.\n",
@@ -349,6 +359,15 @@ func (sc *syncCounts) printSummaryTTY() {
 	if sc.reconcileRan {
 		extra := fmt.Sprintf("local %d · remote %d", sc.localTotal, sc.remoteTotal)
 		printSummaryTTYRow("Catch-up", "sent", sc.catchUpSent, sc.catchUpSkip, sc.catchUpErr, extra)
+	}
+	if sc.denoiseCleaned > 0 {
+		fmt.Fprintf(os.Stdout, "%s %s  %s %d %s\n",
+			render.StyleRail.Render("│"),
+			render.StyleHeader.Render("Denoise"),
+			render.StyleSuccess.Render("cleaned"),
+			sc.denoiseCleaned,
+			render.StyleMuted.Render("prompts"),
+		)
 	}
 	if sc.legacyTotal > 0 {
 		fmt.Fprintln(os.Stdout)
