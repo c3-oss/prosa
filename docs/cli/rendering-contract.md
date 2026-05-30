@@ -1,0 +1,345 @@
+# CLI Rendering Contract
+
+This document is the implementable rendering contract for Prosa CLI output.
+
+## Modes
+
+Every renderer supports:
+
+- interactive TTY mode;
+- plain/script mode.
+
+Commands that support `--json` also support machine-readable mode. In
+machine-readable mode, `stdout` must contain only JSON or NDJSON documented by
+the command.
+
+## Semantic Tokens
+
+TTY color is semantic, not decorative. Use a soft palette by default. Avoid
+pure bright ANSI colors for normal UI because they dominate dense terminal
+output and vary aggressively across terminal themes.
+
+Primary prose and prompts should use the terminal's default foreground. The
+palette below is for metadata, state, and visual structure.
+
+| Token | Meaning | Truecolor | 256-color | Treatment |
+| --- | --- | --- | --- | --- |
+| `foreground` | primary text | terminal default | default | normal |
+| `muted` | time, duration, paths | `#8A8F98` | `245` | normal |
+| `rail` | rails and separators | `#3A3F46` | `238` | normal |
+| `accent` | command context | `#8AB4D6` | `110` | normal |
+| `device` | device identity | `#7FB3C8` | `109` | normal |
+| `agent` | importer or agent identity | `#D6B97A` | `179` | normal |
+| `project` | project identity | `#8CBF88` | `108` | normal |
+| `active` | active session marker | `#D7827E` | `174` | bold |
+| `match` | search match | `#D6B97A` | `179` | underline or bold |
+| `success` | completed step or imported count | `#8CBF88` | `108` | normal |
+| `skipped` | no-op/skipped count | `#8A8F98` | `245` | normal |
+| `warning` | recoverable warning | `#D6B97A` | `179` | normal |
+| `error` | fatal or per-item error | `#D7827E` | `174` | normal or bold for fatal |
+| `header` | day or command header | terminal default | default | bold |
+
+Plain/script mode emits no ANSI sequences.
+
+### Palette Rules
+
+- Prefer terminal default foreground for readable content.
+- Use dim gray for metadata before adding hue.
+- Use hue sparingly: one semantic accent per segment is enough.
+- Do not use saturated ANSI `31`, `32`, `33`, `36`, or `196` as default UI
+  colors.
+- Do not use red for search matches; reserve rose/error tones for active,
+  failed, or risky state.
+- Underline or bold can carry emphasis when color is unavailable.
+- The UI must remain understandable with color disabled.
+- If truecolor is unavailable, use the listed 256-color indices through
+  Lipgloss.
+
+## Structural Symbols
+
+Allowed symbols and meanings:
+
+| Symbol | Meaning |
+| --- | --- |
+| `│` | grouped output rail |
+| `├` | intermediate child detail |
+| `└` | final child detail |
+| `─` | separator in animated status surfaces |
+| `→` | active step |
+| `⤷` | derived metadata or snippet |
+| `·` | compact metadata separator |
+| `*` | active session |
+| `…` | truncation |
+
+Do not use emoji.
+
+## Output Channels
+
+Use `stdout` for command data:
+
+- timeline rows;
+- search rows;
+- analytics rows;
+- raw JSONL;
+- final summaries;
+- JSON/NDJSON streams.
+
+Use `stderr` for operational context:
+
+- auto-scope notices;
+- progress;
+- warnings;
+- importer errors;
+- cancellation notices;
+- logs.
+
+For non-interactive automation, progress may stream to `stderr` while the final
+result remains pipeable on `stdout`.
+
+## Timeline
+
+Interactive timeline output groups sessions by day.
+
+Header rules:
+
+- today: `Today`;
+- yesterday: `Yesterday`;
+- 2 to 7 days old: `N days ago`;
+- 7 to 30 days old: weekday name;
+- older than 30 days: absolute date such as `May 02`.
+
+Scoped row grammar:
+
+```text
+Today
+│ HH:MM[*] device  agent  project  "first prompt"
+│        └ duration · tool, tool, tool
+```
+
+Global row grammar:
+
+```text
+Today
+│ HH:MM[*] project  device  agent  "first prompt"
+│        └ duration · tool, tool, tool
+```
+
+Rules:
+
+- The active marker is `*` immediately after the time.
+- A session is active when `last_activity` is less than 10 minutes old.
+- Show up to three top tools, comma-separated.
+- Missing project renders as `-` in rows and `(unscoped)` in analytics.
+- The first prompt is quoted and truncated with `…`.
+- Use a light left rail only in TTY mode.
+
+Plain timeline rows are tab-separated:
+
+```text
+started_at_utc	device	agent	project	duration	first_prompt
+```
+
+Do not print day headers or rails in plain mode.
+
+## Auto Scope Notices
+
+When the command auto-detects a project from the current working directory,
+human output prints a short notice to `stderr`.
+
+Timeline:
+
+```text
+prosa · local · scoped to prosa · last 7d
+```
+
+Search:
+
+```text
+search · local · scoped to prosa · "sqlite"
+```
+
+Do not print scope notices in JSON/NDJSON mode.
+
+## Width And Density
+
+The 80-column layout is the baseline.
+
+Preservation order:
+
+1. command meaning;
+2. time and active marker;
+3. project;
+4. agent;
+5. prompt or search snippet;
+6. duration;
+7. tools;
+8. device;
+9. absolute paths.
+
+Compression rules:
+
+- Truncate prompt and snippet text before structural metadata.
+- Shorten device names before project names.
+- Collapse secondary metadata into the detail row below 80 columns.
+- Truncate paths from the left.
+- Use `…` as the only truncation marker.
+- Avoid wrapping rows unless the content is raw output.
+
+## Search
+
+Interactive search renders one evidence block per hit:
+
+```text
+│ codex-1342  prosa · codex · laptop · Today 13:42
+│   user       add a local sqlite store for session metadata and FTS
+│   session    "index importer sessions"
+```
+
+Rules:
+
+- show a short session id;
+- show project, agent, device, and timestamp;
+- show the matching role, such as `user` or `assistant`;
+- highlight only matched text;
+- keep snippets single-line by default;
+- end with a compact match count and raw-view hint when useful.
+
+Plain search rows are tab-separated:
+
+```text
+session_id	agent	project	date	role	snippet
+```
+
+Plain snippets contain no highlight markers unless a future flag explicitly
+requests them.
+
+## Sync
+
+Interactive sync uses compact progressive feedback.
+
+Progress grammar:
+
+```text
+prosa sync · local store
+────────────────────────────────────────────────────────────────────────
+⠹ scanning     codex        ~/.codex/sessions
+
+found          codex 48 · claude-code 41 · cursor 7 · gemini 0
+progress       17 / 96 · imported 12 · skipped 5 · errors 0 · 8s · eta 36s
+current        codex · …/2026/05/30/session-a.jsonl
+```
+
+Final summary grammar:
+
+```text
+prosa sync · complete
+
+Live:    imported N · skipped N · errors N
+Legacy:  imported N · skipped N · errors N (of N catalog rows)
+```
+
+Plain sync uses structured logs plus the same factual summary. It must not use
+spinners, cursor movement, alternate screen, or ANSI escapes.
+
+## Setup And Login
+
+Setup and login use a checklist grammar:
+
+```text
+prosa setup
+cwd    /path/to/project
+store  ~/.local/share/prosa
+
+✓ device       laptop · darwin/arm64
+✓ server       https://prosa.c3.do
+→ auth         waiting for browser approval
+```
+
+Rules:
+
+- Use `✓` for completed steps.
+- Use `→` for the active step.
+- Use short nouns for labels.
+- Show recovery URLs plainly.
+- In plain mode, print stable key/value rows.
+
+## Show Raw
+
+`prosa show <session-id>` prints preserved raw JSONL. The raw bytes are the main
+output.
+
+Human TTY may print a short preface before the raw only when `stdout` is a TTY:
+
+```text
+session  codex-2026-05-30-1342
+agent    codex
+raw      ~/.local/share/prosa/raw/codex/2026/05/codex-2026-05-30-1342.jsonl
+
+```
+
+When piping or using `--json`, print raw content only.
+
+## Analytics
+
+Analytics output is a dense table.
+
+Rules:
+
+- headers are muted and bold in TTY;
+- numeric columns may use the soft `accent` token;
+- no chart glyphs;
+- no progress bars;
+- no decorative dashboard framing;
+- align columns by display width, not byte length.
+
+Plain analytics output is tab-separated with a header row.
+
+## Empty States
+
+Empty states are short and diagnostic.
+
+Timeline:
+
+```text
+no sessions found
+run `prosa sync` to import local agent history
+```
+
+Scoped timeline:
+
+```text
+no sessions found for prosa
+use `prosa --all` to show every project
+```
+
+Search:
+
+```text
+no matches
+try `--all`, increase `--last`, or search a broader term
+```
+
+Analytics:
+
+```text
+no rows
+```
+
+## Errors
+
+Fatal errors use the root command format:
+
+```text
+error: session abc123 not found
+```
+
+Prefer object-first errors:
+
+```text
+error: raw file missing: /path/to/session.jsonl
+```
+
+Importer errors inside `sync` can be per-item errors and do not need to abort
+the whole run if remaining items can still be processed.
+
+Never print stack traces by default.
