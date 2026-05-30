@@ -30,9 +30,10 @@ func runNu(cmd *cobra.Command, _ []string) error {
 		ctx = context.Background()
 	}
 
-	window, err := ParseLast(g.Last)
+	now := time.Now().UTC()
+	w, err := ResolveWindow(cmd, g.Last, g.Since, g.Between, now)
 	if err != nil {
-		return fmt.Errorf("--last: %w", err)
+		return err
 	}
 	storePath, err := paths.StorePath()
 	if err != nil {
@@ -44,11 +45,10 @@ func runNu(cmd *cobra.Command, _ []string) error {
 	}
 	defer func() { _ = s.Close() }()
 
-	now := time.Now().UTC()
 	interactive := IsInteractive()
 	filter := store.SessionFilter{
-		Since: now.Add(-window),
-		Until: now,
+		Since: w.Since,
+		Until: w.Until,
 	}
 	var scope render.ContextScope
 	scopeLabel := ""
@@ -80,7 +80,9 @@ func runNu(cmd *cobra.Command, _ []string) error {
 			Source:     "local",
 			Scope:      scope,
 			ScopeLabel: scopeLabel,
-			Last:       g.Last,
+			Last:       w.LastLabel,
+			Since:      w.SinceLabel,
+			Between:    w.BetweenLabel,
 		}))
 	}
 	if g.Agent != "" {
@@ -120,7 +122,7 @@ func runNu(cmd *cobra.Command, _ []string) error {
 			fmt.Fprintln(os.Stderr, "run `prosa sync` to import local agent history")
 			return nil
 		}
-		fmt.Fprintf(os.Stderr, "no sessions in the last %s\n", g.Last)
+		fmt.Fprintf(os.Stderr, "no sessions %s\n", WindowDescriptor(w))
 		return nil
 	}
 

@@ -133,9 +133,9 @@ subcommand):
 
 | Flag | Default | Notes |
 | --- | --- | --- |
-| `--last <duration>` | `7d` | Time window. Accepts `12h`, `7d`, `30d`, etc. |
-| `--since <date>` | | Anchor lower bound. ISO date or RFC3339. |
-| `--between <A..B>` | | Closed range, both ends ISO/RFC3339. |
+| `--last <duration>` | `7d` | Rolling window. Accepts `12h`, `7d`, `30d`, etc. |
+| `--since <YYYY-MM-DD>` | | Anchored lower bound in UTC. |
+| `--between <A..B>` | | Closed UTC range. Both ends `YYYY-MM-DD`, separated by `..`. |
 | `--project <name>` | | Substring filter on project path. |
 | `--device <name>` | | Match `friendly_name` (cross-device only). |
 | `--agent <name>` | | One of `claude-code`, `codex`, `cursor`, `gemini`. |
@@ -144,6 +144,9 @@ subcommand):
 | `--json` | | NDJSON output, one record per line. |
 | `--no-color` | | Suppress ANSI even on a TTY. |
 | `--help` | | Per-command help. |
+
+`--last`, `--since`, and `--between` are **mutually exclusive** — pick
+one. Combining them surfaces an error before the store is touched.
 
 `--json` writes machine-readable NDJSON to stdout. Human logs (project
 scoping, progress messages) go to stderr so pipelines stay clean.
@@ -180,8 +183,14 @@ project").
 A few common one-liners:
 
 ```sh
-# what did I do yesterday
-prosa --last 1d --since $(date -v-1d +%Y-%m-%d)
+# what did I do yesterday (rolling window)
+prosa --last 1d
+
+# what did I do across Q1 2026
+prosa --between 2026-01-01..2026-03-31
+
+# everything since the V3 release tag
+prosa --since 2026-05-30
 
 # all my SQLite work, regardless of device
 prosa search "sqlite" --remote --last 90d

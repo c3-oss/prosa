@@ -54,13 +54,14 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		return errors.New("empty search query")
 	}
 
-	window, err := ParseLast(g.Last)
+	now := time.Now().UTC()
+	w, err := ResolveWindow(cmd, g.Last, g.Since, g.Between, now)
 	if err != nil {
-		return fmt.Errorf("--last: %w", err)
+		return err
 	}
 
 	if searchRemote {
-		return runSearchRemote(ctx, query, window)
+		return runSearchRemote(ctx, query, w)
 	}
 
 	storePath, err := paths.StorePath()
@@ -73,11 +74,10 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	}
 	defer func() { _ = s.Close() }()
 
-	now := time.Now().UTC()
 	interactive := IsInteractive()
 	filter := store.SessionFilter{
-		Since: now.Add(-window),
-		Until: now,
+		Since: w.Since,
+		Until: w.Until,
 	}
 
 	var scope render.ContextScope
@@ -138,7 +138,7 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	if len(hits) == 0 {
 		if interactive {
 			fmt.Fprintln(os.Stderr, "no matches")
-			fmt.Fprintln(os.Stderr, "try `--all`, increase `--last`, or search a broader term")
+			fmt.Fprintln(os.Stderr, "try `--all`, widen the window, or search a broader term")
 			return nil
 		}
 		fmt.Fprintf(os.Stderr, "no matches for %q\n", query)
@@ -189,7 +189,7 @@ func countDistinctProjects(hits []store.SearchHit) int {
 // path honors --agent / --device and the auto-detected --project, but
 // translates them to project_remote / project_marker filters since the
 // server doesn't have project_path substring semantics today.
-func runSearchRemote(ctx context.Context, query string, window time.Duration) error {
+func runSearchRemote(ctx context.Context, query string, w Window) error {
 	auth, err := rpc.LoadAuth()
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -198,12 +198,11 @@ func runSearchRemote(ctx context.Context, query string, window time.Duration) er
 		return err
 	}
 	client := rpc.Sessions(auth.Server, auth.Token)
-	now := time.Now().UTC()
 	interactive := IsInteractive()
 	req := &prosav1.SearchRequest{
 		Query: query,
-		Since: timestamppb.New(now.Add(-window)),
-		Until: timestamppb.New(now),
+		Since: timestamppb.New(w.Since),
+		Until: timestamppb.New(w.Until),
 		Limit: int32(searchLimit),
 	}
 	if g.Agent != "" {
@@ -273,7 +272,7 @@ func runSearchRemote(ctx context.Context, query string, window time.Duration) er
 	if len(hits) == 0 {
 		if interactive {
 			fmt.Fprintln(os.Stderr, "no matches")
-			fmt.Fprintln(os.Stderr, "try `--all`, increase `--last`, or search a broader term")
+			fmt.Fprintln(os.Stderr, "try `--all`, widen the window, or search a broader term")
 			return nil
 		}
 		fmt.Fprintf(os.Stderr, "no matches for %q (remote)\n", query)
@@ -291,7 +290,7 @@ func runSearchRemote(ctx context.Context, query string, window time.Duration) er
 	}
 	hideDevice := countDistinctDevices(hits) <= 1
 	hideProject := scope == render.ScopeScoped && countDistinctProjects(hits) <= 1
-	return render.SearchHitsWithOptions(os.Stdout, hits, now, render.SearchOptions{
+	return render.SearchHitsWithOptions(os.Stdout, hits, w.Until, render.SearchOptions{
 		Interactive:  interactive,
 		Width:        TerminalWidth(),
 		DeviceLabels: deviceLabels,

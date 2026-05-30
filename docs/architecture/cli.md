@@ -57,9 +57,10 @@ Registered on the cobra root in `internal/cli/root.go`:
 - `--json`
 - `--no-color`
 
-`--last`, `--since`, `--between` are parsed by `internal/cli/timewin.go`
-into a `SessionFilter.Since/Until` pair. The filter is then threaded through
-either the local store or the Connect client.
+`--last`, `--since`, `--between` are mutually exclusive and parsed by
+`internal/cli/window.go` (`ResolveWindow`) into a `SessionFilter.Since/Until`
+pair plus a label that drives the context line. The filter is then threaded
+through either the local store or the Connect client.
 
 ## Output modes
 

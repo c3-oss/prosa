@@ -17,6 +17,8 @@ import (
 // surface stays stable, but the query layer ignores them with a TODO.
 type globalFlags struct {
 	Last    string
+	Since   string
+	Between string
 	Project string
 	Device  string
 	Agent   string
@@ -38,7 +40,9 @@ func newRootCmd() *cobra.Command {
 		Version:       buildinfo.String(),
 	}
 	pf := cmd.PersistentFlags()
-	pf.StringVar(&g.Last, "last", "7d", "window length (e.g. 7d, 30d, 12h)")
+	pf.StringVar(&g.Last, "last", "7d", "rolling window length (e.g. 7d, 30d, 12h); mut.-excl. with --since / --between")
+	pf.StringVar(&g.Since, "since", "", "anchored lower bound, YYYY-MM-DD UTC; mut.-excl. with --last / --between")
+	pf.StringVar(&g.Between, "between", "", "closed UTC range, YYYY-MM-DD..YYYY-MM-DD; mut.-excl. with --last / --since")
 	pf.StringVar(&g.Project, "project", "", "filter by project path (substring match)")
 	pf.StringVar(&g.Device, "device", "", "filter by device friendly name")
 	pf.StringVar(&g.Agent, "agent", "", "filter by agent (claude-code | codex)")

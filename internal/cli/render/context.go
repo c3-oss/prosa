@@ -24,7 +24,11 @@ const (
 
 // ContextLineOptions is the input to ContextLine and SearchContextLine.
 // Command is "prosa" or "search" (callers fill it). Source is
-// "local" or "remote". Last is the canonical window token ("7d", "12h").
+// "local" or "remote". Exactly one of Last / Since / Between is
+// non-empty at call time: Last is the rolling-window token ("7d",
+// "12h"); Since is a YYYY-MM-DD anchor; Between is a pre-formatted
+// "YYYY-MM-DD and YYYY-MM-DD" range string. The renderer adds the
+// appropriate "last " / "since " / "between " prefix.
 // Query is only used by the search variant; ignored by ContextLine.
 type ContextLineOptions struct {
 	Command    string
@@ -32,6 +36,8 @@ type ContextLineOptions struct {
 	Scope      ContextScope
 	ScopeLabel string
 	Last       string
+	Since      string
+	Between    string
 	Query      string
 }
 
@@ -91,6 +97,12 @@ func lastSegment2(opts ContextLineOptions) string {
 		// In not-detected mode we'd otherwise say "last 7d" which is
 		// less actionable than "showing all projects".
 		return "showing all projects"
+	}
+	if opts.Between != "" {
+		return "between " + opts.Between
+	}
+	if opts.Since != "" {
+		return "since " + opts.Since
 	}
 	if opts.Last == "" {
 		return ""

@@ -58,14 +58,16 @@ func runAnalytics(cmd *cobra.Command, args []string) error {
 	}
 	report := args[0]
 
-	if analyticsRemoteFlag {
-		return runAnalyticsRemote(ctx, report)
+	now := time.Now().UTC()
+	w, err := ResolveWindow(cmd, g.Last, g.Since, g.Between, now)
+	if err != nil {
+		return err
 	}
 
-	window, err := ParseLast(g.Last)
-	if err != nil {
-		return fmt.Errorf("--last: %w", err)
+	if analyticsRemoteFlag {
+		return runAnalyticsRemote(ctx, report, w)
 	}
+
 	storePath, err := paths.StorePath()
 	if err != nil {
 		return err
@@ -76,10 +78,9 @@ func runAnalytics(cmd *cobra.Command, args []string) error {
 	}
 	defer func() { _ = s.Close() }()
 
-	now := time.Now().UTC()
 	filter := store.SessionFilter{
-		Since: now.Add(-window),
-		Until: now,
+		Since: w.Since,
+		Until: w.Until,
 	}
 	// Analytics inherits the same filter precedence as nu / search:
 	// --project wins; otherwise cwd auto-detect unless --all.
@@ -135,7 +136,7 @@ func dispatchAnalytics(ctx context.Context, s *store.Store, report string, f sto
 // runAnalyticsRemote handles --remote. Only `sessions` and `projects`
 // reach the server in this cut; the rest surface a friendly error so
 // users know to drop --remote.
-func runAnalyticsRemote(ctx context.Context, report string) error {
+func runAnalyticsRemote(ctx context.Context, report string, w Window) error {
 	switch report {
 	case "sessions", "projects":
 	default:
@@ -149,14 +150,9 @@ func runAnalyticsRemote(ctx context.Context, report string) error {
 		return err
 	}
 	client := rpc.Sessions(auth.Server, auth.Token)
-	window, err := ParseLast(g.Last)
-	if err != nil {
-		return fmt.Errorf("--last: %w", err)
-	}
-	now := time.Now().UTC()
 	resp, err := client.List(ctx, connect.NewRequest(&prosav1.ListRequest{
-		Since: timestamppb.New(now.Add(-window)),
-		Until: timestamppb.New(now),
+		Since: timestamppb.New(w.Since),
+		Until: timestamppb.New(w.Until),
 		Limit: 1000,
 	}))
 	if err != nil {

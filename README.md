@@ -101,12 +101,17 @@ it can detect one, and shows the last 7 days. `--all` lifts the scope.
 
 Useful flags everywhere:
 
-- `--last 12h|7d|30d` — time window.
+- `--last 12h|7d|30d` — rolling window (default `7d`).
+- `--since 2026-01-01` — anchored lower bound, UTC.
+- `--between 2026-01-01..2026-03-15` — closed UTC range.
 - `--project <name>` — project filter.
 - `--agent claude-code|codex|cursor|gemini` — agent filter.
 - `--device <name>` — device filter (cross-device only).
 - `--remote` — query the server instead of the local store.
 - `--json` — machine-readable NDJSON output.
+
+The three time flags (`--last`, `--since`, `--between`) are mutually
+exclusive — pick one at a time.
 
 By default data lives under `~/.local/share/prosa` (XDG). Override with
 `PROSA_HOME`. Full reference: [`docs/usage.md`][docs-usage].

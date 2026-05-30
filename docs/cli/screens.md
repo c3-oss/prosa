@@ -33,6 +33,15 @@ carries the full session id so `prosa show <id>` is a copy/paste away
 — the id is rendered in `accent` and the label in `muted`, so it
 reads as auxiliary metadata, not as the primary content.
 
+The context line's tail segment reflects whichever window flag was
+active. Three shapes, mutually exclusive:
+
+```text
+prosa · local · scoped to prosa · last 7d
+prosa · local · scoped to prosa · since 2026-01-01
+prosa · local · scoped to prosa · between 2026-01-01 and 2026-03-15
+```
+
 Plain output omits human context and uses one stable row per session.
 
 ```text
@@ -339,7 +348,7 @@ No search results:
 search · local · scoped to prosa · "sqlite"
 
 no matches
-try `--all`, increase `--last`, or search a broader term
+try `--all`, widen the window, or search a broader term
 ```
 
 Importer failure in TTY sync:

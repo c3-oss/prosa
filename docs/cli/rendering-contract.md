@@ -197,6 +197,13 @@ Timeline:
 prosa · local · scoped to prosa · last 7d
 ```
 
+The tail segment after scope reflects whichever window flag is active.
+Exactly one of three shapes:
+
+- `last <duration>` — rolling window from `--last` (default `7d`).
+- `since <YYYY-MM-DD>` — anchored lower bound from `--since`.
+- `between <YYYY-MM-DD> and <YYYY-MM-DD>` — closed range from `--between`.
+
 Search:
 
 ```text
@@ -371,7 +378,7 @@ Search:
 
 ```text
 no matches
-try `--all`, increase `--last`, or search a broader term
+try `--all`, widen the window, or search a broader term
 ```
 
 Analytics:
