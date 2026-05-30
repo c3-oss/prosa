@@ -14,15 +14,22 @@ prosa · local · scoped to prosa · last 7d
 
 Today
 │ 11:24  laptop  claude-code  prosa  "refactor sync logic"
+│        ├ id        claude-2026-05-30-1a2b3c4d
 │        └ 32min · edit, bash
 │
 │ 09:02* laptop  codex        prosa  "setup importer tests"
+│        ├ id        codex-2026-05-30-5e6f7g8h
 │        └ 18min · write, grep
 
 Yesterday
 │ 23:55  laptop  claude-code  prosa  "intent doc"
+│        ├ id        claude-2026-05-29-9i0j1k2l
 │        └ 1h12 · edit, write, bash
 ```
+
+The `id` row carries the full session id so `prosa show <id>` is a
+copy/paste away — the id is rendered in `accent` and the label in
+`muted`, so it reads as auxiliary metadata, not as the primary content.
 
 Plain output omits human context and uses one stable row per session.
 
@@ -42,27 +49,21 @@ prosa · local · all projects · last 7d
 
 Today
 │ 16:31  prosa       laptop    codex        "design CLI output docs"
+│        ├ id        codex-2026-05-30-a1b2c3d4
 │        └ 41min · read, write, rg
 │
 │ 14:08  dotfiles    mbp       claude-code  "fix zsh completion path"
+│        ├ id        claude-2026-05-30-e5f6g7h8
 │        └ 22min · edit, bash
 │
 │ 11:56* infra-prod  remote-1  codex        "debug deploy health check"
+│        ├ id        codex-2026-05-30-i9j0k1l2
 │        └ 1h04 · read, bash, curl
-│
-│ 10:17  web-panel   laptop    cursor       "tighten analytics table spacing"
-│        └ 36min · edit, grep
 
 Yesterday
-│ 22:44  writing     mbp       gemini       "summarize product notes"
-│        └ 14min · read
-│
 │ 18:03  c3-api      remote-1  claude-code  "trace postgres migration failure"
+│        ├ id        claude-2026-05-29-m3n4o5p6
 │        └ 49min · bash, edit
-
-2 days ago
-│ 09:12  mz-iac      laptop    codex        "setup terraform module"
-│        └ 1h18 · write, bash, grep
 ```
 
 Plain output remains one row per session.
@@ -83,14 +84,12 @@ prosa · local · all projects · last 7d
 
 Today
 │ 16:31  prosa       codex   laptop  "design CLI output docs"
+│        ├ id        codex-2026-05-30-a1b2c3d4
 │        └ 41min · read, write, rg
 │
 │ 11:56* infra-prod  codex   rem-1   "debug deploy health check for…"
+│        ├ id        codex-2026-05-30-i9j0k1l2
 │        └ 1h04 · read, bash, curl
-
-Yesterday
-│ 18:03  c3-api      claude  rem-1   "trace postgres migration…"
-│        └ 49min · bash, edit
 ```
 
 Below 80 columns, collapse the secondary metadata row first. Keep the row
@@ -99,9 +98,11 @@ single-purpose and readable.
 ```text
 Today
 │ 16:31  prosa       codex   "design CLI output docs"
+│        ├ id        codex-2026-05-30-a1b2c3d4
 │        └ 41min · laptop · read, write, rg
 │
 │ 11:56* infra-prod  codex   "debug deploy health check…"
+│        ├ id        codex-2026-05-30-i9j0k1l2
 │        └ 1h04 · rem-1 · read, bash, curl
 ```
 
@@ -115,20 +116,24 @@ The `«sqlite»` markers below indicate where TTY highlighting is applied.
 ```text
 search · local · scoped to prosa · "sqlite"
 
-│ codex-1342  prosa · codex · laptop · Today 13:42
+│ 57f476a0-8e1  prosa · codex · laptop · Today 13:42
 │   user       add a local «sqlite» store for session metadata and FTS
 │   session    "index importer sessions"
 │
-│ claude-2118 prosa · claude-code · laptop · Yesterday 21:18
+│ 6ffc5138-41a  prosa · claude-code · laptop · Yesterday 21:18
 │   assistant  the «sqlite» migration needs the devices seed row before sessions
 │   session    "debug migration"
 │
-│ codex-1004  prosa · codex · mbp · Wednesday 10:04
+│ 019e240b-0ac  prosa · codex · mbp · Wednesday 10:04
 │   user       can FTS5 rank «sqlite» snippets by recency too?
 │   session    "search ranking"
 
 3 matches · use `prosa show <id>` for raw JSONL
 ```
+
+The session id is shortened to its first 12 runes in the header line —
+enough to identify and (almost always) enough to disambiguate a `prosa
+show <prefix>` call without showing the entire UUID.
 
 Plain output strips highlight markers and uses tab-separated rows.
 

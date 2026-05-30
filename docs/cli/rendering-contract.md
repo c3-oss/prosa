@@ -113,6 +113,7 @@ Scoped row grammar:
 ```text
 Today
 │ HH:MM[*] device  agent  project  "first prompt"
+│        ├ id        <session-id>
 │        └ duration · tool, tool, tool
 ```
 
@@ -121,8 +122,14 @@ Global row grammar:
 ```text
 Today
 │ HH:MM[*] project  device  agent  "first prompt"
+│        ├ id        <session-id>
 │        └ duration · tool, tool, tool
 ```
+
+The `id` row carries the session id verbatim (no truncation) so it is
+copy-pasteable into `prosa show <id>`. The label is `muted`; the id
+itself is `accent`. The row is only emitted in TTY mode; plain output
+already exposes the id as the first tab-separated column.
 
 Rules:
 
@@ -190,16 +197,18 @@ Compression rules:
 Interactive search renders one evidence block per hit:
 
 ```text
-│ codex-1342  prosa · codex · laptop · Today 13:42
+│ <short-id>  prosa · codex · laptop · Today 13:42
 │   user       add a local sqlite store for session metadata and FTS
 │   session    "index importer sessions"
 ```
 
 Rules:
 
-- show a short session id;
-- show project, agent, device, and timestamp;
-- show the matching role, such as `user` or `assistant`;
+- the session id is the first segment of the header line, truncated to
+  its first 12 runes (no trailing ellipsis — prefix is recognizable);
+- show project, agent, device, and timestamp in `·`-separated metadata;
+- show the matching role, such as `user` or `assistant`, in the body;
+- the body uses plain indent (no `├` / `└` branches) for visual quietness;
 - highlight only matched text;
 - keep snippets single-line by default;
 - end with a compact match count and raw-view hint when useful.
@@ -234,9 +243,17 @@ Final summary grammar:
 ```text
 prosa sync · complete
 
-Live:    imported N · skipped N · errors N
-Legacy:  imported N · skipped N · errors N (of N catalog rows)
+Live:     imported N · skipped N · errors N
+Legacy:   imported N · skipped N · errors N (of N catalog rows)
+Push:     sent N · skipped N · errors N
+Catch-up: sent N · skipped N · errors N  (local L · remote R)
 ```
+
+`Legacy` only appears when `--legacy-bundle` was passed. `Push` and
+`Catch-up` only appear when the device is logged in to a prosa-server
+(i.e. when `~/.config/prosa/auth.json` exists). `Catch-up` is the
+manifest-driven reconcile that makes the remote converge to the local
+set; `Catch-up: sent 0` on a re-run is the new idempotency criterion.
 
 Plain sync uses structured logs plus the same factual summary. It must not use
 spinners, cursor movement, alternate screen, or ANSI escapes.
