@@ -242,7 +242,7 @@ func Donut(slices []Slice, opts DonutOpts) template.HTML
 
 ## Heatmap
 
-Calendar 30 days × 24 hours.
+Daily contribution heatmap: one cell per UTC day in the selected window.
 
 ### Signature
 
@@ -253,17 +253,16 @@ type HeatmapOpts struct {
     MaxScale float64 // optional, default = grid max
 }
 
-func Heatmap(grid [30][24]int, opts HeatmapOpts) template.HTML
+func Heatmap(days []HeatmapDay, opts HeatmapOpts) template.HTML
 ```
 
 ### Visual
 
-- Cell `<rect>` 16 × 16 with fill `var(--accent)` and opacity
+- Cell `<rect>` 16 × 16 with fill derived from `--accent` and surface tokens,
   proportional to `value/max`;
-- Cells with value 0: opacity 0.05 (visible but faint);
-- `<title>` on each cell: "2026-05-23 14h: 5 sessions";
-- X axis: hour labels every 2 (00, 02, …, 22);
-- Y axis: date only on the first cell of each ISO week;
+- Cells with value 0 use the quiet surface token;
+- `<title>` on each cell: "2026-05-23: 5 sessions";
+- Grid flows by week with 7 day rows, GitHub-style;
 - Discreet legend: 5 example cells from the scale + "less" and "more"
   in `--text-3`.
 

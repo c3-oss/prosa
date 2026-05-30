@@ -80,7 +80,7 @@ Routes (current MVP cut), all served from the same mux:
 - `POST /devices/<id>/revoke`
 - `POST /devices/approve`
 - `GET /analytics/<report>` — one of `sessions`, `tools`, `models`,
-  `projects`, `errors`
+  `projects`, `errors`, `heatmap`, `usage`
 - `GET /events` — SSE stream (proxied from the server)
 
 Each handler:

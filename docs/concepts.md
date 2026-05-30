@@ -194,7 +194,9 @@ Specifically in scope:
 - Push-only sync, idempotent by sha256.
 - Chronological timeline with project/agent/device/time filters.
 - FTS over turns (local and remote).
-- Five fixed analytics reports.
+- Fixed analytics reports, including session/tool/model/project/error counts,
+  daily activity heatmap, and token usage/cost estimates where agents expose
+  reliable counters.
 - Scheduled background sync.
 
 Specifically out of scope (today):

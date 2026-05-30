@@ -244,26 +244,22 @@ Table: `STARTED | AGENT | PROJECT | SESSION`.
 
 ### Report `heatmap` (new)
 
-Chart: **calendar heatmap** 30 days × 24 hours.
+Chart: **daily contribution heatmap** for the selected window.
 
 ```
-        00 02 04 06 08 10 12 14 16 18 20 22
-30d ago ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-        ░░░░░░░░░░░░░░░░░░▓▓▓▒▒▒░░░░░░░░░░░
-        ░░░░░░░░░░░░░░░▒▒▓▓▓▓▓▒▒░░░░░░░░░░░
-        ...
-today   ░░░░░░░░░░░░░░░░▒▒▓▓▓▓▒▒░░░░░░░░░░░
+Sun ░ ░ ▒ ▓ ░
+Mon ░ ▒ ▓ █ ░
+Tue ░ ░ ░ ▒ ▓
+...
 ```
 
 - Cells 16 × 16 px, gap 2 px;
-- Color scale `--accent` with alpha 0 to 1 by count;
-- X axis: hour of day (labels every 2 h);
-- Y axis: days, label only on the first day of each week;
-- Cell hover: `<title>` "2026-05-23 14h: 5 sessions";
+- Color scale uses `--accent` mixed with panel surface tokens by count;
+- Grid flows by week with 7 day rows;
+- Cell hover: `<title>` "2026-05-23: 5 sessions";
 - Discreet legend in the corner: scale gradient + "less / more".
 
-Optional auxiliary table: total by hour-of-day across the period (24
-rows).
+Optional auxiliary table: daily totals across the selected window.
 
 ---
 

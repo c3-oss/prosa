@@ -128,12 +128,12 @@ toggle + HTMX swap.
 
 ### 2. Analytics `/analytics/<report>`
 
-Today: 5 reports as flat tables (sessions, projects, tools, models,
-errors).
+Today: analytics reports render server-side from the fixed API surface
+(sessions, projects, tools, models, errors, heatmap, usage).
 
 Direction: each report becomes a page with **title + featured chart +
-support table**. A sixth report is added: **heatmap** of activity 30 days
-× 24 h.
+support table**. Heatmap follows the GitHub-style daily contribution graph:
+one cell per day, with intensity scaled by session count.
 
 | Report     | Featured chart                                       |
 | ---------- | ---------------------------------------------------- |
@@ -142,7 +142,8 @@ support table**. A sixth report is added: **heatmap** of activity 30 days
 | models     | donut + list with bars                               |
 | projects   | bar leaderboard top 15 + sparkline per row           |
 | errors     | trend line of errors per day                         |
-| heatmap    | calendar 30 d × 24 h, scaled in `--accent`           |
+| heatmap    | daily contribution graph, scaled in `--accent`       |
+| usage      | token totals and estimated cost by agent             |
 
 Each chart is HTMX-swappable when the filter changes (window, agent,
 device, project).

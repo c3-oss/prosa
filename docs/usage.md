@@ -97,11 +97,14 @@ prosa analytics sessions            # count by agent + total turns
 prosa analytics tools               # top 20 tools across the window
 prosa analytics models              # session distribution by model
 prosa analytics projects            # top 30 projects
+prosa analytics heatmap             # sessions per UTC day
+prosa analytics usage               # token totals + estimated USD cost
 prosa analytics errors              # sessions matching error heuristics
 ```
 
-`--remote` runs the report against the server. All five reports honor the
-global filters below.
+`--remote` runs the report against the server. All reports honor the global
+filters below, including `--last`, `--since`, `--between`, `--project`,
+`--agent`, `--device`, and `--all`.
 
 ### Devices (cross-device)
 

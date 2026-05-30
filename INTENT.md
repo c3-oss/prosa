@@ -121,7 +121,8 @@ informally. Prosa lets you have a conversation with your own work history.
   project; `--all` overrides.
 - Drill-down: `prosa show <session-id>` prints the preserved raw.
 - A fixed set of analytics: `sessions`, `tools`, `errors`, `models`,
-  `projects`.
+  `projects`, plus compact usage views (`heatmap`, `usage`) when they help
+  answer how much work happened and roughly what it cost.
 - A small, server-rendered web panel for the cross-device view.
 
 ---
