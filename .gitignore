@@ -11,3 +11,5 @@
 coverage.txt
 coverage.html
 *.db
+
+.playwright-mcp
