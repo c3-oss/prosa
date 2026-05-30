@@ -13,6 +13,7 @@ import (
 	"github.com/c3-oss/prosa/internal/cli/render"
 	"github.com/c3-oss/prosa/internal/paths"
 	"github.com/c3-oss/prosa/internal/store"
+	"github.com/c3-oss/prosa/pkg/session"
 )
 
 var showRawFlag bool
@@ -20,13 +21,16 @@ var showRawFlag bool
 func newShowCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "show <session-id>",
-		Short: "Show a session",
-		Long: "In an interactive terminal, renders a compact human view of the session. " +
-			"Use --raw, --json, or pipe stdout to copy the preserved raw bytes exactly.",
+		Short: "Print a session's preserved raw transcript",
+		Long: "Prints the raw JSONL bytes of a session. In an interactive terminal, " +
+			"a short session/agent/raw preface is also written to stderr so the " +
+			"output can be piped (`prosa show <id> | jq`) without polluting stdout. " +
+			"--raw and --json omit the preface entirely.",
 		Args: cobra.ExactArgs(1),
 		RunE: runShow,
 	}
-	cmd.Flags().BoolVar(&showRawFlag, "raw", false, "print preserved raw bytes exactly")
+	cmd.Flags().BoolVar(&showRawFlag, "raw", false,
+		"omit the stderr preface even when stdout is a TTY")
 	return cmd
 }
 
@@ -52,24 +56,20 @@ func runShow(cmd *cobra.Command, args []string) error {
 		}
 		return err
 	}
-	if showRawFlag || g.JSON || !IsInteractive() {
-		return copyRaw(sess.RawPath)
+	if IsInteractive() && !showRawFlag && !g.JSON {
+		writeShowPreface(os.Stderr, sess)
 	}
+	return copyRaw(sess.RawPath)
+}
 
-	tools, err := s.GetSessionTools(ctx, sess.ID)
-	if err != nil {
-		return err
-	}
-	turns, err := s.GetTurns(ctx, sess.ID)
-	if err != nil {
-		return err
-	}
-	return render.ShowSession(os.Stdout, render.SessionDetail{
-		Session: sess,
-		Tools:   tools,
-		Turns:   turns,
-		Width:   TerminalWidth(),
-	})
+// writeShowPreface emits the 3-line audit preface (session / agent /
+// raw path) per the rendering contract §Show Raw. Goes to stderr so
+// stdout stays the raw bytes.
+func writeShowPreface(w io.Writer, s session.Session) {
+	fmt.Fprintf(w, "session  %s\n", render.StyleAccent.Render(s.ID))
+	fmt.Fprintf(w, "agent    %s\n", render.StyleAgent.Render(s.Agent))
+	fmt.Fprintf(w, "raw      %s\n", render.StyleMuted.Render(s.RawPath))
+	fmt.Fprintln(w)
 }
 
 func copyRaw(rawPath string) error {

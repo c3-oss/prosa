@@ -75,16 +75,21 @@ func runLogin(cmd *cobra.Command, _ []string) error {
 
 	interactive := IsInteractive()
 	if interactive {
+		// Checklist: device + server done, auth waiting, URL/code below.
+		// On approval we move the cursor back to the `→ auth` line and
+		// redraw the tail so the user never sees the "waiting" line
+		// linger.
 		fmt.Fprintln(os.Stdout, "prosa login")
 		fmt.Fprintln(os.Stdout)
 		fmt.Fprintf(os.Stdout, "%s device       %s\n", render.StyleSuccess.Render("✓"), device.Hostname())
 		fmt.Fprintf(os.Stdout, "%s server       %s\n", render.StyleSuccess.Render("✓"), styleURL.Render(server))
-		fmt.Fprintf(os.Stdout, "%s auth         waiting for browser approval\n", render.StyleAccent.Render("→"))
+		fmt.Fprintf(os.Stdout, "%s auth         %s\n",
+			render.StyleAccent.Render("→"),
+			styleSubtle.Render("waiting for browser approval"))
 		fmt.Fprintln(os.Stdout)
-		fmt.Fprintln(os.Stdout, "Open this URL if the browser did not start:")
-		fmt.Fprintln(os.Stdout, styleURL.Render(msg.VerificationUri))
-		fmt.Fprintln(os.Stdout, styleUserCode.Render(msg.UserCode))
-		fmt.Fprintln(os.Stdout)
+		fmt.Fprintln(os.Stdout, styleSubtle.Render("Open this URL if the browser did not start:"))
+		fmt.Fprintf(os.Stdout, "  %s\n", styleURL.Render(msg.VerificationUri))
+		fmt.Fprintf(os.Stdout, "  %s\n", styleUserCode.Render(msg.UserCode))
 	} else {
 		fmt.Fprintf(os.Stdout, "device\t%s\n", device.Hostname())
 		fmt.Fprintf(os.Stdout, "server\t%s\n", server)
@@ -116,21 +121,25 @@ func runLogin(cmd *cobra.Command, _ []string) error {
 		}
 		switch poll.Msg.State {
 		case prosav1.PollLoginResponse_STATE_PENDING:
-			if interactive {
-				fmt.Fprintf(os.Stdout, "%s\r",
-					styleSubtle.Render(fmt.Sprintf("waiting for approval … expires in %ds",
-						int(time.Until(deadline).Seconds()))))
-			}
+			// Silent. The `→ auth waiting` line is already on screen.
 		case prosav1.PollLoginResponse_STATE_APPROVED:
 			if err := saveAuth(server, poll.Msg); err != nil {
 				return err
 			}
 			if interactive {
+				// Move cursor up past the URL block (4 lines: blank,
+				// hint, URL, code) AND the auth-waiting line — 5 lines
+				// total — then erase from cursor to end of screen and
+				// re-emit the tail with auth marked done.
+				fmt.Fprint(os.Stdout, "\033[5F\033[J")
+				fmt.Fprintf(os.Stdout, "%s auth         %s\n",
+					render.StyleSuccess.Render("✓"),
+					render.StyleSuccess.Render("approved"))
+				fmt.Fprintf(os.Stdout, "%s token        %s\n",
+					render.StyleSuccess.Render("✓"),
+					styleSubtle.Render("~/.config/prosa/auth.json"))
 				fmt.Fprintln(os.Stdout)
-				fmt.Fprintf(os.Stdout, "%s auth         approved\n", render.StyleSuccess.Render("✓"))
-				fmt.Fprintf(os.Stdout, "%s token        ~/.config/prosa/auth.json\n", render.StyleSuccess.Render("✓"))
-				fmt.Fprintln(os.Stdout)
-				fmt.Fprintln(os.Stdout, "ready")
+				fmt.Fprintln(os.Stdout, styleSubtle.Render("ready"))
 			} else {
 				fmt.Fprintln(os.Stdout, "status\tapproved")
 			}
