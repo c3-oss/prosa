@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       REGISTRY: ghcr.io
-      IMAGE_NAME: ${{ github.repository }}
+      IMAGE_OWNER: ${{ github.repository_owner }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -66,20 +66,63 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract Docker metadata
-        id: meta
+      # Three images, one per binary, sharing the Dockerfile's `build`
+      # stage via buildx cache. Each image is published at
+      # ghcr.io/<owner>/<binary> with the release tag and `latest`.
+
+      - name: Docker meta — prosa (CLI)
+        id: meta-cli
         uses: docker/metadata-action@v6
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/prosa
           tags: |
             type=ref,event=tag
             type=raw,value=latest
 
-      - name: Build and push Docker image
+      - name: Build and push prosa (CLI) image
         uses: docker/build-push-action@v6
         with:
           context: .
+          target: prosa
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ steps.meta-cli.outputs.tags }}
+          labels: ${{ steps.meta-cli.outputs.labels }}
+
+      - name: Docker meta — prosa-server
+        id: meta-server
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/prosa-server
+          tags: |
+            type=ref,event=tag
+            type=raw,value=latest
+
+      - name: Build and push prosa-server image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: prosa-server
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta-server.outputs.tags }}
+          labels: ${{ steps.meta-server.outputs.labels }}
+
+      - name: Docker meta — prosa-panel
+        id: meta-panel
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/prosa-panel
+          tags: |
+            type=ref,event=tag
+            type=raw,value=latest
+
+      - name: Build and push prosa-panel image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: prosa-panel
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta-panel.outputs.tags }}
+          labels: ${{ steps.meta-panel.outputs.labels }}

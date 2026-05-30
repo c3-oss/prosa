@@ -75,9 +75,11 @@ snapshot:
     @command -v goreleaser >/dev/null 2>&1 || { echo "goreleaser is required for just snapshot"; exit 127; }
     goreleaser release --snapshot --clean
 
-# build the local Docker image
+# build all three local Docker images (prosa, prosa-server, prosa-panel)
 docker-build:
-    docker build -t prosa:local .
+    docker build -t prosa:local        --target prosa        .
+    docker build -t prosa-server:local --target prosa-server .
+    docker build -t prosa-panel:local  --target prosa-panel  .
 
 # remove build outputs
 clean:
