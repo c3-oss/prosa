@@ -43,7 +43,7 @@ func runShow(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	s, err := store.Open(ctx, storePath)
+	s, err := store.OpenReadOnly(ctx, storePath)
 	if err != nil {
 		return err
 	}
