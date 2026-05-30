@@ -1,0 +1,4 @@
+DROP INDEX IF EXISTS idx_turns_tool_name;
+DROP INDEX IF EXISTS idx_turns_kind;
+ALTER TABLE turns DROP COLUMN IF EXISTS tool_name;
+ALTER TABLE turns DROP COLUMN IF EXISTS kind;
