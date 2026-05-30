@@ -206,3 +206,63 @@ func TestSearchFilterByProjectMarker(t *testing.T) {
 	require.Len(t, hits, 1)
 	require.Equal(t, "b", hits[0].Session.ID)
 }
+
+func TestSearchSurfacesEvidenceMetadata(t *testing.T) {
+	ctx, s, now := seedSearchStore(t)
+
+	// Project a tool_result into session "a".
+	require.NoError(t, s.InsertTurns(ctx, "a", []session.Turn{
+		{Role: "user", Content: "explain quantum entanglement in plain terms", Timestamp: now.Add(-time.Hour)},
+		{
+			Role:      "tool",
+			Content:   "npm test failed with exit code 1\nNetworkError: ECONNREFUSED",
+			Timestamp: now.Add(-50 * time.Minute),
+			Kind:      session.KindToolResult,
+			ToolName:  "Bash",
+		},
+	}))
+
+	hits, err := s.Search(ctx, "ECONNREFUSED", SessionFilter{
+		Since: now.Add(-24 * time.Hour), Until: now,
+	}, 10)
+	require.NoError(t, err)
+	require.Len(t, hits, 1)
+	h := hits[0]
+	require.Equal(t, "a", h.Session.ID)
+	require.Equal(t, "tool", h.Role)
+	require.Equal(t, session.KindToolResult, h.Kind)
+	require.Equal(t, "Bash", h.ToolName)
+	require.Equal(t, MatchFieldTurnContent, h.MatchField)
+	require.NotZero(t, h.TurnID)
+	require.False(t, h.TurnTS.IsZero())
+}
+
+func TestInsertTurnsRoundTripsKindAndToolName(t *testing.T) {
+	ctx, s, _ := seedSearchStore(t)
+	now := time.Now().UTC()
+	require.NoError(t, s.InsertTurns(ctx, "a", []session.Turn{
+		{Role: "user", Content: "hi", Timestamp: now, Kind: session.KindMessage},
+		{
+			Role: "tool", Content: "exit 0", Timestamp: now.Add(time.Second),
+			Kind: session.KindToolResult, ToolName: "exec_command",
+		},
+	}))
+	got, err := s.GetTurns(ctx, "a")
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	require.Equal(t, session.KindMessage, got[0].Kind)
+	require.Empty(t, got[0].ToolName)
+	require.Equal(t, session.KindToolResult, got[1].Kind)
+	require.Equal(t, "exec_command", got[1].ToolName)
+}
+
+func TestInsertTurnsDefaultsEmptyKindToMessage(t *testing.T) {
+	ctx, s, _ := seedSearchStore(t)
+	require.NoError(t, s.InsertTurns(ctx, "a", []session.Turn{
+		{Role: "user", Content: "plain content", Timestamp: time.Now().UTC()},
+	}))
+	got, err := s.GetTurns(ctx, "a")
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.Equal(t, session.KindMessage, got[0].Kind)
+}
