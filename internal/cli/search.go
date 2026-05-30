@@ -70,10 +70,10 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	case !g.All:
 		cwd, err := os.Getwd()
 		if err == nil {
-			if detected, found, _ := DetectProject(ctx, cwd, s); found {
-				filter.ProjectExact = &detected
+			if m, err := DetectProject(ctx, cwd, s); err == nil && m.Found {
+				applyMatchFilter(&filter, m)
 				if !g.JSON {
-					fmt.Fprintf(os.Stderr, "(scoped to: %s — use --all to search everywhere)\n", detected)
+					fmt.Fprintf(os.Stderr, "(scoped to: %s — use --all to search everywhere)\n", m.HintLabel())
 				}
 			}
 		}

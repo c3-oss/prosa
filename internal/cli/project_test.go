@@ -39,39 +39,39 @@ func seedProjects(t *testing.T, paths ...string) *store.Store {
 
 func TestDetectProjectExactMatch(t *testing.T) {
 	s := seedProjects(t, "/Users/u/foo", "/Users/u/bar")
-	p, ok, err := DetectProject(context.Background(), "/Users/u/foo", s)
+	m, err := DetectProject(context.Background(), "/Users/u/foo", s)
 	require.NoError(t, err)
-	require.True(t, ok)
-	require.Equal(t, "/Users/u/foo", p)
+	require.True(t, m.Found)
+	require.Equal(t, "/Users/u/foo", m.Path)
 }
 
 func TestDetectProjectAncestorMatch(t *testing.T) {
 	s := seedProjects(t, "/Users/u/foo")
-	p, ok, err := DetectProject(context.Background(), "/Users/u/foo/sub/deeper", s)
+	m, err := DetectProject(context.Background(), "/Users/u/foo/sub/deeper", s)
 	require.NoError(t, err)
-	require.True(t, ok)
-	require.Equal(t, "/Users/u/foo", p)
+	require.True(t, m.Found)
+	require.Equal(t, "/Users/u/foo", m.Path)
 }
 
 func TestDetectProjectLongestWins(t *testing.T) {
 	s := seedProjects(t, "/Users/u/foo", "/Users/u/foo/bar")
-	p, ok, err := DetectProject(context.Background(), "/Users/u/foo/bar/sub", s)
+	m, err := DetectProject(context.Background(), "/Users/u/foo/bar/sub", s)
 	require.NoError(t, err)
-	require.True(t, ok)
-	require.Equal(t, "/Users/u/foo/bar", p, "the deeper project root should win over the ancestor")
+	require.True(t, m.Found)
+	require.Equal(t, "/Users/u/foo/bar", m.Path, "the deeper project root should win over the ancestor")
 }
 
 func TestDetectProjectDisjoint(t *testing.T) {
 	s := seedProjects(t, "/Users/u/foo")
-	_, ok, err := DetectProject(context.Background(), "/Users/u/elsewhere", s)
+	m, err := DetectProject(context.Background(), "/Users/u/elsewhere", s)
 	require.NoError(t, err)
-	require.False(t, ok)
+	require.False(t, m.Found)
 }
 
 func TestDetectProjectSiblingNoMatch(t *testing.T) {
 	// /Users/u/foobar should NOT match /Users/u/foo via prefix.
 	s := seedProjects(t, "/Users/u/foo")
-	_, ok, err := DetectProject(context.Background(), "/Users/u/foobar", s)
+	m, err := DetectProject(context.Background(), "/Users/u/foobar", s)
 	require.NoError(t, err)
-	require.False(t, ok, "prefix HasPrefix without separator would falsely match /Users/u/foobar against /Users/u/foo")
+	require.False(t, m.Found, "prefix HasPrefix without separator would falsely match /Users/u/foobar against /Users/u/foo")
 }

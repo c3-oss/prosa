@@ -75,6 +75,7 @@ func (s *Store) Search(ctx context.Context, query string, f SessionFilter, limit
 
 	q := fmt.Sprintf(`
 		SELECT s.id, s.agent, s.device_id, s.project_path,
+		       s.project_remote, s.project_marker,
 		       s.started_at, s.last_activity_at,
 		       s.first_prompt, s.model,
 		       s.raw_path, s.raw_hash, s.raw_size,
@@ -104,16 +105,19 @@ func (s *Store) Search(ctx context.Context, query string, f SessionFilter, limit
 	out := make([]SearchHit, 0, limit)
 	for rows.Next() {
 		var (
-			h           SearchHit
-			projectPath sql.NullString
-			firstPrompt sql.NullString
-			model       sql.NullString
-			startedAt   string
-			lastAct     string
-			rank        float64
+			h             SearchHit
+			projectPath   sql.NullString
+			projectRemote sql.NullString
+			projectMarker sql.NullString
+			firstPrompt   sql.NullString
+			model         sql.NullString
+			startedAt     string
+			lastAct       string
+			rank          float64
 		)
 		if err := rows.Scan(
 			&h.Session.ID, &h.Session.Agent, &h.Session.DeviceID, &projectPath,
+			&projectRemote, &projectMarker,
 			&startedAt, &lastAct,
 			&firstPrompt, &model,
 			&h.Session.RawPath, &h.Session.RawHash, &h.Session.RawSize,
@@ -129,6 +133,14 @@ func (s *Store) Search(ctx context.Context, query string, f SessionFilter, limit
 		if projectPath.Valid {
 			v := projectPath.String
 			h.Session.ProjectPath = &v
+		}
+		if projectRemote.Valid {
+			v := projectRemote.String
+			h.Session.ProjectRemote = &v
+		}
+		if projectMarker.Valid {
+			v := projectMarker.String
+			h.Session.ProjectMarker = &v
 		}
 		if firstPrompt.Valid {
 			v := firstPrompt.String

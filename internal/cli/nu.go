@@ -57,10 +57,10 @@ func runNu(cmd *cobra.Command, _ []string) error {
 	case !g.All:
 		cwd, err := os.Getwd()
 		if err == nil {
-			if detected, found, _ := DetectProject(ctx, cwd, s); found {
-				filter.ProjectExact = &detected
+			if m, err := DetectProject(ctx, cwd, s); err == nil && m.Found {
+				applyMatchFilter(&filter, m)
 				if !g.JSON {
-					fmt.Fprintf(os.Stderr, "(filtered to: %s — use --all to show everything)\n", detected)
+					fmt.Fprintf(os.Stderr, "(filtered to: %s — use --all to show everything)\n", m.HintLabel())
 				}
 			}
 		}

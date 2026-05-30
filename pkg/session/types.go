@@ -21,8 +21,20 @@ type Session struct {
 	DeviceID string
 
 	// ProjectPath is the cwd captured from the session, when discoverable.
-	// nil means unscoped (no cwd found, no marker file, no remote).
+	// Always populated when the session has a cwd; nil only when the
+	// importer literally found none.
 	ProjectPath *string
+
+	// ProjectRemote is the canonical `git remote get-url origin` URL
+	// resolved from ProjectPath at import time. nil when ProjectPath
+	// isn't a git repo (or no longer exists on this machine). Stable
+	// cross-device.
+	ProjectRemote *string
+
+	// ProjectMarker is the `project: <name>` value from a .prosa.yaml in
+	// the cwd or any ancestor. nil when no marker is reachable. Explicit
+	// override for repos without a shared remote.
+	ProjectMarker *string
 
 	// StartedAt is the timestamp of the first record in the JSONL.
 	StartedAt time.Time

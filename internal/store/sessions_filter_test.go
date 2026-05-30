@@ -81,6 +81,38 @@ func TestListSessionsByProjectExact(t *testing.T) {
 	}
 }
 
+func TestListSessionsByProjectRemote(t *testing.T) {
+	ctx, s, now := seedFilterStore(t)
+	// Tag two of the four sessions with a project_remote.
+	_, _, err := s.FillProjectIdentity(ctx, "/u/proj-alpha", "git@github.com:x/alpha.git", "")
+	require.NoError(t, err)
+
+	url := "git@github.com:x/alpha.git"
+	got, err := s.ListSessions(ctx, SessionFilter{
+		Since:         now.Add(-7 * 24 * time.Hour),
+		Until:         now,
+		ProjectRemote: &url,
+	})
+	require.NoError(t, err)
+	require.Len(t, got, 2) // c1 + x1 share /u/proj-alpha
+}
+
+func TestListSessionsByProjectMarker(t *testing.T) {
+	ctx, s, now := seedFilterStore(t)
+	_, _, err := s.FillProjectIdentity(ctx, "/u/proj-beta", "", "beta-monorepo")
+	require.NoError(t, err)
+
+	marker := "beta-monorepo"
+	got, err := s.ListSessions(ctx, SessionFilter{
+		Since:         now.Add(-24 * time.Hour),
+		Until:         now,
+		ProjectMarker: &marker,
+	})
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.Equal(t, "c2", got[0].ID)
+}
+
 func TestListSessionsByProjectSubstring(t *testing.T) {
 	ctx, s, now := seedFilterStore(t)
 	got, err := s.ListSessions(ctx, SessionFilter{

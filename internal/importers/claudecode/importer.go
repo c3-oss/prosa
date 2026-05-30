@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 
 	"github.com/c3-oss/prosa/internal/device"
+	"github.com/c3-oss/prosa/internal/projectid"
 	"github.com/c3-oss/prosa/pkg/importer"
 )
 
@@ -77,6 +78,7 @@ func (i *Importer) Import(ctx context.Context, jsonlPath string, sink importer.S
 		return importer.ImportResult{}, fmt.Errorf("preserve raw %s: %w", jsonlPath, err)
 	}
 	sess.RawPath = rawPath
+	projectid.Apply(&sess)
 
 	if err := sink.UpsertSession(ctx, sess, tools); err != nil {
 		return importer.ImportResult{}, fmt.Errorf("upsert session %s: %w", sessionID, err)

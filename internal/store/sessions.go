@@ -26,14 +26,17 @@ func (s *Store) UpsertSession(ctx context.Context, sess session.Session, tools [
 		ctx, `
 		INSERT INTO sessions (
 			id, agent, device_id, project_path,
+			project_remote, project_marker,
 			started_at, last_activity_at,
 			first_prompt, model,
 			raw_path, raw_hash, raw_size
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			agent            = excluded.agent,
 			device_id        = excluded.device_id,
 			project_path     = excluded.project_path,
+			project_remote   = excluded.project_remote,
+			project_marker   = excluded.project_marker,
 			started_at       = excluded.started_at,
 			last_activity_at = excluded.last_activity_at,
 			first_prompt     = excluded.first_prompt,
@@ -43,6 +46,7 @@ func (s *Store) UpsertSession(ctx context.Context, sess session.Session, tools [
 			raw_size         = excluded.raw_size
 	`,
 		sess.ID, sess.Agent, sess.DeviceID, nullableString(sess.ProjectPath),
+		nullableString(sess.ProjectRemote), nullableString(sess.ProjectMarker),
 		formatTime(sess.StartedAt), formatTime(sess.LastActivityAt),
 		nullableString(sess.FirstPrompt), nullableString(sess.Model),
 		sess.RawPath, sess.RawHash, sess.RawSize,
@@ -78,10 +82,16 @@ func (s *Store) UpsertSession(ctx context.Context, sess session.Session, tools [
 // devices.friendly_name via JOIN.
 type SessionFilter struct {
 	Since, Until time.Time
-	ProjectExact *string
-	ProjectMatch *string
-	Agent        *string
-	DeviceName   *string
+	ProjectExact *string // exact match on sessions.project_path
+	ProjectMatch *string // substring match on sessions.project_path
+	// ProjectRemote matches sessions.project_remote exactly. Used by the
+	// new git-remote-anchored auto-detect (INTENT §5 step 1).
+	ProjectRemote *string
+	// ProjectMarker matches sessions.project_marker exactly. Used by the
+	// .prosa.yaml-anchored auto-detect (INTENT §5 step 2).
+	ProjectMarker *string
+	Agent         *string
+	DeviceName    *string
 }
 
 // ListSessionsByRange is a thin convenience wrapper preserving the cut-1
@@ -105,6 +115,14 @@ func (s *Store) ListSessions(ctx context.Context, f SessionFilter) ([]session.Se
 		conds = append(conds, "s.project_path LIKE ?")
 		args = append(args, "%"+*f.ProjectMatch+"%")
 	}
+	if f.ProjectRemote != nil {
+		conds = append(conds, "s.project_remote = ?")
+		args = append(args, *f.ProjectRemote)
+	}
+	if f.ProjectMarker != nil {
+		conds = append(conds, "s.project_marker = ?")
+		args = append(args, *f.ProjectMarker)
+	}
 	if f.Agent != nil {
 		conds = append(conds, "s.agent = ?")
 		args = append(args, *f.Agent)
@@ -119,6 +137,7 @@ func (s *Store) ListSessions(ctx context.Context, f SessionFilter) ([]session.Se
 
 	query := `
 		SELECT s.id, s.agent, s.device_id, s.project_path,
+		       s.project_remote, s.project_marker,
 		       s.started_at, s.last_activity_at,
 		       s.first_prompt, s.model,
 		       s.raw_path, s.raw_hash, s.raw_size
@@ -157,10 +176,42 @@ func (s *Store) DistinctProjectPaths(ctx context.Context) ([]string, error) {
 	return out, rows.Err()
 }
 
+// ProjectRemoteExists reports whether at least one session has a
+// project_remote equal to url. Used by DetectProject to confirm the
+// store already knows the current cwd's remote before asking the
+// timeline to scope by it.
+func (s *Store) ProjectRemoteExists(ctx context.Context, url string) (bool, error) {
+	var n int
+	if err := s.db.QueryRowContext(
+		ctx,
+		`SELECT COUNT(*) FROM sessions WHERE project_remote = ? LIMIT 1`,
+		url,
+	).Scan(&n); err != nil {
+		return false, fmt.Errorf("count project_remote: %w", err)
+	}
+	return n > 0, nil
+}
+
+// ProjectMarkerExists reports whether at least one session has a
+// project_marker equal to name. Same role as ProjectRemoteExists but
+// for the .prosa.yaml-anchored identity.
+func (s *Store) ProjectMarkerExists(ctx context.Context, name string) (bool, error) {
+	var n int
+	if err := s.db.QueryRowContext(
+		ctx,
+		`SELECT COUNT(*) FROM sessions WHERE project_marker = ? LIMIT 1`,
+		name,
+	).Scan(&n); err != nil {
+		return false, fmt.Errorf("count project_marker: %w", err)
+	}
+	return n > 0, nil
+}
+
 // GetSession returns a single session by id, or sql.ErrNoRows if missing.
 func (s *Store) GetSession(ctx context.Context, id string) (session.Session, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, agent, device_id, project_path,
+		       project_remote, project_marker,
 		       started_at, last_activity_at,
 		       first_prompt, model,
 		       raw_path, raw_hash, raw_size
@@ -184,15 +235,18 @@ func scanSessions(rows *sql.Rows) ([]session.Session, error) {
 	var out []session.Session
 	for rows.Next() {
 		var (
-			sess        session.Session
-			projectPath sql.NullString
-			firstPrompt sql.NullString
-			model       sql.NullString
-			startedAt   string
-			lastAct     string
+			sess          session.Session
+			projectPath   sql.NullString
+			projectRemote sql.NullString
+			projectMarker sql.NullString
+			firstPrompt   sql.NullString
+			model         sql.NullString
+			startedAt     string
+			lastAct       string
 		)
 		if err := rows.Scan(
 			&sess.ID, &sess.Agent, &sess.DeviceID, &projectPath,
+			&projectRemote, &projectMarker,
 			&startedAt, &lastAct,
 			&firstPrompt, &model,
 			&sess.RawPath, &sess.RawHash, &sess.RawSize,
@@ -202,6 +256,14 @@ func scanSessions(rows *sql.Rows) ([]session.Session, error) {
 		if projectPath.Valid {
 			v := projectPath.String
 			sess.ProjectPath = &v
+		}
+		if projectRemote.Valid {
+			v := projectRemote.String
+			sess.ProjectRemote = &v
+		}
+		if projectMarker.Valid {
+			v := projectMarker.String
+			sess.ProjectMarker = &v
 		}
 		if firstPrompt.Valid {
 			v := firstPrompt.String

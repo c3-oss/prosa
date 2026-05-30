@@ -18,6 +18,7 @@ import (
 	"github.com/c3-oss/prosa/internal/importers/gemini"
 	"github.com/c3-oss/prosa/internal/legacy"
 	"github.com/c3-oss/prosa/internal/paths"
+	"github.com/c3-oss/prosa/internal/projectid"
 	"github.com/c3-oss/prosa/internal/store"
 	"github.com/c3-oss/prosa/pkg/importer"
 )
@@ -111,6 +112,16 @@ func runSync(cmd *cobra.Command, _ []string) error {
 			"device_id", dev.ID, "rows", n)
 	}
 
+	// One-shot project identity backfill: for every distinct cwd that
+	// still has NULL project_remote/marker, ask projectid.Resolve to
+	// derive the canonical identity. Cwds that no longer exist on this
+	// machine (legacy bundle rows) silently skip; the rest get
+	// retro-tagged so the timeline auto-filter and `prosa analytics
+	// projects` find them.
+	if err := backfillProjectIdentity(ctx, s); err != nil {
+		slog.Warn("project identity backfill failed", "err", err)
+	}
+
 	imps := []importer.Importer{
 		claudecode.New(),
 		codex.New(),
@@ -185,6 +196,43 @@ func runSync(cmd *cobra.Command, _ []string) error {
 		return runSyncTTY(ctx, work, s, len(legacyWork))
 	}
 	return runSyncPlain(ctx, work, s, len(legacyWork))
+}
+
+// backfillProjectIdentity iterates every distinct project_path lacking
+// identity columns, asks projectid.Resolve, and writes back remote /
+// marker via store.FillProjectIdentity. Each path is touched once.
+func backfillProjectIdentity(ctx context.Context, s *store.Store) error {
+	paths, err := s.DistinctProjectPathsNeedingIdentity(ctx)
+	if err != nil {
+		return err
+	}
+	var remoteRows, markerRows int64
+	for _, p := range paths {
+		id := projectid.Resolve(p)
+		remote := ""
+		if id.Remote != nil {
+			remote = *id.Remote
+		}
+		marker := ""
+		if id.Marker != nil {
+			marker = *id.Marker
+		}
+		if remote == "" && marker == "" {
+			continue
+		}
+		rn, mn, err := s.FillProjectIdentity(ctx, p, remote, marker)
+		if err != nil {
+			slog.Warn("project identity fill failed", "path", p, "err", err)
+			continue
+		}
+		remoteRows += rn
+		markerRows += mn
+	}
+	if remoteRows > 0 || markerRows > 0 {
+		slog.Info("project identity backfill applied",
+			"remote_rows", remoteRows, "marker_rows", markerRows, "paths_scanned", len(paths))
+	}
+	return nil
 }
 
 // syncCounts breaks results down by live vs legacy so the final banner can
