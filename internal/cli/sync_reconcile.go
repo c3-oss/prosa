@@ -1,0 +1,151 @@
+package cli
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"os"
+
+	"connectrpc.com/connect"
+
+	prosav1 "github.com/c3-oss/prosa/gen/go/prosa/v1"
+	"github.com/c3-oss/prosa/internal/cli/rpc"
+)
+
+// reconcileCounts aggregates the catch-up phase results.
+type reconcileCounts struct {
+	sent, skipped, errs int
+	localTotal          int
+	remoteTotal         int
+}
+
+// reconcileWithServer is the catch-up phase: it enumerates every local
+// session for this device, asks the server for its current manifest,
+// and pushes any session that's missing remotely or whose raw_hash
+// diverged. Pushes are sequential (re-uses the same pusher / SQLite
+// reader) and stream a "X / N" progress line so the user can see the
+// catch-up moving even on a slow connection.
+//
+// onProgress, when non-nil, is called once after each push attempt with
+// the cumulative (sent + skipped + errs) and the total work. The caller
+// uses it to repaint a status line; it is invoked from the same
+// goroutine so no locking is required.
+func reconcileWithServer(
+	ctx context.Context,
+	push *pusher,
+	deviceID string,
+	onProgress func(done, total int),
+) (reconcileCounts, error) {
+	var counts reconcileCounts
+	if push == nil {
+		return counts, nil
+	}
+
+	serverHas, err := fetchServerManifest(ctx, push)
+	if err != nil {
+		return counts, err
+	}
+	counts.remoteTotal = len(serverHas)
+
+	local, err := push.store.ListSessionsManifest(ctx, deviceID, "", 0)
+	if err != nil {
+		return counts, fmt.Errorf("list local manifest: %w", err)
+	}
+	counts.localTotal = len(local)
+
+	var work []string
+	for _, row := range local {
+		remote, ok := serverHas[row.ID]
+		if !ok || remote != row.RawHash {
+			work = append(work, row.ID)
+		}
+	}
+
+	if len(work) == 0 {
+		slog.Info("reconcile: converged",
+			"device", deviceID, "local", counts.localTotal, "remote", counts.remoteTotal)
+		return counts, nil
+	}
+
+	slog.Info("reconcile: catching up",
+		"device", deviceID, "to_push", len(work),
+		"local", counts.localTotal, "remote", counts.remoteTotal)
+
+	for i, sid := range work {
+		if ctx.Err() != nil {
+			return counts, ctx.Err()
+		}
+		outcome, perr := push.pushSession(ctx, sid)
+		switch outcome {
+		case pushImported:
+			counts.sent++
+		case pushAlreadyHashed:
+			counts.skipped++
+		case pushFailed:
+			counts.errs++
+			slog.Warn("reconcile push failed", "session", sid, "err", perr)
+		}
+		if onProgress != nil {
+			onProgress(i+1, len(work))
+		}
+	}
+	return counts, nil
+}
+
+// fetchServerManifest pages the server's Manifest RPC until exhausted,
+// returning a map of session_id → raw_hash. Page size 1000 keeps the
+// hop count low for typical devices (≤ 3 round-trips at 2 800 sessions).
+func fetchServerManifest(ctx context.Context, push *pusher) (map[string]string, error) {
+	out := map[string]string{}
+	after := ""
+	for {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		resp, err := push.client.Manifest(ctx, connect.NewRequest(&prosav1.ManifestRequest{
+			AfterId: after,
+			Limit:   1000,
+		}))
+		if err != nil {
+			return nil, fmt.Errorf("manifest rpc: %s", rpc.ConnectError(err))
+		}
+		for _, e := range resp.Msg.Entries {
+			out[e.Id] = e.RawHash
+		}
+		if resp.Msg.NextAfterId == "" {
+			return out, nil
+		}
+		after = resp.Msg.NextAfterId
+	}
+}
+
+// runSyncReconcile is the orchestrator wrapper called from runSync. It
+// runs the reconcile phase (no-op when push is nil) and folds the
+// results into the shared syncCounts so printSummary can render the
+// Catch-up band.
+func runSyncReconcile(ctx context.Context, push *pusher, deviceID string, counts *syncCounts) {
+	if push == nil {
+		return
+	}
+	progress := func(done, total int) {
+		// Repaint a single status line every 25 sessions (or at the end)
+		// — keeps stdout readable on slow runs without flooding it.
+		if done == total || done%25 == 0 {
+			fmt.Fprintf(os.Stdout, "\rCatch-up: %d / %d sessions reconciled", done, total)
+		}
+	}
+	rc, err := reconcileWithServer(ctx, push, deviceID, progress)
+	if err != nil {
+		slog.Warn("reconcile failed", "err", err)
+	}
+	counts.catchUpSent = rc.sent
+	counts.catchUpSkip = rc.skipped
+	counts.catchUpErr = rc.errs
+	counts.reconcileRan = true
+	counts.localTotal = rc.localTotal
+	counts.remoteTotal = rc.remoteTotal
+	// Close out the progress line so the summary starts on a fresh line.
+	if rc.sent+rc.skipped+rc.errs > 0 {
+		fmt.Fprintln(os.Stdout)
+	}
+}

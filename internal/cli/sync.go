@@ -198,10 +198,30 @@ func runSync(cmd *cobra.Command, _ []string) error {
 		slog.Warn("push disabled (auth file unreadable)", "err", err)
 	}
 
-	if !syncVerboseFlag && IsInteractive() {
-		return runSyncTTY(ctx, work, s, len(legacyWork), push)
+	counts := &syncCounts{
+		legacyTotal: len(legacyWork),
+		bundlePath:  legacyBundleFlag,
+		pushEnabled: push != nil,
 	}
-	return runSyncPlain(ctx, work, s, len(legacyWork), push)
+
+	if !syncVerboseFlag && IsInteractive() {
+		if err := runSyncTTY(ctx, work, s, push, counts); err != nil {
+			return err
+		}
+	} else {
+		if err := runSyncPlain(ctx, work, s, push, counts); err != nil {
+			return err
+		}
+	}
+
+	// Post-import: manifest-driven reconcile. No-op when push is nil
+	// (no auth.json) or when ctx was cancelled mid-import. Sequential
+	// pushes; takes the same SQLite reader so it slots in cleanly after
+	// the importer goroutine has exited.
+	runSyncReconcile(ctx, push, dev.ID, counts)
+
+	counts.printSummary()
+	return nil
 }
 
 // backfillProjectIdentity iterates every distinct project_path lacking
@@ -243,15 +263,20 @@ func backfillProjectIdentity(ctx context.Context, s *store.Store) error {
 
 // syncCounts breaks results down by live vs legacy so the final banner can
 // nudge the user to free up the bundle directory. The pushImp/Skip/Err
-// trio counts upstream replication outcomes when --legacy-bundle or live
-// imports land on a server-bound device.
+// trio counts the inline push that runs right after each Import; the
+// catchUp* trio counts the post-import manifest-driven reconcile that
+// makes the server converge to the local set even for sessions imported
+// long before the auth.json existed.
 type syncCounts struct {
-	liveImp, liveSkip, liveErr       int
-	legacyImp, legacySkip, legacyErr int
-	pushImp, pushSkip, pushErr       int
-	pushEnabled                      bool
-	legacyTotal                      int
-	bundlePath                       string
+	liveImp, liveSkip, liveErr           int
+	legacyImp, legacySkip, legacyErr     int
+	pushImp, pushSkip, pushErr           int
+	catchUpSent, catchUpSkip, catchUpErr int
+	localTotal, remoteTotal              int
+	pushEnabled                          bool
+	reconcileRan                         bool
+	legacyTotal                          int
+	bundlePath                           string
 }
 
 func (sc *syncCounts) record(w syncJob, res importer.ImportResult, err error) {
@@ -278,15 +303,21 @@ func (sc *syncCounts) record(w syncJob, res importer.ImportResult, err error) {
 }
 
 func (sc *syncCounts) printSummary() {
-	fmt.Fprintf(os.Stdout, "Live:    imported %d, skipped %d, errors %d\n",
+	fmt.Fprintf(os.Stdout, "Live:     imported %d, skipped %d, errors %d\n",
 		sc.liveImp, sc.liveSkip, sc.liveErr)
 	if sc.legacyTotal > 0 {
-		fmt.Fprintf(os.Stdout, "Legacy:  imported %d, skipped %d, errors %d (of %d catalog rows)\n",
+		fmt.Fprintf(os.Stdout, "Legacy:   imported %d, skipped %d, errors %d (of %d catalog rows)\n",
 			sc.legacyImp, sc.legacySkip, sc.legacyErr, sc.legacyTotal)
 	}
 	if sc.pushEnabled {
-		fmt.Fprintf(os.Stdout, "Push:    sent %d, skipped %d, errors %d\n",
+		fmt.Fprintf(os.Stdout, "Push:     sent %d, skipped %d, errors %d\n",
 			sc.pushImp, sc.pushSkip, sc.pushErr)
+	}
+	if sc.reconcileRan {
+		fmt.Fprintf(os.Stdout,
+			"Catch-up: sent %d, skipped %d, errors %d  (local %d, remote %d)\n",
+			sc.catchUpSent, sc.catchUpSkip, sc.catchUpErr,
+			sc.localTotal, sc.remoteTotal)
 	}
 	if sc.legacyTotal > 0 {
 		fmt.Fprintf(os.Stdout,
@@ -298,8 +329,9 @@ func (sc *syncCounts) printSummary() {
 // runSyncTTY drives the Bubble Tea progress display. The importer
 // goroutine runs sequentially (SQLite writer-lock makes parallelism
 // counter-productive at small N) and feeds updates into a channel the
-// Bubble Tea program consumes.
-func runSyncTTY(ctx context.Context, work []syncJob, sink importer.Sink, legacyTotal int, push *pusher) error {
+// Bubble Tea program consumes. counts is owned by the orchestrator
+// (runSync) so the reconcile + summary phases share the same struct.
+func runSyncTTY(ctx context.Context, work []syncJob, sink importer.Sink, push *pusher, counts *syncCounts) error {
 	items := make([]spinner.Item, len(work))
 	for i, w := range work {
 		label := w.imp.Name()
@@ -309,11 +341,6 @@ func runSyncTTY(ctx context.Context, work []syncJob, sink importer.Sink, legacyT
 		items[i] = spinner.Item{Agent: label, Path: w.path}
 	}
 	updates := make(chan spinner.Update, len(work)*2)
-	counts := &syncCounts{
-		legacyTotal: legacyTotal,
-		bundlePath:  legacyBundleFlag,
-		pushEnabled: push != nil,
-	}
 
 	go func() {
 		defer close(updates)
@@ -344,13 +371,12 @@ func runSyncTTY(ctx context.Context, work []syncJob, sink importer.Sink, legacyT
 		Title: "prosa sync · local store",
 		Found: syncFoundSummary(items),
 	}
-	if legacyTotal > 0 {
+	if counts.legacyTotal > 0 {
 		opts.Banner = fmt.Sprintf("legacy bundle: %s", legacyBundleFlag)
 	}
 	if err := spinner.Run(ctx, items, updates, opts); err != nil && !errors.Is(err, context.Canceled) {
 		return err
 	}
-	counts.printSummary()
 	return nil
 }
 
@@ -374,14 +400,10 @@ func syncFoundSummary(items []spinner.Item) string {
 }
 
 // runSyncPlain is the non-TTY fallback used by LaunchAgent/cron and by
-// the --verbose flag. One structured log line per session, plus a
-// summary block on stdout at the end. No escape codes, no alt-screen.
-func runSyncPlain(ctx context.Context, work []syncJob, sink importer.Sink, legacyTotal int, push *pusher) error {
-	counts := &syncCounts{
-		legacyTotal: legacyTotal,
-		bundlePath:  legacyBundleFlag,
-		pushEnabled: push != nil,
-	}
+// the --verbose flag. One structured log line per session; the summary
+// block is printed by the orchestrator (runSync) after the reconcile
+// phase. No escape codes, no alt-screen.
+func runSyncPlain(ctx context.Context, work []syncJob, sink importer.Sink, push *pusher, counts *syncCounts) error {
 	for _, w := range work {
 		start := time.Now()
 		res, err := w.imp.Import(ctx, w.path, sink)
@@ -409,7 +431,6 @@ func runSyncPlain(ctx context.Context, work []syncJob, sink importer.Sink, legac
 			}
 		}
 	}
-	counts.printSummary()
 	return nil
 }
 
