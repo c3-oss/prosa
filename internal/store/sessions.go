@@ -231,6 +231,47 @@ func (s *Store) GetSession(ctx context.Context, id string) (session.Session, err
 	return list[0], nil
 }
 
+// ManifestRow is the minimal projection used by the catch-up reconcile
+// path: enough to ask "does the server already have this id with this
+// hash?" and locate the raw on disk if we need to re-push it.
+type ManifestRow struct {
+	ID      string
+	RawHash string
+	RawPath string
+}
+
+// ListSessionsManifest paginates every session for a given device by id
+// ASC. afterID = "" starts the scan; limit <= 0 means "all rows in one
+// page" (used by the CLI which holds the whole local set in memory
+// during reconcile). The composite (device_id, id) index from migration
+// 0003 makes this an index-only walk.
+func (s *Store) ListSessionsManifest(ctx context.Context, deviceID, afterID string, limit int) ([]ManifestRow, error) {
+	q := `
+		SELECT id, raw_hash, raw_path
+		FROM sessions
+		WHERE device_id = ? AND id > ?
+		ORDER BY id ASC`
+	args := []any{deviceID, afterID}
+	if limit > 0 {
+		q += ` LIMIT ?`
+		args = append(args, limit)
+	}
+	rows, err := s.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ManifestRow
+	for rows.Next() {
+		var r ManifestRow
+		if err := rows.Scan(&r.ID, &r.RawHash, &r.RawPath); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 func scanSessions(rows *sql.Rows) ([]session.Session, error) {
 	var out []session.Session
 	for rows.Next() {
