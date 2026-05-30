@@ -69,9 +69,17 @@ message TokenUsage {
 }
 
 message Turn {
-  string role = 1;            // "user" | "assistant"
+  string role = 1;            // "user" | "assistant" | "tool"
   string content = 2;
   google.protobuf.Timestamp ts = 3;
+  // kind tags how the importer projected the original record: "message"
+  // for chat content, "tool_result" for projected tool outputs, or
+  // "operational" for non-conversational events. Empty string is
+  // treated as "message" so legacy proto payloads stay valid.
+  string kind = 4;
+  // tool_name carries the originating tool when kind=tool_result;
+  // empty otherwise.
+  string tool_name = 5;
 }
 
 message ToolUsage {
@@ -139,6 +147,23 @@ message SearchHit {
   Session session = 1;
   string snippet = 2;
   string role = 3;
+  // turn_id is the matching turn's primary key — stable within one
+  // session; lets agents fetch evidence directly.
+  int64 turn_id = 4;
+  // turn_ts is the timestamp of the matching turn.
+  google.protobuf.Timestamp turn_ts = 5;
+  // kind mirrors Turn.kind for the matched turn.
+  string kind = 6;
+  // tool_name mirrors Turn.tool_name for the matched turn.
+  string tool_name = 7;
+  // match_field reports which document field produced the match. For
+  // now always "turn.content"; reserved for future session-level
+  // matches.
+  string match_field = 8;
+  // rank is the FTS ranking score; lower means better in SQLite's
+  // bm25, higher means better in Postgres ts_rank — clients should
+  // sort within a result set, not compare across backends.
+  double rank = 9;
 }
 
 message SearchResponse {
