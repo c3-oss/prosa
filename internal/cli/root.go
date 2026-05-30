@@ -53,6 +53,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newLogoutCmd())
 	cmd.AddCommand(newDevicesCmd())
 	cmd.AddCommand(newScheduleCmd())
+	cmd.AddCommand(newSetupCmd())
 	return cmd
 }
 
