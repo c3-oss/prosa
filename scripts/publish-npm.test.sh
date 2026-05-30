@@ -38,17 +38,16 @@ for p in darwin-arm64 darwin-amd64 linux-amd64 linux-arm64; do
         || { echo "main package missing optionalDependency for $p" >&2; exit 1; }
 done
 
-# 4) Shim resolves to the expected sub-package for the current
-#    platform name format. Run the shim with a Node that errors
-#    early; we just want the JS to parse + the resolution check.
-node -e "
-    const fs = require('fs');
-    const shim = fs.readFileSync('$SCRIPT_DIR/npm/prosa/bin/prosa.js', 'utf8');
-    if (!shim.includes('@c3-oss/prosa-')) {
-        console.error('shim missing subpackage prefix');
-        process.exit(1);
-    }
-"
-echo "ok: shim resolves subpackage path"
+# 4) Shim parses as ESM and still references the subpackage prefix.
+#    node --check catches ESM syntax regressions; the grep guards
+#    against accidentally removing the require.resolve target.
+node --check "$SCRIPT_DIR/npm/prosa/bin/prosa.js"
+echo "ok: node --check"
+
+if ! grep -q '@c3-oss/prosa-' "$SCRIPT_DIR/npm/prosa/bin/prosa.js"; then
+    echo "shim missing @c3-oss/prosa- subpackage prefix" >&2
+    exit 1
+fi
+echo "ok: shim references subpackage prefix"
 
 echo "all checks passed"

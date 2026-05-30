@@ -1,6 +1,7 @@
 {
   "name": "@c3-oss/prosa",
   "version": "0.0.0-dev",
+  "type": "module",
   "description": "Unified history of AI agent sessions across devices",
   "homepage": "https://github.com/c3-oss/prosa",
   "repository": {
