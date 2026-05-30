@@ -22,7 +22,10 @@ import (
 )
 
 // legacyBundleFlag holds the value of --legacy-bundle for runSync.
-var legacyBundleFlag string
+var (
+	legacyBundleFlag string
+	syncVerboseFlag  bool
+)
 
 func newSyncCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -33,11 +36,15 @@ func newSyncCmd() *cobra.Command {
 			"Pass --legacy-bundle <path> to additionally re-ingest a prosa v1 bundle " +
 			"(typically ~/.prosa) — useful as a one-shot rescue after the v3 cutover " +
 			"when the v1 catalog still has source files that the live tools have " +
-			"since deleted.",
+			"since deleted. " +
+			"Use --verbose to force the plain (slog) output even in a TTY; handy " +
+			"for debugging long runs where the compact spinner hides per-item detail.",
 		RunE: runSync,
 	}
 	cmd.Flags().StringVar(&legacyBundleFlag, "legacy-bundle", "",
 		"path to a prosa v1 bundle (e.g. ~/.prosa) to re-ingest before live walks")
+	cmd.Flags().BoolVar(&syncVerboseFlag, "verbose", false,
+		"emit one slog line per imported session even when running in a TTY")
 	return cmd
 }
 
@@ -129,7 +136,7 @@ func runSync(cmd *cobra.Command, _ []string) error {
 			if imp == nil {
 				continue
 			}
-			path, err := bundle.Decompress(sf, tmpDir)
+			path, err := bundle.Decompress(ctx, sf, tmpDir)
 			if err != nil {
 				slog.Warn("legacy decompress failed",
 					"tool", sf.Tool, "oid", sf.ObjectIDHex, "err", err)
@@ -151,7 +158,7 @@ func runSync(cmd *cobra.Command, _ []string) error {
 		return nil
 	}
 
-	if IsInteractive() {
+	if !syncVerboseFlag && IsInteractive() {
 		return runSyncTTY(ctx, work, s, len(legacyWork))
 	}
 	return runSyncPlain(ctx, work, s, len(legacyWork))
@@ -232,16 +239,22 @@ func runSyncTTY(ctx context.Context, work []syncJob, sink importer.Sink, legacyT
 			}
 		}
 	}()
-	if err := spinner.Run(ctx, items, updates); err != nil && !errors.Is(err, context.Canceled) {
+	opts := spinner.Options{
+		Title: "prosa sync",
+	}
+	if legacyTotal > 0 {
+		opts.Banner = fmt.Sprintf("legacy bundle: %s", legacyBundleFlag)
+	}
+	if err := spinner.Run(ctx, items, updates, opts); err != nil && !errors.Is(err, context.Canceled) {
 		return err
 	}
 	counts.printSummary()
 	return nil
 }
 
-// runSyncPlain is the non-TTY fallback used by LaunchAgent/cron. One
-// structured log line per session, plus a summary block on stdout at the
-// end. No escape codes, no alt-screen.
+// runSyncPlain is the non-TTY fallback used by LaunchAgent/cron and by
+// the --verbose flag. One structured log line per session, plus a
+// summary block on stdout at the end. No escape codes, no alt-screen.
 func runSyncPlain(ctx context.Context, work []syncJob, sink importer.Sink, legacyTotal int) error {
 	counts := &syncCounts{legacyTotal: legacyTotal, bundlePath: legacyBundleFlag}
 	for _, w := range work {

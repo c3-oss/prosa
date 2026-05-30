@@ -129,7 +129,7 @@ func TestDecompressRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	for _, sf := range files {
-		dst, err := b.Decompress(sf, tmpDir)
+		dst, err := b.Decompress(context.Background(), sf, tmpDir)
 		require.NoError(t, err)
 		raw, err := os.ReadFile(dst)
 		require.NoError(t, err)
@@ -150,4 +150,26 @@ func TestDecompressRoundTrip(t *testing.T) {
 func TestOpenMissingPaths(t *testing.T) {
 	_, err := Open(t.TempDir())
 	require.Error(t, err)
+}
+
+func TestDecompressRespectsCancelledContext(t *testing.T) {
+	root, _ := buildFixtureBundle(t)
+	b, err := Open(root)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = b.Close() })
+
+	files, err := b.SourceFiles(context.Background())
+	require.NoError(t, err)
+	require.NotEmpty(t, files)
+
+	tmpDir := t.TempDir()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err = b.Decompress(ctx, files[0], tmpDir)
+	require.ErrorIs(t, err, context.Canceled)
+
+	entries, err := os.ReadDir(tmpDir)
+	require.NoError(t, err)
+	require.Empty(t, entries, "no decompressed file should remain")
 }

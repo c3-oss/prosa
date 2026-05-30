@@ -115,7 +115,14 @@ func (b *Bundle) SourceFiles(ctx context.Context) ([]SourceFile, error) {
 // the temp path. Preserving the source basename matters for codex (the
 // importer falls back to the filename UUID when session_meta is absent)
 // and for cursor (where the temp file is opened as a SQLite db).
-func (b *Bundle) Decompress(sf SourceFile, tmpDir string) (string, error) {
+//
+// Respects ctx.Done() before opening the source file. The decompress
+// itself is not cancellable mid-stream — zstd reads can take seconds on
+// large files — but that's bounded by per-file size in practice.
+func (b *Bundle) Decompress(ctx context.Context, sf SourceFile, tmpDir string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	src := filepath.Join(b.Path, "raw", "sources", sf.ObjectIDHex+".zst")
 	in, err := os.Open(src)
 	if err != nil {
