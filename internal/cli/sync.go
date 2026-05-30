@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/c3-oss/prosa/internal/cli/render"
 	"github.com/c3-oss/prosa/internal/cli/spinner"
 	"github.com/c3-oss/prosa/internal/device"
 	"github.com/c3-oss/prosa/internal/importers/claudecode"
@@ -204,7 +205,8 @@ func runSync(cmd *cobra.Command, _ []string) error {
 		pushEnabled: push != nil,
 	}
 
-	if !syncVerboseFlag && IsInteractive() {
+	interactive := !syncVerboseFlag && IsInteractive()
+	if interactive {
 		if err := runSyncTTY(ctx, work, s, push, counts); err != nil {
 			return err
 		}
@@ -220,7 +222,11 @@ func runSync(cmd *cobra.Command, _ []string) error {
 	// the importer goroutine has exited.
 	runSyncReconcile(ctx, push, dev.ID, counts)
 
-	counts.printSummary()
+	if interactive {
+		counts.printSummaryTTY()
+	} else {
+		counts.printSummary()
+	}
 	return nil
 }
 
@@ -324,6 +330,52 @@ func (sc *syncCounts) printSummary() {
 			"\nLegacy bundle is now mirrored in the v3 store. You can remove %s when ready.\n",
 			sc.bundlePath)
 	}
+}
+
+func (sc *syncCounts) printSummaryTTY() {
+	fmt.Fprintln(os.Stdout)
+	fmt.Fprintln(os.Stdout, render.StyleHeader.Render("prosa sync · complete"))
+	fmt.Fprintln(os.Stdout)
+	printSummaryTTYRow("Live", "imported", sc.liveImp, sc.liveSkip, sc.liveErr, "")
+	if sc.legacyTotal > 0 {
+		printSummaryTTYRow("Legacy", "imported", sc.legacyImp, sc.legacySkip, sc.legacyErr,
+			fmt.Sprintf("of %d catalog rows", sc.legacyTotal))
+	}
+	if sc.pushEnabled {
+		printSummaryTTYRow("Push", "sent", sc.pushImp, sc.pushSkip, sc.pushErr, "")
+	}
+	if sc.reconcileRan {
+		extra := fmt.Sprintf("local %d · remote %d", sc.localTotal, sc.remoteTotal)
+		printSummaryTTYRow("Catch-up", "sent", sc.catchUpSent, sc.catchUpSkip, sc.catchUpErr, extra)
+	}
+	if sc.legacyTotal > 0 {
+		fmt.Fprintln(os.Stdout)
+		fmt.Fprintf(os.Stdout, "%s %s\n",
+			render.StyleRail.Render("│"),
+			render.StyleMuted.Render("Legacy bundle mirrored in the v3 store: "+sc.bundlePath),
+		)
+	}
+}
+
+func printSummaryTTYRow(label, primaryVerb string, primary, skipped, errs int, extra string) {
+	line := fmt.Sprintf("%s %s %s %d · %s %d · %s %d",
+		render.StyleRail.Render("│"),
+		render.StyleMuted.Render(padSummaryLabel(label)),
+		render.StyleSuccess.Render(primaryVerb), primary,
+		render.StyleSkipped.Render("skipped"), skipped,
+		render.StyleError.Render("errors"), errs,
+	)
+	if extra != "" {
+		line += " · " + render.StyleMuted.Render(extra)
+	}
+	fmt.Fprintln(os.Stdout, line)
+}
+
+func padSummaryLabel(label string) string {
+	if len(label) >= 9 {
+		return label
+	}
+	return label + strings.Repeat(" ", 9-len(label))
 }
 
 // runSyncTTY drives the Bubble Tea progress display. The importer

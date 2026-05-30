@@ -2,6 +2,7 @@ package spinner
 
 import (
 	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -106,4 +107,18 @@ func TestHumanDur(t *testing.T) {
 	require.Equal(t, "45s", humanDur(45*time.Second))
 	require.Equal(t, "1m05s", humanDur(65*time.Second))
 	require.Equal(t, "1h02m", humanDur(3720*time.Second))
+}
+
+func TestRunDoesNotUseAltScreen(t *testing.T) {
+	// Run should leave progress visible in the normal scrollback. This
+	// regression test guards the implementation note because Bubble Tea's
+	// alt-screen option is not visible from model state.
+	require.NotContains(t, sourceForTest(t), "tea.WithAltScreen")
+}
+
+func sourceForTest(t *testing.T) string {
+	t.Helper()
+	data, err := os.ReadFile("sync.go")
+	require.NoError(t, err)
+	return string(data)
 }

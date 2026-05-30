@@ -283,8 +283,8 @@ func shortPath(p string) string {
 }
 
 // Run blocks until every item has produced an Update or the updates
-// channel is closed. After Run returns, the alt-screen has been torn down
-// and stdout is back to normal — the caller is free to print a summary.
+// channel is closed. It does not use the alternate screen, so the user can
+// still see the final progress frame above the caller's summary.
 func Run(ctx context.Context, items []Item, updates <-chan Update, opts Options) error {
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
@@ -298,7 +298,7 @@ func Run(ctx context.Context, items []Item, updates <-chan Update, opts Options)
 		start:     time.Now(),
 	}
 
-	p := tea.NewProgram(m, tea.WithContext(ctx), tea.WithAltScreen())
+	p := tea.NewProgram(m, tea.WithContext(ctx))
 	defer func() { _ = p.ReleaseTerminal() }()
 
 	if _, err := p.Run(); err != nil {
