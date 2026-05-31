@@ -173,5 +173,16 @@ func (p *Panel) render(w http.ResponseWriter, name string, data any) {
 func templateFuncs() template.FuncMap {
 	return template.FuncMap{
 		"hasPrefix": strings.HasPrefix,
+		"pluralize": pluralize,
 	}
+}
+
+// pluralize returns "<n> <singular>" when n == 1 and "<n> <plural>" otherwise.
+// Used by templates so user-facing strings stay grammatical for both the
+// 1-session day in a 7d heatmap and the 200-session day in a 1y view.
+func pluralize(n int64, singular, plural string) string {
+	if n == 1 {
+		return fmt.Sprintf("%d %s", n, singular)
+	}
+	return fmt.Sprintf("%d %s", n, plural)
 }

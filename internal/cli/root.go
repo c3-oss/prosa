@@ -18,6 +18,11 @@ import (
 //
 // Limit is the only field bound to a non-persistent flag — it lives on
 // the root command (timeline) only. Search has its own --limit.
+//
+// --remote is persistent (rather than local to analytics/search) so that
+// both `prosa --remote analytics usage` and `prosa analytics --remote
+// usage` succeed; cobra rejects a local flag placed before its
+// subcommand. Sub-commands that do not honor it ignore the value.
 type globalFlags struct {
 	Last    string
 	Since   string
@@ -28,6 +33,7 @@ type globalFlags struct {
 	All     bool
 	JSON    bool
 	Limit   int
+	Remote  bool
 }
 
 var g globalFlags
@@ -55,6 +61,7 @@ func newRootCmd() *cobra.Command {
 	// --limit is only meaningful on the bare `prosa` timeline; sub-commands
 	// either have their own --limit (search) or don't need one.
 	cmd.Flags().IntVar(&g.Limit, "limit", 0, "cap the number of timeline sessions returned (0 = no limit)")
+	pf.BoolVar(&g.Remote, "remote", false, "run the command against prosa-server (analytics, search; ignored elsewhere)")
 
 	cmd.AddCommand(newSyncCmd())
 	cmd.AddCommand(newShowCmd())

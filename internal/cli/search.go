@@ -21,10 +21,7 @@ import (
 	"github.com/c3-oss/prosa/pkg/session"
 )
 
-var (
-	searchLimit  int
-	searchRemote bool
-)
+var searchLimit int
 
 func newSearchCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -34,13 +31,13 @@ func newSearchCmd() *cobra.Command {
 			"the FTS5 index populated at import time. Query syntax is SQLite FTS5 " +
 			"(supports AND, OR, NEAR, prefix*, etc.). Inherits the global filter " +
 			"flags (--project / --agent / --device / --last); --all disables the " +
-			"cwd auto-filter the same way it does for the bare timeline.",
+			"cwd auto-filter the same way it does for the bare timeline.\n\n" +
+			"Pass --remote (a persistent flag) to query the prosa-server's Postgres " +
+			"FTS instead of the local SQLite FTS5; requires `prosa login`.",
 		Args: cobra.MinimumNArgs(1),
 		RunE: runSearch,
 	}
 	cmd.Flags().IntVar(&searchLimit, "limit", 20, "maximum number of session hits to return")
-	cmd.Flags().BoolVar(&searchRemote, "remote", false,
-		"query the prosa-server's Postgres FTS instead of the local SQLite FTS5 (requires `prosa login`)")
 	return cmd
 }
 
@@ -60,7 +57,7 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if searchRemote {
+	if g.Remote {
 		return runSearchRemote(ctx, query, w)
 	}
 

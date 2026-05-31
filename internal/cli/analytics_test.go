@@ -73,8 +73,8 @@ func newAnalyticsStore(t *testing.T) (context.Context, *store.Store, time.Time) 
 			{Role: "assistant", Content: "world", Timestamp: now.Add(-dAgo + 30*time.Second)},
 		}))
 	}
-	mk("a", "claude-code", "/u/proj-alpha", "claude-sonnet", 1*time.Hour)
-	mk("b", "claude-code", "/u/proj-beta", "claude-sonnet", 2*time.Hour)
+	mk("a", "claude-code", "/u/proj-alpha", "claude-sonnet-4-6", 1*time.Hour)
+	mk("b", "claude-code", "/u/proj-beta", "claude-sonnet-4-6", 2*time.Hour)
 	mk("c", "codex", "/u/proj-alpha", "gpt-5-codex", 3*time.Hour)
 
 	// Session 'd' has an error-flavored assistant turn so AnalyticsErrors hits.

@@ -24,6 +24,13 @@ func TestCostUSDUnknownModel(t *testing.T) {
 	require.False(t, ok)
 }
 
+func TestCostUSDSyntheticAndPlaceholderUnpriced(t *testing.T) {
+	for _, m := range []string{"<synthetic>", "not-a-real-model-name", ""} {
+		_, ok := CostUSD(m, session.TokenUsage{InputTokens: 100})
+		require.False(t, ok, "%q should be unpriced", m)
+	}
+}
+
 func TestCostUSDPricesClaudeCacheCreationSeparately(t *testing.T) {
 	cost, ok := CostUSD("claude-sonnet-4-6", session.TokenUsage{
 		InputTokens:         115,
@@ -34,4 +41,99 @@ func TestCostUSDPricesClaudeCacheCreationSeparately(t *testing.T) {
 	})
 	require.True(t, ok)
 	require.InDelta(t, 0.00062175, cost, 0.00000001)
+}
+
+// TestLookupKnownModelsFromRealStore covers every model id observed in
+// the maintainer's local store at the time of this commit. Each entry
+// must return priced=true so that future regressions in the matcher
+// surface as a failing test instead of a silent n/a in the report.
+func TestLookupKnownModelsFromRealStore(t *testing.T) {
+	cases := []struct {
+		model string
+		want  Rates
+	}{
+		// Anthropic, both dash and dot forms.
+		{"claude-opus-4-7", Rates{Input: 5.0e-6, Output: 2.5e-5, CacheRead: 5.0e-7, CacheCreation: 6.25e-6}},
+		{"claude-opus-4-6", Rates{Input: 5.0e-6, Output: 2.5e-5, CacheRead: 5.0e-7, CacheCreation: 6.25e-6}},
+		{"claude-opus-4-5-20251101", Rates{Input: 5.0e-6, Output: 2.5e-5, CacheRead: 5.0e-7, CacheCreation: 6.25e-6}},
+		{"claude-opus-4.6", Rates{Input: 5.0e-6, Output: 2.5e-5, CacheRead: 5.0e-7, CacheCreation: 6.25e-6}},
+		{"claude-opus-4.7", Rates{Input: 5.0e-6, Output: 2.5e-5, CacheRead: 5.0e-7, CacheCreation: 6.25e-6}},
+		{"claude-sonnet-4-6", Rates{Input: 3.0e-6, Output: 1.5e-5, CacheRead: 3.0e-7, CacheCreation: 3.75e-6}},
+		{"claude-sonnet-4-5-20250929", Rates{Input: 3.0e-6, Output: 1.5e-5, CacheRead: 3.0e-7, CacheCreation: 3.75e-6}},
+		{"claude-haiku-4-5-20251001", Rates{Input: 1.0e-6, Output: 5.0e-6, CacheRead: 1.0e-7, CacheCreation: 1.25e-6}},
+		{"claude-haiku-4.5", Rates{Input: 1.0e-6, Output: 5.0e-6, CacheRead: 1.0e-7, CacheCreation: 1.25e-6}},
+
+		// OpenAI GPT-5 family — the live store has minor versions 5.0
+		// through 5.5 plus the codex / mini / nano variants.
+		{"gpt-5", Rates{Input: 1.25e-6, Output: 1.0e-5, CacheRead: 1.25e-7}},
+		{"gpt-5-codex", Rates{Input: 1.25e-6, Output: 1.0e-5, CacheRead: 1.25e-7}},
+		{"gpt-5.1", Rates{Input: 1.25e-6, Output: 1.0e-5, CacheRead: 1.25e-7}},
+		{"gpt-5.1-codex", Rates{Input: 1.25e-6, Output: 1.0e-5, CacheRead: 1.25e-7}},
+		{"gpt-5.1-codex-max", Rates{Input: 1.25e-6, Output: 1.0e-5, CacheRead: 1.25e-7}},
+		{"gpt-5.1-codex-mini", Rates{Input: 2.5e-7, Output: 2.0e-6, CacheRead: 2.5e-8}},
+		{"gpt-5.2", Rates{Input: 1.75e-6, Output: 1.4e-5, CacheRead: 1.75e-7}},
+		{"gpt-5.2-codex", Rates{Input: 1.75e-6, Output: 1.4e-5, CacheRead: 1.75e-7}},
+		{"gpt-5.3-codex", Rates{Input: 1.75e-6, Output: 1.4e-5, CacheRead: 1.75e-7}},
+		{"gpt-5.3-codex-spark", Rates{Input: 1.75e-6, Output: 1.4e-5, CacheRead: 1.75e-7}},
+		{"gpt-5.4", Rates{Input: 2.5e-6, Output: 1.5e-5, CacheRead: 2.5e-7}},
+		{"gpt-5.4-mini", Rates{Input: 7.5e-7, Output: 4.5e-6, CacheRead: 7.5e-8}},
+		{"gpt-5.5", Rates{Input: 5.0e-6, Output: 3.0e-5, CacheRead: 5.0e-7}},
+		{"gpt-codex-5.3", Rates{Input: 1.75e-6, Output: 1.4e-5, CacheRead: 1.75e-7}},
+
+		// Gemini 2.5 / 3.
+		{"gemini-2.5-pro", Rates{Input: 1.25e-6, Output: 1.0e-5, CacheRead: 1.25e-7}},
+		{"gemini-2.5-flash", Rates{Input: 3.0e-7, Output: 2.5e-6, CacheRead: 3.0e-8}},
+		{"gemini-2.5-flash-lite", Rates{Input: 1.0e-7, Output: 4.0e-7, CacheRead: 1.0e-8}},
+		{"gemini-3-pro-preview", Rates{Input: 2.0e-6, Output: 1.2e-5, CacheRead: 2.0e-7}},
+		{"gemini-3-flash-preview", Rates{Input: 5.0e-7, Output: 3.0e-6, CacheRead: 5.0e-8}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.model, func(t *testing.T) {
+			got, ok := Lookup(tc.model)
+			require.True(t, ok, "expected %q to be priced", tc.model)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// TestLookupOpus47DoesNotInheritOpus4Rate guards the regression that
+// shipped in the first usage cut: claude-opus-4-7 was matching the
+// claude-opus-4 prefix and being charged 3× the correct rate.
+func TestLookupOpus47DoesNotInheritOpus4Rate(t *testing.T) {
+	got, ok := Lookup("claude-opus-4-7")
+	require.True(t, ok)
+	require.Equal(t, 5.0e-6, got.Input, "opus-4-7 must use the cheaper 4.5+ input rate, not opus-4's $15/M")
+	require.Equal(t, 2.5e-5, got.Output, "opus-4-7 must use the cheaper 4.5+ output rate, not opus-4's $75/M")
+}
+
+// TestLookupDeterministic exercises the prefix-match fallback to make
+// sure repeated lookups for an unmatched variant always pick the same
+// row (Go's map iteration would otherwise be randomised). The exact
+// rate doesn't matter — what we care about is that every call lands on
+// the same key.
+func TestLookupDeterministic(t *testing.T) {
+	first, ok := Lookup("claude-opus-4-99-rc")
+	require.True(t, ok, "fallback prefix match should have landed on claude-opus-4")
+	for i := 0; i < 100; i++ {
+		got, ok := Lookup("claude-opus-4-99-rc")
+		require.True(t, ok)
+		require.Equal(t, first, got, "lookup %d returned a different row", i)
+	}
+}
+
+func TestNormalizeModel(t *testing.T) {
+	cases := map[string]string{
+		"":                            "",
+		"  GPT-5  ":                   "gpt-5",
+		"openai/gpt-5-codex-20250530": "gpt-5-codex",
+		"anthropic/claude-opus-4-7":   "claude-opus-4-7",
+		"anthropic.claude-opus-4-7":   "claude-opus-4-7",
+		"google/gemini-2.5-pro":       "gemini-2.5-pro",
+		"claude-sonnet-4-5-20250929":  "claude-sonnet-4-5",
+		"claude-haiku-4-5-20251001":   "claude-haiku-4-5",
+		"gpt-5.3-codex-spark@spark":   "gpt-5.3-codex-spark",
+	}
+	for in, want := range cases {
+		require.Equal(t, want, NormalizeModel(in), in)
+	}
 }

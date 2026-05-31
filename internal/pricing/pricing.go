@@ -2,13 +2,20 @@ package pricing
 
 import (
 	"regexp"
+	"sort"
 	"strings"
+	"sync"
 
 	"github.com/c3-oss/prosa/pkg/session"
 )
 
 // Rates are USD-per-token prices. The table is intentionally embedded and
 // conservative; unknown models return priced=false instead of guessing.
+//
+// Values mirror the public per-million-token rates published on
+// https://models.dev/api.json, converted to per-token (÷ 1e6). Rows with a
+// dot in the version (e.g. claude-opus-4.6) are accepted as aliases of
+// the dash form so callers do not have to normalize first.
 type Rates struct {
 	Input         float64
 	Output        float64
@@ -17,24 +24,77 @@ type Rates struct {
 }
 
 var ratesByModel = map[string]Rates{
-	"gpt-5":       {Input: 1.25e-6, Output: 1.0e-5, CacheRead: 1.25e-7},
-	"gpt-5-codex": {Input: 1.25e-6, Output: 1.0e-5, CacheRead: 1.25e-7},
-	"gpt-5-mini":  {Input: 2.5e-7, Output: 2.0e-6, CacheRead: 2.5e-8},
-	"gpt-5-nano":  {Input: 5.0e-8, Output: 4.0e-7, CacheRead: 5.0e-9},
-	"gpt-5-pro":   {Input: 1.5e-5, Output: 1.2e-4},
-
-	"claude-haiku-4.5":  {Input: 1.0e-6, Output: 5.0e-6, CacheRead: 1.0e-7, CacheCreation: 1.25e-6},
-	"claude-sonnet":     {Input: 3.0e-6, Output: 1.5e-5, CacheRead: 3.0e-7, CacheCreation: 3.75e-6},
-	"claude-sonnet-4":   {Input: 3.0e-6, Output: 1.5e-5, CacheRead: 3.0e-7, CacheCreation: 3.75e-6},
-	"claude-sonnet-4-6": {Input: 3.0e-6, Output: 1.5e-5, CacheRead: 3.0e-7, CacheCreation: 3.75e-6},
-	"claude-sonnet-4.5": {Input: 3.0e-6, Output: 1.5e-5, CacheRead: 3.0e-7, CacheCreation: 3.75e-6},
-	"claude-sonnet-4.6": {Input: 3.0e-6, Output: 1.5e-5, CacheRead: 3.0e-7, CacheCreation: 3.75e-6},
+	// Anthropic — Claude 4 generation.
+	// Opus 4.0 / 4.1 use the legacy pricing; 4.5+ moved to the cheaper tier.
 	"claude-opus-4":     {Input: 1.5e-5, Output: 7.5e-5, CacheRead: 1.5e-6, CacheCreation: 1.875e-5},
-	"claude-opus-4.5":   {Input: 5.0e-6, Output: 2.5e-5, CacheRead: 5.0e-7, CacheCreation: 6.25e-6},
-	"claude-opus-4.6":   {Input: 5.0e-6, Output: 2.5e-5, CacheRead: 5.0e-7, CacheCreation: 6.25e-6},
+	"claude-opus-4-0":   {Input: 1.5e-5, Output: 7.5e-5, CacheRead: 1.5e-6, CacheCreation: 1.875e-5},
+	"claude-opus-4-1":   {Input: 1.5e-5, Output: 7.5e-5, CacheRead: 1.5e-6, CacheCreation: 1.875e-5},
+	"claude-opus-4-5":   {Input: 5.0e-6, Output: 2.5e-5, CacheRead: 5.0e-7, CacheCreation: 6.25e-6},
+	"claude-opus-4-6":   {Input: 5.0e-6, Output: 2.5e-5, CacheRead: 5.0e-7, CacheCreation: 6.25e-6},
+	"claude-opus-4-7":   {Input: 5.0e-6, Output: 2.5e-5, CacheRead: 5.0e-7, CacheCreation: 6.25e-6},
+	"claude-opus-4-8":   {Input: 5.0e-6, Output: 2.5e-5, CacheRead: 5.0e-7, CacheCreation: 6.25e-6},
+	"claude-sonnet-4":   {Input: 3.0e-6, Output: 1.5e-5, CacheRead: 3.0e-7, CacheCreation: 3.75e-6},
+	"claude-sonnet-4-0": {Input: 3.0e-6, Output: 1.5e-5, CacheRead: 3.0e-7, CacheCreation: 3.75e-6},
+	"claude-sonnet-4-5": {Input: 3.0e-6, Output: 1.5e-5, CacheRead: 3.0e-7, CacheCreation: 3.75e-6},
+	"claude-sonnet-4-6": {Input: 3.0e-6, Output: 1.5e-5, CacheRead: 3.0e-7, CacheCreation: 3.75e-6},
+	"claude-haiku-4-5":  {Input: 1.0e-6, Output: 5.0e-6, CacheRead: 1.0e-7, CacheCreation: 1.25e-6},
+
+	// OpenAI — GPT-5 generation.
+	// Each minor version (5.1, 5.2, …) has its own tariff; -codex / -mini /
+	// -nano variants inherit their family's published price.
+	"gpt-5":               {Input: 1.25e-6, Output: 1.0e-5, CacheRead: 1.25e-7},
+	"gpt-5-chat-latest":   {Input: 1.25e-6, Output: 1.0e-5, CacheRead: 1.25e-7},
+	"gpt-5-codex":         {Input: 1.25e-6, Output: 1.0e-5, CacheRead: 1.25e-7},
+	"gpt-5-mini":          {Input: 2.5e-7, Output: 2.0e-6, CacheRead: 2.5e-8},
+	"gpt-5-nano":          {Input: 5.0e-8, Output: 4.0e-7, CacheRead: 5.0e-9},
+	"gpt-5-pro":           {Input: 1.5e-5, Output: 1.2e-4},
+	"gpt-5.1":             {Input: 1.25e-6, Output: 1.0e-5, CacheRead: 1.25e-7},
+	"gpt-5.1-codex":       {Input: 1.25e-6, Output: 1.0e-5, CacheRead: 1.25e-7},
+	"gpt-5.1-codex-max":   {Input: 1.25e-6, Output: 1.0e-5, CacheRead: 1.25e-7},
+	"gpt-5.1-codex-mini":  {Input: 2.5e-7, Output: 2.0e-6, CacheRead: 2.5e-8},
+	"gpt-5.2":             {Input: 1.75e-6, Output: 1.4e-5, CacheRead: 1.75e-7},
+	"gpt-5.2-codex":       {Input: 1.75e-6, Output: 1.4e-5, CacheRead: 1.75e-7},
+	"gpt-5.2-pro":         {Input: 2.1e-5, Output: 1.68e-4},
+	"gpt-5.3-codex":       {Input: 1.75e-6, Output: 1.4e-5, CacheRead: 1.75e-7},
+	"gpt-5.3-codex-spark": {Input: 1.75e-6, Output: 1.4e-5, CacheRead: 1.75e-7},
+	"gpt-5.3-codex-xhigh": {Input: 1.75e-6, Output: 1.4e-5, CacheRead: 1.75e-7},
+	"gpt-5.4":             {Input: 2.5e-6, Output: 1.5e-5, CacheRead: 2.5e-7},
+	"gpt-5.4-mini":        {Input: 7.5e-7, Output: 4.5e-6, CacheRead: 7.5e-8},
+	"gpt-5.4-nano":        {Input: 2.0e-7, Output: 1.25e-6, CacheRead: 2.0e-8},
+	"gpt-5.4-pro":         {Input: 3.0e-5, Output: 1.8e-4},
+	"gpt-5.5":             {Input: 5.0e-6, Output: 3.0e-5, CacheRead: 5.0e-7},
+	"gpt-5.5-pro":         {Input: 3.0e-5, Output: 1.8e-4},
+
+	// Google — Gemini 2.5 / 3 generation.
+	// Tier-pricing for >200k context is not yet modelled; we use the base
+	// tariff for every call.
+	"gemini-2.5-pro":         {Input: 1.25e-6, Output: 1.0e-5, CacheRead: 1.25e-7},
+	"gemini-2.5-flash":       {Input: 3.0e-7, Output: 2.5e-6, CacheRead: 3.0e-8},
+	"gemini-2.5-flash-lite":  {Input: 1.0e-7, Output: 4.0e-7, CacheRead: 1.0e-8},
+	"gemini-3-pro-preview":   {Input: 2.0e-6, Output: 1.2e-5, CacheRead: 2.0e-7},
+	"gemini-3-flash-preview": {Input: 5.0e-7, Output: 3.0e-6, CacheRead: 5.0e-8},
 }
 
-var datedSuffixRE = regexp.MustCompile(`-\d{8}$|-\d{4}-\d{2}-\d{2}$`)
+// modelAliases maps a normalized model id to a canonical key in
+// ratesByModel. Use it when an agent emits a version using a different
+// separator (dot vs dash) or vendor-suffix ordering that we still want
+// to price.
+var modelAliases = map[string]string{
+	"claude-opus-4.5":   "claude-opus-4-5",
+	"claude-opus-4.6":   "claude-opus-4-6",
+	"claude-opus-4.7":   "claude-opus-4-7",
+	"claude-sonnet-4.5": "claude-sonnet-4-5",
+	"claude-sonnet-4.6": "claude-sonnet-4-6",
+	"claude-haiku-4.5":  "claude-haiku-4-5",
+	"gpt-codex-5.3":     "gpt-5.3-codex",
+}
+
+var (
+	datedSuffixRE = regexp.MustCompile(`-\d{8}$|-\d{4}-\d{2}-\d{2}$`)
+
+	prefixKeysOnce sync.Once
+	prefixKeys     []string
+)
 
 // CostUSD estimates one session's usage cost. cached_tokens is treated as
 // cache-read input when the provider does not expose the read/create split.
@@ -63,29 +123,63 @@ func CostUSD(model string, usage session.TokenUsage) (float64, bool) {
 	return cost, true
 }
 
+// Lookup resolves rates for a raw model string. The lookup is:
+//  1. normalize (lowercase, strip vendor prefix and dated suffixes),
+//  2. resolve known dot-form aliases (e.g. claude-opus-4.7 → -4-7),
+//  3. exact match in the rate table,
+//  4. longest-prefix match against table keys (deterministic by length),
+//     so claude-opus-4-7 picks its own row instead of falling back to
+//     claude-opus-4.
 func Lookup(model string) (Rates, bool) {
 	norm := NormalizeModel(model)
 	if norm == "" {
 		return Rates{}, false
 	}
+	if canon, ok := modelAliases[norm]; ok {
+		norm = canon
+	}
 	if r, ok := ratesByModel[norm]; ok {
 		return r, true
 	}
-	for key, r := range ratesByModel {
+	for _, key := range sortedPrefixKeys() {
 		if strings.HasPrefix(norm, key+"-") {
-			return r, true
+			return ratesByModel[key], true
 		}
 	}
 	return Rates{}, false
 }
 
+// NormalizeModel strips the bits importers may attach around the raw
+// model id: provider routing prefixes, vendor-tag suffixes, and a dated
+// snapshot suffix (the family stays priced even after Anthropic / OpenAI
+// rotate the snapshot date).
 func NormalizeModel(model string) string {
 	s := strings.ToLower(strings.TrimSpace(model))
 	s = strings.TrimPrefix(s, "openai/")
 	s = strings.TrimPrefix(s, "anthropic/")
 	s = strings.TrimPrefix(s, "anthropic.")
+	s = strings.TrimPrefix(s, "google/")
 	if at := strings.IndexByte(s, '@'); at >= 0 {
 		s = s[:at]
 	}
 	return datedSuffixRE.ReplaceAllString(s, "")
+}
+
+// sortedPrefixKeys returns the rate-table keys ordered longest-first so
+// the fallback prefix match in Lookup is deterministic (Go map iteration
+// order is randomised). The slice is computed once on demand.
+func sortedPrefixKeys() []string {
+	prefixKeysOnce.Do(func() {
+		prefixKeys = make([]string, 0, len(ratesByModel))
+		for k := range ratesByModel {
+			prefixKeys = append(prefixKeys, k)
+		}
+		sort.Slice(prefixKeys, func(i, j int) bool {
+			if len(prefixKeys[i]) != len(prefixKeys[j]) {
+				return len(prefixKeys[i]) > len(prefixKeys[j])
+			}
+			return prefixKeys[i] < prefixKeys[j]
+		})
+	})
+	return prefixKeys
 }
