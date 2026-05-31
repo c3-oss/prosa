@@ -21,8 +21,10 @@ import (
 // pusher is the per-run uploader. Construct via loadPusher; nil return
 // means no auth.json — push silently no-ops (sync stays local-only).
 type pusher struct {
-	client prosav1connect.SessionsServiceClient
-	store  *store.Store
+	client            prosav1connect.SessionsServiceClient
+	store             *store.Store
+	server            string
+	remoteUnavailable bool
 }
 
 // loadPusher reads ~/.config/prosa/auth.json and returns a Sessions
@@ -36,9 +38,11 @@ func loadPusher(s *store.Store) (*pusher, error) {
 		}
 		return nil, err
 	}
+	server := rpc.NormalizeServerURL(a.Server)
 	return &pusher{
-		client: rpc.Sessions(a.Server, a.Token),
+		client: rpc.Sessions(server, a.Token),
 		store:  s,
+		server: server,
 	}, nil
 }
 
@@ -51,6 +55,7 @@ const (
 	pushImported
 	pushAlreadyHashed
 	pushFailed
+	pushSkippedRemoteUnavailable
 	pushSkippedNoUsage
 )
 
@@ -61,6 +66,9 @@ const (
 func (p *pusher) pushSession(ctx context.Context, sessionID string) (pushOutcome, error) {
 	if p == nil {
 		return pushSkippedNoAuth, nil
+	}
+	if p.remoteUnavailable {
+		return pushSkippedRemoteUnavailable, nil
 	}
 	sess, err := p.store.GetSession(ctx, sessionID)
 	if err != nil {
@@ -90,12 +98,27 @@ func (p *pusher) pushSession(ctx context.Context, sessionID string) (pushOutcome
 	}
 	resp, err := p.client.Push(ctx, connect.NewRequest(req))
 	if err != nil {
-		return pushFailed, fmt.Errorf("push rpc: %s", rpc.ConnectError(err))
+		if isRemoteUnavailable(err) {
+			p.markRemoteUnavailable()
+			return pushSkippedRemoteUnavailable, nil
+		}
+		return pushFailed, fmt.Errorf("push rpc: %w", err)
 	}
 	if resp.Msg.Skipped {
 		return pushAlreadyHashed, nil
 	}
 	return pushImported, nil
+}
+
+func isRemoteUnavailable(err error) bool {
+	return connect.CodeOf(err) == connect.CodeUnavailable
+}
+
+func (p *pusher) markRemoteUnavailable() {
+	if p == nil || p.remoteUnavailable {
+		return
+	}
+	p.remoteUnavailable = true
 }
 
 func sessionToProto(s session.Session) *prosav1.Session {

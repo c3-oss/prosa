@@ -9,7 +9,6 @@ import (
 	"connectrpc.com/connect"
 
 	prosav1 "github.com/c3-oss/prosa/gen/go/prosa/v1"
-	"github.com/c3-oss/prosa/internal/cli/rpc"
 	"github.com/c3-oss/prosa/pkg/session"
 )
 
@@ -86,6 +85,11 @@ func reconcileWithServer(
 		case pushFailed:
 			counts.errs++
 			slog.Warn("reconcile push failed", "session", sid, "err", perr)
+		case pushSkippedRemoteUnavailable:
+			if onProgress != nil {
+				onProgress(i+1, len(work))
+			}
+			return counts, nil
 		}
 		if onProgress != nil {
 			onProgress(i+1, len(work))
@@ -114,7 +118,11 @@ func fetchServerManifest(ctx context.Context, push *pusher) (map[string]serverMa
 			Limit:   1000,
 		}))
 		if err != nil {
-			return nil, fmt.Errorf("manifest rpc: %s", rpc.ConnectError(err))
+			if isRemoteUnavailable(err) {
+				push.markRemoteUnavailable()
+				return nil, fmt.Errorf("manifest rpc: %w", err)
+			}
+			return nil, fmt.Errorf("manifest rpc: %w", err)
 		}
 		for _, e := range resp.Msg.Entries {
 			out[e.Id] = serverManifestRow{
@@ -137,6 +145,10 @@ func runSyncReconcile(ctx context.Context, push *pusher, deviceID string, counts
 	if push == nil {
 		return
 	}
+	if push.remoteUnavailable {
+		counts.recordRemoteUnavailable(push)
+		return
+	}
 	progress := func(done, total int) {
 		// Emit a bounded progress line every 25 sessions (or at the
 		// end). Keep each line terminated so stderr logs never attach to
@@ -147,7 +159,15 @@ func runSyncReconcile(ctx context.Context, push *pusher, deviceID string, counts
 	}
 	rc, err := reconcileWithServer(ctx, push, deviceID, progress)
 	if err != nil {
+		if push.remoteUnavailable || isRemoteUnavailable(err) {
+			counts.recordRemoteUnavailable(push)
+			return
+		}
 		slog.Warn("reconcile failed", "err", err)
+	}
+	if push.remoteUnavailable {
+		counts.recordRemoteUnavailable(push)
+		return
 	}
 	counts.catchUpSent = rc.sent
 	counts.catchUpSkip = rc.skipped
