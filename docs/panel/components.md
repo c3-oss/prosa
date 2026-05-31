@@ -242,7 +242,10 @@ func Donut(slices []Slice, opts DonutOpts) template.HTML
 
 ## Heatmap
 
-Daily contribution heatmap: one cell per UTC day in the selected window.
+Daily contribution heatmap: one cell per UTC day across the trailing
+**53 weeks** (52 prior weeks plus the current one), aligned to Sunday.
+The window is fixed — the component does not take a window argument and
+the analytics page hides its window chips on this report.
 
 ### Signature
 

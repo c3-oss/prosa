@@ -142,7 +142,7 @@ one cell per day, with intensity scaled by session count.
 | models     | donut + list with bars                               |
 | projects   | bar leaderboard top 15 + sparkline per row           |
 | errors     | trend line of errors per day                         |
-| heatmap    | daily contribution graph, scaled in `--accent`       |
+| heatmap    | trailing 53-week contribution graph, scaled in `--accent` |
 | usage      | token totals and estimated cost by agent             |
 
 Each chart is HTMX-swappable when the filter changes (window, agent,

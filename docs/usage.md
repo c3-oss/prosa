@@ -104,14 +104,15 @@ prosa analytics sessions            # count by agent + total turns
 prosa analytics tools               # top 20 tools across the window
 prosa analytics models              # session distribution by model
 prosa analytics projects            # top 30 projects
-prosa analytics heatmap             # sessions per UTC day
+prosa analytics heatmap             # trailing 53 weeks; ignores --last/--since/--between
 prosa analytics usage               # token totals + estimated USD cost
 prosa analytics errors              # sessions matching error heuristics
 ```
 
 `--remote` runs the report against the server. All reports honor the global
 filters below, including `--last`, `--since`, `--between`, `--project`,
-`--agent`, `--device`, and `--all`.
+`--agent`, `--device`, and `--all`. Exception: `heatmap` has a fixed
+trailing 53-week window and rejects `--last`, `--since`, and `--between`.
 
 ### Devices (cross-device)
 

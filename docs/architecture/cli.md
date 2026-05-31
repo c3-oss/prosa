@@ -28,7 +28,7 @@ is the Connect-Go client in `internal/cli` that talks to `prosa-server`.
 | `prosa sync` | `internal/cli/sync.go` (+ `sync_push.go`, `sync_reconcile.go`, `sync_denoise.go`) | Import + push, idempotent by hash |
 | `prosa search` | `internal/cli/search.go` | Local FTS5 (default) or server FTS (`--remote`) |
 | `prosa show` | `internal/cli/show.go` | Print preserved raw JSONL |
-| `prosa analytics` | `internal/cli/analytics.go` | Fixed reports, including heatmap and usage |
+| `prosa analytics` | `internal/cli/analytics.go` | Fixed reports, including heatmap and usage. The heatmap report has a fixed trailing 53-week window and rejects `--last/--since/--between`. |
 | `prosa login` | `internal/cli/login.go` | Device-code auth |
 | `prosa devices …` | `internal/cli/devices.go` | `list`, `rename`, `revoke` |
 | `prosa schedule …` | `internal/cli/schedule_cmd.go` + `internal/cli/schedule/` | `install`, `status`, `uninstall` |

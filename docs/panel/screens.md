@@ -244,7 +244,10 @@ Table: `STARTED | AGENT | PROJECT | SESSION`.
 
 ### Report `heatmap` (new)
 
-Chart: **daily contribution heatmap** for the selected window.
+Chart: **daily contribution heatmap** for the **trailing 53 weeks**
+(GitHub-style, aligned to Sunday in UTC). The window is fixed: the
+12h/7d/30d/1y chips are hidden on this report, and `?last=` is ignored.
+Scope filters (project, agent, device) still apply.
 
 ```
 Sun ░ ░ ▒ ▓ ░
