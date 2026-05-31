@@ -55,10 +55,11 @@ func newSyncCmd() *cobra.Command {
 }
 
 type syncJob struct {
-	imp     importer.Importer
-	path    string
-	cleanup func() // runs after Import; used by legacy bundle to delete decompressed temp
-	legacy  bool   // marks the job as coming from --legacy-bundle for the summary
+	imp        importer.Importer
+	path       string
+	cleanup    func() // runs after Import; used by legacy bundle to delete decompressed temp
+	legacy     bool   // marks the job as coming from --legacy-bundle for the summary
+	prepareErr error  // records pre-import failures so summaries stay factual
 }
 
 // importerByLegacyTool maps the v1 bundle's source_tool string to the
@@ -137,10 +138,11 @@ func runSync(cmd *cobra.Command, _ []string) error {
 	}
 
 	var (
-		liveWork   []syncJob
-		legacyWork []syncJob
-		tmpDir     string
-		bundle     *legacy.Bundle
+		liveWork    []syncJob
+		legacyWork  []syncJob
+		legacyTotal int
+		tmpDir      string
+		bundle      *legacy.Bundle
 	)
 	for _, imp := range imps {
 		for _, root := range imp.DefaultRoots() {
@@ -166,30 +168,16 @@ func runSync(cmd *cobra.Command, _ []string) error {
 		if err != nil {
 			return fmt.Errorf("read legacy bundle catalog: %w", err)
 		}
+		legacyTotal = len(files)
 		tmpDir, err = os.MkdirTemp("", "prosa-legacy-")
 		if err != nil {
 			return fmt.Errorf("create temp dir for legacy decompression: %w", err)
 		}
 		defer func() { _ = os.RemoveAll(tmpDir) }()
 
-		for _, sf := range files {
-			imp := importerByLegacyTool(sf.Tool)
-			if imp == nil {
-				continue
-			}
-			path, err := bundle.Decompress(ctx, sf, tmpDir)
-			if err != nil {
-				slog.Warn("legacy decompress failed",
-					"tool", sf.Tool, "oid", sf.ObjectIDHex, "err", err)
-				continue
-			}
-			p := path
-			legacyWork = append(legacyWork, syncJob{
-				imp:     imp,
-				path:    p,
-				legacy:  true,
-				cleanup: func() { _ = os.Remove(p) },
-			})
+		legacyWork, err = prepareLegacyWork(ctx, bundle, files, tmpDir)
+		if err != nil {
+			return err
 		}
 	}
 
@@ -205,7 +193,7 @@ func runSync(cmd *cobra.Command, _ []string) error {
 	}
 
 	counts := &syncCounts{
-		legacyTotal: len(legacyWork),
+		legacyTotal: legacyTotal,
 		bundlePath:  legacyBundleFlag,
 		pushEnabled: push != nil,
 	}
@@ -239,6 +227,37 @@ func runSync(cmd *cobra.Command, _ []string) error {
 		counts.printSummary()
 	}
 	return nil
+}
+
+func prepareLegacyWork(ctx context.Context, bundle *legacy.Bundle, files []legacy.SourceFile, tmpDir string) ([]syncJob, error) {
+	work := make([]syncJob, 0, len(files))
+	for _, sf := range files {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		imp := importerByLegacyTool(sf.Tool)
+		if imp == nil {
+			continue
+		}
+		path, err := bundle.Decompress(ctx, sf, tmpDir)
+		if err != nil {
+			work = append(work, syncJob{
+				imp:        imp,
+				path:       sf.OriginalPath,
+				legacy:     true,
+				prepareErr: fmt.Errorf("legacy decompress %s: %w", sf.ObjectIDHex, err),
+			})
+			continue
+		}
+		p := path
+		work = append(work, syncJob{
+			imp:     imp,
+			path:    p,
+			legacy:  true,
+			cleanup: func() { _ = os.Remove(p) },
+		})
+	}
+	return work, nil
 }
 
 // backfillProjectIdentity iterates every distinct project_path lacking
@@ -343,9 +362,7 @@ func (sc *syncCounts) printSummary() {
 		fmt.Fprintf(os.Stdout, "Denoise:  cleaned %d prompts\n", sc.denoiseCleaned)
 	}
 	if sc.legacyTotal > 0 {
-		fmt.Fprintf(os.Stdout,
-			"\nLegacy bundle is now mirrored in the prosa store. You can remove %s when ready.\n",
-			sc.bundlePath)
+		fmt.Fprintf(os.Stdout, "\n%s\n", sc.legacySummaryText())
 	}
 }
 
@@ -378,9 +395,16 @@ func (sc *syncCounts) printSummaryTTY() {
 		fmt.Fprintln(os.Stdout)
 		fmt.Fprintf(os.Stdout, "%s %s\n",
 			render.StyleRail.Render("│"),
-			render.StyleMuted.Render("Legacy bundle mirrored in the prosa store: "+sc.bundlePath),
+			render.StyleMuted.Render(sc.legacySummaryText()),
 		)
 	}
+}
+
+func (sc *syncCounts) legacySummaryText() string {
+	if sc.legacyErr > 0 {
+		return fmt.Sprintf("Legacy bundle partially mirrored in the prosa store: %s", sc.bundlePath)
+	}
+	return fmt.Sprintf("Legacy bundle mirrored in the prosa store: %s", sc.bundlePath)
 }
 
 func printSummaryTTYRow(label, primaryVerb string, primary, skipped, errs int, extra string) {
@@ -428,8 +452,12 @@ func runSyncTTY(ctx context.Context, work []syncJob, sink importer.Sink, push *p
 				return
 			case updates <- spinner.Update{Index: i, Started: true}:
 			}
-			res, err := w.imp.Import(ctx, w.path, sink)
-			if w.cleanup != nil {
+			var res importer.ImportResult
+			err := w.prepareErr
+			if err == nil {
+				res, err = w.imp.Import(ctx, w.path, sink)
+			}
+			if w.prepareErr == nil && w.cleanup != nil {
 				w.cleanup()
 			}
 			counts.record(w, res, err)
@@ -484,8 +512,12 @@ func syncFoundSummary(items []spinner.Item) string {
 func runSyncPlain(ctx context.Context, work []syncJob, sink importer.Sink, push *pusher, counts *syncCounts) error {
 	for _, w := range work {
 		start := time.Now()
-		res, err := w.imp.Import(ctx, w.path, sink)
-		if w.cleanup != nil {
+		var res importer.ImportResult
+		err := w.prepareErr
+		if err == nil {
+			res, err = w.imp.Import(ctx, w.path, sink)
+		}
+		if w.prepareErr == nil && w.cleanup != nil {
 			w.cleanup()
 		}
 		dur := time.Since(start)

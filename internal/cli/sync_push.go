@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -104,19 +105,19 @@ func sessionToProto(s session.Session) *prosav1.Session {
 		RawSize:        s.RawSize,
 	}
 	if s.ProjectPath != nil {
-		out.ProjectPath = *s.ProjectPath
+		out.ProjectPath = wireText(*s.ProjectPath)
 	}
 	if s.ProjectRemote != nil {
-		out.ProjectRemote = *s.ProjectRemote
+		out.ProjectRemote = wireText(*s.ProjectRemote)
 	}
 	if s.ProjectMarker != nil {
-		out.ProjectMarker = *s.ProjectMarker
+		out.ProjectMarker = wireText(*s.ProjectMarker)
 	}
 	if s.FirstPrompt != nil {
-		out.FirstPrompt = *s.FirstPrompt
+		out.FirstPrompt = wireText(*s.FirstPrompt)
 	}
 	if s.Model != nil {
-		out.Model = *s.Model
+		out.Model = wireText(*s.Model)
 	}
 	if s.Usage != nil {
 		out.Usage = &prosav1.TokenUsage{
@@ -139,11 +140,11 @@ func turnsToProto(turns []session.Turn) []*prosav1.Turn {
 			kind = session.KindMessage
 		}
 		out = append(out, &prosav1.Turn{
-			Role:     t.Role,
-			Content:  t.Content,
+			Role:     wireText(t.Role),
+			Content:  wireText(t.Content),
 			Ts:       timestamppb.New(t.Timestamp),
-			Kind:     kind,
-			ToolName: t.ToolName,
+			Kind:     wireText(kind),
+			ToolName: wireText(t.ToolName),
 		})
 	}
 	return out
@@ -152,9 +153,13 @@ func turnsToProto(turns []session.Turn) []*prosav1.Turn {
 func toolsToProto(tools []session.ToolUsage) []*prosav1.ToolUsage {
 	out := make([]*prosav1.ToolUsage, 0, len(tools))
 	for _, t := range tools {
-		out = append(out, &prosav1.ToolUsage{Name: t.Name, Count: int32(t.Count)})
+		out = append(out, &prosav1.ToolUsage{Name: wireText(t.Name), Count: int32(t.Count)})
 	}
 	return out
+}
+
+func wireText(s string) string {
+	return strings.ReplaceAll(s, "\x00", " ")
 }
 
 // logPush is a thin slog wrapper used by the plain path.
