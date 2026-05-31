@@ -41,6 +41,12 @@ func TestIsBinaryChunkAcceptsMultibyteUTF8(t *testing.T) {
 	require.False(t, isBinaryChunk(in))
 }
 
+func TestIsBinaryChunkAcceptsUTF8RuneCrossingSniffBoundary(t *testing.T) {
+	in := bytes.Repeat([]byte("a"), 4095)
+	in = append(in, []byte("é stays text")...)
+	require.False(t, isBinaryChunk(in))
+}
+
 func TestIsBinaryChunkAcceptsEmpty(t *testing.T) {
 	require.False(t, isBinaryChunk(nil))
 	require.False(t, isBinaryChunk([]byte{}))

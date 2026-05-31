@@ -209,7 +209,7 @@ func cleanTurnsForDisplay(in []*prosav1.Turn) []*prosav1.Turn {
 
 // isBinaryChunk reports whether b looks like binary content unfit for a
 // <pre>. True when b starts with the SQLite magic header, contains a
-// NUL byte in the first sniffN bytes, or fails utf8.Valid on the same
+// NUL byte in the first sniffN bytes, or has invalid UTF-8 in the same
 // head. Empty input returns false — nothing to display, nothing to flag.
 func isBinaryChunk(b []byte) bool {
 	if len(b) == 0 {
@@ -227,10 +227,42 @@ func isBinaryChunk(b []byte) bool {
 	if bytes.IndexByte(head, 0x00) >= 0 {
 		return true
 	}
-	if !utf8.Valid(head) {
+	if !validUTF8Sniff(head) {
 		return true
 	}
 	return false
+}
+
+func validUTF8Sniff(head []byte) bool {
+	for len(head) > 0 {
+		r, size := utf8.DecodeRune(head)
+		if r == utf8.RuneError && size == 1 {
+			need := utf8SequenceLen(head[0])
+			if need == 0 || need <= len(head) {
+				return false
+			}
+			// The sniff window can end in the middle of a valid text rune.
+			// Treat that as text; the next raw chunk/page owns the remainder.
+			return true
+		}
+		head = head[size:]
+	}
+	return true
+}
+
+func utf8SequenceLen(b byte) int {
+	switch {
+	case b < utf8.RuneSelf:
+		return 1
+	case b >= 0xC2 && b <= 0xDF:
+		return 2
+	case b >= 0xE0 && b <= 0xEF:
+		return 3
+	case b >= 0xF0 && b <= 0xF4:
+		return 4
+	default:
+		return 0
+	}
 }
 
 // binaryPlaceholder is the human-readable message shown in the side
