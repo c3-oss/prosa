@@ -29,6 +29,9 @@ type ImportResult struct {
 	RawHash   string
 	RawSize   int64
 	Skipped   bool
+	// SkipReason optionally distinguishes hash-idempotent skips from
+	// policy skips such as transcripts with no measured token usage.
+	SkipReason string
 }
 
 // Importer is the plugin contract. New agents implement this and register
@@ -58,4 +61,33 @@ type Sink interface {
 	InsertTurns(ctx context.Context, sessionID string, turns []session.Turn) error
 	LastHash(ctx context.Context, sessionID string) (string, bool, error)
 	RecordSync(ctx context.Context, sessionID, hash string) error
+}
+
+const SkipReasonNoUsage = "no_usage"
+
+// SkipCache is an optional Sink extension. Stores that implement it can
+// remember policy-skipped files by hash even when no session row exists.
+type SkipCache interface {
+	LastImportSkip(ctx context.Context, sessionID, reason string) (string, bool, error)
+	RecordImportSkip(ctx context.Context, sessionID, hash, reason string) error
+}
+
+func PreviouslySkipped(ctx context.Context, sink Sink, sessionID, hash, reason string) (bool, error) {
+	cache, ok := sink.(SkipCache)
+	if !ok {
+		return false, nil
+	}
+	prev, found, err := cache.LastImportSkip(ctx, sessionID, reason)
+	if err != nil || !found {
+		return false, err
+	}
+	return prev == hash, nil
+}
+
+func RecordSkip(ctx context.Context, sink Sink, sessionID, hash, reason string) error {
+	cache, ok := sink.(SkipCache)
+	if !ok {
+		return nil
+	}
+	return cache.RecordImportSkip(ctx, sessionID, hash, reason)
 }

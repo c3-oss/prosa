@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 
 	"github.com/c3-oss/prosa/internal/device"
+	"github.com/c3-oss/prosa/internal/importers/importpolicy"
 	"github.com/c3-oss/prosa/internal/projectid"
 	"github.com/c3-oss/prosa/pkg/importer"
 )
@@ -63,6 +64,11 @@ func (i *Importer) Import(ctx context.Context, jsonPath string, sink importer.Si
 			Skipped:   true,
 		}, nil
 	}
+	if res, ok, err := importpolicy.PreviouslySkippedNoUsage(ctx, sink, sessionID, hash, size); err != nil {
+		return importer.ImportResult{}, fmt.Errorf("read import skip %s: %w", sessionID, err)
+	} else if ok {
+		return res, nil
+	}
 
 	sess, turns, tools, err := parseSession(ctx, jsonPath)
 	if err != nil {
@@ -75,6 +81,9 @@ func (i *Importer) Import(ctx context.Context, jsonPath string, sink importer.Si
 	sess.DeviceID = device.IDOnce()
 	sess.RawHash = hash
 	sess.RawSize = size
+	if !importpolicy.HasUsage(sess) {
+		return importpolicy.RecordNoUsageSkip(ctx, sink, sess.ID, hash, size)
+	}
 
 	rawPath, err := preserveRaw(jsonPath, sess.ID, sess.StartedAt)
 	if err != nil {

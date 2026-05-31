@@ -27,7 +27,7 @@ stays excluded.
 
 ## Projection version
 
-`session.ProjectionVersion = 3`. The server's push handler compares
+`session.ProjectionVersion = 4`. The server's push handler compares
 `projection_version >= session.ProjectionVersion` before short-
 circuiting, so bumping this constant forces existing sessions to be
 re-projected on the next push from any client — no schema migration
@@ -38,6 +38,17 @@ needed for downstream consumers.
 | 1 | initial cut |
 | 2 | usage projection (`session_usage`) |
 | 3 | `turn.kind` / `turn.tool_name`, sessiontext-cleaned `FirstPrompt` |
+| 4 | importer-level no-usage filtering |
+
+## Import eligibility
+
+Importers persist only sessions with measured token usage. A session is
+eligible when its projected `session.TokenUsage` has at least one positive
+token field. Files with no usage signal return `Skipped` with reason
+`no_usage`; they are not upserted, their turns/tool counts are not written,
+and their raw source is not copied. Local stores remember these policy
+skips by `(session_id, reason, hash)` so unchanged no-usage files can be
+skipped without re-parsing on later runs.
 
 ## Claude Code
 

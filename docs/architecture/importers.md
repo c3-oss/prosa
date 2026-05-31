@@ -25,6 +25,11 @@ type Sink interface {
     LastHash(ctx context.Context, sessionID string) (string, bool, error)
     RecordSync(ctx context.Context, sessionID, hash string) error
 }
+
+type SkipCache interface {
+    LastImportSkip(ctx context.Context, sessionID, reason string) (string, bool, error)
+    RecordImportSkip(ctx context.Context, sessionID, hash, reason string) error
+}
 ```
 
 - **`Name()`** — short agent key (`"claude-code"`, `"codex"`, etc.). Used
@@ -41,6 +46,8 @@ type Sink interface {
 
 The `Sink` is implemented by `internal/store` (locally) and by an in-memory
 fake for tests. Importers never know about SQLite, Postgres, or the server.
+`SkipCache` is an optional `Sink` extension used for policy skips that do
+not create a session row.
 
 ## Idempotency contract
 
@@ -49,8 +56,13 @@ An importer must:
 1. Compute `sha256(raw)` before doing any parse work.
 2. Ask `sink.LastHash(ctx, sessionID)`. If the result equals the current
    hash, return immediately with a no-op `ImportResult`.
-3. If different, parse, upsert, write turns, write tool usage, and finally
-   call `sink.RecordSync` with the new hash.
+3. Ask `SkipCache` whether this same `(session_id, reason, hash)` was
+   previously policy-skipped. Today the only policy reason is `no_usage`.
+4. If different, parse the file. If the projected session has no measured
+   token usage, record a `no_usage` policy skip and return without writing
+   the session, turns, tools, raw copy, or sync hash.
+5. Otherwise upsert, write turns, write tool usage, and finally call
+   `sink.RecordSync` with the new hash.
 
 There is **no per-turn incremental sync**. A new hash always means "full
 re-import of this session." Hashing the whole file is fast enough; this
@@ -88,6 +100,8 @@ session.Session{
 
 Plus:
 
+- `session.TokenUsage` — aggregate token usage. Sessions without any
+  positive token field are skipped by import policy.
 - `[]session.Turn` — every user/assistant turn (text content only), in
   source order. Tool calls and tool results are NOT included in turns in
   the MVP cut — they're preserved in raw but not indexed.

@@ -26,11 +26,13 @@ type fakeSessionsClient struct {
 	manifestPages map[string]*prosav1.ManifestResponse
 	manifestErr   error
 	pushed        []*prosav1.PushRequest
+	pushCalls     int
 	pushErr       error
 	pushSkippedID map[string]bool // sessions for which Push returns Skipped=true
 }
 
 func (f *fakeSessionsClient) Push(_ context.Context, req *connect.Request[prosav1.PushRequest]) (*connect.Response[prosav1.PushResponse], error) {
+	f.pushCalls++
 	if f.pushErr != nil {
 		return nil, f.pushErr
 	}
@@ -119,6 +121,7 @@ func (f *reconcileFixture) addSession(t *testing.T, ctx context.Context, deviceI
 		RawPath:        rawPath,
 		RawHash:        "h-" + id,
 		RawSize:        int64(len("raw-" + id)),
+		Usage:          &session.TokenUsage{TotalTokens: 1},
 	}
 	require.NoError(t, f.store.UpsertSession(ctx, sess, nil))
 }
@@ -136,6 +139,7 @@ func (f *reconcileFixture) addSessionMissingRaw(t *testing.T, ctx context.Contex
 		RawPath:        filepath.Join(f.dir, "ghost", id+".jsonl"), // does not exist
 		RawHash:        "h-" + id,
 		RawSize:        0,
+		Usage:          &session.TokenUsage{TotalTokens: 1},
 	}
 	require.NoError(t, f.store.UpsertSession(ctx, sess, nil))
 }
@@ -265,6 +269,57 @@ func TestReconcileNilPusherNoOp(t *testing.T) {
 	counts, err := reconcileWithServer(context.Background(), nil, "dev", nil)
 	require.NoError(t, err)
 	require.Equal(t, reconcileCounts{}, counts)
+}
+
+func TestPushSkipsSessionWithoutUsage(t *testing.T) {
+	ctx := context.Background()
+	fx := newReconcileFixture(t, "dev")
+	rawPath := filepath.Join(fx.dir, "s1.jsonl")
+	require.NoError(t, os.WriteFile(rawPath, []byte("raw-s1"), 0o644))
+	require.NoError(t, fx.store.UpsertSession(ctx, session.Session{
+		ID:             "s1",
+		Agent:          "claude-code",
+		DeviceID:       "dev",
+		StartedAt:      time.Now().UTC(),
+		LastActivityAt: time.Now().UTC(),
+		RawPath:        rawPath,
+		RawHash:        "h-s1",
+		RawSize:        int64(len("raw-s1")),
+	}, nil))
+
+	outcome, err := fx.pusher.pushSession(ctx, "s1")
+	require.NoError(t, err)
+	require.Equal(t, pushSkippedNoUsage, outcome)
+	require.Equal(t, 0, fx.fake.pushCalls)
+
+	var counts syncCounts
+	counts.recordPush(outcome, err)
+	require.Equal(t, 1, counts.pushSkip)
+}
+
+func TestReconcileCountsNoUsagePushAsSkipped(t *testing.T) {
+	ctx := context.Background()
+	fx := newReconcileFixture(t, "dev")
+	rawPath := filepath.Join(fx.dir, "s1.jsonl")
+	require.NoError(t, os.WriteFile(rawPath, []byte("raw-s1"), 0o644))
+	require.NoError(t, fx.store.UpsertSession(ctx, session.Session{
+		ID:             "s1",
+		Agent:          "claude-code",
+		DeviceID:       "dev",
+		StartedAt:      time.Now().UTC(),
+		LastActivityAt: time.Now().UTC(),
+		RawPath:        rawPath,
+		RawHash:        "h-s1",
+		RawSize:        int64(len("raw-s1")),
+	}, nil))
+	fx.fake.manifestPages[""] = &prosav1.ManifestResponse{}
+
+	counts, err := reconcileWithServer(ctx, fx.pusher, "dev", nil)
+	require.NoError(t, err)
+	require.Equal(t, 0, counts.sent)
+	require.Equal(t, 1, counts.skipped)
+	require.Equal(t, 0, counts.errs)
+	require.Equal(t, 0, fx.fake.pushCalls)
 }
 
 func TestReconcileProgressCallback(t *testing.T) {

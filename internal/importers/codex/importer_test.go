@@ -195,6 +195,20 @@ func writeFixtureLegacy(t *testing.T, root string) string {
 			"timestamp": base.Add(10 * time.Second).Format(time.RFC3339Nano),
 			"name":      "legacy_tool",
 		},
+		{
+			"type":      "event_msg",
+			"timestamp": base.Add(15 * time.Second).Format(time.RFC3339Nano),
+			"payload": map[string]any{
+				"type": "token_count",
+				"info": map[string]any{
+					"total_token_usage": map[string]any{
+						"input_tokens":  10,
+						"output_tokens": 2,
+						"total_tokens":  12,
+					},
+				},
+			},
+		},
 	})
 	return path
 }
@@ -286,6 +300,51 @@ func TestImportLegacySession(t *testing.T) {
 	require.Equal(t, "legacy_tool", tools[0].Name)
 }
 
+func TestImportSkipsSessionWithoutUsage(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv("PROSA_HOME", filepath.Join(t.TempDir(), "prosa-home"))
+
+	root := filepath.Join(t.TempDir(), "codex-root")
+	base := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
+	dir := filepath.Join(root, base.Format("2006"), base.Format("01"), base.Format("02"))
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	path := filepath.Join(dir, codexFixtureFilename(base, fixtureSessionID))
+	writeJSONL(t, path, []map[string]any{
+		{
+			"type":      "session_meta",
+			"timestamp": base.Format(time.RFC3339Nano),
+			"payload": map[string]any{
+				"id":  fixtureSessionID,
+				"cwd": "/Users/test/proj",
+			},
+		},
+		{
+			"type":      "turn_context",
+			"timestamp": base.Add(time.Second).Format(time.RFC3339Nano),
+			"payload": map[string]any{
+				"model": "gpt-5-codex",
+			},
+		},
+		{
+			"type":      "response_item",
+			"timestamp": base.Add(2 * time.Second).Format(time.RFC3339Nano),
+			"payload": map[string]any{
+				"type": "message", "role": "user",
+				"content": []map[string]any{{"type": "input_text", "text": "hi"}},
+			},
+		},
+	})
+
+	sink := newSink()
+	res, err := New().Import(ctx, path, sink)
+	require.NoError(t, err)
+	require.True(t, res.Skipped)
+	require.Equal(t, "no_usage", res.SkipReason)
+	require.Empty(t, sink.sessions)
+	require.Empty(t, sink.turns)
+	require.Empty(t, res.RawPath)
+}
+
 func TestWalkAcceptsRolloutPatternOnly(t *testing.T) {
 	root := t.TempDir()
 	base := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
@@ -341,6 +400,19 @@ func writeFixtureBoilerplateFirstPrompt(t *testing.T, root string) string {
 			"payload": map[string]any{
 				"type": "message", "role": "user",
 				"content": []map[string]any{{"type": "input_text", "text": "deploy the staging branch"}},
+			},
+		},
+		{
+			"type":      "event_msg",
+			"timestamp": base.Add(3 * time.Second).Format(time.RFC3339Nano),
+			"payload": map[string]any{
+				"type": "token_count",
+				"info": map[string]any{
+					"total_token_usage": map[string]any{
+						"input_tokens": 10,
+						"total_tokens": 10,
+					},
+				},
 			},
 		},
 	})
@@ -399,6 +471,19 @@ func writeFixtureFunctionOutput(t *testing.T, root string) string {
 			"payload": map[string]any{
 				"type": "function_call_output", "call_id": "c1",
 				"output": "stdout:\nfile1\nfile2",
+			},
+		},
+		{
+			"type":      "event_msg",
+			"timestamp": base.Add(4 * time.Second).Format(time.RFC3339Nano),
+			"payload": map[string]any{
+				"type": "token_count",
+				"info": map[string]any{
+					"total_token_usage": map[string]any{
+						"input_tokens": 10,
+						"total_tokens": 10,
+					},
+				},
 			},
 		},
 	})

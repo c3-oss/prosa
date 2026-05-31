@@ -81,7 +81,7 @@ func reconcileWithServer(
 		switch outcome {
 		case pushImported:
 			counts.sent++
-		case pushAlreadyHashed:
+		case pushAlreadyHashed, pushSkippedNoUsage:
 			counts.skipped++
 		case pushFailed:
 			counts.errs++

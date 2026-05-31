@@ -53,6 +53,9 @@ func (h *SessionsHandler) Push(ctx context.Context, req *connect.Request[prosav1
 	// impersonate another device by setting a different value on the
 	// wire.
 	sess.DeviceId = deviceID
+	if !protoHasTokenUsage(sess.Usage) {
+		return connect.NewResponse(&prosav1.PushResponse{Skipped: true}), nil
+	}
 
 	// Idempotency short-circuit: same hash as what sync_state already has.
 	var (
@@ -622,6 +625,20 @@ func extForAgent(agent string) string {
 		return ".db"
 	}
 	return ".bin"
+}
+
+func protoHasTokenUsage(u *prosav1.TokenUsage) bool {
+	if u == nil {
+		return false
+	}
+	return session.HasTokenUsage(&session.TokenUsage{
+		TotalTokens:         u.TotalTokens,
+		InputTokens:         u.InputTokens,
+		OutputTokens:        u.OutputTokens,
+		CachedTokens:        u.CachedTokens,
+		CacheReadTokens:     u.CacheReadTokens,
+		CacheCreationTokens: u.CacheCreationTokens,
+	})
 }
 
 // upsertSession writes the session row, replacing every field on conflict.

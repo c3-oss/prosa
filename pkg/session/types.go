@@ -76,7 +76,8 @@ type Session struct {
 //	v1: original cut.
 //	v2: usage projection (session_usage table).
 //	v3: turn.kind/tool_name + sessiontext-cleaned FirstPrompt.
-const ProjectionVersion = 3
+//	v4: importer-level no-usage filtering + synthetic model exclusion.
+const ProjectionVersion = 4
 
 // Turn kind constants. Empty Kind is treated as KindMessage so older rows
 // and zero-value test fixtures keep working without backfill.
@@ -97,6 +98,19 @@ type TokenUsage struct {
 	CachedTokens        int64
 	CacheReadTokens     int64
 	CacheCreationTokens int64
+}
+
+// HasTokenUsage reports whether an imported usage aggregate carries any
+// measured token signal. Importers use this as the minimum bar for keeping a
+// session in the work log.
+func HasTokenUsage(u *TokenUsage) bool {
+	return u != nil &&
+		(u.TotalTokens > 0 ||
+			u.InputTokens > 0 ||
+			u.OutputTokens > 0 ||
+			u.CachedTokens > 0 ||
+			u.CacheReadTokens > 0 ||
+			u.CacheCreationTokens > 0)
 }
 
 // Turn is a single message body extracted from a session, populated

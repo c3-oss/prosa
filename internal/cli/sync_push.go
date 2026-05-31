@@ -51,6 +51,7 @@ const (
 	pushImported
 	pushAlreadyHashed
 	pushFailed
+	pushSkippedNoUsage
 )
 
 // pushSession loads sess + turns + tools from the store and POSTs to
@@ -64,6 +65,9 @@ func (p *pusher) pushSession(ctx context.Context, sessionID string) (pushOutcome
 	sess, err := p.store.GetSession(ctx, sessionID)
 	if err != nil {
 		return pushFailed, fmt.Errorf("load session: %w", err)
+	}
+	if !session.HasTokenUsage(sess.Usage) {
+		return pushSkippedNoUsage, nil
 	}
 	turns, err := p.store.GetTurns(ctx, sessionID)
 	if err != nil {
@@ -169,6 +173,8 @@ func logPush(sessionID string, outcome pushOutcome, err error) {
 		slog.Info("pushed", "session", sessionID, "status", "done")
 	case pushAlreadyHashed:
 		slog.Info("pushed", "session", sessionID, "status", "skipped")
+	case pushSkippedNoUsage:
+		slog.Info("pushed", "session", sessionID, "status", "skipped", "reason", "no_usage")
 	case pushFailed:
 		slog.Warn("push failed", "session", sessionID, "err", err)
 	}

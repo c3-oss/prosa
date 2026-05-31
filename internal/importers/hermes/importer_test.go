@@ -41,6 +41,10 @@ func newSink() *inMemSink {
 	}
 }
 
+func ptrInt64(v int64) *int64 {
+	return &v
+}
+
 func (m *inMemSink) UpsertSession(_ context.Context, s session.Session, tools []session.ToolUsage) error {
 	m.sessions[s.ID] = s
 	m.tools[s.ID] = tools
@@ -92,10 +96,11 @@ type hermesStateRow struct {
 }
 
 type hermesStateMessage struct {
-	role      string
-	content   string
-	toolCalls string
-	timestamp float64
+	role       string
+	content    string
+	toolCalls  string
+	timestamp  float64
+	tokenCount *int64
 }
 
 // buildHermesStateDB writes a state.db with the Hermes schema, populated
@@ -151,8 +156,8 @@ CREATE TABLE messages (
 		require.NoError(t, err)
 		for _, m := range r.messages {
 			_, err = db.Exec(
-				`INSERT INTO messages(session_id, role, content, tool_calls, timestamp) VALUES (?, ?, ?, ?, ?)`,
-				r.id, m.role, m.content, m.toolCalls, m.timestamp,
+				`INSERT INTO messages(session_id, role, content, tool_calls, timestamp, token_count) VALUES (?, ?, ?, ?, ?, ?)`,
+				r.id, m.role, m.content, m.toolCalls, m.timestamp, m.tokenCount,
 			)
 			require.NoError(t, err)
 		}
@@ -293,7 +298,7 @@ func TestImportSnapshot(t *testing.T) {
 		"messages": []map[string]any{
 			{"role": "user", "content": "hello world"},
 			{
-				"role": "assistant", "content": "hi there",
+				"role": "assistant", "content": "hi there", "token_count": 17,
 				"tool_calls": []map[string]any{{"name": "Edit"}},
 			},
 		},
@@ -352,8 +357,9 @@ func TestImportStateDB(t *testing.T) {
 				{role: "user", content: "first prompt one", timestamp: float64(base.Unix())},
 				{
 					role: "assistant", content: "answer one",
-					timestamp: float64(base.Add(5 * time.Second).Unix()),
-					toolCalls: `[{"name":"Read"}]`,
+					timestamp:  float64(base.Add(5 * time.Second).Unix()),
+					toolCalls:  `[{"name":"Read"}]`,
+					tokenCount: ptrInt64(17),
 				},
 			},
 		},
@@ -365,7 +371,8 @@ func TestImportStateDB(t *testing.T) {
 				{role: "user", content: "second prompt", timestamp: float64(base.Add(time.Hour).Unix())},
 				{
 					role: "assistant", content: "second answer",
-					timestamp: float64(base.Add(time.Hour + 5*time.Second).Unix()),
+					timestamp:  float64(base.Add(time.Hour + 5*time.Second).Unix()),
+					tokenCount: ptrInt64(19),
 				},
 			},
 		},
@@ -431,8 +438,9 @@ func TestStateDBMergeYieldsToTranscript(t *testing.T) {
 		{"role": "user", "content": "richer first prompt", "timestamp": float64(base.Unix())},
 		{
 			"role": "assistant", "content": "richer reply",
-			"timestamp": float64(base.Add(5 * time.Second).Unix()),
-			"model":     "claude-sonnet-4-6",
+			"timestamp":   float64(base.Add(5 * time.Second).Unix()),
+			"model":       "claude-sonnet-4-6",
+			"token_count": 17,
 		},
 		{
 			"role": "user", "content": "follow-up",
