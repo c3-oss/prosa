@@ -130,13 +130,15 @@ func peekSessionID(path string) (string, error) {
 	return strings.TrimSuffix(filepath.Base(path), ".jsonl"), nil
 }
 
-// parseSession streams the JSONL once and returns the projected metadata.
-// Hash + size are NOT computed here — Import() does that separately so
-// peek and full parse are both cheap on warm runs.
-func parseSession(ctx context.Context, path string) (session.Session, []session.Turn, []session.ToolUsage, error) {
+// parseSession streams the JSONL once and returns the projected metadata
+// plus a UsageState classifying whether the transcript carried any usage
+// event (and if so, whether totals were positive). Hash + size are NOT
+// computed here — Import() does that separately so peek and full parse
+// are both cheap on warm runs.
+func parseSession(ctx context.Context, path string) (session.Session, []session.Turn, []session.ToolUsage, session.UsageState, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return session.Session{}, nil, nil, err
+		return session.Session{}, nil, nil, session.UsageStateUnknown, err
 	}
 	defer f.Close()
 
@@ -159,7 +161,7 @@ func parseSession(ctx context.Context, path string) (session.Session, []session.
 	for sc.Scan() {
 		line++
 		if err := ctx.Err(); err != nil {
-			return session.Session{}, nil, nil, err
+			return session.Session{}, nil, nil, session.UsageStateUnknown, err
 		}
 
 		var r rawRecord
@@ -249,7 +251,7 @@ func parseSession(ctx context.Context, path string) (session.Session, []session.
 			slog.Warn("claude-code: JSONL line exceeded 16 MiB scan buffer; partial session",
 				"path", path, "line", line+1)
 		} else {
-			return session.Session{}, nil, nil, fmt.Errorf("scan %s: %w", path, err)
+			return session.Session{}, nil, nil, session.UsageStateUnknown, fmt.Errorf("scan %s: %w", path, err)
 		}
 	}
 
@@ -260,7 +262,13 @@ func parseSession(ctx context.Context, path string) (session.Session, []session.
 	if usage := buildClaudeUsage(usageByKey); usage != nil {
 		sess.Usage = usage
 	}
-	return sess, turns, tools, nil
+	// Any populated usageByKey entry means we observed at least one
+	// assistant.message.usage block — even if every field came back
+	// zero. That distinguishes a transcript with explicit-zero usage
+	// (skip as no_usage) from one that never had a usage event at all
+	// (admit as unknown).
+	state := session.ClassifyUsage(len(usageByKey) > 0, sess.Usage)
+	return sess, turns, tools, state, nil
 }
 
 func collectUsage(r rawRecord, line int, usageByKey map[string]claudeUsage) {

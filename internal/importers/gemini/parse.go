@@ -86,10 +86,10 @@ func peekSessionID(path string) (string, error) {
 }
 
 // parseSession decides between the two shapes and projects them.
-func parseSession(ctx context.Context, path string) (session.Session, []session.Turn, []session.ToolUsage, error) {
+func parseSession(ctx context.Context, path string) (session.Session, []session.Turn, []session.ToolUsage, session.UsageState, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return session.Session{}, nil, nil, err
+		return session.Session{}, nil, nil, session.UsageStateUnknown, err
 	}
 
 	// Try envelope first.
@@ -101,7 +101,7 @@ func parseSession(ctx context.Context, path string) (session.Session, []session.
 	// Otherwise treat as live array.
 	var rows []message
 	if err := json.Unmarshal(data, &rows); err != nil {
-		return session.Session{}, nil, nil, fmt.Errorf("decode gemini json: %w", err)
+		return session.Session{}, nil, nil, session.UsageStateUnknown, fmt.Errorf("decode gemini json: %w", err)
 	}
 	return projectLiveArray(ctx, rows)
 }
@@ -136,7 +136,7 @@ func readArrayFirstSessionID(data []byte) (string, bool) {
 	return "", false
 }
 
-func projectEnvelope(ctx context.Context, env envelope) (session.Session, []session.Turn, []session.ToolUsage, error) {
+func projectEnvelope(ctx context.Context, env envelope) (session.Session, []session.Turn, []session.ToolUsage, session.UsageState, error) {
 	var sess session.Session
 	sess.ID = env.SessionID
 	if t, ok := parseTimestamp(env.StartTime); ok {
@@ -152,11 +152,18 @@ func projectEnvelope(ctx context.Context, env envelope) (session.Session, []sess
 		usage          session.TokenUsage
 		usageSeen      = map[string]struct{}{}
 		usageSet       bool
+		seenUsageEvent bool
 		firstPromptSet bool
 	)
 	for i, m := range env.Messages {
 		if err := ctx.Err(); err != nil {
-			return session.Session{}, nil, nil, err
+			return session.Session{}, nil, nil, session.UsageStateUnknown, err
+		}
+		if m.Type == "gemini" && m.Tokens != nil {
+			// Track every assistant message that carried a `tokens`
+			// block — including all-zero ones — so the tri-state
+			// classifier can tell explicit-zero from no-event.
+			seenUsageEvent = true
 		}
 		if m.Type == "gemini" && collectGeminiUsage(m, i, usageSeen, &usage) {
 			usageSet = true
@@ -204,15 +211,16 @@ func projectEnvelope(ctx context.Context, env envelope) (session.Session, []sess
 	if usageSet {
 		sess.Usage = &usage
 	}
-	return sess, turns, tools, nil
+	state := session.ClassifyUsage(seenUsageEvent, sess.Usage)
+	return sess, turns, tools, state, nil
 }
 
 // projectLiveArray groups records by sessionId and projects the largest
 // group (most messages). The legacy bundle never hits this path; live
 // logs.json may contain multiple sessions interleaved.
-func projectLiveArray(ctx context.Context, rows []message) (session.Session, []session.Turn, []session.ToolUsage, error) {
+func projectLiveArray(ctx context.Context, rows []message) (session.Session, []session.Turn, []session.ToolUsage, session.UsageState, error) {
 	if len(rows) == 0 {
-		return session.Session{}, nil, nil, fmt.Errorf("empty gemini logs.json array")
+		return session.Session{}, nil, nil, session.UsageStateUnknown, fmt.Errorf("empty gemini logs.json array")
 	}
 	groups := map[string][]message{}
 	for _, r := range rows {
@@ -229,7 +237,7 @@ func projectLiveArray(ctx context.Context, rows []message) (session.Session, []s
 		}
 	}
 	if bestID == "" {
-		return session.Session{}, nil, nil, fmt.Errorf("no sessionId found in logs.json")
+		return session.Session{}, nil, nil, session.UsageStateUnknown, fmt.Errorf("no sessionId found in logs.json")
 	}
 
 	var (
@@ -238,12 +246,16 @@ func projectLiveArray(ctx context.Context, rows []message) (session.Session, []s
 		usage          session.TokenUsage
 		usageSeen      = map[string]struct{}{}
 		usageSet       bool
+		seenUsageEvent bool
 		firstPromptSet bool
 	)
 	sess.ID = bestID
 	for i, m := range groups[bestID] {
 		if err := ctx.Err(); err != nil {
-			return session.Session{}, nil, nil, err
+			return session.Session{}, nil, nil, session.UsageStateUnknown, err
+		}
+		if m.Type == "gemini" && m.Tokens != nil {
+			seenUsageEvent = true
 		}
 		if m.Type == "gemini" && collectGeminiUsage(m, i, usageSeen, &usage) {
 			usageSet = true
@@ -284,7 +296,8 @@ func projectLiveArray(ctx context.Context, rows []message) (session.Session, []s
 	if usageSet {
 		sess.Usage = &usage
 	}
-	return sess, turns, nil, nil
+	state := session.ClassifyUsage(seenUsageEvent, sess.Usage)
+	return sess, turns, nil, state, nil
 }
 
 func collectGeminiUsage(m message, idx int, seen map[string]struct{}, out *session.TokenUsage) bool {

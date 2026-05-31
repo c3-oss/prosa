@@ -15,6 +15,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/c3-oss/prosa/pkg/importer"
 	"github.com/c3-oss/prosa/pkg/session"
 )
 
@@ -236,7 +237,7 @@ func TestImportJSONL(t *testing.T) {
 	sink := newSink()
 	imp := New()
 
-	res, err := imp.Import(ctx, src, sink)
+	res, err := imp.Import(ctx, src, sink, importer.ImportOptions{})
 	require.NoError(t, err)
 	require.False(t, res.Skipped)
 	require.Equal(t, jsonlSessionID, res.SessionID)
@@ -274,7 +275,7 @@ func TestImportJSONL(t *testing.T) {
 	require.Equal(t, 2, byName["Read"])
 	require.Equal(t, 1, byName["Bash"])
 
-	res2, err := imp.Import(ctx, src, sink)
+	res2, err := imp.Import(ctx, src, sink, importer.ImportOptions{})
 	require.NoError(t, err)
 	require.True(t, res2.Skipped)
 }
@@ -307,7 +308,7 @@ func TestImportSnapshot(t *testing.T) {
 	sink := newSink()
 	imp := New()
 
-	res, err := imp.Import(ctx, src, sink)
+	res, err := imp.Import(ctx, src, sink, importer.ImportOptions{})
 	require.NoError(t, err)
 	require.False(t, res.Skipped)
 	require.Equal(t, snapshotSessionID, res.SessionID)
@@ -335,7 +336,7 @@ func TestImportSnapshot(t *testing.T) {
 	require.Equal(t, "Edit", tools[0].Name)
 	require.Equal(t, 1, tools[0].Count)
 
-	res2, err := imp.Import(ctx, src, sink)
+	res2, err := imp.Import(ctx, src, sink, importer.ImportOptions{})
 	require.NoError(t, err)
 	require.True(t, res2.Skipped)
 }
@@ -382,7 +383,7 @@ func TestImportStateDB(t *testing.T) {
 	sink := newSink()
 	imp := New()
 
-	res, err := imp.Import(ctx, dbPath, sink)
+	res, err := imp.Import(ctx, dbPath, sink, importer.ImportOptions{})
 	require.NoError(t, err)
 	require.False(t, res.Skipped)
 	require.NotEmpty(t, res.RawHash)
@@ -407,7 +408,7 @@ func TestImportStateDB(t *testing.T) {
 	require.Equal(t, "claude-opus-4-7", *s2.Model)
 	require.Len(t, sink.turns["state-2"], 2)
 
-	res2, err := imp.Import(ctx, dbPath, sink)
+	res2, err := imp.Import(ctx, dbPath, sink, importer.ImportOptions{})
 	require.NoError(t, err)
 	require.True(t, res2.Skipped)
 }
@@ -452,13 +453,13 @@ func TestStateDBMergeYieldsToTranscript(t *testing.T) {
 	imp := New()
 
 	// state.db import must skip S because the sibling jsonl has more messages.
-	res, err := imp.Import(ctx, dbPath, sink)
+	res, err := imp.Import(ctx, dbPath, sink, importer.ImportOptions{})
 	require.NoError(t, err)
 	require.False(t, res.Skipped)
 	require.NotContains(t, sink.sessions, "S", "state.db Import must defer to sibling transcript")
 
 	// File-shaped Import call projects S normally.
-	res2, err := imp.Import(ctx, jsonlPath, sink)
+	res2, err := imp.Import(ctx, jsonlPath, sink, importer.ImportOptions{})
 	require.NoError(t, err)
 	require.False(t, res2.Skipped)
 	require.Equal(t, "S", res2.SessionID)
@@ -490,7 +491,7 @@ func TestImportJSONLSanitizesFirstPrompt(t *testing.T) {
 	})
 
 	sink := newSink()
-	res, err := New().Import(ctx, src, sink)
+	res, err := New().Import(ctx, src, sink, importer.ImportOptions{})
 	require.NoError(t, err)
 	require.False(t, res.Skipped)
 	s := sink.sessions["sess-dirty"]

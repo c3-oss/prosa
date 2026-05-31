@@ -101,10 +101,10 @@ func peekSnapshotID(path string) (string, error) {
 // parseJSONL streams one JSON object per line and projects the canonical
 // session. Timestamps may be epoch-seconds floats or ISO strings; both
 // are tried.
-func parseJSONL(ctx context.Context, path string) (session.Session, []session.Turn, []session.ToolUsage, error) {
+func parseJSONL(ctx context.Context, path string) (session.Session, []session.Turn, []session.ToolUsage, session.UsageState, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return session.Session{}, nil, nil, err
+		return session.Session{}, nil, nil, session.UsageStateUnknown, err
 	}
 	defer func() { _ = f.Close() }()
 
@@ -114,7 +114,7 @@ func parseJSONL(ctx context.Context, path string) (session.Session, []session.Tu
 	var msgs []hermesMessage
 	for sc.Scan() {
 		if err := ctx.Err(); err != nil {
-			return session.Session{}, nil, nil, err
+			return session.Session{}, nil, nil, session.UsageStateUnknown, err
 		}
 		line := sc.Bytes()
 		if len(line) == 0 {
@@ -127,40 +127,41 @@ func parseJSONL(ctx context.Context, path string) (session.Session, []session.Tu
 		msgs = append(msgs, m)
 	}
 	if err := sc.Err(); err != nil {
-		return session.Session{}, nil, nil, fmt.Errorf("scan jsonl: %w", err)
+		return session.Session{}, nil, nil, session.UsageStateUnknown, fmt.Errorf("scan jsonl: %w", err)
 	}
-	sess, turns, tools := projectMessagesWithDefaults(msgs, time.Time{}, time.Time{}, "")
-	return sess, turns, tools, nil
+	sess, turns, tools, state := projectMessagesWithDefaults(msgs, time.Time{}, time.Time{}, "")
+	return sess, turns, tools, state, nil
 }
 
 // parseSnapshot reads a session_<id>.json envelope and projects it.
-func parseSnapshot(ctx context.Context, path string) (session.Session, []session.Turn, []session.ToolUsage, error) {
+func parseSnapshot(ctx context.Context, path string) (session.Session, []session.Turn, []session.ToolUsage, session.UsageState, error) {
 	if err := ctx.Err(); err != nil {
-		return session.Session{}, nil, nil, err
+		return session.Session{}, nil, nil, session.UsageStateUnknown, err
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return session.Session{}, nil, nil, err
+		return session.Session{}, nil, nil, session.UsageStateUnknown, err
 	}
 	var env snapshotEnvelope
 	if err := json.Unmarshal(data, &env); err != nil {
-		return session.Session{}, nil, nil, fmt.Errorf("decode snapshot json: %w", err)
+		return session.Session{}, nil, nil, session.UsageStateUnknown, fmt.Errorf("decode snapshot json: %w", err)
 	}
 
 	envStart, _ := parseTimestampString(env.SessionStart)
 	envEnd, _ := parseTimestampString(env.LastUpdated)
-	sess, turns, tools := projectMessagesWithDefaults(env.Messages, envStart, envEnd, env.Model)
+	sess, turns, tools, state := projectMessagesWithDefaults(env.Messages, envStart, envEnd, env.Model)
 	if sess.ID == "" {
 		sess.ID = env.SessionID
 	}
-	return sess, turns, tools, nil
+	return sess, turns, tools, state, nil
 }
 
 // projectMessagesWithDefaults projects a slice of hermesMessage into the
-// canonical session/turns/tools triple. envStart / envEnd / envModel
-// supply envelope-level fallbacks for the snapshot and state.db paths;
-// the JSONL path passes zero values and relies on per-message fields.
-func projectMessagesWithDefaults(msgs []hermesMessage, envStart, envEnd time.Time, envModel string) (session.Session, []session.Turn, []session.ToolUsage) {
+// canonical session/turns/tools triple plus a UsageState classifier.
+// envStart / envEnd / envModel supply envelope-level fallbacks for the
+// snapshot and state.db paths; the JSONL path passes zero values and
+// relies on per-message fields.
+func projectMessagesWithDefaults(msgs []hermesMessage, envStart, envEnd time.Time, envModel string) (session.Session, []session.Turn, []session.ToolUsage, session.UsageState) {
 	var (
 		sess           session.Session
 		turns          []session.Turn
@@ -231,7 +232,8 @@ func projectMessagesWithDefaults(msgs []hermesMessage, envStart, envEnd time.Tim
 	if tokenSet {
 		sess.Usage = &session.TokenUsage{TotalTokens: tokenTotal}
 	}
-	return sess, turns, tools
+	state := session.ClassifyUsage(tokenSet, sess.Usage)
+	return sess, turns, tools, state
 }
 
 // extractText handles the two content shapes Hermes emits: a plain
@@ -378,16 +380,16 @@ func readStateDBSessions(ctx context.Context, path string) ([]stateDBRow, error)
 // projectStateDBSession reads every message row for the given session id
 // and projects it through the shared message projection. Envelope-level
 // defaults come from the session row's started_at and model columns.
-func projectStateDBSession(ctx context.Context, path string, row stateDBRow) (session.Session, []session.Turn, []session.ToolUsage, error) {
+func projectStateDBSession(ctx context.Context, path string, row stateDBRow) (session.Session, []session.Turn, []session.ToolUsage, session.UsageState, error) {
 	db, err := openReadOnly(path)
 	if err != nil {
-		return session.Session{}, nil, nil, err
+		return session.Session{}, nil, nil, session.UsageStateUnknown, err
 	}
 	defer func() { _ = db.Close() }()
 
 	hasTokenCount, err := tableHasColumn(ctx, db, "messages", "token_count")
 	if err != nil {
-		return session.Session{}, nil, nil, err
+		return session.Session{}, nil, nil, session.UsageStateUnknown, err
 	}
 	query := `SELECT role, content, tool_calls, timestamp FROM messages WHERE session_id = ? ORDER BY id`
 	if hasTokenCount {
@@ -395,14 +397,14 @@ func projectStateDBSession(ctx context.Context, path string, row stateDBRow) (se
 	}
 	rows, err := db.QueryContext(ctx, query, row.id)
 	if err != nil {
-		return session.Session{}, nil, nil, fmt.Errorf("query messages: %w", err)
+		return session.Session{}, nil, nil, session.UsageStateUnknown, fmt.Errorf("query messages: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 
 	var msgs []hermesMessage
 	for rows.Next() {
 		if err := ctx.Err(); err != nil {
-			return session.Session{}, nil, nil, err
+			return session.Session{}, nil, nil, session.UsageStateUnknown, err
 		}
 		var (
 			role      sql.NullString
@@ -417,7 +419,7 @@ func projectStateDBSession(ctx context.Context, path string, row stateDBRow) (se
 			err = rows.Scan(&role, &content, &toolCalls, &ts)
 		}
 		if err != nil {
-			return session.Session{}, nil, nil, fmt.Errorf("scan message: %w", err)
+			return session.Session{}, nil, nil, session.UsageStateUnknown, fmt.Errorf("scan message: %w", err)
 		}
 		m := hermesMessage{Role: role.String}
 		if token.Valid {
@@ -447,7 +449,7 @@ func projectStateDBSession(ctx context.Context, path string, row stateDBRow) (se
 		msgs = append(msgs, m)
 	}
 	if err := rows.Err(); err != nil {
-		return session.Session{}, nil, nil, fmt.Errorf("iterate messages: %w", err)
+		return session.Session{}, nil, nil, session.UsageStateUnknown, fmt.Errorf("iterate messages: %w", err)
 	}
 
 	var envStart time.Time
@@ -461,9 +463,9 @@ func projectStateDBSession(ctx context.Context, path string, row stateDBRow) (se
 		envModel = row.model.String
 	}
 
-	sess, turns, tools := projectMessagesWithDefaults(msgs, envStart, time.Time{}, envModel)
+	sess, turns, tools, state := projectMessagesWithDefaults(msgs, envStart, time.Time{}, envModel)
 	sess.ID = row.id
-	return sess, turns, tools, nil
+	return sess, turns, tools, state, nil
 }
 
 func tableHasColumn(ctx context.Context, db *sql.DB, table, column string) (bool, error) {

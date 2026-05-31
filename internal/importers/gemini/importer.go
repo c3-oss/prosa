@@ -44,8 +44,9 @@ func (i *Importer) DefaultRoots() []string {
 }
 
 // Import is the per-file entry point. Same flow as claudecode/codex —
-// hash, peek id, idempotency, parse, preserve raw, sink writes.
-func (i *Importer) Import(ctx context.Context, jsonPath string, sink importer.Sink) (importer.ImportResult, error) {
+// hash, peek id, idempotency (bypassed when opts.Overwrite is set),
+// parse, classify usage, preserve raw, sink writes.
+func (i *Importer) Import(ctx context.Context, jsonPath string, sink importer.Sink, opts importer.ImportOptions) (importer.ImportResult, error) {
 	hash, size, err := hashAndSize(jsonPath)
 	if err != nil {
 		return importer.ImportResult{}, fmt.Errorf("hash %s: %w", jsonPath, err)
@@ -56,21 +57,23 @@ func (i *Importer) Import(ctx context.Context, jsonPath string, sink importer.Si
 		return importer.ImportResult{}, fmt.Errorf("peek session id %s: %w", jsonPath, err)
 	}
 
-	if prev, found, err := sink.LastHash(ctx, sessionID); err == nil && found && prev == hash {
-		return importer.ImportResult{
-			SessionID: sessionID,
-			RawHash:   hash,
-			RawSize:   size,
-			Skipped:   true,
-		}, nil
-	}
-	if res, ok, err := importpolicy.PreviouslySkippedNoUsage(ctx, sink, sessionID, hash, size); err != nil {
-		return importer.ImportResult{}, fmt.Errorf("read import skip %s: %w", sessionID, err)
-	} else if ok {
-		return res, nil
+	if !opts.Overwrite {
+		if prev, found, err := sink.LastHash(ctx, sessionID); err == nil && found && prev == hash {
+			return importer.ImportResult{
+				SessionID: sessionID,
+				RawHash:   hash,
+				RawSize:   size,
+				Skipped:   true,
+			}, nil
+		}
+		if res, ok, err := importpolicy.PreviouslySkippedNoUsage(ctx, sink, sessionID, hash, size); err != nil {
+			return importer.ImportResult{}, fmt.Errorf("read import skip %s: %w", sessionID, err)
+		} else if ok {
+			return res, nil
+		}
 	}
 
-	sess, turns, tools, err := parseSession(ctx, jsonPath)
+	sess, turns, tools, usageState, err := parseSession(ctx, jsonPath)
 	if err != nil {
 		return importer.ImportResult{}, fmt.Errorf("parse %s: %w", jsonPath, err)
 	}
@@ -81,7 +84,7 @@ func (i *Importer) Import(ctx context.Context, jsonPath string, sink importer.Si
 	sess.DeviceID = device.IDOnce()
 	sess.RawHash = hash
 	sess.RawSize = size
-	if !importpolicy.HasUsage(sess) {
+	if importpolicy.ClassifyForImport(usageState) == importpolicy.DecisionSkipNoUsage {
 		return importpolicy.RecordNoUsageSkip(ctx, sink, sess.ID, hash, size)
 	}
 

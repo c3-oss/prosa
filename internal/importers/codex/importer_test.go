@@ -13,6 +13,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/c3-oss/prosa/pkg/importer"
 	"github.com/c3-oss/prosa/pkg/session"
 )
 
@@ -223,7 +224,7 @@ func TestImportEnvelopeSession(t *testing.T) {
 	sink := newSink()
 	imp := New()
 
-	res, err := imp.Import(ctx, src, sink)
+	res, err := imp.Import(ctx, src, sink, importer.ImportOptions{})
 	require.NoError(t, err)
 	require.False(t, res.Skipped)
 	require.Equal(t, fixtureSessionID, res.SessionID)
@@ -262,7 +263,7 @@ func TestImportEnvelopeSession(t *testing.T) {
 	require.Equal(t, 2, tools[0].Count)
 
 	// Idempotent: second import skips.
-	res2, err := imp.Import(ctx, src, sink)
+	res2, err := imp.Import(ctx, src, sink, importer.ImportOptions{})
 	require.NoError(t, err)
 	require.True(t, res2.Skipped)
 }
@@ -277,7 +278,7 @@ func TestImportLegacySession(t *testing.T) {
 	sink := newSink()
 	imp := New()
 
-	res, err := imp.Import(ctx, src, sink)
+	res, err := imp.Import(ctx, src, sink, importer.ImportOptions{})
 	require.NoError(t, err)
 	require.False(t, res.Skipped)
 	// No session_meta in legacy file -> id from filename UUID.
@@ -300,7 +301,12 @@ func TestImportLegacySession(t *testing.T) {
 	require.Equal(t, "legacy_tool", tools[0].Name)
 }
 
-func TestImportSkipsSessionWithoutUsage(t *testing.T) {
+// TestImportAdmitsSessionWithoutUsageEvent covers a codex transcript
+// that never emits a `token_count` event (older codex rollouts before
+// usage reporting landed). Under tri-state classification this is
+// UsageStateUnknown and the importer admits the session; sess.Usage
+// stays nil and the session lives in the timeline without a cost row.
+func TestImportAdmitsSessionWithoutUsageEvent(t *testing.T) {
 	ctx := context.Background()
 	t.Setenv("PROSA_HOME", filepath.Join(t.TempDir(), "prosa-home"))
 
@@ -336,7 +342,64 @@ func TestImportSkipsSessionWithoutUsage(t *testing.T) {
 	})
 
 	sink := newSink()
-	res, err := New().Import(ctx, path, sink)
+	res, err := New().Import(ctx, path, sink, importer.ImportOptions{})
+	require.NoError(t, err)
+	require.False(t, res.Skipped,
+		"transcripts without any token_count event must admit (Unknown state)")
+	require.Empty(t, res.SkipReason)
+	require.Contains(t, sink.sessions, fixtureSessionID)
+	stored := sink.sessions[fixtureSessionID]
+	require.Nil(t, stored.Usage,
+		"sess.Usage must be nil when no token_count event was observed")
+}
+
+// TestImportSkipsSessionWithExplicitZeroUsage covers a transcript that
+// emits a token_count event with all-zero totals. The classifier marks
+// this UsageStateExplicitZero and the importer skips with no_usage.
+func TestImportSkipsSessionWithExplicitZeroUsage(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv("PROSA_HOME", filepath.Join(t.TempDir(), "prosa-home"))
+
+	root := filepath.Join(t.TempDir(), "codex-root")
+	base := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
+	dir := filepath.Join(root, base.Format("2006"), base.Format("01"), base.Format("02"))
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	path := filepath.Join(dir, codexFixtureFilename(base, fixtureSessionID))
+	writeJSONL(t, path, []map[string]any{
+		{
+			"type":      "session_meta",
+			"timestamp": base.Format(time.RFC3339Nano),
+			"payload": map[string]any{
+				"id":  fixtureSessionID,
+				"cwd": "/Users/test/proj",
+			},
+		},
+		{
+			"type":      "response_item",
+			"timestamp": base.Add(time.Second).Format(time.RFC3339Nano),
+			"payload": map[string]any{
+				"type": "message", "role": "user",
+				"content": []map[string]any{{"type": "input_text", "text": "hi"}},
+			},
+		},
+		{
+			"type":      "event_msg",
+			"timestamp": base.Add(2 * time.Second).Format(time.RFC3339Nano),
+			"payload": map[string]any{
+				"type": "token_count",
+				"info": map[string]any{
+					"total_token_usage": map[string]any{
+						"input_tokens":  0,
+						"output_tokens": 0,
+						"total_tokens":  0,
+					},
+				},
+			},
+		},
+	})
+
+	sink := newSink()
+	res, err := New().Import(ctx, path, sink, importer.ImportOptions{})
 	require.NoError(t, err)
 	require.True(t, res.Skipped)
 	require.Equal(t, "no_usage", res.SkipReason)
@@ -427,7 +490,7 @@ func TestImportSkipsBoilerplateForFirstPrompt(t *testing.T) {
 
 	sink := newSink()
 	imp := New()
-	_, err := imp.Import(ctx, src, sink)
+	_, err := imp.Import(ctx, src, sink, importer.ImportOptions{})
 	require.NoError(t, err)
 	s := sink.sessions[fixtureSessionID]
 	require.NotNil(t, s.FirstPrompt)
@@ -498,7 +561,7 @@ func TestImportProjectsFunctionCallOutputAsToolTurn(t *testing.T) {
 
 	sink := newSink()
 	imp := New()
-	_, err := imp.Import(ctx, src, sink)
+	_, err := imp.Import(ctx, src, sink, importer.ImportOptions{})
 	require.NoError(t, err)
 
 	turns := sink.turns[fixtureSessionID]

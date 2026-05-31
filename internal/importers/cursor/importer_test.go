@@ -14,6 +14,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/c3-oss/prosa/pkg/importer"
 	"github.com/c3-oss/prosa/pkg/session"
 )
 
@@ -146,8 +147,10 @@ func TestParseCursorStore(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "cursor-root")
 	src := buildFixtureStore(t, root)
 
-	s, turns, tools, err := parseSession(ctx, src)
+	s, turns, tools, state, err := parseSession(ctx, src)
 	require.NoError(t, err)
+	require.Equal(t, session.UsageStateUnknown, state,
+		"cursor never carries usage events; parser must report Unknown")
 
 	require.Equal(t, fixtureAgentID, s.ID)
 	require.NotNil(t, s.FirstPrompt)
@@ -172,7 +175,12 @@ func TestParseCursorStore(t *testing.T) {
 	require.Equal(t, 1, byName["Bash"])
 }
 
-func TestImportCursorStoreSkipsWithoutUsage(t *testing.T) {
+// TestImportCursorStoreAdmitsWithoutUsage covers the canonical Cursor
+// case: store.db never records token counts by design, so every cursor
+// session arrives with UsageStateUnknown. The importer admits it; the
+// session shows up in sessions/projects/heatmap/tools and only the
+// /analytics/usage view filters it out (via session_usage IS NULL).
+func TestImportCursorStoreAdmitsWithoutUsage(t *testing.T) {
 	ctx := context.Background()
 	t.Setenv("PROSA_HOME", filepath.Join(t.TempDir(), "prosa-home"))
 
@@ -180,14 +188,17 @@ func TestImportCursorStoreSkipsWithoutUsage(t *testing.T) {
 	src := buildFixtureStore(t, root)
 	sink := newSink()
 
-	res, err := New().Import(ctx, src, sink)
+	res, err := New().Import(ctx, src, sink, importer.ImportOptions{})
 	require.NoError(t, err)
-	require.True(t, res.Skipped)
-	require.Equal(t, "no_usage", res.SkipReason)
+	require.False(t, res.Skipped,
+		"cursor sessions must admit despite having no usage signal (Unknown state)")
+	require.Empty(t, res.SkipReason)
 	require.Equal(t, fixtureAgentID, res.SessionID)
-	require.Empty(t, sink.sessions)
-	require.Empty(t, sink.turns)
-	require.Empty(t, res.RawPath)
+	require.Contains(t, sink.sessions, fixtureAgentID)
+	stored := sink.sessions[fixtureAgentID]
+	require.Nil(t, stored.Usage,
+		"cursor sessions never project a usage aggregate")
+	require.NotEmpty(t, res.RawPath, "raw .db bytes must still be preserved")
 }
 
 func TestWalkFindsStoreDb(t *testing.T) {
@@ -250,7 +261,7 @@ CREATE TABLE meta  (key TEXT PRIMARY KEY, value TEXT);`)
 	require.NoError(t, err)
 	require.NoError(t, db.Close())
 
-	s, _, _, err := parseSession(ctx, dbPath)
+	s, _, _, _, err := parseSession(ctx, dbPath)
 	require.NoError(t, err)
 	require.NotNil(t, s.FirstPrompt)
 	require.Equal(t, "now refactor the sync logic", *s.FirstPrompt,

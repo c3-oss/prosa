@@ -167,12 +167,14 @@ func peekSessionID(path string) (string, error) {
 	return base, nil
 }
 
-// parseSession streams the JSONL once and returns the projected metadata.
-// Hash + size are computed separately by Import().
-func parseSession(ctx context.Context, path string) (session.Session, []session.Turn, []session.ToolUsage, error) {
+// parseSession streams the JSONL once and returns the projected metadata
+// plus a UsageState classifying what the parser observed about token
+// usage in this transcript. Hash + size are computed separately by
+// Import().
+func parseSession(ctx context.Context, path string) (session.Session, []session.Turn, []session.ToolUsage, session.UsageState, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return session.Session{}, nil, nil, err
+		return session.Session{}, nil, nil, session.UsageStateUnknown, err
 	}
 	defer func() { _ = f.Close() }()
 
@@ -189,13 +191,14 @@ func parseSession(ctx context.Context, path string) (session.Session, []session.
 		cwdSet         bool
 		modelSet       bool
 		firstPromptSet bool
+		seenUsageEvent bool
 		line           int
 	)
 
 	for sc.Scan() {
 		line++
 		if err := ctx.Err(); err != nil {
-			return session.Session{}, nil, nil, err
+			return session.Session{}, nil, nil, session.UsageStateUnknown, err
 		}
 
 		var r rawRecord
@@ -256,7 +259,15 @@ func parseSession(ctx context.Context, path string) (session.Session, []session.
 			handleResponseItem(p, r.Timestamp, &sess, &turns, &firstPromptSet, toolCounts, callIDToName)
 
 		case r.Type == "event_msg" && len(r.Payload) > 0:
-			if usage, ok := tokenUsageFromEvent(r.Payload); ok {
+			usage, isUsageEvent, hasUsage := tokenUsageFromEvent(r.Payload)
+			if isUsageEvent {
+				// Any token_count event counts as "we saw usage",
+				// even when its totals come back zero — that's
+				// what distinguishes explicit-zero from no-event-
+				// at-all sessions for the import classifier.
+				seenUsageEvent = true
+			}
+			if hasUsage {
 				if bestUsage == nil || usage.TotalTokens >= bestUsage.TotalTokens {
 					u := usage
 					bestUsage = &u
@@ -303,7 +314,7 @@ func parseSession(ctx context.Context, path string) (session.Session, []session.
 			slog.Warn("codex: JSONL line exceeded 16 MiB scan buffer; partial session",
 				"path", path, "line", line+1)
 		} else {
-			return session.Session{}, nil, nil, fmt.Errorf("scan %s: %w", path, err)
+			return session.Session{}, nil, nil, session.UsageStateUnknown, fmt.Errorf("scan %s: %w", path, err)
 		}
 	}
 
@@ -314,20 +325,30 @@ func parseSession(ctx context.Context, path string) (session.Session, []session.
 	if bestUsage != nil {
 		sess.Usage = bestUsage
 	}
-	return sess, turns, tools, nil
+	state := session.ClassifyUsage(seenUsageEvent, sess.Usage)
+	return sess, turns, tools, state, nil
 }
 
-func tokenUsageFromEvent(raw json.RawMessage) (session.TokenUsage, bool) {
+// tokenUsageFromEvent decodes a Codex event_msg payload. isUsageEvent
+// is true whenever the payload type is "token_count" regardless of
+// whether the totals are present or zero — callers use that to
+// distinguish "session ran without token reporting" (no event) from
+// "session reported zero tokens" (event with zeros). hasUsage is true
+// only when at least one token field is positive.
+func tokenUsageFromEvent(raw json.RawMessage) (usage session.TokenUsage, isUsageEvent, hasUsage bool) {
 	var p eventMsgPayload
-	if err := json.Unmarshal(raw, &p); err != nil || p.Type != "token_count" || p.Info == nil {
-		return session.TokenUsage{}, false
+	if err := json.Unmarshal(raw, &p); err != nil || p.Type != "token_count" {
+		return session.TokenUsage{}, false, false
+	}
+	if p.Info == nil {
+		return session.TokenUsage{}, true, false
 	}
 	src := p.Info.TotalTokenUsage
 	if src == nil {
 		src = p.Info.LastTokenUsage
 	}
 	if src == nil {
-		return session.TokenUsage{}, false
+		return session.TokenUsage{}, true, false
 	}
 	cached := src.CachedInputTokens
 	if cached == 0 {
@@ -341,7 +362,7 @@ func tokenUsageFromEvent(raw json.RawMessage) (session.TokenUsage, bool) {
 		total = src.InputTokens + src.OutputTokens
 	}
 	if total == 0 && src.InputTokens == 0 && src.OutputTokens == 0 && cached == 0 {
-		return session.TokenUsage{}, false
+		return session.TokenUsage{}, true, false
 	}
 	return session.TokenUsage{
 		TotalTokens:     total,
@@ -349,7 +370,7 @@ func tokenUsageFromEvent(raw json.RawMessage) (session.TokenUsage, bool) {
 		OutputTokens:    src.OutputTokens,
 		CachedTokens:    cached,
 		CacheReadTokens: cached,
-	}, true
+	}, true, true
 }
 
 func handleResponseItem(

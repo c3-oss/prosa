@@ -13,6 +13,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/c3-oss/prosa/pkg/importer"
 	"github.com/c3-oss/prosa/pkg/session"
 )
 
@@ -177,7 +178,7 @@ func TestImportSmallSession(t *testing.T) {
 	sink := newSink()
 	imp := New()
 
-	res, err := imp.Import(ctx, src, sink)
+	res, err := imp.Import(ctx, src, sink, importer.ImportOptions{})
 	require.NoError(t, err)
 	require.False(t, res.Skipped)
 	require.Equal(t, fixtureSessionID, res.SessionID)
@@ -226,9 +227,18 @@ func TestImportSmallSession(t *testing.T) {
 	require.Equal(t, 1, names["Read"])
 
 	// Idempotent: second import skips.
-	res2, err := imp.Import(ctx, src, sink)
+	res2, err := imp.Import(ctx, src, sink, importer.ImportOptions{})
 	require.NoError(t, err)
 	require.True(t, res2.Skipped)
+
+	// --overwrite bypasses the idempotency short-circuit: same file,
+	// same hash, but the importer re-parses and re-upserts. Used by
+	// `prosa sync --overwrite` to rebuild a converged store.
+	res3, err := imp.Import(ctx, src, sink, importer.ImportOptions{Overwrite: true})
+	require.NoError(t, err)
+	require.False(t, res3.Skipped,
+		"--overwrite must bypass LastHash check and force a fresh import")
+	require.Equal(t, res.SessionID, res3.SessionID)
 }
 
 func TestTruncatePreviewKeepsUTF8Valid(t *testing.T) {
@@ -252,7 +262,7 @@ func TestImportBigLineSession(t *testing.T) {
 	sink := newSink()
 	imp := New()
 
-	res, err := imp.Import(ctx, src, sink)
+	res, err := imp.Import(ctx, src, sink, importer.ImportOptions{})
 	require.NoError(t, err)
 	require.False(t, res.Skipped)
 	require.Equal(t, fixtureSessionID, res.SessionID)
@@ -264,7 +274,12 @@ func TestImportBigLineSession(t *testing.T) {
 	require.Equal(t, info.Size(), dstInfo.Size())
 }
 
-func TestImportSkipsSessionWithoutUsage(t *testing.T) {
+// TestImportAdmitsSessionWithoutUsageEvent covers a transcript whose
+// assistant messages never carry a `usage` field at all (older Claude
+// Code captures, partial sessions). Under tri-state classification this
+// is UsageStateUnknown and the importer admits it; sess.Usage stays nil
+// and the panel renders the session without a cost row.
+func TestImportAdmitsSessionWithoutUsageEvent(t *testing.T) {
 	ctx := context.Background()
 	t.Setenv("PROSA_HOME", filepath.Join(t.TempDir(), "prosa-home"))
 	path := filepath.Join(t.TempDir(), fixtureSessionID+".jsonl")
@@ -290,7 +305,53 @@ func TestImportSkipsSessionWithoutUsage(t *testing.T) {
 	})
 
 	sink := newSink()
-	res, err := New().Import(ctx, path, sink)
+	res, err := New().Import(ctx, path, sink, importer.ImportOptions{})
+	require.NoError(t, err)
+	require.False(t, res.Skipped,
+		"transcripts without any usage event must admit (Unknown state)")
+	require.Empty(t, res.SkipReason)
+	require.Contains(t, sink.sessions, fixtureSessionID)
+	stored := sink.sessions[fixtureSessionID]
+	require.Nil(t, stored.Usage,
+		"sess.Usage must be nil when no usage event was observed")
+	require.NotEmpty(t, sink.turns[fixtureSessionID])
+}
+
+// TestImportSkipsSessionWithExplicitZeroUsage covers a transcript whose
+// assistant messages carry an explicit usage block whose totals are all
+// zero. Under tri-state classification this is UsageStateExplicitZero
+// and the importer skips with reason no_usage.
+func TestImportSkipsSessionWithExplicitZeroUsage(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv("PROSA_HOME", filepath.Join(t.TempDir(), "prosa-home"))
+	path := filepath.Join(t.TempDir(), fixtureSessionID+".jsonl")
+	base := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
+	writeJSONL(t, path, []map[string]any{
+		{
+			"type":      "user",
+			"sessionId": fixtureSessionID,
+			"timestamp": base.Format(time.RFC3339Nano),
+			"message":   map[string]any{"role": "user", "content": "hi"},
+		},
+		{
+			"type":      "assistant",
+			"sessionId": fixtureSessionID,
+			"timestamp": base.Add(time.Second).Format(time.RFC3339Nano),
+			"message": map[string]any{
+				"role": "assistant", "model": "claude-sonnet-4-6",
+				"usage": map[string]any{
+					"input_tokens":  0,
+					"output_tokens": 0,
+				},
+				"content": []map[string]any{
+					{"type": "text", "text": "hello"},
+				},
+			},
+		},
+	})
+
+	sink := newSink()
+	res, err := New().Import(ctx, path, sink, importer.ImportOptions{})
 	require.NoError(t, err)
 	require.True(t, res.Skipped)
 	require.Equal(t, "no_usage", res.SkipReason)
@@ -338,7 +399,7 @@ func TestClaudeModelSkipsSyntheticPlaceholder(t *testing.T) {
 	})
 
 	sink := newSink()
-	res, err := New().Import(ctx, path, sink)
+	res, err := New().Import(ctx, path, sink, importer.ImportOptions{})
 	require.NoError(t, err)
 	require.False(t, res.Skipped)
 
@@ -425,7 +486,7 @@ func TestImportStripsCaveatWrapperForFirstPrompt(t *testing.T) {
 
 	sink := newSink()
 	imp := New()
-	_, err := imp.Import(ctx, src, sink)
+	_, err := imp.Import(ctx, src, sink, importer.ImportOptions{})
 	require.NoError(t, err)
 	s := sink.sessions[fixtureSessionID]
 	require.NotNil(t, s.FirstPrompt)
@@ -484,7 +545,7 @@ func TestImportStripsStdoutWrapperAndANSI(t *testing.T) {
 
 	sink := newSink()
 	imp := New()
-	_, err := imp.Import(ctx, src, sink)
+	_, err := imp.Import(ctx, src, sink, importer.ImportOptions{})
 	require.NoError(t, err)
 	s := sink.sessions[fixtureSessionID]
 	require.NotNil(t, s.FirstPrompt)

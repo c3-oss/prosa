@@ -115,21 +115,26 @@ func readMeta(path string) (cursorMeta, error) {
 // per-message timestamps, so every turn inherits the session's createdAt;
 // LastActivityAt mirrors StartedAt for the same reason. Future cuts can
 // pull timestamps from blob payloads when Cursor adds them.
-func parseSession(ctx context.Context, path string) (session.Session, []session.Turn, []session.ToolUsage, error) {
+//
+// The returned UsageState is always UsageStateUnknown: Cursor's store.db
+// never records token counts by design (see docs/sources/cursor.md). The
+// import classifier admits unknown-usage sessions so cursor projects
+// still land in the timeline.
+func parseSession(ctx context.Context, path string) (session.Session, []session.Turn, []session.ToolUsage, session.UsageState, error) {
 	meta, err := readMeta(path)
 	if err != nil {
-		return session.Session{}, nil, nil, fmt.Errorf("read meta: %w", err)
+		return session.Session{}, nil, nil, session.UsageStateUnknown, fmt.Errorf("read meta: %w", err)
 	}
 
 	db, err := openReadOnly(path)
 	if err != nil {
-		return session.Session{}, nil, nil, err
+		return session.Session{}, nil, nil, session.UsageStateUnknown, err
 	}
 	defer func() { _ = db.Close() }()
 
 	rows, err := db.QueryContext(ctx, `SELECT id, data FROM blobs ORDER BY rowid`)
 	if err != nil {
-		return session.Session{}, nil, nil, fmt.Errorf("query blobs: %w", err)
+		return session.Session{}, nil, nil, session.UsageStateUnknown, fmt.Errorf("query blobs: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 
@@ -146,14 +151,14 @@ func parseSession(ctx context.Context, path string) (session.Session, []session.
 
 	for rows.Next() {
 		if err := ctx.Err(); err != nil {
-			return session.Session{}, nil, nil, err
+			return session.Session{}, nil, nil, session.UsageStateUnknown, err
 		}
 		var (
 			id   string
 			data []byte
 		)
 		if err := rows.Scan(&id, &data); err != nil {
-			return session.Session{}, nil, nil, fmt.Errorf("scan blob: %w", err)
+			return session.Session{}, nil, nil, session.UsageStateUnknown, fmt.Errorf("scan blob: %w", err)
 		}
 		_ = id
 		if len(data) == 0 || (data[0] != '{' && data[0] != '[') {
@@ -187,7 +192,7 @@ func parseSession(ctx context.Context, path string) (session.Session, []session.
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return session.Session{}, nil, nil, fmt.Errorf("iterate blobs: %w", err)
+		return session.Session{}, nil, nil, session.UsageStateUnknown, fmt.Errorf("iterate blobs: %w", err)
 	}
 
 	var sess session.Session
@@ -207,7 +212,7 @@ func parseSession(ctx context.Context, path string) (session.Session, []session.
 	for name, count := range toolCounts {
 		tools = append(tools, session.ToolUsage{Name: name, Count: count})
 	}
-	return sess, turns, tools, nil
+	return sess, turns, tools, session.UsageStateUnknown, nil
 }
 
 // extractContent returns the joined text of all `text` content items plus

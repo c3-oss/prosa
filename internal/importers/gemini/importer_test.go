@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/c3-oss/prosa/pkg/importer"
 	"github.com/c3-oss/prosa/pkg/session"
 )
 
@@ -150,7 +151,7 @@ func TestImportEnvelope(t *testing.T) {
 	sink := newSink()
 	imp := New()
 
-	res, err := imp.Import(ctx, src, sink)
+	res, err := imp.Import(ctx, src, sink, importer.ImportOptions{})
 	require.NoError(t, err)
 	require.False(t, res.Skipped)
 	require.Equal(t, fixtureEnvelopeID, res.SessionID)
@@ -185,7 +186,7 @@ func TestImportEnvelope(t *testing.T) {
 	require.Equal(t, 2, byName["list_directory"])
 	require.Equal(t, 1, byName["read_file"])
 
-	res2, err := imp.Import(ctx, src, sink)
+	res2, err := imp.Import(ctx, src, sink, importer.ImportOptions{})
 	require.NoError(t, err)
 	require.True(t, res2.Skipped)
 }
@@ -196,7 +197,7 @@ func TestParseLiveLogs(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "gemini-root")
 	src := writeLiveFixture(t, root)
 
-	s, turns, tools, err := parseSession(ctx, src)
+	s, turns, tools, _, err := parseSession(ctx, src)
 	require.NoError(t, err)
 
 	require.Equal(t, fixtureLiveID, s.ID)
@@ -210,7 +211,11 @@ func TestParseLiveLogs(t *testing.T) {
 	require.Empty(t, tools)
 }
 
-func TestImportLiveLogsSkipsWithoutUsage(t *testing.T) {
+// TestImportLiveLogsAdmitsWithoutUsage covers a gemini logs.json whose
+// records never carry a `tokens` block (older gemini live captures or
+// pure-user sessions). Under tri-state classification this is
+// UsageStateUnknown and the importer admits the session.
+func TestImportLiveLogsAdmitsWithoutUsage(t *testing.T) {
 	ctx := context.Background()
 	t.Setenv("PROSA_HOME", filepath.Join(t.TempDir(), "prosa-home"))
 
@@ -218,11 +223,52 @@ func TestImportLiveLogsSkipsWithoutUsage(t *testing.T) {
 	src := writeLiveFixture(t, root)
 	sink := newSink()
 
-	res, err := New().Import(ctx, src, sink)
+	res, err := New().Import(ctx, src, sink, importer.ImportOptions{})
 	require.NoError(t, err)
-	require.True(t, res.Skipped)
-	require.Equal(t, "no_usage", res.SkipReason)
+	require.False(t, res.Skipped,
+		"gemini logs without any tokens block must admit (Unknown state)")
+	require.Empty(t, res.SkipReason)
 	require.Equal(t, fixtureLiveID, res.SessionID)
+	require.Contains(t, sink.sessions, fixtureLiveID)
+	stored := sink.sessions[fixtureLiveID]
+	require.Nil(t, stored.Usage,
+		"sess.Usage must be nil when no gemini message carried a tokens block")
+}
+
+// TestImportLiveLogsSkipsWithExplicitZeroUsage covers the explicit-zero
+// case: a gemini reply emits a `tokens` block whose totals are all zero.
+func TestImportLiveLogsSkipsWithExplicitZeroUsage(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv("PROSA_HOME", filepath.Join(t.TempDir(), "prosa-home"))
+
+	root := filepath.Join(t.TempDir(), "gemini-root")
+	dir := filepath.Join(root, "projhash-zero")
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	const zeroSessionID = "8a8a8a8a-1111-2222-3333-444444444444"
+	rows := []map[string]any{
+		{
+			"sessionId": zeroSessionID, "messageId": 0,
+			"type": "user", "message": "hi",
+			"timestamp": "2026-05-30T12:00:00.000Z",
+		},
+		{
+			"sessionId": zeroSessionID, "messageId": 1,
+			"type": "gemini", "message": "hello",
+			"timestamp": "2026-05-30T12:00:01.000Z",
+			"tokens":    map[string]any{"input": int64(0), "output": int64(0), "total": int64(0)},
+		},
+	}
+	path := filepath.Join(dir, "logs.json")
+	data, err := json.MarshalIndent(rows, "", "  ")
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(path, data, 0o644))
+
+	sink := newSink()
+	res, err := New().Import(ctx, path, sink, importer.ImportOptions{})
+	require.NoError(t, err)
+	require.True(t, res.Skipped,
+		"gemini logs with explicit-zero tokens must skip")
+	require.Equal(t, "no_usage", res.SkipReason)
 	require.Empty(t, sink.sessions)
 	require.Empty(t, sink.turns)
 	require.Empty(t, res.RawPath)
@@ -296,7 +342,7 @@ func TestImportEnvelopeSanitizesFirstPrompt(t *testing.T) {
 	require.NoError(t, os.WriteFile(path, data, 0o644))
 
 	sink := newSink()
-	res, err := New().Import(ctx, path, sink)
+	res, err := New().Import(ctx, path, sink, importer.ImportOptions{})
 	require.NoError(t, err)
 	require.False(t, res.Skipped)
 	s := sink.sessions[dirtyID]

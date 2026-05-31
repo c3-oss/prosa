@@ -49,25 +49,26 @@ func (i *Importer) DefaultRoots() []string {
 // transcripts; session_*.json files are per-session snapshots. Anything
 // else is rejected — Walk() only yields these three shapes, so a bad
 // path here means a caller fed us something unsupported.
-func (i *Importer) Import(ctx context.Context, path string, sink importer.Sink) (importer.ImportResult, error) {
+func (i *Importer) Import(ctx context.Context, path string, sink importer.Sink, opts importer.ImportOptions) (importer.ImportResult, error) {
 	base := filepath.Base(path)
 	ext := filepath.Ext(path)
 
 	switch {
 	case base == "state.db":
-		return i.importStateDB(ctx, path, sink)
+		return i.importStateDB(ctx, path, sink, opts)
 	case ext == ".jsonl":
-		return i.importJSONL(ctx, path, sink)
+		return i.importJSONL(ctx, path, sink, opts)
 	case ext == ".json" && len(base) > len("session_") && base[:len("session_")] == "session_":
-		return i.importSnapshot(ctx, path, sink)
+		return i.importSnapshot(ctx, path, sink, opts)
 	default:
 		return importer.ImportResult{}, fmt.Errorf("unsupported hermes path: %s", path)
 	}
 }
 
 // importJSONL handles the per-session .jsonl transcript. The session id is
-// the filename stem; idempotency is keyed on that id.
-func (i *Importer) importJSONL(ctx context.Context, path string, sink importer.Sink) (importer.ImportResult, error) {
+// the filename stem; idempotency is keyed on that id (bypassed when
+// opts.Overwrite is set).
+func (i *Importer) importJSONL(ctx context.Context, path string, sink importer.Sink, opts importer.ImportOptions) (importer.ImportResult, error) {
 	hash, size, err := hashAndSize(path)
 	if err != nil {
 		return importer.ImportResult{}, fmt.Errorf("hash %s: %w", path, err)
@@ -75,21 +76,23 @@ func (i *Importer) importJSONL(ctx context.Context, path string, sink importer.S
 
 	sessionID := stripExt(filepath.Base(path))
 
-	if prev, found, err := sink.LastHash(ctx, sessionID); err == nil && found && prev == hash {
-		return importer.ImportResult{
-			SessionID: sessionID,
-			RawHash:   hash,
-			RawSize:   size,
-			Skipped:   true,
-		}, nil
-	}
-	if res, ok, err := importpolicy.PreviouslySkippedNoUsage(ctx, sink, sessionID, hash, size); err != nil {
-		return importer.ImportResult{}, fmt.Errorf("read import skip %s: %w", sessionID, err)
-	} else if ok {
-		return res, nil
+	if !opts.Overwrite {
+		if prev, found, err := sink.LastHash(ctx, sessionID); err == nil && found && prev == hash {
+			return importer.ImportResult{
+				SessionID: sessionID,
+				RawHash:   hash,
+				RawSize:   size,
+				Skipped:   true,
+			}, nil
+		}
+		if res, ok, err := importpolicy.PreviouslySkippedNoUsage(ctx, sink, sessionID, hash, size); err != nil {
+			return importer.ImportResult{}, fmt.Errorf("read import skip %s: %w", sessionID, err)
+		} else if ok {
+			return res, nil
+		}
 	}
 
-	sess, turns, tools, err := parseJSONL(ctx, path)
+	sess, turns, tools, usageState, err := parseJSONL(ctx, path)
 	if err != nil {
 		return importer.ImportResult{}, fmt.Errorf("parse %s: %w", path, err)
 	}
@@ -100,7 +103,7 @@ func (i *Importer) importJSONL(ctx context.Context, path string, sink importer.S
 	sess.DeviceID = device.IDOnce()
 	sess.RawHash = hash
 	sess.RawSize = size
-	if !importpolicy.HasUsage(sess) {
+	if importpolicy.ClassifyForImport(usageState) == importpolicy.DecisionSkipNoUsage {
 		return importpolicy.RecordNoUsageSkip(ctx, sink, sessionID, hash, size)
 	}
 
@@ -132,7 +135,7 @@ func (i *Importer) importJSONL(ctx context.Context, path string, sink importer.S
 
 // importSnapshot handles a session_<id>.json envelope. The id comes from
 // the `session_id` field with the filename-stem fallback.
-func (i *Importer) importSnapshot(ctx context.Context, path string, sink importer.Sink) (importer.ImportResult, error) {
+func (i *Importer) importSnapshot(ctx context.Context, path string, sink importer.Sink, opts importer.ImportOptions) (importer.ImportResult, error) {
 	hash, size, err := hashAndSize(path)
 	if err != nil {
 		return importer.ImportResult{}, fmt.Errorf("hash %s: %w", path, err)
@@ -143,21 +146,23 @@ func (i *Importer) importSnapshot(ctx context.Context, path string, sink importe
 		return importer.ImportResult{}, fmt.Errorf("peek session id %s: %w", path, err)
 	}
 
-	if prev, found, err := sink.LastHash(ctx, sessionID); err == nil && found && prev == hash {
-		return importer.ImportResult{
-			SessionID: sessionID,
-			RawHash:   hash,
-			RawSize:   size,
-			Skipped:   true,
-		}, nil
-	}
-	if res, ok, err := importpolicy.PreviouslySkippedNoUsage(ctx, sink, sessionID, hash, size); err != nil {
-		return importer.ImportResult{}, fmt.Errorf("read import skip %s: %w", sessionID, err)
-	} else if ok {
-		return res, nil
+	if !opts.Overwrite {
+		if prev, found, err := sink.LastHash(ctx, sessionID); err == nil && found && prev == hash {
+			return importer.ImportResult{
+				SessionID: sessionID,
+				RawHash:   hash,
+				RawSize:   size,
+				Skipped:   true,
+			}, nil
+		}
+		if res, ok, err := importpolicy.PreviouslySkippedNoUsage(ctx, sink, sessionID, hash, size); err != nil {
+			return importer.ImportResult{}, fmt.Errorf("read import skip %s: %w", sessionID, err)
+		} else if ok {
+			return res, nil
+		}
 	}
 
-	sess, turns, tools, err := parseSnapshot(ctx, path)
+	sess, turns, tools, usageState, err := parseSnapshot(ctx, path)
 	if err != nil {
 		return importer.ImportResult{}, fmt.Errorf("parse %s: %w", path, err)
 	}
@@ -168,7 +173,7 @@ func (i *Importer) importSnapshot(ctx context.Context, path string, sink importe
 	sess.DeviceID = device.IDOnce()
 	sess.RawHash = hash
 	sess.RawSize = size
-	if !importpolicy.HasUsage(sess) {
+	if importpolicy.ClassifyForImport(usageState) == importpolicy.DecisionSkipNoUsage {
 		return importpolicy.RecordNoUsageSkip(ctx, sink, sess.ID, hash, size)
 	}
 
@@ -200,28 +205,31 @@ func (i *Importer) importSnapshot(ctx context.Context, path string, sink importe
 
 // importStateDB iterates every session row in state.db and upserts each
 // one. Idempotency is layered: a synthetic "hermes-state-<hash[:12]>" id
-// short-circuits the whole file when the bytes are unchanged; per-session
-// rows that have a fuller sibling .jsonl/.json transcript are skipped so
-// the dedicated file-shaped Import call wins.
-func (i *Importer) importStateDB(ctx context.Context, path string, sink importer.Sink) (importer.ImportResult, error) {
+// short-circuits the whole file when the bytes are unchanged (bypassed
+// when opts.Overwrite is set); per-session rows that have a fuller
+// sibling .jsonl/.json transcript are skipped so the dedicated file-
+// shaped Import call wins.
+func (i *Importer) importStateDB(ctx context.Context, path string, sink importer.Sink, opts importer.ImportOptions) (importer.ImportResult, error) {
 	hash, size, err := hashAndSize(path)
 	if err != nil {
 		return importer.ImportResult{}, fmt.Errorf("hash %s: %w", path, err)
 	}
 	synthetic := "hermes-state-" + hash[:12]
 
-	if prev, found, err := sink.LastHash(ctx, synthetic); err == nil && found && prev == hash {
-		return importer.ImportResult{
-			SessionID: synthetic,
-			RawHash:   hash,
-			RawSize:   size,
-			Skipped:   true,
-		}, nil
-	}
-	if res, ok, err := importpolicy.PreviouslySkippedNoUsage(ctx, sink, synthetic, hash, size); err != nil {
-		return importer.ImportResult{}, fmt.Errorf("read import skip %s: %w", synthetic, err)
-	} else if ok {
-		return res, nil
+	if !opts.Overwrite {
+		if prev, found, err := sink.LastHash(ctx, synthetic); err == nil && found && prev == hash {
+			return importer.ImportResult{
+				SessionID: synthetic,
+				RawHash:   hash,
+				RawSize:   size,
+				Skipped:   true,
+			}, nil
+		}
+		if res, ok, err := importpolicy.PreviouslySkippedNoUsage(ctx, sink, synthetic, hash, size); err != nil {
+			return importer.ImportResult{}, fmt.Errorf("read import skip %s: %w", synthetic, err)
+		} else if ok {
+			return res, nil
+		}
 	}
 
 	rows, err := readStateDBSessions(ctx, path)
@@ -239,11 +247,11 @@ func (i *Importer) importStateDB(ctx context.Context, path string, sink importer
 		if siblingHasMore(siblingDir, row.id, row.messageCount) {
 			continue
 		}
-		sess, turns, tools, err := projectStateDBSession(ctx, path, row)
+		sess, turns, tools, usageState, err := projectStateDBSession(ctx, path, row)
 		if err != nil {
 			return importer.ImportResult{}, fmt.Errorf("project session %s: %w", row.id, err)
 		}
-		if !importpolicy.HasUsage(sess) {
+		if importpolicy.ClassifyForImport(usageState) == importpolicy.DecisionSkipNoUsage {
 			if _, err := importpolicy.RecordNoUsageSkip(ctx, sink, row.id, hash, size); err != nil {
 				return importer.ImportResult{}, fmt.Errorf("record import skip %s: %w", row.id, err)
 			}
