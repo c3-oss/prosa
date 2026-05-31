@@ -267,3 +267,45 @@ func TestInsertTurnsDefaultsEmptyKindToMessage(t *testing.T) {
 	require.Len(t, got, 1)
 	require.Equal(t, session.KindMessage, got[0].Kind)
 }
+
+// TestSearchExcludesThinkingFromFTS verifies that KindThinking turns
+// (Claude extended-thinking, Codex reasoning summary) are stored on
+// the base table but never indexed in turns_fts, so search results
+// stay focused on chat content. Mirrors the WHEN guard added on the
+// AI/AD triggers in migration 0007.
+func TestSearchExcludesThinkingFromFTS(t *testing.T) {
+	ctx, s, now := seedSearchStore(t)
+	require.NoError(t, s.InsertTurns(ctx, "a", []session.Turn{
+		{
+			Role:      "assistant",
+			Content:   "thinkinguniqueword inside reasoning",
+			Timestamp: now.Add(-time.Hour),
+			Kind:      session.KindThinking,
+		},
+		{
+			Role:      "assistant",
+			Content:   "chatuniqueword in normal reply",
+			Timestamp: now.Add(-30 * time.Minute),
+			Kind:      session.KindMessage,
+		},
+	}))
+
+	// The thinking content survives on the base table.
+	turns, err := s.GetTurns(ctx, "a")
+	require.NoError(t, err)
+	require.Len(t, turns, 2)
+	require.Equal(t, session.KindThinking, turns[0].Kind)
+	require.Contains(t, turns[0].Content, "thinkinguniqueword")
+
+	// …but FTS does not surface it.
+	thinkingHits, err := s.Search(ctx, "thinkinguniqueword",
+		SessionFilter{Since: now.Add(-24 * time.Hour), Until: now}, 10)
+	require.NoError(t, err)
+	require.Empty(t, thinkingHits, "thinking content must not appear in FTS")
+
+	// Regular message content still does.
+	chatHits, err := s.Search(ctx, "chatuniqueword",
+		SessionFilter{Since: now.Add(-24 * time.Hour), Until: now}, 10)
+	require.NoError(t, err)
+	require.Len(t, chatHits, 1)
+}

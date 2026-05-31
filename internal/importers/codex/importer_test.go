@@ -301,6 +301,105 @@ func TestImportLegacySession(t *testing.T) {
 	require.Equal(t, "legacy_tool", tools[0].Name)
 }
 
+// TestImportProjectsReasoningSummary verifies that a Codex reasoning
+// item with a `summary` payload lands as a KindThinking turn. Both
+// plain-string and block-list summary shapes are accepted; an empty
+// or summary-less reasoning item (encrypted_content only) is dropped.
+func TestImportProjectsReasoningSummary(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv("PROSA_HOME", filepath.Join(t.TempDir(), "prosa-home"))
+
+	root := filepath.Join(t.TempDir(), "codex-root")
+	base := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
+	dir := filepath.Join(root, base.Format("2006"), base.Format("01"), base.Format("02"))
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	path := filepath.Join(dir, codexFixtureFilename(base, fixtureSessionID))
+	writeJSONL(t, path, []map[string]any{
+		{
+			"type":      "session_meta",
+			"timestamp": base.Format(time.RFC3339Nano),
+			"payload": map[string]any{
+				"id":  fixtureSessionID,
+				"cwd": "/Users/test/proj",
+			},
+		},
+		{
+			"type":      "response_item",
+			"timestamp": base.Add(time.Second).Format(time.RFC3339Nano),
+			"payload": map[string]any{
+				"type": "message", "role": "user",
+				"content": []map[string]any{{"type": "input_text", "text": "do it"}},
+			},
+		},
+		{
+			"type":      "response_item",
+			"timestamp": base.Add(2 * time.Second).Format(time.RFC3339Nano),
+			"payload": map[string]any{
+				"type":    "reasoning",
+				"summary": "plain string reasoning",
+			},
+		},
+		{
+			"type":      "response_item",
+			"timestamp": base.Add(3 * time.Second).Format(time.RFC3339Nano),
+			"payload": map[string]any{
+				"type": "reasoning",
+				"summary": []map[string]any{
+					{"type": "summary_text", "text": "block one"},
+					{"type": "summary_text", "text": "block two"},
+				},
+			},
+		},
+		{
+			"type":      "response_item",
+			"timestamp": base.Add(4 * time.Second).Format(time.RFC3339Nano),
+			"payload": map[string]any{
+				"type":              "reasoning",
+				"encrypted_content": "opaque-blob",
+				// no summary → must NOT project a thinking turn
+			},
+		},
+		{
+			"type":      "response_item",
+			"timestamp": base.Add(5 * time.Second).Format(time.RFC3339Nano),
+			"payload": map[string]any{
+				"type": "message", "role": "assistant",
+				"content": []map[string]any{{"type": "output_text", "text": "done"}},
+			},
+		},
+		{
+			"type":      "event_msg",
+			"timestamp": base.Add(6 * time.Second).Format(time.RFC3339Nano),
+			"payload": map[string]any{
+				"type": "token_count",
+				"info": map[string]any{
+					"total_token_usage": map[string]any{
+						"input_tokens":  10,
+						"output_tokens": 2,
+						"total_tokens":  12,
+					},
+				},
+			},
+		},
+	})
+
+	sink := newSink()
+	res, err := New().Import(ctx, path, sink, importer.ImportOptions{})
+	require.NoError(t, err)
+	require.False(t, res.Skipped)
+
+	turns := sink.turns[fixtureSessionID]
+	// user message + 2 thinking + assistant message
+	require.Len(t, turns, 4)
+	require.Equal(t, session.KindMessage, turns[0].Kind)
+	require.Equal(t, session.KindThinking, turns[1].Kind)
+	require.Equal(t, "assistant", turns[1].Role)
+	require.Equal(t, "plain string reasoning", turns[1].Content)
+	require.Equal(t, session.KindThinking, turns[2].Kind)
+	require.Equal(t, "block one\nblock two", turns[2].Content)
+	require.Equal(t, session.KindMessage, turns[3].Kind)
+}
+
 // TestImportAdmitsSessionWithoutUsageEvent covers a codex transcript
 // that never emits a `token_count` event (older codex rollouts before
 // usage reporting landed). Under tri-state classification this is

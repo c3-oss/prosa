@@ -250,6 +250,69 @@ func TestTruncatePreviewKeepsUTF8Valid(t *testing.T) {
 	require.Contains(t, got, "…")
 }
 
+// TestImportProjectsThinkingBlocks verifies that v7 captures Claude's
+// extended-thinking blocks (`content[].type == "thinking"`) as
+// dedicated KindThinking turns. Multiple thinking blocks in one
+// assistant message become one turn each, preserving order, and
+// over-long content is truncated by the same helper used for
+// tool_result previews.
+func TestImportProjectsThinkingBlocks(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv("PROSA_HOME", filepath.Join(t.TempDir(), "prosa-home"))
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, fixtureSessionID+".jsonl")
+	base := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
+	bigThinking := strings.Repeat("z", toolPreviewMaxBytes+128)
+	writeJSONL(t, path, []map[string]any{
+		{
+			"type":      "user",
+			"sessionId": fixtureSessionID,
+			"timestamp": base.Format(time.RFC3339Nano),
+			"cwd":       "/proj",
+			"message":   map[string]any{"role": "user", "content": "do the thing"},
+		},
+		{
+			"type":      "assistant",
+			"sessionId": fixtureSessionID,
+			"requestId": "req-1",
+			"timestamp": base.Add(time.Second).Format(time.RFC3339Nano),
+			"cwd":       "/proj",
+			"message": map[string]any{
+				"id":    "msg-1",
+				"role":  "assistant",
+				"model": "claude-sonnet-4-6",
+				"usage": map[string]any{"input_tokens": 1, "output_tokens": 1},
+				"content": []map[string]any{
+					{"type": "thinking", "thinking": "first reasoning step"},
+					{"type": "thinking", "thinking": bigThinking},
+					{"type": "text", "text": "here is the answer"},
+				},
+			},
+		},
+	})
+
+	sink := newSink()
+	res, err := New().Import(ctx, path, sink, importer.ImportOptions{})
+	require.NoError(t, err)
+	require.False(t, res.Skipped)
+
+	turns := sink.turns[fixtureSessionID]
+	// user + assistant text + 2 thinking
+	require.Len(t, turns, 4)
+	require.Equal(t, session.KindMessage, turns[0].Kind)
+	require.Equal(t, session.KindMessage, turns[1].Kind)
+	require.Equal(t, "here is the answer", turns[1].Content)
+	require.Equal(t, "assistant", turns[2].Role)
+	require.Equal(t, session.KindThinking, turns[2].Kind)
+	require.Equal(t, "first reasoning step", turns[2].Content)
+	require.Equal(t, session.KindThinking, turns[3].Kind)
+	require.LessOrEqual(t, len(turns[3].Content), toolPreviewMaxBytes+8,
+		"oversized thinking is truncated by truncatePreview")
+	require.Contains(t, turns[3].Content, "…",
+		"truncatePreview leaves the ellipsis marker")
+}
+
 func TestImportBigLineSession(t *testing.T) {
 	ctx := context.Background()
 	t.Setenv("PROSA_HOME", filepath.Join(t.TempDir(), "prosa-home"))

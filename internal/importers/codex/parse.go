@@ -78,6 +78,7 @@ type responseItemPayload struct {
 	CallID  string          `json:"call_id"`
 	Output  json.RawMessage `json:"output"`
 	Content json.RawMessage `json:"content"`
+	Summary json.RawMessage `json:"summary"`
 }
 
 // functionCallOutput is the inline payload Codex emits for a
@@ -407,6 +408,23 @@ func handleResponseItem(
 			})
 		}
 
+	case "reasoning":
+		// Codex's reasoning items carry either a plain string summary
+		// or a list of `{type:"summary_text", text:"…"}` blocks. The
+		// encrypted_content field is opaque and ignored — only the
+		// human-readable summary becomes a KindThinking turn.
+		text := extractReasoningSummary(p.Summary)
+		if text == "" {
+			return
+		}
+		ts, _ := parseTimestamp(timestamp)
+		*turns = append(*turns, session.Turn{
+			Role:      "assistant",
+			Content:   truncatePreview(text),
+			Timestamp: ts,
+			Kind:      session.KindThinking,
+		})
+
 	case "function_call":
 		if p.Name != "" {
 			toolCounts[p.Name]++
@@ -568,6 +586,41 @@ func truncateUTF8(s string, maxBytes int) string {
 //
 // Legacy records may carry `content` as a plain string instead of an
 // array; that path is handled too.
+// extractReasoningSummary returns the textual summary of a Codex
+// reasoning item. Two shapes seen in the wild:
+//
+//   - plain string:    "summary": "I considered three options …"
+//   - block list:      "summary": [{"type":"summary_text","text":"…"}, …]
+//
+// Anything that doesn't fit those shapes returns "" so the caller
+// can skip projecting an empty thinking turn.
+func extractReasoningSummary(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var asString string
+	if err := json.Unmarshal(raw, &asString); err == nil {
+		return strings.TrimSpace(asString)
+	}
+	var blocks []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal(raw, &blocks); err != nil {
+		return ""
+	}
+	var parts []string
+	for _, b := range blocks {
+		if b.Text == "" {
+			continue
+		}
+		if b.Type == "" || b.Type == "summary_text" || b.Type == "text" {
+			parts = append(parts, b.Text)
+		}
+	}
+	return strings.TrimSpace(strings.Join(parts, "\n"))
+}
+
 func extractMessageText(content json.RawMessage, role string) string {
 	if len(content) == 0 {
 		return ""

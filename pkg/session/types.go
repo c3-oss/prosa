@@ -85,7 +85,12 @@ type Session struct {
 //	    where the importer observed a usage event with explicit zeros are
 //	    skipped. Admits cursor sessions and pre-token_count codex sessions
 //	    that v5 was silently dropping.
-const ProjectionVersion = 6
+//	v7: thinking blocks projected — Claude Code content[].type=="thinking"
+//	    and Codex response_item type=="reasoning" .summary land as
+//	    Turn{Role:"assistant", Kind:KindThinking, Content:<truncated>}
+//	    so the panel can render them as discrete collapsible blocks.
+//	    Excluded from FTS (search results stay focused on chat content).
+const ProjectionVersion = 7
 
 // Turn kind constants. Empty Kind is treated as KindMessage so older rows
 // and zero-value test fixtures keep working without backfill.
@@ -93,6 +98,7 @@ const (
 	KindMessage     = "message"
 	KindToolResult  = "tool_result"
 	KindOperational = "operational"
+	KindThinking    = "thinking"
 )
 
 // TokenUsage is the canonical token aggregate for one session. InputTokens is
@@ -161,9 +167,10 @@ func ClassifyUsage(seenUsageEvent bool, usage *TokenUsage) UsageState {
 // with the textual signal that drives FTS5. Chat content (Role
 // "user"/"assistant") arrives with Kind=KindMessage; projected tool
 // outputs arrive with Role="tool", Kind=KindToolResult, and ToolName
-// set to the originating tool. Thinking blocks and binary artifacts
-// are still intentionally excluded — only content worth searching
-// becomes a Turn.
+// set to the originating tool. Reasoning/thinking blocks land as
+// Role="assistant", Kind=KindThinking (truncated to a preview); they
+// are skipped from FTS so search results stay focused on chat
+// content. Binary artifacts remain intentionally excluded.
 type Turn struct {
 	Role      string // "user" | "assistant" | "tool"
 	Content   string

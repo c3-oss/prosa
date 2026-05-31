@@ -69,6 +69,7 @@ type rawMessage struct {
 type rawContentBlock struct {
 	Type      string          `json:"type"`
 	Text      string          `json:"text"`
+	Thinking  string          `json:"thinking"`
 	Name      string          `json:"name"`
 	ID        string          `json:"id"`
 	ToolUseID string          `json:"tool_use_id"`
@@ -233,6 +234,15 @@ func parseSession(ctx context.Context, path string) (session.Session, []session.
 					Kind:      session.KindMessage,
 				})
 			}
+			for _, thinking := range extractAssistantThinking(r.Message) {
+				ts, _ := parseTimestamp(r.Timestamp)
+				turns = append(turns, session.Turn{
+					Role:      "assistant",
+					Content:   truncatePreview(thinking),
+					Timestamp: ts,
+					Kind:      session.KindThinking,
+				})
+			}
 			if !modelSet {
 				if m := extractModel(r.Message); m != "" {
 					if !isSyntheticModel(m) {
@@ -365,9 +375,10 @@ func extractUserText(msg json.RawMessage) string {
 }
 
 // extractAssistantText returns the joined text from all text blocks in an
-// assistant message. tool_use, tool_result, and thinking blocks are
-// intentionally excluded — they remain reachable via the preserved raw
-// JSONL but do not pollute the FTS signal.
+// assistant message. tool_use and tool_result blocks stay reachable
+// via the preserved raw JSONL but do not pollute the FTS signal here.
+// Thinking blocks are projected separately by extractAssistantThinking
+// as KindThinking turns (excluded from FTS at the store layer).
 func extractAssistantText(msg json.RawMessage) string {
 	if len(msg) == 0 {
 		return ""
@@ -387,6 +398,33 @@ func extractAssistantText(msg json.RawMessage) string {
 		}
 	}
 	return strings.Join(parts, "\n")
+}
+
+// extractAssistantThinking returns each non-empty thinking block in an
+// assistant message, in source order. Claude Code's extended-thinking
+// content arrives as `content[].type=="thinking"` with the reasoning
+// text in the `thinking` field. Multiple thinking blocks can appear
+// in a single assistant message; each becomes its own KindThinking
+// turn so the panel can render them as discrete collapsible cards.
+func extractAssistantThinking(msg json.RawMessage) []string {
+	if len(msg) == 0 {
+		return nil
+	}
+	var m rawMessage
+	if err := json.Unmarshal(msg, &m); err != nil {
+		return nil
+	}
+	var blocks []rawContentBlock
+	if err := json.Unmarshal(m.Content, &blocks); err != nil {
+		return nil
+	}
+	var out []string
+	for _, b := range blocks {
+		if b.Type == "thinking" && b.Thinking != "" {
+			out = append(out, b.Thinking)
+		}
+	}
+	return out
 }
 
 func extractModel(msg json.RawMessage) string {

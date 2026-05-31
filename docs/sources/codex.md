@@ -221,9 +221,12 @@ metadata and tool-call summaries; the recipe above is for raw inspection.
   content is truncated to `toolPreviewMaxLines` /
   `toolPreviewMaxBytes` (constants in `internal/importers/codex/parse.go`)
   so the FTS index stays compact — raw JSONL on disk is untouched.
-- `response_item.payload.type=="reasoning"` may carry
-  `encrypted_content`. Treat as opaque; do not assume the text is
-  readable.
+- `response_item.payload.type=="reasoning"` carries either a
+  plain-string `summary` or a `[{type:"summary_text", text:"…"}, …]`
+  block list, plus an opaque `encrypted_content`. The importer
+  projects the textual summary as `Turn{Role:"assistant",
+  Kind:KindThinking, Content:<truncated>}` (v7+) and ignores
+  `encrypted_content`.
 - `event_msg.exec_command_end.stdout/stderr/formatted_output/aggregated_output`
   can be very large. The importer routes them to the CAS via
   `stageText` and references the resulting `object_id` in
@@ -253,10 +256,13 @@ What `loadTranscript` / `prosa v1 session show` surface for Codex sessions:
   `tool_results.stdout_object_id` / `stderr_object_id` /
   `output_object_id`. `tool_calls.args_object_id` carries the original
   argument JSON when it exceeds the inline budget.
-- **Hidden by default**: `response_item.payload.type=="reasoning"` is
-  imported as `content_blocks.block_type='thinking'` with
-  `visibility='hidden_by_default'`. `encrypted_content` is treated as
-  opaque (no body is decoded).
+- **Thinking projected (v7+)**: `response_item.payload.type=="reasoning"`
+  with a textual `.summary` becomes a `Turn{Kind:KindThinking}`
+  truncated to ~4 KB; the opaque `encrypted_content` is dropped.
+  The panel renders these as collapsed "Processed" cards; FTS
+  excludes `kind='thinking'` (local triggers gate on the kind,
+  server `content_tsv` evaluates to an empty tsvector) so reasoning
+  text never reaches search results.
 - **Summarized vs verbatim**: `tool_results.preview` is a truncated copy
   of the full output (capped by the importer's `PREVIEW_MAX`); the
   matching `*_object_id` returns the verbatim payload.

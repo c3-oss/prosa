@@ -27,11 +27,12 @@ stays excluded.
 
 ## Projection version
 
-`session.ProjectionVersion = 6`. The server's push handler compares
+`session.ProjectionVersion = 7`. The server's push handler compares
 `projection_version >= session.ProjectionVersion` before short-
 circuiting, so bumping this constant forces existing sessions to be
-re-projected on the next push from any client — no schema migration
-needed for downstream consumers.
+re-projected on the next push from any client. v7 also rewrites the
+FTS triggers (local) and the `content_tsv` generated column (server) —
+migrations `0007_thinking_excluded_from_fts` ship with the bump.
 
 | Version | Brought |
 |---|---|
@@ -41,6 +42,7 @@ needed for downstream consumers.
 | 4 | importer-level no-usage filtering; Claude Code `<synthetic>` model exclusion |
 | 5 | ANSI/control-char strip in `FirstPrompt` + recognize `<local-command-stdout/stderr>`; cursor/gemini/hermes routed through `sessiontext` |
 | 6 | tri-state usage classification — admit sessions whose transcript carries no usage event at all (Unknown); only skip when a usage event was observed with explicit zero totals (ExplicitZero) |
+| 7 | thinking blocks projected — Claude Code `content[].type=="thinking"` and Codex `response_item.type=="reasoning"` `.summary` land as `Turn{Role:"assistant", Kind:KindThinking, Content:<truncated to 4 KB>}`. FTS excludes `kind='thinking'` rows so search results stay focused on chat content. |
 
 ## Import eligibility
 

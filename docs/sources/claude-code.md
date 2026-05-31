@@ -274,9 +274,14 @@ What `loadTranscript` / `prosa v1 session show` surface for Claude Code sessions
   `artifacts.object_id` for entries that arrived via `tool-results/`).
   Long assistant text bodies past the inline limit live in
   `content_blocks.text_object_id`.
-- **Hidden by default**: `content[].type='thinking'` is imported as
-  `block_type='thinking'` with `visibility='hidden_by_default'`. The
-  default search index also excludes thinking content.
+- **Thinking projected (v7+)**: `content[].type='thinking'` is
+  imported as `Turn{Role:"assistant", Kind:KindThinking, Content:<truncated to 4 KB>}`,
+  one turn per thinking block, preserving source order. The panel
+  renders these as collapsed "Processed" cards in the sidepanel; FTS
+  excludes `kind='thinking'` rows (local `turns_fts` triggers gate on
+  `WHEN kind != 'thinking'`; server `content_tsv` returns empty for
+  thinking) so search results stay focused on chat content. The raw
+  JSONL preserves every byte verbatim.
 - **Summarized vs verbatim**: `tool_results.preview` is a short snapshot
   of the result text; the verbatim payload is reachable via
   `*_object_id`. Subagent-side artifacts cross-link to the parent assistant
