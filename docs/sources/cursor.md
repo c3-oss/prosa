@@ -190,6 +190,12 @@ done
 - Tool usage is aggregated from `content[]` items whose `type ==
   "tool-call"` and which carry a non-empty `toolName`. Count is the
   number of such items per name within the session.
+- **Token usage is not recoverable from `store.db`.** Cursor stores
+  message bodies and tool calls but never per-message token counts. The
+  importer marks such sessions as `no_usage` and the panel's
+  `/analytics/usage` view filters every agent with zero total tokens —
+  so Cursor sessions are visible in sessions/projects/heatmap/tools but
+  intentionally absent from the cost panel.
 - `WAL`/`SHM` siblings are not copied into the prosa raw tree —
   recovery semantics for `store.db` are not part of the prosa
   contract. The single `.db` is enough for the projection.
