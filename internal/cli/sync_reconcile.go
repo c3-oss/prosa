@@ -138,10 +138,11 @@ func runSyncReconcile(ctx context.Context, push *pusher, deviceID string, counts
 		return
 	}
 	progress := func(done, total int) {
-		// Repaint a single status line every 25 sessions (or at the end)
-		// — keeps stdout readable on slow runs without flooding it.
+		// Emit a bounded progress line every 25 sessions (or at the
+		// end). Keep each line terminated so stderr logs never attach to
+		// an in-progress stdout repaint.
 		if done == total || done%25 == 0 {
-			fmt.Fprintf(os.Stdout, "\rCatch-up: %d / %d sessions reconciled", done, total)
+			fmt.Fprintf(os.Stdout, "Catch-up: %d / %d sessions reconciled\n", done, total)
 		}
 	}
 	rc, err := reconcileWithServer(ctx, push, deviceID, progress)
@@ -154,8 +155,4 @@ func runSyncReconcile(ctx context.Context, push *pusher, deviceID string, counts
 	counts.reconcileRan = true
 	counts.localTotal = rc.localTotal
 	counts.remoteTotal = rc.remoteTotal
-	// Close out the progress line so the summary starts on a fresh line.
-	if rc.sent+rc.skipped+rc.errs > 0 {
-		fmt.Fprintln(os.Stdout)
-	}
 }
