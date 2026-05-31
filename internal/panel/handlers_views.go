@@ -1,6 +1,7 @@
 package panel
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"log/slog"
@@ -9,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -109,13 +111,23 @@ func (p *Panel) handleRawChunk(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
+	chunk := resp.Msg.Chunk
+	progress := offset + int64(len(chunk))
+	chunkText := string(chunk)
+	eof := resp.Msg.Eof
+	nextURL := fmt.Sprintf("/raw/%s?offset=%d", sid, progress)
+	if isBinaryChunk(chunk) {
+		chunkText = binaryPlaceholder(resp.Msg.TotalSize)
+		eof = true
+		nextURL = ""
+	}
 	p.render(w, "raw_chunk", map[string]any{
 		"ID":       sid,
-		"Chunk":    string(resp.Msg.Chunk),
-		"NextURL":  fmt.Sprintf("/raw/%s?offset=%d", sid, offset+int64(len(resp.Msg.Chunk))),
-		"EOF":      resp.Msg.Eof,
+		"Chunk":    chunkText,
+		"NextURL":  nextURL,
+		"EOF":      eof,
 		"Total":    resp.Msg.TotalSize,
-		"Progress": offset + int64(len(resp.Msg.Chunk)),
+		"Progress": progress,
 	})
 }
 
@@ -145,19 +157,59 @@ func (p *Panel) loadSidePanel(ctx context.Context, id string) (sidePanelData, er
 	if err != nil {
 		return sidePanelData{}, err
 	}
+	chunk := rawResp.Msg.Chunk
+	chunkText := string(chunk)
+	eof := rawResp.Msg.Eof
+	if isBinaryChunk(chunk) {
+		chunkText = binaryPlaceholder(rawResp.Msg.TotalSize)
+		eof = true
+	}
 	sp := sidePanelData{
 		Session:  getResp.Msg.Session,
 		Turns:    getResp.Msg.Turns,
 		Tools:    getResp.Msg.Tools,
-		Chunk:    string(rawResp.Msg.Chunk),
-		EOF:      rawResp.Msg.Eof,
+		Chunk:    chunkText,
+		EOF:      eof,
 		Total:    rawResp.Msg.TotalSize,
-		Progress: int64(len(rawResp.Msg.Chunk)),
+		Progress: int64(len(chunk)),
 	}
 	if !sp.EOF {
 		sp.NextURL = fmt.Sprintf("/raw/%s?offset=%d", id, sp.Progress)
 	}
 	return sp, nil
+}
+
+// isBinaryChunk reports whether b looks like binary content unfit for a
+// <pre>. True when b starts with the SQLite magic header, contains a
+// NUL byte in the first sniffN bytes, or fails utf8.Valid on the same
+// head. Empty input returns false — nothing to display, nothing to flag.
+func isBinaryChunk(b []byte) bool {
+	if len(b) == 0 {
+		return false
+	}
+	const sqliteMagic = "SQLite format 3\x00"
+	if bytes.HasPrefix(b, []byte(sqliteMagic)) {
+		return true
+	}
+	const sniffN = 4096
+	head := b
+	if len(head) > sniffN {
+		head = head[:sniffN]
+	}
+	if bytes.IndexByte(head, 0x00) >= 0 {
+		return true
+	}
+	if !utf8.Valid(head) {
+		return true
+	}
+	return false
+}
+
+// binaryPlaceholder is the human-readable message shown in the side
+// panel in place of binary raw transcripts (e.g. Cursor store.db files
+// that the importer preserves verbatim for re-import audit).
+func binaryPlaceholder(total int64) string {
+	return fmt.Sprintf("Binary content (%d bytes, preserved verbatim) — not displayable as text.", total)
 }
 
 // dayGroup is one row block in the timeline.
