@@ -312,21 +312,21 @@ Slide-in 180 ms from the right.
 ```
 +----------------+
 | sticky header  |
-|  prosa         |
 |  claude-code   |
-|  2026-05-30    |
+|  "refactor..." |
 |                |
 | stats cluster  |
-|  18 turns      |
-|  3 tools       |
-|  18 min        |
-|  sonnet-4-6    |
+|  18 / 3        |  ← turns / tools
+|  18min / opus  |  ← duration / model
 |                |
 | metadata grid  |
-|  device  laptop|
-|  project prosa |
-|  marker  .prosa|
+|  ID      ...   |
+|  Started ...   |
+|  Project ...   |
 |  ...           |
+|                |
+| transcript     |
+|  (chat-style — see F2+)
 |                |
 | raw transcript |
 |  paginated     |
@@ -336,13 +336,42 @@ Slide-in 180 ms from the right.
 
 - Width 44% of main, max 720 px;
 - Background `--bg-elev-1`, 1 px left divider;
-- Sticky header at the top of the sidepanel, padding 24 px;
-- Stats cluster: 4 mini-KPIs in a 2 × 2 grid, numbers at 22 px tabular;
-- Metadata grid: labels in `--text-3`, values in `--text-1`, monospace
-  for IDs;
-- Raw transcript in `<pre>` at font-mono 13 px, line-height 1.5;
-- "load more" is an HTMX link with `hx-swap="beforeend"` (current
-  behavior).
+- Sticky header (`.sp-header`) at the top of the panel, padding
+  `--space-5 --space-6`. Shows the agent name (mono, `--text-3`) and
+  the first prompt (`--text-md` weight 500). `esc`-style close button
+  on the right.
+- Stats cluster (`.stats-cluster`): 2 × 2 grid, gap `--space-4
+  --space-5`. Each KPI is a number at `--text-lg` tabular plus a
+  `--text-xs` uppercase label in `--text-3`. Cells: **turns**
+  (user+assistant message count), **tools** (sum of tool invocations),
+  **duration** (last_activity − started_at, `humanDuration`-formatted),
+  **model**.
+- Metadata grid (`.sp-meta`): labels in `--text-xs` uppercase
+  `--text-3`, values in `--text-sm` `--text-1`, monospace for IDs and
+  hashes.
+- Transcript: chat-style bubbles. **User** aligns right with a
+  filled `--bg-elev-2` surface and `<br>`-preserving escaped plain
+  text; the raw boilerplate agents inject (`<command-name>`,
+  `<system-reminder>`, `<environment_context>`,
+  `<local-command-stdout>`, …) is stripped via
+  `sessiontext.ParseUserMessage` — slash commands surface as a tiny
+  `/cmd` chip in the bubble meta, everything else attaches as
+  discrete `<details>` blocks below the body ("3 system reminders",
+  "command stdout", "environment context"). **Assistant** aligns left
+  and is rendered as markdown (goldmark/GFM, `WithUnsafe` off) with
+  prose styles for headings, lists, code, tables. Consecutive
+  `Role="tool"` turns coalesce into a single collapsible **tool
+  group** with a one-line summary ("Read ×3 · Bash ×1"); each tool
+  inside expands independently via native `<details>`. **Thinking**
+  turns (Claude `content[].type="thinking"`, Codex `reasoning.summary`)
+  coalesce into a discreet "Processed" card between dashed rules,
+  body italic in `--text-3`. Between turn groups with a Ts gap
+  ≥ `render.DividerThreshold` (30 s), a `time-divider` line shows
+  "Worked for 2m 14s" so long agent runs stay visible without
+  reading every cell.
+- Raw transcript in `<pre class="raw">` at font-mono 11 px,
+  white-space pre-wrap, kept as the verbatim source-of-truth panel.
+- "load more" is an HTMX link with `hx-swap="beforeend"`.
 
 `Esc` closes. Clicking outside also closes.
 

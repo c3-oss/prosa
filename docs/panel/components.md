@@ -445,21 +445,158 @@ accessibility.
 
 ---
 
+## Bubble (chat)
+
+Chat-style row in the sidepanel transcript. Lives in
+`internal/panel/assets/css/components/bubbles.css` as `.bubble` +
+role-specific variants `.bubble-user`, `.bubble-assistant`,
+`.bubble-tool`.
+
+```
+ASSISTANT                                              09:14:32
+The transcript today renders as `.turn-{role}` cards in
+monospace — this is what F2 replaces.
+
+                                            USER       09:14:08
+                                  +---------------------------+
+                                  | Aperfeiçoe o frontend.    |
+                                  +---------------------------+
+
+TOOL  Read                                             09:14:35
++------------------------------------------------------------+
+| internal/panel/templates/side_panel.html                   |
++------------------------------------------------------------+
+```
+
+- **User** bubble: right-aligned (`align-self: flex-end`), filled
+  surface `--bg-elev-2`, `--radius-md` with a slightly tighter
+  bottom-right corner, body in `--font-sans`. Content is escaped plain
+  text — `<br>` for newlines, no markdown rendering (a literal
+  `**stars**` stays literal).
+- **Assistant** bubble: left-aligned, no surface, body is markdown
+  rendered with goldmark (GFM extension). Prose styles for `h*`,
+  `p`, `ul/ol`, `code` (inline + fenced), `blockquote`, `a`, `table`,
+  `hr`. Code fences keep `class="language-*"` for downstream
+  highlighting.
+- **Tool** bubble: full-width discrete block, `--bg-elev-1` surface
+  with a 2 px `--accent-soft` left rule, body in `--font-mono`,
+  `max-height: 400px` with internal scroll. F3 coalesces consecutive
+  tool bubbles into a collapsible group with a one-line summary.
+- **Meta header** (`.bubble-meta`): tiny role label uppercase
+  `--text-3`, tool name in mono `--accent` when role is `tool`,
+  timestamp right-aligned in mono `--text-3`. The whole header
+  reverses to row-reverse on user bubbles so the timestamp sits on
+  the same edge as the body.
+
+Body content is pre-rendered server-side as `template.HTML` by
+`internal/panel/render`: `render.Markdown(s)` for assistant,
+`render.PlainText(s)` for user and tool. The renderer disables
+`WithUnsafe` and goldmark either escapes or omits raw HTML, so a
+literal `<script>` from a model response can never reach the DOM as
+markup.
+
+---
+
+## Tool group (sidepanel)
+
+When the transcript has ≥1 consecutive `Role="tool"` turns,
+`internal/panel/render.GroupTurns` coalesces them into one
+`TurnGroup{Kind:"tool-group"}`. The sidepanel renders it as a
+collapsible block instead of N separate `.bubble-tool` cards.
+
+```
+┌─ ▸ Read ×3 · Bash ×1 · WebSearch ×1            5 calls ──┐
+│   (collapsed by default; Alpine toggle on the header)    │
+└──────────────────────────────────────────────────────────┘
+
+when open:
+
+┌─ ▾ Read ×3 · Bash ×1 · WebSearch ×1            5 calls ──┐
+│   ┌─ ▸ Read                       09:14:08 ────────────┐ │
+│   ├─ ▸ Read                       09:14:12 ────────────┤ │
+│   ├─ ▸ Read                       09:14:15 ────────────┤ │
+│   ├─ ▸ Bash                       09:14:18 ────────────┤ │
+│   └─ ▸ WebSearch                  09:14:24 ────────────┘ │
+└──────────────────────────────────────────────────────────┘
+```
+
+- **Outer toggle** uses Alpine `x-data="{open:false}"` +
+  `x-collapse` so opening animates the entries in smoothly. Header
+  is a `<button>` with `aria-expanded` bound to `open`, so the
+  control is accessible to screen readers and keyboard.
+- **Summary** is built server-side by `render.GroupTurns` —
+  `"Read ×3 · Bash ×1"`. Order is invocation count descending, then
+  name ascending. Empty `ToolName` falls into a generic `tool`
+  bucket so nothing disappears.
+- **Count** chip (`Ncall(s)`) on the right reflects the total
+  invocations in the run.
+- **Entries** are native `<details>` per tool result. The Alpine
+  scope only wraps the outer block; native disclosure handles each
+  entry independently. Each entry's body is the truncated tool
+  output (server already capped at ~4 KB / 40 lines in the
+  importer), monospace, `max-height: 400px` with internal scroll.
+
+Lives in `internal/panel/assets/css/components/tool-group.css`.
+
+---
+
+## Thinking block (sidepanel)
+
+Coalesced run of `Kind="thinking"` turns from the canonical session.
+Projection v7+ persists Claude Code's `content[].type=="thinking"`
+blocks and Codex's `response_item.type=="reasoning"` `.summary` as
+`Turn{Role:"assistant", Kind:KindThinking, Content:<truncated>}`;
+the panel collapses consecutive ones into a single discreet card.
+
+```
+─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─
+  ▸ Processed (3 steps)
+─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─
+```
+
+- **Summary** is "Processed" for a single step, "Processed (N steps)"
+  otherwise. Short, plain, doesn't pull focus.
+- **Visual** uses dashed `--divider` rules above and below, italic
+  summary in `--text-3` — the block reads as "context, not content"
+  so the eye skips it on first scan.
+- **Toggle** is Alpine `x-data="{open:false}"` + `x-collapse` so
+  opening animates the entries in. Header is a `<button>` with
+  `aria-expanded` for accessibility.
+- **Body** of each step is shown as italic prose with a left rule,
+  monospace-free — reasoning reads as continuous thought, not as
+  log output.
+
+Lives in `internal/panel/assets/css/components/thinking.css`.
+
+---
+
 ## Stats cluster (sidepanel)
 
-Mini-KPIs in a 2 × 2 grid inside the sidepanel.
+Mini-KPIs in a 2 × 2 grid inside the sidepanel. Lives in
+`internal/panel/assets/css/components/sidepanel.css` as
+`.stats-cluster` plus `.stat-kpi` (with `.stat-value`,
+`.stat-label`).
 
 ```
 +-------+-------+
 | 18    | 3     |
-| turns | tools |
+| TURNS | TOOLS |
 +-------+-------+
-| 18min | sonnet|
-|       | 4-6   |
+| 18min | opus  |
+| DURAT.| MODEL |
 +-------+-------+
 ```
 
-- Numbers at 22 px tabular;
-- Labels at 12 px uppercase `--text-3`;
-- Internal gap 16 px, padding 24 px;
-- No border; a central 1 px `--divider` separator if needed.
+- Numbers at `--text-lg` (22 px) tabular, `--w-regular`;
+- Labels at `--text-xs` (12 px) uppercase letter-spacing 0.06em
+  `--text-3`;
+- Model variant uses `--font-mono` at `--text-base` so long names like
+  `claude-sonnet-4-6-20251022` stay readable without wrapping;
+- Internal gap `--space-4 --space-5`, plus `--space-6` padding-bottom
+  and a 1 px `--divider` rule under the cluster.
+
+Values are derived server-side in `loadSidePanel`: `TurnsCount`
+(user + assistant message rows, excluding `tool_result`/`operational`),
+`ToolsCount` (sum of `Session.Tools[].Count`), `DurationLabel`
+(`humanDuration(LastActivityAt − StartedAt)`), and the model name from
+`Session.Model`.
