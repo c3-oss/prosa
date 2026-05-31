@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -82,27 +83,76 @@ func TestLoadViewsParsesAllTemplates(t *testing.T) {
 	}
 }
 
-func TestCleanTurnsForDisplayCopiesAndSanitizes(t *testing.T) {
+func TestBuildDisplayTurnsSanitizesAndDoesNotMutateInput(t *testing.T) {
 	original := []*prosav1.Turn{
 		{Role: "user", Content: "hello \x1b[1mworld\x1b[22m"},
 		{Role: "assistant", Content: "ok\x00 trailing"},
-		nil,
+		nil, // nil turn skipped
 	}
-	got := cleanTurnsForDisplay(original)
-	require.Len(t, got, 3)
-	require.Equal(t, "hello world", got[0].Content)
-	require.Equal(t, "ok trailing", got[1].Content)
-	require.Nil(t, got[2])
+	got := buildDisplayTurns(original)
+	require.Len(t, got, 2, "nil turn is dropped, not preserved as zero value")
+	require.Equal(t, "user", got[0].Role)
+	require.Equal(t, "assistant", got[1].Role)
+	require.Contains(t, string(got[0].Body), "hello world")
+	require.Contains(t, string(got[1].Body), "ok trailing")
 
-	// Defensive copy: the originals are untouched so concurrent
+	// Defensive copy: the original protos are untouched so concurrent
 	// requests sharing the connect response don't race on Content.
 	require.Equal(t, "hello \x1b[1mworld\x1b[22m", original[0].Content)
 	require.Equal(t, "ok\x00 trailing", original[1].Content)
 }
 
-func TestCleanTurnsForDisplayEmpty(t *testing.T) {
-	require.Empty(t, cleanTurnsForDisplay(nil))
-	require.Empty(t, cleanTurnsForDisplay([]*prosav1.Turn{}))
+func TestBuildDisplayTurnsAssistantUsesMarkdown(t *testing.T) {
+	in := []*prosav1.Turn{
+		{Role: "assistant", Content: "**bold** and `code`"},
+	}
+	got := buildDisplayTurns(in)
+	require.Len(t, got, 1)
+	body := string(got[0].Body)
+	require.Contains(t, body, "<strong>bold</strong>")
+	require.Contains(t, body, "<code>code</code>")
+}
+
+func TestBuildDisplayTurnsUserStaysEscapedPlain(t *testing.T) {
+	in := []*prosav1.Turn{
+		{Role: "user", Content: "**not bold**\n<script>x</script>"},
+	}
+	got := buildDisplayTurns(in)
+	require.Len(t, got, 1)
+	body := string(got[0].Body)
+	require.NotContains(t, body, "<strong>")
+	require.NotContains(t, body, "<script>")
+	require.Contains(t, body, "**not bold**")
+	require.Contains(t, body, "<br>")
+}
+
+func TestBuildDisplayTurnsEmpty(t *testing.T) {
+	require.Empty(t, buildDisplayTurns(nil))
+	require.Empty(t, buildDisplayTurns([]*prosav1.Turn{}))
+}
+
+func TestHumanDuration(t *testing.T) {
+	cases := []struct {
+		in   time.Duration
+		want string
+	}{
+		{0, "—"},
+		{-1 * time.Second, "—"},
+		{30 * time.Second, "30s"},
+		{59 * time.Second, "59s"},
+		{2 * time.Minute, "2m"},
+		{2*time.Minute + 14*time.Second, "2m 14s"},
+		{5 * time.Minute, "5m"},
+		{18 * time.Minute, "18m"},
+		{1 * time.Hour, "1h"},
+		{1*time.Hour + 30*time.Minute, "1h 30m"},
+		{23*time.Hour + 59*time.Minute, "23h 59m"},
+		{24 * time.Hour, "1d"},
+		{4*24*time.Hour + 6*time.Hour, "4d 6h"},
+	}
+	for _, c := range cases {
+		require.Equal(t, c.want, humanDuration(c.in), "humanDuration(%s)", c.in)
+	}
 }
 
 // usageRow shapes the eight-column AnalyticsRow the server emits for the

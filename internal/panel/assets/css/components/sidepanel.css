@@ -1,0 +1,131 @@
+/* Sidepanel (session detail). Slide-in container is styled by
+   `#side-panel` in style.css; this file owns the inner chrome —
+   sticky header, stats cluster, metadata grid. */
+
+.sp-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+  padding: var(--space-5) var(--space-6);
+  background: var(--bg-elev-1);
+  border-bottom: 1px solid var(--divider);
+}
+
+.sp-header-text {
+  min-width: 0;
+  flex: 1;
+}
+
+.sp-agent {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-3);
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+  margin-bottom: var(--space-1);
+}
+
+.sp-prompt {
+  font-size: var(--text-md);
+  font-weight: var(--w-medium);
+  color: var(--text-1);
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.sp-close {
+  flex-shrink: 0;
+  margin-left: auto;
+  background: transparent;
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-sm);
+  color: var(--text-3);
+  font-size: var(--text-xs);
+  letter-spacing: 0.04em;
+  padding: 4px 8px;
+  cursor: pointer;
+  transition: color var(--duration-fast) var(--ease),
+              border-color var(--duration-fast) var(--ease);
+}
+
+.sp-close:hover {
+  color: var(--text-1);
+  border-color: var(--text-3);
+}
+
+.sp-body {
+  padding: var(--space-6);
+}
+
+/* Stats cluster ---------------------------------------------------- */
+
+.stats-cluster {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4) var(--space-5);
+  margin-bottom: var(--space-7);
+  padding-bottom: var(--space-6);
+  border-bottom: 1px solid var(--divider);
+}
+
+.stat-kpi {
+  min-width: 0;
+}
+
+.stat-value {
+  font-size: var(--text-lg);
+  font-weight: var(--w-regular);
+  color: var(--text-1);
+  line-height: 1.1;
+  margin-bottom: 4px;
+  font-variant-numeric: tabular-nums;
+  word-break: break-word;
+}
+
+.stat-value.sp-model {
+  font-size: var(--text-base);
+  font-family: var(--font-mono);
+}
+
+.stat-label {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-3);
+}
+
+/* Metadata grid (replaces legacy .metadata) ------------------------ */
+
+.sp-meta {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: var(--space-3) var(--space-4);
+  margin: 0 0 var(--space-7);
+}
+
+.sp-meta dt {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-3);
+  padding-top: 2px;
+}
+
+.sp-meta dd {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-1);
+  word-break: break-word;
+}
+
+.sp-meta dd.mono {
+  font-family: var(--font-mono);
+  word-break: break-all;
+}
+
+.sp-meta-raw {
+  color: var(--text-2) !important;
+}

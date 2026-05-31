@@ -1,45 +1,169 @@
 {{define "side_panel"}}{{template "side_panel_body" .SidePanel}}{{end}}
 
 {{define "side_panel_body"}}
-  <div class="panel-header">
-    <div>
-      <div style="font-family: var(--mono); font-size: 12px; color: var(--muted)">{{.Session.Agent}}</div>
-      <div style="font-weight: 600">{{or .Session.FirstPrompt "(no prompt)"}}</div>
+  <header class="sp-header">
+    <div class="sp-header-text">
+      <div class="sp-agent">{{.Session.Agent}}</div>
+      <div class="sp-prompt">{{or .Session.FirstPrompt "(no prompt)"}}</div>
     </div>
-    <button class="close" onclick="document.getElementById('side-panel').innerHTML='';var u=new URL(window.location);u.searchParams.delete('session');window.history.replaceState({}, '', u);">esc</button>
-  </div>
-  <div class="panel-body">
-    <dl class="metadata">
-      <dt>ID</dt><dd>{{.Session.Id}}</dd>
+    <button class="sp-close" type="button"
+            aria-label="close session detail"
+            onclick="document.getElementById('side-panel').innerHTML='';var u=new URL(window.location);u.searchParams.delete('session');window.history.replaceState({}, '', u);">esc</button>
+  </header>
+
+  <div class="sp-body">
+    <section class="stats-cluster" aria-label="session stats">
+      <div class="stat-kpi">
+        <div class="stat-value">{{.TurnsCount}}</div>
+        <div class="stat-label">turns</div>
+      </div>
+      <div class="stat-kpi">
+        <div class="stat-value">{{.ToolsCount}}</div>
+        <div class="stat-label">tools</div>
+      </div>
+      <div class="stat-kpi">
+        <div class="stat-value">{{.DurationLabel}}</div>
+        <div class="stat-label">duration</div>
+      </div>
+      <div class="stat-kpi">
+        <div class="stat-value sp-model">{{or .Session.Model "—"}}</div>
+        <div class="stat-label">model</div>
+      </div>
+    </section>
+
+    <dl class="sp-meta">
+      <dt>ID</dt><dd class="mono">{{.Session.Id}}</dd>
       <dt>Started</dt><dd>{{(.Session.StartedAt.AsTime).Format "2006-01-02 15:04:05"}}</dd>
       <dt>Last activity</dt><dd>{{(.Session.LastActivityAt.AsTime).Format "2006-01-02 15:04:05"}}</dd>
-      <dt>Device</dt><dd>{{.Session.DeviceId}}</dd>
+      <dt>Device</dt><dd class="mono">{{.Session.DeviceId}}</dd>
       <dt>Project</dt><dd>{{or .Session.ProjectMarker .Session.ProjectRemote .Session.ProjectPath "(unscoped)"}}</dd>
-      {{if .Session.Model}}<dt>Model</dt><dd>{{.Session.Model}}</dd>{{end}}
-      <dt>Raw size</dt><dd>{{.Session.RawSize}} bytes ({{.Session.RawHash}})</dd>
+      <dt>Raw</dt><dd class="mono sp-meta-raw">{{.Session.RawSize}} bytes · {{.Session.RawHash}}</dd>
       <dt>Tools</dt><dd>
         {{if .Tools}}
           <div class="chips">{{range .Tools}}<span class="chip" style="cursor: default">{{.Name}} ×{{.Count}}</span>{{end}}</div>
         {{else}}—{{end}}
       </dd>
     </dl>
+
     <h3 class="panel-section-title">Transcript</h3>
-    {{if .Turns}}
-      <section class="transcript">
-        {{range .Turns}}
-          <article class="turn turn-{{.Role}}">
-            <header class="turn-header">
-              <span class="turn-role">{{.Role}}</span>
-              {{if eq .Kind "tool_result"}}<span class="turn-tool-name">tool: {{.ToolName}}</span>{{end}}
-              {{if .Ts}}<span class="turn-time">{{(.Ts.AsTime).Format "15:04:05"}}</span>{{end}}
-            </header>
-            <div class="turn-body">{{.Content}}</div>
-          </article>
+    {{if .TurnGroups}}
+      <section class="transcript" aria-label="session transcript">
+        {{range .TurnGroups}}
+          {{if eq .Kind "single"}}
+            {{with .Turn}}
+              <article class="bubble bubble-{{.Role}}{{if eq .Kind "tool_result"}} bubble-tool{{end}}">
+                <header class="bubble-meta">
+                  <span class="bubble-role">{{.Role}}</span>
+                  {{if eq .Kind "tool_result"}}<span class="bubble-tool-name">{{.ToolName}}</span>{{end}}
+                  {{if and (eq .Role "user") .UserExtras .UserExtras.Command}}
+                    <span class="cmd-chip">/{{.UserExtras.Command}}{{if .UserExtras.CommandArgs}} {{.UserExtras.CommandArgs}}{{end}}</span>
+                  {{end}}
+                  {{if not .Ts.IsZero}}<time class="bubble-time">{{.Ts.Format "15:04:05"}}</time>{{end}}
+                </header>
+                {{if .Body}}<div class="bubble-body">{{.Body}}</div>{{end}}
+                {{if and (eq .Role "user") .UserExtras .UserExtras.HasDetails}}
+                  <div class="user-extras">
+                    {{if .UserExtras.Reminders}}
+                      <details class="extra-details">
+                        <summary>{{len .UserExtras.Reminders}} system reminder{{if ne (len .UserExtras.Reminders) 1}}s{{end}}</summary>
+                        {{range .UserExtras.Reminders}}<pre class="extra-block">{{.}}</pre>{{end}}
+                      </details>
+                    {{end}}
+                    {{if .UserExtras.LocalCommandStdout}}
+                      <details class="extra-details">
+                        <summary>command stdout</summary>
+                        <pre class="extra-block">{{.UserExtras.LocalCommandStdout}}</pre>
+                      </details>
+                    {{end}}
+                    {{if .UserExtras.LocalCommandStderr}}
+                      <details class="extra-details">
+                        <summary>command stderr</summary>
+                        <pre class="extra-block">{{.UserExtras.LocalCommandStderr}}</pre>
+                      </details>
+                    {{end}}
+                    {{if .UserExtras.EnvContext}}
+                      <details class="extra-details">
+                        <summary>environment context</summary>
+                        <pre class="extra-block">{{.UserExtras.EnvContext}}</pre>
+                      </details>
+                    {{end}}
+                    {{if .UserExtras.Instructions}}
+                      <details class="extra-details">
+                        <summary>instructions</summary>
+                        <pre class="extra-block">{{.UserExtras.Instructions}}</pre>
+                      </details>
+                    {{end}}
+                    {{if .UserExtras.CollaborationMode}}
+                      <details class="extra-details">
+                        <summary>collaboration mode</summary>
+                        <pre class="extra-block">{{.UserExtras.CollaborationMode}}</pre>
+                      </details>
+                    {{end}}
+                    {{if .UserExtras.PermissionsInstructions}}
+                      <details class="extra-details">
+                        <summary>permissions</summary>
+                        <pre class="extra-block">{{.UserExtras.PermissionsInstructions}}</pre>
+                      </details>
+                    {{end}}
+                    {{if .UserExtras.LocalCommandCaveat}}
+                      <details class="extra-details">
+                        <summary>command caveat</summary>
+                        <pre class="extra-block">{{.UserExtras.LocalCommandCaveat}}</pre>
+                      </details>
+                    {{end}}
+                  </div>
+                {{end}}
+              </article>
+            {{end}}
+          {{else if eq .Kind "tool-group"}}
+            <div class="tool-group" x-data="{ open: false }">
+              <button type="button" class="tool-group-summary"
+                      :aria-expanded="open ? 'true' : 'false'"
+                      @click="open = !open">
+                <span class="tool-group-caret" :class="{ 'is-open': open }" aria-hidden="true">▸</span>
+                <span class="tool-group-label">{{.Summary}}</span>
+                <span class="tool-group-count">{{len .Tools}} call{{if ne (len .Tools) 1}}s{{end}}</span>
+              </button>
+              <div class="tool-group-entries" x-show="open" x-collapse>
+                {{range .Tools}}
+                  <details class="tool-entry">
+                    <summary class="tool-entry-summary">
+                      <span class="tool-entry-name">{{.ToolName}}</span>
+                      {{if not .Ts.IsZero}}<time class="tool-entry-time">{{.Ts.Format "15:04:05"}}</time>{{end}}
+                    </summary>
+                    <div class="tool-entry-body">{{.Body}}</div>
+                  </details>
+                {{end}}
+              </div>
+            </div>
+          {{else if eq .Kind "divider"}}
+            <div class="time-divider" role="separator" aria-label="{{.Summary}}">
+              <span>{{.Summary}}</span>
+            </div>
+          {{else if eq .Kind "thinking-group"}}
+            <div class="thinking-group" x-data="{ open: false }">
+              <button type="button" class="thinking-summary"
+                      :aria-expanded="open ? 'true' : 'false'"
+                      @click="open = !open">
+                <span class="thinking-caret" :class="{ 'is-open': open }" aria-hidden="true">▸</span>
+                <span class="thinking-label">{{.Summary}}</span>
+              </button>
+              <div class="thinking-entries" x-show="open" x-collapse>
+                {{range .Tools}}
+                  <div class="thinking-entry">
+                    {{if not .Ts.IsZero}}<time class="thinking-time">{{.Ts.Format "15:04:05"}}</time>{{end}}
+                    <div class="thinking-body">{{.Body}}</div>
+                  </div>
+                {{end}}
+              </div>
+            </div>
+          {{end}}
         {{end}}
       </section>
     {{else}}
       <p class="empty">no transcript available</p>
     {{end}}
+
     <details class="raw-toggle">
       <summary>View raw transcript</summary>
       <div id="raw-stream">

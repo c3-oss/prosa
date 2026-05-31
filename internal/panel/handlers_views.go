@@ -17,6 +17,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	prosav1 "github.com/c3-oss/prosa/gen/go/prosa/v1"
+	"github.com/c3-oss/prosa/internal/panel/render"
 	"github.com/c3-oss/prosa/internal/sessiontext"
 )
 
@@ -161,16 +162,23 @@ func (p *Panel) handleRawChunk(w http.ResponseWriter, r *http.Request) {
 }
 
 // sidePanelData bundles the metadata + first raw chunk the side panel
-// renders inline.
+// renders inline. TurnsCount/ToolsCount/DurationLabel feed the stats
+// cluster at the top of the panel; TurnGroups is what the transcript
+// section iterates over. All derived in loadSidePanel so the template
+// stays declarative.
 type sidePanelData struct {
-	Session  *prosav1.Session
-	Turns    []*prosav1.Turn
-	Tools    []*prosav1.ToolUsage
-	Chunk    string
-	NextURL  string
-	EOF      bool
-	Total    int64
-	Progress int64
+	Session       *prosav1.Session
+	Turns         []render.Turn
+	TurnGroups    []render.TurnGroup
+	Tools         []*prosav1.ToolUsage
+	TurnsCount    int
+	ToolsCount    int
+	DurationLabel string
+	Chunk         string
+	NextURL       string
+	EOF           bool
+	Total         int64
+	Progress      int64
 }
 
 func (p *Panel) loadSidePanel(ctx context.Context, id string) (sidePanelData, error) {
@@ -193,14 +201,19 @@ func (p *Panel) loadSidePanel(ctx context.Context, id string) (sidePanelData, er
 		chunkText = binaryPlaceholder(rawResp.Msg.TotalSize)
 		eof = true
 	}
+	turns := buildDisplayTurns(getResp.Msg.Turns)
 	sp := sidePanelData{
-		Session:  getResp.Msg.Session,
-		Turns:    cleanTurnsForDisplay(getResp.Msg.Turns),
-		Tools:    getResp.Msg.Tools,
-		Chunk:    chunkText,
-		EOF:      eof,
-		Total:    rawResp.Msg.TotalSize,
-		Progress: int64(len(chunk)),
+		Session:       getResp.Msg.Session,
+		Turns:         turns,
+		TurnGroups:    render.GroupTurns(turns),
+		Tools:         getResp.Msg.Tools,
+		TurnsCount:    countMessageDisplayTurns(turns),
+		ToolsCount:    sumToolCounts(getResp.Msg.Tools),
+		DurationLabel: sessionDurationLabel(getResp.Msg.Session),
+		Chunk:         chunkText,
+		EOF:           eof,
+		Total:         rawResp.Msg.TotalSize,
+		Progress:      int64(len(chunk)),
 	}
 	if !sp.EOF {
 		sp.NextURL = fmt.Sprintf("/raw/%s?offset=%d", id, sp.Progress)
@@ -208,31 +221,112 @@ func (p *Panel) loadSidePanel(ctx context.Context, id string) (sidePanelData, er
 	return sp, nil
 }
 
-// cleanTurnsForDisplay returns a defensive copy of in with each Turn's
-// Content stripped of ANSI escapes and control characters. The raw
-// transcript pane keeps the original bytes (so users can inspect them
-// via the toggle), while the structured Transcript view shows readable
-// text. New *prosav1.Turn values — never reuse the connect response
-// pointers — so concurrent requests don't race on Content, and we
-// avoid copying the proto's embedded sync state.
-func cleanTurnsForDisplay(in []*prosav1.Turn) []*prosav1.Turn {
-	if len(in) == 0 {
-		return in
+// countMessageDisplayTurns counts user + assistant message turns,
+// skipping tool_result and operational rows. The stats cluster's
+// "turns" KPI is meant to convey "how many exchanges did I have", not
+// "how many DB rows projected".
+func countMessageDisplayTurns(in []render.Turn) int {
+	n := 0
+	for _, t := range in {
+		if t.Kind == "tool_result" || t.Kind == "operational" {
+			continue
+		}
+		n++
 	}
-	out := make([]*prosav1.Turn, len(in))
-	for i, t := range in {
+	return n
+}
+
+// sumToolCounts adds up every per-tool invocation count. The list is
+// already aggregated server-side; this just collapses it to one number.
+func sumToolCounts(in []*prosav1.ToolUsage) int {
+	n := 0
+	for _, u := range in {
+		if u == nil {
+			continue
+		}
+		n += int(u.Count)
+	}
+	return n
+}
+
+// sessionDurationLabel renders the session length as humanDuration
+// expects it: "—" when either timestamp is missing, otherwise the
+// formatted gap.
+func sessionDurationLabel(s *prosav1.Session) string {
+	if s == nil || s.StartedAt == nil || s.LastActivityAt == nil {
+		return "—"
+	}
+	return humanDuration(s.LastActivityAt.AsTime().Sub(s.StartedAt.AsTime()))
+}
+
+// buildDisplayTurns converts the connect Turn slice into the panel's
+// render-ready render.Turn slice. Assistant content is rendered as
+// markdown; user and tool content is escaped plain text with newlines
+// preserved. ANSI escapes and control characters are stripped first
+// so terminal-leaked output stays readable.
+//
+// Returning fresh render.Turn structs means we never share the
+// connect response's protobuf pointers — concurrent requests don't
+// race on Content and the proto's embedded sync state stays untouched.
+func buildDisplayTurns(in []*prosav1.Turn) []render.Turn {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]render.Turn, 0, len(in))
+	for _, t := range in {
 		if t == nil {
 			continue
 		}
-		out[i] = &prosav1.Turn{
+		ts := time.Time{}
+		if t.Ts != nil {
+			ts = t.Ts.AsTime()
+		}
+		dt := render.Turn{
 			Role:     t.Role,
-			Content:  sessiontext.SanitizeForDisplay(t.Content),
-			Ts:       t.Ts,
 			Kind:     t.Kind,
 			ToolName: t.ToolName,
+			Ts:       ts,
 		}
+		switch t.Role {
+		case "assistant":
+			dt.Body = render.Markdown(sessiontext.SanitizeForDisplay(t.Content))
+		case "user":
+			// Boilerplate (system-reminders, slash command wrappers,
+			// env_context, …) gets peeled off so the bubble body shows
+			// just the human-authored prompt; the wrappers attach as
+			// UserExtras for the template to surface as chips/details.
+			parsed := sessiontext.ParseUserMessage(t.Content)
+			dt.Body = render.PlainText(parsed.Body)
+			dt.UserExtras = userExtrasFromParsed(parsed)
+		default:
+			dt.Body = render.PlainText(sessiontext.SanitizeForDisplay(t.Content))
+		}
+		out = append(out, dt)
 	}
 	return out
+}
+
+// userExtrasFromParsed lifts the wrapper-derived fields out of a
+// sessiontext.UserMessage into render.UserExtras. Returns nil when
+// the message had no boilerplate — the template uses that to skip
+// the chip/details rendering entirely.
+func userExtrasFromParsed(p sessiontext.UserMessage) *render.UserExtras {
+	if !p.HasExtras() {
+		return nil
+	}
+	return &render.UserExtras{
+		Command:                 p.Command,
+		CommandArgs:             p.CommandArgs,
+		CommandMessage:          p.CommandMessage,
+		Reminders:               p.Reminders,
+		EnvContext:              p.EnvContext,
+		Instructions:            p.Instructions,
+		CollaborationMode:       p.CollaborationMode,
+		PermissionsInstructions: p.PermissionsInstructions,
+		LocalCommandCaveat:      p.LocalCommandCaveat,
+		LocalCommandStdout:      p.LocalCommandStdout,
+		LocalCommandStderr:      p.LocalCommandStderr,
+	}
 }
 
 // isBinaryChunk reports whether b looks like binary content unfit for a
@@ -324,6 +418,14 @@ func groupByDay(in []*prosav1.Session, loc *time.Location) []dayGroup {
 		out = append(out, dayGroup{Label: humanDay(t, now), Sessions: buckets[k]})
 	}
 	return out
+}
+
+// humanDuration is a panel-side wrapper around render.HumanDuration —
+// kept for backwards-compat with existing call sites in this file.
+// The canonical implementation lives in internal/panel/render so the
+// transcript divider can share the format with the stats cluster.
+func humanDuration(d time.Duration) string {
+	return render.HumanDuration(d)
 }
 
 func humanDay(t, now time.Time) string {
