@@ -53,9 +53,13 @@ func (h *SessionsHandler) Push(ctx context.Context, req *connect.Request[prosav1
 	// impersonate another device by setting a different value on the
 	// wire.
 	sess.DeviceId = deviceID
-	if !protoHasTokenUsage(sess.Usage) {
-		return connect.NewResponse(&prosav1.PushResponse{Skipped: true}), nil
-	}
+
+	// Sessions with no token usage signal (e.g. cursor by design or
+	// pre-token_count codex transcripts) intentionally arrive with
+	// sess.Usage == nil. The client already classified them as
+	// admissible (UsageStateUnknown); the server stores the row and
+	// `replaceSessionUsage` below correctly omits a session_usage entry.
+	// No early-return here.
 
 	// Idempotency short-circuit: same hash as what sync_state already has.
 	var (
@@ -637,20 +641,6 @@ func extForAgent(agent string) string {
 		return ".db"
 	}
 	return ".bin"
-}
-
-func protoHasTokenUsage(u *prosav1.TokenUsage) bool {
-	if u == nil {
-		return false
-	}
-	return session.HasTokenUsage(&session.TokenUsage{
-		TotalTokens:         u.TotalTokens,
-		InputTokens:         u.InputTokens,
-		OutputTokens:        u.OutputTokens,
-		CachedTokens:        u.CachedTokens,
-		CacheReadTokens:     u.CacheReadTokens,
-		CacheCreationTokens: u.CacheCreationTokens,
-	})
 }
 
 // upsertSession writes the session row, replacing every field on conflict.
