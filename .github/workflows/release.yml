@@ -46,11 +46,17 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
 
+      # package-manager-cache: false skips the pnpm-cache save step
+      # that fails on this job with "Path Validation Error: Path(s)
+      # specified in the action for caching do(es) not exist". We
+      # don't run `pnpm install` here so the cache directory never
+      # materializes; the publish step uses `npm publish` directly.
       - name: Set up Node.js for npm publish
         uses: actions/setup-node@v5
         with:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
 
       - name: Publish npm packages
         run: ./scripts/publish-npm.sh
