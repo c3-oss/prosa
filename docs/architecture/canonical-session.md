@@ -27,7 +27,7 @@ stays excluded.
 
 ## Projection version
 
-`session.ProjectionVersion = 5`. The server's push handler compares
+`session.ProjectionVersion = 6`. The server's push handler compares
 `projection_version >= session.ProjectionVersion` before short-
 circuiting, so bumping this constant forces existing sessions to be
 re-projected on the next push from any client — no schema migration
@@ -40,16 +40,30 @@ needed for downstream consumers.
 | 3 | `turn.kind` / `turn.tool_name`, sessiontext-cleaned `FirstPrompt` |
 | 4 | importer-level no-usage filtering; Claude Code `<synthetic>` model exclusion |
 | 5 | ANSI/control-char strip in `FirstPrompt` + recognize `<local-command-stdout/stderr>`; cursor/gemini/hermes routed through `sessiontext` |
+| 6 | tri-state usage classification — admit sessions whose transcript carries no usage event at all (Unknown); only skip when a usage event was observed with explicit zero totals (ExplicitZero) |
 
 ## Import eligibility
 
-Importers persist only sessions with measured token usage. A session is
-eligible when its projected `session.TokenUsage` has at least one positive
-token field. Files with no usage signal return `Skipped` with reason
-`no_usage`; they are not upserted, their turns/tool counts are not written,
-and their raw source is not copied. Local stores remember these policy
-skips by `(session_id, reason, hash)` so unchanged no-usage files can be
-skipped without re-parsing on later runs.
+Each importer's parser returns a `session.UsageState` alongside the
+projected session:
+
+| State | Meaning | Importer decision |
+|---|---|---|
+| `UsageStatePresent` | parser observed at least one usage event with positive totals | admit; `sess.Usage` is set |
+| `UsageStateUnknown` | parser never observed a usage event (cursor by design, older codex pre-`token_count`, partial sessions) | admit; `sess.Usage` stays `nil`; no `session_usage` row written |
+| `UsageStateExplicitZero` | parser observed at least one usage event whose totals were all zero | skip with reason `no_usage`; session is not upserted and its raw source is not copied |
+
+The skip semantics for `UsageStateExplicitZero` mirror the v4/v5 behaviour:
+local stores remember policy skips by `(session_id, reason, hash)` so
+unchanged explicit-zero files are skipped without re-parsing on later
+runs. The v6 bump invalidates pre-existing skip records so transcripts
+that v4/v5 incorrectly dropped (cursor, pre-`token_count` codex) are
+re-classified on the next sync.
+
+Pass `prosa sync --overwrite` to bypass both the hash idempotency
+short-circuit and the no_usage skip cache; every discovered file is
+re-parsed and re-upserted, and every local session is re-pushed to the
+remote even when the manifests already agree.
 
 ## Claude Code
 

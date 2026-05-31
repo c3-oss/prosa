@@ -192,10 +192,12 @@ done
   number of such items per name within the session.
 - **Token usage is not recoverable from `store.db`.** Cursor stores
   message bodies and tool calls but never per-message token counts. The
-  importer marks such sessions as `no_usage` and the panel's
-  `/analytics/usage` view filters every agent with zero total tokens —
-  so Cursor sessions are visible in sessions/projects/heatmap/tools but
-  intentionally absent from the cost panel.
+  parser therefore always reports `session.UsageStateUnknown`; the
+  importer admits the session and stores it without a `session_usage`
+  row. Cursor sessions appear in sessions/projects/heatmap/tools and
+  the panel's `/analytics/usage` view filters them out via
+  `session_usage IS NULL`, so they are intentionally absent from the
+  cost panel.
 - `WAL`/`SHM` siblings are not copied into the prosa raw tree —
   recovery semantics for `store.db` are not part of the prosa
   contract. The single `.db` is enough for the projection.

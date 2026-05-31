@@ -41,8 +41,10 @@ type SkipCache interface {
 - **`Walk(ctx, root)`** — find candidate session files under `root`,
   returning their absolute paths. Walk is allowed to filter (e.g. skip
   files with the wrong extension or in the wrong subdirectory).
-- **`Import(ctx, jsonlPath, sink)`** — open the file, hash it, decide
-  whether to no-op, parse it, and write into the sink.
+- **`Import(ctx, jsonlPath, sink, opts)`** — open the file, hash it,
+  decide whether to no-op, parse it, classify its usage, and write into
+  the sink. `opts.Overwrite` bypasses the idempotency short-circuit and
+  the no_usage skip cache (used by `prosa sync --overwrite`).
 
 The `Sink` is implemented by `internal/store` (locally) and by an in-memory
 fake for tests. Importers never know about SQLite, Postgres, or the server.
@@ -54,15 +56,26 @@ not create a session row.
 An importer must:
 
 1. Compute `sha256(raw)` before doing any parse work.
-2. Ask `sink.LastHash(ctx, sessionID)`. If the result equals the current
-   hash, return immediately with a no-op `ImportResult`.
-3. Ask `SkipCache` whether this same `(session_id, reason, hash)` was
-   previously policy-skipped. Today the only policy reason is `no_usage`.
-4. If different, parse the file. If the projected session has no measured
-   token usage, record a `no_usage` policy skip and return without writing
-   the session, turns, tools, raw copy, or sync hash.
-5. Otherwise upsert, write turns, write tool usage, and finally call
+2. **When `opts.Overwrite` is false:** ask `sink.LastHash(ctx, sessionID)`.
+   If the result equals the current hash, return immediately with a no-op
+   `ImportResult`.
+3. **When `opts.Overwrite` is false:** ask `SkipCache` whether this same
+   `(session_id, reason, hash)` was previously policy-skipped. Today the
+   only policy reason is `no_usage`.
+4. Parse the file and obtain a `session.UsageState` from the parser. Call
+   `importpolicy.ClassifyForImport(state)`:
+   - `DecisionSkipNoUsage` (state is `UsageStateExplicitZero`, i.e. the
+     parser observed a usage event whose totals were all zero) → record a
+     `no_usage` policy skip and return without writing the session, turns,
+     tools, raw copy, or sync hash.
+   - `DecisionAdmit` (state is `UsageStatePresent` or `UsageStateUnknown`)
+     → continue.
+5. Upsert, write turns, write tool usage, and finally call
    `sink.RecordSync` with the new hash.
+
+Steps 2 and 3 are the only ones bypassed by `--overwrite`; step 4's
+classification still applies because we only want to keep sessions whose
+authors meant for them to be tracked.
 
 There is **no per-turn incremental sync**. A new hash always means "full
 re-import of this session." Hashing the whole file is fast enough; this
