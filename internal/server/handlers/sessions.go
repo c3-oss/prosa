@@ -53,6 +53,9 @@ func (h *SessionsHandler) Push(ctx context.Context, req *connect.Request[prosav1
 	// impersonate another device by setting a different value on the
 	// wire.
 	sess.DeviceId = deviceID
+	if !protoHasTokenUsage(sess.Usage) {
+		return connect.NewResponse(&prosav1.PushResponse{Skipped: true}), nil
+	}
 
 	// Idempotency short-circuit: same hash as what sync_state already has.
 	var (
@@ -163,7 +166,13 @@ func (h *SessionsHandler) List(ctx context.Context, req *connect.Request[prosav1
 		addEq("agent", req.Msg.Agent)
 	}
 	join := ""
-	if req.Msg.DeviceName != "" {
+	switch {
+	case len(req.Msg.DeviceNames) > 0:
+		join = " JOIN devices d ON d.id = s.device_id"
+		conds = append(conds, fmt.Sprintf("d.friendly_name = ANY($%d)", idx))
+		args = append(args, req.Msg.DeviceNames)
+		idx++
+	case req.Msg.DeviceName != "":
 		join = " JOIN devices d ON d.id = s.device_id"
 		conds = append(conds, fmt.Sprintf("d.friendly_name = $%d", idx))
 		args = append(args, req.Msg.DeviceName)
@@ -294,7 +303,13 @@ func (h *SessionsHandler) Search(ctx context.Context, req *connect.Request[prosa
 		addEq("agent", req.Msg.Agent)
 	}
 	join := ""
-	if req.Msg.DeviceName != "" {
+	switch {
+	case len(req.Msg.DeviceNames) > 0:
+		join = " JOIN devices d ON d.id = s.device_id"
+		conds = append(conds, fmt.Sprintf("d.friendly_name = ANY($%d)", idx))
+		args = append(args, req.Msg.DeviceNames)
+		idx++
+	case req.Msg.DeviceName != "":
 		join = " JOIN devices d ON d.id = s.device_id"
 		conds = append(conds, fmt.Sprintf("d.friendly_name = $%d", idx))
 		args = append(args, req.Msg.DeviceName)
@@ -622,6 +637,20 @@ func extForAgent(agent string) string {
 		return ".db"
 	}
 	return ".bin"
+}
+
+func protoHasTokenUsage(u *prosav1.TokenUsage) bool {
+	if u == nil {
+		return false
+	}
+	return session.HasTokenUsage(&session.TokenUsage{
+		TotalTokens:         u.TotalTokens,
+		InputTokens:         u.InputTokens,
+		OutputTokens:        u.OutputTokens,
+		CachedTokens:        u.CachedTokens,
+		CacheReadTokens:     u.CacheReadTokens,
+		CacheCreationTokens: u.CacheCreationTokens,
+	})
 }
 
 // upsertSession writes the session row, replacing every field on conflict.

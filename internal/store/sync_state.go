@@ -48,3 +48,41 @@ func (s *Store) RecordSync(ctx context.Context, sessionID, hash string) error {
 	`, sessionID, hash, formatTime(time.Now()), session.ProjectionVersion)
 	return err
 }
+
+// LastImportSkip returns a remembered policy skip hash, if it is still valid
+// for the current projection version.
+func (s *Store) LastImportSkip(ctx context.Context, sessionID, reason string) (string, bool, error) {
+	var (
+		hash              string
+		projectionVersion int
+	)
+	err := s.db.QueryRowContext(
+		ctx,
+		`SELECT last_hash, projection_version FROM import_skips WHERE session_id = ? AND reason = ?`,
+		sessionID, reason,
+	).Scan(&hash, &projectionVersion)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	if projectionVersion < session.ProjectionVersion {
+		return hash, false, nil
+	}
+	return hash, true, nil
+}
+
+// RecordImportSkip remembers that a source file was parsed and intentionally
+// not projected into sessions.
+func (s *Store) RecordImportSkip(ctx context.Context, sessionID, hash, reason string) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO import_skips (session_id, reason, last_hash, skipped_at, projection_version)
+		VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(session_id, reason) DO UPDATE SET
+			last_hash          = excluded.last_hash,
+			skipped_at         = excluded.skipped_at,
+			projection_version = excluded.projection_version
+	`, sessionID, reason, hash, formatTime(time.Now()), session.ProjectionVersion)
+	return err
+}

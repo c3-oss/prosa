@@ -3,23 +3,13 @@
 The high-level direction lives in [`INTENT.md`](INTENT.md). This file is the
 short-horizon list — what is actively being worked on or queued next.
 
-prosa is still unstable; versions live in the `0.y.z` range. The next
-release is `0.11.0`.
+prosa is still unstable; versions live in the `0.y.z` range. The current
+release is `0.11.0`; the next patch will be cut as a follow-up.
 
-## Next: first real release (`v0.11.0`)
+## Next
 
-Bootstrap the external pieces and tag `v0.11.0`. Concretely:
-
-- Create the public `c3-oss/homebrew-prosa` tap repo (empty).
-- Generate `HOMEBREW_TAP_TOKEN` (classic PAT, `repo` scope on the tap) and
-  `NPM_TOKEN` (granular, scoped to the `@c3-oss` org).
-- Reserve the four platform package names on npm
-  (`@c3-oss/prosa-{darwin,linux}-{arm64,amd64}`) with a dummy `0.11.0` publish.
-- `git tag v0.11.0 && git push --tags` triggers the full pipeline
-  (see [`docs/distribution/release.md`](docs/distribution/release.md)).
-
-**Trade-off.** About thirty minutes of one-time manual setup before any
-channel works. It is the real fire test for the distribution pipeline.
+Nothing actively queued. The "After v0.11.0" list below is the open
+backlog — items move up here when they become real plans.
 
 ## After v0.11.0
 

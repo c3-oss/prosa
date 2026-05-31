@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -202,7 +203,7 @@ func runAnalyticsRemote(ctx context.Context, report string, w Window) error {
 	if err != nil {
 		return fmt.Errorf("analytics rpc: %s", rpc.ConnectError(err))
 	}
-	result := analyticsProtoResult(resp.Msg)
+	result := normalizeRemoteAnalyticsResult(report, analyticsProtoResult(resp.Msg))
 	if g.JSON {
 		return emitAnalyticsJSON(os.Stdout, result)
 	}
@@ -252,6 +253,52 @@ func analyticsProtoResult(resp *prosav1.GetReportResponse) store.AnalyticsResult
 		out.Rows = append(out.Rows, store.AnalyticsRow{Values: values})
 	}
 	return out
+}
+
+func normalizeRemoteAnalyticsResult(report string, result store.AnalyticsResult) store.AnalyticsResult {
+	if report != "heatmap" || !analyticsHeadersEqual(result.Headers, []string{"DATE", "AGENT", "SESSIONS"}) {
+		return result
+	}
+
+	out := store.AnalyticsResult{Headers: []string{"DATE", "SESSIONS"}}
+	order := make([]string, 0, len(result.Rows))
+	counts := map[string]int64{}
+	for _, row := range result.Rows {
+		if len(row.Values) < 3 {
+			continue
+		}
+		date := strings.TrimSpace(fmt.Sprint(row.Values[0]))
+		if date == "" {
+			continue
+		}
+		if _, ok := counts[date]; !ok {
+			order = append(order, date)
+		}
+		counts[date] += parseAnalyticsCount(row.Values[2])
+	}
+	for _, date := range order {
+		out.Rows = append(out.Rows, store.AnalyticsRow{
+			Values: []any{date, strconv.FormatInt(counts[date], 10)},
+		})
+	}
+	return out
+}
+
+func analyticsHeadersEqual(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func parseAnalyticsCount(v any) int64 {
+	n, _ := strconv.ParseInt(strings.TrimSpace(fmt.Sprint(v)), 10, 64)
+	return n
 }
 
 // emitAnalyticsJSON writes one JSON object per row, mapping each

@@ -190,30 +190,42 @@ func TestImportEnvelope(t *testing.T) {
 	require.True(t, res2.Skipped)
 }
 
-func TestImportLiveLogs(t *testing.T) {
+func TestParseLiveLogs(t *testing.T) {
+	ctx := context.Background()
+
+	root := filepath.Join(t.TempDir(), "gemini-root")
+	src := writeLiveFixture(t, root)
+
+	s, turns, tools, err := parseSession(ctx, src)
+	require.NoError(t, err)
+
+	require.Equal(t, fixtureLiveID, s.ID)
+	require.NotNil(t, s.FirstPrompt)
+	require.Equal(t, "Read the README", *s.FirstPrompt)
+	require.Equal(t, 2025, s.StartedAt.Year())
+	require.Equal(t, time.August, s.StartedAt.Month())
+
+	require.Len(t, turns, 2)
+	require.Equal(t, "Update CLAUDE.md", turns[1].Content)
+	require.Empty(t, tools)
+}
+
+func TestImportLiveLogsSkipsWithoutUsage(t *testing.T) {
 	ctx := context.Background()
 	t.Setenv("PROSA_HOME", filepath.Join(t.TempDir(), "prosa-home"))
 
 	root := filepath.Join(t.TempDir(), "gemini-root")
 	src := writeLiveFixture(t, root)
 	sink := newSink()
-	imp := New()
 
-	res, err := imp.Import(ctx, src, sink)
+	res, err := New().Import(ctx, src, sink)
 	require.NoError(t, err)
-	require.False(t, res.Skipped)
+	require.True(t, res.Skipped)
+	require.Equal(t, "no_usage", res.SkipReason)
 	require.Equal(t, fixtureLiveID, res.SessionID)
-
-	s := sink.sessions[fixtureLiveID]
-	require.Equal(t, Name, s.Agent)
-	require.NotNil(t, s.FirstPrompt)
-	require.Equal(t, "Read the README", *s.FirstPrompt)
-	require.Equal(t, 2025, s.StartedAt.Year())
-	require.Equal(t, time.August, s.StartedAt.Month())
-
-	turns := sink.turns[fixtureLiveID]
-	require.Len(t, turns, 2)
-	require.Equal(t, "Update CLAUDE.md", turns[1].Content)
+	require.Empty(t, sink.sessions)
+	require.Empty(t, sink.turns)
+	require.Empty(t, res.RawPath)
 }
 
 func TestWalkFindsBothShapes(t *testing.T) {
@@ -271,7 +283,11 @@ func TestImportEnvelopeSanitizesFirstPrompt(t *testing.T) {
 		"lastUpdated": "2026-03-01T10:05:00.000Z",
 		"messages": []map[string]any{
 			{"id": "u1", "timestamp": "2026-03-01T10:00:00.000Z", "type": "user", "content": dirtyText},
-			{"id": "g1", "timestamp": "2026-03-01T10:00:10.000Z", "type": "gemini", "model": "gemini-2.5-pro", "content": "ok"},
+			{
+				"id": "g1", "timestamp": "2026-03-01T10:00:10.000Z",
+				"type": "gemini", "model": "gemini-2.5-pro", "content": "ok",
+				"tokens": map[string]any{"input": int64(10), "output": int64(2), "total": int64(12)},
+			},
 		},
 	}
 	path := filepath.Join(dir, "session-2026-03-01T10-00-55aa66bb.json")

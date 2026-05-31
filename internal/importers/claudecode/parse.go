@@ -233,9 +233,11 @@ func parseSession(ctx context.Context, path string) (session.Session, []session.
 			}
 			if !modelSet {
 				if m := extractModel(r.Message); m != "" {
-					mm := m
-					sess.Model = &mm
-					modelSet = true
+					if !isSyntheticModel(m) {
+						mm := m
+						sess.Model = &mm
+						modelSet = true
+					}
 				}
 			}
 			collectToolUses(r.Message, toolCounts, toolUseIDToName)
@@ -388,6 +390,10 @@ func extractModel(msg json.RawMessage) string {
 		return ""
 	}
 	return m.Model
+}
+
+func isSyntheticModel(model string) bool {
+	return model == "<synthetic>"
 }
 
 func collectToolUses(msg json.RawMessage, counts map[string]int, idToName map[string]string) {

@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 
 	"github.com/c3-oss/prosa/internal/device"
+	"github.com/c3-oss/prosa/internal/importers/importpolicy"
 	"github.com/c3-oss/prosa/internal/projectid"
 	"github.com/c3-oss/prosa/pkg/importer"
 )
@@ -82,6 +83,11 @@ func (i *Importer) importJSONL(ctx context.Context, path string, sink importer.S
 			Skipped:   true,
 		}, nil
 	}
+	if res, ok, err := importpolicy.PreviouslySkippedNoUsage(ctx, sink, sessionID, hash, size); err != nil {
+		return importer.ImportResult{}, fmt.Errorf("read import skip %s: %w", sessionID, err)
+	} else if ok {
+		return res, nil
+	}
 
 	sess, turns, tools, err := parseJSONL(ctx, path)
 	if err != nil {
@@ -94,6 +100,9 @@ func (i *Importer) importJSONL(ctx context.Context, path string, sink importer.S
 	sess.DeviceID = device.IDOnce()
 	sess.RawHash = hash
 	sess.RawSize = size
+	if !importpolicy.HasUsage(sess) {
+		return importpolicy.RecordNoUsageSkip(ctx, sink, sessionID, hash, size)
+	}
 
 	rawPath, err := preserveRaw(path, sessionID, sess.StartedAt, ".jsonl")
 	if err != nil {
@@ -142,6 +151,11 @@ func (i *Importer) importSnapshot(ctx context.Context, path string, sink importe
 			Skipped:   true,
 		}, nil
 	}
+	if res, ok, err := importpolicy.PreviouslySkippedNoUsage(ctx, sink, sessionID, hash, size); err != nil {
+		return importer.ImportResult{}, fmt.Errorf("read import skip %s: %w", sessionID, err)
+	} else if ok {
+		return res, nil
+	}
 
 	sess, turns, tools, err := parseSnapshot(ctx, path)
 	if err != nil {
@@ -154,6 +168,9 @@ func (i *Importer) importSnapshot(ctx context.Context, path string, sink importe
 	sess.DeviceID = device.IDOnce()
 	sess.RawHash = hash
 	sess.RawSize = size
+	if !importpolicy.HasUsage(sess) {
+		return importpolicy.RecordNoUsageSkip(ctx, sink, sess.ID, hash, size)
+	}
 
 	rawPath, err := preserveRaw(path, sess.ID, sess.StartedAt, ".json")
 	if err != nil {
@@ -201,6 +218,11 @@ func (i *Importer) importStateDB(ctx context.Context, path string, sink importer
 			Skipped:   true,
 		}, nil
 	}
+	if res, ok, err := importpolicy.PreviouslySkippedNoUsage(ctx, sink, synthetic, hash, size); err != nil {
+		return importer.ImportResult{}, fmt.Errorf("read import skip %s: %w", synthetic, err)
+	} else if ok {
+		return res, nil
+	}
 
 	rows, err := readStateDBSessions(ctx, path)
 	if err != nil {
@@ -208,6 +230,8 @@ func (i *Importer) importStateDB(ctx context.Context, path string, sink importer
 	}
 
 	siblingDir := filepath.Join(filepath.Dir(path), "sessions")
+	imported := 0
+	noUsageSkipped := 0
 	for _, row := range rows {
 		if err := ctx.Err(); err != nil {
 			return importer.ImportResult{}, err
@@ -218,6 +242,13 @@ func (i *Importer) importStateDB(ctx context.Context, path string, sink importer
 		sess, turns, tools, err := projectStateDBSession(ctx, path, row)
 		if err != nil {
 			return importer.ImportResult{}, fmt.Errorf("project session %s: %w", row.id, err)
+		}
+		if !importpolicy.HasUsage(sess) {
+			if _, err := importpolicy.RecordNoUsageSkip(ctx, sink, row.id, hash, size); err != nil {
+				return importer.ImportResult{}, fmt.Errorf("record import skip %s: %w", row.id, err)
+			}
+			noUsageSkipped++
+			continue
 		}
 		sess.Agent = Name
 		sess.DeviceID = device.IDOnce()
@@ -240,10 +271,14 @@ func (i *Importer) importStateDB(ctx context.Context, path string, sink importer
 		if err := sink.RecordSync(ctx, row.id, hash); err != nil {
 			return importer.ImportResult{}, fmt.Errorf("record sync %s: %w", row.id, err)
 		}
+		imported++
 	}
 
 	if err := sink.RecordSync(ctx, synthetic, hash); err != nil {
 		return importer.ImportResult{}, fmt.Errorf("record sync %s: %w", synthetic, err)
+	}
+	if imported == 0 && noUsageSkipped > 0 {
+		return importpolicy.ImportSkippedNoUsageResult(synthetic, hash, size), nil
 	}
 
 	return importer.ImportResult{

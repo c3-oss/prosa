@@ -15,14 +15,15 @@
 # Env overrides:
 #   PROSA_VERSION   pin to a specific tag, e.g. v0.11.0; skips the GH API lookup
 #   INSTALL_DIR     where to drop the binaries (default ~/.local/bin)
-#   INSTALL_BINS    space-separated binaries to install
-#                     (default "prosa"; full set: "prosa prosa-server prosa-panel")
+#   INSTALL_BINS    space-separated binaries to install. When unset, the
+#                   script prompts on a tty (CLI / all / server / panel)
+#                   and falls back to "prosa" in non-interactive runs.
+#                   Full set: "prosa prosa-server prosa-panel".
 
 set -eu
 
 REPO="c3-oss/prosa"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
-INSTALL_BINS="${INSTALL_BINS:-prosa}"
 
 err() {
     printf '%s\n' "error: $*" >&2
@@ -83,8 +84,35 @@ sha256_verify() {
     fi
 }
 
+choose_bins() {
+    # INSTALL_BINS env wins (script mode, CI, repeat installs).
+    if [ -n "${INSTALL_BINS:-}" ]; then
+        return
+    fi
+    # No env and no controlling terminal → conservative default.
+    if [ ! -r /dev/tty ]; then
+        INSTALL_BINS="prosa"
+        return
+    fi
+    printf '\nprosa ships three binaries. Which would you like to install?\n' >&2
+    printf '  1) prosa             CLI only (default)\n' >&2
+    printf '  2) all three         prosa + prosa-server + prosa-panel\n' >&2
+    printf '  3) prosa-server      sync host only\n' >&2
+    printf '  4) prosa-panel       web UI host only\n' >&2
+    printf '\nChoice [1]: ' >&2
+    choice=""
+    read -r choice </dev/tty || choice=""
+    case "${choice:-1}" in
+        2) INSTALL_BINS="prosa prosa-server prosa-panel" ;;
+        3) INSTALL_BINS="prosa-server" ;;
+        4) INSTALL_BINS="prosa-panel" ;;
+        *) INSTALL_BINS="prosa" ;;
+    esac
+}
+
 main() {
     detect_platform
+    choose_bins
     resolve_version
     require_cmd curl tar
 

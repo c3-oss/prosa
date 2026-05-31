@@ -30,6 +30,10 @@ message GetReportRequest {
   string device_name = 7;
   string project_match = 8;
   string project_path = 9;
+  // device_names is the panel-side multi-select equivalent of
+  // device_name. When non-empty, the server matches any device whose
+  // friendly_name is in the list (device_name is ignored).
+  repeated string device_names = 10;
 }
 
 message GetReportResponse {

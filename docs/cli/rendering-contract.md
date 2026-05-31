@@ -297,6 +297,7 @@ Live:     imported N · skipped N · errors N
 Legacy:   imported N · skipped N · errors N (of N catalog rows)
 Push:     sent N · skipped N · errors N
 Catch-up: sent N · skipped N · errors N  (local L · remote R)
+Remote:   server unavailable at <server>; local import is saved. Run `prosa sync` again when it is back.
 ```
 
 `Legacy` only appears when `--legacy-bundle` was passed. `Push` and
@@ -304,6 +305,9 @@ Catch-up: sent N · skipped N · errors N  (local L · remote R)
 (i.e. when `~/.config/prosa/auth.json` exists). `Catch-up` is the
 manifest-driven reconcile that makes the remote converge to the local
 set; `Catch-up: sent 0` on a re-run is the new idempotency criterion.
+`Remote` appears only when that auth file exists but the server cannot
+be reached; it replaces raw transport warnings and does not make the
+local import fail.
 
 Plain sync uses structured logs plus the same factual summary. It must not use
 spinners, cursor movement, alternate screen, or ANSI escapes.

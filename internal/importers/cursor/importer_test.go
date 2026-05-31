@@ -140,27 +140,16 @@ CREATE TABLE meta  (key TEXT PRIMARY KEY, value TEXT);`)
 	return dbPath
 }
 
-func TestImportCursorStore(t *testing.T) {
+func TestParseCursorStore(t *testing.T) {
 	ctx := context.Background()
-	t.Setenv("PROSA_HOME", filepath.Join(t.TempDir(), "prosa-home"))
 
 	root := filepath.Join(t.TempDir(), "cursor-root")
 	src := buildFixtureStore(t, root)
 
-	sink := newSink()
-	imp := New()
-	res, err := imp.Import(ctx, src, sink)
+	s, turns, tools, err := parseSession(ctx, src)
 	require.NoError(t, err)
-	require.False(t, res.Skipped)
-	require.Equal(t, fixtureAgentID, res.SessionID)
-	require.NotEmpty(t, res.RawHash)
-	require.Greater(t, res.RawSize, int64(0))
-	require.FileExists(t, res.RawPath)
 
-	s := sink.sessions[fixtureAgentID]
-	require.Equal(t, Name, s.Agent)
-	require.NotEmpty(t, s.DeviceID)
-	require.NotEqual(t, "local", s.DeviceID)
+	require.Equal(t, fixtureAgentID, s.ID)
 	require.NotNil(t, s.FirstPrompt)
 	require.Equal(t, "explain quantum entanglement", *s.FirstPrompt)
 	require.NotNil(t, s.Model)
@@ -168,14 +157,12 @@ func TestImportCursorStore(t *testing.T) {
 	require.Equal(t, 2026, s.StartedAt.Year())
 	require.Equal(t, time.February, s.StartedAt.Month())
 
-	turns := sink.turns[fixtureAgentID]
 	require.Len(t, turns, 2) // u1 + a1 (text). a2 is tool-call only → no text → no turn.
 	require.Equal(t, "user", turns[0].Role)
 	require.Equal(t, "explain quantum entanglement", turns[0].Content)
 	require.Equal(t, "assistant", turns[1].Role)
 	require.Equal(t, "two particles share state", turns[1].Content)
 
-	tools := sink.tools[fixtureAgentID]
 	require.Len(t, tools, 2)
 	byName := map[string]int{}
 	for _, tl := range tools {
@@ -183,10 +170,24 @@ func TestImportCursorStore(t *testing.T) {
 	}
 	require.Equal(t, 2, byName["Read"])
 	require.Equal(t, 1, byName["Bash"])
+}
 
-	res2, err := imp.Import(ctx, src, sink)
+func TestImportCursorStoreSkipsWithoutUsage(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv("PROSA_HOME", filepath.Join(t.TempDir(), "prosa-home"))
+
+	root := filepath.Join(t.TempDir(), "cursor-root")
+	src := buildFixtureStore(t, root)
+	sink := newSink()
+
+	res, err := New().Import(ctx, src, sink)
 	require.NoError(t, err)
-	require.True(t, res2.Skipped)
+	require.True(t, res.Skipped)
+	require.Equal(t, "no_usage", res.SkipReason)
+	require.Equal(t, fixtureAgentID, res.SessionID)
+	require.Empty(t, sink.sessions)
+	require.Empty(t, sink.turns)
+	require.Empty(t, res.RawPath)
 }
 
 func TestWalkFindsStoreDb(t *testing.T) {
@@ -212,9 +213,11 @@ func TestWalkMissingRootReturnsEmpty(t *testing.T) {
 // blobs carrying ANSI escape codes (e.g. captured shell output) and/or
 // <local-command-stdout>…</local-command-stdout> wrappers leaked into
 // FirstPrompt as garbled bytes. The sessiontext pipeline strips both.
+// Calls parseSession directly because Cursor's store.db never carries
+// per-message token usage so the importer's no-usage policy would
+// otherwise skip the session before FirstPrompt got written.
 func TestImportCursorSanitizesFirstPrompt(t *testing.T) {
 	ctx := context.Background()
-	t.Setenv("PROSA_HOME", filepath.Join(t.TempDir(), "prosa-home"))
 
 	root := filepath.Join(t.TempDir(), "cursor-root-dirty")
 	const dirtyAgentID = "cc11dd22-1111-2222-3333-444455556666"
@@ -247,15 +250,8 @@ CREATE TABLE meta  (key TEXT PRIMARY KEY, value TEXT);`)
 	require.NoError(t, err)
 	require.NoError(t, db.Close())
 
-	imp := New()
-	res, err := imp.Import(ctx, dbPath, newSink())
+	s, _, _, err := parseSession(ctx, dbPath)
 	require.NoError(t, err)
-	require.False(t, res.Skipped)
-
-	sink := newSink()
-	_, err = imp.Import(ctx, dbPath, sink)
-	require.NoError(t, err)
-	s := sink.sessions[dirtyAgentID]
 	require.NotNil(t, s.FirstPrompt)
 	require.Equal(t, "now refactor the sync logic", *s.FirstPrompt,
 		"FirstPrompt should drop the local-command-stdout wrapper and ANSI codes")

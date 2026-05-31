@@ -89,7 +89,13 @@ A collapsible chip row between Today and Recent. Component documented in
 [ 7d ▾ ]   [ all agents ▾ ]   [ all devices ▾ ]   [ all projects ▾ ]
 ```
 
-Clicking the chip opens the Alpine-managed dropdown; the selection
+The device chip is a **multi-select dropdown** rendered with vanilla JS
+(no Alpine): clicking the button opens a checkbox list of every
+authorized device. Multiple selections submit as repeated `device=` query
+params and the server matches with `friendly_name = ANY(...)`. The chip
+label collapses to "N devices" when more than one is checked.
+
+Clicking the chip opens the dropdown; the selection
 triggers an `hx-get` that swaps the Recent block alone (not the full
 page).
 
@@ -259,7 +265,10 @@ Tue ░ ░ ░ ▒ ▓
 - Cells 16 × 16 px, gap 2 px;
 - Color scale uses `--accent` mixed with panel surface tokens by count;
 - Grid flows by week with 7 day rows;
-- Cell hover: `<title>` "2026-05-23: 5 sessions";
+- Cell hover: a floating popup ("heatmap-tip") shows the date, total
+  session count, and a per-agent breakdown (descending by count). Cells
+  also expose `aria-label="<date>: N sessions"` for assistive tech and
+  remain keyboard-focusable;
 - Discreet legend in the corner: scale gradient + "less / more".
 
 Optional auxiliary table: daily totals across the selected window.
@@ -286,8 +295,10 @@ Devices
 - Approval form in a top card, padding 32 px;
 - Table with row height 48 px, light dividers;
 - State in color: `--ok` for active, `--text-3` for revoked;
-- "edit" opens an inline input for renaming (POST-Redirect-GET, no HTMX
-  for now);
+- The Friendly column shows the device name as static text plus an
+  "Edit" button. Clicking Edit reveals the rename input + Save (and a
+  Cancel button); the form posts to `/devices/<id>/rename`
+  (POST-Redirect-GET, no HTMX). Esc inside the input cancels;
 - Flash messages in a subtle banner above the table when arriving from
   a redirect.
 

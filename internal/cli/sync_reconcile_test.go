@@ -1,10 +1,12 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -26,11 +28,13 @@ type fakeSessionsClient struct {
 	manifestPages map[string]*prosav1.ManifestResponse
 	manifestErr   error
 	pushed        []*prosav1.PushRequest
+	pushCalls     int
 	pushErr       error
 	pushSkippedID map[string]bool // sessions for which Push returns Skipped=true
 }
 
 func (f *fakeSessionsClient) Push(_ context.Context, req *connect.Request[prosav1.PushRequest]) (*connect.Response[prosav1.PushResponse], error) {
+	f.pushCalls++
 	if f.pushErr != nil {
 		return nil, f.pushErr
 	}
@@ -100,7 +104,7 @@ func newReconcileFixture(t *testing.T, deviceID string) *reconcileFixture {
 		dir:    dir,
 		store:  s,
 		fake:   fake,
-		pusher: &pusher{client: fake, store: s},
+		pusher: &pusher{client: fake, store: s, server: "http://localhost:7070"},
 	}
 }
 
@@ -119,6 +123,7 @@ func (f *reconcileFixture) addSession(t *testing.T, ctx context.Context, deviceI
 		RawPath:        rawPath,
 		RawHash:        "h-" + id,
 		RawSize:        int64(len("raw-" + id)),
+		Usage:          &session.TokenUsage{TotalTokens: 1},
 	}
 	require.NoError(t, f.store.UpsertSession(ctx, sess, nil))
 }
@@ -136,6 +141,7 @@ func (f *reconcileFixture) addSessionMissingRaw(t *testing.T, ctx context.Contex
 		RawPath:        filepath.Join(f.dir, "ghost", id+".jsonl"), // does not exist
 		RawHash:        "h-" + id,
 		RawSize:        0,
+		Usage:          &session.TokenUsage{TotalTokens: 1},
 	}
 	require.NoError(t, f.store.UpsertSession(ctx, sess, nil))
 }
@@ -267,6 +273,130 @@ func TestReconcileNilPusherNoOp(t *testing.T) {
 	require.Equal(t, reconcileCounts{}, counts)
 }
 
+func TestPushUnavailableStopsFurtherRemoteAttempts(t *testing.T) {
+	ctx := context.Background()
+	fx := newReconcileFixture(t, "dev")
+	fx.addSession(t, ctx, "dev", "s1")
+	fx.addSession(t, ctx, "dev", "s2")
+	fx.fake.pushErr = connect.NewError(connect.CodeUnavailable, errors.New("connection refused"))
+
+	outcome, err := fx.pusher.pushSession(ctx, "s1")
+	require.NoError(t, err)
+	require.Equal(t, pushSkippedRemoteUnavailable, outcome)
+	require.True(t, fx.pusher.remoteUnavailable)
+	require.Equal(t, 1, fx.fake.pushCalls)
+
+	outcome, err = fx.pusher.pushSession(ctx, "s2")
+	require.NoError(t, err)
+	require.Equal(t, pushSkippedRemoteUnavailable, outcome)
+	require.Equal(t, 1, fx.fake.pushCalls)
+
+	var counts syncCounts
+	counts.recordPush(outcome, err)
+	require.Equal(t, 0, counts.pushErr)
+	require.Equal(t, 0, counts.pushImp)
+	require.Equal(t, 0, counts.pushSkip)
+}
+
+func TestPushSkipsSessionWithoutUsage(t *testing.T) {
+	ctx := context.Background()
+	fx := newReconcileFixture(t, "dev")
+	rawPath := filepath.Join(fx.dir, "s1.jsonl")
+	require.NoError(t, os.WriteFile(rawPath, []byte("raw-s1"), 0o644))
+	require.NoError(t, fx.store.UpsertSession(ctx, session.Session{
+		ID:             "s1",
+		Agent:          "claude-code",
+		DeviceID:       "dev",
+		StartedAt:      time.Now().UTC(),
+		LastActivityAt: time.Now().UTC(),
+		RawPath:        rawPath,
+		RawHash:        "h-s1",
+		RawSize:        int64(len("raw-s1")),
+	}, nil))
+
+	outcome, err := fx.pusher.pushSession(ctx, "s1")
+	require.NoError(t, err)
+	require.Equal(t, pushSkippedNoUsage, outcome)
+	require.Equal(t, 0, fx.fake.pushCalls)
+
+	var counts syncCounts
+	counts.recordPush(outcome, err)
+	require.Equal(t, 1, counts.pushSkip)
+}
+
+func TestReconcileCountsNoUsagePushAsSkipped(t *testing.T) {
+	ctx := context.Background()
+	fx := newReconcileFixture(t, "dev")
+	rawPath := filepath.Join(fx.dir, "s1.jsonl")
+	require.NoError(t, os.WriteFile(rawPath, []byte("raw-s1"), 0o644))
+	require.NoError(t, fx.store.UpsertSession(ctx, session.Session{
+		ID:             "s1",
+		Agent:          "claude-code",
+		DeviceID:       "dev",
+		StartedAt:      time.Now().UTC(),
+		LastActivityAt: time.Now().UTC(),
+		RawPath:        rawPath,
+		RawHash:        "h-s1",
+		RawSize:        int64(len("raw-s1")),
+	}, nil))
+	fx.fake.manifestPages[""] = &prosav1.ManifestResponse{}
+
+	counts, err := reconcileWithServer(ctx, fx.pusher, "dev", nil)
+	require.NoError(t, err)
+	require.Equal(t, 0, counts.sent)
+	require.Equal(t, 1, counts.skipped)
+	require.Equal(t, 0, counts.errs)
+	require.Equal(t, 0, fx.fake.pushCalls)
+}
+
+func TestReconcileUnavailableRecordsFriendlyRemoteState(t *testing.T) {
+	ctx := context.Background()
+	fx := newReconcileFixture(t, "dev")
+	fx.addSession(t, ctx, "dev", "s1")
+	fx.fake.manifestErr = connect.NewError(connect.CodeUnavailable, errors.New("connection refused"))
+
+	var counts syncCounts
+	runSyncReconcile(ctx, fx.pusher, "dev", &counts)
+
+	require.False(t, counts.reconcileRan)
+	require.True(t, counts.remoteUnavailable)
+	require.Equal(t, "http://localhost:7070", counts.remoteServer)
+	require.Equal(t, 0, counts.catchUpErr)
+}
+
+func TestReconcilePushUnavailableStopsCatchUp(t *testing.T) {
+	ctx := context.Background()
+	fx := newReconcileFixture(t, "dev")
+	fx.addSession(t, ctx, "dev", "s1")
+	fx.addSession(t, ctx, "dev", "s2")
+	fx.fake.manifestPages[""] = &prosav1.ManifestResponse{}
+	fx.fake.pushErr = connect.NewError(connect.CodeUnavailable, errors.New("connection refused"))
+
+	var counts syncCounts
+	runSyncReconcile(ctx, fx.pusher, "dev", &counts)
+
+	require.False(t, counts.reconcileRan)
+	require.True(t, counts.remoteUnavailable)
+	require.Equal(t, 1, fx.fake.pushCalls)
+	require.Equal(t, 0, counts.catchUpErr)
+}
+
+func TestSyncSummaryRendersFriendlyRemoteUnavailableMessage(t *testing.T) {
+	counts := &syncCounts{
+		pushEnabled:       true,
+		remoteUnavailable: true,
+		remoteServer:      "http://localhost:7070",
+	}
+
+	out := captureStdout(t, counts.printSummary)
+
+	require.Contains(t, out, "Remote:   server unavailable at http://localhost:7070")
+	require.Contains(t, out, "local import is saved")
+	require.NotContains(t, out, "manifest rpc")
+	require.NotContains(t, out, "connection refused")
+	require.NotContains(t, out, "reconcile failed")
+}
+
 func TestReconcileProgressCallback(t *testing.T) {
 	ctx := context.Background()
 	fx := newReconcileFixture(t, "dev")
@@ -281,4 +411,23 @@ func TestReconcileProgressCallback(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, []tick{{1, 2}, {2, 2}}, ticks)
+}
+
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	orig := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+	t.Cleanup(func() { os.Stdout = orig })
+
+	fn()
+	require.NoError(t, w.Close())
+	os.Stdout = orig
+
+	var buf bytes.Buffer
+	_, err = buf.ReadFrom(r)
+	require.NoError(t, err)
+	require.NoError(t, r.Close())
+	return strings.ReplaceAll(buf.String(), "\r\n", "\n")
 }

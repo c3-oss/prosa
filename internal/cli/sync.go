@@ -311,6 +311,8 @@ type syncCounts struct {
 	localTotal, remoteTotal              int
 	denoiseCleaned                       int
 	pushEnabled                          bool
+	remoteUnavailable                    bool
+	remoteServer                         string
 	reconcileRan                         bool
 	legacyTotal                          int
 	bundlePath                           string
@@ -361,6 +363,9 @@ func (sc *syncCounts) printSummary() {
 	if sc.denoiseCleaned > 0 {
 		fmt.Fprintf(os.Stdout, "Denoise:  cleaned %d prompts\n", sc.denoiseCleaned)
 	}
+	if sc.remoteUnavailable {
+		fmt.Fprintf(os.Stdout, "Remote:   %s\n", sc.remoteUnavailableText())
+	}
 	if sc.legacyTotal > 0 {
 		fmt.Fprintf(os.Stdout, "\n%s\n", sc.legacySummaryText())
 	}
@@ -389,6 +394,13 @@ func (sc *syncCounts) printSummaryTTY() {
 			render.StyleSuccess.Render("cleaned"),
 			sc.denoiseCleaned,
 			render.StyleMuted.Render("prompts"),
+		)
+	}
+	if sc.remoteUnavailable {
+		fmt.Fprintf(os.Stdout, "%s %s  %s\n",
+			render.StyleRail.Render("│"),
+			render.StyleHeader.Render("Remote"),
+			render.StyleMuted.Render(sc.remoteUnavailableText()),
 		)
 	}
 	if sc.legacyTotal > 0 {
@@ -554,9 +566,25 @@ func (sc *syncCounts) recordPush(outcome pushOutcome, err error) {
 	switch outcome {
 	case pushImported:
 		sc.pushImp++
-	case pushAlreadyHashed:
+	case pushAlreadyHashed, pushSkippedNoUsage:
 		sc.pushSkip++
 	case pushFailed:
 		sc.pushErr++
 	}
+}
+
+func (sc *syncCounts) recordRemoteUnavailable(push *pusher) {
+	if push == nil || !push.remoteUnavailable {
+		return
+	}
+	sc.remoteUnavailable = true
+	sc.remoteServer = push.server
+}
+
+func (sc *syncCounts) remoteUnavailableText() string {
+	server := sc.remoteServer
+	if server == "" {
+		server = "the configured server"
+	}
+	return fmt.Sprintf("server unavailable at %s; local import is saved. Run `prosa sync` again when it is back.", server)
 }

@@ -209,6 +209,17 @@ Denoise:  cleaned 12 prompts
 prosa-server; `Denoise` only appears when at least one session's
 `first_prompt` got rewritten in place.
 
+When the local import succeeds but the configured server is unavailable,
+`sync` stays local-first and ends with a single friendly remote status:
+
+```text
+prosa sync · complete
+
+Live:     imported 27 · skipped 1800 · errors 0
+Push:     sent 0 · skipped 0 · errors 0
+Remote:   server unavailable at http://localhost:7070; local import is saved. Run `prosa sync` again when it is back.
+```
+
 ## 6. `prosa sync` Plain/Script Mode
 
 Plain mode uses structured log lines on `stderr` plus a stable summary on
@@ -380,4 +391,3 @@ Fatal command error:
 ```text
 error: raw file missing: /Users/upsetbit/.local/share/prosa/raw/codex/2026/05/session.jsonl
 ```
-
