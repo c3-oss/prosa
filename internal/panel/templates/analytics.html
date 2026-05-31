@@ -1,16 +1,18 @@
 {{define "analytics"}}{{template "base" .}}{{end}}
 
 {{define "content"}}
-  <div class="chips">
-    {{$last := .Last}}
-    <a class="chip {{if eq $last "12h"}}active{{end}}" href="{{index .Windows "12h"}}">12h</a>
-    <a class="chip {{if or (eq $last "") (eq $last "7d")}}active{{end}}" href="{{index .Windows "7d"}}">7d</a>
-    <a class="chip {{if eq $last "30d"}}active{{end}}" href="{{index .Windows "30d"}}">30d</a>
-    <a class="chip {{if eq $last "365d"}}active{{end}}" href="{{index .Windows "365d"}}">1y</a>
-  </div>
+  {{if .Windows}}
+    <div class="chips">
+      {{$last := .Last}}
+      <a class="chip {{if eq $last "12h"}}active{{end}}" href="{{index .Windows "12h"}}">12h</a>
+      <a class="chip {{if or (eq $last "") (eq $last "7d")}}active{{end}}" href="{{index .Windows "7d"}}">7d</a>
+      <a class="chip {{if eq $last "30d"}}active{{end}}" href="{{index .Windows "30d"}}">30d</a>
+      <a class="chip {{if eq $last "365d"}}active{{end}}" href="{{index .Windows "365d"}}">1y</a>
+    </div>
+  {{end}}
 
   <form class="filter-bar" method="get">
-    <input type="hidden" name="last" value="{{if .Last}}{{.Last}}{{else}}7d{{end}}">
+    {{if .Last}}<input type="hidden" name="last" value="{{.Last}}">{{end}}
     <label>
       Agent
       <select name="agent">

@@ -199,6 +199,17 @@ func humanDay(t, now time.Time) string {
 	return t.Format("Mon, Jan 2 2006")
 }
 
+// heatmapWindow returns the fixed trailing-year window used by the
+// heatmap report: 53 weeks aligned to Sunday in UTC (52 prior weeks
+// plus the current one). Mirror of internal/cli/window.go HeatmapWindow.
+// Canonical spec: docs/panel/screens.md (heatmap).
+func heatmapWindow(now time.Time) (since, until time.Time) {
+	u := now.UTC()
+	today := time.Date(u.Year(), u.Month(), u.Day(), 0, 0, 0, 0, time.UTC)
+	startOfThisWeek := today.AddDate(0, 0, -int(today.Weekday()))
+	return startOfThisWeek.AddDate(0, 0, -52*7), u
+}
+
 // parseWindow turns "12h" / "7d" / "30d" (CLI vernacular) into a
 // duration. Default 7d.
 func parseWindow(s string) (time.Duration, error) {
@@ -374,14 +385,22 @@ func (p *Panel) handleAnalytics(w http.ResponseWriter, r *http.Request) {
 	if report == "" {
 		report = "sessions"
 	}
-	window, err := parseWindow(r.URL.Query().Get("last"))
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
 	now := time.Now().UTC()
+	var since, until time.Time
+	if report == "heatmap" {
+		// Heatmap has a fixed trailing-year window; ?last= is ignored
+		// and the window chips are hidden on this report.
+		since, until = heatmapWindow(now)
+	} else {
+		window, err := parseWindow(r.URL.Query().Get("last"))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		since, until = now.Add(-window), now
+	}
 	resp, err := p.clients.Analytics.GetReport(r.Context(),
-		connect.NewRequest(analyticsRequest(report, now.Add(-window), now, r.URL.Query())))
+		connect.NewRequest(analyticsRequest(report, since, until, r.URL.Query())))
 	if err != nil {
 		slog.Error("analytics rpc failed", "report", report, "err", err)
 		http.Error(w, err.Error(), http.StatusBadGateway)
@@ -391,14 +410,16 @@ func (p *Panel) handleAnalytics(w http.ResponseWriter, r *http.Request) {
 		"Title":   "Analytics — " + report,
 		"Nav":     "analytics-" + report,
 		"Report":  report,
-		"Last":    r.URL.Query().Get("last"),
 		"Project": r.URL.Query().Get("project"),
 		"Agent":   r.URL.Query().Get("agent"),
 		"Device":  r.URL.Query().Get("device"),
 		"Agents":  []string{"codex", "claude-code", "gemini", "hermes", "cursor"},
-		"Windows": analyticsWindowLinks(r.URL.Query()),
 		"Headers": resp.Msg.Headers,
 		"Rows":    resp.Msg.Rows,
+	}
+	if report != "heatmap" {
+		data["Last"] = r.URL.Query().Get("last")
+		data["Windows"] = analyticsWindowLinks(r.URL.Query())
 	}
 	if report == "heatmap" {
 		view := buildHeatmap(resp.Msg.Rows)
