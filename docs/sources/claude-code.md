@@ -282,6 +282,14 @@ What `loadTranscript` / `prosa v1 session show` surface for Claude Code sessions
   `WHEN kind != 'thinking'`; server `content_tsv` returns empty for
   thinking) so search results stay focused on chat content. The raw
   JSONL preserves every byte verbatim.
+- **Subagents projected (v8+)**: subagent JSONLs at
+  `<parent-uuid>/subagents/agent-<uuid>.jsonl` are now imported
+  alongside their parents (walker no longer skips the `subagents/`
+  directory; basename must match `agent-<uuid>.jsonl`). The parent
+  UUID is recovered from the directory two levels above the JSONL
+  and stored in `Session.ParentSessionID`. The panel renders the
+  Subagents disclosure on the parent's sidepanel; clicking a child
+  reopens the same sidepanel scoped to it.
 - **Summarized vs verbatim**: `tool_results.preview` is a short snapshot
   of the result text; the verbatim payload is reachable via
   `*_object_id`. Subagent-side artifacts cross-link to the parent assistant

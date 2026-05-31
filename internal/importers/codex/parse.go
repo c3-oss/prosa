@@ -62,8 +62,24 @@ type rawRecord struct {
 }
 
 type sessionMetaPayload struct {
-	ID  string `json:"id"`
-	CWD string `json:"cwd"`
+	ID     string             `json:"id"`
+	CWD    string             `json:"cwd"`
+	Source *sessionMetaSource `json:"source"`
+}
+
+// sessionMetaSource carries the optional subagent / spawn metadata
+// emitted by Codex when a session was started by another session
+// (its agent_tool, exec_command, etc.). Nil for top-level sessions.
+type sessionMetaSource struct {
+	Subagent *sessionMetaSubagent `json:"subagent"`
+}
+
+type sessionMetaSubagent struct {
+	ThreadSpawn *sessionMetaThreadSpawn `json:"thread_spawn"`
+}
+
+type sessionMetaThreadSpawn struct {
+	ParentThreadID string `json:"parent_thread_id"`
 }
 
 type turnContextPayload struct {
@@ -234,6 +250,13 @@ func parseSession(ctx context.Context, path string) (session.Session, []session.
 				cwd := p.CWD
 				sess.ProjectPath = &cwd
 				cwdSet = true
+			}
+			if sess.ParentSessionID == nil &&
+				p.Source != nil && p.Source.Subagent != nil &&
+				p.Source.Subagent.ThreadSpawn != nil &&
+				p.Source.Subagent.ThreadSpawn.ParentThreadID != "" {
+				parent := p.Source.Subagent.ThreadSpawn.ParentThreadID
+				sess.ParentSessionID = &parent
 			}
 
 		case r.Type == "turn_context" && len(r.Payload) > 0:

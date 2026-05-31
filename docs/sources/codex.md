@@ -234,8 +234,9 @@ metadata and tool-call summaries; the recipe above is for raw inspection.
   rather than inlining.
 - Subagents are stored as ordinary session files; their parent is in
   `session_meta.payload.source.subagent.thread_spawn.parent_thread_id`.
-  Project as a `sessions` row with `is_subagent=1` and a `spawned` edge
-  from the parent session.
+  v8+: the importer captures the parent into
+  `Session.ParentSessionID`. The panel's Subagents disclosure on the
+  parent's sidepanel lists every child by clicking-through.
 - There is no `sessions-index.json` analog under `~/.codex/sessions/`.
   Discovery is direct filesystem walk.
 - Some legacy records appear as `{"record_type":"state"}` without a

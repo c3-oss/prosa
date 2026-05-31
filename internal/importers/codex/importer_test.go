@@ -301,6 +301,69 @@ func TestImportLegacySession(t *testing.T) {
 	require.Equal(t, "legacy_tool", tools[0].Name)
 }
 
+// TestImportSetsParentSessionIDFromThreadSpawn confirms the importer
+// captures Codex's `session_meta.payload.source.subagent.thread_spawn.parent_thread_id`
+// into the canonical session's ParentSessionID. Sessions without the
+// payload stay parent-less so existing fixtures keep round-tripping.
+func TestImportSetsParentSessionIDFromThreadSpawn(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv("PROSA_HOME", filepath.Join(t.TempDir(), "prosa-home"))
+
+	root := filepath.Join(t.TempDir(), "codex-root")
+	base := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
+	dir := filepath.Join(root, base.Format("2006"), base.Format("01"), base.Format("02"))
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	path := filepath.Join(dir, codexFixtureFilename(base, fixtureSessionID))
+	parentThread := "11111111-2222-4333-8444-555555555555"
+	writeJSONL(t, path, []map[string]any{
+		{
+			"type":      "session_meta",
+			"timestamp": base.Format(time.RFC3339Nano),
+			"payload": map[string]any{
+				"id":  fixtureSessionID,
+				"cwd": "/proj",
+				"source": map[string]any{
+					"subagent": map[string]any{
+						"thread_spawn": map[string]any{
+							"parent_thread_id": parentThread,
+						},
+					},
+				},
+			},
+		},
+		{
+			"type":      "response_item",
+			"timestamp": base.Add(time.Second).Format(time.RFC3339Nano),
+			"payload": map[string]any{
+				"type": "message", "role": "user",
+				"content": []map[string]any{{"type": "input_text", "text": "go"}},
+			},
+		},
+		{
+			"type":      "event_msg",
+			"timestamp": base.Add(2 * time.Second).Format(time.RFC3339Nano),
+			"payload": map[string]any{
+				"type": "token_count",
+				"info": map[string]any{
+					"total_token_usage": map[string]any{
+						"input_tokens": 1, "output_tokens": 1, "total_tokens": 2,
+					},
+				},
+			},
+		},
+	})
+
+	sink := newSink()
+	res, err := New().Import(ctx, path, sink, importer.ImportOptions{})
+	require.NoError(t, err)
+	require.False(t, res.Skipped)
+
+	got := sink.sessions[fixtureSessionID]
+	require.NotNil(t, got.ParentSessionID,
+		"thread_spawn.parent_thread_id must populate ParentSessionID")
+	require.Equal(t, parentThread, *got.ParentSessionID)
+}
+
 // TestImportProjectsReasoningSummary verifies that a Codex reasoning
 // item with a `summary` payload lands as a KindThinking turn. Both
 // plain-string and block-list summary shapes are accepted; an empty

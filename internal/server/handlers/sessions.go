@@ -190,6 +190,7 @@ func (h *SessionsHandler) List(ctx context.Context, req *connect.Request[prosav1
 		SELECT s.id, s.agent, s.device_id, s.project_path, s.project_remote, s.project_marker,
 		       s.started_at, s.last_activity_at, s.first_prompt, s.model,
 		       s.raw_uri, s.raw_hash, s.raw_size,
+		       s.parent_session_id,
 		       su.session_id, su.total_tokens, su.input_tokens, su.output_tokens,
 		       su.cached_tokens, su.cache_read_tokens, su.cache_creation_tokens
 		FROM sessions s
@@ -229,9 +230,10 @@ func (h *SessionsHandler) Get(ctx context.Context, req *connect.Request[prosav1.
 		return nil, connect.NewError(connect.CodeInvalidArgument, missingFields("id"))
 	}
 	row := h.Pool.QueryRow(ctx, `
-		SELECT id, agent, device_id, project_path, project_remote, project_marker,
-		       started_at, last_activity_at, first_prompt, model,
-		       raw_uri, raw_hash, raw_size,
+		SELECT s.id, s.agent, s.device_id, s.project_path, s.project_remote, s.project_marker,
+		       s.started_at, s.last_activity_at, s.first_prompt, s.model,
+		       s.raw_uri, s.raw_hash, s.raw_size,
+		       s.parent_session_id,
 		       su.session_id, su.total_tokens, su.input_tokens, su.output_tokens,
 		       su.cached_tokens, su.cache_read_tokens, su.cache_creation_tokens
 		FROM sessions s
@@ -325,6 +327,7 @@ func (h *SessionsHandler) Search(ctx context.Context, req *connect.Request[prosa
 		       s.id, s.agent, s.device_id, s.project_path, s.project_remote, s.project_marker,
 		       s.started_at, s.last_activity_at, s.first_prompt, s.model,
 		       s.raw_uri, s.raw_hash, s.raw_size,
+		       s.parent_session_id,
 		       su.session_id, su.total_tokens, su.input_tokens, su.output_tokens,
 		       su.cached_tokens, su.cache_read_tokens, su.cache_creation_tokens,
 		       t.id, t.ts, t.role, t.kind, t.tool_name,
@@ -421,6 +424,57 @@ func (h *SessionsHandler) Manifest(ctx context.Context, req *connect.Request[pro
 	return connect.NewResponse(out), nil
 }
 
+// ListChildren returns every session whose parent_session_id matches
+// the request id, ordered started_at ASC so the panel can render them
+// in spawn order. Owner callers see all children; device callers only
+// see children belonging to their device (so cross-device leakage stays
+// closed even when a parent is shared across machines).
+func (h *SessionsHandler) ListChildren(ctx context.Context, req *connect.Request[prosav1.ListChildrenRequest]) (*connect.Response[prosav1.ListChildrenResponse], error) {
+	callerDevice, isDevice := auth.DeviceFromContext(ctx)
+	if !isDevice && !auth.IsOwner(ctx) {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing device or owner context"))
+	}
+	if req.Msg.ParentId == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, missingFields("parent_id"))
+	}
+
+	conds := []string{"s.parent_session_id = $1"}
+	args := []any{req.Msg.ParentId}
+	if isDevice && !auth.IsOwner(ctx) {
+		conds = append(conds, "s.device_id = $2")
+		args = append(args, callerDevice)
+	}
+
+	q := fmt.Sprintf(`
+		SELECT s.id, s.agent, s.device_id, s.project_path, s.project_remote, s.project_marker,
+		       s.started_at, s.last_activity_at, s.first_prompt, s.model,
+		       s.raw_uri, s.raw_hash, s.raw_size,
+		       s.parent_session_id,
+		       su.session_id, su.total_tokens, su.input_tokens, su.output_tokens,
+		       su.cached_tokens, su.cache_read_tokens, su.cache_creation_tokens
+		FROM sessions s
+		LEFT JOIN session_usage su ON su.session_id = s.id
+		WHERE %s
+		ORDER BY s.started_at ASC
+	`, joinAnd(conds))
+
+	rows, err := h.Pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	defer rows.Close()
+
+	out := &prosav1.ListChildrenResponse{}
+	for rows.Next() {
+		s, err := scanSessionRow(rows)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
+		out.Sessions = append(out.Sessions, s)
+	}
+	return connect.NewResponse(out), rows.Err()
+}
+
 func joinAnd(parts []string) string {
 	out := ""
 	for i, p := range parts {
@@ -442,6 +496,7 @@ func scanSessionRow(r scannable) (*prosav1.Session, error) {
 	var (
 		s                                                             prosav1.Session
 		projectPath, projectRemote, projectMarker, firstPrompt, model *string
+		parentSessionID                                               *string
 		usageSession                                                  *string
 		totalTokens, inputTokens, outputTokens                        *int64
 		cachedTokens, cacheReadTokens, cacheCreationTokens            *int64
@@ -453,6 +508,7 @@ func scanSessionRow(r scannable) (*prosav1.Session, error) {
 		&started, &lastAct,
 		&firstPrompt, &model,
 		&s.RawUri, &s.RawHash, &s.RawSize,
+		&parentSessionID,
 		&usageSession, &totalTokens, &inputTokens, &outputTokens,
 		&cachedTokens, &cacheReadTokens, &cacheCreationTokens,
 	); err != nil {
@@ -473,6 +529,9 @@ func scanSessionRow(r scannable) (*prosav1.Session, error) {
 	if model != nil {
 		s.Model = *model
 	}
+	if parentSessionID != nil {
+		s.ParentSessionId = *parentSessionID
+	}
 	s.StartedAt = timestamppb.New(started)
 	s.LastActivityAt = timestamppb.New(lastAct)
 	if usageSession != nil {
@@ -492,6 +551,7 @@ func scanSearchHit(r scannable) (*prosav1.SearchHit, error) {
 	var (
 		s                                                             prosav1.Session
 		projectPath, projectRemote, projectMarker, firstPrompt, model *string
+		parentSessionID                                               *string
 		usageSession                                                  *string
 		totalTokens, inputTokens, outputTokens                        *int64
 		cachedTokens, cacheReadTokens, cacheCreationTokens            *int64
@@ -507,12 +567,16 @@ func scanSearchHit(r scannable) (*prosav1.SearchHit, error) {
 		&started, &lastAct,
 		&firstPrompt, &model,
 		&s.RawUri, &s.RawHash, &s.RawSize,
+		&parentSessionID,
 		&usageSession, &totalTokens, &inputTokens, &outputTokens,
 		&cachedTokens, &cacheReadTokens, &cacheCreationTokens,
 		&turnID, &turnTS, &role, &kind, &toolName,
 		&snippet, &rank,
 	); err != nil {
 		return nil, err
+	}
+	if parentSessionID != nil {
+		s.ParentSessionId = *parentSessionID
 	}
 	if projectPath != nil {
 		s.ProjectPath = *projectPath
@@ -650,27 +714,28 @@ func upsertSession(ctx context.Context, tx pgx.Tx, s *prosav1.Session) error {
 		INSERT INTO sessions (
 			id, agent, device_id, project_path, project_remote, project_marker,
 			started_at, last_activity_at, first_prompt, model,
-			raw_uri, raw_hash, raw_size
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+			raw_uri, raw_hash, raw_size, parent_session_id
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 		ON CONFLICT (id) DO UPDATE SET
-			agent            = EXCLUDED.agent,
-			device_id        = EXCLUDED.device_id,
-			project_path     = EXCLUDED.project_path,
-			project_remote   = EXCLUDED.project_remote,
-			project_marker   = EXCLUDED.project_marker,
-			started_at       = EXCLUDED.started_at,
-			last_activity_at = EXCLUDED.last_activity_at,
-			first_prompt    = EXCLUDED.first_prompt,
-			model            = EXCLUDED.model,
-			raw_uri          = EXCLUDED.raw_uri,
-			raw_hash         = EXCLUDED.raw_hash,
-			raw_size         = EXCLUDED.raw_size
+			agent             = EXCLUDED.agent,
+			device_id         = EXCLUDED.device_id,
+			project_path      = EXCLUDED.project_path,
+			project_remote    = EXCLUDED.project_remote,
+			project_marker    = EXCLUDED.project_marker,
+			started_at        = EXCLUDED.started_at,
+			last_activity_at  = EXCLUDED.last_activity_at,
+			first_prompt      = EXCLUDED.first_prompt,
+			model             = EXCLUDED.model,
+			raw_uri           = EXCLUDED.raw_uri,
+			raw_hash          = EXCLUDED.raw_hash,
+			raw_size          = EXCLUDED.raw_size,
+			parent_session_id = EXCLUDED.parent_session_id
 	`,
 		s.Id, s.Agent, s.DeviceId,
 		nullIfEmpty(s.ProjectPath), nullIfEmpty(s.ProjectRemote), nullIfEmpty(s.ProjectMarker),
 		tsToTime(s.StartedAt), tsToTime(s.LastActivityAt),
 		nullIfEmpty(s.FirstPrompt), nullIfEmpty(s.Model),
-		s.RawUri, s.RawHash, s.RawSize,
+		s.RawUri, s.RawHash, s.RawSize, nullIfEmpty(s.ParentSessionId),
 	)
 	if err != nil {
 		return fmt.Errorf("upsert session %s: %w", s.Id, err)

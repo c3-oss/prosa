@@ -27,12 +27,15 @@ stays excluded.
 
 ## Projection version
 
-`session.ProjectionVersion = 7`. The server's push handler compares
+`session.ProjectionVersion = 8`. The server's push handler compares
 `projection_version >= session.ProjectionVersion` before short-
 circuiting, so bumping this constant forces existing sessions to be
-re-projected on the next push from any client. v7 also rewrites the
-FTS triggers (local) and the `content_tsv` generated column (server) —
-migrations `0007_thinking_excluded_from_fts` ship with the bump.
+re-projected on the next push from any client. Recent versions:
+v7 rewrites FTS triggers (local) and `content_tsv` (server) to
+exclude `kind='thinking'` (migrations `0007_thinking_excluded_from_fts`);
+v8 adds the `parent_session_id` column + index plus the
+`Sessions.ListChildren` RPC (migrations `0008_subagent_edges`) and
+starts walking Claude Code subagent JSONLs alongside parents.
 
 | Version | Brought |
 |---|---|
@@ -43,6 +46,7 @@ migrations `0007_thinking_excluded_from_fts` ship with the bump.
 | 5 | ANSI/control-char strip in `FirstPrompt` + recognize `<local-command-stdout/stderr>`; cursor/gemini/hermes routed through `sessiontext` |
 | 6 | tri-state usage classification — admit sessions whose transcript carries no usage event at all (Unknown); only skip when a usage event was observed with explicit zero totals (ExplicitZero) |
 | 7 | thinking blocks projected — Claude Code `content[].type=="thinking"` and Codex `response_item.type=="reasoning"` `.summary` land as `Turn{Role:"assistant", Kind:KindThinking, Content:<truncated to 4 KB>}`. FTS excludes `kind='thinking'` rows so search results stay focused on chat content. |
+| 8 | subagent edge captured — `Session.ParentSessionID` set when a transcript is a Claude Code subagent (under `<parent>/subagents/agent-<id>.jsonl`) or a Codex thread spawn (`session_meta.payload.source.subagent.thread_spawn.parent_thread_id`). Claude Code's walker now picks up subagent JSONLs alongside parents. New SQL column `parent_session_id` + index (migration `0008_subagent_edges`); new RPC `Sessions.ListChildren(parent_id)` powers the panel's Subagents disclosure. |
 
 ## Import eligibility
 

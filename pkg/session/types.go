@@ -66,6 +66,13 @@ type Session struct {
 	// available. Importers leave it nil when the raw transcript does not
 	// expose reliable usage counters.
 	Usage *TokenUsage
+
+	// ParentSessionID is set on subagent / spawned sessions. Claude
+	// Code: parent UUID is the directory above the `subagents/` folder
+	// that holds the child JSONL. Codex: parent is
+	// `session_meta.payload.source.subagent.thread_spawn.parent_thread_id`.
+	// nil for top-level sessions.
+	ParentSessionID *string
 }
 
 // ProjectionVersion identifies the current derived-data projection stored
@@ -90,7 +97,13 @@ type Session struct {
 //	    Turn{Role:"assistant", Kind:KindThinking, Content:<truncated>}
 //	    so the panel can render them as discrete collapsible blocks.
 //	    Excluded from FTS (search results stay focused on chat content).
-const ProjectionVersion = 7
+//	v8: subagent edge captured — Session.ParentSessionID set when a
+//	    transcript is a Claude Code subagent (under
+//	    `<parent>/subagents/agent-<id>.jsonl`) or a Codex thread spawn
+//	    (`session_meta.payload.source.subagent.thread_spawn.parent_thread_id`).
+//	    Walked top-down so subagent JSONLs are now imported alongside
+//	    their parents.
+const ProjectionVersion = 8
 
 // Turn kind constants. Empty Kind is treated as KindMessage so older rows
 // and zero-value test fixtures keep working without backfill.

@@ -272,6 +272,13 @@ func parseSession(ctx context.Context, path string) (session.Session, []session.
 	if usage := buildClaudeUsage(usageByKey); usage != nil {
 		sess.Usage = usage
 	}
+	// Subagent sessions live under `<parent-uuid>/subagents/agent-<uuid>.jsonl`;
+	// the parent UUID is recoverable from the path two levels up so the
+	// renderer can walk parent → child without inspecting raw JSONL.
+	if parent := parentSessionIDFromPath(path); parent != "" {
+		p := parent
+		sess.ParentSessionID = &p
+	}
 	// Any populated usageByKey entry means we observed at least one
 	// assistant.message.usage block — even if every field came back
 	// zero. That distinguishes a transcript with explicit-zero usage

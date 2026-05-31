@@ -540,6 +540,38 @@ Lives in `internal/panel/assets/css/components/tool-group.css`.
 
 ---
 
+## Subagents (sidepanel)
+
+Surfaces children of the current session. Populated when
+`Sessions.ListChildren(parent_id)` returns ≥1 row — Claude Code's
+subagent JSONLs and Codex `thread_spawn` children both feed it.
+
+```
+SUBAGENTS · 3
+┌──────────────────────────────────────────────┐
+│ claude-code                       09:18:22   │
+│ refactor sync module to use channels         │
+└──────────────────────────────────────────────┘
+┌──────────────────────────────────────────────┐
+│ claude-code                       09:19:01   │
+│ write tests for the new channel-based sync   │
+└──────────────────────────────────────────────┘
+```
+
+- Each card is an `<a>` with `hx-get="/sessions/<child-id>"` +
+  `hx-target="#side-panel"` + `hx-push-url="?session=<child-id>"`,
+  so clicking it HTMX-swaps the sidepanel to the child without
+  losing the URL state.
+- The link has an `href` fallback (the same `?session=<id>` URL)
+  for keyboard users and browsers that lose HTMX mid-flight.
+- Visual: `--bg-elev-1` surface with `--divider` border; hover
+  lifts to `--bg-elev-2` and borders to `--accent-soft`. First
+  prompt clamped to 2 lines with `-webkit-line-clamp`.
+
+Lives in `internal/panel/assets/css/components/subagents.css`.
+
+---
+
 ## Thinking block (sidepanel)
 
 Coalesced run of `Kind="thinking"` turns from the canonical session.

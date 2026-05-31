@@ -142,6 +142,14 @@ Component CSS landed so far (under `css/components/`):
 - `sidepanel.css` — sticky header, stats cluster, metadata grid (F1).
 - `bubbles.css` — chat-style user/assistant/tool bubbles + assistant
   prose styles for markdown nodes (F2).
+- `tool-group.css` — collapsible Alpine wrapper around runs of
+  `Role="tool"` turns (F3).
+- `user-bubble.css` — slash command chip + disclosure blocks for the
+  XML wrappers `sessiontext.ParseUserMessage` peels off (F4).
+- `thinking.css` — discreet dashed-rule card for coalesced thinking
+  runs (F5).
+- `subagents.css` — list of child sessions on the parent's sidepanel,
+  HTMX-swappable to drill down (F7).
 
 Planned next (sidepanel redesign):
 

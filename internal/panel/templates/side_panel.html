@@ -164,6 +164,30 @@
       <p class="empty">no transcript available</p>
     {{end}}
 
+    {{if .Children}}
+      <section class="subagents" aria-label="subagents">
+        <h3 class="panel-section-title">Subagents · {{len .Children}}</h3>
+        <ul class="subagent-list">
+          {{range .Children}}
+            <li class="subagent-item">
+              <a class="subagent-link"
+                 href="?session={{.Id}}"
+                 hx-get="/sessions/{{.Id}}"
+                 hx-target="#side-panel"
+                 hx-push-url="?session={{.Id}}"
+                 hx-swap="innerHTML">
+                <div class="subagent-meta">
+                  <span class="subagent-agent">{{.Agent}}</span>
+                  {{if .StartedAt}}<time class="subagent-time">{{(.StartedAt.AsTime).Format "15:04:05"}}</time>{{end}}
+                </div>
+                <div class="subagent-prompt">{{or .FirstPrompt "(no prompt)"}}</div>
+              </a>
+            </li>
+          {{end}}
+        </ul>
+      </section>
+    {{end}}
+
     <details class="raw-toggle">
       <summary>View raw transcript</summary>
       <div id="raw-stream">

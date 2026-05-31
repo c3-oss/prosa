@@ -5,14 +5,12 @@
 package prosav1connect
 
 import (
+	connect "connectrpc.com/connect"
 	context "context"
 	errors "errors"
+	v1 "github.com/c3-oss/prosa/gen/go/prosa/v1"
 	http "net/http"
 	strings "strings"
-
-	connect "connectrpc.com/connect"
-
-	v1 "github.com/c3-oss/prosa/gen/go/prosa/v1"
 )
 
 // This is a compile-time assertion to ensure that this generated file and the connect package are
@@ -48,6 +46,9 @@ const (
 	SessionsServiceManifestProcedure = "/prosa.v1.SessionsService/Manifest"
 	// SessionsServiceGetRawProcedure is the fully-qualified name of the SessionsService's GetRaw RPC.
 	SessionsServiceGetRawProcedure = "/prosa.v1.SessionsService/GetRaw"
+	// SessionsServiceListChildrenProcedure is the fully-qualified name of the SessionsService's
+	// ListChildren RPC.
+	SessionsServiceListChildrenProcedure = "/prosa.v1.SessionsService/ListChildren"
 )
 
 // SessionsServiceClient is a client for the prosa.v1.SessionsService service.
@@ -73,6 +74,11 @@ type SessionsServiceClient interface {
 	// window. The panel's side panel uses it to render the JSONL body
 	// incrementally without loading the whole object into memory.
 	GetRaw(context.Context, *connect.Request[v1.GetRawRequest]) (*connect.Response[v1.GetRawResponse], error)
+	// ListChildren returns every session whose parent_session_id matches
+	// the requested id. Used by the panel to surface "Ran N agents"
+	// expansion on Claude Code Agent tool results and on Codex sessions
+	// spawned via thread_spawn.
+	ListChildren(context.Context, *connect.Request[v1.ListChildrenRequest]) (*connect.Response[v1.ListChildrenResponse], error)
 }
 
 // NewSessionsServiceClient constructs a client for the prosa.v1.SessionsService service. By
@@ -122,17 +128,24 @@ func NewSessionsServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			connect.WithSchema(sessionsServiceMethods.ByName("GetRaw")),
 			connect.WithClientOptions(opts...),
 		),
+		listChildren: connect.NewClient[v1.ListChildrenRequest, v1.ListChildrenResponse](
+			httpClient,
+			baseURL+SessionsServiceListChildrenProcedure,
+			connect.WithSchema(sessionsServiceMethods.ByName("ListChildren")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // sessionsServiceClient implements SessionsServiceClient.
 type sessionsServiceClient struct {
-	push     *connect.Client[v1.PushRequest, v1.PushResponse]
-	list     *connect.Client[v1.ListRequest, v1.ListResponse]
-	get      *connect.Client[v1.GetRequest, v1.GetResponse]
-	search   *connect.Client[v1.SearchRequest, v1.SearchResponse]
-	manifest *connect.Client[v1.ManifestRequest, v1.ManifestResponse]
-	getRaw   *connect.Client[v1.GetRawRequest, v1.GetRawResponse]
+	push         *connect.Client[v1.PushRequest, v1.PushResponse]
+	list         *connect.Client[v1.ListRequest, v1.ListResponse]
+	get          *connect.Client[v1.GetRequest, v1.GetResponse]
+	search       *connect.Client[v1.SearchRequest, v1.SearchResponse]
+	manifest     *connect.Client[v1.ManifestRequest, v1.ManifestResponse]
+	getRaw       *connect.Client[v1.GetRawRequest, v1.GetRawResponse]
+	listChildren *connect.Client[v1.ListChildrenRequest, v1.ListChildrenResponse]
 }
 
 // Push calls prosa.v1.SessionsService.Push.
@@ -165,6 +178,11 @@ func (c *sessionsServiceClient) GetRaw(ctx context.Context, req *connect.Request
 	return c.getRaw.CallUnary(ctx, req)
 }
 
+// ListChildren calls prosa.v1.SessionsService.ListChildren.
+func (c *sessionsServiceClient) ListChildren(ctx context.Context, req *connect.Request[v1.ListChildrenRequest]) (*connect.Response[v1.ListChildrenResponse], error) {
+	return c.listChildren.CallUnary(ctx, req)
+}
+
 // SessionsServiceHandler is an implementation of the prosa.v1.SessionsService service.
 type SessionsServiceHandler interface {
 	// Push uploads one session's metadata + turns + tool counters along
@@ -188,6 +206,11 @@ type SessionsServiceHandler interface {
 	// window. The panel's side panel uses it to render the JSONL body
 	// incrementally without loading the whole object into memory.
 	GetRaw(context.Context, *connect.Request[v1.GetRawRequest]) (*connect.Response[v1.GetRawResponse], error)
+	// ListChildren returns every session whose parent_session_id matches
+	// the requested id. Used by the panel to surface "Ran N agents"
+	// expansion on Claude Code Agent tool results and on Codex sessions
+	// spawned via thread_spawn.
+	ListChildren(context.Context, *connect.Request[v1.ListChildrenRequest]) (*connect.Response[v1.ListChildrenResponse], error)
 }
 
 // NewSessionsServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -233,6 +256,12 @@ func NewSessionsServiceHandler(svc SessionsServiceHandler, opts ...connect.Handl
 		connect.WithSchema(sessionsServiceMethods.ByName("GetRaw")),
 		connect.WithHandlerOptions(opts...),
 	)
+	sessionsServiceListChildrenHandler := connect.NewUnaryHandler(
+		SessionsServiceListChildrenProcedure,
+		svc.ListChildren,
+		connect.WithSchema(sessionsServiceMethods.ByName("ListChildren")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/prosa.v1.SessionsService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case SessionsServicePushProcedure:
@@ -247,6 +276,8 @@ func NewSessionsServiceHandler(svc SessionsServiceHandler, opts ...connect.Handl
 			sessionsServiceManifestHandler.ServeHTTP(w, r)
 		case SessionsServiceGetRawProcedure:
 			sessionsServiceGetRawHandler.ServeHTTP(w, r)
+		case SessionsServiceListChildrenProcedure:
+			sessionsServiceListChildrenHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -278,4 +309,8 @@ func (UnimplementedSessionsServiceHandler) Manifest(context.Context, *connect.Re
 
 func (UnimplementedSessionsServiceHandler) GetRaw(context.Context, *connect.Request[v1.GetRawRequest]) (*connect.Response[v1.GetRawResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("prosa.v1.SessionsService.GetRaw is not implemented"))
+}
+
+func (UnimplementedSessionsServiceHandler) ListChildren(context.Context, *connect.Request[v1.ListChildrenRequest]) (*connect.Response[v1.ListChildrenResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("prosa.v1.SessionsService.ListChildren is not implemented"))
 }

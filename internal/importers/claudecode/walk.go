@@ -15,13 +15,20 @@ import (
 // hex) because we don't want to depend on Claude Code locking UUIDv4.
 var uuidFileRE = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jsonl$`)
 
-// Walk discovers main session JSONL files under root. It skips:
-//   - any directory named `subagents`, `memory`, or `tool-results`
-//   - files whose basename does not match the UUID-jsonl pattern
-//     (excludes sessions-index.json, hand-edited *.jsonl, etc.)
-//   - subagent files even if reached via a path containing /subagents/
-//     (defense-in-depth in case the SkipDir didn't match a non-standard
-//     layout).
+// subagentFileRE matches the basename Claude Code uses for subagent
+// JSONLs: `agent-<uuid>.jsonl` inside a `<parent-uuid>/subagents/`
+// directory. Parent UUID is recovered from the directory two levels up
+// at parse time.
+var subagentFileRE = regexp.MustCompile(`^agent-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jsonl$`)
+
+// Walk discovers session JSONL files under root, both top-level
+// sessions and the subagent files Claude Code stores under
+// `<parent-uuid>/subagents/agent-<uuid>.jsonl`. It still skips:
+//   - any directory named `memory` or `tool-results` (no transcripts)
+//   - files whose basename does not match the UUID-jsonl pattern at
+//     the top level (excludes sessions-index.json, hand-edited *.jsonl)
+//   - subagent files whose basename does not match the agent-UUID
+//     pattern (defensive against unknown layouts)
 //
 // A missing root returns an empty slice with no error — typical for
 // machines that never installed Claude Code.
@@ -39,12 +46,16 @@ func (i *Importer) Walk(ctx context.Context, root string) ([]string, error) {
 		}
 		if d.IsDir() {
 			switch d.Name() {
-			case "subagents", "memory", "tool-results":
+			case "memory", "tool-results":
 				return fs.SkipDir
 			}
 			return nil
 		}
-		if strings.Contains(filepath.ToSlash(path), "/subagents/") {
+		slash := filepath.ToSlash(path)
+		if strings.Contains(slash, "/subagents/") {
+			if subagentFileRE.MatchString(d.Name()) {
+				out = append(out, path)
+			}
 			return nil
 		}
 		if !uuidFileRE.MatchString(d.Name()) {
@@ -58,3 +69,26 @@ func (i *Importer) Walk(ctx context.Context, root string) ([]string, error) {
 	}
 	return out, nil
 }
+
+// parentSessionIDFromPath returns the parent session UUID for a Claude
+// Code subagent JSONL or "" when path doesn't look like a subagent.
+// Subagent layout: `<root>/<project-slug>/<parent-uuid>/subagents/agent-<uuid>.jsonl`.
+// The parent uuid is the directory two levels above the JSONL.
+func parentSessionIDFromPath(path string) string {
+	slash := filepath.ToSlash(path)
+	if !strings.Contains(slash, "/subagents/") {
+		return ""
+	}
+	// dir of the JSONL is `.../subagents`; one level up is the parent UUID.
+	parentDir := filepath.Dir(filepath.Dir(path))
+	candidate := filepath.Base(parentDir)
+	if uuidLikeRE.MatchString(candidate) {
+		return candidate
+	}
+	return ""
+}
+
+// uuidLikeRE matches a bare UUID (no extension). Mirrors uuidFileRE
+// minus the `.jsonl` suffix so parentSessionIDFromPath can validate a
+// directory name.
+var uuidLikeRE = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)

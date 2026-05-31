@@ -479,8 +479,15 @@ func TestWalkFiltersSubagentsAndNonUUID(t *testing.T) {
 	valid := filepath.Join(proj, fixtureSessionID+".jsonl")
 	require.NoError(t, os.WriteFile(valid, []byte("{}\n"), 0o644))
 
+	// Subagent JSONL with the canonical `agent-<uuid>.jsonl` name —
+	// v8 picks it up alongside the parent so the panel can render the
+	// expansion. A subagent file that does NOT match the pattern
+	// (`agent-foo.jsonl`) is still ignored.
 	subDir := filepath.Join(proj, fixtureSessionID, "subagents")
 	require.NoError(t, os.MkdirAll(subDir, 0o755))
+	subagentID := "abcdef01-1234-4abc-9def-1234567890ab"
+	subagentValid := filepath.Join(subDir, "agent-"+subagentID+".jsonl")
+	require.NoError(t, os.WriteFile(subagentValid, []byte("{}\n"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(subDir, "agent-foo.jsonl"), []byte("{}\n"), 0o644))
 
 	memDir := filepath.Join(proj, "memory")
@@ -493,7 +500,85 @@ func TestWalkFiltersSubagentsAndNonUUID(t *testing.T) {
 	imp := New()
 	got, err := imp.Walk(context.Background(), root)
 	require.NoError(t, err)
-	require.Equal(t, []string{valid}, got)
+	require.ElementsMatch(t, []string{valid, subagentValid}, got)
+}
+
+// TestImportSubagentSetsParentSessionID writes a parent JSONL plus a
+// subagent JSONL under `<parent>/subagents/agent-<uuid>.jsonl` and
+// verifies that the subagent's projected session carries
+// ParentSessionID pointing at the directory above `subagents/`.
+func TestImportSubagentSetsParentSessionID(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv("PROSA_HOME", filepath.Join(t.TempDir(), "prosa-home"))
+
+	dir := t.TempDir()
+	proj := filepath.Join(dir, "-Users-test-proj")
+	require.NoError(t, os.MkdirAll(proj, 0o755))
+
+	// Parent session lives at <project>/<parent-uuid>.jsonl.
+	parentJSONL := filepath.Join(proj, fixtureSessionID+".jsonl")
+	base := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
+	writeJSONL(t, parentJSONL, []map[string]any{
+		{
+			"type":      "user",
+			"sessionId": fixtureSessionID,
+			"timestamp": base.Format(time.RFC3339Nano),
+			"cwd":       "/proj",
+			"message":   map[string]any{"role": "user", "content": "spawn an agent"},
+		},
+		{
+			"type":      "assistant",
+			"sessionId": fixtureSessionID,
+			"timestamp": base.Add(time.Second).Format(time.RFC3339Nano),
+			"message": map[string]any{
+				"role": "assistant", "model": "claude-sonnet-4-6",
+				"usage":   map[string]any{"input_tokens": 1, "output_tokens": 1},
+				"content": []map[string]any{{"type": "text", "text": "ok"}},
+			},
+		},
+	})
+
+	// Subagent lives at <project>/<parent-uuid>/subagents/agent-<uuid>.jsonl.
+	subagentID := "abcdef01-1234-4abc-9def-1234567890ab"
+	subDir := filepath.Join(proj, fixtureSessionID, "subagents")
+	require.NoError(t, os.MkdirAll(subDir, 0o755))
+	subagentJSONL := filepath.Join(subDir, "agent-"+subagentID+".jsonl")
+	writeJSONL(t, subagentJSONL, []map[string]any{
+		{
+			"type":      "user",
+			"sessionId": subagentID,
+			"timestamp": base.Add(2 * time.Second).Format(time.RFC3339Nano),
+			"cwd":       "/proj",
+			"message":   map[string]any{"role": "user", "content": "child task"},
+		},
+		{
+			"type":      "assistant",
+			"sessionId": subagentID,
+			"timestamp": base.Add(3 * time.Second).Format(time.RFC3339Nano),
+			"message": map[string]any{
+				"role": "assistant", "model": "claude-sonnet-4-6",
+				"usage":   map[string]any{"input_tokens": 1, "output_tokens": 1},
+				"content": []map[string]any{{"type": "text", "text": "child done"}},
+			},
+		},
+	})
+
+	sink := newSink()
+	imp := New()
+	parentRes, err := imp.Import(ctx, parentJSONL, sink, importer.ImportOptions{})
+	require.NoError(t, err)
+	require.False(t, parentRes.Skipped)
+	childRes, err := imp.Import(ctx, subagentJSONL, sink, importer.ImportOptions{})
+	require.NoError(t, err)
+	require.False(t, childRes.Skipped)
+
+	parent := sink.sessions[fixtureSessionID]
+	require.Nil(t, parent.ParentSessionID, "top-level session has no parent")
+
+	child := sink.sessions[subagentID]
+	require.NotNil(t, child.ParentSessionID,
+		"subagent session must carry the parent UUID from its path")
+	require.Equal(t, fixtureSessionID, *child.ParentSessionID)
 }
 
 func TestWalkMissingRootReturnsEmpty(t *testing.T) {

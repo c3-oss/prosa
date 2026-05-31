@@ -43,27 +43,30 @@ func (s *Store) UpsertSession(ctx context.Context, sess session.Session, tools [
 			project_remote, project_marker,
 			started_at, last_activity_at,
 			first_prompt, model,
-			raw_path, raw_hash, raw_size
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			raw_path, raw_hash, raw_size,
+			parent_session_id
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
-			agent            = excluded.agent,
-			device_id        = excluded.device_id,
-			project_path     = excluded.project_path,
-			project_remote   = excluded.project_remote,
-			project_marker   = excluded.project_marker,
-			started_at       = excluded.started_at,
-			last_activity_at = excluded.last_activity_at,
-			first_prompt     = excluded.first_prompt,
-			model            = excluded.model,
-			raw_path         = excluded.raw_path,
-			raw_hash         = excluded.raw_hash,
-			raw_size         = excluded.raw_size
+			agent             = excluded.agent,
+			device_id         = excluded.device_id,
+			project_path      = excluded.project_path,
+			project_remote    = excluded.project_remote,
+			project_marker    = excluded.project_marker,
+			started_at        = excluded.started_at,
+			last_activity_at  = excluded.last_activity_at,
+			first_prompt      = excluded.first_prompt,
+			model             = excluded.model,
+			raw_path          = excluded.raw_path,
+			raw_hash          = excluded.raw_hash,
+			raw_size          = excluded.raw_size,
+			parent_session_id = excluded.parent_session_id
 	`,
 		sess.ID, sess.Agent, sess.DeviceID, nullableString(sess.ProjectPath),
 		nullableString(sess.ProjectRemote), nullableString(sess.ProjectMarker),
 		formatTime(sess.StartedAt), formatTime(sess.LastActivityAt),
 		nullableString(sess.FirstPrompt), nullableString(sess.Model),
 		sess.RawPath, sess.RawHash, sess.RawSize,
+		nullableString(sess.ParentSessionID),
 	); err != nil {
 		return fmt.Errorf("upsert session %s: %w", sess.ID, err)
 	}
@@ -196,6 +199,7 @@ func (s *Store) ListSessions(ctx context.Context, f SessionFilter) ([]session.Se
 		       s.started_at, s.last_activity_at,
 		       s.first_prompt, s.model,
 		       s.raw_path, s.raw_hash, s.raw_size,
+		       s.parent_session_id,
 		       su.session_id, su.total_tokens, su.input_tokens, su.output_tokens,
 		       su.cached_tokens, su.cache_read_tokens, su.cache_creation_tokens
 		FROM sessions s
@@ -269,14 +273,44 @@ func (s *Store) ProjectMarkerExists(ctx context.Context, name string) (bool, err
 	return n > 0, nil
 }
 
+// ListChildren returns every session whose parent_session_id matches
+// parentID, ordered started_at ascending so the panel can show them
+// in the order they were spawned. Empty parentID returns an empty
+// slice (callers shouldn't ask for "children of nothing").
+func (s *Store) ListChildren(ctx context.Context, parentID string) ([]session.Session, error) {
+	if parentID == "" {
+		return nil, nil
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT s.id, s.agent, s.device_id, s.project_path,
+		       s.project_remote, s.project_marker,
+		       s.started_at, s.last_activity_at,
+		       s.first_prompt, s.model,
+		       s.raw_path, s.raw_hash, s.raw_size,
+		       s.parent_session_id,
+		       su.session_id, su.total_tokens, su.input_tokens, su.output_tokens,
+		       su.cached_tokens, su.cache_read_tokens, su.cache_creation_tokens
+		FROM sessions s
+		LEFT JOIN session_usage su ON su.session_id = s.id
+		WHERE s.parent_session_id = ?
+		ORDER BY s.started_at ASC
+	`, parentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanSessions(rows)
+}
+
 // GetSession returns a single session by id, or sql.ErrNoRows if missing.
 func (s *Store) GetSession(ctx context.Context, id string) (session.Session, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, agent, device_id, project_path,
-		       project_remote, project_marker,
-		       started_at, last_activity_at,
-		       first_prompt, model,
-		       raw_path, raw_hash, raw_size,
+		SELECT s.id, s.agent, s.device_id, s.project_path,
+		       s.project_remote, s.project_marker,
+		       s.started_at, s.last_activity_at,
+		       s.first_prompt, s.model,
+		       s.raw_path, s.raw_hash, s.raw_size,
+		       s.parent_session_id,
 		       su.session_id, su.total_tokens, su.input_tokens, su.output_tokens,
 		       su.cached_tokens, su.cache_read_tokens, su.cache_creation_tokens
 		FROM sessions s
@@ -409,6 +443,7 @@ func scanSessions(rows *sql.Rows) ([]session.Session, error) {
 			projectMarker sql.NullString
 			firstPrompt   sql.NullString
 			model         sql.NullString
+			parentID      sql.NullString
 			usageSession  sql.NullString
 			totalTokens   sql.NullInt64
 			inputTokens   sql.NullInt64
@@ -425,6 +460,7 @@ func scanSessions(rows *sql.Rows) ([]session.Session, error) {
 			&startedAt, &lastAct,
 			&firstPrompt, &model,
 			&sess.RawPath, &sess.RawHash, &sess.RawSize,
+			&parentID,
 			&usageSession, &totalTokens, &inputTokens, &outputTokens,
 			&cachedTokens, &cacheRead, &cacheCreate,
 		); err != nil {
@@ -449,6 +485,10 @@ func scanSessions(rows *sql.Rows) ([]session.Session, error) {
 		if model.Valid {
 			v := model.String
 			sess.Model = &v
+		}
+		if parentID.Valid && parentID.String != "" {
+			v := parentID.String
+			sess.ParentSessionID = &v
 		}
 		if t, ok := parseTime(startedAt); ok {
 			sess.StartedAt = t

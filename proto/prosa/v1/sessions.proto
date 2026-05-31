@@ -36,6 +36,12 @@ service SessionsService {
   // window. The panel's side panel uses it to render the JSONL body
   // incrementally without loading the whole object into memory.
   rpc GetRaw(GetRawRequest) returns (GetRawResponse);
+
+  // ListChildren returns every session whose parent_session_id matches
+  // the requested id. Used by the panel to surface "Ran N agents"
+  // expansion on Claude Code Agent tool results and on Codex sessions
+  // spawned via thread_spawn.
+  rpc ListChildren(ListChildrenRequest) returns (ListChildrenResponse);
 }
 
 // Session mirrors pkg/session.Session. Nullable client-side fields use
@@ -57,6 +63,11 @@ message Session {
   // Populated on List/Get/Search responses; ignored on Push.
   string raw_uri = 13;
   TokenUsage usage = 14;
+  // parent_session_id is set on subagent/spawned sessions. Claude
+  // Code: the directory above the `subagents/` folder; Codex:
+  // session_meta.payload.source.subagent.thread_spawn.parent_thread_id.
+  // Empty string means "top-level session".
+  string parent_session_id = 15;
 }
 
 message TokenUsage {
@@ -216,4 +227,14 @@ message GetRawResponse {
   // True when offset + len(chunk) >= total_size; the client should
   // stop calling GetRaw for this id.
   bool eof = 3;
+}
+
+message ListChildrenRequest {
+  // parent_id is the session whose direct children we want. Returns
+  // an empty list (not an error) when no children exist.
+  string parent_id = 1;
+}
+
+message ListChildrenResponse {
+  repeated Session sessions = 1;
 }

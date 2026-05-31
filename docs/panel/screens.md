@@ -349,6 +349,11 @@ Slide-in 180 ms from the right.
 - Metadata grid (`.sp-meta`): labels in `--text-xs` uppercase
   `--text-3`, values in `--text-sm` `--text-1`, monospace for IDs and
   hashes.
+- Subagents: when the session spawned children (Claude Code Agent
+  tool, Codex `thread_spawn`), a "Subagents · N" section sits above
+  the raw transcript with one card per child. Each card shows agent,
+  start time, and the child's first prompt; clicking it
+  HTMX-swaps the sidepanel to the child without losing the route.
 - Transcript: chat-style bubbles. **User** aligns right with a
   filled `--bg-elev-2` surface and `<br>`-preserving escaped plain
   text; the raw boilerplate agents inject (`<command-name>`,

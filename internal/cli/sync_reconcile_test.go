@@ -60,6 +60,10 @@ func (f *fakeSessionsClient) GetRaw(_ context.Context, _ *connect.Request[prosav
 	return nil, errors.New("not implemented")
 }
 
+func (f *fakeSessionsClient) ListChildren(_ context.Context, _ *connect.Request[prosav1.ListChildrenRequest]) (*connect.Response[prosav1.ListChildrenResponse], error) {
+	return nil, errors.New("not implemented")
+}
+
 func (f *fakeSessionsClient) Manifest(_ context.Context, req *connect.Request[prosav1.ManifestRequest]) (*connect.Response[prosav1.ManifestResponse], error) {
 	if f.manifestErr != nil {
 		return nil, f.manifestErr

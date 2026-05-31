@@ -164,13 +164,16 @@ func (p *Panel) handleRawChunk(w http.ResponseWriter, r *http.Request) {
 // sidePanelData bundles the metadata + first raw chunk the side panel
 // renders inline. TurnsCount/ToolsCount/DurationLabel feed the stats
 // cluster at the top of the panel; TurnGroups is what the transcript
-// section iterates over. All derived in loadSidePanel so the template
-// stays declarative.
+// section iterates over. Children is the (possibly empty) list of
+// subagent sessions spawned from this one; the template renders a
+// dedicated "Subagents" disclosure when it's non-empty. All derived in
+// loadSidePanel so the template stays declarative.
 type sidePanelData struct {
 	Session       *prosav1.Session
 	Turns         []render.Turn
 	TurnGroups    []render.TurnGroup
 	Tools         []*prosav1.ToolUsage
+	Children      []*prosav1.Session
 	TurnsCount    int
 	ToolsCount    int
 	DurationLabel string
@@ -202,11 +205,22 @@ func (p *Panel) loadSidePanel(ctx context.Context, id string) (sidePanelData, er
 		eof = true
 	}
 	turns := buildDisplayTurns(getResp.Msg.Turns)
+	// Children are looked up best-effort: a failure here shouldn't
+	// block the sidepanel from rendering. Log + treat as empty.
+	var children []*prosav1.Session
+	childResp, childErr := p.clients.Sessions.ListChildren(ctx,
+		connect.NewRequest(&prosav1.ListChildrenRequest{ParentId: id}))
+	if childErr != nil {
+		slog.Warn("side panel list children failed", "id", id, "err", childErr)
+	} else {
+		children = childResp.Msg.Sessions
+	}
 	sp := sidePanelData{
 		Session:       getResp.Msg.Session,
 		Turns:         turns,
 		TurnGroups:    render.GroupTurns(turns),
 		Tools:         getResp.Msg.Tools,
+		Children:      children,
 		TurnsCount:    countMessageDisplayTurns(turns),
 		ToolsCount:    sumToolCounts(getResp.Msg.Tools),
 		DurationLabel: sessionDurationLabel(getResp.Msg.Session),
