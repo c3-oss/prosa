@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -14,6 +15,7 @@ import (
 	"github.com/c3-oss/prosa/internal/server/auth"
 	"github.com/c3-oss/prosa/internal/server/handlers"
 	"github.com/c3-oss/prosa/internal/server/storage"
+	"github.com/c3-oss/prosa/pkg/httpserver"
 )
 
 // Server bundles the wiring between Connect handlers and their
@@ -76,23 +78,8 @@ func (s *Server) Serve(ctx context.Context) error {
 		Handler:   s.mux,
 		Protocols: protocols,
 	}
-	errCh := make(chan error, 1)
-	go func() {
-		slog.Info("listening", "addr", s.cfg.ListenAddr)
-		errCh <- srv.ListenAndServe()
-	}()
-	select {
-	case <-ctx.Done():
-		slog.Info("shutdown signal received")
-		shutdownCtx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		return srv.Shutdown(shutdownCtx)
-	case err := <-errCh:
-		if err == http.ErrServerClosed {
-			return nil
-		}
-		return err
-	}
+	slog.Info("listening", "addr", s.cfg.ListenAddr)
+	return httpserver.Run(ctx, srv, 5*time.Second)
 }
 
 func (s *Server) registerHealth() {

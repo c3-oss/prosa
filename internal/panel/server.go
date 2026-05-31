@@ -2,18 +2,19 @@ package panel
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"html/template"
 	"io/fs"
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/c3-oss/prosa/internal/panel/assets"
 	"github.com/c3-oss/prosa/internal/panel/rpc"
 	"github.com/c3-oss/prosa/internal/panel/session"
 	"github.com/c3-oss/prosa/internal/panel/templates"
+	"github.com/c3-oss/prosa/pkg/httpserver"
 )
 
 // Panel is the assembled HTTP server. Build via New, drive with Serve.
@@ -81,23 +82,10 @@ func (p *Panel) Serve(ctx context.Context) error {
 		Addr:    p.cfg.ListenAddr,
 		Handler: p.mux,
 	}
-	errCh := make(chan error, 1)
-	go func() {
-		slog.Info("prosa-panel listening",
-			"addr", p.cfg.ListenAddr, "server", p.cfg.ServerURL,
-			"dev_login", p.cfg.DevLoginEmail != "")
-		errCh <- srv.ListenAndServe()
-	}()
-	select {
-	case <-ctx.Done():
-		slog.Info("shutdown signal received")
-		return srv.Shutdown(context.Background())
-	case err := <-errCh:
-		if errors.Is(err, http.ErrServerClosed) {
-			return nil
-		}
-		return err
-	}
+	slog.Info("prosa-panel listening",
+		"addr", p.cfg.ListenAddr, "server", p.cfg.ServerURL,
+		"dev_login", p.cfg.DevLoginEmail != "")
+	return httpserver.Run(ctx, srv, 5*time.Second)
 }
 
 // routes wires every endpoint.
