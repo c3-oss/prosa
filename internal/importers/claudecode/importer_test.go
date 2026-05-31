@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/require"
 
@@ -224,6 +225,15 @@ func TestImportSmallSession(t *testing.T) {
 	res2, err := imp.Import(ctx, src, sink)
 	require.NoError(t, err)
 	require.True(t, res2.Skipped)
+}
+
+func TestTruncatePreviewKeepsUTF8Valid(t *testing.T) {
+	body := strings.Repeat("a", toolPreviewMaxBytes-1) + "é suffix"
+
+	got := truncatePreview(body)
+
+	require.True(t, utf8.ValidString(got))
+	require.Contains(t, got, "…")
 }
 
 func TestImportBigLineSession(t *testing.T) {

@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/require"
 
@@ -424,4 +426,13 @@ func TestImportProjectsFunctionCallOutputAsToolTurn(t *testing.T) {
 	require.Equal(t, session.KindToolResult, tool.Kind)
 	require.Equal(t, "shell", tool.ToolName)
 	require.Contains(t, tool.Content, "file1")
+}
+
+func TestTruncatePreviewKeepsUTF8Valid(t *testing.T) {
+	body := strings.Repeat("a", toolPreviewMaxBytes-1) + "é suffix"
+
+	got := truncatePreview(body)
+
+	require.True(t, utf8.ValidString(got))
+	require.Contains(t, got, "…")
 }

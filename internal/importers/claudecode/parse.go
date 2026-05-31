@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/c3-oss/prosa/internal/sessiontext"
 	"github.com/c3-oss/prosa/pkg/session"
@@ -510,13 +511,27 @@ func truncatePreview(s string) string {
 	}
 	out := strings.Join(lines, "\n")
 	if len(out) > toolPreviewMaxBytes {
-		out = out[:toolPreviewMaxBytes]
+		out = truncateUTF8(out, toolPreviewMaxBytes)
 		truncated = true
 	}
 	if truncated {
 		out += "\n…"
 	}
 	return out
+}
+
+func truncateUTF8(s string, maxBytes int) string {
+	if maxBytes <= 0 {
+		return ""
+	}
+	if len(s) <= maxBytes {
+		return s
+	}
+	cut := maxBytes
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut]
 }
 
 func truncRunes(s string, max int) string {

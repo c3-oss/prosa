@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"connectrpc.com/connect"
 	"github.com/spf13/cobra"
@@ -42,7 +43,7 @@ func newShowCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&showRemoteFlag, "remote", false,
 		"fetch the session from the prosa-server instead of the local store")
 	cmd.Flags().IntVar(&showMaxOutputLines, "max-output-lines", 0,
-		"cap lines per turn body in the rendered/JSON view (0 = no limit, 1 = legacy single-line collapse)")
+		"cap lines per turn body in the rendered/JSON view (0 = no limit)")
 	return cmd
 }
 
@@ -82,6 +83,7 @@ func runShow(cmd *cobra.Command, args []string) error {
 
 	switch {
 	case g.JSON:
+		payload = capShowPayloadLines(payload, showMaxOutputLines)
 		return emitShowJSON(os.Stdout, payload)
 	case showRawFlag:
 		return copyRaw(payload.Session.RawPath)
@@ -96,6 +98,9 @@ func runShow(cmd *cobra.Command, args []string) error {
 	default:
 		// Non-TTY, no --json, no --raw: stay pipeable by emitting the
 		// raw bytes — `prosa show <id> | jq` historic behavior.
+		if showRemoteFlag {
+			return copyRemoteRaw(ctx, id, os.Stdout)
+		}
 		return copyRaw(payload.Session.RawPath)
 	}
 }
@@ -153,6 +158,31 @@ func emitShowJSON(w io.Writer, p showPayload) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(p)
+}
+
+func capShowPayloadLines(p showPayload, max int) showPayload {
+	if max <= 0 {
+		return p
+	}
+	p.Turns = append([]session.Turn(nil), p.Turns...)
+	for i := range p.Turns {
+		p.Turns[i].Content = capLines(p.Turns[i].Content, max)
+	}
+	return p
+}
+
+func capLines(content string, max int) string {
+	if max <= 0 {
+		return content
+	}
+	lines := strings.Split(content, "\n")
+	if len(lines) <= max {
+		return content
+	}
+	out := make([]string, 0, max+1)
+	out = append(out, lines[:max]...)
+	out = append(out, "…")
+	return strings.Join(out, "\n")
 }
 
 func remoteSessionToLocal(in *prosav1.Session) session.Session {
@@ -232,4 +262,48 @@ func copyRaw(rawPath string) error {
 	defer f.Close()
 	_, err = io.Copy(os.Stdout, f)
 	return err
+}
+
+type rawGetter interface {
+	GetRaw(context.Context, *connect.Request[prosav1.GetRawRequest]) (*connect.Response[prosav1.GetRawResponse], error)
+}
+
+const showRemoteRawChunkLimit = 1 << 20
+
+func copyRemoteRaw(ctx context.Context, id string, w io.Writer) error {
+	auth, err := rpc.LoadAuth()
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return errors.New("not logged in — run `prosa login --server <URL>` first")
+		}
+		return err
+	}
+	return streamRemoteRaw(ctx, rpc.Sessions(auth.Server, auth.Token), id, w)
+}
+
+func streamRemoteRaw(ctx context.Context, client rawGetter, id string, w io.Writer) error {
+	var offset int64
+	for {
+		resp, err := client.GetRaw(ctx, connect.NewRequest(&prosav1.GetRawRequest{
+			Id:     id,
+			Offset: offset,
+			Limit:  showRemoteRawChunkLimit,
+		}))
+		if err != nil {
+			return fmt.Errorf("raw rpc: %s", rpc.ConnectError(err))
+		}
+		chunk := resp.Msg.Chunk
+		if len(chunk) > 0 {
+			if _, err := w.Write(chunk); err != nil {
+				return err
+			}
+			offset += int64(len(chunk))
+		}
+		if resp.Msg.Eof {
+			return nil
+		}
+		if len(chunk) == 0 {
+			return errors.New("raw rpc returned an empty non-EOF chunk")
+		}
+	}
 }

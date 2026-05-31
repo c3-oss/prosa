@@ -14,8 +14,7 @@ type SessionDetail struct {
 	Turns   []session.Turn
 	Width   int
 	// MaxOutputLines caps the number of lines printed per turn. 0 means
-	// the renderer falls back to a single-line collapse — backwards
-	// compatible with callers that haven't opted into per-line preview.
+	// no cap; negative values use the legacy single-line collapse.
 	MaxOutputLines int
 }
 
@@ -120,16 +119,18 @@ func turnLabel(t session.Turn) string {
 	return t.Role
 }
 
-// turnPreviewLines returns the lines to display for one turn. When
-// max <= 0 the renderer falls back to the legacy single-line collapse
-// (newlines/whitespace normalized to spaces) — keeps short scripts
-// stable. When max > 0 the content is split on newlines, capped to
-// max lines, and a trailing "…" sentinel marks truncation.
+// turnPreviewLines returns the lines to display for one turn. When max
+// is 0, all original lines are shown; when max is positive, the output
+// is capped and a trailing "…" sentinel marks truncation. Negative max
+// is reserved for legacy callers that still want single-line collapse.
 func turnPreviewLines(content string, max int) []string {
-	if max <= 0 {
+	if max < 0 {
 		return []string{normalizeDisplayText(content)}
 	}
 	raw := strings.Split(content, "\n")
+	if max == 0 {
+		return raw
+	}
 	if len(raw) <= max {
 		return raw
 	}
