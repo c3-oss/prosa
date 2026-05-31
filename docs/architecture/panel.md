@@ -119,20 +119,55 @@ Helper template funcs: minimal — `hasPrefix` for active-nav matching.
 
 ## Static assets
 
-In `internal/panel/templates/assets/`:
+In `internal/panel/assets/`:
 
 - `htmx.min.js` (~50 KB) — vendored HTMX.
-- `style.css` — handcrafted CSS, dark theme, CSS custom properties.
+- `alpine.min.js` (~44 KB) — vendored Alpine.js 3.14.9 for client-only
+  UI state (toggles, command palette).
+- `alpine-collapse.min.js` (~1.5 KB) — Alpine `x-collapse` plugin for
+  smooth open/close on `<details>`-style blocks.
+- `style.css` — entrypoint that `@import`s the `css/` modules and
+  carries the remaining handcrafted rules.
+- `css/tokens.css` — design tokens (palette, type scale, spacing,
+  radius, motion). Source of truth for color and rhythm.
+- `css/base.css` — reset, body baseline, `:focus-visible` ring,
+  `prefers-reduced-motion` overrides.
 - `keyboard.js` — small keyboard handlers (`/`, `j/k`, `Esc`).
 - `sse.js` — listens on `/events`, updates the "new sessions" badge.
+- `widgets.js` — vanilla helpers (device dropdown, heatmap tooltip,
+  inline rename).
 
-Planned additions per the panel design brief:
+Component CSS landed so far (under `css/components/`):
 
-- `alpine.min.js` (~15 KB) — for client-side UI state.
-- `css/{tokens,base,layout,components}.css` — CSS split into modules,
-  imported via native `@import` (no build step).
+- `sidepanel.css` — sticky header, stats cluster, metadata grid (F1).
+- `bubbles.css` — chat-style user/assistant/tool bubbles + assistant
+  prose styles for markdown nodes (F2).
+
+Planned next (sidepanel redesign):
+
+- `css/components/{tool-group,user-bubble,thinking,transcript}.css` —
+  per-component styles added during the remaining F3-F6 phases.
 - New SVG charting package in Go (`internal/panel/charts/`) producing
   `template.HTML` for inline SVG.
+
+### Markdown rendering
+
+Assistant content is markdown on the wire (both Claude Code and Codex
+emit it). `internal/panel/render/markdown.go` wraps
+`github.com/yuin/goldmark` (GFM extension, hardwraps on, `WithUnsafe`
+off) and exposes two helpers:
+
+- `Markdown(s)` for assistant bodies — full markdown surface.
+- `PlainText(s)` for user and tool bodies — HTML-escaped with
+  `\n → <br>` so prompts and tool output keep their layout without
+  enabling any markdown directives.
+
+Goldmark either escapes or omits raw HTML blocks, so a literal
+`<script>` in model output cannot reach the DOM as markup. The
+dependency is justified because the alternative — rendering markdown
+ourselves — would balloon to hundreds of lines for marginal value;
+the assistant content *is* markdown and treating it as anything else
+loses information.
 
 ## Auth
 

@@ -1,43 +1,14 @@
-:root {
-  --bg: #0f1117;
-  --surface: #1a1d27;
-  --surface-2: #232733;
-  --border: #2a2e3c;
-  --text: #e4e6eb;
-  --muted: #8b8f9e;
-  --accent: #6b7afc;
-  --danger: #f04a5c;
-  --ok: #4ade80;
-  --warn: #f5b94a;
-  --mono: ui-monospace, "SF Mono", Menlo, Monaco, "Cascadia Mono", monospace;
-}
-
-* {
-  box-sizing: border-box;
-}
-
-html,
-body {
-  margin: 0;
-  background: var(--bg);
-  color: var(--text);
-  font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-}
-
-a {
-  color: var(--accent);
-  text-decoration: none;
-}
-a:hover {
-  text-decoration: underline;
-}
-
-button,
-input,
-select {
-  font: inherit;
-  color: inherit;
-}
+/* Tokens (palette, type, spacing) and base (reset, body, focus)
+   live in their own modules so component CSS can `@import` them
+   without pulling in the rest of this file. Keep imports first —
+   CSS @import is order-sensitive. */
+@import url("css/tokens.css");
+@import url("css/base.css");
+@import url("css/components/sidepanel.css");
+@import url("css/components/bubbles.css");
+@import url("css/components/tool-group.css");
+@import url("css/components/user-bubble.css");
+@import url("css/components/thinking.css");
 
 /* Layout */
 .app {
@@ -248,43 +219,7 @@ select {
   border-left: none;
 }
 
-.panel-header {
-  padding: 14px 18px;
-  border-bottom: 1px solid var(--border);
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.panel-header .close {
-  margin-left: auto;
-  background: transparent;
-  border: none;
-  color: var(--muted);
-  cursor: pointer;
-}
-
-.panel-body {
-  padding: 16px 18px;
-}
-
-.metadata {
-  display: grid;
-  grid-template-columns: 110px 1fr;
-  gap: 6px 12px;
-  margin-bottom: 16px;
-  font-size: 12px;
-}
-
-.metadata dt {
-  color: var(--muted);
-}
-
-.metadata dd {
-  margin: 0;
-  font-family: var(--mono);
-  word-break: break-all;
-}
+/* .sp-header, .sp-body, .sp-meta live in css/components/sidepanel.css. */
 
 .raw {
   background: #08090d;
@@ -311,73 +246,8 @@ select {
   margin-bottom: 8px;
 }
 
-.transcript {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin-bottom: 18px;
-}
-
-.turn {
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--surface-2);
-  padding: 8px 12px 10px;
-}
-
-.turn-user {
-  border-left: 3px solid var(--accent);
-}
-
-.turn-assistant {
-  border-left: 3px solid var(--ok);
-}
-
-.turn-tool {
-  border-left: 3px solid var(--warn);
-  background: #14171f;
-}
-
-.turn-header {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  margin-bottom: 4px;
-  font-size: 11px;
-  color: var(--muted);
-}
-
-.turn-role {
-  text-transform: uppercase;
-  letter-spacing: .5px;
-  color: var(--text);
-  font-weight: 600;
-  font-size: 10px;
-}
-
-.turn-tool-name {
-  font-family: var(--mono);
-  color: var(--warn);
-}
-
-.turn-time {
-  margin-left: auto;
-  font-family: var(--mono);
-}
-
-.turn-body {
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-family: var(--mono);
-  font-size: 12px;
-  max-height: 400px;
-  overflow: auto;
-}
-
-.turn-tool .turn-body {
-  font-size: 11px;
-  color: var(--muted);
-}
+/* .transcript and .bubble-* live in css/components/bubbles.css —
+   the F2 redesign replaced the older .turn-{role} cards. */
 
 .empty {
   color: var(--muted);

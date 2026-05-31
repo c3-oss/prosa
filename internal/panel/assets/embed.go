@@ -4,5 +4,5 @@ package assets
 
 import "embed"
 
-//go:embed *.js *.css
+//go:embed *.js *.css css
 var FS embed.FS
