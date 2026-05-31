@@ -1,6 +1,7 @@
 package sessiontext
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -18,6 +19,8 @@ func TestIsBoilerplatePromptFlagsAllPrefixes(t *testing.T) {
 		"<permissions instructions>only read</permissions instructions>",
 		"<collaboration_mode>plan</collaboration_mode>",
 		"<local-command-caveat>local cmd</local-command-caveat>",
+		"<local-command-stdout>Set model to opus</local-command-stdout>",
+		"<local-command-stderr>warning: deprecated</local-command-stderr>",
 		"You are Codex, a coding agent. Knowledge cutoff: 2025.",
 		"Knowledge cutoff: 2025-04",
 		// Leading whitespace shouldn't fool us.
@@ -109,6 +112,139 @@ func TestFirstNonBoilerplateEmptyInput(t *testing.T) {
 	require.Equal(t, "", FirstNonBoilerplate(nil))
 	require.Equal(t, "", FirstNonBoilerplate([]string{}))
 	require.Equal(t, "", FirstNonBoilerplate([]string{"", "  "}))
+}
+
+func TestSanitizeForDisplayStripsANSICSI(t *testing.T) {
+	in := "\x1b[1mOpus 4.7\x1b[22m for this session with \x1b[1mmax\x1b[22m effort"
+	out := SanitizeForDisplay(in)
+	require.Equal(t, "Opus 4.7 for this session with max effort", out)
+}
+
+func TestSanitizeForDisplayStripsANSIColors(t *testing.T) {
+	in := "\x1b[31;1mERROR\x1b[0m: something \x1b[32mok\x1b[0m"
+	out := SanitizeForDisplay(in)
+	require.Equal(t, "ERROR: something ok", out)
+}
+
+func TestSanitizeForDisplayStripsCursorMovement(t *testing.T) {
+	in := "\x1b[?25hSet model\x1b[2K\x1b[Gto opus"
+	out := SanitizeForDisplay(in)
+	require.Equal(t, "Set modelto opus", out)
+}
+
+func TestSanitizeForDisplayStripsFeEscape(t *testing.T) {
+	// \x1bM is reverse-index. \x1bD is index. Should be removed.
+	in := "before\x1bMmiddle\x1bDafter"
+	out := SanitizeForDisplay(in)
+	require.Equal(t, "beforemiddleafter", out)
+}
+
+func TestSanitizeForDisplayStripsControlCharsKeepsWhitespace(t *testing.T) {
+	in := "hello\x00\x01world\nline\ttab\rcr\x7f"
+	out := SanitizeForDisplay(in)
+	require.Equal(t, "helloworld\nline\ttab\rcr", out)
+}
+
+func TestSanitizeForDisplayPassesThroughCleanInput(t *testing.T) {
+	in := "explain quantum entanglement — with examples"
+	require.Equal(t, in, SanitizeForDisplay(in))
+}
+
+func TestSanitizeForDisplayEmpty(t *testing.T) {
+	require.Equal(t, "", SanitizeForDisplay(""))
+}
+
+func TestSanitizeForDisplayIsIdempotent(t *testing.T) {
+	in := "<local-command-stdout>Set model to \x1b[1mOpus\x1b[22m</local-command-stdout>"
+	first := SanitizeForDisplay(in)
+	second := SanitizeForDisplay(first)
+	require.Equal(t, first, second)
+}
+
+func TestCleanPromptStripsLocalCommandStdoutWithANSI(t *testing.T) {
+	// The user's bug 2 sample: a slash-command echo wrapped in
+	// <local-command-stdout> with ANSI codes around the words.
+	in := "<local-command-stdout>Set model to \x1b[1mOpus 4.7 (1M context) (default)\x1b[22m " +
+		"for this session with \x1b[1mmax\x1b[22m effort</local-command-stdout>\n\n" +
+		"now do the migration"
+	require.Equal(t, "now do the migration", CleanPrompt(in))
+	require.False(t, IsBoilerplatePrompt(in))
+}
+
+func TestCleanPromptAllMetaWithANSIReturnsSanitized(t *testing.T) {
+	// 100% meta wrapper: caller falls back to placeholder. Returned
+	// string is the sanitized original, not the raw bytes.
+	in := "<local-command-stdout>Set model to \x1b[1mOpus\x1b[22m</local-command-stdout>"
+	out := CleanPrompt(in)
+	require.Equal(t,
+		"<local-command-stdout>Set model to Opus</local-command-stdout>",
+		out,
+		"escape codes should be gone even in the placeholder path")
+	require.True(t, IsBoilerplatePrompt(in))
+}
+
+func TestCleanPromptIsIdempotent(t *testing.T) {
+	in := "<command-name>/init</command-name>\n\x1b[31mdo the thing\x1b[0m"
+	first := CleanPrompt(in)
+	second := CleanPrompt(first)
+	require.Equal(t, first, second)
+}
+
+func TestBuildFirstPromptStripsWrapperAndANSI(t *testing.T) {
+	in := "<local-command-stdout>Set model to \x1b[1mOpus\x1b[22m</local-command-stdout>\n" +
+		"refactor the sync logic"
+	got, ok := BuildFirstPrompt(in, 200)
+	require.True(t, ok)
+	require.Equal(t, "refactor the sync logic", got)
+}
+
+func TestBuildFirstPromptCollapsesWhitespace(t *testing.T) {
+	in := "  refactor   the\n\nsync\tlogic  "
+	got, ok := BuildFirstPrompt(in, 200)
+	require.True(t, ok)
+	require.Equal(t, "refactor the sync logic", got)
+}
+
+func TestBuildFirstPromptTruncatesWithEllipsis(t *testing.T) {
+	in := strings.Repeat("a", 250)
+	got, ok := BuildFirstPrompt(in, 50)
+	require.True(t, ok)
+	require.Equal(t, strings.Repeat("a", 49)+"…", got)
+}
+
+func TestBuildFirstPromptRejectsBoilerplate(t *testing.T) {
+	cases := []string{
+		"# AGENTS.md instructions for /tmp",
+		"<system-reminder>auto</system-reminder>",
+		"<local-command-stdout>just stdout</local-command-stdout>",
+		"You are Codex, a coding agent",
+	}
+	for _, in := range cases {
+		t.Run(in[:min(40, len(in))], func(t *testing.T) {
+			_, ok := BuildFirstPrompt(in, 200)
+			require.False(t, ok)
+		})
+	}
+}
+
+func TestBuildFirstPromptRejectsEmpty(t *testing.T) {
+	_, ok := BuildFirstPrompt("", 200)
+	require.False(t, ok)
+	_, ok = BuildFirstPrompt("   \t\n  ", 200)
+	require.False(t, ok)
+}
+
+func TestBuildFirstPromptZeroMaxRunesIsRejected(t *testing.T) {
+	_, ok := BuildFirstPrompt("real prompt", 0)
+	require.False(t, ok)
+	_, ok = BuildFirstPrompt("real prompt", -1)
+	require.False(t, ok)
+}
+
+func TestBuildFirstPromptKeepsRealPrompt(t *testing.T) {
+	got, ok := BuildFirstPrompt("why is the timeline showing 165 rows?", 200)
+	require.True(t, ok)
+	require.Equal(t, "why is the timeline showing 165 rows?", got)
 }
 
 func min(a, b int) int {
