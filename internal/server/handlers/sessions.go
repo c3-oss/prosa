@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"strings"
 	"time"
 
 	"connectrpc.com/connect"
@@ -669,7 +670,7 @@ func replaceSessionTools(ctx context.Context, tx pgx.Tx, sessionID string, tools
 		if _, err := tx.Exec(
 			ctx,
 			`INSERT INTO session_tools(session_id, name, count) VALUES ($1, $2, $3)`,
-			sessionID, t.Name, t.Count,
+			sessionID, pgText(t.Name), t.Count,
 		); err != nil {
 			return fmt.Errorf("insert session_tools(%s,%s): %w", sessionID, t.Name, err)
 		}
@@ -722,7 +723,7 @@ func replaceTurns(ctx context.Context, tx pgx.Tx, sessionID string, turns []*pro
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO turns(session_id, role, content, ts, kind, tool_name)
 			VALUES ($1, $2, $3, $4, $5, $6)
-		`, sessionID, t.Role, t.Content, tsToTime(t.Ts), kind, nullIfEmpty(t.ToolName)); err != nil {
+		`, sessionID, pgText(t.Role), pgText(t.Content), tsToTime(t.Ts), pgText(kind), nullIfEmpty(t.ToolName)); err != nil {
 			return fmt.Errorf("insert turn: %w", err)
 		}
 	}
@@ -754,7 +755,11 @@ func nullIfEmpty(s string) any {
 	if s == "" {
 		return nil
 	}
-	return s
+	return pgText(s)
+}
+
+func pgText(s string) string {
+	return strings.ReplaceAll(s, "\x00", " ")
 }
 
 func tsToTime(ts *timestamppb.Timestamp) time.Time {
