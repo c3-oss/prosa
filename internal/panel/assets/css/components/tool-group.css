@@ -1,0 +1,138 @@
+/* Coalesced run of consecutive tool_result turns. One summary header
+   (Alpine-toggled) plus a list of expandable per-tool entries
+   inside. F3 renders this in place of the per-tool .bubble-tool
+   blocks from F2 when ≥1 tool sit next to each other in the stream. */
+
+.tool-group {
+  align-self: stretch;
+  background: var(--bg-elev-1);
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.tool-group-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  background: transparent;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  color: var(--text-2);
+  font-size: var(--text-sm);
+  font-family: var(--font-sans);
+  transition: background var(--duration-fast) var(--ease);
+}
+
+.tool-group-summary:hover {
+  background: var(--bg-elev-2);
+}
+
+.tool-group-caret {
+  display: inline-block;
+  width: 1em;
+  font-size: var(--text-xs);
+  color: var(--text-3);
+  transition: transform var(--duration-base) var(--ease);
+  flex-shrink: 0;
+}
+
+.tool-group-caret.is-open {
+  transform: rotate(90deg);
+}
+
+.tool-group-label {
+  flex: 1;
+  font-weight: var(--w-medium);
+  color: var(--text-1);
+  font-variant-numeric: tabular-nums;
+}
+
+.tool-group-count {
+  color: var(--text-3);
+  font-size: var(--text-xs);
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.tool-group-entries {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: 0 var(--space-4) var(--space-3);
+  border-top: 1px solid var(--divider);
+  margin-top: 0;
+}
+
+/* Individual tool entry — native <details>/<summary>. Alpine handles
+   the outer group; native disclosure is enough per-entry and saves
+   us from threading nested x-data scopes. */
+
+.tool-entry {
+  background: var(--bg);
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-sm);
+  padding: 0;
+}
+
+.tool-entry:first-of-type {
+  margin-top: var(--space-3);
+}
+
+.tool-entry-summary {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.tool-entry-summary::-webkit-details-marker {
+  display: none;
+}
+
+.tool-entry-summary::before {
+  content: "▸";
+  color: var(--text-3);
+  font-size: var(--text-xs);
+  transition: transform var(--duration-base) var(--ease);
+  display: inline-block;
+  width: 1em;
+}
+
+.tool-entry[open] .tool-entry-summary::before {
+  transform: rotate(90deg);
+}
+
+.tool-entry-name {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--accent);
+  letter-spacing: 0.02em;
+}
+
+.tool-entry-time {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-3);
+}
+
+.tool-entry-body {
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--divider);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  color: var(--text-2);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+  max-height: 400px;
+  overflow: auto;
+}
