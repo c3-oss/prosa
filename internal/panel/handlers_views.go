@@ -184,8 +184,9 @@ func (p *Panel) loadSidePanel(ctx context.Context, id string) (sidePanelData, er
 // Content stripped of ANSI escapes and control characters. The raw
 // transcript pane keeps the original bytes (so users can inspect them
 // via the toggle), while the structured Transcript view shows readable
-// text. Copy — never mutate — so concurrent requests sharing the same
-// generated proto message slice see a stable Content.
+// text. New *prosav1.Turn values — never reuse the connect response
+// pointers — so concurrent requests don't race on Content, and we
+// avoid copying the proto's embedded sync state.
 func cleanTurnsForDisplay(in []*prosav1.Turn) []*prosav1.Turn {
 	if len(in) == 0 {
 		return in
@@ -195,9 +196,13 @@ func cleanTurnsForDisplay(in []*prosav1.Turn) []*prosav1.Turn {
 		if t == nil {
 			continue
 		}
-		cp := *t
-		cp.Content = sessiontext.SanitizeForDisplay(t.Content)
-		out[i] = &cp
+		out[i] = &prosav1.Turn{
+			Role:     t.Role,
+			Content:  sessiontext.SanitizeForDisplay(t.Content),
+			Ts:       t.Ts,
+			Kind:     t.Kind,
+			ToolName: t.ToolName,
+		}
 	}
 	return out
 }
