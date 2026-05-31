@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -27,19 +28,22 @@ func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := time.Now().UTC()
+	// Home has no device-filter UI; it just forwards any device= query
+	// param so chip-link navigation preserves state set elsewhere
+	// (analytics view). Accept both the legacy singular value and the
+	// multi-value shape the analytics dropdown emits.
+	deviceNames := pickDeviceNames(q)
 	req := &prosav1.ListRequest{
-		Since: timestamppb.New(now.Add(-window)),
-		Until: timestamppb.New(now),
-		Limit: 200,
+		Since:       timestamppb.New(now.Add(-window)),
+		Until:       timestamppb.New(now),
+		Limit:       200,
+		DeviceNames: deviceNames,
 	}
 	if v := q.Get("project"); v != "" {
 		req.ProjectMatch = v
 	}
 	if v := q.Get("agent"); v != "" {
 		req.Agent = v
-	}
-	if v := q.Get("device"); v != "" {
-		req.DeviceName = v
 	}
 	resp, err := p.clients.Sessions.List(r.Context(), connect.NewRequest(req))
 	if err != nil {
@@ -49,13 +53,21 @@ func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 	}
 	groups := groupByDay(resp.Msg.Sessions, time.Local)
 
+	// Keep .Device (singular) populated so chip-link URLs preserve
+	// whatever the user picked. The first selected device wins; if the
+	// user has more than one selection from analytics, only one travels
+	// through home — but home has no UI to fix it up anyway.
+	deviceLegacy := ""
+	if len(deviceNames) > 0 {
+		deviceLegacy = deviceNames[0]
+	}
 	data := map[string]any{
 		"Title":     "Home",
 		"Nav":       "home",
 		"Last":      q.Get("last"),
 		"Project":   q.Get("project"),
 		"Agent":     q.Get("agent"),
-		"Device":    q.Get("device"),
+		"Device":    deviceLegacy,
 		"Sessions":  resp.Msg.Sessions,
 		"DayGroups": groups,
 	}
@@ -69,6 +81,22 @@ func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	p.render(w, "home", data)
+}
+
+// pickDeviceNames pulls every "device" entry from the query string,
+// dropping empties. Both ?device=A&device=B and the legacy single
+// ?device=A reach the same multi-value slice here, so callers can
+// always set ListRequest.DeviceNames.
+func pickDeviceNames(q url.Values) []string {
+	vals := q["device"]
+	out := make([]string, 0, len(vals))
+	for _, v := range vals {
+		v = strings.TrimSpace(v)
+		if v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 // handleSessionDetail handles HTMX swap requests like
@@ -399,23 +427,35 @@ func (p *Panel) handleAnalytics(w http.ResponseWriter, r *http.Request) {
 		}
 		since, until = now.Add(-window), now
 	}
+	q := r.URL.Query()
+	selectedDevices := pickDeviceNames(q)
 	resp, err := p.clients.Analytics.GetReport(r.Context(),
-		connect.NewRequest(analyticsRequest(report, since, until, r.URL.Query())))
+		connect.NewRequest(analyticsRequest(report, since, until, q)))
 	if err != nil {
 		slog.Error("analytics rpc failed", "report", report, "err", err)
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
+	devices, err := p.listDeviceNames(r.Context())
+	if err != nil {
+		slog.Warn("analytics devices.list failed", "err", err)
+	}
+	selectedSet := map[string]bool{}
+	for _, d := range selectedDevices {
+		selectedSet[d] = true
+	}
 	data := map[string]any{
-		"Title":   "Analytics — " + report,
-		"Nav":     "analytics-" + report,
-		"Report":  report,
-		"Project": r.URL.Query().Get("project"),
-		"Agent":   r.URL.Query().Get("agent"),
-		"Device":  r.URL.Query().Get("device"),
-		"Agents":  []string{"codex", "claude-code", "gemini", "hermes", "cursor"},
-		"Headers": resp.Msg.Headers,
-		"Rows":    resp.Msg.Rows,
+		"Title":           "Analytics — " + report,
+		"Nav":             "analytics-" + report,
+		"Report":          report,
+		"Project":         q.Get("project"),
+		"Agent":           q.Get("agent"),
+		"Devices":         devices,
+		"SelectedDevices": selectedSet,
+		"DeviceSummary":   summarizeDevicePick(selectedDevices, len(devices)),
+		"Agents":          []string{"codex", "claude-code", "gemini", "hermes", "cursor"},
+		"Headers":         resp.Msg.Headers,
+		"Rows":            resp.Msg.Rows,
 	}
 	if report != "heatmap" {
 		data["Last"] = r.URL.Query().Get("last")
@@ -439,22 +479,50 @@ func (p *Panel) handleAnalytics(w http.ResponseWriter, r *http.Request) {
 	p.render(w, "analytics", data)
 }
 
-func analyticsRequest(report string, since, until time.Time, q map[string][]string) *prosav1.GetReportRequest {
+func analyticsRequest(report string, since, until time.Time, q url.Values) *prosav1.GetReportRequest {
 	req := &prosav1.GetReportRequest{
-		Report: report,
-		Since:  timestamppb.New(since),
-		Until:  timestamppb.New(until),
+		Report:      report,
+		Since:       timestamppb.New(since),
+		Until:       timestamppb.New(until),
+		DeviceNames: pickDeviceNames(q),
 	}
-	get := func(key string) string {
-		if vals := q[key]; len(vals) > 0 {
-			return vals[0]
-		}
-		return ""
-	}
-	req.ProjectMatch = get("project")
-	req.Agent = get("agent")
-	req.DeviceName = get("device")
+	req.ProjectMatch = q.Get("project")
+	req.Agent = q.Get("agent")
 	return req
+}
+
+// listDeviceNames returns every authorized device's friendly name (or
+// raw ID when the friendly name is empty). The panel uses this list to
+// populate the multi-select device filter on analytics views.
+func (p *Panel) listDeviceNames(ctx context.Context) ([]string, error) {
+	resp, err := p.clients.Devices.List(ctx, connect.NewRequest(&prosav1.DevicesServiceListRequest{}))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(resp.Msg.Devices))
+	for _, d := range resp.Msg.Devices {
+		name := d.FriendlyName
+		if name == "" {
+			name = d.Id
+		}
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+// summarizeDevicePick is what the dropdown button shows. "all devices"
+// when no selection, the single name when one, "N devices" otherwise.
+func summarizeDevicePick(selected []string, total int) string {
+	switch len(selected) {
+	case 0:
+		return "all devices"
+	case 1:
+		return selected[0]
+	default:
+		_ = total
+		return fmt.Sprintf("%d devices", len(selected))
+	}
 }
 
 func analyticsWindowLinks(q map[string][]string) map[string]string {
@@ -483,10 +551,18 @@ func urlValues(q map[string][]string) string {
 }
 
 type heatmapCell struct {
-	Date  string
+	Date   string
+	Count  int64
+	Level  int
+	Blank  bool
+	Agents []heatmapAgentSlice
+}
+
+// heatmapAgentSlice is one row of the per-day breakdown surfaced in
+// the hover tooltip; the slice is sorted by Count desc.
+type heatmapAgentSlice struct {
+	Name  string
 	Count int64
-	Level int
-	Blank bool
 }
 
 // heatmapView is the rendered heatmap: the flat cell stream (laid out
@@ -510,20 +586,56 @@ type heatmapMonth struct {
 	Span  int
 }
 
+// buildHeatmap consumes per-(day, agent) rows and folds them into one
+// cell per calendar day. Server emits (date, agent, sessions); days
+// with zero sessions arrive as (date, "", 0). The Cells slice is laid
+// out column-major (7 rows per column) for the GitHub-style grid.
 func buildHeatmap(rows []*prosav1.AnalyticsRow) heatmapView {
-	counts := make([]int64, 0, len(rows))
-	var max, total int64
+	type dayBucket struct {
+		date   string
+		total  int64
+		agents []heatmapAgentSlice
+	}
+	order := []string{}
+	buckets := map[string]*dayBucket{}
 	for _, row := range rows {
-		if len(row.Values) < 2 {
-			counts = append(counts, 0)
+		if len(row.Values) == 0 {
 			continue
 		}
-		n, _ := strconv.ParseInt(row.Values[1], 10, 64)
-		counts = append(counts, n)
-		if n > max {
-			max = n
+		date := row.Values[0]
+		if date == "" {
+			continue
 		}
-		total += n
+		b, ok := buckets[date]
+		if !ok {
+			b = &dayBucket{date: date}
+			buckets[date] = b
+			order = append(order, date)
+		}
+		if len(row.Values) < 3 {
+			continue
+		}
+		agent := row.Values[1]
+		n, _ := strconv.ParseInt(row.Values[2], 10, 64)
+		if agent == "" || n == 0 {
+			continue
+		}
+		b.total += n
+		b.agents = append(b.agents, heatmapAgentSlice{Name: agent, Count: n})
+	}
+
+	var max, total int64
+	for _, b := range buckets {
+		if b.total > max {
+			max = b.total
+		}
+		total += b.total
+		sort.Slice(b.agents, func(i, j int) bool {
+			if b.agents[i].Count == b.agents[j].Count {
+				return b.agents[i].Name < b.agents[j].Name
+			}
+			return b.agents[i].Count > b.agents[j].Count
+		})
 	}
 
 	view := heatmapView{
@@ -533,28 +645,29 @@ func buildHeatmap(rows []*prosav1.AnalyticsRow) heatmapView {
 	}
 
 	var leadingBlanks int
-	if len(rows) > 0 && len(rows[0].Values) > 0 {
-		if t, err := time.Parse("2006-01-02", rows[0].Values[0]); err == nil {
+	if len(order) > 0 {
+		if t, err := time.Parse("2006-01-02", order[0]); err == nil {
 			leadingBlanks = int(t.Weekday())
 			for i := 0; i < leadingBlanks; i++ {
 				view.Cells = append(view.Cells, heatmapCell{Blank: true})
 			}
 		}
 	}
-	for i, row := range rows {
-		date := ""
-		if len(row.Values) > 0 {
-			date = row.Values[0]
-		}
-		count := counts[i]
+	for _, date := range order {
+		b := buckets[date]
 		level := 0
-		if max > 0 && count > 0 {
-			level = int((count*4 + max - 1) / max)
+		if max > 0 && b.total > 0 {
+			level = int((b.total*4 + max - 1) / max)
 			if level > 4 {
 				level = 4
 			}
 		}
-		view.Cells = append(view.Cells, heatmapCell{Date: date, Count: count, Level: level})
+		view.Cells = append(view.Cells, heatmapCell{
+			Date:   date,
+			Count:  b.total,
+			Level:  level,
+			Agents: b.agents,
+		})
 	}
 
 	view.Columns = (len(view.Cells) + 6) / 7
@@ -629,31 +742,43 @@ func buildUsage(rows []*prosav1.AnalyticsRow) ([]usagePanelRow, int64, string) {
 	type parsedRow struct {
 		values usagePanelRow
 		total  int64
+		cost   float64
+		priced bool
 	}
+	// Agents with zero total tokens are hidden: Cursor (and any other
+	// source that doesn't record per-message token usage on disk) would
+	// otherwise show as a perpetual "n/a" row. The user only wants the
+	// panel to surface agents where at least one session was measured.
 	parsed := make([]parsedRow, 0, len(rows))
-	var maxTotal, totalTokens int64
-	var totalCost float64
-	priced := false
+	var maxTotal int64
 	for _, row := range rows {
 		if len(row.Values) < 8 {
 			continue
 		}
 		total := parsePanelInt(row.Values[3])
+		if total == 0 {
+			continue
+		}
 		if total > maxTotal {
 			maxTotal = total
 		}
-		totalTokens += total
-		cost := strings.TrimSpace(row.Values[7])
+		costStr := strings.TrimSpace(row.Values[7])
 		costLabel := "n/a"
-		if cost != "" {
-			if f, err := strconv.ParseFloat(cost, 64); err == nil {
-				totalCost += f
+		var costFloat float64
+		priced := false
+		if costStr != "" {
+			if f, err := strconv.ParseFloat(costStr, 64); err == nil {
+				costFloat = f
 				priced = true
+				costLabel = fmt.Sprintf("$%.2f", f)
+			} else {
+				costLabel = "$" + costStr
 			}
-			costLabel = "$" + cost
 		}
 		parsed = append(parsed, parsedRow{
-			total: total,
+			total:  total,
+			cost:   costFloat,
+			priced: priced,
 			values: usagePanelRow{
 				Agent:    row.Values[0],
 				Sessions: formatPanelInt(parsePanelInt(row.Values[1])),
@@ -668,6 +793,9 @@ func buildUsage(rows []*prosav1.AnalyticsRow) ([]usagePanelRow, int64, string) {
 	}
 
 	out := make([]usagePanelRow, 0, len(parsed))
+	var totalTokens int64
+	var totalCost float64
+	priced := false
 	for _, row := range parsed {
 		percent := 0
 		if maxTotal > 0 && row.total > 0 {
@@ -677,12 +805,17 @@ func buildUsage(rows []*prosav1.AnalyticsRow) ([]usagePanelRow, int64, string) {
 			}
 		}
 		row.values.Percent = percent
+		totalTokens += row.total
+		if row.priced {
+			totalCost += row.cost
+			priced = true
+		}
 		out = append(out, row.values)
 	}
 	if !priced {
 		return out, totalTokens, "n/a"
 	}
-	return out, totalTokens, fmt.Sprintf("$%.4f", totalCost)
+	return out, totalTokens, fmt.Sprintf("$%.2f", totalCost)
 }
 
 func parsePanelInt(s string) int64 {

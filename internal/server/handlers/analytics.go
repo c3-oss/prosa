@@ -142,7 +142,12 @@ func buildWhere(ctx context.Context, msg *prosav1.GetReportRequest) (string, []a
 	if msg.Agent != "" {
 		addEq("agent", msg.Agent)
 	}
-	if msg.DeviceName != "" {
+	switch {
+	case len(msg.DeviceNames) > 0:
+		conds = append(conds, fmt.Sprintf("s.device_id IN (SELECT id FROM devices WHERE friendly_name = ANY($%d))", idx))
+		args = append(args, msg.DeviceNames)
+		idx++
+	case msg.DeviceName != "":
 		conds = append(conds, fmt.Sprintf("s.device_id IN (SELECT id FROM devices WHERE friendly_name = $%d)", idx))
 		args = append(args, msg.DeviceName)
 		idx++
@@ -166,38 +171,55 @@ func runHeatmap(
 	}
 	q := `
 		SELECT to_char((s.started_at AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD') AS day,
+		       s.agent,
 		       COUNT(*)::bigint AS sessions
 		FROM sessions s
 		` + whereSQL + `
-		GROUP BY day
-		ORDER BY day ASC`
+		GROUP BY day, s.agent
+		ORDER BY day ASC, s.agent ASC`
 	rows, err := pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("analytics heatmap: %w", err))
 	}
 	defer rows.Close()
 
-	counts := map[string]int64{}
+	type agentCount struct {
+		agent string
+		count int64
+	}
+	perDay := map[string][]agentCount{}
 	for rows.Next() {
 		var (
-			day string
-			n   int64
+			day, agent string
+			n          int64
 		)
-		if err := rows.Scan(&day, &n); err != nil {
+		if err := rows.Scan(&day, &agent, &n); err != nil {
 			return nil, connect.NewError(connect.CodeInternal, err)
 		}
-		counts[day] = n
+		perDay[day] = append(perDay[day], agentCount{agent: agent, count: n})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 
-	out := &prosav1.GetReportResponse{Headers: []string{"DATE", "SESSIONS"}}
+	// Emit one row per (day, agent). Days with zero sessions still get a
+	// single (day, "", 0) row so the panel can render an empty cell with
+	// the correct calendar position.
+	out := &prosav1.GetReportResponse{Headers: []string{"DATE", "AGENT", "SESSIONS"}}
 	for d := dayStart(tsToTime(msg.Since)); !d.After(dayStart(tsToTime(msg.Until))); d = d.AddDate(0, 0, 1) {
 		key := d.Format("2006-01-02")
-		out.Rows = append(out.Rows, &prosav1.AnalyticsRow{
-			Values: []string{key, fmt.Sprintf("%d", counts[key])},
-		})
+		entries := perDay[key]
+		if len(entries) == 0 {
+			out.Rows = append(out.Rows, &prosav1.AnalyticsRow{
+				Values: []string{key, "", "0"},
+			})
+			continue
+		}
+		for _, e := range entries {
+			out.Rows = append(out.Rows, &prosav1.AnalyticsRow{
+				Values: []string{key, e.agent, fmt.Sprintf("%d", e.count)},
+			})
+		}
 	}
 	return connect.NewResponse(out), nil
 }

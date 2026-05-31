@@ -166,7 +166,13 @@ func (h *SessionsHandler) List(ctx context.Context, req *connect.Request[prosav1
 		addEq("agent", req.Msg.Agent)
 	}
 	join := ""
-	if req.Msg.DeviceName != "" {
+	switch {
+	case len(req.Msg.DeviceNames) > 0:
+		join = " JOIN devices d ON d.id = s.device_id"
+		conds = append(conds, fmt.Sprintf("d.friendly_name = ANY($%d)", idx))
+		args = append(args, req.Msg.DeviceNames)
+		idx++
+	case req.Msg.DeviceName != "":
 		join = " JOIN devices d ON d.id = s.device_id"
 		conds = append(conds, fmt.Sprintf("d.friendly_name = $%d", idx))
 		args = append(args, req.Msg.DeviceName)
@@ -297,7 +303,13 @@ func (h *SessionsHandler) Search(ctx context.Context, req *connect.Request[prosa
 		addEq("agent", req.Msg.Agent)
 	}
 	join := ""
-	if req.Msg.DeviceName != "" {
+	switch {
+	case len(req.Msg.DeviceNames) > 0:
+		join = " JOIN devices d ON d.id = s.device_id"
+		conds = append(conds, fmt.Sprintf("d.friendly_name = ANY($%d)", idx))
+		args = append(args, req.Msg.DeviceNames)
+		idx++
+	case req.Msg.DeviceName != "":
 		join = " JOIN devices d ON d.id = s.device_id"
 		conds = append(conds, fmt.Sprintf("d.friendly_name = $%d", idx))
 		args = append(args, req.Msg.DeviceName)

@@ -23,11 +23,16 @@
       {{range .Devices}}
         <tr>
           <td style="font-family: var(--mono); font-size: 12px">{{.Id}}</td>
-          <td>
-            <form method="post" action="/devices/{{.Id}}/rename" style="display: inline-flex; gap: 6px">
-              <input name="friendly_name" value="{{.FriendlyName}}"
+          <td class="rename-cell" data-rename-id="{{.Id}}">
+            <span class="rename-view">
+              <span class="rename-name">{{.FriendlyName}}</span>
+              <button type="button" class="btn rename-edit">Edit</button>
+            </span>
+            <form method="post" action="/devices/{{.Id}}/rename" class="rename-form" hidden>
+              <input name="friendly_name" value="{{.FriendlyName}}" autocomplete="off"
                      style="background: var(--bg); border: 1px solid var(--border); border-radius: 3px; padding: 3px 6px; color: var(--text); width: 140px; font-size: 12px">
               <button class="btn" type="submit">Save</button>
+              <button type="button" class="btn rename-cancel">Cancel</button>
             </form>
           </td>
           <td>{{.Hostname}}</td>
