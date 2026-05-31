@@ -7,11 +7,12 @@
 package prosav1
 
 import (
+	reflect "reflect"
+	sync "sync"
+
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
-	reflect "reflect"
-	sync "sync"
 )
 
 const (
@@ -444,17 +445,19 @@ func file_prosa_v1_devices_proto_rawDescGZIP() []byte {
 	return file_prosa_v1_devices_proto_rawDescData
 }
 
-var file_prosa_v1_devices_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
-var file_prosa_v1_devices_proto_goTypes = []any{
-	(*Device)(nil),                     // 0: prosa.v1.Device
-	(*DevicesServiceListRequest)(nil),  // 1: prosa.v1.DevicesServiceListRequest
-	(*DevicesServiceListResponse)(nil), // 2: prosa.v1.DevicesServiceListResponse
-	(*RenameRequest)(nil),              // 3: prosa.v1.RenameRequest
-	(*RenameResponse)(nil),             // 4: prosa.v1.RenameResponse
-	(*RevokeRequest)(nil),              // 5: prosa.v1.RevokeRequest
-	(*RevokeResponse)(nil),             // 6: prosa.v1.RevokeResponse
-	(*timestamppb.Timestamp)(nil),      // 7: google.protobuf.Timestamp
-}
+var (
+	file_prosa_v1_devices_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+	file_prosa_v1_devices_proto_goTypes  = []any{
+		(*Device)(nil),                     // 0: prosa.v1.Device
+		(*DevicesServiceListRequest)(nil),  // 1: prosa.v1.DevicesServiceListRequest
+		(*DevicesServiceListResponse)(nil), // 2: prosa.v1.DevicesServiceListResponse
+		(*RenameRequest)(nil),              // 3: prosa.v1.RenameRequest
+		(*RenameResponse)(nil),             // 4: prosa.v1.RenameResponse
+		(*RevokeRequest)(nil),              // 5: prosa.v1.RevokeRequest
+		(*RevokeResponse)(nil),             // 6: prosa.v1.RevokeResponse
+		(*timestamppb.Timestamp)(nil),      // 7: google.protobuf.Timestamp
+	}
+)
 var file_prosa_v1_devices_proto_depIdxs = []int32{
 	7, // 0: prosa.v1.Device.fingerprinted_at:type_name -> google.protobuf.Timestamp
 	7, // 1: prosa.v1.Device.last_sync:type_name -> google.protobuf.Timestamp
