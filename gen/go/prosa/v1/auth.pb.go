@@ -7,10 +7,11 @@
 package prosav1
 
 import (
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
 	sync "sync"
+
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
 
 const (
@@ -595,19 +596,21 @@ func file_prosa_v1_auth_proto_rawDescGZIP() []byte {
 	return file_prosa_v1_auth_proto_rawDescData
 }
 
-var file_prosa_v1_auth_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_prosa_v1_auth_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
-var file_prosa_v1_auth_proto_goTypes = []any{
-	(PollLoginResponse_State)(0), // 0: prosa.v1.PollLoginResponse.State
-	(*StartLoginRequest)(nil),    // 1: prosa.v1.StartLoginRequest
-	(*StartLoginResponse)(nil),   // 2: prosa.v1.StartLoginResponse
-	(*PollLoginRequest)(nil),     // 3: prosa.v1.PollLoginRequest
-	(*PollLoginResponse)(nil),    // 4: prosa.v1.PollLoginResponse
-	(*ApproveLoginRequest)(nil),  // 5: prosa.v1.ApproveLoginRequest
-	(*ApproveLoginResponse)(nil), // 6: prosa.v1.ApproveLoginResponse
-	(*WhoamiRequest)(nil),        // 7: prosa.v1.WhoamiRequest
-	(*WhoamiResponse)(nil),       // 8: prosa.v1.WhoamiResponse
-}
+var (
+	file_prosa_v1_auth_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+	file_prosa_v1_auth_proto_msgTypes  = make([]protoimpl.MessageInfo, 8)
+	file_prosa_v1_auth_proto_goTypes   = []any{
+		PollLoginResponse_State(0),   // 0: prosa.v1.PollLoginResponse.State
+		(*StartLoginRequest)(nil),    // 1: prosa.v1.StartLoginRequest
+		(*StartLoginResponse)(nil),   // 2: prosa.v1.StartLoginResponse
+		(*PollLoginRequest)(nil),     // 3: prosa.v1.PollLoginRequest
+		(*PollLoginResponse)(nil),    // 4: prosa.v1.PollLoginResponse
+		(*ApproveLoginRequest)(nil),  // 5: prosa.v1.ApproveLoginRequest
+		(*ApproveLoginResponse)(nil), // 6: prosa.v1.ApproveLoginResponse
+		(*WhoamiRequest)(nil),        // 7: prosa.v1.WhoamiRequest
+		(*WhoamiResponse)(nil),       // 8: prosa.v1.WhoamiResponse
+	}
+)
 var file_prosa_v1_auth_proto_depIdxs = []int32{
 	0, // 0: prosa.v1.PollLoginResponse.state:type_name -> prosa.v1.PollLoginResponse.State
 	1, // 1: prosa.v1.AuthService.StartLogin:input_type -> prosa.v1.StartLoginRequest
