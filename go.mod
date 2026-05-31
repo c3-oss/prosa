@@ -12,6 +12,7 @@ require (
 	github.com/minio/minio-go/v7 v7.2.0
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
+	github.com/yuin/goldmark v1.8.2
 	golang.org/x/term v0.43.0
 	google.golang.org/protobuf v1.36.11
 	modernc.org/sqlite v1.51.0

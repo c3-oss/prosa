@@ -409,7 +409,7 @@ Font system-ui, mono on labels and numbers. Tabular-nums. No icons. No emojis.
 
 **Type**: HTML artifact.
 **Why**: validate readability when the sidepanel takes half of the right
-side.
+side and the transcript reads as chat.
 
 --- PROMPT ---
 
@@ -418,35 +418,36 @@ Build a single HTML page mocking a web dashboard with a side panel open on the r
 Layout:
 - Topbar 56px (prosa logo left, logout right, background #1a1d27).
 - Sidebar 220px left (Home active dot).
-- Main content (flex, partial view of home's recent list — show 3 row dim/blurred to indicate they're behind the open side panel; just place 3 placeholder rows with reduced opacity 0.4).
-- Side panel: 600px wide, anchored right, background #1a1d27, 1px left border #232733.
+- Main content (flex, partial view of home's recent list — show 3 rows dim/blurred to indicate they're behind the open side panel; just place 3 placeholder rows with reduced opacity 0.4).
+- Side panel: 640px wide, anchored right, background #1a1d27, 1px left border #232733, scrollable.
 
-Side panel content (padding 32px, scrollable):
+Side panel content (padding 32px):
 
-1. **Header sticky** (background #1a1d27, padding-bottom 24px, 1px bottom border #232733):
-   - Title "claude-code" 18px weight 500;
-   - Below: "prosa · 2026-05-30 09:14" 13px #6b7186.
-   - Close button in top right: a 24px "×" in #aab0bf, no border.
+1. **Sticky header** (background #1a1d27, padding 24px 32px, 1px bottom border #232733):
+   - "claude-code" 12px lowercase #6b7186 (mono).
+   - Below: first prompt at 18px weight 500 #e8eaf0, max 2 lines, ellipsis on overflow.
+   - On the right edge: a small `esc` chip — 12px #6b7186, 1px border #232733, radius 4px, padding 4px 8px.
 
-2. **Stats cluster** (margin-top 32px): grid 2 columns x 2 rows, gap 24px.
+2. **Stats cluster** 2×2 grid (margin-top 24px, gap 16px 24px, 1px #232733 bottom rule). Each cell: number 22px tabular #e8eaf0 weight 400, label 12px uppercase letter-spacing 0.06em #6b7186.
    - 18 / TURNS
    - 3 / TOOLS
    - 18min / DURATION
-   - sonnet-4-6 / MODEL
-   - Numbers 22px tabular weight 400. Labels 11px uppercase letter-spacing 0.06em #6b7186.
+   - claude-sonnet-4-6 / MODEL  (model value in 16px mono so long names don't wrap awkwardly)
 
-3. **Metadata grid** (margin-top 40px): two-column grid (label left 100px, value right). Row height 32px. Labels in 12px uppercase letter-spacing 0.06em #6b7186. Values in 14px #e8eaf0, monospace for IDs.
-   - device       laptop-caian
-   - project      prosa
-   - marker       .prosa.yaml
-   - remote       github.com/c3-oss/prosa
-   - session      8f3e2a1b-c9d4
-   - started      09:14:32
-   - last active  09:32:48
+3. **Metadata grid** (margin-top 48px). Two-column grid: label 110px (12px uppercase #6b7186), value (14px #e8eaf0, mono for IDs/hashes).
+   - ID, Started, Last activity, Device, Project, Raw (bytes · sha256).
+   - Below the dl: a row of "tool chips" — pill-shaped, padding 4px 10px, background #232733, radius 9999px, 12px #aab0bf — "Read ×12", "Bash ×4", "Edit ×3".
 
-4. **Raw transcript** section (margin-top 40px):
-   - Subheader "raw transcript" 14px weight 500 #e8eaf0, with a small "load more" link 12px #6b7afc right-aligned.
-   - Below: a `<pre>` with 12px mono #aab0bf, line-height 1.6, showing a believable JSONL excerpt of 8-10 lines with role: "user", role: "assistant", tool_use blocks (truncate JSON values with "...").
+4. **TRANSCRIPT** label 12px uppercase letter-spacing 0.6px #6b7186 (margin-top 32px, margin-bottom 12px).
+
+5. **Chat transcript** (flex column, gap 24px). Mix three bubble styles:
+   - **User**: right-aligned, max-width 82%, filled bubble background #232733, radius 8px (bottom-right corner tighter 4px), padding 12px 16px, system font 14px line-height 1.6, content stays escaped plain text (a literal "**stars**" is shown literally).
+   - **Assistant**: left-aligned, full-width, no surface — just prose. Render real markdown inside: an h3 "Decision", a paragraph, a fenced ```go``` code block with a 3-line snippet (background #1a1d27, 1px #232733 border, radius 4px, 12px mono, internal scroll), a 3-item bullet list, a single-line blockquote. 14px #e8eaf0 line-height 1.6.
+   - **Tool**: full-width discrete block, background #1a1d27, 1px #232733 border, 2px #6b7afc33 left rule, radius 4px, padding 12px 16px, 12px mono #aab0bf, max-height 200px with internal scroll. Above the block, a tiny meta line: role label "TOOL" 12px uppercase #6b7186 and tool name "Read" in 12px mono #6b7afc on the left, timestamp right.
+   - Sequence: user → assistant → tool → tool → tool → assistant → user (gives a real-looking pattern).
+   - Each bubble has a meta row above it: role uppercase 12px #6b7186 + timestamp 12px mono #6b7186 right-aligned. User bubbles flip the row (timestamp on the left of the role) so the timestamp sits over the bubble edge.
+
+6. **Raw transcript** disclosure at the bottom: a `<details>` with summary "View raw transcript" 12px uppercase #6b7186, content a `<pre>` of 8 JSONL lines.
 
 System-ui font globally, mono only where called. Tabular-nums. No icons. No emojis. Generous breathing space inside the side panel.
 
