@@ -81,12 +81,19 @@ GitHub Actions runs `.github/workflows/release.yml`. One job, multi-step:
 `goreleaser release --clean` runs in the Actions runner.
 
 - Builds the 12 binaries (3 binaries × 2 OS × 2 arch).
-- Produces `tar.gz` archives.
-- Computes `checksums.txt`.
+- Publishes each binary as a raw release asset
+  (`prosa_<v>_<os>_<arch>`, `prosa-server_<v>_<os>_<arch>`,
+  `prosa-panel_<v>_<os>_<arch>` — 12 total).
+- Also publishes a three-binary bundle tar.gz per OS/arch
+  (`prosa_<v>_<os>_<arch>.tar.gz` — 4 total) that the Homebrew Cask
+  installs and `install.sh` falls back to when raw assets are missing.
+- Computes `checksums.txt` covering every asset.
 - Renders the GitHub Release (title = `prosa v0.11.0`, body = grouped
   changelog).
 - Pushes `Casks/prosa.rb` to `c3-oss/homebrew-prosa` using
-  `HOMEBREW_TAP_TOKEN`.
+  `HOMEBREW_TAP_TOKEN`. The Cask is pinned to the tar.gz bundle via
+  `homebrew_casks[0].ids: [default]` so `brew install c3-oss/prosa/prosa`
+  keeps installing all three binaries in one step.
 
 Secrets used: `GITHUB_TOKEN` (auto), `HOMEBREW_TAP_TOKEN` (manual,
 6-month rotation).
@@ -126,14 +133,19 @@ Secret used: `GITHUB_TOKEN` (auto).
 A few minutes after the workflow goes green:
 
 ```sh
-# Homebrew
+# Homebrew (installs all three binaries from the tar.gz bundle)
 brew update && brew install c3-oss/prosa/prosa
 prosa --version
 
-# install.sh
+# install.sh — interactive prompt picks CLI / all / server / panel
 PROSA_VERSION=v0.11.0 \
   curl -fsSL https://raw.githubusercontent.com/c3-oss/prosa/master/install.sh | sh
 ~/.local/bin/prosa --version
+
+# Direct raw binary — one-liner for users who want just one component
+curl -fsSL -o ~/.local/bin/prosa-server \
+  https://github.com/c3-oss/prosa/releases/download/v0.11.0/prosa-server_0.11.0_darwin_arm64
+chmod +x ~/.local/bin/prosa-server
 
 # npm
 npm install -g @c3-oss/prosa@0.11.0
