@@ -102,6 +102,35 @@ func TestAnalyticsHeatmap(t *testing.T) {
 	require.Equal(t, 4, total)
 }
 
+func TestNormalizeRemoteAnalyticsResult_FoldsHeatmapAgentRows(t *testing.T) {
+	result := normalizeRemoteAnalyticsResult("heatmap", store.AnalyticsResult{
+		Headers: []string{"DATE", "AGENT", "SESSIONS"},
+		Rows: []store.AnalyticsRow{
+			{Values: []any{"2026-05-22", "claude-code", "4"}},
+			{Values: []any{"2026-05-22", "codex", "5"}},
+			{Values: []any{"2026-05-23", "", "0"}},
+		},
+	})
+
+	require.Equal(t, []string{"DATE", "SESSIONS"}, result.Headers)
+	require.Equal(t, []store.AnalyticsRow{
+		{Values: []any{"2026-05-22", "9"}},
+		{Values: []any{"2026-05-23", "0"}},
+	}, result.Rows)
+}
+
+func TestNormalizeRemoteAnalyticsResult_LeavesExistingHeatmapShape(t *testing.T) {
+	original := store.AnalyticsResult{
+		Headers: []string{"DATE", "SESSIONS"},
+		Rows: []store.AnalyticsRow{
+			{Values: []any{"2026-05-22", "9"}},
+		},
+	}
+
+	result := normalizeRemoteAnalyticsResult("heatmap", original)
+	require.Equal(t, original, result)
+}
+
 func TestAnalyticsUsage(t *testing.T) {
 	ctx, s, now := newAnalyticsStore(t)
 	r, err := s.AnalyticsUsage(ctx, filter(now))
