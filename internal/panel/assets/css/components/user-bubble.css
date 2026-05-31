@@ -1,0 +1,86 @@
+/* User bubble extras — slash command chip and the disclosure blocks
+   for boilerplate the agent injected (system-reminder, stdout, env
+   context, …). The bubble itself lives in bubbles.css; this file
+   adds the chip in the meta row and the details below the body. */
+
+.cmd-chip {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--accent);
+  background: var(--accent-soft);
+  padding: 1px 8px;
+  border-radius: var(--radius-sm);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.user-extras {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: var(--space-2);
+  width: 100%;
+  align-self: flex-end;
+  max-width: 100%;
+}
+
+.extra-details {
+  background: var(--bg-elev-1);
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+}
+
+.extra-details > summary {
+  cursor: pointer;
+  padding: 4px var(--space-3);
+  color: var(--text-3);
+  text-transform: lowercase;
+  letter-spacing: 0.02em;
+  list-style: none;
+  user-select: none;
+}
+
+.extra-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.extra-details > summary::before {
+  content: "▸";
+  display: inline-block;
+  margin-right: var(--space-2);
+  color: var(--text-3);
+  transition: transform var(--duration-base) var(--ease);
+}
+
+.extra-details[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.extra-details > summary:hover {
+  color: var(--text-2);
+}
+
+.extra-block {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--divider);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  color: var(--text-2);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  max-height: 320px;
+  overflow: auto;
+}
+
+/* When the chip lives in the meta of a user bubble (which is
+   row-reverse), keep it next to the role label rather than at the
+   far edge. */
+.bubble-user .bubble-meta .cmd-chip {
+  order: -1;
+}

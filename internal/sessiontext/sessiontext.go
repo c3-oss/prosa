@@ -1,7 +1,17 @@
 // Package sessiontext classifies and cleans the operational/meta blocks
-// agents inject as the first user-role message of a session. Centralized
-// here so importers, renderers, and the store-level denoise mirror all
-// share one source of truth — the master pattern list lives in Prefixes.
+// agents inject as user-role messages of a session. Centralized here
+// so importers, renderers, and the store-level denoise mirror all
+// share one source of truth — the master pattern list lives in
+// Prefixes.
+//
+// Two consumer shapes:
+//
+//   - CleanPrompt / IsBoilerplatePrompt / BuildFirstPrompt — used by
+//     importers to derive the FirstPrompt field shown on the timeline.
+//   - ParseUserMessage — used by the panel to break a user turn into
+//     its semantic parts (slash command, system reminders, stdout,
+//     env context, …) so each can render as a discrete chip or
+//     disclosure instead of a wall of XML.
 package sessiontext
 
 import (
