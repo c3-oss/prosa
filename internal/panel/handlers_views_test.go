@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	prosav1 "github.com/c3-oss/prosa/gen/go/prosa/v1"
 )
 
 func TestIsBinaryChunkDetectsSQLiteMagic(t *testing.T) {
@@ -58,4 +60,39 @@ func TestBinaryPlaceholderMentionsSize(t *testing.T) {
 	require.Contains(t, out, "123456")
 	require.True(t, strings.Contains(out, "Binary"),
 		"placeholder should label the content as binary")
+}
+
+// TestLoadViewsParsesAllTemplates catches template parse errors at
+// build time instead of at the first GET that lands on a broken view.
+// Failing here means a {{...}} block is unbalanced, a referenced
+// template name is missing, or a field accessor uses bad syntax.
+func TestLoadViewsParsesAllTemplates(t *testing.T) {
+	views, err := loadViews()
+	require.NoError(t, err)
+	for _, name := range []string{"home", "devices", "analytics", "login", "side_panel", "raw_chunk"} {
+		require.Contains(t, views, name, "view %q should be parsed", name)
+	}
+}
+
+func TestCleanTurnsForDisplayCopiesAndSanitizes(t *testing.T) {
+	original := []*prosav1.Turn{
+		{Role: "user", Content: "hello \x1b[1mworld\x1b[22m"},
+		{Role: "assistant", Content: "ok\x00 trailing"},
+		nil,
+	}
+	got := cleanTurnsForDisplay(original)
+	require.Len(t, got, 3)
+	require.Equal(t, "hello world", got[0].Content)
+	require.Equal(t, "ok trailing", got[1].Content)
+	require.Nil(t, got[2])
+
+	// Defensive copy: the originals are untouched so concurrent
+	// requests sharing the connect response don't race on Content.
+	require.Equal(t, "hello \x1b[1mworld\x1b[22m", original[0].Content)
+	require.Equal(t, "ok\x00 trailing", original[1].Content)
+}
+
+func TestCleanTurnsForDisplayEmpty(t *testing.T) {
+	require.Empty(t, cleanTurnsForDisplay(nil))
+	require.Empty(t, cleanTurnsForDisplay([]*prosav1.Turn{}))
 }

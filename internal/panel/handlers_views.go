@@ -16,6 +16,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	prosav1 "github.com/c3-oss/prosa/gen/go/prosa/v1"
+	"github.com/c3-oss/prosa/internal/sessiontext"
 )
 
 // handleHome renders the cross-device timeline. Filters come from
@@ -166,7 +167,7 @@ func (p *Panel) loadSidePanel(ctx context.Context, id string) (sidePanelData, er
 	}
 	sp := sidePanelData{
 		Session:  getResp.Msg.Session,
-		Turns:    getResp.Msg.Turns,
+		Turns:    cleanTurnsForDisplay(getResp.Msg.Turns),
 		Tools:    getResp.Msg.Tools,
 		Chunk:    chunkText,
 		EOF:      eof,
@@ -177,6 +178,28 @@ func (p *Panel) loadSidePanel(ctx context.Context, id string) (sidePanelData, er
 		sp.NextURL = fmt.Sprintf("/raw/%s?offset=%d", id, sp.Progress)
 	}
 	return sp, nil
+}
+
+// cleanTurnsForDisplay returns a defensive copy of in with each Turn's
+// Content stripped of ANSI escapes and control characters. The raw
+// transcript pane keeps the original bytes (so users can inspect them
+// via the toggle), while the structured Transcript view shows readable
+// text. Copy — never mutate — so concurrent requests sharing the same
+// generated proto message slice see a stable Content.
+func cleanTurnsForDisplay(in []*prosav1.Turn) []*prosav1.Turn {
+	if len(in) == 0 {
+		return in
+	}
+	out := make([]*prosav1.Turn, len(in))
+	for i, t := range in {
+		if t == nil {
+			continue
+		}
+		cp := *t
+		cp.Content = sessiontext.SanitizeForDisplay(t.Content)
+		out[i] = &cp
+	}
+	return out
 }
 
 // isBinaryChunk reports whether b looks like binary content unfit for a
