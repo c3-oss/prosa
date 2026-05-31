@@ -72,7 +72,7 @@ func runAnalytics(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	s, err := store.Open(ctx, storePath)
+	s, err := store.OpenReadOnly(ctx, storePath)
 	if err != nil {
 		return err
 	}
@@ -212,7 +212,7 @@ func applyAnalyticsRemoteScope(ctx context.Context, req *prosav1.GetReportReques
 		if cwd, err := os.Getwd(); err == nil {
 			storePath, perr := paths.StorePath()
 			if perr == nil {
-				s, oerr := store.Open(ctx, storePath)
+				s, oerr := store.OpenReadOnly(ctx, storePath)
 				if oerr == nil {
 					if m, derr := DetectProject(ctx, cwd, s); derr == nil && m.Found {
 						switch {

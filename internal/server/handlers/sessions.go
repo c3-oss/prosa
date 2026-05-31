@@ -144,9 +144,13 @@ func (h *SessionsHandler) List(ctx context.Context, req *connect.Request[prosav1
 		addEq("project_path", req.Msg.ProjectPath)
 	}
 	if req.Msg.ProjectMatch != "" {
-		conds = append(conds, fmt.Sprintf("s.project_path LIKE $%d", idx))
-		args = append(args, "%"+req.Msg.ProjectMatch+"%")
-		idx++
+		conds = append(conds, fmt.Sprintf(
+			"(s.project_path LIKE $%d OR s.project_remote LIKE $%d OR s.project_marker LIKE $%d)",
+			idx, idx+1, idx+2,
+		))
+		pattern := "%" + req.Msg.ProjectMatch + "%"
+		args = append(args, pattern, pattern, pattern)
+		idx += 3
 	}
 	if req.Msg.ProjectRemote != "" {
 		addEq("project_remote", req.Msg.ProjectRemote)
@@ -303,10 +307,11 @@ func (h *SessionsHandler) Search(ctx context.Context, req *connect.Request[prosa
 		       s.raw_uri, s.raw_hash, s.raw_size,
 		       su.session_id, su.total_tokens, su.input_tokens, su.output_tokens,
 		       su.cached_tokens, su.cache_read_tokens, su.cache_creation_tokens,
-		       t.role,
+		       t.id, t.ts, t.role, t.kind, t.tool_name,
 		       ts_headline('simple', t.content,
 		                   plainto_tsquery('simple', $3),
-		                   'StartSel=«, StopSel=», MaxFragments=1, MaxWords=16, MinWords=3, ShortWord=2') AS snippet
+		                   'StartSel=«, StopSel=», MaxFragments=1, MaxWords=16, MinWords=3, ShortWord=2') AS snippet,
+		       ts_rank(t.content_tsv, plainto_tsquery('simple', $3)) AS rank
 		FROM sessions s
 		JOIN turns t ON t.session_id = s.id
 		LEFT JOIN session_usage su ON su.session_id = s.id%s
@@ -470,8 +475,11 @@ func scanSearchHit(r scannable) (*prosav1.SearchHit, error) {
 		usageSession                                                  *string
 		totalTokens, inputTokens, outputTokens                        *int64
 		cachedTokens, cacheReadTokens, cacheCreationTokens            *int64
-		started, lastAct                                              time.Time
-		role, snippet                                                 string
+		started, lastAct, turnTS                                      time.Time
+		role, kind, snippet                                           string
+		toolName                                                      *string
+		turnID                                                        int64
+		rank                                                          float64
 	)
 	if err := r.Scan(
 		&s.Id, &s.Agent, &s.DeviceId,
@@ -481,7 +489,8 @@ func scanSearchHit(r scannable) (*prosav1.SearchHit, error) {
 		&s.RawUri, &s.RawHash, &s.RawSize,
 		&usageSession, &totalTokens, &inputTokens, &outputTokens,
 		&cachedTokens, &cacheReadTokens, &cacheCreationTokens,
-		&role, &snippet,
+		&turnID, &turnTS, &role, &kind, &toolName,
+		&snippet, &rank,
 	); err != nil {
 		return nil, err
 	}
@@ -512,13 +521,26 @@ func scanSearchHit(r scannable) (*prosav1.SearchHit, error) {
 			CacheCreationTokens: derefInt64(cacheCreationTokens),
 		}
 	}
-	return &prosav1.SearchHit{Session: &s, Snippet: snippet, Role: role}, nil
+	hit := &prosav1.SearchHit{
+		Session:    &s,
+		Snippet:    snippet,
+		Role:       role,
+		TurnId:     turnID,
+		TurnTs:     timestamppb.New(turnTS),
+		Kind:       kind,
+		MatchField: "turn.content",
+		Rank:       rank,
+	}
+	if toolName != nil {
+		hit.ToolName = *toolName
+	}
+	return hit, nil
 }
 
 func selectTurns(ctx context.Context, pool *pgxpool.Pool, sessionID string) ([]*prosav1.Turn, error) {
 	rows, err := pool.Query(
 		ctx,
-		`SELECT role, content, ts FROM turns WHERE session_id = $1 ORDER BY ts ASC, id ASC`,
+		`SELECT role, content, ts, kind, tool_name FROM turns WHERE session_id = $1 ORDER BY ts ASC, id ASC`,
 		sessionID,
 	)
 	if err != nil {
@@ -528,13 +550,23 @@ func selectTurns(ctx context.Context, pool *pgxpool.Pool, sessionID string) ([]*
 	var out []*prosav1.Turn
 	for rows.Next() {
 		var (
-			role, content string
-			ts            time.Time
+			role, content, kind string
+			ts                  time.Time
+			toolName            *string
 		)
-		if err := rows.Scan(&role, &content, &ts); err != nil {
+		if err := rows.Scan(&role, &content, &ts, &kind, &toolName); err != nil {
 			return nil, err
 		}
-		out = append(out, &prosav1.Turn{Role: role, Content: content, Ts: timestamppb.New(ts)})
+		turn := &prosav1.Turn{
+			Role:    role,
+			Content: content,
+			Ts:      timestamppb.New(ts),
+			Kind:    kind,
+		}
+		if toolName != nil {
+			turn.ToolName = *toolName
+		}
+		out = append(out, turn)
 	}
 	return out, rows.Err()
 }
@@ -683,9 +715,14 @@ func replaceTurns(ctx context.Context, tx pgx.Tx, sessionID string, turns []*pro
 		return fmt.Errorf("clear turns: %w", err)
 	}
 	for _, t := range turns {
+		kind := t.Kind
+		if kind == "" {
+			kind = session.KindMessage
+		}
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO turns(session_id, role, content, ts) VALUES ($1, $2, $3, $4)
-		`, sessionID, t.Role, t.Content, tsToTime(t.Ts)); err != nil {
+			INSERT INTO turns(session_id, role, content, ts, kind, tool_name)
+			VALUES ($1, $2, $3, $4, $5, $6)
+		`, sessionID, t.Role, t.Content, tsToTime(t.Ts), kind, nullIfEmpty(t.ToolName)); err != nil {
 			return fmt.Errorf("insert turn: %w", err)
 		}
 	}

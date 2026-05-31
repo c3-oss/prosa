@@ -44,6 +44,90 @@ func TestShowSessionHumanView(t *testing.T) {
 	require.Contains(t, out, "Edit, Bash")
 	require.Contains(t, out, "/tmp/raw.jsonl")
 	require.Contains(t, out, "turns")
-	require.Contains(t, out, "fix this use tests")
-	require.NotContains(t, out, "fix this\n\nuse tests")
+	require.Contains(t, out, "fix this")
+	require.Contains(t, out, "use tests")
+	require.NotContains(t, out, "fix this use tests")
+}
+
+func TestShowSessionRendersToolKindLabel(t *testing.T) {
+	now := time.Date(2026, 5, 30, 15, 0, 0, 0, time.Local)
+	detail := SessionDetail{
+		Session: session.Session{
+			ID:             "abc",
+			Agent:          "claude-code",
+			DeviceID:       "laptop",
+			StartedAt:      now,
+			LastActivityAt: now,
+			RawPath:        "/tmp/raw.jsonl",
+		},
+		Turns: []session.Turn{
+			{Role: "user", Content: "build the binary", Kind: session.KindMessage},
+			{
+				Role:     "tool",
+				Content:  "build failed: undefined Foo",
+				Kind:     session.KindToolResult,
+				ToolName: "Bash",
+			},
+		},
+		Width: 96,
+	}
+	var b bytes.Buffer
+	require.NoError(t, ShowSession(&b, detail))
+	out := b.String()
+	require.Contains(t, out, "tool:Bash", "tool turn should render with tool:<name> label")
+	require.Contains(t, out, "build failed")
+}
+
+func TestShowSessionRespectsMaxOutputLines(t *testing.T) {
+	now := time.Date(2026, 5, 30, 15, 0, 0, 0, time.Local)
+	body := "line1\nline2\nline3\nline4\nline5"
+	detail := SessionDetail{
+		Session: session.Session{
+			ID:             "abc",
+			Agent:          "claude-code",
+			DeviceID:       "laptop",
+			StartedAt:      now,
+			LastActivityAt: now,
+			RawPath:        "/tmp/raw.jsonl",
+		},
+		Turns: []session.Turn{
+			{
+				Role: "tool", Content: body,
+				Kind: session.KindToolResult, ToolName: "Bash",
+			},
+		},
+		Width:          96,
+		MaxOutputLines: 2,
+	}
+	var b bytes.Buffer
+	require.NoError(t, ShowSession(&b, detail))
+	out := b.String()
+	require.Contains(t, out, "line1")
+	require.Contains(t, out, "line2")
+	require.NotContains(t, out, "line3", "lines past the cap should be dropped")
+	require.Contains(t, out, "…", "truncation sentinel should appear")
+}
+
+func TestShowSessionZeroMaxOutputLinesDoesNotCap(t *testing.T) {
+	now := time.Date(2026, 5, 30, 15, 0, 0, 0, time.Local)
+	body := "line1\nline2\nline3"
+	detail := SessionDetail{
+		Session: session.Session{
+			ID:             "abc",
+			Agent:          "claude-code",
+			DeviceID:       "laptop",
+			StartedAt:      now,
+			LastActivityAt: now,
+			RawPath:        "/tmp/raw.jsonl",
+		},
+		Turns: []session.Turn{{Role: "assistant", Content: body, Kind: session.KindMessage}},
+		Width: 96,
+	}
+	var b bytes.Buffer
+	require.NoError(t, ShowSession(&b, detail))
+	out := b.String()
+	require.Contains(t, out, "line1")
+	require.Contains(t, out, "line2")
+	require.Contains(t, out, "line3")
+	require.NotContains(t, out, "…")
 }

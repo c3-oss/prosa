@@ -175,3 +175,57 @@ func TestDistinctProjectPaths(t *testing.T) {
 		paths,
 	)
 }
+
+func TestListSessionsLimit(t *testing.T) {
+	ctx, s, now := seedFilterStore(t)
+	got, err := s.ListSessions(ctx, SessionFilter{
+		Since: now.Add(-7 * 24 * time.Hour),
+		Until: now,
+		Limit: 2,
+	})
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	// Newest first by ordering.
+	require.Equal(t, "x1", got[0].ID)
+	require.Equal(t, "c1", got[1].ID)
+}
+
+func TestListSessionsLimitZeroReturnsAll(t *testing.T) {
+	ctx, s, now := seedFilterStore(t)
+	got, err := s.ListSessions(ctx, SessionFilter{
+		Since: now.Add(-7 * 24 * time.Hour),
+		Until: now,
+		Limit: 0,
+	})
+	require.NoError(t, err)
+	require.Len(t, got, 4)
+}
+
+func TestListSessionsProjectMatchSpansPathRemoteMarker(t *testing.T) {
+	ctx, s, now := seedFilterStore(t)
+
+	// Tag one session by remote, another by marker, leaving a third
+	// matched only by path. All three should turn up under one
+	// --project substring.
+	_, _, err := s.FillProjectIdentity(ctx, "/u/proj-alpha", "git@github.com:movaincentivo/iac.git", "")
+	require.NoError(t, err)
+	_, _, err = s.FillProjectIdentity(ctx, "/u/proj-beta", "", "movaincentivo-monorepo")
+	require.NoError(t, err)
+
+	got, err := s.ListSessions(ctx, SessionFilter{
+		Since:        now.Add(-7 * 24 * time.Hour),
+		Until:        now,
+		ProjectMatch: ptrStr("movaincentivo"),
+	})
+	require.NoError(t, err)
+	ids := make(map[string]struct{}, len(got))
+	for _, g := range got {
+		ids[g.ID] = struct{}{}
+	}
+	// c1 + x1 share /u/proj-alpha (matched via project_remote);
+	// c2 has project_marker = "movaincentivo-monorepo".
+	require.Contains(t, ids, "c1")
+	require.Contains(t, ids, "x1")
+	require.Contains(t, ids, "c2")
+	require.NotContains(t, ids, "x2", "proj-gamma should not match movaincentivo")
+}

@@ -147,3 +147,122 @@ func TestSearchSnippetContainsMatch(t *testing.T) {
 		"snippet should wrap the matched term: got %q", hits[0].Snippet,
 	)
 }
+
+func TestSearchProjectMatchSpansPathRemoteMarker(t *testing.T) {
+	ctx, s, now := seedSearchStore(t)
+	// Tag the alpha sessions with a remote; the beta session with a marker.
+	_, _, err := s.FillProjectIdentity(ctx, "/u/proj-alpha", "git@github.com:movaincentivo/iac.git", "")
+	require.NoError(t, err)
+	_, _, err = s.FillProjectIdentity(ctx, "/u/proj-beta", "", "movaincentivo-monorepo")
+	require.NoError(t, err)
+
+	// Common query term that matches every session content.
+	hits, err := s.Search(ctx, "quantum OR terraform", SessionFilter{
+		Since:        now.Add(-24 * time.Hour),
+		Until:        now,
+		ProjectMatch: ptrStr("movaincentivo"),
+	}, 10)
+	require.NoError(t, err)
+	ids := map[string]struct{}{}
+	for _, h := range hits {
+		ids[h.Session.ID] = struct{}{}
+	}
+	require.Contains(t, ids, "a", "alpha session matches via project_remote")
+	require.Contains(t, ids, "c", "alpha session matches via project_remote")
+	require.Contains(t, ids, "b", "beta session matches via project_marker")
+}
+
+func TestSearchFilterByProjectRemote(t *testing.T) {
+	ctx, s, now := seedSearchStore(t)
+	_, _, err := s.FillProjectIdentity(ctx, "/u/proj-alpha", "git@github.com:org/alpha.git", "")
+	require.NoError(t, err)
+
+	url := "git@github.com:org/alpha.git"
+	hits, err := s.Search(ctx, "quantum", SessionFilter{
+		Since:         now.Add(-24 * time.Hour),
+		Until:         now,
+		ProjectRemote: &url,
+	}, 10)
+	require.NoError(t, err)
+	for _, h := range hits {
+		require.NotNil(t, h.Session.ProjectRemote)
+		require.Equal(t, url, *h.Session.ProjectRemote)
+	}
+	require.NotEmpty(t, hits)
+}
+
+func TestSearchFilterByProjectMarker(t *testing.T) {
+	ctx, s, now := seedSearchStore(t)
+	_, _, err := s.FillProjectIdentity(ctx, "/u/proj-beta", "", "beta-monorepo")
+	require.NoError(t, err)
+
+	marker := "beta-monorepo"
+	hits, err := s.Search(ctx, "terraform", SessionFilter{
+		Since:         now.Add(-24 * time.Hour),
+		Until:         now,
+		ProjectMarker: &marker,
+	}, 10)
+	require.NoError(t, err)
+	require.Len(t, hits, 1)
+	require.Equal(t, "b", hits[0].Session.ID)
+}
+
+func TestSearchSurfacesEvidenceMetadata(t *testing.T) {
+	ctx, s, now := seedSearchStore(t)
+
+	// Project a tool_result into session "a".
+	require.NoError(t, s.InsertTurns(ctx, "a", []session.Turn{
+		{Role: "user", Content: "explain quantum entanglement in plain terms", Timestamp: now.Add(-time.Hour)},
+		{
+			Role:      "tool",
+			Content:   "npm test failed with exit code 1\nNetworkError: ECONNREFUSED",
+			Timestamp: now.Add(-50 * time.Minute),
+			Kind:      session.KindToolResult,
+			ToolName:  "Bash",
+		},
+	}))
+
+	hits, err := s.Search(ctx, "ECONNREFUSED", SessionFilter{
+		Since: now.Add(-24 * time.Hour), Until: now,
+	}, 10)
+	require.NoError(t, err)
+	require.Len(t, hits, 1)
+	h := hits[0]
+	require.Equal(t, "a", h.Session.ID)
+	require.Equal(t, "tool", h.Role)
+	require.Equal(t, session.KindToolResult, h.Kind)
+	require.Equal(t, "Bash", h.ToolName)
+	require.Equal(t, MatchFieldTurnContent, h.MatchField)
+	require.NotZero(t, h.TurnID)
+	require.False(t, h.TurnTS.IsZero())
+}
+
+func TestInsertTurnsRoundTripsKindAndToolName(t *testing.T) {
+	ctx, s, _ := seedSearchStore(t)
+	now := time.Now().UTC()
+	require.NoError(t, s.InsertTurns(ctx, "a", []session.Turn{
+		{Role: "user", Content: "hi", Timestamp: now, Kind: session.KindMessage},
+		{
+			Role: "tool", Content: "exit 0", Timestamp: now.Add(time.Second),
+			Kind: session.KindToolResult, ToolName: "exec_command",
+		},
+	}))
+	got, err := s.GetTurns(ctx, "a")
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	require.Equal(t, session.KindMessage, got[0].Kind)
+	require.Empty(t, got[0].ToolName)
+	require.Equal(t, session.KindToolResult, got[1].Kind)
+	require.Equal(t, "exec_command", got[1].ToolName)
+}
+
+func TestInsertTurnsDefaultsEmptyKindToMessage(t *testing.T) {
+	ctx, s, _ := seedSearchStore(t)
+	require.NoError(t, s.InsertTurns(ctx, "a", []session.Turn{
+		{Role: "user", Content: "plain content", Timestamp: time.Now().UTC()},
+	}))
+	got, err := s.GetTurns(ctx, "a")
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.Equal(t, session.KindMessage, got[0].Kind)
+}

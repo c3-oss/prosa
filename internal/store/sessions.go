@@ -8,8 +8,22 @@ import (
 	"strings"
 	"time"
 
+	"github.com/c3-oss/prosa/internal/sessiontext"
 	"github.com/c3-oss/prosa/pkg/session"
 )
+
+// escapeLikePattern escapes the SQLite LIKE meta-characters % and _
+// in a literal prefix so a value like "foo_bar" matches verbatim.
+// Uses backslash as the escape character (callers must append the
+// "%" wildcard themselves).
+func escapeLikePattern(s string) string {
+	r := strings.NewReplacer(
+		`\`, `\\`,
+		`%`, `\%`,
+		`_`, `\_`,
+	)
+	return r.Replace(s)
+}
 
 // UpsertSession writes (or replaces) a session row plus its normalized
 // session_tools rows in a single transaction. Existing session_tools rows
@@ -98,24 +112,42 @@ func (s *Store) UpsertSession(ctx context.Context, sess session.Session, tools [
 	return tx.Commit()
 }
 
-// SessionFilter narrows ListSessions. Since/Until are required; the
-// pointer fields are optional and combine with AND semantics. ProjectExact
-// is the cwd-anchored auto-filter (exact equality); ProjectMatch is
-// substring (used by the --project flag). Agent matches the canonical
-// agent string ("claude-code" | "codex"). DeviceName matches against
-// devices.friendly_name via JOIN.
+// SessionFilter narrows ListSessions and Search. Since/Until are
+// required; the pointer fields are optional and combine with AND
+// semantics. ProjectExact is the cwd-anchored auto-filter (exact
+// equality on project_path); ProjectMatch is substring (used by the
+// --project flag) and ORs across project_path / project_remote /
+// project_marker so `--project movaincentivo` finds sessions stored
+// under any of the three columns. Agent matches the canonical agent
+// string ("claude-code" | "codex"). DeviceName matches against
+// devices.friendly_name via JOIN. Limit > 0 caps the returned rows.
 type SessionFilter struct {
 	Since, Until time.Time
 	ProjectExact *string // exact match on sessions.project_path
-	ProjectMatch *string // substring match on sessions.project_path
-	// ProjectRemote matches sessions.project_remote exactly. Used by the
-	// new git-remote-anchored auto-detect (INTENT §5 step 1).
+	// ProjectMatch is the substring filter from --project. Matches when
+	// any of project_path / project_remote / project_marker contains
+	// the value as a substring.
+	ProjectMatch *string
+	// ProjectRemote matches sessions.project_remote exactly. Used by
+	// the git-remote-anchored auto-detect (INTENT §5 step 1).
 	ProjectRemote *string
-	// ProjectMarker matches sessions.project_marker exactly. Used by the
-	// .prosa.yaml-anchored auto-detect (INTENT §5 step 2).
+	// ProjectMarker matches sessions.project_marker exactly. Used by
+	// the .prosa.yaml-anchored auto-detect (INTENT §5 step 2).
 	ProjectMarker *string
 	Agent         *string
 	DeviceName    *string
+	// Limit caps the number of rows returned. 0 means no limit.
+	Limit int
+}
+
+// applyProjectMatch appends the OR-chain WHERE fragment and three
+// matching args for a ProjectMatch filter. Centralized so ListSessions
+// and Search stay in lockstep.
+func applyProjectMatch(conds []string, args []any, match string) ([]string, []any) {
+	conds = append(conds, "(s.project_path LIKE ? OR s.project_remote LIKE ? OR s.project_marker LIKE ?)")
+	pattern := "%" + match + "%"
+	args = append(args, pattern, pattern, pattern)
+	return conds, args
 }
 
 // ListSessionsByRange is a thin convenience wrapper preserving the cut-1
@@ -136,8 +168,7 @@ func (s *Store) ListSessions(ctx context.Context, f SessionFilter) ([]session.Se
 		args = append(args, *f.ProjectExact)
 	}
 	if f.ProjectMatch != nil {
-		conds = append(conds, "s.project_path LIKE ?")
-		args = append(args, "%"+*f.ProjectMatch+"%")
+		conds, args = applyProjectMatch(conds, args, *f.ProjectMatch)
 	}
 	if f.ProjectRemote != nil {
 		conds = append(conds, "s.project_remote = ?")
@@ -172,6 +203,10 @@ func (s *Store) ListSessions(ctx context.Context, f SessionFilter) ([]session.Se
 		WHERE ` + strings.Join(conds, " AND ") + `
 		ORDER BY s.started_at DESC
 	`
+	if f.Limit > 0 {
+		query += ` LIMIT ?`
+		args = append(args, f.Limit)
+	}
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -284,22 +319,23 @@ type BoilerplateCandidate struct {
 // prefixes. Used by `prosa sync` to one-shot denoise legacy data
 // without forcing a full reimport.
 //
-// The prefix list lives in the render package as
-// boilerplatePrefixes; we mirror it here as a SQL OR-chain. Keep the
-// two in lockstep when adding new patterns.
+// The pattern list is sourced from internal/sessiontext.Prefixes so
+// adding a new wrapper in one place automatically extends both the
+// importer-time classifier and the SQL denoise sweep — no silent
+// drift between Go and SQL anymore.
 func (s *Store) ListSessionsWithBoilerplatePrompt(ctx context.Context, limit int) ([]BoilerplateCandidate, error) {
-	q := `
-		SELECT id, raw_path FROM sessions
-		WHERE first_prompt IS NOT NULL AND (
-			   first_prompt LIKE '# AGENTS.md instructions for %'
-			OR first_prompt LIKE '<command-name>%'
-			OR first_prompt LIKE '<command-args>%'
-			OR first_prompt LIKE '<command-message>%'
-			OR first_prompt LIKE '<system-reminder>%'
-			OR first_prompt LIKE '<INSTRUCTIONS>%'
-			OR first_prompt LIKE '<environment_context>%'
-		)`
-	args := []any{}
+	if len(sessiontext.Prefixes) == 0 {
+		return nil, nil
+	}
+	clauses := make([]string, 0, len(sessiontext.Prefixes))
+	args := make([]any, 0, len(sessiontext.Prefixes)+1)
+	for _, p := range sessiontext.Prefixes {
+		clauses = append(clauses, `first_prompt LIKE ? ESCAPE '\'`)
+		args = append(args, escapeLikePattern(p)+"%")
+	}
+	q := `SELECT id, raw_path FROM sessions
+		WHERE first_prompt IS NOT NULL AND (` +
+		strings.Join(clauses, " OR ") + `)`
 	if limit > 0 {
 		q += ` LIMIT ?`
 		args = append(args, limit)

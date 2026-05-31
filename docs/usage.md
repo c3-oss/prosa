@@ -72,12 +72,19 @@ search across machines.
 ### Read a session
 
 ```sh
-prosa show <session-id>             # paginates through less by default
-prosa show <session-id> --raw       # raw JSONL, no preface
-prosa show <session-id> --json      # structured for scripting
+prosa show <session-id>                          # rendered (TTY) / raw (pipe)
+prosa show <session-id> --json                   # one JSON object
+prosa show <session-id> --raw                    # preserved JSONL bytes
+prosa show <session-id> --max-output-lines 20    # cap per-turn body
+prosa show <session-id> --remote                 # fetch from prosa-server
 ```
 
-The raw `.jsonl` is what the agent produced; prosa preserves it byte-for-byte.
+In a TTY the default shows the structured human view — session
+metadata then a `turns` section with chat lines and projected tool
+results (rendered as `tool:<name>`). `--json` emits a single
+`{session, tools, turns}` object. `--raw` (and any non-TTY pipe
+without `--json`) emit the preserved JSONL bytes verbatim — the
+agent's source is never altered.
 
 ### Sync
 
@@ -139,7 +146,7 @@ subcommand):
 | `--last <duration>` | `7d` | Rolling window. Accepts `12h`, `7d`, `30d`, etc. |
 | `--since <YYYY-MM-DD>` | | Anchored lower bound in UTC. |
 | `--between <A..B>` | | Closed UTC range. Both ends `YYYY-MM-DD`, separated by `..`. |
-| `--project <name>` | | Substring filter on project path. |
+| `--project <name>` | | Substring filter. Matches `project_path`, `project_remote`, or `project_marker` — so `--project movaincentivo` finds sessions captured under any of the three. |
 | `--device <name>` | | Match `friendly_name` (cross-device only). |
 | `--agent <name>` | | One of `claude-code`, `codex`, `cursor`, `gemini`. |
 | `--all` | | Drop the auto cwd-based project scoping. |
@@ -147,6 +154,11 @@ subcommand):
 | `--json` | | NDJSON output, one record per line. |
 | `--no-color` | | Suppress ANSI even on a TTY. |
 | `--help` | | Per-command help. |
+
+The bare `prosa` timeline also accepts `--limit N` to cap the number
+of returned sessions (useful for agents that want a small sample).
+`prosa search` has its own `--limit`; other subcommands don't take
+one.
 
 `--last`, `--since`, and `--between` are **mutually exclusive** — pick
 one. Combining them surfaces an error before the store is touched.

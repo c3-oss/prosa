@@ -5,17 +5,42 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/c3-oss/prosa/pkg/session"
 )
 
 // SearchHit is the per-session result of a Search call: the session
-// metadata plus the highest-ranked snippet from any of its turns.
+// metadata plus the highest-ranked snippet from any of its turns and
+// the metadata needed to fetch the exact evidence without re-reading
+// the raw transcript.
 type SearchHit struct {
 	Session session.Session
 	Snippet string
-	Role    string // "user" or "assistant" — which turn produced the snippet
+	Role    string // "user" | "assistant" | "tool"
+	// TurnID is the matching turn's primary key (turns.id).
+	TurnID int64
+	// TurnTS is the timestamp of the matching turn.
+	TurnTS time.Time
+	// Kind mirrors Turn.Kind for the matched turn ("message" |
+	// "tool_result" | "operational"). Empty when older rows.
+	Kind string
+	// ToolName carries Turn.ToolName when the matched turn is a tool
+	// projection; empty otherwise.
+	ToolName string
+	// MatchField names the document field that produced the match.
+	// Currently always MatchFieldTurnContent; reserved for future
+	// session-level matches (first_prompt, project name).
+	MatchField string
+	// Rank is SQLite FTS5's bm25() score. Lower means more relevant;
+	// rows arrive sorted ascending.
+	Rank float64
 }
+
+// MatchFieldTurnContent is the only value SearchHit.MatchField takes
+// today. Held as a constant so renderers don't sprinkle the literal
+// across packages.
+const MatchFieldTurnContent = "turn.content"
 
 // SnippetMarkStart and SnippetMarkEnd wrap matched terms in the snippet
 // text. The CLI render layer recognizes them and applies Lipgloss styling.
@@ -44,8 +69,15 @@ func (s *Store) Search(ctx context.Context, query string, f SessionFilter, limit
 		args = append(args, *f.ProjectExact)
 	}
 	if f.ProjectMatch != nil {
-		conds = append(conds, "s.project_path LIKE ?")
-		args = append(args, "%"+*f.ProjectMatch+"%")
+		conds, args = applyProjectMatch(conds, args, *f.ProjectMatch)
+	}
+	if f.ProjectRemote != nil {
+		conds = append(conds, "s.project_remote = ?")
+		args = append(args, *f.ProjectRemote)
+	}
+	if f.ProjectMarker != nil {
+		conds = append(conds, "s.project_marker = ?")
+		args = append(args, *f.ProjectMarker)
 	}
 	if f.Agent != nil {
 		conds = append(conds, "s.agent = ?")
@@ -82,7 +114,7 @@ func (s *Store) Search(ctx context.Context, query string, f SessionFilter, limit
 		       s.raw_path, s.raw_hash, s.raw_size,
 		       su.session_id, su.total_tokens, su.input_tokens, su.output_tokens,
 		       su.cached_tokens, su.cache_read_tokens, su.cache_creation_tokens,
-		       t.role,
+		       t.id, t.ts, t.role, t.kind, t.tool_name,
 		       snippet(turns_fts, 1, '%s', '%s', '…', 16) AS snippet,
 		       rank
 		FROM turns_fts
@@ -124,7 +156,8 @@ func (s *Store) Search(ctx context.Context, query string, f SessionFilter, limit
 			cacheCreate   sql.NullInt64
 			startedAt     string
 			lastAct       string
-			rank          float64
+			turnTS        string
+			toolName      sql.NullString
 		)
 		if err := rows.Scan(
 			&h.Session.ID, &h.Session.Agent, &h.Session.DeviceID, &projectPath,
@@ -134,7 +167,8 @@ func (s *Store) Search(ctx context.Context, query string, f SessionFilter, limit
 			&h.Session.RawPath, &h.Session.RawHash, &h.Session.RawSize,
 			&usageSession, &totalTokens, &inputTokens, &outputTokens,
 			&cachedTokens, &cacheRead, &cacheCreate,
-			&h.Role, &h.Snippet, &rank,
+			&h.TurnID, &turnTS, &h.Role, &h.Kind, &toolName,
+			&h.Snippet, &h.Rank,
 		); err != nil {
 			return nil, err
 		}
@@ -142,6 +176,14 @@ func (s *Store) Search(ctx context.Context, query string, f SessionFilter, limit
 			continue
 		}
 		seen[h.Session.ID] = struct{}{}
+
+		if t, ok := parseTime(turnTS); ok {
+			h.TurnTS = t
+		}
+		if toolName.Valid {
+			h.ToolName = toolName.String
+		}
+		h.MatchField = MatchFieldTurnContent
 
 		if projectPath.Valid {
 			v := projectPath.String

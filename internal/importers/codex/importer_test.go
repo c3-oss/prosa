@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/require"
 
@@ -308,4 +310,129 @@ func TestWalkMissingRootReturnsEmpty(t *testing.T) {
 	got, err := imp.Walk(context.Background(), filepath.Join(t.TempDir(), "nonexistent"))
 	require.NoError(t, err)
 	require.Empty(t, got)
+}
+
+// writeFixtureBoilerplateFirstPrompt simulates a Codex session where
+// the first user-role message is a system-style preamble that should
+// not become the session's FirstPrompt.
+func writeFixtureBoilerplateFirstPrompt(t *testing.T, root string) string {
+	t.Helper()
+	base := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
+	dir := filepath.Join(root, base.Format("2006"), base.Format("01"), base.Format("02"))
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	path := filepath.Join(dir, codexFixtureFilename(base, fixtureSessionID))
+	writeJSONL(t, path, []map[string]any{
+		{
+			"type":      "session_meta",
+			"timestamp": base.Format(time.RFC3339Nano),
+			"payload":   map[string]any{"id": fixtureSessionID, "cwd": "/tmp"},
+		},
+		{
+			"type":      "response_item",
+			"timestamp": base.Add(time.Second).Format(time.RFC3339Nano),
+			"payload": map[string]any{
+				"type": "message", "role": "user",
+				"content": []map[string]any{{"type": "input_text", "text": "You are Codex, a coding agent. Knowledge cutoff: 2025-04."}},
+			},
+		},
+		{
+			"type":      "response_item",
+			"timestamp": base.Add(2 * time.Second).Format(time.RFC3339Nano),
+			"payload": map[string]any{
+				"type": "message", "role": "user",
+				"content": []map[string]any{{"type": "input_text", "text": "deploy the staging branch"}},
+			},
+		},
+	})
+	return path
+}
+
+func TestImportSkipsBoilerplateForFirstPrompt(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv("PROSA_HOME", filepath.Join(t.TempDir(), "prosa-home"))
+	root := filepath.Join(t.TempDir(), "codex-root")
+	src := writeFixtureBoilerplateFirstPrompt(t, root)
+
+	sink := newSink()
+	imp := New()
+	_, err := imp.Import(ctx, src, sink)
+	require.NoError(t, err)
+	s := sink.sessions[fixtureSessionID]
+	require.NotNil(t, s.FirstPrompt)
+	require.Equal(t, "deploy the staging branch", *s.FirstPrompt)
+}
+
+// writeFixtureFunctionOutput exercises the new function_call_output
+// projection: the importer should turn it into a tool-role Turn with
+// Kind=tool_result, ToolName resolved via call_id, and the content
+// truncated to the preview limits.
+func writeFixtureFunctionOutput(t *testing.T, root string) string {
+	t.Helper()
+	base := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
+	dir := filepath.Join(root, base.Format("2006"), base.Format("01"), base.Format("02"))
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	path := filepath.Join(dir, codexFixtureFilename(base, fixtureSessionID))
+	writeJSONL(t, path, []map[string]any{
+		{
+			"type":      "session_meta",
+			"timestamp": base.Format(time.RFC3339Nano),
+			"payload":   map[string]any{"id": fixtureSessionID, "cwd": "/tmp"},
+		},
+		{
+			"type":      "response_item",
+			"timestamp": base.Add(time.Second).Format(time.RFC3339Nano),
+			"payload": map[string]any{
+				"type": "message", "role": "user",
+				"content": []map[string]any{{"type": "input_text", "text": "do the thing"}},
+			},
+		},
+		{
+			"type":      "response_item",
+			"timestamp": base.Add(2 * time.Second).Format(time.RFC3339Nano),
+			"payload": map[string]any{
+				"type": "function_call", "name": "shell", "call_id": "c1", "arguments": `{"command":"ls"}`,
+			},
+		},
+		{
+			"type":      "response_item",
+			"timestamp": base.Add(3 * time.Second).Format(time.RFC3339Nano),
+			"payload": map[string]any{
+				"type": "function_call_output", "call_id": "c1",
+				"output": "stdout:\nfile1\nfile2",
+			},
+		},
+	})
+	return path
+}
+
+func TestImportProjectsFunctionCallOutputAsToolTurn(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv("PROSA_HOME", filepath.Join(t.TempDir(), "prosa-home"))
+	root := filepath.Join(t.TempDir(), "codex-root")
+	src := writeFixtureFunctionOutput(t, root)
+
+	sink := newSink()
+	imp := New()
+	_, err := imp.Import(ctx, src, sink)
+	require.NoError(t, err)
+
+	turns := sink.turns[fixtureSessionID]
+	require.Len(t, turns, 2, "user message + tool result projection")
+	require.Equal(t, "user", turns[0].Role)
+	require.Equal(t, session.KindMessage, turns[0].Kind)
+
+	tool := turns[1]
+	require.Equal(t, "tool", tool.Role)
+	require.Equal(t, session.KindToolResult, tool.Kind)
+	require.Equal(t, "shell", tool.ToolName)
+	require.Contains(t, tool.Content, "file1")
+}
+
+func TestTruncatePreviewKeepsUTF8Valid(t *testing.T) {
+	body := strings.Repeat("a", toolPreviewMaxBytes-1) + "é suffix"
+
+	got := truncatePreview(body)
+
+	require.True(t, utf8.ValidString(got))
+	require.Contains(t, got, "…")
 }

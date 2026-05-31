@@ -30,6 +30,10 @@ func runNu(cmd *cobra.Command, _ []string) error {
 		ctx = context.Background()
 	}
 
+	if g.Limit < 0 {
+		return fmt.Errorf("--limit must be >= 0")
+	}
+
 	now := time.Now().UTC()
 	w, err := ResolveWindow(cmd, g.Last, g.Since, g.Between, now)
 	if err != nil {
@@ -39,7 +43,7 @@ func runNu(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	s, err := store.Open(ctx, storePath)
+	s, err := store.OpenReadOnly(ctx, storePath)
 	if err != nil {
 		return err
 	}
@@ -49,6 +53,7 @@ func runNu(cmd *cobra.Command, _ []string) error {
 	filter := store.SessionFilter{
 		Since: w.Since,
 		Until: w.Until,
+		Limit: g.Limit,
 	}
 	var scope render.ContextScope
 	scopeLabel := ""
