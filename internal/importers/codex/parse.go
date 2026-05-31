@@ -441,21 +441,18 @@ func handleLegacyMessage(
 	}
 }
 
-// setFirstPromptIfHuman applies the sessiontext classifier before
-// committing a first prompt. Skips when text is wholly meta (e.g. a
-// stray system message that leaked through) or empty after cleanup.
+// setFirstPromptIfHuman defers cleanup (sanitize + unwrap + drop wholly
+// boilerplate) to sessiontext.BuildFirstPrompt — see
+// sessiontext/sessiontext.go for the rules. The local wrapper just
+// enforces "first wins" semantics so later user messages don't clobber.
 func setFirstPromptIfHuman(sess *session.Session, set *bool, text string) {
 	if *set {
 		return
 	}
-	if sessiontext.IsBoilerplatePrompt(text) {
+	prompt, ok := sessiontext.BuildFirstPrompt(text, firstPromptMaxRunes)
+	if !ok {
 		return
 	}
-	cleaned := strings.TrimSpace(sessiontext.CleanPrompt(text))
-	if cleaned == "" {
-		return
-	}
-	prompt := truncRunes(strings.Join(strings.Fields(cleaned), " "), firstPromptMaxRunes)
 	sess.FirstPrompt = &prompt
 	*set = true
 }
@@ -591,15 +588,4 @@ func parseTimestamp(s string) (time.Time, bool) {
 		return t.UTC(), true
 	}
 	return time.Time{}, false
-}
-
-func truncRunes(s string, max int) string {
-	if max <= 0 {
-		return ""
-	}
-	runes := []rune(s)
-	if len(runes) <= max {
-		return s
-	}
-	return string(runes[:max-1]) + "…"
 }

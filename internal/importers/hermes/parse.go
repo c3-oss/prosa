@@ -17,6 +17,7 @@ import (
 
 	_ "modernc.org/sqlite" // sqlite driver registered as "sqlite"
 
+	"github.com/c3-oss/prosa/internal/sessiontext"
 	"github.com/c3-oss/prosa/pkg/session"
 )
 
@@ -207,9 +208,10 @@ func projectMessagesWithDefaults(msgs []hermesMessage, envStart, envEnd time.Tim
 		switch m.Role {
 		case "user":
 			if !firstPromptSet {
-				prompt := truncRunes(strings.Join(strings.Fields(text), " "), firstPromptMaxRunes)
-				sess.FirstPrompt = &prompt
-				firstPromptSet = true
+				if prompt, ok := sessiontext.BuildFirstPrompt(text, firstPromptMaxRunes); ok {
+					sess.FirstPrompt = &prompt
+					firstPromptSet = true
+				}
 			}
 			turns = append(turns, session.Turn{Role: "user", Content: text, Timestamp: ts})
 		case "assistant":
@@ -559,15 +561,4 @@ func countSnapshotMessages(path string) (int, bool) {
 		return 0, false
 	}
 	return len(env.Messages), true
-}
-
-func truncRunes(s string, max int) string {
-	if max <= 0 {
-		return ""
-	}
-	runes := []rune(s)
-	if len(runes) <= max {
-		return s
-	}
-	return string(runes[:max-1]) + "…"
 }

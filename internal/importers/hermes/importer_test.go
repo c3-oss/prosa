@@ -469,3 +469,31 @@ func TestStateDBMergeYieldsToTranscript(t *testing.T) {
 	require.Equal(t, "richer first prompt", *s.FirstPrompt)
 	require.Len(t, sink.turns["S"], 3) // user + assistant + user
 }
+
+// TestImportJSONLSanitizesFirstPrompt covers the bug where hermes user
+// records carrying ANSI escapes and/or <local-command-stdout> wrappers
+// leaked into FirstPrompt as garbled bytes.
+func TestImportJSONLSanitizesFirstPrompt(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv("PROSA_HOME", filepath.Join(t.TempDir(), "prosa-home"))
+
+	sessionsDir := filepath.Join(t.TempDir(), ".hermes", "sessions")
+	require.NoError(t, os.MkdirAll(sessionsDir, 0o755))
+	src := filepath.Join(sessionsDir, "sess-dirty.jsonl")
+
+	base := time.Date(2026, 4, 1, 12, 0, 0, 0, time.UTC)
+	dirtyText := "<local-command-stdout>Set model to \x1b[1mclaude\x1b[22m</local-command-stdout>\n" +
+		"now refactor the sync"
+	writeJSONLFixture(t, src, []map[string]any{
+		{"role": "user", "content": dirtyText, "timestamp": float64(base.Unix()), "token_count": 5},
+		{"role": "assistant", "content": "ok", "timestamp": float64(base.Add(time.Second).Unix()), "model": "claude-sonnet-4-6", "token_count": 1},
+	})
+
+	sink := newSink()
+	res, err := New().Import(ctx, src, sink)
+	require.NoError(t, err)
+	require.False(t, res.Skipped)
+	s := sink.sessions["sess-dirty"]
+	require.NotNil(t, s.FirstPrompt)
+	require.Equal(t, "now refactor the sync", *s.FirstPrompt)
+}

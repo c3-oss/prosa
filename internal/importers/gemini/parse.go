@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/c3-oss/prosa/internal/sessiontext"
 	"github.com/c3-oss/prosa/pkg/session"
 )
 
@@ -184,9 +185,10 @@ func projectEnvelope(ctx context.Context, env envelope) (session.Session, []sess
 			continue
 		}
 		if role == "user" && !firstPromptSet {
-			prompt := truncRunes(strings.Join(strings.Fields(text), " "), firstPromptMaxRunes)
-			sess.FirstPrompt = &prompt
-			firstPromptSet = true
+			if prompt, ok := sessiontext.BuildFirstPrompt(text, firstPromptMaxRunes); ok {
+				sess.FirstPrompt = &prompt
+				firstPromptSet = true
+			}
 		}
 		if sess.Model == nil && role == "assistant" && m.Model != "" {
 			mm := m.Model
@@ -268,9 +270,10 @@ func projectLiveArray(ctx context.Context, rows []message) (session.Session, []s
 			continue
 		}
 		if role == "user" && !firstPromptSet {
-			prompt := truncRunes(strings.Join(strings.Fields(text), " "), firstPromptMaxRunes)
-			sess.FirstPrompt = &prompt
-			firstPromptSet = true
+			if prompt, ok := sessiontext.BuildFirstPrompt(text, firstPromptMaxRunes); ok {
+				sess.FirstPrompt = &prompt
+				firstPromptSet = true
+			}
 		}
 		if sess.Model == nil && role == "assistant" && m.Model != "" {
 			mm := m.Model
@@ -359,15 +362,4 @@ func parseTimestamp(s string) (time.Time, bool) {
 		return t.UTC(), true
 	}
 	return time.Time{}, false
-}
-
-func truncRunes(s string, max int) string {
-	if max <= 0 {
-		return ""
-	}
-	runes := []rune(s)
-	if len(runes) <= max {
-		return s
-	}
-	return string(runes[:max-1]) + "…"
 }

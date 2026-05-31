@@ -483,21 +483,18 @@ func extractToolResultText(raw json.RawMessage) string {
 	return ""
 }
 
-// setFirstPromptIfHuman applies sessiontext to skip wholly meta
-// candidates and unwrap <local-command-caveat> + similar known
-// wrappers before committing the FirstPrompt.
+// setFirstPromptIfHuman defers the cleanup pipeline (sanitize, unwrap
+// known meta wrappers, drop wholly-boilerplate inputs) to
+// sessiontext.BuildFirstPrompt — see sessiontext/sessiontext.go for the
+// rules. The local wrapper just enforces the "first wins" semantics.
 func setFirstPromptIfHuman(sess *session.Session, set *bool, text string) {
 	if *set {
 		return
 	}
-	if sessiontext.IsBoilerplatePrompt(text) {
+	prompt, ok := sessiontext.BuildFirstPrompt(text, firstPromptMaxRunes)
+	if !ok {
 		return
 	}
-	cleaned := strings.TrimSpace(sessiontext.CleanPrompt(text))
-	if cleaned == "" {
-		return
-	}
-	prompt := truncRunes(strings.Join(strings.Fields(cleaned), " "), firstPromptMaxRunes)
 	sess.FirstPrompt = &prompt
 	*set = true
 }
@@ -538,15 +535,4 @@ func truncateUTF8(s string, maxBytes int) string {
 		cut--
 	}
 	return s[:cut]
-}
-
-func truncRunes(s string, max int) string {
-	if max <= 0 {
-		return ""
-	}
-	runes := []rune(s)
-	if len(runes) <= max {
-		return s
-	}
-	return string(runes[:max-1]) + "…"
 }

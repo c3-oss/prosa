@@ -16,6 +16,7 @@ import (
 
 	_ "modernc.org/sqlite" // sqlite driver registered as "sqlite"
 
+	"github.com/c3-oss/prosa/internal/sessiontext"
 	"github.com/c3-oss/prosa/pkg/session"
 )
 
@@ -176,7 +177,9 @@ func parseSession(ctx context.Context, path string) (session.Session, []session.
 		switch b.Role {
 		case "user":
 			if firstPrompt == "" {
-				firstPrompt = truncRunes(strings.Join(strings.Fields(text), " "), firstPromptMaxRunes)
+				if p, ok := sessiontext.BuildFirstPrompt(text, firstPromptMaxRunes); ok {
+					firstPrompt = p
+				}
 			}
 			turns = append(turns, session.Turn{Role: "user", Content: text, Timestamp: ts})
 		case "assistant":
@@ -245,15 +248,4 @@ func extractContent(content json.RawMessage) (string, []string) {
 func openReadOnly(path string) (*sql.DB, error) {
 	dsn := "file:" + url.PathEscape(path) + "?mode=ro&immutable=1"
 	return sql.Open("sqlite", dsn)
-}
-
-func truncRunes(s string, max int) string {
-	if max <= 0 {
-		return ""
-	}
-	runes := []rune(s)
-	if len(runes) <= max {
-		return s
-	}
-	return string(runes[:max-1]) + "…"
 }

@@ -18,18 +18,38 @@
       {{if .Session.Model}}<dt>Model</dt><dd>{{.Session.Model}}</dd>{{end}}
       <dt>Raw size</dt><dd>{{.Session.RawSize}} bytes ({{.Session.RawHash}})</dd>
       <dt>Tools</dt><dd>
-        {{range .Tools}}<span class="chip" style="cursor: default">{{.Name}} ×{{.Count}}</span> {{end}}
-        {{if not .Tools}}—{{end}}
+        {{if .Tools}}
+          <div class="chips">{{range .Tools}}<span class="chip" style="cursor: default">{{.Name}} ×{{.Count}}</span>{{end}}</div>
+        {{else}}—{{end}}
       </dd>
     </dl>
-    <h3 style="font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin-bottom: 8px">Raw transcript</h3>
-    <div id="raw-stream">
-      <pre class="raw">{{.Chunk}}</pre>
-      {{if not .EOF}}
-        <a class="raw-more" hx-get="{{.NextURL}}" hx-target="#raw-stream" hx-swap="beforeend">
-          load more ({{.Progress}} / {{.Total}})
-        </a>
-      {{end}}
-    </div>
+    <h3 class="panel-section-title">Transcript</h3>
+    {{if .Turns}}
+      <section class="transcript">
+        {{range .Turns}}
+          <article class="turn turn-{{.Role}}">
+            <header class="turn-header">
+              <span class="turn-role">{{.Role}}</span>
+              {{if eq .Kind "tool_result"}}<span class="turn-tool-name">tool: {{.ToolName}}</span>{{end}}
+              {{if .Ts}}<span class="turn-time">{{(.Ts.AsTime).Format "15:04:05"}}</span>{{end}}
+            </header>
+            <div class="turn-body">{{.Content}}</div>
+          </article>
+        {{end}}
+      </section>
+    {{else}}
+      <p class="empty">no transcript available</p>
+    {{end}}
+    <details class="raw-toggle">
+      <summary>View raw transcript</summary>
+      <div id="raw-stream">
+        <pre class="raw">{{.Chunk}}</pre>
+        {{if not .EOF}}
+          <a class="raw-more" hx-get="{{.NextURL}}" hx-target="#raw-stream" hx-swap="beforeend">
+            load more ({{.Progress}} / {{.Total}})
+          </a>
+        {{end}}
+      </div>
+    </details>
   </div>
 {{end}}
