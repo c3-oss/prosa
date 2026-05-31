@@ -38,7 +38,7 @@ needed for downstream consumers.
 | 1 | initial cut |
 | 2 | usage projection (`session_usage`) |
 | 3 | `turn.kind` / `turn.tool_name`, sessiontext-cleaned `FirstPrompt` |
-| 4 | importer-level no-usage filtering |
+| 4 | importer-level no-usage filtering; Claude Code `<synthetic>` model exclusion |
 
 ## Import eligibility
 
@@ -67,7 +67,7 @@ a JSON object discriminated by `type`. The full envelope reference is
 | `StartedAt` | `min(timestamp)` over all records (RFC 3339, UTC after parse) |
 | `LastActivityAt` | `max(timestamp)` over all records |
 | `FirstPrompt` | first `type:user` record whose `message.content` is a string and `isMeta != true`; truncated to 200 runes with a trailing `…` |
-| `Model` | first `type:assistant` record's `message.model` |
+| `Model` | first `type:assistant` record's non-`<synthetic>` `message.model` |
 | `RawPath` | importer's destination after copy: `$PROSA_HOME/raw/claude-code/<YYYY>/<MM>/<id>.jsonl` (year/month from `StartedAt`) |
 | `RawHash` | sha256 of the source file bytes at import time |
 | `RawSize` | source file size at import time |

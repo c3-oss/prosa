@@ -299,6 +299,54 @@ func TestImportSkipsSessionWithoutUsage(t *testing.T) {
 	require.Empty(t, res.RawPath)
 }
 
+func TestClaudeModelSkipsSyntheticPlaceholder(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv("PROSA_HOME", filepath.Join(t.TempDir(), "prosa-home"))
+	path := filepath.Join(t.TempDir(), fixtureSessionID+".jsonl")
+	base := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
+	writeJSONL(t, path, []map[string]any{
+		{
+			"type":      "assistant",
+			"sessionId": fixtureSessionID,
+			"requestId": "synthetic",
+			"timestamp": base.Format(time.RFC3339Nano),
+			"message": map[string]any{
+				"role":  "assistant",
+				"model": "<synthetic>",
+				"content": []map[string]any{
+					{"type": "text", "text": "Please run /login"},
+				},
+			},
+		},
+		{
+			"type":      "assistant",
+			"sessionId": fixtureSessionID,
+			"requestId": "real",
+			"timestamp": base.Add(time.Second).Format(time.RFC3339Nano),
+			"message": map[string]any{
+				"role":  "assistant",
+				"model": "claude-sonnet-4-6",
+				"usage": map[string]any{
+					"input_tokens":  10,
+					"output_tokens": 2,
+				},
+				"content": []map[string]any{
+					{"type": "text", "text": "ready"},
+				},
+			},
+		},
+	})
+
+	sink := newSink()
+	res, err := New().Import(ctx, path, sink)
+	require.NoError(t, err)
+	require.False(t, res.Skipped)
+
+	s := sink.sessions[fixtureSessionID]
+	require.NotNil(t, s.Model)
+	require.Equal(t, "claude-sonnet-4-6", *s.Model)
+}
+
 func TestWalkFiltersSubagentsAndNonUUID(t *testing.T) {
 	root := t.TempDir()
 	proj := filepath.Join(root, "-Users-test-proj")

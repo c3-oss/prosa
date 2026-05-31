@@ -77,6 +77,11 @@ assistant tool calls.
 text, thinking, tool_use, tool_result, image
 ```
 
+`message.model == "<synthetic>"` is a Claude Code placeholder observed on
+synthetic assistant records such as login/status scaffolding. It is not a
+real model name and must not become the canonical session model; keep
+scanning for the first non-placeholder assistant model.
+
 ### Content blocks
 
 | Block | Shape |
