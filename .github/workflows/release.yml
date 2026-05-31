@@ -39,6 +39,13 @@ jobs:
           # 6 months (see docs/release-runbook.md).
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
 
+      # actions/setup-node@v5 enables Corepack when package.json declares
+      # `packageManager`, which prepares the pinned pnpm. Without pnpm on
+      # PATH, the action fails — so install pnpm explicitly first. The
+      # npm publish step itself uses `npm publish`, not pnpm.
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
       - name: Set up Node.js for npm publish
         uses: actions/setup-node@v5
         with:
