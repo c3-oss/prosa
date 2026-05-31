@@ -178,7 +178,8 @@ func (m model) View() string {
 		activeAgent = it.Agent
 		activePath = shortPath(it.Path)
 	}
-	fmt.Fprintf(&b, "%s %-12s %-12s %s\n",
+	fmt.Fprintf(
+		&b, "%s %-12s %-12s %s\n",
 		styleSpin.Render(m.spin.View()),
 		styleProgress.Render(phase),
 		styleAgent.Render(activeAgent),
@@ -191,7 +192,8 @@ func (m model) View() string {
 	if m.opts.Found != "" {
 		fmt.Fprintf(&b, "%s          %s\n", styleBanner.Render("found"), m.opts.Found)
 	}
-	fmt.Fprintf(&b,
+	fmt.Fprintf(
+		&b,
 		"%s       %s · %s %d · %s %d · %s %d · %s · %s\n",
 		styleBanner.Render("progress"),
 		styleProgress.Render(fmt.Sprintf("%d / %d", m.done+m.skipped+m.errCount, m.total)),
@@ -205,7 +207,8 @@ func (m model) View() string {
 	// Active line.
 	if !m.finished() && m.activeIdx >= 0 && m.activeIdx < len(m.items) {
 		it := m.items[m.activeIdx]
-		fmt.Fprintf(&b,
+		fmt.Fprintf(
+			&b,
 			"%s        %s · %s\n",
 			styleBanner.Render("current"),
 			styleAgent.Render(it.Agent),
@@ -220,7 +223,8 @@ func (m model) View() string {
 		b.WriteString("\n")
 	}
 	for _, e := range m.errs {
-		fmt.Fprintf(&b,
+		fmt.Fprintf(
+			&b,
 			"  %s       %s\n",
 			styleAgent.Render(e.agent),
 			styleBanner.Render(shortPath(e.path)),

@@ -138,7 +138,8 @@ func renderSessionTTY(w io.Writer, item TimelineItem, now time.Time, opts Timeli
 		fmt.Fprintf(w, "%s%q\n", prefixStyled, first)
 	}
 
-	fmt.Fprintf(w, "%s        %s %s %s\n",
+	fmt.Fprintf(
+		w, "%s        %s %s %s\n",
 		StyleRail.Render("│"),
 		StyleRail.Render("├"),
 		StyleMuted.Render(padRight("id", searchLabelWidth)),
@@ -149,7 +150,8 @@ func renderSessionTTY(w io.Writer, item TimelineItem, now time.Time, opts Timeli
 	if tools := topTools(item.Tools, 3); tools != "" {
 		detail += " · " + tools
 	}
-	fmt.Fprintf(w, "%s        %s %s\n",
+	fmt.Fprintf(
+		w, "%s        %s %s\n",
 		StyleRail.Render("│"),
 		StyleRail.Render("└"),
 		StyleMuted.Render(detail),

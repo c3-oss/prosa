@@ -142,7 +142,8 @@ func TestSearchSnippetContainsMatch(t *testing.T) {
 	}, 10)
 	require.NoError(t, err)
 	require.Len(t, hits, 1)
-	require.True(t,
+	require.True(
+		t,
 		strings.Contains(hits[0].Snippet, SnippetMarkStart+"terraform"+SnippetMarkEnd),
 		"snippet should wrap the matched term: got %q", hits[0].Snippet,
 	)

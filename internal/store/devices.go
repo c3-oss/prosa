@@ -86,7 +86,8 @@ func (s *Store) ListDevices(ctx context.Context) ([]Device, error) {
 // usable as a lookup table during render so the timeline can show
 // human-readable device names instead of the raw fingerprint hex.
 func (s *Store) ListDevicesMap(ctx context.Context) (map[string]string, error) {
-	rows, err := s.db.QueryContext(ctx,
+	rows, err := s.db.QueryContext(
+		ctx,
 		`SELECT id, COALESCE(NULLIF(friendly_name, ''), hostname) FROM devices`,
 	)
 	if err != nil {

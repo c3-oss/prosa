@@ -49,6 +49,11 @@ cover:
 vet:
     go vet ./...
 
+# format tracked Go files
+fmt:
+    @command -v gofumpt >/dev/null 2>&1 || { echo "gofumpt is required: go install mvdan.cc/gofumpt@latest"; exit 127; }
+    git ls-files -z -- "*.go" | xargs -0 gofumpt -w
+
 # golangci-lint
 lint:
     golangci-lint run ./...

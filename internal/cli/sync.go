@@ -388,7 +388,8 @@ func (sc *syncCounts) printSummaryTTY() {
 		printSummaryTTYRow("Catch-up", "sent", sc.catchUpSent, sc.catchUpSkip, sc.catchUpErr, extra)
 	}
 	if sc.denoiseCleaned > 0 {
-		fmt.Fprintf(os.Stdout, "%s %s  %s %d %s\n",
+		fmt.Fprintf(
+			os.Stdout, "%s %s  %s %d %s\n",
 			render.StyleRail.Render("│"),
 			render.StyleHeader.Render("Denoise"),
 			render.StyleSuccess.Render("cleaned"),
@@ -397,7 +398,8 @@ func (sc *syncCounts) printSummaryTTY() {
 		)
 	}
 	if sc.remoteUnavailable {
-		fmt.Fprintf(os.Stdout, "%s %s  %s\n",
+		fmt.Fprintf(
+			os.Stdout, "%s %s  %s\n",
 			render.StyleRail.Render("│"),
 			render.StyleHeader.Render("Remote"),
 			render.StyleMuted.Render(sc.remoteUnavailableText()),
@@ -405,7 +407,8 @@ func (sc *syncCounts) printSummaryTTY() {
 	}
 	if sc.legacyTotal > 0 {
 		fmt.Fprintln(os.Stdout)
-		fmt.Fprintf(os.Stdout, "%s %s\n",
+		fmt.Fprintf(
+			os.Stdout, "%s %s\n",
 			render.StyleRail.Render("│"),
 			render.StyleMuted.Render(sc.legacySummaryText()),
 		)
@@ -420,7 +423,8 @@ func (sc *syncCounts) legacySummaryText() string {
 }
 
 func printSummaryTTYRow(label, primaryVerb string, primary, skipped, errs int, extra string) {
-	line := fmt.Sprintf("%s %s %s %d · %s %d · %s %d",
+	line := fmt.Sprintf(
+		"%s %s %s %d · %s %d · %s %d",
 		render.StyleRail.Render("│"),
 		render.StyleMuted.Render(padSummaryLabel(label)),
 		render.StyleSuccess.Render(primaryVerb), primary,

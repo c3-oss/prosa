@@ -89,25 +89,29 @@ func SearchHitsWithOptions(w io.Writer, hits []store.SearchHit, now time.Time, o
 				segs = append(segs, StyleDevice.Render(DeviceLabel(opts.DeviceLabels, h.Session.DeviceID)))
 			}
 			segs = append(segs, StyleMuted.Render(date))
-			fmt.Fprintf(w, "%s %s  %s\n",
+			fmt.Fprintf(
+				w, "%s %s  %s\n",
 				StyleRail.Render("│"),
 				StyleAccent.Render(idShort),
 				strings.Join(segs, " · "),
 			)
-			fmt.Fprintf(w, "%s   %s %s\n",
+			fmt.Fprintf(
+				w, "%s   %s %s\n",
 				StyleRail.Render("│"),
 				StyleAgent.Render(padTrunc(h.Role, searchLabelWidth)),
 				highlightSnippet(truncateMarkedSnippet(h.Snippet, opts.Width-16)),
 			)
 			switch {
 			case first != "":
-				fmt.Fprintf(w, "%s   %s %q\n",
+				fmt.Fprintf(
+					w, "%s   %s %q\n",
 					StyleRail.Render("│"),
 					StyleMuted.Render(padRight("session", searchLabelWidth)),
 					first,
 				)
 			case firstIsMeta:
-				fmt.Fprintf(w, "%s   %s %s\n",
+				fmt.Fprintf(
+					w, "%s   %s %s\n",
 					StyleRail.Render("│"),
 					StyleMuted.Render(padRight("session", searchLabelWidth)),
 					StyleMuted.Render(MetaPlaceholder),
@@ -115,7 +119,8 @@ func SearchHitsWithOptions(w io.Writer, hits []store.SearchHit, now time.Time, o
 			}
 			fmt.Fprintf(w, "%s\n", StyleRail.Render("│"))
 		} else {
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+			fmt.Fprintf(
+				w, "%s\t%s\t%s\t%s\t%s\t%s\n",
 				h.Session.ID,
 				h.Session.Agent,
 				project,

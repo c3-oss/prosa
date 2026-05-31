@@ -98,9 +98,11 @@ func analyticsHeatmapTTY(w io.Writer, r store.AnalyticsResult) error {
 
 	first := days[0].date
 	last := days[len(days)-1].date
-	fmt.Fprintf(w, "%s  %s\n",
+	fmt.Fprintf(
+		w, "%s  %s\n",
 		StyleHeader.Render("sessions/day"),
-		StyleMuted.Render(fmt.Sprintf("%s .. %s · %s sessions",
+		StyleMuted.Render(fmt.Sprintf(
+			"%s .. %s · %s sessions",
 			first.Format("2006-01-02"),
 			last.Format("2006-01-02"),
 			formatInt(total),
@@ -123,7 +125,8 @@ func analyticsHeatmapTTY(w io.Writer, r store.AnalyticsResult) error {
 		fmt.Fprintln(w)
 	}
 	fmt.Fprintln(w)
-	fmt.Fprintf(w, "%s %s%s%s%s %s\n",
+	fmt.Fprintf(
+		w, "%s %s%s%s%s %s\n",
 		StyleMuted.Render("less"),
 		StyleRail.Render("■"),
 		heatmapCell(max/4, max),
@@ -240,9 +243,11 @@ func analyticsUsageTTY(w io.Writer, r store.AnalyticsResult) error {
 			fmt.Fprint(w, StyleAccent.Render(cell))
 		}
 		fmt.Fprintf(w, "  %s\n", usageBar(row.total, max, 18))
-		fmt.Fprintf(w, "%s%s\n",
+		fmt.Fprintf(
+			w, "%s%s\n",
 			strings.Repeat(" ", widths[0]+2),
-			StyleMuted.Render(fmt.Sprintf("input %s · output %s · cached %s",
+			StyleMuted.Render(fmt.Sprintf(
+				"input %s · output %s · cached %s",
 				formatInt(row.input),
 				formatInt(row.output),
 				formatInt(row.cached),

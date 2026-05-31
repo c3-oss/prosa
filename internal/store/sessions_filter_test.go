@@ -170,7 +170,8 @@ func TestDistinctProjectPaths(t *testing.T) {
 	ctx, s, _ := seedFilterStore(t)
 	paths, err := s.DistinctProjectPaths(ctx)
 	require.NoError(t, err)
-	require.ElementsMatch(t,
+	require.ElementsMatch(
+		t,
 		[]string{"/u/proj-alpha", "/u/proj-beta", "/u/proj-gamma"},
 		paths,
 	)

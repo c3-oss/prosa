@@ -25,7 +25,8 @@ func ShowSession(w io.Writer, d SessionDetail) error {
 	s := d.Session
 
 	fmt.Fprintln(w, StyleHeader.Render("session"))
-	fmt.Fprintf(w, "%s %s · %s · %s\n",
+	fmt.Fprintf(
+		w, "%s %s · %s · %s\n",
 		StyleRail.Render("│"),
 		StyleProject.Render(projectLabel(s)),
 		StyleAgent.Render(agentLabel(s.Agent)),
@@ -62,7 +63,8 @@ func ShowSession(w io.Writer, d SessionDetail) error {
 		if i+1 == len(fields) {
 			branch = "└"
 		}
-		fmt.Fprintf(w, "%s   %s %s %s\n",
+		fmt.Fprintf(
+			w, "%s   %s %s %s\n",
 			StyleRail.Render("│"),
 			StyleRail.Render(branch),
 			StyleMuted.Render(padRight(field.label, 9)),
@@ -87,12 +89,14 @@ func ShowSession(w io.Writer, d SessionDetail) error {
 		if i+1 == len(d.Turns) {
 			branch = "└"
 		}
-		railHead := fmt.Sprintf("%s %s %s ",
+		railHead := fmt.Sprintf(
+			"%s %s %s ",
 			StyleRail.Render("│"),
 			StyleRail.Render(branch),
 			StyleAgent.Render(padTrunc(label, 11)),
 		)
-		railCont := fmt.Sprintf("%s   %s ",
+		railCont := fmt.Sprintf(
+			"%s   %s ",
 			StyleRail.Render("│"),
 			padTrunc("", 11),
 		)
