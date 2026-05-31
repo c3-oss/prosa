@@ -27,7 +27,7 @@ stays excluded.
 
 ## Projection version
 
-`session.ProjectionVersion = 3`. The server's push handler compares
+`session.ProjectionVersion = 4`. The server's push handler compares
 `projection_version >= session.ProjectionVersion` before short-
 circuiting, so bumping this constant forces existing sessions to be
 re-projected on the next push from any client — no schema migration
@@ -38,6 +38,7 @@ needed for downstream consumers.
 | 1 | initial cut |
 | 2 | usage projection (`session_usage`) |
 | 3 | `turn.kind` / `turn.tool_name`, sessiontext-cleaned `FirstPrompt` |
+| 4 | ANSI/control-char strip in `FirstPrompt` + recognize `<local-command-stdout/stderr>`; cursor/gemini/hermes routed through `sessiontext` |
 
 ## Claude Code
 

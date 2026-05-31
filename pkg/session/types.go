@@ -76,7 +76,10 @@ type Session struct {
 //	v1: original cut.
 //	v2: usage projection (session_usage table).
 //	v3: turn.kind/tool_name + sessiontext-cleaned FirstPrompt.
-const ProjectionVersion = 3
+//	v4: title sanitization expansion — ANSI escapes stripped from
+//	    FirstPrompt/Turn content; <local-command-stdout/stderr> recognized
+//	    as boilerplate; cursor/gemini/hermes routed through sessiontext.
+const ProjectionVersion = 4
 
 // Turn kind constants. Empty Kind is treated as KindMessage so older rows
 // and zero-value test fixtures keep working without backfill.
