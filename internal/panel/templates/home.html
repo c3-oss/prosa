@@ -41,8 +41,4 @@
   {{end}}
 {{end}}
 
-{{define "side"}}
-  {{if .SidePanel}}
-    {{template "side_panel_body" .SidePanel}}
-  {{end}}
-{{end}}
+{{define "side"}}{{- if .SidePanel}}{{template "side_panel_body" .SidePanel}}{{end -}}{{end}}

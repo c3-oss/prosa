@@ -27,7 +27,22 @@
     </label>
     <label>
       Device
-      <input name="device" value="{{.Device}}" placeholder="friendly name">
+      <div class="dropdown">
+        <button type="button" class="dropdown-toggle">{{.DeviceSummary}} ▾</button>
+        <div class="dropdown-menu" hidden>
+          {{if .Devices}}
+            {{$sel := .SelectedDevices}}
+            {{range .Devices}}
+              <label class="dropdown-item">
+                <input type="checkbox" name="device" value="{{.}}" {{if index $sel .}}checked{{end}}>
+                <span>{{.}}</span>
+              </label>
+            {{end}}
+          {{else}}
+            <div class="dropdown-empty">no devices yet</div>
+          {{end}}
+        </div>
+      </div>
     </label>
     <button class="btn" type="submit">Apply</button>
   </form>
@@ -58,7 +73,12 @@
               {{if .Blank}}
                 <span class="heatmap-spacer"></span>
               {{else}}
-                <span class="heatmap-cell level-{{.Level}}" title="{{.Date}}: {{pluralize .Count "session" "sessions"}}"></span>
+                <span class="heatmap-cell level-{{.Level}}"
+                      tabindex="0"
+                      data-date="{{.Date}}"
+                      data-total="{{.Count}}"
+                      data-breakdown="{{- range $i, $a := .Agents}}{{if $i}},{{end}}{{$a.Name}}:{{$a.Count}}{{end -}}"
+                      aria-label="{{.Date}}: {{pluralize .Count "session" "sessions"}}"></span>
               {{end}}
             {{end}}
           </div>
