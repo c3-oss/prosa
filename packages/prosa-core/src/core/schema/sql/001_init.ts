@@ -200,6 +200,8 @@ CREATE TABLE IF NOT EXISTS messages (
 
 CREATE INDEX IF NOT EXISTS messages_session_idx ON messages(session_id, ordinal);
 CREATE INDEX IF NOT EXISTS messages_role_idx ON messages(role);
+CREATE INDEX IF NOT EXISTS messages_event_idx ON messages(event_id);
+CREATE INDEX IF NOT EXISTS messages_raw_record_idx ON messages(raw_record_id);
 
 CREATE TABLE IF NOT EXISTS content_blocks (
   block_id        TEXT PRIMARY KEY,
@@ -221,6 +223,7 @@ CREATE TABLE IF NOT EXISTS content_blocks (
 
 CREATE INDEX IF NOT EXISTS blocks_session_idx ON content_blocks(session_id, ordinal);
 CREATE INDEX IF NOT EXISTS blocks_message_idx ON content_blocks(message_id);
+CREATE INDEX IF NOT EXISTS blocks_event_idx ON content_blocks(event_id);
 
 CREATE TABLE IF NOT EXISTS tool_calls (
   tool_call_id          TEXT PRIMARY KEY,
@@ -246,6 +249,8 @@ CREATE INDEX IF NOT EXISTS tool_calls_session_idx ON tool_calls(session_id, time
 CREATE INDEX IF NOT EXISTS tool_calls_name_idx ON tool_calls(tool_name);
 CREATE INDEX IF NOT EXISTS tool_calls_canon_idx ON tool_calls(canonical_tool_type);
 CREATE INDEX IF NOT EXISTS tool_calls_source_call_idx ON tool_calls(session_id, source_call_id);
+CREATE INDEX IF NOT EXISTS tool_calls_message_idx ON tool_calls(message_id);
+CREATE INDEX IF NOT EXISTS tool_calls_event_idx ON tool_calls(event_id);
 
 CREATE TABLE IF NOT EXISTS tool_results (
   tool_result_id        TEXT PRIMARY KEY,
@@ -269,6 +274,8 @@ CREATE INDEX IF NOT EXISTS tool_results_session_idx ON tool_results(session_id);
 CREATE INDEX IF NOT EXISTS tool_results_call_idx ON tool_results(tool_call_id);
 CREATE INDEX IF NOT EXISTS tool_results_source_call_idx ON tool_results(session_id, source_call_id);
 CREATE INDEX IF NOT EXISTS tool_results_error_idx ON tool_results(is_error);
+CREATE INDEX IF NOT EXISTS tool_results_message_idx ON tool_results(message_id);
+CREATE INDEX IF NOT EXISTS tool_results_event_idx ON tool_results(event_id);
 
 CREATE TABLE IF NOT EXISTS artifacts (
   artifact_id     TEXT PRIMARY KEY,

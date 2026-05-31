@@ -13,4 +13,4 @@ export const PROSA_PARSER_VERSION = packageJson.version
  * Current SQLite schema version, matching the highest migration in
  * `src/core/schema`.
  */
-export const PROSA_SCHEMA_VERSION = 5
+export const PROSA_SCHEMA_VERSION = 7

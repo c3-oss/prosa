@@ -103,41 +103,61 @@ export async function compileClaude(
 
 /** Resolve Claude subagent parent links after all files in the batch have been inserted. */
 function linkSubagentParents(bundle: Bundle): void {
-  bundle.db.exec(`
-    UPDATE edges
-       SET src_id = (
-             SELECT m.message_id
-               FROM messages m
-               JOIN raw_records r ON r.raw_record_id = m.raw_record_id
-              WHERE r.source_tool = 'claude'
-                AND r.native_id = edges.src_id
-              LIMIT 1
-           )
-     WHERE src_type = 'message'
-       AND edge_type = 'spawned'
-       AND source = 'source_tool_assistant_uuid'
-       AND EXISTS (
-             SELECT 1
-               FROM messages m
-               JOIN raw_records r ON r.raw_record_id = m.raw_record_id
-              WHERE r.source_tool = 'claude'
-                AND r.native_id = edges.src_id
-           );
+  transactional(bundle.db, () => {
+    const candidates = prepare<[], { edge_id: number; dst_id: string; resolved_src_id: string }>(
+      bundle.db,
+      `SELECT e.edge_id, e.dst_id, MIN(m.message_id) AS resolved_src_id
+         FROM edges e
+         JOIN raw_records r
+           ON r.source_tool = 'claude'
+          AND r.native_id = e.src_id
+         JOIN messages m ON m.raw_record_id = r.raw_record_id
+        WHERE e.src_type = 'message'
+          AND e.dst_type = 'session'
+          AND e.edge_type = 'spawned'
+          AND e.source = 'source_tool_assistant_uuid'
+          AND NOT EXISTS (SELECT 1 FROM messages current WHERE current.message_id = e.src_id)
+        GROUP BY e.edge_id, e.dst_id`,
+    ).all()
 
-    UPDATE sessions
-       SET parent_session_id = (
-             SELECT e.src_id
-               FROM edges e
-              WHERE e.edge_type = 'spawned'
-                AND e.dst_type = 'session'
-                AND e.dst_id   = sessions.session_id
-                AND EXISTS (SELECT 1 FROM sessions p WHERE p.session_id = e.src_id)
-              LIMIT 1
-           )
-     WHERE parent_session_id IS NULL
-       AND is_subagent = 1
-       AND source_tool = 'claude'
-  `)
+    const existingEdge = prepare<[string, string], { edge_id: number }>(
+      bundle.db,
+      `SELECT edge_id
+         FROM edges
+        WHERE src_type = 'message'
+          AND src_id = ?
+          AND dst_type = 'session'
+          AND dst_id = ?
+          AND edge_type = 'spawned'
+        LIMIT 1`,
+    )
+    const deleteEdge = prepare<[number]>(bundle.db, `DELETE FROM edges WHERE edge_id = ?`)
+    const updateEdge = prepare<[string, number]>(bundle.db, `UPDATE edges SET src_id = ? WHERE edge_id = ?`)
+
+    for (const candidate of candidates) {
+      if (existingEdge.get(candidate.resolved_src_id, candidate.dst_id)) {
+        deleteEdge.run(candidate.edge_id)
+      } else {
+        updateEdge.run(candidate.resolved_src_id, candidate.edge_id)
+      }
+    }
+
+    bundle.db.exec(`
+      UPDATE sessions
+         SET parent_session_id = (
+               SELECT e.src_id
+                 FROM edges e
+                WHERE e.edge_type = 'spawned'
+                  AND e.dst_type = 'session'
+                  AND e.dst_id   = sessions.session_id
+                  AND EXISTS (SELECT 1 FROM sessions p WHERE p.session_id = e.src_id)
+                LIMIT 1
+             )
+       WHERE parent_session_id IS NULL
+         AND is_subagent = 1
+         AND source_tool = 'claude'
+    `)
+  })
 }
 
 /** Per-source-file deltas that are merged into the import batch counts. */

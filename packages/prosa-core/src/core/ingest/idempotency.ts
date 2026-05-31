@@ -84,9 +84,10 @@ export async function registerSourceFile(
   ).get(args.sourceTool, args.absolutePath, size, mtime)
 
   if (cheap) {
+    const row = await ensureSourceFilePreserved(bundle, cheap, args.absolutePath)
     return {
-      row: await ensureSourceFilePreserved(bundle, cheap, args.absolutePath),
-      alreadyKnown: true,
+      row,
+      alreadyKnown: sourceFileHasRawRecords(bundle, row.source_file_id),
     }
   }
 
@@ -105,9 +106,10 @@ export async function registerSourceFile(
   ).get(args.sourceTool, args.absolutePath, contentHash)
 
   if (exact) {
+    const row = await ensureSourceFilePreserved(bundle, exact, args.absolutePath, buf)
     return {
-      row: await ensureSourceFilePreserved(bundle, exact, args.absolutePath, buf),
-      alreadyKnown: true,
+      row,
+      alreadyKnown: sourceFileHasRawRecords(bundle, row.source_file_id),
     }
   }
 
@@ -147,6 +149,15 @@ export async function registerSourceFile(
   )
 
   return { row, alreadyKnown: false }
+}
+
+/** A registered file is only a completed import once raw records exist for it. */
+function sourceFileHasRawRecords(bundle: Bundle, sourceFileId: string): boolean {
+  const row = prepare<[string], { found: 1 }>(
+    bundle.db,
+    `SELECT 1 AS found FROM raw_records WHERE source_file_id = ? LIMIT 1`,
+  ).get(sourceFileId)
+  return row?.found === 1
 }
 
 /**
