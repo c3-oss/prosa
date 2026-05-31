@@ -12,7 +12,7 @@ func TestImportSkipRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	s, err := Open(ctx, filepath.Join(t.TempDir(), "store.db"))
 	require.NoError(t, err)
-	defer s.Close()
+	t.Cleanup(func() { _ = s.Close() })
 
 	hash, found, err := s.LastImportSkip(ctx, "s1", "no_usage")
 	require.NoError(t, err)
