@@ -68,7 +68,7 @@ lint-md:
 
 # check links in tracked Markdown files
 lint-links:
-    git ls-files -z -- "*.md" | xargs -0 lychee --config lychee.toml --no-progress --verbose
+    git ls-files -z -- "*.md" | xargs -0 lychee --no-progress --verbose
 
 # check the current tree for secrets
 lint-secrets:
