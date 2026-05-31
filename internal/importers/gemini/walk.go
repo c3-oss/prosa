@@ -33,6 +33,13 @@ func (i *Importer) Walk(ctx context.Context, root string) ([]string, error) {
 		}
 		name := d.Name()
 		if name == "logs.json" {
+			empty, err := isEmptyLiveLogs(path)
+			if err != nil {
+				return err
+			}
+			if empty {
+				return nil
+			}
 			out = append(out, path)
 			return nil
 		}
@@ -46,4 +53,12 @@ func (i *Importer) Walk(ctx context.Context, root string) ([]string, error) {
 		return nil, err
 	}
 	return out, nil
+}
+
+func isEmptyLiveLogs(path string) (bool, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(string(data)) == "[]", nil
 }

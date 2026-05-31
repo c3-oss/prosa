@@ -229,6 +229,19 @@ func TestWalkFindsBothShapes(t *testing.T) {
 	require.ElementsMatch(t, []string{envSrc, liveSrc}, got)
 }
 
+func TestWalkSkipsEmptyLiveLogs(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "gemini-root")
+	emptyDir := filepath.Join(root, "empty")
+	require.NoError(t, os.MkdirAll(emptyDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(emptyDir, "logs.json"), []byte("[]"), 0o644))
+	liveSrc := writeLiveFixture(t, root)
+
+	imp := New()
+	got, err := imp.Walk(context.Background(), root)
+	require.NoError(t, err)
+	require.Equal(t, []string{liveSrc}, got)
+}
+
 func TestWalkMissingRootReturnsEmpty(t *testing.T) {
 	imp := New()
 	got, err := imp.Walk(context.Background(), filepath.Join(t.TempDir(), "nope"))
