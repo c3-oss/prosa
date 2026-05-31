@@ -115,16 +115,16 @@ func analyticsHeatmapTTY(w io.Writer, r store.AnalyticsResult) error {
 		fmt.Fprintf(w, "%s ", StyleMuted.Render(label))
 		for d := start.AddDate(0, 0, weekday); !d.After(end); d = d.AddDate(0, 0, 7) {
 			if d.Before(first) || d.After(last) {
-				fmt.Fprint(w, "  ")
+				fmt.Fprint(w, " ")
 				continue
 			}
-			fmt.Fprintf(w, "%s ", heatmapCell(counts[d.Format("2006-01-02")], max))
+			fmt.Fprint(w, heatmapCell(counts[d.Format("2006-01-02")], max))
 		}
 		fmt.Fprintln(w)
 	}
 	fmt.Fprintln(w)
-	fmt.Fprintf(w, "%s %s %s %s %s %s\n",
-		StyleMuted.Render("legend"),
+	fmt.Fprintf(w, "%s %s%s%s%s %s\n",
+		StyleMuted.Render("less"),
 		StyleRail.Render("■"),
 		heatmapCell(max/4, max),
 		heatmapCell(max/2, max),

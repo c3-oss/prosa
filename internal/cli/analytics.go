@@ -31,13 +31,16 @@ func newAnalyticsCmd() *cobra.Command {
 			"  tools     — most-used tools across all sessions (top 20)\n" +
 			"  models    — sessions per model name\n" +
 			"  projects  — sessions per project, agent-grouped (top 30)\n" +
-			"  heatmap   — sessions per UTC day for a GitHub-style graph\n" +
+			"  heatmap   — sessions per UTC day for a GitHub-style graph,\n" +
+			"              fixed to the trailing 53 weeks (rejects --last / --since /\n" +
+			"              --between; scope filters still apply)\n" +
 			"  usage     — token totals and estimated USD cost by agent\n" +
 			"  errors    — sessions whose assistant turns match common error\n" +
 			"              signals via FTS5: 'error OR exception OR traceback OR panic OR fatal'\n" +
 			"              (heuristic; matches the words in any context).\n\n" +
 			"All reports honor the global filter flags (--last / --project / --agent /\n" +
-			"--device) and emit NDJSON with --json.\n\n" +
+			"--device) and emit NDJSON with --json. Exception: heatmap has a fixed\n" +
+			"trailing-year window and does not accept --last / --since / --between.\n\n" +
 			"--remote re-runs the report on the prosa-server. It is a persistent\n" +
 			"flag, so both `prosa --remote analytics …` and `prosa analytics … --remote`\n" +
 			"work.",
@@ -55,9 +58,18 @@ func runAnalytics(cmd *cobra.Command, args []string) error {
 	report := args[0]
 
 	now := time.Now().UTC()
-	w, err := ResolveWindow(cmd, g.Last, g.Since, g.Between, now)
-	if err != nil {
-		return err
+	var w Window
+	if report == "heatmap" {
+		if cmd.Flags().Changed("last") || cmd.Flags().Changed("since") || cmd.Flags().Changed("between") {
+			return errors.New("heatmap covers the trailing 53 weeks; --last, --since, and --between are not accepted")
+		}
+		w = HeatmapWindow(now)
+	} else {
+		var err error
+		w, err = ResolveWindow(cmd, g.Last, g.Since, g.Between, now)
+		if err != nil {
+			return err
+		}
 	}
 
 	if g.Remote {
@@ -95,7 +107,7 @@ func runAnalytics(cmd *cobra.Command, args []string) error {
 			Source:     "local",
 			Scope:      scope,
 			ScopeLabel: scopeLabel,
-			Last:       w.LastLabel,
+			Last:       w.LastSegment(),
 			Since:      w.SinceLabel,
 			Between:    w.BetweenLabel,
 		}))
@@ -180,7 +192,7 @@ func runAnalyticsRemote(ctx context.Context, report string, w Window) error {
 			Source:     "remote",
 			Scope:      scope,
 			ScopeLabel: scopeLabel,
-			Last:       w.LastLabel,
+			Last:       w.LastSegment(),
 			Since:      w.SinceLabel,
 			Between:    w.BetweenLabel,
 		}))

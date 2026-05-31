@@ -17,13 +17,14 @@ const dateLayout = "2006-01-02"
 
 // Window is the resolved time range for a query plus the descriptor
 // labels the renderer uses to assemble the context line. Exactly one
-// of LastLabel / SinceLabel / BetweenLabel is non-empty after a
-// successful ResolveWindow.
+// of LastLabel / SinceLabel / BetweenLabel / HeatmapLabel is non-empty
+// after a successful ResolveWindow or HeatmapWindow.
 type Window struct {
 	Since, Until time.Time
 	LastLabel    string // "7d" — non-empty iff window came from --last
 	SinceLabel   string // "2026-01-01" — non-empty iff --since
 	BetweenLabel string // "2026-01-01 and 2026-03-15" — non-empty iff --between
+	HeatmapLabel string // "53 weeks" — non-empty iff the fixed heatmap window
 }
 
 // ParseSince parses a YYYY-MM-DD date in UTC, returning the start of
@@ -135,7 +136,38 @@ func WindowDescriptor(w Window) string {
 		return "between " + w.BetweenLabel
 	case w.SinceLabel != "":
 		return "since " + w.SinceLabel
+	case w.HeatmapLabel != "":
+		return "in the last " + w.HeatmapLabel
 	default:
 		return "in the last " + w.LastLabel
 	}
+}
+
+// LastSegment is the string that slots into the context line's
+// "last X" tail. It collapses LastLabel and HeatmapLabel into one
+// channel so call sites don't branch on which field is set.
+func (w Window) LastSegment() string {
+	if w.HeatmapLabel != "" {
+		return w.HeatmapLabel
+	}
+	return w.LastLabel
+}
+
+// HeatmapWindow returns the fixed trailing-year window used by the
+// heatmap report: 53 weeks aligned to Sunday in UTC (52 prior weeks
+// plus the current one). The rightmost column always contains today.
+// Canonical spec: docs/panel/screens.md (heatmap).
+func HeatmapWindow(now time.Time) Window {
+	today := dayStartUTC(now)
+	startOfThisWeek := today.AddDate(0, 0, -int(today.Weekday()))
+	return Window{
+		Since:        startOfThisWeek.AddDate(0, 0, -52*7),
+		Until:        now.UTC(),
+		HeatmapLabel: "53 weeks",
+	}
+}
+
+func dayStartUTC(t time.Time) time.Time {
+	u := t.UTC()
+	return time.Date(u.Year(), u.Month(), u.Day(), 0, 0, 0, 0, time.UTC)
 }
