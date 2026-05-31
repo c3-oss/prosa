@@ -1,0 +1,13 @@
+# Local secret-scan config. Extends gitleaks defaults and allows the
+# untracked `.env` file each developer keeps for local dev (Postgres,
+# MinIO, dev-login cookie key). The file is gitignored — gitleaks
+# scans it only because `--no-git` walks the filesystem.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Local untracked dev env files"
+paths = [
+  '''(?i)(^|/)\.env(\..*)?$''',
+]
