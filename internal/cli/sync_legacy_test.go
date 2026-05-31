@@ -11,6 +11,7 @@ import (
 	_ "modernc.org/sqlite"
 
 	"github.com/c3-oss/prosa/internal/legacy"
+	"github.com/c3-oss/prosa/pkg/importer"
 )
 
 func TestPrepareLegacyWorkCountsMissingSourceAsError(t *testing.T) {
@@ -49,7 +50,7 @@ func TestPrepareLegacyWorkCountsMissingSourceAsError(t *testing.T) {
 	require.Error(t, work[0].prepareErr)
 
 	counts := &syncCounts{legacyTotal: len(files), bundlePath: root}
-	require.NoError(t, runSyncPlain(ctx, work, nil, nil, counts))
+	require.NoError(t, runSyncPlain(ctx, work, nil, nil, counts, importer.ImportOptions{}))
 	require.Equal(t, 1, counts.legacyErr)
 	require.Equal(t, 0, counts.legacyImp)
 	require.Equal(t, 0, counts.legacySkip)

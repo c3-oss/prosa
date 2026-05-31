@@ -9,6 +9,7 @@ import (
 	"connectrpc.com/connect"
 
 	prosav1 "github.com/c3-oss/prosa/gen/go/prosa/v1"
+	"github.com/c3-oss/prosa/pkg/importer"
 	"github.com/c3-oss/prosa/pkg/session"
 )
 
@@ -26,6 +27,12 @@ type reconcileCounts struct {
 // reader) and stream a "X / N" progress line so the user can see the
 // catch-up moving even on a slow connection.
 //
+// When opts.Overwrite is true the divergence predicate degenerates to
+// "always enqueue" — every local session is re-pushed regardless of
+// whether the remote already has a matching hash. Used by
+// `prosa sync --overwrite` to refresh a converged remote from local
+// state.
+//
 // onProgress, when non-nil, is called once after each push attempt with
 // the cumulative (sent + skipped + errs) and the total work. The caller
 // uses it to repaint a status line; it is invoked from the same
@@ -34,6 +41,7 @@ func reconcileWithServer(
 	ctx context.Context,
 	push *pusher,
 	deviceID string,
+	opts importer.ImportOptions,
 	onProgress func(done, total int),
 ) (reconcileCounts, error) {
 	var counts reconcileCounts
@@ -57,7 +65,7 @@ func reconcileWithServer(
 	for _, row := range local {
 		remote, ok := serverHas[row.ID]
 		staleProjection := ok && remote.ProjectionVersion < session.ProjectionVersion
-		if !ok || remote.RawHash != row.RawHash || staleProjection {
+		if opts.Overwrite || !ok || remote.RawHash != row.RawHash || staleProjection {
 			work = append(work, row.ID)
 		}
 	}
@@ -141,7 +149,7 @@ func fetchServerManifest(ctx context.Context, push *pusher) (map[string]serverMa
 // runs the reconcile phase (no-op when push is nil) and folds the
 // results into the shared syncCounts so printSummary can render the
 // Catch-up band.
-func runSyncReconcile(ctx context.Context, push *pusher, deviceID string, counts *syncCounts) {
+func runSyncReconcile(ctx context.Context, push *pusher, deviceID string, counts *syncCounts, opts importer.ImportOptions) {
 	if push == nil {
 		return
 	}
@@ -157,7 +165,7 @@ func runSyncReconcile(ctx context.Context, push *pusher, deviceID string, counts
 			fmt.Fprintf(os.Stdout, "Catch-up: %d / %d sessions reconciled\n", done, total)
 		}
 	}
-	rc, err := reconcileWithServer(ctx, push, deviceID, progress)
+	rc, err := reconcileWithServer(ctx, push, deviceID, opts, progress)
 	if err != nil {
 		if push.remoteUnavailable || isRemoteUnavailable(err) {
 			counts.recordRemoteUnavailable(push)

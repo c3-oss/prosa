@@ -74,9 +74,10 @@ func (p *pusher) pushSession(ctx context.Context, sessionID string) (pushOutcome
 	if err != nil {
 		return pushFailed, fmt.Errorf("load session: %w", err)
 	}
-	if !session.HasTokenUsage(sess.Usage) {
-		return pushSkippedNoUsage, nil
-	}
+	// No-usage gating happens at the importer (UsageStateExplicitZero
+	// → recorded as a no_usage skip and never inserted into the store).
+	// Anything that lives in the store is admissible to push, including
+	// cursor and pre-token_count codex sessions that carry no Usage row.
 	turns, err := p.store.GetTurns(ctx, sessionID)
 	if err != nil {
 		return pushFailed, fmt.Errorf("load turns: %w", err)

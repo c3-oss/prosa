@@ -16,6 +16,7 @@ import (
 
 	prosav1 "github.com/c3-oss/prosa/gen/go/prosa/v1"
 	"github.com/c3-oss/prosa/internal/store"
+	"github.com/c3-oss/prosa/pkg/importer"
 	"github.com/c3-oss/prosa/pkg/session"
 )
 
@@ -155,7 +156,7 @@ func TestReconcileMissingPushed(t *testing.T) {
 	// Server has nothing → both should be pushed.
 	fx.fake.manifestPages[""] = &prosav1.ManifestResponse{}
 
-	counts, err := reconcileWithServer(ctx, fx.pusher, "dev", nil)
+	counts, err := reconcileWithServer(ctx, fx.pusher, "dev", importer.ImportOptions{}, nil)
 	require.NoError(t, err)
 	require.Equal(t, 2, counts.sent)
 	require.Equal(t, 0, counts.skipped)
@@ -179,7 +180,7 @@ func TestReconcileDivergentPushed(t *testing.T) {
 		},
 	}
 
-	counts, err := reconcileWithServer(ctx, fx.pusher, "dev", nil)
+	counts, err := reconcileWithServer(ctx, fx.pusher, "dev", importer.ImportOptions{}, nil)
 	require.NoError(t, err)
 	require.Equal(t, 1, counts.sent) // only s1 re-pushed
 	require.Equal(t, 0, counts.skipped)
@@ -188,6 +189,35 @@ func TestReconcileDivergentPushed(t *testing.T) {
 	require.Equal(t, 2, counts.remoteTotal)
 	require.Len(t, fx.fake.pushed, 1)
 	require.Equal(t, "s1", fx.fake.pushed[0].Session.Id)
+}
+
+// TestReconcileOverwriteEnqueuesConverged asserts that --overwrite
+// degenerates the divergence predicate to "always enqueue": every local
+// session is re-pushed even when the remote already has a matching
+// hash and projection version. This is how `prosa sync --overwrite`
+// refreshes a converged remote from local state.
+func TestReconcileOverwriteEnqueuesConverged(t *testing.T) {
+	ctx := context.Background()
+	fx := newReconcileFixture(t, "dev")
+	fx.addSession(t, ctx, "dev", "s1")
+	fx.addSession(t, ctx, "dev", "s2")
+
+	// Server already converged: same hashes and current projection.
+	fx.fake.manifestPages[""] = &prosav1.ManifestResponse{
+		Entries: []*prosav1.ManifestEntry{
+			{Id: "s1", RawHash: "h-s1", LastSyncedAt: timestamppb.Now(), ProjectionVersion: int32(session.ProjectionVersion)},
+			{Id: "s2", RawHash: "h-s2", LastSyncedAt: timestamppb.Now(), ProjectionVersion: int32(session.ProjectionVersion)},
+		},
+	}
+
+	counts, err := reconcileWithServer(ctx, fx.pusher, "dev",
+		importer.ImportOptions{Overwrite: true}, nil)
+	require.NoError(t, err)
+	require.Equal(t, 2, counts.sent,
+		"overwrite must re-push both sessions even when remote has matching hashes")
+	require.Equal(t, 0, counts.skipped)
+	require.Equal(t, 0, counts.errs)
+	require.Len(t, fx.fake.pushed, 2)
 }
 
 func TestReconcileConverged(t *testing.T) {
@@ -204,7 +234,7 @@ func TestReconcileConverged(t *testing.T) {
 		},
 	}
 
-	counts, err := reconcileWithServer(ctx, fx.pusher, "dev", nil)
+	counts, err := reconcileWithServer(ctx, fx.pusher, "dev", importer.ImportOptions{}, nil)
 	require.NoError(t, err)
 	require.Equal(t, 0, counts.sent)
 	require.Equal(t, 0, counts.skipped)
@@ -220,7 +250,7 @@ func TestReconcileRawMissingCountsAsError(t *testing.T) {
 
 	fx.fake.manifestPages[""] = &prosav1.ManifestResponse{} // server has nothing
 
-	counts, err := reconcileWithServer(ctx, fx.pusher, "dev", nil)
+	counts, err := reconcileWithServer(ctx, fx.pusher, "dev", importer.ImportOptions{}, nil)
 	require.NoError(t, err) // reconcile itself succeeds; per-session error tallied below
 	require.Equal(t, 1, counts.sent)
 	require.Equal(t, 1, counts.errs)
@@ -253,7 +283,7 @@ func TestReconcilePaginatesManifest(t *testing.T) {
 		// Empty NextAfterId — end of stream.
 	}
 
-	counts, err := reconcileWithServer(ctx, fx.pusher, "dev", nil)
+	counts, err := reconcileWithServer(ctx, fx.pusher, "dev", importer.ImportOptions{}, nil)
 	require.NoError(t, err)
 	require.Equal(t, 2, counts.sent) // s3 (divergent) + s4 (missing)
 	require.Equal(t, 4, counts.localTotal)
@@ -268,7 +298,7 @@ func TestReconcilePaginatesManifest(t *testing.T) {
 }
 
 func TestReconcileNilPusherNoOp(t *testing.T) {
-	counts, err := reconcileWithServer(context.Background(), nil, "dev", nil)
+	counts, err := reconcileWithServer(context.Background(), nil, "dev", importer.ImportOptions{}, nil)
 	require.NoError(t, err)
 	require.Equal(t, reconcileCounts{}, counts)
 }
@@ -298,14 +328,19 @@ func TestPushUnavailableStopsFurtherRemoteAttempts(t *testing.T) {
 	require.Equal(t, 0, counts.pushSkip)
 }
 
-func TestPushSkipsSessionWithoutUsage(t *testing.T) {
+// TestPushAdmitsSessionWithoutUsage asserts that pushSession no longer
+// filters by HasTokenUsage at the client. After the tri-state migration,
+// no-usage gating happens at the importer (explicit-zero → recorded as
+// no_usage skip and never reaches the store). Anything in the store is
+// admissible to push — including cursor and pre-token_count codex rows.
+func TestPushAdmitsSessionWithoutUsage(t *testing.T) {
 	ctx := context.Background()
 	fx := newReconcileFixture(t, "dev")
 	rawPath := filepath.Join(fx.dir, "s1.jsonl")
 	require.NoError(t, os.WriteFile(rawPath, []byte("raw-s1"), 0o644))
 	require.NoError(t, fx.store.UpsertSession(ctx, session.Session{
 		ID:             "s1",
-		Agent:          "claude-code",
+		Agent:          "cursor",
 		DeviceID:       "dev",
 		StartedAt:      time.Now().UTC(),
 		LastActivityAt: time.Now().UTC(),
@@ -316,22 +351,22 @@ func TestPushSkipsSessionWithoutUsage(t *testing.T) {
 
 	outcome, err := fx.pusher.pushSession(ctx, "s1")
 	require.NoError(t, err)
-	require.Equal(t, pushSkippedNoUsage, outcome)
-	require.Equal(t, 0, fx.fake.pushCalls)
-
-	var counts syncCounts
-	counts.recordPush(outcome, err)
-	require.Equal(t, 1, counts.pushSkip)
+	require.Equal(t, pushImported, outcome,
+		"sessions without usage must reach the wire; server stores them with NULL session_usage")
+	require.Equal(t, 1, fx.fake.pushCalls)
 }
 
-func TestReconcileCountsNoUsagePushAsSkipped(t *testing.T) {
+// TestReconcilePushesSessionsWithoutUsage mirrors the above through the
+// reconcile path: catch-up sees one local session that isn't on the
+// remote, pushes it (no usage filter), and counts the outcome as sent.
+func TestReconcilePushesSessionsWithoutUsage(t *testing.T) {
 	ctx := context.Background()
 	fx := newReconcileFixture(t, "dev")
 	rawPath := filepath.Join(fx.dir, "s1.jsonl")
 	require.NoError(t, os.WriteFile(rawPath, []byte("raw-s1"), 0o644))
 	require.NoError(t, fx.store.UpsertSession(ctx, session.Session{
 		ID:             "s1",
-		Agent:          "claude-code",
+		Agent:          "cursor",
 		DeviceID:       "dev",
 		StartedAt:      time.Now().UTC(),
 		LastActivityAt: time.Now().UTC(),
@@ -341,12 +376,12 @@ func TestReconcileCountsNoUsagePushAsSkipped(t *testing.T) {
 	}, nil))
 	fx.fake.manifestPages[""] = &prosav1.ManifestResponse{}
 
-	counts, err := reconcileWithServer(ctx, fx.pusher, "dev", nil)
+	counts, err := reconcileWithServer(ctx, fx.pusher, "dev", importer.ImportOptions{}, nil)
 	require.NoError(t, err)
-	require.Equal(t, 0, counts.sent)
-	require.Equal(t, 1, counts.skipped)
+	require.Equal(t, 1, counts.sent)
+	require.Equal(t, 0, counts.skipped)
 	require.Equal(t, 0, counts.errs)
-	require.Equal(t, 0, fx.fake.pushCalls)
+	require.Equal(t, 1, fx.fake.pushCalls)
 }
 
 func TestReconcileUnavailableRecordsFriendlyRemoteState(t *testing.T) {
@@ -356,7 +391,7 @@ func TestReconcileUnavailableRecordsFriendlyRemoteState(t *testing.T) {
 	fx.fake.manifestErr = connect.NewError(connect.CodeUnavailable, errors.New("connection refused"))
 
 	var counts syncCounts
-	runSyncReconcile(ctx, fx.pusher, "dev", &counts)
+	runSyncReconcile(ctx, fx.pusher, "dev", &counts, importer.ImportOptions{})
 
 	require.False(t, counts.reconcileRan)
 	require.True(t, counts.remoteUnavailable)
@@ -373,7 +408,7 @@ func TestReconcilePushUnavailableStopsCatchUp(t *testing.T) {
 	fx.fake.pushErr = connect.NewError(connect.CodeUnavailable, errors.New("connection refused"))
 
 	var counts syncCounts
-	runSyncReconcile(ctx, fx.pusher, "dev", &counts)
+	runSyncReconcile(ctx, fx.pusher, "dev", &counts, importer.ImportOptions{})
 
 	require.False(t, counts.reconcileRan)
 	require.True(t, counts.remoteUnavailable)
@@ -406,7 +441,7 @@ func TestReconcileProgressCallback(t *testing.T) {
 
 	type tick struct{ done, total int }
 	var ticks []tick
-	_, err := reconcileWithServer(ctx, fx.pusher, "dev", func(done, total int) {
+	_, err := reconcileWithServer(ctx, fx.pusher, "dev", importer.ImportOptions{}, func(done, total int) {
 		ticks = append(ticks, tick{done, total})
 	})
 	require.NoError(t, err)

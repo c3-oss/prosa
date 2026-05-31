@@ -26,10 +26,11 @@ import (
 	"github.com/c3-oss/prosa/pkg/importer"
 )
 
-// legacyBundleFlag holds the value of --legacy-bundle for runSync.
+// Package-level flag holders for runSync.
 var (
-	legacyBundleFlag string
-	syncVerboseFlag  bool
+	legacyBundleFlag  string
+	syncVerboseFlag   bool
+	syncOverwriteFlag bool
 )
 
 func newSyncCmd() *cobra.Command {
@@ -43,6 +44,10 @@ func newSyncCmd() *cobra.Command {
 			"bundle (typically ~/.prosa) — useful as a one-shot rescue when the " +
 			"legacy catalog still has source files that the live tools have since " +
 			"deleted. " +
+			"Pass --overwrite to force re-parse and re-upsert of every discovered " +
+			"file (bypassing hash idempotency and the no_usage skip cache) and " +
+			"re-push every local session to the remote even when converged; useful " +
+			"after upgrading prosa to pick up new projection logic. " +
 			"Use --verbose to force the plain (slog) output even in a TTY; handy " +
 			"for debugging long runs where the compact spinner hides per-item detail.",
 		RunE: runSync,
@@ -51,6 +56,8 @@ func newSyncCmd() *cobra.Command {
 		"path to a legacy prosa bundle (e.g. ~/.prosa) to re-ingest before live walks")
 	cmd.Flags().BoolVar(&syncVerboseFlag, "verbose", false,
 		"emit one slog line per imported session even when running in a TTY")
+	cmd.Flags().BoolVar(&syncOverwriteFlag, "overwrite", false,
+		"force re-import of every file and re-push of every session, bypassing hash idempotency and the no_usage skip cache")
 	return cmd
 }
 
@@ -198,13 +205,14 @@ func runSync(cmd *cobra.Command, _ []string) error {
 		pushEnabled: push != nil,
 	}
 
+	opts := importer.ImportOptions{Overwrite: syncOverwriteFlag}
 	interactive := !syncVerboseFlag && IsInteractive()
 	if interactive {
-		if err := runSyncTTY(ctx, work, s, push, counts); err != nil {
+		if err := runSyncTTY(ctx, work, s, push, counts, opts); err != nil {
 			return err
 		}
 	} else {
-		if err := runSyncPlain(ctx, work, s, push, counts); err != nil {
+		if err := runSyncPlain(ctx, work, s, push, counts, opts); err != nil {
 			return err
 		}
 	}
@@ -212,8 +220,10 @@ func runSync(cmd *cobra.Command, _ []string) error {
 	// Post-import: manifest-driven reconcile. No-op when push is nil
 	// (no auth.json) or when ctx was cancelled mid-import. Sequential
 	// pushes; takes the same SQLite reader so it slots in cleanly after
-	// the importer goroutine has exited.
-	runSyncReconcile(ctx, push, dev.ID, counts)
+	// the importer goroutine has exited. With --overwrite the predicate
+	// degenerates to "always push", so every local session re-hits the
+	// remote in case the server's row needs refreshing.
+	runSyncReconcile(ctx, push, dev.ID, counts, opts)
 
 	// One-shot denoise: rewrites first_prompt for any session whose
 	// stored value is agent-injected boilerplate (AGENTS.md preamble,
@@ -449,7 +459,7 @@ func padSummaryLabel(label string) string {
 // counter-productive at small N) and feeds updates into a channel the
 // Bubble Tea program consumes. counts is owned by the orchestrator
 // (runSync) so the reconcile + summary phases share the same struct.
-func runSyncTTY(ctx context.Context, work []syncJob, sink importer.Sink, push *pusher, counts *syncCounts) error {
+func runSyncTTY(ctx context.Context, work []syncJob, sink importer.Sink, push *pusher, counts *syncCounts, opts importer.ImportOptions) error {
 	items := make([]spinner.Item, len(work))
 	for i, w := range work {
 		label := w.imp.Name()
@@ -471,7 +481,7 @@ func runSyncTTY(ctx context.Context, work []syncJob, sink importer.Sink, push *p
 			var res importer.ImportResult
 			err := w.prepareErr
 			if err == nil {
-				res, err = w.imp.Import(ctx, w.path, sink)
+				res, err = w.imp.Import(ctx, w.path, sink, opts)
 			}
 			if w.prepareErr == nil && w.cleanup != nil {
 				w.cleanup()
@@ -489,14 +499,14 @@ func runSyncTTY(ctx context.Context, work []syncJob, sink importer.Sink, push *p
 			}
 		}
 	}()
-	opts := spinner.Options{
+	spinnerOpts := spinner.Options{
 		Title: "prosa sync · local store",
 		Found: syncFoundSummary(items),
 	}
 	if counts.legacyTotal > 0 {
-		opts.Banner = fmt.Sprintf("legacy bundle: %s", legacyBundleFlag)
+		spinnerOpts.Banner = fmt.Sprintf("legacy bundle: %s", legacyBundleFlag)
 	}
-	if err := spinner.Run(ctx, items, updates, opts); err != nil && !errors.Is(err, context.Canceled) {
+	if err := spinner.Run(ctx, items, updates, spinnerOpts); err != nil && !errors.Is(err, context.Canceled) {
 		return err
 	}
 	return nil
@@ -525,13 +535,13 @@ func syncFoundSummary(items []spinner.Item) string {
 // the --verbose flag. One structured log line per session; the summary
 // block is printed by the orchestrator (runSync) after the reconcile
 // phase. No escape codes, no alt-screen.
-func runSyncPlain(ctx context.Context, work []syncJob, sink importer.Sink, push *pusher, counts *syncCounts) error {
+func runSyncPlain(ctx context.Context, work []syncJob, sink importer.Sink, push *pusher, counts *syncCounts, opts importer.ImportOptions) error {
 	for _, w := range work {
 		start := time.Now()
 		var res importer.ImportResult
 		err := w.prepareErr
 		if err == nil {
-			res, err = w.imp.Import(ctx, w.path, sink)
+			res, err = w.imp.Import(ctx, w.path, sink, opts)
 		}
 		if w.prepareErr == nil && w.cleanup != nil {
 			w.cleanup()
