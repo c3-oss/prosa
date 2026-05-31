@@ -248,3 +248,42 @@ func TestWalkMissingRootReturnsEmpty(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, got)
 }
+
+// TestImportEnvelopeSanitizesFirstPrompt ensures gemini's envelope shape
+// runs the same prompt cleanup as claudecode/codex now: ANSI escapes and
+// <local-command-stdout> wrappers are stripped before the prompt lands
+// in FirstPrompt.
+func TestImportEnvelopeSanitizesFirstPrompt(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv("PROSA_HOME", filepath.Join(t.TempDir(), "prosa-home"))
+
+	root := filepath.Join(t.TempDir(), "gemini-root-dirty")
+	const dirtyID = "55aa66bb-1111-2222-3333-444455556666"
+	dir := filepath.Join(root, "projhash-dirty", "chats")
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+
+	dirtyText := "<local-command-stdout>Set model to \x1b[1mflash\x1b[22m</local-command-stdout>\n" +
+		"now refactor sync"
+	envelope := map[string]any{
+		"sessionId":   dirtyID,
+		"projectHash": "projhash-dirty",
+		"startTime":   "2026-03-01T10:00:00.000Z",
+		"lastUpdated": "2026-03-01T10:05:00.000Z",
+		"messages": []map[string]any{
+			{"id": "u1", "timestamp": "2026-03-01T10:00:00.000Z", "type": "user", "content": dirtyText},
+			{"id": "g1", "timestamp": "2026-03-01T10:00:10.000Z", "type": "gemini", "model": "gemini-2.5-pro", "content": "ok"},
+		},
+	}
+	path := filepath.Join(dir, "session-2026-03-01T10-00-55aa66bb.json")
+	data, err := json.MarshalIndent(envelope, "", "  ")
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(path, data, 0o644))
+
+	sink := newSink()
+	res, err := New().Import(ctx, path, sink)
+	require.NoError(t, err)
+	require.False(t, res.Skipped)
+	s := sink.sessions[dirtyID]
+	require.NotNil(t, s.FirstPrompt)
+	require.Equal(t, "now refactor sync", *s.FirstPrompt)
+}

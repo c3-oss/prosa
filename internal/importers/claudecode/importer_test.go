@@ -334,3 +334,45 @@ func TestImportStripsCaveatWrapperForFirstPrompt(t *testing.T) {
 	require.Equal(t, "user", turns[0].Role)
 	require.Equal(t, "run the migration", turns[0].Content)
 }
+
+// writeFixtureStdoutWrappedPrompt simulates a Claude Code session where
+// the first user message is a slash-command echo: stdout wrapped in
+// <local-command-stdout> with ANSI escapes inside, followed by the real
+// human prompt. CleanPrompt should strip both.
+func writeFixtureStdoutWrappedPrompt(t *testing.T, dir string) string {
+	t.Helper()
+	path := filepath.Join(dir, fixtureSessionID+".jsonl")
+	base := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
+	dirtyText := "<local-command-stdout>Set model to \x1b[1mOpus 4.7 (1M context) (default)\x1b[22m " +
+		"for this session with \x1b[1mmax\x1b[22m effort</local-command-stdout>\n\n" +
+		"now refactor the sync logic"
+	writeJSONL(t, path, []map[string]any{
+		{
+			"type":      "user",
+			"sessionId": fixtureSessionID,
+			"timestamp": base.Format(time.RFC3339Nano),
+			"cwd":       "/Users/test/proj",
+			"message":   map[string]any{"role": "user", "content": dirtyText},
+		},
+	})
+	return path
+}
+
+func TestImportStripsStdoutWrapperAndANSI(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv("PROSA_HOME", filepath.Join(t.TempDir(), "prosa-home"))
+	src := writeFixtureStdoutWrappedPrompt(t, t.TempDir())
+
+	sink := newSink()
+	imp := New()
+	_, err := imp.Import(ctx, src, sink)
+	require.NoError(t, err)
+	s := sink.sessions[fixtureSessionID]
+	require.NotNil(t, s.FirstPrompt)
+	require.Equal(t, "now refactor the sync logic", *s.FirstPrompt)
+
+	turns := sink.turns[fixtureSessionID]
+	require.NotEmpty(t, turns)
+	require.Equal(t, "user", turns[0].Role)
+	require.Equal(t, "now refactor the sync logic", turns[0].Content)
+}

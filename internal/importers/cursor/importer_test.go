@@ -207,3 +207,56 @@ func TestWalkMissingRootReturnsEmpty(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, got)
 }
+
+// TestImportCursorSanitizesFirstPrompt covers the bug where Cursor user
+// blobs carrying ANSI escape codes (e.g. captured shell output) and/or
+// <local-command-stdout>…</local-command-stdout> wrappers leaked into
+// FirstPrompt as garbled bytes. The sessiontext pipeline strips both.
+func TestImportCursorSanitizesFirstPrompt(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv("PROSA_HOME", filepath.Join(t.TempDir(), "prosa-home"))
+
+	root := filepath.Join(t.TempDir(), "cursor-root-dirty")
+	const dirtyAgentID = "cc11dd22-1111-2222-3333-444455556666"
+	dir := filepath.Join(root, "ws", dirtyAgentID)
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	dbPath := filepath.Join(dir, "store.db")
+
+	db, err := sql.Open("sqlite", dbPath)
+	require.NoError(t, err)
+	_, err = db.Exec(`CREATE TABLE blobs (id TEXT PRIMARY KEY, data BLOB);
+CREATE TABLE meta  (key TEXT PRIMARY KEY, value TEXT);`)
+	require.NoError(t, err)
+
+	metaJSON, _ := json.Marshal(map[string]any{
+		"agentId":       dirtyAgentID,
+		"createdAt":     time.Date(2026, 3, 1, 10, 0, 0, 0, time.UTC).UnixMilli(),
+		"lastUsedModel": "claude-sonnet-4-6",
+	})
+	_, err = db.Exec(`INSERT INTO meta(key, value) VALUES ('0', ?)`,
+		hex.EncodeToString(metaJSON))
+	require.NoError(t, err)
+
+	dirtyText := "<local-command-stdout>Set model to \x1b[1mOpus 4.7\x1b[22m</local-command-stdout>\n" +
+		"now refactor the sync logic"
+	bodyJSON, _ := json.Marshal(map[string]any{
+		"role": "user", "id": "u1",
+		"content": []map[string]any{{"type": "text", "text": dirtyText}},
+	})
+	_, err = db.Exec(`INSERT INTO blobs(id, data) VALUES (?, ?)`, "u1", bodyJSON)
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	imp := New()
+	res, err := imp.Import(ctx, dbPath, newSink())
+	require.NoError(t, err)
+	require.False(t, res.Skipped)
+
+	sink := newSink()
+	_, err = imp.Import(ctx, dbPath, sink)
+	require.NoError(t, err)
+	s := sink.sessions[dirtyAgentID]
+	require.NotNil(t, s.FirstPrompt)
+	require.Equal(t, "now refactor the sync logic", *s.FirstPrompt,
+		"FirstPrompt should drop the local-command-stdout wrapper and ANSI codes")
+}
