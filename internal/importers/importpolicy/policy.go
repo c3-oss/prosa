@@ -32,6 +32,27 @@ func ImportSkippedNoUsageResult(sessionID, hash string, size int64) importer.Imp
 	}
 }
 
-func HasUsage(sess session.Session) bool {
-	return session.HasTokenUsage(sess.Usage)
+// ImportDecision tells an importer how to handle a parsed session given
+// the parser's UsageState observation.
+type ImportDecision int
+
+const (
+	// DecisionAdmit imports the session normally.
+	DecisionAdmit ImportDecision = iota
+	// DecisionSkipNoUsage records a no_usage skip and returns the cached
+	// skip result without copying raw or writing rows.
+	DecisionSkipNoUsage
+)
+
+// ClassifyForImport maps a parser's UsageState observation onto an
+// importer decision. UsageStatePresent and UsageStateUnknown both
+// admit; only UsageStateExplicitZero skips. UsageStateUnknown covers
+// cursor (no usage signal by design), older codex transcripts that
+// predate the token_count event, and partial sessions that never
+// reached a usage-bearing record.
+func ClassifyForImport(state session.UsageState) ImportDecision {
+	if state == session.UsageStateExplicitZero {
+		return DecisionSkipNoUsage
+	}
+	return DecisionAdmit
 }

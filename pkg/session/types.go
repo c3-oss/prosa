@@ -80,7 +80,12 @@ type Session struct {
 //	v5: title sanitization expansion — ANSI escapes stripped from
 //	    FirstPrompt/Turn content; <local-command-stdout/stderr> recognized
 //	    as boilerplate; cursor/gemini/hermes routed through sessiontext.
-const ProjectionVersion = 5
+//	v6: tri-state usage classification — sessions whose transcript carries
+//	    no usage event at all are imported (state Unknown); only sessions
+//	    where the importer observed a usage event with explicit zeros are
+//	    skipped. Admits cursor sessions and pre-token_count codex sessions
+//	    that v5 was silently dropping.
+const ProjectionVersion = 6
 
 // Turn kind constants. Empty Kind is treated as KindMessage so older rows
 // and zero-value test fixtures keep working without backfill.
@@ -114,6 +119,42 @@ func HasTokenUsage(u *TokenUsage) bool {
 			u.CachedTokens > 0 ||
 			u.CacheReadTokens > 0 ||
 			u.CacheCreationTokens > 0)
+}
+
+// UsageState classifies what a parser observed about token usage in a
+// single transcript. Importers compute it locally at parse time; it is
+// never persisted. Three cases:
+//
+//	UsageStateUnknown      — no usage-bearing event was seen at all
+//	                         (cursor by design, older codex transcripts,
+//	                         abandoned sessions). The session is admitted
+//	                         and stored without a session_usage row.
+//	UsageStateExplicitZero — at least one usage event was seen and every
+//	                         observed value was zero. The session is skipped
+//	                         with reason "no_usage" so the user's worklog
+//	                         is not polluted by aborted runs.
+//	UsageStatePresent      — at least one usage event reported a positive
+//	                         token count. The session is admitted with a
+//	                         session_usage row.
+type UsageState int
+
+const (
+	UsageStateUnknown UsageState = iota
+	UsageStateExplicitZero
+	UsageStatePresent
+)
+
+// ClassifyUsage derives the tri-state from what the parser observed.
+// seenUsageEvent is true when at least one usage-bearing event was found
+// in the transcript, regardless of whether its values were positive.
+func ClassifyUsage(seenUsageEvent bool, usage *TokenUsage) UsageState {
+	if HasTokenUsage(usage) {
+		return UsageStatePresent
+	}
+	if seenUsageEvent {
+		return UsageStateExplicitZero
+	}
+	return UsageStateUnknown
 }
 
 // Turn is a single message body extracted from a session, populated

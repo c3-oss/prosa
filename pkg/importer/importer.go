@@ -34,6 +34,17 @@ type ImportResult struct {
 	SkipReason string
 }
 
+// ImportOptions tunes a single Import call. Threaded through from the
+// CLI's `--overwrite` flag; importers default to standard idempotent
+// behaviour when the zero value is passed.
+type ImportOptions struct {
+	// Overwrite forces re-parse and re-upsert even when the file's hash
+	// is already in sync_state or its session id is in the no_usage skip
+	// cache. Used by `prosa sync --overwrite` to rebuild a converged
+	// store from raw transcripts.
+	Overwrite bool
+}
+
 // Importer is the plugin contract. New agents implement this and register
 // themselves with the CLI sync command.
 type Importer interface {
@@ -51,7 +62,7 @@ type Importer interface {
 
 	// Import parses a single JSONL file, copies the raw bytes into the
 	// prosa raw tree, and writes the projection through sink.
-	Import(ctx context.Context, jsonlPath string, sink Sink) (ImportResult, error)
+	Import(ctx context.Context, jsonlPath string, sink Sink, opts ImportOptions) (ImportResult, error)
 }
 
 // Sink absorbs the projection produced by an importer. The store package
