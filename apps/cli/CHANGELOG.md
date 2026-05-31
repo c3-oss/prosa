@@ -1,5 +1,15 @@
 # @c3-oss/prosa
 
+## 0.10.3
+
+### Patch Changes
+
+- 1298866: Fix Claude compile idempotency when changed or partially imported files recreate already-normalized spawn edges, and add supporting indexes for reimport performance.
+- Fix `SQLITE_CONSTRAINT_UNIQUE` error on Claude compilation
+- Updated dependencies [1298866]
+- Updated dependencies
+  - @c3-oss/prosa-core@0.10.3
+
 ## 0.10.2
 
 ### Patch Changes
