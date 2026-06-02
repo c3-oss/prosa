@@ -141,7 +141,7 @@ func runSetup(cmd *cobra.Command, _ []string) error {
 		fmt.Fprintf(os.Stdout, "step=server\tvalue=%s\n", server)
 	}
 
-	// Step 4: device-code auth (or fast-path on cached token).
+	// Step 4: PKCE browser auth (or fast-path on cached token).
 	if err := runSetupAuth(ctx, server, interactive); err != nil {
 		return err
 	}
@@ -187,7 +187,7 @@ func runSetup(cmd *cobra.Command, _ []string) error {
 }
 
 // runSetupAuth implements step 4. Fast-path: if auth.json already names
-// the same server, skip the device-code dance.
+// the same server, skip the browser login dance.
 func runSetupAuth(ctx context.Context, server string, interactive bool) error {
 	if existing, err := rpc.LoadAuth(); err == nil {
 		if rpc.NormalizeServerURL(existing.Server) == rpc.NormalizeServerURL(server) {
@@ -201,7 +201,7 @@ func runSetupAuth(ctx context.Context, server string, interactive bool) error {
 			return nil
 		}
 	}
-	// "→ auth waiting" goes out before StartLogin, so the user sees
+	// "→ auth waiting" goes out before BeginLogin, so the user sees
 	// activity even on slow networks.
 	if interactive {
 		fmt.Fprintf(os.Stdout, "%s auth         %s\n",
@@ -212,16 +212,15 @@ func runSetupAuth(ctx context.Context, server string, interactive bool) error {
 	}
 
 	var urlBlockLines int
-	onPending := func(url, code string) {
+	onPending := func(url string) {
 		if interactive {
 			fmt.Fprintln(os.Stdout)
 			fmt.Fprintln(os.Stdout, render.StyleMuted.Render("Open this URL if the browser did not start:"))
 			fmt.Fprintf(os.Stdout, "  %s\n", render.StyleAccent.Render(url))
-			fmt.Fprintf(os.Stdout, "  %s\n", styleUserCode.Render(code))
-			// blank + hint + url + code
-			urlBlockLines = 4
+			// blank + hint + url
+			urlBlockLines = 3
 		} else {
-			fmt.Fprintf(os.Stdout, "step=auth\tauth_url=%s\tuser_code=%s\n", url, code)
+			fmt.Fprintf(os.Stdout, "step=auth\tauth_url=%s\n", url)
 		}
 	}
 	onApproved := func() {
@@ -238,7 +237,7 @@ func runSetupAuth(ctx context.Context, server string, interactive bool) error {
 			fmt.Fprintln(os.Stdout, "step=auth\tstatus=approved")
 		}
 	}
-	return deviceLogin(ctx, server, onPending, onApproved)
+	return pkceLogin(ctx, server, onPending, onApproved)
 }
 
 // runSetupScheduler implements step 5. Skips silently on platforms with

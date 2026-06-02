@@ -82,7 +82,7 @@ func DeleteAuth() error {
 
 // bearerTransport wraps the round-tripper so every request grows an
 // Authorization header. nil token is allowed for the public RPCs
-// (Auth.StartLogin/PollLogin) — the server still accepts them.
+// (Auth.BeginLogin/ExchangeCode) — no bearer required.
 type bearerTransport struct {
 	base  http.RoundTripper
 	token string
