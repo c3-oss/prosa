@@ -201,6 +201,70 @@ func TestImportCursorStoreAdmitsWithoutUsage(t *testing.T) {
 	require.NotEmpty(t, res.RawPath, "raw .db bytes must still be preserved")
 }
 
+// buildEmptyShellStore writes a freshly-initialized SQLite file with
+// neither `meta` nor `blobs` table — the state Cursor leaves the file in
+// for a brief window between creating `store.db` and running its initial
+// `CREATE TABLE` statements on the first chat write. The importer must
+// treat this as an empty shell and return a zero-value session rather
+// than failing with "no such table: meta".
+func buildEmptyShellStore(t *testing.T, root, agentID string) string {
+	t.Helper()
+	dir := filepath.Join(root, fixtureWorkspace, agentID)
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	dbPath := filepath.Join(dir, "store.db")
+
+	db, err := sql.Open("sqlite", dbPath)
+	require.NoError(t, err)
+	// Force the file to materialize on disk as a valid SQLite database
+	// with no user tables. Create-then-drop guarantees the file is past
+	// the "0 bytes" stage while still leaving meta/blobs absent.
+	_, err = db.Exec(`CREATE TABLE _placeholder (id INTEGER); DROP TABLE _placeholder;`)
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+	return dbPath
+}
+
+func TestParseCursorEmptyShell(t *testing.T) {
+	ctx := context.Background()
+	root := filepath.Join(t.TempDir(), "cursor-empty-shell")
+	const shellAgentID = "00000000-0000-0000-0000-000000000001"
+	src := buildEmptyShellStore(t, root, shellAgentID)
+
+	s, turns, tools, state, err := parseSession(ctx, src)
+	require.NoError(t, err,
+		"empty-shell store.db (no meta, no blobs) must not fail the parser; "+
+			"it's the race window between mkdir and CREATE TABLE that triggered "+
+			"the original `no such table: meta` field report")
+	require.Equal(t, session.UsageStateUnknown, state)
+	require.Empty(t, turns)
+	require.Empty(t, tools)
+	require.Empty(t, s.ID, "meta is absent → AgentID is empty; caller resolves the id from the path")
+	require.Nil(t, s.FirstPrompt)
+	require.Nil(t, s.Model)
+	require.True(t, s.StartedAt.IsZero(),
+		"with no meta there's no createdAt to read; StartedAt stays zero until the chat is populated")
+}
+
+func TestImportCursorEmptyShell(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv("PROSA_HOME", filepath.Join(t.TempDir(), "prosa-home"))
+
+	root := filepath.Join(t.TempDir(), "cursor-empty-shell-import")
+	const shellAgentID = "00000000-0000-0000-0000-000000000002"
+	src := buildEmptyShellStore(t, root, shellAgentID)
+	sink := newSink()
+
+	res, err := New().Import(ctx, src, sink, importer.ImportOptions{})
+	require.NoError(t, err,
+		"importer must not propagate the missing-table error; the next sync "+
+			"will pick up the populated file via the changed sha256")
+	require.Equal(t, shellAgentID, res.SessionID,
+		"with meta absent the session id falls back to the parent directory name")
+	require.Contains(t, sink.sessions, shellAgentID)
+	require.Empty(t, sink.turns[shellAgentID])
+	require.Empty(t, sink.tools[shellAgentID])
+}
+
 func TestWalkFindsStoreDb(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "cursor-root")
 	src := buildFixtureStore(t, root)
