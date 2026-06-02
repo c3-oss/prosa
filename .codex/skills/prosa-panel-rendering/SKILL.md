@@ -57,7 +57,7 @@ Public: `/healthz`, `/login`, `/oauth/github/callback`, `/logout`,
 
 Gated by session cookie: `/`, `/sessions/<id>` (HTMX partial),
 `/raw/<id>?offset=N` (HTMX append), `/devices`, `/devices/<id>/rename`,
-`/devices/<id>/revoke`, `/devices/approve`, `/analytics/<report>`,
+`/devices/<id>/revoke`, `/cli/authorize`, `/cli/authorize/approve`, `/analytics/<report>`,
 `/events` (SSE proxy).
 
 ## Adding something
