@@ -78,7 +78,7 @@ func TestBinaryPlaceholderMentionsSize(t *testing.T) {
 func TestLoadViewsParsesAllTemplates(t *testing.T) {
 	views, err := loadViews()
 	require.NoError(t, err)
-	for _, name := range []string{"home", "devices", "analytics", "login", "side_panel", "raw_chunk"} {
+	for _, name := range []string{"home", "devices", "analytics", "login", "cli_authorize", "side_panel", "raw_chunk"} {
 		require.Contains(t, views, name, "view %q should be parsed", name)
 	}
 }

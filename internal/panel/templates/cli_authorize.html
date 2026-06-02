@@ -1,0 +1,37 @@
+{{define "cli_authorize"}}<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Authorize CLI · prosa</title>
+  <link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+  <div class="center">
+    <div class="login-box" style="max-width: 420px">
+      <h1>Authorize CLI</h1>
+      <p style="color: var(--muted); margin-bottom: 20px">
+        A device is requesting access to your prosa server.
+      </p>
+      <dl style="margin: 0 0 24px; font-size: 14px">
+        <dt style="color: var(--muted); margin-bottom: 4px">Hostname</dt>
+        <dd style="margin: 0 0 12px; font-family: var(--mono)">{{.Hostname}}</dd>
+        <dt style="color: var(--muted); margin-bottom: 4px">Device ID</dt>
+        <dd style="margin: 0 0 12px; font-family: var(--mono); font-size: 12px; word-break: break-all">{{.Fingerprint}}</dd>
+        <dt style="color: var(--muted); margin-bottom: 4px">Expires</dt>
+        <dd style="margin: 0">{{.ExpiresAt}}</dd>
+      </dl>
+      {{if .Error}}
+        <p style="color: var(--danger); margin-bottom: 16px">{{.Error}}</p>
+      {{else}}
+        <form method="post" action="/cli/authorize/approve">
+          <input type="hidden" name="request_id" value="{{.RequestID}}">
+          <button class="btn btn-primary" type="submit" style="width: 100%">Authorize this device</button>
+        </form>
+        <p style="margin-top: 14px; text-align: center">
+          <a href="/" style="color: var(--muted); font-size: 13px">Cancel</a>
+        </p>
+      {{end}}
+    </div>
+  </div>
+</body>
+</html>{{end}}

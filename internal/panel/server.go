@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -61,6 +62,7 @@ func loadViews() (map[string]*template.Template, error) {
 		{"devices", []string{"base.html", "devices.html"}},
 		{"analytics", []string{"base.html", "analytics.html"}},
 		{"login", []string{"login.html"}},
+		{"cli_authorize", []string{"cli_authorize.html"}},
 		{"side_panel", []string{"side_panel.html"}},
 		{"raw_chunk", []string{"raw_chunk.html"}},
 	}
@@ -110,6 +112,10 @@ func (p *Panel) routes() {
 		p.mux.HandleFunc("/dev-login", p.handleDevLogin)
 	}
 
+	// CLI login approval (session required; redirects to /login?next= when anonymous).
+	p.mux.HandleFunc("/cli/authorize", p.requireSession(p.handleCliAuthorize))
+	p.mux.HandleFunc("/cli/authorize/approve", p.requireSession(p.handleCliAuthorizeApprove))
+
 	// Gated app routes — each one wraps p.requireSession around its handler.
 	p.mux.HandleFunc("/", p.requireSession(p.handleHome))
 	p.mux.HandleFunc("/sessions/", p.requireSession(p.handleSessionDetail))
@@ -125,7 +131,11 @@ func (p *Panel) routes() {
 func (p *Panel) requireSession(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := p.cookie.FromRequest(r); !ok {
-			http.Redirect(w, r, "/login", http.StatusFound)
+			nextURL := r.URL.Path
+			if r.URL.RawQuery != "" {
+				nextURL += "?" + r.URL.RawQuery
+			}
+			http.Redirect(w, r, "/login?next="+url.QueryEscape(nextURL), http.StatusFound)
 			return
 		}
 		next(w, r)
@@ -148,7 +158,7 @@ func (p *Panel) render(w http.ResponseWriter, name string, data any) {
 	// own top-level define directly.
 	root := "base"
 	switch name {
-	case "login", "side_panel", "raw_chunk":
+	case "login", "cli_authorize", "side_panel", "raw_chunk":
 		root = name
 	}
 	if err := t.ExecuteTemplate(w, root, data); err != nil {

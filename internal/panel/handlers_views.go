@@ -500,27 +500,20 @@ func (p *Panel) handleDevices(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p.render(w, "devices", map[string]any{
-		"Title":          "Devices",
-		"Nav":            "devices",
-		"Devices":        resp.Msg.Devices,
-		"Notice":         r.URL.Query().Get("notice"),
-		"ApproveError":   r.URL.Query().Get("approve_error"),
-		"ApproveSuccess": r.URL.Query().Get("approve_ok"),
+		"Title":   "Devices",
+		"Nav":     "devices",
+		"Devices": resp.Msg.Devices,
+		"Notice":  r.URL.Query().Get("notice"),
 	})
 }
 
-// handleDevicesAction dispatches POST /devices/<id>/rename | revoke
-// and POST /devices/approve.
+// handleDevicesAction dispatches POST /devices/<id>/rename | revoke.
 func (p *Panel) handleDevicesAction(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	rest := strings.TrimPrefix(r.URL.Path, "/devices/")
-	if rest == "approve" {
-		p.handleDeviceApprove(w, r)
-		return
-	}
 	parts := strings.SplitN(rest, "/", 2)
 	if len(parts) != 2 {
 		http.NotFound(w, r)
@@ -556,32 +549,6 @@ func (p *Panel) handleDevicesAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, "/devices?notice=updated", http.StatusSeeOther)
-}
-
-// handleDeviceApprove takes the user_code from the form and forwards
-// it to AuthService.ApproveLogin with the panel's admin token.
-func (p *Panel) handleDeviceApprove(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseForm(); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	code := strings.TrimSpace(r.FormValue("user_code"))
-	if code == "" {
-		http.Redirect(w, r, "/devices?approve_error=user_code+missing", http.StatusSeeOther)
-		return
-	}
-	resp, err := p.clients.Auth.ApproveLogin(r.Context(),
-		connect.NewRequest(&prosav1.ApproveLoginRequest{
-			UserCode:   code,
-			AdminToken: p.cfg.AdminToken,
-		}))
-	if err != nil {
-		slog.Warn("approve login failed", "code", code, "err", err)
-		http.Redirect(w, r, "/devices?approve_error="+queryEscape(err.Error()), http.StatusSeeOther)
-		return
-	}
-	slog.Info("device approved", "code", code, "device", resp.Msg.DeviceId)
-	http.Redirect(w, r, "/devices?approve_ok="+queryEscape(resp.Msg.DeviceId), http.StatusSeeOther)
 }
 
 // handleSSE proxies the server's /sse/events stream to the browser.

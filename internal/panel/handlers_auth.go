@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/c3-oss/prosa/internal/panel/oauth"
 )
@@ -16,8 +17,11 @@ import (
 // is the GitHub redirect (a link) plus the optional dev-login button.
 func (p *Panel) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if _, ok := p.cookie.FromRequest(r); ok {
-		http.Redirect(w, r, "/", http.StatusFound)
+		http.Redirect(w, r, consumeNextOrDefault(r, "/"), http.StatusFound)
 		return
+	}
+	if next := safeNextPath(r.URL.Query().Get("next")); next != "" {
+		setNextCookie(w, p.cfg.CookieSecure, next)
 	}
 	data := map[string]any{
 		"Title":           "Login",
@@ -103,7 +107,7 @@ func (p *Panel) handleGitHubCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	slog.Info("login ok", "email", email, "source", "github")
-	http.Redirect(w, r, "/", http.StatusFound)
+	redirectAfterLogin(w, r)
 }
 
 // handleDevLogin sets the cookie without going through GitHub. The
@@ -124,7 +128,7 @@ func (p *Panel) handleDevLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	slog.Warn("dev-login used — bypassing OAuth", "email", p.cfg.DevLoginEmail,
 		"remote", r.RemoteAddr)
-	http.Redirect(w, r, "/", http.StatusFound)
+	redirectAfterLogin(w, r)
 }
 
 // handleLogout drops the cookie and bounces back to /login.
@@ -148,4 +152,50 @@ func newState() (string, error) {
 		return "", errors.New("entropy unavailable")
 	}
 	return base64.RawURLEncoding.EncodeToString(b), nil
+}
+
+const nextCookieName = "prosa_panel_next"
+
+func setNextCookie(w http.ResponseWriter, secure bool, next string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     nextCookieName,
+		Value:    next,
+		Path:     "/",
+		MaxAge:   600,
+		HttpOnly: true,
+		Secure:   secure,
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+func redirectAfterLogin(w http.ResponseWriter, r *http.Request) {
+	dest := consumeNextOrDefault(r, "/")
+	clearNextCookie(w)
+	http.Redirect(w, r, dest, http.StatusFound)
+}
+
+func clearNextCookie(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name: nextCookieName, Value: "", Path: "/", MaxAge: -1,
+	})
+}
+
+func consumeNextOrDefault(r *http.Request, fallback string) string {
+	c, err := r.Cookie(nextCookieName)
+	if err != nil || c.Value == "" {
+		return fallback
+	}
+	next := safeNextPath(c.Value)
+	if next == "" {
+		return fallback
+	}
+	return next
+}
+
+// safeNextPath rejects open redirects; only same-origin relative paths.
+func safeNextPath(raw string) string {
+	if raw == "" || !strings.HasPrefix(raw, "/") || strings.HasPrefix(raw, "//") {
+		return ""
+	}
+	return raw
 }
