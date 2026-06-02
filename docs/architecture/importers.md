@@ -147,6 +147,7 @@ Listed in `internal/cli/sync.go`:
 | `codex` | `internal/importers/codex/` | `~/.codex/sessions/` |
 | `cursor` | `internal/importers/cursor/` | `~/.cursor/chats/` |
 | `gemini` | `internal/importers/gemini/` | `~/.gemini/tmp/` |
+| `antigravity` | `internal/importers/antigravity/` | `~/.gemini/antigravity-cli/conversations/` |
 | `hermes` | `internal/importers/hermes/` | `~/.hermes/sessions/` |
 
 For per-agent source format details, see [`../sources/`](../sources/).

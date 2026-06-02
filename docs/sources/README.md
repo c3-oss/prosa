@@ -11,6 +11,7 @@ change, the corresponding file here gets updated and the importer adapts.
 
 | Agent | Doc | Importer |
 | --- | --- | --- |
+| Antigravity CLI | [antigravity.md](antigravity.md) | `internal/importers/antigravity/` |
 | Claude Code | [claude-code.md](claude-code.md) | `internal/importers/claudecode/` |
 | Codex | [codex.md](codex.md) | `internal/importers/codex/` |
 | Cursor | [cursor.md](cursor.md) | `internal/importers/cursor/` |

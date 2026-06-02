@@ -19,8 +19,10 @@ server-side equivalent see [server.md](server.md).
     │   └── 2026/05/<session-id>.jsonl
     ├── cursor/
     │   └── ...
-    └── gemini/
-        └── ...
+    ├── gemini/
+    │   └── ...
+    └── antigravity/
+        └── 2026/06/<session-id>.db        SQLite database, byte-identical
 ```
 
 - **`store.db`** holds session metadata, the extracted turns for FTS, tool
@@ -115,7 +117,7 @@ fingerprint on first successful `prosa sync` via `RebindLocalSessions`.
 | Column | Type | Notes |
 | --- | --- | --- |
 | `id` | TEXT PRIMARY KEY | Agent-assigned session ID |
-| `agent` | TEXT | `claude-code`, `codex`, `cursor`, `gemini` |
+| `agent` | TEXT | `claude-code`, `codex`, `cursor`, `gemini`, `antigravity`, `hermes` |
 | `device_id` | TEXT FK | → `devices.id` |
 | `project_path` | TEXT NULL | cwd when discoverable |
 | `project_remote` | TEXT NULL | Git remote origin URL |
