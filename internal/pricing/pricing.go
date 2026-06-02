@@ -65,14 +65,17 @@ var ratesByModel = map[string]Rates{
 	"gpt-5.5":             {Input: 5.0e-6, Output: 3.0e-5, CacheRead: 5.0e-7},
 	"gpt-5.5-pro":         {Input: 3.0e-5, Output: 1.8e-4},
 
-	// Google — Gemini 2.5 / 3 generation.
+	// Google — Gemini 2.5 / 3 / 3.5 generation.
 	// Tier-pricing for >200k context is not yet modelled; we use the base
-	// tariff for every call.
+	// tariff for every call. The thinking-level suffixes Antigravity emits
+	// (`-low`/`-medium`/`-high`) carry the same per-token rate as the base
+	// `gemini-3.5-flash` row and resolve via the longest-prefix fallback.
 	"gemini-2.5-pro":         {Input: 1.25e-6, Output: 1.0e-5, CacheRead: 1.25e-7},
 	"gemini-2.5-flash":       {Input: 3.0e-7, Output: 2.5e-6, CacheRead: 3.0e-8},
 	"gemini-2.5-flash-lite":  {Input: 1.0e-7, Output: 4.0e-7, CacheRead: 1.0e-8},
 	"gemini-3-pro-preview":   {Input: 2.0e-6, Output: 1.2e-5, CacheRead: 2.0e-7},
 	"gemini-3-flash-preview": {Input: 5.0e-7, Output: 3.0e-6, CacheRead: 5.0e-8},
+	"gemini-3.5-flash":       {Input: 1.5e-6, Output: 9.0e-6, CacheRead: 1.5e-7},
 }
 
 // modelAliases maps a normalized model id to a canonical key in

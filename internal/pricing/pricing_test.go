@@ -80,12 +80,20 @@ func TestLookupKnownModelsFromRealStore(t *testing.T) {
 		{"gpt-5.5", Rates{Input: 5.0e-6, Output: 3.0e-5, CacheRead: 5.0e-7}},
 		{"gpt-codex-5.3", Rates{Input: 1.75e-6, Output: 1.4e-5, CacheRead: 1.75e-7}},
 
-		// Gemini 2.5 / 3.
+		// Gemini 2.5 / 3 / 3.5.
 		{"gemini-2.5-pro", Rates{Input: 1.25e-6, Output: 1.0e-5, CacheRead: 1.25e-7}},
 		{"gemini-2.5-flash", Rates{Input: 3.0e-7, Output: 2.5e-6, CacheRead: 3.0e-8}},
 		{"gemini-2.5-flash-lite", Rates{Input: 1.0e-7, Output: 4.0e-7, CacheRead: 1.0e-8}},
 		{"gemini-3-pro-preview", Rates{Input: 2.0e-6, Output: 1.2e-5, CacheRead: 2.0e-7}},
 		{"gemini-3-flash-preview", Rates{Input: 5.0e-7, Output: 3.0e-6, CacheRead: 5.0e-8}},
+		// Antigravity emits gemini-3.5-flash with a thinking-level
+		// suffix (-low/-medium/-high/-minimal); all map to the same
+		// per-token rate via the longest-prefix fallback.
+		{"gemini-3.5-flash", Rates{Input: 1.5e-6, Output: 9.0e-6, CacheRead: 1.5e-7}},
+		{"gemini-3.5-flash-low", Rates{Input: 1.5e-6, Output: 9.0e-6, CacheRead: 1.5e-7}},
+		{"gemini-3.5-flash-medium", Rates{Input: 1.5e-6, Output: 9.0e-6, CacheRead: 1.5e-7}},
+		{"gemini-3.5-flash-high", Rates{Input: 1.5e-6, Output: 9.0e-6, CacheRead: 1.5e-7}},
+		{"gemini-3.5-flash-minimal", Rates{Input: 1.5e-6, Output: 9.0e-6, CacheRead: 1.5e-7}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.model, func(t *testing.T) {
