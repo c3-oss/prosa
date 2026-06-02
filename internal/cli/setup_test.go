@@ -15,7 +15,7 @@ func TestDetectAgentsListsAll(t *testing.T) {
 	for _, r := range reports {
 		names[r.name] = true
 	}
-	for _, expected := range []string{"claude-code", "codex", "cursor", "gemini"} {
+	for _, expected := range []string{"claude-code", "codex", "cursor", "gemini", "antigravity"} {
 		if !names[expected] {
 			t.Errorf("expected %q in detected agents, got %v", expected, names)
 		}

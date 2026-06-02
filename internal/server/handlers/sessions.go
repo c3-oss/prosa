@@ -701,7 +701,7 @@ func extForAgent(agent string) string {
 		return ".jsonl"
 	case "gemini":
 		return ".json"
-	case "cursor":
+	case "cursor", "antigravity":
 		return ".db"
 	}
 	return ".bin"

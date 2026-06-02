@@ -55,7 +55,7 @@ func newRootCmd() *cobra.Command {
 	pf.StringVar(&g.Between, "between", "", "closed UTC range, YYYY-MM-DD..YYYY-MM-DD; mut.-excl. with --last / --since")
 	pf.StringVar(&g.Project, "project", "", "filter by project path (substring match)")
 	pf.StringVar(&g.Device, "device", "", "filter by device friendly name")
-	pf.StringVar(&g.Agent, "agent", "", "filter by agent (claude-code | codex)")
+	pf.StringVar(&g.Agent, "agent", "", "filter by agent (claude-code | codex | cursor | gemini | antigravity | hermes)")
 	pf.BoolVar(&g.All, "all", false, "disable the cwd-based project auto-filter")
 	pf.BoolVar(&g.JSON, "json", false, "emit NDJSON instead of human-formatted output")
 	// --limit is only meaningful on the bare `prosa` timeline; sub-commands

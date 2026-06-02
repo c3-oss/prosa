@@ -648,7 +648,7 @@ func (p *Panel) handleAnalytics(w http.ResponseWriter, r *http.Request) {
 		"Devices":         devices,
 		"SelectedDevices": selectedSet,
 		"DeviceSummary":   summarizeDevicePick(selectedDevices, len(devices)),
-		"Agents":          []string{"codex", "claude-code", "gemini", "hermes", "cursor"},
+		"Agents":          []string{"codex", "claude-code", "gemini", "antigravity", "hermes", "cursor"},
 		"Headers":         resp.Msg.Headers,
 		"Rows":            resp.Msg.Rows,
 	}

@@ -15,6 +15,7 @@ import (
 	"github.com/c3-oss/prosa/internal/cli/render"
 	"github.com/c3-oss/prosa/internal/cli/rpc"
 	"github.com/c3-oss/prosa/internal/cli/schedule"
+	"github.com/c3-oss/prosa/internal/importers/antigravity"
 	"github.com/c3-oss/prosa/internal/importers/claudecode"
 	"github.com/c3-oss/prosa/internal/importers/codex"
 	"github.com/c3-oss/prosa/internal/importers/cursor"
@@ -72,6 +73,7 @@ func detectAgents() []agentReport {
 		codex.New(),
 		cursor.New(),
 		gemini.New(),
+		antigravity.New(),
 	}
 	out := make([]agentReport, 0, len(imps))
 	for _, imp := range imps {
