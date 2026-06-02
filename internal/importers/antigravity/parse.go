@@ -292,17 +292,21 @@ func projectSteps(ctx context.Context, db *sql.DB) (
 	sort.Slice(tools, func(i, j int) bool { return tools[i].Name < tools[j].Name })
 
 	if seenUsage {
-		// InputTokens counts only fresh, non-cached prompt tokens.
-		// cache_read_tokens in ModelUsageStats reports how many cached
-		// tokens were re-read on each call — across a long agentic
-		// session this sum grows huge (a 30 KB system prompt × 20 turns
-		// = 600 K cache reads) but represents the SAME underlying
-		// cached content being reused, not fresh input. Tracking it
-		// separately keeps TotalTokens close to the user's mental
-		// model of "how much new content moved through the model."
+		// Canonical prosa shape (matches claudecode / codex / gemini
+		// importers): InputTokens is the FULL per-call prompt size
+		// summed across the trajectory — fresh + cache_read +
+		// cache_write — and CacheReadTokens / CacheCreationTokens
+		// track the cached subsets so internal/pricing can discount
+		// them at the cache rate. In an agentic session Gemini's
+		// prompt cache (system prompt + tool defs + accumulated
+		// history) is re-read on every turn, so the input total can
+		// be much larger than the "fresh content moved through the
+		// model" — the cost estimate stays accurate because the
+		// cached portion is billed at the cache_read rate.
+		totalInput := sumInput + sumCacheRead + sumCacheWrite
 		usage = &session.TokenUsage{
-			TotalTokens:         sumInput + sumOutput,
-			InputTokens:         sumInput,
+			TotalTokens:         totalInput + sumOutput,
+			InputTokens:         totalInput,
 			OutputTokens:        sumOutput,
 			CachedTokens:        sumCacheRead,
 			CacheReadTokens:     sumCacheRead,

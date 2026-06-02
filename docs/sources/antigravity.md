@@ -169,24 +169,26 @@ span, then aggregates names sorted alphabetically into
 | 11 | `request_id` string |
 
 The importer aggregates across every step that carries
-`model_usage` and surfaces:
+`model_usage` and surfaces (following the same convention as
+claudecode / codex / gemini — `InputTokens` is the full per-call
+prompt summed across the trajectory):
 
-- `Session.Usage.InputTokens` = `Σ input_tokens` — fresh, non-cached prompt tokens only
+- `Session.Usage.InputTokens` = `Σ (input_tokens + cache_read_tokens + cache_write_tokens)`
 - `Session.Usage.OutputTokens` = `Σ output_tokens`
 - `Session.Usage.CachedTokens` = `Σ cache_read_tokens`
 - `Session.Usage.CacheReadTokens` = `Σ cache_read_tokens`
 - `Session.Usage.CacheCreationTokens` = `Σ cache_write_tokens`
 - `Session.Usage.TotalTokens` = `InputTokens` + `OutputTokens`
 
-`cache_read_tokens` is intentionally excluded from `TotalTokens`. In a
-long agentic session Gemini's prompt cache (the system prompt and
-tool definitions, plus accumulated history) gets re-read on every
-turn, so `Σ cache_read_tokens` represents the same content multiplied
-by the number of model calls — e.g. an "olá" session with 18 model
-invocations and a 30 KB cached prefix can total 500 K+ cache reads
-while moving only 90 K fresh tokens through the model. Surfacing
-cache reads inside `TotalTokens` would inflate the number well past
-what users see in their billing dashboards.
+In a long agentic session Gemini's prompt cache (system prompt +
+tool defs + accumulated history) gets re-read on every turn, so
+`Σ cache_read_tokens` represents the same content multiplied by the
+number of model calls — an "olá" session with 18 model invocations
+and a ~28 KB cached prefix can total ~500 K cache reads on top of
+~85 K fresh tokens. `InputTokens` includes that full envelope so
+`internal/pricing.CostUSD` can discount the cached portion at the
+provider's cache_read rate (≈10× cheaper for Gemini Flash) and still
+produce a billing-dashboard-faithful estimate.
 
 `thinking_output_tokens` and `response_output_tokens` are intentionally
 NOT plumbed through the canonical session shape — they would split
