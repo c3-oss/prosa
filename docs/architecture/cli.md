@@ -29,7 +29,7 @@ is the Connect-Go client in `internal/cli` that talks to `prosa-server`.
 | `prosa search` | `internal/cli/search.go` | Local FTS5 (default) or server FTS (`--remote`) |
 | `prosa show` | `internal/cli/show.go` | Print preserved raw JSONL |
 | `prosa analytics` | `internal/cli/analytics.go` | Fixed reports, including heatmap and usage. The heatmap report has a fixed trailing 53-week window and rejects `--last/--since/--between`. |
-| `prosa login` | `internal/cli/login.go` | Device-code auth |
+| `prosa login` | `internal/cli/login.go` | PKCE browser auth |
 | `prosa devices …` | `internal/cli/devices.go` | `list`, `rename`, `revoke` |
 | `prosa schedule …` | `internal/cli/schedule_cmd.go` + `internal/cli/schedule/` | `install`, `status`, `uninstall` |
 | `prosa setup` | `internal/cli/setup.go` | Wizard wrapping login + schedule + first sync |
@@ -127,7 +127,7 @@ in `internal/store/<area>.go` first.
 
 ## Connect client
 
-`internal/cli/clientx.go` (and helpers) wraps the generated Connect clients
+`internal/cli/rpc/client.go` wraps the generated Connect clients
 in `gen/go/prosa/v1/`. The client:
 
 - Reads the server URL from `auth.json` (or `--server`, or

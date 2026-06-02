@@ -110,7 +110,7 @@ informally. Prosa lets you have a conversation with your own work history.
 - Importers for Claude Code and Codex; the plugin interface is ready for more.
 - Local store: SQLite + raw JSONL sharded under the prosa data dir.
 - Server: Postgres + S3-compatible object storage.
-- Single-user auth: device-code flow for the CLI; OAuth (GitHub/Google) + an
+- Single-user auth: PKCE + localhost callback for the CLI; OAuth (GitHub/Google) + an
   owner-email whitelist for the panel.
 - Push-only sync, idempotent by sha256.
 - Scheduled sync (LaunchAgent / systemd timer) plus ad-hoc `prosa sync`.

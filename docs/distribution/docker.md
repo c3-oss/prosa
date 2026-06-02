@@ -113,7 +113,7 @@ docker run --rm \
   -e PROSA_S3_ACCESS_KEY=prosa \
   -e PROSA_S3_SECRET_KEY=prosaprosa \
   -e PROSA_ADMIN_TOKEN=changeme \
-  -e PROSA_VERIFICATION_URI=https://panel.example.com/devices/approve \
+  -e PROSA_PANEL_BASE_URL=https://panel.example.com \
   -p 7070:7070 \
   ghcr.io/c3-oss/prosa-server:latest
 ```
@@ -158,7 +158,7 @@ docker run --rm --network host \
   -e PROSA_S3_ACCESS_KEY=prosa \
   -e PROSA_S3_SECRET_KEY=prosaprosa \
   -e PROSA_ADMIN_TOKEN=devadmin \
-  -e PROSA_VERIFICATION_URI=http://localhost:8080/devices/approve \
+  -e PROSA_PANEL_BASE_URL=http://localhost:8080 \
   ghcr.io/c3-oss/prosa-server:latest
 ```
 

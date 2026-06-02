@@ -78,7 +78,8 @@ Routes (current MVP cut), all served from the same mux:
 - `GET /devices` — device admin
 - `POST /devices/<id>/rename`
 - `POST /devices/<id>/revoke`
-- `POST /devices/approve`
+- `GET /cli/authorize` — CLI login confirmation (session required)
+- `POST /cli/authorize/approve` — approve CLI device, redirect to localhost callback
 - `GET /analytics/<report>` — one of `sessions`, `tools`, `models`,
   `projects`, `errors`, `heatmap`, `usage`
 - `GET /events` — SSE stream (proxied from the server)

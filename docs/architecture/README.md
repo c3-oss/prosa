@@ -101,8 +101,8 @@ panel.
 
 Services:
 
-- **AuthService** — `StartLogin`, `PollLogin`, `ApproveLogin`, `Whoami`.
-  Device-code OAuth flow.
+- **AuthService** — `BeginLogin`, `ExchangeCode`, `GetLoginRequest`,
+  `ApproveLogin`, `Whoami`. PKCE + localhost callback for the CLI.
 - **SessionsService** — `Push`, `List`, `Get`, `Search`, `Manifest`,
   `GetRaw`.
 - **DevicesService** — `List`, `Rename`, `Revoke`.

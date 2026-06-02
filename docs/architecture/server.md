@@ -1,12 +1,12 @@
 # Architecture: server
 
 `prosa-server` is the cross-device backend. Clients push sessions to it,
-read them back via `--remote`, and authenticate via the device-code flow.
+read them back via `--remote`, and authenticate via PKCE + localhost callback.
 Postgres stores metadata and the FTS over turns; an S3-compatible object
 store keeps raw transcript bodies.
 
 For the user-facing deployment guide see [`../self-hosting.md`](../self-hosting.md).
-For the device-code flow as a concept see
+For the CLI auth flow as a concept see
 [`../concepts.md#auth`](../concepts.md#auth).
 
 The local CLI works fully offline — `prosa-server` is only needed for
@@ -20,7 +20,7 @@ cmd/prosa-server/main.go                 thin entrypoint
    ├─ server.go                          mux + Connect handler registration
    ├─ config.go                          env-driven configuration
    ├─ <service>.go                       per-service Connect handlers
-   ├─ auth/                              device-code flow internals
+   ├─ auth/                              PKCE login + bearer internals
    ├─ storage/                           S3 client wrapper
    └─ db/                                pgx pool, query helpers
 ```
@@ -31,13 +31,13 @@ HTTP/2 over cleartext (h2c) in dev; put TLS in front of it in production.
 
 ## Configuration
 
-All env-driven; no flags except `--approve`. Full list in
+All env-driven; no CLI flags. Full list in
 [`../self-hosting.md`](../self-hosting.md#required-env-vars). Required:
 
 - `PROSA_DB_URL`
 - `PROSA_S3_ENDPOINT`, `PROSA_S3_BUCKET`, `PROSA_S3_ACCESS_KEY`, `PROSA_S3_SECRET_KEY`
 - `PROSA_ADMIN_TOKEN`
-- `PROSA_VERIFICATION_URI`
+- `PROSA_PANEL_BASE_URL`
 
 Defaults: `PROSA_LISTEN_ADDR=:7070`, `PROSA_S3_BUCKET=prosa-raw`,
 `PROSA_S3_REGION=us-east-1`, `PROSA_S3_USE_SSL=false`.
@@ -46,7 +46,7 @@ Defaults: `PROSA_LISTEN_ADDR=:7070`, `PROSA_S3_BUCKET=prosa-raw`,
 
 | Service | Methods | Purpose |
 | --- | --- | --- |
-| `AuthService` | `StartLogin`, `PollLogin`, `ApproveLogin`, `Whoami` | Device-code OAuth |
+| `AuthService` | `BeginLogin`, `ExchangeCode`, `GetLoginRequest`, `ApproveLogin`, `Whoami` | PKCE CLI login |
 | `SessionsService` | `Push`, `List`, `Get`, `Search`, `Manifest`, `GetRaw` | Session CRUD + reconcile |
 | `DevicesService` | `List`, `Rename`, `Revoke` | Device registry |
 | `AnalyticsService` | `GetReport` | One of five fixed reports |
@@ -93,42 +93,26 @@ it for paginated viewing of long transcripts (64 KB chunks).
 
 ## Auth
 
-### Device-code flow
+### PKCE + localhost callback
 
-`prosa login` calls `StartLogin`. The server mints:
+`prosa login` calls `BeginLogin` with a PKCE `code_challenge`, a loopback
+`redirect_uri` (`http://127.0.0.1:<port>/callback`), and `client_state`.
+The server inserts an `auth_codes` row (`PENDING`, 15-minute expiry) and
+returns `authorize_url` (panel `/cli/authorize?request_id=...`).
 
-- a `device_code` (long, opaque, used in subsequent polls),
-- a `user_code` (short, human-typable),
-- an expiry (15 minutes).
+The CLI opens that URL (auto-open with print fallback) and listens on
+127.0.0.1 for the redirect. After you sign into the panel (if needed) and
+click **Authorize this device**, the panel calls `ApproveLogin` (admin
+token) and redirects the browser to the CLI with `?code=...&state=...`.
 
-Both go into `device_codes` with state `PENDING`. The server returns the
-`user_code` and `PROSA_VERIFICATION_URI` to the client.
-
-The user opens the URI in a browser. The panel's `/devices/approve` route
-takes the `user_code` and calls `ApproveLogin` on behalf of the owner
-(panel sends `Authorization: Admin <token>`). The server flips
-`device_codes.state` to `APPROVED`, registers the device in `devices`,
-mints a bearer token, stores its sha256 in `device_tokens`, and returns
-the plaintext to the panel.
-
-The CLI's `PollLogin` loop sees the approved state and receives the
-bearer token. It writes it to `~/.config/prosa/auth.json` and stops
-polling.
+The CLI calls `ExchangeCode` with the code, verifier, and redirect URI.
+The server verifies PKCE, upserts `devices`, inserts `device_tokens`
+(sha256 only), marks the auth code `USED`, and returns the plaintext bearer
+once. The CLI writes `~/.config/prosa/auth.json`.
 
 Tokens are revocable: `DevicesService.Revoke` sets
 `device_tokens.revoked_at`. The Connect interceptor rejects revoked
 tokens on every request.
-
-### Manual approval
-
-For owner setups without a running panel:
-
-```sh
-PROSA_ADMIN_TOKEN=... prosa-server --approve <user_code>
-```
-
-Equivalent to the panel's call to `ApproveLogin`, useful for first-time
-self-hosters before the panel is up.
 
 ### Interceptor
 
@@ -151,6 +135,7 @@ Migrations in `migrations/server/`, applied at startup via `embed.FS`.
 | Migration | What it adds |
 | --- | --- |
 | `0001_init` | `devices`, `sessions`, `session_tools`, `turns` (with `content_tsv` GENERATED column + GIN index), `sync_state`, `device_codes`, `device_tokens` |
+| `0009_auth_codes` | replaces `device_codes` with `auth_codes` for PKCE login |
 | `0002_manifest_index` | composite `(device_id, started_at DESC)` index on `sessions` |
 | `0003_turns_tsvector_cap` | guards against the 1 MiB tsvector ceiling |
 | `0004_session_notify` | `pg_notify` trigger feeding the SSE stream |
@@ -163,7 +148,7 @@ differences are:
 - `turns.content_tsv` is a `tsvector GENERATED ALWAYS AS … STORED`, indexed
   with GIN. **Tokenizer is `simple`** (no stemming) — different from the
   local `porter+unicode61`.
-- `device_codes` and `device_tokens` exist server-side only.
+- `auth_codes` and `device_tokens` exist server-side only.
 
 For the session-level field mapping (importer → canonical), see
 [canonical-session.md](canonical-session.md).

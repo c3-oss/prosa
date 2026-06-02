@@ -31,7 +31,7 @@ PROSA_S3_BUCKET=prosa-raw \
 PROSA_S3_ACCESS_KEY=prosa \
 PROSA_S3_SECRET_KEY=prosaprosa \
 PROSA_ADMIN_TOKEN=dev-admin-token \
-PROSA_VERIFICATION_URI=http://localhost:8080/devices/approve \
+PROSA_PANEL_BASE_URL=http://localhost:8080 \
 ./bin/prosa-server
 ```
 
@@ -56,8 +56,8 @@ nginx, Traefik, a CDN — whatever you trust).
 | `PROSA_S3_SECRET_KEY` | yes | |
 | `PROSA_S3_REGION` | optional (default `us-east-1`) | Many S3-compatible services accept any value. |
 | `PROSA_S3_USE_SSL` | optional (default `false`) | Set to `true` for HTTPS endpoints. |
-| `PROSA_ADMIN_TOKEN` | yes | Used by the panel and by `prosa-server --approve`. Treat as a secret. |
-| `PROSA_VERIFICATION_URI` | yes | The URL printed to the user during device-code login. Usually `https://your-panel.example.com/devices/approve`. |
+| `PROSA_ADMIN_TOKEN` | yes | Used by the panel (`Authorization: Admin`). Treat as a secret. |
+| `PROSA_PANEL_BASE_URL` | yes | Public panel URL; server builds CLI authorize links as `<base>/cli/authorize?request_id=...`. |
 | `PROSA_LISTEN_ADDR` | optional (default `:7070`) | Bind address. |
 
 The server applies its Postgres migrations on startup. Migration files live
@@ -76,7 +76,7 @@ bucket level if you want them; prosa won't manage them.
 
 The server schema is roughly: `devices`, `sessions`, `session_tools`,
 `turns` (with a generated `content_tsv` column for FTS), `sync_state`,
-`device_codes`, `device_tokens`. The `turns` table uses Postgres's native
+`auth_codes`, `device_tokens`. The `turns` table uses Postgres's native
 FTS (simple tokenizer; no stemming) — different from the local store, which
 uses SQLite FTS5 with the porter tokenizer.
 
@@ -158,7 +158,7 @@ docker run --rm \
   -e PROSA_DB_URL=... \
   -e PROSA_S3_ENDPOINT=... \
   -e PROSA_ADMIN_TOKEN=... \
-  -e PROSA_VERIFICATION_URI=... \
+  -e PROSA_PANEL_BASE_URL=... \
   -p 7070:7070 \
   ghcr.io/c3-oss/prosa-server:latest
 
@@ -184,21 +184,6 @@ Each image carries exactly one binary with that binary set as its
 
 The image build itself is documented in
 [distribution/docker.md](distribution/docker.md).
-
-## Approving a device manually
-
-When a user runs `prosa login`, the server mints a device-code and prints a
-URL the user must visit in their browser. The panel approves it.
-
-If you don't want to run the panel, you can approve from a server shell:
-
-```sh
-prosa-server --approve <user-code>
-```
-
-The user code is what was printed to the user's terminal.
-
-This is gated by `PROSA_ADMIN_TOKEN`. Treat that token carefully.
 
 ## Backup
 

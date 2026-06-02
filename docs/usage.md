@@ -13,8 +13,8 @@ prosa setup
 A short wizard:
 
 1. Server URL (default `https://prosa.c3.do`; configurable).
-2. Browser-based device auth (the wizard prints a one-time user code, opens
-   the server's verification URL, and polls for approval).
+2. Browser-based PKCE auth (opens the panel authorize URL; click
+   **Authorize this device**; the CLI captures the callback on localhost).
 3. Detection of local agent histories (`~/.claude/projects`,
    `~/.codex/sessions`, `~/.cursor/`, `~/.gemini/`).
 4. Scheduled sync install (LaunchAgent on macOS, systemd user timer on

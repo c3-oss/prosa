@@ -327,8 +327,7 @@ states explicit:
 ```text
 device	laptop
 server	https://prosa.c3.do
-auth_url	https://prosa.c3.do/device?code=E20B-61C9
-user_code	E20B-61C9
+auth_url	https://panel.example.com/cli/authorize?request_id=abc123
 status	waiting_for_approval
 status	approved
 ```

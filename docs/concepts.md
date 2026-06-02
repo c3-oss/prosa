@@ -112,12 +112,15 @@ The server uses this to attribute pushed sessions to a device.
 
 Two flavors, both single-user.
 
-**CLI auth (device-code flow)**: `prosa login` (or the `prosa setup`
-wizard) hits the server's `AuthService.StartLogin`. The server mints a
-`device_code` + `user_code`. The CLI prints the user code and a URL; the
-user opens the URL in a browser and approves via the panel. The CLI polls
-`PollLogin` until the device is approved and receives a long-lived bearer
-token, saved to `~/.config/prosa/auth.json`.
+**CLI auth (PKCE + localhost callback)**: `prosa login` (or the `prosa setup`
+wizard) calls `AuthService.BeginLogin` with a PKCE challenge and a
+`http://127.0.0.1:<port>/callback` redirect. The CLI opens the panel
+authorize URL in the browser; you click **Authorize this device**. The panel
+redirects the auth code to the CLI's local listener; the CLI calls
+`ExchangeCode` and saves the bearer to `~/.config/prosa/auth.json`.
+
+On headless machines, forward the callback port with `ssh -L` or copy
+`auth.json` from a machine that completed login.
 
 Tokens are revocable via `prosa devices revoke <id|self>`. The server
 stores only the hash of each token, never the plaintext.
@@ -190,7 +193,7 @@ Specifically in scope:
 
 - Three Go binaries: `prosa`, `prosa-server`, `prosa-panel`.
 - Importers for Claude Code, Codex, Cursor, Gemini.
-- Single-user auth (device-code for CLI, OAuth + whitelist for panel).
+- Single-user auth (PKCE + localhost callback for CLI, OAuth + whitelist for panel).
 - Push-only sync, idempotent by sha256.
 - Chronological timeline with project/agent/device/time filters.
 - FTS over turns (local and remote).
