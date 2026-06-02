@@ -1,0 +1,15 @@
+version: v2
+clean: true
+plugins:
+  - remote: buf.build/apple/swift:v1.31.0
+    out: ../prosa-macos/ProsaRPC/Sources/ProsaRPC/Generated/Proto
+    opt:
+      - Visibility=Public
+      - FileNaming=PathToUnderscores
+  - remote: buf.build/connectrpc/swift:v1.0.0
+    out: ../prosa-macos/ProsaRPC/Sources/ProsaRPC/Generated/Proto
+    opt:
+      - Visibility=Public
+      - GenerateAsyncMethods=true
+      - GenerateCallbackMethods=false
+      - FileNaming=PathToUnderscores
