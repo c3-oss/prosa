@@ -105,16 +105,17 @@ they are enforced by reviewers (human or agent).
 The project follows `type(scope): subject` in the imperative. Commitlint
 enforces the shape locally and in CI.
 
-Examples that match the existing history:
+Examples:
 
 ```
-feat(npm): ESM shim with async spawn and signal forwarding
-chore(node): standardize on Node.js 24 across release pipeline
+feat(release): ESM shim with async spawn and signal forwarding
+chore(tooling): standardize on Node.js 24 across release pipeline
 docs(release): install paths (brew, curl, npm), setup mocks, intent update
 build(deps): add nodejs@24
 ```
 
-Scopes are free-form. Use the most specific one that helps a future reader.
+Scopes are defined in [`../commitlint.config.cjs`](../commitlint.config.cjs).
+Use the smallest accepted scope that helps a future reader.
 
 For large refactors, prefer **several smaller commits** grouped by category
 of change over one mega-commit. Each commit should be reviewable on its own.

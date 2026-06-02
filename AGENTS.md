@@ -83,8 +83,8 @@ goes through `just` (the project's task runner). There is no Makefile.
 - **Tests** use stdlib `testing` plus `github.com/stretchr/testify/require`.
   No mocking frameworks.
 - **Commit messages** keep the `type(scope): subject` convention from the v2
-  history for continuity. Scopes are free-form and commitlint enforces the
-  shape locally and in CI.
+  history for continuity. Accepted scopes are defined in
+  `commitlint.config.cjs`, and commitlint enforces the shape locally and in CI.
 - **Git hooks** are managed by Husky and installed by `devbox shell`; they run
   commitlint, lint-staged Markdown checks, agnix, gitleaks, and the pre-push
   quality gate.
