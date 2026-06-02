@@ -5,14 +5,12 @@
 package prosav1connect
 
 import (
+	connect "connectrpc.com/connect"
 	context "context"
 	errors "errors"
+	v1 "github.com/c3-oss/prosa/gen/go/prosa/v1"
 	http "net/http"
 	strings "strings"
-
-	connect "connectrpc.com/connect"
-
-	v1 "github.com/c3-oss/prosa/gen/go/prosa/v1"
 )
 
 // This is a compile-time assertion to ensure that this generated file and the connect package are
@@ -35,10 +33,14 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
-	// AuthServiceStartLoginProcedure is the fully-qualified name of the AuthService's StartLogin RPC.
-	AuthServiceStartLoginProcedure = "/prosa.v1.AuthService/StartLogin"
-	// AuthServicePollLoginProcedure is the fully-qualified name of the AuthService's PollLogin RPC.
-	AuthServicePollLoginProcedure = "/prosa.v1.AuthService/PollLogin"
+	// AuthServiceBeginLoginProcedure is the fully-qualified name of the AuthService's BeginLogin RPC.
+	AuthServiceBeginLoginProcedure = "/prosa.v1.AuthService/BeginLogin"
+	// AuthServiceExchangeCodeProcedure is the fully-qualified name of the AuthService's ExchangeCode
+	// RPC.
+	AuthServiceExchangeCodeProcedure = "/prosa.v1.AuthService/ExchangeCode"
+	// AuthServiceGetLoginRequestProcedure is the fully-qualified name of the AuthService's
+	// GetLoginRequest RPC.
+	AuthServiceGetLoginRequestProcedure = "/prosa.v1.AuthService/GetLoginRequest"
 	// AuthServiceApproveLoginProcedure is the fully-qualified name of the AuthService's ApproveLogin
 	// RPC.
 	AuthServiceApproveLoginProcedure = "/prosa.v1.AuthService/ApproveLogin"
@@ -48,15 +50,15 @@ const (
 
 // AuthServiceClient is a client for the prosa.v1.AuthService service.
 type AuthServiceClient interface {
-	// Mints a fresh device_code/user_code pair and registers it as
-	// PENDING. Returns the polling interval the client should respect.
-	StartLogin(context.Context, *connect.Request[v1.StartLoginRequest]) (*connect.Response[v1.StartLoginResponse], error)
-	// Returns the current state of the login attempt. When APPROVED,
-	// includes the bearer token; thereafter the row is single-use.
-	PollLogin(context.Context, *connect.Request[v1.PollLoginRequest]) (*connect.Response[v1.PollLoginResponse], error)
-	// Bridges the missing painel: caller proves PROSA_ADMIN_TOKEN and
-	// flips a PENDING row to APPROVED. This RPC is excluded from the
-	// bearer middleware; the admin token is enforced inline.
+	// Registers a PENDING login attempt and returns the panel URL to open.
+	BeginLogin(context.Context, *connect.Request[v1.BeginLoginRequest]) (*connect.Response[v1.BeginLoginResponse], error)
+	// Exchanges an approved auth code + PKCE verifier for a device bearer.
+	ExchangeCode(context.Context, *connect.Request[v1.ExchangeCodeRequest]) (*connect.Response[v1.ExchangeCodeResponse], error)
+	// Returns login attempt metadata for the panel confirmation page.
+	// Requires Authorization: Admin <PROSA_ADMIN_TOKEN>.
+	GetLoginRequest(context.Context, *connect.Request[v1.GetLoginRequestRequest]) (*connect.Response[v1.GetLoginRequestResponse], error)
+	// Approves a PENDING attempt and mints a one-time auth code for redirect.
+	// Requires Authorization: Admin <PROSA_ADMIN_TOKEN>.
 	ApproveLogin(context.Context, *connect.Request[v1.ApproveLoginRequest]) (*connect.Response[v1.ApproveLoginResponse], error)
 	// Identifies the calling device.
 	Whoami(context.Context, *connect.Request[v1.WhoamiRequest]) (*connect.Response[v1.WhoamiResponse], error)
@@ -73,16 +75,22 @@ func NewAuthServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 	baseURL = strings.TrimRight(baseURL, "/")
 	authServiceMethods := v1.File_prosa_v1_auth_proto.Services().ByName("AuthService").Methods()
 	return &authServiceClient{
-		startLogin: connect.NewClient[v1.StartLoginRequest, v1.StartLoginResponse](
+		beginLogin: connect.NewClient[v1.BeginLoginRequest, v1.BeginLoginResponse](
 			httpClient,
-			baseURL+AuthServiceStartLoginProcedure,
-			connect.WithSchema(authServiceMethods.ByName("StartLogin")),
+			baseURL+AuthServiceBeginLoginProcedure,
+			connect.WithSchema(authServiceMethods.ByName("BeginLogin")),
 			connect.WithClientOptions(opts...),
 		),
-		pollLogin: connect.NewClient[v1.PollLoginRequest, v1.PollLoginResponse](
+		exchangeCode: connect.NewClient[v1.ExchangeCodeRequest, v1.ExchangeCodeResponse](
 			httpClient,
-			baseURL+AuthServicePollLoginProcedure,
-			connect.WithSchema(authServiceMethods.ByName("PollLogin")),
+			baseURL+AuthServiceExchangeCodeProcedure,
+			connect.WithSchema(authServiceMethods.ByName("ExchangeCode")),
+			connect.WithClientOptions(opts...),
+		),
+		getLoginRequest: connect.NewClient[v1.GetLoginRequestRequest, v1.GetLoginRequestResponse](
+			httpClient,
+			baseURL+AuthServiceGetLoginRequestProcedure,
+			connect.WithSchema(authServiceMethods.ByName("GetLoginRequest")),
 			connect.WithClientOptions(opts...),
 		),
 		approveLogin: connect.NewClient[v1.ApproveLoginRequest, v1.ApproveLoginResponse](
@@ -102,20 +110,26 @@ func NewAuthServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 
 // authServiceClient implements AuthServiceClient.
 type authServiceClient struct {
-	startLogin   *connect.Client[v1.StartLoginRequest, v1.StartLoginResponse]
-	pollLogin    *connect.Client[v1.PollLoginRequest, v1.PollLoginResponse]
-	approveLogin *connect.Client[v1.ApproveLoginRequest, v1.ApproveLoginResponse]
-	whoami       *connect.Client[v1.WhoamiRequest, v1.WhoamiResponse]
+	beginLogin      *connect.Client[v1.BeginLoginRequest, v1.BeginLoginResponse]
+	exchangeCode    *connect.Client[v1.ExchangeCodeRequest, v1.ExchangeCodeResponse]
+	getLoginRequest *connect.Client[v1.GetLoginRequestRequest, v1.GetLoginRequestResponse]
+	approveLogin    *connect.Client[v1.ApproveLoginRequest, v1.ApproveLoginResponse]
+	whoami          *connect.Client[v1.WhoamiRequest, v1.WhoamiResponse]
 }
 
-// StartLogin calls prosa.v1.AuthService.StartLogin.
-func (c *authServiceClient) StartLogin(ctx context.Context, req *connect.Request[v1.StartLoginRequest]) (*connect.Response[v1.StartLoginResponse], error) {
-	return c.startLogin.CallUnary(ctx, req)
+// BeginLogin calls prosa.v1.AuthService.BeginLogin.
+func (c *authServiceClient) BeginLogin(ctx context.Context, req *connect.Request[v1.BeginLoginRequest]) (*connect.Response[v1.BeginLoginResponse], error) {
+	return c.beginLogin.CallUnary(ctx, req)
 }
 
-// PollLogin calls prosa.v1.AuthService.PollLogin.
-func (c *authServiceClient) PollLogin(ctx context.Context, req *connect.Request[v1.PollLoginRequest]) (*connect.Response[v1.PollLoginResponse], error) {
-	return c.pollLogin.CallUnary(ctx, req)
+// ExchangeCode calls prosa.v1.AuthService.ExchangeCode.
+func (c *authServiceClient) ExchangeCode(ctx context.Context, req *connect.Request[v1.ExchangeCodeRequest]) (*connect.Response[v1.ExchangeCodeResponse], error) {
+	return c.exchangeCode.CallUnary(ctx, req)
+}
+
+// GetLoginRequest calls prosa.v1.AuthService.GetLoginRequest.
+func (c *authServiceClient) GetLoginRequest(ctx context.Context, req *connect.Request[v1.GetLoginRequestRequest]) (*connect.Response[v1.GetLoginRequestResponse], error) {
+	return c.getLoginRequest.CallUnary(ctx, req)
 }
 
 // ApproveLogin calls prosa.v1.AuthService.ApproveLogin.
@@ -130,15 +144,15 @@ func (c *authServiceClient) Whoami(ctx context.Context, req *connect.Request[v1.
 
 // AuthServiceHandler is an implementation of the prosa.v1.AuthService service.
 type AuthServiceHandler interface {
-	// Mints a fresh device_code/user_code pair and registers it as
-	// PENDING. Returns the polling interval the client should respect.
-	StartLogin(context.Context, *connect.Request[v1.StartLoginRequest]) (*connect.Response[v1.StartLoginResponse], error)
-	// Returns the current state of the login attempt. When APPROVED,
-	// includes the bearer token; thereafter the row is single-use.
-	PollLogin(context.Context, *connect.Request[v1.PollLoginRequest]) (*connect.Response[v1.PollLoginResponse], error)
-	// Bridges the missing painel: caller proves PROSA_ADMIN_TOKEN and
-	// flips a PENDING row to APPROVED. This RPC is excluded from the
-	// bearer middleware; the admin token is enforced inline.
+	// Registers a PENDING login attempt and returns the panel URL to open.
+	BeginLogin(context.Context, *connect.Request[v1.BeginLoginRequest]) (*connect.Response[v1.BeginLoginResponse], error)
+	// Exchanges an approved auth code + PKCE verifier for a device bearer.
+	ExchangeCode(context.Context, *connect.Request[v1.ExchangeCodeRequest]) (*connect.Response[v1.ExchangeCodeResponse], error)
+	// Returns login attempt metadata for the panel confirmation page.
+	// Requires Authorization: Admin <PROSA_ADMIN_TOKEN>.
+	GetLoginRequest(context.Context, *connect.Request[v1.GetLoginRequestRequest]) (*connect.Response[v1.GetLoginRequestResponse], error)
+	// Approves a PENDING attempt and mints a one-time auth code for redirect.
+	// Requires Authorization: Admin <PROSA_ADMIN_TOKEN>.
 	ApproveLogin(context.Context, *connect.Request[v1.ApproveLoginRequest]) (*connect.Response[v1.ApproveLoginResponse], error)
 	// Identifies the calling device.
 	Whoami(context.Context, *connect.Request[v1.WhoamiRequest]) (*connect.Response[v1.WhoamiResponse], error)
@@ -151,16 +165,22 @@ type AuthServiceHandler interface {
 // and JSON codecs. They also support gzip compression.
 func NewAuthServiceHandler(svc AuthServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
 	authServiceMethods := v1.File_prosa_v1_auth_proto.Services().ByName("AuthService").Methods()
-	authServiceStartLoginHandler := connect.NewUnaryHandler(
-		AuthServiceStartLoginProcedure,
-		svc.StartLogin,
-		connect.WithSchema(authServiceMethods.ByName("StartLogin")),
+	authServiceBeginLoginHandler := connect.NewUnaryHandler(
+		AuthServiceBeginLoginProcedure,
+		svc.BeginLogin,
+		connect.WithSchema(authServiceMethods.ByName("BeginLogin")),
 		connect.WithHandlerOptions(opts...),
 	)
-	authServicePollLoginHandler := connect.NewUnaryHandler(
-		AuthServicePollLoginProcedure,
-		svc.PollLogin,
-		connect.WithSchema(authServiceMethods.ByName("PollLogin")),
+	authServiceExchangeCodeHandler := connect.NewUnaryHandler(
+		AuthServiceExchangeCodeProcedure,
+		svc.ExchangeCode,
+		connect.WithSchema(authServiceMethods.ByName("ExchangeCode")),
+		connect.WithHandlerOptions(opts...),
+	)
+	authServiceGetLoginRequestHandler := connect.NewUnaryHandler(
+		AuthServiceGetLoginRequestProcedure,
+		svc.GetLoginRequest,
+		connect.WithSchema(authServiceMethods.ByName("GetLoginRequest")),
 		connect.WithHandlerOptions(opts...),
 	)
 	authServiceApproveLoginHandler := connect.NewUnaryHandler(
@@ -177,10 +197,12 @@ func NewAuthServiceHandler(svc AuthServiceHandler, opts ...connect.HandlerOption
 	)
 	return "/prosa.v1.AuthService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case AuthServiceStartLoginProcedure:
-			authServiceStartLoginHandler.ServeHTTP(w, r)
-		case AuthServicePollLoginProcedure:
-			authServicePollLoginHandler.ServeHTTP(w, r)
+		case AuthServiceBeginLoginProcedure:
+			authServiceBeginLoginHandler.ServeHTTP(w, r)
+		case AuthServiceExchangeCodeProcedure:
+			authServiceExchangeCodeHandler.ServeHTTP(w, r)
+		case AuthServiceGetLoginRequestProcedure:
+			authServiceGetLoginRequestHandler.ServeHTTP(w, r)
 		case AuthServiceApproveLoginProcedure:
 			authServiceApproveLoginHandler.ServeHTTP(w, r)
 		case AuthServiceWhoamiProcedure:
@@ -194,12 +216,16 @@ func NewAuthServiceHandler(svc AuthServiceHandler, opts ...connect.HandlerOption
 // UnimplementedAuthServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedAuthServiceHandler struct{}
 
-func (UnimplementedAuthServiceHandler) StartLogin(context.Context, *connect.Request[v1.StartLoginRequest]) (*connect.Response[v1.StartLoginResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("prosa.v1.AuthService.StartLogin is not implemented"))
+func (UnimplementedAuthServiceHandler) BeginLogin(context.Context, *connect.Request[v1.BeginLoginRequest]) (*connect.Response[v1.BeginLoginResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("prosa.v1.AuthService.BeginLogin is not implemented"))
 }
 
-func (UnimplementedAuthServiceHandler) PollLogin(context.Context, *connect.Request[v1.PollLoginRequest]) (*connect.Response[v1.PollLoginResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("prosa.v1.AuthService.PollLogin is not implemented"))
+func (UnimplementedAuthServiceHandler) ExchangeCode(context.Context, *connect.Request[v1.ExchangeCodeRequest]) (*connect.Response[v1.ExchangeCodeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("prosa.v1.AuthService.ExchangeCode is not implemented"))
+}
+
+func (UnimplementedAuthServiceHandler) GetLoginRequest(context.Context, *connect.Request[v1.GetLoginRequestRequest]) (*connect.Response[v1.GetLoginRequestResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("prosa.v1.AuthService.GetLoginRequest is not implemented"))
 }
 
 func (UnimplementedAuthServiceHandler) ApproveLogin(context.Context, *connect.Request[v1.ApproveLoginRequest]) (*connect.Response[v1.ApproveLoginResponse], error) {

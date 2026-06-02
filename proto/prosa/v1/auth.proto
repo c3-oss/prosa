@@ -4,68 +4,75 @@ package prosa.v1;
 
 option go_package = "github.com/c3-oss/prosa/gen/go/prosa/v1;prosav1";
 
-// AuthService implements the device-code OAuth-style flow described in
-// INTENT.md §6. CLI calls StartLogin, prints user_code +
-// verification_uri, then polls PollLogin until APPROVED or EXPIRED.
-// Until the painel (Grupo D) ships, ApproveLogin is the bridge — gated
-// on PROSA_ADMIN_TOKEN, called by `prosa-server --approve <user_code>`.
+import "google/protobuf/timestamp.proto";
+
+// AuthService implements PKCE + localhost-callback login for the CLI.
+// The CLI calls BeginLogin, opens authorize_url in a browser, receives
+// an auth code on 127.0.0.1, then calls ExchangeCode for the bearer.
+// The panel calls GetLoginRequest + ApproveLogin (admin-gated).
 service AuthService {
-  // Mints a fresh device_code/user_code pair and registers it as
-  // PENDING. Returns the polling interval the client should respect.
-  rpc StartLogin(StartLoginRequest) returns (StartLoginResponse);
+  // Registers a PENDING login attempt and returns the panel URL to open.
+  rpc BeginLogin(BeginLoginRequest) returns (BeginLoginResponse);
 
-  // Returns the current state of the login attempt. When APPROVED,
-  // includes the bearer token; thereafter the row is single-use.
-  rpc PollLogin(PollLoginRequest) returns (PollLoginResponse);
+  // Exchanges an approved auth code + PKCE verifier for a device bearer.
+  rpc ExchangeCode(ExchangeCodeRequest) returns (ExchangeCodeResponse);
 
-  // Bridges the missing painel: caller proves PROSA_ADMIN_TOKEN and
-  // flips a PENDING row to APPROVED. This RPC is excluded from the
-  // bearer middleware; the admin token is enforced inline.
+  // Returns login attempt metadata for the panel confirmation page.
+  // Requires Authorization: Admin <PROSA_ADMIN_TOKEN>.
+  rpc GetLoginRequest(GetLoginRequestRequest) returns (GetLoginRequestResponse);
+
+  // Approves a PENDING attempt and mints a one-time auth code for redirect.
+  // Requires Authorization: Admin <PROSA_ADMIN_TOKEN>.
   rpc ApproveLogin(ApproveLoginRequest) returns (ApproveLoginResponse);
 
   // Identifies the calling device.
   rpc Whoami(WhoamiRequest) returns (WhoamiResponse);
 }
 
-message StartLoginRequest {
+message BeginLoginRequest {
   string hostname = 1;
   string device_fingerprint = 2;
+  string code_challenge = 3;       // base64url(SHA256(verifier)), method S256
+  string redirect_uri = 4;          // http://127.0.0.1:<port>/callback
+  string client_state = 5;          // opaque; echoed on redirect
 }
 
-message StartLoginResponse {
-  string user_code = 1;         // human-readable e.g. "C4F-9PZ7"
-  string verification_uri = 2;
-  int32 expires_in = 3;         // seconds until PENDING auto-EXPIRES
-  int32 interval = 4;           // recommended poll cadence (seconds)
-  string device_code = 5;       // opaque, used only by PollLogin
+message BeginLoginResponse {
+  string authorize_url = 1;
+  string request_id = 2;
+  int32 expires_in = 3;             // seconds until PENDING auto-expires
 }
 
-message PollLoginRequest {
-  string device_code = 1;
+message ExchangeCodeRequest {
+  string code = 1;
+  string code_verifier = 2;
+  string redirect_uri = 3;
 }
 
-message PollLoginResponse {
-  enum State {
-    STATE_UNSPECIFIED = 0;
-    STATE_PENDING = 1;
-    STATE_APPROVED = 2;
-    STATE_DENIED = 3;
-    STATE_EXPIRED = 4;
-  }
-  State state = 1;
-  // Populated only when state == APPROVED. Single-use: the row
-  // transitions to a terminal state after the first APPROVED Poll.
-  string token = 2;
-  string device_id = 3;
+message ExchangeCodeResponse {
+  string token = 1;
+  string device_id = 2;
+}
+
+message GetLoginRequestRequest {
+  string request_id = 1;
+}
+
+message GetLoginRequestResponse {
+  string hostname = 1;
+  string fingerprint = 2;
+  google.protobuf.Timestamp expires_at = 3;
+  string state = 4;                 // PENDING, APPROVED, USED, EXPIRED
 }
 
 message ApproveLoginRequest {
-  string user_code = 1;
-  string admin_token = 2;       // checked via constant-time compare
+  string request_id = 1;
 }
 
 message ApproveLoginResponse {
-  string device_id = 1;
+  string code = 1;
+  string redirect_uri = 2;
+  string client_state = 3;
 }
 
 message WhoamiRequest {}
