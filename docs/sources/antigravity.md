@@ -171,12 +171,22 @@ span, then aggregates names sorted alphabetically into
 The importer aggregates across every step that carries
 `model_usage` and surfaces:
 
-- `Session.Usage.InputTokens` = `Σ input_tokens` + `Σ cache_read_tokens` — the full prompt context across turns
+- `Session.Usage.InputTokens` = `Σ input_tokens` — fresh, non-cached prompt tokens only
 - `Session.Usage.OutputTokens` = `Σ output_tokens`
 - `Session.Usage.CachedTokens` = `Σ cache_read_tokens`
 - `Session.Usage.CacheReadTokens` = `Σ cache_read_tokens`
 - `Session.Usage.CacheCreationTokens` = `Σ cache_write_tokens`
 - `Session.Usage.TotalTokens` = `InputTokens` + `OutputTokens`
+
+`cache_read_tokens` is intentionally excluded from `TotalTokens`. In a
+long agentic session Gemini's prompt cache (the system prompt and
+tool definitions, plus accumulated history) gets re-read on every
+turn, so `Σ cache_read_tokens` represents the same content multiplied
+by the number of model calls — e.g. an "olá" session with 18 model
+invocations and a 30 KB cached prefix can total 500 K+ cache reads
+while moving only 90 K fresh tokens through the model. Surfacing
+cache reads inside `TotalTokens` would inflate the number well past
+what users see in their billing dashboards.
 
 `thinking_output_tokens` and `response_output_tokens` are intentionally
 NOT plumbed through the canonical session shape — they would split

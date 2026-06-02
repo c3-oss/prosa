@@ -292,16 +292,17 @@ func projectSteps(ctx context.Context, db *sql.DB) (
 	sort.Slice(tools, func(i, j int) bool { return tools[i].Name < tools[j].Name })
 
 	if seenUsage {
-		// In ModelUsageStats, cache_read_tokens count the portion of
-		// the prompt that was served from cache; they are billed at a
-		// lower rate but still arrive at the model alongside
-		// input_tokens. We surface the full prompt size as
-		// InputTokens, with cache_read tracked separately for cost
-		// reporting.
-		totalInput := sumInput + sumCacheRead
+		// InputTokens counts only fresh, non-cached prompt tokens.
+		// cache_read_tokens in ModelUsageStats reports how many cached
+		// tokens were re-read on each call — across a long agentic
+		// session this sum grows huge (a 30 KB system prompt × 20 turns
+		// = 600 K cache reads) but represents the SAME underlying
+		// cached content being reused, not fresh input. Tracking it
+		// separately keeps TotalTokens close to the user's mental
+		// model of "how much new content moved through the model."
 		usage = &session.TokenUsage{
-			TotalTokens:         totalInput + sumOutput,
-			InputTokens:         totalInput,
+			TotalTokens:         sumInput + sumOutput,
+			InputTokens:         sumInput,
 			OutputTokens:        sumOutput,
 			CachedTokens:        sumCacheRead,
 			CacheReadTokens:     sumCacheRead,
