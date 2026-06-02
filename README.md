@@ -10,9 +10,9 @@
 > A conversation, a chat, an informal exchange of ideas.
 > Prosa lets you have a conversation with your own work history.
 
-`prosa` turns scattered Claude Code, Codex, Cursor, and Gemini JSONL
-histories into one local, searchable timeline. It is built around a single
-load-bearing question:
+`prosa` turns scattered Claude Code, Codex, Cursor, Gemini, and Antigravity
+session histories into one local, searchable timeline. It is built around a
+single load-bearing question:
 
 > **What did I work on in the last N days?**
 
@@ -105,7 +105,7 @@ Useful flags everywhere:
 - `--since 2026-01-01` — anchored lower bound, UTC.
 - `--between 2026-01-01..2026-03-15` — closed UTC range.
 - `--project <name>` — project filter.
-- `--agent claude-code|codex|cursor|gemini` — agent filter.
+- `--agent claude-code|codex|cursor|gemini|antigravity|hermes` — agent filter.
 - `--device <name>` — device filter (cross-device only).
 - `--remote` — query the server instead of the local store.
 - `--json` — machine-readable NDJSON output.

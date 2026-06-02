@@ -25,7 +25,7 @@ tone if you want.
 
 The prompts use fictitious data that is consistent with `prosa`:
 
-- agents: `claude-code`, `codex`, `cursor`, `gemini`;
+- agents: `claude-code`, `codex`, `cursor`, `gemini`, `antigravity`, `hermes`;
 - models: `claude-sonnet-4-6`, `claude-opus-4-7`, `claude-haiku-4-5`,
   `gpt-5-codex`;
 - projects: `prosa`, `mz-iac`, `brain`, `c3-oss`;

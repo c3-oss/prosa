@@ -13,8 +13,8 @@ stopped or moved on.
 Every session has:
 
 - a **stable ID** assigned by the source agent (Claude Code, Codex, Cursor,
-  Gemini) — prosa never invents one;
-- an **agent** name (`claude-code`, `codex`, `cursor`, `gemini`);
+  Gemini, Antigravity, Hermes) — prosa never invents one;
+- an **agent** name (`claude-code`, `codex`, `cursor`, `gemini`, `antigravity`, `hermes`);
 - a **device** it ran on (see [Device identity](#device-identity));
 - a **project context** (see [Project identity](#project-identity));
 - a **timestamp** for start and last activity;
