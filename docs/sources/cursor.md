@@ -18,7 +18,11 @@ Imported by `internal/importers/cursor/`.
       store.db-shm
 ```
 
-- `<workspace-id>` is an opaque Cursor workspace identifier (not a path).
+- `<workspace-id>` is **`md5(workspace_absolute_path)`** in lowercase
+  hex — `md5("/Users/foo/Projects/bar")` produces the directory name.
+  This inverts cleanly: scan blobs for any absolute path the model
+  touched, walk its ancestors, MD5 each, and the match is the
+  workspace root. The importer uses this to recover `ProjectPath`.
 - `<agent-id>` is a UUID and matches `meta.agentId`.
 - `store.db-wal` / `store.db-shm` are SQLite's write-ahead log auxiliaries.
   The v3 importer only walks `store.db` and only copies that file into the
@@ -28,10 +32,11 @@ Imported by `internal/importers/cursor/`.
 
 | Field | Source |
 |---|---|
-| Workspace | `<workspace-id>` directory name (opaque, no reverse mapping) |
+| Workspace path | md5-inverse of `<workspace-id>`; see _Workspace path resolution_ below |
 | Agent / session | `<agent-id>` directory and `meta.agentId` |
 | Last model | `meta.lastUsedModel` (when present) |
 | Created at | `meta.createdAt` (Unix milliseconds, UTC after parse) |
+| Last activity | max millisecond-epoch varint scanned out of protobuf state-node blobs |
 
 ## Schema
 
@@ -93,14 +98,62 @@ role, content, id, providerOptions
 item types: `text`, `tool-call`. The v3 importer keeps every `text`
 item and counts every `tool-call`'s `toolName`.
 
-### Timeline
+### Timeline and timestamps
 
 **The on-disk order of `blobs.id` is not chronological.** Faithful
 ordering depends on the protobuf root state pointed to by
-`meta.latestRootBlobId`. The v3 importer does not decode that
-protobuf today, so all turns share a single timestamp:
-`meta.createdAt`. `LastActivityAt` mirrors `StartedAt` for the same
-reason.
+`meta.latestRootBlobId` (a SHA-256 chain of `0A 20 <32-byte-id>`
+references). The v3 importer does not walk that DAG yet.
+
+JSON message blobs (`role`/`content`/`id`/`providerOptions`) **do not
+carry per-message timestamps** — community parsers confirm this is by
+design. The v3 importer assigns every turn the session's
+`StartedAt`.
+
+The protobuf state-node blobs **do** embed millisecond Unix
+timestamps as varints — the `0A 20` event-node family stores the event
+time at field 26, and the todo-item families (`0A 0A`, `0A 15`) store
+created/updated at fields 4 and 5. The importer sweeps every protobuf
+blob for any varint in the unix-ms range (1.5e12–2.5e12) and uses the
+max as `Session.LastActivityAt`. Per-turn timestamps stay at
+`StartedAt`; only the session-level activity window advances.
+
+### Workspace path resolution
+
+`Session.ProjectPath` is resolved in three tiers, highest confidence
+first:
+
+1. **`meta.currentPlanUri`** — when present, a
+   `file:///<workspace-root>/.cursor/plan-<uuid>.md` URI whose prefix
+   is the workspace root.
+2. **MD5 inversion** of the `<workspace-id>` directory segment. The
+   importer scans every protobuf blob for printable absolute-path
+   string fields, walks each path's ancestor directories, and returns
+   the longest ancestor whose md5 equals the directory hash. Verified
+   against real `.db` files on disk for two distinct workspaces.
+3. **`<user_info>` blob fallback** — Cursor injects a system "user"
+   blob at session start whose body contains
+   `Workspace Path: /abs/path`. The importer parses that as a last
+   resort.
+
+### User prompts vs system wrappers
+
+Cursor wraps human-authored prompts in `<user_query>` tags:
+
+```
+<timestamp>…</timestamp>
+<user_query>
+The actual user prompt text goes here.
+</user_query>
+```
+
+It also injects several system blobs that arrive with `role:"user"`
+but are NOT human-authored: `<user_info>` (env context),
+`<system_reminder>` (system rules), `<attached_files>` (selected
+code). The importer extracts the inner text of `<user_query>` when
+present and skips blobs that begin with a known system wrapper tag —
+otherwise `FirstPrompt` would lock onto the environment dump instead
+of the real prompt.
 
 ## Reading recipes
 
@@ -201,19 +254,21 @@ done
 - `WAL`/`SHM` siblings are not copied into the prosa raw tree —
   recovery semantics for `store.db` are not part of the prosa
   contract. The single `.db` is enough for the projection.
-- Cursor does not record per-message timestamps. The v3 importer
-  assigns `meta.createdAt` to every `session.Turn.Timestamp`, and
-  the session's `StartedAt` and `LastActivityAt` are equal. This
-  means active-session detection (`LastActivityAt > now-10m`) under
-  the central question is best-effort for Cursor.
+- JSON message blobs carry no per-message timestamp; every
+  `session.Turn.Timestamp` inherits `meta.createdAt`. The
+  session-level `LastActivityAt` advances from the max ms-epoch
+  varint scanned out of protobuf state-node blobs, so active-session
+  detection (`LastActivityAt > now-10m`) is meaningful for cursor.
 - Subagents/sub-sessions are not modeled with a clear causal link in
   Cursor's format. The importer does not synthesize parent/child
-  edges.
-- Project identity (`ProjectPath`, `ProjectRemote`, `ProjectMarker`)
-  comes from `internal/projectid` against the cwd at sync time —
-  Cursor itself does not record a cwd. Sessions imported from
-  another machine will land without a project until the same repo
-  is cloned and re-resolved.
+  edges. (`gemini_coder.Step.subtrajectory` in antigravity has no
+  cursor analogue.)
+- `Session.ProjectPath` is recovered locally from the `<workspace-id>`
+  md5 inverse — sessions imported from another machine still land
+  with the original workspace path string, even when that path
+  doesn't exist on the importing host. `projectid.Apply` resolves the
+  git remote when the path exists locally; otherwise `ProjectRemote`
+  and `ProjectMarker` stay nil.
 
 ## Transcript fidelity
 
@@ -231,3 +286,15 @@ What `session.Turn` and `session.ToolUsage` surface for Cursor:
   into `$PROSA_HOME/raw/cursor/<YYYY>/<MM>/<session-id>.db`. The
   protobuf root state, all unprojected blobs, `meta` extras, and
   every plain-text/binary blob remain reachable for future cuts.
+
+## References
+
+The schema is closed-source and undocumented by Anysphere. Independent
+community parsers converge on the layout above:
+
+- [marcus/sidecar](https://github.com/marcus/sidecar/blob/main/docs/deprecated/guides/cursor-db-format-guide.md) — fullest single-file spec.
+- [tyql688/cc-session](https://github.com/tyql688/cc-session/blob/main/CLAUDE.md) — Rust impl, the only public source documenting all three cursor session kinds (CLI / IDE Composer / ACP).
+- [Alakazam-211/K2SO](https://github.com/Alakazam-211/K2SO/blob/main/docs/cursor-chat-migration.md) — distinguishes IDE Composer (`workspaceStorage/<hash>/state.vscdb`) from CLI Agent (`~/.cursor/chats/<md5>/<uuid>/store.db`).
+- [OpenLAIR/dr-claw](https://github.com/OpenLAIR/dr-claw/blob/main/server/routes/cursor.js) — JS impl with the explicit `0x7B` JSON / `0x0A 0x20` protobuf classification.
+- [specstoryai/getspecstory](https://github.com/specstoryai/getspecstory/blob/main/specstory-cli/pkg/providers/cursorcli/sqlite_reader.go) — production Go reader, proves the `?mode=ro&immutable=1` DSN coexists with a running cursor.
+- [jxtngx/dgx-lab](https://github.com/jxtngx/dgx-lab/blob/main/backend/app/cursor_chats.py) — `currentPlanUri` → workspace path extraction.
