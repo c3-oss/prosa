@@ -5,7 +5,6 @@
 package server
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -39,14 +38,13 @@ type Config struct {
 	// accept any string).
 	S3Region string
 
-	// PROSA_ADMIN_TOKEN — bearer used by `prosa-server --approve` to flip
-	// a PENDING device_code to APPROVED. Required for the device-code
-	// flow to make progress until the painel ships.
+	// PROSA_ADMIN_TOKEN — shared with prosa-panel; panel presents it as
+	// Authorization: Admin <token> on Connect calls.
 	AdminToken string
 
-	// PROSA_VERIFICATION_URI — surfaced in StartLoginResponse so the CLI
-	// can print the address the user types the code into. Required.
-	VerificationURI string
+	// PROSA_PANEL_BASE_URL — public panel URL; BeginLogin appends
+	// /cli/authorize?request_id=... for the CLI to open. Required.
+	PanelBaseURL string
 }
 
 // Load reads the configuration from environment variables and validates
@@ -54,15 +52,15 @@ type Config struct {
 // docker-compose.yml so a fresh checkout boots without extra exports.
 func Load() (Config, error) {
 	cfg := Config{
-		ListenAddr:      envDefault("PROSA_LISTEN_ADDR", ":7070"),
-		DBURL:           os.Getenv("PROSA_DB_URL"),
-		S3Endpoint:      os.Getenv("PROSA_S3_ENDPOINT"),
-		S3Bucket:        envDefault("PROSA_S3_BUCKET", "prosa-raw"),
-		S3AccessKey:     os.Getenv("PROSA_S3_ACCESS_KEY"),
-		S3SecretKey:     os.Getenv("PROSA_S3_SECRET_KEY"),
-		S3Region:        envDefault("PROSA_S3_REGION", "us-east-1"),
-		AdminToken:      os.Getenv("PROSA_ADMIN_TOKEN"),
-		VerificationURI: os.Getenv("PROSA_VERIFICATION_URI"),
+		ListenAddr:   envDefault("PROSA_LISTEN_ADDR", ":7070"),
+		DBURL:        os.Getenv("PROSA_DB_URL"),
+		S3Endpoint:   os.Getenv("PROSA_S3_ENDPOINT"),
+		S3Bucket:     envDefault("PROSA_S3_BUCKET", "prosa-raw"),
+		S3AccessKey:  os.Getenv("PROSA_S3_ACCESS_KEY"),
+		S3SecretKey:  os.Getenv("PROSA_S3_SECRET_KEY"),
+		S3Region:     envDefault("PROSA_S3_REGION", "us-east-1"),
+		AdminToken:   os.Getenv("PROSA_ADMIN_TOKEN"),
+		PanelBaseURL: os.Getenv("PROSA_PANEL_BASE_URL"),
 	}
 	useSSL, _ := strconv.ParseBool(os.Getenv("PROSA_S3_USE_SSL"))
 	cfg.S3UseSSL = useSSL
@@ -83,26 +81,11 @@ func Load() (Config, error) {
 	if cfg.AdminToken == "" {
 		missing = append(missing, "PROSA_ADMIN_TOKEN")
 	}
-	if cfg.VerificationURI == "" {
-		missing = append(missing, "PROSA_VERIFICATION_URI")
+	if cfg.PanelBaseURL == "" {
+		missing = append(missing, "PROSA_PANEL_BASE_URL")
 	}
 	if len(missing) > 0 {
 		return Config{}, fmt.Errorf("missing required env vars: %v", missing)
-	}
-	return cfg, nil
-}
-
-// LoadForApprove is a relaxed loader for the `--approve` sub-command:
-// it only needs ListenAddr (to know where to call) and AdminToken (to
-// authenticate). The DB/S3 plumbing is irrelevant since the admin client
-// just hits the AuthService over HTTP.
-func LoadForApprove() (Config, error) {
-	cfg := Config{
-		ListenAddr: envDefault("PROSA_LISTEN_ADDR", ":7070"),
-		AdminToken: os.Getenv("PROSA_ADMIN_TOKEN"),
-	}
-	if cfg.AdminToken == "" {
-		return Config{}, errors.New("PROSA_ADMIN_TOKEN required for --approve")
 	}
 	return cfg, nil
 }

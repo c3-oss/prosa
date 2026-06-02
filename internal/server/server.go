@@ -46,7 +46,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	}
 
 	s := &Server{cfg: cfg, pool: pool, obj: obj, mux: http.NewServeMux()}
-	authSvc := auth.New(pool, cfg.AdminToken, cfg.VerificationURI)
+	authSvc := auth.New(pool, cfg.AdminToken, cfg.PanelBaseURL)
 	interceptors := connect.WithInterceptors(auth.Interceptor(authSvc))
 
 	s.registerHealth()

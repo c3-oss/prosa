@@ -46,9 +46,8 @@ func withOwner(ctx context.Context) context.Context {
 // Anything not in this set must present a valid Authorization header.
 var PublicRPCs = map[string]struct{}{
 	"/prosa.v1.HealthService/Check":      {},
-	"/prosa.v1.AuthService/StartLogin":   {},
-	"/prosa.v1.AuthService/PollLogin":    {},
-	"/prosa.v1.AuthService/ApproveLogin": {},
+	"/prosa.v1.AuthService/BeginLogin":   {},
+	"/prosa.v1.AuthService/ExchangeCode": {},
 }
 
 // Interceptor is a Connect unary interceptor that pulls the bearer
