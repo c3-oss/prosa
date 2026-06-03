@@ -131,10 +131,26 @@ message ListRequest {
   // device_name. When non-empty, the server matches any device whose
   // friendly_name is in the list (device_name is ignored).
   repeated string device_names = 10;
+  // query, when non-empty, restricts results to sessions containing a
+  // turn whose content matches the FTS query (plainto_tsquery). Ranks
+  // are then used to order results, overriding sort_by.
+  string query = 11;
+  // offset is the 0-based row offset for paged reads. Clamped to >= 0
+  // by the server. Pair with limit for page-N navigation.
+  int32 offset = 12;
+  // sort_by selects the order. Allowed values: "" (default,
+  // started_at desc), "started_at" (same), "total_tokens"
+  // (descending, NULLS last). Any other value is rejected. Ignored
+  // when query is set (FTS rank wins).
+  string sort_by = 13;
 }
 
 message ListResponse {
   repeated Session sessions = 1;
+  // total_count is the number of rows that match the request's filters
+  // (and query, when set), ignoring limit/offset. Lets paginators
+  // render "page N of M" without a separate count call.
+  int64 total_count = 2;
 }
 
 message GetRequest {
