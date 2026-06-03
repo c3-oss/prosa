@@ -58,9 +58,11 @@ func loadViews() (map[string]*template.Template, error) {
 	// Each view's file list includes everything its templates reference.
 	// Layered views start with base.html; standalone helpers stand alone.
 	specs := []viewSpec{
-		{"home", []string{"base.html", "home.html", "side_panel.html"}},
+		{"home", []string{"base.html", "home.html"}},
+		{"sessions", []string{"base.html", "sessions.html", "side_panel.html"}},
+		{"projects", []string{"base.html", "projects.html"}},
+		{"settings", []string{"base.html", "settings.html"}},
 		{"devices", []string{"base.html", "devices.html"}},
-		{"analytics", []string{"base.html", "analytics.html"}},
 		{"login", []string{"login.html"}},
 		{"cli_authorize", []string{"cli_authorize.html"}},
 		{"side_panel", []string{"side_panel.html"}},
@@ -117,12 +119,18 @@ func (p *Panel) routes() {
 	p.mux.HandleFunc("/cli/authorize/approve", p.requireSession(p.handleCliAuthorizeApprove))
 
 	// Gated app routes — each one wraps p.requireSession around its handler.
+	// "/sessions" (exact) is the list page; "/sessions/" (subtree prefix)
+	// dispatches to the side-panel detail handler — http.ServeMux resolves
+	// the longer match first, so they coexist. Don't tighten one without
+	// minding the other.
 	p.mux.HandleFunc("/", p.requireSession(p.handleHome))
+	p.mux.HandleFunc("/sessions", p.requireSession(p.handleSessions))
 	p.mux.HandleFunc("/sessions/", p.requireSession(p.handleSessionDetail))
+	p.mux.HandleFunc("/projects", p.requireSession(p.handleProjects))
+	p.mux.HandleFunc("/settings", p.requireSession(p.handleSettings))
 	p.mux.HandleFunc("/raw/", p.requireSession(p.handleRawChunk))
 	p.mux.HandleFunc("/devices", p.requireSession(p.handleDevices))
 	p.mux.HandleFunc("/devices/", p.requireSession(p.handleDevicesAction))
-	p.mux.HandleFunc("/analytics/", p.requireSession(p.handleAnalytics))
 	p.mux.HandleFunc("/events", p.requireSession(p.handleSSE))
 }
 

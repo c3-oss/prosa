@@ -25,7 +25,12 @@
       if (s) {
         ev.preventDefault();
         s.focus();
+        return;
       }
+      // No search input on this page — jump to /sessions where the FTS
+      // input lives and let its autofocus take it from there.
+      ev.preventDefault();
+      window.location.href = "/sessions";
       return;
     }
     if (ev.key === "Escape") {
