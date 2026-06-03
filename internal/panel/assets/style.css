@@ -30,15 +30,15 @@
   display: flex;
   align-items: center;
   padding: 0 16px;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface);
+  border-bottom: 1px solid var(--divider);
+  background: var(--bg-elev-1);
   gap: 16px;
 }
 
 .brand {
   font-weight: 700;
   letter-spacing: 0.5px;
-  font-family: var(--mono);
+  font-family: var(--font-mono);
 }
 
 .topbar-right {
@@ -61,20 +61,20 @@
 
 .badge.zero {
   background: transparent;
-  color: var(--muted);
-  border: 1px solid var(--border);
+  color: var(--text-2);
+  border: 1px solid var(--divider);
 }
 
 .sidebar {
-  border-right: 1px solid var(--border);
-  background: var(--surface);
+  border-right: 1px solid var(--divider);
+  background: var(--bg-elev-1);
   padding: 12px 8px;
   overflow-y: auto;
 }
 
 .sidebar a {
   display: block;
-  color: var(--muted);
+  color: var(--text-2);
   padding: 8px 12px;
   border-radius: 6px;
   margin-bottom: 2px;
@@ -82,8 +82,8 @@
 
 .sidebar a:hover,
 .sidebar a.active {
-  background: var(--surface-2);
-  color: var(--text);
+  background: var(--bg-elev-2);
+  color: var(--text-1);
   text-decoration: none;
 }
 
@@ -102,9 +102,9 @@
 }
 
 .chip {
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  color: var(--text);
+  background: var(--bg-elev-2);
+  border: 1px solid var(--divider);
+  color: var(--text-1);
   padding: 4px 10px;
   border-radius: 999px;
   font-size: 12px;
@@ -120,64 +120,11 @@
    live in css/components/controls.css. Templates only need `<form
    class="filter-bar">`. */
 
-/* Timeline */
-.day-header {
-  margin: 18px 0 8px;
-  font-size: 11px;
-  letter-spacing: 0.6px;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-
-.session-row {
-  display: grid;
-  grid-template-columns: 70px 100px 100px 1fr 80px;
-  gap: 16px;
-  padding: 8px 12px;
-  border-radius: 6px;
-  cursor: pointer;
-  align-items: baseline;
-}
-
-.session-row:hover {
-  background: var(--surface-2);
-}
-
+/* Session row keyboard-nav highlight. The base row chrome (display,
+   padding, hover) lives in sessions-table.css; this rule only handles
+   the j/k "active" outline because keyboard.js owns that class. */
 .session-row.active {
-  background: var(--surface-2);
   outline: 1px solid var(--accent);
-}
-
-.session-row .time {
-  font-family: var(--mono);
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.session-row .agent {
-  font-size: 11px;
-  text-transform: lowercase;
-  color: var(--muted);
-}
-
-.session-row .project {
-  color: var(--muted);
-  font-size: 12px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.session-row .prompt {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.session-row .dur {
-  color: var(--muted);
-  font-size: 11px;
-  text-align: right;
 }
 
 /* Side panel (right drawer) */
@@ -187,8 +134,8 @@
   right: 0;
   bottom: 0;
   width: 44%;
-  background: var(--surface);
-  border-left: 1px solid var(--border);
+  background: var(--bg-elev-1);
+  border-left: 1px solid var(--divider);
   overflow-y: auto;
   z-index: 10;
   transition: transform 120ms ease-out;
@@ -204,7 +151,7 @@
 .raw {
   background: #08090d;
   padding: 12px 14px;
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-size: 11px;
   white-space: pre-wrap;
   word-break: break-word;
@@ -215,22 +162,24 @@
   display: block;
   text-align: center;
   padding: 8px 0;
-  color: var(--muted);
+  color: var(--text-2);
 }
 
 .panel-section-title {
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: .6px;
-  color: var(--muted);
+  color: var(--text-2);
   margin-bottom: 8px;
 }
 
 /* .transcript and .bubble-* live in css/components/bubbles.css —
    the F2 redesign replaced the older .turn-{role} cards. */
 
+/* .empty base — italic muted message centered when in a container that
+   warrants it. The padded variant lives below the login styles. */
 .empty {
-  color: var(--muted);
+  color: var(--text-2);
   font-style: italic;
   margin: 0 0 18px;
 }
@@ -244,13 +193,13 @@
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: .6px;
-  color: var(--muted);
+  color: var(--text-2);
   margin-bottom: 8px;
   user-select: none;
 }
 
 .raw-toggle summary:hover {
-  color: var(--text);
+  color: var(--text-1);
 }
 
 /* Tables */
@@ -263,26 +212,26 @@ th,
 td {
   text-align: left;
   padding: 8px 10px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--divider);
   font-size: 13px;
 }
 
 th {
   font-weight: 500;
-  color: var(--muted);
+  color: var(--text-2);
   text-transform: uppercase;
   font-size: 10px;
   letter-spacing: 0.5px;
 }
 
 tr:hover {
-  background: var(--surface);
+  background: var(--bg-elev-1);
 }
 
 .heatmap-summary {
   display: flex;
   gap: 16px;
-  color: var(--muted);
+  color: var(--text-2);
   font-size: 12px;
   margin-bottom: 10px;
 }
@@ -302,7 +251,7 @@ tr:hover {
   margin-bottom: 4px;
   height: 12px;
   font-size: 10px;
-  color: var(--muted);
+  color: var(--text-2);
   letter-spacing: 0.4px;
 }
 
@@ -322,7 +271,7 @@ tr:hover {
   grid-template-rows: repeat(7, 12px);
   gap: 4px;
   font-size: 10px;
-  color: var(--muted);
+  color: var(--text-2);
   text-align: right;
   width: 24px;
 }
@@ -349,20 +298,20 @@ tr:hover {
 }
 
 .heatmap-cell {
-  background: var(--surface-2);
-  border: 1px solid var(--border);
+  background: var(--bg-elev-2);
+  border: 1px solid var(--divider);
 }
 
 .heatmap-cell.level-1 {
-  background: color-mix(in srgb, var(--accent) 30%, var(--surface-2));
+  background: color-mix(in srgb, var(--accent) 30%, var(--bg-elev-2));
 }
 
 .heatmap-cell.level-2 {
-  background: color-mix(in srgb, var(--accent) 55%, var(--surface-2));
+  background: color-mix(in srgb, var(--accent) 55%, var(--bg-elev-2));
 }
 
 .heatmap-cell.level-3 {
-  background: color-mix(in srgb, var(--accent) 80%, var(--surface-2));
+  background: color-mix(in srgb, var(--accent) 80%, var(--bg-elev-2));
 }
 
 .heatmap-cell.level-4 {
@@ -376,7 +325,7 @@ tr:hover {
   gap: 4px;
   margin: 10px 0 0 30px;
   font-size: 11px;
-  color: var(--muted);
+  color: var(--text-2);
 }
 
 .heatmap-legend-label {
@@ -400,7 +349,7 @@ tr:hover {
 .usage-summary-label {
   display: block;
   margin-top: 4px;
-  color: var(--muted);
+  color: var(--text-2);
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.6px;
@@ -413,7 +362,7 @@ tr:hover {
 }
 
 .usage-row {
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--divider);
   padding-bottom: 14px;
 }
 
@@ -431,19 +380,19 @@ tr:hover {
 
 .usage-head span {
   margin-left: 10px;
-  color: var(--muted);
+  color: var(--text-2);
   font-size: 12px;
 }
 
 .usage-cost {
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-size: 13px;
-  color: var(--text);
+  color: var(--text-1);
 }
 
 .usage-bar {
   height: 8px;
-  background: var(--surface-2);
+  background: var(--bg-elev-2);
   border-radius: 2px;
   overflow: hidden;
   margin-bottom: 8px;
@@ -459,8 +408,8 @@ tr:hover {
   display: flex;
   gap: 18px;
   flex-wrap: wrap;
-  color: var(--muted);
-  font-family: var(--mono);
+  color: var(--text-2);
+  font-family: var(--font-mono);
   font-size: 11px;
 }
 
@@ -480,8 +429,8 @@ tr:hover {
 }
 
 .login-box {
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--bg-elev-1);
+  border: 1px solid var(--divider);
   border-radius: 8px;
   padding: 32px 28px;
   width: 360px;
@@ -498,12 +447,12 @@ tr:hover {
 
 .login-box h1 {
   margin: 0 0 4px;
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   letter-spacing: 1px;
 }
 
 .login-box p {
-  color: var(--muted);
+  color: var(--text-2);
   margin: 0 0 24px;
   font-size: 13px;
 }
@@ -518,10 +467,12 @@ tr:hover {
   margin-top: 12px;
 }
 
-.empty {
+/* Big-empty variant — used in centered "no data" placeholders that
+   sit alone in a card. Base .empty (italic muted line) lives above. */
+.empty-padded {
   text-align: center;
   padding: 64px 0;
-  color: var(--muted);
+  color: var(--text-2);
 }
 
 /* .dropdown, .dropdown-toggle, .dropdown-menu, .dropdown-item,
@@ -533,12 +484,12 @@ tr:hover {
   z-index: 30;
   min-width: 160px;
   max-width: 240px;
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--bg-elev-1);
+  border: 1px solid var(--divider);
   border-radius: 4px;
   padding: 8px 10px;
   font-size: 12px;
-  color: var(--text);
+  color: var(--text-1);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
   pointer-events: none;
 }
@@ -549,7 +500,7 @@ tr:hover {
 
 .heatmap-tip-head {
   font-weight: 500;
-  color: var(--muted);
+  color: var(--text-2);
   margin-bottom: 6px;
 }
 
@@ -561,11 +512,11 @@ tr:hover {
 }
 
 .heatmap-tip-row > span:first-child {
-  color: var(--text);
+  color: var(--text-1);
 }
 
 .heatmap-tip-row > span:last-child {
-  color: var(--muted);
+  color: var(--text-2);
 }
 
 .heatmap-cell:focus-visible {
@@ -585,7 +536,7 @@ tr:hover {
 }
 
 .rename-name {
-  font-family: var(--mono);
+  font-family: var(--font-mono);
 }
 
 .rename-form {
@@ -612,10 +563,6 @@ tr:hover {
     gap: 10px;
   }
 
-  .topbar form[action="/"] {
-    display: none;
-  }
-
   .topbar-right {
     gap: 8px;
   }
@@ -625,7 +572,7 @@ tr:hover {
     flex-wrap: wrap;
     gap: 6px;
     border-right: none;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid var(--divider);
     padding: 8px;
     overflow-x: visible;
   }

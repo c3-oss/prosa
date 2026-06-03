@@ -16,14 +16,6 @@
   --ok: #4ade80;
   --danger: #f04a5c;
   --divider: #232733;
-
-  /* Legacy aliases — kept while older rules still reference them.
-     Removed gradually as components migrate to the canonical names. */
-  --surface: var(--bg-elev-1);
-  --surface-2: var(--bg-elev-2);
-  --text: var(--text-1);
-  --muted: var(--text-2);
-  --border: #2a2e3c;
   --warn: #f5b94a;
 
   /* Typography ------------------------------------------------------ */
@@ -31,7 +23,6 @@
     "Helvetica Neue", Arial, sans-serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, Monaco, "Cascadia Mono",
     monospace;
-  --mono: var(--font-mono);
 
   --text-xs: 12px;
   --text-sm: 14px;

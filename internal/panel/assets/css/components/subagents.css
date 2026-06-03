@@ -48,11 +48,9 @@
   margin-bottom: 4px;
 }
 
-.subagent-agent {
-  font-family: var(--font-mono);
-  text-transform: lowercase;
-  letter-spacing: 0.02em;
-}
+/* .subagent-agent was the plain-text agent label; superseded by the
+   agentBadge template helper which renders the colored pill directly
+   inside .subagent-meta. */
 
 .subagent-time {
   margin-left: auto;
