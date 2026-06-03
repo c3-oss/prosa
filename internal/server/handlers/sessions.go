@@ -126,7 +126,11 @@ func (h *SessionsHandler) Push(ctx context.Context, req *connect.Request[prosav1
 // agent / device dimensions. Device callers are auto-scoped to their
 // own device_id (cannot see other devices' rows); owner callers
 // (panel) get a cross-device list and may further narrow via
-// device_name.
+// device_name. When req.Query is non-empty, results are restricted to
+// sessions whose turns match the FTS query, ordered by ts_rank desc
+// (sort_by is ignored). Offset/limit drive page-N navigation, and
+// ListResponse.TotalCount reports the number of rows that match the
+// same filters before paging.
 func (h *SessionsHandler) List(ctx context.Context, req *connect.Request[prosav1.ListRequest]) (*connect.Response[prosav1.ListResponse], error) {
 	callerDevice, isDevice := auth.DeviceFromContext(ctx)
 	if !isDevice && !auth.IsOwner(ctx) {
@@ -134,6 +138,10 @@ func (h *SessionsHandler) List(ctx context.Context, req *connect.Request[prosav1
 	}
 	if req.Msg.Since == nil || req.Msg.Until == nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, missingFields("since", "until"))
+	}
+	sortBy, err := normalizeListSort(req.Msg.SortBy)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 	conds := []string{"s.started_at >= $1", "s.started_at <= $2"}
 	args := []any{tsToTime(req.Msg.Since), tsToTime(req.Msg.Until)}
@@ -182,9 +190,58 @@ func (h *SessionsHandler) List(ctx context.Context, req *connect.Request[prosav1
 		args = append(args, req.Msg.DeviceName)
 		idx++
 	}
+	// FTS branch: when query is set, JOIN turns and filter on the
+	// tsvector. Reuse the same Postgres operator Search uses for parity.
+	ftsQuery := strings.TrimSpace(req.Msg.Query)
+	ftsJoin := ""
+	if ftsQuery != "" {
+		ftsJoin = " JOIN turns ft ON ft.session_id = s.id"
+		conds = append(conds, fmt.Sprintf("ft.content_tsv @@ plainto_tsquery('simple', $%d)", idx))
+		args = append(args, ftsQuery)
+		idx++
+	}
 	limit := req.Msg.Limit
 	if limit <= 0 || limit > 1000 {
 		limit = 200
+	}
+	offset := req.Msg.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
+	// total_count uses the same WHERE/JOIN as the page query so paging
+	// math is correct under all filter combinations. Distinct on s.id
+	// because the FTS JOIN can otherwise multiply rows per session.
+	totalQ := fmt.Sprintf(`
+		SELECT COUNT(DISTINCT s.id)
+		FROM sessions s%s%s
+		WHERE %s
+	`, join, ftsJoin, joinAnd(conds))
+	totalArgs := append([]any{}, args...)
+
+	var (
+		orderBy     string
+		selectExtra string
+		groupBy     string
+	)
+	if ftsQuery != "" {
+		// rank by FTS, falling back to started_at for determinism. GROUP BY
+		// all scalar columns we SELECT so MAX(ts_rank) lets us collapse the
+		// turns-join multiplicity into one row per session.
+		selectExtra = ",\n		       MAX(ts_rank(ft.content_tsv, plainto_tsquery('simple', $" + fmt.Sprint(idx) + "))) AS _rank"
+		args = append(args, ftsQuery)
+		idx++
+		groupBy = `
+		GROUP BY s.id, s.agent, s.device_id, s.project_path, s.project_remote, s.project_marker,
+		         s.started_at, s.last_activity_at, s.first_prompt, s.model,
+		         s.raw_uri, s.raw_hash, s.raw_size, s.parent_session_id,
+		         su.session_id, su.total_tokens, su.input_tokens, su.output_tokens,
+		         su.cached_tokens, su.cache_read_tokens, su.cache_creation_tokens`
+		orderBy = "_rank DESC, s.started_at DESC"
+	} else if sortBy == "total_tokens" {
+		orderBy = "su.total_tokens DESC NULLS LAST, s.started_at DESC"
+	} else {
+		orderBy = "s.started_at DESC"
 	}
 	q := fmt.Sprintf(`
 		SELECT s.id, s.agent, s.device_id, s.project_path, s.project_remote, s.project_marker,
@@ -192,30 +249,117 @@ func (h *SessionsHandler) List(ctx context.Context, req *connect.Request[prosav1
 		       s.raw_uri, s.raw_hash, s.raw_size,
 		       s.parent_session_id,
 		       su.session_id, su.total_tokens, su.input_tokens, su.output_tokens,
-		       su.cached_tokens, su.cache_read_tokens, su.cache_creation_tokens
+		       su.cached_tokens, su.cache_read_tokens, su.cache_creation_tokens%s
 		FROM sessions s
-		LEFT JOIN session_usage su ON su.session_id = s.id%s
-		WHERE %s
-		ORDER BY s.started_at DESC
-		LIMIT $%d
-	`, join, joinAnd(conds), idx)
-	args = append(args, limit)
+		LEFT JOIN session_usage su ON su.session_id = s.id%s%s
+		WHERE %s%s
+		ORDER BY %s
+		LIMIT $%d OFFSET $%d
+	`, selectExtra, join, ftsJoin, joinAnd(conds), groupBy, orderBy, idx, idx+1)
+	args = append(args, limit, offset)
+
+	out := &prosav1.ListResponse{}
 
 	rows, err := h.Pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	defer rows.Close()
-
-	out := &prosav1.ListResponse{}
 	for rows.Next() {
-		s, err := scanSessionRow(rows)
+		s, err := scanSessionListRow(rows, ftsQuery != "")
 		if err != nil {
+			rows.Close()
 			return nil, connect.NewError(connect.CodeInternal, err)
 		}
 		out.Sessions = append(out.Sessions, s)
 	}
-	return connect.NewResponse(out), rows.Err()
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+
+	var total int64
+	if err := h.Pool.QueryRow(ctx, totalQ, totalArgs...).Scan(&total); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("count: %w", err))
+	}
+	out.TotalCount = total
+
+	return connect.NewResponse(out), nil
+}
+
+// normalizeListSort whitelists ListRequest.sort_by. Empty defaults to
+// started_at. Anything outside the allowed set returns a client error.
+func normalizeListSort(v string) (string, error) {
+	switch v {
+	case "", "started_at":
+		return "started_at", nil
+	case "total_tokens":
+		return "total_tokens", nil
+	default:
+		return "", fmt.Errorf("invalid sort_by %q (allowed: started_at, total_tokens)", v)
+	}
+}
+
+// scanSessionListRow extends scanSessionRow with the optional FTS rank
+// column. The rank value is discarded after scan — we only need it for
+// ORDER BY.
+func scanSessionListRow(r scannable, withRank bool) (*prosav1.Session, error) {
+	if !withRank {
+		return scanSessionRow(r)
+	}
+	var (
+		s                                                             prosav1.Session
+		projectPath, projectRemote, projectMarker, firstPrompt, model *string
+		parentSessionID                                               *string
+		usageSession                                                  *string
+		totalTokens, inputTokens, outputTokens                        *int64
+		cachedTokens, cacheReadTokens, cacheCreationTokens            *int64
+		started, lastAct                                              time.Time
+		rank                                                          float64
+	)
+	if err := r.Scan(
+		&s.Id, &s.Agent, &s.DeviceId,
+		&projectPath, &projectRemote, &projectMarker,
+		&started, &lastAct,
+		&firstPrompt, &model,
+		&s.RawUri, &s.RawHash, &s.RawSize,
+		&parentSessionID,
+		&usageSession, &totalTokens, &inputTokens, &outputTokens,
+		&cachedTokens, &cacheReadTokens, &cacheCreationTokens,
+		&rank,
+	); err != nil {
+		return nil, err
+	}
+	if projectPath != nil {
+		s.ProjectPath = *projectPath
+	}
+	if projectRemote != nil {
+		s.ProjectRemote = *projectRemote
+	}
+	if projectMarker != nil {
+		s.ProjectMarker = *projectMarker
+	}
+	if firstPrompt != nil {
+		s.FirstPrompt = *firstPrompt
+	}
+	if model != nil {
+		s.Model = *model
+	}
+	if parentSessionID != nil {
+		s.ParentSessionId = *parentSessionID
+	}
+	s.StartedAt = timestamppb.New(started)
+	s.LastActivityAt = timestamppb.New(lastAct)
+	if usageSession != nil {
+		s.Usage = &prosav1.TokenUsage{
+			TotalTokens:         derefInt64(totalTokens),
+			InputTokens:         derefInt64(inputTokens),
+			OutputTokens:        derefInt64(outputTokens),
+			CachedTokens:        derefInt64(cachedTokens),
+			CacheReadTokens:     derefInt64(cacheReadTokens),
+			CacheCreationTokens: derefInt64(cacheCreationTokens),
+		}
+	}
+	return &s, nil
 }
 
 // Get returns one session by id along with its turns and tools.
