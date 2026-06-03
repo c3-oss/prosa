@@ -132,8 +132,11 @@ Variants:
 
 ## Sparkline
 
-Server-side, in `internal/panel/charts/sparkline.go`. Returns
-`template.HTML` with inline SVG.
+**Deferred.** Home cards in the current cut render HTML bars and
+tables, not inline SVG. The signatures below sketch the intended
+server-side helper for when this lands; routes and proto do not
+change when it does. Live targets: `internal/panel/charts/sparkline.go`,
+returning `template.HTML`.
 
 ### Signature
 
@@ -215,6 +218,9 @@ Edit     ████                    48
 
 ## Donut
 
+**Deferred.** The Models card on Home renders an HTML bar leaderboard
+for now, consistent with Tools. The signature below stays as a sketch
+for the SVG donut that may land later without changing routes or proto.
 For percentual distribution (models, agents).
 
 ### Signature
@@ -273,7 +279,10 @@ func Heatmap(days []HeatmapDay, opts HeatmapOpts) template.HTML
 
 ## Trend line
 
-Featured chart of Analytics: sessions, errors.
+**Deferred.** The Errors card on Home is a recent-rows table in the
+current cut; trend lines are not yet drawn server-side. The signature
+below stays as a sketch for a future SVG trend that can land later
+without changing routes or proto.
 
 ### Signature
 
@@ -349,6 +358,114 @@ Clickable chip with an Alpine dropdown + HTMX swap.
   options;
 - Selection triggers `hx-get` only on the affected block (Recent or
   chart).
+
+---
+
+## Multi-select dropdown
+
+Vanilla-JS multi-pick used in the Home filters block and the Sessions
+filter row for agent / project / device. Same `.dropdown`,
+`.dropdown-menu`, and checkbox-list markup that the old analytics page
+already ships in its templates; reused as-is on the new pages.
+
+```html
+<div class="dropdown" data-multi="agent">
+  <button class="dropdown-button" type="button">
+    <span class="dropdown-label">agent</span>
+    <span class="dropdown-value">{{ summarize .Selected }}</span>
+    <span class="dropdown-caret">▾</span>
+  </button>
+
+  <div class="dropdown-menu" hidden>
+    {{ range .Options }}
+      <label class="dropdown-item">
+        <input type="checkbox" name="agent" value="{{ .Value }}"
+               {{ if .Checked }}checked{{ end }}>
+        <span>{{ .Label }}</span>
+      </label>
+    {{ end }}
+  </div>
+</div>
+```
+
+### Behavior
+
+- The dropdown lives inside the page's GET form. Submitting the form
+  posts the selection as repeated `?key=value&key=value` params; the
+  server folds them back into a slice via small helpers in
+  `widgets.js`-shaped Go code (`pickDeviceNames`-style: read all values
+  for the key, normalize, deduplicate).
+- The label collapses to "N values" when more than one is checked, and
+  to "all" or the single value otherwise.
+- Open/close is a vanilla toggle from `widgets.js` (no Alpine
+  required), `@click.outside`-equivalent closes the menu.
+
+### Visual
+
+- Button matches the filter-pill chip shape so the row reads as one
+  family of controls;
+- Menu width tracks the longest option, capped at 320 px;
+- Each item is `<label>` + `<input type="checkbox">` so the whole row
+  is the hit target;
+- Selection state is checkbox-native — no separate "selected" CSS class
+  to keep in sync.
+
+### Where it lives
+
+Home filters block (`<details>`) and Sessions filter row both reuse
+this pattern. The window picker stays single-select (a plain `<select>`
+or a chip) — multi-window is meaningless.
+
+---
+
+## Column chooser
+
+Used on the Sessions page to toggle the visible columns. Stock
+`<details>` + checkbox form, no new component class.
+
+```html
+<details class="column-chooser">
+  <summary>Columns</summary>
+  <form method="get" action="/sessions">
+    {{ /* Preserve every other filter so submission only changes cols. */ }}
+    <input type="hidden" name="q"       value="{{ .Q }}">
+    <input type="hidden" name="last"    value="{{ .Last }}">
+    {{ range .Agents }}<input type="hidden" name="agent"   value="{{ . }}">{{ end }}
+    {{ range .Projects }}<input type="hidden" name="project" value="{{ . }}">{{ end }}
+    {{ range .Devices }}<input type="hidden" name="device"  value="{{ . }}">{{ end }}
+    <input type="hidden" name="sort"    value="{{ .Sort }}">
+    <input type="hidden" name="page"    value="{{ .Page }}">
+
+    {{ range .Columns }}
+      <label>
+        <input type="checkbox" name="cols" value="{{ .Key }}"
+               {{ if .Enabled }}checked{{ end }}>
+        {{ .Label }}
+      </label>
+    {{ end }}
+
+    <button type="submit">Apply</button>
+  </form>
+</details>
+```
+
+### Behavior
+
+- The 7 column keys are `agent`, `project`, `first_prompt`, `tokens`,
+  `cost`, `device`, `id`. Default-enabled set is everything except
+  `id` when `?cols` is missing from the request.
+- Submitting the form rewrites `?cols=agent,project,first_prompt,...`
+  and reloads the page. State is shareable via URL like every other
+  filter.
+- The `<details>` element is native and accessible; collapsed by
+  default so it never crowds the table.
+
+### Visual
+
+- The summary line uses the same chip styling as the dropdown buttons
+  so the row reads consistently;
+- Checkbox list inside is one row per column, label after the box;
+- No JS required — submit handles everything.
 
 ---
 

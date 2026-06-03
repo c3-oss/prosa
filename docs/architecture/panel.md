@@ -12,11 +12,12 @@ A small server-rendered web app:
 - **`embed.FS`** — every HTML, CSS, JS, and image asset ships inside the
   binary. There is no build step, no `node_modules`, no bundler.
 - **HTMX** for partial swaps (session detail sidepanel, raw-transcript
-  pagination, future chart filters).
+  pagination).
 - **Alpine.js** (planned, ~15 KB) for client-only UI state (modal toggles,
   filter pill open/close, command palette).
-- **SVG charts generated server-side in Go** (planned). Zero JavaScript
-  charting library.
+- **Server-rendered HTML bars + tables** for Home cards. A Go SVG
+  charting package (`internal/panel/charts/`) is deferred — bars and
+  tables cover the current dashboard without inline SVG.
 - **SSE** for live updates (badge of new sessions; future live KPI
   ticks).
 - **Connect-Go client** to talk to `prosa-server`. The panel does not touch
@@ -72,17 +73,27 @@ Routes (current MVP cut), all served from the same mux:
 - `GET /assets/*` — embedded static assets
 
 **Gated by session cookie:**
-- `GET /` — home timeline
-- `GET /sessions/<id>` — session detail (HTMX partial)
-- `GET /raw/<id>?offset=N` — raw transcript chunk (HTMX append-mode)
-- `GET /devices` — device admin
+- `GET /` — Home dashboard (KPI strip + heatmap + tools/models/errors/usage cards, collapsible filters)
+- `GET /sessions` — full session list (FTS, multi-select filters, column chooser, sortable headers, paginated)
+- `GET /sessions/<id>` — session detail (HTMX side-panel partial)
+- `GET /projects` — projects table; rows link into filtered Sessions
+- `GET /devices` — device admin; Hostname cells link into filtered Sessions
 - `POST /devices/<id>/rename`
 - `POST /devices/<id>/revoke`
+- `GET /settings` — logged-in email + logout
+- `GET /raw/<id>?offset=N` — raw transcript chunk (HTMX append-mode)
 - `GET /cli/authorize` — CLI login confirmation (session required)
 - `POST /cli/authorize/approve` — approve CLI device, redirect to localhost callback
-- `GET /analytics/<report>` — one of `sessions`, `tools`, `models`,
-  `projects`, `errors`, `heatmap`, `usage`
 - `GET /events` — SSE stream (proxied from the server)
+
+There is no `/analytics/*` surface. Tools/Models/Errors/Usage/Heatmap
+live as cards on Home; the per-report subpages were folded into the
+dashboard and into the filtered Sessions list.
+
+Note: `/sessions` (exact) and `/sessions/<id>` (subtree prefix) coexist
+on the stdlib `http.ServeMux` — list vs. detail are independent
+patterns, longest-match first. Don't tighten the registration without
+keeping both alive.
 
 Each handler:
 
@@ -108,12 +119,20 @@ template by name.
 
 Current template files (likely set; check the directory for ground truth):
 
-- `base.html` — topbar, sidebar, main area, side panel slot.
-- `home.html` — timeline + filters.
-- `analytics.html` — table-form report (with charts coming).
-- `devices.html` — device table + approval form.
+- `base.html` — sidebar (5 entries), main area, side panel slot.
+- `home.html` — dashboard: collapsible filters + KPI strip + heatmap +
+  tools/models/errors/usage cards.
+- `sessions.html` — full session list: FTS input, multi-select
+  dropdowns, `<details>` column chooser, sortable headers, pagination
+  footer.
+- `projects.html` — table from the projects analytics report; rows link
+  into `/sessions?project=<label>&last=<window>`.
+- `devices.html` — device table + approval form; Hostname cells link
+  into `/sessions?device=<friendly_name>`.
+- `settings.html` — single card: email + logout.
 - `side_panel.html` — HTMX fragment for session detail.
 - `raw_chunk.html` — HTMX fragment for raw transcript pages.
+- `cli_authorize.html` — CLI authorization confirmation page.
 - `login.html` — OAuth + dev-login.
 
 Helper template funcs: minimal — `hasPrefix` for active-nav matching.
@@ -156,8 +175,13 @@ Planned next (sidepanel redesign):
 
 - `css/components/{tool-group,user-bubble,thinking,transcript}.css` —
   per-component styles added during the remaining F3-F6 phases.
-- New SVG charting package in Go (`internal/panel/charts/`) producing
-  `template.HTML` for inline SVG.
+
+Deferred:
+
+- SVG charting package in Go (`internal/panel/charts/`). Home cards
+  currently use HTML bars and tables; the inline-SVG donut/trend/
+  sparkline signatures sketched in [`../panel/components.md`](../panel/components.md)
+  can land later without changing routes or proto.
 
 ### Markdown rendering
 
@@ -223,15 +247,18 @@ filter what it forwards.
 
 ## HTMX patterns in use
 
-- **Sidepanel session detail**: a row in the timeline has `hx-get` →
-  `/sessions/<id>`, `hx-target` → `#side-panel`, `hx-swap` → `innerHTML`,
-  `hx-push-url` → updates the query string with `?session=<id>`. Refresh
-  preserves the open panel.
+- **Sidepanel session detail**: each row in the `/sessions` table has
+  `hx-get` → `/sessions/<id>`, `hx-target` → `#side-panel`, `hx-swap` →
+  `innerHTML`, `hx-push-url` → updates the query string with
+  `?session=<id>`. The side panel opens in place; a refresh preserves
+  it. Same pattern as before, new origin page: row clicks now come from
+  the rich Sessions list instead of the old home timeline.
 - **Raw transcript pagination**: a `Load more` link near the end of
   `raw_chunk.html` has `hx-get` → `/raw/<id>?offset=N`, `hx-swap` →
   `beforeend`. Each chunk is at most 64 KB.
-- **Planned**: filter pills with Alpine state and `hx-trigger` events that
-  swap charts on the analytics page.
+- **Subagents drill-down**: when the open session has children, each
+  child card in the side panel HTMX-swaps the panel to the child
+  session, preserving the URL via `hx-push-url`.
 
 ## Why this stack
 

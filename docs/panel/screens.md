@@ -14,16 +14,16 @@ All authenticated pages share:
 ```
 +----------------------------------------------------------+
 | Topbar (56 px)                                           |
-|  prosa     [/ to search]    [12 today]    [logout]       |
+|  prosa                              [12 today] [logout]  |
 +-----------+----------------------------------------------+
 | Sidebar   | Main                                         |
 | (220 px)  |                                              |
 |           |                                              |
 |  Home     |                                              |
-|  Devices  |     (content)                                |
-|  Analytics|                                              |
-|           |                                              |
-|           |                                              |
+|  Sessions |                                              |
+|  Projects |     (content)                                |
+|  Devices  |                                              |
+|  Settings |                                              |
 +-----------+----------------------------------------------+
 ```
 
@@ -36,12 +36,17 @@ When the session sidepanel is open it enters from the right, taking
 +-----------+--------------------+-------------------------+
 ```
 
+The sidebar is five entries: **Home**, **Sessions**, **Projects**,
+**Devices**, **Settings**. There is no Analytics group; the per-report
+pages were folded into the Home dashboard and the Sessions list.
+
 Topbar and sidebar use `--bg-elev-1`. Main uses `--bg`. Region dividers
-are 1 px `--divider`.
+are 1 px `--divider`. The topbar carries the brand, the "new sessions"
+badge (links to `/sessions?last=12h`), and the logout form.
 
 Global shortcuts:
 
-- `/` focuses the topbar search;
+- `/` navigates to `/sessions` and focuses its search input;
 - `Cmd-K` / `Ctrl-K` opens the command palette;
 - `Esc` closes the sidepanel or the command palette;
 - `j` / `k` moves the selection in lists;
@@ -51,231 +56,257 @@ Global shortcuts:
 
 ## Home `/`
 
-Default page after login. Two stacked sections: **Today** and **Recent**.
+Default page after login. Dashboard composed of cards drawn from the
+analytics service. Top to bottom: filters (collapsed), KPI strip,
+heatmap card, then two-column rows of cards.
 
-### Today block
+### Filters
 
-Container with 48 px padding, horizontally centered.
-
-```
-Today                                            [* live]
-
-   12              3               2
-   sessions        projects        active models
-
-   sparkline 14d (240 x 48 px) in accent-soft
-```
-
-- KPI: number at 44 px weight 300; label at 14 px `--text-3` weight 500
-  uppercase, letter-spacing 0.06em.
-- Gap between KPIs ≥ 64 px.
-- Sparkline below the KPIs is at most 320 px wide.
-- The live dot (`--ok`, 8 px, pulsing) appears only when there is an
-  active session in the last 10 minutes. "live" label at 12 px next to it.
-
-States:
-
-- **No sessions today**: KPIs show `0`, sparkline hides, discreet message
-  below: "no sessions today. see recent below".
-- **Loading**: do not show a skeleton; the server renders with the
-  numbers ready before sending the response.
-
-### Filter pills block
-
-A collapsible chip row between Today and Recent. Component documented in
-[components.md#filter-pill](components.md#filter-pill).
+A single `<details>` block sits at the top of the page so it doesn't
+crowd the dashboard.
 
 ```
-[ 7d ▾ ]   [ all agents ▾ ]   [ all devices ▾ ]   [ all projects ▾ ]
+▸ filters
 ```
 
-The device chip is a **multi-select dropdown** rendered with vanilla JS
-(no Alpine): clicking the button opens a checkbox list of every
-authorized device. Multiple selections submit as repeated `device=` query
-params and the server matches with `friendly_name = ANY(...)`. The chip
-label collapses to "N devices" when more than one is checked.
+When open it reveals four controls:
 
-Clicking the chip opens the dropdown; the selection
-triggers an `hx-get` that swaps the Recent block alone (not the full
-page).
+- **Window** (single-select): `12h`, `7d`, `30d`, `1y`, `all`. Default
+  `30d`.
+- **Agent** (multi-select dropdown): all known agent names. Multiple
+  picks submit as repeated `agent=` query params.
+- **Project** (multi-select dropdown): distinct project labels from the
+  projects analytics report.
+- **Device** (multi-select dropdown): friendly names from the device
+  registry.
 
-### Recent block
+The block submits as a plain GET form. The whole page re-renders; no
+HTMX. State lives in the URL so bookmarks reproduce the view.
 
-Vertical list of sessions grouped by day. Day heading at 18 px weight 500
-plus a relative date in `--text-3`.
+The heatmap card ignores `window` by design; everything else honors it.
 
-```
-Today
-  09:14  claude-code   prosa       "refactor sync logic"     18 min
-  11:02  codex         mz-iac      "setup terraform vpc"     32 min
+### KPI strip
 
-Yesterday
-  16:40  claude-code   brain       "audit obsidian vault"     4 min
-  14:22  codex         prosa       "tests for sqlite store"  47 min
-```
-
-- Row height 56 px;
-- Hover: background `--bg-elev-2`, cursor pointer;
-- Click: opens the sidepanel (HTMX swap, push URL with `?session=<id>`);
-- Active session: the timestamp receives `*` in `--ok`;
-- Columns: timestamp 70 px, agent 110 px, project 140 px, first_prompt
-  flex, duration 70 px right-aligned;
-- Row typography: 14 px, weight regular, `--text-1` for project and
-  prompt, `--text-2` for agent, `--text-3` for timestamp and duration;
-- Row divider: 1 px `--divider`.
-
-States:
-
-- **Empty**: "nothing in the selected window. try expanding the time
-  filter."
-- **Many sessions**: do not paginate aggressively; the default 7-day
-  window rarely exceeds ~50 rows. For broader windows, consider an
-  HTMX-driven "fetch more" at the end of the list (not implemented now).
-
----
-
-## Analytics `/analytics/<report>`
-
-Report list in the sidebar:
+Three KPIs across the top, each in a [`kpi`](components.md#kpi-card)
+card.
 
 ```
-Analytics
-  sessions   *
-  projects
-  tools
-  models
-  errors
-  heatmap
+   12             3              2
+   sessions       projects       models
 ```
 
-The active item gets a small `--accent` dot before its name. Clicking
-swaps only the main area (HTMX).
+- **Sessions** in window;
+- **Projects** active in window;
+- **Models** active in window.
 
-### Common layout
+No sparkline in this cut.
 
-```
-sessions               [ 30d ▾ ]   [ all agents ▾ ]   ...
+### Heatmap card
 
-[ featured chart spans full width, height 280-320 px ]
-
-support table below
-+----------+----------+--------+
-| header   | header   | header |
-| row      | row      | row    |
-+----------+----------+--------+
-```
-
-- Report title at 28 px weight 400, margin-bottom 24 px;
-- Filters right under the title;
-- Featured chart in a subtle card (background `--bg-elev-1`, radius
-  8 px, padding 32 px);
-- Table with row height 40 px, `--divider` separators, numbers in
-  tabular-nums right-aligned.
-
-Each chart is [HTMX-swappable](components.md#htmx-chart-swap) when the
-filter changes.
-
-### Report `sessions`
-
-Chart: **trend line** of sessions/day, last 30 days.
-
-- X axis: days, labels only at multiples of 5 days;
-- Y axis: count, discreet label in `--text-3`;
-- Line in `--accent`, fill in `--accent-soft`;
-- Hover on a point: enlarged circle + `<title>` showing "12 sessions on
-  2026-05-23".
-
-Table: by agent — `AGENT | SESSIONS | TURNS`.
-
-### Report `tools`
-
-Chart: **bar leaderboard** top 20 + 14-day sparkline per row on the top
-5.
+Full-width `<section class="card">` with the daily contribution heatmap.
 
 ```
-Read     ████████████████████  234   ▁▂▃▅█▇▅▃
-Bash     ██████████             102   ▁▂▂▃▄▃▂▁
-Edit     ████                    48   ▁▁▂▃▂▂▁▁
-Glob     ███                     34
-Grep     ██                      28
-...
-```
+Heatmap · trailing 53 weeks
 
-- Each bar 24 px tall;
-- Width proportional to the maximum (Read = 100%);
-- Number on the right in mono tabular;
-- Sparkline only on the top 5 (max 80 × 20 px) between the number and
-  the row end.
-
-Auxiliary table: `TOOL | USES | SESSIONS`.
-
-### Report `models`
-
-Chart: **donut** (180 × 180 px, centered) + vertical list with mini-bars.
-
-```
-        ┌──┐
-       /    \                  sonnet 87%   ███████████
-      |      |                 opus    11%  ██
-       \    /                  haiku    2%  ▏
-        └──┘
-```
-
-- Slice in `--accent`, gradient tones (`--accent`, `--accent-soft`,
-  gray);
-- 50% hole with the total number at the center (28 px tabular);
-- Right-hand list: name + percent + mini-bar.
-
-Auxiliary table: `MODEL | SESSIONS`.
-
-### Report `projects`
-
-Chart: **bar leaderboard** top 15 with a 14-day sparkline per row.
-
-Same structure as tools but with agent-aware identity
-(`project_remote` > `project_marker` > `project_path`).
-
-Auxiliary table: `PROJECT | AGENT | SESSIONS`.
-
-### Report `errors`
-
-Chart: **trend line** of error sessions per day (FTS5 heuristic:
-`error|exception|traceback|panic|fatal`).
-
-- Line in `--danger`, fill in `--danger` with alpha;
-- Y axis starts at 0;
-- Click on a point: filters the table below to that day.
-
-Table: `STARTED | AGENT | PROJECT | SESSION`.
-
-### Report `heatmap` (new)
-
-Chart: **daily contribution heatmap** for the **trailing 53 weeks**
-(GitHub-style, aligned to Sunday in UTC). The window is fixed: the
-12h/7d/30d/1y chips are hidden on this report, and `?last=` is ignored.
-Scope filters (project, agent, device) still apply.
-
-```
 Sun ░ ░ ▒ ▓ ░
 Mon ░ ▒ ▓ █ ░
 Tue ░ ░ ░ ▒ ▓
 ...
 ```
 
-- Cells 16 × 16 px, gap 2 px;
-- Color scale uses `--accent` mixed with panel surface tokens by count;
-- Grid flows by week with 7 day rows;
-- Cell hover: a floating popup ("heatmap-tip") shows the date, total
-  session count, and a per-agent breakdown (descending by count). Cells
-  also expose `aria-label="<date>: N sessions"` for assistive tech and
-  remain keyboard-focusable;
+- Fixed trailing 53 weeks; **does not honor the window picker** — call
+  this out under the card title so the user is not surprised.
+- Scope filters (agent, project, device) still apply.
+- Cells are 16 × 16 CSS-grid blocks (not SVG), gap 2 px; color scaled
+  from `--accent` against surface tokens.
+- Cell hover surfaces a tooltip with date, total count, and per-agent
+  breakdown. Cells expose `aria-label="<date>: N sessions"` and stay
+  keyboard-focusable.
 - Discreet legend in the corner: scale gradient + "less / more".
 
-Optional auxiliary table: daily totals across the selected window.
+### Tools / Models / Errors / Usage cards
+
+Two-column rows under the heatmap.
+
+```
++---------------------+   +---------------------+
+| Tools               |   | Models              |
+| ▶ bar leaderboard   |   | ▶ bar leaderboard   |
++---------------------+   +---------------------+
+
++---------------------+   +---------------------+
+| Errors              |   | Usage               |
+| ▶ recent error rows |   | ▶ totals + per-agent|
++---------------------+   +---------------------+
+```
+
+- **Tools**: HTML bar leaderboard from the `tools` analytics report.
+  Same `.usage-bar`-style markup the old analytics page used. No SVG.
+- **Models**: HTML bar leaderboard from the `models` report. The donut
+  SVG sketched in [components.md](components.md#donut) is deferred —
+  bars stay consistent with Tools.
+- **Errors**: table of recent error sessions (FTS heuristic
+  `error|exception|traceback|panic|fatal`). Columns: started, agent,
+  project, session id.
+- **Usage**: total tokens + total estimated cost in the window, with a
+  per-agent breakdown.
+
+All four cards re-render with the rest of the page when the filters
+form submits. No HTMX chart-swap pattern here; the dashboard is one
+GET away from any state change.
+
+### States
+
+- **No sessions in window**: KPIs show `0`; cards render their own
+  empty messages. The heatmap still draws (its window is fixed).
+- **Loading**: the server renders with values ready before sending the
+  response — no skeleton.
+
+---
+
+## Sessions `/sessions`
+
+The primary browsing surface. Filtered, searchable, sortable, paginated.
+All state lives in the querystring.
+
+### Layout
+
+```
+Sessions
+
+  +-------------------------------------------------------+
+  |  / search prompts and tool output                     |
+  +-------------------------------------------------------+
+
+  [ 30d ▾ ]   [ all agents ▾ ]   [ all projects ▾ ]   [ all devices ▾ ]
+
+  ▸ Columns
+
+  +--------+--------+----------------+--------+--------+--------+
+  | AGENT  | PROJECT| FIRST PROMPT   | TOKENS▾| COST   | DEVICE |
+  +--------+--------+----------------+--------+--------+--------+
+  | row    | row    | row            | row    | row    | row    |
+  | row    | row    | row            | row    | row    | row    |
+  +--------+--------+----------------+--------+--------+--------+
+
+  Page 2 of 7  ·  Total 312                  ◂ prev   next ▸
+```
+
+### Search
+
+A prominent full-width `<input name="q" type="search">` sits above the
+table inside a GET form pointing at `/sessions`. Submission preserves
+every other filter via hidden inputs so search composes with the
+window, agent, project, device, sort, columns, and page state.
+
+The `/` global shortcut focuses this input (the topbar search is gone).
+
+Server side, a non-empty `q` switches `Sessions.List` into FTS mode —
+the proto's `query` field joins on `turns.content_tsv` and ranks by
+`ts_rank` desc. FTS rank wins over any explicit sort.
+
+### Filters
+
+Four controls under the search input. Same pattern as Home, with the
+window as single-select and the others as
+[multi-select dropdowns](components.md#multi-select-dropdown).
+
+- **Window**: `12h`, `7d`, `30d`, `1y`, `all`. Default `30d`.
+- **Agent** (multi): hardcoded slice of known agents.
+- **Project** (multi): distinct project labels.
+- **Device** (multi): friendly names.
+
+### Column chooser
+
+A `<details><summary>Columns</summary>` block holds a checkbox form with
+7 keys: `agent`, `project`, `first_prompt`, `tokens`, `cost`, `device`,
+`id`. Submitting sets `?cols=agent,project,first_prompt,...`. When
+`?cols` is missing the table renders the default set: all columns
+**except** `id` (the UUID is verbose and noisy).
+
+The component is a stock `<details>` + checkbox form — no new component
+class. See [components.md](components.md#column-chooser).
+
+### Table
+
+`<thead>` carries sortable header links. Only two columns sort
+server-side:
+
+- `started_at` — default sort, desc.
+- `total_tokens` — optional, desc.
+
+Both are desc-only. Clicking a sortable header flips
+`?sort=started_at|total_tokens` and reloads. Non-sortable headers
+render as plain text.
+
+`<tbody>` iterates the result rows, rendering only the columns enabled
+by `?cols`. Each row's click target opens the side panel via the
+existing `?session=<id>` HTMX pattern (`hx-target="#side-panel"`,
+`hx-push-url`). Refresh preserves the open panel.
+
+### Pagination
+
+Fixed 50 rows per page. `Sessions.List` returns `total_count` for the
+same WHERE clause (sans LIMIT/OFFSET) so the footer can compute
+`Page N of M (Total T)` with prev/next anchors. Each anchor carries
+the full filter+sort+cols state plus `?page=N`.
+
+### State
+
+Every filter, every sort key, every visible-column toggle, every page
+number lives in the querystring. URLs are bookmarkable and shareable.
+No cookies, no localStorage beyond what auth already uses.
+
+### States
+
+- **No matches**: "nothing matched. try a wider window or fewer filters."
+- **Empty FTS**: "nothing matched that search."
+- **Side panel open**: the panel docks on the right; clicking another
+  row swaps its contents and replaces `?session=` in the URL.
+
+---
+
+## Projects `/projects`
+
+Lightweight landing page. Table of projects in the chosen window;
+clicking a row navigates into a filtered Sessions view.
+
+### Layout
+
+```
+Projects
+
+  [ 30d ▾ ]   [ all agents ▾ ]   [ all devices ▾ ]
+
+  +------------------+----------+----------+
+  | PROJECT          | AGENT    | SESSIONS |
+  +------------------+----------+----------+
+  | prosa            | claude   |       48 |
+  | mz-iac           | codex    |       21 |
+  | brain            | claude   |       11 |
+  +------------------+----------+----------+
+```
+
+- Same projects data the old analytics report drew, served by
+  `Analytics.GetReport("projects", since, until)`.
+- The first cell of each row is an `<a href="/sessions?project=<label>&last=<window>">`
+  so clicking lands on a Sessions view already filtered by that
+  project, preserving the current window.
+- Sort/paginate client-side only if the table grows past ~200 rows.
+  Projects-per-window is small in practice.
+
+### States
+
+- **No projects in window**: "no projects in the selected window. try
+  expanding."
 
 ---
 
 ## Devices `/devices`
+
+Device admin. Same shape as before — approval form on top, table below
+— with one change: the Hostname cell of each row now navigates into a
+filtered Sessions view.
 
 ```
 Devices
@@ -284,7 +315,7 @@ Devices
    user code [______]   [ approve ]
 
   +----------------+----------+-----------+------+
-  | NAME           | STATE    | LAST SEEN | ACT  |
+  | HOSTNAME       | STATE    | LAST SEEN | ACT  |
   +----------------+----------+-----------+------+
   | laptop-caian   | active   | 2 min     | edit |
   | mz-server      | active   | 1 h       | edit |
@@ -294,20 +325,47 @@ Devices
 
 - Approval form in a top card, padding 32 px;
 - Table with row height 48 px, light dividers;
+- **Hostname** column is an `<a href="/sessions?device=<friendly_name>">`
+  — clicking navigates to a Sessions view already filtered by that
+  device. The cell is not a rename trigger; rename lives behind the
+  Edit button as before;
 - State in color: `--ok` for active, `--text-3` for revoked;
-- The Friendly column shows the device name as static text plus an
-  "Edit" button. Clicking Edit reveals the rename input + Save (and a
-  Cancel button); the form posts to `/devices/<id>/rename`
-  (POST-Redirect-GET, no HTMX). Esc inside the input cancels;
+- Edit reveals the rename input + Save / Cancel; the form posts to
+  `/devices/<id>/rename` (POST-Redirect-GET, no HTMX). Esc inside the
+  input cancels;
+- Revoke remains a POST to `/devices/<id>/revoke`;
 - Flash messages in a subtle banner above the table when arriving from
   a redirect.
 
 ---
 
+## Settings `/settings`
+
+Single-card surface for the logged-in owner. Spartan by design.
+
+```
+Settings
+
+  +---------------------------------------------------+
+  |  Signed in as                                     |
+  |  hi@caian.org                                     |
+  |                                                   |
+  |  [ logout ]                                       |
+  +---------------------------------------------------+
+```
+
+- One card, no tabs, no preferences sub-pages.
+- Email comes from the session cookie (`p.cookie.FromRequest(r)`).
+- Logout button posts to `/logout` (same as the topbar form).
+- No SSE, no Alpine, no charts. If a future setting earns its place,
+  it joins this card.
+
+---
+
 ## Sidepanel (session detail)
 
-Triggered by a click on a Home row or by `?session=<id>` in the URL.
-Slide-in 180 ms from the right.
+Triggered by a click on a `/sessions` row or by `?session=<id>` in the
+URL. Slide-in 180 ms from the right.
 
 ```
 +----------------+
@@ -397,11 +455,10 @@ open/close.
         |    32 min  mz-iac    setup t..|
         |     4 min  brain     audit o..|
         |                               |
-        |  Reports                      |
-        |    sessions  · tools  · models|
-        |    projects  · errors · heatm.|
+        |  Pages                        |
+        |    Home · Sessions · Projects |
+        |    Devices · Settings         |
         |                               |
-        |  Devices                      |
         +-------------------------------+
 ```
 
@@ -447,9 +504,9 @@ Never use emoji. Single-line messages, `--text-3`, horizontally centered.
 
 | Scenario                | Message                                              |
 | ----------------------- | ---------------------------------------------------- |
-| No sessions today       | "no sessions today. see recent below"                |
-| Nothing in window       | "nothing in the selected window. try expanding."     |
+| No sessions in window   | "nothing in the selected window. try expanding."     |
 | No search results       | "nothing matched that search."                       |
+| No projects in window   | "no projects in the selected window. try expanding." |
 | No devices              | "no device registered yet. run prosa setup."         |
 | Loading error           | "failed to load. try refreshing the page."           |
 | No permission           | "this account doesn't have access to this panel."    |
