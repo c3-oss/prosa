@@ -3,7 +3,7 @@
 {{define "side_panel_body"}}
   <header class="sp-header">
     <div class="sp-header-text">
-      <div class="sp-agent">{{.Session.Agent}}</div>
+      <div class="sp-agent">{{agentBadge .Session.Agent}}</div>
       <div class="sp-prompt">{{or .Session.FirstPrompt "(no prompt)"}}</div>
     </div>
     <button class="sp-close" type="button"
@@ -177,7 +177,7 @@
                  hx-push-url="?session={{.Id}}"
                  hx-swap="innerHTML">
                 <div class="subagent-meta">
-                  <span class="subagent-agent">{{.Agent}}</span>
+                  {{agentBadge .Agent}}
                   {{if .StartedAt}}<time class="subagent-time">{{(.StartedAt.AsTime).Format "15:04:05"}}</time>{{end}}
                 </div>
                 <div class="subagent-prompt">{{or .FirstPrompt "(no prompt)"}}</div>

@@ -178,8 +178,10 @@ func (p *Panel) render(w http.ResponseWriter, name string, data any) {
 // templateFuncs are the helpers exposed to every template.
 func templateFuncs() template.FuncMap {
 	return template.FuncMap{
-		"hasPrefix": strings.HasPrefix,
-		"pluralize": pluralize,
+		"hasPrefix":       strings.HasPrefix,
+		"pluralize":       pluralize,
+		"agentBadge":      agentBadge,
+		"agentShortLabel": agentShortLabel,
 	}
 }
 
@@ -191,4 +193,35 @@ func pluralize(n int64, singular, plural string) string {
 		return fmt.Sprintf("%d %s", n, singular)
 	}
 	return fmt.Sprintf("%d %s", n, plural)
+}
+
+// agentBadge renders an agent name as the small colored pill the
+// templates use in tables, the sidepanel header, and dashboard cards.
+// The data-agent attribute drives per-agent colors via agent-badge.css;
+// the title attribute carries the full original name so a hover reveals
+// it even when the visible label is shortened.
+func agentBadge(agent string) template.HTML {
+	a := template.HTMLEscapeString(strings.TrimSpace(agent))
+	short := template.HTMLEscapeString(agentShortLabel(agent))
+	if a == "" {
+		return ""
+	}
+	return template.HTML(fmt.Sprintf(
+		`<span class="agent-badge" data-agent="%s" title="%s">%s</span>`,
+		a, a, short,
+	))
+}
+
+// agentShortLabel collapses the on-the-wire agent name to a compact
+// visible label so the badge fits the table column. Unknown agents
+// pass through unchanged.
+func agentShortLabel(agent string) string {
+	switch strings.TrimSpace(agent) {
+	case "claude-code":
+		return "claude"
+	case "antigravity":
+		return "antigrav"
+	default:
+		return agent
+	}
 }

@@ -5,7 +5,8 @@
     <h1>Home</h1>
     <details class="dashboard-filters">
       <summary>Filters</summary>
-      <form method="get" action="/" class="filter-bar">
+      <form method="get" action="/" class="filter-bar"
+            x-data @change="$el.requestSubmit()">
         <label>
           Window
           <select name="last">
@@ -85,10 +86,25 @@
           </div>
         </label>
 
-        <button class="btn" type="submit">Apply</button>
+        <noscript><button class="btn" type="submit">Apply</button></noscript>
       </form>
     </details>
   </header>
+
+  {{if .ActiveFilters}}
+    <div class="active-filters" aria-label="active filters">
+      {{range .ActiveFilters}}
+        <a class="active-filter-chip" href="{{.RemoveURL}}" title="remove this filter">
+          <span class="label">{{.Label}}</span>
+          <span class="value">{{.Value}}</span>
+          <span class="remove" aria-hidden="true">×</span>
+        </a>
+      {{end}}
+      {{if .ClearFiltersURL}}
+        <a class="active-filters-clear" href="{{.ClearFiltersURL}}">Clear all</a>
+      {{end}}
+    </div>
+  {{end}}
 
   <section class="kpi-strip" aria-label="overview">
     <div class="kpi">

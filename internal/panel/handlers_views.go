@@ -166,6 +166,12 @@ func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 	heatmap := buildHeatmap(out.heatmap.Rows)
 	usageRows, usageTokens, usageCost := buildUsage(out.usage.Rows)
 
+	activeFilters := buildHomeActiveFilters(r.URL.Query(), lastRaw, agents, projects, devices)
+	clearFiltersURL := ""
+	if len(activeFilters) > 0 {
+		clearFiltersURL = "/"
+	}
+
 	data := map[string]any{
 		"Title": "Home",
 		"Nav":   "home",
@@ -178,6 +184,8 @@ func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 		"ProjectsSelected": selectionSet(projects),
 		"Devices":          deviceNames,
 		"DevicesSelected":  selectionSet(devices),
+		"ActiveFilters":    activeFilters,
+		"ClearFiltersURL":  clearFiltersURL,
 
 		// KPI strip.
 		"SessionsKPI": out.sessions.TotalCount,
@@ -282,6 +290,42 @@ func clampRows(rows []*prosav1.AnalyticsRow, limit int) []*prosav1.AnalyticsRow 
 		return rows[:limit]
 	}
 	return rows
+}
+
+// buildHomeActiveFilters mirrors buildSessionsActiveFilters for the
+// dashboard. Renders one chip per active filter pointing at "/" so the
+// remove URL is bookmark-stable.
+func buildHomeActiveFilters(q url.Values, last string, agents, projects, devices []string) []activeFilter {
+	var out []activeFilter
+	mk := func(label, value string, removeQuery url.Values) activeFilter {
+		removeQuery.Del("session")
+		removeURL := "/"
+		if encoded := removeQuery.Encode(); encoded != "" {
+			removeURL += "?" + encoded
+		}
+		return activeFilter{Label: label, Value: value, RemoveURL: removeURL}
+	}
+	if last != "" && last != "30d" {
+		next := cloneValues(q)
+		next.Del("last")
+		out = append(out, mk("Window", last, next))
+	}
+	for _, a := range agents {
+		next := cloneValues(q)
+		removeFromMulti(next, "agent", a)
+		out = append(out, mk("Agent", a, next))
+	}
+	for _, p := range projects {
+		next := cloneValues(q)
+		removeFromMulti(next, "project", p)
+		out = append(out, mk("Project", p, next))
+	}
+	for _, d := range devices {
+		next := cloneValues(q)
+		removeFromMulti(next, "device", d)
+		out = append(out, mk("Device", d, next))
+	}
+	return out
 }
 
 // projectLabelsFromRows extracts unique project labels (first column

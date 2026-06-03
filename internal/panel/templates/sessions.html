@@ -5,8 +5,10 @@
 {{define "content"}}
   <h1>Sessions</h1>
 
-  <form class="sessions-search" method="get" action="/sessions">
-    <input id="search" type="search" name="q" value="{{.Q}}" placeholder="search sessions (FTS)" autofocus>
+  <form class="sessions-search" method="get" action="/sessions" x-data>
+    <input id="search" type="search" name="q" value="{{.Q}}"
+           placeholder="search sessions (FTS)" autofocus
+           @input.debounce.300ms="$el.form.requestSubmit()">
     {{if .Last}}<input type="hidden" name="last" value="{{.Last}}">{{end}}
     {{range $a, $sel := .AgentsSelected}}{{if $sel}}<input type="hidden" name="agent" value="{{$a}}">{{end}}{{end}}
     {{range $p, $sel := .ProjectsSelected}}{{if $sel}}<input type="hidden" name="project" value="{{$p}}">{{end}}{{end}}
@@ -15,7 +17,23 @@
     {{range $c, $on := .Cols}}{{if $on}}<input type="hidden" name="cols" value="{{$c}}">{{end}}{{end}}
   </form>
 
-  <form class="filter-bar" method="get" action="/sessions">
+  {{if .ActiveFilters}}
+    <div class="active-filters" aria-label="active filters">
+      {{range .ActiveFilters}}
+        <a class="active-filter-chip" href="{{.RemoveURL}}" title="remove this filter">
+          <span class="label">{{.Label}}</span>
+          <span class="value">{{.Value}}</span>
+          <span class="remove" aria-hidden="true">×</span>
+        </a>
+      {{end}}
+      {{if .ClearFiltersURL}}
+        <a class="active-filters-clear" href="{{.ClearFiltersURL}}">Clear all</a>
+      {{end}}
+    </div>
+  {{end}}
+
+  <form class="filter-bar" method="get" action="/sessions"
+        x-data @change="$el.requestSubmit()">
     <input type="hidden" name="q" value="{{.Q}}">
     {{if .Sort}}<input type="hidden" name="sort" value="{{.Sort}}">{{end}}
     {{range $c, $on := .Cols}}{{if $on}}<input type="hidden" name="cols" value="{{$c}}">{{end}}{{end}}
@@ -99,12 +117,13 @@
       </div>
     </label>
 
-    <button class="btn" type="submit">Apply</button>
+    <noscript><button class="btn" type="submit">Apply</button></noscript>
   </form>
 
   <details class="column-chooser">
     <summary>Columns</summary>
-    <form method="get" action="/sessions">
+    <form method="get" action="/sessions"
+          x-data @change="$el.requestSubmit()">
       <input type="hidden" name="q" value="{{.Q}}">
       <input type="hidden" name="last" value="{{.Last}}">
       {{if .Sort}}<input type="hidden" name="sort" value="{{.Sort}}">{{end}}
@@ -114,7 +133,7 @@
       {{range $c, $on := .Cols}}
         <label><input type="checkbox" name="cols" value="{{$c}}" {{if $on}}checked{{end}}> {{$c}}</label>
       {{end}}
-      <button class="btn" type="submit">Update</button>
+      <noscript><button class="btn" type="submit">Update</button></noscript>
     </form>
   </details>
 
@@ -134,7 +153,7 @@
     <tbody>
       {{range .Sessions}}
         <tr class="session-row">
-          {{if index $.Cols "agent"}}<td>{{.Agent}}</td>{{end}}
+          {{if index $.Cols "agent"}}<td>{{agentBadge .Agent}}</td>{{end}}
           {{if index $.Cols "project"}}<td>{{.ProjectLabel}}</td>{{end}}
           {{if index $.Cols "first_prompt"}}<td><a href="{{.OpenURL}}">{{.FirstPrompt}}</a></td>{{end}}
           {{if index $.Cols "tokens"}}<td class="cell-tokens">{{.TokensTotal}}</td>{{end}}
@@ -144,7 +163,10 @@
           <td>{{.StartedAt}}</td>
         </tr>
       {{else}}
-        <tr><td colspan="99" class="empty">nothing matched these filters.</td></tr>
+        <tr><td colspan="99" class="empty">
+          nothing matched these filters.
+          {{if .ClearFiltersURL}}<a href="{{.ClearFiltersURL}}">Clear all filters</a> to start over.{{end}}
+        </td></tr>
       {{end}}
     </tbody>
   </table>

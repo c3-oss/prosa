@@ -188,6 +188,12 @@ func (p *Panel) handleSessions(w http.ResponseWriter, r *http.Request) {
 		nextURL = "?" + appendKey(stripQuery(r.URL.Query(), "page"), "page", strconv.Itoa(page+1))
 	}
 
+	activeFilters := buildSessionsActiveFilters(r.URL.Query(), queryStr, lastRaw, agents, projects, devices)
+	clearURL := ""
+	if len(activeFilters) > 0 {
+		clearURL = "/sessions"
+	}
+
 	data := map[string]any{
 		"Title":            "Sessions",
 		"Nav":              "sessions",
@@ -208,6 +214,8 @@ func (p *Panel) handleSessions(w http.ResponseWriter, r *http.Request) {
 		"PrevURL":          prevURL,
 		"NextURL":          nextURL,
 		"SortURLs":         sortURLs,
+		"ActiveFilters":    activeFilters,
+		"ClearFiltersURL":  clearURL,
 	}
 
 	// Side panel inline render when ?session=<id> — same pattern as
@@ -222,6 +230,81 @@ func (p *Panel) handleSessions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	p.render(w, "sessions", data)
+}
+
+// activeFilter is one chip in the "what's narrowing the result set"
+// row above the table. RemoveURL drops just this filter and resets
+// the page so the user lands on a coherent set; Label/Value carry
+// the rendered text.
+type activeFilter struct {
+	Label     string
+	Value     string
+	RemoveURL string
+}
+
+// buildSessionsActiveFilters renders the current filter state as a
+// slice of chips. Window stays visible only when the user picked
+// something other than the default (30d). Multi-select dimensions
+// (agent, project, device) emit one chip per selected value so a click
+// removes exactly that value rather than the whole dimension.
+func buildSessionsActiveFilters(q url.Values, queryStr, last string, agents, projects, devices []string) []activeFilter {
+	var out []activeFilter
+	mk := func(label, value string, removeQuery url.Values) activeFilter {
+		// Page resets on any filter change so the user lands at row 1
+		// of the narrower result set.
+		removeQuery.Del("page")
+		removeQuery.Del("session")
+		removeURL := "/sessions"
+		if encoded := removeQuery.Encode(); encoded != "" {
+			removeURL += "?" + encoded
+		}
+		return activeFilter{Label: label, Value: value, RemoveURL: removeURL}
+	}
+	if queryStr != "" {
+		next := cloneValues(q)
+		next.Del("q")
+		out = append(out, mk("Search", queryStr, next))
+	}
+	if last != "" && last != "30d" {
+		next := cloneValues(q)
+		next.Del("last")
+		out = append(out, mk("Window", last, next))
+	}
+	for _, a := range agents {
+		next := cloneValues(q)
+		removeFromMulti(next, "agent", a)
+		out = append(out, mk("Agent", a, next))
+	}
+	for _, p := range projects {
+		next := cloneValues(q)
+		removeFromMulti(next, "project", p)
+		out = append(out, mk("Project", p, next))
+	}
+	for _, d := range devices {
+		next := cloneValues(q)
+		removeFromMulti(next, "device", d)
+		out = append(out, mk("Device", d, next))
+	}
+	return out
+}
+
+// removeFromMulti drops exactly one occurrence of value from the slice
+// behind q[key]. Used by the active-filter chips so clicking × on
+// "agent: codex" while "agent: claude" is also active drops just the
+// codex chip.
+func removeFromMulti(q url.Values, key, value string) {
+	vals := q[key]
+	kept := vals[:0]
+	for _, v := range vals {
+		if v != value {
+			kept = append(kept, v)
+		}
+	}
+	if len(kept) == 0 {
+		q.Del(key)
+	} else {
+		q[key] = kept
+	}
 }
 
 // pickMulti returns every non-empty value for key, trimmed.
