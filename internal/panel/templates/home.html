@@ -1,44 +1,273 @@
 {{define "home"}}{{template "base" .}}{{end}}
 
-{{define "search"}}
-  <form method="get" action="/" style="flex: 1; max-width: 480px">
-    <input id="search" name="project" type="search" placeholder="filter projects (/)" value="{{.Project}}"
-           style="background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px; padding: 6px 10px; color: var(--text); width: 100%">
-  </form>
-{{end}}
-
 {{define "content"}}
-  <div class="chips">
-    {{$last := .Last}}
-    <a class="chip {{if eq $last "12h"}}active{{end}}" href="?last=12h&agent={{.Agent}}&device={{.Device}}&project={{.Project}}">12h</a>
-    <a class="chip {{if or (eq $last "") (eq $last "7d")}}active{{end}}" href="?last=7d&agent={{.Agent}}&device={{.Device}}&project={{.Project}}">7d</a>
-    <a class="chip {{if eq $last "30d"}}active{{end}}" href="?last=30d&agent={{.Agent}}&device={{.Device}}&project={{.Project}}">30d</a>
-    <a class="chip {{if eq $last "365d"}}active{{end}}" href="?last=365d&agent={{.Agent}}&device={{.Device}}&project={{.Project}}">1y</a>
+  <header class="dashboard-head">
+    <h1>Home</h1>
+    <details class="dashboard-filters">
+      <summary>Filters</summary>
+      <form method="get" action="/" class="filter-bar">
+        <label>
+          Window
+          <select name="last">
+            <option value="12h"  {{if eq .Last "12h"}}selected{{end}}>12h</option>
+            <option value="7d"   {{if eq .Last "7d"}}selected{{end}}>7d</option>
+            <option value="30d"  {{if or (eq .Last "") (eq .Last "30d")}}selected{{end}}>30d</option>
+            <option value="365d" {{if eq .Last "365d"}}selected{{end}}>1y</option>
+            <option value="all"  {{if eq .Last "all"}}selected{{end}}>all</option>
+          </select>
+        </label>
 
-    {{$agent := .Agent}}
-    <a class="chip {{if eq $agent ""}}active{{end}}" href="?last={{$last}}&agent=&device={{.Device}}&project={{.Project}}">any agent</a>
-    <a class="chip {{if eq $agent "claude-code"}}active{{end}}" href="?last={{$last}}&agent=claude-code&device={{.Device}}&project={{.Project}}">claude-code</a>
-    <a class="chip {{if eq $agent "codex"}}active{{end}}" href="?last={{$last}}&agent=codex&device={{.Device}}&project={{.Project}}">codex</a>
-    <a class="chip {{if eq $agent "cursor"}}active{{end}}" href="?last={{$last}}&agent=cursor&device={{.Device}}&project={{.Project}}">cursor</a>
-    <a class="chip {{if eq $agent "gemini"}}active{{end}}" href="?last={{$last}}&agent=gemini&device={{.Device}}&project={{.Project}}">gemini</a>
+        <label>
+          Agent
+          <div class="dropdown">
+            <button type="button" class="dropdown-toggle">
+              {{- $n := 0 -}}
+              {{- range $a, $sel := .AgentsSelected}}{{if $sel}}{{$n = 1}}{{end}}{{end -}}
+              {{- if eq $n 0}}all agents{{else}}selected{{end}} ▾
+            </button>
+            <div class="dropdown-menu" hidden>
+              {{$sel := .AgentsSelected}}
+              {{range .Agents}}
+                <label class="dropdown-item">
+                  <input type="checkbox" name="agent" value="{{.}}" {{if index $sel .}}checked{{end}}>
+                  <span>{{.}}</span>
+                </label>
+              {{end}}
+            </div>
+          </div>
+        </label>
+
+        <label>
+          Project
+          <div class="dropdown">
+            <button type="button" class="dropdown-toggle">
+              {{- $n := 0 -}}
+              {{- range $p, $sel := .ProjectsSelected}}{{if $sel}}{{$n = 1}}{{end}}{{end -}}
+              {{- if eq $n 0}}all projects{{else}}selected{{end}} ▾
+            </button>
+            <div class="dropdown-menu" hidden>
+              {{if .Projects}}
+                {{$sel := .ProjectsSelected}}
+                {{range .Projects}}
+                  <label class="dropdown-item">
+                    <input type="checkbox" name="project" value="{{.}}" {{if index $sel .}}checked{{end}}>
+                    <span>{{.}}</span>
+                  </label>
+                {{end}}
+              {{else}}
+                <div class="dropdown-empty">no projects in window</div>
+              {{end}}
+            </div>
+          </div>
+        </label>
+
+        <label>
+          Device
+          <div class="dropdown">
+            <button type="button" class="dropdown-toggle">
+              {{- $n := 0 -}}
+              {{- range $d, $sel := .DevicesSelected}}{{if $sel}}{{$n = 1}}{{end}}{{end -}}
+              {{- if eq $n 0}}all devices{{else}}selected{{end}} ▾
+            </button>
+            <div class="dropdown-menu" hidden>
+              {{if .Devices}}
+                {{$sel := .DevicesSelected}}
+                {{range .Devices}}
+                  <label class="dropdown-item">
+                    <input type="checkbox" name="device" value="{{.}}" {{if index $sel .}}checked{{end}}>
+                    <span>{{.}}</span>
+                  </label>
+                {{end}}
+              {{else}}
+                <div class="dropdown-empty">no devices yet</div>
+              {{end}}
+            </div>
+          </div>
+        </label>
+
+        <button class="btn" type="submit">Apply</button>
+      </form>
+    </details>
+  </header>
+
+  <section class="kpi-strip" aria-label="overview">
+    <div class="kpi">
+      <div class="kpi-value">{{.SessionsKPI}}</div>
+      <div class="kpi-label">sessions</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-value">{{.ProjectsKPI}}</div>
+      <div class="kpi-label">projects</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-value">{{.ModelsKPI}}</div>
+      <div class="kpi-label">models</div>
+    </div>
+  </section>
+
+  <section class="card heatmap-card">
+    <header class="card-head">
+      <h2>Activity</h2>
+      <span class="card-sub">trailing 53 weeks · ignores window filter</span>
+    </header>
+    {{if .HeatmapCells}}
+      <div class="heatmap-summary">
+        <span>{{pluralize .HeatmapTotal "session" "sessions"}}</span>
+        <span>max {{pluralize .HeatmapMax "session" "sessions"}} / day</span>
+      </div>
+      <div class="heatmap">
+        <div class="heatmap-month-axis" style="--cols: {{.HeatmapColumns}}" aria-hidden="true">
+          {{range .HeatmapMonths}}<span style="grid-column: span {{.Span}}">{{.Label}}</span>{{end}}
+        </div>
+        <div class="heatmap-body">
+          <div class="heatmap-weekday-axis" aria-hidden="true">
+            {{range $i, $d := .HeatmapWeekdays}}
+              {{if or (eq $i 1) (eq $i 3) (eq $i 5)}}
+                <span>{{$d}}</span>
+              {{else}}
+                <span></span>
+              {{end}}
+            {{end}}
+          </div>
+          <div class="heatmap-grid" aria-label="sessions per day">
+            {{range .HeatmapCells}}
+              {{if .Blank}}
+                <span class="heatmap-spacer"></span>
+              {{else}}
+                <span class="heatmap-cell level-{{.Level}}"
+                      tabindex="0"
+                      data-date="{{.Date}}"
+                      data-total="{{.Count}}"
+                      data-breakdown="{{- range $i, $a := .Agents}}{{if $i}},{{end}}{{$a.Name}}:{{$a.Count}}{{end -}}"
+                      aria-label="{{.Date}}: {{pluralize .Count "session" "sessions"}}"></span>
+              {{end}}
+            {{end}}
+          </div>
+        </div>
+        <div class="heatmap-legend" aria-hidden="true">
+          <span class="heatmap-legend-label">Less</span>
+          <span class="heatmap-cell level-0"></span>
+          <span class="heatmap-cell level-1"></span>
+          <span class="heatmap-cell level-2"></span>
+          <span class="heatmap-cell level-3"></span>
+          <span class="heatmap-cell level-4"></span>
+          <span class="heatmap-legend-label">More</span>
+        </div>
+      </div>
+    {{else}}
+      <div class="empty">no activity yet.</div>
+    {{end}}
+  </section>
+
+  <div class="dashboard-grid">
+    <section class="card">
+      <header class="card-head">
+        <h2>Tools</h2>
+        <span class="card-sub">top 10 by invocations</span>
+      </header>
+      {{if .ToolBars}}
+        <div class="bar-list">
+          {{range .ToolBars}}
+            <div class="bar-row">
+              <span class="bar-label">{{.Label}}</span>
+              <span class="bar-track"><span class="bar-fill" style="width: {{.Percent}}%"></span></span>
+              <span class="bar-count">{{.Count}}</span>
+            </div>
+          {{end}}
+        </div>
+      {{else}}
+        <div class="empty">no tool usage in this window.</div>
+      {{end}}
+    </section>
+
+    <section class="card">
+      <header class="card-head">
+        <h2>Models</h2>
+        <span class="card-sub">top 10 by sessions</span>
+      </header>
+      {{if .ModelBars}}
+        <div class="bar-list">
+          {{range .ModelBars}}
+            <div class="bar-row">
+              <span class="bar-label">{{.Label}}</span>
+              <span class="bar-track"><span class="bar-fill" style="width: {{.Percent}}%"></span></span>
+              <span class="bar-count">{{.Count}}</span>
+            </div>
+          {{end}}
+        </div>
+      {{else}}
+        <div class="empty">no model usage in this window.</div>
+      {{end}}
+    </section>
   </div>
 
-  {{if .DayGroups}}
-    {{range .DayGroups}}
-      <div class="day-header">{{.Label}}</div>
-      {{range .Sessions}}
-        <a class="session-row" href="?last={{$.Last}}&agent={{$.Agent}}&device={{$.Device}}&project={{$.Project}}&session={{.Id}}">
-          <span class="time">{{(.StartedAt.AsTime).Format "15:04"}}</span>
-          <span class="agent">{{.Agent}}</span>
-          <span class="project">{{or .ProjectMarker .ProjectRemote .ProjectPath "(unscoped)"}}</span>
-          <span class="prompt">{{.FirstPrompt}}</span>
-          <span class="dur">{{.RawSize}}b</span>
-        </a>
+  <div class="dashboard-grid">
+    <section class="card">
+      <header class="card-head">
+        <h2>Errors</h2>
+        <span class="card-sub">latest 20 sessions matching error heuristic</span>
+      </header>
+      {{if .ErrorRows}}
+        <table class="card-table">
+          <thead><tr>
+            {{range .ErrorHeaders}}<th>{{.}}</th>{{end}}
+          </tr></thead>
+          <tbody>
+            {{range .ErrorRows}}
+              <tr>
+                {{range .Values}}<td>{{.}}</td>{{end}}
+              </tr>
+            {{end}}
+          </tbody>
+        </table>
+      {{else}}
+        <div class="empty">no errors in this window.</div>
       {{end}}
-    {{end}}
-  {{else}}
-    <div class="empty">No sessions in this window.</div>
-  {{end}}
+    </section>
+
+    <section class="card">
+      <header class="card-head">
+        <h2>Usage</h2>
+        <span class="card-sub">tokens and estimated spend</span>
+      </header>
+      {{if .UsageRows}}
+        <div class="usage-summary">
+          <div>
+            <span class="usage-summary-value">{{.UsageTotalTokens}}</span>
+            <span class="usage-summary-label">tokens</span>
+          </div>
+          <div>
+            <span class="usage-summary-value">{{.UsageTotalCost}}</span>
+            <span class="usage-summary-label">estimated spend</span>
+          </div>
+        </div>
+        <div class="usage-list">
+          {{range .UsageRows}}
+            <div class="usage-row">
+              <div class="usage-head">
+                <div>
+                  <strong>{{.Agent}}</strong>
+                  <span>{{.Sessions}} sessions · {{.Measured}} measured</span>
+                </div>
+                <div class="usage-cost">{{.Cost}}</div>
+              </div>
+              <div class="usage-bar" aria-label="{{.Agent}} token share">
+                <span style="width: {{.Percent}}%"></span>
+              </div>
+              <div class="usage-breakdown">
+                <span>{{.Total}} total</span>
+                <span>{{.Input}} input</span>
+                <span>{{.Output}} output</span>
+                <span>{{.Cached}} cached</span>
+              </div>
+            </div>
+          {{end}}
+        </div>
+      {{else}}
+        <div class="empty">no usage measured in this window.</div>
+      {{end}}
+    </section>
+  </div>
 {{end}}
 
-{{define "side"}}{{- if .SidePanel}}{{template "side_panel_body" .SidePanel}}{{end -}}{{end}}
+{{define "side"}}{{end}}

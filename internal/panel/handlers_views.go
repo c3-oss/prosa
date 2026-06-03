@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"connectrpc.com/connect"
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	prosav1 "github.com/c3-oss/prosa/gen/go/prosa/v1"
@@ -21,70 +22,287 @@ import (
 	"github.com/c3-oss/prosa/internal/sessiontext"
 )
 
-// handleHome renders the cross-device timeline. Filters come from
-// query string; everything is server-rendered HTML so HTMX can swap
-// fragments later if needed.
+// handleHome renders the dashboard: KPI strip + heatmap card + tools /
+// models / errors / usage cards. Filters live in a collapsible <details>
+// block; they apply to every card except the heatmap (which is fixed at
+// the trailing 53 weeks). All reports fan out in parallel — the panel
+// is single-user, the Postgres queries are indexed, and the per-card
+// shape stays small enough that five independent RPCs beat one
+// aggregated dashboard RPC (cf. INTENT § "V2 platform trap").
 func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	window, err := parseWindow(q.Get("last"))
-	if err != nil {
-		http.Error(w, "bad last= "+err.Error(), http.StatusBadRequest)
-		return
+
+	// Default window 30d — the dashboard wants a roomier rolling view
+	// than the CLI's 7d, while still letting the user narrow via ?last=.
+	lastRaw := q.Get("last")
+	if lastRaw == "" {
+		lastRaw = "30d"
 	}
 	now := time.Now().UTC()
-	// Home has no device-filter UI; it just forwards any device= query
-	// param so chip-link navigation preserves state set elsewhere
-	// (analytics view). Accept both the legacy singular value and the
-	// multi-value shape the analytics dropdown emits.
-	deviceNames := pickDeviceNames(q)
-	req := &prosav1.ListRequest{
-		Since:       timestamppb.New(now.Add(-window)),
-		Until:       timestamppb.New(now),
-		Limit:       200,
-		DeviceNames: deviceNames,
+	var since, until time.Time
+	until = now
+	if lastRaw == "all" {
+		since = now.Add(-100 * 365 * 24 * time.Hour)
+	} else {
+		window, err := parseWindow(lastRaw)
+		if err != nil {
+			http.Error(w, "bad last= "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		since = now.Add(-window)
 	}
-	if v := q.Get("project"); v != "" {
-		req.ProjectMatch = v
+	heatmapSince, heatmapUntil := heatmapWindow(now)
+
+	agents := pickMulti(q, "agent")
+	projects := pickMulti(q, "project")
+	devices := pickDeviceNames(q)
+
+	// Build the shared filter knobs for the four windowed reports
+	// (tools, models, errors, usage). Heatmap uses its own request so
+	// the fixed-window override doesn't bleed into the others.
+	sharedReq := func(report string) *prosav1.GetReportRequest {
+		req := &prosav1.GetReportRequest{
+			Report:      report,
+			Since:       timestamppb.New(since),
+			Until:       timestamppb.New(until),
+			DeviceNames: devices,
+		}
+		// agent and project_match are single-valued on the wire; when
+		// the user selected multiple, fall back to "any" server-side
+		// (no narrowing) — the cards then reflect the full window. A
+		// future refinement could post-filter, but for v1 we keep the
+		// dashboard honest at the price of less precise multi-selects.
+		if len(agents) == 1 {
+			req.Agent = agents[0]
+		}
+		if len(projects) == 1 {
+			req.ProjectMatch = projects[0]
+		}
+		return req
 	}
-	if v := q.Get("agent"); v != "" {
-		req.Agent = v
+	heatmapReq := &prosav1.GetReportRequest{
+		Report:      "heatmap",
+		Since:       timestamppb.New(heatmapSince),
+		Until:       timestamppb.New(heatmapUntil),
+		DeviceNames: devices,
 	}
-	resp, err := p.clients.Sessions.List(r.Context(), connect.NewRequest(req))
-	if err != nil {
-		slog.Error("home sessions.list failed", "err", err)
-		http.Error(w, "list failed: "+err.Error(), http.StatusBadGateway)
+	if len(agents) == 1 {
+		heatmapReq.Agent = agents[0]
+	}
+	if len(projects) == 1 {
+		heatmapReq.ProjectMatch = projects[0]
+	}
+
+	// Sessions.List with limit=1 returns one row plus the unfiltered
+	// total — cheap way to get the "sessions in window" KPI without
+	// pulling the whole list.
+	sessionsReq := &prosav1.ListRequest{
+		Since:       timestamppb.New(since),
+		Until:       timestamppb.New(until),
+		Limit:       1,
+		DeviceNames: devices,
+	}
+	if len(agents) == 1 {
+		sessionsReq.Agent = agents[0]
+	}
+	if len(projects) == 1 {
+		sessionsReq.ProjectMatch = projects[0]
+	}
+
+	type fan struct {
+		sessions *prosav1.ListResponse
+		tools    *prosav1.GetReportResponse
+		models   *prosav1.GetReportResponse
+		errors   *prosav1.GetReportResponse
+		usage    *prosav1.GetReportResponse
+		heatmap  *prosav1.GetReportResponse
+		projects *prosav1.GetReportResponse // populates Projects KPI + future dropdown
+	}
+	var out fan
+	g, gctx := errgroup.WithContext(r.Context())
+	g.Go(func() error {
+		resp, err := p.clients.Sessions.List(gctx, connect.NewRequest(sessionsReq))
+		if err != nil {
+			return fmt.Errorf("sessions.list: %w", err)
+		}
+		out.sessions = resp.Msg
+		return nil
+	})
+	for _, spec := range []struct {
+		name string
+		req  *prosav1.GetReportRequest
+		dst  **prosav1.GetReportResponse
+	}{
+		{"tools", sharedReq("tools"), &out.tools},
+		{"models", sharedReq("models"), &out.models},
+		{"errors", sharedReq("errors"), &out.errors},
+		{"usage", sharedReq("usage"), &out.usage},
+		{"projects", sharedReq("projects"), &out.projects},
+		{"heatmap", heatmapReq, &out.heatmap},
+	} {
+		spec := spec
+		g.Go(func() error {
+			resp, err := p.clients.Analytics.GetReport(gctx, connect.NewRequest(spec.req))
+			if err != nil {
+				return fmt.Errorf("analytics %s: %w", spec.name, err)
+			}
+			*spec.dst = resp.Msg
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		slog.Error("home dashboard fan-out failed", "err", err)
+		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
-	groups := groupByDay(resp.Msg.Sessions, time.Local)
 
-	// Keep .Device (singular) populated so chip-link URLs preserve
-	// whatever the user picked. The first selected device wins; if the
-	// user has more than one selection from analytics, only one travels
-	// through home — but home has no UI to fix it up anyway.
-	deviceLegacy := ""
-	if len(deviceNames) > 0 {
-		deviceLegacy = deviceNames[0]
+	// Dropdown options for the hidden filter block.
+	deviceNames, _, err := p.loadDeviceLookup(r.Context())
+	if err != nil {
+		slog.Warn("home devices.list failed", "err", err)
 	}
+	projectNames := projectLabelsFromRows(out.projects.Rows)
+
+	heatmap := buildHeatmap(out.heatmap.Rows)
+	usageRows, usageTokens, usageCost := buildUsage(out.usage.Rows)
+
 	data := map[string]any{
-		"Title":     "Home",
-		"Nav":       "home",
-		"Last":      q.Get("last"),
-		"Project":   q.Get("project"),
-		"Agent":     q.Get("agent"),
-		"Device":    deviceLegacy,
-		"Sessions":  resp.Msg.Sessions,
-		"DayGroups": groups,
-	}
-	// Render side panel inline when ?session=<id>.
-	if sid := q.Get("session"); sid != "" {
-		sp, err := p.loadSidePanel(r.Context(), sid)
-		if err != nil {
-			slog.Warn("side panel load failed", "id", sid, "err", err)
-		} else {
-			data["SidePanel"] = sp
-		}
+		"Title": "Home",
+		"Nav":   "home",
+
+		// Filter state.
+		"Last":             lastRaw,
+		"Agents":           panelAgents,
+		"AgentsSelected":   selectionSet(agents),
+		"Projects":         projectNames,
+		"ProjectsSelected": selectionSet(projects),
+		"Devices":          deviceNames,
+		"DevicesSelected":  selectionSet(devices),
+
+		// KPI strip.
+		"SessionsKPI": out.sessions.TotalCount,
+		"ProjectsKPI": len(out.projects.Rows),
+		"ModelsKPI":   len(out.models.Rows),
+
+		// Heatmap card.
+		"HeatmapCells":    heatmap.Cells,
+		"HeatmapTotal":    heatmap.Total,
+		"HeatmapMax":      heatmap.Max,
+		"HeatmapWeekdays": heatmap.Weekdays,
+		"HeatmapMonths":   heatmap.Months,
+		"HeatmapColumns":  heatmap.Columns,
+
+		// Tools card.
+		"ToolHeaders": out.tools.Headers,
+		"ToolBars":    buildBarRows(out.tools.Rows, 10),
+
+		// Models card.
+		"ModelHeaders": out.models.Headers,
+		"ModelBars":    buildBarRows(out.models.Rows, 10),
+
+		// Errors card.
+		"ErrorHeaders": out.errors.Headers,
+		"ErrorRows":    clampRows(out.errors.Rows, 20),
+
+		// Usage card.
+		"UsageRows":        usageRows,
+		"UsageTotalTokens": formatPanelInt(usageTokens),
+		"UsageTotalCost":   usageCost,
 	}
 	p.render(w, "home", data)
+}
+
+// barRow is a single bar in a horizontal bar leaderboard. Used by the
+// Home tools/models cards. Pre-formatted so the template is dumb.
+type barRow struct {
+	Label   string
+	Count   string
+	Percent int
+}
+
+// buildBarRows turns analytics rows whose first column is the label and
+// second column is a count into bar rows, sorted by count desc and
+// capped at limit entries. Robust to malformed rows.
+func buildBarRows(rows []*prosav1.AnalyticsRow, limit int) []barRow {
+	type parsed struct {
+		label string
+		count int64
+	}
+	xs := make([]parsed, 0, len(rows))
+	var max int64
+	for _, row := range rows {
+		if len(row.Values) < 2 {
+			continue
+		}
+		label := strings.TrimSpace(row.Values[0])
+		if label == "" {
+			continue
+		}
+		count := parsePanelInt(row.Values[1])
+		if count <= 0 {
+			continue
+		}
+		xs = append(xs, parsed{label: label, count: count})
+		if count > max {
+			max = count
+		}
+	}
+	sort.SliceStable(xs, func(i, j int) bool {
+		if xs[i].count == xs[j].count {
+			return xs[i].label < xs[j].label
+		}
+		return xs[i].count > xs[j].count
+	})
+	if limit > 0 && len(xs) > limit {
+		xs = xs[:limit]
+	}
+	out := make([]barRow, 0, len(xs))
+	for _, x := range xs {
+		percent := 0
+		if max > 0 {
+			percent = int((x.count*100 + max - 1) / max)
+			if percent < 3 {
+				percent = 3
+			}
+		}
+		out = append(out, barRow{
+			Label:   x.label,
+			Count:   formatPanelInt(x.count),
+			Percent: percent,
+		})
+	}
+	return out
+}
+
+// clampRows returns at most limit rows. Convenience for dashboard
+// cards that surface "the last N" without bothering to compute a
+// dedicated query.
+func clampRows(rows []*prosav1.AnalyticsRow, limit int) []*prosav1.AnalyticsRow {
+	if limit > 0 && len(rows) > limit {
+		return rows[:limit]
+	}
+	return rows
+}
+
+// projectLabelsFromRows extracts unique project labels (first column
+// of each analytics-projects row) for use as the project dropdown
+// option set. Sorted alphabetically; empties dropped.
+func projectLabelsFromRows(rows []*prosav1.AnalyticsRow) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(rows))
+	for _, row := range rows {
+		if len(row.Values) == 0 {
+			continue
+		}
+		v := strings.TrimSpace(row.Values[0])
+		if v == "" || seen[v] {
+			continue
+		}
+		seen[v] = true
+		out = append(out, v)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // pickDeviceNames pulls every "device" entry from the query string,
@@ -408,51 +626,12 @@ func binaryPlaceholder(total int64) string {
 	return fmt.Sprintf("Binary content (%d bytes, preserved verbatim) — not displayable as text.", total)
 }
 
-// dayGroup is one row block in the timeline.
-type dayGroup struct {
-	Label    string
-	Sessions []*prosav1.Session
-}
-
-func groupByDay(in []*prosav1.Session, loc *time.Location) []dayGroup {
-	buckets := map[string][]*prosav1.Session{}
-	keys := []string{}
-	for _, s := range in {
-		k := s.StartedAt.AsTime().In(loc).Format("2006-01-02")
-		if _, ok := buckets[k]; !ok {
-			keys = append(keys, k)
-		}
-		buckets[k] = append(buckets[k], s)
-	}
-	sort.Sort(sort.Reverse(sort.StringSlice(keys)))
-	now := time.Now().In(loc)
-	out := make([]dayGroup, 0, len(keys))
-	for _, k := range keys {
-		t, _ := time.ParseInLocation("2006-01-02", k, loc)
-		out = append(out, dayGroup{Label: humanDay(t, now), Sessions: buckets[k]})
-	}
-	return out
-}
-
 // humanDuration is a panel-side wrapper around render.HumanDuration —
-// kept for backwards-compat with existing call sites in this file.
-// The canonical implementation lives in internal/panel/render so the
-// transcript divider can share the format with the stats cluster.
+// kept for backwards-compat with sessionDurationLabel. The canonical
+// implementation lives in internal/panel/render so the transcript
+// divider can share the format with the stats cluster.
 func humanDuration(d time.Duration) string {
 	return render.HumanDuration(d)
-}
-
-func humanDay(t, now time.Time) string {
-	d := now.Sub(t)
-	switch {
-	case d < 24*time.Hour && t.Day() == now.Day():
-		return "Today"
-	case d < 48*time.Hour && t.Day() == now.AddDate(0, 0, -1).Day():
-		return "Yesterday"
-	case d < 7*24*time.Hour:
-		return t.Format("Mon, Jan 2")
-	}
-	return t.Format("Mon, Jan 2 2006")
 }
 
 // heatmapWindow returns the fixed trailing-year window used by the
@@ -601,79 +780,6 @@ func (p *Panel) handleSSE(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleAnalytics renders one of the five reports. Report name comes
-// from the URL path; remaining filters mirror the home view.
-func (p *Panel) handleAnalytics(w http.ResponseWriter, r *http.Request) {
-	report := strings.TrimPrefix(r.URL.Path, "/analytics/")
-	if report == "" {
-		report = "sessions"
-	}
-	now := time.Now().UTC()
-	var since, until time.Time
-	if report == "heatmap" {
-		// Heatmap has a fixed trailing-year window; ?last= is ignored
-		// and the window chips are hidden on this report.
-		since, until = heatmapWindow(now)
-	} else {
-		window, err := parseWindow(r.URL.Query().Get("last"))
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		since, until = now.Add(-window), now
-	}
-	q := r.URL.Query()
-	selectedDevices := pickDeviceNames(q)
-	resp, err := p.clients.Analytics.GetReport(r.Context(),
-		connect.NewRequest(analyticsRequest(report, since, until, q)))
-	if err != nil {
-		slog.Error("analytics rpc failed", "report", report, "err", err)
-		http.Error(w, err.Error(), http.StatusBadGateway)
-		return
-	}
-	devices, err := p.listDeviceNames(r.Context())
-	if err != nil {
-		slog.Warn("analytics devices.list failed", "err", err)
-	}
-	selectedSet := map[string]bool{}
-	for _, d := range selectedDevices {
-		selectedSet[d] = true
-	}
-	data := map[string]any{
-		"Title":           "Analytics — " + report,
-		"Nav":             "analytics-" + report,
-		"Report":          report,
-		"Project":         q.Get("project"),
-		"Agent":           q.Get("agent"),
-		"Devices":         devices,
-		"SelectedDevices": selectedSet,
-		"DeviceSummary":   summarizeDevicePick(selectedDevices, len(devices)),
-		"Agents":          []string{"codex", "claude-code", "gemini", "antigravity", "hermes", "cursor"},
-		"Headers":         resp.Msg.Headers,
-		"Rows":            resp.Msg.Rows,
-	}
-	if report != "heatmap" {
-		data["Last"] = r.URL.Query().Get("last")
-		data["Windows"] = analyticsWindowLinks(r.URL.Query())
-	}
-	if report == "heatmap" {
-		view := buildHeatmap(resp.Msg.Rows)
-		data["HeatmapCells"] = view.Cells
-		data["HeatmapTotal"] = view.Total
-		data["HeatmapMax"] = view.Max
-		data["HeatmapWeekdays"] = view.Weekdays
-		data["HeatmapMonths"] = view.Months
-		data["HeatmapColumns"] = view.Columns
-	}
-	if report == "usage" {
-		rows, totalTokens, totalCost := buildUsage(resp.Msg.Rows)
-		data["UsageRows"] = rows
-		data["UsageTotalTokens"] = formatPanelInt(totalTokens)
-		data["UsageTotalCost"] = totalCost
-	}
-	p.render(w, "analytics", data)
-}
-
 func analyticsRequest(report string, since, until time.Time, q url.Values) *prosav1.GetReportRequest {
 	req := &prosav1.GetReportRequest{
 		Report:      report,
@@ -684,65 +790,6 @@ func analyticsRequest(report string, since, until time.Time, q url.Values) *pros
 	req.ProjectMatch = q.Get("project")
 	req.Agent = q.Get("agent")
 	return req
-}
-
-// listDeviceNames returns every authorized device's friendly name (or
-// raw ID when the friendly name is empty). The panel uses this list to
-// populate the multi-select device filter on analytics views.
-func (p *Panel) listDeviceNames(ctx context.Context) ([]string, error) {
-	resp, err := p.clients.Devices.List(ctx, connect.NewRequest(&prosav1.DevicesServiceListRequest{}))
-	if err != nil {
-		return nil, err
-	}
-	out := make([]string, 0, len(resp.Msg.Devices))
-	for _, d := range resp.Msg.Devices {
-		name := d.FriendlyName
-		if name == "" {
-			name = d.Id
-		}
-		out = append(out, name)
-	}
-	sort.Strings(out)
-	return out, nil
-}
-
-// summarizeDevicePick is what the dropdown button shows. "all devices"
-// when no selection, the single name when one, "N devices" otherwise.
-func summarizeDevicePick(selected []string, total int) string {
-	switch len(selected) {
-	case 0:
-		return "all devices"
-	case 1:
-		return selected[0]
-	default:
-		_ = total
-		return fmt.Sprintf("%d devices", len(selected))
-	}
-}
-
-func analyticsWindowLinks(q map[string][]string) map[string]string {
-	out := map[string]string{}
-	for _, last := range []string{"12h", "7d", "30d", "365d"} {
-		next := make(map[string][]string, len(q)+1)
-		for k, vals := range q {
-			cp := append([]string(nil), vals...)
-			next[k] = cp
-		}
-		next["last"] = []string{last}
-		out[last] = "?" + urlValues(next)
-	}
-	return out
-}
-
-func urlValues(q map[string][]string) string {
-	vals := make([]string, 0, len(q))
-	for k, vs := range q {
-		for _, v := range vs {
-			vals = append(vals, queryEscape(k)+"="+queryEscape(v))
-		}
-	}
-	sort.Strings(vals)
-	return strings.Join(vals, "&")
 }
 
 type heatmapCell struct {

@@ -10,6 +10,8 @@
 @import url("css/components/user-bubble.css");
 @import url("css/components/thinking.css");
 @import url("css/components/subagents.css");
+@import url("css/components/sessions-table.css");
+@import url("css/components/dashboard.css");
 
 /* Layout */
 .app {

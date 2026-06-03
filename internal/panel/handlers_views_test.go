@@ -78,7 +78,7 @@ func TestBinaryPlaceholderMentionsSize(t *testing.T) {
 func TestLoadViewsParsesAllTemplates(t *testing.T) {
 	views, err := loadViews()
 	require.NoError(t, err)
-	for _, name := range []string{"home", "devices", "analytics", "login", "cli_authorize", "side_panel", "raw_chunk"} {
+	for _, name := range []string{"home", "sessions", "projects", "settings", "devices", "login", "cli_authorize", "side_panel", "raw_chunk"} {
 		require.Contains(t, views, name, "view %q should be parsed", name)
 	}
 }
@@ -248,10 +248,4 @@ func TestPickDeviceNames(t *testing.T) {
 
 	emptyQ, _ := url.ParseQuery("agent=codex")
 	require.Empty(t, pickDeviceNames(emptyQ))
-}
-
-func TestSummarizeDevicePick(t *testing.T) {
-	require.Equal(t, "all devices", summarizeDevicePick(nil, 5))
-	require.Equal(t, "studio-m4", summarizeDevicePick([]string{"studio-m4"}, 5))
-	require.Equal(t, "3 devices", summarizeDevicePick([]string{"a", "b", "c"}, 5))
 }

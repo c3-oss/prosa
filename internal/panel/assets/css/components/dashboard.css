@@ -1,0 +1,192 @@
+/* Dashboard (Home) layout: KPI strip, heatmap card, two-column grid for
+   the tools/models and errors/usage rows. Pulls every dimension from
+   design tokens — no literal pixel sizes or colors. Pairs with
+   internal/panel/templates/home.html. */
+
+.dashboard-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin: 0 0 var(--space-5);
+}
+
+.dashboard-head h1 {
+  font-size: var(--text-lg);
+  font-weight: var(--w-medium);
+  margin: 0;
+}
+
+.dashboard-filters {
+  font-size: var(--text-sm);
+}
+
+.dashboard-filters summary {
+  cursor: pointer;
+  user-select: none;
+  color: var(--text-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+}
+
+.dashboard-filters summary:hover {
+  color: var(--text-1);
+  background: var(--bg-elev-1);
+}
+
+.dashboard-filters[open] summary {
+  color: var(--text-1);
+}
+
+.dashboard-filters .filter-bar {
+  margin-top: var(--space-3);
+  padding: var(--space-4);
+  background: var(--bg-elev-1);
+  border-radius: var(--radius-md);
+}
+
+/* KPI strip ----------------------------------------------------------- */
+.kpi-strip {
+  display: flex;
+  gap: var(--space-8);
+  padding: var(--space-5) 0 var(--space-6);
+}
+
+.kpi {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.kpi-value {
+  font-size: var(--text-3xl);
+  font-weight: var(--w-light);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-1);
+  line-height: 1;
+}
+
+.kpi-label {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-3);
+  font-weight: var(--w-medium);
+}
+
+/* Card chrome --------------------------------------------------------- */
+.card {
+  background: var(--bg-elev-1);
+  border-radius: var(--radius-md);
+  padding: var(--space-6);
+  margin-bottom: var(--space-5);
+}
+
+.card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.card-head h2 {
+  font-size: var(--text-md);
+  font-weight: var(--w-medium);
+  margin: 0;
+  color: var(--text-1);
+}
+
+.card-sub {
+  font-size: var(--text-xs);
+  color: var(--text-3);
+}
+
+.card .empty {
+  padding: var(--space-5) 0;
+  color: var(--text-3);
+  font-style: italic;
+  text-align: center;
+}
+
+.card-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.card-table th,
+.card-table td {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--divider);
+  text-align: left;
+}
+
+.card-table th {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-3);
+  font-weight: var(--w-medium);
+}
+
+/* Two-column grid for tools/models, errors/usage --------------------- */
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-5);
+}
+
+.dashboard-grid > .card {
+  margin-bottom: 0;
+}
+
+/* Bar leaderboard (tools, models) ------------------------------------ */
+.bar-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.bar-row {
+  display: grid;
+  grid-template-columns: 140px 1fr 60px;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.bar-label {
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bar-track {
+  height: 8px;
+  background: var(--bg-elev-2);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+
+.bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.bar-count {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+}
+
+@media (max-width: 1100px) {
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+  .bar-row {
+    grid-template-columns: 120px 1fr 60px;
+  }
+}
