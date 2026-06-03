@@ -25,7 +25,7 @@
               <button type="button" class="btn rename-cancel">Cancel</button>
             </form>
           </td>
-          <td>{{.Hostname}}</td>
+          <td><a href="/sessions?device={{if .FriendlyName}}{{.FriendlyName | urlquery}}{{else}}{{.Id | urlquery}}{{end}}" title="Open sessions for this device">{{.Hostname}}</a></td>
           <td>{{.Sessions}}</td>
           <td>{{if .LastSync}}{{(.LastSync.AsTime).Format "2006-01-02 15:04"}}{{else}}—{{end}}</td>
           <td>{{if .Revoked}}<span style="color: var(--danger)">revoked</span>{{else}}<span style="color: var(--ok)">active</span>{{end}}</td>

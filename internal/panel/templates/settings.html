@@ -1,0 +1,16 @@
+{{define "settings"}}{{template "base" .}}{{end}}
+{{define "side"}}{{end}}
+{{define "content"}}
+  <h1>Settings</h1>
+
+  <section class="settings-card">
+    <h2>Logged in as</h2>
+    <dl>
+      <dt>Email</dt>
+      <dd>{{.Email}}</dd>
+    </dl>
+    <form method="post" action="/logout">
+      <button class="btn" type="submit">Log out</button>
+    </form>
+  </section>
+{{end}}

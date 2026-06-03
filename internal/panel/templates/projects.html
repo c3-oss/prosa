@@ -1,0 +1,38 @@
+{{define "projects"}}{{template "base" .}}{{end}}
+{{define "side"}}{{end}}
+{{define "content"}}
+  <h1>Projects</h1>
+
+  <form method="get" action="/projects" class="filter-bar">
+    <label>Window
+      <select name="last">
+        <option value="12h" {{if eq .Last "12h"}}selected{{end}}>12h</option>
+        <option value="7d"  {{if eq .Last "7d"}}selected{{end}}>7d</option>
+        <option value="30d" {{if or (eq .Last "") (eq .Last "30d")}}selected{{end}}>30d</option>
+        <option value="365d" {{if eq .Last "365d"}}selected{{end}}>1y</option>
+      </select>
+      <button class="btn" type="submit">Apply</button>
+    </label>
+  </form>
+
+  {{if .Rows}}
+    <table>
+      <thead><tr>{{range .Headers}}<th>{{.}}</th>{{end}}</tr></thead>
+      <tbody>
+        {{range .Rows}}
+          <tr>
+            {{range $i, $v := .Values}}
+              {{if eq $i 0}}
+                <td><a href="/sessions?project={{urlquery $v}}&last={{$.Last}}">{{$v}}</a></td>
+              {{else}}
+                <td>{{$v}}</td>
+              {{end}}
+            {{end}}
+          </tr>
+        {{end}}
+      </tbody>
+    </table>
+  {{else}}
+    <div class="empty">No projects in this window.</div>
+  {{end}}
+{{end}}
