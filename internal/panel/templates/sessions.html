@@ -1,0 +1,159 @@
+{{define "sessions"}}{{template "base" .}}{{end}}
+
+{{define "side"}}{{- if .SidePanel}}{{template "side_panel_body" .SidePanel}}{{end -}}{{end}}
+
+{{define "content"}}
+  <h1 style="font-size: var(--text-lg); font-weight: var(--w-medium); margin: 0 0 var(--space-4)">Sessions</h1>
+
+  <form class="sessions-search" method="get" action="/sessions">
+    <input id="search" type="search" name="q" value="{{.Q}}" placeholder="search sessions (FTS)" autofocus>
+    {{if .Last}}<input type="hidden" name="last" value="{{.Last}}">{{end}}
+    {{range $a, $sel := .AgentsSelected}}{{if $sel}}<input type="hidden" name="agent" value="{{$a}}">{{end}}{{end}}
+    {{range $p, $sel := .ProjectsSelected}}{{if $sel}}<input type="hidden" name="project" value="{{$p}}">{{end}}{{end}}
+    {{range $d, $sel := .DevicesSelected}}{{if $sel}}<input type="hidden" name="device" value="{{$d}}">{{end}}{{end}}
+    {{if .Sort}}<input type="hidden" name="sort" value="{{.Sort}}">{{end}}
+    {{range $c, $on := .Cols}}{{if $on}}<input type="hidden" name="cols" value="{{$c}}">{{end}}{{end}}
+  </form>
+
+  <form class="filter-bar" method="get" action="/sessions">
+    <input type="hidden" name="q" value="{{.Q}}">
+    {{if .Sort}}<input type="hidden" name="sort" value="{{.Sort}}">{{end}}
+    {{range $c, $on := .Cols}}{{if $on}}<input type="hidden" name="cols" value="{{$c}}">{{end}}{{end}}
+
+    <label>
+      Window
+      <select name="last">
+        <option value="12h"  {{if eq .Last "12h"}}selected{{end}}>12h</option>
+        <option value="7d"   {{if eq .Last "7d"}}selected{{end}}>7d</option>
+        <option value="30d"  {{if or (eq .Last "") (eq .Last "30d")}}selected{{end}}>30d</option>
+        <option value="365d" {{if eq .Last "365d"}}selected{{end}}>1y</option>
+        <option value="all"  {{if eq .Last "all"}}selected{{end}}>all</option>
+      </select>
+    </label>
+
+    <label>
+      Agent
+      <div class="dropdown">
+        <button type="button" class="dropdown-toggle">
+          {{- $n := 0 -}}
+          {{- range $a, $sel := .AgentsSelected}}{{if $sel}}{{$n = 1}}{{end}}{{end -}}
+          {{- if eq $n 0}}all agents{{else}}selected{{end}} ▾
+        </button>
+        <div class="dropdown-menu" hidden>
+          {{$sel := .AgentsSelected}}
+          {{range .Agents}}
+            <label class="dropdown-item">
+              <input type="checkbox" name="agent" value="{{.}}" {{if index $sel .}}checked{{end}}>
+              <span>{{.}}</span>
+            </label>
+          {{end}}
+        </div>
+      </div>
+    </label>
+
+    <label>
+      Project
+      <div class="dropdown">
+        <button type="button" class="dropdown-toggle">
+          {{- $n := 0 -}}
+          {{- range $p, $sel := .ProjectsSelected}}{{if $sel}}{{$n = 1}}{{end}}{{end -}}
+          {{- if eq $n 0}}all projects{{else}}selected{{end}} ▾
+        </button>
+        <div class="dropdown-menu" hidden>
+          {{if .Projects}}
+            {{$sel := .ProjectsSelected}}
+            {{range .Projects}}
+              <label class="dropdown-item">
+                <input type="checkbox" name="project" value="{{.}}" {{if index $sel .}}checked{{end}}>
+                <span>{{.}}</span>
+              </label>
+            {{end}}
+          {{else}}
+            <div class="dropdown-empty">no projects in window</div>
+          {{end}}
+        </div>
+      </div>
+    </label>
+
+    <label>
+      Device
+      <div class="dropdown">
+        <button type="button" class="dropdown-toggle">
+          {{- $n := 0 -}}
+          {{- range $d, $sel := .DevicesSelected}}{{if $sel}}{{$n = 1}}{{end}}{{end -}}
+          {{- if eq $n 0}}all devices{{else}}selected{{end}} ▾
+        </button>
+        <div class="dropdown-menu" hidden>
+          {{if .Devices}}
+            {{$sel := .DevicesSelected}}
+            {{range .Devices}}
+              <label class="dropdown-item">
+                <input type="checkbox" name="device" value="{{.}}" {{if index $sel .}}checked{{end}}>
+                <span>{{.}}</span>
+              </label>
+            {{end}}
+          {{else}}
+            <div class="dropdown-empty">no devices yet</div>
+          {{end}}
+        </div>
+      </div>
+    </label>
+
+    <button class="btn" type="submit">Apply</button>
+  </form>
+
+  <details class="column-chooser">
+    <summary>Columns</summary>
+    <form method="get" action="/sessions">
+      <input type="hidden" name="q" value="{{.Q}}">
+      <input type="hidden" name="last" value="{{.Last}}">
+      {{if .Sort}}<input type="hidden" name="sort" value="{{.Sort}}">{{end}}
+      {{range $a, $sel := .AgentsSelected}}{{if $sel}}<input type="hidden" name="agent" value="{{$a}}">{{end}}{{end}}
+      {{range $p, $sel := .ProjectsSelected}}{{if $sel}}<input type="hidden" name="project" value="{{$p}}">{{end}}{{end}}
+      {{range $d, $sel := .DevicesSelected}}{{if $sel}}<input type="hidden" name="device" value="{{$d}}">{{end}}{{end}}
+      {{range $c, $on := .Cols}}
+        <label><input type="checkbox" name="cols" value="{{$c}}" {{if $on}}checked{{end}}> {{$c}}</label>
+      {{end}}
+      <button class="btn" type="submit">Update</button>
+    </form>
+  </details>
+
+  <table class="sessions-table">
+    <thead>
+      <tr>
+        {{if index .Cols "agent"}}<th>Agent</th>{{end}}
+        {{if index .Cols "project"}}<th>Project</th>{{end}}
+        {{if index .Cols "first_prompt"}}<th>First message</th>{{end}}
+        {{if index .Cols "tokens"}}<th class="cell-tokens"><a href="{{index .SortURLs "total_tokens"}}">Tokens{{if eq .Sort "total_tokens"}} ▾{{end}}</a></th>{{end}}
+        {{if index .Cols "cost"}}<th class="cell-tokens">Cost</th>{{end}}
+        {{if index .Cols "device"}}<th>Device</th>{{end}}
+        {{if index .Cols "id"}}<th>ID</th>{{end}}
+        <th><a href="{{index .SortURLs "started_at"}}">Started{{if or (eq .Sort "") (eq .Sort "started_at")}} ▾{{end}}</a></th>
+      </tr>
+    </thead>
+    <tbody>
+      {{range .Sessions}}
+        <tr class="session-row">
+          {{if index $.Cols "agent"}}<td>{{.Agent}}</td>{{end}}
+          {{if index $.Cols "project"}}<td>{{.ProjectLabel}}</td>{{end}}
+          {{if index $.Cols "first_prompt"}}<td><a href="{{.OpenURL}}">{{.FirstPrompt}}</a></td>{{end}}
+          {{if index $.Cols "tokens"}}<td class="cell-tokens">{{.TokensTotal}}</td>{{end}}
+          {{if index $.Cols "cost"}}<td class="cell-tokens">{{.Cost}}</td>{{end}}
+          {{if index $.Cols "device"}}<td>{{.Device}}</td>{{end}}
+          {{if index $.Cols "id"}}<td style="font-family: var(--mono); font-size: var(--text-xs)">{{.Id}}</td>{{end}}
+          <td>{{.StartedAt}}</td>
+        </tr>
+      {{else}}
+        <tr><td colspan="99" class="empty">nothing matched these filters.</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+
+  <div class="sessions-pagination">
+    <span>Page {{.Page}} of {{.PageCount}} · {{.TotalCount}} sessions</span>
+    <span>
+      {{if .PrevURL}}<a href="{{.PrevURL}}">← prev</a>{{end}}
+      {{if .NextURL}}<a href="{{.NextURL}}">next →</a>{{end}}
+    </span>
+  </div>
+{{end}}

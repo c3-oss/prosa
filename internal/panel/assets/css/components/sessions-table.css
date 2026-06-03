@@ -1,0 +1,140 @@
+/* Sessions table — full-width FTS search, filter row, column chooser,
+   row table, pagination. Pulls layout from design tokens; no literal
+   colors or sizes. Pairs with internal/panel/templates/sessions.html. */
+
+.sessions-search {
+  margin: 0 0 var(--space-4);
+}
+
+.sessions-search input {
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-md);
+  background: var(--bg-elev-1);
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-sm);
+  color: var(--text-1);
+}
+
+.sessions-search input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.column-chooser {
+  margin: var(--space-4) 0;
+}
+
+.column-chooser summary {
+  cursor: pointer;
+  font-size: var(--text-sm);
+  color: var(--text-2);
+  user-select: none;
+}
+
+.column-chooser summary:hover {
+  color: var(--text-1);
+}
+
+.column-chooser form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  background: var(--bg-elev-1);
+  border-radius: var(--radius-sm);
+}
+
+.column-chooser label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-2);
+}
+
+/* Table. Defaults to the same row rhythm as the panel's other tables
+   so the visual hierarchy stays consistent across pages. The class
+   selector overrides the bare `table` rules that style the analytics
+   tables so we keep tighter control over header alignment + hover. */
+.sessions-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.sessions-table th,
+.sessions-table td {
+  padding: var(--space-3) var(--space-4);
+  height: 40px;
+  border-bottom: 1px solid var(--divider);
+  text-align: left;
+  font-size: var(--text-sm);
+}
+
+.sessions-table th {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-3);
+  font-weight: var(--w-medium);
+}
+
+.sessions-table th a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.sessions-table th a:hover {
+  color: var(--text-1);
+  text-decoration: underline;
+}
+
+.sessions-table td.cell-tokens,
+.sessions-table th.cell-tokens {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.sessions-table tbody tr.session-row {
+  /* Override the global .session-row grid rule on this page only —
+     inside a <table> we need real table-row layout, not the
+     timeline's grid. Cascade specificity (tbody tr.session-row) wins
+     over the bare .session-row from style.css. */
+  display: table-row;
+  grid-template-columns: none;
+  cursor: default;
+  padding: 0;
+  border-radius: 0;
+  align-items: initial;
+}
+
+.sessions-table tbody tr.session-row:hover {
+  background: var(--bg-elev-2);
+}
+
+.sessions-table tbody td.empty {
+  text-align: center;
+  padding: var(--space-6) 0;
+  color: var(--text-3);
+  font-style: italic;
+}
+
+.sessions-pagination {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-4) 0;
+  font-size: var(--text-sm);
+  color: var(--text-3);
+}
+
+.sessions-pagination a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.sessions-pagination a:hover {
+  text-decoration: underline;
+}
