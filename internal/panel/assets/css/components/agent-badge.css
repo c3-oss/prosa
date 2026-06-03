@@ -1,0 +1,63 @@
+/* Agent badge — small colored pill that replaces plain-text agent
+   names in tables, headers, and dashboard cards. Each of the six known
+   agents has its own background tint + foreground hue; unknown agents
+   fall back to the muted variant. Pairs with the agentBadge Go
+   template helper in internal/panel/server.go. */
+
+.agent-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-full);
+  background: var(--bg-elev-2);
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: var(--w-medium);
+  text-transform: lowercase;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.agent-badge[data-agent="claude-code"],
+.agent-badge[data-agent="claude"] {
+  background: var(--agent-claude-soft);
+  color: var(--agent-claude);
+}
+
+.agent-badge[data-agent="codex"] {
+  background: var(--agent-codex-soft);
+  color: var(--agent-codex);
+}
+
+.agent-badge[data-agent="gemini"] {
+  background: var(--agent-gemini-soft);
+  color: var(--agent-gemini);
+}
+
+.agent-badge[data-agent="cursor"] {
+  background: var(--agent-cursor-soft);
+  color: var(--agent-cursor);
+}
+
+.agent-badge[data-agent="antigravity"],
+.agent-badge[data-agent="antigrav"] {
+  background: var(--agent-antigrav-soft);
+  color: var(--agent-antigrav);
+}
+
+.agent-badge[data-agent="hermes"] {
+  background: var(--agent-hermes-soft);
+  color: var(--agent-hermes);
+}
+
+/* Size variants — the table cell renders at the base size; the
+   sidepanel header can opt up via .agent-badge--md to match the
+   prompt-line baseline. */
+.agent-badge-md {
+  height: 22px;
+  padding: 0 var(--space-3);
+  font-size: var(--text-sm);
+}

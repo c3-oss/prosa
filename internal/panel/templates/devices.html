@@ -1,9 +1,9 @@
 {{define "devices"}}{{template "base" .}}{{end}}
 
 {{define "content"}}
-  {{if .Notice}}<div class="empty" style="padding: 12px; color: var(--ok)">✓ {{.Notice}}</div>{{end}}
+  {{if .Notice}}<div class="empty" style="color: var(--ok)">✓ {{.Notice}}</div>{{end}}
 
-  <h2 style="font-size: 14px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted)">Devices</h2>
+  <h1>Devices</h1>
   <table>
     <thead><tr>
       <th>ID</th><th>Friendly</th><th>Hostname</th><th>Sessions</th>
@@ -12,17 +12,16 @@
     <tbody>
       {{range .Devices}}
         <tr>
-          <td style="font-family: var(--mono); font-size: 12px">{{.Id}}</td>
+          <td class="text-mono">{{.Id}}</td>
           <td class="rename-cell" data-rename-id="{{.Id}}">
             <span class="rename-view">
               <span class="rename-name">{{.FriendlyName}}</span>
-              <button type="button" class="btn rename-edit">Edit</button>
+              <button type="button" class="btn btn-sm rename-edit">Edit</button>
             </span>
             <form method="post" action="/devices/{{.Id}}/rename" class="rename-form" hidden>
-              <input name="friendly_name" value="{{.FriendlyName}}" autocomplete="off"
-                     style="background: var(--bg); border: 1px solid var(--border); border-radius: 3px; padding: 3px 6px; color: var(--text); width: 140px; font-size: 12px">
-              <button class="btn" type="submit">Save</button>
-              <button type="button" class="btn rename-cancel">Cancel</button>
+              <input class="input input-sm" name="friendly_name" value="{{.FriendlyName}}" autocomplete="off">
+              <button class="btn btn-sm" type="submit">Save</button>
+              <button type="button" class="btn btn-sm rename-cancel">Cancel</button>
             </form>
           </td>
           <td><a href="/sessions?device={{if .FriendlyName}}{{.FriendlyName | urlquery}}{{else}}{{.Id | urlquery}}{{end}}" title="Open sessions for this device">{{.Hostname}}</a></td>

@@ -14,7 +14,7 @@
         <a class="btn btn-primary" href="{{.GitHubURL}}">Sign in with GitHub</a>
       {{end}}
       {{if .DevLoginEnabled}}
-        <form method="post" action="/dev-login" style="margin-top:14px">
+        <form method="post" action="/dev-login">
           <button class="btn" type="submit">Dev login as {{.DevLoginEmail}}</button>
         </form>
         <div class="dev-warn">
@@ -23,7 +23,7 @@
         </div>
       {{end}}
       {{if .Error}}
-        <p style="color: var(--danger); margin-top: 14px">{{.Error}}</p>
+        <p style="color: var(--danger)">{{.Error}}</p>
       {{end}}
     </div>
   </div>

@@ -1,0 +1,82 @@
+/* Cross-page typography contract. Pages and templates rely on these
+   element-level rules so headings, code blocks, and links render the
+   same regardless of which template hosts them. Inline `style="font-
+   size: …"` overrides are not allowed; if you find one, replace it
+   with one of the classes below or move it into the relevant
+   component CSS. */
+
+h1,
+h2,
+h3,
+h4 {
+  margin: 0;
+  color: var(--text-1);
+  font-weight: var(--w-medium);
+  line-height: 1.25;
+}
+
+/* Page title — one per page, sits at the top of `.main`. */
+h1 {
+  font-size: var(--text-xl);
+  font-weight: var(--w-light);
+  margin-bottom: var(--space-5);
+}
+
+/* Section heading inside a page (e.g. Dashboard cards, Settings
+   card). */
+h2 {
+  font-size: var(--text-md);
+  margin-bottom: var(--space-3);
+}
+
+/* Subsection heading — the "panel-section-title" feel: uppercase eyebrow
+   above grouped content (raw transcript, subagents, etc.). */
+h3 {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-3);
+  font-weight: var(--w-medium);
+  margin-bottom: var(--space-2);
+}
+
+/* Body paragraphs default to the base font; no extra rule needed. */
+
+/* Inline code in prose. Block code is styled per component (raw
+   transcript, assistant bubble). */
+code {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev-1);
+  color: var(--text-1);
+}
+
+pre {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+  margin: 0;
+}
+
+/* Links — `--accent` underline on hover (base.css default). The base
+   stays canonical so we don't have to duplicate. */
+
+/* Utility classes for in-template typography that doesn't justify a
+   dedicated component. Reach for these when a span / dd / dt needs to
+   match a known shape. */
+.text-mono {
+  font-family: var(--font-mono);
+}
+
+.text-meta {
+  font-size: var(--text-xs);
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.text-muted {
+  color: var(--text-2);
+}

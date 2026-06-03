@@ -68,4 +68,22 @@
   --duration-base: 120ms;
   --duration-slow: 180ms;
   --ease: cubic-bezier(0.2, 0, 0, 1);
+
+  /* Agent palette ---------------------------------------------------- */
+  /* Six discrete agents map to six discrete hues. The colors carry
+     scannability on the Sessions table; the short label carries the
+     identity. Background uses a soft alpha so a row of badges doesn't
+     dominate. Foreground is the pure hue. */
+  --agent-claude: #e8943a;
+  --agent-claude-soft: #e8943a26;
+  --agent-codex: #b780fa;
+  --agent-codex-soft: #b780fa26;
+  --agent-gemini: #5fa3f7;
+  --agent-gemini-soft: #5fa3f726;
+  --agent-cursor: #4ade80;
+  --agent-cursor-soft: #4ade8026;
+  --agent-antigrav: #f06bcd;
+  --agent-antigrav-soft: #f06bcd26;
+  --agent-hermes: #5be0d6;
+  --agent-hermes-soft: #5be0d626;
 }

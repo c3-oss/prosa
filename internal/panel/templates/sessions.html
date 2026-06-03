@@ -3,7 +3,7 @@
 {{define "side"}}{{- if .SidePanel}}{{template "side_panel_body" .SidePanel}}{{end -}}{{end}}
 
 {{define "content"}}
-  <h1 style="font-size: var(--text-lg); font-weight: var(--w-medium); margin: 0 0 var(--space-4)">Sessions</h1>
+  <h1>Sessions</h1>
 
   <form class="sessions-search" method="get" action="/sessions">
     <input id="search" type="search" name="q" value="{{.Q}}" placeholder="search sessions (FTS)" autofocus>
@@ -140,7 +140,7 @@
           {{if index $.Cols "tokens"}}<td class="cell-tokens">{{.TokensTotal}}</td>{{end}}
           {{if index $.Cols "cost"}}<td class="cell-tokens">{{.Cost}}</td>{{end}}
           {{if index $.Cols "device"}}<td>{{.Device}}</td>{{end}}
-          {{if index $.Cols "id"}}<td style="font-family: var(--mono); font-size: var(--text-xs)">{{.Id}}</td>{{end}}
+          {{if index $.Cols "id"}}<td class="text-mono">{{.Id}}</td>{{end}}
           <td>{{.StartedAt}}</td>
         </tr>
       {{else}}
