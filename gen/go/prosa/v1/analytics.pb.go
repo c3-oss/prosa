@@ -7,12 +7,11 @@
 package prosav1
 
 import (
-	reflect "reflect"
-	sync "sync"
-
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
+	reflect "reflect"
+	sync "sync"
 )
 
 const (
@@ -304,15 +303,13 @@ func file_prosa_v1_analytics_proto_rawDescGZIP() []byte {
 	return file_prosa_v1_analytics_proto_rawDescData
 }
 
-var (
-	file_prosa_v1_analytics_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
-	file_prosa_v1_analytics_proto_goTypes  = []any{
-		(*GetReportRequest)(nil),      // 0: prosa.v1.GetReportRequest
-		(*GetReportResponse)(nil),     // 1: prosa.v1.GetReportResponse
-		(*AnalyticsRow)(nil),          // 2: prosa.v1.AnalyticsRow
-		(*timestamppb.Timestamp)(nil), // 3: google.protobuf.Timestamp
-	}
-)
+var file_prosa_v1_analytics_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_prosa_v1_analytics_proto_goTypes = []any{
+	(*GetReportRequest)(nil),      // 0: prosa.v1.GetReportRequest
+	(*GetReportResponse)(nil),     // 1: prosa.v1.GetReportResponse
+	(*AnalyticsRow)(nil),          // 2: prosa.v1.AnalyticsRow
+	(*timestamppb.Timestamp)(nil), // 3: google.protobuf.Timestamp
+}
 var file_prosa_v1_analytics_proto_depIdxs = []int32{
 	3, // 0: prosa.v1.GetReportRequest.since:type_name -> google.protobuf.Timestamp
 	3, // 1: prosa.v1.GetReportRequest.until:type_name -> google.protobuf.Timestamp
