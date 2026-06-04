@@ -175,7 +175,7 @@
               <a href="{{.OpenURL}}" title="{{.FirstPromptFull}}">{{or .FirstPrompt "(no prompt)"}}</a>
             </td>
           {{end}}
-          {{if index $.Cols "tokens"}}<td class="cell-tokens">{{.TokensTotal}}</td>{{end}}
+          {{if index $.Cols "tokens"}}<td class="cell-tokens" title="{{.TokensTotalFull}}">{{.TokensTotal}}</td>{{end}}
           {{if index $.Cols "cost"}}<td class="cell-tokens">{{.Cost}}</td>{{end}}
           {{if index $.Cols "device"}}<td>{{.Device}}</td>{{end}}
           {{if index $.Cols "id"}}<td class="text-mono">{{.Id}}</td>{{end}}

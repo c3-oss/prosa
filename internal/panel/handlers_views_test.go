@@ -249,3 +249,28 @@ func TestPickDeviceNames(t *testing.T) {
 	emptyQ, _ := url.ParseQuery("agent=codex")
 	require.Empty(t, pickDeviceNames(emptyQ))
 }
+
+func TestFormatTokensCompact(t *testing.T) {
+	tests := []struct {
+		n    int64
+		want string
+	}{
+		{0, "0"},
+		{850, "850"},
+		{999, "999"},
+		{1000, "1k"},
+		{1200, "1.2k"},
+		{2000, "2k"},
+		{999_499, "999.5k"},
+		{999_990, "1m"},
+		{1_000_000, "1m"},
+		{1_234_567, "1.2m"},
+		{2_363_628_148, "2.4b"},
+		{-1500, "-1.5k"},
+	}
+	for _, tc := range tests {
+		t.Run(strconv.FormatInt(tc.n, 10), func(t *testing.T) {
+			require.Equal(t, tc.want, formatTokensCompact(tc.n))
+		})
+	}
+}

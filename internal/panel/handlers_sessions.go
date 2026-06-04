@@ -42,6 +42,7 @@ type sessionRow struct {
 	FirstPrompt     string
 	FirstPromptFull string
 	TokensTotal     string
+	TokensTotalFull string
 	TokensIn        string
 	TokensOut       string
 	Cost            string
@@ -561,7 +562,8 @@ func buildSessionRow(s *prosav1.Session, current *url.URL, deviceLookup map[stri
 		ProjectProvider: proj.Provider,
 		FirstPrompt:     s.FirstPrompt,
 		FirstPromptFull: s.FirstPrompt,
-		TokensTotal:     formatPanelInt(usage.TotalTokens),
+		TokensTotal:     formatTokensCompact(usage.TotalTokens),
+		TokensTotalFull: formatPanelInt(usage.TotalTokens),
 		TokensIn:        formatPanelInt(usage.InputTokens),
 		TokensOut:       formatPanelInt(usage.OutputTokens),
 		Cost:            costLabel,
