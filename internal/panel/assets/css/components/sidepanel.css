@@ -39,13 +39,18 @@
 .sp-close {
   flex-shrink: 0;
   margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
   background: transparent;
   border: 1px solid var(--divider);
   border-radius: var(--radius-sm);
   color: var(--text-3);
-  font-size: var(--text-xs);
-  letter-spacing: 0.04em;
-  padding: 4px 8px;
+  font-size: var(--text-lg);
+  line-height: 1;
   cursor: pointer;
   transition: color var(--duration-fast) var(--ease),
               border-color var(--duration-fast) var(--ease);
@@ -69,6 +74,22 @@
   margin-bottom: var(--space-7);
   padding-bottom: var(--space-6);
   border-bottom: 1px solid var(--divider);
+}
+
+.sp-meta .project-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.sp-meta .project-link:hover {
+  text-decoration: underline;
+}
+
+.sp-meta .project-icon {
+  flex-shrink: 0;
 }
 
 .stat-kpi {

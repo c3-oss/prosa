@@ -7,8 +7,8 @@
       <div class="sp-prompt">{{or .Session.FirstPrompt "(no prompt)"}}</div>
     </div>
     <button class="sp-close" type="button"
-            aria-label="close session detail"
-            onclick="document.getElementById('side-panel').innerHTML='';var u=new URL(window.location);u.searchParams.delete('session');window.history.replaceState({}, '', u);">esc</button>
+            aria-label="Close (Esc)"
+            title="Close (Esc)">×</button>
   </header>
 
   <div class="sp-body">
@@ -29,6 +29,14 @@
         <div class="stat-value sp-model">{{or .Session.Model "—"}}</div>
         <div class="stat-label">model</div>
       </div>
+      <div class="stat-kpi">
+        <div class="stat-value">{{.TokensTotal}}</div>
+        <div class="stat-label">tokens</div>
+      </div>
+      <div class="stat-kpi">
+        <div class="stat-value">{{.Cost}}</div>
+        <div class="stat-label">cost</div>
+      </div>
     </section>
 
     <dl class="sp-meta">
@@ -36,7 +44,8 @@
       <dt>Started</dt><dd>{{(.Session.StartedAt.AsTime).Format "2006-01-02 15:04:05"}}</dd>
       <dt>Last activity</dt><dd>{{(.Session.LastActivityAt.AsTime).Format "2006-01-02 15:04:05"}}</dd>
       <dt>Device</dt><dd class="mono">{{.Session.DeviceId}}</dd>
-      <dt>Project</dt><dd>{{or .Session.ProjectMarker .Session.ProjectRemote .Session.ProjectPath "(unscoped)"}}</dd>
+      <dt>Project</dt><dd>{{projectLink .Project}}</dd>
+      <dt>Tokens</dt><dd class="mono">{{.TokensIn}} in · {{.TokensOut}} out · {{.TokensTotal}} total</dd>
       <dt>Raw</dt><dd class="mono sp-meta-raw">{{.Session.RawSize}} bytes · {{.Session.RawHash}}</dd>
       <dt>Tools</dt><dd>
         {{if .Tools}}

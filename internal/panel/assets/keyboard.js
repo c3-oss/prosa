@@ -15,6 +15,14 @@
       list[i].scrollIntoView({ block: "nearest" });
     }
   }
+  function closeSidePanel() {
+    var panel = document.querySelector("#side-panel");
+    if (!panel || !panel.innerHTML.trim()) return;
+    panel.innerHTML = "";
+    var url = new URL(window.location);
+    url.searchParams.delete("session");
+    window.history.replaceState({}, "", url);
+  }
   document.addEventListener("keydown", function (ev) {
     if (ev.target.tagName === "INPUT" || ev.target.tagName === "TEXTAREA") {
       if (ev.key === "Escape") ev.target.blur();
@@ -34,11 +42,7 @@
       return;
     }
     if (ev.key === "Escape") {
-      var panel = document.querySelector("#side-panel");
-      if (panel) panel.innerHTML = "";
-      var url = new URL(window.location);
-      url.searchParams.delete("session");
-      window.history.replaceState({}, "", url);
+      closeSidePanel();
       return;
     }
     var list = rows();
@@ -56,5 +60,16 @@
         list[i].click();
       }
     }
+  });
+  document.addEventListener("click", function (ev) {
+    var panel = document.querySelector("#side-panel");
+    if (!panel || !panel.innerHTML.trim()) return;
+    if (ev.target.closest(".sp-close")) {
+      closeSidePanel();
+      return;
+    }
+    if (ev.target.closest("#side-panel")) return;
+    if (ev.target.closest('a[href*="session="]')) return;
+    closeSidePanel();
   });
 })();

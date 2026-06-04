@@ -19,6 +19,7 @@ import (
 
 	prosav1 "github.com/c3-oss/prosa/gen/go/prosa/v1"
 	"github.com/c3-oss/prosa/internal/panel/render"
+	"github.com/c3-oss/prosa/internal/pricing"
 	"github.com/c3-oss/prosa/internal/sessiontext"
 )
 
@@ -432,6 +433,11 @@ func (p *Panel) handleRawChunk(w http.ResponseWriter, r *http.Request) {
 // loadSidePanel so the template stays declarative.
 type sidePanelData struct {
 	Session       *prosav1.Session
+	Project       projectDisplay
+	TokensTotal   string
+	TokensIn      string
+	TokensOut     string
+	Cost          string
 	Turns         []render.Turn
 	TurnGroups    []render.TurnGroup
 	Tools         []*prosav1.ToolUsage
@@ -477,15 +483,26 @@ func (p *Panel) loadSidePanel(ctx context.Context, id string) (sidePanelData, er
 	} else {
 		children = childResp.Msg.Sessions
 	}
+	sess := getResp.Msg.Session
+	usage := tokenUsageFromProto(sess.GetUsage())
+	costLabel := "n/a"
+	if cost, ok := pricing.CostUSD(sess.GetModel(), usage); ok {
+		costLabel = fmt.Sprintf("$%.2f", cost)
+	}
 	sp := sidePanelData{
-		Session:       getResp.Msg.Session,
+		Session:       sess,
+		Project:       projectDisplayFromSession(sess),
+		TokensTotal:   formatPanelInt(usage.TotalTokens),
+		TokensIn:      formatPanelInt(usage.InputTokens),
+		TokensOut:     formatPanelInt(usage.OutputTokens),
+		Cost:          costLabel,
 		Turns:         turns,
 		TurnGroups:    render.GroupTurns(turns),
 		Tools:         getResp.Msg.Tools,
 		Children:      children,
 		TurnsCount:    countMessageDisplayTurns(turns),
 		ToolsCount:    sumToolCounts(getResp.Msg.Tools),
-		DurationLabel: sessionDurationLabel(getResp.Msg.Session),
+		DurationLabel: sessionDurationLabel(sess),
 		Chunk:         chunkText,
 		EOF:           eof,
 		Total:         rawResp.Msg.TotalSize,
