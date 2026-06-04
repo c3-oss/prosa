@@ -554,8 +554,10 @@ type ListRequest struct {
 	Offset int32 `protobuf:"varint,12,opt,name=offset,proto3" json:"offset,omitempty"`
 	// sort_by selects the order. Allowed values: "" (default,
 	// started_at desc), "started_at" (same), "total_tokens"
-	// (descending, NULLS last). Any other value is rejected. Ignored
-	// when query is set (FTS rank wins).
+	// (descending, NULLS last), "agent", "project", "device" (ascending,
+	// NULLS last for project/device). Any other value is rejected.
+	// Ignored when query is set (FTS rank wins). Cost sorting is handled
+	// in the panel (not stored server-side).
 	SortBy        string `protobuf:"bytes,13,opt,name=sort_by,json=sortBy,proto3" json:"sort_by,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

@@ -240,6 +240,15 @@ func (h *SessionsHandler) List(ctx context.Context, req *connect.Request[prosav1
 		orderBy = "_rank DESC, s.started_at DESC"
 	} else if sortBy == "total_tokens" {
 		orderBy = "su.total_tokens DESC NULLS LAST, s.started_at DESC"
+	} else if sortBy == "agent" {
+		orderBy = "s.agent ASC, s.started_at DESC"
+	} else if sortBy == "project" {
+		orderBy = "COALESCE(NULLIF(s.project_marker, ''), NULLIF(s.project_remote, ''), NULLIF(s.project_path, '')) ASC NULLS LAST, s.started_at DESC"
+	} else if sortBy == "device" {
+		if join == "" {
+			join = " LEFT JOIN devices d ON d.id = s.device_id"
+		}
+		orderBy = "COALESCE(NULLIF(d.friendly_name, ''), s.device_id) ASC, s.started_at DESC"
 	} else {
 		orderBy = "s.started_at DESC"
 	}
@@ -294,8 +303,10 @@ func normalizeListSort(v string) (string, error) {
 		return "started_at", nil
 	case "total_tokens":
 		return "total_tokens", nil
+	case "agent", "project", "device":
+		return v, nil
 	default:
-		return "", fmt.Errorf("invalid sort_by %q (allowed: started_at, total_tokens)", v)
+		return "", fmt.Errorf("invalid sort_by %q (allowed: started_at, total_tokens, agent, project, device)", v)
 	}
 }
 
