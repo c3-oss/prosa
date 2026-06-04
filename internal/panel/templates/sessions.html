@@ -40,13 +40,17 @@
 
     <label>
       Window
-      <select name="last">
-        <option value="12h"  {{if eq .Last "12h"}}selected{{end}}>12h</option>
-        <option value="7d"   {{if eq .Last "7d"}}selected{{end}}>7d</option>
-        <option value="30d"  {{if or (eq .Last "") (eq .Last "30d")}}selected{{end}}>30d</option>
-        <option value="365d" {{if eq .Last "365d"}}selected{{end}}>1y</option>
-        <option value="all"  {{if eq .Last "all"}}selected{{end}}>all</option>
-      </select>
+      <div class="dropdown">
+        <button type="button" class="dropdown-toggle">{{.WindowLabel}} ▾</button>
+        <div class="dropdown-menu" hidden>
+          {{$last := .Last}}
+          <label class="dropdown-item"><input type="radio" name="last" value="12h" {{if eq $last "12h"}}checked{{end}}><span>12h</span></label>
+          <label class="dropdown-item"><input type="radio" name="last" value="7d" {{if eq $last "7d"}}checked{{end}}><span>7d</span></label>
+          <label class="dropdown-item"><input type="radio" name="last" value="30d" {{if or (eq $last "") (eq $last "30d")}}checked{{end}}><span>30d</span></label>
+          <label class="dropdown-item"><input type="radio" name="last" value="365d" {{if eq $last "365d"}}checked{{end}}><span>1y</span></label>
+          <label class="dropdown-item"><input type="radio" name="last" value="all" {{if eq $last "all"}}checked{{end}}><span>all</span></label>
+        </div>
+      </div>
     </label>
 
     <label>
@@ -117,50 +121,63 @@
       </div>
     </label>
 
+    <label>
+      Columns
+      <div class="dropdown dropdown-columns">
+        <button type="button" class="dropdown-toggle">columns ▾</button>
+        <div class="dropdown-menu dropdown-menu-wide" hidden>
+          {{range $c, $on := .Cols}}
+            <label class="dropdown-item">
+              <input type="checkbox" name="cols" value="{{$c}}" {{if $on}}checked{{end}}>
+              <span>{{$c}}</span>
+            </label>
+          {{end}}
+        </div>
+      </div>
+    </label>
+
     <noscript><button class="btn" type="submit">Apply</button></noscript>
   </form>
-
-  <details class="column-chooser">
-    <summary>Columns</summary>
-    <form method="get" action="/sessions"
-          x-data @change="$el.requestSubmit()">
-      <input type="hidden" name="q" value="{{.Q}}">
-      <input type="hidden" name="last" value="{{.Last}}">
-      {{if .Sort}}<input type="hidden" name="sort" value="{{.Sort}}">{{end}}
-      {{range $a, $sel := .AgentsSelected}}{{if $sel}}<input type="hidden" name="agent" value="{{$a}}">{{end}}{{end}}
-      {{range $p, $sel := .ProjectsSelected}}{{if $sel}}<input type="hidden" name="project" value="{{$p}}">{{end}}{{end}}
-      {{range $d, $sel := .DevicesSelected}}{{if $sel}}<input type="hidden" name="device" value="{{$d}}">{{end}}{{end}}
-      {{range $c, $on := .Cols}}
-        <label><input type="checkbox" name="cols" value="{{$c}}" {{if $on}}checked{{end}}> {{$c}}</label>
-      {{end}}
-      <noscript><button class="btn" type="submit">Update</button></noscript>
-    </form>
-  </details>
 
   <table class="sessions-table">
     <thead>
       <tr>
-        {{if index .Cols "agent"}}<th>Agent</th>{{end}}
-        {{if index .Cols "project"}}<th>Project</th>{{end}}
+        {{if index .Cols "agent"}}<th><a href="{{index .SortURLs "agent"}}">Agent{{if eq .Sort "agent"}} ▾{{end}}</a></th>{{end}}
+        {{if index .Cols "project"}}<th><a href="{{index .SortURLs "project"}}">Project{{if eq .Sort "project"}} ▾{{end}}</a></th>{{end}}
         {{if index .Cols "first_prompt"}}<th>First message</th>{{end}}
         {{if index .Cols "tokens"}}<th class="cell-tokens"><a href="{{index .SortURLs "total_tokens"}}">Tokens{{if eq .Sort "total_tokens"}} ▾{{end}}</a></th>{{end}}
-        {{if index .Cols "cost"}}<th class="cell-tokens">Cost</th>{{end}}
-        {{if index .Cols "device"}}<th>Device</th>{{end}}
+        {{if index .Cols "cost"}}<th class="cell-tokens"><a href="{{index .SortURLs "cost"}}">Cost{{if eq .Sort "cost"}} ▾{{end}}</a></th>{{end}}
+        {{if index .Cols "device"}}<th><a href="{{index .SortURLs "device"}}">Device{{if eq .Sort "device"}} ▾{{end}}</a></th>{{end}}
         {{if index .Cols "id"}}<th>ID</th>{{end}}
-        <th><a href="{{index .SortURLs "started_at"}}">Started{{if or (eq .Sort "") (eq .Sort "started_at")}} ▾{{end}}</a></th>
+        <th class="cell-started"><a href="{{index .SortURLs "started_at"}}">Started{{if or (eq .Sort "") (eq .Sort "started_at")}} ▾{{end}}</a></th>
       </tr>
     </thead>
     <tbody>
       {{range .Sessions}}
-        <tr class="session-row">
+        <tr class="session-row" data-href="{{.OpenURL}}">
           {{if index $.Cols "agent"}}<td>{{agentBadge .Agent}}</td>{{end}}
-          {{if index $.Cols "project"}}<td>{{.ProjectLabel}}</td>{{end}}
-          {{if index $.Cols "first_prompt"}}<td><a href="{{.OpenURL}}">{{.FirstPrompt}}</a></td>{{end}}
+          {{if index $.Cols "project"}}
+            <td class="cell-project">
+              {{if .ProjectURL}}
+                <a class="project-link" href="{{.ProjectURL}}" target="_blank" rel="noopener" onclick="event.stopPropagation()">
+                  {{if eq .ProjectProvider "github"}}{{template "icon-github"}}{{else if eq .ProjectProvider "gitlab"}}{{template "icon-gitlab"}}{{end}}
+                  <span>{{.ProjectLabel}}</span>
+                </a>
+              {{else}}
+                {{.ProjectLabel}}
+              {{end}}
+            </td>
+          {{end}}
+          {{if index $.Cols "first_prompt"}}
+            <td class="cell-prompt">
+              <a href="{{.OpenURL}}" title="{{.FirstPromptFull}}">{{or .FirstPrompt "(no prompt)"}}</a>
+            </td>
+          {{end}}
           {{if index $.Cols "tokens"}}<td class="cell-tokens">{{.TokensTotal}}</td>{{end}}
           {{if index $.Cols "cost"}}<td class="cell-tokens">{{.Cost}}</td>{{end}}
           {{if index $.Cols "device"}}<td>{{.Device}}</td>{{end}}
           {{if index $.Cols "id"}}<td class="text-mono">{{.Id}}</td>{{end}}
-          <td>{{.StartedAt}}</td>
+          <td class="cell-started"><time title="{{.StartedAtFull}}">{{.StartedRel}}</time></td>
         </tr>
       {{else}}
         <tr><td colspan="99" class="empty">

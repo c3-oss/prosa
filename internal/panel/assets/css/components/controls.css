@@ -140,7 +140,7 @@
   flex-wrap: wrap;
 }
 
-.filter-bar label {
+.filter-bar > label {
   display: grid;
   gap: var(--space-1);
   color: var(--text-3);
@@ -161,7 +161,7 @@
    chrome as .input/.select so legacy templates render consistently
    even before they're migrated. */
 .filter-bar select,
-.filter-bar input {
+.filter-bar input:not([type="checkbox"]) {
   height: 32px;
   padding: 0 var(--space-3);
   background: var(--bg-elev-2);

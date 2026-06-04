@@ -147,10 +147,24 @@
     });
   }
 
+  // --- session table row open ----------------------------------------------
+  function initRowOpen(root) {
+    root.querySelectorAll('tr.session-row[data-href]').forEach(function (row) {
+      if (row.dataset.boundOpen === '1') return;
+      row.dataset.boundOpen = '1';
+      row.addEventListener('click', function (ev) {
+        if (ev.target.closest('a, button, input, label, select, textarea')) return;
+        var href = row.getAttribute('data-href');
+        if (href) window.location.href = href;
+      });
+    });
+  }
+
   function initAll(root) {
     initDropdowns(root);
     initHeatmap(root);
     initRename(root);
+    initRowOpen(root);
   }
 
   if (document.readyState === 'loading') {

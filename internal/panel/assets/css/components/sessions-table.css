@@ -21,38 +21,12 @@
   border-color: var(--accent);
 }
 
-.column-chooser {
-  margin: var(--space-4) 0;
+.filter-bar {
+  margin-bottom: var(--space-4);
 }
 
-.column-chooser summary {
-  cursor: pointer;
-  font-size: var(--text-sm);
-  color: var(--text-2);
-  user-select: none;
-}
-
-.column-chooser summary:hover {
-  color: var(--text-1);
-}
-
-.column-chooser form {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-3);
-  align-items: center;
-  margin-top: var(--space-3);
-  padding: var(--space-3);
-  background: var(--bg-elev-1);
-  border-radius: var(--radius-sm);
-}
-
-.column-chooser label {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-size: var(--text-sm);
-  color: var(--text-2);
+.dropdown-menu-wide {
+  min-width: 200px;
 }
 
 /* Table. Defaults to the same row rhythm as the panel's other tables
@@ -104,10 +78,48 @@
      over the bare .session-row from style.css. */
   display: table-row;
   grid-template-columns: none;
-  cursor: default;
+  cursor: pointer;
   padding: 0;
   border-radius: 0;
   align-items: initial;
+}
+
+.sessions-table .cell-prompt {
+  max-width: 360px;
+}
+
+.sessions-table .cell-prompt a {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 360px;
+}
+
+.sessions-table .cell-prompt a.is-empty {
+  color: var(--text-3);
+  font-style: italic;
+}
+
+.sessions-table .cell-started,
+.sessions-table th.cell-started {
+  white-space: nowrap;
+}
+
+.sessions-table .cell-project .project-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.sessions-table .cell-project .project-link:hover {
+  text-decoration: underline;
+}
+
+.sessions-table .cell-project .project-icon {
+  flex-shrink: 0;
 }
 
 .sessions-table tbody tr.session-row:hover {

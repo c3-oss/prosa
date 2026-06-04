@@ -599,11 +599,11 @@ tr:hover {
     align-items: stretch;
   }
 
-  .filter-bar label {
+  .filter-bar > label {
     flex: 1 1 150px;
   }
 
-  .filter-bar input,
+  .filter-bar input:not([type="checkbox"]),
   .filter-bar select {
     width: 100%;
     min-width: 0;

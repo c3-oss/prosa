@@ -32,19 +32,24 @@ const sessionsPageLimit = 50
 
 // sessionRow is one row of the Sessions table, pre-formatted for the
 // template so the view stays declarative. Cost is "$x.xx" or "n/a",
-// Tokens* are comma-grouped strings, StartedAt is local time.
+// Tokens* are comma-grouped strings, StartedAt* are display timestamps.
 type sessionRow struct {
-	Id           string
-	Agent        string
-	ProjectLabel string
-	FirstPrompt  string
-	TokensTotal  string
-	TokensIn     string
-	TokensOut    string
-	Cost         string
-	Device       string
-	StartedAt    string
-	OpenURL      string
+	Id              string
+	Agent           string
+	ProjectLabel    string
+	ProjectURL      string
+	ProjectProvider string
+	FirstPrompt     string
+	FirstPromptFull string
+	TokensTotal     string
+	TokensIn        string
+	TokensOut       string
+	Cost            string
+	Device          string
+	StartedAt       string
+	StartedAtFull   string
+	StartedRel      string
+	OpenURL         string
 }
 
 // handleSessions renders the Sessions surface: FTS search, multi-select
@@ -87,64 +92,68 @@ func (p *Panel) handleSessions(w http.ResponseWriter, r *http.Request) {
 		page = 1
 	}
 
-	// Build the ListRequest. project_match accepts at most one value;
-	// when the user picked multiple projects, the first goes server-side
-	// and the rest get filtered in-process below. The dataset is small
-	// enough (single-user, indexed Postgres) that this stays cheap.
-	req := &prosav1.ListRequest{
+	baseReq := &prosav1.ListRequest{
 		Since:       timestamppb.New(since),
 		Until:       timestamppb.New(until),
-		Limit:       int32(sessionsPageLimit),
-		Offset:      int32((page - 1) * sessionsPageLimit),
 		DeviceNames: devices,
 		Query:       queryStr,
-		SortBy:      sortBy,
 	}
-	// agent is single-valued server-side. With multiple agents
-	// selected, drop the server-side filter and post-filter the page
-	// (matches the same single-tenant trade-off as project_match).
 	if len(agents) == 1 {
-		req.Agent = agents[0]
+		baseReq.Agent = agents[0]
 	}
 	if len(projects) >= 1 {
-		req.ProjectMatch = projects[0]
+		baseReq.ProjectMatch = projects[0]
 	}
 
-	resp, err := p.clients.Sessions.List(r.Context(), connect.NewRequest(req))
+	var (
+		sessions  []*prosav1.Session
+		total     int64
+		pageCount int
+		err       error
+	)
+	if sortBy == "cost" && queryStr == "" {
+		sessions, total, pageCount, err = p.listSessionsSortedByCost(r.Context(), baseReq, agents, projects, page)
+	} else {
+		serverSort := sortBy
+		if sortBy == "cost" {
+			serverSort = ""
+		}
+		req := cloneListRequest(baseReq)
+		req.Limit = int32(sessionsPageLimit)
+		req.Offset = int32((page - 1) * sessionsPageLimit)
+		req.SortBy = serverSort
+		resp, listErr := p.clients.Sessions.List(r.Context(), connect.NewRequest(req))
+		if listErr != nil {
+			err = listErr
+		} else {
+			sessions = resp.Msg.Sessions
+			if len(agents) > 1 {
+				sessions = filterByAgents(sessions, agents)
+			}
+			if len(projects) > 1 {
+				sessions = filterByProjects(sessions, projects)
+			}
+			total = resp.Msg.TotalCount
+			pageCount = int((total + int64(sessionsPageLimit) - 1) / int64(sessionsPageLimit))
+			if pageCount < 1 {
+				pageCount = 1
+			}
+			if page > pageCount {
+				page = pageCount
+			}
+		}
+	}
 	if err != nil {
 		slog.Error("sessions.list failed", "err", err)
 		http.Error(w, "list failed: "+err.Error(), http.StatusBadGateway)
 		return
-	}
-
-	// In-process narrowing for the "more than one" multi-select cases.
-	// Pure client-side trim of the already-returned page; doesn't try
-	// to re-query the server. Documented limitation: the page count
-	// computed from TotalCount may overstate when these post-filters
-	// remove rows. Acceptable for v1 (cardinality is tiny).
-	sessions := resp.Msg.Sessions
-	if len(agents) > 1 {
-		sessions = filterByAgents(sessions, agents)
-	}
-	if len(projects) > 1 {
-		sessions = filterByProjects(sessions, projects)
-	}
-
-	// Pagination math (clamped). TotalCount is unaware of the in-
-	// process trim above, but it's the right denominator for the
-	// server-side filter set.
-	total := resp.Msg.TotalCount
-	pageCount := int((total + int64(sessionsPageLimit) - 1) / int64(sessionsPageLimit))
-	if pageCount < 1 {
-		pageCount = 1
 	}
 	if page > pageCount {
 		page = pageCount
 	}
 
 	// Column chooser. Default omits the verbose id column.
-	colsRaw := strings.TrimSpace(q.Get("cols"))
-	cols := buildColsMap(colsRaw)
+	cols := buildColsMap(pickMulti(q, "cols"))
 
 	// Dropdown option lists. Devices come from Devices.List; projects
 	// come from the analytics "projects" report scoped to the same
@@ -178,6 +187,10 @@ func (p *Panel) handleSessions(w http.ResponseWriter, r *http.Request) {
 	sortURLs := map[string]string{
 		"started_at":   "?" + appendKey(base, "sort", "started_at"),
 		"total_tokens": "?" + appendKey(base, "sort", "total_tokens"),
+		"agent":        "?" + appendKey(base, "sort", "agent"),
+		"project":      "?" + appendKey(base, "sort", "project"),
+		"device":       "?" + appendKey(base, "sort", "device"),
+		"cost":         "?" + appendKey(base, "sort", "cost"),
 	}
 	prevURL := ""
 	nextURL := ""
@@ -216,6 +229,7 @@ func (p *Panel) handleSessions(w http.ResponseWriter, r *http.Request) {
 		"SortURLs":         sortURLs,
 		"ActiveFilters":    activeFilters,
 		"ClearFiltersURL":  clearURL,
+		"WindowLabel":      windowLabel(lastRaw),
 	}
 
 	// Side panel inline render when ?session=<id> — same pattern as
@@ -330,10 +344,9 @@ func selectionSet(in []string) map[string]bool {
 	return out
 }
 
-// buildColsMap turns the comma-separated cols param into a map of
-// known column keys → enabled. Empty input picks the default cols
-// (id omitted).
-func buildColsMap(cols string) map[string]bool {
+// buildColsMap turns repeated cols query params into a map of known
+// column keys → enabled. Empty input picks the default cols (id omitted).
+func buildColsMap(cols []string) map[string]bool {
 	known := []string{"agent", "project", "first_prompt", "tokens", "cost", "device", "id"}
 	defaults := map[string]bool{
 		"agent":        true,
@@ -344,15 +357,14 @@ func buildColsMap(cols string) map[string]bool {
 		"device":       true,
 		"id":           false,
 	}
-	if cols == "" {
+	if len(cols) == 0 {
 		return defaults
 	}
 	out := make(map[string]bool, len(known))
 	for _, k := range known {
 		out[k] = false
 	}
-	for _, v := range strings.Split(cols, ",") {
-		v = strings.TrimSpace(v)
+	for _, v := range cols {
 		if _, ok := out[v]; ok {
 			out[v] = true
 		}
@@ -412,6 +424,96 @@ func sessionProjectLabel(s *prosav1.Session) string {
 	return "(unscoped)"
 }
 
+const sessionsListBatch = 1000
+
+type costSortRow struct {
+	session *prosav1.Session
+	cost    float64
+	ok      bool
+}
+
+// listSessionsSortedByCost loads every session matching the filter set,
+// applies multi-select post-filters, sorts by estimated cost descending,
+// then returns one page slice.
+func (p *Panel) listSessionsSortedByCost(
+	ctx context.Context,
+	base *prosav1.ListRequest,
+	agents, projects []string,
+	page int,
+) ([]*prosav1.Session, int64, int, error) {
+	var all []*prosav1.Session
+	offset := int32(0)
+	for {
+		req := cloneListRequest(base)
+		req.Limit = sessionsListBatch
+		req.Offset = offset
+		req.SortBy = ""
+		resp, err := p.clients.Sessions.List(ctx, connect.NewRequest(req))
+		if err != nil {
+			return nil, 0, 0, err
+		}
+		batch := resp.Msg.Sessions
+		all = append(all, batch...)
+		if len(batch) < sessionsListBatch {
+			break
+		}
+		offset += sessionsListBatch
+		if int64(offset) >= resp.Msg.TotalCount {
+			break
+		}
+	}
+	if len(agents) > 1 {
+		all = filterByAgents(all, agents)
+	}
+	if len(projects) > 1 {
+		all = filterByProjects(all, projects)
+	}
+	rows := make([]costSortRow, len(all))
+	for i, s := range all {
+		usage := tokenUsageFromProto(s.Usage)
+		cost, ok := pricing.CostUSD(s.Model, usage)
+		rows[i] = costSortRow{session: s, cost: cost, ok: ok}
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		ri, rj := rows[i], rows[j]
+		if ri.ok != rj.ok {
+			return ri.ok
+		}
+		if ri.cost != rj.cost {
+			return ri.cost > rj.cost
+		}
+		return sessionStartedAt(ri.session).After(sessionStartedAt(rj.session))
+	})
+	total := int64(len(rows))
+	pageCount := int((total + int64(sessionsPageLimit) - 1) / int64(sessionsPageLimit))
+	if pageCount < 1 {
+		pageCount = 1
+	}
+	if page > pageCount {
+		page = pageCount
+	}
+	start := (page - 1) * sessionsPageLimit
+	end := start + sessionsPageLimit
+	if start > len(rows) {
+		start = len(rows)
+	}
+	if end > len(rows) {
+		end = len(rows)
+	}
+	out := make([]*prosav1.Session, 0, end-start)
+	for _, r := range rows[start:end] {
+		out = append(out, r.session)
+	}
+	return out, total, pageCount, nil
+}
+
+func sessionStartedAt(s *prosav1.Session) time.Time {
+	if s == nil || s.StartedAt == nil {
+		return time.Time{}
+	}
+	return s.StartedAt.AsTime()
+}
+
 // buildSessionRow projects one *prosav1.Session into the row shape the
 // template renders. The OpenURL preserves the current querystring and
 // adds ?session=<id> so clicking a row keeps every filter intact.
@@ -425,33 +527,40 @@ func buildSessionRow(s *prosav1.Session, current *url.URL, deviceLookup map[stri
 	usage := tokenUsageFromProto(s.Usage)
 	costLabel := "n/a"
 	if cost, ok := pricing.CostUSD(s.Model, usage); ok {
-		costLabel = fmt.Sprintf("$%.4f", cost)
+		costLabel = fmt.Sprintf("$%.2f", cost)
 	}
-	startedAt := ""
+	startedFull := ""
+	startedRel := ""
 	if s.StartedAt != nil {
-		startedAt = s.StartedAt.AsTime().In(time.Local).Format("2006-01-02 15:04")
+		t := s.StartedAt.AsTime().In(time.Local)
+		startedFull = t.Format("2006-01-02 15:04:05")
+		startedRel = relativeTime(t)
 	}
 	device := s.DeviceId
 	if name, ok := deviceLookup[s.DeviceId]; ok && name != "" {
 		device = name
 	}
-	// OpenURL: same path + querystring + &session=<id>, replacing any
-	// prior session value so successive clicks don't pile up params.
+	proj := projectDisplayFromSession(s)
 	openVals := cloneValues(current.Query())
 	openVals.Set("session", s.Id)
 	openURL := current.Path + "?" + openVals.Encode()
 	return sessionRow{
-		Id:           s.Id,
-		Agent:        s.Agent,
-		ProjectLabel: sessionProjectLabel(s),
-		FirstPrompt:  s.FirstPrompt,
-		TokensTotal:  formatPanelInt(usage.TotalTokens),
-		TokensIn:     formatPanelInt(usage.InputTokens),
-		TokensOut:    formatPanelInt(usage.OutputTokens),
-		Cost:         costLabel,
-		Device:       device,
-		StartedAt:    startedAt,
-		OpenURL:      openURL,
+		Id:              s.Id,
+		Agent:           s.Agent,
+		ProjectLabel:    proj.Label,
+		ProjectURL:      proj.URL,
+		ProjectProvider: proj.Provider,
+		FirstPrompt:     s.FirstPrompt,
+		FirstPromptFull: s.FirstPrompt,
+		TokensTotal:     formatPanelInt(usage.TotalTokens),
+		TokensIn:        formatPanelInt(usage.InputTokens),
+		TokensOut:       formatPanelInt(usage.OutputTokens),
+		Cost:            costLabel,
+		Device:          device,
+		StartedAt:       startedRel,
+		StartedAtFull:   startedFull,
+		StartedRel:      startedRel,
+		OpenURL:         openURL,
 	}
 }
 
@@ -526,6 +635,32 @@ func appendKey(q url.Values, key, val string) string {
 	q.Del(key)
 	q.Set(key, val)
 	return q.Encode()
+}
+
+// cloneListRequest copies a ListRequest without copying the embedded
+// proto mutex (go vet -copylocks).
+func cloneListRequest(in *prosav1.ListRequest) *prosav1.ListRequest {
+	if in == nil {
+		return &prosav1.ListRequest{}
+	}
+	out := &prosav1.ListRequest{
+		Since:         in.Since,
+		Until:         in.Until,
+		ProjectPath:   in.ProjectPath,
+		ProjectMatch:  in.ProjectMatch,
+		ProjectRemote: in.ProjectRemote,
+		ProjectMarker: in.ProjectMarker,
+		Agent:         in.Agent,
+		DeviceName:    in.DeviceName,
+		Query:         in.Query,
+		SortBy:        in.SortBy,
+		Limit:         in.Limit,
+		Offset:        in.Offset,
+	}
+	if len(in.DeviceNames) > 0 {
+		out.DeviceNames = append([]string(nil), in.DeviceNames...)
+	}
+	return out
 }
 
 // listProjectLabels resolves the project dropdown choices by reading
