@@ -178,9 +178,7 @@ Sessions
   |  / search prompts and tool output                     |
   +-------------------------------------------------------+
 
-  [ 30d ▾ ]   [ all agents ▾ ]   [ all projects ▾ ]   [ all devices ▾ ]
-
-  ▸ Columns
+  [ 30d ▾ ]   [ all agents ▾ ]   [ all projects ▾ ]   [ all devices ▾ ]   [ columns ▾ ]
 
   +--------+--------+----------------+--------+--------+--------+
   | AGENT  | PROJECT| FIRST PROMPT   | TOKENS▾| COST   | DEVICE |
@@ -218,31 +216,29 @@ window as single-select and the others as
 
 ### Column chooser
 
-A `<details><summary>Columns</summary>` block holds a checkbox form with
-7 keys: `agent`, `project`, `first_prompt`, `tokens`, `cost`, `device`,
-`id`. Submitting sets `?cols=agent,project,first_prompt,...`. When
-`?cols` is missing the table renders the default set: all columns
-**except** `id` (the UUID is verbose and noisy).
-
-The component is a stock `<details>` + checkbox form — no new component
-class. See [components.md](components.md#column-chooser).
+A **Columns** button opens the same multi-select dropdown pattern as
+agent/project/device. Seven keys: `agent`, `project`, `first_prompt`,
+`tokens`, `cost`, `device`, `id`. Submitting sets
+`?cols=agent,project,first_prompt,...`. When `?cols` is missing the table
+renders the default set: all columns **except** `id`. See
+[components.md](components.md#column-chooser).
 
 ### Table
 
-`<thead>` carries sortable header links. Only two columns sort
-server-side:
+`<thead>` carries sortable header links:
 
-- `started_at` — default sort, desc.
-- `total_tokens` — optional, desc.
+- `started_at`, `total_tokens`, `cost` — descending (cost sorts in the
+  panel after loading all matching rows and computing
+  `pricing.CostUSD`).
+- `agent`, `project`, `device` — ascending (server-side SQL).
 
-Both are desc-only. Clicking a sortable header flips
-`?sort=started_at|total_tokens` and reloads. Non-sortable headers
-render as plain text.
-
-`<tbody>` iterates the result rows, rendering only the columns enabled
-by `?cols`. Each row's click target opens the side panel via the
-existing `?session=<id>` HTMX pattern (`hx-target="#side-panel"`,
-`hx-push-url`). Refresh preserves the open panel.
+Clicking a sortable header sets `?sort=<key>` and reloads. The **First
+message** column is not sortable; long prompts truncate with ellipsis
+and the full text is in the `title` tooltip. Rows without a first
+prompt show `(no prompt)` but remain clickable (whole row navigates to
+`?session=<id>`). **Started** shows relative time (`12h ago`) with the
+full timestamp on hover. Git remotes in **Project** render as
+`owner/repo` with a provider icon and HTTPS link.
 
 ### Pagination
 
@@ -276,7 +272,7 @@ clicking a row navigates into a filtered Sessions view.
 ```
 Projects
 
-  [ 30d ▾ ]   [ all agents ▾ ]   [ all devices ▾ ]
+  [ 30d ▾ ]   (window: 12h · 7d · 30d · 1y · all)
 
   +------------------+----------+----------+
   | PROJECT          | AGENT    | SESSIONS |

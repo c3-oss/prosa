@@ -420,12 +420,14 @@ or a chip) — multi-window is meaningless.
 
 ## Column chooser
 
-Used on the Sessions page to toggle the visible columns. Stock
-`<details>` + checkbox form, no new component class.
+Used on the Sessions page to toggle the visible columns. A **columns**
+dropdown button (same `.dropdown` pattern as agent/project/device) holds
+the checkbox form; no always-open `<details>` row.
 
 ```html
-<details class="column-chooser">
-  <summary>Columns</summary>
+<div class="dropdown dropdown-columns">
+  <button type="button" class="dropdown-toggle">columns ▾</button>
+  <div class="dropdown-menu dropdown-menu-wide" hidden>
   <form method="get" action="/sessions">
     {{ /* Preserve every other filter so submission only changes cols. */ }}
     <input type="hidden" name="q"       value="{{ .Q }}">
@@ -446,7 +448,8 @@ Used on the Sessions page to toggle the visible columns. Stock
 
     <button type="submit">Apply</button>
   </form>
-</details>
+  </div>
+</div>
 ```
 
 ### Behavior
@@ -721,7 +724,8 @@ Lives in `internal/panel/assets/css/components/thinking.css`.
 
 ## Stats cluster (sidepanel)
 
-Mini-KPIs in a 2 × 2 grid inside the sidepanel. Lives in
+Mini-KPIs in a 2 × 3 grid inside the sidepanel (six cells: turns,
+tools, duration, model, tokens total, estimated cost). Lives in
 `internal/panel/assets/css/components/sidepanel.css` as
 `.stats-cluster` plus `.stat-kpi` (with `.stat-value`,
 `.stat-label`).
@@ -747,5 +751,8 @@ Mini-KPIs in a 2 × 2 grid inside the sidepanel. Lives in
 Values are derived server-side in `loadSidePanel`: `TurnsCount`
 (user + assistant message rows, excluding `tool_result`/`operational`),
 `ToolsCount` (sum of `Session.Tools[].Count`), `DurationLabel`
-(`humanDuration(LastActivityAt − StartedAt)`), and the model name from
-`Session.Model`.
+(`humanDuration(LastActivityAt − StartedAt)`), the model name from
+`Session.Model`, token totals from `Session.Usage`, and `Cost` from
+`pricing.CostUSD`. The metadata block also lists tokens in/out/total
+and renders **Project** via `projectLink` (GitHub/GitLab
+`owner/repo` when the remote is recognized).
