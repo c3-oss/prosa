@@ -156,7 +156,7 @@
     </thead>
     <tbody>
       {{range .Sessions}}
-        <tr class="session-row" data-href="{{.OpenURL}}">
+        <tr class="session-row" data-href="{{.OpenURL}}" data-detail="/sessions/{{.Id}}" hx-push-url="{{.OpenURL}}">
           {{if index $.Cols "agent"}}<td>{{agentBadge .Agent}}</td>{{end}}
           {{if index $.Cols "project"}}
             <td class="cell-project">
@@ -172,7 +172,11 @@
           {{end}}
           {{if index $.Cols "first_prompt"}}
             <td class="cell-prompt">
-              <a href="{{.OpenURL}}" title="{{.FirstPromptFull}}">{{or .FirstPrompt "(no prompt)"}}</a>
+              <a href="{{.OpenURL}}" title="{{.FirstPromptFull}}"
+                 hx-get="/sessions/{{.Id}}"
+                 hx-target="#side-panel"
+                 hx-swap="innerHTML"
+                 hx-push-url="{{.OpenURL}}">{{or .FirstPrompt "(no prompt)"}}</a>
             </td>
           {{end}}
           {{if index $.Cols "tokens"}}<td class="cell-tokens" title="{{.TokensTotalFull}}">{{.TokensTotal}}</td>{{end}}

@@ -154,6 +154,11 @@
       row.dataset.boundOpen = '1';
       row.addEventListener('click', function (ev) {
         if (ev.target.closest('a, button, input, label, select, textarea')) return;
+        var detail = row.getAttribute('data-detail');
+        if (window.htmx && detail) {
+          window.htmx.ajax('GET', detail, { target: '#side-panel', swap: 'innerHTML', source: row });
+          return;
+        }
         var href = row.getAttribute('data-href');
         if (href) window.location.href = href;
       });
