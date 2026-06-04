@@ -59,13 +59,13 @@ func loadViews() (map[string]*template.Template, error) {
 	// Layered views start with base.html; standalone helpers stand alone.
 	specs := []viewSpec{
 		{"home", []string{"base.html", "home.html"}},
-		{"sessions", []string{"base.html", "sessions.html", "side_panel.html"}},
-		{"projects", []string{"base.html", "projects.html"}},
+		{"sessions", []string{"base.html", "sessions.html", "side_panel.html", "icons.html"}},
+		{"projects", []string{"base.html", "projects.html", "icons.html"}},
 		{"settings", []string{"base.html", "settings.html"}},
 		{"devices", []string{"base.html", "devices.html"}},
 		{"login", []string{"login.html"}},
 		{"cli_authorize", []string{"cli_authorize.html"}},
-		{"side_panel", []string{"side_panel.html"}},
+		{"side_panel", []string{"side_panel.html", "icons.html"}},
 		{"raw_chunk", []string{"raw_chunk.html"}},
 	}
 	out := make(map[string]*template.Template, len(specs))
@@ -178,10 +178,12 @@ func (p *Panel) render(w http.ResponseWriter, name string, data any) {
 // templateFuncs are the helpers exposed to every template.
 func templateFuncs() template.FuncMap {
 	return template.FuncMap{
-		"hasPrefix":       strings.HasPrefix,
-		"pluralize":       pluralize,
-		"agentBadge":      agentBadge,
-		"agentShortLabel": agentShortLabel,
+		"hasPrefix":           strings.HasPrefix,
+		"pluralize":           pluralize,
+		"agentBadge":          agentBadge,
+		"agentShortLabel":     agentShortLabel,
+		"projectLink":         projectLink,
+		"projectDisplayLabel": projectDisplayFromLabel,
 	}
 }
 
