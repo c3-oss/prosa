@@ -135,6 +135,7 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--space-5);
+  margin-bottom: var(--space-5);
 }
 
 .dashboard-grid > .card {
