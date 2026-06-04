@@ -24,7 +24,19 @@ func TestGitRemoteLink(t *testing.T) {
 		},
 		{
 			raw:     "/Users/me/proj",
-			wantLbl: "/Users/me/proj",
+			wantLbl: "~/proj",
+		},
+		{
+			raw:     "/Users/upsetbit/Library/Application Support/CodexBar/ClaudeProbe",
+			wantLbl: "~/Library/Application Support/CodexBar/ClaudeProbe",
+		},
+		{
+			raw:     "/home/upsetbit/proj",
+			wantLbl: "~/proj",
+		},
+		{
+			raw:     "/Users/me",
+			wantLbl: "~",
 		},
 		{
 			raw:     "",

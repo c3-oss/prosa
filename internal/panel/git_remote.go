@@ -33,7 +33,7 @@ func gitRemoteLink(marker, remote, path string) (label, linkURL, provider string
 	}
 	host, owner, repo, ok := parseGitRemote(raw)
 	if !ok || owner == "" || repo == "" {
-		return raw, "", ""
+		return shortenHomePath(raw), "", ""
 	}
 	short := owner + "/" + repo
 	switch host {
@@ -42,8 +42,27 @@ func gitRemoteLink(marker, remote, path string) (label, linkURL, provider string
 	case "gitlab.com":
 		return short, fmt.Sprintf("https://gitlab.com/%s/%s", owner, repo), "gitlab"
 	default:
-		return raw, "", ""
+		return shortenHomePath(raw), "", ""
 	}
+}
+
+// shortenHomePath replaces a leading /Users/<user> or /home/<user> prefix with ~.
+func shortenHomePath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" || path == "~" || strings.HasPrefix(path, "~/") {
+		return path
+	}
+	for _, prefix := range []string{"/Users/", "/home/"} {
+		if !strings.HasPrefix(path, prefix) {
+			continue
+		}
+		rest := path[len(prefix):]
+		if slash := strings.Index(rest, "/"); slash >= 0 {
+			return "~" + rest[slash:]
+		}
+		return "~"
+	}
+	return path
 }
 
 func parseGitRemote(raw string) (host, owner, repo string, ok bool) {
