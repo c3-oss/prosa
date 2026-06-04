@@ -143,6 +143,10 @@ func (h *SessionsHandler) List(ctx context.Context, req *connect.Request[prosav1
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
+	sortDir, err := normalizeSortDir(req.Msg.SortDir, sortBy)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
 	conds := []string{"s.started_at >= $1", "s.started_at <= $2"}
 	args := []any{tsToTime(req.Msg.Since), tsToTime(req.Msg.Until)}
 	idx := 3
@@ -239,18 +243,21 @@ func (h *SessionsHandler) List(ctx context.Context, req *connect.Request[prosav1
 		         su.cached_tokens, su.cache_read_tokens, su.cache_creation_tokens`
 		orderBy = "_rank DESC, s.started_at DESC"
 	} else if sortBy == "total_tokens" {
-		orderBy = "su.total_tokens DESC NULLS LAST, s.started_at DESC"
+		orderBy = fmt.Sprintf("su.total_tokens %s NULLS LAST, s.started_at DESC", sortDir)
 	} else if sortBy == "agent" {
-		orderBy = "s.agent ASC, s.started_at DESC"
+		orderBy = fmt.Sprintf("s.agent %s, s.started_at DESC", sortDir)
 	} else if sortBy == "project" {
-		orderBy = "COALESCE(NULLIF(s.project_marker, ''), NULLIF(s.project_remote, ''), NULLIF(s.project_path, '')) ASC NULLS LAST, s.started_at DESC"
+		orderBy = fmt.Sprintf(
+			"COALESCE(NULLIF(s.project_marker, ''), NULLIF(s.project_remote, ''), NULLIF(s.project_path, '')) %s NULLS LAST, s.started_at DESC",
+			sortDir,
+		)
 	} else if sortBy == "device" {
 		if join == "" {
 			join = " LEFT JOIN devices d ON d.id = s.device_id"
 		}
-		orderBy = "COALESCE(NULLIF(d.friendly_name, ''), s.device_id) ASC, s.started_at DESC"
+		orderBy = fmt.Sprintf("COALESCE(NULLIF(d.friendly_name, ''), s.device_id) %s, s.started_at DESC", sortDir)
 	} else {
-		orderBy = "s.started_at DESC"
+		orderBy = fmt.Sprintf("s.started_at %s", sortDir)
 	}
 	q := fmt.Sprintf(`
 		SELECT s.id, s.agent, s.device_id, s.project_path, s.project_remote, s.project_marker,
@@ -307,6 +314,31 @@ func normalizeListSort(v string) (string, error) {
 		return v, nil
 	default:
 		return "", fmt.Errorf("invalid sort_by %q (allowed: started_at, total_tokens, agent, project, device)", v)
+	}
+}
+
+// defaultListSortDir is the direction used when sort_dir is empty.
+func defaultListSortDir(sortBy string) string {
+	switch sortBy {
+	case "agent", "project", "device":
+		return "ASC"
+	default:
+		return "DESC"
+	}
+}
+
+// normalizeSortDir whitelists ListRequest.sort_dir and returns the SQL
+// keyword ASC or DESC for ORDER BY. Empty uses the column default.
+func normalizeSortDir(raw, sortBy string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "":
+		return defaultListSortDir(sortBy), nil
+	case "asc":
+		return "ASC", nil
+	case "desc":
+		return "DESC", nil
+	default:
+		return "", fmt.Errorf("invalid sort_dir %q (allowed: asc, desc)", raw)
 	}
 }
 

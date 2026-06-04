@@ -138,13 +138,17 @@ message ListRequest {
   // offset is the 0-based row offset for paged reads. Clamped to >= 0
   // by the server. Pair with limit for page-N navigation.
   int32 offset = 12;
-  // sort_by selects the order. Allowed values: "" (default,
-  // started_at desc), "started_at" (same), "total_tokens"
-  // (descending, NULLS last), "agent", "project", "device" (ascending,
-  // NULLS last for project/device). Any other value is rejected.
-  // Ignored when query is set (FTS rank wins). Cost sorting is handled
-  // in the panel (not stored server-side).
+  // sort_by selects the column. Allowed values: "" (default,
+  // started_at), "started_at", "total_tokens", "agent", "project",
+  // "device". Any other value is rejected. Ignored when query is set
+  // (FTS rank wins). Cost sorting is handled in the panel (not stored
+  // server-side). Direction is controlled by sort_dir.
   string sort_by = 13;
+  // sort_dir selects ascending or descending order for sort_by.
+  // Allowed values: "" (column default: started_at and total_tokens
+  // desc; agent, project, device asc), "asc", "desc". Ignored when
+  // query is set (FTS rank wins).
+  string sort_dir = 14;
 }
 
 message ListResponse {
