@@ -3,16 +3,19 @@
 {{define "content"}}
   <h1>Projects</h1>
 
-  <form method="get" action="/projects" class="filter-bar">
-    <label>Window
+  <form method="get" action="/projects" class="filter-bar"
+        x-data @change="$el.requestSubmit()">
+    <label>
+      Window
       <select name="last">
         <option value="12h" {{if eq .Last "12h"}}selected{{end}}>12h</option>
         <option value="7d"  {{if eq .Last "7d"}}selected{{end}}>7d</option>
         <option value="30d" {{if or (eq .Last "") (eq .Last "30d")}}selected{{end}}>30d</option>
         <option value="365d" {{if eq .Last "365d"}}selected{{end}}>1y</option>
+        <option value="all"  {{if eq .Last "all"}}selected{{end}}>all</option>
       </select>
-      <button class="btn" type="submit">Apply</button>
     </label>
+    <noscript><button class="btn" type="submit">Apply</button></noscript>
   </form>
 
   {{if .Rows}}
@@ -22,8 +25,22 @@
         {{range .Rows}}
           <tr>
             {{range $i, $v := .Values}}
-              {{if eq $i 0}}
-                <td><a href="/sessions?project={{urlquery $v}}&last={{$.Last}}">{{$v}}</a></td>
+              {{$h := index $.Headers $i}}
+              {{if eq $h "PROJECT"}}
+                {{$proj := projectDisplayLabel $v}}
+                <td class="cell-project">
+                  {{if $proj.URL}}
+                    <a class="project-link" href="{{$proj.URL}}" target="_blank" rel="noopener">
+                      {{if eq $proj.Provider "github"}}{{template "icon-github"}}{{else if eq $proj.Provider "gitlab"}}{{template "icon-gitlab"}}{{end}}
+                      <span>{{$proj.Label}}</span>
+                    </a>
+                    <a class="project-sessions-link" href="/sessions?project={{urlquery $v}}&last={{$.Last}}" title="view sessions">↗</a>
+                  {{else}}
+                    <a href="/sessions?project={{urlquery $v}}&last={{$.Last}}">{{$v}}</a>
+                  {{end}}
+                </td>
+              {{else if eq $h "AGENT"}}
+                <td><a href="/sessions?agent={{urlquery $v}}&last={{$.Last}}">{{$v}}</a></td>
               {{else}}
                 <td>{{$v}}</td>
               {{end}}

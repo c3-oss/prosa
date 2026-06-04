@@ -20,13 +20,19 @@ func (p *Panel) handleProjects(w http.ResponseWriter, r *http.Request) {
 	if last == "" {
 		last = "30d"
 	}
-	window, err := parseWindow(last)
-	if err != nil {
-		http.Error(w, "bad last= "+err.Error(), http.StatusBadRequest)
-		return
-	}
 	now := time.Now().UTC()
-	since, until := now.Add(-window), now
+	var since, until time.Time
+	until = now
+	if last == "all" {
+		since = now.Add(-100 * 365 * 24 * time.Hour)
+	} else {
+		window, err := parseWindow(last)
+		if err != nil {
+			http.Error(w, "bad last= "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		since = now.Add(-window)
+	}
 	resp, err := p.clients.Analytics.GetReport(r.Context(),
 		connect.NewRequest(analyticsRequest("projects", since, until, q)))
 	if err != nil {
@@ -37,7 +43,7 @@ func (p *Panel) handleProjects(w http.ResponseWriter, r *http.Request) {
 	p.render(w, "projects", map[string]any{
 		"Title":   "Projects",
 		"Nav":     "projects",
-		"Last":    q.Get("last"),
+		"Last":    last,
 		"Headers": resp.Msg.Headers,
 		"Rows":    resp.Msg.Rows,
 	})
