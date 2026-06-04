@@ -14,6 +14,7 @@
     {{range $p, $sel := .ProjectsSelected}}{{if $sel}}<input type="hidden" name="project" value="{{$p}}">{{end}}{{end}}
     {{range $d, $sel := .DevicesSelected}}{{if $sel}}<input type="hidden" name="device" value="{{$d}}">{{end}}{{end}}
     {{if .Sort}}<input type="hidden" name="sort" value="{{.Sort}}">{{end}}
+    {{if .Dir}}<input type="hidden" name="dir" value="{{.Dir}}">{{end}}
     {{range $c, $on := .Cols}}{{if $on}}<input type="hidden" name="cols" value="{{$c}}">{{end}}{{end}}
   </form>
 
@@ -36,6 +37,7 @@
         x-data @change="$el.requestSubmit()">
     <input type="hidden" name="q" value="{{.Q}}">
     {{if .Sort}}<input type="hidden" name="sort" value="{{.Sort}}">{{end}}
+    {{if .Dir}}<input type="hidden" name="dir" value="{{.Dir}}">{{end}}
     {{range $c, $on := .Cols}}{{if $on}}<input type="hidden" name="cols" value="{{$c}}">{{end}}{{end}}
 
     <label>
@@ -142,14 +144,14 @@
   <table class="sessions-table">
     <thead>
       <tr>
-        {{if index .Cols "agent"}}<th><a href="{{index .SortURLs "agent"}}">Agent{{if eq .Sort "agent"}} ▾{{end}}</a></th>{{end}}
-        {{if index .Cols "project"}}<th><a href="{{index .SortURLs "project"}}">Project{{if eq .Sort "project"}} ▾{{end}}</a></th>{{end}}
-        {{if index .Cols "first_prompt"}}<th>First message</th>{{end}}
-        {{if index .Cols "tokens"}}<th class="cell-tokens"><a href="{{index .SortURLs "total_tokens"}}">Tokens{{if eq .Sort "total_tokens"}} ▾{{end}}</a></th>{{end}}
-        {{if index .Cols "cost"}}<th class="cell-tokens"><a href="{{index .SortURLs "cost"}}">Cost{{if eq .Sort "cost"}} ▾{{end}}</a></th>{{end}}
-        {{if index .Cols "device"}}<th><a href="{{index .SortURLs "device"}}">Device{{if eq .Sort "device"}} ▾{{end}}</a></th>{{end}}
+        {{if index .Cols "agent"}}<th><a href="{{index .SortURLs "agent"}}"><span class="sort-arrow">{{index .SortArrows "agent"}}</span>Agent</a></th>{{end}}
+        {{if index .Cols "project"}}<th><a href="{{index .SortURLs "project"}}"><span class="sort-arrow">{{index .SortArrows "project"}}</span>Project</a></th>{{end}}
+        {{if index .Cols "first_prompt"}}<th class="cell-prompt">First message</th>{{end}}
+        {{if index .Cols "tokens"}}<th class="cell-tokens"><a href="{{index .SortURLs "total_tokens"}}"><span class="sort-arrow">{{index .SortArrows "total_tokens"}}</span>Tokens</a></th>{{end}}
+        {{if index .Cols "cost"}}<th class="cell-tokens"><a href="{{index .SortURLs "cost"}}"><span class="sort-arrow">{{index .SortArrows "cost"}}</span>Cost</a></th>{{end}}
+        {{if index .Cols "device"}}<th><a href="{{index .SortURLs "device"}}"><span class="sort-arrow">{{index .SortArrows "device"}}</span>Device</a></th>{{end}}
         {{if index .Cols "id"}}<th>ID</th>{{end}}
-        <th class="cell-started"><a href="{{index .SortURLs "started_at"}}">Started{{if or (eq .Sort "") (eq .Sort "started_at")}} ▾{{end}}</a></th>
+        <th class="cell-started"><a href="{{index .SortURLs "started_at"}}"><span class="sort-arrow">{{index .SortArrows "started_at"}}</span>Started</a></th>
       </tr>
     </thead>
     <tbody>

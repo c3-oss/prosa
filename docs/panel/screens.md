@@ -225,18 +225,31 @@ renders the default set: all columns **except** `id`. See
 
 ### Table
 
-`<thead>` carries sortable header links:
+`<thead>` carries sortable header links. Each header cycles three
+states on repeat clicks:
 
-- `started_at`, `total_tokens`, `cost` — descending (cost sorts in the
-  panel after loading all matching rows and computing
-  `pricing.CostUSD`).
-- `agent`, `project`, `device` — ascending (server-side SQL).
+1. Sort by that column in its default direction (`started_at`,
+   `total_tokens`, and `cost` default to descending; `agent`, `project`,
+   and `device` default to ascending). Sets `?sort=<key>`; `dir` is
+   omitted when it matches the default.
+2. Reverse direction — sets `?sort=<key>&dir=<asc|desc>` (opposite of
+   the default).
+3. Clear sort — removes `sort` and `dir`; the table returns to the
+   default view (`started_at`, newest first).
 
-Clicking a sortable header sets `?sort=<key>` and reloads. The **First
-message** column is not sortable; long prompts truncate with ellipsis
+The active column shows an arrow in the header (▴ ascending, ▾
+descending). Cost sorts in the panel after loading all matching rows and
+computing `pricing.CostUSD`; other columns sort server-side via
+`Sessions.List` (`sort_by` + `sort_dir`). FTS search (`q` set) still
+overrides explicit sort (rank wins).
+
+The **First message** column is not sortable; long prompts truncate with ellipsis
 and the full text is in the `title` tooltip. Rows without a first
-prompt show `(no prompt)` but remain clickable (whole row navigates to
-`?session=<id>`). **Started** shows relative time (`12h ago`) with the
+prompt show `(no prompt)` but remain clickable (whole row HTMX-swaps
+the side panel and pushes `?session=<id>` without reloading the list).
+**Tokens** render in compact notation (`1.2k`, `3.4m`, `2.4b`); the exact
+comma-grouped count is in the cell `title` tooltip.
+**Started** shows relative time (`12h ago`) with the
 full timestamp on hover. Git remotes in **Project** render as
 `owner/repo` with a provider icon and HTTPS link.
 

@@ -84,6 +84,8 @@ func (p *Panel) handleSessions(w http.ResponseWriter, r *http.Request) {
 	projects := pickMulti(q, "project")
 	devices := pickDeviceNames(q)
 	sortBy := q.Get("sort")
+	sortDirRaw := q.Get("dir")
+	activeSort, activeDir := resolveSessionsSort(sortBy, sortDirRaw)
 	queryStr := strings.TrimSpace(q.Get("q"))
 
 	// Page (1-based) → offset.
@@ -112,7 +114,7 @@ func (p *Panel) handleSessions(w http.ResponseWriter, r *http.Request) {
 		err       error
 	)
 	if sortBy == "cost" && queryStr == "" {
-		sessions, total, pageCount, err = p.listSessionsSortedByCost(r.Context(), baseReq, agents, projects, page)
+		sessions, total, pageCount, err = p.listSessionsSortedByCost(r.Context(), baseReq, agents, projects, page, activeDir)
 	} else {
 		serverSort := sortBy
 		if sortBy == "cost" {
@@ -122,6 +124,7 @@ func (p *Panel) handleSessions(w http.ResponseWriter, r *http.Request) {
 		req.Limit = int32(sessionsPageLimit)
 		req.Offset = int32((page - 1) * sessionsPageLimit)
 		req.SortBy = serverSort
+		req.SortDir = sortDirRaw
 		resp, listErr := p.clients.Sessions.List(r.Context(), connect.NewRequest(req))
 		if listErr != nil {
 			err = listErr
@@ -183,15 +186,9 @@ func (p *Panel) handleSessions(w http.ResponseWriter, r *http.Request) {
 	// can append `&sort=` or `&page=` without re-encoding. SortURLs map
 	// header click targets to ?sort=<col>; prev/next pre-flip the
 	// page param.
-	base := stripQuery(r.URL.Query(), "page", "sort", "session")
-	sortURLs := map[string]string{
-		"started_at":   "?" + appendKey(base, "sort", "started_at"),
-		"total_tokens": "?" + appendKey(base, "sort", "total_tokens"),
-		"agent":        "?" + appendKey(base, "sort", "agent"),
-		"project":      "?" + appendKey(base, "sort", "project"),
-		"device":       "?" + appendKey(base, "sort", "device"),
-		"cost":         "?" + appendKey(base, "sort", "cost"),
-	}
+	base := stripQuery(r.URL.Query(), "page", "sort", "dir", "session")
+	sortURLs := buildSessionsSortURLs(base, activeSort, activeDir)
+	sortArrows := buildSessionsSortArrows(activeSort, activeDir)
 	prevURL := ""
 	nextURL := ""
 	if page > 1 {
@@ -219,6 +216,7 @@ func (p *Panel) handleSessions(w http.ResponseWriter, r *http.Request) {
 		"Devices":          deviceNames,
 		"DevicesSelected":  devicesSelected,
 		"Sort":             sortBy,
+		"Dir":              sortDirRaw,
 		"Cols":             cols,
 		"Sessions":         rows,
 		"Page":             page,
@@ -227,6 +225,7 @@ func (p *Panel) handleSessions(w http.ResponseWriter, r *http.Request) {
 		"PrevURL":          prevURL,
 		"NextURL":          nextURL,
 		"SortURLs":         sortURLs,
+		"SortArrows":       sortArrows,
 		"ActiveFilters":    activeFilters,
 		"ClearFiltersURL":  clearURL,
 		"WindowLabel":      windowLabel(lastRaw),
@@ -433,13 +432,14 @@ type costSortRow struct {
 }
 
 // listSessionsSortedByCost loads every session matching the filter set,
-// applies multi-select post-filters, sorts by estimated cost descending,
-// then returns one page slice.
+// applies multi-select post-filters, sorts by estimated cost in the given
+// direction, then returns one page slice.
 func (p *Panel) listSessionsSortedByCost(
 	ctx context.Context,
 	base *prosav1.ListRequest,
 	agents, projects []string,
 	page int,
+	costDir string,
 ) ([]*prosav1.Session, int64, int, error) {
 	var all []*prosav1.Session
 	offset := int32(0)
@@ -474,15 +474,24 @@ func (p *Panel) listSessionsSortedByCost(
 		cost, ok := pricing.CostUSD(s.Model, usage)
 		rows[i] = costSortRow{session: s, cost: cost, ok: ok}
 	}
+	costDesc := costDir != "asc"
 	sort.SliceStable(rows, func(i, j int) bool {
 		ri, rj := rows[i], rows[j]
 		if ri.ok != rj.ok {
 			return ri.ok
 		}
 		if ri.cost != rj.cost {
-			return ri.cost > rj.cost
+			if costDesc {
+				return ri.cost > rj.cost
+			}
+			return ri.cost < rj.cost
 		}
-		return sessionStartedAt(ri.session).After(sessionStartedAt(rj.session))
+		ti := sessionStartedAt(ri.session)
+		tj := sessionStartedAt(rj.session)
+		if costDesc {
+			return ti.After(tj)
+		}
+		return ti.Before(tj)
 	})
 	total := int64(len(rows))
 	pageCount := int((total + int64(sessionsPageLimit) - 1) / int64(sessionsPageLimit))
@@ -654,6 +663,7 @@ func cloneListRequest(in *prosav1.ListRequest) *prosav1.ListRequest {
 		DeviceName:    in.DeviceName,
 		Query:         in.Query,
 		SortBy:        in.SortBy,
+		SortDir:       in.SortDir,
 		Limit:         in.Limit,
 		Offset:        in.Offset,
 	}
