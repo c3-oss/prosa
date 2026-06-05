@@ -84,6 +84,9 @@ jobs:
           PROSA_TEST_PG_URL: postgres://prosa:prosa@localhost:5432/prosa?sslmode=disable
         run: devbox run -- go test -race -count=1 -coverprofile=coverage.out ./...
 
+      - name: CLI integration test
+        run: devbox run -- just test-integration
+
       - name: Upload coverage
         if: always()
         uses: actions/upload-artifact@v7
