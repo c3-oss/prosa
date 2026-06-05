@@ -10,6 +10,7 @@ require (
 	github.com/jackc/pgx/v5 v5.9.2
 	github.com/klauspost/compress v1.18.6
 	github.com/minio/minio-go/v7 v7.2.0
+	github.com/muesli/termenv v0.16.0
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
 	github.com/yuin/goldmark v1.8.2
@@ -47,7 +48,6 @@ require (
 	github.com/minio/md5-simd v1.1.2 // indirect
 	github.com/muesli/ansi v0.0.0-20230316100256-276c6243b2f6 // indirect
 	github.com/muesli/cancelreader v0.2.2 // indirect
-	github.com/muesli/termenv v0.16.0 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/philhofer/fwd v1.2.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
