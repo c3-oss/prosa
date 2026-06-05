@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -220,6 +221,33 @@ func TestReconcileMissingPushed(t *testing.T) {
 	require.Equal(t, 2, counts.localTotal)
 	require.Equal(t, 0, counts.remoteTotal)
 	require.Len(t, fx.fake.pushed, 2)
+}
+
+// TestReconcileUsesPusherLogger asserts the catch-up phase writes through
+// the pusher's scoped logger and never touches the process-global slog
+// default. This is what lets the interactive TTY path silence reconcile
+// chatter (issue #75) without swapping slog.SetDefault for the whole
+// process.
+func TestReconcileUsesPusherLogger(t *testing.T) {
+	ctx := context.Background()
+	fx := newReconcileFixture(t, "dev")
+	fx.addSession(t, ctx, "dev", "s1")
+	fx.fake.manifestPages[""] = &prosav1.ManifestResponse{}
+
+	var scoped bytes.Buffer
+	fx.pusher.logger = slog.New(slog.NewTextHandler(&scoped, nil))
+
+	// Trip the global default; if reconcile leaks onto it the test fails.
+	var global bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&global, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	_, err := reconcileWithServer(ctx, fx.pusher, "dev", importer.ImportOptions{}, reconcileHooks{})
+	require.NoError(t, err)
+
+	require.Contains(t, scoped.String(), "reconcile: catching up")
+	require.Empty(t, global.String(), "reconcile must not write to the global slog default")
 }
 
 func TestReconcileDivergentPushed(t *testing.T) {
