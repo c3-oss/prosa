@@ -30,6 +30,15 @@ func (p *Panel) handleLogin(w http.ResponseWriter, r *http.Request) {
 		"DevLoginEmail":   p.cfg.DevLoginEmail,
 		"Error":           r.URL.Query().Get("error"),
 	}
+	if p.cfg.DevLoginEmail != "" {
+		csrf, err := setLoginCSRFCookie(w, p.cfg.CookieSecure)
+		if err != nil {
+			slog.Error("login csrf mint failed", "err", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		data["CSRF"] = csrf
+	}
 	if p.cfg.OAuthGHClientID != "" {
 		state, err := newState()
 		if err != nil {
@@ -44,7 +53,7 @@ func (p *Panel) handleLogin(w http.ResponseWriter, r *http.Request) {
 			MaxAge:   600,
 			HttpOnly: true,
 			Secure:   p.cfg.CookieSecure,
-			SameSite: http.SameSiteLaxMode,
+			SameSite: http.SameSiteStrictMode,
 		})
 		data["GitHubURL"] = oauth.GitHubAuthURL(
 			p.cfg.OAuthGHClientID,
@@ -126,6 +135,7 @@ func (p *Panel) handleDevLogin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal panel error", http.StatusInternalServerError)
 		return
 	}
+	clearLoginCSRFCookie(w, p.cfg.CookieSecure)
 	slog.Warn("dev-login used — bypassing OAuth", "email", p.cfg.DevLoginEmail,
 		"remote", r.RemoteAddr)
 	redirectAfterLogin(w, r)
@@ -133,6 +143,10 @@ func (p *Panel) handleDevLogin(w http.ResponseWriter, r *http.Request) {
 
 // handleLogout drops the cookie and bounces back to /login.
 func (p *Panel) handleLogout(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	p.cookie.Clear(w)
 	http.Redirect(w, r, "/login", http.StatusFound)
 }

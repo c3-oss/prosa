@@ -68,7 +68,6 @@ Routes (current MVP cut), all served from the same mux:
 - `GET /healthz`
 - `GET /login`
 - `GET /oauth/github/callback`
-- `GET /logout`
 - `POST /dev-login` (only when `PROSA_PANEL_DEV_LOGIN` is set)
 - `GET /assets/*` — embedded static assets
 
@@ -84,6 +83,7 @@ Routes (current MVP cut), all served from the same mux:
 - `GET /raw/<id>?offset=N` — raw transcript chunk (HTMX append-mode)
 - `GET /cli/authorize` — CLI login confirmation (session required)
 - `POST /cli/authorize/approve` — approve CLI device, redirect to localhost callback
+- `POST /logout` — clear the panel session
 - `GET /events` — SSE stream (proxied from the server)
 
 There is no `/analytics/*` surface. Tools/Models/Errors/Usage/Heatmap
@@ -224,14 +224,17 @@ GitHub OAuth. The flow lives in `internal/panel/handlers/auth.go`
 ### Dev-login (development)
 
 `PROSA_PANEL_DEV_LOGIN=<email>` exposes `POST /dev-login`. The handler
-issues a session for the given email with no OAuth roundtrip and prints a
-loud warning at boot. Do not enable in production.
+requires the login page CSRF token, issues a session for the given email
+with no OAuth roundtrip, and prints a loud warning at boot. Do not enable
+in production.
 
 ### Session cookie
 
 `internal/panel/session/cookie.go` HMACs the cookie value with
 `PROSA_PANEL_COOKIE_KEY`. Cookie attributes: `HttpOnly`, `Secure` when
-`PROSA_PANEL_COOKIE_SECURE=true`, `SameSite=Lax`, 30-day Max-Age.
+`PROSA_PANEL_COOKIE_SECURE=true`, `SameSite=Lax`, 30-day Max-Age. The
+signed payload also carries the CSRF token rendered into state-changing
+POST forms (`/logout`, `/cli/authorize/approve`, and device actions).
 
 ## Talking to the server
 

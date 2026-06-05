@@ -25,6 +25,7 @@
       {{else}}
         <form method="post" action="/cli/authorize/approve">
           <input type="hidden" name="request_id" value="{{.RequestID}}">
+          <input type="hidden" name="csrf" value="{{.CSRF}}">
           <button class="btn btn-primary btn-full" type="submit">Authorize this device</button>
         </form>
         <p style="text-align: center">

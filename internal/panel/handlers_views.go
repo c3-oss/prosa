@@ -177,6 +177,7 @@ func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 	data := map[string]any{
 		"Title": "Home",
 		"Nav":   "home",
+		"CSRF":  p.csrfFromRequest(r),
 
 		// Filter state.
 		"Last":             lastRaw,
@@ -745,6 +746,7 @@ func (p *Panel) handleDevices(w http.ResponseWriter, r *http.Request) {
 		"Nav":     "devices",
 		"Devices": resp.Msg.Devices,
 		"Notice":  r.URL.Query().Get("notice"),
+		"CSRF":    p.csrfFromRequest(r),
 	})
 }
 

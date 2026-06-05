@@ -107,16 +107,16 @@ func (p *Panel) routes() {
 	// Auth surfaces (public).
 	p.mux.HandleFunc("/login", p.handleLogin)
 	p.mux.HandleFunc("/oauth/github/callback", p.handleGitHubCallback)
-	p.mux.HandleFunc("/logout", p.handleLogout)
+	p.mux.HandleFunc("/logout", p.csrfProtected(p.handleLogout))
 	if p.cfg.DevLoginEmail != "" {
 		slog.Warn("dev-login enabled — DO NOT use in production",
 			"email", p.cfg.DevLoginEmail)
-		p.mux.HandleFunc("/dev-login", p.handleDevLogin)
+		p.mux.HandleFunc("/dev-login", p.csrfProtected(p.handleDevLogin))
 	}
 
 	// CLI login approval (session required; redirects to /login?next= when anonymous).
 	p.mux.HandleFunc("/cli/authorize", p.requireSession(p.handleCliAuthorize))
-	p.mux.HandleFunc("/cli/authorize/approve", p.requireSession(p.handleCliAuthorizeApprove))
+	p.mux.HandleFunc("/cli/authorize/approve", p.requireSession(p.csrfProtected(p.handleCliAuthorizeApprove)))
 
 	// Gated app routes — each one wraps p.requireSession around its handler.
 	// "/sessions" (exact) is the list page; "/sessions/" (subtree prefix)
@@ -130,7 +130,7 @@ func (p *Panel) routes() {
 	p.mux.HandleFunc("/settings", p.requireSession(p.handleSettings))
 	p.mux.HandleFunc("/raw/", p.requireSession(p.handleRawChunk))
 	p.mux.HandleFunc("/devices", p.requireSession(p.handleDevices))
-	p.mux.HandleFunc("/devices/", p.requireSession(p.handleDevicesAction))
+	p.mux.HandleFunc("/devices/", p.requireSession(p.csrfProtected(p.handleDevicesAction)))
 	p.mux.HandleFunc("/events", p.requireSession(p.handleSSE))
 }
 
@@ -138,12 +138,26 @@ func (p *Panel) routes() {
 // /login; logged-in browsers proceed.
 func (p *Panel) requireSession(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if _, ok := p.cookie.FromRequest(r); !ok {
+		s, ok := p.cookie.FromRequest(r)
+		if !ok {
 			nextURL := r.URL.Path
 			if r.URL.RawQuery != "" {
 				nextURL += "?" + r.URL.RawQuery
 			}
 			http.Redirect(w, r, "/login?next="+url.QueryEscape(nextURL), http.StatusFound)
+			return
+		}
+		if s.CSRF == "" {
+			if err := p.cookie.Issue(w, s.Email); err != nil {
+				slog.Error("session csrf refresh failed", "err", err)
+				http.Error(w, "internal panel error", http.StatusInternalServerError)
+				return
+			}
+			nextURL := r.URL.Path
+			if r.URL.RawQuery != "" {
+				nextURL += "?" + r.URL.RawQuery
+			}
+			http.Redirect(w, r, nextURL, http.StatusFound)
 			return
 		}
 		next(w, r)

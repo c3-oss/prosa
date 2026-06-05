@@ -15,6 +15,7 @@
           <span id="new-sessions-count" class="badge zero">0</span>
         </a>
         <form method="post" action="/logout" style="display:inline">
+          <input type="hidden" name="csrf" value="{{.CSRF}}">
           <button class="btn" type="submit">logout</button>
         </form>
       </div>

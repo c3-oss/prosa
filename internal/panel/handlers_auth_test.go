@@ -2,8 +2,10 @@ package panel
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -60,10 +62,14 @@ func TestCliAuthorizeApproveRedirectsToCallback(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	cookie := issueTestSessionCookie(t, p)
 	req := httptest.NewRequest(http.MethodPost, "/cli/authorize/approve",
-		strings.NewReader("request_id=req-123"))
+		strings.NewReader(url.Values{
+			"request_id": {"req-123"},
+			"csrf":       {csrfForTestSessionCookie(t, p, cookie)},
+		}.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(issueTestSessionCookie(t, p))
+	req.AddCookie(cookie)
 	rec := httptest.NewRecorder()
 	p.mux.ServeHTTP(rec, req)
 
@@ -74,6 +80,77 @@ func TestCliAuthorizeApproveRedirectsToCallback(t *testing.T) {
 	require.Equal(t,
 		"http://127.0.0.1:49152/callback?code=auth-code&state=client-state",
 		rec.Header().Get("Location"))
+}
+
+func TestCliAuthorizeApproveRejectsMissingCSRF(t *testing.T) {
+	t.Parallel()
+	fake := &fakeAuthService{}
+	path, handler := prosav1connect.NewAuthServiceHandler(fake)
+	authMux := http.NewServeMux()
+	authMux.Handle(path, handler)
+	authServer := httptest.NewServer(authMux)
+	t.Cleanup(authServer.Close)
+
+	p, err := New(Config{
+		ServerURL:     authServer.URL,
+		AdminToken:    "secret",
+		CookieKey:     "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		OwnerEmails:   []string{"dev@localhost"},
+		ListenAddr:    ":0",
+		PublicBaseURL: "http://panel.test",
+	})
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodPost, "/cli/authorize/approve",
+		strings.NewReader("request_id=req-123"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(issueTestSessionCookie(t, p))
+	rec := httptest.NewRecorder()
+	p.mux.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusForbidden, rec.Code)
+	_, requestID := fake.snapshot()
+	require.Empty(t, requestID)
+}
+
+func TestDevLoginRequiresLoginCSRF(t *testing.T) {
+	t.Parallel()
+	p, err := New(Config{
+		ServerURL:     "http://server.test",
+		AdminToken:    "secret",
+		CookieKey:     "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		OwnerEmails:   []string{"dev@localhost"},
+		ListenAddr:    ":0",
+		PublicBaseURL: "http://panel.test",
+		DevLoginEmail: "dev@localhost",
+	})
+	require.NoError(t, err)
+
+	missing := httptest.NewRequest(http.MethodPost, "/dev-login", nil)
+	missingRec := httptest.NewRecorder()
+	p.mux.ServeHTTP(missingRec, missing)
+	require.Equal(t, http.StatusForbidden, missingRec.Code)
+
+	loginReq := httptest.NewRequest(http.MethodGet, "/login", nil)
+	loginRec := httptest.NewRecorder()
+	p.mux.ServeHTTP(loginRec, loginReq)
+	require.Equal(t, http.StatusOK, loginRec.Code)
+	loginRes := loginRec.Result()
+	defer loginRes.Body.Close()
+	body, err := io.ReadAll(loginRes.Body)
+	require.NoError(t, err)
+	csrf := extractHiddenCSRF(t, string(body))
+
+	post := httptest.NewRequest(http.MethodPost, "/dev-login",
+		strings.NewReader(url.Values{"csrf": {csrf}}.Encode()))
+	post.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	for _, c := range loginRes.Cookies() {
+		post.AddCookie(c)
+	}
+	postRec := httptest.NewRecorder()
+	p.mux.ServeHTTP(postRec, post)
+	require.Equal(t, http.StatusFound, postRec.Code)
+	require.NotNil(t, findCookie(postRec.Result().Cookies(), session.CookieName))
 }
 
 func issueTestSessionCookie(t *testing.T, p *Panel) *http.Cookie {
@@ -88,6 +165,36 @@ func issueTestSessionCookie(t *testing.T, p *Panel) *http.Cookie {
 		}
 	}
 	t.Fatal("session cookie not issued")
+	return nil
+}
+
+func csrfForTestSessionCookie(t *testing.T, p *Panel, c *http.Cookie) string {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.AddCookie(c)
+	s, ok := p.cookie.FromRequest(req)
+	require.True(t, ok)
+	require.NotEmpty(t, s.CSRF)
+	return s.CSRF
+}
+
+func extractHiddenCSRF(t *testing.T, body string) string {
+	t.Helper()
+	const marker = `name="csrf" value="`
+	start := strings.Index(body, marker)
+	require.NotEqual(t, -1, start)
+	start += len(marker)
+	end := strings.IndexByte(body[start:], '"')
+	require.NotEqual(t, -1, end)
+	return body[start : start+end]
+}
+
+func findCookie(cookies []*http.Cookie, name string) *http.Cookie {
+	for _, c := range cookies {
+		if c.Name == name {
+			return c
+		}
+	}
 	return nil
 }
 
