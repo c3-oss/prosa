@@ -132,25 +132,10 @@ func validatePushedSessionID(id string) error {
 	if id == "" {
 		return missingFields("session.id")
 	}
-	if len(id) > 128 {
-		return fmt.Errorf("invalid session.id: must be 1..128 ASCII letters, digits, '.', '_' or '-'")
-	}
-	if strings.Contains(id, "..") {
-		return fmt.Errorf("invalid session.id: must not contain '..'")
-	}
-	for i := 0; i < len(id); i++ {
-		if !isPushedSessionIDChar(id[i]) {
-			return fmt.Errorf("invalid session.id: byte %d is not allowed", i)
-		}
+	if err := session.ValidateID(id); err != nil {
+		return fmt.Errorf("invalid session.id: %w", err)
 	}
 	return nil
-}
-
-func isPushedSessionIDChar(c byte) bool {
-	return (c >= 'A' && c <= 'Z') ||
-		(c >= 'a' && c <= 'z') ||
-		(c >= '0' && c <= '9') ||
-		c == '.' || c == '_' || c == '-'
 }
 
 func validatePushedAgent(agent string) error {
