@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"path"
 	"strings"
 	"time"
@@ -86,11 +87,41 @@ func (h *SessionsHandler) Push(ctx context.Context, req *connect.Request[prosav1
 	// Upload raw to S3.
 	started := sess.StartedAt.AsTime().UTC()
 	key := rawKey(deviceID, sess.Agent, sess.Id, started)
+
+	// If the object already exists, it is referenced by a previously
+	// committed sessions row; a metadata failure below must not delete it.
+	// Only an object we newly create here can be orphaned, so only that one
+	// is eligible for cleanup. When Stat itself fails we cannot tell, so we
+	// fail safe toward "do not delete".
+	objectIsNew := false
+	if exists, statErr := h.Obj.Exists(ctx, key); statErr == nil {
+		objectIsNew = !exists
+	}
+
 	uri, err := h.Obj.Put(ctx, key, bytes.NewReader(req.Msg.Raw), int64(len(req.Msg.Raw)))
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("upload raw: %w", err))
 	}
 	sess.RawUri = uri
+
+	// The raw object is uploaded before the metadata tx commits. If any
+	// metadata write fails the tx rolls back, but the object would stay in
+	// the bucket forever (there is no GC path). Best-effort remove it on
+	// the failure path, but only when we created it (see objectIsNew).
+	committed := false
+	defer func() {
+		if committed || !objectIsNew {
+			return
+		}
+		// ctx may already be cancelled (client hung up); use a detached,
+		// time-bounded context so cleanup still runs.
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+		if err := h.Obj.Remove(cleanupCtx, key); err != nil {
+			slog.WarnContext(ctx, "push: orphaned raw object, best-effort cleanup failed",
+				"key", key, "err", err)
+		}
+	}()
 
 	// Mirror metadata + turns + tools in one tx.
 	tx, err := h.Pool.Begin(ctx)
@@ -125,6 +156,7 @@ func (h *SessionsHandler) Push(ctx context.Context, req *connect.Request[prosav1
 	if err := tx.Commit(ctx); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
+	committed = true
 	return connect.NewResponse(&prosav1.PushResponse{Skipped: false, RawUri: uri}), nil
 }
 

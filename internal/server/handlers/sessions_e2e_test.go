@@ -319,6 +319,12 @@ func insertDeviceToken(t *testing.T, ctx context.Context, pool *pgxpool.Pool, de
 
 func newTestObjectStore(t *testing.T) *storage.ObjectStore {
 	t.Helper()
+	store, _ := newTestObjectStoreWithFake(t)
+	return store
+}
+
+func newTestObjectStoreWithFake(t *testing.T) (*storage.ObjectStore, *fakeS3) {
+	t.Helper()
 	fake := newFakeS3()
 	server := httptest.NewServer(fake)
 	t.Cleanup(server.Close)
@@ -336,7 +342,7 @@ func newTestObjectStore(t *testing.T) *storage.ObjectStore {
 		Client: client,
 		Bucket: "prosa-test",
 		Region: "us-east-1",
-	}
+	}, fake
 }
 
 type fakeS3 struct {
@@ -402,9 +408,20 @@ func (s *fakeS3) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Last-Modified", time.Now().UTC().Format(http.TimeFormat))
 		w.WriteHeader(status)
 		_, _ = w.Write(chunk)
+	case http.MethodDelete:
+		s.mu.Lock()
+		delete(s.objects, key)
+		s.mu.Unlock()
+		w.WriteHeader(http.StatusNoContent)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+func (s *fakeS3) put(key string, body []byte) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.objects[key] = append([]byte(nil), body...)
 }
 
 func (s *fakeS3) object(key string) ([]byte, bool) {
