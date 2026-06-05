@@ -6,11 +6,16 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"io/fs"
 	"os"
+	"sort"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	serverMigrations "github.com/c3-oss/prosa/migrations/server"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 )
@@ -200,8 +205,6 @@ func newPostgresService(t *testing.T) (*Service, context.Context) {
 	cfg.ConnConfig.RuntimeParams["search_path"] = schema
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	require.NoError(t, err)
-	_, err = pool.Exec(ctx, postgresAuthTestSchema)
-	require.NoError(t, err)
 
 	t.Cleanup(func() {
 		pool.Close()
@@ -209,11 +212,52 @@ func newPostgresService(t *testing.T) (*Service, context.Context) {
 		adminPool.Close()
 	})
 
+	applyServerMigrations(t, ctx, pool)
+
 	return &Service{
 		Pool:         pool,
 		PanelBaseURL: "http://panel.test",
 		ExpiresIn:    time.Minute,
 	}, ctx
+}
+
+func applyServerMigrations(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	entries, err := fs.ReadDir(serverMigrations.FS, ".")
+	require.NoError(t, err)
+
+	var ups []string
+	for _, entry := range entries {
+		name := entry.Name()
+		if strings.HasSuffix(name, ".up.sql") {
+			ups = append(ups, name)
+		}
+	}
+	sort.Strings(ups)
+
+	for _, name := range ups {
+		body, err := fs.ReadFile(serverMigrations.FS, name)
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx, string(body))
+		require.NoErrorf(t, err, "apply %s", name)
+
+		version, err := serverMigrationVersion(name)
+		require.NoError(t, err)
+		_, err = pool.Exec(
+			ctx,
+			`INSERT INTO schema_migrations(version) VALUES ($1) ON CONFLICT DO NOTHING`,
+			version,
+		)
+		require.NoErrorf(t, err, "record %s", name)
+	}
+}
+
+func serverMigrationVersion(name string) (int, error) {
+	underscore := strings.Index(name, "_")
+	if underscore <= 0 {
+		return 0, strconv.ErrSyntax
+	}
+	return strconv.Atoi(name[:underscore])
 }
 
 func testPKCEPair() (verifier, challenge string) {
@@ -229,37 +273,3 @@ func randomHex(t *testing.T, n int) string {
 	require.NoError(t, err)
 	return hex.EncodeToString(b)
 }
-
-const postgresAuthTestSchema = `
-CREATE TABLE devices (
-  id               TEXT PRIMARY KEY,
-  hostname         TEXT NOT NULL,
-  machine_id       TEXT NOT NULL,
-  friendly_name    TEXT NOT NULL,
-  fingerprinted_at TIMESTAMPTZ NOT NULL,
-  last_sync        TIMESTAMPTZ,
-  revoked_at       TIMESTAMPTZ
-);
-
-CREATE TABLE device_tokens (
-  token_hash TEXT PRIMARY KEY,
-  device_id  TEXT NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
-  issued_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  revoked_at TIMESTAMPTZ
-);
-
-CREATE TABLE auth_codes (
-  request_id            TEXT PRIMARY KEY,
-  code                  TEXT UNIQUE,
-  code_challenge        TEXT NOT NULL,
-  code_challenge_method TEXT NOT NULL DEFAULT 'S256',
-  redirect_uri          TEXT NOT NULL,
-  client_state          TEXT NOT NULL,
-  hostname              TEXT NOT NULL,
-  fingerprint           TEXT NOT NULL,
-  state                 TEXT NOT NULL,
-  expires_at            TIMESTAMPTZ NOT NULL,
-  approved_at           TIMESTAMPTZ,
-  used_at               TIMESTAMPTZ
-);
-`
