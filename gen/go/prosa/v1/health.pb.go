@@ -7,11 +7,10 @@
 package prosav1
 
 import (
-	reflect "reflect"
-	sync "sync"
-
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	reflect "reflect"
+	sync "sync"
 )
 
 const (
@@ -188,15 +187,13 @@ func file_prosa_v1_health_proto_rawDescGZIP() []byte {
 	return file_prosa_v1_health_proto_rawDescData
 }
 
-var (
-	file_prosa_v1_health_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-	file_prosa_v1_health_proto_msgTypes  = make([]protoimpl.MessageInfo, 2)
-	file_prosa_v1_health_proto_goTypes   = []any{
-		CheckResponse_Status(0), // 0: prosa.v1.CheckResponse.Status
-		(*CheckRequest)(nil),    // 1: prosa.v1.CheckRequest
-		(*CheckResponse)(nil),   // 2: prosa.v1.CheckResponse
-	}
-)
+var file_prosa_v1_health_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_prosa_v1_health_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_prosa_v1_health_proto_goTypes = []any{
+	(CheckResponse_Status)(0), // 0: prosa.v1.CheckResponse.Status
+	(*CheckRequest)(nil),      // 1: prosa.v1.CheckRequest
+	(*CheckResponse)(nil),     // 2: prosa.v1.CheckResponse
+}
 var file_prosa_v1_health_proto_depIdxs = []int32{
 	0, // 0: prosa.v1.CheckResponse.status:type_name -> prosa.v1.CheckResponse.Status
 	1, // 1: prosa.v1.HealthService.Check:input_type -> prosa.v1.CheckRequest
