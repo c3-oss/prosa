@@ -73,12 +73,12 @@ func reconcileWithServer(
 	}
 
 	if len(work) == 0 {
-		slog.Info("reconcile: converged",
+		push.log().InfoContext(ctx, "reconcile: converged",
 			"device", deviceID, "local", counts.localTotal, "remote", counts.remoteTotal)
 		return counts, nil
 	}
 
-	slog.Info("reconcile: catching up",
+	push.log().InfoContext(ctx, "reconcile: catching up",
 		"device", deviceID, "to_push", len(work),
 		"local", counts.localTotal, "remote", counts.remoteTotal)
 
@@ -94,7 +94,7 @@ func reconcileWithServer(
 			counts.skipped++
 		case pushFailed:
 			counts.errs++
-			slog.Warn("reconcile push failed", "session", sid, "err", perr)
+			push.log().WarnContext(ctx, "reconcile push failed", "session", sid, "err", perr)
 		case pushSkippedRemoteUnavailable:
 			if hooks.onStep != nil {
 				hooks.onStep(i+1, len(work), sid, outcome)
@@ -155,7 +155,11 @@ func foldReconcile(counts *syncCounts, rc reconcileCounts, err error, push *push
 			counts.recordRemoteUnavailable(push)
 			return
 		}
-		slog.Warn("reconcile failed", "err", err)
+		logger := slog.Default()
+		if push != nil {
+			logger = push.log()
+		}
+		logger.Warn("reconcile failed", "err", err)
 	}
 	if push != nil && push.remoteUnavailable {
 		counts.recordRemoteUnavailable(push)

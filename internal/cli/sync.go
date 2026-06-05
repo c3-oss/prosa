@@ -475,11 +475,14 @@ func runSyncInteractive(
 	}
 	updates := make(chan spinner.Update, len(work)*2+16)
 
-	// Suppress stderr slog while Bubble Tea repaints in place; concurrent
-	// writes (e.g. reconcile: catching up) desync the cursor and orphan frames.
-	prevLog := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
-	defer slog.SetDefault(prevLog)
+	// Suppress the catch-up phase's structured logging while Bubble Tea
+	// repaints in place; concurrent writes (e.g. reconcile: catching up)
+	// desync the cursor and orphan frames. We scope this to the pusher's
+	// logger rather than mutating the process-global slog default, which
+	// would silently swallow every other component's logs for the duration.
+	if push != nil {
+		push.logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	}
 
 	go func() {
 		defer close(updates)

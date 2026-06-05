@@ -27,6 +27,21 @@ type pusher struct {
 	store             *store.Store
 	server            string
 	remoteUnavailable bool
+
+	// logger receives the catch-up phase's structured output. The
+	// interactive TTY path sets this to a discard logger so reconcile
+	// lines don't clobber Bubble Tea repaints, instead of mutating the
+	// process-global slog default. nil falls back to slog.Default().
+	logger *slog.Logger
+}
+
+// log returns the pusher's logger, defaulting to the package default when
+// unset (the plain path and tests that build a pusher directly).
+func (p *pusher) log() *slog.Logger {
+	if p.logger != nil {
+		return p.logger
+	}
+	return slog.Default()
 }
 
 // loadPusher reads ~/.config/prosa/auth.json and returns a Sessions
@@ -45,6 +60,7 @@ func loadPusher(s *store.Store) (*pusher, error) {
 		client: rpc.Sessions(server, a.Token),
 		store:  s,
 		server: server,
+		logger: slog.Default(),
 	}, nil
 }
 
