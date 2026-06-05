@@ -170,6 +170,66 @@ func TestSessionsConnectEndToEnd(t *testing.T) {
 	require.False(t, rawResp.Msg.Eof)
 }
 
+func TestSessionsPushRejectsInvalidSessionShape(t *testing.T) {
+	ctx := context.Background()
+	pool := newHandlersPostgresPool(t, ctx)
+	obj := newTestObjectStore(t)
+
+	const (
+		adminToken = "admin-token"
+		bearer     = "device-bearer"
+		deviceID   = "device-a"
+	)
+	insertDeviceToken(t, ctx, pool, deviceID, bearer)
+
+	mux := http.NewServeMux()
+	authSvc := auth.New(pool, adminToken, "http://panel.test")
+	path, handler := prosav1connect.NewSessionsServiceHandler(
+		NewSessionsHandler(pool, obj),
+		connect.WithInterceptors(auth.Interceptor(authSvc)),
+	)
+	mux.Handle(path, handler)
+
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+
+	client := prosav1connect.NewSessionsServiceClient(server.Client(), server.URL)
+	started := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
+
+	for _, tc := range []struct {
+		name       string
+		sessionID  string
+		agent      string
+		wantDetail string
+	}{
+		{name: "slash id", sessionID: "victim/codex", agent: "codex", wantDetail: "session.id"},
+		{name: "newline id", sessionID: "abc\nevent: forged", agent: "codex", wantDetail: "session.id"},
+		{name: "dot dot id", sessionID: "../victim", agent: "codex", wantDetail: "session.id"},
+		{name: "unknown agent", sessionID: "session-a", agent: "unknown", wantDetail: "session.agent"},
+		{name: "newline agent", sessionID: "session-a", agent: "codex\nforged", wantDetail: "session.agent"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pushReq := connect.NewRequest(&prosav1.PushRequest{
+				Session: &prosav1.Session{
+					Id:             tc.sessionID,
+					Agent:          tc.agent,
+					StartedAt:      timestamppb.New(started),
+					LastActivityAt: timestamppb.New(started),
+					RawHash:        "hash-" + strings.ReplaceAll(tc.name, " ", "-"),
+					RawSize:        int64(len("raw")),
+				},
+				Raw: []byte("raw"),
+			})
+			pushReq.Header().Set("Authorization", "Bearer "+bearer)
+
+			_, err := client.Push(ctx, pushReq)
+			require.Error(t, err)
+			require.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+			require.Contains(t, err.Error(), tc.wantDetail)
+		})
+	}
+}
+
 func newHandlersPostgresPool(t *testing.T, ctx context.Context) *pgxpool.Pool {
 	t.Helper()
 	dbURL := os.Getenv("PROSA_TEST_PG_URL")

@@ -48,6 +48,12 @@ func (h *SessionsHandler) Push(ctx context.Context, req *connect.Request[prosav1
 	if sess.Id == "" || sess.RawHash == "" || sess.Agent == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, missingFields("session.id", "session.raw_hash", "session.agent"))
 	}
+	if err := validatePushedSessionID(sess.Id); err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	if err := validatePushedAgent(sess.Agent); err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
 
 	// Force the device_id to the authenticated caller; clients can't
 	// impersonate another device by setting a different value on the
@@ -120,6 +126,42 @@ func (h *SessionsHandler) Push(ctx context.Context, req *connect.Request[prosav1
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	return connect.NewResponse(&prosav1.PushResponse{Skipped: false, RawUri: uri}), nil
+}
+
+func validatePushedSessionID(id string) error {
+	if id == "" {
+		return missingFields("session.id")
+	}
+	if len(id) > 128 {
+		return fmt.Errorf("invalid session.id: must be 1..128 ASCII letters, digits, '.', '_' or '-'")
+	}
+	if strings.Contains(id, "..") {
+		return fmt.Errorf("invalid session.id: must not contain '..'")
+	}
+	for i := 0; i < len(id); i++ {
+		if !isPushedSessionIDChar(id[i]) {
+			return fmt.Errorf("invalid session.id: byte %d is not allowed", i)
+		}
+	}
+	return nil
+}
+
+func isPushedSessionIDChar(c byte) bool {
+	return (c >= 'A' && c <= 'Z') ||
+		(c >= 'a' && c <= 'z') ||
+		(c >= '0' && c <= '9') ||
+		c == '.' || c == '_' || c == '-'
+}
+
+func validatePushedAgent(agent string) error {
+	switch agent {
+	case "claude-code", "codex", "cursor", "gemini", "antigravity", "hermes":
+		return nil
+	case "":
+		return missingFields("session.agent")
+	default:
+		return fmt.Errorf("invalid session.agent: %q is not supported", agent)
+	}
 }
 
 // List returns sessions filtered by since/until + optional project /
