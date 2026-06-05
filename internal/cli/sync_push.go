@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"connectrpc.com/connect"
@@ -14,6 +15,7 @@ import (
 	prosav1 "github.com/c3-oss/prosa/gen/go/prosa/v1"
 	"github.com/c3-oss/prosa/gen/go/prosa/v1/prosav1connect"
 	"github.com/c3-oss/prosa/internal/cli/rpc"
+	"github.com/c3-oss/prosa/internal/paths"
 	"github.com/c3-oss/prosa/internal/store"
 	"github.com/c3-oss/prosa/pkg/session"
 )
@@ -86,9 +88,13 @@ func (p *pusher) pushSession(ctx context.Context, sessionID string) (pushOutcome
 	if err != nil {
 		return pushFailed, fmt.Errorf("load tools: %w", err)
 	}
-	raw, err := os.ReadFile(sess.RawPath)
+	rawPath, err := safeRawPathForPush(sess.Agent, sess.RawPath)
 	if err != nil {
-		return pushFailed, fmt.Errorf("read raw %s: %w", sess.RawPath, err)
+		return pushFailed, fmt.Errorf("validate raw path for %s: %w", sessionID, err)
+	}
+	raw, err := os.ReadFile(rawPath)
+	if err != nil {
+		return pushFailed, fmt.Errorf("read raw %s: %w", rawPath, err)
 	}
 
 	req := &prosav1.PushRequest{
@@ -109,6 +115,39 @@ func (p *pusher) pushSession(ctx context.Context, sessionID string) (pushOutcome
 		return pushAlreadyHashed, nil
 	}
 	return pushImported, nil
+}
+
+func safeRawPathForPush(agent, rawPath string) (string, error) {
+	if strings.TrimSpace(agent) == "" {
+		return "", errors.New("session agent is empty")
+	}
+	if strings.TrimSpace(rawPath) == "" {
+		return "", errors.New("session raw_path is empty")
+	}
+
+	root, err := paths.RawRoot(agent)
+	if err != nil {
+		return "", fmt.Errorf("resolve raw root: %w", err)
+	}
+	root, err = filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", fmt.Errorf("resolve raw root %s: %w", root, err)
+	}
+	rawPath, err = filepath.EvalSymlinks(rawPath)
+	if err != nil {
+		return "", fmt.Errorf("resolve raw path %s: %w", rawPath, err)
+	}
+
+	root = filepath.Clean(root)
+	rawPath = filepath.Clean(rawPath)
+	rel, err := filepath.Rel(root, rawPath)
+	if err != nil {
+		return "", fmt.Errorf("compare raw path %s to root %s: %w", rawPath, root, err)
+	}
+	if rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) || filepath.IsAbs(rel) {
+		return "", fmt.Errorf("raw path %s resolves outside raw root %s", rawPath, root)
+	}
+	return rawPath, nil
 }
 
 func isRemoteUnavailable(err error) bool {

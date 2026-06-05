@@ -15,6 +15,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	prosav1 "github.com/c3-oss/prosa/gen/go/prosa/v1"
+	"github.com/c3-oss/prosa/internal/paths"
 	"github.com/c3-oss/prosa/internal/store"
 	"github.com/c3-oss/prosa/pkg/importer"
 	"github.com/c3-oss/prosa/pkg/session"
@@ -89,6 +90,7 @@ func newReconcileFixture(t *testing.T, deviceID string) *reconcileFixture {
 	t.Helper()
 	ctx := context.Background()
 	dir := t.TempDir()
+	t.Setenv("PROSA_HOME", filepath.Join(dir, "prosa-home"))
 	s, err := store.Open(ctx, filepath.Join(dir, "store.db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = s.Close() })
@@ -117,8 +119,7 @@ func newReconcileFixture(t *testing.T, deviceID string) *reconcileFixture {
 // is the test-friendly "h-<id>" mirror used by the manifest tests.
 func (f *reconcileFixture) addSession(t *testing.T, ctx context.Context, deviceID, id string) {
 	t.Helper()
-	rawPath := filepath.Join(f.dir, id+".jsonl")
-	require.NoError(t, os.WriteFile(rawPath, []byte("raw-"+id), 0o644))
+	rawPath := f.writeRaw(t, "claude-code", id+".jsonl", "raw-"+id)
 	sess := session.Session{
 		ID:             id,
 		Agent:          "claude-code",
@@ -137,18 +138,69 @@ func (f *reconcileFixture) addSession(t *testing.T, ctx context.Context, deviceI
 // disk, so the catch-up phase hits the "raw missing" error path.
 func (f *reconcileFixture) addSessionMissingRaw(t *testing.T, ctx context.Context, deviceID, id string) {
 	t.Helper()
+	rawPath := f.rawPath(t, "claude-code", "ghost", id+".jsonl")
 	sess := session.Session{
 		ID:             id,
 		Agent:          "claude-code",
 		DeviceID:       deviceID,
 		StartedAt:      time.Now().UTC(),
 		LastActivityAt: time.Now().UTC(),
-		RawPath:        filepath.Join(f.dir, "ghost", id+".jsonl"), // does not exist
+		RawPath:        rawPath, // does not exist
 		RawHash:        "h-" + id,
 		RawSize:        0,
 		Usage:          &session.TokenUsage{TotalTokens: 1},
 	}
 	require.NoError(t, f.store.UpsertSession(ctx, sess, nil))
+}
+
+func (f *reconcileFixture) writeRaw(t *testing.T, agent, name, body string) string {
+	t.Helper()
+	rawPath := f.rawPath(t, agent, name)
+	require.NoError(t, os.MkdirAll(filepath.Dir(rawPath), 0o755))
+	require.NoError(t, os.WriteFile(rawPath, []byte(body), 0o644))
+	return rawPath
+}
+
+func (f *reconcileFixture) rawPath(t *testing.T, agent string, elems ...string) string {
+	t.Helper()
+	root, err := paths.RawRoot(agent)
+	require.NoError(t, err)
+	parts := append([]string{root}, elems...)
+	return filepath.Join(parts...)
+}
+
+func TestSafeRawPathForPushAllowsRawRootFile(t *testing.T) {
+	fx := newReconcileFixture(t, "dev")
+	rawPath := fx.writeRaw(t, "codex", "s1.jsonl", "raw-s1")
+
+	got, err := safeRawPathForPush("codex", rawPath)
+	require.NoError(t, err)
+	want, err := filepath.EvalSymlinks(rawPath)
+	require.NoError(t, err)
+	require.Equal(t, filepath.Clean(want), got)
+}
+
+func TestSafeRawPathForPushRejectsOutsideRawRoot(t *testing.T) {
+	fx := newReconcileFixture(t, "dev")
+	require.NoError(t, os.MkdirAll(fx.rawPath(t, "codex"), 0o755))
+	rawPath := filepath.Join(fx.dir, "outside.jsonl")
+	require.NoError(t, os.WriteFile(rawPath, []byte("secret"), 0o644))
+
+	_, err := safeRawPathForPush("codex", rawPath)
+	require.ErrorContains(t, err, "outside raw root")
+}
+
+func TestSafeRawPathForPushRejectsSymlinkEscape(t *testing.T) {
+	fx := newReconcileFixture(t, "dev")
+	root := fx.rawPath(t, "codex")
+	require.NoError(t, os.MkdirAll(root, 0o755))
+	target := filepath.Join(fx.dir, "secret.jsonl")
+	require.NoError(t, os.WriteFile(target, []byte("secret"), 0o644))
+	link := filepath.Join(root, "linked.jsonl")
+	require.NoError(t, os.Symlink(target, link))
+
+	_, err := safeRawPathForPush("codex", link)
+	require.ErrorContains(t, err, "outside raw root")
 }
 
 func TestReconcileMissingPushed(t *testing.T) {
@@ -340,8 +392,7 @@ func TestPushUnavailableStopsFurtherRemoteAttempts(t *testing.T) {
 func TestPushAdmitsSessionWithoutUsage(t *testing.T) {
 	ctx := context.Background()
 	fx := newReconcileFixture(t, "dev")
-	rawPath := filepath.Join(fx.dir, "s1.jsonl")
-	require.NoError(t, os.WriteFile(rawPath, []byte("raw-s1"), 0o644))
+	rawPath := fx.writeRaw(t, "cursor", "s1.jsonl", "raw-s1")
 	require.NoError(t, fx.store.UpsertSession(ctx, session.Session{
 		ID:             "s1",
 		Agent:          "cursor",
@@ -360,14 +411,37 @@ func TestPushAdmitsSessionWithoutUsage(t *testing.T) {
 	require.Equal(t, 1, fx.fake.pushCalls)
 }
 
+func TestPushRejectsRawPathOutsideRawRoot(t *testing.T) {
+	ctx := context.Background()
+	fx := newReconcileFixture(t, "dev")
+	require.NoError(t, os.MkdirAll(fx.rawPath(t, "codex"), 0o755))
+	rawPath := filepath.Join(fx.dir, "outside.jsonl")
+	require.NoError(t, os.WriteFile(rawPath, []byte("secret"), 0o644))
+	require.NoError(t, fx.store.UpsertSession(ctx, session.Session{
+		ID:             "s1",
+		Agent:          "codex",
+		DeviceID:       "dev",
+		StartedAt:      time.Now().UTC(),
+		LastActivityAt: time.Now().UTC(),
+		RawPath:        rawPath,
+		RawHash:        "h-s1",
+		RawSize:        int64(len("secret")),
+	}, nil))
+
+	outcome, err := fx.pusher.pushSession(ctx, "s1")
+	require.ErrorContains(t, err, "validate raw path")
+	require.ErrorContains(t, err, "outside raw root")
+	require.Equal(t, pushFailed, outcome)
+	require.Equal(t, 0, fx.fake.pushCalls)
+}
+
 // TestReconcilePushesSessionsWithoutUsage mirrors the above through the
 // reconcile path: catch-up sees one local session that isn't on the
 // remote, pushes it (no usage filter), and counts the outcome as sent.
 func TestReconcilePushesSessionsWithoutUsage(t *testing.T) {
 	ctx := context.Background()
 	fx := newReconcileFixture(t, "dev")
-	rawPath := filepath.Join(fx.dir, "s1.jsonl")
-	require.NoError(t, os.WriteFile(rawPath, []byte("raw-s1"), 0o644))
+	rawPath := fx.writeRaw(t, "cursor", "s1.jsonl", "raw-s1")
 	require.NoError(t, fx.store.UpsertSession(ctx, session.Session{
 		ID:             "s1",
 		Agent:          "cursor",
