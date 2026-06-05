@@ -69,6 +69,30 @@ func (s *ObjectStore) Put(ctx context.Context, key string, body io.Reader, size 
 	return "s3://" + s.Bucket + "/" + key, nil
 }
 
+// Exists reports whether an object is present under key. A "not found"
+// response is reported as (false, nil); any other failure (network, auth)
+// is returned as an error so callers can distinguish "absent" from
+// "couldn't tell".
+func (s *ObjectStore) Exists(ctx context.Context, key string) (bool, error) {
+	_, err := s.Client.StatObject(ctx, s.Bucket, key, minio.StatObjectOptions{})
+	if err != nil {
+		if minio.ToErrorResponse(err).Code == "NoSuchKey" {
+			return false, nil
+		}
+		return false, fmt.Errorf("stat object %s: %w", key, err)
+	}
+	return true, nil
+}
+
+// Remove deletes the object under key. Removing a missing key is not an
+// error (minio treats DELETE as idempotent).
+func (s *ObjectStore) Remove(ctx context.Context, key string) error {
+	if err := s.Client.RemoveObject(ctx, s.Bucket, key, minio.RemoveObjectOptions{}); err != nil {
+		return fmt.Errorf("remove object %s: %w", key, err)
+	}
+	return nil
+}
+
 // Get fetches an object. The caller MUST close the returned reader.
 func (s *ObjectStore) Get(ctx context.Context, key string) (io.ReadCloser, error) {
 	obj, err := s.Client.GetObject(ctx, s.Bucket, key, minio.GetObjectOptions{})
