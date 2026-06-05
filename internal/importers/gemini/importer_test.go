@@ -10,8 +10,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/c3-oss/prosa/internal/importers/importertest"
 	"github.com/c3-oss/prosa/pkg/importer"
-	"github.com/c3-oss/prosa/pkg/session"
 )
 
 const (
@@ -19,41 +19,8 @@ const (
 	fixtureLiveID     = "42ce6531-ac76-44b8-be24-c44044f324fa"
 )
 
-type inMemSink struct {
-	sessions map[string]session.Session
-	tools    map[string][]session.ToolUsage
-	turns    map[string][]session.Turn
-	hashes   map[string]string
-}
-
-func newSink() *inMemSink {
-	return &inMemSink{
-		sessions: map[string]session.Session{},
-		tools:    map[string][]session.ToolUsage{},
-		turns:    map[string][]session.Turn{},
-		hashes:   map[string]string{},
-	}
-}
-
-func (m *inMemSink) UpsertSession(_ context.Context, s session.Session, tools []session.ToolUsage) error {
-	m.sessions[s.ID] = s
-	m.tools[s.ID] = tools
-	return nil
-}
-
-func (m *inMemSink) InsertTurns(_ context.Context, sid string, t []session.Turn) error {
-	m.turns[sid] = t
-	return nil
-}
-
-func (m *inMemSink) LastHash(_ context.Context, sid string) (string, bool, error) {
-	h, ok := m.hashes[sid]
-	return h, ok, nil
-}
-
-func (m *inMemSink) RecordSync(_ context.Context, sid, h string) error {
-	m.hashes[sid] = h
-	return nil
+func newSink() *importertest.Sink {
+	return importertest.NewSink()
 }
 
 // writeEnvelopeFixture lays out a chats/session-*.json under root using
@@ -157,7 +124,7 @@ func TestImportEnvelope(t *testing.T) {
 	require.Equal(t, fixtureEnvelopeID, res.SessionID)
 	require.FileExists(t, res.RawPath)
 
-	s := sink.sessions[fixtureEnvelopeID]
+	s := sink.Sessions[fixtureEnvelopeID]
 	require.Equal(t, Name, s.Agent)
 	require.NotEmpty(t, s.DeviceID)
 	require.NotEqual(t, "local", s.DeviceID)
@@ -172,12 +139,12 @@ func TestImportEnvelope(t *testing.T) {
 	require.Equal(t, int64(30), s.Usage.CachedTokens)
 	require.Equal(t, 2026, s.StartedAt.Year())
 
-	turns := sink.turns[fixtureEnvelopeID]
+	turns := sink.Turns[fixtureEnvelopeID]
 	require.Len(t, turns, 2) // user + gemini; info is skipped.
 	require.Equal(t, "user", turns[0].Role)
 	require.Equal(t, "assistant", turns[1].Role)
 
-	tools := sink.tools[fixtureEnvelopeID]
+	tools := sink.Tools[fixtureEnvelopeID]
 	require.Len(t, tools, 2)
 	byName := map[string]int{}
 	for _, tl := range tools {
@@ -229,8 +196,8 @@ func TestImportLiveLogsAdmitsWithoutUsage(t *testing.T) {
 		"gemini logs without any tokens block must admit (Unknown state)")
 	require.Empty(t, res.SkipReason)
 	require.Equal(t, fixtureLiveID, res.SessionID)
-	require.Contains(t, sink.sessions, fixtureLiveID)
-	stored := sink.sessions[fixtureLiveID]
+	require.Contains(t, sink.Sessions, fixtureLiveID)
+	stored := sink.Sessions[fixtureLiveID]
 	require.Nil(t, stored.Usage,
 		"sess.Usage must be nil when no gemini message carried a tokens block")
 }
@@ -268,10 +235,21 @@ func TestImportLiveLogsSkipsWithExplicitZeroUsage(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, res.Skipped,
 		"gemini logs with explicit-zero tokens must skip")
-	require.Equal(t, "no_usage", res.SkipReason)
-	require.Empty(t, sink.sessions)
-	require.Empty(t, sink.turns)
+	require.Equal(t, importer.SkipReasonNoUsage, res.SkipReason)
+	require.Equal(t, res.RawHash, sink.Skips[zeroSessionID][importer.SkipReasonNoUsage])
+	require.Empty(t, sink.Sessions)
+	require.Empty(t, sink.Turns)
 	require.Empty(t, res.RawPath)
+
+	res2, err := New().Import(ctx, path, sink, importer.ImportOptions{})
+	require.NoError(t, err)
+	require.True(t, res2.Skipped)
+	require.Equal(t, importer.SkipReasonNoUsage, res2.SkipReason)
+	require.Equal(t, res.RawHash, res2.RawHash)
+	require.Equal(t, res.RawSize, res2.RawSize)
+	require.Empty(t, sink.Sessions)
+	require.Empty(t, sink.Turns)
+	require.Empty(t, res2.RawPath)
 }
 
 func TestWalkFindsBothShapes(t *testing.T) {
@@ -345,7 +323,7 @@ func TestImportEnvelopeSanitizesFirstPrompt(t *testing.T) {
 	res, err := New().Import(ctx, path, sink, importer.ImportOptions{})
 	require.NoError(t, err)
 	require.False(t, res.Skipped)
-	s := sink.sessions[dirtyID]
+	s := sink.Sessions[dirtyID]
 	require.NotNil(t, s.FirstPrompt)
 	require.Equal(t, "now refactor sync", *s.FirstPrompt)
 }

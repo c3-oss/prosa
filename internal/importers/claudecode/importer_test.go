@@ -13,48 +13,15 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/c3-oss/prosa/internal/importers/importertest"
 	"github.com/c3-oss/prosa/pkg/importer"
 	"github.com/c3-oss/prosa/pkg/session"
 )
 
 const fixtureSessionID = "12345678-abcd-4ef0-9012-3456789abcde"
 
-// inMemSink implements importer.Sink for tests.
-type inMemSink struct {
-	sessions map[string]session.Session
-	tools    map[string][]session.ToolUsage
-	turns    map[string][]session.Turn
-	hashes   map[string]string
-}
-
-func newSink() *inMemSink {
-	return &inMemSink{
-		sessions: map[string]session.Session{},
-		tools:    map[string][]session.ToolUsage{},
-		turns:    map[string][]session.Turn{},
-		hashes:   map[string]string{},
-	}
-}
-
-func (m *inMemSink) UpsertSession(_ context.Context, s session.Session, tools []session.ToolUsage) error {
-	m.sessions[s.ID] = s
-	m.tools[s.ID] = tools
-	return nil
-}
-
-func (m *inMemSink) InsertTurns(_ context.Context, sid string, t []session.Turn) error {
-	m.turns[sid] = t
-	return nil
-}
-
-func (m *inMemSink) LastHash(_ context.Context, sid string) (string, bool, error) {
-	h, ok := m.hashes[sid]
-	return h, ok, nil
-}
-
-func (m *inMemSink) RecordSync(_ context.Context, sid, h string) error {
-	m.hashes[sid] = h
-	return nil
+func newSink() *importertest.Sink {
+	return importertest.NewSink()
 }
 
 func writeJSONL(t *testing.T, path string, records []map[string]any) {
@@ -186,7 +153,7 @@ func TestImportSmallSession(t *testing.T) {
 	require.Greater(t, res.RawSize, int64(0))
 	require.FileExists(t, res.RawPath)
 
-	s := sink.sessions[fixtureSessionID]
+	s := sink.Sessions[fixtureSessionID]
 	require.Equal(t, Name, s.Agent)
 	require.NotEmpty(t, s.DeviceID)
 	require.NotEqual(t, "local", s.DeviceID)
@@ -206,7 +173,7 @@ func TestImportSmallSession(t *testing.T) {
 	require.True(t, s.LastActivityAt.After(s.StartedAt))
 
 	// 1 user text + 1 assistant text + 1 projected tool_result turn.
-	turns := sink.turns[fixtureSessionID]
+	turns := sink.Turns[fixtureSessionID]
 	require.Len(t, turns, 3)
 	require.Equal(t, "user", turns[0].Role)
 	require.Equal(t, session.KindMessage, turns[0].Kind)
@@ -218,7 +185,7 @@ func TestImportSmallSession(t *testing.T) {
 	require.Contains(t, turns[2].Content, "file body")
 
 	// Bash + Read tool uses aggregated.
-	tools := sink.tools[fixtureSessionID]
+	tools := sink.Tools[fixtureSessionID]
 	names := map[string]int{}
 	for _, tu := range tools {
 		names[tu.Name] = tu.Count
@@ -297,7 +264,7 @@ func TestImportProjectsThinkingBlocks(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, res.Skipped)
 
-	turns := sink.turns[fixtureSessionID]
+	turns := sink.Turns[fixtureSessionID]
 	// user + assistant text + 2 thinking
 	require.Len(t, turns, 4)
 	require.Equal(t, session.KindMessage, turns[0].Kind)
@@ -373,11 +340,11 @@ func TestImportAdmitsSessionWithoutUsageEvent(t *testing.T) {
 	require.False(t, res.Skipped,
 		"transcripts without any usage event must admit (Unknown state)")
 	require.Empty(t, res.SkipReason)
-	require.Contains(t, sink.sessions, fixtureSessionID)
-	stored := sink.sessions[fixtureSessionID]
+	require.Contains(t, sink.Sessions, fixtureSessionID)
+	stored := sink.Sessions[fixtureSessionID]
 	require.Nil(t, stored.Usage,
 		"sess.Usage must be nil when no usage event was observed")
-	require.NotEmpty(t, sink.turns[fixtureSessionID])
+	require.NotEmpty(t, sink.Turns[fixtureSessionID])
 }
 
 // TestImportSkipsSessionWithExplicitZeroUsage covers a transcript whose
@@ -417,10 +384,21 @@ func TestImportSkipsSessionWithExplicitZeroUsage(t *testing.T) {
 	res, err := New().Import(ctx, path, sink, importer.ImportOptions{})
 	require.NoError(t, err)
 	require.True(t, res.Skipped)
-	require.Equal(t, "no_usage", res.SkipReason)
-	require.Empty(t, sink.sessions)
-	require.Empty(t, sink.turns)
+	require.Equal(t, importer.SkipReasonNoUsage, res.SkipReason)
+	require.Equal(t, res.RawHash, sink.Skips[fixtureSessionID][importer.SkipReasonNoUsage])
+	require.Empty(t, sink.Sessions)
+	require.Empty(t, sink.Turns)
 	require.Empty(t, res.RawPath)
+
+	res2, err := New().Import(ctx, path, sink, importer.ImportOptions{})
+	require.NoError(t, err)
+	require.True(t, res2.Skipped)
+	require.Equal(t, importer.SkipReasonNoUsage, res2.SkipReason)
+	require.Equal(t, res.RawHash, res2.RawHash)
+	require.Equal(t, res.RawSize, res2.RawSize)
+	require.Empty(t, sink.Sessions)
+	require.Empty(t, sink.Turns)
+	require.Empty(t, res2.RawPath)
 }
 
 func TestClaudeModelSkipsSyntheticPlaceholder(t *testing.T) {
@@ -466,7 +444,7 @@ func TestClaudeModelSkipsSyntheticPlaceholder(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, res.Skipped)
 
-	s := sink.sessions[fixtureSessionID]
+	s := sink.Sessions[fixtureSessionID]
 	require.NotNil(t, s.Model)
 	require.Equal(t, "claude-sonnet-4-6", *s.Model)
 }
@@ -572,10 +550,10 @@ func TestImportSubagentSetsParentSessionID(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, childRes.Skipped)
 
-	parent := sink.sessions[fixtureSessionID]
+	parent := sink.Sessions[fixtureSessionID]
 	require.Nil(t, parent.ParentSessionID, "top-level session has no parent")
 
-	child := sink.sessions[subagentID]
+	child := sink.Sessions[subagentID]
 	require.NotNil(t, child.ParentSessionID,
 		"subagent session must carry the parent UUID from its path")
 	require.Equal(t, fixtureSessionID, *child.ParentSessionID)
@@ -636,12 +614,12 @@ func TestImportStripsCaveatWrapperForFirstPrompt(t *testing.T) {
 	imp := New()
 	_, err := imp.Import(ctx, src, sink, importer.ImportOptions{})
 	require.NoError(t, err)
-	s := sink.sessions[fixtureSessionID]
+	s := sink.Sessions[fixtureSessionID]
 	require.NotNil(t, s.FirstPrompt)
 	require.Equal(t, "run the migration", *s.FirstPrompt)
 
 	// The projected user turn carries the cleaned content too.
-	turns := sink.turns[fixtureSessionID]
+	turns := sink.Turns[fixtureSessionID]
 	require.NotEmpty(t, turns)
 	require.Equal(t, "user", turns[0].Role)
 	require.Equal(t, "run the migration", turns[0].Content)
@@ -695,11 +673,11 @@ func TestImportStripsStdoutWrapperAndANSI(t *testing.T) {
 	imp := New()
 	_, err := imp.Import(ctx, src, sink, importer.ImportOptions{})
 	require.NoError(t, err)
-	s := sink.sessions[fixtureSessionID]
+	s := sink.Sessions[fixtureSessionID]
 	require.NotNil(t, s.FirstPrompt)
 	require.Equal(t, "now refactor the sync logic", *s.FirstPrompt)
 
-	turns := sink.turns[fixtureSessionID]
+	turns := sink.Turns[fixtureSessionID]
 	require.NotEmpty(t, turns)
 	require.Equal(t, "user", turns[0].Role)
 	require.Equal(t, "now refactor the sync logic", turns[0].Content)
