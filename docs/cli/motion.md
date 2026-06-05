@@ -27,29 +27,38 @@ Read commands render once and exit.
 
 ## Progress Model
 
-Interactive progress uses a fixed-height status region:
+Interactive progress uses a fixed-height checklist with two phase rows
+(local import + optional remote catch-up):
 
 ```text
 prosa sync · local store
 ────────────────────────────────────────────────────────────────────────
-⠹ scanning     codex        ~/.codex/sessions
-
 found          codex 48 · claude-code 41 · cursor 7 · gemini 0
-progress       17 / 96 · imported 12 · skipped 5 · errors 0 · 8s · eta 36s
-current        codex · …/2026/05/30/session-a.jsonl
+
+→ local        importing  17 / 96 · imported 12 · skipped 5 · errors 0 · 8s · eta 36s
+· remote       pending
+  current      codex · …/2026/05/30/session-a.jsonl
+```
+
+When local finishes and catch-up runs (completed row shows elapsed only):
+
+```text
+✓ local        24s
+→ remote       reconciling  12 / 37 · sent 10 · skipped 2 · errors 0 · 4s · eta 8s
+  current      remote · sess-9a3c…
 ```
 
 Required parts:
 
 - title with operation and target;
 - separator;
-- spinner plus phase verb;
-- current agent or path;
 - discovered work counts when available;
-- completed count and total count;
-- imported, skipped, and error counters;
-- elapsed time;
-- ETA when enough data exists;
+- one checklist row per phase (`local`, `remote` when logged in);
+- active row marker (`→`); completed row marker (`✓`);
+- per-phase verb, fraction, imported/sent, skipped, errors, elapsed, ETA while
+  active (`→`); completed rows (`✓`) collapse to elapsed time (remote keeps
+  `local N · remote N` when available);
+- one `current` line for the active phase only (agent + path);
 - bounded error region.
 
 The view must not grow with total work size. A sync touching thousands of files
@@ -70,23 +79,20 @@ Use short verbs that describe actual work:
 - complete;
 - failed.
 
-The active phase line changes in place. Completed phase totals remain in the
-summary area.
+The active phase row changes in place. Completed rows stay on screen as `✓`
+(checklist grammar, same as setup/login) and show timing only so counters are
+not repeated. Final numeric totals appear once in the summary block below.
+One blank line separates the shell prompt from the sync header.
 
-## Spinner Verbs
+## Phase Row Verbs
 
-The spinner is a heartbeat, not a decoration. Use a simple Braille spinner:
-
-```text
-⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏
-```
-
-Pair it with the current verb:
+Use short verbs that describe actual work:
 
 ```text
-⠹ scanning     codex        ~/.codex/sessions
-⠴ importing    claude-code  …/projects/prosa/session-b.jsonl
-⠧ preserving   codex        …/raw/codex/2026/05/session-a.jsonl
+→ local        importing  …
+✓ local        24s
+→ remote       reconciling …
+✓ remote       18s · local 2 912 · remote 2 799
 ```
 
 Do not rotate whimsical or celebratory copy. Prosa's verbs should be useful
@@ -97,14 +103,13 @@ when glanced at quickly.
 Persist:
 
 - discovered counts;
-- aggregate progress;
+- both phase rows (local always; remote when logged in);
 - latest bounded errors;
 - final summaries.
 
 Update in place:
 
-- spinner frame;
-- active phase;
+- active row marker and counters;
 - current item;
 - elapsed time;
 - ETA.

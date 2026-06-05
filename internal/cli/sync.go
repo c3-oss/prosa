@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"strings"
@@ -210,22 +211,16 @@ func runSync(cmd *cobra.Command, _ []string) error {
 	opts := importer.ImportOptions{Overwrite: syncOverwriteFlag}
 	interactive := !syncVerboseFlag && IsInteractive()
 	if interactive {
-		if err := runSyncTTY(ctx, work, s, push, counts, opts); err != nil {
+		if err := runSyncInteractive(ctx, work, s, push, dev.ID, counts, opts); err != nil {
 			return err
 		}
 	} else {
 		if err := runSyncPlain(ctx, work, s, push, counts, opts); err != nil {
 			return err
 		}
+		// Post-import reconcile for plain/script mode only.
+		runSyncReconcile(ctx, push, dev.ID, counts, opts)
 	}
-
-	// Post-import: manifest-driven reconcile. No-op when push is nil
-	// (no auth.json) or when ctx was cancelled mid-import. Sequential
-	// pushes; takes the same SQLite reader so it slots in cleanly after
-	// the importer goroutine has exited. With --overwrite the predicate
-	// degenerates to "always push", so every local session re-hits the
-	// remote in case the server's row needs refreshing.
-	runSyncReconcile(ctx, push, dev.ID, counts, opts)
 
 	// One-shot denoise: rewrites first_prompt for any session whose
 	// stored value is agent-injected boilerplate (AGENTS.md preamble,
@@ -456,12 +451,20 @@ func padSummaryLabel(label string) string {
 	return label + strings.Repeat(" ", 9-len(label))
 }
 
-// runSyncTTY drives the Bubble Tea progress display. The importer
-// goroutine runs sequentially (SQLite writer-lock makes parallelism
-// counter-productive at small N) and feeds updates into a channel the
-// Bubble Tea program consumes. counts is owned by the orchestrator
-// (runSync) so the reconcile + summary phases share the same struct.
-func runSyncTTY(ctx context.Context, work []syncJob, sink importer.Sink, push *pusher, counts *syncCounts, opts importer.ImportOptions) error {
+// runSyncInteractive drives the two-phase Bubble Tea checklist (local
+// import + optional remote catch-up). The driver goroutine runs
+// sequentially and feeds updates into a channel the Bubble Tea program
+// consumes. Reconcile runs inside the same program lifetime so the remote
+// row can animate.
+func runSyncInteractive(
+	ctx context.Context,
+	work []syncJob,
+	sink importer.Sink,
+	push *pusher,
+	deviceID string,
+	counts *syncCounts,
+	opts importer.ImportOptions,
+) error {
 	items := make([]spinner.Item, len(work))
 	for i, w := range work {
 		label := w.imp.Name()
@@ -470,15 +473,37 @@ func runSyncTTY(ctx context.Context, work []syncJob, sink importer.Sink, push *p
 		}
 		items[i] = spinner.Item{Agent: label, Path: w.path}
 	}
-	updates := make(chan spinner.Update, len(work)*2)
+	updates := make(chan spinner.Update, len(work)*2+16)
+
+	// Suppress stderr slog while Bubble Tea repaints in place; concurrent
+	// writes (e.g. reconcile: catching up) desync the cursor and orphan frames.
+	prevLog := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	defer slog.SetDefault(prevLog)
 
 	go func() {
 		defer close(updates)
-		for i, w := range work {
+		send := func(u spinner.Update) bool {
 			select {
 			case <-ctx.Done():
+				return false
+			case updates <- u:
+				return true
+			}
+		}
+
+		if !send(spinner.Update{
+			Phase: spinner.PhaseLocal,
+			Begin: true,
+			Total: len(work),
+			Verb:  "importing",
+		}) {
+			return
+		}
+
+		for i, w := range work {
+			if !send(spinner.Update{Phase: spinner.PhaseLocal, Index: i, Started: true}) {
 				return
-			case updates <- spinner.Update{Index: i, Started: true}:
 			}
 			var res importer.ImportResult
 			err := w.prepareErr
@@ -489,25 +514,95 @@ func runSyncTTY(ctx context.Context, work []syncJob, sink importer.Sink, push *p
 				w.cleanup()
 			}
 			counts.record(w, res, err)
-			// Push the just-imported session unless the Import itself
-			// failed; legacy + live both go up.
 			if push != nil && err == nil && !res.Skipped {
 				counts.recordPush(push.pushSession(ctx, res.SessionID))
 			}
-			select {
-			case <-ctx.Done():
+			if !send(spinner.Update{
+				Phase:   spinner.PhaseLocal,
+				Index:   i,
+				Skipped: res.Skipped,
+				Err:     err,
+			}) {
 				return
-			case updates <- spinner.Update{Index: i, Skipped: res.Skipped, Err: err}:
 			}
 		}
+
+		if !send(spinner.Update{Phase: spinner.PhaseLocal, Done: true, Verb: "imported"}) {
+			return
+		}
+
+		if push == nil {
+			return
+		}
+
+		if !send(spinner.Update{
+			Phase: spinner.PhaseRemote,
+			Begin: true,
+			Verb:  "reconciling",
+		}) {
+			return
+		}
+
+		var rc reconcileCounts
+		var reconcileErr error
+		hooks := reconcileHooks{
+			onPlan: func(total int) {
+				send(spinner.Update{
+					Phase:    spinner.PhaseRemote,
+					SetTotal: true,
+					Total:    total,
+				})
+			},
+			onStep: func(done, total int, sid string, outcome pushOutcome) {
+				u := spinner.Update{
+					Phase: spinner.PhaseRemote,
+					Active: &spinner.Item{
+						Agent: "remote",
+						Path:  sid,
+					},
+				}
+				switch outcome {
+				case pushAlreadyHashed, pushSkippedNoUsage, pushSkippedRemoteUnavailable:
+					u.Skipped = true
+				case pushFailed:
+					u.Err = errors.New("push failed")
+				default:
+					// pushImported counts as done (sent).
+				}
+				send(u)
+			},
+		}
+		rc, reconcileErr = reconcileWithServer(ctx, push, deviceID, opts, hooks)
+		foldReconcile(counts, rc, reconcileErr, push)
+
+		extra := fmt.Sprintf("local %d · remote %d", rc.localTotal, rc.remoteTotal)
+		if push.remoteUnavailable || isRemoteUnavailable(reconcileErr) {
+			send(spinner.Update{
+				Phase:       spinner.PhaseRemote,
+				Done:        true,
+				Unavailable: true,
+				Verb:        "unavailable",
+				Extra:       extra,
+			})
+			return
+		}
+		send(spinner.Update{
+			Phase: spinner.PhaseRemote,
+			Done:  true,
+			Verb:  "sent",
+			Extra: extra,
+		})
 	}()
+
 	spinnerOpts := spinner.Options{
-		Title: "prosa sync · local store",
-		Found: syncFoundSummary(items),
+		Title:         "prosa sync · local store",
+		Found:         syncFoundSummary(items),
+		RemoteEnabled: push != nil,
 	}
 	if counts.legacyTotal > 0 {
 		spinnerOpts.Banner = fmt.Sprintf("legacy bundle: %s", legacyBundleFlag)
 	}
+	fmt.Fprintln(os.Stdout)
 	if err := spinner.Run(ctx, items, updates, spinnerOpts); err != nil && !errors.Is(err, context.Canceled) {
 		return err
 	}

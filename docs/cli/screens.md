@@ -168,30 +168,39 @@ codex-2026-05-28-1004	codex	/Users/upsetbit/Projects/c3/c3-oss/prosa	2026-05-28 
 ## 5. `prosa sync` Interactive Progress
 
 The interactive surface is bounded and updates in place. These are successive
-frames, not separate appended outputs.
+frames, not separate appended outputs. One blank line separates the shell
+prompt from the header.
 
 ```text
+
 prosa sync · local store
 ────────────────────────────────────────────────────────────────────────
-⠹ scanning     codex        ~/.codex/sessions
-
 found          codex 48 · claude-code 41 · cursor 7 · gemini 0
-progress       17 / 96 · imported 12 · skipped 5 · errors 0 · 8s · eta 36s
-current        codex · …/2026/05/30/session-a.jsonl
+
+→ local        importing  17 / 96 · imported 12 · skipped 5 · errors 0 · 8s · eta 36s
+· remote       pending
+  current      codex · …/2026/05/30/session-a.jsonl
 ```
 
 ```text
 prosa sync · local store
 ────────────────────────────────────────────────────────────────────────
-⠴ importing    claude-code  …/projects/prosa/session-b.jsonl
-
 found          codex 48 · claude-code 41 · cursor 7 · gemini 0
-progress       63 / 96 · imported 31 · skipped 31 · errors 1 · 24s · eta 12s
-current        claude-code · …/projects/prosa/session-b.jsonl
+
+✓ local        24s
+→ remote       reconciling  12 / 37 · sent 10 · skipped 2 · errors 0 · 4s · eta 8s
+  current      remote · sess-9a3c…
 
 errors
   cursor       …/chats/2026-05-29/session-c.jsonl
                parse message: missing timestamp
+```
+
+Final checklist frame (compact `✓` rows — counts live in the summary):
+
+```text
+✓ local        17s
+✓ remote       18s · local 2 912 · remote 2 799
 ```
 
 Final output after the progress program exits:
@@ -366,9 +375,11 @@ Importer failure in TTY sync:
 ```text
 prosa sync · local store
 ────────────────────────────────────────────────────────────────────────
-⠴ importing    claude-code  …/projects/prosa/session-b.jsonl
+found          codex 48 · claude-code 41 · cursor 7 · gemini 0
 
-progress       63 / 96 · imported 31 · skipped 31 · errors 1 · 24s · eta 12s
+→ local        importing  63 / 96 · imported 31 · skipped 31 · errors 1 · 24s · eta 12s
+· remote       pending
+  current      claude-code · …/projects/prosa/session-b.jsonl
 
 errors
   cursor       …/chats/2026-05-29/session-c.jsonl

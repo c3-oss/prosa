@@ -160,7 +160,7 @@ func TestReconcileMissingPushed(t *testing.T) {
 	// Server has nothing → both should be pushed.
 	fx.fake.manifestPages[""] = &prosav1.ManifestResponse{}
 
-	counts, err := reconcileWithServer(ctx, fx.pusher, "dev", importer.ImportOptions{}, nil)
+	counts, err := reconcileWithServer(ctx, fx.pusher, "dev", importer.ImportOptions{}, reconcileHooks{})
 	require.NoError(t, err)
 	require.Equal(t, 2, counts.sent)
 	require.Equal(t, 0, counts.skipped)
@@ -184,7 +184,7 @@ func TestReconcileDivergentPushed(t *testing.T) {
 		},
 	}
 
-	counts, err := reconcileWithServer(ctx, fx.pusher, "dev", importer.ImportOptions{}, nil)
+	counts, err := reconcileWithServer(ctx, fx.pusher, "dev", importer.ImportOptions{}, reconcileHooks{})
 	require.NoError(t, err)
 	require.Equal(t, 1, counts.sent) // only s1 re-pushed
 	require.Equal(t, 0, counts.skipped)
@@ -215,7 +215,7 @@ func TestReconcileOverwriteEnqueuesConverged(t *testing.T) {
 	}
 
 	counts, err := reconcileWithServer(ctx, fx.pusher, "dev",
-		importer.ImportOptions{Overwrite: true}, nil)
+		importer.ImportOptions{Overwrite: true}, reconcileHooks{})
 	require.NoError(t, err)
 	require.Equal(t, 2, counts.sent,
 		"overwrite must re-push both sessions even when remote has matching hashes")
@@ -238,7 +238,7 @@ func TestReconcileConverged(t *testing.T) {
 		},
 	}
 
-	counts, err := reconcileWithServer(ctx, fx.pusher, "dev", importer.ImportOptions{}, nil)
+	counts, err := reconcileWithServer(ctx, fx.pusher, "dev", importer.ImportOptions{}, reconcileHooks{})
 	require.NoError(t, err)
 	require.Equal(t, 0, counts.sent)
 	require.Equal(t, 0, counts.skipped)
@@ -254,7 +254,7 @@ func TestReconcileRawMissingCountsAsError(t *testing.T) {
 
 	fx.fake.manifestPages[""] = &prosav1.ManifestResponse{} // server has nothing
 
-	counts, err := reconcileWithServer(ctx, fx.pusher, "dev", importer.ImportOptions{}, nil)
+	counts, err := reconcileWithServer(ctx, fx.pusher, "dev", importer.ImportOptions{}, reconcileHooks{})
 	require.NoError(t, err) // reconcile itself succeeds; per-session error tallied below
 	require.Equal(t, 1, counts.sent)
 	require.Equal(t, 1, counts.errs)
@@ -287,7 +287,7 @@ func TestReconcilePaginatesManifest(t *testing.T) {
 		// Empty NextAfterId — end of stream.
 	}
 
-	counts, err := reconcileWithServer(ctx, fx.pusher, "dev", importer.ImportOptions{}, nil)
+	counts, err := reconcileWithServer(ctx, fx.pusher, "dev", importer.ImportOptions{}, reconcileHooks{})
 	require.NoError(t, err)
 	require.Equal(t, 2, counts.sent) // s3 (divergent) + s4 (missing)
 	require.Equal(t, 4, counts.localTotal)
@@ -302,7 +302,7 @@ func TestReconcilePaginatesManifest(t *testing.T) {
 }
 
 func TestReconcileNilPusherNoOp(t *testing.T) {
-	counts, err := reconcileWithServer(context.Background(), nil, "dev", importer.ImportOptions{}, nil)
+	counts, err := reconcileWithServer(context.Background(), nil, "dev", importer.ImportOptions{}, reconcileHooks{})
 	require.NoError(t, err)
 	require.Equal(t, reconcileCounts{}, counts)
 }
@@ -380,7 +380,7 @@ func TestReconcilePushesSessionsWithoutUsage(t *testing.T) {
 	}, nil))
 	fx.fake.manifestPages[""] = &prosav1.ManifestResponse{}
 
-	counts, err := reconcileWithServer(ctx, fx.pusher, "dev", importer.ImportOptions{}, nil)
+	counts, err := reconcileWithServer(ctx, fx.pusher, "dev", importer.ImportOptions{}, reconcileHooks{})
 	require.NoError(t, err)
 	require.Equal(t, 1, counts.sent)
 	require.Equal(t, 0, counts.skipped)
@@ -443,13 +443,28 @@ func TestReconcileProgressCallback(t *testing.T) {
 	fx.addSession(t, ctx, "dev", "s2")
 	fx.fake.manifestPages[""] = &prosav1.ManifestResponse{}
 
-	type tick struct{ done, total int }
-	var ticks []tick
-	_, err := reconcileWithServer(ctx, fx.pusher, "dev", importer.ImportOptions{}, func(done, total int) {
-		ticks = append(ticks, tick{done, total})
+	type planTick struct{ total int }
+	type stepTick struct {
+		done, total int
+		sid         string
+		outcome     pushOutcome
+	}
+	var plans []planTick
+	var steps []stepTick
+	_, err := reconcileWithServer(ctx, fx.pusher, "dev", importer.ImportOptions{}, reconcileHooks{
+		onPlan: func(total int) {
+			plans = append(plans, planTick{total})
+		},
+		onStep: func(done, total int, sid string, outcome pushOutcome) {
+			steps = append(steps, stepTick{done, total, sid, outcome})
+		},
 	})
 	require.NoError(t, err)
-	require.Equal(t, []tick{{1, 2}, {2, 2}}, ticks)
+	require.Equal(t, []planTick{{2}}, plans)
+	require.Equal(t, []stepTick{
+		{1, 2, "s1", pushImported},
+		{2, 2, "s2", pushImported},
+	}, steps)
 }
 
 func captureStdout(t *testing.T, fn func()) string {

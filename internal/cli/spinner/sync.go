@@ -3,15 +3,12 @@
 // run touches:
 //
 //   - One header line (command + banner).
-//   - One progress line (counters + spinner + elapsed + eta).
-//   - One "now active" line.
+//   - One found-summary line when available.
+//   - Two checklist rows (local import + optional remote catch-up).
+//   - One "current" line for the active phase.
 //   - Up to 5 persistent error blocks (rolling LRU).
 //
-// View() runs in O(K) where K = visible error slots — independent of N. This
-// matters: a legacy bundle restore can produce 7 000+ work items, and an
-// O(N) View() turned the terminal into 30 % CPU paint loops without
-// progress (see ~/.claude/plans/leia-intent-md-e-inicie-keen-honey.md
-// Commit 0 for the diagnosis).
+// View() runs in O(K) where K = visible error slots — independent of N.
 //
 // Callers outside an interactive TTY must NOT call Run — sync.go gates on
 // cli.IsInteractive() and falls back to slog-linear output instead.
@@ -30,30 +27,54 @@ import (
 	"github.com/c3-oss/prosa/internal/cli/render"
 )
 
-// Item describes one session about to be imported. Index in the slice
-// passed to Run is the stable identifier matched against Update.Index.
+// Phase identifies which sync stage an Update applies to.
+type Phase int
+
+const (
+	PhaseLocal Phase = iota
+	PhaseRemote
+)
+
+// Item describes one session about to be imported or reconciled.
 type Item struct {
 	Agent string
 	Path  string
 }
 
-// Update is produced by the importer goroutine for each completed session.
+// Update is produced by the sync driver goroutine for lifecycle events and
+// per-item progress.
 type Update struct {
+	Phase Phase
+
+	// Phase lifecycle.
+	Begin       bool
+	Total       int
+	Verb        string
+	SetTotal    bool
+	Done        bool
+	Extra       string
+	Unavailable bool
+
+	// Per-item progress (local import index or remote step completion).
 	Index   int
 	Started bool
 	Skipped bool
 	Err     error
+
+	// Active sets the current line for the given phase without bumping counters.
+	Active *Item
 }
 
 // Options tune the compact view's framing.
 type Options struct {
-	// Title prints on the very top line (defaults to "prosa sync").
+	// Title prints on the very top line (defaults to "prosa sync · local store").
 	Title string
-	// Banner is a free-form second line displayed under Title (legacy
-	// bundle path, importer count, etc.). Optional.
+	// Banner is a free-form fragment displayed after Title (legacy bundle path).
 	Banner string
 	// Found summarizes discovered work per agent. Optional.
 	Found string
+	// RemoteEnabled shows the remote catch-up row and waits for it before quit.
+	RemoteEnabled bool
 }
 
 const maxErrorSlots = 5
@@ -64,18 +85,36 @@ type errLine struct {
 	msg   string
 }
 
+type phaseState struct {
+	label       string
+	verb        string
+	total       int
+	done        int
+	skipped     int
+	errCount    int
+	started     bool
+	finished    bool
+	unavailable bool
+	determinate bool
+	start       time.Time
+	elapsed     time.Duration
+	extra       string
+}
+
 type model struct {
-	items     []Item
-	total     int
-	done      int
-	skipped   int
-	errCount  int
-	activeIdx int
-	errs      []errLine // rolling LRU, len <= maxErrorSlots
-	spin      spinner.Model
-	ch        <-chan Update
-	opts      Options
-	start     time.Time
+	items       []Item
+	local       phaseState
+	remote      phaseState
+	active      *Item
+	activePhase Phase
+	errs        []errLine
+	spin        spinner.Model
+	ch          <-chan Update
+	opts        Options
+}
+
+func defaultPhaseState(label string) phaseState {
+	return phaseState{label: label}
 }
 
 type closedMsg struct{}
@@ -94,8 +133,21 @@ func (m model) Init() tea.Cmd {
 	return tea.Batch(m.spin.Tick, recvCmd(m.ch))
 }
 
+func (m *model) phaseFor(p Phase) *phaseState {
+	if p == PhaseRemote {
+		return &m.remote
+	}
+	return &m.local
+}
+
 func (m model) finished() bool {
-	return m.done+m.skipped+m.errCount >= m.total
+	if !m.local.finished {
+		return false
+	}
+	if !m.opts.RemoteEnabled {
+		return true
+	}
+	return m.remote.finished
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -105,24 +157,79 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.spin, cmd = m.spin.Update(v)
 		return m, cmd
 	case Update:
-		if v.Index >= 0 && v.Index < len(m.items) {
-			m.activeIdx = v.Index
-		}
-		if v.Started {
+		ps := m.phaseFor(v.Phase)
+		if v.Begin {
+			ps.started = true
+			ps.determinate = v.Total > 0
+			ps.total = v.Total
+			if v.Verb != "" {
+				ps.verb = v.Verb
+			}
+			ps.start = time.Now()
+			m.activePhase = v.Phase
 			return m, recvCmd(m.ch)
 		}
+		if v.SetTotal {
+			ps.total = v.Total
+			ps.determinate = true
+			return m, recvCmd(m.ch)
+		}
+		if v.Started {
+			if v.Index >= 0 && v.Index < len(m.items) {
+				it := m.items[v.Index]
+				m.active = &it
+				m.activePhase = v.Phase
+			}
+			return m, recvCmd(m.ch)
+		}
+		if v.Active != nil {
+			m.active = v.Active
+			m.activePhase = v.Phase
+		}
+		if v.Done {
+			ps.finished = true
+			ps.unavailable = v.Unavailable
+			ps.extra = v.Extra
+			if !ps.start.IsZero() {
+				ps.elapsed = time.Since(ps.start)
+			}
+			if v.Unavailable {
+				if ps.verb == "" {
+					ps.verb = "unavailable"
+				}
+			} else if v.Verb != "" {
+				ps.verb = v.Verb
+			} else if v.Phase == PhaseLocal {
+				ps.verb = "imported"
+			} else {
+				ps.verb = "sent"
+			}
+			m.active = nil
+			if m.finished() {
+				return m, tea.Quit
+			}
+			return m, recvCmd(m.ch)
+		}
+		// Per-item completion.
 		switch {
 		case v.Err != nil:
-			m.errCount++
-			it := m.items[v.Index]
-			m.errs = append(m.errs, errLine{agent: it.Agent, path: it.Path, msg: v.Err.Error()})
-			if len(m.errs) > maxErrorSlots {
-				m.errs = m.errs[len(m.errs)-maxErrorSlots:]
+			ps.errCount++
+			if v.Phase == PhaseLocal && v.Index >= 0 && v.Index < len(m.items) {
+				it := m.items[v.Index]
+				m.errs = append(m.errs, errLine{agent: it.Agent, path: it.Path, msg: v.Err.Error()})
+				if len(m.errs) > maxErrorSlots {
+					m.errs = m.errs[len(m.errs)-maxErrorSlots:]
+				}
+			} else if v.Active != nil {
+				m.errs = append(m.errs, errLine{agent: v.Active.Agent, path: v.Active.Path, msg: v.Err.Error()})
+				if len(m.errs) > maxErrorSlots {
+					m.errs = m.errs[len(m.errs)-maxErrorSlots:]
+				}
 			}
 		case v.Skipped:
-			m.skipped++
+			ps.skipped++
 		default:
-			m.done++
+			ps.done++
 		}
 		if m.finished() {
 			return m, tea.Quit
@@ -138,6 +245,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (ps phaseState) finishedCount() int {
+	return ps.done + ps.skipped + ps.errCount
+}
+
 var (
 	styleHeader   = render.StyleHeader
 	styleBanner   = render.StyleMuted
@@ -149,6 +260,7 @@ var (
 	styleAgent    = render.StyleAgent
 	styleProgress = render.StyleAccent
 	styleTime     = render.StyleMuted
+	stylePending  = render.StyleMuted
 )
 
 const pathMax = 70
@@ -156,7 +268,6 @@ const pathMax = 70
 func (m model) View() string {
 	var b strings.Builder
 
-	// Header + banner.
 	title := m.opts.Title
 	if title == "" {
 		title = "prosa sync · local store"
@@ -169,54 +280,26 @@ func (m model) View() string {
 	b.WriteString(styleSep.Render(strings.Repeat("─", 72)))
 	b.WriteString("\n")
 
-	phase := "scanning"
-	activeAgent := ""
-	activePath := ""
-	if m.activeIdx >= 0 && m.activeIdx < len(m.items) {
-		phase = "importing"
-		it := m.items[m.activeIdx]
-		activeAgent = it.Agent
-		activePath = shortPath(it.Path)
-	}
-	fmt.Fprintf(
-		&b, "%s %-12s %-12s %s\n",
-		styleSpin.Render(m.spin.View()),
-		styleProgress.Render(phase),
-		styleAgent.Render(activeAgent),
-		styleBanner.Render(activePath),
-	)
-	b.WriteString("\n")
-
-	// Progress line.
-	elapsed := time.Since(m.start)
 	if m.opts.Found != "" {
 		fmt.Fprintf(&b, "%s          %s\n", styleBanner.Render("found"), m.opts.Found)
 	}
-	fmt.Fprintf(
-		&b,
-		"%s       %s · %s %d · %s %d · %s %d · %s · %s\n",
-		styleBanner.Render("progress"),
-		styleProgress.Render(fmt.Sprintf("%d / %d", m.done+m.skipped+m.errCount, m.total)),
-		styleDone.Render("imported"), m.done,
-		styleSkip.Render("skipped"), m.skipped,
-		styleErr.Render("errors"), m.errCount,
-		styleTime.Render(humanDur(elapsed)),
-		styleTime.Render("eta "+m.eta()),
-	)
+	b.WriteString("\n")
 
-	// Active line.
-	if !m.finished() && m.activeIdx >= 0 && m.activeIdx < len(m.items) {
-		it := m.items[m.activeIdx]
+	m.writePhaseRow(&b, &m.local, "imported")
+	if m.opts.RemoteEnabled {
+		m.writePhaseRow(&b, &m.remote, "sent")
+	}
+
+	if m.active != nil && !m.phaseFor(m.activePhase).finished {
 		fmt.Fprintf(
 			&b,
 			"%s        %s · %s\n",
 			styleBanner.Render("current"),
-			styleAgent.Render(it.Agent),
-			styleBanner.Render(shortPath(it.Path)),
+			styleAgent.Render(m.active.Agent),
+			styleBanner.Render(shortPath(m.active.Path)),
 		)
 	}
 
-	// Persistent errors.
 	if len(m.errs) > 0 {
 		b.WriteString("\n")
 		b.WriteString(styleErr.Render("errors"))
@@ -235,17 +318,81 @@ func (m model) View() string {
 	return b.String()
 }
 
-func (m model) eta() string {
-	completed := m.done + m.skipped + m.errCount
-	if completed == 0 {
+func (m model) writePhaseRow(b *strings.Builder, ps *phaseState, doneLabel string) {
+	glyph := m.phaseGlyph(ps)
+	var elapsed time.Duration
+	switch {
+	case ps.finished:
+		elapsed = ps.elapsed
+	case ps.started && !ps.start.IsZero():
+		elapsed = time.Since(ps.start)
+	}
+
+	var progress string
+	if ps.finished {
+		if ps.unavailable {
+			progress = fmt.Sprintf(
+				"%s · %s %d · %s %d · %s %d",
+				styleProgress.Render(ps.verb),
+				styleDone.Render(doneLabel), ps.done,
+				styleSkip.Render("skipped"), ps.skipped,
+				styleErr.Render("errors"), ps.errCount,
+			)
+		} else {
+			progress = styleTime.Render(humanDur(elapsed))
+		}
+		if ps.extra != "" {
+			progress += " · " + styleBanner.Render(ps.extra)
+		}
+	} else if ps.started {
+		var parts strings.Builder
+		fmt.Fprintf(&parts, "%s  ", styleProgress.Render(ps.verb))
+		if ps.determinate && ps.total > 0 {
+			fmt.Fprintf(&parts, "%d / %d · ", ps.finishedCount(), ps.total)
+		}
+		fmt.Fprintf(
+			&parts,
+			"%s %d · %s %d · %s %d · %s",
+			styleDone.Render(doneLabel), ps.done,
+			styleSkip.Render("skipped"), ps.skipped,
+			styleErr.Render("errors"), ps.errCount,
+			styleTime.Render(humanDur(elapsed)),
+		)
+		if ps.determinate && ps.total > 0 {
+			fmt.Fprintf(&parts, " · %s", styleTime.Render("eta "+phaseETA(ps)))
+		}
+		progress = parts.String()
+	} else {
+		progress = stylePending.Render("pending")
+	}
+
+	fmt.Fprintf(b, "%s %-13s%s\n", glyph, ps.label, progress)
+}
+
+func (m model) phaseGlyph(ps *phaseState) string {
+	switch {
+	case ps.finished && ps.unavailable:
+		return styleErr.Render("✗")
+	case ps.finished:
+		return styleDone.Render("✓")
+	case ps.started:
+		return styleSpin.Render("→")
+	default:
+		return stylePending.Render("·")
+	}
+}
+
+func phaseETA(ps *phaseState) string {
+	completed := ps.finishedCount()
+	if completed == 0 || ps.total <= 0 {
 		return "—"
 	}
-	elapsed := time.Since(m.start)
+	elapsed := time.Since(ps.start)
 	rate := float64(completed) / elapsed.Seconds()
 	if rate <= 0 {
 		return "—"
 	}
-	remaining := time.Duration(float64(m.total-completed) / rate * float64(time.Second)) // seconds
+	remaining := time.Duration(float64(ps.total-completed) / rate * float64(time.Second))
 	if remaining < 0 {
 		remaining = 0
 	}
@@ -276,30 +423,27 @@ func shortPath(p string) string {
 	if len(p) <= pathMax {
 		return p
 	}
-	// Try to keep the last 2 path segments for context.
 	keep := pathMax - 1
 	tail := p[len(p)-keep:]
-	// Cut at the next separator so we never break mid-segment.
 	if i := strings.IndexAny(tail, "/"+string(filepath.Separator)); i >= 0 {
 		tail = tail[i:]
 	}
 	return "…" + tail
 }
 
-// Run blocks until every item has produced an Update or the updates
-// channel is closed. It does not use the alternate screen, so the user can
-// still see the final progress frame above the caller's summary.
+// Run blocks until every phase has finished or the updates channel is closed.
+// It does not use the alternate screen, so the user can still see the final
+// progress frame above the caller's summary.
 func Run(ctx context.Context, items []Item, updates <-chan Update, opts Options) error {
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
 	m := model{
-		items:     items,
-		total:     len(items),
-		activeIdx: -1,
-		spin:      sp,
-		ch:        updates,
-		opts:      opts,
-		start:     time.Now(),
+		items:  items,
+		local:  defaultPhaseState("local"),
+		remote: defaultPhaseState("remote"),
+		spin:   sp,
+		ch:     updates,
+		opts:   opts,
 	}
 
 	p := tea.NewProgram(m, tea.WithContext(ctx))

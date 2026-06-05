@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 
 	"connectrpc.com/connect"
 
@@ -20,29 +19,28 @@ type reconcileCounts struct {
 	remoteTotal         int
 }
 
+// reconcileHooks drives interactive progress for the catch-up phase.
+// Both callbacks are optional and nil-safe.
+type reconcileHooks struct {
+	onPlan func(total int)
+	onStep func(done, total int, sid string, outcome pushOutcome)
+}
+
 // reconcileWithServer is the catch-up phase: it enumerates every local
 // session for this device, asks the server for its current manifest,
 // and pushes any session that's missing remotely or whose raw_hash
 // diverged. Pushes are sequential (re-uses the same pusher / SQLite
-// reader) and stream a "X / N" progress line so the user can see the
-// catch-up moving even on a slow connection.
+// reader).
 //
 // When opts.Overwrite is true the divergence predicate degenerates to
 // "always enqueue" — every local session is re-pushed regardless of
-// whether the remote already has a matching hash. Used by
-// `prosa sync --overwrite` to refresh a converged remote from local
-// state.
-//
-// onProgress, when non-nil, is called once after each push attempt with
-// the cumulative (sent + skipped + errs) and the total work. The caller
-// uses it to repaint a status line; it is invoked from the same
-// goroutine so no locking is required.
+// whether the remote already has a matching hash.
 func reconcileWithServer(
 	ctx context.Context,
 	push *pusher,
 	deviceID string,
 	opts importer.ImportOptions,
-	onProgress func(done, total int),
+	hooks reconcileHooks,
 ) (reconcileCounts, error) {
 	var counts reconcileCounts
 	if push == nil {
@@ -70,6 +68,10 @@ func reconcileWithServer(
 		}
 	}
 
+	if hooks.onPlan != nil {
+		hooks.onPlan(len(work))
+	}
+
 	if len(work) == 0 {
 		slog.Info("reconcile: converged",
 			"device", deviceID, "local", counts.localTotal, "remote", counts.remoteTotal)
@@ -94,13 +96,13 @@ func reconcileWithServer(
 			counts.errs++
 			slog.Warn("reconcile push failed", "session", sid, "err", perr)
 		case pushSkippedRemoteUnavailable:
-			if onProgress != nil {
-				onProgress(i+1, len(work))
+			if hooks.onStep != nil {
+				hooks.onStep(i+1, len(work), sid, outcome)
 			}
 			return counts, nil
 		}
-		if onProgress != nil {
-			onProgress(i+1, len(work))
+		if hooks.onStep != nil {
+			hooks.onStep(i+1, len(work), sid, outcome)
 		}
 	}
 	return counts, nil
@@ -145,8 +147,30 @@ func fetchServerManifest(ctx context.Context, push *pusher) (map[string]serverMa
 	}
 }
 
-// runSyncReconcile is the orchestrator wrapper called from runSync. It
-// runs the reconcile phase (no-op when push is nil) and folds the
+// foldReconcile merges catch-up results into syncCounts and records remote
+// unavailability when the server cannot be reached.
+func foldReconcile(counts *syncCounts, rc reconcileCounts, err error, push *pusher) {
+	if err != nil {
+		if push != nil && (push.remoteUnavailable || isRemoteUnavailable(err)) {
+			counts.recordRemoteUnavailable(push)
+			return
+		}
+		slog.Warn("reconcile failed", "err", err)
+	}
+	if push != nil && push.remoteUnavailable {
+		counts.recordRemoteUnavailable(push)
+		return
+	}
+	counts.catchUpSent = rc.sent
+	counts.catchUpSkip = rc.skipped
+	counts.catchUpErr = rc.errs
+	counts.reconcileRan = true
+	counts.localTotal = rc.localTotal
+	counts.remoteTotal = rc.remoteTotal
+}
+
+// runSyncReconcile is the orchestrator wrapper called from runSync plain
+// path. It runs the reconcile phase (no-op when push is nil) and folds the
 // results into the shared syncCounts so printSummary can render the
 // Catch-up band.
 func runSyncReconcile(ctx context.Context, push *pusher, deviceID string, counts *syncCounts, opts importer.ImportOptions) {
@@ -157,30 +181,14 @@ func runSyncReconcile(ctx context.Context, push *pusher, deviceID string, counts
 		counts.recordRemoteUnavailable(push)
 		return
 	}
-	progress := func(done, total int) {
-		// Emit a bounded progress line every 25 sessions (or at the
-		// end). Keep each line terminated so stderr logs never attach to
-		// an in-progress stdout repaint.
-		if done == total || done%25 == 0 {
-			fmt.Fprintf(os.Stdout, "Catch-up: %d / %d sessions reconciled\n", done, total)
-		}
+	hooks := reconcileHooks{
+		onStep: func(done, total int, _ string, _ pushOutcome) {
+			if done == total || done%25 == 0 {
+				slog.Info("reconcile progress",
+					"done", done, "total", total)
+			}
+		},
 	}
-	rc, err := reconcileWithServer(ctx, push, deviceID, opts, progress)
-	if err != nil {
-		if push.remoteUnavailable || isRemoteUnavailable(err) {
-			counts.recordRemoteUnavailable(push)
-			return
-		}
-		slog.Warn("reconcile failed", "err", err)
-	}
-	if push.remoteUnavailable {
-		counts.recordRemoteUnavailable(push)
-		return
-	}
-	counts.catchUpSent = rc.sent
-	counts.catchUpSkip = rc.skipped
-	counts.catchUpErr = rc.errs
-	counts.reconcileRan = true
-	counts.localTotal = rc.localTotal
-	counts.remoteTotal = rc.remoteTotal
+	rc, err := reconcileWithServer(ctx, push, deviceID, opts, hooks)
+	foldReconcile(counts, rc, err, push)
 }

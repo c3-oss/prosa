@@ -276,19 +276,37 @@ requests them.
 
 Interactive sync uses compact progressive feedback.
 
-Progress grammar:
+Progress grammar (two checklist rows; active `→`, completed `✓`). One blank
+line precedes the header after the shell prompt.
 
 ```text
+
 prosa sync · local store
 ────────────────────────────────────────────────────────────────────────
-⠹ scanning     codex        ~/.codex/sessions
-
 found          codex 48 · claude-code 41 · cursor 7 · gemini 0
-progress       17 / 96 · imported 12 · skipped 5 · errors 0 · 8s · eta 36s
-current        codex · …/2026/05/30/session-a.jsonl
+
+→ local        importing  17 / 96 · imported 12 · skipped 5 · errors 0 · 8s · eta 36s
+· remote       pending
+  current      codex · …/2026/05/30/session-a.jsonl
 ```
 
-Final summary grammar:
+When catch-up runs after local import (local row collapses to elapsed time):
+
+```text
+✓ local        24s
+→ remote       reconciling  12 / 37 · sent 10 · skipped 2 · errors 0 · 4s · eta 8s
+  current      remote · sess-9a3c…
+```
+
+When both phases finish, checklist rows stay compact; imported/skipped/sent
+counts appear only in the summary below.
+
+```text
+✓ local        17s
+✓ remote       18s · local 2 912 · remote 2 799
+```
+
+Final summary grammar (authoritative counts):
 
 ```text
 prosa sync · complete
