@@ -4,7 +4,9 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/c3-oss/prosa/pkg/session"
 	"github.com/stretchr/testify/require"
 )
 
@@ -32,4 +34,20 @@ func TestImportSkipRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, "h2", hash)
+}
+
+func TestLastImportSkipIgnoresStaleProjectionVersion(t *testing.T) {
+	ctx, s := newStore(t)
+	now := time.Now().UTC()
+
+	_, err := s.DB().ExecContext(ctx, `
+		INSERT INTO import_skips (session_id, reason, last_hash, skipped_at, projection_version)
+		VALUES (?, ?, ?, ?, ?)
+	`, "skip-stale-projection", "no_usage", "stale-hash", formatTime(now), session.ProjectionVersion-1)
+	require.NoError(t, err)
+
+	hash, found, err := s.LastImportSkip(ctx, "skip-stale-projection", "no_usage")
+	require.NoError(t, err)
+	require.False(t, found)
+	require.Equal(t, "stale-hash", hash)
 }
