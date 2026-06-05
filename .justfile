@@ -36,6 +36,10 @@ run *ARGS:
 test:
     go test ./...
 
+# run black-box CLI integration tests
+test-integration:
+    go test -tags=testintegration -count=1 ./internal/cli -run TestCLIEndToEnd
+
 # run the test suite with the race detector
 test-race:
     go test -race -count=1 ./...
@@ -98,7 +102,7 @@ gen-check: gen
     git diff --exit-code -- gen/
 
 # local CI lane
-ci: tidy-check gen-check vet lint test-race build
+ci: tidy-check gen-check vet lint test-race test-integration build
     git diff --exit-code
 
 # goreleaser dry run for local release validation
