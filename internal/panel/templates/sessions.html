@@ -156,7 +156,7 @@
     </thead>
     <tbody>
       {{range .Sessions}}
-        <tr class="session-row" data-href="{{.OpenURL}}" data-detail="/sessions/{{.Id}}" hx-push-url="{{.OpenURL}}">
+        <tr class="session-row" data-href="{{.OpenURL}}" data-detail="/sessions/{{.Id}}">
           {{if index $.Cols "agent"}}<td>{{agentBadge .Agent}}</td>{{end}}
           {{if index $.Cols "project"}}
             <td class="cell-project">
