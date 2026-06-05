@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/c3-oss/prosa/internal/paths"
+	"github.com/c3-oss/prosa/pkg/session"
 )
 
 // preserveRaw copies the source store.db into the prosa raw tree at:
@@ -19,6 +20,9 @@ import (
 // the projected sessions/turns, and recovery semantics for the .db are not
 // part of the prosa contract.
 func preserveRaw(srcPath, sessionID string, startedAt time.Time) (string, error) {
+	if err := session.ValidateID(sessionID); err != nil {
+		return "", fmt.Errorf("preserve raw: %w", err)
+	}
 	root, err := paths.RawRoot(Name)
 	if err != nil {
 		return "", err

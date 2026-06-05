@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/c3-oss/prosa/internal/paths"
+	"github.com/c3-oss/prosa/pkg/session"
 )
 
 // preserveRaw copies the source JSONL into the prosa raw tree at:
@@ -18,6 +19,9 @@ import (
 // files while sessions are live (just like Claude Code), so we copy and
 // never move.
 func preserveRaw(srcPath, sessionID string, startedAt time.Time) (string, error) {
+	if err := session.ValidateID(sessionID); err != nil {
+		return "", fmt.Errorf("preserve raw: %w", err)
+	}
 	root, err := paths.RawRoot(Name)
 	if err != nil {
 		return "", err
