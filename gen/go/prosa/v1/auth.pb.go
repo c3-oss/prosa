@@ -7,11 +7,12 @@
 package prosav1
 
 import (
+	reflect "reflect"
+	sync "sync"
+
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
-	reflect "reflect"
-	sync "sync"
 )
 
 const (
@@ -696,20 +697,22 @@ func file_prosa_v1_auth_proto_rawDescGZIP() []byte {
 	return file_prosa_v1_auth_proto_rawDescData
 }
 
-var file_prosa_v1_auth_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
-var file_prosa_v1_auth_proto_goTypes = []any{
-	(*BeginLoginRequest)(nil),       // 0: prosa.v1.BeginLoginRequest
-	(*BeginLoginResponse)(nil),      // 1: prosa.v1.BeginLoginResponse
-	(*ExchangeCodeRequest)(nil),     // 2: prosa.v1.ExchangeCodeRequest
-	(*ExchangeCodeResponse)(nil),    // 3: prosa.v1.ExchangeCodeResponse
-	(*GetLoginRequestRequest)(nil),  // 4: prosa.v1.GetLoginRequestRequest
-	(*GetLoginRequestResponse)(nil), // 5: prosa.v1.GetLoginRequestResponse
-	(*ApproveLoginRequest)(nil),     // 6: prosa.v1.ApproveLoginRequest
-	(*ApproveLoginResponse)(nil),    // 7: prosa.v1.ApproveLoginResponse
-	(*WhoamiRequest)(nil),           // 8: prosa.v1.WhoamiRequest
-	(*WhoamiResponse)(nil),          // 9: prosa.v1.WhoamiResponse
-	(*timestamppb.Timestamp)(nil),   // 10: google.protobuf.Timestamp
-}
+var (
+	file_prosa_v1_auth_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+	file_prosa_v1_auth_proto_goTypes  = []any{
+		(*BeginLoginRequest)(nil),       // 0: prosa.v1.BeginLoginRequest
+		(*BeginLoginResponse)(nil),      // 1: prosa.v1.BeginLoginResponse
+		(*ExchangeCodeRequest)(nil),     // 2: prosa.v1.ExchangeCodeRequest
+		(*ExchangeCodeResponse)(nil),    // 3: prosa.v1.ExchangeCodeResponse
+		(*GetLoginRequestRequest)(nil),  // 4: prosa.v1.GetLoginRequestRequest
+		(*GetLoginRequestResponse)(nil), // 5: prosa.v1.GetLoginRequestResponse
+		(*ApproveLoginRequest)(nil),     // 6: prosa.v1.ApproveLoginRequest
+		(*ApproveLoginResponse)(nil),    // 7: prosa.v1.ApproveLoginResponse
+		(*WhoamiRequest)(nil),           // 8: prosa.v1.WhoamiRequest
+		(*WhoamiResponse)(nil),          // 9: prosa.v1.WhoamiResponse
+		(*timestamppb.Timestamp)(nil),   // 10: google.protobuf.Timestamp
+	}
+)
 var file_prosa_v1_auth_proto_depIdxs = []int32{
 	10, // 0: prosa.v1.GetLoginRequestResponse.expires_at:type_name -> google.protobuf.Timestamp
 	0,  // 1: prosa.v1.AuthService.BeginLogin:input_type -> prosa.v1.BeginLoginRequest

@@ -7,11 +7,12 @@
 package prosav1
 
 import (
+	reflect "reflect"
+	sync "sync"
+
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
-	reflect "reflect"
-	sync "sync"
 )
 
 const (
@@ -1780,30 +1781,32 @@ func file_prosa_v1_sessions_proto_rawDescGZIP() []byte {
 	return file_prosa_v1_sessions_proto_rawDescData
 }
 
-var file_prosa_v1_sessions_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
-var file_prosa_v1_sessions_proto_goTypes = []any{
-	(*Session)(nil),               // 0: prosa.v1.Session
-	(*TokenUsage)(nil),            // 1: prosa.v1.TokenUsage
-	(*Turn)(nil),                  // 2: prosa.v1.Turn
-	(*ToolUsage)(nil),             // 3: prosa.v1.ToolUsage
-	(*PushRequest)(nil),           // 4: prosa.v1.PushRequest
-	(*PushResponse)(nil),          // 5: prosa.v1.PushResponse
-	(*ListRequest)(nil),           // 6: prosa.v1.ListRequest
-	(*ListResponse)(nil),          // 7: prosa.v1.ListResponse
-	(*GetRequest)(nil),            // 8: prosa.v1.GetRequest
-	(*GetResponse)(nil),           // 9: prosa.v1.GetResponse
-	(*SearchRequest)(nil),         // 10: prosa.v1.SearchRequest
-	(*SearchHit)(nil),             // 11: prosa.v1.SearchHit
-	(*SearchResponse)(nil),        // 12: prosa.v1.SearchResponse
-	(*ManifestRequest)(nil),       // 13: prosa.v1.ManifestRequest
-	(*ManifestEntry)(nil),         // 14: prosa.v1.ManifestEntry
-	(*ManifestResponse)(nil),      // 15: prosa.v1.ManifestResponse
-	(*GetRawRequest)(nil),         // 16: prosa.v1.GetRawRequest
-	(*GetRawResponse)(nil),        // 17: prosa.v1.GetRawResponse
-	(*ListChildrenRequest)(nil),   // 18: prosa.v1.ListChildrenRequest
-	(*ListChildrenResponse)(nil),  // 19: prosa.v1.ListChildrenResponse
-	(*timestamppb.Timestamp)(nil), // 20: google.protobuf.Timestamp
-}
+var (
+	file_prosa_v1_sessions_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
+	file_prosa_v1_sessions_proto_goTypes  = []any{
+		(*Session)(nil),               // 0: prosa.v1.Session
+		(*TokenUsage)(nil),            // 1: prosa.v1.TokenUsage
+		(*Turn)(nil),                  // 2: prosa.v1.Turn
+		(*ToolUsage)(nil),             // 3: prosa.v1.ToolUsage
+		(*PushRequest)(nil),           // 4: prosa.v1.PushRequest
+		(*PushResponse)(nil),          // 5: prosa.v1.PushResponse
+		(*ListRequest)(nil),           // 6: prosa.v1.ListRequest
+		(*ListResponse)(nil),          // 7: prosa.v1.ListResponse
+		(*GetRequest)(nil),            // 8: prosa.v1.GetRequest
+		(*GetResponse)(nil),           // 9: prosa.v1.GetResponse
+		(*SearchRequest)(nil),         // 10: prosa.v1.SearchRequest
+		(*SearchHit)(nil),             // 11: prosa.v1.SearchHit
+		(*SearchResponse)(nil),        // 12: prosa.v1.SearchResponse
+		(*ManifestRequest)(nil),       // 13: prosa.v1.ManifestRequest
+		(*ManifestEntry)(nil),         // 14: prosa.v1.ManifestEntry
+		(*ManifestResponse)(nil),      // 15: prosa.v1.ManifestResponse
+		(*GetRawRequest)(nil),         // 16: prosa.v1.GetRawRequest
+		(*GetRawResponse)(nil),        // 17: prosa.v1.GetRawResponse
+		(*ListChildrenRequest)(nil),   // 18: prosa.v1.ListChildrenRequest
+		(*ListChildrenResponse)(nil),  // 19: prosa.v1.ListChildrenResponse
+		(*timestamppb.Timestamp)(nil), // 20: google.protobuf.Timestamp
+	}
+)
 var file_prosa_v1_sessions_proto_depIdxs = []int32{
 	20, // 0: prosa.v1.Session.started_at:type_name -> google.protobuf.Timestamp
 	20, // 1: prosa.v1.Session.last_activity_at:type_name -> google.protobuf.Timestamp
