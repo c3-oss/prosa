@@ -7,6 +7,7 @@ package session
 
 import (
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
@@ -29,6 +30,7 @@ type Session struct {
 	Email     string    `json:"email"`
 	IssuedAt  time.Time `json:"iat"`
 	ExpiresAt time.Time `json:"exp"`
+	CSRF      string    `json:"csrf"`
 }
 
 // Manager produces and validates cookies. Construct once with the
@@ -51,10 +53,15 @@ func NewManager(hexKey string, secure bool) *Manager {
 // Issue mints a fresh signed cookie for email and writes it to w.
 func (m *Manager) Issue(w http.ResponseWriter, email string) error {
 	now := time.Now().UTC()
+	csrf, err := newCSRFToken()
+	if err != nil {
+		return err
+	}
 	s := Session{
 		Email:     email,
 		IssuedAt:  now,
 		ExpiresAt: now.Add(DefaultTTL),
+		CSRF:      csrf,
 	}
 	val, err := m.encode(s)
 	if err != nil {
@@ -70,6 +77,14 @@ func (m *Manager) Issue(w http.ResponseWriter, email string) error {
 		SameSite: http.SameSiteLaxMode,
 	})
 	return nil
+}
+
+func newCSRFToken() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", errors.New("entropy unavailable")
+	}
+	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
 // Clear unsets the cookie on the response.

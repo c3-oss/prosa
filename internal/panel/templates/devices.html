@@ -24,6 +24,7 @@
               <span class="rename-name">{{.FriendlyName}}</span>
             </span>
             <form method="post" action="/devices/{{.Id}}/rename" class="rename-form" hidden>
+              <input type="hidden" name="csrf" value="{{$.CSRF}}">
               <input class="input input-sm" name="friendly_name" value="{{.FriendlyName}}" autocomplete="off">
               <button class="btn btn-sm" type="submit">Save</button>
               <button type="button" class="btn btn-sm rename-cancel">Cancel</button>
@@ -36,6 +37,7 @@
           <td>
             {{if not .Revoked}}
               <form method="post" action="/devices/{{.Id}}/revoke" onsubmit="return confirm('Revoke {{.FriendlyName}}? Bearer tokens will stop working.')">
+                <input type="hidden" name="csrf" value="{{$.CSRF}}">
                 <button class="btn btn-danger" type="submit">Revoke</button>
               </form>
             {{end}}

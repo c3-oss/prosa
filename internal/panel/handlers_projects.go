@@ -43,6 +43,7 @@ func (p *Panel) handleProjects(w http.ResponseWriter, r *http.Request) {
 	p.render(w, "projects", map[string]any{
 		"Title":   "Projects",
 		"Nav":     "projects",
+		"CSRF":    p.csrfFromRequest(r),
 		"Last":    last,
 		"Headers": resp.Msg.Headers,
 		"Rows":    resp.Msg.Rows,

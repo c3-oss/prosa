@@ -47,6 +47,7 @@ func (p *Panel) handleCliAuthorize(w http.ResponseWriter, r *http.Request) {
 		"Hostname":    msg.Hostname,
 		"Fingerprint": fp,
 		"ExpiresAt":   expires,
+		"CSRF":        p.csrfFromRequest(r),
 	})
 }
 

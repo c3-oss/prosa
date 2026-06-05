@@ -208,6 +208,7 @@ func (p *Panel) handleSessions(w http.ResponseWriter, r *http.Request) {
 	data := map[string]any{
 		"Title":            "Sessions",
 		"Nav":              "sessions",
+		"CSRF":             p.csrfFromRequest(r),
 		"Q":                queryStr,
 		"Last":             lastRaw,
 		"Agents":           panelAgents,

@@ -15,5 +15,6 @@ func (p *Panel) handleSettings(w http.ResponseWriter, r *http.Request) {
 		"Title": "Settings",
 		"Nav":   "settings",
 		"Email": email,
+		"CSRF":  p.csrfFromRequest(r),
 	})
 }

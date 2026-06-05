@@ -15,6 +15,7 @@
       {{end}}
       {{if .DevLoginEnabled}}
         <form method="post" action="/dev-login">
+          <input type="hidden" name="csrf" value="{{.CSRF}}">
           <button class="btn" type="submit">Dev login as {{.DevLoginEmail}}</button>
         </form>
         <div class="dev-warn">
