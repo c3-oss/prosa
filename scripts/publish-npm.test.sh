@@ -50,4 +50,26 @@ if ! grep -q '@c3-oss/prosa-' "$SCRIPT_DIR/npm/prosa/bin/prosa.js"; then
 fi
 echo "ok: shim references subpackage prefix"
 
+# 5) The Node shim must translate Node's architecture names to the
+#    package suffixes used by the release artifacts. In particular,
+#    process.arch reports x64, while the package is linux-amd64.
+#    Use a fake optionalDependency through NODE_PATH so this stays
+#    offline and does not need a real release binary.
+if [ "$(node -p 'process.platform')" = "linux" ] && [ "$(node -p 'process.arch')" = "x64" ]; then
+    tmp=${TMPDIR:-/tmp}/prosa-npm-shim-test-$$
+    trap 'rm -rf "$tmp"' EXIT INT TERM
+    mkdir -p "$tmp/node_modules/@c3-oss/prosa-linux-amd64/bin"
+    cat >"$tmp/node_modules/@c3-oss/prosa-linux-amd64/bin/prosa" <<'EOF'
+#!/bin/sh
+echo "fake prosa $*"
+EOF
+    chmod 0755 "$tmp/node_modules/@c3-oss/prosa-linux-amd64/bin/prosa"
+    out=$(NODE_PATH="$tmp/node_modules" node "$SCRIPT_DIR/npm/prosa/bin/prosa.js" --version)
+    [ "$out" = "fake prosa --version" ] \
+        || { echo "shim failed to execute linux-amd64 fake binary: $out" >&2; exit 1; }
+    rm -rf "$tmp"
+    trap - EXIT INT TERM
+    echo "ok: shim maps linux/x64 to linux-amd64"
+fi
+
 echo "all checks passed"

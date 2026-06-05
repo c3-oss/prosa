@@ -16,7 +16,12 @@ import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
-const subpkg = `@c3-oss/prosa-${process.platform}-${process.arch}`;
+
+const archAliases = {
+  x64: "amd64",
+};
+const packageArch = archAliases[process.arch] ?? process.arch;
+const subpkg = `@c3-oss/prosa-${process.platform}-${packageArch}`;
 
 let binary;
 try {

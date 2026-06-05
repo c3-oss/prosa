@@ -74,8 +74,12 @@ lint-links:
 lint-secrets:
     gitleaks detect --source . --no-git --redact --verbose
 
+# offline npm package layout and shim checks
+npm-check:
+    ./scripts/publish-npm.test.sh
+
 # focused non-Go quality gates
-quality: lint-md lint-links lint-agents lint-secrets
+quality: lint-md lint-links lint-agents lint-secrets npm-check
 
 # local pre-push hook gate
 hooks-pre-push: quality
