@@ -164,3 +164,21 @@ func TestSyncStateRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "h2", h)
 }
+
+func TestLastHashIgnoresStaleProjectionVersion(t *testing.T) {
+	ctx, s := newStore(t)
+	now := time.Now().UTC()
+	sess := newSession("sess-stale-projection", now)
+	require.NoError(t, s.UpsertSession(ctx, sess, nil))
+
+	_, err := s.DB().ExecContext(ctx, `
+		INSERT INTO sync_state (session_id, last_hash, last_synced_at, projection_version)
+		VALUES (?, ?, ?, ?)
+	`, sess.ID, "stale-hash", formatTime(now), session.ProjectionVersion-1)
+	require.NoError(t, err)
+
+	hash, found, err := s.LastHash(ctx, sess.ID)
+	require.NoError(t, err)
+	require.False(t, found)
+	require.Equal(t, "stale-hash", hash)
+}
