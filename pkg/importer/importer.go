@@ -74,7 +74,10 @@ type Sink interface {
 	RecordSync(ctx context.Context, sessionID, hash string) error
 }
 
-const SkipReasonNoUsage = "no_usage"
+const (
+	SkipReasonNoUsage   = "no_usage"
+	SkipReasonStateSeen = "state_seen"
+)
 
 // SkipCache is an optional Sink extension. Stores that implement it can
 // remember policy-skipped files by hash even when no session row exists.

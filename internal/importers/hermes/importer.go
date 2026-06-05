@@ -217,7 +217,11 @@ func (i *Importer) importStateDB(ctx context.Context, path string, sink importer
 	synthetic := "hermes-state-" + hash[:12]
 
 	if !opts.Overwrite {
-		if prev, found, err := sink.LastHash(ctx, synthetic); err == nil && found && prev == hash {
+		seen, err := importer.PreviouslySkipped(ctx, sink, synthetic, hash, importer.SkipReasonStateSeen)
+		if err != nil {
+			return importer.ImportResult{}, fmt.Errorf("read state seen %s: %w", synthetic, err)
+		}
+		if seen {
 			return importer.ImportResult{
 				SessionID: synthetic,
 				RawHash:   hash,
@@ -282,8 +286,8 @@ func (i *Importer) importStateDB(ctx context.Context, path string, sink importer
 		imported++
 	}
 
-	if err := sink.RecordSync(ctx, synthetic, hash); err != nil {
-		return importer.ImportResult{}, fmt.Errorf("record sync %s: %w", synthetic, err)
+	if err := importer.RecordSkip(ctx, sink, synthetic, hash, importer.SkipReasonStateSeen); err != nil {
+		return importer.ImportResult{}, fmt.Errorf("record state seen %s: %w", synthetic, err)
 	}
 	if imported == 0 && noUsageSkipped > 0 {
 		return importpolicy.ImportSkippedNoUsageResult(synthetic, hash, size), nil

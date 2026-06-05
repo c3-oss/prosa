@@ -24,13 +24,16 @@ const (
 	snapshotSessionID = "sess-snap-1"
 )
 
-// inMemSink implements importer.Sink for tests. Copied from the cursor
-// test file so the hermes package stays self-contained.
+// inMemSink implements importer.Sink and importer.SkipCache for tests.
+// The SkipCache backing mirrors the production store so that hash-keyed
+// idempotency markers (e.g. hermes state.db's file-level state_seen
+// marker) round-trip through the fake.
 type inMemSink struct {
 	sessions map[string]session.Session
 	tools    map[string][]session.ToolUsage
 	turns    map[string][]session.Turn
 	hashes   map[string]string
+	skips    map[string]map[string]string
 }
 
 func newSink() *inMemSink {
@@ -39,6 +42,7 @@ func newSink() *inMemSink {
 		tools:    map[string][]session.ToolUsage{},
 		turns:    map[string][]session.Turn{},
 		hashes:   map[string]string{},
+		skips:    map[string]map[string]string{},
 	}
 }
 
@@ -64,6 +68,22 @@ func (m *inMemSink) LastHash(_ context.Context, sid string) (string, bool, error
 
 func (m *inMemSink) RecordSync(_ context.Context, sid, h string) error {
 	m.hashes[sid] = h
+	return nil
+}
+
+func (m *inMemSink) LastImportSkip(_ context.Context, sid, reason string) (string, bool, error) {
+	if byReason, ok := m.skips[sid]; ok {
+		h, ok := byReason[reason]
+		return h, ok, nil
+	}
+	return "", false, nil
+}
+
+func (m *inMemSink) RecordImportSkip(_ context.Context, sid, hash, reason string) error {
+	if m.skips[sid] == nil {
+		m.skips[sid] = map[string]string{}
+	}
+	m.skips[sid][reason] = hash
 	return nil
 }
 
@@ -387,6 +407,12 @@ func TestImportStateDB(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, res.Skipped)
 	require.NotEmpty(t, res.RawHash)
+
+	// File-level idempotency marker for state.db lives in import_skips,
+	// not sync_state — it has no matching row in the sessions table.
+	synthetic := "hermes-state-" + res.RawHash[:12]
+	require.Equal(t, res.RawHash, sink.skips[synthetic][importer.SkipReasonStateSeen])
+	require.NotContains(t, sink.hashes, synthetic)
 
 	require.Contains(t, sink.sessions, "state-1")
 	require.Contains(t, sink.sessions, "state-2")
