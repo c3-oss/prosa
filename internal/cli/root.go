@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 	"github.com/spf13/cobra"
 
 	"github.com/c3-oss/prosa/internal/buildinfo"
@@ -32,6 +34,7 @@ type globalFlags struct {
 	Agent   string
 	All     bool
 	JSON    bool
+	NoColor bool
 	Limit   int
 	Remote  bool
 }
@@ -44,7 +47,10 @@ func newRootCmd() *cobra.Command {
 		Short: "Unified history of AI agent sessions",
 		Long: "prosa consolidates Claude Code (and, soon, Codex/others) session histories " +
 			"into a single local SQLite store and renders a queryable timeline.",
-		RunE:          runNu,
+		RunE: runNu,
+		PersistentPreRun: func(*cobra.Command, []string) {
+			applyGlobalFlags()
+		},
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Version:       buildinfo.String(),
@@ -58,6 +64,7 @@ func newRootCmd() *cobra.Command {
 	pf.StringVar(&g.Agent, "agent", "", "filter by agent (claude-code | codex | cursor | gemini | antigravity | hermes)")
 	pf.BoolVar(&g.All, "all", false, "disable the cwd-based project auto-filter")
 	pf.BoolVar(&g.JSON, "json", false, "emit NDJSON instead of human-formatted output")
+	pf.BoolVar(&g.NoColor, "no-color", false, "suppress ANSI styling even on a TTY")
 	// --limit is only meaningful on the bare `prosa` timeline; sub-commands
 	// either have their own --limit (search) or don't need one.
 	cmd.Flags().IntVar(&g.Limit, "limit", 0, "cap the number of timeline sessions returned (0 = no limit)")
@@ -73,6 +80,12 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newScheduleCmd())
 	cmd.AddCommand(newSetupCmd())
 	return cmd
+}
+
+func applyGlobalFlags() {
+	if g.NoColor {
+		lipgloss.SetColorProfile(termenv.Ascii)
+	}
 }
 
 // Execute is the entry point invoked by cmd/prosa/main.go. It returns the
