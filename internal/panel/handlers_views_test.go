@@ -83,6 +83,72 @@ func TestLoadViewsParsesAllTemplates(t *testing.T) {
 	}
 }
 
+func TestSessionsRowsDoNotCarryHxPushURL(t *testing.T) {
+	views, err := loadViews()
+	require.NoError(t, err)
+
+	openURL := "/sessions?session=s1"
+	data := map[string]any{
+		"Title":            "Sessions",
+		"Nav":              "sessions",
+		"Last":             "30d",
+		"WindowLabel":      "30d",
+		"Agents":           panelAgents,
+		"AgentsSelected":   map[string]bool{},
+		"Projects":         []string{},
+		"ProjectsSelected": map[string]bool{},
+		"Devices":          []string{},
+		"DevicesSelected":  map[string]bool{},
+		"SortURLs": map[string]string{
+			"agent":        "/sessions?sort=agent",
+			"project":      "/sessions?sort=project",
+			"total_tokens": "/sessions?sort=total_tokens",
+			"cost":         "/sessions?sort=cost",
+			"device":       "/sessions?sort=device",
+			"started_at":   "/sessions?sort=started_at",
+		},
+		"SortArrows": map[string]string{},
+		"Cols": map[string]bool{
+			"agent":        true,
+			"project":      true,
+			"first_prompt": true,
+			"tokens":       true,
+			"cost":         true,
+			"device":       true,
+		},
+		"Sessions": []sessionRow{{
+			Id:              "s1",
+			Agent:           "codex",
+			ProjectLabel:    "prosa",
+			FirstPrompt:     "inspect row",
+			FirstPromptFull: "inspect row",
+			TokensTotal:     "1",
+			TokensTotalFull: "1",
+			Cost:            "$0.01",
+			Device:          "dev",
+			StartedRel:      "now",
+			StartedAtFull:   "2026-06-05 19:50:00",
+			OpenURL:         openURL,
+		}},
+		"Page":       1,
+		"PageCount":  1,
+		"TotalCount": 1,
+	}
+
+	var out bytes.Buffer
+	require.NoError(t, views["sessions"].ExecuteTemplate(&out, "sessions", data))
+	html := out.String()
+	rowStart := strings.Index(html, `<tr class="session-row"`)
+	require.NotEqual(t, -1, rowStart)
+	rowEnd := strings.Index(html[rowStart:], ">")
+	require.NotEqual(t, -1, rowEnd)
+	rowTag := html[rowStart : rowStart+rowEnd]
+
+	require.Contains(t, rowTag, `data-href="`+openURL+`"`)
+	require.NotContains(t, rowTag, "hx-push-url")
+	require.Contains(t, html, `hx-push-url="`+openURL+`"`)
+}
+
 func TestBuildDisplayTurnsSanitizesAndDoesNotMutateInput(t *testing.T) {
 	original := []*prosav1.Turn{
 		{Role: "user", Content: "hello \x1b[1mworld\x1b[22m"},
