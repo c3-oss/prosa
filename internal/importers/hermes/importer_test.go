@@ -15,8 +15,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/c3-oss/prosa/internal/importers/importertest"
 	"github.com/c3-oss/prosa/pkg/importer"
-	"github.com/c3-oss/prosa/pkg/session"
 )
 
 const (
@@ -24,67 +24,12 @@ const (
 	snapshotSessionID = "sess-snap-1"
 )
 
-// inMemSink implements importer.Sink and importer.SkipCache for tests.
-// The SkipCache backing mirrors the production store so that hash-keyed
-// idempotency markers (e.g. hermes state.db's file-level state_seen
-// marker) round-trip through the fake.
-type inMemSink struct {
-	sessions map[string]session.Session
-	tools    map[string][]session.ToolUsage
-	turns    map[string][]session.Turn
-	hashes   map[string]string
-	skips    map[string]map[string]string
-}
-
-func newSink() *inMemSink {
-	return &inMemSink{
-		sessions: map[string]session.Session{},
-		tools:    map[string][]session.ToolUsage{},
-		turns:    map[string][]session.Turn{},
-		hashes:   map[string]string{},
-		skips:    map[string]map[string]string{},
-	}
+func newSink() *importertest.Sink {
+	return importertest.NewSink()
 }
 
 func ptrInt64(v int64) *int64 {
 	return &v
-}
-
-func (m *inMemSink) UpsertSession(_ context.Context, s session.Session, tools []session.ToolUsage) error {
-	m.sessions[s.ID] = s
-	m.tools[s.ID] = tools
-	return nil
-}
-
-func (m *inMemSink) InsertTurns(_ context.Context, sid string, t []session.Turn) error {
-	m.turns[sid] = t
-	return nil
-}
-
-func (m *inMemSink) LastHash(_ context.Context, sid string) (string, bool, error) {
-	h, ok := m.hashes[sid]
-	return h, ok, nil
-}
-
-func (m *inMemSink) RecordSync(_ context.Context, sid, h string) error {
-	m.hashes[sid] = h
-	return nil
-}
-
-func (m *inMemSink) LastImportSkip(_ context.Context, sid, reason string) (string, bool, error) {
-	if byReason, ok := m.skips[sid]; ok {
-		h, ok := byReason[reason]
-		return h, ok, nil
-	}
-	return "", false, nil
-}
-
-func (m *inMemSink) RecordImportSkip(_ context.Context, sid, hash, reason string) error {
-	if m.skips[sid] == nil {
-		m.skips[sid] = map[string]string{}
-	}
-	m.skips[sid][reason] = hash
-	return nil
 }
 
 // writeJSONLFixture writes records as one JSON object per line.
@@ -265,7 +210,7 @@ func TestImportJSONL(t *testing.T) {
 	require.Greater(t, res.RawSize, int64(0))
 	require.FileExists(t, res.RawPath)
 
-	s := sink.sessions[jsonlSessionID]
+	s := sink.Sessions[jsonlSessionID]
 	require.Equal(t, Name, s.Agent)
 	require.NotEmpty(t, s.DeviceID)
 	require.NotEqual(t, "local", s.DeviceID)
@@ -279,14 +224,14 @@ func TestImportJSONL(t *testing.T) {
 	require.Equal(t, time.March, s.StartedAt.Month())
 	require.True(t, s.LastActivityAt.After(s.StartedAt))
 
-	turns := sink.turns[jsonlSessionID]
+	turns := sink.Turns[jsonlSessionID]
 	require.Len(t, turns, 2)
 	require.Equal(t, "user", turns[0].Role)
 	require.Equal(t, "explain quantum entanglement", turns[0].Content)
 	require.Equal(t, "assistant", turns[1].Role)
 	require.Equal(t, "two particles share state", turns[1].Content)
 
-	tools := sink.tools[jsonlSessionID]
+	tools := sink.Tools[jsonlSessionID]
 	require.Len(t, tools, 2)
 	byName := map[string]int{}
 	for _, tl := range tools {
@@ -335,7 +280,7 @@ func TestImportSnapshot(t *testing.T) {
 	require.NotEmpty(t, res.RawHash)
 	require.FileExists(t, res.RawPath)
 
-	s := sink.sessions[snapshotSessionID]
+	s := sink.Sessions[snapshotSessionID]
 	require.Equal(t, Name, s.Agent)
 	require.NotEmpty(t, s.DeviceID)
 	require.NotEqual(t, "local", s.DeviceID)
@@ -346,12 +291,12 @@ func TestImportSnapshot(t *testing.T) {
 	require.Equal(t, base.UTC(), s.StartedAt)
 	require.Equal(t, base.Add(time.Minute).UTC(), s.LastActivityAt)
 
-	turns := sink.turns[snapshotSessionID]
+	turns := sink.Turns[snapshotSessionID]
 	require.Len(t, turns, 2)
 	require.Equal(t, "user", turns[0].Role)
 	require.Equal(t, "assistant", turns[1].Role)
 
-	tools := sink.tools[snapshotSessionID]
+	tools := sink.Tools[snapshotSessionID]
 	require.Len(t, tools, 1)
 	require.Equal(t, "Edit", tools[0].Name)
 	require.Equal(t, 1, tools[0].Count)
@@ -411,13 +356,13 @@ func TestImportStateDB(t *testing.T) {
 	// File-level idempotency marker for state.db lives in import_skips,
 	// not sync_state — it has no matching row in the sessions table.
 	synthetic := "hermes-state-" + res.RawHash[:12]
-	require.Equal(t, res.RawHash, sink.skips[synthetic][importer.SkipReasonStateSeen])
-	require.NotContains(t, sink.hashes, synthetic)
+	require.Equal(t, res.RawHash, sink.Skips[synthetic][importer.SkipReasonStateSeen])
+	require.NotContains(t, sink.Hashes, synthetic)
 
-	require.Contains(t, sink.sessions, "state-1")
-	require.Contains(t, sink.sessions, "state-2")
+	require.Contains(t, sink.Sessions, "state-1")
+	require.Contains(t, sink.Sessions, "state-2")
 
-	s1 := sink.sessions["state-1"]
+	s1 := sink.Sessions["state-1"]
 	require.Equal(t, Name, s1.Agent)
 	require.NotEmpty(t, s1.DeviceID)
 	require.NotEqual(t, "local", s1.DeviceID)
@@ -425,14 +370,14 @@ func TestImportStateDB(t *testing.T) {
 	require.Equal(t, "first prompt one", *s1.FirstPrompt)
 	require.NotNil(t, s1.Model)
 	require.Equal(t, "claude-sonnet-4-6", *s1.Model)
-	require.Len(t, sink.turns["state-1"], 2)
-	require.Len(t, sink.tools["state-1"], 1)
-	require.Equal(t, "Read", sink.tools["state-1"][0].Name)
+	require.Len(t, sink.Turns["state-1"], 2)
+	require.Len(t, sink.Tools["state-1"], 1)
+	require.Equal(t, "Read", sink.Tools["state-1"][0].Name)
 
-	s2 := sink.sessions["state-2"]
+	s2 := sink.Sessions["state-2"]
 	require.NotNil(t, s2.Model)
 	require.Equal(t, "claude-opus-4-7", *s2.Model)
-	require.Len(t, sink.turns["state-2"], 2)
+	require.Len(t, sink.Turns["state-2"], 2)
 
 	res2, err := imp.Import(ctx, dbPath, sink, importer.ImportOptions{})
 	require.NoError(t, err)
@@ -482,7 +427,7 @@ func TestStateDBMergeYieldsToTranscript(t *testing.T) {
 	res, err := imp.Import(ctx, dbPath, sink, importer.ImportOptions{})
 	require.NoError(t, err)
 	require.False(t, res.Skipped)
-	require.NotContains(t, sink.sessions, "S", "state.db Import must defer to sibling transcript")
+	require.NotContains(t, sink.Sessions, "S", "state.db Import must defer to sibling transcript")
 
 	// File-shaped Import call projects S normally.
 	res2, err := imp.Import(ctx, jsonlPath, sink, importer.ImportOptions{})
@@ -490,11 +435,11 @@ func TestStateDBMergeYieldsToTranscript(t *testing.T) {
 	require.False(t, res2.Skipped)
 	require.Equal(t, "S", res2.SessionID)
 
-	s := sink.sessions["S"]
+	s := sink.Sessions["S"]
 	require.Equal(t, Name, s.Agent)
 	require.NotNil(t, s.FirstPrompt)
 	require.Equal(t, "richer first prompt", *s.FirstPrompt)
-	require.Len(t, sink.turns["S"], 3) // user + assistant + user
+	require.Len(t, sink.Turns["S"], 3) // user + assistant + user
 }
 
 // TestImportJSONLSanitizesFirstPrompt covers the bug where hermes user
@@ -520,7 +465,7 @@ func TestImportJSONLSanitizesFirstPrompt(t *testing.T) {
 	res, err := New().Import(ctx, src, sink, importer.ImportOptions{})
 	require.NoError(t, err)
 	require.False(t, res.Skipped)
-	s := sink.sessions["sess-dirty"]
+	s := sink.Sessions["sess-dirty"]
 	require.NotNil(t, s.FirstPrompt)
 	require.Equal(t, "now refactor the sync", *s.FirstPrompt)
 }

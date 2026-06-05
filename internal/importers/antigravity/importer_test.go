@@ -14,6 +14,7 @@ import (
 
 	_ "modernc.org/sqlite"
 
+	"github.com/c3-oss/prosa/internal/importers/importertest"
 	"github.com/c3-oss/prosa/pkg/importer"
 	"github.com/c3-oss/prosa/pkg/session"
 )
@@ -24,41 +25,8 @@ const (
 	fixtureFirstPromptText = "olá mundo"
 )
 
-type inMemSink struct {
-	sessions map[string]session.Session
-	tools    map[string][]session.ToolUsage
-	turns    map[string][]session.Turn
-	hashes   map[string]string
-}
-
-func newSink() *inMemSink {
-	return &inMemSink{
-		sessions: map[string]session.Session{},
-		tools:    map[string][]session.ToolUsage{},
-		turns:    map[string][]session.Turn{},
-		hashes:   map[string]string{},
-	}
-}
-
-func (m *inMemSink) UpsertSession(_ context.Context, s session.Session, tools []session.ToolUsage) error {
-	m.sessions[s.ID] = s
-	m.tools[s.ID] = tools
-	return nil
-}
-
-func (m *inMemSink) InsertTurns(_ context.Context, sid string, t []session.Turn) error {
-	m.turns[sid] = t
-	return nil
-}
-
-func (m *inMemSink) LastHash(_ context.Context, sid string) (string, bool, error) {
-	h, ok := m.hashes[sid]
-	return h, ok, nil
-}
-
-func (m *inMemSink) RecordSync(_ context.Context, sid, h string) error {
-	m.hashes[sid] = h
-	return nil
+func newSink() *importertest.Sink {
+	return importertest.NewSink()
 }
 
 // buildTimestampMeta produces a steps.metadata blob whose Timestamp #1
@@ -227,7 +195,7 @@ func TestImportAntigravityFixture(t *testing.T) {
 	require.FileExists(t, res.RawPath)
 	require.Equal(t, ".db", filepath.Ext(res.RawPath))
 
-	s := sink.sessions[fixtureCascadeID]
+	s := sink.Sessions[fixtureCascadeID]
 	require.Equal(t, Name, s.Agent)
 	require.NotEmpty(t, s.DeviceID)
 	require.NotEqual(t, "local", s.DeviceID)
@@ -243,7 +211,7 @@ func TestImportAntigravityFixture(t *testing.T) {
 	require.Equal(t, time.Unix(1780421834, 0).UTC(), s.StartedAt)
 	require.Equal(t, time.Unix(1780421834+6, 0).UTC(), s.LastActivityAt)
 
-	tools := sink.tools[fixtureCascadeID]
+	tools := sink.Tools[fixtureCascadeID]
 	require.Len(t, tools, 3)
 	byName := map[string]int{}
 	for _, tl := range tools {
@@ -253,7 +221,7 @@ func TestImportAntigravityFixture(t *testing.T) {
 	require.Equal(t, 1, byName["run_command"])
 	require.Equal(t, 1, byName["list_permissions"])
 
-	turns := sink.turns[fixtureCascadeID]
+	turns := sink.Turns[fixtureCascadeID]
 	require.Len(t, turns, 4) // 1 user + 3 tool turns; boundaries skipped.
 	require.Equal(t, "user", turns[0].Role)
 	require.Equal(t, fixtureFirstPromptText, turns[0].Content)
@@ -321,7 +289,7 @@ func TestImportRealAntigravityDB(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, res.Skipped)
 	require.FileExists(t, res.RawPath)
-	s := sink.sessions[res.SessionID]
+	s := sink.Sessions[res.SessionID]
 	t.Logf("session id:     %s", s.ID)
 	t.Logf("agent:          %s", s.Agent)
 	if s.ProjectPath != nil {
@@ -342,8 +310,8 @@ func TestImportRealAntigravityDB(t *testing.T) {
 		t.Logf("usage:          total=%d input=%d output=%d cached=%d",
 			s.Usage.TotalTokens, s.Usage.InputTokens, s.Usage.OutputTokens, s.Usage.CachedTokens)
 	}
-	t.Logf("turns:          %d", len(sink.turns[s.ID]))
-	for _, tl := range sink.tools[s.ID] {
+	t.Logf("turns:          %d", len(sink.Turns[s.ID]))
+	for _, tl := range sink.Tools[s.ID] {
 		t.Logf("tool:           %s × %d", tl.Name, tl.Count)
 	}
 }

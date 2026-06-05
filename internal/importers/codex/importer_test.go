@@ -13,6 +13,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/c3-oss/prosa/internal/importers/importertest"
 	"github.com/c3-oss/prosa/pkg/importer"
 	"github.com/c3-oss/prosa/pkg/session"
 )
@@ -25,42 +26,8 @@ func codexFixtureFilename(t time.Time, id string) string {
 	return "rollout-" + t.UTC().Format("2006-01-02T15-04-05") + "-" + id + ".jsonl"
 }
 
-// inMemSink implements importer.Sink for tests.
-type inMemSink struct {
-	sessions map[string]session.Session
-	tools    map[string][]session.ToolUsage
-	turns    map[string][]session.Turn
-	hashes   map[string]string
-}
-
-func newSink() *inMemSink {
-	return &inMemSink{
-		sessions: map[string]session.Session{},
-		tools:    map[string][]session.ToolUsage{},
-		turns:    map[string][]session.Turn{},
-		hashes:   map[string]string{},
-	}
-}
-
-func (m *inMemSink) UpsertSession(_ context.Context, s session.Session, tools []session.ToolUsage) error {
-	m.sessions[s.ID] = s
-	m.tools[s.ID] = tools
-	return nil
-}
-
-func (m *inMemSink) InsertTurns(_ context.Context, sid string, t []session.Turn) error {
-	m.turns[sid] = t
-	return nil
-}
-
-func (m *inMemSink) LastHash(_ context.Context, sid string) (string, bool, error) {
-	h, ok := m.hashes[sid]
-	return h, ok, nil
-}
-
-func (m *inMemSink) RecordSync(_ context.Context, sid, h string) error {
-	m.hashes[sid] = h
-	return nil
+func newSink() *importertest.Sink {
+	return importertest.NewSink()
 }
 
 func writeJSONL(t *testing.T, path string, records []map[string]any) {
@@ -232,7 +199,7 @@ func TestImportEnvelopeSession(t *testing.T) {
 	require.Greater(t, res.RawSize, int64(0))
 	require.FileExists(t, res.RawPath)
 
-	s := sink.sessions[fixtureSessionID]
+	s := sink.Sessions[fixtureSessionID]
 	require.Equal(t, Name, s.Agent)
 	require.NotEmpty(t, s.DeviceID)
 	require.NotEqual(t, "local", s.DeviceID)
@@ -251,13 +218,13 @@ func TestImportEnvelopeSession(t *testing.T) {
 	require.True(t, s.LastActivityAt.After(s.StartedAt))
 
 	// User + assistant text turns; developer role is intentionally skipped.
-	turns := sink.turns[fixtureSessionID]
+	turns := sink.Turns[fixtureSessionID]
 	require.Len(t, turns, 2)
 	require.Equal(t, "user", turns[0].Role)
 	require.Equal(t, "assistant", turns[1].Role)
 
 	// One tool name with two invocations.
-	tools := sink.tools[fixtureSessionID]
+	tools := sink.Tools[fixtureSessionID]
 	require.Len(t, tools, 1)
 	require.Equal(t, "shell", tools[0].Name)
 	require.Equal(t, 2, tools[0].Count)
@@ -284,19 +251,19 @@ func TestImportLegacySession(t *testing.T) {
 	// No session_meta in legacy file -> id from filename UUID.
 	require.Equal(t, fixtureSessionID, res.SessionID)
 
-	s := sink.sessions[fixtureSessionID]
+	s := sink.Sessions[fixtureSessionID]
 	require.Equal(t, Name, s.Agent)
 	require.NotNil(t, s.FirstPrompt)
 	require.Equal(t, "legacy plain string content", *s.FirstPrompt)
 
-	turns := sink.turns[fixtureSessionID]
+	turns := sink.Turns[fixtureSessionID]
 	require.Len(t, turns, 2)
 	require.Equal(t, "user", turns[0].Role)
 	require.Equal(t, "legacy plain string content", turns[0].Content)
 	require.Equal(t, "assistant", turns[1].Role)
 	require.Equal(t, "legacy assistant reply", turns[1].Content)
 
-	tools := sink.tools[fixtureSessionID]
+	tools := sink.Tools[fixtureSessionID]
 	require.Len(t, tools, 1)
 	require.Equal(t, "legacy_tool", tools[0].Name)
 }
@@ -358,7 +325,7 @@ func TestImportSetsParentSessionIDFromThreadSpawn(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, res.Skipped)
 
-	got := sink.sessions[fixtureSessionID]
+	got := sink.Sessions[fixtureSessionID]
 	require.NotNil(t, got.ParentSessionID,
 		"thread_spawn.parent_thread_id must populate ParentSessionID")
 	require.Equal(t, parentThread, *got.ParentSessionID)
@@ -451,7 +418,7 @@ func TestImportProjectsReasoningSummary(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, res.Skipped)
 
-	turns := sink.turns[fixtureSessionID]
+	turns := sink.Turns[fixtureSessionID]
 	// user message + 2 thinking + assistant message
 	require.Len(t, turns, 4)
 	require.Equal(t, session.KindMessage, turns[0].Kind)
@@ -509,8 +476,8 @@ func TestImportAdmitsSessionWithoutUsageEvent(t *testing.T) {
 	require.False(t, res.Skipped,
 		"transcripts without any token_count event must admit (Unknown state)")
 	require.Empty(t, res.SkipReason)
-	require.Contains(t, sink.sessions, fixtureSessionID)
-	stored := sink.sessions[fixtureSessionID]
+	require.Contains(t, sink.Sessions, fixtureSessionID)
+	stored := sink.Sessions[fixtureSessionID]
 	require.Nil(t, stored.Usage,
 		"sess.Usage must be nil when no token_count event was observed")
 }
@@ -564,10 +531,21 @@ func TestImportSkipsSessionWithExplicitZeroUsage(t *testing.T) {
 	res, err := New().Import(ctx, path, sink, importer.ImportOptions{})
 	require.NoError(t, err)
 	require.True(t, res.Skipped)
-	require.Equal(t, "no_usage", res.SkipReason)
-	require.Empty(t, sink.sessions)
-	require.Empty(t, sink.turns)
+	require.Equal(t, importer.SkipReasonNoUsage, res.SkipReason)
+	require.Equal(t, res.RawHash, sink.Skips[fixtureSessionID][importer.SkipReasonNoUsage])
+	require.Empty(t, sink.Sessions)
+	require.Empty(t, sink.Turns)
 	require.Empty(t, res.RawPath)
+
+	res2, err := New().Import(ctx, path, sink, importer.ImportOptions{})
+	require.NoError(t, err)
+	require.True(t, res2.Skipped)
+	require.Equal(t, importer.SkipReasonNoUsage, res2.SkipReason)
+	require.Equal(t, res.RawHash, res2.RawHash)
+	require.Equal(t, res.RawSize, res2.RawSize)
+	require.Empty(t, sink.Sessions)
+	require.Empty(t, sink.Turns)
+	require.Empty(t, res2.RawPath)
 }
 
 func TestWalkAcceptsRolloutPatternOnly(t *testing.T) {
@@ -654,7 +632,7 @@ func TestImportSkipsBoilerplateForFirstPrompt(t *testing.T) {
 	imp := New()
 	_, err := imp.Import(ctx, src, sink, importer.ImportOptions{})
 	require.NoError(t, err)
-	s := sink.sessions[fixtureSessionID]
+	s := sink.Sessions[fixtureSessionID]
 	require.NotNil(t, s.FirstPrompt)
 	require.Equal(t, "deploy the staging branch", *s.FirstPrompt)
 }
@@ -726,7 +704,7 @@ func TestImportProjectsFunctionCallOutputAsToolTurn(t *testing.T) {
 	_, err := imp.Import(ctx, src, sink, importer.ImportOptions{})
 	require.NoError(t, err)
 
-	turns := sink.turns[fixtureSessionID]
+	turns := sink.Turns[fixtureSessionID]
 	require.Len(t, turns, 2, "user message + tool result projection")
 	require.Equal(t, "user", turns[0].Role)
 	require.Equal(t, session.KindMessage, turns[0].Kind)

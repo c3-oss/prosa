@@ -14,6 +14,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/c3-oss/prosa/internal/importers/importertest"
 	"github.com/c3-oss/prosa/pkg/importer"
 	"github.com/c3-oss/prosa/pkg/session"
 )
@@ -23,41 +24,8 @@ const (
 	fixtureWorkspace = "workspace-abc"
 )
 
-type inMemSink struct {
-	sessions map[string]session.Session
-	tools    map[string][]session.ToolUsage
-	turns    map[string][]session.Turn
-	hashes   map[string]string
-}
-
-func newSink() *inMemSink {
-	return &inMemSink{
-		sessions: map[string]session.Session{},
-		tools:    map[string][]session.ToolUsage{},
-		turns:    map[string][]session.Turn{},
-		hashes:   map[string]string{},
-	}
-}
-
-func (m *inMemSink) UpsertSession(_ context.Context, s session.Session, tools []session.ToolUsage) error {
-	m.sessions[s.ID] = s
-	m.tools[s.ID] = tools
-	return nil
-}
-
-func (m *inMemSink) InsertTurns(_ context.Context, sid string, t []session.Turn) error {
-	m.turns[sid] = t
-	return nil
-}
-
-func (m *inMemSink) LastHash(_ context.Context, sid string) (string, bool, error) {
-	h, ok := m.hashes[sid]
-	return h, ok, nil
-}
-
-func (m *inMemSink) RecordSync(_ context.Context, sid, h string) error {
-	m.hashes[sid] = h
-	return nil
+func newSink() *importertest.Sink {
+	return importertest.NewSink()
 }
 
 // buildFixtureStore writes a minimal Cursor `store.db` to <root>/<workspace>/<agent>/store.db
@@ -194,8 +162,8 @@ func TestImportCursorStoreAdmitsWithoutUsage(t *testing.T) {
 		"cursor sessions must admit despite having no usage signal (Unknown state)")
 	require.Empty(t, res.SkipReason)
 	require.Equal(t, fixtureAgentID, res.SessionID)
-	require.Contains(t, sink.sessions, fixtureAgentID)
-	stored := sink.sessions[fixtureAgentID]
+	require.Contains(t, sink.Sessions, fixtureAgentID)
+	stored := sink.Sessions[fixtureAgentID]
 	require.Nil(t, stored.Usage,
 		"cursor sessions never project a usage aggregate")
 	require.NotEmpty(t, res.RawPath, "raw .db bytes must still be preserved")
@@ -260,9 +228,9 @@ func TestImportCursorEmptyShell(t *testing.T) {
 			"will pick up the populated file via the changed sha256")
 	require.Equal(t, shellAgentID, res.SessionID,
 		"with meta absent the session id falls back to the parent directory name")
-	require.Contains(t, sink.sessions, shellAgentID)
-	require.Empty(t, sink.turns[shellAgentID])
-	require.Empty(t, sink.tools[shellAgentID])
+	require.Contains(t, sink.Sessions, shellAgentID)
+	require.Empty(t, sink.Turns[shellAgentID])
+	require.Empty(t, sink.Tools[shellAgentID])
 }
 
 func TestWalkFindsStoreDb(t *testing.T) {
