@@ -233,6 +233,32 @@ func TestImportCursorEmptyShell(t *testing.T) {
 	require.Empty(t, sink.Tools[shellAgentID])
 }
 
+// TestParseCursorMetaTablePresentNoRow covers the other benign-empty path
+// in readMeta: the meta table exists but has no key='0' row, so the Scan
+// returns sql.ErrNoRows. The parser must treat this like the empty shell —
+// a zero-value session, no error (see issue #70: the branch uses errors.Is
+// so it survives any future error wrapping in the sql layer).
+func TestParseCursorMetaTablePresentNoRow(t *testing.T) {
+	ctx := context.Background()
+	dir := filepath.Join(t.TempDir(), fixtureWorkspace, "00000000-0000-0000-0000-0000000000aa")
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	dbPath := filepath.Join(dir, "store.db")
+
+	db, err := sql.Open("sqlite", dbPath)
+	require.NoError(t, err)
+	_, err = db.Exec(`CREATE TABLE blobs (id TEXT PRIMARY KEY, data BLOB);
+CREATE TABLE meta  (key TEXT PRIMARY KEY, value TEXT);`)
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	s, turns, tools, state, err := parseSession(ctx, dbPath)
+	require.NoError(t, err, "meta table present but key='0' missing must be a benign empty result")
+	require.Equal(t, session.UsageStateUnknown, state)
+	require.Empty(t, turns)
+	require.Empty(t, tools)
+	require.Empty(t, s.ID)
+}
+
 func TestWalkFindsStoreDb(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "cursor-root")
 	src := buildFixtureStore(t, root)

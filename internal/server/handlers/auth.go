@@ -4,6 +4,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 
 	"connectrpc.com/connect"
 	"github.com/jackc/pgx/v5"
@@ -107,7 +108,7 @@ func (h *AuthHandler) Whoami(ctx context.Context, _ *connect.Request[prosav1.Who
 		`SELECT hostname, friendly_name FROM devices WHERE id = $1`, deviceID,
 	).Scan(&hostname, &friendly)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, connect.NewError(connect.CodeUnauthenticated, missingFields("device row"))
 		}
 		return nil, connect.NewError(connect.CodeInternal, err)

@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -93,7 +94,7 @@ func readMeta(path string) (cursorMeta, error) {
 
 	var hexVal string
 	err = db.QueryRow(`SELECT value FROM meta WHERE key='0'`).Scan(&hexVal)
-	if err == sql.ErrNoRows || isMissingTable(err) {
+	if errors.Is(err, sql.ErrNoRows) || isMissingTable(err) {
 		return cursorMeta{}, nil
 	}
 	if err != nil {
