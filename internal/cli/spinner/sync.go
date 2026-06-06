@@ -23,6 +23,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/c3-oss/prosa/internal/cli/render"
 )
@@ -111,7 +112,18 @@ type model struct {
 	spin        spinner.Model
 	ch          <-chan Update
 	opts        Options
+	// width is the current terminal width from the latest WindowSizeMsg.
+	// 0 until the first resize event; renderers fall back to defaultWidth.
+	width int
 }
+
+// defaultWidth is the assumed terminal width before the first
+// WindowSizeMsg (and a floor so error lines stay readable on tiny TTYs).
+const defaultWidth = 80
+
+// errMsgIndent is the left padding (in columns) of the error-detail line in
+// View; the truncation budget is the terminal width minus this.
+const errMsgIndent = 15
 
 func defaultPhaseState(label string) phaseState {
 	return phaseState{label: label}
@@ -235,6 +247,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 		return m, recvCmd(m.ch)
+	case tea.WindowSizeMsg:
+		m.width = v.Width
+		return m, nil
 	case closedMsg:
 		return m, tea.Quit
 	case tea.KeyMsg:
@@ -318,10 +333,51 @@ func (m model) View() string {
 			styleAgent.Render(e.agent),
 			styleBanner.Render(shortPath(e.path)),
 		)
-		fmt.Fprintf(&b, "               %s\n", styleErr.Render(e.msg))
+		fmt.Fprintf(&b, "               %s\n", styleErr.Render(truncateWidth(e.msg, m.errMsgBudget())))
 	}
 
 	return b.String()
+}
+
+// errMsgBudget is the column width available for an error-detail line,
+// derived from the current terminal width (or defaultWidth before the
+// first resize) minus the line's left indent. Floored so a narrow TTY
+// still shows a couple of characters plus the ellipsis.
+func (m model) errMsgBudget() int {
+	w := m.width
+	if w <= 0 {
+		w = defaultWidth
+	}
+	budget := w - errMsgIndent
+	if budget < 8 {
+		budget = 8
+	}
+	return budget
+}
+
+// truncateWidth clips s to at most n display columns, appending "…" when it
+// has to cut. Width-aware so wide runes are accounted for. Mirrors
+// render.truncateWidth; kept local to avoid widening that package's API.
+func truncateWidth(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	if lipgloss.Width(s) <= n {
+		return s
+	}
+	if n == 1 {
+		return "…"
+	}
+	var b strings.Builder
+	limit := n - 1
+	for _, r := range s {
+		next := string(r)
+		if lipgloss.Width(b.String())+lipgloss.Width(next) > limit {
+			break
+		}
+		b.WriteRune(r)
+	}
+	return b.String() + "…"
 }
 
 func (m model) writePhaseRow(b *strings.Builder, ps *phaseState, doneLabel string) {
