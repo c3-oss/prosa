@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <title>{{.Title}} · prosa</title>
-  <link rel="stylesheet" href="/assets/style.css">
-  <script src="/assets/htmx.min.js"></script>
+  <link rel="stylesheet" href="{{assetPath "style.css"}}">
+  <script src="{{assetPath "htmx.min.js"}}"></script>
 </head>
 <body>
   <div class="app">
@@ -32,10 +32,10 @@
     </main>
     <aside id="side-panel">{{block "side" .}}{{end}}</aside>
   </div>
-  <script defer src="/assets/alpine-collapse.min.js"></script>
-  <script defer src="/assets/alpine.min.js"></script>
-  <script src="/assets/keyboard.js"></script>
-  <script src="/assets/sse.js"></script>
-  <script src="/assets/widgets.js"></script>
+  <script defer src="{{assetPath "alpine-collapse.min.js"}}"></script>
+  <script defer src="{{assetPath "alpine.min.js"}}"></script>
+  <script src="{{assetPath "keyboard.js"}}"></script>
+  <script src="{{assetPath "sse.js"}}"></script>
+  <script src="{{assetPath "widgets.js"}}"></script>
 </body>
 </html>{{end}}
