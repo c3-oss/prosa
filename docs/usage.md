@@ -92,11 +92,17 @@ agent's source is never altered.
 ```sh
 prosa sync                          # ad-hoc; same job the scheduler runs
 prosa sync --verbose                # progress detail
+prosa sync --json                   # NDJSON per session + a final summary
 ```
 
 In interactive mode `prosa sync` shows a Bubble Tea spinner with progress
 per importer. In a pipe or under a cron-style scheduler it falls back to a
 quiet, structured log.
+
+With `--json`, sync writes NDJSON to stdout: one
+`{"type":"session","phase":"local|catchup","agent","session_id","status":"imported|skipped|error","push":"sent|skipped|failed|unavailable|disabled","err"}`
+record per session, then one `{"type":"summary",…}` record with the run
+tally. Diagnostics stay on stderr.
 
 ### Analytics
 
