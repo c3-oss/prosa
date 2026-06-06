@@ -19,7 +19,7 @@ import (
 	"github.com/c3-oss/prosa/internal/paths"
 )
 
-// AuthFile is the on-disk shape of ~/.config/prosa/auth.json.
+// AuthFile is the on-disk shape stored at paths.AuthPath().
 type AuthFile struct {
 	Server   string `json:"server"`
 	DeviceID string `json:"device_id"`
@@ -49,10 +49,11 @@ func LoadAuth() (AuthFile, error) {
 
 // SaveAuth atomically writes the file with 0600 permissions.
 func SaveAuth(f AuthFile) error {
-	dir, err := paths.ConfigHome()
+	final, err := paths.AuthPath()
 	if err != nil {
 		return err
 	}
+	dir := filepath.Dir(final)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
@@ -60,7 +61,6 @@ func SaveAuth(f AuthFile) error {
 	if err != nil {
 		return err
 	}
-	final := filepath.Join(dir, "auth.json")
 	tmp := final + ".tmp"
 	if err := os.WriteFile(tmp, body, 0o600); err != nil {
 		return err

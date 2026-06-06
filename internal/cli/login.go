@@ -22,6 +22,7 @@ import (
 	"github.com/c3-oss/prosa/internal/cli/render"
 	"github.com/c3-oss/prosa/internal/cli/rpc"
 	"github.com/c3-oss/prosa/internal/device"
+	"github.com/c3-oss/prosa/internal/paths"
 )
 
 // pkceLogin runs the PKCE + localhost-callback flow against `server`.
@@ -157,12 +158,13 @@ func newPKCEPair() (verifier, challenge, clientState string, err error) {
 var loginServerFlag string
 
 func newLoginCmd() *cobra.Command {
+	authPath := authPathLabel()
 	cmd := &cobra.Command{
 		Use:   "login",
 		Short: "Authenticate this device against a prosa-server",
 		Long: "Starts PKCE login: opens the panel authorize URL in your browser,\n" +
 			"waits for you to click Authorize, then saves the bearer to\n" +
-			"~/.config/prosa/auth.json for sync and remote queries.",
+			authPath + " for sync and remote queries.",
 		RunE: runLogin,
 	}
 	cmd.Flags().StringVar(&loginServerFlag, "server", "", "prosa-server URL (e.g. http://localhost:7070)")
@@ -226,7 +228,7 @@ func runLogin(cmd *cobra.Command, _ []string) error {
 				render.StyleSuccess.Render("approved"))
 			fmt.Fprintf(os.Stdout, "%s token        %s\n",
 				render.StyleSuccess.Render("✓"),
-				styleSubtle.Render("~/.config/prosa/auth.json"))
+				styleSubtle.Render(authPathLabel()))
 			fmt.Fprintln(os.Stdout)
 			fmt.Fprintln(os.Stdout, styleSubtle.Render("ready"))
 		} else {
@@ -234,6 +236,14 @@ func runLogin(cmd *cobra.Command, _ []string) error {
 		}
 	}
 	return pkceLogin(ctx, server, onPending, onApproved)
+}
+
+func authPathLabel() string {
+	path, err := paths.AuthPath()
+	if err != nil {
+		return "auth.json"
+	}
+	return path
 }
 
 func saveAuth(server, token, deviceID string) error {
