@@ -96,7 +96,7 @@ func (t *bearerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 }
 
 // httpClient returns the http.Client used by every service client.
-func httpClient(token, server string) *http.Client {
+func httpClient(token string) *http.Client {
 	return &http.Client{Transport: &bearerTransport{base: http.DefaultTransport, token: token}}
 }
 
@@ -113,22 +113,22 @@ func NormalizeServerURL(in string) string {
 // Auth returns an AuthServiceClient (no auth file required; the auth
 // RPCs are public).
 func Auth(server string) prosav1connect.AuthServiceClient {
-	return prosav1connect.NewAuthServiceClient(httpClient("", server), NormalizeServerURL(server))
+	return prosav1connect.NewAuthServiceClient(httpClient(""), NormalizeServerURL(server))
 }
 
 // Sessions / Devices clients pull token from the loaded auth file. If
 // the file is missing the caller gets an error so the command can
 // suggest `prosa login`.
 func Sessions(server, token string) prosav1connect.SessionsServiceClient {
-	return prosav1connect.NewSessionsServiceClient(httpClient(token, server), NormalizeServerURL(server))
+	return prosav1connect.NewSessionsServiceClient(httpClient(token), NormalizeServerURL(server))
 }
 
 func Analytics(server, token string) prosav1connect.AnalyticsServiceClient {
-	return prosav1connect.NewAnalyticsServiceClient(httpClient(token, server), NormalizeServerURL(server))
+	return prosav1connect.NewAnalyticsServiceClient(httpClient(token), NormalizeServerURL(server))
 }
 
 func Devices(server, token string) prosav1connect.DevicesServiceClient {
-	return prosav1connect.NewDevicesServiceClient(httpClient(token, server), NormalizeServerURL(server))
+	return prosav1connect.NewDevicesServiceClient(httpClient(token), NormalizeServerURL(server))
 }
 
 // ConnectError unwraps connect.Error for display.
