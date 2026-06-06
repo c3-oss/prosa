@@ -796,6 +796,19 @@ func (p *Panel) handleDevicesAction(w http.ResponseWriter, r *http.Request) {
 
 // handleSSE proxies the server's /sse/events stream to the browser.
 // The panel adds the Admin header so the server lets it in; the
+// sseProxyClient proxies the upstream /sse/events stream. ResponseHeaderTimeout
+// bounds only the wait for the upstream's response headers, so a stuck
+// upstream can't hang the proxy goroutine at dial time; the body stream
+// itself stays unbounded (no client Timeout) so long-lived SSE isn't cut.
+// Cloned from DefaultTransport to keep its connection-pool defaults.
+var sseProxyClient = &http.Client{
+	Transport: func() http.RoundTripper {
+		t := http.DefaultTransport.(*http.Transport).Clone()
+		t.ResponseHeaderTimeout = 10 * time.Second
+		return t
+	}(),
+}
+
 // browser only ever sees a normal SSE stream from the same origin
 // (no CORS / cross-site cookie issues).
 func (p *Panel) handleSSE(w http.ResponseWriter, r *http.Request) {
@@ -808,7 +821,7 @@ func (p *Panel) handleSSE(w http.ResponseWriter, r *http.Request) {
 	req.Header.Set("Authorization", "Admin "+p.cfg.AdminToken)
 	req.Header.Set("Accept", "text/event-stream")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := sseProxyClient.Do(req)
 	if err != nil {
 		slog.Warn("sse upstream dial failed", "err", err)
 		http.Error(w, err.Error(), http.StatusBadGateway)
