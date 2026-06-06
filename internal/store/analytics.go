@@ -71,15 +71,19 @@ func (s *Store) AnalyticsProjects(ctx context.Context, f SessionFilter) (Analyti
 	return scanAnalytics(ctx, s.db, q, args, []string{"PROJECT", "AGENT", "SESSIONS"})
 }
 
-// AnalyticsHeatmap returns one UTC calendar row per day in the selected
-// window, including zero-session days so callers can render a stable
-// GitHub-style contribution graph.
+// AnalyticsHeatmap emits one row per (day, agent) over the selected window,
+// matching the server's heatmap report shape exactly (DATE, AGENT,
+// SESSIONS). Zero-session days still get a single (day, "", 0) row so
+// callers can render a stable GitHub-style contribution graph with correct
+// calendar positions. The CLI rolls these per-agent rows up to per-day
+// totals for its table; the panel uses the per-agent breakdown.
 func (s *Store) AnalyticsHeatmap(ctx context.Context, f SessionFilter) (AnalyticsResult, error) {
 	q, args := analyticsQuery(`
 		SELECT substr(s.started_at, 1, 10) AS day,
+		       s.agent,
 		       COUNT(*) AS sessions
 		FROM sessions s
-	`, ` GROUP BY day ORDER BY day ASC`, f)
+	`, ` GROUP BY day, s.agent ORDER BY day ASC, s.agent ASC`, f)
 
 	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
@@ -87,16 +91,20 @@ func (s *Store) AnalyticsHeatmap(ctx context.Context, f SessionFilter) (Analytic
 	}
 	defer rows.Close()
 
-	counts := map[string]int64{}
+	type agentCount struct {
+		agent string
+		count int64
+	}
+	perDay := map[string][]agentCount{}
 	for rows.Next() {
 		var (
-			day string
-			n   int64
+			day, agent string
+			n          int64
 		)
-		if err := rows.Scan(&day, &n); err != nil {
+		if err := rows.Scan(&day, &agent, &n); err != nil {
 			return AnalyticsResult{}, err
 		}
-		counts[day] = n
+		perDay[day] = append(perDay[day], agentCount{agent: agent, count: n})
 	}
 	if err := rows.Err(); err != nil {
 		return AnalyticsResult{}, err
@@ -104,10 +112,17 @@ func (s *Store) AnalyticsHeatmap(ctx context.Context, f SessionFilter) (Analytic
 
 	start := dayStart(f.Since)
 	end := dayStart(f.Until)
-	out := AnalyticsResult{Headers: []string{"DATE", "SESSIONS"}}
+	out := AnalyticsResult{Headers: []string{"DATE", "AGENT", "SESSIONS"}}
 	for d := start; !d.After(end); d = d.AddDate(0, 0, 1) {
 		key := d.Format("2006-01-02")
-		out.Rows = append(out.Rows, AnalyticsRow{Values: []any{key, fmt.Sprintf("%d", counts[key])}})
+		entries := perDay[key]
+		if len(entries) == 0 {
+			out.Rows = append(out.Rows, AnalyticsRow{Values: []any{key, "", "0"}})
+			continue
+		}
+		for _, e := range entries {
+			out.Rows = append(out.Rows, AnalyticsRow{Values: []any{key, e.agent, fmt.Sprintf("%d", e.count)}})
+		}
 	}
 	return out, nil
 }
