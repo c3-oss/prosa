@@ -242,6 +242,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 	}
+	// Non-Update messages (key presses, resize, stray ticks) fall through
+	// here. They must NOT return recvCmd: the channel read is re-armed by
+	// every `case Update` branch, so exactly one recvCmd is always in
+	// flight. Spawning another from a key press would leak a blocked reader
+	// goroutine per keystroke. TestSpinnerKeepsConsumingAfterKeyPress guards
+	// that updates keep flowing across keystrokes.
 	return m, nil
 }
 
