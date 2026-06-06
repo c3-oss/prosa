@@ -18,19 +18,19 @@ const (
 	linuxUnitRel = ".config/systemd/user"
 )
 
-type linuxScheduler struct {
+type linuxPaths struct {
 	unitDir     string
 	servicePath string
 	timerPath   string
 }
 
-func newLinux() (*linuxScheduler, error) {
+func newLinuxPaths() (linuxPaths, error) {
 	home, err := paths.UserHome()
 	if err != nil {
-		return nil, err
+		return linuxPaths{}, err
 	}
 	dir := filepath.Join(home, linuxUnitRel)
-	return &linuxScheduler{
+	return linuxPaths{
 		unitDir:     dir,
 		servicePath: filepath.Join(dir, linuxUnit+".service"),
 		timerPath:   filepath.Join(dir, linuxUnit+".timer"),
@@ -45,7 +45,11 @@ type linuxTimerData struct {
 	IntervalSpec string // systemd format, e.g. "15min"
 }
 
-func (l *linuxScheduler) Install(ctx context.Context, binaryPath string, interval time.Duration) error {
+func linuxSchedulerInstall(ctx context.Context, binaryPath string, interval time.Duration) error {
+	l, err := newLinuxPaths()
+	if err != nil {
+		return err
+	}
 	if interval < time.Minute {
 		return fmt.Errorf("interval too short: %s (minimum 1m)", interval)
 	}
@@ -79,7 +83,11 @@ func (l *linuxScheduler) Install(ctx context.Context, binaryPath string, interva
 	return nil
 }
 
-func (l *linuxScheduler) Uninstall(ctx context.Context) error {
+func linuxSchedulerUninstall(ctx context.Context) error {
+	l, err := newLinuxPaths()
+	if err != nil {
+		return err
+	}
 	if _, err := os.Stat(l.timerPath); os.IsNotExist(err) {
 		return nil
 	}
@@ -93,8 +101,12 @@ func (l *linuxScheduler) Uninstall(ctx context.Context) error {
 	return nil
 }
 
-func (l *linuxScheduler) Status(ctx context.Context) (Status, error) {
-	st := Status{UnitPath: l.timerPath}
+func linuxSchedulerStatus(ctx context.Context) (State, error) {
+	l, err := newLinuxPaths()
+	if err != nil {
+		return State{}, err
+	}
+	st := State{UnitPath: l.timerPath}
 	body, err := os.ReadFile(l.timerPath)
 	if os.IsNotExist(err) {
 		return st, nil

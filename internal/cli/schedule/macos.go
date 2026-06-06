@@ -19,17 +19,17 @@ const (
 	macLogRel   = "Library/Logs/prosa"
 )
 
-type macScheduler struct {
+type macPaths struct {
 	plistPath string
 	logDir    string
 }
 
-func newMacOS() (*macScheduler, error) {
+func newMacOSPaths() (macPaths, error) {
 	home, err := paths.UserHome()
 	if err != nil {
-		return nil, err
+		return macPaths{}, err
 	}
-	return &macScheduler{
+	return macPaths{
 		plistPath: filepath.Join(home, macPlistRel),
 		logDir:    filepath.Join(home, macLogRel),
 	}, nil
@@ -43,7 +43,11 @@ type macTmplData struct {
 	StderrPath string
 }
 
-func (m *macScheduler) Install(ctx context.Context, binaryPath string, interval time.Duration) error {
+func macSchedulerInstall(ctx context.Context, binaryPath string, interval time.Duration) error {
+	m, err := newMacOSPaths()
+	if err != nil {
+		return err
+	}
 	if interval < time.Minute {
 		return fmt.Errorf("interval too short: %s (minimum 1m)", interval)
 	}
@@ -78,7 +82,11 @@ func (m *macScheduler) Install(ctx context.Context, binaryPath string, interval 
 	return nil
 }
 
-func (m *macScheduler) Uninstall(ctx context.Context) error {
+func macSchedulerUninstall(ctx context.Context) error {
+	m, err := newMacOSPaths()
+	if err != nil {
+		return err
+	}
 	if _, err := os.Stat(m.plistPath); os.IsNotExist(err) {
 		return nil
 	}
@@ -89,8 +97,12 @@ func (m *macScheduler) Uninstall(ctx context.Context) error {
 	return nil
 }
 
-func (m *macScheduler) Status(ctx context.Context) (Status, error) {
-	st := Status{UnitPath: m.plistPath}
+func macSchedulerStatus(ctx context.Context) (State, error) {
+	m, err := newMacOSPaths()
+	if err != nil {
+		return State{}, err
+	}
+	st := State{UnitPath: m.plistPath}
 	body, err := os.ReadFile(m.plistPath)
 	if os.IsNotExist(err) {
 		return st, nil

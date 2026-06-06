@@ -1,25 +1,35 @@
 package schedule
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
 	"time"
 )
 
-func TestNewDispatch(t *testing.T) {
-	if _, err := New("darwin"); err != nil {
-		t.Errorf("darwin should be supported: %v", err)
+func TestUnsupportedDispatch(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name string
+		err  error
+	}{
+		{"install", installForGOOS(ctx, "windows", "/usr/local/bin/prosa", 15*time.Minute)},
+		{"uninstall", uninstallForGOOS(ctx, "windows")},
+	} {
+		if tc.err == nil {
+			t.Fatalf("%s should be unsupported", tc.name)
+		}
+		if !errors.Is(tc.err, ErrUnsupported) {
+			t.Errorf("%s err = %v, want wrapped ErrUnsupported", tc.name, tc.err)
+		}
 	}
-	if _, err := New("linux"); err != nil {
-		t.Errorf("linux should be supported: %v", err)
-	}
-	_, err := New("windows")
+	_, err := statusForGOOS(ctx, "windows")
 	if err == nil {
-		t.Fatal("windows should be unsupported")
+		t.Fatal("status should be unsupported")
 	}
 	if !errors.Is(err, ErrUnsupported) {
-		t.Errorf("windows err = %v, want wrapped ErrUnsupported", err)
+		t.Errorf("status err = %v, want wrapped ErrUnsupported", err)
 	}
 }
 

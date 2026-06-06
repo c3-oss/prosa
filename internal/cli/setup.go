@@ -234,8 +234,11 @@ func runSetupAuth(ctx context.Context, server string, interactive bool) error {
 // no native scheduler instead of failing — the rest of setup is still
 // valuable.
 func runSetupScheduler(ctx context.Context, interactive bool) error {
-	sched, err := schedule.NewForCurrent()
+	binary, err := os.Executable()
 	if err != nil {
+		return fmt.Errorf("resolve binary path: %w", err)
+	}
+	if err := schedule.Install(ctx, binary, setupIntervalFlag); err != nil {
 		if errors.Is(err, schedule.ErrUnsupported) {
 			if interactive {
 				fmt.Fprintf(os.Stdout, "%s scheduler    %s\n",
@@ -246,13 +249,6 @@ func runSetupScheduler(ctx context.Context, interactive bool) error {
 			}
 			return nil
 		}
-		return err
-	}
-	binary, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("resolve binary path: %w", err)
-	}
-	if err := sched.Install(ctx, binary, setupIntervalFlag); err != nil {
 		return fmt.Errorf("scheduler install: %w", err)
 	}
 	if interactive {

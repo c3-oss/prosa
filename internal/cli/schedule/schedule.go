@@ -12,40 +12,63 @@ import (
 	"time"
 )
 
-// Status describes the current state of the prosa-sync scheduled job.
-type Status struct {
+// State describes the current state of the prosa-sync scheduled job.
+type State struct {
 	Installed bool
 	Interval  time.Duration
 	UnitPath  string // plist path on macOS; .timer path on Linux
 }
 
-// Scheduler installs/removes the prosa-sync job. Implementations are
-// non-portable. Other platforms get ErrUnsupported from New().
-type Scheduler interface {
-	Install(ctx context.Context, binaryPath string, interval time.Duration) error
-	Uninstall(ctx context.Context) error
-	Status(ctx context.Context) (Status, error)
-}
-
-// ErrUnsupported is returned by New() on platforms we don't support.
+// ErrUnsupported is returned on platforms we don't support.
 var ErrUnsupported = fmt.Errorf("scheduler not supported on this platform")
 
-// New returns the right Scheduler for the given GOOS. Pass
-// runtime.GOOS in production; tests can pass "linux" or "darwin"
-// directly to exercise the corresponding implementation.
-func New(goos string) (Scheduler, error) {
+// Install installs or replaces the prosa-sync scheduled job for the
+// current platform.
+func Install(ctx context.Context, binaryPath string, interval time.Duration) error {
+	return installForGOOS(ctx, runtime.GOOS, binaryPath, interval)
+}
+
+func installForGOOS(ctx context.Context, goos, binaryPath string, interval time.Duration) error {
 	switch goos {
 	case "darwin":
-		return newMacOS()
+		return macSchedulerInstall(ctx, binaryPath, interval)
 	case "linux":
-		return newLinux()
+		return linuxSchedulerInstall(ctx, binaryPath, interval)
 	default:
-		return nil, fmt.Errorf("%w (%s)", ErrUnsupported, goos)
+		return fmt.Errorf("%w (%s)", ErrUnsupported, goos)
 	}
 }
 
-// NewForCurrent is the convenience wrapper for callers that want
-// runtime.GOOS without importing it themselves.
-func NewForCurrent() (Scheduler, error) {
-	return New(runtime.GOOS)
+// Uninstall removes the prosa-sync scheduled job for the current
+// platform. Missing jobs are treated as success.
+func Uninstall(ctx context.Context) error {
+	return uninstallForGOOS(ctx, runtime.GOOS)
+}
+
+func uninstallForGOOS(ctx context.Context, goos string) error {
+	switch goos {
+	case "darwin":
+		return macSchedulerUninstall(ctx)
+	case "linux":
+		return linuxSchedulerUninstall(ctx)
+	default:
+		return fmt.Errorf("%w (%s)", ErrUnsupported, goos)
+	}
+}
+
+// Status reports the prosa-sync scheduled job state for the current
+// platform.
+func Status(ctx context.Context) (State, error) {
+	return statusForGOOS(ctx, runtime.GOOS)
+}
+
+func statusForGOOS(ctx context.Context, goos string) (State, error) {
+	switch goos {
+	case "darwin":
+		return macSchedulerStatus(ctx)
+	case "linux":
+		return linuxSchedulerStatus(ctx)
+	default:
+		return State{}, fmt.Errorf("%w (%s)", ErrUnsupported, goos)
+	}
 }
