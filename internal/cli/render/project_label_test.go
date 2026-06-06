@@ -1,4 +1,4 @@
-package projectlabel
+package render
 
 import (
 	"testing"
@@ -8,7 +8,7 @@ import (
 	"github.com/c3-oss/prosa/pkg/session"
 )
 
-func TestNormalize(t *testing.T) {
+func TestNormalizeRemote(t *testing.T) {
 	cases := []struct {
 		in   string
 		want string
@@ -26,67 +26,67 @@ func TestNormalize(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.in, func(t *testing.T) {
-			require.Equal(t, c.want, Normalize(c.in))
+			require.Equal(t, c.want, normalizeRemote(c.in))
 		})
 	}
 }
 
-func TestLabelPrefersMarker(t *testing.T) {
+func TestProjectLabelPrefersMarker(t *testing.T) {
 	marker := "movaincentivo"
 	remote := "git@github.com:other/repo.git"
-	path := "/Users/me/Projects/other"
+	projectPath := "/Users/me/Projects/other"
 	sess := session.Session{
 		ProjectMarker: &marker,
 		ProjectRemote: &remote,
-		ProjectPath:   &path,
+		ProjectPath:   &projectPath,
 	}
-	require.Equal(t, "movaincentivo", Label(sess))
+	require.Equal(t, "movaincentivo", projectLabel(sess))
 }
 
-func TestLabelFallsBackToNormalizedRemote(t *testing.T) {
+func TestProjectLabelFallsBackToNormalizedRemote(t *testing.T) {
 	remote := "git@github.com:movaincentivo/iac.git"
-	path := "/Users/me/Projects/iac"
+	projectPath := "/Users/me/Projects/iac"
 	sess := session.Session{
 		ProjectRemote: &remote,
-		ProjectPath:   &path,
+		ProjectPath:   &projectPath,
 	}
-	require.Equal(t, "movaincentivo/iac", Label(sess))
+	require.Equal(t, "movaincentivo/iac", projectLabel(sess))
 }
 
-func TestLabelFallsBackToBasename(t *testing.T) {
-	path := "/Users/me/Projects/movaincentivo/iac"
+func TestProjectLabelFallsBackToBasename(t *testing.T) {
+	projectPath := "/Users/me/Projects/movaincentivo/iac"
 	sess := session.Session{
-		ProjectPath: &path,
+		ProjectPath: &projectPath,
 	}
-	require.Equal(t, "iac", Label(sess))
+	require.Equal(t, "iac", projectLabel(sess))
 }
 
-func TestLabelUnscopedWhenNothingPresent(t *testing.T) {
-	require.Equal(t, Unscoped, Label(session.Session{}))
+func TestProjectLabelUnscopedWhenNothingPresent(t *testing.T) {
+	require.Equal(t, unscopedProjectLabel, projectLabel(session.Session{}))
 }
 
-func TestLabelUnscopedWhenAllEmpty(t *testing.T) {
+func TestProjectLabelUnscopedWhenAllEmpty(t *testing.T) {
 	empty := ""
 	sess := session.Session{
 		ProjectMarker: &empty,
 		ProjectRemote: &empty,
 		ProjectPath:   &empty,
 	}
-	require.Equal(t, Unscoped, Label(sess))
+	require.Equal(t, unscopedProjectLabel, projectLabel(sess))
 }
 
-func TestLabelSkipsRootPath(t *testing.T) {
+func TestProjectLabelSkipsRootPath(t *testing.T) {
 	root := "/"
 	sess := session.Session{ProjectPath: &root}
-	require.Equal(t, Unscoped, Label(sess))
+	require.Equal(t, unscopedProjectLabel, projectLabel(sess))
 }
 
-func TestLabelFallsBackToRemoteWhenMarkerEmpty(t *testing.T) {
+func TestProjectLabelFallsBackToRemoteWhenMarkerEmpty(t *testing.T) {
 	empty := ""
 	remote := "git@github.com:owner/repo.git"
 	sess := session.Session{
 		ProjectMarker: &empty,
 		ProjectRemote: &remote,
 	}
-	require.Equal(t, "owner/repo", Label(sess))
+	require.Equal(t, "owner/repo", projectLabel(sess))
 }
