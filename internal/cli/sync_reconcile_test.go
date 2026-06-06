@@ -46,6 +46,10 @@ func (f *fakeSessionsClient) Push(_ context.Context, req *connect.Request[prosav
 	return connect.NewResponse(&prosav1.PushResponse{Skipped: skipped}), nil
 }
 
+func (f *fakeSessionsClient) PushChunk(_ context.Context, _ *connect.Request[prosav1.PushChunkRequest]) (*connect.Response[prosav1.PushChunkResponse], error) {
+	return nil, errors.New("not implemented")
+}
+
 func (f *fakeSessionsClient) List(_ context.Context, _ *connect.Request[prosav1.ListRequest]) (*connect.Response[prosav1.ListResponse], error) {
 	return nil, errors.New("not implemented")
 }

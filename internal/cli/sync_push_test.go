@@ -59,3 +59,8 @@ func TestPushProtoSanitizesDerivedText(t *testing.T) {
 	require.Equal(t, "read file", gotTools[0].Name)
 	require.Equal(t, int32(2), gotTools[0].Count)
 }
+
+func TestShouldChunkPush(t *testing.T) {
+	require.False(t, shouldChunkPush(chunkPushThresholdBytes))
+	require.True(t, shouldChunkPush(chunkPushThresholdBytes+1))
+}

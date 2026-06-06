@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -77,6 +78,11 @@ const (
 	pushSkippedNoUsage
 )
 
+const (
+	chunkPushThresholdBytes int64 = 32 * 1024 * 1024
+	chunkPushChunkBytes           = 8 * 1024 * 1024
+)
+
 // pushSession loads sess + turns + tools from the store and POSTs to
 // Sessions.Push. Reads raw_path from disk (the importer already
 // preserved it). Returns the outcome and the error that drove it (nil
@@ -108,6 +114,9 @@ func (p *pusher) pushSession(ctx context.Context, sessionID string) (pushOutcome
 	if err != nil {
 		return pushFailed, fmt.Errorf("validate raw path for %s: %w", sessionID, err)
 	}
+	if shouldChunkPush(sess.RawSize) {
+		return p.pushSessionChunked(ctx, sess, turns, tools, rawPath)
+	}
 	raw, err := os.ReadFile(rawPath)
 	if err != nil {
 		return pushFailed, fmt.Errorf("read raw %s: %w", rawPath, err)
@@ -125,12 +134,115 @@ func (p *pusher) pushSession(ctx context.Context, sessionID string) (pushOutcome
 			p.markRemoteUnavailable()
 			return pushSkippedRemoteUnavailable, nil
 		}
+		if connect.CodeOf(err) == connect.CodeResourceExhausted {
+			return p.pushSessionChunked(ctx, sess, turns, tools, rawPath)
+		}
 		return pushFailed, fmt.Errorf("push rpc: %w", err)
 	}
 	if resp.Msg.Skipped {
 		return pushAlreadyHashed, nil
 	}
 	return pushImported, nil
+}
+
+func shouldChunkPush(rawSize int64) bool {
+	return rawSize > chunkPushThresholdBytes
+}
+
+func (p *pusher) pushSessionChunked(ctx context.Context, sess session.Session, turns []session.Turn, tools []session.ToolUsage, rawPath string) (pushOutcome, error) {
+	f, err := os.Open(rawPath)
+	if err != nil {
+		return pushFailed, fmt.Errorf("read raw %s: %w", rawPath, err)
+	}
+	defer func() { _ = f.Close() }()
+
+	info, err := f.Stat()
+	if err != nil {
+		return pushFailed, fmt.Errorf("stat raw %s: %w", rawPath, err)
+	}
+	if info.Size() != sess.RawSize {
+		return pushFailed, fmt.Errorf("raw size mismatch before push for %s: file has %d bytes, session records %d", sess.ID, info.Size(), sess.RawSize)
+	}
+
+	sessProto := sessionToProto(sess)
+	turnsProto := turnsToProto(turns)
+	toolsProto := toolsToProto(tools)
+	if sess.RawSize == 0 {
+		resp, err := p.client.PushChunk(ctx, connect.NewRequest(&prosav1.PushChunkRequest{
+			Session: sessProto,
+			Turns:   turnsProto,
+			Tools:   toolsProto,
+			Final:   true,
+		}))
+		if err != nil {
+			return p.pushChunkError(err)
+		}
+		if resp.Msg.Skipped {
+			return pushAlreadyHashed, nil
+		}
+		return pushImported, nil
+	}
+
+	buf := make([]byte, chunkPushChunkBytes)
+	var offset int64
+	chunkIndex := 0
+	for offset < sess.RawSize {
+		remaining := sess.RawSize - offset
+		readBuf := buf
+		if remaining < int64(len(readBuf)) {
+			readBuf = readBuf[:remaining]
+		}
+		n, readErr := f.Read(readBuf)
+		if n == 0 {
+			if readErr == nil {
+				return pushFailed, fmt.Errorf("read raw %s: zero-byte read before offset %d", rawPath, offset)
+			}
+			return pushFailed, fmt.Errorf("read raw %s: %w", rawPath, readErr)
+		}
+		chunk := make([]byte, n)
+		copy(chunk, readBuf[:n])
+		final := offset+int64(n) == sess.RawSize
+		req := &prosav1.PushChunkRequest{
+			Session:  sessProto,
+			Offset:   offset,
+			RawChunk: chunk,
+			Final:    final,
+		}
+		if final {
+			req.Turns = turnsProto
+			req.Tools = toolsProto
+		}
+		resp, err := p.client.PushChunk(ctx, connect.NewRequest(req))
+		if err != nil {
+			return p.pushChunkError(fmt.Errorf("send raw chunk %d at offset %d: %w", chunkIndex, offset, err))
+		}
+		if resp.Msg.Skipped {
+			return pushAlreadyHashed, nil
+		}
+		offset += int64(n)
+		chunkIndex++
+		if readErr != nil {
+			if !errors.Is(readErr, io.EOF) {
+				return pushFailed, fmt.Errorf("read raw %s: %w", rawPath, readErr)
+			}
+			if !final {
+				return pushFailed, fmt.Errorf("read raw %s: unexpected EOF before offset %d", rawPath, offset)
+			}
+			break
+		}
+		if final {
+			return pushImported, nil
+		}
+	}
+	return pushImported, nil
+}
+
+func (p *pusher) pushChunkError(err error) (pushOutcome, error) {
+	if isRemoteUnavailable(err) {
+		p.markRemoteUnavailable()
+		return pushSkippedRemoteUnavailable, nil
+	}
+	return pushFailed, fmt.Errorf("push chunk rpc: %w", err)
 }
 
 func safeRawPathForPush(agent, rawPath string) (string, error) {

@@ -35,6 +35,9 @@ const (
 const (
 	// SessionsServicePushProcedure is the fully-qualified name of the SessionsService's Push RPC.
 	SessionsServicePushProcedure = "/prosa.v1.SessionsService/Push"
+	// SessionsServicePushChunkProcedure is the fully-qualified name of the SessionsService's PushChunk
+	// RPC.
+	SessionsServicePushChunkProcedure = "/prosa.v1.SessionsService/PushChunk"
 	// SessionsServiceListProcedure is the fully-qualified name of the SessionsService's List RPC.
 	SessionsServiceListProcedure = "/prosa.v1.SessionsService/List"
 	// SessionsServiceGetProcedure is the fully-qualified name of the SessionsService's Get RPC.
@@ -58,6 +61,11 @@ type SessionsServiceClient interface {
 	// already has the same raw_hash, the request short-circuits and
 	// PushResponse.skipped is true.
 	Push(context.Context, *connect.Request[v1.PushRequest]) (*connect.Response[v1.PushResponse], error)
+	// PushChunk uploads one session's raw transcript in bounded unary
+	// chunks so large raw files don't exceed the per-message transport
+	// limit. The server commits metadata only after the final chunk
+	// reconstructs the full raw_size/raw_hash. Idempotency matches Push.
+	PushChunk(context.Context, *connect.Request[v1.PushChunkRequest]) (*connect.Response[v1.PushChunkResponse], error)
 	// List returns sessions matching the filter, newest first.
 	List(context.Context, *connect.Request[v1.ListRequest]) (*connect.Response[v1.ListResponse], error)
 	// Get returns one session by id.
@@ -96,6 +104,12 @@ func NewSessionsServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			httpClient,
 			baseURL+SessionsServicePushProcedure,
 			connect.WithSchema(sessionsServiceMethods.ByName("Push")),
+			connect.WithClientOptions(opts...),
+		),
+		pushChunk: connect.NewClient[v1.PushChunkRequest, v1.PushChunkResponse](
+			httpClient,
+			baseURL+SessionsServicePushChunkProcedure,
+			connect.WithSchema(sessionsServiceMethods.ByName("PushChunk")),
 			connect.WithClientOptions(opts...),
 		),
 		list: connect.NewClient[v1.ListRequest, v1.ListResponse](
@@ -140,6 +154,7 @@ func NewSessionsServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 // sessionsServiceClient implements SessionsServiceClient.
 type sessionsServiceClient struct {
 	push         *connect.Client[v1.PushRequest, v1.PushResponse]
+	pushChunk    *connect.Client[v1.PushChunkRequest, v1.PushChunkResponse]
 	list         *connect.Client[v1.ListRequest, v1.ListResponse]
 	get          *connect.Client[v1.GetRequest, v1.GetResponse]
 	search       *connect.Client[v1.SearchRequest, v1.SearchResponse]
@@ -151,6 +166,11 @@ type sessionsServiceClient struct {
 // Push calls prosa.v1.SessionsService.Push.
 func (c *sessionsServiceClient) Push(ctx context.Context, req *connect.Request[v1.PushRequest]) (*connect.Response[v1.PushResponse], error) {
 	return c.push.CallUnary(ctx, req)
+}
+
+// PushChunk calls prosa.v1.SessionsService.PushChunk.
+func (c *sessionsServiceClient) PushChunk(ctx context.Context, req *connect.Request[v1.PushChunkRequest]) (*connect.Response[v1.PushChunkResponse], error) {
+	return c.pushChunk.CallUnary(ctx, req)
 }
 
 // List calls prosa.v1.SessionsService.List.
@@ -190,6 +210,11 @@ type SessionsServiceHandler interface {
 	// already has the same raw_hash, the request short-circuits and
 	// PushResponse.skipped is true.
 	Push(context.Context, *connect.Request[v1.PushRequest]) (*connect.Response[v1.PushResponse], error)
+	// PushChunk uploads one session's raw transcript in bounded unary
+	// chunks so large raw files don't exceed the per-message transport
+	// limit. The server commits metadata only after the final chunk
+	// reconstructs the full raw_size/raw_hash. Idempotency matches Push.
+	PushChunk(context.Context, *connect.Request[v1.PushChunkRequest]) (*connect.Response[v1.PushChunkResponse], error)
 	// List returns sessions matching the filter, newest first.
 	List(context.Context, *connect.Request[v1.ListRequest]) (*connect.Response[v1.ListResponse], error)
 	// Get returns one session by id.
@@ -224,6 +249,12 @@ func NewSessionsServiceHandler(svc SessionsServiceHandler, opts ...connect.Handl
 		SessionsServicePushProcedure,
 		svc.Push,
 		connect.WithSchema(sessionsServiceMethods.ByName("Push")),
+		connect.WithHandlerOptions(opts...),
+	)
+	sessionsServicePushChunkHandler := connect.NewUnaryHandler(
+		SessionsServicePushChunkProcedure,
+		svc.PushChunk,
+		connect.WithSchema(sessionsServiceMethods.ByName("PushChunk")),
 		connect.WithHandlerOptions(opts...),
 	)
 	sessionsServiceListHandler := connect.NewUnaryHandler(
@@ -266,6 +297,8 @@ func NewSessionsServiceHandler(svc SessionsServiceHandler, opts ...connect.Handl
 		switch r.URL.Path {
 		case SessionsServicePushProcedure:
 			sessionsServicePushHandler.ServeHTTP(w, r)
+		case SessionsServicePushChunkProcedure:
+			sessionsServicePushChunkHandler.ServeHTTP(w, r)
 		case SessionsServiceListProcedure:
 			sessionsServiceListHandler.ServeHTTP(w, r)
 		case SessionsServiceGetProcedure:
@@ -289,6 +322,10 @@ type UnimplementedSessionsServiceHandler struct{}
 
 func (UnimplementedSessionsServiceHandler) Push(context.Context, *connect.Request[v1.PushRequest]) (*connect.Response[v1.PushResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("prosa.v1.SessionsService.Push is not implemented"))
+}
+
+func (UnimplementedSessionsServiceHandler) PushChunk(context.Context, *connect.Request[v1.PushChunkRequest]) (*connect.Response[v1.PushChunkResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("prosa.v1.SessionsService.PushChunk is not implemented"))
 }
 
 func (UnimplementedSessionsServiceHandler) List(context.Context, *connect.Request[v1.ListRequest]) (*connect.Response[v1.ListResponse], error) {
