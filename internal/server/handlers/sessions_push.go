@@ -12,6 +12,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"connectrpc.com/connect"
@@ -86,17 +87,32 @@ func (h *SessionsHandler) PushChunk(ctx context.Context, req *connect.Request[pr
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("push chunk raw_chunk is empty"))
 	}
 
+	// Serialize all chunks for this exact upload (device + session + hash)
+	// so a retried stream racing the original can't interleave writes into
+	// the shared temp file; distinct uploads use distinct keys and stay
+	// concurrent. The temp lives in the process-global TempDir, so the lock
+	// is package-global too.
+	tmpPath := pushChunkTempPath(deviceID, sess)
+	unlock := pushChunkLocks.lock(tmpPath)
+	defer unlock()
+
+	// Opportunistically reap staging files from uploads that were abandoned
+	// mid-stream (client crashed before the final chunk). Runs once per
+	// upload, when the first chunk arrives.
+	if req.Msg.Offset == 0 {
+		sweepStalePushChunks(os.TempDir(), time.Now())
+	}
+
 	current, err := h.pushAlreadyCurrent(ctx, sess)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	if current {
-		_ = os.Remove(pushChunkTempPath(deviceID, sess))
+		_ = os.Remove(tmpPath)
 		h.touchDeviceLastSync(ctx, deviceID, time.Now().UTC())
 		return connect.NewResponse(&prosav1.PushChunkResponse{Skipped: true}), nil
 	}
 
-	tmpPath := pushChunkTempPath(deviceID, sess)
 	f, err := openPushChunkTemp(tmpPath, req.Msg.Offset)
 	if err != nil {
 		return nil, err
@@ -188,6 +204,72 @@ func (h *SessionsHandler) pushAlreadyCurrent(ctx context.Context, sess *prosav1.
 func pushChunkTempPath(deviceID string, sess *prosav1.Session) string {
 	sum := sha256.Sum256([]byte(deviceID + "\x00" + sess.Id + "\x00" + sess.RawHash))
 	return filepath.Join(os.TempDir(), "prosa-push-"+hex.EncodeToString(sum[:])+".part")
+}
+
+// pushChunkStaleAfter bounds how long an in-flight chunked upload may sit
+// idle before its staging file is considered abandoned and reaped. No real
+// upload takes anywhere near this long, so active uploads are never swept.
+const pushChunkStaleAfter = 24 * time.Hour
+
+// sweepStalePushChunks removes staging files from chunked uploads that never
+// sent a final chunk (client crashed/aborted) and are older than
+// pushChunkStaleAfter, so abandoned partials don't accumulate in TempDir.
+// Best-effort: glob/stat/remove errors are ignored.
+func sweepStalePushChunks(dir string, now time.Time) {
+	matches, err := filepath.Glob(filepath.Join(dir, "prosa-push-*.part"))
+	if err != nil {
+		return
+	}
+	for _, p := range matches {
+		info, statErr := os.Stat(p)
+		if statErr != nil {
+			continue
+		}
+		if now.Sub(info.ModTime()) > pushChunkStaleAfter {
+			_ = os.Remove(p)
+		}
+	}
+}
+
+// pushChunkLocks serializes concurrent chunk writes to the same staging file.
+var pushChunkLocks = &keyedMutex{}
+
+// keyedMutex hands out a mutex per key and reclaims it once no goroutine
+// holds or waits on it, so the map can't grow without bound across the
+// server's lifetime.
+type keyedMutex struct {
+	mu sync.Mutex
+	m  map[string]*keyedMutexEntry
+}
+
+type keyedMutexEntry struct {
+	mu   sync.Mutex
+	refs int
+}
+
+func (k *keyedMutex) lock(key string) func() {
+	k.mu.Lock()
+	if k.m == nil {
+		k.m = make(map[string]*keyedMutexEntry)
+	}
+	e := k.m[key]
+	if e == nil {
+		e = &keyedMutexEntry{}
+		k.m[key] = e
+	}
+	e.refs++
+	k.mu.Unlock()
+
+	e.mu.Lock()
+	return func() {
+		e.mu.Unlock()
+		k.mu.Lock()
+		e.refs--
+		if e.refs == 0 {
+			delete(k.m, key)
+		}
+		k.mu.Unlock()
+	}
 }
 
 func openPushChunkTemp(tmpPath string, offset int64) (*os.File, error) {
