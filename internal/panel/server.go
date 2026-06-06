@@ -85,6 +85,12 @@ func (p *Panel) Serve(ctx context.Context) error {
 	srv := &http.Server{
 		Addr:    p.cfg.ListenAddr,
 		Handler: p.securityHeaders(p.mux),
+		// ReadHeaderTimeout blocks slowloris-style slow-header attacks.
+		// No ReadTimeout/WriteTimeout: /events proxies a long-lived SSE
+		// stream, so bounding the write side would cut it off.
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20,
 	}
 	slog.Info("prosa-panel listening",
 		"addr", p.cfg.ListenAddr, "server", p.cfg.ServerURL,
