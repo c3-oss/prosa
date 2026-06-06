@@ -38,16 +38,27 @@ func (s *Store) LastHash(ctx context.Context, sessionID string) (string, bool, e
 // Foreign key on session_id means the parent session row must already
 // exist before this is called.
 func (s *Store) RecordSync(ctx context.Context, sessionID, hash string) error {
-	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO sync_state (session_id, last_hash, last_synced_at, projection_version)
-		VALUES (?, ?, ?, ?)
-		ON CONFLICT(session_id) DO UPDATE SET
-			last_hash          = excluded.last_hash,
-			last_synced_at     = excluded.last_synced_at,
-			projection_version = excluded.projection_version
-	`, sessionID, hash, formatTime(time.Now()), session.ProjectionVersion)
+	_, err := s.db.ExecContext(ctx, recordSyncSQL,
+		sessionID, hash, formatTime(time.Now()), session.ProjectionVersion)
 	return err
 }
+
+// recordSyncTx is the transaction-scoped form RecordSync and WriteSession
+// share. WriteSession calls it so sync_state commits atomically with the
+// session row and turns.
+func recordSyncTx(ctx context.Context, tx *sql.Tx, sessionID, hash string) error {
+	_, err := tx.ExecContext(ctx, recordSyncSQL,
+		sessionID, hash, formatTime(time.Now()), session.ProjectionVersion)
+	return err
+}
+
+const recordSyncSQL = `
+	INSERT INTO sync_state (session_id, last_hash, last_synced_at, projection_version)
+	VALUES (?, ?, ?, ?)
+	ON CONFLICT(session_id) DO UPDATE SET
+		last_hash          = excluded.last_hash,
+		last_synced_at     = excluded.last_synced_at,
+		projection_version = excluded.projection_version`
 
 // LastImportSkip returns a remembered policy skip hash, if it is still valid
 // for the current projection version.

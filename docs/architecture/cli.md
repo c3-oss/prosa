@@ -117,7 +117,7 @@ Each query funnels into a small set of functions:
 | `ListSessions(ctx, SessionFilter)` | `nu`, parts of `analytics`, JSON output |
 | `Search(ctx, query, SessionFilter, limit)` | `search` |
 | `GetSession`, `GetTurns`, `GetSessionTools` | `show`, panel-side reads |
-| `UpsertSession`, `InsertTurns`, `LastHash`, `RecordSync` | `sync` |
+| `WriteSession`, `LastHash` | `sync` (importer `Sink`) |
 | `ListDevicesMap` | timeline column resolution |
 | `Analytics*` | `analytics` |
 | `RebindLocalSessions` | one-time migration helper during `setup` |

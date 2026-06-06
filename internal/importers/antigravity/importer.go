@@ -92,14 +92,8 @@ func (i *Importer) Import(ctx context.Context, dbPath string, sink importer.Sink
 	sess.RawPath = rawPath
 	projectid.Apply(&sess)
 
-	if err := sink.UpsertSession(ctx, sess, tools); err != nil {
-		return importer.ImportResult{}, fmt.Errorf("upsert session %s: %w", sess.ID, err)
-	}
-	if err := sink.InsertTurns(ctx, sess.ID, turns); err != nil {
-		return importer.ImportResult{}, fmt.Errorf("insert turns %s: %w", sess.ID, err)
-	}
-	if err := sink.RecordSync(ctx, sess.ID, hash); err != nil {
-		return importer.ImportResult{}, fmt.Errorf("record sync %s: %w", sess.ID, err)
+	if err := sink.WriteSession(ctx, sess, tools, turns, hash); err != nil {
+		return importer.ImportResult{}, fmt.Errorf("write session %s: %w", sess.ID, err)
 	}
 
 	return importer.ImportResult{

@@ -36,6 +36,16 @@ func (s *Store) UpsertSession(ctx context.Context, sess session.Session, tools [
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	if err := upsertSessionTx(ctx, tx, sess, tools); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// upsertSessionTx writes the session row, session_usage, and session_tools
+// inside an existing transaction. UpsertSession wraps it in its own tx;
+// WriteSession reuses it so the whole projection commits atomically.
+func upsertSessionTx(ctx context.Context, tx *sql.Tx, sess session.Session, tools []session.ToolUsage) error {
 	if _, err := tx.ExecContext(
 		ctx, `
 		INSERT INTO sessions (
@@ -112,7 +122,7 @@ func (s *Store) UpsertSession(ctx context.Context, sess session.Session, tools [
 		}
 	}
 
-	return tx.Commit()
+	return nil
 }
 
 // SessionFilter narrows ListSessions and Search. Since/Until are
