@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/c3-oss/prosa/internal/paths"
 )
 
 const (
@@ -23,7 +25,7 @@ type macScheduler struct {
 }
 
 func newMacOS() (*macScheduler, error) {
-	home, err := os.UserHomeDir()
+	home, err := paths.UserHome()
 	if err != nil {
 		return nil, err
 	}
