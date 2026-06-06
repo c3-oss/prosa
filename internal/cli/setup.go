@@ -15,13 +15,7 @@ import (
 	"github.com/c3-oss/prosa/internal/cli/render"
 	"github.com/c3-oss/prosa/internal/cli/rpc"
 	"github.com/c3-oss/prosa/internal/cli/schedule"
-	"github.com/c3-oss/prosa/internal/importers/antigravity"
-	"github.com/c3-oss/prosa/internal/importers/claudecode"
-	"github.com/c3-oss/prosa/internal/importers/codex"
-	"github.com/c3-oss/prosa/internal/importers/cursor"
-	"github.com/c3-oss/prosa/internal/importers/gemini"
 	"github.com/c3-oss/prosa/internal/paths"
-	"github.com/c3-oss/prosa/pkg/importer"
 )
 
 // setupDefaultServer is used when neither --server nor PROSA_SERVER_URL
@@ -68,13 +62,7 @@ type agentReport struct {
 // any of its DefaultRoots() exists on the filesystem. Pure read; no side
 // effects. Order is stable.
 func detectAgents() []agentReport {
-	imps := []importer.Importer{
-		claudecode.New(),
-		codex.New(),
-		cursor.New(),
-		gemini.New(),
-		antigravity.New(),
-	}
+	imps := registeredImporters()
 	out := make([]agentReport, 0, len(imps))
 	for _, imp := range imps {
 		roots := imp.DefaultRoots()

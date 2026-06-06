@@ -31,6 +31,19 @@ func TestValidateGlobalsAllProjectExclusive(t *testing.T) {
 	require.NoError(t, validateGlobals(neither))
 }
 
+func TestValidateGlobalsAgentKnown(t *testing.T) {
+	originalFlags := g
+	t.Cleanup(func() { g = originalFlags })
+
+	valid := newRootCmd()
+	require.NoError(t, valid.ParseFlags([]string{"--agent", "codex"}))
+	require.NoError(t, validateGlobals(valid))
+
+	invalid := newRootCmd()
+	require.NoError(t, invalid.ParseFlags([]string{"--agent", "banana"}))
+	require.ErrorContains(t, validateGlobals(invalid), `--agent: unknown agent "banana"; expected one of (claude-code, codex, cursor, gemini, antigravity, hermes)`)
+}
+
 // The combination is rejected through the command's PersistentPreRunE, so
 // it fails before any sub-command body runs (no store access required).
 func TestRootRejectsAllAndProjectEndToEnd(t *testing.T) {
@@ -44,4 +57,19 @@ func TestRootRejectsAllAndProjectEndToEnd(t *testing.T) {
 
 	err := cmd.Execute()
 	require.ErrorContains(t, err, "--all and --project are mutually exclusive")
+}
+
+// Unknown agents are rejected by the global pre-run before command bodies open
+// the store, preventing typos from masquerading as empty result sets.
+func TestRootRejectsUnknownAgentEndToEnd(t *testing.T) {
+	originalFlags := g
+	t.Cleanup(func() { g = originalFlags })
+
+	cmd := newRootCmd()
+	cmd.SetArgs([]string{"--agent", "banana"})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	err := cmd.Execute()
+	require.ErrorContains(t, err, `--agent: unknown agent "banana"; expected one of (claude-code, codex, cursor, gemini, antigravity, hermes)`)
 }

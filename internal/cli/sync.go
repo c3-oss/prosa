@@ -10,7 +10,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/c3-oss/prosa/internal/device"
-	"github.com/c3-oss/prosa/internal/importers/antigravity"
 	"github.com/c3-oss/prosa/internal/importers/claudecode"
 	"github.com/c3-oss/prosa/internal/importers/codex"
 	"github.com/c3-oss/prosa/internal/importers/cursor"
@@ -133,15 +132,6 @@ func runSync(cmd *cobra.Command, _ []string) error {
 		slog.Warn("project identity backfill failed", "err", err)
 	}
 
-	imps := []importer.Importer{
-		claudecode.New(),
-		codex.New(),
-		cursor.New(),
-		gemini.New(),
-		antigravity.New(),
-		hermes.New(),
-	}
-
 	var (
 		liveWork    []syncJob
 		legacyWork  []syncJob
@@ -149,7 +139,7 @@ func runSync(cmd *cobra.Command, _ []string) error {
 		tmpDir      string
 		bundle      *legacy.Bundle
 	)
-	for _, imp := range imps {
+	for _, imp := range registeredImporters() {
 		for _, root := range imp.DefaultRoots() {
 			ps, err := imp.Walk(ctx, root)
 			if err != nil {

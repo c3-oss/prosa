@@ -66,7 +66,7 @@ func newRootCmd() *cobra.Command {
 	pf.StringVar(&g.Between, "between", "", "closed UTC range, YYYY-MM-DD..YYYY-MM-DD; mut.-excl. with --last / --since")
 	pf.StringVar(&g.Project, "project", "", "filter by project path (substring match)")
 	pf.StringVar(&g.Device, "device", "", "filter by device friendly name")
-	pf.StringVar(&g.Agent, "agent", "", "filter by agent (claude-code | codex | cursor | gemini | antigravity | hermes)")
+	pf.StringVar(&g.Agent, "agent", "", "filter by agent ("+registeredAgentHelp()+")")
 	pf.BoolVar(&g.All, "all", false, "disable the cwd-based project auto-filter")
 	pf.BoolVar(&g.JSON, "json", false, "emit NDJSON instead of human-formatted output")
 	pf.BoolVar(&g.NoColor, "no-color", false, "suppress ANSI styling even on a TTY")
@@ -94,6 +94,9 @@ func newRootCmd() *cobra.Command {
 func validateGlobals(cmd *cobra.Command) error {
 	if cmd.Flags().Changed("all") && cmd.Flags().Changed("project") {
 		return errors.New("--all and --project are mutually exclusive")
+	}
+	if err := validateAgentName(g.Agent); err != nil {
+		return err
 	}
 	return nil
 }
