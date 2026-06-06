@@ -171,6 +171,18 @@ func TestSyncStateRoundTrip(t *testing.T) {
 	require.Equal(t, "h2", h)
 }
 
+func TestSyncStateRejectsMissingSession(t *testing.T) {
+	t.Parallel()
+	ctx, s := newStore(t)
+	now := time.Now().UTC()
+
+	_, err := s.DB().ExecContext(ctx, `
+		INSERT INTO sync_state (session_id, last_hash, last_synced_at, projection_version)
+		VALUES (?, ?, ?, ?)
+	`, "does-not-exist", "hash", formatTime(now), session.ProjectionVersion)
+	require.Error(t, err)
+}
+
 func TestLastHashIgnoresStaleProjectionVersion(t *testing.T) {
 	t.Parallel()
 	ctx, s := newStore(t)
