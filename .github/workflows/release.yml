@@ -93,7 +93,7 @@ jobs:
             type=raw,value=latest
 
       - name: Build and push prosa (CLI) image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           target: prosa
@@ -112,7 +112,7 @@ jobs:
             type=raw,value=latest
 
       - name: Build and push prosa-server image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           target: prosa-server
@@ -131,7 +131,7 @@ jobs:
             type=raw,value=latest
 
       - name: Build and push prosa-panel image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           target: prosa-panel
