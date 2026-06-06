@@ -8,6 +8,7 @@ package handlers
 import (
 	"context"
 	"crypto/subtle"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -74,14 +75,20 @@ func (h *SSEHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	heartbeat := time.NewTicker(20 * time.Second)
 	defer heartbeat.Stop()
 
-	events := make(chan string)
+	events := make(chan string, 1)
 	errs := make(chan error, 1)
 	go func() {
 		for {
 			n, err := conn.Conn().WaitForNotification(ctx)
 			if err != nil {
-				errs <- err
+				select {
+				case errs <- err:
+				case <-ctx.Done():
+				}
 				return
+			}
+			if n == nil {
+				continue
 			}
 			select {
 			case events <- n.Payload:
@@ -96,7 +103,10 @@ func (h *SSEHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		case payload := <-events:
 			_, _ = fmt.Fprintf(w, "event: session.changed\ndata: %s\n\n", payload)
 			flusher.Flush()
-		case <-errs:
+		case err := <-errs:
+			if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+				slog.Warn("sse: wait notification failed", "err", err)
+			}
 			return
 		case <-heartbeat.C:
 			_, _ = fmt.Fprintln(w, ": heartbeat")
