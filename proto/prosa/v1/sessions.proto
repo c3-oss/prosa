@@ -149,6 +149,15 @@ message ListRequest {
   // desc; agent, project, device asc), "asc", "desc". Ignored when
   // query is set (FTS rank wins).
   string sort_dir = 14;
+  // agents is the panel-side multi-select equivalent of agent. When
+  // non-empty, the server matches any session whose agent is in the list
+  // (agent is ignored).
+  repeated string agents = 15;
+  // project_matches is the multi-select equivalent of project_match. When
+  // non-empty, a session matches if any of the values is a substring of
+  // its project_path / project_remote / project_marker (project_match is
+  // ignored).
+  repeated string project_matches = 16;
 }
 
 message ListResponse {
