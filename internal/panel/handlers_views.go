@@ -40,7 +40,7 @@ func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 	if lastRaw == "" {
 		lastRaw = "30d"
 	}
-	now := time.Now().UTC()
+	now := nowFn().UTC()
 	var since, until time.Time
 	until = now
 	if lastRaw == "all" {

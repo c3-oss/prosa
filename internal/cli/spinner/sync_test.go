@@ -22,8 +22,17 @@ func newTestModel(total int, remote bool) model {
 		remote: defaultPhaseState("remote"),
 		opts:   Options{RemoteEnabled: remote},
 	}
-	m.local.start = time.Now().Add(-3 * time.Second)
+	m.local.start = nowFn().Add(-3 * time.Second)
 	return m
+}
+
+func fixedNow(t *testing.T) time.Time {
+	t.Helper()
+	now := time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC)
+	prev := nowFn
+	nowFn = func() time.Time { return now }
+	t.Cleanup(func() { nowFn = prev })
+	return now
 }
 
 func beginLocal(m model, total int) model {
@@ -119,8 +128,9 @@ func TestCompletedRowRendersCheckWithoutSpinnerGlyph(t *testing.T) {
 }
 
 func TestFinishedRowNoCounters(t *testing.T) {
+	now := fixedNow(t)
 	m := beginLocal(newTestModel(1, false), 1)
-	m.local.start = time.Now().Add(-17 * time.Second)
+	m.local.start = now.Add(-17 * time.Second)
 	m.local.done = 27
 	m.local.skipped = 1882
 
@@ -134,8 +144,9 @@ func TestFinishedRowNoCounters(t *testing.T) {
 }
 
 func TestFinishedRowIsCompact(t *testing.T) {
+	now := fixedNow(t)
 	m := beginLocal(newTestModel(1, true), 1)
-	m.local.start = time.Now().Add(-5 * time.Second)
+	m.local.start = now.Add(-5 * time.Second)
 	mm, _ := m.Update(Update{Phase: PhaseLocal, Done: true, Verb: "imported"})
 	m = mm.(model)
 
@@ -146,8 +157,9 @@ func TestFinishedRowIsCompact(t *testing.T) {
 }
 
 func TestFrozenElapsedAtCompletion(t *testing.T) {
+	now := fixedNow(t)
 	m := beginLocal(newTestModel(1, true), 1)
-	m.local.start = time.Now().Add(-16 * time.Second)
+	m.local.start = now.Add(-16 * time.Second)
 
 	mm, _ := m.Update(Update{Phase: PhaseLocal, Done: true, Verb: "imported"})
 	m = mm.(model)

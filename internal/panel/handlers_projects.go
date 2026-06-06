@@ -20,7 +20,7 @@ func (p *Panel) handleProjects(w http.ResponseWriter, r *http.Request) {
 	if last == "" {
 		last = "30d"
 	}
-	now := time.Now().UTC()
+	now := nowFn().UTC()
 	var since, until time.Time
 	until = now
 	if last == "all" {

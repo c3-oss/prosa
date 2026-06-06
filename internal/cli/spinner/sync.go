@@ -28,6 +28,8 @@ import (
 	"github.com/c3-oss/prosa/internal/cli/render"
 )
 
+var nowFn = time.Now
+
 // Phase identifies which sync stage an Update applies to.
 type Phase int
 
@@ -177,7 +179,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if v.Verb != "" {
 				ps.verb = v.Verb
 			}
-			ps.start = time.Now()
+			ps.start = nowFn()
 			m.activePhase = v.Phase
 			return m, recvCmd(m.ch)
 		}
@@ -203,7 +205,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			ps.unavailable = v.Unavailable
 			ps.extra = v.Extra
 			if !ps.start.IsZero() {
-				ps.elapsed = time.Since(ps.start)
+				ps.elapsed = nowFn().Sub(ps.start)
 			}
 			if v.Unavailable {
 				if ps.verb == "" {
@@ -387,7 +389,7 @@ func (m model) writePhaseRow(b *strings.Builder, ps *phaseState, doneLabel strin
 	case ps.finished:
 		elapsed = ps.elapsed
 	case ps.started && !ps.start.IsZero():
-		elapsed = time.Since(ps.start)
+		elapsed = nowFn().Sub(ps.start)
 	}
 
 	var progress string
@@ -449,7 +451,7 @@ func phaseETA(ps *phaseState) string {
 	if completed == 0 || ps.total <= 0 {
 		return "—"
 	}
-	elapsed := time.Since(ps.start)
+	elapsed := nowFn().Sub(ps.start)
 	rate := float64(completed) / elapsed.Seconds()
 	if rate <= 0 {
 		return "—"
