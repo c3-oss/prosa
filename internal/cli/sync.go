@@ -517,14 +517,17 @@ func runSyncInteractive(
 				w.cleanup()
 			}
 			counts.record(w, res, err)
+			itemErr := err
 			if push != nil && err == nil && !res.Skipped {
-				counts.recordPush(push.pushSession(ctx, res.SessionID))
+				outcome, perr := push.pushSession(ctx, res.SessionID)
+				counts.recordPush(outcome, perr)
+				itemErr = localItemErr(err, outcome, perr)
 			}
 			if !send(spinner.Update{
 				Phase:   spinner.PhaseLocal,
 				Index:   i,
 				Skipped: res.Skipped,
-				Err:     err,
+				Err:     itemErr,
 			}) {
 				return
 			}
@@ -679,6 +682,21 @@ func runSyncPlain(ctx context.Context, work []syncJob, sink importer.Sink, push 
 // recordPush updates the syncCounts based on the push outcome. Wraps
 // the outcome-to-counter mapping so both runSyncTTY and runSyncPlain
 // share the same routing logic.
+// localItemErr decides what the interactive spinner shows on a local-phase
+// row. The import error wins; otherwise, when the inline push genuinely
+// failed (pushFailed — not remote-unavailable, which is a global state
+// shown on the remote row), surface that push error so a healthy import
+// with a failed push isn't rendered as a clean check mark (issue #74).
+func localItemErr(importErr error, outcome pushOutcome, pushErr error) error {
+	if importErr != nil {
+		return importErr
+	}
+	if outcome == pushFailed {
+		return pushErr
+	}
+	return nil
+}
+
 func (sc *syncCounts) recordPush(outcome pushOutcome, err error) {
 	if err != nil && outcome != pushFailed {
 		outcome = pushFailed
