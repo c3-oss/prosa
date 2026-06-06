@@ -18,8 +18,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/c3-oss/prosa/internal/device"
+	"github.com/c3-oss/prosa/internal/importers/importerutil"
 	"github.com/c3-oss/prosa/internal/importers/importpolicy"
 	"github.com/c3-oss/prosa/internal/projectid"
 	"github.com/c3-oss/prosa/pkg/importer"
@@ -69,126 +71,38 @@ func (i *Importer) Import(ctx context.Context, path string, sink importer.Sink, 
 // the filename stem; idempotency is keyed on that id (bypassed when
 // opts.Overwrite is set).
 func (i *Importer) importJSONL(ctx context.Context, path string, sink importer.Sink, opts importer.ImportOptions) (importer.ImportResult, error) {
-	hash, size, err := hashAndSize(path)
-	if err != nil {
-		return importer.ImportResult{}, fmt.Errorf("hash %s: %w", path, err)
-	}
-
-	sessionID := stripExt(filepath.Base(path))
-
-	if !opts.Overwrite {
-		if prev, found, err := sink.LastHash(ctx, sessionID); err == nil && found && prev == hash {
-			return importer.ImportResult{
-				SessionID: sessionID,
-				RawHash:   hash,
-				RawSize:   size,
-				Skipped:   true,
-			}, nil
-		}
-		if res, ok, err := importpolicy.PreviouslySkippedNoUsage(ctx, sink, sessionID, hash, size); err != nil {
-			return importer.ImportResult{}, fmt.Errorf("read import skip %s: %w", sessionID, err)
-		} else if ok {
-			return res, nil
-		}
-	}
-
-	sess, turns, tools, usageState, err := parseJSONL(ctx, path)
-	if err != nil {
-		return importer.ImportResult{}, fmt.Errorf("parse %s: %w", path, err)
-	}
-	if sess.ID == "" {
-		sess.ID = sessionID
-	}
-	sess.Agent = Name
-	sess.DeviceID = device.IDOnce()
-	sess.RawHash = hash
-	sess.RawSize = size
-	if importpolicy.ClassifyForImport(usageState) == importpolicy.DecisionSkipNoUsage {
-		return importpolicy.RecordNoUsageSkip(ctx, sink, sessionID, hash, size)
-	}
-
-	rawPath, err := preserveRaw(path, sessionID, sess.StartedAt, ".jsonl")
-	if err != nil {
-		return importer.ImportResult{}, fmt.Errorf("preserve raw %s: %w", path, err)
-	}
-	sess.RawPath = rawPath
-	projectid.Apply(&sess)
-
-	if err := sink.WriteSession(ctx, sess, tools, turns, hash); err != nil {
-		return importer.ImportResult{}, fmt.Errorf("write session %s: %w", sessionID, err)
-	}
-
-	return importer.ImportResult{
-		SessionID: sessionID,
-		RawPath:   rawPath,
-		RawHash:   hash,
-		RawSize:   size,
-		Skipped:   false,
-	}, nil
+	return importerutil.RunSingleFile(ctx, importerutil.SingleFileConfig{
+		Agent: Name,
+		Path:  path,
+		Sink:  sink,
+		Opts:  opts,
+		Hash:  hashAndSize,
+		PeekID: func(path string) (string, error) {
+			return stripExt(filepath.Base(path)), nil
+		},
+		Parse: parseJSONL,
+		PreserveRaw: func(srcPath, sessionID string, startedAt time.Time) (string, error) {
+			return preserveRaw(srcPath, sessionID, startedAt, ".jsonl")
+		},
+	})
 }
 
 // importSnapshot handles a session_<id>.json envelope. The id comes from
 // the `session_id` field with the filename-stem fallback.
 func (i *Importer) importSnapshot(ctx context.Context, path string, sink importer.Sink, opts importer.ImportOptions) (importer.ImportResult, error) {
-	hash, size, err := hashAndSize(path)
-	if err != nil {
-		return importer.ImportResult{}, fmt.Errorf("hash %s: %w", path, err)
-	}
-
-	sessionID, err := peekSnapshotID(path)
-	if err != nil {
-		return importer.ImportResult{}, fmt.Errorf("peek session id %s: %w", path, err)
-	}
-
-	if !opts.Overwrite {
-		if prev, found, err := sink.LastHash(ctx, sessionID); err == nil && found && prev == hash {
-			return importer.ImportResult{
-				SessionID: sessionID,
-				RawHash:   hash,
-				RawSize:   size,
-				Skipped:   true,
-			}, nil
-		}
-		if res, ok, err := importpolicy.PreviouslySkippedNoUsage(ctx, sink, sessionID, hash, size); err != nil {
-			return importer.ImportResult{}, fmt.Errorf("read import skip %s: %w", sessionID, err)
-		} else if ok {
-			return res, nil
-		}
-	}
-
-	sess, turns, tools, usageState, err := parseSnapshot(ctx, path)
-	if err != nil {
-		return importer.ImportResult{}, fmt.Errorf("parse %s: %w", path, err)
-	}
-	if sess.ID == "" {
-		sess.ID = sessionID
-	}
-	sess.Agent = Name
-	sess.DeviceID = device.IDOnce()
-	sess.RawHash = hash
-	sess.RawSize = size
-	if importpolicy.ClassifyForImport(usageState) == importpolicy.DecisionSkipNoUsage {
-		return importpolicy.RecordNoUsageSkip(ctx, sink, sess.ID, hash, size)
-	}
-
-	rawPath, err := preserveRaw(path, sess.ID, sess.StartedAt, ".json")
-	if err != nil {
-		return importer.ImportResult{}, fmt.Errorf("preserve raw %s: %w", path, err)
-	}
-	sess.RawPath = rawPath
-	projectid.Apply(&sess)
-
-	if err := sink.WriteSession(ctx, sess, tools, turns, hash); err != nil {
-		return importer.ImportResult{}, fmt.Errorf("write session %s: %w", sess.ID, err)
-	}
-
-	return importer.ImportResult{
-		SessionID: sess.ID,
-		RawPath:   rawPath,
-		RawHash:   hash,
-		RawSize:   size,
-		Skipped:   false,
-	}, nil
+	return importerutil.RunSingleFile(ctx, importerutil.SingleFileConfig{
+		Agent:              Name,
+		Path:               path,
+		Sink:               sink,
+		Opts:               opts,
+		Hash:               hashAndSize,
+		PeekID:             peekSnapshotID,
+		Parse:              parseSnapshot,
+		UseParsedSessionID: true,
+		PreserveRaw: func(srcPath, sessionID string, startedAt time.Time) (string, error) {
+			return preserveRaw(srcPath, sessionID, startedAt, ".json")
+		},
+	})
 }
 
 // importStateDB iterates every session row in state.db and upserts each

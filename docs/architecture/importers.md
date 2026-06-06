@@ -16,7 +16,7 @@ type Importer interface {
     Name() string
     DefaultRoots() []string
     Walk(ctx context.Context, root string) ([]string, error)
-    Import(ctx context.Context, jsonlPath string, sink Sink) (ImportResult, error)
+    Import(ctx context.Context, jsonlPath string, sink Sink, opts ImportOptions) (ImportResult, error)
 }
 
 type Sink interface {
@@ -48,6 +48,13 @@ The `Sink` is implemented by `internal/store` (locally) and by an in-memory
 fake for tests. Importers never know about SQLite, Postgres, or the server.
 `SkipCache` is an optional `Sink` extension used for policy skips that do
 not create a session row.
+
+Importers that project one source file into one session should route their
+`Import` implementation through `internal/importers/importerutil.RunSingleFile`.
+That helper owns the shared hash/idempotency/skip/preserve/write sequence;
+the per-agent package supplies only `hashAndSize`, `peekSessionID`,
+`parseSession`, and `preserveRaw`. Hermes `state.db` remains bespoke because
+one source file can produce many sessions.
 
 ## Idempotency contract
 

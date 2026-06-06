@@ -11,13 +11,10 @@ package antigravity
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 
-	"github.com/c3-oss/prosa/internal/device"
-	"github.com/c3-oss/prosa/internal/importers/importpolicy"
-	"github.com/c3-oss/prosa/internal/projectid"
+	"github.com/c3-oss/prosa/internal/importers/importerutil"
 	"github.com/c3-oss/prosa/pkg/importer"
 )
 
@@ -44,63 +41,15 @@ func (i *Importer) DefaultRoots() []string {
 // hash → peek id → idempotency (bypassed when opts.Overwrite is set) →
 // parse → classify usage → preserve raw → projectid.Apply → sink writes.
 func (i *Importer) Import(ctx context.Context, dbPath string, sink importer.Sink, opts importer.ImportOptions) (importer.ImportResult, error) {
-	hash, size, err := hashAndSize(dbPath)
-	if err != nil {
-		return importer.ImportResult{}, fmt.Errorf("hash %s: %w", dbPath, err)
-	}
-
-	sessionID, err := peekSessionID(dbPath)
-	if err != nil {
-		return importer.ImportResult{}, fmt.Errorf("peek session id %s: %w", dbPath, err)
-	}
-
-	if !opts.Overwrite {
-		if prev, found, err := sink.LastHash(ctx, sessionID); err == nil && found && prev == hash {
-			return importer.ImportResult{
-				SessionID: sessionID,
-				RawHash:   hash,
-				RawSize:   size,
-				Skipped:   true,
-			}, nil
-		}
-		if res, ok, err := importpolicy.PreviouslySkippedNoUsage(ctx, sink, sessionID, hash, size); err != nil {
-			return importer.ImportResult{}, fmt.Errorf("read import skip %s: %w", sessionID, err)
-		} else if ok {
-			return res, nil
-		}
-	}
-
-	sess, turns, tools, usageState, err := parseSession(ctx, dbPath)
-	if err != nil {
-		return importer.ImportResult{}, fmt.Errorf("parse %s: %w", dbPath, err)
-	}
-	if sess.ID == "" {
-		sess.ID = sessionID
-	}
-	sess.Agent = Name
-	sess.DeviceID = device.IDOnce()
-	sess.RawHash = hash
-	sess.RawSize = size
-	if importpolicy.ClassifyForImport(usageState) == importpolicy.DecisionSkipNoUsage {
-		return importpolicy.RecordNoUsageSkip(ctx, sink, sess.ID, hash, size)
-	}
-
-	rawPath, err := preserveRaw(dbPath, sess.ID, sess.StartedAt)
-	if err != nil {
-		return importer.ImportResult{}, fmt.Errorf("preserve raw %s: %w", dbPath, err)
-	}
-	sess.RawPath = rawPath
-	projectid.Apply(&sess)
-
-	if err := sink.WriteSession(ctx, sess, tools, turns, hash); err != nil {
-		return importer.ImportResult{}, fmt.Errorf("write session %s: %w", sess.ID, err)
-	}
-
-	return importer.ImportResult{
-		SessionID: sess.ID,
-		RawPath:   rawPath,
-		RawHash:   hash,
-		RawSize:   size,
-		Skipped:   false,
-	}, nil
+	return importerutil.RunSingleFile(ctx, importerutil.SingleFileConfig{
+		Agent:              Name,
+		Path:               dbPath,
+		Sink:               sink,
+		Opts:               opts,
+		Hash:               hashAndSize,
+		PeekID:             peekSessionID,
+		Parse:              parseSession,
+		PreserveRaw:        preserveRaw,
+		UseParsedSessionID: true,
+	})
 }
