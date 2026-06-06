@@ -93,8 +93,18 @@ func Load() (Config, error) {
 		if cfg.OAuthGHClientID == "" || cfg.OAuthGHSecret == "" {
 			return Config{}, errors.New("PROSA_PANEL_OAUTH_GH_CLIENT_ID and PROSA_PANEL_OAUTH_GH_SECRET are required (or set PROSA_PANEL_DEV_LOGIN for local bypass)")
 		}
-	} else if !cfg.IsOwnerEmail(cfg.DevLoginEmail) {
-		return Config{}, fmt.Errorf("PROSA_PANEL_DEV_LOGIN=%q is not in PROSA_OWNER_EMAILS", cfg.DevLoginEmail)
+	} else {
+		// dev-login mounts an unauthenticated POST /dev-login that hands out
+		// an owner session. Refuse to start if it's combined with secure
+		// cookies, which strongly correlate with a production (TLS) deploy —
+		// turning an env-var copy-paste slip into a hard boot failure rather
+		// than an internet-exposed auth bypass.
+		if cfg.CookieSecure {
+			return Config{}, errors.New("PROSA_PANEL_DEV_LOGIN must not be set when PROSA_PANEL_COOKIE_SECURE=true (dev-login bypasses authentication; unset it for production)")
+		}
+		if !cfg.IsOwnerEmail(cfg.DevLoginEmail) {
+			return Config{}, fmt.Errorf("PROSA_PANEL_DEV_LOGIN=%q is not in PROSA_OWNER_EMAILS", cfg.DevLoginEmail)
+		}
 	}
 	if cfg.PublicBaseURL == "" {
 		cfg.PublicBaseURL = "http://localhost" + cfg.ListenAddr
