@@ -820,6 +820,16 @@ func (p *Panel) handleSSE(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Close the upstream body as soon as the browser disconnects so the
+	// read loop below unblocks promptly instead of waiting for the upstream
+	// to send data or EOF. The watcher always returns: when this handler
+	// finishes, net/http cancels r.Context(). Closing twice (here + defer)
+	// is harmless.
+	go func() {
+		<-r.Context().Done()
+		_ = resp.Body.Close()
+	}()
+
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")

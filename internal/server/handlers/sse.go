@@ -117,6 +117,10 @@ func (h *SSEHandler) authorized(r *http.Request) bool {
 	}
 	tok := auth[len(prefix):]
 	if h.AdminToken == "" {
+		// Mirrors auth.Service.IsAdminToken: a request presented an Admin
+		// token but the server has none configured. Log loudly so the
+		// misconfiguration is diagnosable instead of a silent 401.
+		slog.Error("sse: admin auth attempted but PROSA_ADMIN_TOKEN is not configured")
 		return false
 	}
 	return subtle.ConstantTimeCompare([]byte(tok), []byte(h.AdminToken)) == 1
