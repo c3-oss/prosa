@@ -2,9 +2,11 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"runtime/debug"
 	"time"
 
 	"connectrpc.com/connect"
@@ -47,13 +49,19 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 
 	s := &Server{cfg: cfg, pool: pool, obj: obj, mux: http.NewServeMux()}
 	authSvc := auth.New(pool, cfg.AdminToken, cfg.PanelBaseURL)
-	interceptors := connect.WithInterceptors(auth.Interceptor(authSvc))
 
-	s.registerHealth()
-	s.registerAuth(authSvc, interceptors)
-	s.registerSessions(interceptors)
-	s.registerDevices(interceptors)
-	s.registerAnalytics(interceptors)
+	// recover converts a panic in any handler into a connect.CodeInternal
+	// error logged through slog, instead of letting the default net/http
+	// panic handler close the connection and dump to stdout — the caller
+	// sees a structured Internal error, not an EOF.
+	recover := connect.WithRecover(recoverHandler)
+	authed := []connect.HandlerOption{recover, connect.WithInterceptors(auth.Interceptor(authSvc))}
+
+	s.registerHealth(recover)
+	s.registerAuth(authSvc, authed...)
+	s.registerSessions(authed...)
+	s.registerDevices(authed...)
+	s.registerAnalytics(authed...)
 	s.mux.Handle("/sse/events", handlers.NewSSEHandler(s.pool, cfg.AdminToken))
 	return s, nil
 }
@@ -82,32 +90,44 @@ func (s *Server) Serve(ctx context.Context) error {
 	return httpserver.Run(ctx, srv, 5*time.Second)
 }
 
-func (s *Server) registerHealth() {
-	path, handler := prosav1connect.NewHealthServiceHandler(healthHandler{})
+func (s *Server) registerHealth(opts ...connect.HandlerOption) {
+	path, handler := prosav1connect.NewHealthServiceHandler(healthHandler{}, opts...)
 	s.mux.Handle(path, handler)
 }
 
-func (s *Server) registerAuth(svc *auth.Service, opts connect.HandlerOption) {
-	path, handler := prosav1connect.NewAuthServiceHandler(handlers.NewAuthHandler(svc), opts)
+func (s *Server) registerAuth(svc *auth.Service, opts ...connect.HandlerOption) {
+	path, handler := prosav1connect.NewAuthServiceHandler(handlers.NewAuthHandler(svc), opts...)
 	s.mux.Handle(path, handler)
 }
 
-func (s *Server) registerSessions(opts connect.HandlerOption) {
+func (s *Server) registerSessions(opts ...connect.HandlerOption) {
 	h := handlers.NewSessionsHandler(s.pool, s.obj)
-	path, handler := prosav1connect.NewSessionsServiceHandler(h, opts)
+	path, handler := prosav1connect.NewSessionsServiceHandler(h, opts...)
 	s.mux.Handle(path, handler)
 }
 
-func (s *Server) registerDevices(opts connect.HandlerOption) {
+func (s *Server) registerDevices(opts ...connect.HandlerOption) {
 	h := handlers.NewDevicesHandler(s.pool)
-	path, handler := prosav1connect.NewDevicesServiceHandler(h, opts)
+	path, handler := prosav1connect.NewDevicesServiceHandler(h, opts...)
 	s.mux.Handle(path, handler)
 }
 
-func (s *Server) registerAnalytics(opts connect.HandlerOption) {
+func (s *Server) registerAnalytics(opts ...connect.HandlerOption) {
 	h := handlers.NewAnalyticsHandler(s.pool)
-	path, handler := prosav1connect.NewAnalyticsServiceHandler(h, opts)
+	path, handler := prosav1connect.NewAnalyticsServiceHandler(h, opts...)
 	s.mux.Handle(path, handler)
+}
+
+// recoverHandler is the connect.WithRecover callback: it logs the panic
+// (with a stack trace) through slog and returns a generic Internal error
+// so the panic value never leaks to the caller.
+func recoverHandler(ctx context.Context, spec connect.Spec, _ http.Header, r any) error {
+	slog.ErrorContext(ctx, "connect handler panic recovered",
+		"procedure", spec.Procedure,
+		"panic", fmt.Sprintf("%v", r),
+		"stack", string(debug.Stack()),
+	)
+	return connect.NewError(connect.CodeInternal, errors.New("internal error"))
 }
 
 // healthHandler is the trivial Health.Check implementation — returns
