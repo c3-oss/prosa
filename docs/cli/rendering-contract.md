@@ -365,14 +365,15 @@ picks one based on flags and TTY context:
    chat turns show the bare role.
 2. **JSON (`--json`)** — a single object with `session`, `tools`,
    and `turns`. Stdout carries the JSON only; nothing else.
-3. **Raw (`--raw`, or non-TTY without flags)** — preserved raw
-   JSONL bytes, byte-identical to the source. Stdout carries only
-   the raw; no preface. Pipeable: `prosa show <id> --raw | jq`.
+3. **Raw (`--raw`, `--remote --raw`, or non-TTY without flags)** —
+   preserved raw JSONL bytes, byte-identical to the source. Stdout
+   carries only the raw; no preface. Pipeable:
+   `prosa show <id> --raw | jq`.
 
 `--max-output-lines N` caps per-turn rendered/JSON line count;
 `0` means no cap. `--remote` fetches the same payload from
-prosa-server (mutually exclusive with `--raw`, which only exists on
-local disk).
+prosa-server; when combined with `--raw`, raw bytes stream through
+`GetRaw`.
 
 ## Analytics
 
