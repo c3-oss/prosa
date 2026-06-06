@@ -93,7 +93,8 @@ func runAnalytics(cmd *cobra.Command, args []string) error {
 	}
 	// Analytics inherits the same filter precedence as nu / search:
 	// --project wins; otherwise cwd auto-detect unless --all.
-	scope, scopeLabel := applyAnalyticsScope(ctx, s, &filter)
+	projectScope := ResolveProjectScope(ctx, g, s)
+	projectScope.ApplySessionFilter(&filter)
 	if g.Agent != "" {
 		a := g.Agent
 		filter.Agent = &a
@@ -106,8 +107,8 @@ func runAnalytics(cmd *cobra.Command, args []string) error {
 		fmt.Fprintln(os.Stderr, render.ContextLine(render.ContextLineOptions{
 			Command:    "analytics",
 			Source:     "local",
-			Scope:      scope,
-			ScopeLabel: scopeLabel,
+			Scope:      projectScope.Scope,
+			ScopeLabel: projectScope.Label,
 			Last:       w.LastSegment(),
 			Since:      w.SinceLabel,
 			Between:    w.BetweenLabel,
@@ -124,25 +125,6 @@ func runAnalytics(cmd *cobra.Command, args []string) error {
 		return emitAnalyticsJSON(os.Stdout, result)
 	}
 	return render.Analytics(os.Stdout, result, IsInteractive())
-}
-
-func applyAnalyticsScope(ctx context.Context, s *store.Store, filter *store.SessionFilter) (render.ContextScope, string) {
-	switch {
-	case g.Project != "":
-		p := g.Project
-		filter.ProjectMatch = &p
-		return render.ScopeScoped, p
-	case g.All:
-		return render.ScopeAll, ""
-	default:
-		if cwd, err := os.Getwd(); err == nil {
-			if m, err := DetectProject(ctx, cwd, s); err == nil && m.Found {
-				applyMatchFilter(filter, m)
-				return render.ScopeScoped, m.HintLabel()
-			}
-		}
-		return render.ScopeProjectNotDetected, ""
-	}
 }
 
 func dispatchAnalytics(ctx context.Context, s *store.Store, report string, f store.SessionFilter) (store.AnalyticsResult, error) {
@@ -181,7 +163,8 @@ func runAnalyticsRemote(ctx context.Context, report string, w Window) error {
 		Since:  timestamppb.New(w.Since),
 		Until:  timestamppb.New(w.Until),
 	}
-	scope, scopeLabel := applyAnalyticsRemoteScope(ctx, req)
+	projectScope := ResolveProjectScopeFromLocalStore(ctx, g)
+	projectScope.ApplyReportRequest(req)
 	if g.Agent != "" {
 		req.Agent = g.Agent
 	}
@@ -192,8 +175,8 @@ func runAnalyticsRemote(ctx context.Context, report string, w Window) error {
 		fmt.Fprintln(os.Stderr, render.ContextLine(render.ContextLineOptions{
 			Command:    "analytics",
 			Source:     "remote",
-			Scope:      scope,
-			ScopeLabel: scopeLabel,
+			Scope:      projectScope.Scope,
+			ScopeLabel: projectScope.Label,
 			Last:       w.LastSegment(),
 			Since:      w.SinceLabel,
 			Between:    w.BetweenLabel,
@@ -209,39 +192,6 @@ func runAnalyticsRemote(ctx context.Context, report string, w Window) error {
 		return emitAnalyticsJSON(os.Stdout, result)
 	}
 	return render.Analytics(os.Stdout, result, IsInteractive())
-}
-
-func applyAnalyticsRemoteScope(ctx context.Context, req *prosav1.GetReportRequest) (render.ContextScope, string) {
-	switch {
-	case g.Project != "":
-		req.ProjectMatch = g.Project
-		return render.ScopeScoped, g.Project
-	case g.All:
-		return render.ScopeAll, ""
-	default:
-		if cwd, err := os.Getwd(); err == nil {
-			storePath, perr := paths.StorePath()
-			if perr == nil {
-				s, oerr := store.OpenReadOnly(ctx, storePath)
-				if oerr == nil {
-					if m, derr := DetectProject(ctx, cwd, s); derr == nil && m.Found {
-						switch {
-						case m.Remote != "":
-							req.ProjectRemote = m.Remote
-						case m.Marker != "":
-							req.ProjectMarker = m.Marker
-						case m.Path != "":
-							req.ProjectPath = m.Path
-						}
-						_ = s.Close()
-						return render.ScopeScoped, m.HintLabel()
-					}
-					_ = s.Close()
-				}
-			}
-		}
-		return render.ScopeProjectNotDetected, ""
-	}
 }
 
 func analyticsProtoResult(resp *prosav1.GetReportResponse) store.AnalyticsResult {
