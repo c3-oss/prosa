@@ -106,7 +106,7 @@ assets are embedded.
 | `PROSA_PANEL_COOKIE_KEY` | yes | 32+ bytes of hex. Used to HMAC-sign the session cookie. |
 | `PROSA_PANEL_COOKIE_SECURE` | optional (default `false`) | Set to `true` behind HTTPS. |
 | `PROSA_OWNER_EMAILS` | yes | CSV whitelist. Any verified GitHub email not in the list gets a 403. |
-| `PROSA_PANEL_DEV_LOGIN` | optional (dev only) | If set to an email, exposes a passwordless `/dev-login` route. Prints a loud warning on boot. **Never enable in production.** |
+| `PROSA_PANEL_DEV_LOGIN` | optional (dev only) | If set to an email, exposes a passwordless `/dev-login` route. **Never enable in production** — the panel refuses to start if this is set together with `PROSA_PANEL_COOKIE_SECURE=true`. |
 
 ### OAuth setup
 
