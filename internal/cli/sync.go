@@ -193,6 +193,10 @@ func runSync(cmd *cobra.Command, _ []string) error {
 
 	work := append(legacyWork, liveWork...)
 	if len(work) == 0 {
+		if g.JSON {
+			emitSyncJSONSummary(os.Stdout, &syncCounts{})
+			return nil
+		}
 		fmt.Fprintln(os.Stdout, "No sessions found.")
 		return nil
 	}
@@ -209,12 +213,19 @@ func runSync(cmd *cobra.Command, _ []string) error {
 	}
 
 	opts := importer.ImportOptions{Overwrite: syncOverwriteFlag}
-	interactive := !syncVerboseFlag && IsInteractive()
-	if interactive {
+	// --json forces machine-readable NDJSON on stdout, so it can never use
+	// the interactive spinner.
+	interactive := !g.JSON && !syncVerboseFlag && IsInteractive()
+	switch {
+	case g.JSON:
+		if err := runSyncJSON(ctx, os.Stdout, work, s, push, dev.ID, counts, opts); err != nil {
+			return err
+		}
+	case interactive:
 		if err := runSyncInteractive(ctx, work, s, push, dev.ID, counts, opts); err != nil {
 			return err
 		}
-	} else {
+	default:
 		if err := runSyncPlain(ctx, work, s, push, counts, opts); err != nil {
 			return err
 		}
@@ -228,9 +239,12 @@ func runSync(cmd *cobra.Command, _ []string) error {
 	// only the affected rows and reports a count of 0 on convergence.
 	counts.denoiseCleaned = runDenoisePass(ctx, s)
 
-	if interactive {
+	switch {
+	case g.JSON:
+		emitSyncJSONSummary(os.Stdout, counts)
+	case interactive:
 		counts.printSummaryTTY()
-	} else {
+	default:
 		counts.printSummary()
 	}
 	return nil
