@@ -36,16 +36,19 @@ func TestCLIEndToEnd(t *testing.T) {
 
 	firstSync := runProsa(t, exe, env, "sync")
 	require.Equal(t, 0, firstSync.code, firstSync.stderr)
-	require.Contains(t, firstSync.stdout, "prosa sync · complete")
-	require.Contains(t, firstSync.stdout, "Live:     imported 1 · skipped 0 · errors 0")
+	require.Empty(t, firstSync.stdout)
+	require.Contains(t, firstSync.stderr, "prosa sync · complete")
+	require.Contains(t, firstSync.stderr, "Live:     imported 1 · skipped 0 · errors 0")
 
 	secondSync := runProsa(t, exe, env, "sync")
 	require.Equal(t, 0, secondSync.code, secondSync.stderr)
-	require.Contains(t, secondSync.stdout, "Live:     imported 0 · skipped 1 · errors 0")
+	require.Empty(t, secondSync.stdout)
+	require.Contains(t, secondSync.stderr, "Live:     imported 0 · skipped 1 · errors 0")
 
 	overwriteSync := runProsa(t, exe, env, "sync", "--overwrite")
 	require.Equal(t, 0, overwriteSync.code, overwriteSync.stderr)
-	require.Contains(t, overwriteSync.stdout, "Live:     imported 1 · skipped 0 · errors 0")
+	require.Empty(t, overwriteSync.stdout)
+	require.Contains(t, overwriteSync.stderr, "Live:     imported 1 · skipped 0 · errors 0")
 
 	timeline := runProsa(t, exe, env, "--all", "--json", "--since", "2026-05-01", "--limit", "1")
 	require.Equal(t, 0, timeline.code, timeline.stderr)

@@ -82,39 +82,39 @@ func (sc *syncCounts) remoteUnavailableText() string {
 }
 
 func (sc *syncCounts) printSummary() {
-	fmt.Fprintln(os.Stdout, "prosa sync · complete")
-	fmt.Fprintln(os.Stdout)
-	fmt.Fprintf(os.Stdout, "Live:     imported %d · skipped %d · errors %d\n",
+	fmt.Fprintln(os.Stderr, "prosa sync · complete")
+	fmt.Fprintln(os.Stderr)
+	fmt.Fprintf(os.Stderr, "Live:     imported %d · skipped %d · errors %d\n",
 		sc.liveImp, sc.liveSkip, sc.liveErr)
 	if sc.legacyTotal > 0 {
-		fmt.Fprintf(os.Stdout, "Legacy:   imported %d · skipped %d · errors %d (of %d catalog rows)\n",
+		fmt.Fprintf(os.Stderr, "Legacy:   imported %d · skipped %d · errors %d (of %d catalog rows)\n",
 			sc.legacyImp, sc.legacySkip, sc.legacyErr, sc.legacyTotal)
 	}
 	if sc.pushEnabled {
-		fmt.Fprintf(os.Stdout, "Push:     sent %d · skipped %d · errors %d\n",
+		fmt.Fprintf(os.Stderr, "Push:     sent %d · skipped %d · errors %d\n",
 			sc.pushImp, sc.pushSkip, sc.pushErr)
 	}
 	if sc.reconcileRan {
-		fmt.Fprintf(os.Stdout,
+		fmt.Fprintf(os.Stderr,
 			"Catch-up: sent %d · skipped %d · errors %d  (local %d · remote %d)\n",
 			sc.catchUpSent, sc.catchUpSkip, sc.catchUpErr,
 			sc.localTotal, sc.remoteTotal)
 	}
 	if sc.denoiseCleaned > 0 {
-		fmt.Fprintf(os.Stdout, "Denoise:  cleaned %d prompts\n", sc.denoiseCleaned)
+		fmt.Fprintf(os.Stderr, "Denoise:  cleaned %d prompts\n", sc.denoiseCleaned)
 	}
 	if sc.remoteUnavailable {
-		fmt.Fprintf(os.Stdout, "Remote:   %s\n", sc.remoteUnavailableText())
+		fmt.Fprintf(os.Stderr, "Remote:   %s\n", sc.remoteUnavailableText())
 	}
 	if sc.legacyTotal > 0 {
-		fmt.Fprintf(os.Stdout, "\n%s\n", sc.legacySummaryText())
+		fmt.Fprintf(os.Stderr, "\n%s\n", sc.legacySummaryText())
 	}
 }
 
 func (sc *syncCounts) printSummaryTTY() {
-	fmt.Fprintln(os.Stdout)
-	fmt.Fprintln(os.Stdout, render.StyleHeader.Render("prosa sync · complete"))
-	fmt.Fprintln(os.Stdout)
+	fmt.Fprintln(os.Stderr)
+	fmt.Fprintln(os.Stderr, render.StyleHeader.Render("prosa sync · complete"))
+	fmt.Fprintln(os.Stderr)
 	printSummaryTTYRow("Live", "imported", sc.liveImp, sc.liveSkip, sc.liveErr, "")
 	if sc.legacyTotal > 0 {
 		printSummaryTTYRow("Legacy", "imported", sc.legacyImp, sc.legacySkip, sc.legacyErr,
@@ -129,7 +129,7 @@ func (sc *syncCounts) printSummaryTTY() {
 	}
 	if sc.denoiseCleaned > 0 {
 		fmt.Fprintf(
-			os.Stdout, "%s %s  %s %d %s\n",
+			os.Stderr, "%s %s  %s %d %s\n",
 			render.StyleRail.Render("│"),
 			render.StyleHeader.Render("Denoise"),
 			render.StyleSuccess.Render("cleaned"),
@@ -139,7 +139,7 @@ func (sc *syncCounts) printSummaryTTY() {
 	}
 	if sc.remoteUnavailable {
 		fmt.Fprintf(
-			os.Stdout, "%s %s  %s\n",
+			os.Stderr, "%s %s  %s\n",
 			render.StyleRail.Render("│"),
 			render.StyleHeader.Render("Remote"),
 			render.StyleMuted.Render(sc.remoteUnavailableText()),
@@ -147,16 +147,16 @@ func (sc *syncCounts) printSummaryTTY() {
 	}
 	if sc.suppressedWarnings > 0 {
 		fmt.Fprintf(
-			os.Stdout, "%s %s  %s\n",
+			os.Stderr, "%s %s  %s\n",
 			render.StyleRail.Render("│"),
 			render.StyleHeader.Render("Warnings"),
 			render.StyleMuted.Render(suppressedWarningsText(sc.suppressedWarnings)),
 		)
 	}
 	if sc.legacyTotal > 0 {
-		fmt.Fprintln(os.Stdout)
+		fmt.Fprintln(os.Stderr)
 		fmt.Fprintf(
-			os.Stdout, "%s %s\n",
+			os.Stderr, "%s %s\n",
 			render.StyleRail.Render("│"),
 			render.StyleMuted.Render(sc.legacySummaryText()),
 		)
@@ -189,7 +189,7 @@ func printSummaryTTYRow(label, primaryVerb string, primary, skipped, errs int, e
 	if extra != "" {
 		line += " · " + render.StyleMuted.Render(extra)
 	}
-	fmt.Fprintln(os.Stdout, line)
+	fmt.Fprintln(os.Stderr, line)
 }
 
 func padSummaryLabel(label string) string {
