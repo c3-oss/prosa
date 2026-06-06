@@ -4,14 +4,12 @@ import (
 	"context"
 	"fmt"
 	"html/template"
-	"io/fs"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
-	"github.com/c3-oss/prosa/internal/panel/assets"
 	"github.com/c3-oss/prosa/internal/panel/rpc"
 	"github.com/c3-oss/prosa/internal/panel/session"
 	"github.com/c3-oss/prosa/internal/panel/templates"
@@ -101,8 +99,12 @@ func (p *Panel) Serve(ctx context.Context) error {
 // routes wires every endpoint.
 func (p *Panel) routes() {
 	// Static assets.
-	sub, _ := fs.Sub(assets.FS, ".")
-	p.mux.Handle("/assets/", http.StripPrefix("/assets/", http.FileServer(http.FS(sub))))
+	assets, err := assetHandler()
+	if err != nil {
+		slog.Error("panel asset handler unavailable", "err", err)
+		assets = http.NotFoundHandler()
+	}
+	p.mux.Handle("/assets/", assets)
 
 	// Health (public).
 	p.mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -212,6 +214,7 @@ func templateFuncs() template.FuncMap {
 		"pluralize":           pluralize,
 		"agentBadge":          agentBadge,
 		"agentShortLabel":     agentShortLabel,
+		"assetPath":           assetPath,
 		"projectLink":         projectLink,
 		"projectDisplayLabel": projectDisplayFromLabel,
 	}
