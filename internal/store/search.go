@@ -112,6 +112,7 @@ func (s *Store) Search(ctx context.Context, query string, f SessionFilter, limit
 		       s.started_at, s.last_activity_at,
 		       s.first_prompt, s.model,
 		       s.raw_path, s.raw_hash, s.raw_size,
+		       s.parent_session_id,
 		       su.session_id, su.total_tokens, su.input_tokens, su.output_tokens,
 		       su.cached_tokens, su.cache_read_tokens, su.cache_creation_tokens,
 		       t.id, t.ts, t.role, t.kind, t.tool_name,
@@ -147,6 +148,7 @@ func (s *Store) Search(ctx context.Context, query string, f SessionFilter, limit
 			projectMarker sql.NullString
 			firstPrompt   sql.NullString
 			model         sql.NullString
+			parentID      sql.NullString
 			usageSession  sql.NullString
 			totalTokens   sql.NullInt64
 			inputTokens   sql.NullInt64
@@ -165,6 +167,7 @@ func (s *Store) Search(ctx context.Context, query string, f SessionFilter, limit
 			&startedAt, &lastAct,
 			&firstPrompt, &model,
 			&h.Session.RawPath, &h.Session.RawHash, &h.Session.RawSize,
+			&parentID,
 			&usageSession, &totalTokens, &inputTokens, &outputTokens,
 			&cachedTokens, &cacheRead, &cacheCreate,
 			&h.TurnID, &turnTS, &h.Role, &h.Kind, &toolName,
@@ -204,6 +207,10 @@ func (s *Store) Search(ctx context.Context, query string, f SessionFilter, limit
 		if model.Valid {
 			v := model.String
 			h.Session.Model = &v
+		}
+		if parentID.Valid && parentID.String != "" {
+			v := parentID.String
+			h.Session.ParentSessionID = &v
 		}
 		if t, ok := parseTime(startedAt); ok {
 			h.Session.StartedAt = t
