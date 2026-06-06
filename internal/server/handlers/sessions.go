@@ -231,7 +231,21 @@ func (h *SessionsHandler) List(ctx context.Context, req *connect.Request[prosav1
 	if req.Msg.ProjectPath != "" {
 		addEq("project_path", req.Msg.ProjectPath)
 	}
-	if req.Msg.ProjectMatch != "" {
+	switch {
+	case len(req.Msg.ProjectMatches) > 0:
+		// Multi-select: a session matches if any value is a substring of any
+		// of the three project columns. LIKE ANY(array) keeps it one param.
+		patterns := make([]string, len(req.Msg.ProjectMatches))
+		for i, pm := range req.Msg.ProjectMatches {
+			patterns[i] = "%" + pm + "%"
+		}
+		conds = append(conds, fmt.Sprintf(
+			"(s.project_path LIKE ANY($%d) OR s.project_remote LIKE ANY($%d) OR s.project_marker LIKE ANY($%d))",
+			idx, idx, idx,
+		))
+		args = append(args, patterns)
+		idx++
+	case req.Msg.ProjectMatch != "":
 		conds = append(conds, fmt.Sprintf(
 			"(s.project_path LIKE $%d OR s.project_remote LIKE $%d OR s.project_marker LIKE $%d)",
 			idx, idx+1, idx+2,
@@ -246,7 +260,12 @@ func (h *SessionsHandler) List(ctx context.Context, req *connect.Request[prosav1
 	if req.Msg.ProjectMarker != "" {
 		addEq("project_marker", req.Msg.ProjectMarker)
 	}
-	if req.Msg.Agent != "" {
+	switch {
+	case len(req.Msg.Agents) > 0:
+		conds = append(conds, fmt.Sprintf("s.agent = ANY($%d)", idx))
+		args = append(args, req.Msg.Agents)
+		idx++
+	case req.Msg.Agent != "":
 		addEq("agent", req.Msg.Agent)
 	}
 	join := ""
