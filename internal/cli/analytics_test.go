@@ -90,20 +90,33 @@ func TestAnalyticsHeatmap(t *testing.T) {
 	ctx, s, now := newAnalyticsStore(t)
 	r, err := s.AnalyticsHeatmap(ctx, filter(now))
 	require.NoError(t, err)
-	require.Equal(t, []string{"DATE", "SESSIONS"}, r.Headers)
+	// The local store now emits the canonical per-(day, agent) shape,
+	// matching the server (issue #73).
+	require.Equal(t, []string{"DATE", "AGENT", "SESSIONS"}, r.Headers)
 	require.NotEmpty(t, r.Rows)
 
 	var total int
 	for _, row := range r.Rows {
-		n, err := strconv.Atoi(row.Values[1].(string))
+		n, err := strconv.Atoi(row.Values[2].(string))
 		require.NoError(t, err)
 		total += n
 	}
 	require.Equal(t, 4, total)
+
+	// Rolled up for the CLI table, it collapses to per-day totals.
+	rolled := rollupHeatmapForDisplay("heatmap", r)
+	require.Equal(t, []string{"DATE", "SESSIONS"}, rolled.Headers)
+	var rolledTotal int
+	for _, row := range rolled.Rows {
+		n, err := strconv.Atoi(row.Values[1].(string))
+		require.NoError(t, err)
+		rolledTotal += n
+	}
+	require.Equal(t, 4, rolledTotal)
 }
 
-func TestNormalizeRemoteAnalyticsResult_FoldsHeatmapAgentRows(t *testing.T) {
-	result := normalizeRemoteAnalyticsResult("heatmap", store.AnalyticsResult{
+func TestRollupHeatmapForDisplay_FoldsAgentRows(t *testing.T) {
+	result := rollupHeatmapForDisplay("heatmap", store.AnalyticsResult{
 		Headers: []string{"DATE", "AGENT", "SESSIONS"},
 		Rows: []store.AnalyticsRow{
 			{Values: []any{"2026-05-22", "claude-code", "4"}},
@@ -119,7 +132,7 @@ func TestNormalizeRemoteAnalyticsResult_FoldsHeatmapAgentRows(t *testing.T) {
 	}, result.Rows)
 }
 
-func TestNormalizeRemoteAnalyticsResult_LeavesExistingHeatmapShape(t *testing.T) {
+func TestRollupHeatmapForDisplay_LeavesNonCanonicalShape(t *testing.T) {
 	original := store.AnalyticsResult{
 		Headers: []string{"DATE", "SESSIONS"},
 		Rows: []store.AnalyticsRow{
@@ -127,8 +140,7 @@ func TestNormalizeRemoteAnalyticsResult_LeavesExistingHeatmapShape(t *testing.T)
 		},
 	}
 
-	result := normalizeRemoteAnalyticsResult("heatmap", original)
-	require.Equal(t, original, result)
+	require.Equal(t, original, rollupHeatmapForDisplay("heatmap", original))
 }
 
 func TestAnalyticsUsage(t *testing.T) {
