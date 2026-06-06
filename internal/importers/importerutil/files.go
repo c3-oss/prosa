@@ -1,28 +1,50 @@
-package gemini
+package importerutil
 
 import (
+	"crypto/sha256"
+	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"time"
+
+	_ "modernc.org/sqlite" // sqlite driver registered as "sqlite"
 
 	"github.com/c3-oss/prosa/internal/paths"
 	"github.com/c3-oss/prosa/pkg/session"
 )
 
-// preserveRaw copies the source JSON into the prosa raw tree at:
-//
-//	$PROSA_HOME/raw/gemini/<YYYY>/<MM>/<session-id>.json
-//
-// Atomic write-tmp + rename. The source is never modified or removed.
-// When startedAt is zero (the file had no parseable timestamp), the
-// current wall clock is used so month sharding stays monotonic.
-func preserveRaw(srcPath, sessionID string, startedAt time.Time) (string, error) {
+const (
+	ScanBufferMax       = 16 << 20
+	ScanBufferInitial   = 64 << 10
+	FirstPromptMaxRunes = 200
+	ToolPreviewMaxBytes = 4096
+	ToolPreviewMaxLines = 40
+)
+
+func HashAndSize(path string) (string, int64, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", 0, err
+	}
+	defer func() { _ = f.Close() }()
+
+	h := sha256.New()
+	size, err := io.Copy(h, f)
+	if err != nil {
+		return "", 0, err
+	}
+	return hex.EncodeToString(h.Sum(nil)), size, nil
+}
+
+func PreserveRaw(agent, sessionID, ext string, startedAt time.Time, srcPath string) (string, error) {
 	if err := session.ValidateID(sessionID); err != nil {
 		return "", fmt.Errorf("preserve raw: %w", err)
 	}
-	root, err := paths.RawRoot(Name)
+	root, err := paths.RawRoot(agent)
 	if err != nil {
 		return "", err
 	}
@@ -36,7 +58,7 @@ func preserveRaw(srcPath, sessionID string, startedAt time.Time) (string, error)
 		return "", fmt.Errorf("mkdir %s: %w", dir, err)
 	}
 
-	dst := filepath.Join(dir, sessionID+".json")
+	dst := filepath.Join(dir, sessionID+ext)
 	tmp := dst + ".tmp"
 
 	src, err := os.Open(srcPath)
@@ -63,4 +85,9 @@ func preserveRaw(srcPath, sessionID string, startedAt time.Time) (string, error)
 		return "", fmt.Errorf("rename raw: %w", err)
 	}
 	return dst, nil
+}
+
+func OpenSQLiteReadOnly(path string) (*sql.DB, error) {
+	dsn := "file:" + url.PathEscape(path) + "?mode=ro&immutable=1"
+	return sql.Open("sqlite", dsn)
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/c3-oss/prosa/internal/importers/importertest"
+	"github.com/c3-oss/prosa/internal/importers/importerutil"
 	"github.com/c3-oss/prosa/pkg/importer"
 	"github.com/c3-oss/prosa/pkg/session"
 )
@@ -210,9 +211,9 @@ func TestImportSmallSession(t *testing.T) {
 
 func TestTruncatePreviewKeepsUTF8Valid(t *testing.T) {
 	t.Parallel()
-	body := strings.Repeat("a", toolPreviewMaxBytes-1) + "é suffix"
+	body := strings.Repeat("a", importerutil.ToolPreviewMaxBytes-1) + "é suffix"
 
-	got := truncatePreview(body)
+	got := importerutil.TruncatePreview(body)
 
 	require.True(t, utf8.ValidString(got))
 	require.Contains(t, got, "…")
@@ -231,7 +232,7 @@ func TestImportProjectsThinkingBlocks(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, fixtureSessionID+".jsonl")
 	base := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
-	bigThinking := strings.Repeat("z", toolPreviewMaxBytes+128)
+	bigThinking := strings.Repeat("z", importerutil.ToolPreviewMaxBytes+128)
 	writeJSONL(t, path, []map[string]any{
 		{
 			"type":      "user",
@@ -275,10 +276,10 @@ func TestImportProjectsThinkingBlocks(t *testing.T) {
 	require.Equal(t, session.KindThinking, turns[2].Kind)
 	require.Equal(t, "first reasoning step", turns[2].Content)
 	require.Equal(t, session.KindThinking, turns[3].Kind)
-	require.LessOrEqual(t, len(turns[3].Content), toolPreviewMaxBytes+8,
-		"oversized thinking is truncated by truncatePreview")
+	require.LessOrEqual(t, len(turns[3].Content), importerutil.ToolPreviewMaxBytes+8,
+		"oversized thinking is truncated by importerutil.TruncatePreview")
 	require.Contains(t, turns[3].Content, "…",
-		"truncatePreview leaves the ellipsis marker")
+		"importerutil.TruncatePreview leaves the ellipsis marker")
 }
 
 func TestImportBigLineSession(t *testing.T) {

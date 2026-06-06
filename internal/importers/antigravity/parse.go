@@ -2,28 +2,21 @@ package antigravity
 
 import (
 	"context"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
-	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
-	_ "modernc.org/sqlite" // pure-Go driver, registers "sqlite"
-
+	"github.com/c3-oss/prosa/internal/importers/importerutil"
 	"github.com/c3-oss/prosa/internal/sessiontext"
 	"github.com/c3-oss/prosa/pkg/session"
 )
 
 const (
-	firstPromptMaxRunes = 200
-
 	// step_type values from cortex.proto's CortexStepType enum
 	// (extracted from the agy Go binary's embedded FileDescriptorProto).
 	// Antigravity inherits the enum unchanged from its parent codebase
@@ -35,38 +28,12 @@ const (
 	stepTypeCheckpoint      = 23 // CortexStepCheckpoint — turn boundary
 )
 
-func hashAndSize(path string) (string, int64, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", 0, err
-	}
-	defer func() { _ = f.Close() }()
-	h := sha256.New()
-	size, err := io.Copy(h, f)
-	if err != nil {
-		return "", 0, err
-	}
-	return hex.EncodeToString(h.Sum(nil)), size, nil
-}
-
-// openReadOnly opens the .db with mode=ro&immutable=1 so reads never
-// block antigravity's writer connection in active sessions. Same driver
-// name as internal/store/store.go uses ("sqlite" via modernc.org/sqlite).
-func openReadOnly(path string) (*sql.DB, error) {
-	dsn := "file:" + url.PathEscape(path) + "?mode=ro&immutable=1"
-	db, err := sql.Open("sqlite", dsn)
-	if err != nil {
-		return nil, fmt.Errorf("open sqlite (ro) %s: %w", path, err)
-	}
-	return db, nil
-}
-
 // peekSessionID opens the DB read-only and reads
 // trajectory_meta.cascade_id. Falls back to the filename UUID when the
 // row is missing or empty.
 func peekSessionID(path string) (string, error) {
 	fallback := strings.TrimSuffix(filepath.Base(path), ".db")
-	db, err := openReadOnly(path)
+	db, err := importerutil.OpenSQLiteReadOnly(path)
 	if err != nil {
 		return fallback, nil
 	}
@@ -85,7 +52,7 @@ func peekSessionID(path string) (string, error) {
 // admits the session without a session_usage row (same posture as
 // gemini for transcripts without a tokens block).
 func parseSession(ctx context.Context, path string) (session.Session, []session.Turn, []session.ToolUsage, session.UsageState, error) {
-	db, err := openReadOnly(path)
+	db, err := importerutil.OpenSQLiteReadOnly(path)
 	if err != nil {
 		return session.Session{}, nil, nil, session.UsageStateUnknown, err
 	}
@@ -134,7 +101,7 @@ func parseSession(ctx context.Context, path string) (session.Session, []session.
 		sess.LastActivityAt = sess.StartedAt
 	}
 	if firstPromptText != "" {
-		if prompt, ok := sessiontext.BuildFirstPrompt(firstPromptText, firstPromptMaxRunes); ok {
+		if prompt, ok := sessiontext.BuildFirstPrompt(firstPromptText, importerutil.FirstPromptMaxRunes); ok {
 			sess.FirstPrompt = &prompt
 		}
 	}

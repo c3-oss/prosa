@@ -8,6 +8,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/c3-oss/prosa/internal/importers/importerutil"
 	"github.com/c3-oss/prosa/pkg/importer"
@@ -42,13 +43,15 @@ func (i *Importer) DefaultRoots() []string {
 //  6. Write through Sink (upsert + turns + sync_state).
 func (i *Importer) Import(ctx context.Context, jsonlPath string, sink importer.Sink, opts importer.ImportOptions) (importer.ImportResult, error) {
 	return importerutil.RunSingleFile(ctx, importerutil.SingleFileConfig{
-		Agent:       Name,
-		Path:        jsonlPath,
-		Sink:        sink,
-		Opts:        opts,
-		Hash:        hashAndSize,
-		PeekID:      peekSessionID,
-		Parse:       parseSession,
-		PreserveRaw: preserveRaw,
+		Agent:  Name,
+		Path:   jsonlPath,
+		Sink:   sink,
+		Opts:   opts,
+		Hash:   importerutil.HashAndSize,
+		PeekID: peekSessionID,
+		Parse:  parseSession,
+		PreserveRaw: func(srcPath, sessionID string, startedAt time.Time) (string, error) {
+			return importerutil.PreserveRaw(Name, sessionID, ".jsonl", startedAt, srcPath)
+		},
 	})
 }

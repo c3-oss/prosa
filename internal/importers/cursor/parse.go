@@ -2,26 +2,19 @@ package cursor
 
 import (
 	"context"
-	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"net/url"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
-	_ "modernc.org/sqlite" // sqlite driver registered as "sqlite"
-
+	"github.com/c3-oss/prosa/internal/importers/importerutil"
 	"github.com/c3-oss/prosa/internal/sessiontext"
 	"github.com/c3-oss/prosa/pkg/session"
 )
-
-const firstPromptMaxRunes = 200
 
 // cursorMeta is the JSON header stored hex-encoded in `meta.value` at
 // key='0'. Cursor writes more fields than we project; the importer keeps
@@ -55,21 +48,6 @@ type contentItem struct {
 	ToolName string `json:"toolName"`
 }
 
-func hashAndSize(path string) (string, int64, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", 0, err
-	}
-	defer func() { _ = f.Close() }()
-
-	h := sha256.New()
-	size, err := io.Copy(h, f)
-	if err != nil {
-		return "", 0, err
-	}
-	return hex.EncodeToString(h.Sum(nil)), size, nil
-}
-
 // peekSessionID opens the store.db read-only and resolves the canonical
 // session id: meta.agentId if present, otherwise the parent directory
 // name (Cursor's <agent-id> path segment).
@@ -86,7 +64,7 @@ func peekSessionID(path string) (string, error) {
 // rows return the zero value with no error (some Cursor stores are empty
 // shells until a chat starts).
 func readMeta(path string) (cursorMeta, error) {
-	db, err := openReadOnly(path)
+	db, err := importerutil.OpenSQLiteReadOnly(path)
 	if err != nil {
 		return cursorMeta{}, err
 	}
@@ -144,7 +122,7 @@ func parseSession(ctx context.Context, path string) (session.Session, []session.
 		return session.Session{}, nil, nil, session.UsageStateUnknown, fmt.Errorf("read meta: %w", err)
 	}
 
-	db, err := openReadOnly(path)
+	db, err := importerutil.OpenSQLiteReadOnly(path)
 	if err != nil {
 		return session.Session{}, nil, nil, session.UsageStateUnknown, err
 	}
@@ -206,7 +184,7 @@ func parseSession(ctx context.Context, path string) (session.Session, []session.
 				case "user":
 					query, hasQuery := extractUserPromptText(text)
 					if firstPrompt == "" && hasQuery {
-						if p, ok := sessiontext.BuildFirstPrompt(query, firstPromptMaxRunes); ok {
+						if p, ok := sessiontext.BuildFirstPrompt(query, importerutil.FirstPromptMaxRunes); ok {
 							firstPrompt = p
 						}
 					}
@@ -321,14 +299,6 @@ func extractContent(content json.RawMessage) (string, []string) {
 		}
 	}
 	return strings.Join(parts, "\n"), tools
-}
-
-// openReadOnly opens the SQLite file with `mode=ro&immutable=1`. Immutable
-// tells modernc.org/sqlite to skip WAL/SHM handling — required because
-// Cursor stores often ship without companion files in the legacy bundle.
-func openReadOnly(path string) (*sql.DB, error) {
-	dsn := "file:" + url.PathEscape(path) + "?mode=ro&immutable=1"
-	return sql.Open("sqlite", dsn)
 }
 
 // userQueryTagOpen / Close bracket the actual user prompt inside a

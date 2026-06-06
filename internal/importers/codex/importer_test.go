@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/c3-oss/prosa/internal/importers/importertest"
+	"github.com/c3-oss/prosa/internal/importers/importerutil"
 	"github.com/c3-oss/prosa/pkg/importer"
 	"github.com/c3-oss/prosa/pkg/session"
 )
@@ -720,9 +721,9 @@ func TestImportProjectsFunctionCallOutputAsToolTurn(t *testing.T) {
 
 func TestTruncatePreviewKeepsUTF8Valid(t *testing.T) {
 	t.Parallel()
-	body := strings.Repeat("a", toolPreviewMaxBytes-1) + "é suffix"
+	body := strings.Repeat("a", importerutil.ToolPreviewMaxBytes-1) + "é suffix"
 
-	got := truncatePreview(body)
+	got := importerutil.TruncatePreview(body)
 
 	require.True(t, utf8.ValidString(got))
 	require.Contains(t, got, "…")

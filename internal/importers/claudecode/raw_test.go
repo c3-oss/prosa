@@ -7,12 +7,13 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/c3-oss/prosa/internal/importers/importerutil"
 )
 
 // A planted transcript whose interior sessionId escapes the raw root must
 // be rejected before any filesystem write, closing the path-traversal
-// overwrite primitive described in issue #86. preserveRaw is shared shape
-// across importers, so the claude-code wiring stands in for all of them.
+// overwrite primitive described in issue #86.
 func TestPreserveRawRejectsTraversalSessionID(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "prosa-home")
 	t.Setenv("PROSA_HOME", home)
@@ -32,7 +33,7 @@ func TestPreserveRawRejectsTraversalSessionID(t *testing.T) {
 		"",
 	} {
 		t.Run(id, func(t *testing.T) {
-			dst, err := preserveRaw(src, id, time.Now())
+			dst, err := importerutil.PreserveRaw(Name, id, ".jsonl", time.Now(), src)
 			require.Error(t, err)
 			require.Empty(t, dst)
 		})
@@ -52,7 +53,13 @@ func TestPreserveRawAcceptsValidSessionID(t *testing.T) {
 	src := filepath.Join(srcDir, "transcript.jsonl")
 	require.NoError(t, os.WriteFile(src, []byte(`{"sessionId":"x"}`+"\n"), 0o644))
 
-	dst, err := preserveRaw(src, "12345678-abcd-4ef0-9012-3456789abcde", time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC))
+	dst, err := importerutil.PreserveRaw(
+		Name,
+		"12345678-abcd-4ef0-9012-3456789abcde",
+		".jsonl",
+		time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+		src,
+	)
 	require.NoError(t, err)
 	require.FileExists(t, dst)
 	require.True(t, filepath.IsAbs(dst))
