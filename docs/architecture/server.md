@@ -77,6 +77,12 @@ project), and either:
 - queries Postgres FTS (`tsvector` + GIN) for `Search`, joining back to
   session metadata for the response.
 
+Project identity filters are split deliberately: `project_path`,
+`project_remote`, and `project_marker` are exact and indexable, while
+`project_match` / `project_matches` are convenience substring filters that
+may scan the project columns. CLI cwd auto-scoping and sync identity use the
+exact fields when they can.
+
 There's no Redis, no in-memory cache. Postgres is fast enough for
 single-user volumes.
 

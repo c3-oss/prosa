@@ -137,9 +137,11 @@ func upsertSessionTx(ctx context.Context, tx *sql.Tx, sess session.Session, tool
 type SessionFilter struct {
 	Since, Until time.Time
 	ProjectExact *string // exact match on sessions.project_path
-	// ProjectMatch is the substring filter from --project. Matches when
-	// any of project_path / project_remote / project_marker contains
-	// the value as a substring.
+	// ProjectMatch is the substring filter from --project. It matches when
+	// any of project_path / project_remote / project_marker contains the
+	// value as a substring, so the leading wildcard can defeat the project
+	// indexes. Prefer the exact fields when the caller has a full path,
+	// remote, or marker.
 	ProjectMatch *string
 	// ProjectRemote matches sessions.project_remote exactly. Used by
 	// the git-remote-anchored auto-detect (INTENT §5 step 1).
@@ -154,8 +156,9 @@ type SessionFilter struct {
 }
 
 // applyProjectMatch appends the OR-chain WHERE fragment and three
-// matching args for a ProjectMatch filter. Centralized so ListSessions
-// and Search stay in lockstep.
+// matching args for a ProjectMatch filter. This is the compatibility
+// substring path for --project; exact identity filters remain indexable.
+// Centralized so ListSessions and Search stay in lockstep.
 func applyProjectMatch(conds []string, args []any, match string) ([]string, []any) {
 	conds = append(conds, "(s.project_path LIKE ? OR s.project_remote LIKE ? OR s.project_marker LIKE ?)")
 	pattern := "%" + match + "%"

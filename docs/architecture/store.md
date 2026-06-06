@@ -239,8 +239,11 @@ proto-defined fields against the server.
 `project_path`, `project_remote`, and `project_marker` — so
 `--project movaincentivo` finds sessions whether they were captured
 under a local subdirectory, a normalized git remote, or an explicit
-`.prosa.yaml` marker. `SessionFilter.Limit > 0` caps the returned
-rows (the bare `prosa --limit N` flag flows through here).
+`.prosa.yaml` marker. This convenience filter intentionally uses a
+leading-wildcard `LIKE` and is not B-tree-indexable; callers that know the
+full identity should use `ProjectExact`, `ProjectRemote`, or `ProjectMarker`
+so the query can use the project indexes. `SessionFilter.Limit > 0` caps the
+returned rows (the bare `prosa --limit N` flag flows through here).
 
 ## Concurrency
 

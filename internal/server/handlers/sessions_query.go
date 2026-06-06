@@ -50,6 +50,8 @@ func (h *SessionsHandler) List(ctx context.Context, req *connect.Request[prosav1
 	case len(req.Msg.ProjectMatches) > 0:
 		// Multi-select: a session matches if any value is a substring of any
 		// of the three project columns. LIKE ANY(array) keeps it one param.
+		// This is the convenience filter; callers with full identity should
+		// use project_path / project_remote / project_marker so indexes apply.
 		patterns := make([]string, len(req.Msg.ProjectMatches))
 		for i, pm := range req.Msg.ProjectMatches {
 			patterns[i] = "%" + pm + "%"
@@ -61,6 +63,8 @@ func (h *SessionsHandler) List(ctx context.Context, req *connect.Request[prosav1
 		args = append(args, patterns)
 		idx++
 	case req.Msg.ProjectMatch != "":
+		// Convenience substring filter. Keep exact project fields separate so
+		// callers that know the full identity can use indexed equality.
 		conds = append(conds, fmt.Sprintf(
 			"(s.project_path LIKE $%d OR s.project_remote LIKE $%d OR s.project_marker LIKE $%d)",
 			idx, idx+1, idx+2,
