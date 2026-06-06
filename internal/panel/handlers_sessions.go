@@ -101,11 +101,15 @@ func (p *Panel) handleSessions(w http.ResponseWriter, r *http.Request) {
 		DeviceNames: devices,
 		Query:       queryStr,
 	}
-	if len(agents) == 1 {
-		baseReq.Agent = agents[0]
+	// Push the full multi-select to the server so narrowing happens before
+	// pagination. Filtering only the current page client-side (the old
+	// len==1 path) silently dropped matches on later pages and left the
+	// pagination footer showing the unfiltered totals. See issue #79.
+	if len(agents) > 0 {
+		baseReq.Agents = agents
 	}
-	if len(projects) >= 1 {
-		baseReq.ProjectMatch = projects[0]
+	if len(projects) > 0 {
+		baseReq.ProjectMatches = projects
 	}
 
 	var (
@@ -115,7 +119,7 @@ func (p *Panel) handleSessions(w http.ResponseWriter, r *http.Request) {
 		err       error
 	)
 	if sortBy == "cost" && queryStr == "" {
-		sessions, total, pageCount, err = p.listSessionsSortedByCost(r.Context(), baseReq, agents, projects, page, activeDir)
+		sessions, total, pageCount, err = p.listSessionsSortedByCost(r.Context(), baseReq, page, activeDir)
 	} else {
 		serverSort := sortBy
 		if sortBy == "cost" {
@@ -131,12 +135,6 @@ func (p *Panel) handleSessions(w http.ResponseWriter, r *http.Request) {
 			err = listErr
 		} else {
 			sessions = resp.Msg.Sessions
-			if len(agents) > 1 {
-				sessions = filterByAgents(sessions, agents)
-			}
-			if len(projects) > 1 {
-				sessions = filterByProjects(sessions, projects)
-			}
 			total = resp.Msg.TotalCount
 			pageCount = int((total + int64(sessionsPageLimit) - 1) / int64(sessionsPageLimit))
 			if pageCount < 1 {
@@ -373,58 +371,6 @@ func buildColsMap(cols []string) map[string]bool {
 	return out
 }
 
-// filterByAgents narrows in-place to sessions whose Agent is in the
-// allowed set. Order preserved.
-func filterByAgents(sessions []*prosav1.Session, allowed []string) []*prosav1.Session {
-	set := map[string]bool{}
-	for _, a := range allowed {
-		set[a] = true
-	}
-	out := sessions[:0]
-	for _, s := range sessions {
-		if set[s.Agent] {
-			out = append(out, s)
-		}
-	}
-	return out
-}
-
-// filterByProjects narrows in-place to sessions whose computed project
-// label contains (substring) any of the allowed project tokens. Mirrors
-// the server's project_match LIKE semantics.
-func filterByProjects(sessions []*prosav1.Session, allowed []string) []*prosav1.Session {
-	out := sessions[:0]
-	for _, s := range sessions {
-		label := sessionProjectLabel(s)
-		for _, a := range allowed {
-			if strings.Contains(label, a) {
-				out = append(out, s)
-				break
-			}
-		}
-	}
-	return out
-}
-
-// sessionProjectLabel mirrors the home template's
-// `or .ProjectMarker .ProjectRemote .ProjectPath "(unscoped)"` so the
-// table cell, the dropdown options, and the filter step agree.
-func sessionProjectLabel(s *prosav1.Session) string {
-	if s == nil {
-		return "(unscoped)"
-	}
-	if s.ProjectMarker != "" {
-		return s.ProjectMarker
-	}
-	if s.ProjectRemote != "" {
-		return s.ProjectRemote
-	}
-	if s.ProjectPath != "" {
-		return s.ProjectPath
-	}
-	return "(unscoped)"
-}
-
 const sessionsListBatch = 1000
 
 type costSortRow struct {
@@ -433,13 +379,12 @@ type costSortRow struct {
 	ok      bool
 }
 
-// listSessionsSortedByCost loads every session matching the filter set,
-// applies multi-select post-filters, sorts by estimated cost in the given
-// direction, then returns one page slice.
+// listSessionsSortedByCost loads every session matching the filter set
+// (already narrowed server-side by base's filters), sorts by estimated
+// cost in the given direction, then returns one page slice.
 func (p *Panel) listSessionsSortedByCost(
 	ctx context.Context,
 	base *prosav1.ListRequest,
-	agents, projects []string,
 	page int,
 	costDir string,
 ) ([]*prosav1.Session, int64, int, error) {
@@ -463,12 +408,6 @@ func (p *Panel) listSessionsSortedByCost(
 		if int64(offset) >= resp.Msg.TotalCount {
 			break
 		}
-	}
-	if len(agents) > 1 {
-		all = filterByAgents(all, agents)
-	}
-	if len(projects) > 1 {
-		all = filterByProjects(all, projects)
 	}
 	rows := make([]costSortRow, len(all))
 	for i, s := range all {
