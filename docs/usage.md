@@ -115,6 +115,9 @@ prosa analytics projects            # top 30 projects
 prosa analytics heatmap             # trailing 53 weeks; ignores --last/--since/--between
 prosa analytics usage               # token totals + estimated USD cost
 prosa analytics errors              # sessions matching error heuristics
+prosa analytics hours               # sessions per UTC hour of day (00-23)
+prosa analytics usage_by_model      # token totals + estimated USD cost, by model
+prosa analytics errors_by_model     # flagged sessions by model (same heuristic as errors)
 ```
 
 `--remote` runs the report against the server. All reports honor the global

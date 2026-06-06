@@ -18,7 +18,8 @@ service AnalyticsService {
 }
 
 message GetReportRequest {
-  // One of: sessions | tools | models | projects | errors | heatmap | usage.
+  // One of: sessions | tools | models | projects | errors | heatmap |
+  // usage | hours | usage_by_model | errors_by_model.
   string report = 1;
 
   google.protobuf.Timestamp since = 2;

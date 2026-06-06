@@ -15,9 +15,10 @@ A small server-rendered web app:
   pagination).
 - **Alpine.js** (planned, ~15 KB) for client-only UI state (modal toggles,
   filter pill open/close, command palette).
-- **Server-rendered HTML bars + tables** for Home cards. A Go SVG
-  charting package (`internal/panel/charts/`) is deferred — bars and
-  tables cover the current dashboard without inline SVG.
+- **Server-rendered HTML bars + tables** for leaderboard cards, plus a
+  small Go inline-SVG charting package (`internal/panel/charts/`:
+  deterministic, golden-tested `Donut` + `Area`) for the cost-share and
+  hour-of-day charts. No client-side charting library, no build step.
 - **SSE** for live updates (badge of new sessions; future live KPI
   ticks).
 - **Connect-Go client** to talk to `prosa-server`. The panel does not touch
@@ -72,7 +73,7 @@ Routes (current MVP cut), all served from the same mux:
 - `GET /assets/*` — embedded static assets
 
 **Gated by session cookie:**
-- `GET /` — Home dashboard (KPI strip + heatmap + tools/models/errors/usage cards, collapsible filters)
+- `GET /` — Home dashboard (KPI strip + heatmap + tools/models/projects/hour-of-day cards, the Issues section, tokens-&-cost-per-model and usage cards, collapsible filters)
 - `GET /sessions` — full session list (FTS, multi-select filters, column chooser, sortable headers, paginated)
 - `GET /sessions/<id>` — session detail (HTMX side-panel partial)
 - `GET /projects` — projects table; rows link into filtered Sessions
@@ -86,9 +87,10 @@ Routes (current MVP cut), all served from the same mux:
 - `POST /logout` — clear the panel session
 - `GET /events` — SSE stream (proxied from the server)
 
-There is no `/analytics/*` surface. Tools/Models/Errors/Usage/Heatmap
-live as cards on Home; the per-report subpages were folded into the
-dashboard and into the filtered Sessions list.
+There is no `/analytics/*` surface. The reports live as cards on Home —
+Tools, Models, Projects, Hour of day, Issues (the error heuristic),
+Tokens & cost per model, Usage, and the Heatmap; the per-report subpages
+were folded into the dashboard and into the filtered Sessions list.
 
 Note: `/sessions` (exact) and `/sessions/<id>` (subtree prefix) coexist
 on the stdlib `http.ServeMux` — list vs. detail are independent
@@ -178,9 +180,9 @@ Planned next (sidepanel redesign):
 
 Deferred:
 
-- SVG charting package in Go (`internal/panel/charts/`). Home cards
-  currently use HTML bars and tables; the inline-SVG donut/trend/
-  sparkline signatures sketched in [`../panel/components.md`](../panel/components.md)
+- Inline-SVG **sparkline** (`internal/panel/charts/`). The `Donut` and
+  `Area` helpers have landed (cost-share and hour-of-day charts); the
+  sparkline sketched in [`../panel/components.md`](../panel/components.md)
   can land later without changing routes or proto.
 
 ### Markdown rendering

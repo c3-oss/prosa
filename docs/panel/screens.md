@@ -87,17 +87,20 @@ The heatmap card ignores `window` by design; everything else honors it.
 
 ### KPI strip
 
-Three KPIs across the top, each in a [`kpi`](components.md#kpi-card)
-card.
+Six KPIs across the top, each in a [`kpi`](components.md#kpi-card) card.
+The strip wraps on narrow widths.
 
 ```
-   12             3              2
-   sessions       projects       models
+   12         3          2        1.5m      $4.70       7%
+   sessions   projects   models   tokens    est spend   error rate
 ```
 
 - **Sessions** in window;
-- **Projects** active in window;
-- **Models** active in window.
+- **Projects** active in window (distinct project labels);
+- **Models** active in window;
+- **Tokens** measured in window;
+- **Est. spend** — summed cost of priced models (`n/a` when none priced);
+- **Error rate** — flagged sessions ÷ total (heuristic; see Issues).
 
 No sparkline in this cut.
 
@@ -124,9 +127,10 @@ Tue ░ ░ ░ ▒ ▓
   keyboard-focusable.
 - Discreet legend in the corner: scale gradient + "less / more".
 
-### Tools / Models / Errors / Usage cards
+### Cards
 
-Two-column rows under the heatmap.
+Two-column rows under the heatmap, with the full-width Issues section
+between the second and third rows.
 
 ```
 +---------------------+   +---------------------+
@@ -135,25 +139,45 @@ Two-column rows under the heatmap.
 +---------------------+   +---------------------+
 
 +---------------------+   +---------------------+
-| Errors              |   | Usage               |
-| ▶ recent error rows |   | ▶ totals + per-agent|
+| Projects            |   | Hour of day         |
+| ▶ bar leaderboard   |   | ▶ area chart (SVG)  |
++---------------------+   +---------------------+
+
++----------------------------------------------+
+| Issues                                       |
+| flagged · rate · top model                   |
+| ▶ errors per model      ▶ recent flagged     |
++----------------------------------------------+
+
++---------------------+   +---------------------+
+| Tokens & cost / model|   | Usage               |
+| ▶ donut + bars      |   | ▶ totals + per-agent|
 +---------------------+   +---------------------+
 ```
 
-- **Tools**: HTML bar leaderboard from the `tools` analytics report.
-  Same `.usage-bar`-style markup the old analytics page used. No SVG.
-- **Models**: HTML bar leaderboard from the `models` report. The donut
-  SVG sketched in [components.md](components.md#donut) is deferred —
-  bars stay consistent with Tools.
-- **Errors**: table of recent error sessions (FTS heuristic
-  `error|exception|traceback|panic|fatal`). Columns: started, agent,
-  project, session id.
-- **Usage**: total tokens + total estimated cost in the window, with a
-  per-agent breakdown.
+- **Tools**: HTML bar leaderboard from the `tools` report. No SVG.
+- **Models**: HTML bar leaderboard from the `models` report.
+- **Projects**: HTML bar leaderboard from the `projects` report,
+  aggregated per project (sessions summed across agents), labeled with
+  the friendly project display.
+- **Hour of day**: inline-SVG [area chart](components.md#area-chart) from
+  the `hours` report. UTC buckets are rotated into the panel's local
+  zone for display (whole-hour, DST-naive); the subtitle names the peak
+  hour.
+- **Issues** (full-width): replaces the old Errors table. An error-rate
+  indicator, the most error-prone model, an **errors per model** bar
+  leaderboard (`errors_by_model`), and a **recent flagged sessions**
+  list — each row links to the transcript (agent badge + project +
+  timestamp). All from the FTS heuristic
+  (`error|exception|traceback|panic|fatal`); labeled as such.
+- **Tokens & cost per model**: token bar leaderboard plus a cost-share
+  [donut](components.md#donut) with a color-matched legend, from
+  `usage_by_model`.
+- **Usage**: total tokens + estimated cost, with a per-agent breakdown.
 
-All four cards re-render with the rest of the page when the filters
-form submits. No HTMX chart-swap pattern here; the dashboard is one
-GET away from any state change.
+All cards re-render with the rest of the page when the filters form
+submits. No HTMX chart-swap pattern here; the dashboard is one GET away
+from any state change.
 
 ### States
 
