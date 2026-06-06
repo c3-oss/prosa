@@ -70,3 +70,54 @@ func TestSessionsPushBumpsLastSyncOnIdempotentSkip(t *testing.T) {
 	require.NoError(t, pool.QueryRow(ctx, `SELECT last_sync FROM devices WHERE id = $1`, deviceID).Scan(&lastSync))
 	require.True(t, lastSync.After(baseline), "idempotent skip must bump last_sync, got %s", lastSync)
 }
+
+func TestSessionsPushDoesNotRewriteFreshLastSync(t *testing.T) {
+	ctx := context.Background()
+	pool := newHandlersPostgresPool(t, ctx)
+	obj := newTestObjectStore(t)
+
+	const (
+		adminToken = "admin-token"
+		bearer     = "device-bearer"
+		deviceID   = "device-a"
+		agent      = "codex"
+	)
+	insertDeviceToken(t, ctx, pool, deviceID, bearer)
+
+	client := newPushClient(t, pool, obj, adminToken)
+	started := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
+
+	newReq := func(id string) *connect.Request[prosav1.PushRequest] {
+		r := connect.NewRequest(&prosav1.PushRequest{
+			Session: &prosav1.Session{
+				Id:             id,
+				Agent:          agent,
+				StartedAt:      timestamppb.New(started),
+				LastActivityAt: timestamppb.New(started),
+				RawHash:        "hash-" + id,
+				RawSize:        3,
+				Usage:          &prosav1.TokenUsage{TotalTokens: 1},
+			},
+			Raw:   []byte("raw"),
+			Turns: []*prosav1.Turn{{Role: "user", Content: "hi", Ts: timestamppb.New(started)}},
+		})
+		r.Header().Set("Authorization", "Bearer "+bearer)
+		return r
+	}
+
+	resp, err := client.Push(ctx, newReq("session-fresh-a"))
+	require.NoError(t, err)
+	require.False(t, resp.Msg.Skipped)
+
+	var firstLastSync time.Time
+	require.NoError(t, pool.QueryRow(ctx, `SELECT last_sync FROM devices WHERE id = $1`, deviceID).Scan(&firstLastSync))
+
+	resp, err = client.Push(ctx, newReq("session-fresh-b"))
+	require.NoError(t, err)
+	require.False(t, resp.Msg.Skipped)
+
+	var secondLastSync time.Time
+	require.NoError(t, pool.QueryRow(ctx, `SELECT last_sync FROM devices WHERE id = $1`, deviceID).Scan(&secondLastSync))
+	require.True(t, secondLastSync.Equal(firstLastSync),
+		"fresh last_sync should not be rewritten; first=%s second=%s", firstLastSync, secondLastSync)
+}
