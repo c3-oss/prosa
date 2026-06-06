@@ -4,6 +4,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -48,8 +49,12 @@ func newRootCmd() *cobra.Command {
 		Long: "prosa consolidates Claude Code (and, soon, Codex/others) session histories " +
 			"into a single local SQLite store and renders a queryable timeline.",
 		RunE: runNu,
-		PersistentPreRun: func(*cobra.Command, []string) {
+		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
+			if err := validateGlobals(cmd); err != nil {
+				return err
+			}
 			applyGlobalFlags()
+			return nil
 		},
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -80,6 +85,17 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newScheduleCmd())
 	cmd.AddCommand(newSetupCmd())
 	return cmd
+}
+
+// validateGlobals rejects globally-incompatible flag combinations before
+// any command runs. --all disables the cwd project auto-filter, so pairing
+// it with an explicit --project is contradictory (INTENT §5); reject it at
+// parse time instead of silently letting one win.
+func validateGlobals(cmd *cobra.Command) error {
+	if cmd.Flags().Changed("all") && cmd.Flags().Changed("project") {
+		return errors.New("--all and --project are mutually exclusive")
+	}
+	return nil
 }
 
 func applyGlobalFlags() {

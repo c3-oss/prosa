@@ -18,10 +18,11 @@ import (
 // configured window with filters applied. Default window is 7 days;
 // override with --last.
 //
-// Filter precedence:
-//  1. --project foo   → substring match on project_path; auto-detect off.
-//  2. --all           → auto-detect off; no project filter.
-//  3. (neither)       → auto-detect from cwd (longest matching ancestor wins).
+// Filter scope (--all and --project are mutually exclusive, rejected at
+// parse time by validateGlobals):
+//   - --project foo   → substring match on project_path; auto-detect off.
+//   - --all           → auto-detect off; no project filter.
+//   - (neither)       → auto-detect from cwd (longest matching ancestor wins).
 //
 // --agent / --device are independent and apply regardless.
 func runNu(cmd *cobra.Command, _ []string) error {
