@@ -38,7 +38,7 @@ func TestSessionsListMultiSelectNarrowing(t *testing.T) {
 				ProjectMarker:  marker,
 				StartedAt:      timestamppb.New(started),
 				LastActivityAt: timestamppb.New(started),
-				RawHash:        "hash-" + id,
+				RawHash:        sha256Hex([]byte("raw")),
 				RawSize:        3,
 			},
 			Raw: []byte("raw"),

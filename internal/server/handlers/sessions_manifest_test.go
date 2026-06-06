@@ -36,7 +36,7 @@ func TestManifestSurfacesSessionsWithoutSyncState(t *testing.T) {
 			Agent:          "codex",
 			StartedAt:      timestamppb.New(started),
 			LastActivityAt: timestamppb.New(started),
-			RawHash:        "hash-orphan",
+			RawHash:        sha256Hex([]byte("raw")),
 			RawSize:        3,
 		},
 		Raw: []byte("raw"),
