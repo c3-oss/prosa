@@ -83,6 +83,17 @@ func TestLoadViewsParsesAllTemplates(t *testing.T) {
 	}
 }
 
+func TestLoadViewsSharesCommonPartials(t *testing.T) {
+	views, err := loadViews()
+	require.NoError(t, err)
+
+	for _, name := range []string{"home", "sessions", "projects", "settings", "devices"} {
+		require.NotNil(t, views[name].Lookup("base"), "view %q should include base layout", name)
+		require.NotNil(t, views[name].Lookup("icon-github"), "view %q should include shared icons", name)
+		require.NotNil(t, views[name].Lookup("side_panel_body"), "view %q should include side-panel partials", name)
+	}
+}
+
 func TestSessionsRowsDoNotCarryHxPushURL(t *testing.T) {
 	views, err := loadViews()
 	require.NoError(t, err)

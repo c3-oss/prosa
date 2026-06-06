@@ -25,9 +25,9 @@ type Panel struct {
 	clients *rpc.Clients
 }
 
-// New parses the embedded templates and wires every route. Each view
-// is parsed into its own template set together with base.html so that
-// `{{define "content"}}` blocks don't collide between views.
+// New parses the embedded templates and wires every route. Each view gets
+// its own clone so per-view `{{define "content"}}` / `{{define "side"}}`
+// blocks don't collide, while shared templates are parsed once.
 func New(cfg Config) (*Panel, error) {
 	views, err := loadViews()
 	if err != nil {
@@ -44,34 +44,47 @@ func New(cfg Config) (*Panel, error) {
 	return p, nil
 }
 
-// loadViews reads every *.html from the embedded FS and builds one
-// template tree per top-level view, each combining base.html with the
-// view's own definitions. Standalone helpers (side_panel, raw_chunk,
-// login) are parsed without base.html.
+// loadViews builds one template tree per top-level view. Shared templates
+// (base layout, icons, side-panel body) are parsed once, then cloned before
+// each view-specific file is parsed into the clone. That keeps the current
+// per-view content/side block isolation without requiring every view spec to
+// remember which shared partials it indirectly references.
 func loadViews() (map[string]*template.Template, error) {
 	type viewSpec struct {
-		name  string
-		files []string
+		name string
+		file string
 	}
-	// Each view's file list includes everything its templates reference.
-	// Layered views start with base.html; standalone helpers stand alone.
 	specs := []viewSpec{
-		{"home", []string{"base.html", "home.html"}},
-		{"sessions", []string{"base.html", "sessions.html", "side_panel.html", "icons.html"}},
-		{"projects", []string{"base.html", "projects.html", "icons.html"}},
-		{"settings", []string{"base.html", "settings.html"}},
-		{"devices", []string{"base.html", "devices.html"}},
-		{"login", []string{"login.html"}},
-		{"cli_authorize", []string{"cli_authorize.html"}},
-		{"side_panel", []string{"side_panel.html", "icons.html"}},
-		{"raw_chunk", []string{"raw_chunk.html"}},
+		{"home", "home.html"},
+		{"sessions", "sessions.html"},
+		{"projects", "projects.html"},
+		{"settings", "settings.html"},
+		{"devices", "devices.html"},
+		{"login", "login.html"},
+		{"cli_authorize", "cli_authorize.html"},
+		{"side_panel", ""},
+		{"raw_chunk", "raw_chunk.html"},
+	}
+	shared, err := template.New("").Funcs(templateFuncs()).ParseFS(
+		templates.FS,
+		"base.html",
+		"icons.html",
+		"side_panel.html",
+	)
+	if err != nil {
+		return nil, fmt.Errorf("parse shared templates: %w", err)
 	}
 	out := make(map[string]*template.Template, len(specs))
 	for _, sp := range specs {
-		t := template.New("").Funcs(templateFuncs())
-		parsed, err := t.ParseFS(templates.FS, sp.files...)
+		parsed, err := shared.Clone()
 		if err != nil {
-			return nil, fmt.Errorf("parse %s: %w", sp.name, err)
+			return nil, fmt.Errorf("clone shared templates for %s: %w", sp.name, err)
+		}
+		if sp.file != "" {
+			parsed, err = parsed.ParseFS(templates.FS, sp.file)
+			if err != nil {
+				return nil, fmt.Errorf("parse %s: %w", sp.name, err)
+			}
 		}
 		out[sp.name] = parsed
 	}
