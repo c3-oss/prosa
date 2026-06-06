@@ -44,7 +44,7 @@ jobs:
       # PATH, the action fails — so install pnpm explicitly first. The
       # npm publish step itself uses `npm publish`, not pnpm.
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       # package-manager-cache: false skips the pnpm-cache save step
       # that fails on this job with "Path Validation Error: Path(s)
