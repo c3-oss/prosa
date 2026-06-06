@@ -31,6 +31,53 @@ func (s *signalWriter) Flush() {
 	}
 }
 
+// The panel proxy must set its own SSE anti-buffering/anti-cache headers
+// (aligned with the server handler) rather than forwarding the upstream's.
+// See issue #128.
+func TestHandleSSESetsAlignedHeaders(t *testing.T) {
+	t.Parallel()
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Deliberately omit anti-buffering headers upstream to prove the
+		// proxy sets its own.
+		w.WriteHeader(http.StatusOK)
+		f, _ := w.(http.Flusher)
+		_, _ = w.Write([]byte(": connected\n\n"))
+		if f != nil {
+			f.Flush()
+		}
+		<-r.Context().Done()
+	}))
+	t.Cleanup(upstream.Close)
+
+	p := newPanelWithOwners(t, "owner@example.com")
+	p.cfg.ServerURL = upstream.URL
+
+	ctx, cancel := context.WithCancel(context.Background())
+	req := httptest.NewRequest(http.MethodGet, "/events", nil).WithContext(ctx)
+	rec := httptest.NewRecorder()
+	sw := &signalWriter{ResponseWriter: rec, wrote: make(chan struct{})}
+
+	done := make(chan struct{})
+	go func() {
+		p.handleSSE(sw, req)
+		close(done)
+	}()
+
+	select {
+	case <-sw.wrote:
+	case <-time.After(3 * time.Second):
+		t.Fatal("proxy never streamed")
+	}
+
+	require.Equal(t, "text/event-stream", rec.Header().Get("Content-Type"))
+	require.Equal(t, "no-cache, private", rec.Header().Get("Cache-Control"))
+	require.Equal(t, "no", rec.Header().Get("X-Accel-Buffering"))
+
+	cancel()
+	<-done
+}
+
 // The SSE proxy client bounds only the response-header wait, never the
 // stream body: a ResponseHeaderTimeout but no overall client Timeout. See
 // issue #133.
