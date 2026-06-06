@@ -118,6 +118,7 @@ func runAnalytics(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	result = rollupHeatmapForDisplay(report, result)
 
 	if g.JSON {
 		return emitAnalyticsJSON(os.Stdout, result)
@@ -203,7 +204,7 @@ func runAnalyticsRemote(ctx context.Context, report string, w Window) error {
 	if err != nil {
 		return fmt.Errorf("analytics rpc: %s", rpc.ConnectError(err))
 	}
-	result := normalizeRemoteAnalyticsResult(report, analyticsProtoResult(resp.Msg))
+	result := rollupHeatmapForDisplay(report, analyticsProtoResult(resp.Msg))
 	if g.JSON {
 		return emitAnalyticsJSON(os.Stdout, result)
 	}
@@ -255,7 +256,12 @@ func analyticsProtoResult(resp *prosav1.GetReportResponse) store.AnalyticsResult
 	return out
 }
 
-func normalizeRemoteAnalyticsResult(report string, result store.AnalyticsResult) store.AnalyticsResult {
+// rollupHeatmapForDisplay collapses the canonical per-(day, agent) heatmap
+// shape (DATE, AGENT, SESSIONS — emitted identically by the local store and
+// the server) into per-day totals (DATE, SESSIONS) for the CLI table. It is
+// applied uniformly to both backends; results already in the 2-column shape
+// (or non-heatmap reports) pass through unchanged.
+func rollupHeatmapForDisplay(report string, result store.AnalyticsResult) store.AnalyticsResult {
 	if report != "heatmap" || !analyticsHeadersEqual(result.Headers, []string{"DATE", "AGENT", "SESSIONS"}) {
 		return result
 	}
