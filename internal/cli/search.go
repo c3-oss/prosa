@@ -83,33 +83,14 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		Until: w.Until,
 	}
 
-	var scope render.ContextScope
-	scopeLabel := ""
-	switch {
-	case g.Project != "":
-		p := g.Project
-		filter.ProjectMatch = &p
-		scope = render.ScopeScoped
-		scopeLabel = p
-	case g.All:
-		scope = render.ScopeAll
-	default:
-		scope = render.ScopeProjectNotDetected
-		cwd, err := os.Getwd()
-		if err == nil {
-			if m, err := DetectProject(ctx, cwd, s); err == nil && m.Found {
-				applyMatchFilter(&filter, m)
-				scope = render.ScopeScoped
-				scopeLabel = m.HintLabel()
-			}
-		}
-	}
+	projectScope := ResolveProjectScope(ctx, g, s)
+	projectScope.ApplySessionFilter(&filter)
 	if interactive && !g.JSON {
 		fmt.Fprintln(os.Stderr, render.SearchContextLine(render.ContextLineOptions{
 			Command:    "search",
 			Source:     "local",
-			Scope:      scope,
-			ScopeLabel: scopeLabel,
+			Scope:      projectScope.Scope,
+			ScopeLabel: projectScope.Label,
 			Query:      query,
 		}))
 	}
@@ -149,7 +130,7 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	}
 	deviceLabels, _ := s.ListDevicesMap(ctx)
 	hideDevice := countDistinctDevices(hits) <= 1
-	hideProject := scope == render.ScopeScoped && countDistinctProjects(hits) <= 1
+	hideProject := projectScope.Scope == render.ScopeScoped && countDistinctProjects(hits) <= 1
 	return render.SearchHitsWithOptions(os.Stdout, hits, now, render.SearchOptions{
 		Interactive:  interactive,
 		Width:        TerminalWidth(),
@@ -238,44 +219,14 @@ func runSearchRemote(ctx context.Context, query string, w Window, limit int) err
 	// Project identity: prefer git remote / marker; the substring
 	// --project flag stays local-only because the server doesn't
 	// expose ILIKE search to clients.
-	var scope render.ContextScope
-	scopeLabel := ""
-	switch {
-	case g.Project != "":
-		scope = render.ScopeScoped
-		scopeLabel = g.Project
-	case g.All:
-		scope = render.ScopeAll
-	default:
-		scope = render.ScopeProjectNotDetected
-		if cwd, err := os.Getwd(); err == nil {
-			// Open the local store JUST to drive DetectProject — it's
-			// already populated even when --remote is in play.
-			storePath, perr := paths.StorePath()
-			if perr == nil {
-				s, oerr := store.OpenReadOnly(ctx, storePath)
-				if oerr == nil {
-					if m, derr := DetectProject(ctx, cwd, s); derr == nil && m.Found {
-						switch {
-						case m.Remote != "":
-							req.ProjectRemote = m.Remote
-						case m.Marker != "":
-							req.ProjectMarker = m.Marker
-						}
-						scope = render.ScopeScoped
-						scopeLabel = m.HintLabel()
-					}
-					_ = s.Close()
-				}
-			}
-		}
-	}
+	projectScope := ResolveProjectScopeFromLocalStore(ctx, g)
+	projectScope.ApplySearchRequest(req)
 	if interactive && !g.JSON {
 		fmt.Fprintln(os.Stderr, render.SearchContextLine(render.ContextLineOptions{
 			Command:    "search",
 			Source:     "remote",
-			Scope:      scope,
-			ScopeLabel: scopeLabel,
+			Scope:      projectScope.Scope,
+			ScopeLabel: projectScope.Label,
 			Query:      query,
 		}))
 	}
@@ -313,7 +264,7 @@ func runSearchRemote(ctx context.Context, query string, w Window, limit int) err
 		}
 	}
 	hideDevice := countDistinctDevices(hits) <= 1
-	hideProject := scope == render.ScopeScoped && countDistinctProjects(hits) <= 1
+	hideProject := projectScope.Scope == render.ScopeScoped && countDistinctProjects(hits) <= 1
 	return render.SearchHitsWithOptions(os.Stdout, hits, w.Until, render.SearchOptions{
 		Interactive:  interactive,
 		Width:        TerminalWidth(),

@@ -56,36 +56,15 @@ func runNu(cmd *cobra.Command, _ []string) error {
 		Until: w.Until,
 		Limit: g.Limit,
 	}
-	var scope render.ContextScope
-	scopeLabel := ""
-
-	switch {
-	case g.Project != "":
-		p := g.Project
-		filter.ProjectMatch = &p
-		scope = render.ScopeScoped
-		scopeLabel = p
-	case g.All:
-		scope = render.ScopeAll
-	default:
-		// No --project, no --all: attempt auto-detect from cwd.
-		scope = render.ScopeProjectNotDetected
-		cwd, err := os.Getwd()
-		if err == nil {
-			if m, err := DetectProject(ctx, cwd, s); err == nil && m.Found {
-				applyMatchFilter(&filter, m)
-				scope = render.ScopeScoped
-				scopeLabel = m.HintLabel()
-			}
-		}
-	}
+	projectScope := ResolveProjectScope(ctx, g, s)
+	projectScope.ApplySessionFilter(&filter)
 
 	if interactive && !g.JSON {
 		fmt.Fprintln(os.Stderr, render.ContextLine(render.ContextLineOptions{
 			Command:    "prosa",
 			Source:     "local",
-			Scope:      scope,
-			ScopeLabel: scopeLabel,
+			Scope:      projectScope.Scope,
+			ScopeLabel: projectScope.Label,
 			Last:       w.LastLabel,
 			Since:      w.SinceLabel,
 			Between:    w.BetweenLabel,
@@ -119,8 +98,8 @@ func runNu(cmd *cobra.Command, _ []string) error {
 		// Empty state goes to stderr — stdout stays clean so
 		// `prosa | wc -l` returns 0 and `prosa | jq` doesn't choke.
 		if interactive {
-			if scopeLabel != "" {
-				fmt.Fprintf(os.Stderr, "no sessions found for %s\n", scopeLabel)
+			if projectScope.Label != "" {
+				fmt.Fprintf(os.Stderr, "no sessions found for %s\n", projectScope.Label)
 				fmt.Fprintln(os.Stderr, "use `prosa --all` to show every project")
 				return nil
 			}
