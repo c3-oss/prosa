@@ -549,6 +549,7 @@ func TestImportSkipsSessionWithExplicitZeroUsage(t *testing.T) {
 }
 
 func TestWalkAcceptsRolloutPatternOnly(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	base := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
 	day := filepath.Join(root, base.Format("2006"), base.Format("01"), base.Format("02"))
@@ -568,6 +569,7 @@ func TestWalkAcceptsRolloutPatternOnly(t *testing.T) {
 }
 
 func TestWalkMissingRootReturnsEmpty(t *testing.T) {
+	t.Parallel()
 	imp := New()
 	got, err := imp.Walk(context.Background(), filepath.Join(t.TempDir(), "nonexistent"))
 	require.NoError(t, err)
@@ -717,6 +719,7 @@ func TestImportProjectsFunctionCallOutputAsToolTurn(t *testing.T) {
 }
 
 func TestTruncatePreviewKeepsUTF8Valid(t *testing.T) {
+	t.Parallel()
 	body := strings.Repeat("a", toolPreviewMaxBytes-1) + "é suffix"
 
 	got := truncatePreview(body)

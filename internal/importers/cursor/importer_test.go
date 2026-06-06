@@ -110,6 +110,7 @@ CREATE TABLE meta  (key TEXT PRIMARY KEY, value TEXT);`)
 }
 
 func TestParseCursorStore(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	root := filepath.Join(t.TempDir(), "cursor-root")
@@ -193,6 +194,7 @@ func buildEmptyShellStore(t *testing.T, root, agentID string) string {
 }
 
 func TestParseCursorEmptyShell(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	root := filepath.Join(t.TempDir(), "cursor-empty-shell")
 	const shellAgentID = "00000000-0000-0000-0000-000000000001"
@@ -239,6 +241,7 @@ func TestImportCursorEmptyShell(t *testing.T) {
 // a zero-value session, no error (see issue #70: the branch uses errors.Is
 // so it survives any future error wrapping in the sql layer).
 func TestParseCursorMetaTablePresentNoRow(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	dir := filepath.Join(t.TempDir(), fixtureWorkspace, "00000000-0000-0000-0000-0000000000aa")
 	require.NoError(t, os.MkdirAll(dir, 0o755))
@@ -260,6 +263,7 @@ CREATE TABLE meta  (key TEXT PRIMARY KEY, value TEXT);`)
 }
 
 func TestWalkFindsStoreDb(t *testing.T) {
+	t.Parallel()
 	root := filepath.Join(t.TempDir(), "cursor-root")
 	src := buildFixtureStore(t, root)
 	// Drop a sibling file that must be ignored.
@@ -272,6 +276,7 @@ func TestWalkFindsStoreDb(t *testing.T) {
 }
 
 func TestWalkMissingRootReturnsEmpty(t *testing.T) {
+	t.Parallel()
 	imp := New()
 	got, err := imp.Walk(context.Background(), filepath.Join(t.TempDir(), "nope"))
 	require.NoError(t, err)
@@ -286,6 +291,7 @@ func TestWalkMissingRootReturnsEmpty(t *testing.T) {
 // per-message token usage so the importer's no-usage policy would
 // otherwise skip the session before FirstPrompt got written.
 func TestImportCursorSanitizesFirstPrompt(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	root := filepath.Join(t.TempDir(), "cursor-root-dirty")

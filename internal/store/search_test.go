@@ -53,6 +53,7 @@ func seedSearchStore(t *testing.T) (context.Context, *Store, time.Time) {
 }
 
 func TestSearchSingleTerm(t *testing.T) {
+	t.Parallel()
 	ctx, s, now := seedSearchStore(t)
 	hits, err := s.Search(ctx, "quantum", SessionFilter{
 		Since: now.Add(-24 * time.Hour), Until: now,
@@ -68,6 +69,7 @@ func TestSearchSingleTerm(t *testing.T) {
 // Search must populate ParentSessionID for subagent children, matching the
 // server's Search shape. See issue #97.
 func TestSearchReturnsParentSessionID(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, err := Open(ctx, filepath.Join(t.TempDir(), "store.db"))
 	require.NoError(t, err)
@@ -104,6 +106,7 @@ func TestSearchReturnsParentSessionID(t *testing.T) {
 }
 
 func TestSearchNoMatches(t *testing.T) {
+	t.Parallel()
 	ctx, s, now := seedSearchStore(t)
 	hits, err := s.Search(ctx, "zzznotpresent", SessionFilter{
 		Since: now.Add(-24 * time.Hour), Until: now,
@@ -113,6 +116,7 @@ func TestSearchNoMatches(t *testing.T) {
 }
 
 func TestSearchFilterByAgent(t *testing.T) {
+	t.Parallel()
 	ctx, s, now := seedSearchStore(t)
 	hits, err := s.Search(ctx, "quantum", SessionFilter{
 		Since: now.Add(-24 * time.Hour), Until: now,
@@ -125,6 +129,7 @@ func TestSearchFilterByAgent(t *testing.T) {
 }
 
 func TestSearchFilterByProjectExact(t *testing.T) {
+	t.Parallel()
 	ctx, s, now := seedSearchStore(t)
 	hits, err := s.Search(ctx, "terraform", SessionFilter{
 		Since: now.Add(-24 * time.Hour), Until: now,
@@ -136,6 +141,7 @@ func TestSearchFilterByProjectExact(t *testing.T) {
 }
 
 func TestSearchOnePerSession(t *testing.T) {
+	t.Parallel()
 	ctx, s, now := seedSearchStore(t)
 	// Add a second matching turn into session "a" so we can prove the
 	// CTE row_number dedup keeps only one row per session.
@@ -157,6 +163,7 @@ func TestSearchOnePerSession(t *testing.T) {
 }
 
 func TestSearchLimit(t *testing.T) {
+	t.Parallel()
 	ctx, s, now := seedSearchStore(t)
 	hits, err := s.Search(ctx, "quantum", SessionFilter{
 		Since: now.Add(-24 * time.Hour), Until: now,
@@ -166,6 +173,7 @@ func TestSearchLimit(t *testing.T) {
 }
 
 func TestSearchEmptyQuery(t *testing.T) {
+	t.Parallel()
 	ctx, s, now := seedSearchStore(t)
 	_, err := s.Search(ctx, "   ", SessionFilter{
 		Since: now.Add(-24 * time.Hour), Until: now,
@@ -174,6 +182,7 @@ func TestSearchEmptyQuery(t *testing.T) {
 }
 
 func TestSearchSnippetContainsMatch(t *testing.T) {
+	t.Parallel()
 	ctx, s, now := seedSearchStore(t)
 	hits, err := s.Search(ctx, "terraform", SessionFilter{
 		Since: now.Add(-24 * time.Hour), Until: now,
@@ -188,6 +197,7 @@ func TestSearchSnippetContainsMatch(t *testing.T) {
 }
 
 func TestSearchProjectMatchSpansPathRemoteMarker(t *testing.T) {
+	t.Parallel()
 	ctx, s, now := seedSearchStore(t)
 	// Tag the alpha sessions with a remote; the beta session with a marker.
 	_, _, err := s.FillProjectIdentity(ctx, "/u/proj-alpha", "git@github.com:movaincentivo/iac.git", "")
@@ -212,6 +222,7 @@ func TestSearchProjectMatchSpansPathRemoteMarker(t *testing.T) {
 }
 
 func TestSearchFilterByProjectRemote(t *testing.T) {
+	t.Parallel()
 	ctx, s, now := seedSearchStore(t)
 	_, _, err := s.FillProjectIdentity(ctx, "/u/proj-alpha", "git@github.com:org/alpha.git", "")
 	require.NoError(t, err)
@@ -231,6 +242,7 @@ func TestSearchFilterByProjectRemote(t *testing.T) {
 }
 
 func TestSearchFilterByProjectMarker(t *testing.T) {
+	t.Parallel()
 	ctx, s, now := seedSearchStore(t)
 	_, _, err := s.FillProjectIdentity(ctx, "/u/proj-beta", "", "beta-monorepo")
 	require.NoError(t, err)
@@ -247,6 +259,7 @@ func TestSearchFilterByProjectMarker(t *testing.T) {
 }
 
 func TestSearchSurfacesEvidenceMetadata(t *testing.T) {
+	t.Parallel()
 	ctx, s, now := seedSearchStore(t)
 
 	// Project a tool_result into session "a".
@@ -277,6 +290,7 @@ func TestSearchSurfacesEvidenceMetadata(t *testing.T) {
 }
 
 func TestInsertTurnsRoundTripsKindAndToolName(t *testing.T) {
+	t.Parallel()
 	ctx, s, _ := seedSearchStore(t)
 	now := time.Now().UTC()
 	require.NoError(t, s.InsertTurns(ctx, "a", []session.Turn{
@@ -296,6 +310,7 @@ func TestInsertTurnsRoundTripsKindAndToolName(t *testing.T) {
 }
 
 func TestInsertTurnsDefaultsEmptyKindToMessage(t *testing.T) {
+	t.Parallel()
 	ctx, s, _ := seedSearchStore(t)
 	require.NoError(t, s.InsertTurns(ctx, "a", []session.Turn{
 		{Role: "user", Content: "plain content", Timestamp: time.Now().UTC()},
@@ -312,6 +327,7 @@ func TestInsertTurnsDefaultsEmptyKindToMessage(t *testing.T) {
 // stay focused on chat content. Mirrors the WHEN guard added on the
 // AI/AD triggers in migration 0007.
 func TestSearchExcludesThinkingFromFTS(t *testing.T) {
+	t.Parallel()
 	ctx, s, now := seedSearchStore(t)
 	require.NoError(t, s.InsertTurns(ctx, "a", []session.Turn{
 		{

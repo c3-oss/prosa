@@ -44,6 +44,7 @@ func seedFilterStore(t *testing.T) (context.Context, *Store, time.Time) {
 }
 
 func TestListSessionsRangeOnly(t *testing.T) {
+	t.Parallel()
 	ctx, s, now := seedFilterStore(t)
 	got, err := s.ListSessions(ctx, SessionFilter{Since: now.Add(-7 * 24 * time.Hour), Until: now})
 	require.NoError(t, err)
@@ -53,6 +54,7 @@ func TestListSessionsRangeOnly(t *testing.T) {
 }
 
 func TestListSessionsByAgent(t *testing.T) {
+	t.Parallel()
 	ctx, s, now := seedFilterStore(t)
 	got, err := s.ListSessions(ctx, SessionFilter{
 		Since: now.Add(-7 * 24 * time.Hour),
@@ -67,6 +69,7 @@ func TestListSessionsByAgent(t *testing.T) {
 }
 
 func TestListSessionsByProjectExact(t *testing.T) {
+	t.Parallel()
 	ctx, s, now := seedFilterStore(t)
 	got, err := s.ListSessions(ctx, SessionFilter{
 		Since:        now.Add(-7 * 24 * time.Hour),
@@ -82,6 +85,7 @@ func TestListSessionsByProjectExact(t *testing.T) {
 }
 
 func TestListSessionsByProjectRemote(t *testing.T) {
+	t.Parallel()
 	ctx, s, now := seedFilterStore(t)
 	// Tag two of the four sessions with a project_remote.
 	_, _, err := s.FillProjectIdentity(ctx, "/u/proj-alpha", "git@github.com:x/alpha.git", "")
@@ -98,6 +102,7 @@ func TestListSessionsByProjectRemote(t *testing.T) {
 }
 
 func TestListSessionsByProjectMarker(t *testing.T) {
+	t.Parallel()
 	ctx, s, now := seedFilterStore(t)
 	_, _, err := s.FillProjectIdentity(ctx, "/u/proj-beta", "", "beta-monorepo")
 	require.NoError(t, err)
@@ -114,6 +119,7 @@ func TestListSessionsByProjectMarker(t *testing.T) {
 }
 
 func TestListSessionsByProjectSubstring(t *testing.T) {
+	t.Parallel()
 	ctx, s, now := seedFilterStore(t)
 	got, err := s.ListSessions(ctx, SessionFilter{
 		Since:        now.Add(-7 * 24 * time.Hour),
@@ -125,6 +131,7 @@ func TestListSessionsByProjectSubstring(t *testing.T) {
 }
 
 func TestListSessionsByDeviceName(t *testing.T) {
+	t.Parallel()
 	ctx, s, now := seedFilterStore(t)
 	got, err := s.ListSessions(ctx, SessionFilter{
 		Since:      now.Add(-7 * 24 * time.Hour),
@@ -144,6 +151,7 @@ func TestListSessionsByDeviceName(t *testing.T) {
 }
 
 func TestListSessionsComposedFilters(t *testing.T) {
+	t.Parallel()
 	ctx, s, now := seedFilterStore(t)
 	got, err := s.ListSessions(ctx, SessionFilter{
 		Since:        now.Add(-7 * 24 * time.Hour),
@@ -157,6 +165,7 @@ func TestListSessionsComposedFilters(t *testing.T) {
 }
 
 func TestListSessionsRangeNarrowing(t *testing.T) {
+	t.Parallel()
 	ctx, s, now := seedFilterStore(t)
 	got, err := s.ListSessions(ctx, SessionFilter{
 		Since: now.Add(-2 * time.Hour),
@@ -167,6 +176,7 @@ func TestListSessionsRangeNarrowing(t *testing.T) {
 }
 
 func TestDistinctProjectPaths(t *testing.T) {
+	t.Parallel()
 	ctx, s, _ := seedFilterStore(t)
 	paths, err := s.DistinctProjectPaths(ctx)
 	require.NoError(t, err)
@@ -178,6 +188,7 @@ func TestDistinctProjectPaths(t *testing.T) {
 }
 
 func TestListSessionsLimit(t *testing.T) {
+	t.Parallel()
 	ctx, s, now := seedFilterStore(t)
 	got, err := s.ListSessions(ctx, SessionFilter{
 		Since: now.Add(-7 * 24 * time.Hour),
@@ -192,6 +203,7 @@ func TestListSessionsLimit(t *testing.T) {
 }
 
 func TestListSessionsLimitZeroReturnsAll(t *testing.T) {
+	t.Parallel()
 	ctx, s, now := seedFilterStore(t)
 	got, err := s.ListSessions(ctx, SessionFilter{
 		Since: now.Add(-7 * 24 * time.Hour),
@@ -203,6 +215,7 @@ func TestListSessionsLimitZeroReturnsAll(t *testing.T) {
 }
 
 func TestListSessionsProjectMatchSpansPathRemoteMarker(t *testing.T) {
+	t.Parallel()
 	ctx, s, now := seedFilterStore(t)
 
 	// Tag one session by remote, another by marker, leaving a third

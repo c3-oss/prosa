@@ -12,6 +12,7 @@ import (
 )
 
 func TestListSessionsWithBoilerplatePromptCoversAllPrefixes(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, err := Open(ctx, filepath.Join(t.TempDir(), "store.db"))
 	require.NoError(t, err)
@@ -53,6 +54,7 @@ func TestListSessionsWithBoilerplatePromptCoversAllPrefixes(t *testing.T) {
 }
 
 func TestListSessionsWithBoilerplatePromptLimitRespected(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, err := Open(ctx, filepath.Join(t.TempDir(), "store.db"))
 	require.NoError(t, err)

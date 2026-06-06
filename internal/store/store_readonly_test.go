@@ -14,6 +14,7 @@ import (
 )
 
 func TestOpenReadOnlyMissingPath(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	missing := filepath.Join(t.TempDir(), "absent.db")
 	_, err := OpenReadOnly(ctx, missing)
@@ -21,6 +22,7 @@ func TestOpenReadOnlyMissingPath(t *testing.T) {
 }
 
 func TestOpenReadOnlyReadsWriterDatabase(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "store.db")
 
@@ -41,6 +43,7 @@ func TestOpenReadOnlyReadsWriterDatabase(t *testing.T) {
 }
 
 func TestOpenReadOnlyConcurrentReaders(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "store.db")
 
@@ -127,6 +130,7 @@ func seedSession(ctx context.Context, s *Store, id, content string) error {
 }
 
 func TestOpenReadOnlyOnlyReturnsConfiguredErrors(t *testing.T) {
+	t.Parallel()
 	require.True(t, errors.Is(ErrStoreNotInitialized, ErrStoreNotInitialized))
 	require.True(t, errors.Is(ErrStoreNeedsMigration, ErrStoreNeedsMigration))
 }

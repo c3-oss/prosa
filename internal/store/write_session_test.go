@@ -14,6 +14,7 @@ import (
 // WriteSession persists the session row, its turns, its tools, and the
 // sync_state hash together. See issue #81.
 func TestWriteSessionPersistsWholeProjection(t *testing.T) {
+	t.Parallel()
 	ctx, s := newStore(t)
 	now := time.Now().UTC().Truncate(time.Second)
 
@@ -50,6 +51,7 @@ func TestWriteSessionPersistsWholeProjection(t *testing.T) {
 // final step (recordSync) to fail by dropping sync_state, then assert the
 // session row and its turns never landed.
 func TestWriteSessionRollsBackOnFailure(t *testing.T) {
+	t.Parallel()
 	ctx, s := newStore(t)
 	now := time.Now().UTC().Truncate(time.Second)
 

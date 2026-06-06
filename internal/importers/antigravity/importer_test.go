@@ -254,6 +254,7 @@ func TestImportAntigravityRespectsOverwrite(t *testing.T) {
 }
 
 func TestWalkAntigravityFindsDB(t *testing.T) {
+	t.Parallel()
 	root := filepath.Join(t.TempDir(), "agy-root")
 	src := makeAntigravityFixture(t, root, 1780421834)
 	require.NoError(t, os.WriteFile(filepath.Join(root, "decoy.txt"), []byte("not a db"), 0o644))
@@ -266,6 +267,7 @@ func TestWalkAntigravityFindsDB(t *testing.T) {
 }
 
 func TestWalkAntigravityMissingRootReturnsEmpty(t *testing.T) {
+	t.Parallel()
 	imp := New()
 	got, err := imp.Walk(context.Background(), filepath.Join(t.TempDir(), "nope"))
 	require.NoError(t, err)
@@ -322,6 +324,7 @@ func TestImportRealAntigravityDB(t *testing.T) {
 // printable trace for confirming or upgrading the token-usage decoder
 // in parse.go::readUsage. Skipped by default so CI stays hermetic.
 func TestDebugGenMetadataSnapshot(t *testing.T) {
+	t.Parallel()
 	path := os.Getenv("PROSA_TEST_ANTIGRAVITY_DB")
 	if path == "" {
 		t.Skip("set PROSA_TEST_ANTIGRAVITY_DB=/path/to/conv.db to enable")

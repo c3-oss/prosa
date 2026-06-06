@@ -209,6 +209,7 @@ func TestImportSmallSession(t *testing.T) {
 }
 
 func TestTruncatePreviewKeepsUTF8Valid(t *testing.T) {
+	t.Parallel()
 	body := strings.Repeat("a", toolPreviewMaxBytes-1) + "é suffix"
 
 	got := truncatePreview(body)
@@ -450,6 +451,7 @@ func TestClaudeModelSkipsSyntheticPlaceholder(t *testing.T) {
 }
 
 func TestWalkFiltersSubagentsAndNonUUID(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	proj := filepath.Join(root, "-Users-test-proj")
 	require.NoError(t, os.MkdirAll(proj, 0o755))
@@ -560,6 +562,7 @@ func TestImportSubagentSetsParentSessionID(t *testing.T) {
 }
 
 func TestWalkMissingRootReturnsEmpty(t *testing.T) {
+	t.Parallel()
 	imp := New()
 	got, err := imp.Walk(context.Background(), filepath.Join(t.TempDir(), "nonexistent"))
 	require.NoError(t, err)
