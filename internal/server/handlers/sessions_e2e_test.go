@@ -95,9 +95,15 @@ func TestSessionsConnectEndToEnd(t *testing.T) {
 			},
 			{
 				Role:    "assistant",
-				Kind:    session.KindMessage,
 				Content: "particles share state across distance",
 				Ts:      timestamppb.New(started.Add(time.Minute)),
+			},
+			{
+				Role:     "tool",
+				Kind:     session.KindToolResult,
+				ToolName: "shell",
+				Content:  "tool output",
+				Ts:       timestamppb.New(started.Add(2 * time.Minute)),
 			},
 		},
 		Tools: []*prosav1.ToolUsage{{Name: "shell", Count: 2}},
@@ -132,7 +138,10 @@ func TestSessionsConnectEndToEnd(t *testing.T) {
 	require.Equal(t, deviceID, getResp.Msg.Session.DeviceId)
 	require.Equal(t, "codex", getResp.Msg.Session.Agent)
 	require.Equal(t, "explain quantum entanglement", getResp.Msg.Session.FirstPrompt)
-	require.Len(t, getResp.Msg.Turns, 2)
+	require.Len(t, getResp.Msg.Turns, 3)
+	require.Equal(t, session.KindMessage, getResp.Msg.Turns[1].Kind)
+	require.Equal(t, session.KindToolResult, getResp.Msg.Turns[2].Kind)
+	require.Equal(t, "shell", getResp.Msg.Turns[2].ToolName)
 	require.Len(t, getResp.Msg.Tools, 1)
 	require.Equal(t, "shell", getResp.Msg.Tools[0].Name)
 

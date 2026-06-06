@@ -305,17 +305,31 @@ func replaceTurns(ctx context.Context, tx pgx.Tx, sessionID string, turns []*pro
 	); err != nil {
 		return fmt.Errorf("clear turns: %w", err)
 	}
+	rows := make([][]any, 0, len(turns))
 	for _, t := range turns {
 		kind := t.Kind
 		if kind == "" {
 			kind = session.KindMessage
 		}
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO turns(session_id, role, content, ts, kind, tool_name)
-			VALUES ($1, $2, $3, $4, $5, $6)
-		`, sessionID, pgText(t.Role), pgText(t.Content), tsToTime(t.Ts), pgText(kind), nullIfEmpty(t.ToolName)); err != nil {
-			return fmt.Errorf("insert turn: %w", err)
-		}
+		rows = append(rows, []any{
+			sessionID,
+			pgText(t.Role),
+			pgText(t.Content),
+			tsToTime(t.Ts),
+			pgText(kind),
+			nullIfEmpty(t.ToolName),
+		})
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+	if _, err := tx.CopyFrom(
+		ctx,
+		pgx.Identifier{"turns"},
+		[]string{"session_id", "role", "content", "ts", "kind", "tool_name"},
+		pgx.CopyFromRows(rows),
+	); err != nil {
+		return fmt.Errorf("copy turns: %w", err)
 	}
 	return nil
 }
