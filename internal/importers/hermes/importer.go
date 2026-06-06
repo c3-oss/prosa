@@ -76,13 +76,13 @@ func (i *Importer) importJSONL(ctx context.Context, path string, sink importer.S
 		Path:  path,
 		Sink:  sink,
 		Opts:  opts,
-		Hash:  hashAndSize,
+		Hash:  importerutil.HashAndSize,
 		PeekID: func(path string) (string, error) {
 			return stripExt(filepath.Base(path)), nil
 		},
 		Parse: parseJSONL,
 		PreserveRaw: func(srcPath, sessionID string, startedAt time.Time) (string, error) {
-			return preserveRaw(srcPath, sessionID, startedAt, ".jsonl")
+			return importerutil.PreserveRaw(Name, sessionID, ".jsonl", startedAt, srcPath)
 		},
 	})
 }
@@ -95,12 +95,12 @@ func (i *Importer) importSnapshot(ctx context.Context, path string, sink importe
 		Path:               path,
 		Sink:               sink,
 		Opts:               opts,
-		Hash:               hashAndSize,
+		Hash:               importerutil.HashAndSize,
 		PeekID:             peekSnapshotID,
 		Parse:              parseSnapshot,
 		UseParsedSessionID: true,
 		PreserveRaw: func(srcPath, sessionID string, startedAt time.Time) (string, error) {
-			return preserveRaw(srcPath, sessionID, startedAt, ".json")
+			return importerutil.PreserveRaw(Name, sessionID, ".json", startedAt, srcPath)
 		},
 	})
 }
@@ -112,7 +112,7 @@ func (i *Importer) importSnapshot(ctx context.Context, path string, sink importe
 // sibling .jsonl/.json transcript are skipped so the dedicated file-
 // shaped Import call wins.
 func (i *Importer) importStateDB(ctx context.Context, path string, sink importer.Sink, opts importer.ImportOptions) (importer.ImportResult, error) {
-	hash, size, err := hashAndSize(path)
+	hash, size, err := importerutil.HashAndSize(path)
 	if err != nil {
 		return importer.ImportResult{}, fmt.Errorf("hash %s: %w", path, err)
 	}
@@ -169,7 +169,7 @@ func (i *Importer) importStateDB(ctx context.Context, path string, sink importer
 		sess.RawHash = hash
 		sess.RawSize = size
 
-		rawPath, err := preserveRaw(path, row.id, sess.StartedAt, ".db")
+		rawPath, err := importerutil.PreserveRaw(Name, row.id, ".db", sess.StartedAt, path)
 		if err != nil {
 			return importer.ImportResult{}, fmt.Errorf("preserve raw %s: %w", path, err)
 		}

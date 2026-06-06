@@ -3,39 +3,18 @@ package codex
 import (
 	"bufio"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
-	"time"
-	"unicode/utf8"
 
+	"github.com/c3-oss/prosa/internal/importers/importerutil"
 	"github.com/c3-oss/prosa/internal/sessiontext"
 	"github.com/c3-oss/prosa/pkg/session"
-)
-
-const (
-	// scanBufferMax matches claudecode — `event_msg.exec_command_end.stdout`
-	// can carry multi-megabyte command output, same buffer pressure as
-	// Claude's tool_result blocks.
-	scanBufferMax = 16 << 20
-
-	scanBufferInitial   = 64 << 10
-	firstPromptMaxRunes = 200
-
-	// toolPreviewMaxBytes / toolPreviewMaxLines cap what we project as a
-	// tool_result Turn. The raw JSONL is always preserved on disk — these
-	// limits only shape the searchable index entry. Constants on purpose:
-	// INTENT says no config knobs without three call sites.
-	toolPreviewMaxBytes = 4096
-	toolPreviewMaxLines = 40
 )
 
 // uuidSuffixRE pulls the session UUID out of a Codex filename suffix
@@ -134,21 +113,6 @@ type tokenUsageJSON struct {
 	CacheReadInputTokens int64 `json:"cache_read_input_tokens"`
 }
 
-func hashAndSize(path string) (string, int64, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", 0, err
-	}
-	defer func() { _ = f.Close() }()
-
-	h := sha256.New()
-	size, err := io.Copy(h, f)
-	if err != nil {
-		return "", 0, err
-	}
-	return hex.EncodeToString(h.Sum(nil)), size, nil
-}
-
 // peekSessionID reads only as many lines as needed to find a session_meta
 // envelope (the canonical id holder). If absent, falls back to parsing
 // the UUID suffix off the filename per docs/sources/codex.md.
@@ -160,7 +124,7 @@ func peekSessionID(path string) (string, error) {
 	defer func() { _ = f.Close() }()
 
 	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, scanBufferInitial), scanBufferMax)
+	sc.Buffer(make([]byte, 0, importerutil.ScanBufferInitial), importerutil.ScanBufferMax)
 	for sc.Scan() {
 		var r rawRecord
 		if err := json.Unmarshal(sc.Bytes(), &r); err != nil {
@@ -196,7 +160,7 @@ func parseSession(ctx context.Context, path string) (session.Session, []session.
 	defer func() { _ = f.Close() }()
 
 	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, scanBufferInitial), scanBufferMax)
+	sc.Buffer(make([]byte, 0, importerutil.ScanBufferInitial), importerutil.ScanBufferMax)
 
 	var (
 		sess           session.Session
@@ -226,7 +190,7 @@ func parseSession(ctx context.Context, path string) (session.Session, []session.
 		}
 
 		if r.Timestamp != "" {
-			if t, ok := parseTimestamp(r.Timestamp); ok {
+			if t, ok := importerutil.ParseRFC3339(r.Timestamp); ok {
 				if sess.StartedAt.IsZero() || t.Before(sess.StartedAt) {
 					sess.StartedAt = t
 				}
@@ -322,10 +286,10 @@ func parseSession(ctx context.Context, path string) (session.Session, []session.
 			}
 			id := legacyCallID(sc.Bytes())
 			name := callIDToName[id]
-			ts, _ := parseTimestamp(r.Timestamp)
+			ts, _ := importerutil.ParseRFC3339(r.Timestamp)
 			turns = append(turns, session.Turn{
 				Role:      "tool",
-				Content:   truncatePreview(text),
+				Content:   importerutil.TruncatePreview(text),
 				Timestamp: ts,
 				Kind:      session.KindToolResult,
 				ToolName:  name,
@@ -420,12 +384,12 @@ func handleResponseItem(
 		switch p.Role {
 		case "user":
 			setFirstPromptIfHuman(sess, firstPromptSet, text)
-			ts, _ := parseTimestamp(timestamp)
+			ts, _ := importerutil.ParseRFC3339(timestamp)
 			*turns = append(*turns, session.Turn{
 				Role: "user", Content: text, Timestamp: ts, Kind: session.KindMessage,
 			})
 		case "assistant":
-			ts, _ := parseTimestamp(timestamp)
+			ts, _ := importerutil.ParseRFC3339(timestamp)
 			*turns = append(*turns, session.Turn{
 				Role: "assistant", Content: text, Timestamp: ts, Kind: session.KindMessage,
 			})
@@ -440,10 +404,10 @@ func handleResponseItem(
 		if text == "" {
 			return
 		}
-		ts, _ := parseTimestamp(timestamp)
+		ts, _ := importerutil.ParseRFC3339(timestamp)
 		*turns = append(*turns, session.Turn{
 			Role:      "assistant",
-			Content:   truncatePreview(text),
+			Content:   importerutil.TruncatePreview(text),
 			Timestamp: ts,
 			Kind:      session.KindThinking,
 		})
@@ -465,10 +429,10 @@ func handleResponseItem(
 		if name == "" && p.CallID != "" {
 			name = callIDToName[p.CallID]
 		}
-		ts, _ := parseTimestamp(timestamp)
+		ts, _ := importerutil.ParseRFC3339(timestamp)
 		*turns = append(*turns, session.Turn{
 			Role:      "tool",
-			Content:   truncatePreview(text),
+			Content:   importerutil.TruncatePreview(text),
 			Timestamp: ts,
 			Kind:      session.KindToolResult,
 			ToolName:  name,
@@ -491,12 +455,12 @@ func handleLegacyMessage(
 	switch role {
 	case "user":
 		setFirstPromptIfHuman(sess, firstPromptSet, text)
-		ts, _ := parseTimestamp(timestamp)
+		ts, _ := importerutil.ParseRFC3339(timestamp)
 		*turns = append(*turns, session.Turn{
 			Role: "user", Content: text, Timestamp: ts, Kind: session.KindMessage,
 		})
 	case "assistant":
-		ts, _ := parseTimestamp(timestamp)
+		ts, _ := importerutil.ParseRFC3339(timestamp)
 		*turns = append(*turns, session.Turn{
 			Role: "assistant", Content: text, Timestamp: ts, Kind: session.KindMessage,
 		})
@@ -511,7 +475,7 @@ func setFirstPromptIfHuman(sess *session.Session, set *bool, text string) {
 	if *set {
 		return
 	}
-	prompt, ok := sessiontext.BuildFirstPrompt(text, firstPromptMaxRunes)
+	prompt, ok := sessiontext.BuildFirstPrompt(text, importerutil.FirstPromptMaxRunes)
 	if !ok {
 		return
 	}
@@ -562,44 +526,6 @@ func legacyCallID(line []byte) string {
 		return ""
 	}
 	return probe.CallID
-}
-
-// truncatePreview caps tool output content at toolPreviewMaxLines /
-// toolPreviewMaxBytes for the searchable Turn, marking truncation with
-// a trailing "…" sentinel. The verbatim raw is always still on disk.
-func truncatePreview(s string) string {
-	if s == "" {
-		return ""
-	}
-	lines := strings.Split(s, "\n")
-	truncated := false
-	if len(lines) > toolPreviewMaxLines {
-		lines = lines[:toolPreviewMaxLines]
-		truncated = true
-	}
-	out := strings.Join(lines, "\n")
-	if len(out) > toolPreviewMaxBytes {
-		out = truncateUTF8(out, toolPreviewMaxBytes)
-		truncated = true
-	}
-	if truncated {
-		out += "\n…"
-	}
-	return out
-}
-
-func truncateUTF8(s string, maxBytes int) string {
-	if maxBytes <= 0 {
-		return ""
-	}
-	if len(s) <= maxBytes {
-		return s
-	}
-	cut := maxBytes
-	for cut > 0 && !utf8.RuneStart(s[cut]) {
-		cut--
-	}
-	return s[:cut]
 }
 
 // extractMessageText returns the joined text for a message's content,
@@ -675,14 +601,4 @@ func extractMessageText(content json.RawMessage, role string) string {
 		}
 	}
 	return strings.Join(parts, "\n")
-}
-
-func parseTimestamp(s string) (time.Time, bool) {
-	if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
-		return t.UTC(), true
-	}
-	if t, err := time.Parse(time.RFC3339, s); err == nil {
-		return t.UTC(), true
-	}
-	return time.Time{}, false
 }

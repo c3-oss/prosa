@@ -3,29 +3,17 @@ package hermes
 import (
 	"bufio"
 	"context"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
-	_ "modernc.org/sqlite" // sqlite driver registered as "sqlite"
-
+	"github.com/c3-oss/prosa/internal/importers/importerutil"
 	"github.com/c3-oss/prosa/internal/sessiontext"
 	"github.com/c3-oss/prosa/pkg/session"
-)
-
-const (
-	// scanBufferMax matches codex — tool outputs can be megabytes.
-	scanBufferMax       = 16 << 20
-	scanBufferInitial   = 64 << 10
-	firstPromptMaxRunes = 200
 )
 
 // hermesMessage is the loose shape carried by JSONL lines, snapshot
@@ -67,21 +55,6 @@ type toolCall struct {
 	Name string `json:"name"`
 }
 
-func hashAndSize(path string) (string, int64, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", 0, err
-	}
-	defer func() { _ = f.Close() }()
-
-	h := sha256.New()
-	size, err := io.Copy(h, f)
-	if err != nil {
-		return "", 0, err
-	}
-	return hex.EncodeToString(h.Sum(nil)), size, nil
-}
-
 // peekSnapshotID returns the session id from a snapshot file: the
 // envelope's session_id when present, otherwise the filename stem with
 // the leading `session_` stripped.
@@ -109,7 +82,7 @@ func parseJSONL(ctx context.Context, path string) (session.Session, []session.Tu
 	defer func() { _ = f.Close() }()
 
 	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, scanBufferInitial), scanBufferMax)
+	sc.Buffer(make([]byte, 0, importerutil.ScanBufferInitial), importerutil.ScanBufferMax)
 
 	var msgs []hermesMessage
 	for sc.Scan() {
@@ -147,8 +120,8 @@ func parseSnapshot(ctx context.Context, path string) (session.Session, []session
 		return session.Session{}, nil, nil, session.UsageStateUnknown, fmt.Errorf("decode snapshot json: %w", err)
 	}
 
-	envStart, _ := parseTimestampString(env.SessionStart)
-	envEnd, _ := parseTimestampString(env.LastUpdated)
+	envStart, _ := importerutil.ParseRFC3339(env.SessionStart)
+	envEnd, _ := importerutil.ParseRFC3339(env.LastUpdated)
 	sess, turns, tools, state := projectMessagesWithDefaults(env.Messages, envStart, envEnd, env.Model)
 	if sess.ID == "" {
 		sess.ID = env.SessionID
@@ -209,7 +182,7 @@ func projectMessagesWithDefaults(msgs []hermesMessage, envStart, envEnd time.Tim
 		switch m.Role {
 		case "user":
 			if !firstPromptSet {
-				if prompt, ok := sessiontext.BuildFirstPrompt(text, firstPromptMaxRunes); ok {
+				if prompt, ok := sessiontext.BuildFirstPrompt(text, importerutil.FirstPromptMaxRunes); ok {
 					sess.FirstPrompt = &prompt
 					firstPromptSet = true
 				}
@@ -295,7 +268,7 @@ func messageTime(raw json.RawMessage) time.Time {
 	}
 	var asString string
 	if err := json.Unmarshal(raw, &asString); err == nil {
-		t, _ := parseTimestampString(asString)
+		t, _ := importerutil.ParseRFC3339(asString)
 		return t
 	}
 	return time.Time{}
@@ -307,32 +280,11 @@ func floatToTime(t float64) time.Time {
 	return time.Unix(sec, nsec).UTC()
 }
 
-func parseTimestampString(s string) (time.Time, bool) {
-	if s == "" {
-		return time.Time{}, false
-	}
-	if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
-		return t.UTC(), true
-	}
-	if t, err := time.Parse(time.RFC3339, s); err == nil {
-		return t.UTC(), true
-	}
-	return time.Time{}, false
-}
-
-// openReadOnly opens the SQLite file with `mode=ro&immutable=1`. Same
-// DSN form cursor uses — modernc.org/sqlite needs both flags to skip
-// WAL/SHM probing.
-func openReadOnly(path string) (*sql.DB, error) {
-	dsn := "file:" + url.PathEscape(path) + "?mode=ro&immutable=1"
-	return sql.Open("sqlite", dsn)
-}
-
 // readStateDBSessions returns one row per Hermes session, ordered by
 // started_at ascending. Timestamp columns can be REAL or TEXT in the
 // wild so both are queried.
 func readStateDBSessions(ctx context.Context, path string) ([]stateDBRow, error) {
-	db, err := openReadOnly(path)
+	db, err := importerutil.OpenSQLiteReadOnly(path)
 	if err != nil {
 		return nil, err
 	}
@@ -381,7 +333,7 @@ func readStateDBSessions(ctx context.Context, path string) ([]stateDBRow, error)
 // and projects it through the shared message projection. Envelope-level
 // defaults come from the session row's started_at and model columns.
 func projectStateDBSession(ctx context.Context, path string, row stateDBRow) (session.Session, []session.Turn, []session.ToolUsage, session.UsageState, error) {
-	db, err := openReadOnly(path)
+	db, err := importerutil.OpenSQLiteReadOnly(path)
 	if err != nil {
 		return session.Session{}, nil, nil, session.UsageStateUnknown, err
 	}
@@ -456,7 +408,7 @@ func projectStateDBSession(ctx context.Context, path string, row stateDBRow) (se
 	if row.startedAt.Valid {
 		envStart = floatToTime(row.startedAt.Float64)
 	} else if row.startedAtStr.Valid {
-		envStart, _ = parseTimestampString(row.startedAtStr.String)
+		envStart, _ = importerutil.ParseRFC3339(row.startedAtStr.String)
 	}
 	envModel := ""
 	if row.model.Valid {
@@ -538,7 +490,7 @@ func countJSONLLines(path string) (int, bool) {
 	}
 	defer func() { _ = f.Close() }()
 	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, scanBufferInitial), scanBufferMax)
+	sc.Buffer(make([]byte, 0, importerutil.ScanBufferInitial), importerutil.ScanBufferMax)
 	n := 0
 	for sc.Scan() {
 		if len(strings.TrimSpace(sc.Text())) > 0 {

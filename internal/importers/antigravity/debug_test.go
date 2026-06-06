@@ -68,7 +68,7 @@ func TestDebugGenMetadataSnapshot(t *testing.T) {
 	if path == "" {
 		t.Skip("set PROSA_TEST_ANTIGRAVITY_DB=/path/to/conv.db to enable")
 	}
-	db, err := openReadOnly(path)
+	db, err := importerutil.OpenSQLiteReadOnly(path)
 	require.NoError(t, err)
 	defer func() { _ = db.Close() }()
 

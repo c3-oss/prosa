@@ -2,21 +2,16 @@ package gemini
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
+	"github.com/c3-oss/prosa/internal/importers/importerutil"
 	"github.com/c3-oss/prosa/internal/sessiontext"
 	"github.com/c3-oss/prosa/pkg/session"
 )
-
-const firstPromptMaxRunes = 200
 
 // envelope is the legacy session-*.json shape.
 type envelope struct {
@@ -52,21 +47,6 @@ type geminiTokens struct {
 	Thought int64 `json:"thoughts"`
 	Tool    int64 `json:"tool"`
 	Total   int64 `json:"total"`
-}
-
-func hashAndSize(path string) (string, int64, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", 0, err
-	}
-	defer func() { _ = f.Close() }()
-
-	h := sha256.New()
-	size, err := io.Copy(h, f)
-	if err != nil {
-		return "", 0, err
-	}
-	return hex.EncodeToString(h.Sum(nil)), size, nil
 }
 
 // peekSessionID inspects the top-level JSON to find a sessionId without
@@ -139,10 +119,10 @@ func readArrayFirstSessionID(data []byte) (string, bool) {
 func projectEnvelope(ctx context.Context, env envelope) (session.Session, []session.Turn, []session.ToolUsage, session.UsageState, error) {
 	var sess session.Session
 	sess.ID = env.SessionID
-	if t, ok := parseTimestamp(env.StartTime); ok {
+	if t, ok := importerutil.ParseRFC3339(env.StartTime); ok {
 		sess.StartedAt = t
 	}
-	if t, ok := parseTimestamp(env.LastUpdated); ok {
+	if t, ok := importerutil.ParseRFC3339(env.LastUpdated); ok {
 		sess.LastActivityAt = t
 	}
 
@@ -168,7 +148,7 @@ func projectEnvelope(ctx context.Context, env envelope) (session.Session, []sess
 		if m.Type == "gemini" && collectGeminiUsage(m, i, usageSeen, &usage) {
 			usageSet = true
 		}
-		ts, _ := parseTimestamp(m.Timestamp)
+		ts, _ := importerutil.ParseRFC3339(m.Timestamp)
 		if sess.StartedAt.IsZero() && !ts.IsZero() {
 			sess.StartedAt = ts
 		}
@@ -192,7 +172,7 @@ func projectEnvelope(ctx context.Context, env envelope) (session.Session, []sess
 			continue
 		}
 		if role == "user" && !firstPromptSet {
-			if prompt, ok := sessiontext.BuildFirstPrompt(text, firstPromptMaxRunes); ok {
+			if prompt, ok := sessiontext.BuildFirstPrompt(text, importerutil.FirstPromptMaxRunes); ok {
 				sess.FirstPrompt = &prompt
 				firstPromptSet = true
 			}
@@ -260,7 +240,7 @@ func projectLiveArray(ctx context.Context, rows []message) (session.Session, []s
 		if m.Type == "gemini" && collectGeminiUsage(m, i, usageSeen, &usage) {
 			usageSet = true
 		}
-		ts, _ := parseTimestamp(m.Timestamp)
+		ts, _ := importerutil.ParseRFC3339(m.Timestamp)
 		if sess.StartedAt.IsZero() || ts.Before(sess.StartedAt) {
 			if !ts.IsZero() {
 				sess.StartedAt = ts
@@ -282,7 +262,7 @@ func projectLiveArray(ctx context.Context, rows []message) (session.Session, []s
 			continue
 		}
 		if role == "user" && !firstPromptSet {
-			if prompt, ok := sessiontext.BuildFirstPrompt(text, firstPromptMaxRunes); ok {
+			if prompt, ok := sessiontext.BuildFirstPrompt(text, importerutil.FirstPromptMaxRunes); ok {
 				sess.FirstPrompt = &prompt
 				firstPromptSet = true
 			}
@@ -362,17 +342,4 @@ func extractText(content json.RawMessage) string {
 		}
 	}
 	return strings.Join(parts, "\n")
-}
-
-func parseTimestamp(s string) (time.Time, bool) {
-	if s == "" {
-		return time.Time{}, false
-	}
-	if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
-		return t.UTC(), true
-	}
-	if t, err := time.Parse(time.RFC3339, s); err == nil {
-		return t.UTC(), true
-	}
-	return time.Time{}, false
 }

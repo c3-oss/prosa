@@ -3,47 +3,17 @@ package claudecode
 import (
 	"bufio"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
-	"unicode/utf8"
 
+	"github.com/c3-oss/prosa/internal/importers/importerutil"
 	"github.com/c3-oss/prosa/internal/sessiontext"
 	"github.com/c3-oss/prosa/pkg/session"
-)
-
-const (
-	// scanBufferMax bounds the largest JSONL line bufio.Scanner accepts.
-	// Real Claude Code sessions carry tool_result bodies over 4 MiB; we
-	// raise the ceiling to 16 MiB. Lines past this threshold log a warning
-	// and the importer continues with partial session data — most
-	// metadata-bearing records (sessionId, cwd, first user prompt, model)
-	// arrive in the first few lines of the file.
-	scanBufferMax = 16 << 20
-
-	// scanBufferInitial is the starting buffer size; bufio.Scanner grows
-	// as needed up to scanBufferMax.
-	scanBufferInitial = 64 << 10
-
-	// firstPromptMaxRunes is the truncation limit for the first user
-	// prompt projected onto Session.FirstPrompt; balances timeline
-	// readability against information density.
-	firstPromptMaxRunes = 200
-
-	// toolPreviewMaxBytes / toolPreviewMaxLines cap what we project as a
-	// tool_result Turn for the searchable index. Raw JSONL stays
-	// verbatim on disk. Constants on purpose: INTENT says no config
-	// knobs without three call sites.
-	toolPreviewMaxBytes = 4096
-	toolPreviewMaxLines = 40
 )
 
 type rawRecord struct {
@@ -89,21 +59,6 @@ type claudeCacheCreationUsage struct {
 	Ephemeral1hInputTokens int64 `json:"ephemeral_1h_input_tokens"`
 }
 
-func hashAndSize(path string) (string, int64, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", 0, err
-	}
-	defer f.Close()
-
-	h := sha256.New()
-	size, err := io.Copy(h, f)
-	if err != nil {
-		return "", 0, err
-	}
-	return hex.EncodeToString(h.Sum(nil)), size, nil
-}
-
 // peekSessionID reads only as many lines as needed to find the first
 // sessionId field, then returns. Falls back to the filename (sans .jsonl)
 // if no record carries one.
@@ -115,7 +70,7 @@ func peekSessionID(path string) (string, error) {
 	defer f.Close()
 
 	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, scanBufferInitial), scanBufferMax)
+	sc.Buffer(make([]byte, 0, importerutil.ScanBufferInitial), importerutil.ScanBufferMax)
 	for sc.Scan() {
 		var r rawRecord
 		if err := json.Unmarshal(sc.Bytes(), &r); err != nil {
@@ -144,7 +99,7 @@ func parseSession(ctx context.Context, path string) (session.Session, []session.
 	defer f.Close()
 
 	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, scanBufferInitial), scanBufferMax)
+	sc.Buffer(make([]byte, 0, importerutil.ScanBufferInitial), importerutil.ScanBufferMax)
 
 	var (
 		sess            session.Session
@@ -182,7 +137,7 @@ func parseSession(ctx context.Context, path string) (session.Session, []session.
 			cwdSet = true
 		}
 		if r.Timestamp != "" {
-			if t, ok := parseTimestamp(r.Timestamp); ok {
+			if t, ok := importerutil.ParseRFC3339(r.Timestamp); ok {
 				if sess.StartedAt.IsZero() || t.Before(sess.StartedAt) {
 					sess.StartedAt = t
 				}
@@ -197,7 +152,7 @@ func parseSession(ctx context.Context, path string) (session.Session, []session.
 			if r.IsMeta {
 				continue
 			}
-			ts, _ := parseTimestamp(r.Timestamp)
+			ts, _ := importerutil.ParseRFC3339(r.Timestamp)
 			content := extractUserText(r.Message)
 			if content != "" {
 				setFirstPromptIfHuman(&sess, &firstPromptSet, content)
@@ -215,7 +170,7 @@ func parseSession(ctx context.Context, path string) (session.Session, []session.
 			for _, tr := range extractToolResults(r.Message, toolUseIDToName) {
 				turns = append(turns, session.Turn{
 					Role:      "tool",
-					Content:   truncatePreview(tr.text),
+					Content:   importerutil.TruncatePreview(tr.text),
 					Timestamp: ts,
 					Kind:      session.KindToolResult,
 					ToolName:  tr.toolName,
@@ -226,7 +181,7 @@ func parseSession(ctx context.Context, path string) (session.Session, []session.
 			collectUsage(r, line, usageByKey)
 			text := extractAssistantText(r.Message)
 			if text != "" {
-				ts, _ := parseTimestamp(r.Timestamp)
+				ts, _ := importerutil.ParseRFC3339(r.Timestamp)
 				turns = append(turns, session.Turn{
 					Role:      "assistant",
 					Content:   text,
@@ -235,10 +190,10 @@ func parseSession(ctx context.Context, path string) (session.Session, []session.
 				})
 			}
 			for _, thinking := range extractAssistantThinking(r.Message) {
-				ts, _ := parseTimestamp(r.Timestamp)
+				ts, _ := importerutil.ParseRFC3339(r.Timestamp)
 				turns = append(turns, session.Turn{
 					Role:      "assistant",
-					Content:   truncatePreview(thinking),
+					Content:   importerutil.TruncatePreview(thinking),
 					Timestamp: ts,
 					Kind:      session.KindThinking,
 				})
@@ -341,16 +296,6 @@ func (u claudeUsage) cacheCreationTokens() int64 {
 		return u.CacheCreationInputTokens
 	}
 	return u.CacheCreation.Ephemeral5mInputTokens + u.CacheCreation.Ephemeral1hInputTokens
-}
-
-func parseTimestamp(s string) (time.Time, bool) {
-	if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
-		return t.UTC(), true
-	}
-	if t, err := time.Parse(time.RFC3339, s); err == nil {
-		return t.UTC(), true
-	}
-	return time.Time{}, false
 }
 
 // extractUserText returns the user's textual prompt — either the raw
@@ -544,48 +489,10 @@ func setFirstPromptIfHuman(sess *session.Session, set *bool, text string) {
 	if *set {
 		return
 	}
-	prompt, ok := sessiontext.BuildFirstPrompt(text, firstPromptMaxRunes)
+	prompt, ok := sessiontext.BuildFirstPrompt(text, importerutil.FirstPromptMaxRunes)
 	if !ok {
 		return
 	}
 	sess.FirstPrompt = &prompt
 	*set = true
-}
-
-// truncatePreview caps a tool_result body for the searchable Turn.
-// Raw JSONL is always still on disk; this only shapes the FTS index
-// entry and the timeline-side previews.
-func truncatePreview(s string) string {
-	if s == "" {
-		return ""
-	}
-	lines := strings.Split(s, "\n")
-	truncated := false
-	if len(lines) > toolPreviewMaxLines {
-		lines = lines[:toolPreviewMaxLines]
-		truncated = true
-	}
-	out := strings.Join(lines, "\n")
-	if len(out) > toolPreviewMaxBytes {
-		out = truncateUTF8(out, toolPreviewMaxBytes)
-		truncated = true
-	}
-	if truncated {
-		out += "\n…"
-	}
-	return out
-}
-
-func truncateUTF8(s string, maxBytes int) string {
-	if maxBytes <= 0 {
-		return ""
-	}
-	if len(s) <= maxBytes {
-		return s
-	}
-	cut := maxBytes
-	for cut > 0 && !utf8.RuneStart(s[cut]) {
-		cut--
-	}
-	return s[:cut]
 }

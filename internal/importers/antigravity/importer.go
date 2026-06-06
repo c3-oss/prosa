@@ -13,6 +13,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/c3-oss/prosa/internal/importers/importerutil"
 	"github.com/c3-oss/prosa/pkg/importer"
@@ -42,14 +43,16 @@ func (i *Importer) DefaultRoots() []string {
 // parse → classify usage → preserve raw → projectid.Apply → sink writes.
 func (i *Importer) Import(ctx context.Context, dbPath string, sink importer.Sink, opts importer.ImportOptions) (importer.ImportResult, error) {
 	return importerutil.RunSingleFile(ctx, importerutil.SingleFileConfig{
-		Agent:              Name,
-		Path:               dbPath,
-		Sink:               sink,
-		Opts:               opts,
-		Hash:               hashAndSize,
-		PeekID:             peekSessionID,
-		Parse:              parseSession,
-		PreserveRaw:        preserveRaw,
+		Agent:  Name,
+		Path:   dbPath,
+		Sink:   sink,
+		Opts:   opts,
+		Hash:   importerutil.HashAndSize,
+		PeekID: peekSessionID,
+		Parse:  parseSession,
+		PreserveRaw: func(srcPath, sessionID string, startedAt time.Time) (string, error) {
+			return importerutil.PreserveRaw(Name, sessionID, ".db", startedAt, srcPath)
+		},
 		UseParsedSessionID: true,
 	})
 }
