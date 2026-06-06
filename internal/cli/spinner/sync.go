@@ -6,7 +6,7 @@
 //   - One found-summary line when available.
 //   - Two checklist rows (local import + optional remote catch-up).
 //   - One "current" line for the active phase.
-//   - Up to 5 persistent error blocks (rolling LRU).
+//   - Up to 5 persistent error blocks (rolling, preserving agent variety).
 //
 // View() runs in O(K) where K = visible error slots — independent of N.
 //
@@ -111,6 +111,7 @@ type model struct {
 	active      *Item
 	activePhase Phase
 	errs        []errLine
+	errHidden   int
 	spin        spinner.Model
 	ch          <-chan Update
 	opts        Options
@@ -230,15 +231,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			ps.errCount++
 			if v.Phase == PhaseLocal && v.Index >= 0 && v.Index < len(m.items) {
 				it := m.items[v.Index]
-				m.errs = append(m.errs, errLine{agent: it.Agent, path: it.Path, msg: v.Err.Error()})
-				if len(m.errs) > maxErrorSlots {
-					m.errs = m.errs[len(m.errs)-maxErrorSlots:]
-				}
+				m.recordError(errLine{agent: it.Agent, path: it.Path, msg: v.Err.Error()})
 			} else if v.Active != nil {
-				m.errs = append(m.errs, errLine{agent: v.Active.Agent, path: v.Active.Path, msg: v.Err.Error()})
-				if len(m.errs) > maxErrorSlots {
-					m.errs = m.errs[len(m.errs)-maxErrorSlots:]
-				}
+				m.recordError(errLine{agent: v.Active.Agent, path: v.Active.Path, msg: v.Err.Error()})
 			}
 		case v.Skipped:
 			ps.skipped++
@@ -266,6 +261,29 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// goroutine per keystroke. TestSpinnerKeepsConsumingAfterKeyPress guards
 	// that updates keep flowing across keystrokes.
 	return m, nil
+}
+
+func (m *model) recordError(line errLine) {
+	m.errs = append(m.errs, line)
+	for len(m.errs) > maxErrorSlots {
+		m.evictError()
+	}
+}
+
+func (m *model) evictError() {
+	counts := make(map[string]int, len(m.errs))
+	for _, e := range m.errs {
+		counts[e.agent]++
+	}
+	drop := 0
+	for i, e := range m.errs {
+		if counts[e.agent] > 1 {
+			drop = i
+			break
+		}
+	}
+	m.errs = append(m.errs[:drop], m.errs[drop+1:]...)
+	m.errHidden++
 }
 
 func (ps phaseState) finishedCount() int {
@@ -327,6 +345,9 @@ func (m model) View() string {
 		b.WriteString("\n")
 		b.WriteString(styleErr.Render("errors"))
 		b.WriteString("\n")
+	}
+	if m.errHidden > 0 {
+		fmt.Fprintf(&b, "  %s\n", styleBanner.Render(fmt.Sprintf("+%d earlier errors hidden", m.errHidden)))
 	}
 	for _, e := range m.errs {
 		fmt.Fprintf(
