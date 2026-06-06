@@ -14,10 +14,10 @@ import (
 
 	prosav1 "github.com/c3-oss/prosa/gen/go/prosa/v1"
 	"github.com/c3-oss/prosa/gen/go/prosa/v1/prosav1connect"
+	"github.com/c3-oss/prosa/internal/httpserver"
 	"github.com/c3-oss/prosa/internal/server/auth"
 	"github.com/c3-oss/prosa/internal/server/handlers"
 	"github.com/c3-oss/prosa/internal/server/storage"
-	"github.com/c3-oss/prosa/pkg/httpserver"
 )
 
 // maxRequestBytes bounds the decoded size of any Connect request. 64 MiB
