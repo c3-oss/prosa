@@ -23,12 +23,22 @@ func (s *Store) InsertTurns(ctx context.Context, sessionID string, turns []sessi
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	if err := insertTurnsTx(ctx, tx, sessionID, turns); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// insertTurnsTx replaces the turn set for a session inside an existing
+// transaction. InsertTurns wraps it in its own tx; WriteSession reuses it
+// so the session row, turns, and sync_state all commit together.
+func insertTurnsTx(ctx context.Context, tx *sql.Tx, sessionID string, turns []session.Turn) error {
 	if _, err := tx.ExecContext(ctx, `DELETE FROM turns WHERE session_id = ?`, sessionID); err != nil {
 		return fmt.Errorf("delete prior turns for %s: %w", sessionID, err)
 	}
 
 	if len(turns) == 0 {
-		return tx.Commit()
+		return nil
 	}
 
 	stmt, err := tx.PrepareContext(
@@ -56,7 +66,7 @@ func (s *Store) InsertTurns(ctx context.Context, sessionID string, turns []sessi
 		}
 	}
 
-	return tx.Commit()
+	return nil
 }
 
 // GetTurns returns every turn for sessionID in insertion (ts) order.
