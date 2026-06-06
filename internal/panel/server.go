@@ -84,7 +84,7 @@ func loadViews() (map[string]*template.Template, error) {
 func (p *Panel) Serve(ctx context.Context) error {
 	srv := &http.Server{
 		Addr:    p.cfg.ListenAddr,
-		Handler: p.mux,
+		Handler: p.securityHeaders(p.mux),
 	}
 	slog.Info("prosa-panel listening",
 		"addr", p.cfg.ListenAddr, "server", p.cfg.ServerURL,
