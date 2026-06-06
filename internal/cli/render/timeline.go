@@ -12,7 +12,6 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/c3-oss/prosa/internal/projectlabel"
 	"github.com/c3-oss/prosa/pkg/session"
 )
 
@@ -111,7 +110,7 @@ func renderSessionTTY(w io.Writer, item TimelineItem, now time.Time, opts Timeli
 	agent := padTrunc(agentLabel(s.Agent), widths.agent)
 	project := ""
 	if opts.Slots.Project {
-		project = padTrunc(projectlabel.Label(s), widths.project)
+		project = padTrunc(projectLabel(s), widths.project)
 	}
 
 	first := ""
@@ -312,13 +311,4 @@ func agentLabel(agent string) string {
 		return "claude"
 	}
 	return agent
-}
-
-// projectLabel is the legacy alias kept for in-package callers
-// (cardinality.go, search.go renderer) — they all delegate to the
-// shared internal/projectlabel package. The local function is the
-// migration seam: a single source of truth for "what string do we
-// show in the project column?".
-func projectLabel(s session.Session) string {
-	return projectlabel.Label(s)
 }
