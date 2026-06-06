@@ -8,6 +8,17 @@ import (
 	"path/filepath"
 )
 
+// UserHome returns the current user's home directory. Keep direct
+// os.UserHomeDir calls inside this package so tests and future overrides
+// have one place to hook agent and OS-user paths.
+func UserHome() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve home: %w", err)
+	}
+	return home, nil
+}
+
 // Home returns the prosa data root. Resolution order:
 //  1. $PROSA_HOME if set (escape hatch for tests and exotic installs).
 //  2. $XDG_DATA_HOME/prosa  (or $HOME/.local/share/prosa if XDG_DATA_HOME is unset).
@@ -21,9 +32,9 @@ func Home() (string, error) {
 	if v := os.Getenv("XDG_DATA_HOME"); v != "" {
 		return filepath.Join(v, "prosa"), nil
 	}
-	home, err := os.UserHomeDir()
+	home, err := UserHome()
 	if err != nil {
-		return "", fmt.Errorf("resolve home: %w", err)
+		return "", err
 	}
 	return filepath.Join(home, ".local", "share", "prosa"), nil
 }
@@ -61,9 +72,9 @@ func ConfigHome() (string, error) {
 	if v := os.Getenv("XDG_CONFIG_HOME"); v != "" {
 		return filepath.Join(v, "prosa"), nil
 	}
-	home, err := os.UserHomeDir()
+	home, err := UserHome()
 	if err != nil {
-		return "", fmt.Errorf("resolve home: %w", err)
+		return "", err
 	}
 	return filepath.Join(home, ".config", "prosa"), nil
 }

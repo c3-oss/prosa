@@ -7,11 +7,11 @@ package cursor
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/c3-oss/prosa/internal/importers/importerutil"
+	"github.com/c3-oss/prosa/internal/paths"
 	"github.com/c3-oss/prosa/pkg/importer"
 )
 
@@ -27,7 +27,7 @@ func New() *Importer { return &Importer{} }
 func (i *Importer) Name() string { return Name }
 
 func (i *Importer) DefaultRoots() []string {
-	home, err := os.UserHomeDir()
+	home, err := paths.UserHome()
 	if err != nil {
 		return nil
 	}
