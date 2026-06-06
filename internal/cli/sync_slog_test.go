@@ -23,11 +23,12 @@ func TestWarningCounterHandlerCountsWarningsOnly(t *testing.T) {
 func TestSyncSummaryTTYShowsSuppressedWarnings(t *testing.T) {
 	counts := &syncCounts{suppressedWarnings: 2}
 
-	out := captureStdout(t, counts.printSummaryTTY)
+	stdout, stderr := captureStdoutStderr(t, counts.printSummaryTTY)
 
-	require.Contains(t, out, "Warnings")
-	require.Contains(t, out, "2 diagnostic logs suppressed in TTY")
-	require.Contains(t, out, "--verbose")
+	require.Empty(t, stdout)
+	require.Contains(t, stderr, "Warnings")
+	require.Contains(t, stderr, "2 diagnostic logs suppressed in TTY")
+	require.Contains(t, stderr, "--verbose")
 }
 
 func TestSuppressedWarningsTextSingular(t *testing.T) {

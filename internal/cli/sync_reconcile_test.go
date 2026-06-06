@@ -553,13 +553,14 @@ func TestSyncSummaryRendersFriendlyRemoteUnavailableMessage(t *testing.T) {
 		remoteServer:      "http://localhost:7070",
 	}
 
-	out := captureStdout(t, counts.printSummary)
+	stdout, stderr := captureStdoutStderr(t, counts.printSummary)
 
-	require.Contains(t, out, "Remote:   server unavailable at http://localhost:7070")
-	require.Contains(t, out, "local import is saved")
-	require.NotContains(t, out, "manifest rpc")
-	require.NotContains(t, out, "connection refused")
-	require.NotContains(t, out, "reconcile failed")
+	require.Empty(t, stdout)
+	require.Contains(t, stderr, "Remote:   server unavailable at http://localhost:7070")
+	require.Contains(t, stderr, "local import is saved")
+	require.NotContains(t, stderr, "manifest rpc")
+	require.NotContains(t, stderr, "connection refused")
+	require.NotContains(t, stderr, "reconcile failed")
 }
 
 func TestReconcileProgressCallback(t *testing.T) {
@@ -593,21 +594,36 @@ func TestReconcileProgressCallback(t *testing.T) {
 	}, steps)
 }
 
-func captureStdout(t *testing.T, fn func()) string {
+func captureStdoutStderr(t *testing.T, fn func()) (string, string) {
 	t.Helper()
-	orig := os.Stdout
-	r, w, err := os.Pipe()
+	origOut, origErr := os.Stdout, os.Stderr
+	outR, outW, err := os.Pipe()
 	require.NoError(t, err)
-	os.Stdout = w
-	t.Cleanup(func() { os.Stdout = orig })
+	errR, errW, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = outW
+	os.Stderr = errW
+	t.Cleanup(func() {
+		os.Stdout = origOut
+		os.Stderr = origErr
+	})
 
 	fn()
-	require.NoError(t, w.Close())
-	os.Stdout = orig
+	require.NoError(t, outW.Close())
+	require.NoError(t, errW.Close())
+	os.Stdout = origOut
+	os.Stderr = origErr
 
-	var buf bytes.Buffer
-	_, err = buf.ReadFrom(r)
+	var outBuf, errBuf bytes.Buffer
+	_, err = outBuf.ReadFrom(outR)
 	require.NoError(t, err)
-	require.NoError(t, r.Close())
-	return strings.ReplaceAll(buf.String(), "\r\n", "\n")
+	_, err = errBuf.ReadFrom(errR)
+	require.NoError(t, err)
+	require.NoError(t, outR.Close())
+	require.NoError(t, errR.Close())
+	return normalizeNewlines(outBuf.String()), normalizeNewlines(errBuf.String())
+}
+
+func normalizeNewlines(s string) string {
+	return strings.ReplaceAll(s, "\r\n", "\n")
 }

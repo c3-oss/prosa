@@ -182,7 +182,7 @@ func runSync(cmd *cobra.Command, _ []string) error {
 			emitSyncJSONSummary(os.Stdout, &syncCounts{})
 			return nil
 		}
-		fmt.Fprintln(os.Stdout, "No sessions found.")
+		fmt.Fprintln(os.Stderr, "No sessions found.")
 		return nil
 	}
 
