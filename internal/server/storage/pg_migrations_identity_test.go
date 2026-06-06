@@ -65,6 +65,17 @@ func TestServerMigrationUpDownUpIdentity(t *testing.T) {
 	}
 }
 
+func TestServerUsageSortIndexMigration(t *testing.T) {
+	up, err := fs.ReadFile(migrations.FS, "0010_session_usage_total_tokens_index.up.sql")
+	require.NoError(t, err)
+	require.Contains(t, string(up), "CREATE INDEX session_usage_total_tokens_idx")
+	require.Contains(t, string(up), "session_usage(total_tokens DESC, session_id)")
+
+	down, err := fs.ReadFile(migrations.FS, "0010_session_usage_total_tokens_index.down.sql")
+	require.NoError(t, err)
+	require.Contains(t, string(down), "DROP INDEX IF EXISTS session_usage_total_tokens_idx")
+}
+
 type pgMigrationPair struct {
 	version int
 	up      string
