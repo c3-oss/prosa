@@ -215,3 +215,30 @@ func TestAnalyticsErrors(t *testing.T) {
 	}
 	require.Contains(t, ids, "d")
 }
+
+func TestValidAnalyticsReportsIncludesNewReports(t *testing.T) {
+	for _, name := range []string{"hours", "usage_by_model", "errors_by_model"} {
+		require.Contains(t, validAnalyticsReports, name)
+	}
+}
+
+// TestDispatchAnalyticsRoutesNewReports exercises the CLI's report dispatch
+// for the three new reports — the wiring is the CLI's job; the SQL itself is
+// covered by internal/store/analytics_test.go.
+func TestDispatchAnalyticsRoutesNewReports(t *testing.T) {
+	ctx, s, now := newAnalyticsStore(t)
+	for _, tc := range []struct {
+		report  string
+		headers []string
+	}{
+		{"hours", []string{"HOUR", "SESSIONS"}},
+		{"usage_by_model", []string{"MODEL", "SESSIONS", "TOTAL", "INPUT", "OUTPUT", "EST_COST_USD"}},
+		{"errors_by_model", []string{"MODEL", "SESSIONS"}},
+	} {
+		t.Run(tc.report, func(t *testing.T) {
+			r, err := dispatchAnalytics(ctx, s, tc.report, filter(now))
+			require.NoError(t, err)
+			require.Equal(t, tc.headers, r.Headers)
+		})
+	}
+}

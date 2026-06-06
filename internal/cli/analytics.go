@@ -21,7 +21,7 @@ import (
 	"github.com/c3-oss/prosa/internal/store"
 )
 
-var validAnalyticsReports = []string{"sessions", "tools", "models", "projects", "errors", "heatmap", "usage"}
+var validAnalyticsReports = []string{"sessions", "tools", "models", "projects", "errors", "heatmap", "usage", "hours", "usage_by_model", "errors_by_model"}
 
 func newAnalyticsCmd() *cobra.Command {
 	return &cobra.Command{
@@ -38,7 +38,10 @@ func newAnalyticsCmd() *cobra.Command {
 			"  usage     — token totals and estimated USD cost by agent\n" +
 			"  errors    — sessions whose assistant turns match common error\n" +
 			"              signals via FTS5: 'error OR exception OR traceback OR panic OR fatal'\n" +
-			"              (heuristic; matches the words in any context).\n\n" +
+			"              (heuristic; matches the words in any context).\n" +
+			"  hours           — sessions per UTC hour of day (00-23)\n" +
+			"  usage_by_model  — token totals and estimated USD cost by model\n" +
+			"  errors_by_model — flagged sessions by model (same FTS heuristic as errors)\n\n" +
 			"All reports honor the global filter flags (--last / --project / --agent /\n" +
 			"--device) and emit NDJSON with --json. Exception: heatmap has a fixed\n" +
 			"trailing-year window and does not accept --last / --since / --between.\n\n" +
@@ -143,6 +146,12 @@ func dispatchAnalytics(ctx context.Context, s *store.Store, report string, f sto
 		return s.AnalyticsHeatmap(ctx, f)
 	case "usage":
 		return s.AnalyticsUsage(ctx, f)
+	case "hours":
+		return s.AnalyticsHours(ctx, f)
+	case "usage_by_model":
+		return s.AnalyticsUsageByModel(ctx, f)
+	case "errors_by_model":
+		return s.AnalyticsErrorsByModel(ctx, f)
 	default:
 		return store.AnalyticsResult{}, fmt.Errorf("unknown report: %s", report)
 	}
