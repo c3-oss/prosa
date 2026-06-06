@@ -115,6 +115,10 @@ message PushRequest {
 }
 
 message PushChunkRequest {
+  // session must accompany every chunk: it keys the server-side staging
+  // file and drives the idempotency check. turns and tools are only read
+  // on the final chunk (they are committed with the reconstructed raw);
+  // senders may omit them on non-final chunks.
   Session session = 1;
   repeated Turn turns = 2;
   repeated ToolUsage tools = 3;

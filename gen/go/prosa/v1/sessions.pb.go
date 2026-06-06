@@ -475,10 +475,14 @@ func (x *PushRequest) GetRaw() []byte {
 }
 
 type PushChunkRequest struct {
-	state   protoimpl.MessageState `protogen:"open.v1"`
-	Session *Session               `protobuf:"bytes,1,opt,name=session,proto3" json:"session,omitempty"`
-	Turns   []*Turn                `protobuf:"bytes,2,rep,name=turns,proto3" json:"turns,omitempty"`
-	Tools   []*ToolUsage           `protobuf:"bytes,3,rep,name=tools,proto3" json:"tools,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// session must accompany every chunk: it keys the server-side staging
+	// file and drives the idempotency check. turns and tools are only read
+	// on the final chunk (they are committed with the reconstructed raw);
+	// senders may omit them on non-final chunks.
+	Session *Session     `protobuf:"bytes,1,opt,name=session,proto3" json:"session,omitempty"`
+	Turns   []*Turn      `protobuf:"bytes,2,rep,name=turns,proto3" json:"turns,omitempty"`
+	Tools   []*ToolUsage `protobuf:"bytes,3,rep,name=tools,proto3" json:"tools,omitempty"`
 	// offset is the starting byte position of raw_chunk in the complete
 	// raw transcript. The server rejects gaps, overlaps, and out-of-order
 	// chunks so retries cannot silently corrupt the reconstructed file.
