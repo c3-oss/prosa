@@ -212,8 +212,9 @@ prosa --since 2026-05-30
 # all my SQLite work, regardless of device
 prosa search "sqlite" --remote --last 90d
 
-# everything I did on mz-iac with codex
-prosa --all --project mz-iac --agent codex
+# everything I did on mz-iac with codex (--project scopes; --all is for the
+# opposite case: ignore the cwd auto-filter and show every project)
+prosa --project mz-iac --agent codex
 
 # pipe to jq
 prosa --last 30d --json | jq '[.[] | {agent, project, started_at}]'
