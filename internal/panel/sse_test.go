@@ -31,6 +31,16 @@ func (s *signalWriter) Flush() {
 	}
 }
 
+// The SSE proxy client bounds only the response-header wait, never the
+// stream body: a ResponseHeaderTimeout but no overall client Timeout. See
+// issue #133.
+func TestSSEProxyClientConfig(t *testing.T) {
+	require.Zero(t, sseProxyClient.Timeout, "no overall client timeout for a long-lived stream")
+	tr, ok := sseProxyClient.Transport.(*http.Transport)
+	require.True(t, ok)
+	require.Equal(t, 10*time.Second, tr.ResponseHeaderTimeout)
+}
+
 // The SSE proxy must not leak its goroutine when the browser disconnects:
 // closing the upstream body on r.Context().Done() unblocks the read loop
 // even while the upstream is still holding the stream open with no further
