@@ -25,7 +25,7 @@ is the Connect-Go client in `internal/cli` that talks to `prosa-server`.
 | Command | Handler file | Notes |
 | --- | --- | --- |
 | `prosa` (bare) | `internal/cli/nu.go` | Default timeline view |
-| `prosa sync` | `internal/cli/sync.go` (+ `sync_push.go`, `sync_reconcile.go`, `sync_denoise.go`) | Import + push, idempotent by hash |
+| `prosa sync` | `internal/cli/sync.go` (+ `sync_run.go`, `sync_summary.go`, `sync_json.go`, `sync_push.go`, `sync_reconcile.go`, `sync_denoise.go`) | Import + push, idempotent by hash |
 | `prosa search` | `internal/cli/search.go` | Local FTS5 (default) or server FTS (`--remote`) |
 | `prosa show` | `internal/cli/show.go` | Print preserved raw JSONL |
 | `prosa analytics` | `internal/cli/analytics.go` | Fixed reports, including heatmap and usage. The heatmap report has a fixed trailing 53-week window and rejects `--last/--since/--between`. |
@@ -143,7 +143,10 @@ Connect client. The render layer doesn't care.
 ## Sync internals
 
 ```
-sync.go              top-level orchestration, importer loop, progress callback
+sync.go              RunE + flag wiring, importer registry, work assembly, backfill
+sync_run.go          the runSyncInteractive / runSyncPlain orchestrators
+sync_summary.go      syncCounts state machine + human/TTY summary rendering
+sync_json.go         the --json (NDJSON) sync path
 sync_push.go         per-session push to the server
 sync_reconcile.go    server manifest comparison + missing-session push
 sync_denoise.go      backfill / repair helpers (e.g. fix first_prompt)
