@@ -29,6 +29,8 @@ type SessionsHandler struct {
 	Obj  *storage.ObjectStore
 }
 
+const deviceLastSyncMinInterval = time.Minute
+
 // NewSessionsHandler wires the handler.
 func NewSessionsHandler(pool *pgxpool.Pool, obj *storage.ObjectStore) *SessionsHandler {
 	return &SessionsHandler{Pool: pool, Obj: obj}
@@ -78,15 +80,7 @@ func (h *SessionsHandler) Push(ctx context.Context, req *connect.Request[prosav1
 		`SELECT last_hash, projection_version FROM sync_state WHERE session_id = $1`, sess.Id,
 	).Scan(&lastHash, &projectionVersion)
 	if err == nil && lastHash == sess.RawHash && projectionVersion >= session.ProjectionVersion {
-		// Idempotent re-push is still a successful sync: bump last_sync so a
-		// device that pushes then immediately resyncs doesn't look dormant
-		// to the panel (which reads last_sync from DevicesService.List).
-		if _, uerr := h.Pool.Exec(
-			ctx,
-			`UPDATE devices SET last_sync = $1 WHERE id = $2`, time.Now().UTC(), deviceID,
-		); uerr != nil {
-			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("bump last_sync: %w", uerr))
-		}
+		h.touchDeviceLastSync(ctx, deviceID, time.Now().UTC())
 		return connect.NewResponse(&prosav1.PushResponse{Skipped: true}), nil
 	}
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
@@ -154,19 +148,32 @@ func (h *SessionsHandler) Push(ctx context.Context, req *connect.Request[prosav1
 	if err := recordSync(ctx, tx, sess.Id, sess.RawHash); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	// Bump last_sync on the device row.
-	if _, err := tx.Exec(
-		ctx,
-		`UPDATE devices SET last_sync = $1 WHERE id = $2`, time.Now().UTC(), deviceID,
-	); err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("bump last_sync: %w", err))
-	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	committed = true
+	h.touchDeviceLastSync(ctx, deviceID, time.Now().UTC())
 	return connect.NewResponse(&prosav1.PushResponse{Skipped: false, RawUri: uri}), nil
+}
+
+// touchDeviceLastSync records recent device activity outside the session
+// ingestion transaction. The WHERE guard keeps a burst of pushes from the
+// same device from repeatedly updating and locking the same devices row.
+func (h *SessionsHandler) touchDeviceLastSync(ctx context.Context, deviceID string, now time.Time) {
+	touchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
+	threshold := now.Add(-deviceLastSyncMinInterval)
+	if _, err := h.Pool.Exec(
+		touchCtx,
+		`UPDATE devices
+		 SET last_sync = $1
+		 WHERE id = $2
+		   AND (last_sync IS NULL OR last_sync < $3)`,
+		now, deviceID, threshold,
+	); err != nil {
+		slog.WarnContext(ctx, "push: device last_sync touch failed", "device", deviceID, "err", err)
+	}
 }
 
 func validatePushedSessionID(id string) error {
