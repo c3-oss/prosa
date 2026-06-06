@@ -57,15 +57,11 @@ func newScheduleStatusCmd() *cobra.Command {
 
 func runScheduleInstall(cmd *cobra.Command, _ []string) error {
 	ctx := rpc.ContextOrBackground(cmd.Context())
-	sched, err := schedule.NewForCurrent()
-	if err != nil {
-		return err
-	}
 	binary, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("resolve binary path: %w", err)
 	}
-	if err := sched.Install(ctx, binary, scheduleIntervalFlag); err != nil {
+	if err := schedule.Install(ctx, binary, scheduleIntervalFlag); err != nil {
 		return err
 	}
 	if IsInteractive() {
@@ -79,11 +75,7 @@ func runScheduleInstall(cmd *cobra.Command, _ []string) error {
 
 func runScheduleUninstall(cmd *cobra.Command, _ []string) error {
 	ctx := rpc.ContextOrBackground(cmd.Context())
-	sched, err := schedule.NewForCurrent()
-	if err != nil {
-		return err
-	}
-	if err := sched.Uninstall(ctx); err != nil {
+	if err := schedule.Uninstall(ctx); err != nil {
 		return err
 	}
 	if IsInteractive() {
@@ -96,11 +88,7 @@ func runScheduleUninstall(cmd *cobra.Command, _ []string) error {
 
 func runScheduleStatus(cmd *cobra.Command, _ []string) error {
 	ctx := rpc.ContextOrBackground(cmd.Context())
-	sched, err := schedule.NewForCurrent()
-	if err != nil {
-		return err
-	}
-	st, err := sched.Status(ctx)
+	st, err := schedule.Status(ctx)
 	if err != nil {
 		return err
 	}
