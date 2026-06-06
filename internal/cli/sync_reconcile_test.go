@@ -250,6 +250,30 @@ func TestReconcileUsesPusherLogger(t *testing.T) {
 	require.Empty(t, global.String(), "reconcile must not write to the global slog default")
 }
 
+// onStep must carry the real push error for pushFailed outcomes so the
+// interactive spinner can show the server's message instead of a generic
+// "push failed". See issue #71.
+func TestReconcileOnStepCarriesPushError(t *testing.T) {
+	ctx := context.Background()
+	fx := newReconcileFixture(t, "dev")
+	fx.addSession(t, ctx, "dev", "s1")
+	fx.fake.manifestPages[""] = &prosav1.ManifestResponse{}
+	fx.fake.pushErr = errors.New("session 7e3 violates manifest")
+
+	var gotOutcome pushOutcome
+	var gotErr error
+	_, err := reconcileWithServer(ctx, fx.pusher, "dev", importer.ImportOptions{}, reconcileHooks{
+		onStep: func(_, _ int, _ string, outcome pushOutcome, e error) {
+			gotOutcome = outcome
+			gotErr = e
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, pushFailed, gotOutcome)
+	require.Error(t, gotErr)
+	require.Contains(t, gotErr.Error(), "violates manifest")
+}
+
 func TestReconcileDivergentPushed(t *testing.T) {
 	ctx := context.Background()
 	fx := newReconcileFixture(t, "dev")
@@ -557,7 +581,7 @@ func TestReconcileProgressCallback(t *testing.T) {
 		onPlan: func(total int) {
 			plans = append(plans, planTick{total})
 		},
-		onStep: func(done, total int, sid string, outcome pushOutcome) {
+		onStep: func(done, total int, sid string, outcome pushOutcome, _ error) {
 			steps = append(steps, stepTick{done, total, sid, outcome})
 		},
 	})
