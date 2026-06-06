@@ -89,11 +89,42 @@ func TestViewIsBoundedByErrorWindow(t *testing.T) {
 		m = mm.(model)
 	}
 	require.Len(t, m.errs, maxErrorSlots)
+	require.Equal(t, 45, m.errHidden)
 
 	out := m.View()
 	require.Contains(t, out, "local")
 	require.Contains(t, out, "errors")
+	require.Contains(t, out, "+45 earlier errors hidden")
 	require.Less(t, len(out), 8_000, "view should not scale with item count")
+}
+
+func TestErrorWindowPreservesAgentLabelsWhenEvicting(t *testing.T) {
+	m := beginLocal(newTestModel(20, false), 20)
+	m.items[0].Agent = "cursor"
+	for i := 1; i < len(m.items); i++ {
+		m.items[i].Agent = "claude-code"
+	}
+
+	mm, _ := m.Update(Update{Phase: PhaseLocal, Index: 0, Err: errors.New("cursor failed")})
+	m = mm.(model)
+	for i := 1; i <= maxErrorSlots+2; i++ {
+		mm, _ = m.Update(Update{Phase: PhaseLocal, Index: i, Err: errors.New("claude failed")})
+		m = mm.(model)
+	}
+
+	require.Len(t, m.errs, maxErrorSlots)
+	require.Equal(t, maxErrorSlots+3-len(m.errs), m.errHidden)
+	var agents []string
+	for _, e := range m.errs {
+		agents = append(agents, e.agent)
+	}
+	require.Contains(t, agents, "cursor")
+	require.Contains(t, agents, "claude-code")
+
+	out := m.View()
+	require.Contains(t, out, "cursor")
+	require.Contains(t, out, "claude-code")
+	require.Contains(t, out, "earlier errors hidden")
 }
 
 func TestStartedUpdateSetsCurrentWithoutIncrementing(t *testing.T) {
