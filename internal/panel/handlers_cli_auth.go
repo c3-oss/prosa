@@ -77,6 +77,17 @@ func (p *Panel) handleCliAuthorizeApprove(w http.ResponseWriter, r *http.Request
 	msg := resp.Msg
 	target, err := url.Parse(msg.RedirectUri)
 	if err != nil {
+		slog.Error("cli login: invalid redirect_uri from server",
+			"request_id", requestID, "redirect_uri", msg.RedirectUri, "err", err)
+		http.Error(w, "invalid redirect_uri from server", http.StatusInternalServerError)
+		return
+	}
+	// Defense-in-depth: the server already enforces a loopback /callback
+	// target, but re-validate here so a future server-side relaxation can't
+	// turn the panel into an open redirect.
+	if !isLoopbackCallback(target) {
+		slog.Error("cli login: server returned non-loopback redirect_uri",
+			"request_id", requestID, "redirect_uri", msg.RedirectUri)
 		http.Error(w, "invalid redirect_uri from server", http.StatusInternalServerError)
 		return
 	}
@@ -86,6 +97,19 @@ func (p *Panel) handleCliAuthorizeApprove(w http.ResponseWriter, r *http.Request
 	target.RawQuery = q.Encode()
 	slog.Info("cli login approved", "request_id", requestID, "redirect_host", target.Host)
 	http.Redirect(w, r, target.String(), http.StatusFound)
+}
+
+// isLoopbackCallback mirrors the server's validateLoopbackRedirect: an
+// http loopback host (127.0.0.1 or localhost) with the /callback path.
+func isLoopbackCallback(u *url.URL) bool {
+	if u.Scheme != "http" {
+		return false
+	}
+	host := u.Hostname()
+	if host != "127.0.0.1" && host != "localhost" {
+		return false
+	}
+	return u.Path == "/callback"
 }
 
 func (p *Panel) renderCliAuthorizeError(w http.ResponseWriter, msg string) {

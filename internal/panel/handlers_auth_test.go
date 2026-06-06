@@ -23,6 +23,9 @@ type fakeAuthService struct {
 	mu        sync.Mutex
 	adminAuth string
 	requestID string
+	// redirectURI overrides the ApproveLogin redirect; empty uses the
+	// default loopback callback.
+	redirectURI string
 }
 
 func (f *fakeAuthService) ApproveLogin(_ context.Context, req *connect.Request[prosav1.ApproveLoginRequest]) (*connect.Response[prosav1.ApproveLoginResponse], error) {
@@ -30,9 +33,13 @@ func (f *fakeAuthService) ApproveLogin(_ context.Context, req *connect.Request[p
 	defer f.mu.Unlock()
 	f.adminAuth = req.Header().Get("Authorization")
 	f.requestID = req.Msg.RequestId
+	redirect := f.redirectURI
+	if redirect == "" {
+		redirect = "http://127.0.0.1:49152/callback"
+	}
 	return connect.NewResponse(&prosav1.ApproveLoginResponse{
 		Code:        "auth-code",
-		RedirectUri: "http://127.0.0.1:49152/callback",
+		RedirectUri: redirect,
 		ClientState: "client-state",
 	}), nil
 }
