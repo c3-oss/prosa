@@ -843,8 +843,13 @@ func (p *Panel) handleSSE(w http.ResponseWriter, r *http.Request) {
 		_ = resp.Body.Close()
 	}()
 
+	// Set our own SSE headers rather than forwarding the upstream's, and
+	// keep them aligned with the server SSE handler (internal/server/handlers
+	// sse.go): no-cache + private and X-Accel-Buffering: no, so the
+	// anti-buffering/anti-cache behavior holds regardless of which front the
+	// panel sits behind.
 	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Cache-Control", "no-cache, private")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 	w.WriteHeader(http.StatusOK)

@@ -42,8 +42,12 @@ func (h *SSEHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
 		return
 	}
+	// Keep these SSE headers aligned with the panel proxy
+	// (internal/panel handleSSE): no-cache + private so intermediaries
+	// don't cache the per-user stream, and X-Accel-Buffering: no so an
+	// nginx-class front doesn't buffer it.
 	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Cache-Control", "no-cache, private")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 	w.WriteHeader(http.StatusOK)
