@@ -45,15 +45,15 @@ values.
 
 | Variable | Default | What it does |
 | --- | --- | --- |
-| `PROSA_VERSION` | `latest` | Pin to a specific tag, e.g. `v0.11.0`. Strips the leading `v` for filename matching. |
+| `PROSA_VERSION` | `latest` | Pin to a specific tag, e.g. `v0.15.2`. Strips the leading `v` for filename matching. |
 | `INSTALL_DIR` | `$HOME/.local/bin` | Destination directory. Created if missing. |
 | `INSTALL_BINS` | `"prosa"` | Space-separated. Pass `"prosa prosa-server prosa-panel"` to install all three. |
 
 Examples:
 
 ```sh
-# pin to v0.11.0
-PROSA_VERSION=v0.11.0 \
+# pin to v0.15.2
+PROSA_VERSION=v0.15.2 \
   curl -fsSL https://raw.githubusercontent.com/c3-oss/prosa/master/install.sh | sh
 
 # install all three binaries to /usr/local/bin (needs sudo for that path)

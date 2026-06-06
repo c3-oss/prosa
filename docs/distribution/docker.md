@@ -10,7 +10,7 @@ runs:
 | `ghcr.io/c3-oss/prosa-server` | `prosa-server` |
 | `ghcr.io/c3-oss/prosa-panel` | `prosa-panel` |
 
-Each image is published with the release tag (e.g. `:v0.11.0`) and
+Each image is published with the release tag (e.g. `:v0.15.2`) and
 `:latest`, for `linux/amd64` and `linux/arm64`.
 
 ## What's in each image
@@ -99,7 +99,7 @@ sets up QEMU, Buildx, and the GHCR login once, then runs three
 ```
 
 Each pair publishes two tags: the release tag (e.g.
-`ghcr.io/c3-oss/prosa:v0.11.0`) and `latest`.
+`ghcr.io/c3-oss/prosa:v0.15.2`) and `latest`.
 
 ## Running
 
@@ -218,9 +218,9 @@ above is enough.
 ## Pulling a previous version
 
 ```sh
-docker pull ghcr.io/c3-oss/prosa:v0.11.0
-docker pull ghcr.io/c3-oss/prosa-server:v0.11.0
-docker pull ghcr.io/c3-oss/prosa-panel:v0.11.0
+docker pull ghcr.io/c3-oss/prosa:v0.15.2
+docker pull ghcr.io/c3-oss/prosa-server:v0.15.2
+docker pull ghcr.io/c3-oss/prosa-panel:v0.15.2
 ```
 
 GHCR keeps all tagged versions; there is no garbage collection job

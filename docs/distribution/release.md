@@ -10,7 +10,7 @@ just ci                              # all lights green locally
 just snapshot                        # dry-run goreleaser into dist/
 just docker-build                    # check the three images build for your host arch
 ./bin/prosa --version                # sanity check
-git tag v0.11.0
+git tag v0.15.2
 git push --tags
 ```
 
@@ -66,7 +66,7 @@ prosa follows semver. Pre-releases use `-rc`, `-beta`, etc.; GoReleaser is
 configured with `prerelease: auto`.
 
 ```sh
-git tag v0.11.0                      # or v0.11.0-rc1, v0.11.0-beta1, etc.
+git tag v0.15.2                      # or v0.15.2-rc1, v0.15.2-beta1, etc.
 git push --tags
 ```
 
@@ -86,7 +86,7 @@ GitHub Actions runs `.github/workflows/release.yml`. One job, multi-step:
   `prosa-server_<v>_<os>_<arch>.tar.gz`,
   `prosa-panel_<v>_<os>_<arch>.tar.gz`) = 12 total.
 - Computes `checksums.txt` covering every asset.
-- Renders the GitHub Release (title = `prosa v0.11.0`, body = grouped
+- Renders the GitHub Release (title = `prosa v0.15.2`, body = grouped
   changelog).
 - Pushes `Casks/prosa.rb`, `Casks/prosa-server.rb` and `Casks/prosa-panel.rb`
   to `c3-oss/homebrew-prosa` using `HOMEBREW_TAP_TOKEN`.
@@ -102,8 +102,8 @@ Secrets used: `GITHUB_TOKEN` (auto), `HOMEBREW_TAP_TOKEN` (manual,
 
 `scripts/publish-npm.sh` runs after GoReleaser.
 
-- Reads `GITHUB_REF_NAME` (e.g. `v0.11.0`), strips `v` → `0.11.0`.
-- Stamps `0.11.0` into all five `npm/*/package.json` files (and into
+- Reads `GITHUB_REF_NAME` (e.g. `v0.15.2`), strips `v` → `0.15.2`.
+- Stamps `0.15.2` into all five `npm/*/package.json` files (and into
   the metapackage's `optionalDependencies`).
 - Copies binaries from `dist/prosa_<os>_<arch>/prosa` into
   `npm/prosa-<platform>/bin/prosa`.
@@ -139,28 +139,28 @@ brew install c3-oss/prosa/prosa-server # API server only
 brew install c3-oss/prosa/prosa-panel  # web UI only
 
 # install.sh — interactive prompt picks CLI / all / server / panel
-PROSA_VERSION=v0.11.0 \
+PROSA_VERSION=v0.15.2 \
   curl -fsSL https://raw.githubusercontent.com/c3-oss/prosa/master/install.sh | sh
 ~/.local/bin/prosa --version
 
 # Direct tarball install (or use `install.sh` and set INSTALL_BINS):
 mkdir -p /tmp/prosa-install && cd /tmp/prosa-install
-curl -fsSL -o prosa-server_0.11.0_darwin_arm64.tar.gz \
-  https://github.com/c3-oss/prosa/releases/download/v0.11.0/prosa-server_0.11.0_darwin_arm64.tar.gz
-tar -xzf prosa-server_0.11.0_darwin_arm64.tar.gz prosa-server
+curl -fsSL -o prosa-server_0.15.2_darwin_arm64.tar.gz \
+  https://github.com/c3-oss/prosa/releases/download/v0.15.2/prosa-server_0.15.2_darwin_arm64.tar.gz
+tar -xzf prosa-server_0.15.2_darwin_arm64.tar.gz prosa-server
 install -m 0755 prosa-server ~/.local/bin/prosa-server
 
 # npm
-npm install -g @c3-oss/prosa@0.11.0
+npm install -g @c3-oss/prosa@0.15.2
 prosa --version
 
 # Docker — three images, one per binary
-docker pull ghcr.io/c3-oss/prosa:v0.11.0
-docker pull ghcr.io/c3-oss/prosa-server:v0.11.0
-docker pull ghcr.io/c3-oss/prosa-panel:v0.11.0
-docker run --rm ghcr.io/c3-oss/prosa:v0.11.0 --version
-docker run --rm ghcr.io/c3-oss/prosa-server:v0.11.0 --version
-docker run --rm ghcr.io/c3-oss/prosa-panel:v0.11.0 --version
+docker pull ghcr.io/c3-oss/prosa:v0.15.2
+docker pull ghcr.io/c3-oss/prosa-server:v0.15.2
+docker pull ghcr.io/c3-oss/prosa-panel:v0.15.2
+docker run --rm ghcr.io/c3-oss/prosa:v0.15.2 --version
+docker run --rm ghcr.io/c3-oss/prosa-server:v0.15.2 --version
+docker run --rm ghcr.io/c3-oss/prosa-panel:v0.15.2 --version
 ```
 
 Each should print the same version, commit, and build date as the

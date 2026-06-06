@@ -23,7 +23,7 @@ Every channel publishes the **same binary set** built by GoReleaser:
 ## Release flow at a glance
 
 ```
-git tag v0.11.0                               ┐
+git tag v0.15.2                               ┐
 git push --tags                               │  human step
                                               ▼
 .github/workflows/release.yml triggers        ┐
