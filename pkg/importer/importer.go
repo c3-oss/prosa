@@ -39,9 +39,9 @@ type ImportResult struct {
 // behaviour when the zero value is passed.
 type ImportOptions struct {
 	// Overwrite forces re-parse and re-upsert even when the file's hash
-	// is already in sync_state or its session id is in the no_usage skip
-	// cache. Used by `prosa sync --overwrite` to rebuild a converged
-	// store from raw transcripts.
+	// is already in sync_state or the file has a matching import skip
+	// record. Used by `prosa sync --overwrite` to rebuild a converged store
+	// from raw transcripts.
 	Overwrite bool
 }
 
@@ -85,6 +85,8 @@ const (
 
 // SkipCache is an optional Sink extension. Stores that implement it can
 // remember policy-skipped files by hash even when no session row exists.
+// The sessionID argument may be a real session id or a synthetic marker,
+// depending on the skip reason.
 type SkipCache interface {
 	LastImportSkip(ctx context.Context, sessionID, reason string) (string, bool, error)
 	RecordImportSkip(ctx context.Context, sessionID, hash, reason string) error

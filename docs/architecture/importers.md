@@ -58,8 +58,13 @@ An importer must:
    If the result equals the current hash, return immediately with a no-op
    `ImportResult`.
 3. **When `opts.Overwrite` is false:** ask `SkipCache` whether this same
-   `(session_id, reason, hash)` was previously policy-skipped. Today the
-   only policy reason is `no_usage`.
+   `(session_id, reason, hash)` was previously policy-skipped. For ordinary
+   transcript files, `session_id` is the real agent session id and the
+   reason is `no_usage`; for Hermes `state.db` rows that are shadowed by a
+   sibling transcript, `session_id` is a synthetic
+   `hermes-state-<hash[:12]>` marker with reason `state_seen`. Do not assume
+   `import_skips.session_id` joins to `sessions.id` without checking the
+   reason.
 4. Parse the file and obtain a `session.UsageState` from the parser. Call
    `importpolicy.ClassifyForImport(state)`:
    - `DecisionSkipNoUsage` (state is `UsageStateExplicitZero`, i.e. the
