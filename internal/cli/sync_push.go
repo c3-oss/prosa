@@ -44,7 +44,7 @@ func (p *pusher) log() *slog.Logger {
 	return slog.Default()
 }
 
-// loadPusher reads ~/.config/prosa/auth.json and returns a Sessions
+// loadPusher reads paths.AuthPath() and returns a Sessions
 // client + the local store ref. Returns (nil, nil) when no auth file
 // exists (the common case for first-run / server-less sync).
 func loadPusher(s *store.Store) (*pusher, error) {
