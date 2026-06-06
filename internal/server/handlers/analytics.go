@@ -60,9 +60,15 @@ func (h *AnalyticsHandler) GetReport(ctx context.Context, req *connect.Request[p
 		return runHeatmap(ctx, h.Pool, req.Msg)
 	case "usage":
 		return runUsage(ctx, h.Pool, req.Msg)
+	case "hours":
+		return runReport(ctx, h.Pool, req.Msg, queryHours, []string{"HOUR", "SESSIONS"})
+	case "errors_by_model":
+		return runReport(ctx, h.Pool, req.Msg, queryErrorsByModel, []string{"MODEL", "SESSIONS"})
+	case "usage_by_model":
+		return runUsageByModel(ctx, h.Pool, req.Msg)
 	default:
 		return nil, connect.NewError(connect.CodeInvalidArgument,
-			fmt.Errorf("unknown report %q (want sessions|tools|models|projects|errors|heatmap|usage)", req.Msg.Report))
+			fmt.Errorf("unknown report %q (want sessions|tools|models|projects|errors|heatmap|usage|hours|usage_by_model|errors_by_model)", req.Msg.Report))
 	}
 }
 
@@ -335,6 +341,78 @@ func runUsage(
 	return connect.NewResponse(out), nil
 }
 
+// runUsageByModel mirrors runUsage but groups by model instead of agent,
+// so the panel can rank token spend per model and draw a cost donut. Each
+// group shares one model, so cost is a straight pricing.CostUSD over the
+// summed usage. Mirrors internal/store/analytics.go AnalyticsUsageByModel.
+func runUsageByModel(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	msg *prosav1.GetReportRequest,
+) (*connect.Response[prosav1.GetReportResponse], error) {
+	whereSQL, args, err := buildWhere(ctx, msg)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	q := `
+		SELECT COALESCE(s.model, '(none)') AS model,
+		       COUNT(DISTINCT s.id)::bigint AS sessions,
+		       COUNT(su.session_id)::bigint AS measured,
+		       COALESCE(SUM(su.total_tokens), 0)::bigint AS total_tokens,
+		       COALESCE(SUM(su.input_tokens), 0)::bigint AS input_tokens,
+		       COALESCE(SUM(su.output_tokens), 0)::bigint AS output_tokens,
+		       COALESCE(SUM(su.cached_tokens), 0)::bigint AS cached_tokens,
+		       COALESCE(SUM(su.cache_read_tokens), 0)::bigint AS cache_read_tokens,
+		       COALESCE(SUM(su.cache_creation_tokens), 0)::bigint AS cache_creation_tokens
+		FROM sessions s
+		LEFT JOIN session_usage su ON su.session_id = s.id
+		` + whereSQL + `
+		GROUP BY model
+		ORDER BY COUNT(DISTINCT s.id) DESC`
+	rows, err := pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("analytics usage_by_model: %w", err))
+	}
+	defer rows.Close()
+
+	out := &prosav1.GetReportResponse{Headers: []string{
+		"MODEL", "SESSIONS", "TOTAL", "INPUT", "OUTPUT", "EST_COST_USD",
+	}}
+	for rows.Next() {
+		var (
+			model     string
+			sessionsN int64
+			measured  int64
+			u         session.TokenUsage
+		)
+		if err := rows.Scan(
+			&model, &sessionsN, &measured,
+			&u.TotalTokens, &u.InputTokens, &u.OutputTokens, &u.CachedTokens,
+			&u.CacheReadTokens, &u.CacheCreationTokens,
+		); err != nil {
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
+		cost := ""
+		if measured > 0 {
+			if c, ok := pricing.CostUSD(model, u); ok {
+				cost = fmt.Sprintf("%.4f", c)
+			}
+		}
+		out.Rows = append(out.Rows, &prosav1.AnalyticsRow{Values: []string{
+			model,
+			fmt.Sprintf("%d", sessionsN),
+			fmt.Sprintf("%d", u.TotalTokens),
+			fmt.Sprintf("%d", u.InputTokens),
+			fmt.Sprintf("%d", u.OutputTokens),
+			cost,
+		}})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	return connect.NewResponse(out), nil
+}
+
 func dayStart(t time.Time) time.Time {
 	y, m, d := t.UTC().Date()
 	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
@@ -408,5 +486,37 @@ func queryErrors(whereSQL string, args []any) (string, []any) {
 		GROUP BY s.id
 		ORDER BY s.started_at DESC
 		LIMIT 30`
+	return q, args
+}
+
+// queryHours buckets sessions by their UTC start-hour ("00".."23").
+// Canonically UTC like the heatmap; the panel rotates to local for display.
+// Mirrors internal/store/analytics.go AnalyticsHours.
+func queryHours(whereSQL string, args []any) (string, []any) {
+	q := `
+		SELECT to_char(s.started_at AT TIME ZONE 'UTC', 'HH24') AS hour,
+		       COUNT(*)::text                                    AS sessions
+		FROM sessions s
+		` + whereSQL + `
+		GROUP BY hour
+		ORDER BY hour ASC`
+	return q, args
+}
+
+// queryErrorsByModel groups the FTS error heuristic by model — the Postgres
+// tsvector equivalent of the store's AnalyticsErrorsByModel. Uncapped so the
+// row sum is the true flagged-session count for an error-rate indicator.
+func queryErrorsByModel(whereSQL string, args []any) (string, []any) {
+	args = append(args, errorTriggers)
+	tsParam := fmt.Sprintf("$%d", len(args))
+	q := `
+		SELECT COALESCE(s.model, '(none)') AS model,
+		       COUNT(DISTINCT s.id)::text   AS sessions
+		FROM sessions s
+		JOIN turns t ON t.session_id = s.id
+		` + whereSQL + ` AND t.role = 'assistant'
+		             AND t.content_tsv @@ to_tsquery('simple', ` + tsParam + `)
+		GROUP BY model
+		ORDER BY COUNT(DISTINCT s.id) DESC`
 	return q, args
 }
