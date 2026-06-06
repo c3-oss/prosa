@@ -215,6 +215,7 @@ Selected functions (full list in `internal/store/`):
 | `Open(ctx, path)` | Open + migrate (writer; sync/import only) |
 | `OpenReadOnly(ctx, path)` | Read-only handle for timeline/search/show/analytics |
 | `Close()` | Close the connection |
+| `WriteSession(ctx, sess, tools, turns, hash)` | Insert/replace session + tools + turns + `sync_state` in one txn (the importer `Sink` entry point) |
 | `UpsertSession(ctx, sess, tools)` | Insert/replace session + tools in one txn |
 | `InsertTurns(ctx, sessionID, turns)` | Append turns (triggers FTS index); persists kind/tool_name |
 | `LastHash(ctx, sessionID)` | Read `sync_state.last_hash` |
@@ -250,10 +251,12 @@ adds `mode=ro` and a bounded pool — three parallel reader processes
 against the same store finish without `database is locked`. The panel
 doesn't read the local store at all on this machine.
 
-No long transactions. Each `UpsertSession` + `InsertTurns` is a short
-transaction wrapping the multi-statement work. The store does not use
-SAVEPOINTs or batched outer transactions — empirically these regress under
-WAL frame walking for our workload.
+No long transactions. The importer path commits one session at a time via
+`WriteSession`, a single short transaction wrapping the session row, tools,
+turns, and `sync_state` write so a crashed import never leaves a partial
+projection. The store does not use SAVEPOINTs or batched outer transactions
+across multiple sessions — empirically these regress under WAL frame walking
+for our workload.
 
 ## Raw file layout
 

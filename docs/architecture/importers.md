@@ -20,10 +20,8 @@ type Importer interface {
 }
 
 type Sink interface {
-    UpsertSession(ctx context.Context, s session.Session, tools []session.ToolUsage) error
-    InsertTurns(ctx context.Context, sessionID string, turns []session.Turn) error
+    WriteSession(ctx context.Context, s session.Session, tools []session.ToolUsage, turns []session.Turn, hash string) error
     LastHash(ctx context.Context, sessionID string) (string, bool, error)
-    RecordSync(ctx context.Context, sessionID, hash string) error
 }
 
 type SkipCache interface {
@@ -70,8 +68,10 @@ An importer must:
      tools, raw copy, or sync hash.
    - `DecisionAdmit` (state is `UsageStatePresent` or `UsageStateUnknown`)
      → continue.
-5. Upsert, write turns, write tool usage, and finally call
-   `sink.RecordSync` with the new hash.
+5. Call `sink.WriteSession(ctx, sess, tools, turns, hash)`. The sink
+   persists the session row, tool usage, turns, and the sync hash in a
+   single transaction, so a crash mid-import can never leave a session row
+   without its turns or with a stale sync hash.
 
 Steps 2 and 3 are the only ones bypassed by `--overwrite`; step 4's
 classification still applies because we only want to keep sessions whose

@@ -356,7 +356,7 @@ sessions today:
   carrying the same `sessionId` (e.g., a `session-*.json` and a
   `logs.json` projecting onto it) will each upsert independently, and
   the last write wins for `session.Session` fields while
-  `RecordSync` rewrites the recorded hash. For `logs.json` files
+  `WriteSession` rewrites the recorded sync hash. For `logs.json` files
   whose dominant session changes between syncs (rows added for a
   different `sessionId` that overtakes the previous winner), the
   importer will emit under the new dominant id and the previous one
