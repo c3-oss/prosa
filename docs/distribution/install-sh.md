@@ -19,7 +19,8 @@ curl -fsSL https://raw.githubusercontent.com/c3-oss/prosa/master/install.sh
 1. Detects OS and architecture via `uname`.
 2. Resolves the version (`PROSA_VERSION` env, else latest from the GitHub
    releases API).
-3. Downloads `prosa_<version>_<os>_<arch>.tar.gz` from the GitHub Release.
+3. Downloads one tarball per selected binary (`prosa|prosa-server|prosa-panel`):
+   `<binary>_<version>_<os>_<arch>.tar.gz` from the GitHub Release.
 4. Downloads `checksums.txt` from the same release.
 5. Verifies sha256 using whichever of `sha256sum` or `shasum -a 256` is
    available.
@@ -65,7 +66,7 @@ INSTALL_DIR=/usr/local/bin INSTALL_BINS="prosa prosa-server prosa-panel" \
 The script depends on the release pipeline writing these files to each
 GitHub Release, with these exact names:
 
-- `prosa_<version-without-v>_<os>_<arch>.tar.gz`
+- `<binary>_<version-without-v>_<os>_<arch>.tar.gz` for `binary in {prosa,prosa-server,prosa-panel}`
 - `checksums.txt` (lines of `<sha256>  <filename>`)
 
 GoReleaser is configured to produce the tarball and `checksums.txt`. If the

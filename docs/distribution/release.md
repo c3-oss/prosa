@@ -81,15 +81,19 @@ GitHub Actions runs `.github/workflows/release.yml`. One job, multi-step:
 `goreleaser release --clean` runs in the Actions runner.
 
 - Builds the 12 binaries (3 binaries × 2 OS × 2 arch).
-- Publishes the three-binary tar.gz bundle per OS/arch
-  (`prosa_<v>_<os>_<arch>.tar.gz` — 4 total) that the Homebrew Cask installs.
+- Publishes one tar.gz per binary × OS × arch
+  (`prosa_<v>_<os>_<arch>.tar.gz`,
+  `prosa-server_<v>_<os>_<arch>.tar.gz`,
+  `prosa-panel_<v>_<os>_<arch>.tar.gz`) = 12 total.
 - Computes `checksums.txt` covering every asset.
 - Renders the GitHub Release (title = `prosa v0.11.0`, body = grouped
   changelog).
-- Pushes `Casks/prosa.rb` to `c3-oss/homebrew-prosa` using
-  `HOMEBREW_TAP_TOKEN`. The Cask is pinned to the tar.gz bundle via
-  `homebrew_casks[0].ids: [default]` so `brew install c3-oss/prosa/prosa`
-  keeps installing all three binaries in one step.
+- Pushes `Casks/prosa.rb`, `Casks/prosa-server.rb` and `Casks/prosa-panel.rb`
+  to `c3-oss/homebrew-prosa` using `HOMEBREW_TAP_TOKEN`.
+  Each cask is pinned to its own binary archive (`ids: [prosa]`,
+  `ids: [prosa-server]`, `ids: [prosa-panel]`), so users install separately:
+  `brew install c3-oss/prosa/prosa`, `brew install c3-oss/prosa/prosa-server`,
+  and `brew install c3-oss/prosa/prosa-panel`.
 
 Secrets used: `GITHUB_TOKEN` (auto), `HOMEBREW_TAP_TOKEN` (manual,
 6-month rotation).
@@ -129,9 +133,10 @@ Secret used: `GITHUB_TOKEN` (auto).
 A few minutes after the workflow goes green:
 
 ```sh
-# Homebrew (installs all three binaries from the tar.gz bundle)
-brew update && brew install c3-oss/prosa/prosa
-prosa --version
+# Homebrew (installs one cask per binary)
+brew update && brew install c3-oss/prosa/prosa          # CLI only
+brew install c3-oss/prosa/prosa-server # API server only
+brew install c3-oss/prosa/prosa-panel  # web UI only
 
 # install.sh — interactive prompt picks CLI / all / server / panel
 PROSA_VERSION=v0.11.0 \
@@ -140,9 +145,9 @@ PROSA_VERSION=v0.11.0 \
 
 # Direct tarball install (or use `install.sh` and set INSTALL_BINS):
 mkdir -p /tmp/prosa-install && cd /tmp/prosa-install
-curl -fsSL -o prosa_0.11.0_darwin_arm64.tar.gz \
-  https://github.com/c3-oss/prosa/releases/download/v0.11.0/prosa_0.11.0_darwin_arm64.tar.gz
-tar -xzf prosa_0.11.0_darwin_arm64.tar.gz prosa-server
+curl -fsSL -o prosa-server_0.11.0_darwin_arm64.tar.gz \
+  https://github.com/c3-oss/prosa/releases/download/v0.11.0/prosa-server_0.11.0_darwin_arm64.tar.gz
+tar -xzf prosa-server_0.11.0_darwin_arm64.tar.gz prosa-server
 install -m 0755 prosa-server ~/.local/bin/prosa-server
 
 # npm

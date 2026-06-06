@@ -80,7 +80,8 @@ What ends up where on a single `v*` push:
                             │
                             ├─▶  GitHub Release          (tarballs + checksums.txt)
                             │
-                            └─▶  c3-oss/homebrew-prosa   (Casks/prosa.rb)
+                            └─▶  c3-oss/homebrew-prosa   (Casks/prosa.rb,
+                                Casks/prosa-server.rb, Casks/prosa-panel.rb)
 
                   scripts/publish-npm.sh
                             │

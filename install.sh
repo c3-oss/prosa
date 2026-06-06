@@ -4,8 +4,9 @@
 # This script:
 #   1. Detects your OS (Linux or Darwin) and CPU arch (amd64 or arm64).
 #   2. Resolves the latest prosa release from GitHub (or honors PROSA_VERSION).
-#   3. Downloads the per-platform release tarball plus checksums.txt.
-#   4. Verifies the release tarball sha256 before writing anything to disk.
+#   3. Downloads checksums.txt and each selected binary tarball from the
+#      release.
+#   4. Verifies each tarball's sha256 before extracting binaries.
 #   5. Installs the prosa binary (and optionally prosa-server / prosa-panel)
 #      into $INSTALL_DIR (default ~/.local/bin).
 #
@@ -126,25 +127,24 @@ main() {
     trap "rm -rf '$tmp'" EXIT INT TERM
 
     require_cmd tar
+    mkdir -p "$INSTALL_DIR"
     curl -fsSL -o "$tmp/checksums.txt" "$base/checksums.txt"
 
-    mkdir -p "$INSTALL_DIR"
-
-    asset="prosa_${semver}_${OS}_${ARCH}.tar.gz"
-    info "downloading $asset ..."
-    curl -fsSL -o "$tmp/$asset" "$base/$asset"
-
-    expected=$(awk -v f="$asset" '$2 == f { print $1 }' "$tmp/checksums.txt")
-    if [ -z "$expected" ]; then
-        err "could not find $asset in checksums.txt"
-    fi
-    sha256_verify "$tmp/$asset" "$expected"
-
-    unpack="$tmp/unpacked"
-    mkdir -p "$unpack"
-    tar -xzf "$tmp/$asset" -C "$unpack"
-
     for bin in $INSTALL_BINS; do
+        asset="${bin}_${semver}_${OS}_${ARCH}.tar.gz"
+        info "downloading $asset ..."
+        curl -fsSL -o "$tmp/$asset" "$base/$asset"
+
+        expected=$(awk -v f="$asset" '$2 == f { print $1 }' "$tmp/checksums.txt")
+        if [ -z "$expected" ]; then
+            err "could not find $asset in checksums.txt"
+        fi
+        sha256_verify "$tmp/$asset" "$expected"
+
+        unpack="$tmp/unpacked"
+        mkdir -p "$unpack"
+        tar -xzf "$tmp/$asset" -C "$unpack"
+
         src="$unpack/$bin"
         if [ ! -f "$src" ]; then
             err "could not find $bin in $asset"

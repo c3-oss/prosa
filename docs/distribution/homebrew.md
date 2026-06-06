@@ -1,41 +1,42 @@
 # Homebrew
 
-prosa publishes a Homebrew cask to the external tap repo
+prosa publishes Homebrew casks to the external tap repo
 [`c3-oss/homebrew-prosa`](https://github.com/c3-oss/homebrew-prosa). The
 install command is:
 
 ```sh
 brew install c3-oss/prosa/prosa
+brew install c3-oss/prosa/prosa-server
+brew install c3-oss/prosa/prosa-panel
 ```
 
 `c3-oss/prosa` is the shorthand Brew expands to `github.com/c3-oss/homebrew-prosa`.
 
 ## What gets installed
 
-The cask installs all three binaries: `prosa`, `prosa-server`,
-`prosa-panel`. They land under the Homebrew prefix (`/opt/homebrew/bin/` on
-Apple Silicon, `/usr/local/bin/` on Intel).
+Each cask installs one binary. They land under the Homebrew prefix (`/opt/homebrew/bin/`
+on Apple Silicon, `/usr/local/bin/` on Intel):
 
-The cask carries a small set of caveats printed after install:
+- `prosa` installs `prosa`
+- `prosa-server` installs `prosa-server`
+- `prosa-panel` installs `prosa-panel`
 
-```
+`prosa` still prints this caveat:
+
+```text
 To finish setup, run:
-
   prosa setup
-
-That walks through device auth, installs the LaunchAgent
-that keeps history in sync, and imports the first batch of
-AI-agent sessions.
 ```
 
 ## How publishing happens
 
-GoReleaser writes the cask file on every `v*` release. Configured in
+GoReleaser writes the cask files on every `v*` release. Configured in
 `.goreleaser.yaml`:
 
 ```yaml
 homebrew_casks:
   - name: prosa
+    ids: [prosa]
     repository:
       owner: c3-oss
       name: homebrew-prosa
@@ -44,21 +45,37 @@ homebrew_casks:
       name: c3-oss-bot
       email: bot@c3.do
     binary: prosa
-    extra_install: |
-      bin.install "prosa-server"
-      bin.install "prosa-panel"
-    caveats: |
-      ...
+  - name: prosa-server
+    ids: [prosa-server]
+    repository:
+      owner: c3-oss
+      name: homebrew-prosa
+      token: '{{ .Env.HOMEBREW_TAP_TOKEN }}'
+    commit_author:
+      name: c3-oss-bot
+      email: bot@c3.do
+    binary: prosa-server
+  - name: prosa-panel
+    ids: [prosa-panel]
+    repository:
+      owner: c3-oss
+      name: homebrew-prosa
+      token: '{{ .Env.HOMEBREW_TAP_TOKEN }}'
+    commit_author:
+      name: c3-oss-bot
+      email: bot@c3.do
+    binary: prosa-panel
 ```
 
 There is no manual `brew bump-cask-pr`. The release workflow's GoReleaser
 step:
 
-1. Builds the four archives (`{darwin,linux} × {amd64,arm64}`).
+1. Builds 12 archives (`{prosa,prosa-server,prosa-panel} × {darwin,linux} × {amd64,arm64}`).
 2. Computes sha256 for each.
-3. Renders the cask Ruby file with the URLs and shas.
+3. Renders the cask Ruby files with the URLs and shas.
 4. Clones `c3-oss/homebrew-prosa` using `HOMEBREW_TAP_TOKEN`.
-5. Commits the new `Casks/prosa.rb` as `c3-oss-bot <bot@c3.do>`.
+5. Commits the new `Casks/prosa.rb`, `Casks/prosa-server.rb`, and `Casks/prosa-panel.rb`
+   as `c3-oss-bot <bot@c3.do>`.
 6. Pushes to `master`.
 
 Brew users picking it up next time they run `brew update` will see the new
@@ -70,6 +87,8 @@ version.
 
 - A README pointing back at this repo.
 - `Casks/prosa.rb` (auto-generated, do not hand-edit).
+- `Casks/prosa-server.rb` (auto-generated, do not hand-edit).
+- `Casks/prosa-panel.rb` (auto-generated, do not hand-edit).
 
 No CI runs there. No issues are filed there (they go to this repo).
 
@@ -79,6 +98,8 @@ If the cask ever needs to be hand-edited (rollback, force re-publish):
 git clone https://github.com/c3-oss/homebrew-prosa
 cd homebrew-prosa
 # edit Casks/prosa.rb
+# or Casks/prosa-server.rb
+# or Casks/prosa-panel.rb
 git commit -am "manual fix: ..."
 git push
 ```
@@ -122,15 +143,17 @@ git commit -m "init" --allow-empty
 git push -u origin master
 ```
 
-After that, GoReleaser will populate `Casks/prosa.rb` on every release.
+After that, GoReleaser will populate `Casks/prosa.rb`, `Casks/prosa-server.rb`,
+and `Casks/prosa-panel.rb` on every release.
 
 ## Verifying
 
 ```sh
 brew tap c3-oss/prosa
-brew search prosa            # finds c3-oss/prosa/prosa
+brew search prosa            # lists c3-oss/prosa/prosa, prosa-server, prosa-panel
 brew install c3-oss/prosa/prosa
-prosa --version              # confirms version, commit, build date
+brew install c3-oss/prosa/prosa-server
+brew install c3-oss/prosa/prosa-panel
 ```
 
 To uninstall:
