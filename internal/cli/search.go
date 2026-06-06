@@ -21,6 +21,8 @@ import (
 	"github.com/c3-oss/prosa/pkg/session"
 )
 
+const defaultSearchLimit = 20
+
 var searchLimit int
 
 func newSearchCmd() *cobra.Command {
@@ -37,7 +39,7 @@ func newSearchCmd() *cobra.Command {
 		Args: cobra.MinimumNArgs(1),
 		RunE: runSearch,
 	}
-	cmd.Flags().IntVar(&searchLimit, "limit", 20, "maximum number of session hits to return")
+	cmd.Flags().IntVar(&searchLimit, "limit", defaultSearchLimit, "maximum number of session hits to return")
 	return cmd
 }
 
@@ -56,9 +58,13 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	limit, err := effectiveSearchLimit(cmd)
+	if err != nil {
+		return err
+	}
 
 	if g.Remote {
-		return runSearchRemote(ctx, query, w)
+		return runSearchRemote(ctx, query, w, limit)
 	}
 
 	storePath, err := paths.StorePath()
@@ -117,7 +123,7 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		filter.DeviceName = &d
 	}
 
-	hits, err := s.Search(ctx, query, filter, searchLimit)
+	hits, err := s.Search(ctx, query, filter, limit)
 	if err != nil {
 		return err
 	}
@@ -181,12 +187,33 @@ func countDistinctProjects(hits []store.SearchHit) int {
 	return len(seen)
 }
 
+func effectiveSearchLimit(cmd *cobra.Command) (int, error) {
+	limit := searchLimit
+	if cmd != nil {
+		searchFlag := cmd.Flags().Lookup("limit")
+		if searchFlag == nil || !searchFlag.Changed {
+			if root := cmd.Root(); root != nil {
+				if rootFlag := root.Flags().Lookup("limit"); rootFlag != nil && rootFlag.Changed {
+					limit = g.Limit
+				}
+			}
+		}
+	}
+	if limit < 0 {
+		return 0, fmt.Errorf("--limit must be >= 0")
+	}
+	if limit == 0 {
+		return defaultSearchLimit, nil
+	}
+	return limit, nil
+}
+
 // runSearchRemote talks to Sessions.Search and projects the response
 // into the same store.SearchHit shape the renderer expects. The remote
 // path honors --agent / --device and the auto-detected --project, but
 // translates them to project_remote / project_marker filters since the
 // server doesn't have project_path substring semantics today.
-func runSearchRemote(ctx context.Context, query string, w Window) error {
+func runSearchRemote(ctx context.Context, query string, w Window, limit int) error {
 	auth, err := rpc.LoadAuth()
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -200,7 +227,7 @@ func runSearchRemote(ctx context.Context, query string, w Window) error {
 		Query: query,
 		Since: timestamppb.New(w.Since),
 		Until: timestamppb.New(w.Until),
-		Limit: int32(searchLimit),
+		Limit: int32(limit),
 	}
 	if g.Agent != "" {
 		req.Agent = g.Agent

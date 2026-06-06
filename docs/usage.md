@@ -163,10 +163,11 @@ subcommand):
 | `--no-color` | | Suppress ANSI even on a TTY. |
 | `--help` | | Per-command help. |
 
-The bare `prosa` timeline also accepts `--limit N` to cap the number
-of returned sessions (useful for agents that want a small sample).
-`prosa search` has its own `--limit`; other subcommands don't take
-one.
+The bare `prosa` timeline accepts `--limit N` to cap the number of
+returned sessions (useful for agents that want a small sample). `prosa
+search` has its own `--limit`, and also honors `prosa --limit N search
+<query>` for consistency. When both are present, the local search flag
+wins. Other subcommands don't take one.
 
 `--last`, `--since`, and `--between` are **mutually exclusive** — pick
 one. Combining them surfaces an error before the store is touched.

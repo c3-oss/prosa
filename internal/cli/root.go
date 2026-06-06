@@ -19,8 +19,9 @@ import (
 // Cut 1 only honors --last and --json; the rest are wired so the public
 // surface stays stable, but the query layer ignores them with a TODO.
 //
-// Limit is the only field bound to a non-persistent flag — it lives on
-// the root command (timeline) only. Search has its own --limit.
+// Limit is the only field bound to a non-persistent flag. The bare
+// timeline uses it directly; search treats it as a fallback when --limit
+// is placed before the subcommand.
 //
 // --remote is persistent (rather than local to analytics/search) so that
 // both `prosa --remote analytics usage` and `prosa analytics --remote
@@ -70,8 +71,9 @@ func newRootCmd() *cobra.Command {
 	pf.BoolVar(&g.All, "all", false, "disable the cwd-based project auto-filter")
 	pf.BoolVar(&g.JSON, "json", false, "emit NDJSON instead of human-formatted output")
 	pf.BoolVar(&g.NoColor, "no-color", false, "suppress ANSI styling even on a TTY")
-	// --limit is only meaningful on the bare `prosa` timeline; sub-commands
-	// either have their own --limit (search) or don't need one.
+	// --limit is a root-local flag so other subcommands do not advertise it.
+	// Search also accepts it before the subcommand for consistency with the
+	// bare timeline; search's local --limit wins when both are present.
 	cmd.Flags().IntVar(&g.Limit, "limit", 0, "cap the number of timeline sessions returned (0 = no limit)")
 	pf.BoolVar(&g.Remote, "remote", false, "run the command against prosa-server (analytics, search; ignored elsewhere)")
 
