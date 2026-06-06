@@ -23,7 +23,10 @@ type reconcileCounts struct {
 // Both callbacks are optional and nil-safe.
 type reconcileHooks struct {
 	onPlan func(total int)
-	onStep func(done, total int, sid string, outcome pushOutcome)
+	// onStep reports one catch-up push. err carries the real push error for
+	// pushFailed outcomes so the UI can surface the server's message instead
+	// of a generic "push failed"; it is nil for successful/skipped outcomes.
+	onStep func(done, total int, sid string, outcome pushOutcome, err error)
 }
 
 // reconcileWithServer is the catch-up phase: it enumerates every local
@@ -97,12 +100,12 @@ func reconcileWithServer(
 			push.log().WarnContext(ctx, "reconcile push failed", "session", sid, "err", perr)
 		case pushSkippedRemoteUnavailable:
 			if hooks.onStep != nil {
-				hooks.onStep(i+1, len(work), sid, outcome)
+				hooks.onStep(i+1, len(work), sid, outcome, perr)
 			}
 			return counts, nil
 		}
 		if hooks.onStep != nil {
-			hooks.onStep(i+1, len(work), sid, outcome)
+			hooks.onStep(i+1, len(work), sid, outcome, perr)
 		}
 	}
 	return counts, nil
@@ -186,7 +189,7 @@ func runSyncReconcile(ctx context.Context, push *pusher, deviceID string, counts
 		return
 	}
 	hooks := reconcileHooks{
-		onStep: func(done, total int, _ string, _ pushOutcome) {
+		onStep: func(done, total int, _ string, _ pushOutcome, _ error) {
 			if done == total || done%25 == 0 {
 				slog.Info("reconcile progress",
 					"done", done, "total", total)

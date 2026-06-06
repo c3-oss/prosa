@@ -556,7 +556,7 @@ func runSyncInteractive(
 					Total:    total,
 				})
 			},
-			onStep: func(done, total int, sid string, outcome pushOutcome) {
+			onStep: func(done, total int, sid string, outcome pushOutcome, err error) {
 				u := spinner.Update{
 					Phase: spinner.PhaseRemote,
 					Active: &spinner.Item{
@@ -568,7 +568,13 @@ func runSyncInteractive(
 				case pushAlreadyHashed, pushSkippedNoUsage, pushSkippedRemoteUnavailable:
 					u.Skipped = true
 				case pushFailed:
-					u.Err = errors.New("push failed")
+					// Surface the server's real message; fall back to a
+					// generic string if (defensively) no error came through.
+					if err != nil {
+						u.Err = err
+					} else {
+						u.Err = errors.New("push failed")
+					}
 				default:
 					// pushImported counts as done (sent).
 				}
