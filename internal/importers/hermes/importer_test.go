@@ -56,6 +56,7 @@ func writeSnapshotFixture(t *testing.T, path string, env map[string]any) {
 // hermesStateRow is a single row used by buildHermesStateDB.
 type hermesStateRow struct {
 	id        string
+	parentID  string
 	model     string
 	startedAt float64
 	messages  []hermesStateMessage
@@ -116,8 +117,8 @@ CREATE TABLE messages (
 
 	for _, r := range rows {
 		_, err = db.Exec(
-			`INSERT INTO sessions(id, source, model, started_at, message_count) VALUES (?, ?, ?, ?, ?)`,
-			r.id, "cli", r.model, r.startedAt, len(r.messages),
+			`INSERT INTO sessions(id, source, model, parent_session_id, started_at, message_count) VALUES (?, ?, ?, ?, ?, ?)`,
+			r.id, "cli", r.model, r.parentID, r.startedAt, len(r.messages),
 		)
 		require.NoError(t, err)
 		for _, m := range r.messages {
@@ -182,10 +183,11 @@ func TestImportJSONL(t *testing.T) {
 	base := time.Date(2026, 3, 14, 12, 0, 0, 0, time.UTC)
 	writeJSONLFixture(t, src, []map[string]any{
 		{
-			"role":        "user",
-			"content":     "explain quantum entanglement",
-			"timestamp":   float64(base.Unix()),
-			"token_count": 5,
+			"role":              "user",
+			"content":           "explain quantum entanglement",
+			"timestamp":         float64(base.Unix()),
+			"parent_session_id": "parent-jsonl-1",
+			"token_count":       5,
 		},
 		{
 			"role":        "assistant",
@@ -220,6 +222,8 @@ func TestImportJSONL(t *testing.T) {
 	require.Equal(t, "explain quantum entanglement", *s.FirstPrompt)
 	require.NotNil(t, s.Model)
 	require.Equal(t, "claude-sonnet-4-6", *s.Model)
+	require.NotNil(t, s.ParentSessionID)
+	require.Equal(t, "parent-jsonl-1", *s.ParentSessionID)
 	require.NotNil(t, s.Usage)
 	require.Equal(t, int64(22), s.Usage.TotalTokens)
 	require.Equal(t, 2026, s.StartedAt.Year())
@@ -257,12 +261,13 @@ func TestImportSnapshot(t *testing.T) {
 
 	base := time.Date(2026, 4, 1, 9, 30, 0, 0, time.UTC)
 	writeSnapshotFixture(t, src, map[string]any{
-		"session_id":    snapshotSessionID,
-		"session_start": base.Format(time.RFC3339Nano),
-		"last_updated":  base.Add(time.Minute).Format(time.RFC3339Nano),
-		"platform":      "anthropic",
-		"model":         "claude-opus-4-7",
-		"system_prompt": "you are helpful",
+		"session_id":        snapshotSessionID,
+		"session_start":     base.Format(time.RFC3339Nano),
+		"last_updated":      base.Add(time.Minute).Format(time.RFC3339Nano),
+		"platform":          "anthropic",
+		"model":             "claude-opus-4-7",
+		"parent_session_id": "parent-snapshot-1",
+		"system_prompt":     "you are helpful",
 		"messages": []map[string]any{
 			{"role": "user", "content": "hello world"},
 			{
@@ -290,6 +295,8 @@ func TestImportSnapshot(t *testing.T) {
 	require.Equal(t, "hello world", *s.FirstPrompt)
 	require.NotNil(t, s.Model)
 	require.Equal(t, "claude-opus-4-7", *s.Model)
+	require.NotNil(t, s.ParentSessionID)
+	require.Equal(t, "parent-snapshot-1", *s.ParentSessionID)
 	require.Equal(t, base.UTC(), s.StartedAt)
 	require.Equal(t, base.Add(time.Minute).UTC(), s.LastActivityAt)
 
@@ -319,6 +326,7 @@ func TestImportStateDB(t *testing.T) {
 	rows := []hermesStateRow{
 		{
 			id:        "state-1",
+			parentID:  "parent-state-1",
 			model:     "claude-sonnet-4-6",
 			startedAt: float64(base.Unix()),
 			messages: []hermesStateMessage{
@@ -372,6 +380,8 @@ func TestImportStateDB(t *testing.T) {
 	require.Equal(t, "first prompt one", *s1.FirstPrompt)
 	require.NotNil(t, s1.Model)
 	require.Equal(t, "claude-sonnet-4-6", *s1.Model)
+	require.NotNil(t, s1.ParentSessionID)
+	require.Equal(t, "parent-state-1", *s1.ParentSessionID)
 	require.Len(t, sink.Turns["state-1"], 2)
 	require.Len(t, sink.Tools["state-1"], 1)
 	require.Equal(t, "Read", sink.Tools["state-1"][0].Name)

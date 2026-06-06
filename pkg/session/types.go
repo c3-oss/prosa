@@ -71,7 +71,8 @@ type Session struct {
 	// Code: parent UUID is the directory above the `subagents/` folder
 	// that holds the child JSONL. Codex: parent is
 	// `session_meta.payload.source.subagent.thread_spawn.parent_thread_id`.
-	// nil for top-level sessions.
+	// Hermes: parent is `parent_session_id` from state.db or transcript
+	// envelopes. nil for top-level sessions.
 	ParentSessionID *string
 }
 
@@ -103,7 +104,9 @@ type Session struct {
 //	    (`session_meta.payload.source.subagent.thread_spawn.parent_thread_id`).
 //	    Walked top-down so subagent JSONLs are now imported alongside
 //	    their parents.
-const ProjectionVersion = 8
+//	v9: Hermes parent edges projected from state.db `sessions.parent_session_id`
+//	    and transcript `parent_session_id` fields.
+const ProjectionVersion = 9
 
 // Turn kind constants. Empty Kind is treated as KindMessage so older rows
 // and zero-value test fixtures keep working without backfill.

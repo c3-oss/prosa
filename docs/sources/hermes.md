@@ -45,7 +45,7 @@ Imported by `internal/importers/hermes/`.
 | Model | `sessions.model` (SQLite); top-level `model` field (snapshots); falls back to per-message `model` |
 | Start time | `sessions.started_at` (unix seconds); `session_start` (ISO 8601, snapshots); `min(timestamp)` over JSONL messages |
 | End / last activity | `sessions.ended_at`; `last_updated` (snapshots); `max(timestamp)` over JSONL messages |
-| Parent session | `sessions.parent_session_id` (SQLite only; not projected) |
+| Parent session | `sessions.parent_session_id` (SQLite); top-level or per-message `parent_session_id` in transcript files |
 
 Hermes does not record a cwd. `ProjectPath`, `ProjectRemote`, and
 `ProjectMarker` come from `internal/projectid` against the cwd at sync
@@ -103,7 +103,8 @@ opaque strings unless a column is explicitly parsed (`tool_calls`).
 Top-level `<session-id>.jsonl` is one message object per line. The
 session id is the filename stem (`abcd.jsonl` → `abcd`). Each line shares
 the column shape of a `messages` row — `role`, `content`, optional
-`tool_calls`, `timestamp`, and the same hidden reasoning fields.
+`tool_calls`, `timestamp`, optional `parent_session_id`, and the same
+hidden reasoning fields.
 
 The walker yields every top-level `.jsonl` under `sessions/` and ignores
 any nested directories.
@@ -119,6 +120,7 @@ A snapshot is a single JSON object that mirrors one session end-to-end:
   "last_updated": "2026-05-15T00:41:00.000Z",
   "platform": "cli",
   "model": "...",
+  "parent_session_id": "...",
   "system_prompt": "...",
   "messages": []
 }
@@ -297,15 +299,17 @@ What `session.Turn` and `session.ToolUsage` surface for Hermes today:
 - **`session.Session.Model`**: `sessions.model`, the snapshot's
   top-level `model`, or the first per-message `model` — first non-empty
   wins.
+- **`session.Session.ParentSessionID`**: `sessions.parent_session_id`,
+  the snapshot's top-level `parent_session_id`, or the first
+  per-message `parent_session_id` — first non-empty wins.
 - **Preserved in raw** for future cuts:
   - the full `state.db` (or `.jsonl` / `.json` source file) byte for
     byte;
   - every hidden reasoning column (`messages.reasoning`,
     `reasoning_content`, `reasoning_details`,
     `codex_reasoning_items`, `codex_message_items`);
-  - `sessions.system_prompt`, `model_config`, `end_reason`,
-    `parent_session_id`, `title`, and per-message `token_count` /
-    `finish_reason`;
+  - `sessions.system_prompt`, `model_config`, `end_reason`, `title`,
+    and per-message `token_count` / `finish_reason`;
   - the full body of every `tool_calls` payload and `tool` -role
     `content` blob, beyond what the `ToolUsage` aggregate counts.
 - **Dual-source gap**: when both `state.db` and a transcript file

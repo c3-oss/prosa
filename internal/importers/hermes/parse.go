@@ -25,6 +25,7 @@ type hermesMessage struct {
 	Timestamp  json.RawMessage `json:"timestamp"` // float seconds or ISO string
 	Model      string          `json:"model"`
 	SessionID  string          `json:"session_id"`
+	ParentID   string          `json:"parent_session_id"`
 	ToolCalls  json.RawMessage `json:"tool_calls"`
 	TokenCount *int64          `json:"token_count"`
 }
@@ -36,6 +37,7 @@ type snapshotEnvelope struct {
 	LastUpdated  string          `json:"last_updated"`
 	Platform     string          `json:"platform"`
 	Model        string          `json:"model"`
+	ParentID     string          `json:"parent_session_id"`
 	SystemPrompt string          `json:"system_prompt"`
 	Messages     []hermesMessage `json:"messages"`
 }
@@ -45,6 +47,7 @@ type snapshotEnvelope struct {
 type stateDBRow struct {
 	id           string
 	model        sql.NullString
+	parentID     sql.NullString
 	startedAt    sql.NullFloat64
 	startedAtStr sql.NullString
 	messageCount sql.NullInt64
@@ -126,6 +129,9 @@ func parseSnapshot(ctx context.Context, path string) (session.Session, []session
 	if sess.ID == "" {
 		sess.ID = env.SessionID
 	}
+	if parentID := strings.TrimSpace(env.ParentID); parentID != "" {
+		sess.ParentSessionID = &parentID
+	}
 	return sess, turns, tools, state, nil
 }
 
@@ -151,6 +157,11 @@ func projectMessagesWithDefaults(msgs []hermesMessage, envStart, envEnd time.Tim
 	}
 
 	for _, m := range msgs {
+		if sess.ParentSessionID == nil {
+			if parentID := strings.TrimSpace(m.ParentID); parentID != "" {
+				sess.ParentSessionID = &parentID
+			}
+		}
 		if m.TokenCount != nil {
 			tokenTotal += *m.TokenCount
 			tokenSet = true
@@ -290,7 +301,16 @@ func readStateDBSessions(ctx context.Context, path string) ([]stateDBRow, error)
 	}
 	defer func() { _ = db.Close() }()
 
-	rows, err := db.QueryContext(ctx, `SELECT id, model, started_at, message_count FROM sessions ORDER BY started_at`)
+	hasParentID, err := tableHasColumn(ctx, db, "sessions", "parent_session_id")
+	if err != nil {
+		return nil, err
+	}
+	parentExpr := "NULL AS parent_session_id"
+	if hasParentID {
+		parentExpr = "parent_session_id"
+	}
+	query := fmt.Sprintf(`SELECT id, model, %s, started_at, message_count FROM sessions ORDER BY started_at`, parentExpr)
+	rows, err := db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("query sessions: %w", err)
 	}
@@ -304,13 +324,14 @@ func readStateDBSessions(ctx context.Context, path string) ([]stateDBRow, error)
 		var (
 			id           string
 			model        sql.NullString
+			parentID     sql.NullString
 			startedAt    any
 			messageCount sql.NullInt64
 		)
-		if err := rows.Scan(&id, &model, &startedAt, &messageCount); err != nil {
+		if err := rows.Scan(&id, &model, &parentID, &startedAt, &messageCount); err != nil {
 			return nil, fmt.Errorf("scan session: %w", err)
 		}
-		row := stateDBRow{id: id, model: model, messageCount: messageCount}
+		row := stateDBRow{id: id, model: model, parentID: parentID, messageCount: messageCount}
 		switch v := startedAt.(type) {
 		case float64:
 			row.startedAt = sql.NullFloat64{Float64: v, Valid: true}
@@ -417,6 +438,11 @@ func projectStateDBSession(ctx context.Context, path string, row stateDBRow) (se
 
 	sess, turns, tools, state := projectMessagesWithDefaults(msgs, envStart, time.Time{}, envModel)
 	sess.ID = row.id
+	if row.parentID.Valid {
+		if parentID := strings.TrimSpace(row.parentID.String); parentID != "" {
+			sess.ParentSessionID = &parentID
+		}
+	}
 	return sess, turns, tools, state, nil
 }
 

@@ -27,7 +27,7 @@ stays excluded.
 
 ## Projection version
 
-`session.ProjectionVersion = 8`. The server's push handler compares
+`session.ProjectionVersion = 9`. The server's push handler compares
 `projection_version >= session.ProjectionVersion` before short-
 circuiting, so bumping this constant forces existing sessions to be
 re-projected on the next push from any client. Recent versions:
@@ -35,7 +35,9 @@ v7 rewrites FTS triggers (local) and `content_tsv` (server) to
 exclude `kind='thinking'` (migrations `0007_thinking_excluded_from_fts`);
 v8 adds the `parent_session_id` column + index plus the
 `Sessions.ListChildren` RPC (migrations `0008_subagent_edges`) and
-starts walking Claude Code subagent JSONLs alongside parents.
+starts walking Claude Code subagent JSONLs alongside parents; v9 projects
+Hermes parent edges from `state.db` and transcript `parent_session_id`
+fields.
 
 | Version | Brought |
 |---|---|
@@ -47,6 +49,7 @@ starts walking Claude Code subagent JSONLs alongside parents.
 | 6 | tri-state usage classification — admit sessions whose transcript carries no usage event at all (Unknown); only skip when a usage event was observed with explicit zero totals (ExplicitZero) |
 | 7 | thinking blocks projected — Claude Code `content[].type=="thinking"` and Codex `response_item.type=="reasoning"` `.summary` land as `Turn{Role:"assistant", Kind:KindThinking, Content:<truncated to 4 KB>}`. FTS excludes `kind='thinking'` rows so search results stay focused on chat content. |
 | 8 | subagent edge captured — `Session.ParentSessionID` set when a transcript is a Claude Code subagent (under `<parent>/subagents/agent-<id>.jsonl`) or a Codex thread spawn (`session_meta.payload.source.subagent.thread_spawn.parent_thread_id`). Claude Code's walker now picks up subagent JSONLs alongside parents. New SQL column `parent_session_id` + index (migration `0008_subagent_edges`); new RPC `Sessions.ListChildren(parent_id)` powers the panel's Subagents disclosure. |
+| 9 | Hermes parent edges projected — `Session.ParentSessionID` set from `sessions.parent_session_id` in `state.db`, snapshot envelopes, and JSONL message records carrying `parent_session_id`. |
 
 ## Import eligibility
 
@@ -289,6 +292,7 @@ and a `sessions.json` index). The full reference is `docs/sources/hermes.md`.
 | `LastActivityAt` | `sessions.ended_at` when set; otherwise the latest message timestamp. `last_updated` for JSON snapshots |
 | `FirstPrompt` | first `messages.role=="user"` row (SQLite) or first user line/message (JSONL/JSON) with non-empty `content` (text or first text item of an array); whitespace-collapsed + truncated to 200 runes |
 | `Model` | `sessions.model` (SQLite); `model` (JSON snapshot); first assistant-side `model` encountered (JSONL) |
+| `ParentSessionID` | `sessions.parent_session_id` (SQLite); top-level `parent_session_id` (JSON snapshot); first per-message `parent_session_id` encountered (JSONL / snapshot messages) |
 | `RawPath` / `RawHash` / `RawSize` | sha256 of the source file; copy to `$PROSA_HOME/raw/hermes/<YYYY>/<MM>/<session-id>.<ext>` where `<ext>` is `db`, `jsonl`, or `json`. For `state.db`, one raw copy per session id — all copies are byte-identical |
 
 ### `session.Turn`
@@ -310,7 +314,6 @@ and a `sessions.json` index). The full reference is `docs/sources/hermes.md`.
 
 - Hidden reasoning columns: `messages.reasoning`, `messages.reasoning_content`, `messages.reasoning_details`, `messages.codex_reasoning_items`, `messages.codex_message_items`. Preserved in raw, never projected to turns.
 - `sessions.system_prompt`, `sessions.model_config`, `sessions.end_reason`, `sessions.title`. Preserved in raw, not yet on `session.Session`.
-- `sessions.parent_session_id`. Captured in raw; not surfaced as a subagent edge today (no `is_subagent` column on `session.Session`).
 - `~/.hermes/sessions/sessions.json`. Observed as an index; never yielded by Walk and never projected.
 - Nested directories under `~/.hermes/sessions/` (e.g. `saved/`). Walk is intentionally non-recursive.
 - **Dual-source dropped side**: when both `state.db` and a sibling `<id>.jsonl` / `session_<id>.json` describe the same session, the source with more messages wins. The other side is preserved in raw but not in the projection.
