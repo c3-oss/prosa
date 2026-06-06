@@ -4,9 +4,8 @@
 # This script:
 #   1. Detects your OS (Linux or Darwin) and CPU arch (amd64 or arm64).
 #   2. Resolves the latest prosa release from GitHub (or honors PROSA_VERSION).
-#   3. Downloads each selected binary plus checksums.txt directly from
-#      the release page (no tar.gz intermediate).
-#   4. Verifies each binary's sha256 before writing anything to disk.
+#   3. Downloads the per-platform release tarball plus checksums.txt.
+#   4. Verifies the release tarball sha256 before writing anything to disk.
 #   5. Installs the prosa binary (and optionally prosa-server / prosa-panel)
 #      into $INSTALL_DIR (default ~/.local/bin).
 #
@@ -126,21 +125,32 @@ main() {
     # shellcheck disable=SC2064  # expand $tmp at trap-registration time
     trap "rm -rf '$tmp'" EXIT INT TERM
 
+    require_cmd tar
     curl -fsSL -o "$tmp/checksums.txt" "$base/checksums.txt"
 
     mkdir -p "$INSTALL_DIR"
+
+    asset="prosa_${semver}_${OS}_${ARCH}.tar.gz"
+    info "downloading $asset ..."
+    curl -fsSL -o "$tmp/$asset" "$base/$asset"
+
+    expected=$(awk -v f="$asset" '$2 == f { print $1 }' "$tmp/checksums.txt")
+    if [ -z "$expected" ]; then
+        err "could not find $asset in checksums.txt"
+    fi
+    sha256_verify "$tmp/$asset" "$expected"
+
+    unpack="$tmp/unpacked"
+    mkdir -p "$unpack"
+    tar -xzf "$tmp/$asset" -C "$unpack"
+
     for bin in $INSTALL_BINS; do
-        asset="${bin}_${semver}_${OS}_${ARCH}"
-        info "downloading $asset ..."
-        curl -fsSL -o "$tmp/$asset" "$base/$asset"
-
-        expected=$(awk -v f="$asset" '$2 == f { print $1 }' "$tmp/checksums.txt")
-        if [ -z "$expected" ]; then
-            err "could not find $asset in checksums.txt"
+        src="$unpack/$bin"
+        if [ ! -f "$src" ]; then
+            err "could not find $bin in $asset"
         fi
-        sha256_verify "$tmp/$asset" "$expected"
 
-        install -m 0755 "$tmp/$asset" "$INSTALL_DIR/$bin"
+        install -m 0755 "$src" "$INSTALL_DIR/$bin"
         info "installed $bin -> $INSTALL_DIR/$bin"
     done
 

@@ -61,32 +61,18 @@ builds:
 
 archives:
   # default — three-binary bundle. Homebrew's Cask references this and
-  # it remains the fallback for anything that still expects a tar.gz.
+  # keep this as the sole package format for releases.
   - id: default
     formats: [tar.gz]
     name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}'
     files:
       - README.md
       - LICENSE*
-  # Raw per-binary uploads so the release page lists each binary by
-  # name and install.sh / curl users can pull only what they need.
-  - id: prosa-bin
-    ids: [prosa]
-    formats: [binary]
-    name_template: '{{ .Binary }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}'
-  - id: prosa-server-bin
-    ids: [prosa-server]
-    formats: [binary]
-    name_template: '{{ .Binary }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}'
-  - id: prosa-panel-bin
-    ids: [prosa-panel]
-    formats: [binary]
-    name_template: '{{ .Binary }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}'
 
 homebrew_casks:
   - name: prosa
     # ids pins the Cask to the tar.gz bundle so it keeps installing all
-    # three binaries even though we now publish raw per-binary archives.
+    # three binaries from one artifact.
     ids: [default]
     binaries:
       - prosa

@@ -81,12 +81,8 @@ GitHub Actions runs `.github/workflows/release.yml`. One job, multi-step:
 `goreleaser release --clean` runs in the Actions runner.
 
 - Builds the 12 binaries (3 binaries × 2 OS × 2 arch).
-- Publishes each binary as a raw release asset
-  (`prosa_<v>_<os>_<arch>`, `prosa-server_<v>_<os>_<arch>`,
-  `prosa-panel_<v>_<os>_<arch>` — 12 total).
-- Also publishes a three-binary bundle tar.gz per OS/arch
-  (`prosa_<v>_<os>_<arch>.tar.gz` — 4 total) that the Homebrew Cask
-  installs and `install.sh` falls back to when raw assets are missing.
+- Publishes the three-binary tar.gz bundle per OS/arch
+  (`prosa_<v>_<os>_<arch>.tar.gz` — 4 total) that the Homebrew Cask installs.
 - Computes `checksums.txt` covering every asset.
 - Renders the GitHub Release (title = `prosa v0.11.0`, body = grouped
   changelog).
@@ -142,10 +138,12 @@ PROSA_VERSION=v0.11.0 \
   curl -fsSL https://raw.githubusercontent.com/c3-oss/prosa/master/install.sh | sh
 ~/.local/bin/prosa --version
 
-# Direct raw binary — one-liner for users who want just one component
-curl -fsSL -o ~/.local/bin/prosa-server \
-  https://github.com/c3-oss/prosa/releases/download/v0.11.0/prosa-server_0.11.0_darwin_arm64
-chmod +x ~/.local/bin/prosa-server
+# Direct tarball install (or use `install.sh` and set INSTALL_BINS):
+mkdir -p /tmp/prosa-install && cd /tmp/prosa-install
+curl -fsSL -o prosa_0.11.0_darwin_arm64.tar.gz \
+  https://github.com/c3-oss/prosa/releases/download/v0.11.0/prosa_0.11.0_darwin_arm64.tar.gz
+tar -xzf prosa_0.11.0_darwin_arm64.tar.gz prosa-server
+install -m 0755 prosa-server ~/.local/bin/prosa-server
 
 # npm
 npm install -g @c3-oss/prosa@0.11.0

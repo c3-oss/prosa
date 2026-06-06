@@ -68,8 +68,9 @@ GitHub Release, with these exact names:
 - `prosa_<version-without-v>_<os>_<arch>.tar.gz`
 - `checksums.txt` (lines of `<sha256>  <filename>`)
 
-GoReleaser is configured to produce both. If the archive format ever
-changes, `install.sh` and `.goreleaser.yaml` must change together.
+GoReleaser is configured to produce the tarball and `checksums.txt`. If the
+archive format ever changes, `install.sh` and `.goreleaser.yaml` must change
+together.
 
 ## Behavior when things go wrong
 
