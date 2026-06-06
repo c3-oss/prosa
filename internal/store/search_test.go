@@ -65,6 +65,44 @@ func TestSearchSingleTerm(t *testing.T) {
 	}
 }
 
+// Search must populate ParentSessionID for subagent children, matching the
+// server's Search shape. See issue #97.
+func TestSearchReturnsParentSessionID(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "store.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = s.Close() })
+	now := time.Now().UTC()
+
+	mk := func(id string, parent *string) {
+		require.NoError(t, s.UpsertSession(ctx, session.Session{
+			ID:              id,
+			Agent:           "claude-code",
+			DeviceID:        "local",
+			StartedAt:       now,
+			LastActivityAt:  now,
+			RawPath:         "/tmp/" + id + ".jsonl",
+			RawHash:         "h-" + id,
+			RawSize:         1,
+			ParentSessionID: parent,
+		}, nil))
+	}
+	parent := "parent-1"
+	mk(parent, nil)
+	mk("child-1", &parent)
+	require.NoError(t, s.InsertTurns(ctx, "child-1", []session.Turn{{
+		Role: "user", Content: "subagent quantum task", Timestamp: now,
+	}}))
+
+	hits, err := s.Search(ctx, "quantum", SessionFilter{
+		Since: now.Add(-time.Hour), Until: now.Add(time.Hour),
+	}, 10)
+	require.NoError(t, err)
+	require.Len(t, hits, 1)
+	require.NotNil(t, hits[0].Session.ParentSessionID)
+	require.Equal(t, parent, *hits[0].Session.ParentSessionID)
+}
+
 func TestSearchNoMatches(t *testing.T) {
 	ctx, s, now := seedSearchStore(t)
 	hits, err := s.Search(ctx, "zzznotpresent", SessionFilter{
