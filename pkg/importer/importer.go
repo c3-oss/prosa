@@ -67,11 +67,15 @@ type Importer interface {
 
 // Sink absorbs the projection produced by an importer. The store package
 // implements this directly; tests substitute in-memory fakes.
+//
+// WriteSession persists the whole projection (session row + usage + tools,
+// turns, and the sync_state hash) in one transaction so a crash mid-import
+// can never leave a session row without its turns or with a stale
+// sync_state. LastHash is read separately, before parsing, to short-circuit
+// re-imports of unchanged files.
 type Sink interface {
-	UpsertSession(ctx context.Context, s session.Session, tools []session.ToolUsage) error
-	InsertTurns(ctx context.Context, sessionID string, turns []session.Turn) error
+	WriteSession(ctx context.Context, s session.Session, tools []session.ToolUsage, turns []session.Turn, hash string) error
 	LastHash(ctx context.Context, sessionID string) (string, bool, error)
-	RecordSync(ctx context.Context, sessionID, hash string) error
 }
 
 const (

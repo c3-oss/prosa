@@ -27,25 +27,17 @@ func NewSink() *Sink {
 	}
 }
 
-func (s *Sink) UpsertSession(_ context.Context, sess session.Session, tools []session.ToolUsage) error {
+func (s *Sink) WriteSession(_ context.Context, sess session.Session, tools []session.ToolUsage, turns []session.Turn, hash string) error {
 	s.Sessions[sess.ID] = sess
 	s.Tools[sess.ID] = tools
-	return nil
-}
-
-func (s *Sink) InsertTurns(_ context.Context, sessionID string, turns []session.Turn) error {
-	s.Turns[sessionID] = turns
+	s.Turns[sess.ID] = turns
+	s.Hashes[sess.ID] = hash
 	return nil
 }
 
 func (s *Sink) LastHash(_ context.Context, sessionID string) (string, bool, error) {
 	hash, ok := s.Hashes[sessionID]
 	return hash, ok, nil
-}
-
-func (s *Sink) RecordSync(_ context.Context, sessionID, hash string) error {
-	s.Hashes[sessionID] = hash
-	return nil
 }
 
 func (s *Sink) LastImportSkip(_ context.Context, sessionID, reason string) (string, bool, error) {

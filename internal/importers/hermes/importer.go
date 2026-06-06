@@ -114,14 +114,8 @@ func (i *Importer) importJSONL(ctx context.Context, path string, sink importer.S
 	sess.RawPath = rawPath
 	projectid.Apply(&sess)
 
-	if err := sink.UpsertSession(ctx, sess, tools); err != nil {
-		return importer.ImportResult{}, fmt.Errorf("upsert session %s: %w", sessionID, err)
-	}
-	if err := sink.InsertTurns(ctx, sessionID, turns); err != nil {
-		return importer.ImportResult{}, fmt.Errorf("insert turns %s: %w", sessionID, err)
-	}
-	if err := sink.RecordSync(ctx, sessionID, hash); err != nil {
-		return importer.ImportResult{}, fmt.Errorf("record sync %s: %w", sessionID, err)
+	if err := sink.WriteSession(ctx, sess, tools, turns, hash); err != nil {
+		return importer.ImportResult{}, fmt.Errorf("write session %s: %w", sessionID, err)
 	}
 
 	return importer.ImportResult{
@@ -184,14 +178,8 @@ func (i *Importer) importSnapshot(ctx context.Context, path string, sink importe
 	sess.RawPath = rawPath
 	projectid.Apply(&sess)
 
-	if err := sink.UpsertSession(ctx, sess, tools); err != nil {
-		return importer.ImportResult{}, fmt.Errorf("upsert session %s: %w", sess.ID, err)
-	}
-	if err := sink.InsertTurns(ctx, sess.ID, turns); err != nil {
-		return importer.ImportResult{}, fmt.Errorf("insert turns %s: %w", sess.ID, err)
-	}
-	if err := sink.RecordSync(ctx, sess.ID, hash); err != nil {
-		return importer.ImportResult{}, fmt.Errorf("record sync %s: %w", sess.ID, err)
+	if err := sink.WriteSession(ctx, sess, tools, turns, hash); err != nil {
+		return importer.ImportResult{}, fmt.Errorf("write session %s: %w", sess.ID, err)
 	}
 
 	return importer.ImportResult{
@@ -274,14 +262,8 @@ func (i *Importer) importStateDB(ctx context.Context, path string, sink importer
 		sess.RawPath = rawPath
 		projectid.Apply(&sess)
 
-		if err := sink.UpsertSession(ctx, sess, tools); err != nil {
-			return importer.ImportResult{}, fmt.Errorf("upsert session %s: %w", row.id, err)
-		}
-		if err := sink.InsertTurns(ctx, row.id, turns); err != nil {
-			return importer.ImportResult{}, fmt.Errorf("insert turns %s: %w", row.id, err)
-		}
-		if err := sink.RecordSync(ctx, row.id, hash); err != nil {
-			return importer.ImportResult{}, fmt.Errorf("record sync %s: %w", row.id, err)
+		if err := sink.WriteSession(ctx, sess, tools, turns, hash); err != nil {
+			return importer.ImportResult{}, fmt.Errorf("write session %s: %w", row.id, err)
 		}
 		imported++
 	}
