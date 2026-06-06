@@ -62,6 +62,7 @@ func seedManifestStore(t *testing.T) (context.Context, *Store) {
 }
 
 func TestListSessionsManifestAllInOnePage(t *testing.T) {
+	t.Parallel()
 	ctx, s := seedManifestStore(t)
 	rows, err := s.ListSessionsManifest(ctx, "dev-a", "", 0)
 	require.NoError(t, err)
@@ -75,6 +76,7 @@ func TestListSessionsManifestAllInOnePage(t *testing.T) {
 }
 
 func TestListSessionsManifestDeviceIsolation(t *testing.T) {
+	t.Parallel()
 	ctx, s := seedManifestStore(t)
 	rows, err := s.ListSessionsManifest(ctx, "dev-b", "", 0)
 	require.NoError(t, err)
@@ -84,6 +86,7 @@ func TestListSessionsManifestDeviceIsolation(t *testing.T) {
 }
 
 func TestListSessionsManifestPagination(t *testing.T) {
+	t.Parallel()
 	ctx, s := seedManifestStore(t)
 
 	// Page 1: limit 2, cursor empty → a01,a02.
@@ -113,6 +116,7 @@ func TestListSessionsManifestPagination(t *testing.T) {
 }
 
 func TestListSessionsManifestUnknownDevice(t *testing.T) {
+	t.Parallel()
 	ctx, s := seedManifestStore(t)
 	rows, err := s.ListSessionsManifest(ctx, "dev-zzz", "", 0)
 	require.NoError(t, err)

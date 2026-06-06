@@ -159,6 +159,7 @@ func TestImportEnvelope(t *testing.T) {
 }
 
 func TestParseLiveLogs(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	root := filepath.Join(t.TempDir(), "gemini-root")
@@ -253,6 +254,7 @@ func TestImportLiveLogsSkipsWithExplicitZeroUsage(t *testing.T) {
 }
 
 func TestWalkFindsBothShapes(t *testing.T) {
+	t.Parallel()
 	root := filepath.Join(t.TempDir(), "gemini-root")
 	envSrc := writeEnvelopeFixture(t, root)
 	liveSrc := writeLiveFixture(t, root)
@@ -266,6 +268,7 @@ func TestWalkFindsBothShapes(t *testing.T) {
 }
 
 func TestWalkSkipsEmptyLiveLogs(t *testing.T) {
+	t.Parallel()
 	root := filepath.Join(t.TempDir(), "gemini-root")
 	emptyDir := filepath.Join(root, "empty")
 	require.NoError(t, os.MkdirAll(emptyDir, 0o755))
@@ -279,6 +282,7 @@ func TestWalkSkipsEmptyLiveLogs(t *testing.T) {
 }
 
 func TestWalkMissingRootReturnsEmpty(t *testing.T) {
+	t.Parallel()
 	imp := New()
 	got, err := imp.Walk(context.Background(), filepath.Join(t.TempDir(), "nope"))
 	require.NoError(t, err)

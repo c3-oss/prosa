@@ -15,6 +15,7 @@ import (
 )
 
 func TestLocalMigrationUpDownUpIdentity(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	db, err := sql.Open(driverName, "file::memory:?_pragma=foreign_keys(ON)")
 	require.NoError(t, err)

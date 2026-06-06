@@ -40,6 +40,7 @@ func newSession(id string, now time.Time) session.Session {
 }
 
 func TestOpenAndMigrate(t *testing.T) {
+	t.Parallel()
 	ctx, s := newStore(t)
 	// devices seed row must be present so the FK on sessions works.
 	var n int
@@ -53,6 +54,7 @@ func TestOpenAndMigrate(t *testing.T) {
 }
 
 func TestMigration0002AddsIdentityColumns(t *testing.T) {
+	t.Parallel()
 	ctx, s := newStore(t)
 
 	requireColumn := func(table, col string) {
@@ -80,6 +82,7 @@ func TestMigration0002AddsIdentityColumns(t *testing.T) {
 }
 
 func TestUpsertSessionIdempotent(t *testing.T) {
+	t.Parallel()
 	ctx, s := newStore(t)
 	now := time.Now().UTC()
 	sess := newSession("sess-1", now)
@@ -104,6 +107,7 @@ func TestUpsertSessionIdempotent(t *testing.T) {
 }
 
 func TestSessionToolsReplaced(t *testing.T) {
+	t.Parallel()
 	ctx, s := newStore(t)
 	now := time.Now().UTC()
 	sess := newSession("sess-2", now)
@@ -117,6 +121,7 @@ func TestSessionToolsReplaced(t *testing.T) {
 }
 
 func TestInsertTurnsAndFTS(t *testing.T) {
+	t.Parallel()
 	ctx, s := newStore(t)
 	now := time.Now().UTC()
 	sess := newSession("sess-3", now)
@@ -144,6 +149,7 @@ func TestInsertTurnsAndFTS(t *testing.T) {
 }
 
 func TestSyncStateRoundTrip(t *testing.T) {
+	t.Parallel()
 	ctx, s := newStore(t)
 	now := time.Now().UTC()
 	sess := newSession("sess-4", now)
@@ -166,6 +172,7 @@ func TestSyncStateRoundTrip(t *testing.T) {
 }
 
 func TestLastHashIgnoresStaleProjectionVersion(t *testing.T) {
+	t.Parallel()
 	ctx, s := newStore(t)
 	now := time.Now().UTC()
 	sess := newSession("sess-stale-projection", now)

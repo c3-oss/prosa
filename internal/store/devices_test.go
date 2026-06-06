@@ -10,6 +10,7 @@ import (
 )
 
 func TestUpsertDeviceRoundTrip(t *testing.T) {
+	t.Parallel()
 	ctx, s := newStore(t)
 	now := time.Now().UTC()
 
@@ -39,6 +40,7 @@ func TestUpsertDeviceRoundTrip(t *testing.T) {
 }
 
 func TestUpsertDevicePreservesFriendlyNameWhenEmpty(t *testing.T) {
+	t.Parallel()
 	ctx, s := newStore(t)
 	now := time.Now().UTC()
 
@@ -71,6 +73,7 @@ func TestUpsertDevicePreservesFriendlyNameWhenEmpty(t *testing.T) {
 }
 
 func TestRebindLocalSessionsMovesRowsAtomic(t *testing.T) {
+	t.Parallel()
 	ctx, s := newStore(t)
 	now := time.Now().UTC()
 
@@ -109,6 +112,7 @@ func TestRebindLocalSessionsMovesRowsAtomic(t *testing.T) {
 }
 
 func TestRebindLocalSessionsRejectsSelfId(t *testing.T) {
+	t.Parallel()
 	ctx, s := newStore(t)
 	// "local" target is a defensive no-op.
 	n, err := s.RebindLocalSessions(ctx, "local")

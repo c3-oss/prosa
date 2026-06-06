@@ -132,6 +132,7 @@ CREATE TABLE messages (
 }
 
 func TestWalkFindsAllFlavors(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	hermesHome := filepath.Join(root, ".hermes")
 	sessionsDir := filepath.Join(hermesHome, "sessions")
@@ -163,6 +164,7 @@ func TestWalkFindsAllFlavors(t *testing.T) {
 }
 
 func TestWalkMissingRootReturnsEmpty(t *testing.T) {
+	t.Parallel()
 	imp := New()
 	got, err := imp.Walk(context.Background(), filepath.Join(t.TempDir(), "nope"))
 	require.NoError(t, err)

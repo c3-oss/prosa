@@ -11,6 +11,7 @@ import (
 )
 
 func TestImportSkipRoundTrip(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, err := Open(ctx, filepath.Join(t.TempDir(), "store.db"))
 	require.NoError(t, err)
@@ -37,6 +38,7 @@ func TestImportSkipRoundTrip(t *testing.T) {
 }
 
 func TestLastImportSkipIgnoresStaleProjectionVersion(t *testing.T) {
+	t.Parallel()
 	ctx, s := newStore(t)
 	now := time.Now().UTC()
 
