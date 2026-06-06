@@ -109,16 +109,16 @@ func upsertSessionTx(ctx context.Context, tx *sql.Tx, sess session.Session, tool
 		return fmt.Errorf("upsert session_usage %s: %w", sess.ID, err)
 	}
 
-	if len(tools) > 0 {
-		stmt, err := tx.PrepareContext(ctx, `INSERT INTO session_tools(session_id, name, count) VALUES (?, ?, ?)`)
-		if err != nil {
-			return fmt.Errorf("prepare session_tools insert: %w", err)
-		}
-		defer stmt.Close()
-		for _, t := range tools {
-			if _, err := stmt.ExecContext(ctx, sess.ID, t.Name, t.Count); err != nil {
-				return fmt.Errorf("insert session_tools(%s,%s): %w", sess.ID, t.Name, err)
-			}
+	// Direct Exec rather than a prepared statement: tool counts are a
+	// handful of rows per session, so the prepare cost isn't amortized, and
+	// it avoids a stmt.Close() whose error could interact with the deferred
+	// rollback/commit.
+	for _, t := range tools {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO session_tools(session_id, name, count) VALUES (?, ?, ?)`,
+			sess.ID, t.Name, t.Count,
+		); err != nil {
+			return fmt.Errorf("insert session_tools(%s,%s): %w", sess.ID, t.Name, err)
 		}
 	}
 

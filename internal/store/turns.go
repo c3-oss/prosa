@@ -37,19 +37,10 @@ func insertTurnsTx(ctx context.Context, tx *sql.Tx, sessionID string, turns []se
 		return fmt.Errorf("delete prior turns for %s: %w", sessionID, err)
 	}
 
-	if len(turns) == 0 {
-		return nil
-	}
-
-	stmt, err := tx.PrepareContext(
-		ctx,
-		`INSERT INTO turns(session_id, role, content, ts, kind, tool_name) VALUES (?, ?, ?, ?, ?, ?)`,
-	)
-	if err != nil {
-		return fmt.Errorf("prepare turn insert: %w", err)
-	}
-	defer stmt.Close()
-
+	// Direct Exec rather than a prepared statement: most sessions have well
+	// under a hundred turns, so the prepare cost isn't amortized on the sync
+	// hot path, and it avoids a stmt.Close() whose error could interact with
+	// the deferred rollback/commit.
 	for i, t := range turns {
 		kind := t.Kind
 		if kind == "" {
@@ -59,8 +50,9 @@ func insertTurnsTx(ctx context.Context, tx *sql.Tx, sessionID string, turns []se
 		if t.ToolName != "" {
 			toolName = t.ToolName
 		}
-		if _, err := stmt.ExecContext(
-			ctx, sessionID, t.Role, t.Content, formatTime(t.Timestamp), kind, toolName,
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO turns(session_id, role, content, ts, kind, tool_name) VALUES (?, ?, ?, ?, ?, ?)`,
+			sessionID, t.Role, t.Content, formatTime(t.Timestamp), kind, toolName,
 		); err != nil {
 			return fmt.Errorf("insert turn %d for %s: %w", i, sessionID, err)
 		}
