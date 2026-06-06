@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/c3-oss/prosa/internal/httpserver"
 	"github.com/c3-oss/prosa/internal/panel/rpc"
 	"github.com/c3-oss/prosa/internal/panel/session"
 	"github.com/c3-oss/prosa/internal/panel/templates"
-	"github.com/c3-oss/prosa/pkg/httpserver"
 )
 
 // Panel is the assembled HTTP server. Build via New, drive with Serve.
