@@ -34,7 +34,7 @@ func newShowCmd() *cobra.Command {
 		Long: "By default, renders the human-readable session view (header + turns) " +
 			"to stdout when stdout is a TTY. --raw prints the preserved JSONL bytes " +
 			"verbatim. --json prints a single JSON object with `session`, `tools`, " +
-			"and `turns`. --remote fetches from the prosa-server.",
+			"and `turns`. --remote fetches projected or raw content from the prosa-server.",
 		Args: cobra.ExactArgs(1),
 		RunE: runShow,
 	}
@@ -65,11 +65,13 @@ func runShow(cmd *cobra.Command, args []string) error {
 	if showMaxOutputLines < 0 {
 		return fmt.Errorf("--max-output-lines must be >= 0")
 	}
-	if showRawFlag && showRemoteFlag {
-		return fmt.Errorf("--raw and --remote are mutually exclusive (raw lives on local disk)")
-	}
 
 	id := args[0]
+	mode := selectShowOutputMode(g.JSON, showRawFlag, showRemoteFlag, IsInteractive())
+	if mode == showModeRemoteRaw {
+		return copyRemoteRaw(ctx, id, os.Stdout)
+	}
+
 	var payload showPayload
 	var err error
 	if showRemoteFlag {
@@ -81,13 +83,13 @@ func runShow(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	switch {
-	case g.JSON:
+	switch mode {
+	case showModeJSON:
 		payload = capShowPayloadLines(payload, showMaxOutputLines)
 		return emitShowJSON(os.Stdout, payload)
-	case showRawFlag:
+	case showModeLocalRaw:
 		return copyRaw(payload.Session.RawPath)
-	case IsInteractive():
+	case showModeRendered:
 		return render.ShowSession(os.Stdout, render.SessionDetail{
 			Session:        payload.Session,
 			Tools:          payload.Tools,
@@ -97,11 +99,33 @@ func runShow(cmd *cobra.Command, args []string) error {
 		})
 	default:
 		// Non-TTY, no --json, no --raw: stay pipeable by emitting the
-		// raw bytes — `prosa show <id> | jq` historic behavior.
-		if showRemoteFlag {
-			return copyRemoteRaw(ctx, id, os.Stdout)
-		}
+		// local raw bytes — `prosa show <id> | jq` historic behavior.
 		return copyRaw(payload.Session.RawPath)
+	}
+}
+
+type showOutputMode int
+
+const (
+	showModeJSON showOutputMode = iota
+	showModeRemoteRaw
+	showModeLocalRaw
+	showModeRendered
+	showModeLocalPipeRaw
+)
+
+func selectShowOutputMode(jsonMode, raw, remote, interactive bool) showOutputMode {
+	switch {
+	case jsonMode:
+		return showModeJSON
+	case remote && (raw || !interactive):
+		return showModeRemoteRaw
+	case raw:
+		return showModeLocalRaw
+	case interactive:
+		return showModeRendered
+	default:
+		return showModeLocalPipeRaw
 	}
 }
 

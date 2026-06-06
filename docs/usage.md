@@ -76,6 +76,7 @@ search across machines.
 prosa show <session-id>                          # rendered (TTY) / raw (pipe)
 prosa show <session-id> --json                   # one JSON object
 prosa show <session-id> --raw                    # preserved JSONL bytes
+prosa show <session-id> --remote --raw           # preserved bytes from server
 prosa show <session-id> --max-output-lines 20    # cap per-turn body
 prosa show <session-id> --remote                 # fetch from prosa-server
 ```
@@ -83,9 +84,9 @@ prosa show <session-id> --remote                 # fetch from prosa-server
 In a TTY the default shows the structured human view — session
 metadata then a `turns` section with chat lines and projected tool
 results (rendered as `tool:<name>`). `--json` emits a single
-`{session, tools, turns}` object. `--raw` (and any non-TTY pipe
-without `--json`) emit the preserved JSONL bytes verbatim — the
-agent's source is never altered.
+`{session, tools, turns}` object. `--raw` (including with `--remote`)
+and any non-TTY pipe without `--json` emit the preserved JSONL bytes
+verbatim — the agent's source is never altered.
 
 ### Sync
 

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 
 	prosav1 "github.com/c3-oss/prosa/gen/go/prosa/v1"
@@ -53,4 +54,82 @@ func TestCapShowPayloadLines(t *testing.T) {
 	got := capShowPayloadLines(payload, 2)
 	require.Equal(t, "line1\nline2\n…", got.Turns[0].Content)
 	require.Equal(t, "line1\nline2\nline3", payload.Turns[0].Content, "input payload must not be mutated")
+}
+
+func TestSelectShowOutputMode(t *testing.T) {
+	cases := []struct {
+		name        string
+		jsonMode    bool
+		raw         bool
+		remote      bool
+		interactive bool
+		want        showOutputMode
+	}{
+		{
+			name:        "json wins over remote raw",
+			jsonMode:    true,
+			raw:         true,
+			remote:      true,
+			interactive: true,
+			want:        showModeJSON,
+		},
+		{
+			name:        "explicit remote raw streams raw",
+			raw:         true,
+			remote:      true,
+			interactive: true,
+			want:        showModeRemoteRaw,
+		},
+		{
+			name:        "remote pipe fallback streams raw",
+			remote:      true,
+			interactive: false,
+			want:        showModeRemoteRaw,
+		},
+		{
+			name:        "local raw uses local file",
+			raw:         true,
+			interactive: true,
+			want:        showModeLocalRaw,
+		},
+		{
+			name:        "interactive default renders",
+			interactive: true,
+			want:        showModeRendered,
+		},
+		{
+			name: "local pipe fallback uses local raw file",
+			want: showModeLocalPipeRaw,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := selectShowOutputMode(tc.jsonMode, tc.raw, tc.remote, tc.interactive)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestRunShowRemoteRawNoLongerRejectsFlagPair(t *testing.T) {
+	originalFlags := g
+	originalRaw := showRawFlag
+	originalRemote := showRemoteFlag
+	originalMaxLines := showMaxOutputLines
+	t.Cleanup(func() {
+		g = originalFlags
+		showRawFlag = originalRaw
+		showRemoteFlag = originalRemote
+		showMaxOutputLines = originalMaxLines
+	})
+
+	t.Setenv("PROSA_CONFIG_HOME", t.TempDir())
+	g.JSON = false
+	showRawFlag = true
+	showRemoteFlag = true
+	showMaxOutputLines = 0
+
+	err := runShow(&cobra.Command{}, []string{"s1"})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "not logged in")
+	require.NotContains(t, err.Error(), "mutually exclusive")
 }
