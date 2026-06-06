@@ -20,6 +20,11 @@ import (
 	"github.com/c3-oss/prosa/pkg/httpserver"
 )
 
+// maxRequestBytes bounds the decoded size of any Connect request. 64 MiB
+// is generous for the largest realistic transcript while preventing a
+// multi-GB PushRequest from exhausting server memory and S3.
+const maxRequestBytes = 64 * 1024 * 1024
+
 // Server bundles the wiring between Connect handlers and their
 // dependencies (Postgres pool + S3 store). Build via New; serve via
 // Serve(ctx).
@@ -55,9 +60,14 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	// panic handler close the connection and dump to stdout — the caller
 	// sees a structured Internal error, not an EOF.
 	recover := connect.WithRecover(recoverHandler)
-	authed := []connect.HandlerOption{recover, connect.WithInterceptors(auth.Interceptor(authSvc))}
+	// Bound the decoded request size so a malicious or buggy client can't
+	// exhaust RAM (and S3) with a multi-GB PushRequest.raw; 64 MiB is
+	// generous for legit transcripts.
+	readMax := connect.WithReadMaxBytes(maxRequestBytes)
+	base := []connect.HandlerOption{recover, readMax}
+	authed := append(append([]connect.HandlerOption{}, base...), connect.WithInterceptors(auth.Interceptor(authSvc)))
 
-	s.registerHealth(recover)
+	s.registerHealth(base...)
 	s.registerAuth(authSvc, authed...)
 	s.registerSessions(authed...)
 	s.registerDevices(authed...)
@@ -85,6 +95,13 @@ func (s *Server) Serve(ctx context.Context) error {
 		Addr:      s.cfg.ListenAddr,
 		Handler:   s.mux,
 		Protocols: protocols,
+		// ReadHeaderTimeout blocks slowloris-style slow-header attacks if
+		// the h2c port is reachable directly (dev/local). No ReadTimeout or
+		// WriteTimeout: Push bodies can be large and /sse/events is a
+		// long-lived stream — bounding either would break legitimate use.
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20,
 	}
 	slog.Info("listening", "addr", s.cfg.ListenAddr)
 	return httpserver.Run(ctx, srv, 5*time.Second)
