@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -110,9 +111,9 @@ func (h *SSEHandler) authorized(r *http.Request) bool {
 	if len(auth) <= len(prefix) {
 		return false
 	}
-	if subtle.ConstantTimeCompare(
-		[]byte(toLower(auth[:len(prefix)])), []byte(prefix),
-	) != 1 {
+	// The scheme prefix isn't secret, so a plain case-insensitive compare
+	// is fine; only the token comparison below needs to be constant-time.
+	if !strings.EqualFold(auth[:len(prefix)], prefix) {
 		return false
 	}
 	tok := auth[len(prefix):]
@@ -124,16 +125,4 @@ func (h *SSEHandler) authorized(r *http.Request) bool {
 		return false
 	}
 	return subtle.ConstantTimeCompare([]byte(tok), []byte(h.AdminToken)) == 1
-}
-
-func toLower(s string) string {
-	out := make([]byte, len(s))
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if c >= 'A' && c <= 'Z' {
-			c += 'a' - 'A'
-		}
-		out[i] = c
-	}
-	return string(out)
 }
