@@ -78,6 +78,15 @@ func (h *SessionsHandler) Push(ctx context.Context, req *connect.Request[prosav1
 		`SELECT last_hash, projection_version FROM sync_state WHERE session_id = $1`, sess.Id,
 	).Scan(&lastHash, &projectionVersion)
 	if err == nil && lastHash == sess.RawHash && projectionVersion >= session.ProjectionVersion {
+		// Idempotent re-push is still a successful sync: bump last_sync so a
+		// device that pushes then immediately resyncs doesn't look dormant
+		// to the panel (which reads last_sync from DevicesService.List).
+		if _, uerr := h.Pool.Exec(
+			ctx,
+			`UPDATE devices SET last_sync = $1 WHERE id = $2`, time.Now().UTC(), deviceID,
+		); uerr != nil {
+			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("bump last_sync: %w", uerr))
+		}
 		return connect.NewResponse(&prosav1.PushResponse{Skipped: true}), nil
 	}
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
