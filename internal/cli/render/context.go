@@ -46,7 +46,7 @@ type ContextLineOptions struct {
 //
 //	prosa · local · scoped to prosa · last 7d
 //	prosa · local · all projects · last 7d
-//	prosa · local · project not detected · showing all projects
+//	prosa · local · project not detected · showing all projects · last 7d
 //	prosa · remote · scoped to prosa · last 30d
 func ContextLine(opts ContextLineOptions) string {
 	parts := []string{
@@ -93,11 +93,17 @@ func scopeSegment(opts ContextLineOptions) string {
 }
 
 func lastSegment2(opts ContextLineOptions) string {
+	window := windowSegment(opts)
 	if opts.Scope == ScopeProjectNotDetected {
-		// In not-detected mode we'd otherwise say "last 7d" which is
-		// less actionable than "showing all projects".
-		return "showing all projects"
+		if window == "" {
+			return "showing all projects"
+		}
+		return "showing all projects · " + window
 	}
+	return window
+}
+
+func windowSegment(opts ContextLineOptions) string {
 	if opts.Between != "" {
 		return "between " + opts.Between
 	}
