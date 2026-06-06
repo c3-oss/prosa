@@ -640,6 +640,11 @@ func (h *SessionsHandler) Search(ctx context.Context, req *connect.Request[prosa
 // it before pushing to detect sessions that exist locally but never
 // reached the server. Scoped to the caller's device — the manifest of
 // device A never leaks to device B.
+//
+// The LEFT JOIN on sync_state means a sessions row with no sync_state
+// (e.g. a future import-without-push or an S3-only restore) still appears,
+// with an empty hash so the client re-pushes it — self-healing rather than
+// silently dropping it from reconcile.
 func (h *SessionsHandler) Manifest(ctx context.Context, req *connect.Request[prosav1.ManifestRequest]) (*connect.Response[prosav1.ManifestResponse], error) {
 	deviceID, ok := auth.DeviceFromContext(ctx)
 	if !ok {
@@ -657,9 +662,12 @@ func (h *SessionsHandler) Manifest(ctx context.Context, req *connect.Request[pro
 
 	rows, err := h.Pool.Query(
 		ctx, `
-		SELECT s.id, ss.last_hash, ss.last_synced_at, ss.projection_version
+		SELECT s.id,
+		       COALESCE(ss.last_hash, ''),
+		       COALESCE(ss.last_synced_at, to_timestamp(0)),
+		       COALESCE(ss.projection_version, 0)
 		FROM sessions s
-		JOIN sync_state ss ON ss.session_id = s.id
+		LEFT JOIN sync_state ss ON ss.session_id = s.id
 		WHERE s.device_id = $1 AND s.id > $2
 		ORDER BY s.id ASC
 		LIMIT $3
