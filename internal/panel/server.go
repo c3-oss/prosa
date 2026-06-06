@@ -147,6 +147,16 @@ func (p *Panel) requireSession(next http.HandlerFunc) http.HandlerFunc {
 			http.Redirect(w, r, "/login?next="+url.QueryEscape(nextURL), http.StatusFound)
 			return
 		}
+		// Re-check the owner whitelist on every request, not just at issue
+		// time: removing an email from PROSA_OWNER_EMAILS is the documented
+		// incident-response lever, and it must force-logout an existing
+		// (HMAC-valid) cookie immediately rather than waiting out its TTL.
+		if !p.cfg.IsOwnerEmail(s.Email) {
+			slog.Warn("panel session rejected: email no longer whitelisted", "email", s.Email)
+			p.cookie.Clear(w)
+			http.Redirect(w, r, "/login", http.StatusFound)
+			return
+		}
 		if s.CSRF == "" {
 			if err := p.cookie.Issue(w, s.Email); err != nil {
 				slog.Error("session csrf refresh failed", "err", err)
