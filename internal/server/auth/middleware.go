@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"errors"
+	"log/slog"
 	"strings"
 
 	"connectrpc.com/connect"
@@ -87,7 +88,14 @@ func Interceptor(svc *Service) connect.UnaryInterceptorFunc {
 // interceptor; exposed so handlers that want to gate explicit admin
 // paths (e.g. ApproveLogin) can reuse the same check.
 func (s *Service) IsAdminToken(tok string) bool {
-	if s.AdminToken == "" || tok == "" {
+	if s.AdminToken == "" {
+		// Admin auth was attempted against a server with no admin token
+		// configured. Log it so the misconfiguration is diagnosable rather
+		// than presenting as a silent Unauthenticated.
+		slog.Error("admin auth attempted but PROSA_ADMIN_TOKEN is not configured")
+		return false
+	}
+	if tok == "" {
 		return false
 	}
 	return subtle.ConstantTimeCompare([]byte(tok), []byte(s.AdminToken)) == 1
