@@ -5,12 +5,14 @@ import (
 	"time"
 )
 
+var nowFn = time.Now
+
 // relativeTime formats t as a compact relative label (e.g. "12h ago").
 func relativeTime(t time.Time) string {
 	if t.IsZero() {
 		return ""
 	}
-	d := time.Since(t)
+	d := nowFn().Sub(t)
 	if d < 0 {
 		d = -d
 	}
