@@ -25,9 +25,6 @@ func newDevicesCmd() *cobra.Command {
 	cmd.AddCommand(newDevicesListCmd())
 	cmd.AddCommand(newDevicesRenameCmd())
 	cmd.AddCommand(newDevicesRevokeCmd())
-	cmd.RunE = func(c *cobra.Command, args []string) error {
-		return runDevicesList(c, args)
-	}
 	return cmd
 }
 
