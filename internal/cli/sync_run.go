@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/c3-oss/prosa/internal/cli/spinner"
@@ -43,8 +43,9 @@ func runSyncInteractive(
 	// desync the cursor and orphan frames. We scope this to the pusher's
 	// logger rather than mutating the process-global slog default, which
 	// would silently swallow every other component's logs for the duration.
+	var suppressedWarnings atomic.Int64
 	if push != nil {
-		push.logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+		push.logger = slog.New(warningCounterHandler{count: &suppressedWarnings})
 	}
 
 	go func() {
@@ -181,6 +182,7 @@ func runSyncInteractive(
 	if err := spinner.Run(ctx, items, updates, spinnerOpts); err != nil && !errors.Is(err, context.Canceled) {
 		return err
 	}
+	counts.suppressedWarnings = int(suppressedWarnings.Load())
 	return nil
 }
 

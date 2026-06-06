@@ -25,6 +25,7 @@ type syncCounts struct {
 	reconcileRan                         bool
 	legacyTotal                          int
 	bundlePath                           string
+	suppressedWarnings                   int
 }
 
 func (sc *syncCounts) record(w syncJob, res importer.ImportResult, err error) {
@@ -144,6 +145,14 @@ func (sc *syncCounts) printSummaryTTY() {
 			render.StyleMuted.Render(sc.remoteUnavailableText()),
 		)
 	}
+	if sc.suppressedWarnings > 0 {
+		fmt.Fprintf(
+			os.Stdout, "%s %s  %s\n",
+			render.StyleRail.Render("│"),
+			render.StyleHeader.Render("Warnings"),
+			render.StyleMuted.Render(suppressedWarningsText(sc.suppressedWarnings)),
+		)
+	}
 	if sc.legacyTotal > 0 {
 		fmt.Fprintln(os.Stdout)
 		fmt.Fprintf(
@@ -159,6 +168,13 @@ func (sc *syncCounts) legacySummaryText() string {
 		return fmt.Sprintf("Legacy bundle partially mirrored in the prosa store: %s", sc.bundlePath)
 	}
 	return fmt.Sprintf("Legacy bundle mirrored in the prosa store: %s", sc.bundlePath)
+}
+
+func suppressedWarningsText(n int) string {
+	if n == 1 {
+		return "1 diagnostic log suppressed in TTY; use `--verbose` to see it"
+	}
+	return fmt.Sprintf("%d diagnostic logs suppressed in TTY; use `--verbose` to see them", n)
 }
 
 func printSummaryTTYRow(label, primaryVerb string, primary, skipped, errs int, extra string) {
