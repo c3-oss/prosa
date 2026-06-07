@@ -111,7 +111,7 @@ tally. Diagnostics stay on stderr.
 prosa analytics sessions            # count by agent + total turns
 prosa analytics tools               # top 20 tools across the window
 prosa analytics models              # session distribution by model
-prosa analytics projects            # top 30 projects
+prosa analytics projects            # sessions per project, grouped by agent
 prosa analytics heatmap             # trailing 53 weeks; ignores --last/--since/--between
 prosa analytics usage               # token totals + estimated USD cost
 prosa analytics errors              # sessions matching error heuristics
