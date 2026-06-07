@@ -107,7 +107,8 @@ Services:
   `GetRaw`.
 - **DevicesService** — `List`, `Rename`, `Revoke`.
 - **AnalyticsService** — `GetReport` (one of `sessions`, `tools`,
-  `models`, `projects`, `errors`).
+  `models`, `projects`, `errors`, `heatmap`, `usage`, `hours`,
+  `usage_by_model`, `errors_by_model`).
 - **HealthService** — standard gRPC health check.
 
 Schemas are versioned `v1`, `v2`, …. Breaking changes get a new directory,

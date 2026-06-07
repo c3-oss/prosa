@@ -23,7 +23,8 @@ const (
 
 type GetReportRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// One of: sessions | tools | models | projects | errors | heatmap | usage.
+	// One of: sessions | tools | models | projects | errors | heatmap |
+	// usage | hours | usage_by_model | errors_by_model.
 	Report        string                 `protobuf:"bytes,1,opt,name=report,proto3" json:"report,omitempty"`
 	Since         *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=since,proto3" json:"since,omitempty"`
 	Until         *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=until,proto3" json:"until,omitempty"`

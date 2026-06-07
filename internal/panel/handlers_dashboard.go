@@ -2,6 +2,7 @@ package panel
 
 import (
 	"fmt"
+	"html/template"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -15,6 +16,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	prosav1 "github.com/c3-oss/prosa/gen/go/prosa/v1"
+	"github.com/c3-oss/prosa/internal/panel/charts"
 )
 
 // handleHome renders the dashboard: KPI strip + heatmap card + tools /
@@ -105,13 +107,16 @@ func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type fan struct {
-		sessions *prosav1.ListResponse
-		tools    *prosav1.GetReportResponse
-		models   *prosav1.GetReportResponse
-		errors   *prosav1.GetReportResponse
-		usage    *prosav1.GetReportResponse
-		heatmap  *prosav1.GetReportResponse
-		projects *prosav1.GetReportResponse // populates Projects KPI + future dropdown
+		sessions      *prosav1.ListResponse
+		tools         *prosav1.GetReportResponse
+		models        *prosav1.GetReportResponse
+		errors        *prosav1.GetReportResponse
+		usage         *prosav1.GetReportResponse
+		heatmap       *prosav1.GetReportResponse
+		projects      *prosav1.GetReportResponse // Projects KPI + chart + dropdown
+		usageByModel  *prosav1.GetReportResponse // tokens & cost per model card
+		errorsByModel *prosav1.GetReportResponse // errors per model (Issues)
+		hours         *prosav1.GetReportResponse // activity by hour card
 	}
 	var out fan
 	g, gctx := errgroup.WithContext(r.Context())
@@ -134,6 +139,9 @@ func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 		{"usage", sharedReq("usage"), &out.usage},
 		{"projects", sharedReq("projects"), &out.projects},
 		{"heatmap", heatmapReq, &out.heatmap},
+		{"usage_by_model", sharedReq("usage_by_model"), &out.usageByModel},
+		{"errors_by_model", sharedReq("errors_by_model"), &out.errorsByModel},
+		{"hours", sharedReq("hours"), &out.hours},
 	} {
 		spec := spec
 		g.Go(func() error {
@@ -160,6 +168,10 @@ func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 
 	heatmap := buildHeatmap(out.heatmap.Rows)
 	usageRows, usageTokens, usageCost := buildUsage(out.usage.Rows)
+	projectBars := buildProjectBars(out.projects.Rows, 10)
+	modelUsage := buildModelUsage(out.usageByModel.Rows)
+	hourChart := buildHourChart(out.hours.Rows)
+	issues := buildIssues(out.errorsByModel.Rows, out.errors.Rows, out.sessions.TotalCount)
 
 	activeFilters := buildHomeActiveFilters(r.URL.Query(), lastRaw, agents, projects, devices)
 	clearFiltersURL := ""
@@ -184,9 +196,12 @@ func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 		"ClearFiltersURL":  clearFiltersURL,
 
 		// KPI strip.
-		"SessionsKPI": out.sessions.TotalCount,
-		"ProjectsKPI": len(out.projects.Rows),
-		"ModelsKPI":   len(out.models.Rows),
+		"SessionsKPI":  out.sessions.TotalCount,
+		"ProjectsKPI":  len(projectNames),
+		"ModelsKPI":    len(out.models.Rows),
+		"TokensKPI":    formatPanelInt(usageTokens),
+		"SpendKPI":     usageCost,
+		"ErrorRateKPI": issues.Rate,
 
 		// Heatmap card.
 		"HeatmapCells":    heatmap.Cells,
@@ -204,11 +219,28 @@ func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 		"ModelHeaders": out.models.Headers,
 		"ModelBars":    buildBarRows(out.models.Rows, 10),
 
-		// Errors card.
-		"ErrorHeaders": out.errors.Headers,
-		"ErrorRows":    clampRows(out.errors.Rows, 20),
+		// Projects card (chart: most worked-on).
+		"ProjectBars": projectBars,
 
-		// Usage card.
+		// Hour-of-day card (chart: activity by local hour).
+		"HourChart": hourChart.Chart,
+		"HourPeak":  hourChart.PeakLabel,
+
+		// Issues section (replaces the old Errors table).
+		"IssuesFlagged":  issues.Flagged,
+		"IssuesRate":     issues.Rate,
+		"IssuesTopModel": issues.TopModel,
+		"IssuesBars":     issues.PerModelBars,
+		"IssuesRecent":   issues.Recent,
+
+		// Tokens & cost per model card (chart: per-model spend).
+		"ModelTokenBars":   modelUsage.TokenBars,
+		"CostDonut":        modelUsage.CostDonut,
+		"ModelCostLegend":  modelUsage.CostLegend,
+		"ModelTotalTokens": modelUsage.TotalTokens,
+		"ModelTotalCost":   modelUsage.TotalCost,
+
+		// Usage card (per agent).
 		"UsageRows":        usageRows,
 		"UsageTotalTokens": formatPanelInt(usageTokens),
 		"UsageTotalCost":   usageCost,
@@ -225,30 +257,43 @@ type barRow struct {
 }
 
 // buildBarRows turns analytics rows whose first column is the label and
-// second column is a count into bar rows, sorted by count desc and
-// capped at limit entries. Robust to malformed rows.
+// second column is a count into bar rows (sorted desc, capped at limit),
+// formatted with thousands separators. Shared machinery lives in
+// barsFromPairs.
 func buildBarRows(rows []*prosav1.AnalyticsRow, limit int) []barRow {
-	type parsed struct {
-		label string
-		count int64
-	}
-	xs := make([]parsed, 0, len(rows))
-	var max int64
+	labels := make([]string, 0, len(rows))
+	counts := make([]int64, 0, len(rows))
 	for _, row := range rows {
 		if len(row.Values) < 2 {
 			continue
 		}
-		label := strings.TrimSpace(row.Values[0])
-		if label == "" {
+		labels = append(labels, row.Values[0])
+		counts = append(counts, parsePanelInt(row.Values[1]))
+	}
+	return barsFromPairs(labels, counts, limit, formatPanelInt)
+}
+
+// barsFromPairs builds a sorted, capped bar leaderboard from parallel
+// label/count slices, formatting each count with the given formatter. It is
+// the shared core behind buildBarRows, buildProjectBars, and the per-model
+// token bars (whose counts live in a column other than 1, or want compact
+// formatting). Empty labels and non-positive counts are dropped; each bar
+// gets a minimum 3% width so a non-zero value is always visible.
+func barsFromPairs(labels []string, counts []int64, limit int, format func(int64) string) []barRow {
+	type parsed struct {
+		label string
+		count int64
+	}
+	xs := make([]parsed, 0, len(labels))
+	var max int64
+	for i, label := range labels {
+		label = strings.TrimSpace(label)
+		if label == "" || counts[i] <= 0 {
 			continue
 		}
-		count := parsePanelInt(row.Values[1])
-		if count <= 0 {
-			continue
-		}
-		xs = append(xs, parsed{label: label, count: count})
-		if count > max {
-			max = count
+		xs = append(xs, parsed{label: label, count: counts[i]})
+		if counts[i] > max {
+			max = counts[i]
 		}
 	}
 	sort.SliceStable(xs, func(i, j int) bool {
@@ -269,11 +314,7 @@ func buildBarRows(rows []*prosav1.AnalyticsRow, limit int) []barRow {
 				percent = 3
 			}
 		}
-		out = append(out, barRow{
-			Label:   x.label,
-			Count:   formatPanelInt(x.count),
-			Percent: percent,
-		})
+		out = append(out, barRow{Label: x.label, Count: format(x.count), Percent: percent})
 	}
 	return out
 }
@@ -622,4 +663,233 @@ func buildUsage(rows []*prosav1.AnalyticsRow) ([]usagePanelRow, int64, string) {
 		return out, totalTokens, "n/a"
 	}
 	return out, totalTokens, fmt.Sprintf("$%.2f", totalCost)
+}
+
+// buildProjectBars folds the projects report's per-(project, agent) rows into
+// one bar per project (sessions summed across agents), labeled with the
+// friendly project display (owner/repo or ~/path). Chart: most worked-on
+// projects.
+func buildProjectBars(rows []*prosav1.AnalyticsRow, limit int) []barRow {
+	totals := map[string]int64{}
+	order := make([]string, 0, len(rows))
+	for _, row := range rows {
+		if len(row.Values) < 3 {
+			continue
+		}
+		project := strings.TrimSpace(row.Values[0])
+		if project == "" {
+			continue
+		}
+		if _, seen := totals[project]; !seen {
+			order = append(order, project)
+		}
+		totals[project] += parsePanelInt(row.Values[2])
+	}
+	labels := make([]string, 0, len(order))
+	counts := make([]int64, 0, len(order))
+	for _, project := range order {
+		labels = append(labels, projectDisplayFromLabel(project).Label)
+		counts = append(counts, totals[project])
+	}
+	return barsFromPairs(labels, counts, limit, formatPanelInt)
+}
+
+// costLegendRow is one entry beside the cost donut: a color dot matching its
+// segment, the model name, and its estimated spend.
+type costLegendRow struct {
+	Dot   template.HTML
+	Model string
+	Cost  string
+}
+
+// modelUsageView bundles the "tokens & cost per model" card: a token
+// leaderboard, a cost-share donut with a matching legend, and the totals for
+// the card header.
+type modelUsageView struct {
+	TokenBars   []barRow
+	CostDonut   template.HTML
+	CostLegend  []costLegendRow
+	TotalTokens string
+	TotalCost   string
+}
+
+// buildModelUsage shapes the usage_by_model rows
+// (MODEL, SESSIONS, TOTAL, INPUT, OUTPUT, EST_COST_USD) into the card.
+func buildModelUsage(rows []*prosav1.AnalyticsRow) modelUsageView {
+	labels := make([]string, 0, len(rows))
+	tokenCounts := make([]int64, 0, len(rows))
+	var slices []charts.Slice
+	var totalTokens int64
+	var totalCost float64
+	priced := false
+	for _, row := range rows {
+		if len(row.Values) < 6 {
+			continue
+		}
+		model := strings.TrimSpace(row.Values[0])
+		if model == "" {
+			continue
+		}
+		total := parsePanelInt(row.Values[2])
+		labels = append(labels, model)
+		tokenCounts = append(tokenCounts, total)
+		totalTokens += total
+		if costStr := strings.TrimSpace(row.Values[5]); costStr != "" {
+			if c, err := strconv.ParseFloat(costStr, 64); err == nil && c > 0 {
+				slices = append(slices, charts.Slice{Label: model, Value: c})
+				totalCost += c
+				priced = true
+			}
+		}
+	}
+	totalCostLabel := "n/a"
+	if priced {
+		totalCostLabel = fmt.Sprintf("$%.2f", totalCost)
+	}
+	legend := make([]costLegendRow, 0, len(slices))
+	for i, sl := range slices {
+		dot := fmt.Sprintf(`<span class="cost-legend-dot" style="background:%s"></span>`, charts.PaletteColor(i))
+		legend = append(legend, costLegendRow{
+			Dot:   template.HTML(dot), //nolint:gosec // palette is a fixed CSS token, model name is not interpolated here
+			Model: sl.Label,
+			Cost:  fmt.Sprintf("$%.2f", sl.Value),
+		})
+	}
+	return modelUsageView{
+		TokenBars: barsFromPairs(labels, tokenCounts, 8, formatTokensCompact),
+		CostDonut: charts.Donut(slices, charts.DonutOpts{
+			CenterLabel: totalCostLabel,
+			CenterSub:   "est. spend",
+		}),
+		CostLegend:  legend,
+		TotalTokens: formatPanelInt(totalTokens),
+		TotalCost:   totalCostLabel,
+	}
+}
+
+// hourChartView is the "activity by hour" card: the SVG area chart plus a
+// peak-hour label for the card subtitle.
+type hourChartView struct {
+	Chart     template.HTML
+	PeakLabel string
+}
+
+// buildHourChart folds the hours report (UTC HOUR, SESSIONS) into a 24-slot
+// array, rotates it into the panel's local zone for display, and renders an
+// area chart. The rotation is whole-hour and DST-naive (it uses the current
+// local offset, honoring the standard TZ env) — fine for "what hours do I
+// work" at MVP. The report itself stays canonically UTC.
+func buildHourChart(rows []*prosav1.AnalyticsRow) hourChartView {
+	_, offsetSec := nowFn().In(time.Local).Zone()
+	return buildHourChartTZ(rows, offsetSec/3600)
+}
+
+// buildHourChartTZ is buildHourChart with the local hour offset injected, so
+// the rotation is unit-testable without mutating the process timezone.
+func buildHourChartTZ(rows []*prosav1.AnalyticsRow, offsetHours int) hourChartView {
+	var utc [24]int64
+	for _, row := range rows {
+		if len(row.Values) < 2 {
+			continue
+		}
+		h := int(parsePanelInt(row.Values[0]))
+		if h < 0 || h > 23 {
+			continue
+		}
+		utc[h] += parsePanelInt(row.Values[1])
+	}
+	var local [24]int64
+	var total int64
+	for h := 0; h < 24; h++ {
+		lh := ((h+offsetHours)%24 + 24) % 24
+		local[lh] += utc[h]
+		total += utc[h]
+	}
+	points := make([]charts.Point, 24)
+	peakHour := 0
+	var peakVal int64
+	for h := 0; h < 24; h++ {
+		points[h] = charts.Point{Label: fmt.Sprintf("%02dh", h), Value: float64(local[h])}
+		if local[h] > peakVal {
+			peakVal = local[h]
+			peakHour = h
+		}
+	}
+	peakLabel := "no activity"
+	if total > 0 {
+		peakLabel = fmt.Sprintf("peak %02dh local", peakHour)
+	}
+	return hourChartView{
+		Chart:     charts.Area(points, charts.AreaOpts{UnitSuffix: " sessions"}),
+		PeakLabel: peakLabel,
+	}
+}
+
+// issueRow is one actionable entry in the Issues recent list: a pre-rendered
+// agent badge and project link, the timestamp, and a deep link that opens the
+// flagged session's transcript.
+type issueRow struct {
+	Agent   template.HTML
+	Project template.HTML
+	When    string
+	URL     string
+}
+
+// issuesView powers the Issues section: an error-rate indicator, the top
+// error-prone model, an errors-per-model leaderboard, and the recent flagged
+// sessions. All built from the heuristic error reports — honestly a content
+// heuristic, not structured failures.
+type issuesView struct {
+	Flagged      int64
+	Rate         string
+	TopModel     string
+	PerModelBars []barRow
+	Recent       []issueRow
+}
+
+// buildIssues derives the Issues section from errors_by_model (the full
+// per-model flagged counts) and errors (the recent-rows list), plus the total
+// session count for the rate.
+func buildIssues(errModelRows, errRows []*prosav1.AnalyticsRow, totalSessions int64) issuesView {
+	var flagged, topCount int64
+	topModel := ""
+	for _, row := range errModelRows {
+		if len(row.Values) < 2 {
+			continue
+		}
+		c := parsePanelInt(row.Values[1])
+		flagged += c
+		if c > topCount {
+			topCount = c
+			topModel = strings.TrimSpace(row.Values[0])
+		}
+	}
+	rate := "0%"
+	if totalSessions > 0 {
+		rate = fmt.Sprintf("%.0f%%", float64(flagged)/float64(totalSessions)*100)
+	}
+	if topModel == "" {
+		topModel = "—"
+	}
+	recentRows := clampRows(errRows, 8)
+	recent := make([]issueRow, 0, len(recentRows))
+	for _, row := range recentRows {
+		if len(row.Values) < 4 {
+			continue
+		}
+		id := strings.TrimSpace(row.Values[3])
+		recent = append(recent, issueRow{
+			Agent:   agentBadge(row.Values[1]),
+			Project: projectLink(projectDisplayFromLabel(row.Values[2])),
+			When:    row.Values[0],
+			URL:     "/sessions?session=" + url.QueryEscape(id),
+		})
+	}
+	return issuesView{
+		Flagged:      flagged,
+		Rate:         rate,
+		TopModel:     topModel,
+		PerModelBars: buildBarRows(errModelRows, 8),
+		Recent:       recent,
+	}
 }

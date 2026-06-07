@@ -49,7 +49,7 @@ Defaults: `PROSA_LISTEN_ADDR=:7070`, `PROSA_S3_BUCKET=prosa-raw`,
 | `AuthService` | `BeginLogin`, `ExchangeCode`, `GetLoginRequest`, `ApproveLogin`, `Whoami` | PKCE CLI login |
 | `SessionsService` | `Push`, `List`, `Get`, `Search`, `Manifest`, `GetRaw` | Session CRUD + reconcile |
 | `DevicesService` | `List`, `Rename`, `Revoke` | Device registry |
-| `AnalyticsService` | `GetReport` | One of five fixed reports |
+| `AnalyticsService` | `GetReport` | Fixed timeline, usage, issue, and activity reports |
 | `HealthService` | standard gRPC health | Liveness probe |
 
 Proto in `proto/prosa/v1/`. Generated Go in `gen/go/prosa/v1/`, committed.

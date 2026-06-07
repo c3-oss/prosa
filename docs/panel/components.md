@@ -218,10 +218,9 @@ Edit     ████                    48
 
 ## Donut
 
-**Deferred.** The Models card on Home renders an HTML bar leaderboard
-for now, consistent with Tools. The signature below stays as a sketch
-for the SVG donut that may land later without changing routes or proto.
-For percentual distribution (models, agents).
+**Landed** in `internal/panel/charts/donut.go`. Used by the Home
+"Tokens & cost per model" card for cost share. For percentual
+distribution (models, agents).
 
 ### Signature
 
@@ -229,20 +228,32 @@ For percentual distribution (models, agents).
 type Slice struct {
     Label string
     Value float64
-    Color string // optional, defaults to cycling accent tones
+}
+
+type DonutOpts struct {
+    Size        int    // square viewBox edge, default 180
+    Class       string // root element class, default "donut"
+    CenterLabel string // big text in the hole (e.g. "$12.34")
+    CenterSub   string // small text under it (e.g. "spend")
+    UnitSuffix  string // appended to each slice value in its <title>
 }
 
 func Donut(slices []Slice, opts DonutOpts) template.HTML
+
+// PaletteColor returns the segment color for index i, so a legend
+// rendered outside the SVG matches the segments.
+func PaletteColor(i int) string
 ```
 
 ### Visual
 
-- 180 × 180 px;
-- Inner hole 50% (radius 45);
-- Total at the center (28 px tabular);
-- Slices in gradient tones: `--accent`, mix(`--accent`, `--text-3`, 30%),
-  `--text-3`, `--text-3` with alpha 0.5;
-- Slice hover: increases stroke-width via CSS.
+- 180 × 180 viewBox (CSS sizes it; the card renders it at 160 px);
+- Drawn as a thick stroked circle with `stroke-dasharray` segments over
+  a `--bg-elev-2` track ring — deterministic, no arc-path rounding;
+- Center carries `CenterLabel` (total) + `CenterSub`;
+- Slices cycle accent→text-3 tones via `PaletteColor` (token-based);
+- Each segment carries a `<title>` (`label: value (pct%)`);
+- Determinism: same input → byte-identical SVG (golden-tested).
 
 ---
 
@@ -277,12 +288,10 @@ func Heatmap(days []HeatmapDay, opts HeatmapOpts) template.HTML
 
 ---
 
-## Trend line
+## Area chart
 
-**Deferred.** The Errors card on Home is a recent-rows table in the
-current cut; trend lines are not yet drawn server-side. The signature
-below stays as a sketch for a future SVG trend that can land later
-without changing routes or proto.
+**Landed** in `internal/panel/charts/area.go` (the deferred "trend"
+sketch, card-sized). Used by the Home "Hour of day" card.
 
 ### Signature
 
@@ -292,24 +301,25 @@ type Point struct {
     Value float64
 }
 
-type TrendOpts struct {
-    Width  int    // default 800
-    Height int    // default 280
-    Color  string // default currentColor
-    FillSoft bool // if true, fills below the line with alpha
+type AreaOpts struct {
+    Width      int    // viewBox width, default 520
+    Height     int    // viewBox height, default 140
+    Class      string // root element class, default "area-chart"
+    UnitSuffix string // appended to each point value in its <title>
+    PeakColor  string // peak marker fill, default "var(--accent)"
 }
 
-func Trend(points []Point, opts TrendOpts) template.HTML
+func Area(points []Point, opts AreaOpts) template.HTML
 ```
 
 ### Visual
 
-- Line in `currentColor` (controllable via CSS per context);
-- Fill below in `--accent-soft` when `FillSoft`;
-- Discreet Y axis: 3–4 horizontal ticks, 1 px `--divider`;
-- X axis: date labels every 5 points;
-- Visible points as `<circle r=2>` at each Point;
-- Hover on a point: enlarged + `<title>`.
+- Line in `currentColor` (the card sets it to `--accent` via CSS);
+- Soft fill below the line in `--accent-soft`;
+- The peak point gets a highlighted `<circle>` with a `<title>`;
+- Empty input renders an empty canvas; all-zero values render a flat
+  baseline (no peak marker);
+- Determinism: same input → byte-identical SVG (golden-tested).
 
 ---
 

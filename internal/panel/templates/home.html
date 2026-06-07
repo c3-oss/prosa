@@ -119,6 +119,18 @@
       <div class="kpi-value">{{.ModelsKPI}}</div>
       <div class="kpi-label">models</div>
     </div>
+    <div class="kpi">
+      <div class="kpi-value">{{.TokensKPI}}</div>
+      <div class="kpi-label">tokens</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-value">{{.SpendKPI}}</div>
+      <div class="kpi-label">est. spend</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-value">{{.ErrorRateKPI}}</div>
+      <div class="kpi-label">error rate</div>
+    </div>
   </section>
 
   <section class="card heatmap-card">
@@ -220,31 +232,131 @@
   <div class="dashboard-grid">
     <section class="card">
       <header class="card-head">
-        <h2>Errors</h2>
-        <span class="card-sub">latest 20 sessions matching error heuristic</span>
+        <h2>Projects</h2>
+        <span class="card-sub">most worked-on</span>
       </header>
-      {{if .ErrorRows}}
-        <table class="card-table">
-          <thead><tr>
-            {{range .ErrorHeaders}}<th>{{.}}</th>{{end}}
-          </tr></thead>
-          <tbody>
-            {{range .ErrorRows}}
-              <tr>
-                {{range .Values}}<td>{{.}}</td>{{end}}
-              </tr>
-            {{end}}
-          </tbody>
-        </table>
+      {{if .ProjectBars}}
+        <div class="bar-list">
+          {{range .ProjectBars}}
+            <div class="bar-row">
+              <span class="bar-label">{{.Label}}</span>
+              <span class="bar-track"><span class="bar-fill" style="width: {{.Percent}}%"></span></span>
+              <span class="bar-count">{{.Count}}</span>
+            </div>
+          {{end}}
+        </div>
       {{else}}
-        <div class="empty">no errors in this window.</div>
+        <div class="empty">no projects in this window.</div>
+      {{end}}
+    </section>
+
+    <section class="card">
+      <header class="card-head">
+        <h2>Hour of day</h2>
+        <span class="card-sub">{{.HourPeak}} · local time</span>
+      </header>
+      <div class="hour-chart">
+        {{.HourChart}}
+        <div class="hour-axis" aria-hidden="true">
+          <span>00h</span><span>06h</span><span>12h</span><span>18h</span><span>23h</span>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <section class="card issues-card">
+    <header class="card-head">
+      <h2>Issues</h2>
+      <span class="card-sub">heuristic — transcripts mentioning error · exception · panic · …</span>
+    </header>
+    <div class="issues-indicators">
+      <div class="kpi">
+        <div class="kpi-value">{{.IssuesFlagged}}</div>
+        <div class="kpi-label">flagged sessions</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-value">{{.IssuesRate}}</div>
+        <div class="kpi-label">error rate</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-value kpi-value-mono">{{.IssuesTopModel}}</div>
+        <div class="kpi-label">most error-prone model</div>
+      </div>
+    </div>
+    <div class="issues-body">
+      <div class="issues-col">
+        <h3 class="issues-subhead">Errors per model</h3>
+        {{if .IssuesBars}}
+          <div class="bar-list">
+            {{range .IssuesBars}}
+              <div class="bar-row">
+                <span class="bar-label">{{.Label}}</span>
+                <span class="bar-track"><span class="bar-fill bar-fill-danger" style="width: {{.Percent}}%"></span></span>
+                <span class="bar-count">{{.Count}}</span>
+              </div>
+            {{end}}
+          </div>
+        {{else}}
+          <div class="empty">no flagged sessions in this window.</div>
+        {{end}}
+      </div>
+      <div class="issues-col">
+        <h3 class="issues-subhead">Recent flagged sessions</h3>
+        {{if .IssuesRecent}}
+          <ul class="issues-list">
+            {{range .IssuesRecent}}
+              <li class="issues-item">
+                <a class="issues-item-link" href="{{.URL}}">
+                  <span class="issues-item-meta">{{.Agent}} {{.Project}}</span>
+                  <span class="issues-item-when">{{.When}}</span>
+                </a>
+              </li>
+            {{end}}
+          </ul>
+        {{else}}
+          <div class="empty">nothing flagged. nice.</div>
+        {{end}}
+      </div>
+    </div>
+  </section>
+
+  <div class="dashboard-grid">
+    <section class="card">
+      <header class="card-head">
+        <h2>Tokens &amp; cost per model</h2>
+        <span class="card-sub">{{.ModelTotalTokens}} tokens · {{.ModelTotalCost}}</span>
+      </header>
+      {{if .ModelTokenBars}}
+        <div class="model-usage">
+          <div class="model-usage-chart">
+            {{.CostDonut}}
+            {{if .ModelCostLegend}}
+              <ul class="cost-legend">
+                {{range .ModelCostLegend}}
+                  <li>{{.Dot}}<span class="cost-legend-model">{{.Model}}</span><span class="cost-legend-cost">{{.Cost}}</span></li>
+                {{end}}
+              </ul>
+            {{end}}
+          </div>
+          <div class="bar-list model-usage-bars">
+            {{range .ModelTokenBars}}
+              <div class="bar-row">
+                <span class="bar-label">{{.Label}}</span>
+                <span class="bar-track"><span class="bar-fill" style="width: {{.Percent}}%"></span></span>
+                <span class="bar-count">{{.Count}}</span>
+              </div>
+            {{end}}
+          </div>
+        </div>
+      {{else}}
+        <div class="empty">no measured usage in this window.</div>
       {{end}}
     </section>
 
     <section class="card">
       <header class="card-head">
         <h2>Usage</h2>
-        <span class="card-sub">tokens and estimated spend</span>
+        <span class="card-sub">tokens and estimated spend, per agent</span>
       </header>
       {{if .UsageRows}}
         <div class="usage-summary">

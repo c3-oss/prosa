@@ -60,14 +60,16 @@ func (s *Store) AnalyticsModels(ctx context.Context, f SessionFilter) (Analytics
 	return scanAnalytics(ctx, s.db, q, args, []string{"MODEL", "SESSIONS"})
 }
 
-// AnalyticsProjects: identity-aware COUNT by best-available project key.
+// AnalyticsProjects emits all identity-aware project/agent buckets by the
+// best-available project key. Callers that need a top-N view should cap after
+// any project-level rollup so one noisy agent bucket cannot hide a project.
 func (s *Store) AnalyticsProjects(ctx context.Context, f SessionFilter) (AnalyticsResult, error) {
 	q, args := analyticsQuery(`
 		SELECT COALESCE(s.project_remote, s.project_marker, s.project_path, '(unscoped)') AS project,
 		       s.agent,
 		       COUNT(*) AS sessions
 		FROM sessions s
-	`, ` GROUP BY project, s.agent ORDER BY sessions DESC LIMIT 30`, f)
+	`, ` GROUP BY project, s.agent ORDER BY sessions DESC`, f)
 	return scanAnalytics(ctx, s.db, q, args, []string{"PROJECT", "AGENT", "SESSIONS"})
 }
 
@@ -248,6 +250,98 @@ func (s *Store) AnalyticsErrors(ctx context.Context, f SessionFilter) (Analytics
 		JOIN turns_fts f ON f.rowid = t.id
 	`, ` WHERE_AND t.role = 'assistant' AND turns_fts MATCH '`+errorTriggers+`' GROUP BY s.id ORDER BY s.started_at DESC LIMIT 30`, f)
 	return scanAnalytics(ctx, s.db, q, args, []string{"STARTED", "AGENT", "PROJECT", "SESSION"})
+}
+
+// AnalyticsHours buckets sessions by their UTC start-hour ("00".."23") for
+// a "when do I work" view. The hour is read straight off the RFC3339Nano
+// started_at text — substr is cheaper than a date parse and mirrors the
+// substr(started_at, 1, 10) day idiom AnalyticsHeatmap uses. The report is
+// canonically UTC (like the heatmap); callers wanting a local-time view
+// rotate the buckets after the fact.
+func (s *Store) AnalyticsHours(ctx context.Context, f SessionFilter) (AnalyticsResult, error) {
+	q, args := analyticsQuery(`
+		SELECT substr(s.started_at, 12, 2) AS hour,
+		       COUNT(*)                     AS sessions
+		FROM sessions s
+	`, ` GROUP BY hour ORDER BY hour ASC`, f)
+	return scanAnalytics(ctx, s.db, q, args, []string{"HOUR", "SESSIONS"})
+}
+
+// AnalyticsErrorsByModel counts the sessions flagged by the errorTriggers
+// FTS heuristic, grouped by model. Unlike AnalyticsErrors (a recent-rows
+// list capped at 30) this is the full aggregate, so the sum across rows is
+// the true flagged-session count an error-rate indicator needs. Heuristic,
+// same caveat as AnalyticsErrors.
+func (s *Store) AnalyticsErrorsByModel(ctx context.Context, f SessionFilter) (AnalyticsResult, error) {
+	q, args := analyticsQuery(`
+		SELECT COALESCE(s.model, '(none)') AS model,
+		       COUNT(DISTINCT s.id)        AS sessions
+		FROM sessions s
+		JOIN turns t ON t.session_id = s.id
+		JOIN turns_fts f ON f.rowid = t.id
+	`, ` WHERE_AND t.role = 'assistant' AND turns_fts MATCH '`+errorTriggers+`' GROUP BY model ORDER BY sessions DESC`, f)
+	return scanAnalytics(ctx, s.db, q, args, []string{"MODEL", "SESSIONS"})
+}
+
+// AnalyticsUsageByModel mirrors AnalyticsUsage but groups by model instead
+// of agent, so the panel can rank token spend per model and draw a cost
+// donut. Each group shares one model, so cost is a straight
+// pricing.CostUSD over the summed usage; models the table doesn't
+// recognize emit an empty EST_COST_USD.
+func (s *Store) AnalyticsUsageByModel(ctx context.Context, f SessionFilter) (AnalyticsResult, error) {
+	q, args := analyticsQuery(`
+		SELECT COALESCE(s.model, '(none)') AS model,
+		       COUNT(DISTINCT s.id) AS sessions,
+		       COUNT(su.session_id) AS measured,
+		       COALESCE(SUM(su.total_tokens), 0) AS total_tokens,
+		       COALESCE(SUM(su.input_tokens), 0) AS input_tokens,
+		       COALESCE(SUM(su.output_tokens), 0) AS output_tokens,
+		       COALESCE(SUM(su.cached_tokens), 0) AS cached_tokens,
+		       COALESCE(SUM(su.cache_read_tokens), 0) AS cache_read_tokens,
+		       COALESCE(SUM(su.cache_creation_tokens), 0) AS cache_creation_tokens
+		FROM sessions s
+		LEFT JOIN session_usage su ON su.session_id = s.id
+	`, ` GROUP BY model ORDER BY sessions DESC`, f)
+
+	rows, err := s.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return AnalyticsResult{}, fmt.Errorf("analytics usage_by_model: %w", err)
+	}
+	defer rows.Close()
+
+	out := AnalyticsResult{Headers: []string{
+		"MODEL", "SESSIONS", "TOTAL", "INPUT", "OUTPUT", "EST_COST_USD",
+	}}
+	for rows.Next() {
+		var (
+			model     string
+			sessionsN int64
+			measured  int64
+			u         session.TokenUsage
+		)
+		if err := rows.Scan(
+			&model, &sessionsN, &measured,
+			&u.TotalTokens, &u.InputTokens, &u.OutputTokens, &u.CachedTokens,
+			&u.CacheReadTokens, &u.CacheCreationTokens,
+		); err != nil {
+			return AnalyticsResult{}, err
+		}
+		cost := ""
+		if measured > 0 {
+			if c, ok := pricing.CostUSD(model, u); ok {
+				cost = fmt.Sprintf("%.4f", c)
+			}
+		}
+		out.Rows = append(out.Rows, AnalyticsRow{Values: []any{
+			model,
+			fmt.Sprintf("%d", sessionsN),
+			fmt.Sprintf("%d", u.TotalTokens),
+			fmt.Sprintf("%d", u.InputTokens),
+			fmt.Sprintf("%d", u.OutputTokens),
+			cost,
+		}})
+	}
+	return out, rows.Err()
 }
 
 // analyticsQuery glues the SELECT skeleton to the SessionFilter's
