@@ -100,6 +100,9 @@ func (h *SessionsHandler) List(ctx context.Context, req *connect.Request[prosav1
 		args = append(args, req.Msg.DeviceName)
 		idx++
 	}
+	if req.Msg.TopLevelOnly {
+		conds = append(conds, "s.parent_session_id IS NULL")
+	}
 	// FTS branch: when query is set, JOIN turns and filter on the
 	// tsvector. Reuse the same Postgres operator Search uses for parity.
 	ftsQuery := strings.TrimSpace(req.Msg.Query)
