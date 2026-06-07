@@ -4,7 +4,7 @@
    Other CSS layers reference these vars, never literals. */
 
 :root {
-  /* Dark palette ---------------------------------------------------- */
+  /* Dark palette (default) ----------------------------------------- */
   --bg: #0f1117;
   --bg-elev-1: #1a1d27;
   --bg-elev-2: #232733;
@@ -77,4 +77,42 @@
   --agent-antigrav-soft: #f06bcd26;
   --agent-hermes: #5be0d6;
   --agent-hermes-soft: #5be0d626;
+}
+
+/* Light palette ---------------------------------------------------- */
+/* Applied when the user picks Light explicitly OR when the user is
+   on System and the OS reports prefers-color-scheme: light. The
+   palette mirrors the dark one (bg → elev-1 → elev-2 = depth steps,
+   text-1 strongest → text-3 quietest, accent + softs) so every
+   component picks up the swap with no per-rule changes. */
+[data-theme="light"] {
+  --bg: #fafbfc;
+  --bg-elev-1: #f1f3f7;
+  --bg-elev-2: #e3e7ee;
+  --text-1: #1c1f29;
+  --text-2: #4d5468;
+  --text-3: #7d8497;
+  --accent: #4a5af0;
+  --accent-soft: #4a5af029;
+  --ok: #1f9d55;
+  --danger: #d63648;
+  --divider: #d8dde6;
+  --warn: #c48415;
+}
+
+@media (prefers-color-scheme: light) {
+  [data-theme="system"] {
+    --bg: #fafbfc;
+    --bg-elev-1: #f1f3f7;
+    --bg-elev-2: #e3e7ee;
+    --text-1: #1c1f29;
+    --text-2: #4d5468;
+    --text-3: #7d8497;
+    --accent: #4a5af0;
+    --accent-soft: #4a5af029;
+    --ok: #1f9d55;
+    --danger: #d63648;
+    --divider: #d8dde6;
+    --warn: #c48415;
+  }
 }
