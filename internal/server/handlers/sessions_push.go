@@ -3,10 +3,16 @@ package handlers
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"os"
 	"path"
+	"path/filepath"
+	"sync"
 	"time"
 
 	"connectrpc.com/connect"
@@ -24,17 +30,8 @@ func (h *SessionsHandler) Push(ctx context.Context, req *connect.Request[prosav1
 	if !ok {
 		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing device context"))
 	}
-	sess := req.Msg.Session
-	if sess == nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, missingFields("session"))
-	}
-	if sess.Id == "" || sess.RawHash == "" || sess.Agent == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, missingFields("session.id", "session.raw_hash", "session.agent"))
-	}
-	if err := validatePushedSessionID(sess.Id); err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
-	}
-	if err := validatePushedAgent(sess.Agent); err != nil {
+	sess, err := validatePushSession(req.Msg.Session)
+	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
@@ -50,7 +47,143 @@ func (h *SessionsHandler) Push(ctx context.Context, req *connect.Request[prosav1
 	// `replaceSessionUsage` below correctly omits a session_usage entry.
 	// No early-return here.
 
-	// Idempotency short-circuit: same hash as what sync_state already has.
+	current, err := h.pushAlreadyCurrent(ctx, sess)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	if current {
+		h.touchDeviceLastSync(ctx, deviceID, time.Now().UTC())
+		return connect.NewResponse(&prosav1.PushResponse{Skipped: true}), nil
+	}
+	if err := validateRawBytes(sess, req.Msg.Raw); err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+
+	return h.commitPush(ctx, deviceID, sess, req.Msg.Turns, req.Msg.Tools, bytes.NewReader(req.Msg.Raw), int64(len(req.Msg.Raw)))
+}
+
+func (h *SessionsHandler) PushChunk(ctx context.Context, req *connect.Request[prosav1.PushChunkRequest]) (*connect.Response[prosav1.PushChunkResponse], error) {
+	deviceID, ok := auth.DeviceFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing device context"))
+	}
+	sess, err := validatePushSession(req.Msg.Session)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	sess.DeviceId = deviceID
+	if req.Msg.Offset < 0 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("push chunk offset must be non-negative"))
+	}
+	if req.Msg.Offset > sess.RawSize {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("push chunk offset %d exceeds raw size %d", req.Msg.Offset, sess.RawSize))
+	}
+	if req.Msg.Offset+int64(len(req.Msg.RawChunk)) > sess.RawSize {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("push chunk ending at %d exceeds raw size %d", req.Msg.Offset+int64(len(req.Msg.RawChunk)), sess.RawSize))
+	}
+	if !req.Msg.Final && len(req.Msg.RawChunk) == 0 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("push chunk raw_chunk is empty"))
+	}
+
+	// Serialize all chunks for this exact upload (device + session + hash)
+	// so a retried stream racing the original can't interleave writes into
+	// the shared temp file; distinct uploads use distinct keys and stay
+	// concurrent. The temp lives in the process-global TempDir, so the lock
+	// is package-global too.
+	tmpPath := pushChunkTempPath(deviceID, sess)
+	unlock := pushChunkLocks.lock(tmpPath)
+	defer unlock()
+
+	// Opportunistically reap staging files from uploads that were abandoned
+	// mid-stream (client crashed before the final chunk). Runs once per
+	// upload, when the first chunk arrives.
+	if req.Msg.Offset == 0 {
+		sweepStalePushChunks(os.TempDir(), time.Now())
+	}
+
+	current, err := h.pushAlreadyCurrent(ctx, sess)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	if current {
+		_ = os.Remove(tmpPath)
+		h.touchDeviceLastSync(ctx, deviceID, time.Now().UTC())
+		return connect.NewResponse(&prosav1.PushChunkResponse{Skipped: true}), nil
+	}
+
+	f, err := openPushChunkTemp(tmpPath, req.Msg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	n, writeErr := f.Write(req.Msg.RawChunk)
+	closeErr := f.Close()
+	if writeErr != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("write raw temp file: %w", writeErr))
+	}
+	if closeErr != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("close raw temp file: %w", closeErr))
+	}
+	if n != len(req.Msg.RawChunk) {
+		return nil, connect.NewError(connect.CodeInternal, io.ErrShortWrite)
+	}
+
+	received := req.Msg.Offset + int64(n)
+	if !req.Msg.Final {
+		return connect.NewResponse(&prosav1.PushChunkResponse{Accepted: true}), nil
+	}
+	defer func() { _ = os.Remove(tmpPath) }()
+
+	tmp, err := os.Open(tmpPath)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("open raw temp file: %w", err))
+	}
+	defer func() { _ = tmp.Close() }()
+
+	hasher := sha256.New()
+	size, err := io.Copy(hasher, tmp)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("hash raw temp file: %w", err))
+	}
+	if size != received {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("raw size mismatch for session %s: staged %d bytes, received %d", sess.Id, size, received))
+	}
+	if err := validateRawIntegrity(sess, size, hex.EncodeToString(hasher.Sum(nil))); err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("rewind raw temp file: %w", err))
+	}
+
+	resp, err := h.commitPush(ctx, deviceID, sess, req.Msg.Turns, req.Msg.Tools, tmp, size)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&prosav1.PushChunkResponse{
+		Skipped: resp.Msg.Skipped,
+		RawUri:  resp.Msg.RawUri,
+	}), nil
+}
+
+func validatePushSession(sess *prosav1.Session) (*prosav1.Session, error) {
+	if sess == nil {
+		return nil, missingFields("session")
+	}
+	if sess.Id == "" || sess.RawHash == "" || sess.Agent == "" {
+		return nil, missingFields("session.id", "session.raw_hash", "session.agent")
+	}
+	if err := validatePushedSessionID(sess.Id); err != nil {
+		return nil, err
+	}
+	if err := validatePushedAgent(sess.Agent); err != nil {
+		return nil, err
+	}
+	return sess, nil
+}
+
+func (h *SessionsHandler) pushAlreadyCurrent(ctx context.Context, sess *prosav1.Session) (bool, error) {
 	var (
 		lastHash          string
 		projectionVersion int
@@ -59,14 +192,128 @@ func (h *SessionsHandler) Push(ctx context.Context, req *connect.Request[prosav1
 		ctx,
 		`SELECT last_hash, projection_version FROM sync_state WHERE session_id = $1`, sess.Id,
 	).Scan(&lastHash, &projectionVersion)
-	if err == nil && lastHash == sess.RawHash && projectionVersion >= session.ProjectionVersion {
-		h.touchDeviceLastSync(ctx, deviceID, time.Now().UTC())
-		return connect.NewResponse(&prosav1.PushResponse{Skipped: true}), nil
+	if err == nil {
+		return lastHash == sess.RawHash && projectionVersion >= session.ProjectionVersion, nil
 	}
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("read sync_state: %w", err))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
 	}
+	return false, fmt.Errorf("read sync_state: %w", err)
+}
 
+func pushChunkTempPath(deviceID string, sess *prosav1.Session) string {
+	sum := sha256.Sum256([]byte(deviceID + "\x00" + sess.Id + "\x00" + sess.RawHash))
+	return filepath.Join(os.TempDir(), "prosa-push-"+hex.EncodeToString(sum[:])+".part")
+}
+
+// pushChunkStaleAfter bounds how long an in-flight chunked upload may sit
+// idle before its staging file is considered abandoned and reaped. No real
+// upload takes anywhere near this long, so active uploads are never swept.
+const pushChunkStaleAfter = 24 * time.Hour
+
+// sweepStalePushChunks removes staging files from chunked uploads that never
+// sent a final chunk (client crashed/aborted) and are older than
+// pushChunkStaleAfter, so abandoned partials don't accumulate in TempDir.
+// Best-effort: glob/stat/remove errors are ignored.
+func sweepStalePushChunks(dir string, now time.Time) {
+	matches, err := filepath.Glob(filepath.Join(dir, "prosa-push-*.part"))
+	if err != nil {
+		return
+	}
+	for _, p := range matches {
+		info, statErr := os.Stat(p)
+		if statErr != nil {
+			continue
+		}
+		if now.Sub(info.ModTime()) > pushChunkStaleAfter {
+			_ = os.Remove(p)
+		}
+	}
+}
+
+// pushChunkLocks serializes concurrent chunk writes to the same staging file.
+var pushChunkLocks = &keyedMutex{}
+
+// keyedMutex hands out a mutex per key and reclaims it once no goroutine
+// holds or waits on it, so the map can't grow without bound across the
+// server's lifetime.
+type keyedMutex struct {
+	mu sync.Mutex
+	m  map[string]*keyedMutexEntry
+}
+
+type keyedMutexEntry struct {
+	mu   sync.Mutex
+	refs int
+}
+
+func (k *keyedMutex) lock(key string) func() {
+	k.mu.Lock()
+	if k.m == nil {
+		k.m = make(map[string]*keyedMutexEntry)
+	}
+	e := k.m[key]
+	if e == nil {
+		e = &keyedMutexEntry{}
+		k.m[key] = e
+	}
+	e.refs++
+	k.mu.Unlock()
+
+	e.mu.Lock()
+	return func() {
+		e.mu.Unlock()
+		k.mu.Lock()
+		e.refs--
+		if e.refs == 0 {
+			delete(k.m, key)
+		}
+		k.mu.Unlock()
+	}
+}
+
+func openPushChunkTemp(tmpPath string, offset int64) (*os.File, error) {
+	if offset == 0 {
+		f, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("create raw temp file: %w", err))
+		}
+		return f, nil
+	}
+	info, err := os.Stat(tmpPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("missing previous push chunks at offset %d", offset))
+		}
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("stat raw temp file: %w", err))
+	}
+	if info.Size() != offset {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("push chunk offset mismatch: got %d, staged %d", offset, info.Size()))
+	}
+	f, err := os.OpenFile(tmpPath, os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("open raw temp file: %w", err))
+	}
+	return f, nil
+}
+
+func validateRawBytes(sess *prosav1.Session, raw []byte) error {
+	sum := sha256.Sum256(raw)
+	return validateRawIntegrity(sess, int64(len(raw)), hex.EncodeToString(sum[:]))
+}
+
+func validateRawIntegrity(sess *prosav1.Session, gotSize int64, gotHash string) error {
+	if gotSize != sess.RawSize {
+		return fmt.Errorf("raw size mismatch for session %s: got %d bytes, want %d", sess.Id, gotSize, sess.RawSize)
+	}
+	if gotHash != sess.RawHash {
+		return fmt.Errorf("raw hash mismatch for session %s: got %s, want %s", sess.Id, gotHash, sess.RawHash)
+	}
+	return nil
+}
+
+func (h *SessionsHandler) commitPush(ctx context.Context, deviceID string, sess *prosav1.Session, turns []*prosav1.Turn, tools []*prosav1.ToolUsage, raw io.Reader, rawSize int64) (*connect.Response[prosav1.PushResponse], error) {
 	// Upload raw to S3.
 	started := sess.StartedAt.AsTime().UTC()
 	key := rawKey(deviceID, sess.Agent, sess.Id, started)
@@ -81,7 +328,7 @@ func (h *SessionsHandler) Push(ctx context.Context, req *connect.Request[prosav1
 		objectIsNew = !exists
 	}
 
-	uri, err := h.Obj.Put(ctx, key, bytes.NewReader(req.Msg.Raw), int64(len(req.Msg.Raw)))
+	uri, err := h.Obj.Put(ctx, key, raw, rawSize)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("upload raw: %w", err))
 	}
@@ -119,10 +366,10 @@ func (h *SessionsHandler) Push(ctx context.Context, req *connect.Request[prosav1
 	if err := replaceSessionUsage(ctx, tx, sess.Id, sess.Usage); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	if err := replaceSessionTools(ctx, tx, sess.Id, req.Msg.Tools); err != nil {
+	if err := replaceSessionTools(ctx, tx, sess.Id, tools); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	if err := replaceTurns(ctx, tx, sess.Id, req.Msg.Turns); err != nil {
+	if err := replaceTurns(ctx, tx, sess.Id, turns); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	if err := recordSync(ctx, tx, sess.Id, sess.RawHash); err != nil {

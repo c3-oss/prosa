@@ -46,7 +46,6 @@ func TestSessionsConnectEndToEnd(t *testing.T) {
 		bearer     = "device-bearer"
 		deviceID   = "device-a"
 		sessionID  = "session-a"
-		rawHash    = "hash-a"
 	)
 	insertDeviceToken(t, ctx, pool, deviceID, bearer)
 
@@ -68,6 +67,7 @@ func TestSessionsConnectEndToEnd(t *testing.T) {
 
 	started := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
 	raw := []byte("raw transcript body")
+	rawHash := sha256Hex(raw)
 	pushReq := connect.NewRequest(&prosav1.PushRequest{
 		Session: &prosav1.Session{
 			Id:             sessionID,

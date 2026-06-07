@@ -16,6 +16,12 @@ service SessionsService {
   // PushResponse.skipped is true.
   rpc Push(PushRequest) returns (PushResponse);
 
+  // PushChunk uploads one session's raw transcript in bounded unary
+  // chunks so large raw files don't exceed the per-message transport
+  // limit. The server commits metadata only after the final chunk
+  // reconstructs the full raw_size/raw_hash. Idempotency matches Push.
+  rpc PushChunk(PushChunkRequest) returns (PushChunkResponse);
+
   // List returns sessions matching the filter, newest first.
   rpc List(ListRequest) returns (ListResponse);
 
@@ -102,9 +108,28 @@ message PushRequest {
   Session session = 1;
   repeated Turn turns = 2;
   repeated ToolUsage tools = 3;
-  // raw is the verbatim source file bytes. Capped at 32 MiB by the
-  // server; oversize sessions surface as a clear error.
+  // raw is the verbatim source file bytes. Large raws should use
+  // PushChunk so each transport message stays below the server's
+  // configured request cap.
   bytes raw = 4;
+}
+
+message PushChunkRequest {
+  // session must accompany every chunk: it keys the server-side staging
+  // file and drives the idempotency check. turns and tools are only read
+  // on the final chunk (they are committed with the reconstructed raw);
+  // senders may omit them on non-final chunks.
+  Session session = 1;
+  repeated Turn turns = 2;
+  repeated ToolUsage tools = 3;
+  // offset is the starting byte position of raw_chunk in the complete
+  // raw transcript. The server rejects gaps, overlaps, and out-of-order
+  // chunks so retries cannot silently corrupt the reconstructed file.
+  int64 offset = 4;
+  bytes raw_chunk = 5;
+  // final tells the server to validate the reconstructed raw_size and
+  // raw_hash, upload the raw object, and commit metadata transactionally.
+  bool final = 6;
 }
 
 message PushResponse {
@@ -113,6 +138,16 @@ message PushResponse {
   bool skipped = 1;
   // s3:// URI of where the raw lives now; useful for debugging.
   string raw_uri = 2;
+}
+
+message PushChunkResponse {
+  // True when the caller's raw_hash already matched the recorded
+  // sync_state — server did nothing.
+  bool skipped = 1;
+  // True when a non-final chunk was accepted and staged server-side.
+  bool accepted = 2;
+  // s3:// URI of where the raw lives now; useful for debugging.
+  string raw_uri = 3;
 }
 
 // ListRequest mirrors internal/store/SessionFilter. Time bounds are
