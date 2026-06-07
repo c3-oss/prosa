@@ -138,12 +138,19 @@
       </div>
     </label>
 
+    <label class="filter-toggle">
+      <input type="hidden" name="group_subagents" value="off">
+      <input type="checkbox" name="group_subagents" value="on" {{if .GroupSubagents}}checked{{end}}>
+      <span>Group subagents</span>
+    </label>
+
     <noscript><button class="btn" type="submit">Apply</button></noscript>
   </form>
 
   <table class="sessions-table">
     <thead>
       <tr>
+        <th class="cell-expand" aria-label="expand subagents"></th>
         {{if index .Cols "agent"}}<th><a href="{{index .SortURLs "agent"}}"><span class="sort-arrow">{{index .SortArrows "agent"}}</span>Agent</a></th>{{end}}
         {{if index .Cols "project"}}<th><a href="{{index .SortURLs "project"}}"><span class="sort-arrow">{{index .SortArrows "project"}}</span>Project</a></th>{{end}}
         {{if index .Cols "first_prompt"}}<th class="cell-prompt">First message</th>{{end}}
@@ -154,44 +161,111 @@
         <th class="cell-started"><a href="{{index .SortURLs "started_at"}}"><span class="sort-arrow">{{index .SortArrows "started_at"}}</span>Started</a></th>
       </tr>
     </thead>
-    <tbody>
-      {{range .Sessions}}
-        <tr class="session-row" data-href="{{.OpenURL}}" data-detail="/sessions/{{.Id}}">
-          {{if index $.Cols "agent"}}<td>{{agentBadge .Agent}}</td>{{end}}
-          {{if index $.Cols "project"}}
-            <td class="cell-project">
-              {{if .ProjectURL}}
-                <a class="project-link" href="{{.ProjectURL}}" target="_blank" rel="noopener" onclick="event.stopPropagation()">
-                  {{if eq .ProjectProvider "github"}}{{template "icon-github"}}{{else if eq .ProjectProvider "gitlab"}}{{template "icon-gitlab"}}{{end}}
-                  <span>{{.ProjectLabel}}</span>
-                </a>
-              {{else}}
-                {{.ProjectLabel}}
+    {{$cols := .Cols}}
+    {{range $session := .Sessions}}
+      {{if $session.Children}}
+        <tbody class="session-group" x-data="{ open: false }">
+          <tr class="session-row session-row-parent"
+              data-href="{{$session.OpenURL}}" data-detail="/sessions/{{$session.Id}}">
+            <td class="cell-expand">
+              <button type="button" class="row-expand"
+                      @click.stop="open = !open"
+                      :aria-expanded="open.toString()"
+                      :title="open ? 'Hide subagents' : 'Show subagents'">
+                <span class="row-expand-caret" :class="{ 'is-open': open }" aria-hidden="true">▸</span>
+                <span class="row-expand-count">{{len $session.Children}}</span>
+              </button>
+            </td>
+            {{if index $cols "agent"}}<td>{{agentBadge $session.Agent}}</td>{{end}}
+            {{if index $cols "project"}}
+              <td class="cell-project">
+                {{if $session.ProjectURL}}
+                  <a class="project-link" href="{{$session.ProjectURL}}" target="_blank" rel="noopener" onclick="event.stopPropagation()">
+                    {{if eq $session.ProjectProvider "github"}}{{template "icon-github"}}{{else if eq $session.ProjectProvider "gitlab"}}{{template "icon-gitlab"}}{{end}}
+                    <span>{{$session.ProjectLabel}}</span>
+                  </a>
+                {{else}}{{$session.ProjectLabel}}{{end}}
+              </td>
+            {{end}}
+            {{if index $cols "first_prompt"}}
+              <td class="cell-prompt">
+                <a href="{{$session.OpenURL}}" title="{{$session.FirstPromptFull}}"
+                   hx-get="/sessions/{{$session.Id}}" hx-target="#side-panel" hx-swap="innerHTML" hx-push-url="{{$session.OpenURL}}">{{or $session.FirstPrompt "(no prompt)"}}</a>
+              </td>
+            {{end}}
+            {{if index $cols "tokens"}}<td class="cell-tokens" title="{{$session.TokensTotalFull}}">{{$session.TokensTotal}}</td>{{end}}
+            {{if index $cols "cost"}}<td class="cell-tokens">{{$session.Cost}}</td>{{end}}
+            {{if index $cols "device"}}<td>{{$session.Device}}</td>{{end}}
+            {{if index $cols "id"}}<td class="text-mono">{{$session.Id}}</td>{{end}}
+            <td class="cell-started"><time title="{{$session.StartedAtFull}}">{{$session.StartedRel}}</time></td>
+          </tr>
+          {{range $child := $session.Children}}
+            <tr class="session-row session-row-child"
+                data-href="{{$child.OpenURL}}" data-detail="/sessions/{{$child.Id}}"
+                x-show="open">
+              <td class="cell-expand"></td>
+              {{if index $cols "agent"}}<td><span class="row-child-indent" aria-hidden="true">↳</span>{{agentBadge $child.Agent}}</td>{{end}}
+              {{if index $cols "project"}}
+                <td class="cell-project">
+                  {{if $child.ProjectURL}}
+                    <a class="project-link" href="{{$child.ProjectURL}}" target="_blank" rel="noopener" onclick="event.stopPropagation()">
+                      {{if eq $child.ProjectProvider "github"}}{{template "icon-github"}}{{else if eq $child.ProjectProvider "gitlab"}}{{template "icon-gitlab"}}{{end}}
+                      <span>{{$child.ProjectLabel}}</span>
+                    </a>
+                  {{else}}{{$child.ProjectLabel}}{{end}}
+                </td>
               {{end}}
-            </td>
+              {{if index $cols "first_prompt"}}
+                <td class="cell-prompt">
+                  <a href="{{$child.OpenURL}}" title="{{$child.FirstPromptFull}}"
+                     hx-get="/sessions/{{$child.Id}}" hx-target="#side-panel" hx-swap="innerHTML" hx-push-url="{{$child.OpenURL}}">{{or $child.FirstPrompt "(no prompt)"}}</a>
+                </td>
+              {{end}}
+              {{if index $cols "tokens"}}<td class="cell-tokens" title="{{$child.TokensTotalFull}}">{{$child.TokensTotal}}</td>{{end}}
+              {{if index $cols "cost"}}<td class="cell-tokens">{{$child.Cost}}</td>{{end}}
+              {{if index $cols "device"}}<td>{{$child.Device}}</td>{{end}}
+              {{if index $cols "id"}}<td class="text-mono">{{$child.Id}}</td>{{end}}
+              <td class="cell-started"><time title="{{$child.StartedAtFull}}">{{$child.StartedRel}}</time></td>
+            </tr>
           {{end}}
-          {{if index $.Cols "first_prompt"}}
-            <td class="cell-prompt">
-              <a href="{{.OpenURL}}" title="{{.FirstPromptFull}}"
-                 hx-get="/sessions/{{.Id}}"
-                 hx-target="#side-panel"
-                 hx-swap="innerHTML"
-                 hx-push-url="{{.OpenURL}}">{{or .FirstPrompt "(no prompt)"}}</a>
-            </td>
-          {{end}}
-          {{if index $.Cols "tokens"}}<td class="cell-tokens" title="{{.TokensTotalFull}}">{{.TokensTotal}}</td>{{end}}
-          {{if index $.Cols "cost"}}<td class="cell-tokens">{{.Cost}}</td>{{end}}
-          {{if index $.Cols "device"}}<td>{{.Device}}</td>{{end}}
-          {{if index $.Cols "id"}}<td class="text-mono">{{.Id}}</td>{{end}}
-          <td class="cell-started"><time title="{{.StartedAtFull}}">{{.StartedRel}}</time></td>
-        </tr>
+        </tbody>
       {{else}}
+        <tbody>
+          <tr class="session-row" data-href="{{$session.OpenURL}}" data-detail="/sessions/{{$session.Id}}">
+            <td class="cell-expand"></td>
+            {{if index $cols "agent"}}<td>{{agentBadge $session.Agent}}</td>{{end}}
+            {{if index $cols "project"}}
+              <td class="cell-project">
+                {{if $session.ProjectURL}}
+                  <a class="project-link" href="{{$session.ProjectURL}}" target="_blank" rel="noopener" onclick="event.stopPropagation()">
+                    {{if eq $session.ProjectProvider "github"}}{{template "icon-github"}}{{else if eq $session.ProjectProvider "gitlab"}}{{template "icon-gitlab"}}{{end}}
+                    <span>{{$session.ProjectLabel}}</span>
+                  </a>
+                {{else}}{{$session.ProjectLabel}}{{end}}
+              </td>
+            {{end}}
+            {{if index $cols "first_prompt"}}
+              <td class="cell-prompt">
+                <a href="{{$session.OpenURL}}" title="{{$session.FirstPromptFull}}"
+                   hx-get="/sessions/{{$session.Id}}" hx-target="#side-panel" hx-swap="innerHTML" hx-push-url="{{$session.OpenURL}}">{{or $session.FirstPrompt "(no prompt)"}}</a>
+              </td>
+            {{end}}
+            {{if index $cols "tokens"}}<td class="cell-tokens" title="{{$session.TokensTotalFull}}">{{$session.TokensTotal}}</td>{{end}}
+            {{if index $cols "cost"}}<td class="cell-tokens">{{$session.Cost}}</td>{{end}}
+            {{if index $cols "device"}}<td>{{$session.Device}}</td>{{end}}
+            {{if index $cols "id"}}<td class="text-mono">{{$session.Id}}</td>{{end}}
+            <td class="cell-started"><time title="{{$session.StartedAtFull}}">{{$session.StartedRel}}</time></td>
+          </tr>
+        </tbody>
+      {{end}}
+    {{else}}
+      <tbody>
         <tr><td colspan="99" class="empty">
           nothing matched these filters.
           {{if .ClearFiltersURL}}<a href="{{.ClearFiltersURL}}">Clear all filters</a> to start over.{{end}}
         </td></tr>
-      {{end}}
-    </tbody>
+      </tbody>
+    {{end}}
   </table>
 
   <div class="sessions-pagination">

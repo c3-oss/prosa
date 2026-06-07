@@ -33,6 +33,10 @@ const sessionsPageLimit = 50
 // sessionRow is one row of the Sessions table, pre-formatted for the
 // template so the view stays declarative. Cost is "$x.xx" or "n/a",
 // Tokens* are comma-grouped strings, StartedAt* are display timestamps.
+// Children, when non-empty, are subagent rows rendered indented under
+// this parent; IsChild marks rows rendered inside a parent's expansion
+// (used only when group_subagents=off so the flat list can still flag
+// them visually).
 type sessionRow struct {
 	Id              string
 	Agent           string
@@ -51,6 +55,8 @@ type sessionRow struct {
 	StartedAtFull   string
 	StartedRel      string
 	OpenURL         string
+	IsChild         bool
+	Children        []sessionRow
 }
 
 // handleSessions renders the Sessions surface: FTS search, multi-select
@@ -88,6 +94,15 @@ func (p *Panel) handleSessions(w http.ResponseWriter, r *http.Request) {
 	sortDirRaw := q.Get("dir")
 	activeSort, activeDir := resolveSessionsSort(sortBy, sortDirRaw)
 	queryStr := strings.TrimSpace(q.Get("q"))
+	// Group subagents (default ON). Off via ?group_subagents=off. When
+	// on, the listing is filtered to top-level sessions; children are
+	// attached to each parent for inline expansion. FTS search disables
+	// grouping because the search hit may be inside a child.
+	// Read the last value for group_subagents so the hidden+checkbox
+	// pattern in the form template works: hidden=off, checkbox=on. When
+	// the checkbox is unchecked only "off" is sent; checked sends both
+	// in order so the last value ("on") wins. Default ON when absent.
+	groupSubagents := lastValueOrDefault(q["group_subagents"], "on") != "off" && queryStr == ""
 
 	// Page (1-based) → offset.
 	page, _ := strconv.Atoi(q.Get("page"))
@@ -96,10 +111,11 @@ func (p *Panel) handleSessions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	baseReq := &prosav1.ListRequest{
-		Since:       timestamppb.New(since),
-		Until:       timestamppb.New(until),
-		DeviceNames: devices,
-		Query:       queryStr,
+		Since:        timestamppb.New(since),
+		Until:        timestamppb.New(until),
+		DeviceNames:  devices,
+		Query:        queryStr,
+		TopLevelOnly: groupSubagents,
 	}
 	// Push the full multi-select to the server so narrowing happens before
 	// pagination. Filtering only the current page client-side (the old
@@ -180,6 +196,25 @@ func (p *Panel) handleSessions(w http.ResponseWriter, r *http.Request) {
 	for _, s := range sessions {
 		rows = append(rows, buildSessionRow(s, r.URL, deviceLookup))
 	}
+	// When grouping is on, fan out ListChildren for each parent row so
+	// the template can render an expandable indented block. Failures
+	// degrade silently to a parent without children — the row is still
+	// usable on its own.
+	if groupSubagents {
+		for i := range rows {
+			childResp, childErr := p.clients.Sessions.ListChildren(r.Context(),
+				connect.NewRequest(&prosav1.ListChildrenRequest{ParentId: rows[i].Id}))
+			if childErr != nil {
+				slog.Warn("sessions.listChildren failed", "id", rows[i].Id, "err", childErr)
+				continue
+			}
+			for _, child := range childResp.Msg.Sessions {
+				childRow := buildSessionRow(child, r.URL, deviceLookup)
+				childRow.IsChild = true
+				rows[i].Children = append(rows[i].Children, childRow)
+			}
+		}
+	}
 
 	// URL helpers: BaseQuery preserves the current filter set so links
 	// can append `&sort=` or `&page=` without re-encoding. SortURLs map
@@ -229,6 +264,7 @@ func (p *Panel) handleSessions(w http.ResponseWriter, r *http.Request) {
 		"ActiveFilters":    activeFilters,
 		"ClearFiltersURL":  clearURL,
 		"WindowLabel":      windowLabel(lastRaw),
+		"GroupSubagents":   groupSubagents,
 	}
 
 	// Side panel inline render when ?session=<id> — same pattern as
@@ -318,6 +354,16 @@ func removeFromMulti(q url.Values, key, value string) {
 	} else {
 		q[key] = kept
 	}
+}
+
+// lastValueOrDefault returns the last entry in vals, or the default
+// when vals is empty. Used for hidden+checkbox form pairs where the
+// checkbox's value should win when present.
+func lastValueOrDefault(vals []string, def string) string {
+	if len(vals) == 0 {
+		return def
+	}
+	return vals[len(vals)-1]
 }
 
 // pickMulti returns every non-empty value for key, trimmed.
@@ -608,9 +654,16 @@ func cloneListRequest(in *prosav1.ListRequest) *prosav1.ListRequest {
 		SortDir:       in.SortDir,
 		Limit:         in.Limit,
 		Offset:        in.Offset,
+		TopLevelOnly:  in.TopLevelOnly,
 	}
 	if len(in.DeviceNames) > 0 {
 		out.DeviceNames = append([]string(nil), in.DeviceNames...)
+	}
+	if len(in.Agents) > 0 {
+		out.Agents = append([]string(nil), in.Agents...)
+	}
+	if len(in.ProjectMatches) > 0 {
+		out.ProjectMatches = append([]string(nil), in.ProjectMatches...)
 	}
 	return out
 }

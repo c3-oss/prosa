@@ -165,3 +165,94 @@
 .sessions-pagination a:hover {
   text-decoration: underline;
 }
+
+/* Subagent expand column + child rows ------------------------------- */
+
+.sessions-table th.cell-expand,
+.sessions-table td.cell-expand {
+  width: 36px;
+  padding-left: var(--space-3);
+  padding-right: 0;
+  text-align: left;
+}
+
+.row-expand {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px;
+  background: transparent;
+  border: 0;
+  color: var(--text-3);
+  font: inherit;
+  font-size: var(--text-xs);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+
+.row-expand:hover {
+  color: var(--text-1);
+  background: var(--bg-elev-2);
+}
+
+.row-expand-caret {
+  display: inline-block;
+  font-size: 0.85em;
+  transition: transform var(--duration-fast) var(--ease);
+}
+
+.row-expand-caret.is-open {
+  transform: rotate(90deg);
+}
+
+.row-expand-count {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+}
+
+.sessions-table tbody tr.session-row-child {
+  background: var(--bg-elev-1);
+}
+
+.sessions-table tbody tr.session-row-child:hover {
+  background: var(--bg-elev-2);
+}
+
+.sessions-table tbody tr.session-row-child td {
+  color: var(--text-2);
+}
+
+.row-child-indent {
+  display: inline-block;
+  margin-right: var(--space-2);
+  color: var(--text-3);
+}
+
+/* Filter-bar inline toggle (e.g. Group subagents) ------------------- */
+
+.filter-toggle {
+  display: inline-flex !important;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+  height: 32px;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-sm);
+  color: var(--text-2);
+  font-size: var(--text-xs) !important;
+  text-transform: none !important;
+  letter-spacing: 0 !important;
+  cursor: pointer;
+  user-select: none;
+}
+
+.filter-toggle input[type="checkbox"] {
+  margin: 0;
+  cursor: pointer;
+}
+
+.filter-toggle:has(input[type="checkbox"]:checked) {
+  color: var(--text-1);
+  border-color: var(--accent-soft);
+}
