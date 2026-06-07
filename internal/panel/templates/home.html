@@ -1,11 +1,27 @@
 {{define "home"}}{{template "base" .}}{{end}}
 
 {{define "content"}}
-  <header class="dashboard-head">
+  <header class="dashboard-head" x-data="{ filtersOpen: false }"
+          @keydown.escape.window="filtersOpen = false">
     <h1>Home</h1>
-    <details class="dashboard-filters">
-      <summary>Filters</summary>
-      <form method="get" action="/" class="filter-bar"
+    <button type="button" class="dashboard-filters-toggle"
+            @click="filtersOpen = !filtersOpen"
+            :aria-expanded="filtersOpen.toString()"
+            aria-controls="dashboard-filters-drawer">
+      Filters
+    </button>
+    <div class="dashboard-filters-backdrop"
+         x-show="filtersOpen" x-cloak x-transition.opacity
+         @click="filtersOpen = false" aria-hidden="true"></div>
+    <aside id="dashboard-filters-drawer" class="dashboard-filters-drawer"
+           role="dialog" aria-label="Filters"
+           :class="{ 'open': filtersOpen }">
+      <div class="dashboard-filters-drawer-head">
+        <span class="dashboard-filters-drawer-title">Filters</span>
+        <button type="button" class="dashboard-filters-close"
+                @click="filtersOpen = false" aria-label="Close filters">×</button>
+      </div>
+      <form method="get" action="/" class="filter-bar dashboard-filters-form"
             x-data @change="$el.requestSubmit()">
         <label>
           Window
@@ -88,7 +104,7 @@
 
         <noscript><button class="btn" type="submit">Apply</button></noscript>
       </form>
-    </details>
+    </aside>
   </header>
 
   {{if .ActiveFilters}}
