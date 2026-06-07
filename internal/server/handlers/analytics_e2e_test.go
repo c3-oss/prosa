@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -56,6 +58,8 @@ func TestAnalyticsReportsEndToEnd(t *testing.T) {
 		t.Helper()
 		started := day.Add(time.Duration(hour) * time.Hour)
 		raw := []byte("raw-" + id)
+		rawSum := sha256.Sum256(raw)
+		rawHash := hex.EncodeToString(rawSum[:])
 		req := connect.NewRequest(&prosav1.PushRequest{
 			Session: &prosav1.Session{
 				Id:             id,
@@ -63,7 +67,7 @@ func TestAnalyticsReportsEndToEnd(t *testing.T) {
 				StartedAt:      timestamppb.New(started),
 				LastActivityAt: timestamppb.New(started.Add(time.Minute)),
 				Model:          model,
-				RawHash:        "hash-" + id,
+				RawHash:        rawHash,
 				RawSize:        int64(len(raw)),
 				Usage: &prosav1.TokenUsage{
 					TotalTokens:  1000,
