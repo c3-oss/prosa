@@ -193,6 +193,12 @@ message ListRequest {
   // its project_path / project_remote / project_marker (project_match is
   // ignored).
   repeated string project_matches = 16;
+  // top_level_only restricts results to sessions with no parent (i.e.
+  // not a subagent / child session). The panel uses this to render the
+  // Sessions table grouped by parent without double-counting children
+  // as top-level rows. Pagination + total_count apply to the filtered
+  // (parent-only) set.
+  bool top_level_only = 17;
 }
 
 message ListResponse {
