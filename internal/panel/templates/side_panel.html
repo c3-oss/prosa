@@ -61,6 +61,119 @@
       </dd>
     </dl>
 
+    {{if .TurnGroups}}
+      <div class="transcript-search"
+           x-data="{
+             query: '',
+             matches: [],
+             activeIndex: -1,
+             debounceId: null,
+             init() {
+               this.$watch('query', () => {
+                 clearTimeout(this.debounceId);
+                 this.debounceId = setTimeout(() => this.runSearch(), 200);
+               });
+             },
+             runSearch() {
+               this.clearHighlights();
+               this.matches = [];
+               this.activeIndex = -1;
+               const q = (this.query || '').trim();
+               if (!q) return;
+               window.dispatchEvent(new CustomEvent('messages-toggle-all', { detail: { collapsed: false } }));
+               window.dispatchEvent(new CustomEvent('transcript-expand-groups'));
+               this.$nextTick(() => {
+                 const root = document.querySelector('section.transcript');
+                 if (!root) return;
+                 root.querySelectorAll('details.tool-entry').forEach(d => { d.open = true; });
+                 root.querySelectorAll('.bubble-body, .tool-entry-body, .thinking-body').forEach(el => this.highlightIn(el, q));
+                 if (this.matches.length) {
+                   this.activeIndex = 0;
+                   this.focusActive();
+                 }
+               });
+             },
+             highlightIn(el, query) {
+               const escapedQ = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+               const re = new RegExp(escapedQ, 'gi');
+               const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, {
+                 acceptNode: node => (node.parentElement && node.parentElement.tagName === 'MARK'
+                   ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT)
+               });
+               const nodes = [];
+               while (walker.nextNode()) nodes.push(walker.currentNode);
+               nodes.forEach(node => {
+                 const text = node.nodeValue;
+                 if (!re.test(text)) return;
+                 re.lastIndex = 0;
+                 const frag = document.createDocumentFragment();
+                 let last = 0, m;
+                 while ((m = re.exec(text)) !== null) {
+                   if (m.index > last) frag.appendChild(document.createTextNode(text.slice(last, m.index)));
+                   const mark = document.createElement('mark');
+                   mark.className = 'search-match';
+                   mark.textContent = m[0];
+                   frag.appendChild(mark);
+                   this.matches.push(mark);
+                   last = re.lastIndex;
+                 }
+                 if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+                 node.parentNode.replaceChild(frag, node);
+               });
+             },
+             clearHighlights() {
+               const root = document.querySelector('section.transcript');
+               if (!root) return;
+               root.querySelectorAll('mark.search-match').forEach(m => {
+                 const text = document.createTextNode(m.textContent);
+                 m.parentNode.replaceChild(text, m);
+               });
+               root.normalize();
+             },
+             focusActive() {
+               this.matches.forEach((m, i) => m.classList.toggle('is-active', i === this.activeIndex));
+               const el = this.matches[this.activeIndex];
+               if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+             },
+             next() {
+               if (!this.matches.length) return;
+               this.activeIndex = (this.activeIndex + 1) % this.matches.length;
+               this.focusActive();
+             },
+             prev() {
+               if (!this.matches.length) return;
+               this.activeIndex = (this.activeIndex - 1 + this.matches.length) % this.matches.length;
+               this.focusActive();
+             },
+             clear() {
+               this.query = '';
+               this.clearHighlights();
+               this.matches = [];
+               this.activeIndex = -1;
+             }
+           }">
+        <input type="search" placeholder="Search in transcript…"
+               x-model="query" aria-label="Search in transcript"
+               @keydown.enter.prevent="next()"
+               @keydown.shift.enter.prevent="prev()"
+               @keydown.escape.stop="clear()">
+        <button type="button" class="ts-btn" @click="prev()"
+                :disabled="!matches.length"
+                aria-label="Previous match" title="Previous (Shift+Enter)">↑</button>
+        <button type="button" class="ts-btn" @click="next()"
+                :disabled="!matches.length"
+                aria-label="Next match" title="Next (Enter)">↓</button>
+        <span class="ts-count" x-show="query">
+          <template x-if="matches.length">
+            <span><span x-text="activeIndex + 1"></span>/<span x-text="matches.length"></span></span>
+          </template>
+          <template x-if="!matches.length">
+            <span class="ts-empty">no matches</span>
+          </template>
+        </span>
+      </div>
+    {{end}}
+
     <h3 class="panel-section-title">Transcript</h3>
     {{if .TurnGroups}}
       <section class="transcript" aria-label="session transcript">
@@ -141,7 +254,8 @@
               </article>
             {{end}}
           {{else if eq .Kind "tool-group"}}
-            <div class="tool-group" x-data="{ open: false }">
+            <div class="tool-group" x-data="{ open: false }"
+                 @transcript-expand-groups.window="open = true">
               <button type="button" class="tool-group-summary"
                       :aria-expanded="open ? 'true' : 'false'"
                       @click="open = !open">
@@ -166,7 +280,8 @@
               <span>{{.Summary}}</span>
             </div>
           {{else if eq .Kind "thinking-group"}}
-            <div class="thinking-group" x-data="{ open: false }">
+            <div class="thinking-group" x-data="{ open: false }"
+                 @transcript-expand-groups.window="open = true">
               <button type="button" class="thinking-summary"
                       :aria-expanded="open ? 'true' : 'false'"
                       @click="open = !open">

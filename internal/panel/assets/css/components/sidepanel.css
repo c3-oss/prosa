@@ -96,6 +96,89 @@
   padding: var(--space-6);
 }
 
+/* Transcript search ------------------------------------------------- */
+
+.transcript-search {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-4) 0 var(--space-2);
+  padding: var(--space-2);
+  background: var(--bg-elev-2);
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-sm);
+}
+
+.transcript-search input[type="search"] {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0 var(--space-3);
+  background: var(--bg);
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-sm);
+  color: var(--text-1);
+  font-family: inherit;
+  font-size: var(--text-sm);
+}
+
+.transcript-search input[type="search"]:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.transcript-search .ts-btn {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-sm);
+  color: var(--text-2);
+  font-size: var(--text-sm);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.transcript-search .ts-btn:not(:disabled):hover {
+  color: var(--text-1);
+  border-color: var(--text-3);
+}
+
+.transcript-search .ts-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.transcript-search .ts-count {
+  flex-shrink: 0;
+  min-width: 56px;
+  text-align: right;
+  font-size: var(--text-xs);
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+  padding-right: var(--space-2);
+}
+
+.transcript-search .ts-empty {
+  color: var(--danger);
+  font-style: italic;
+}
+
+mark.search-match {
+  background: var(--warn);
+  color: var(--bg);
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+mark.search-match.is-active {
+  background: var(--accent);
+  color: var(--bg);
+  outline: 1px solid var(--accent);
+}
+
 /* Stats cluster ---------------------------------------------------- */
 
 .stats-cluster {
