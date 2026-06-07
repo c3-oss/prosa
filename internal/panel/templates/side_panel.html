@@ -1,11 +1,18 @@
 {{define "side_panel"}}{{template "side_panel_body" .SidePanel}}{{end}}
 
 {{define "side_panel_body"}}
-  <header class="sp-header">
+  <header class="sp-header" x-data="{ allCollapsed: false }">
     <div class="sp-header-text">
       <div class="sp-agent">{{agentBadge .Session.Agent}}</div>
       <div class="sp-prompt">{{or .Session.FirstPrompt "(no prompt)"}}</div>
     </div>
+    {{if .TurnGroups}}
+      <button class="sp-collapse-all" type="button"
+              @click="allCollapsed = !allCollapsed; $dispatch('messages-toggle-all', { collapsed: allCollapsed })"
+              :aria-pressed="allCollapsed.toString()"
+              :title="allCollapsed ? 'Expand all messages' : 'Collapse all messages'"
+              x-text="allCollapsed ? 'Expand all' : 'Collapse all'">Collapse all</button>
+    {{end}}
     <button class="sp-close" type="button"
             aria-label="Close (Esc)"
             title="Close (Esc)">×</button>
@@ -60,8 +67,17 @@
         {{range .TurnGroups}}
           {{if eq .Kind "single"}}
             {{with .Turn}}
-              <article class="bubble bubble-{{.Role}}{{if eq .Kind "tool_result"}} bubble-tool{{end}}">
+              <article class="bubble bubble-{{.Role}}{{if eq .Kind "tool_result"}} bubble-tool{{end}}"
+                       x-data="{ collapsed: false }"
+                       @messages-toggle-all.window="collapsed = $event.detail.collapsed"
+                       :class="{ 'is-collapsed': collapsed }">
                 <header class="bubble-meta">
+                  <button type="button" class="bubble-toggle"
+                          @click="collapsed = !collapsed"
+                          :aria-expanded="(!collapsed).toString()"
+                          :aria-label="collapsed ? 'Expand message' : 'Collapse message'">
+                    <span class="bubble-caret" :class="{ 'is-open': !collapsed }" aria-hidden="true">▸</span>
+                  </button>
                   <span class="bubble-role">{{.Role}}</span>
                   {{if eq .Kind "tool_result"}}<span class="bubble-tool-name">{{.ToolName}}</span>{{end}}
                   {{if and (eq .Role "user") .UserExtras .UserExtras.Command}}
@@ -69,9 +85,9 @@
                   {{end}}
                   {{if not .Ts.IsZero}}<time class="bubble-time">{{.Ts.Format "15:04:05"}}</time>{{end}}
                 </header>
-                {{if .Body}}<div class="bubble-body">{{.Body}}</div>{{end}}
+                {{if .Body}}<div class="bubble-body" x-show="!collapsed">{{.Body}}</div>{{end}}
                 {{if and (eq .Role "user") .UserExtras .UserExtras.HasDetails}}
-                  <div class="user-extras">
+                  <div class="user-extras" x-show="!collapsed">
                     {{if .UserExtras.Reminders}}
                       <details class="extra-details">
                         <summary>{{len .UserExtras.Reminders}} system reminder{{if ne (len .UserExtras.Reminders) 1}}s{{end}}</summary>

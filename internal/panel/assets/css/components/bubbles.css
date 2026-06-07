@@ -38,6 +38,41 @@
   letter-spacing: 0.04em;
 }
 
+.bubble-toggle {
+  background: transparent;
+  border: 0;
+  padding: 0 2px;
+  margin: 0;
+  cursor: pointer;
+  color: var(--text-3);
+  font: inherit;
+  line-height: 1;
+  align-self: center;
+}
+
+.bubble-toggle:hover {
+  color: var(--text-1);
+}
+
+.bubble-caret {
+  display: inline-block;
+  font-size: 0.75em;
+  transition: transform var(--duration-fast) var(--ease);
+  transform: rotate(0deg);
+}
+
+.bubble-caret.is-open {
+  transform: rotate(90deg);
+}
+
+.bubble.is-collapsed {
+  opacity: 0.7;
+}
+
+.bubble.is-collapsed:hover {
+  opacity: 1;
+}
+
 .bubble-role {
   text-transform: uppercase;
   font-weight: var(--w-medium);
