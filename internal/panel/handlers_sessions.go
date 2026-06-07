@@ -25,10 +25,33 @@ import (
 // analytics handler's signature just to share it.
 var panelAgents = []string{"codex", "claude-code", "gemini", "antigravity", "hermes", "cursor"}
 
-// sessionsPageLimit is the fixed page size for the Sessions list.
-// Per the plan, configurability is deferred until a real call site
-// asks for it.
-const sessionsPageLimit = 50
+// sessionsPageLimitDefault is the default rows-per-page when no
+// ?limit= is supplied.
+const sessionsPageLimitDefault = 50
+
+// sessionsAllowedLimits whitelists the per-page sizes the filter bar
+// exposes. Anything outside the set falls back to the default so an
+// unknown ?limit= can't pin pagination to a surprising value.
+var sessionsAllowedLimits = []int{25, 50, 100, 200}
+
+// resolveSessionsLimit clamps the requested ?limit= to one of the
+// whitelisted values. Empty / invalid / out-of-set inputs return the
+// default.
+func resolveSessionsLimit(raw string) int {
+	if raw == "" {
+		return sessionsPageLimitDefault
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil {
+		return sessionsPageLimitDefault
+	}
+	for _, v := range sessionsAllowedLimits {
+		if v == n {
+			return n
+		}
+	}
+	return sessionsPageLimitDefault
+}
 
 // sessionRow is one row of the Sessions table, pre-formatted for the
 // template so the view stays declarative. Cost is "$x.xx" or "n/a",
@@ -109,6 +132,7 @@ func (p *Panel) handleSessions(w http.ResponseWriter, r *http.Request) {
 	if page < 1 {
 		page = 1
 	}
+	pageLimit := resolveSessionsLimit(q.Get("limit"))
 
 	baseReq := &prosav1.ListRequest{
 		Since:        timestamppb.New(since),
@@ -135,15 +159,15 @@ func (p *Panel) handleSessions(w http.ResponseWriter, r *http.Request) {
 		err       error
 	)
 	if sortBy == "cost" && queryStr == "" {
-		sessions, total, pageCount, err = p.listSessionsSortedByCost(r.Context(), baseReq, page, activeDir)
+		sessions, total, pageCount, err = p.listSessionsSortedByCost(r.Context(), baseReq, page, pageLimit, activeDir)
 	} else {
 		serverSort := sortBy
 		if sortBy == "cost" {
 			serverSort = ""
 		}
 		req := cloneListRequest(baseReq)
-		req.Limit = int32(sessionsPageLimit)
-		req.Offset = int32((page - 1) * sessionsPageLimit)
+		req.Limit = int32(pageLimit)
+		req.Offset = int32((page - 1) * pageLimit)
 		req.SortBy = serverSort
 		req.SortDir = sortDirRaw
 		resp, listErr := p.clients.Sessions.List(r.Context(), connect.NewRequest(req))
@@ -152,7 +176,7 @@ func (p *Panel) handleSessions(w http.ResponseWriter, r *http.Request) {
 		} else {
 			sessions = resp.Msg.Sessions
 			total = resp.Msg.TotalCount
-			pageCount = int((total + int64(sessionsPageLimit) - 1) / int64(sessionsPageLimit))
+			pageCount = int((total + int64(pageLimit) - 1) / int64(pageLimit))
 			if pageCount < 1 {
 				pageCount = 1
 			}
@@ -265,6 +289,8 @@ func (p *Panel) handleSessions(w http.ResponseWriter, r *http.Request) {
 		"ClearFiltersURL":  clearURL,
 		"WindowLabel":      windowLabel(lastRaw),
 		"GroupSubagents":   groupSubagents,
+		"PageLimit":        pageLimit,
+		"PageSizes":        sessionsAllowedLimits,
 	}
 
 	// Side panel inline render when ?session=<id> — same pattern as
@@ -431,7 +457,7 @@ type costSortRow struct {
 func (p *Panel) listSessionsSortedByCost(
 	ctx context.Context,
 	base *prosav1.ListRequest,
-	page int,
+	page, pageLimit int,
 	costDir string,
 ) ([]*prosav1.Session, int64, int, error) {
 	var all []*prosav1.Session
@@ -481,15 +507,15 @@ func (p *Panel) listSessionsSortedByCost(
 		return ti.Before(tj)
 	})
 	total := int64(len(rows))
-	pageCount := int((total + int64(sessionsPageLimit) - 1) / int64(sessionsPageLimit))
+	pageCount := int((total + int64(pageLimit) - 1) / int64(pageLimit))
 	if pageCount < 1 {
 		pageCount = 1
 	}
 	if page > pageCount {
 		page = pageCount
 	}
-	start := (page - 1) * sessionsPageLimit
-	end := start + sessionsPageLimit
+	start := (page - 1) * pageLimit
+	end := start + pageLimit
 	if start > len(rows) {
 		start = len(rows)
 	}

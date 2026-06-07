@@ -138,6 +138,16 @@
       </div>
     </label>
 
+    <label>
+      Per page
+      <select name="limit" aria-label="rows per page">
+        {{$cur := .PageLimit}}
+        {{range .PageSizes}}
+          <option value="{{.}}" {{if eq . $cur}}selected{{end}}>{{.}}</option>
+        {{end}}
+      </select>
+    </label>
+
     <label class="filter-toggle">
       <input type="hidden" name="group_subagents" value="off">
       <input type="checkbox" name="group_subagents" value="on" {{if .GroupSubagents}}checked{{end}}>
