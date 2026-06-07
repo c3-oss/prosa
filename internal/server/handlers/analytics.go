@@ -464,8 +464,7 @@ func queryProjects(whereSQL string, args []any) (string, []any) {
 		FROM sessions s
 		` + whereSQL + `
 		GROUP BY project, s.agent
-		ORDER BY COUNT(*) DESC
-		LIMIT 30`
+		ORDER BY COUNT(*) DESC`
 	return q, args
 }
 

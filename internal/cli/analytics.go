@@ -31,7 +31,7 @@ func newAnalyticsCmd() *cobra.Command {
 			"  sessions  — sessions and turn totals by agent\n" +
 			"  tools     — most-used tools across all sessions (top 20)\n" +
 			"  models    — sessions per model name\n" +
-			"  projects  — sessions per project, agent-grouped (top 30)\n" +
+			"  projects  — sessions per project, agent-grouped\n" +
 			"  heatmap   — sessions per UTC day for a GitHub-style graph,\n" +
 			"              fixed to the trailing 53 weeks (rejects --last / --since /\n" +
 			"              --between; scope filters still apply)\n" +

@@ -60,14 +60,16 @@ func (s *Store) AnalyticsModels(ctx context.Context, f SessionFilter) (Analytics
 	return scanAnalytics(ctx, s.db, q, args, []string{"MODEL", "SESSIONS"})
 }
 
-// AnalyticsProjects: identity-aware COUNT by best-available project key.
+// AnalyticsProjects emits all identity-aware project/agent buckets by the
+// best-available project key. Callers that need a top-N view should cap after
+// any project-level rollup so one noisy agent bucket cannot hide a project.
 func (s *Store) AnalyticsProjects(ctx context.Context, f SessionFilter) (AnalyticsResult, error) {
 	q, args := analyticsQuery(`
 		SELECT COALESCE(s.project_remote, s.project_marker, s.project_path, '(unscoped)') AS project,
 		       s.agent,
 		       COUNT(*) AS sessions
 		FROM sessions s
-	`, ` GROUP BY project, s.agent ORDER BY sessions DESC LIMIT 30`, f)
+	`, ` GROUP BY project, s.agent ORDER BY sessions DESC`, f)
 	return scanAnalytics(ctx, s.db, q, args, []string{"PROJECT", "AGENT", "SESSIONS"})
 }
 

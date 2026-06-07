@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -80,6 +81,32 @@ func TestAnalyticsHours(t *testing.T) {
 	}
 	require.Equal(t, "2", got["09"])
 	require.Equal(t, "1", got["14"])
+}
+
+func TestAnalyticsProjectsIsNotCappedBeforePanelRollup(t *testing.T) {
+	t.Parallel()
+	ctx, s := openAnalyticsTestStore(t)
+	started := time.Date(2026, 1, 5, 10, 0, 0, 0, time.UTC)
+	for i := 0; i < 31; i++ {
+		project := fmt.Sprintf("/tmp/proj-%02d", i)
+		model := "claude-sonnet-4-6"
+		require.NoError(t, s.UpsertSession(ctx, session.Session{
+			ID:             fmt.Sprintf("p-%02d", i),
+			Agent:          "claude-code",
+			DeviceID:       "local",
+			ProjectPath:    &project,
+			Model:          &model,
+			StartedAt:      started.Add(time.Duration(i) * time.Minute),
+			LastActivityAt: started.Add(time.Duration(i)*time.Minute + time.Second),
+			RawPath:        fmt.Sprintf("/tmp/p-%02d.jsonl", i),
+			RawHash:        fmt.Sprintf("hp-%02d", i),
+		}, nil))
+	}
+
+	r, err := s.AnalyticsProjects(ctx, wideAnalyticsFilter())
+	require.NoError(t, err)
+	require.Equal(t, []string{"PROJECT", "AGENT", "SESSIONS"}, r.Headers)
+	require.Len(t, r.Rows, 31)
 }
 
 func TestAnalyticsErrorsByModel(t *testing.T) {
