@@ -61,6 +61,37 @@
   border-color: var(--text-3);
 }
 
+.sp-header:has(.sp-collapse-all) .sp-close {
+  margin-left: 0;
+}
+
+.sp-collapse-all {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 0 var(--space-3);
+  height: 28px;
+  background: transparent;
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-sm);
+  color: var(--text-3);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition: color var(--duration-fast) var(--ease),
+              border-color var(--duration-fast) var(--ease);
+}
+
+.sp-collapse-all:hover {
+  color: var(--text-1);
+  border-color: var(--text-3);
+}
+
+.sp-collapse-all[aria-pressed="true"] {
+  color: var(--text-1);
+  border-color: var(--accent-soft);
+}
+
 .sp-body {
   padding: var(--space-6);
 }
