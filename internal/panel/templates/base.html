@@ -3,6 +3,19 @@
 <head>
   <meta charset="utf-8">
   <title>{{.Title}} · prosa</title>
+  <script>
+    /* Apply theme BEFORE stylesheets load to avoid FOUC. Persists in
+       localStorage; unknown / missing → "dark" (the historical default). */
+    (function () {
+      try {
+        var t = localStorage.getItem("prosa-theme");
+        if (t !== "light" && t !== "system") t = "dark";
+        document.documentElement.dataset.theme = t;
+      } catch (_) {
+        document.documentElement.dataset.theme = "dark";
+      }
+    })();
+  </script>
   <link rel="stylesheet" href="{{assetPath "style.css"}}">
   <script src="{{assetPath "htmx.min.js"}}"></script>
 </head>

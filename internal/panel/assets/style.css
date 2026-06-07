@@ -16,6 +16,7 @@
 @import url("css/components/dashboard.css");
 @import url("css/components/agent-badge.css");
 @import url("css/components/active-filters.css");
+@import url("css/components/settings.css");
 
 /* Layout */
 .app {

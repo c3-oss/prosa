@@ -14,4 +14,37 @@
       <button class="btn" type="submit">Log out</button>
     </form>
   </section>
+
+  <section class="settings-card"
+           x-data="{
+             theme: localStorage.getItem('prosa-theme') || 'dark',
+             apply(t) {
+               this.theme = t;
+               localStorage.setItem('prosa-theme', t);
+               document.documentElement.dataset.theme = t;
+             }
+           }">
+    <h2>Appearance</h2>
+    <p class="settings-hint">Applies immediately. Persists across reloads (per-browser).</p>
+    <div class="theme-options" role="radiogroup" aria-label="Theme">
+      <label class="theme-option" :class="{ 'is-active': theme === 'system' }">
+        <input type="radio" name="theme" value="system"
+               :checked="theme === 'system'" @change="apply('system')">
+        <span class="theme-option-label">System</span>
+        <span class="theme-option-hint">Follow OS preference</span>
+      </label>
+      <label class="theme-option" :class="{ 'is-active': theme === 'light' }">
+        <input type="radio" name="theme" value="light"
+               :checked="theme === 'light'" @change="apply('light')">
+        <span class="theme-option-label">Light</span>
+        <span class="theme-option-hint">Always light</span>
+      </label>
+      <label class="theme-option" :class="{ 'is-active': theme === 'dark' }">
+        <input type="radio" name="theme" value="dark"
+               :checked="theme === 'dark'" @change="apply('dark')">
+        <span class="theme-option-label">Dark</span>
+        <span class="theme-option-hint">Always dark (default)</span>
+      </label>
+    </div>
+  </section>
 {{end}}
