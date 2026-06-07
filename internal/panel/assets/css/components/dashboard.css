@@ -17,32 +17,99 @@
   margin: 0;
 }
 
-.dashboard-filters {
+/* Filters drawer (right side, mirrors #side-panel) ------------------- */
+.dashboard-filters-toggle {
   font-size: var(--text-sm);
-}
-
-.dashboard-filters summary {
   cursor: pointer;
   user-select: none;
   color: var(--text-2);
   padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-sm);
+  background: transparent;
+  border: 1px solid transparent;
+  font: inherit;
+  font-size: var(--text-sm);
 }
 
-.dashboard-filters summary:hover {
+.dashboard-filters-toggle:hover {
   color: var(--text-1);
   background: var(--bg-elev-1);
 }
 
-.dashboard-filters[open] summary {
+.dashboard-filters-toggle[aria-expanded="true"] {
   color: var(--text-1);
+  background: var(--bg-elev-1);
 }
 
-.dashboard-filters .filter-bar {
-  margin-top: var(--space-3);
-  padding: var(--space-4);
+.dashboard-filters-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 0.32);
+  z-index: 19;
+}
+
+.dashboard-filters-drawer {
+  position: fixed;
+  top: 56px;
+  right: 0;
+  bottom: 0;
+  width: min(380px, 90vw);
   background: var(--bg-elev-1);
-  border-radius: var(--radius-md);
+  border-left: 1px solid var(--divider);
+  overflow-y: auto;
+  z-index: 20;
+  transform: translateX(100%);
+  transition: transform 120ms ease-out;
+  display: flex;
+  flex-direction: column;
+}
+
+.dashboard-filters-drawer.open {
+  transform: translateX(0);
+}
+
+.dashboard-filters-drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--divider);
+}
+
+.dashboard-filters-drawer-title {
+  font-size: var(--text-sm);
+  font-weight: var(--w-medium);
+  color: var(--text-1);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.dashboard-filters-close {
+  background: transparent;
+  border: 0;
+  color: var(--text-2);
+  font-size: var(--text-lg);
+  line-height: 1;
+  cursor: pointer;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+}
+
+.dashboard-filters-close:hover {
+  color: var(--text-1);
+  background: var(--bg-elev-2);
+}
+
+.dashboard-filters-form {
+  padding: var(--space-5);
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-4);
+}
+
+[x-cloak] {
+  display: none !important;
 }
 
 /* KPI strip ----------------------------------------------------------- */
