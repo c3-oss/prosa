@@ -139,7 +139,8 @@ func (s *Server) registerAnalytics(opts ...connect.HandlerOption) {
 // (with a stack trace) through slog and returns a generic Internal error
 // so the panic value never leaks to the caller.
 func recoverHandler(ctx context.Context, spec connect.Spec, _ http.Header, r any) error {
-	slog.ErrorContext(ctx, "connect handler panic recovered",
+	slog.ErrorContext(
+		ctx, "connect handler panic recovered",
 		"procedure", spec.Procedure,
 		"panic", fmt.Sprintf("%v", r),
 		"stack", string(debug.Stack()),

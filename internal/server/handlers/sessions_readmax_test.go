@@ -128,7 +128,8 @@ func TestSessionsPushChunkAcceptsOversizedRawRequest(t *testing.T) {
 
 	var rawSize int64
 	var rawHash string
-	require.NoError(t, pool.QueryRow(ctx,
+	require.NoError(t, pool.QueryRow(
+		ctx,
 		`SELECT raw_size, raw_hash FROM sessions WHERE id = $1`, sessionID,
 	).Scan(&rawSize, &rawHash))
 	require.Equal(t, int64(len(big)), rawSize)
@@ -181,7 +182,8 @@ func TestSessionsPushChunkRejectsTruncatedRaw(t *testing.T) {
 	require.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 
 	var count int
-	require.NoError(t, pool.QueryRow(ctx,
+	require.NoError(t, pool.QueryRow(
+		ctx,
 		`SELECT count(*) FROM sessions WHERE id = $1`, sessionID,
 	).Scan(&count))
 	require.Zero(t, count)
