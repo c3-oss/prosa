@@ -369,6 +369,12 @@ func TestImportStateDB(t *testing.T) {
 	require.Equal(t, res.RawHash, sink.Skips[synthetic][importer.SkipReasonStateSeen])
 	require.NotContains(t, sink.Hashes, synthetic)
 
+	// SessionID is the synthetic marker, not a store row — the CLI must flag
+	// it so the inline push is skipped (the real sessions converge via the
+	// catch-up reconcile phase).
+	require.Equal(t, synthetic, res.SessionID)
+	require.True(t, res.Synthetic)
+
 	require.Contains(t, sink.Sessions, "state-1")
 	require.Contains(t, sink.Sessions, "state-2")
 
@@ -394,6 +400,8 @@ func TestImportStateDB(t *testing.T) {
 	res2, err := imp.Import(ctx, dbPath, sink, importer.ImportOptions{})
 	require.NoError(t, err)
 	require.True(t, res2.Skipped)
+	// Seen-skip path is already gated on Skipped; it does not set Synthetic.
+	require.False(t, res2.Synthetic)
 }
 
 func TestStateDBMergeYieldsToTranscript(t *testing.T) {

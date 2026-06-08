@@ -17,7 +17,7 @@ type syncJSONSession struct {
 	Agent     string `json:"agent,omitempty"`
 	SessionID string `json:"session_id,omitempty"`
 	Status    string `json:"status,omitempty"` // imported | skipped | error
-	Push      string `json:"push,omitempty"`   // sent | skipped | failed | unavailable | disabled
+	Push      string `json:"push,omitempty"`   // sent | skipped | failed | unavailable | disabled | deferred
 	Err       string `json:"err,omitempty"`
 }
 
@@ -89,9 +89,15 @@ func runSyncJSON(
 			line.Status = "skipped"
 		default:
 			line.Status = "imported"
-			if push == nil {
+			switch {
+			case push == nil:
 				line.Push = "disabled"
-			} else {
+			case res.Synthetic:
+				// Multi-session marker (hermes state.db): no single store
+				// row to inline-push; the real sessions converge in the
+				// catch-up reconcile pass below.
+				line.Push = "deferred"
+			default:
 				outcome, perr := push.pushSession(ctx, res.SessionID)
 				counts.recordPush(outcome, perr)
 				line.Push = pushStatusString(outcome)

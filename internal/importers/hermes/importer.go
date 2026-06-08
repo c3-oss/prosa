@@ -194,6 +194,7 @@ func (i *Importer) importStateDB(ctx context.Context, path string, sink importer
 		RawHash:   hash,
 		RawSize:   size,
 		Skipped:   false,
+		Synthetic: true,
 	}, nil
 }
 
