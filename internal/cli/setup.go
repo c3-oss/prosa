@@ -33,21 +33,19 @@ var (
 func newSetupCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "setup",
-		Short: "First-run wizard: detect agents, authenticate, schedule, first scan",
-		Long: "prosa setup walks a fresh machine from zero to a self-syncing install: " +
-			"environment + installed agents + server URL + device auth + LaunchAgent " +
-			"(macOS) or systemd timer (Linux) + first scan. Idempotent — re-running " +
-			"is safe and reuses cached auth and existing scheduler entries.",
+		Short: "Set up a fresh machine: detect agents, log in, schedule, first sync",
+		Long: "Detects installed agents, authenticates this device, installs the background " +
+			"sync job, and runs the first sync. Safe to re-run.",
 		RunE: runSetup,
 	}
 	cmd.Flags().StringVar(&setupServerFlag, "server", "",
-		"prosa-server URL (default: $PROSA_SERVER_URL or "+setupDefaultServer+")")
+		"prosa server URL (default: $PROSA_SERVER_URL or "+setupDefaultServer+")")
 	cmd.Flags().DurationVar(&setupIntervalFlag, "interval", 15*time.Minute,
-		"scheduler interval (e.g. 15m, 1h)")
+		"background sync interval (e.g. 15m, 1h)")
 	cmd.Flags().BoolVar(&setupSkipScanFlag, "skip-scan", false,
-		"skip the first sync at the end of setup")
+		"skip the first sync at the end")
 	cmd.Flags().BoolVar(&setupNonInteractive, "non-interactive", false,
-		"no prompts, no ANSI escapes; defaults or env vars must supply every value")
+		"no prompts and no formatting; values must come from flags or env")
 	return cmd
 }
 

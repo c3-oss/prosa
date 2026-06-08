@@ -17,10 +17,7 @@ var scheduleIntervalFlag time.Duration
 func newScheduleCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "schedule",
-		Short: "Manage the background prosa-sync job (launchd or systemd timer)",
-		Long: "Installs a per-user scheduled job that runs `prosa sync` at a " +
-			"fixed interval. macOS uses launchd (~/Library/LaunchAgents). " +
-			"Linux uses systemd --user (~/.config/systemd/user).",
+		Short: "Manage the background sync job",
 	}
 	cmd.AddCommand(newScheduleInstallCmd())
 	cmd.AddCommand(newScheduleUninstallCmd())
@@ -31,18 +28,18 @@ func newScheduleCmd() *cobra.Command {
 func newScheduleInstallCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "install",
-		Short: "Install the prosa-sync scheduled job",
+		Short: "Install the background sync job",
 		RunE:  runScheduleInstall,
 	}
 	c.Flags().DurationVar(&scheduleIntervalFlag, "interval", 15*time.Minute,
-		"how often the scheduler should run prosa sync (e.g. 15m, 1h)")
+		"how often to run prosa sync (e.g. 15m, 1h)")
 	return c
 }
 
 func newScheduleUninstallCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "uninstall",
-		Short: "Remove the prosa-sync scheduled job",
+		Short: "Remove the background sync job",
 		RunE:  runScheduleUninstall,
 	}
 }
@@ -50,7 +47,7 @@ func newScheduleUninstallCmd() *cobra.Command {
 func newScheduleStatusCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "status",
-		Short: "Show whether the prosa-sync scheduled job is installed",
+		Short: "Show whether the background sync job is installed",
 		RunE:  runScheduleStatus,
 	}
 }
