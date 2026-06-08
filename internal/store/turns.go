@@ -50,7 +50,8 @@ func insertTurnsTx(ctx context.Context, tx *sql.Tx, sessionID string, turns []se
 		if t.ToolName != "" {
 			toolName = t.ToolName
 		}
-		if _, err := tx.ExecContext(ctx,
+		if _, err := tx.ExecContext(
+			ctx,
 			`INSERT INTO turns(session_id, role, content, ts, kind, tool_name) VALUES (?, ?, ?, ?, ?, ?)`,
 			sessionID, t.Role, t.Content, formatTime(t.Timestamp), kind, toolName,
 		); err != nil {

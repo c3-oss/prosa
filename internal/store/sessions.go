@@ -114,7 +114,8 @@ func upsertSessionTx(ctx context.Context, tx *sql.Tx, sess session.Session, tool
 	// it avoids a stmt.Close() whose error could interact with the deferred
 	// rollback/commit.
 	for _, t := range tools {
-		if _, err := tx.ExecContext(ctx,
+		if _, err := tx.ExecContext(
+			ctx,
 			`INSERT INTO session_tools(session_id, name, count) VALUES (?, ?, ?)`,
 			sess.ID, t.Name, t.Count,
 		); err != nil {
