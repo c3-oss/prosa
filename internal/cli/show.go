@@ -30,20 +30,18 @@ var (
 func newShowCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "show <session-id>",
-		Short: "Print a session's projected turns or preserved raw transcript",
-		Long: "By default, renders the human-readable session view (header + turns) " +
-			"to stdout when stdout is a TTY. --raw prints the preserved JSONL bytes " +
-			"verbatim. --json prints a single JSON object with `session`, `tools`, " +
-			"and `turns`. --remote fetches projected or raw content from the prosa-server.",
+		Short: "Print a session's transcript",
+		Long: "Renders the session view by default. Use --raw for the original session " +
+			"file, --json for a structured dump, --remote to fetch from the server.",
 		Args: cobra.ExactArgs(1),
 		RunE: runShow,
 	}
 	cmd.Flags().BoolVar(&showRawFlag, "raw", false,
-		"emit the preserved raw JSONL bytes verbatim (skips the renderer)")
+		"print the original session file, unmodified")
 	cmd.Flags().BoolVar(&showRemoteFlag, "remote", false,
-		"fetch the session from the prosa-server instead of the local store")
+		"fetch from the prosa server instead of the local store")
 	cmd.Flags().IntVar(&showMaxOutputLines, "max-output-lines", 0,
-		"cap lines per turn body in the rendered/JSON view (0 = no limit)")
+		"cap lines per turn body (0 = no limit)")
 	return cmd
 }
 

@@ -32,28 +32,15 @@ var (
 func newSyncCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "sync",
-		Short: "Scan registered agents and import new sessions into the local store",
-		Long: "Walks every live importer root (~/.claude/projects, ~/.codex/sessions, " +
-			"~/.cursor/chats, ~/.gemini/tmp, ~/.gemini/antigravity-cli/conversations, " +
-			"~/.hermes/sessions) and imports new sessions into the local SQLite store. " +
-			"Pass --legacy-bundle <path> to additionally re-ingest a legacy prosa " +
-			"bundle (typically ~/.prosa) — useful as a one-shot rescue when the " +
-			"legacy catalog still has source files that the live tools have since " +
-			"deleted. " +
-			"Pass --overwrite to force re-parse and re-upsert of every discovered " +
-			"file (bypassing hash idempotency and the no_usage skip cache) and " +
-			"re-push every local session to the remote even when converged; useful " +
-			"after upgrading prosa to pick up new projection logic. " +
-			"Use --verbose to force the plain (slog) output even in a TTY; handy " +
-			"for debugging long runs where the compact spinner hides per-item detail.",
-		RunE: runSync,
+		Short: "Import new sessions from installed agents into the local store",
+		RunE:  runSync,
 	}
 	cmd.Flags().StringVar(&legacyBundleFlag, "legacy-bundle", "",
-		"path to a legacy prosa bundle (e.g. ~/.prosa) to re-ingest before live walks")
+		"path to a legacy prosa bundle (~/.prosa) to also re-import")
 	cmd.Flags().BoolVar(&syncVerboseFlag, "verbose", false,
-		"emit one slog line per imported session even when running in a TTY")
+		"print one line per imported session, even on a TTY")
 	cmd.Flags().BoolVar(&syncOverwriteFlag, "overwrite", false,
-		"force re-import of every file and re-push of every session, bypassing hash idempotency and the no_usage skip cache")
+		"force re-import and re-push of every session, bypassing the dedup cache")
 	return cmd
 }
 

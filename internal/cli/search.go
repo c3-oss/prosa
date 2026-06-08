@@ -28,18 +28,12 @@ var searchLimit int
 func newSearchCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "search <query>",
-		Short: "Search session content via FTS5",
-		Long: "Searches user and assistant text across all imported sessions using " +
-			"the FTS5 index populated at import time. Query syntax is SQLite FTS5 " +
-			"(supports AND, OR, NEAR, prefix*, etc.). Inherits the global filter " +
-			"flags (--project / --agent / --device / --last); --all disables the " +
-			"cwd auto-filter the same way it does for the bare timeline.\n\n" +
-			"Pass --remote (a persistent flag) to query the prosa-server's Postgres " +
-			"FTS instead of the local SQLite FTS5; requires `prosa login`.",
-		Args: cobra.MinimumNArgs(1),
-		RunE: runSearch,
+		Short: "Full-text search across imported sessions",
+		Long:  "Searches user and assistant messages. Supports AND, OR, NEAR, and prefix* operators.",
+		Args:  cobra.MinimumNArgs(1),
+		RunE:  runSearch,
 	}
-	cmd.Flags().IntVar(&searchLimit, "limit", defaultSearchLimit, "maximum number of session hits to return")
+	cmd.Flags().IntVar(&searchLimit, "limit", defaultSearchLimit, "maximum number of hits to return")
 	return cmd
 }
 

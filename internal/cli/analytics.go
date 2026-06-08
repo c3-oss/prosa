@@ -26,28 +26,19 @@ var validAnalyticsReports = []string{"sessions", "tools", "models", "projects", 
 func newAnalyticsCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "analytics <report>",
-		Short: "Run a fixed SQL report over the local store",
-		Long: "Runs one of the built-in reports against the local store. Available:\n" +
-			"  sessions  — sessions and turn totals by agent\n" +
-			"  tools     — most-used tools across all sessions (top 20)\n" +
-			"  models    — sessions per model name\n" +
-			"  projects  — sessions per project, agent-grouped\n" +
-			"  heatmap   — sessions per UTC day for a GitHub-style graph,\n" +
-			"              fixed to the trailing 53 weeks (rejects --last / --since /\n" +
-			"              --between; scope filters still apply)\n" +
-			"  usage     — token totals and estimated USD cost by agent\n" +
-			"  errors    — sessions whose assistant turns match common error\n" +
-			"              signals via FTS5: 'error OR exception OR traceback OR panic OR fatal'\n" +
-			"              (heuristic; matches the words in any context).\n" +
-			"  hours           — sessions per UTC hour of day (00-23)\n" +
-			"  usage_by_model  — token totals and estimated USD cost by model\n" +
-			"  errors_by_model — flagged sessions by model (same FTS heuristic as errors)\n\n" +
-			"All reports honor the global filter flags (--last / --project / --agent /\n" +
-			"--device) and emit NDJSON with --json. Exception: heatmap has a fixed\n" +
-			"trailing-year window and does not accept --last / --since / --between.\n\n" +
-			"--remote re-runs the report on the prosa-server. It is a persistent\n" +
-			"flag, so both `prosa --remote analytics …` and `prosa analytics … --remote`\n" +
-			"work.",
+		Short: "Run a built-in report over your sessions",
+		Long: "Available reports:\n" +
+			"  sessions         sessions and turn totals by agent\n" +
+			"  tools            most-used tools (top 20)\n" +
+			"  models           sessions per model\n" +
+			"  projects         sessions per project, grouped by agent\n" +
+			"  heatmap          daily session count, fixed to the trailing year\n" +
+			"  usage            tokens and estimated USD cost by agent\n" +
+			"  errors           sessions whose assistant turns look like failures\n" +
+			"  hours            sessions per UTC hour of day (00–23)\n" +
+			"  usage_by_model   tokens and estimated USD cost by model\n" +
+			"  errors_by_model  flagged sessions by model\n\n" +
+			"All reports honor the global filters. heatmap ignores --last / --since / --between.",
 		ValidArgs: validAnalyticsReports,
 		Args:      cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
 		RunE:      runAnalytics,
