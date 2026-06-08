@@ -161,13 +161,12 @@ func newLoginCmd() *cobra.Command {
 	authPath := authPathLabel()
 	cmd := &cobra.Command{
 		Use:   "login",
-		Short: "Authenticate this device against a prosa-server",
-		Long: "Starts PKCE login: opens the panel authorize URL in your browser,\n" +
-			"waits for you to click Authorize, then saves the bearer to\n" +
-			authPath + " for sync and remote queries.",
+		Short: "Authenticate this device with a prosa server",
+		Long: "Opens the panel in your browser to authorize this device, then saves the " +
+			"auth token to " + authPath + " for sync and --remote queries.",
 		RunE: runLogin,
 	}
-	cmd.Flags().StringVar(&loginServerFlag, "server", "", "prosa-server URL (e.g. http://localhost:7070)")
+	cmd.Flags().StringVar(&loginServerFlag, "server", "", "prosa server URL (e.g. http://localhost:7070)")
 	return cmd
 }
 

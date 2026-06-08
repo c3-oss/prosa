@@ -20,7 +20,7 @@ import (
 func newDevicesCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "devices",
-		Short: "Inspect and manage devices known to the prosa server",
+		Short: "Inspect and manage devices registered on the server",
 	}
 	cmd.AddCommand(newDevicesListCmd())
 	cmd.AddCommand(newDevicesRenameCmd())
@@ -39,7 +39,7 @@ func newDevicesListCmd() *cobra.Command {
 func newDevicesRenameCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "rename <id|self> <new-name>",
-		Short: "Set this device's friendly_name (or another's, if admin)",
+		Short: "Set this device's display name",
 		Args:  cobra.ExactArgs(2),
 		RunE:  runDevicesRename,
 	}
@@ -48,7 +48,7 @@ func newDevicesRenameCmd() *cobra.Command {
 func newDevicesRevokeCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "revoke <id|self>",
-		Short: "Invalidate the bearer for the given device",
+		Short: "Revoke a device's server access",
 		Args:  cobra.ExactArgs(1),
 		RunE:  runDevicesRevoke,
 	}
