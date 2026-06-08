@@ -47,9 +47,7 @@ func newRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "prosa",
 		Short: "Unified history of AI agent sessions",
-		Long: "prosa consolidates Claude Code (and, soon, Codex/others) session histories " +
-			"into a single local SQLite store and renders a queryable timeline.",
-		RunE: runNu,
+		RunE:  runNu,
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
 			if err := validateGlobals(cmd); err != nil {
 				return err
@@ -62,20 +60,20 @@ func newRootCmd() *cobra.Command {
 		Version:       buildinfo.String(),
 	}
 	pf := cmd.PersistentFlags()
-	pf.StringVar(&g.Last, "last", "7d", "rolling window length (e.g. 7d, 30d, 12h); mut.-excl. with --since / --between")
-	pf.StringVar(&g.Since, "since", "", "anchored lower bound, YYYY-MM-DD UTC; mut.-excl. with --last / --between")
-	pf.StringVar(&g.Between, "between", "", "closed UTC range, YYYY-MM-DD..YYYY-MM-DD; mut.-excl. with --last / --since")
+	pf.StringVar(&g.Last, "last", "7d", "rolling window length (e.g. 7d, 30d, 12h)")
+	pf.StringVar(&g.Since, "since", "", "lower-bound date in UTC (YYYY-MM-DD)")
+	pf.StringVar(&g.Between, "between", "", "closed UTC date range (YYYY-MM-DD..YYYY-MM-DD)")
 	pf.StringVar(&g.Project, "project", "", "filter by project path (substring match)")
-	pf.StringVar(&g.Device, "device", "", "filter by device friendly name")
+	pf.StringVar(&g.Device, "device", "", "filter by device name")
 	pf.StringVar(&g.Agent, "agent", "", "filter by agent ("+registeredAgentHelp()+")")
-	pf.BoolVar(&g.All, "all", false, "disable the cwd-based project auto-filter")
-	pf.BoolVar(&g.JSON, "json", false, "emit NDJSON instead of human-formatted output")
-	pf.BoolVar(&g.NoColor, "no-color", false, "suppress ANSI styling even on a TTY")
+	pf.BoolVar(&g.All, "all", false, "show every project, ignoring the current-project auto-filter")
+	pf.BoolVar(&g.JSON, "json", false, "print one JSON object per line instead of formatted output")
+	pf.BoolVar(&g.NoColor, "no-color", false, "disable color output")
 	// --limit is a root-local flag so other subcommands do not advertise it.
 	// Search also accepts it before the subcommand for consistency with the
 	// bare timeline; search's local --limit wins when both are present.
-	cmd.Flags().IntVar(&g.Limit, "limit", 0, "cap the number of timeline sessions returned (0 = no limit)")
-	pf.BoolVar(&g.Remote, "remote", false, "run the command against prosa-server (analytics, search; ignored elsewhere)")
+	cmd.Flags().IntVar(&g.Limit, "limit", 0, "cap timeline sessions returned (0 = no limit)")
+	pf.BoolVar(&g.Remote, "remote", false, "query the prosa server instead of the local store")
 
 	cmd.AddCommand(newSyncCmd())
 	cmd.AddCommand(newShowCmd())
