@@ -82,7 +82,7 @@ func runSyncInteractive(
 			}
 			counts.record(w, res, err)
 			itemErr := err
-			if push != nil && err == nil && !res.Skipped {
+			if shouldInlinePush(push, res, err) {
 				outcome, perr := push.pushSession(ctx, res.SessionID)
 				counts.recordPush(outcome, perr)
 				itemErr = localItemErr(err, outcome, perr)
@@ -234,7 +234,7 @@ func runSyncPlain(ctx context.Context, work []syncJob, sink importer.Sink, push 
 			slog.Info("imported",
 				"agent", w.imp.Name(), "session", res.SessionID, "status", "done",
 				"legacy", w.legacy, "dur", dur)
-			if push != nil {
+			if shouldInlinePush(push, res, nil) {
 				outcome, pushErr := push.pushSession(ctx, res.SessionID)
 				counts.recordPush(outcome, pushErr)
 				logPush(res.SessionID, outcome, pushErr)

@@ -18,6 +18,7 @@ import (
 	"github.com/c3-oss/prosa/internal/cli/rpc"
 	"github.com/c3-oss/prosa/internal/paths"
 	"github.com/c3-oss/prosa/internal/store"
+	"github.com/c3-oss/prosa/pkg/importer"
 	"github.com/c3-oss/prosa/pkg/session"
 )
 
@@ -82,6 +83,15 @@ const (
 	chunkPushThresholdBytes int64 = 32 * 1024 * 1024
 	chunkPushChunkBytes           = 8 * 1024 * 1024
 )
+
+// shouldInlinePush reports whether a freshly imported session should be
+// pushed inline during the local pass. Synthetic results (multi-session
+// importer markers, e.g. hermes state.db) are excluded — they have no
+// single store row to load, and their real sessions are pushed by the
+// catch-up reconcile phase.
+func shouldInlinePush(push *pusher, res importer.ImportResult, importErr error) bool {
+	return push != nil && importErr == nil && !res.Skipped && !res.Synthetic
+}
 
 // pushSession loads sess + turns + tools from the store and POSTs to
 // Sessions.Push. Reads raw_path from disk (the importer already
