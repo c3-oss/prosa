@@ -32,6 +32,13 @@ type ImportResult struct {
 	// SkipReason optionally distinguishes hash-idempotent skips from
 	// policy skips such as transcripts with no measured token usage.
 	SkipReason string
+	// Synthetic marks SessionID as an idempotency marker rather than a real
+	// session row in the store (e.g. hermes state.db's
+	// "hermes-state-<hash>"). Multi-session importers set this; the CLI must
+	// not inline-push it — the imported sessions converge via the catch-up
+	// reconcile phase. Skipped results never need this (push is already gated
+	// on !Skipped); it matters only for non-skipped multi-session imports.
+	Synthetic bool
 }
 
 // ImportOptions tunes a single Import call. Threaded through from the
