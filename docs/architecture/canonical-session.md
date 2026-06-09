@@ -293,7 +293,7 @@ and a `sessions.json` index). The full reference is `docs/sources/hermes.md`.
 | `FirstPrompt` | first `messages.role=="user"` row (SQLite) or first user line/message (JSONL/JSON) with non-empty `content` (text or first text item of an array); whitespace-collapsed + truncated to 200 runes |
 | `Model` | `sessions.model` (SQLite); `model` (JSON snapshot); first assistant-side `model` encountered (JSONL) |
 | `ParentSessionID` | `sessions.parent_session_id` (SQLite); top-level `parent_session_id` (JSON snapshot); first per-message `parent_session_id` encountered (JSONL / snapshot messages) |
-| `RawPath` / `RawHash` / `RawSize` | sha256 of the source file; copy to `$PROSA_HOME/raw/hermes/<YYYY>/<MM>/<session-id>.<ext>` where `<ext>` is `db`, `jsonl`, or `json`. For `state.db`, one raw copy per session id — all copies are byte-identical |
+| `RawPath` / `RawHash` / `RawSize` | per-session JSONL at `$PROSA_HOME/raw/hermes/<YYYY>/<MM>/<session-id>.jsonl`; `RawHash`/`RawSize` describe the per-session artifact. For `.jsonl` / `session_*.json` shapes the source bytes are preserved verbatim (extension follows the source); for `state.db`, each `sessions` row is projected to its own JSONL (`messages` rows + hidden reasoning/codex/tool-call columns, one per line). The multi-session `.db` is **not** copied — see issue #235 |
 
 ### `session.Turn`
 

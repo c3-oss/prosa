@@ -54,7 +54,12 @@ Importers that project one source file into one session should route their
 That helper owns the shared hash/idempotency/skip/preserve/write sequence;
 the per-agent package supplies only `hashAndSize`, `peekSessionID`,
 `parseSession`, and `preserveRaw`. Hermes `state.db` remains bespoke because
-one source file can produce many sessions.
+one source file can produce many sessions — and because the raw artifact
+for each of those sessions is a per-session JSONL projected from the
+`messages` rows (via `importerutil.PreserveProjectedJSONL`), not the
+multi-session `.db` file. See `docs/sources/hermes.md` for the projection
+contract and issue #235 for the disk-exhaustion failure mode that drove
+the projection.
 
 ## Idempotency contract
 
