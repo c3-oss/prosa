@@ -705,6 +705,88 @@ func TestImportStateDBProjectionDeterministic(t *testing.T) {
 	require.Equal(t, sizeA, sizeB)
 }
 
+// TestImportStateDBContentWithTrailingNonJSON is the regression guard for
+// the marshal failure that broke `prosa sync` after the per-session JSONL
+// projection landed: Hermes tool results sometimes store a JSON object/array
+// followed by trailing prose (e.g. `{...}\n\n[Hint: ...]`). That value leads
+// with `{`/`[` but is not a single JSON value, so passing it through as a
+// json.RawMessage made the projection's re-marshal abort the whole state.db
+// import with "invalid character '[' after top-level value". The import must
+// instead complete, store the message content as a valid JSON string, and
+// leave the canonical session/turns untouched.
+func TestImportStateDBContentWithTrailingNonJSON(t *testing.T) {
+	ctx := context.Background()
+	prosaHome := filepath.Join(t.TempDir(), "prosa-home")
+	t.Setenv("PROSA_HOME", prosaHome)
+
+	hermesHome := filepath.Join(t.TempDir(), ".hermes")
+	require.NoError(t, os.MkdirAll(filepath.Join(hermesHome, "sessions"), 0o755))
+
+	// A real shape from the homebox: a JSON object then a blank line then a
+	// `[Hint: ...]` line. Leads with `{`, but is not a single JSON value.
+	trailing := "{\"total_count\": 50, \"truncated\": true}\n\n" +
+		"[Hint: Results truncated. Use offset=50 to see more.]"
+	// And the array-leading variant, to cover the `[` branch too.
+	arrayTrailing := "[1, 2, 3] trailing words"
+
+	base := time.Date(2026, 5, 14, 21, 24, 54, 0, time.UTC)
+	rows := []hermesStateRow{
+		{
+			id: "trailing-1", model: "claude-sonnet-4-6", startedAt: float64(base.Unix()),
+			messages: []hermesStateMessage{
+				{role: "user", content: "do the search", timestamp: float64(base.Unix())},
+				{role: "tool", content: trailing, timestamp: float64(base.Add(time.Second).Unix())},
+				{role: "tool", content: arrayTrailing, timestamp: float64(base.Add(2 * time.Second).Unix())},
+				{
+					role: "assistant", content: "done",
+					timestamp:  float64(base.Add(3 * time.Second).Unix()),
+					tokenCount: ptrInt64(11),
+				},
+			},
+		},
+	}
+	dbPath := buildHermesStateDB(t, hermesHome, rows)
+
+	sink := newSink()
+	// The whole-file import must not abort on the malformed rows.
+	_, err := New().Import(ctx, dbPath, sink, importer.ImportOptions{})
+	require.NoError(t, err)
+
+	sess := sink.Sessions["trailing-1"]
+	require.NotEmpty(t, sess.RawPath)
+
+	contents, err := os.ReadFile(sess.RawPath)
+	require.NoError(t, err)
+	lines := strings.Split(strings.TrimRight(string(contents), "\n"), "\n")
+	require.Len(t, lines, 4)
+
+	// Every projected line is a single valid JSON object that round-trips.
+	for i, line := range lines {
+		require.True(t, json.Valid([]byte(line)), "line %d is not valid JSON: %s", i, line)
+	}
+
+	// The malformed content survives as a JSON string carrying the original
+	// bytes verbatim — recoverable, just not parsed as structured JSON.
+	var objTool map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal([]byte(lines[1]), &objTool))
+	var gotContent string
+	require.NoError(t, json.Unmarshal(objTool["content"], &gotContent))
+	require.Equal(t, trailing, gotContent)
+
+	var arrTool map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal([]byte(lines[2]), &arrTool))
+	var gotArray string
+	require.NoError(t, json.Unmarshal(arrTool["content"], &gotArray))
+	require.Equal(t, arrayTrailing, gotArray)
+
+	// Canonical projection is unaffected: only the user/assistant turns land,
+	// the tool rows contribute nothing.
+	turns := sink.Turns["trailing-1"]
+	require.Len(t, turns, 2)
+	require.Equal(t, "user", turns[0].Role)
+	require.Equal(t, "assistant", turns[1].Role)
+}
+
 // TestImportJSONLSanitizesFirstPrompt covers the bug where hermes user
 // records carrying ANSI escapes and/or <local-command-stdout> wrappers
 // leaked into FirstPrompt as garbled bytes.
