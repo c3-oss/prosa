@@ -453,7 +453,7 @@ func projectStateDBSession(ctx context.Context, path string, row stateDBRow) (se
 			m.Content = json.RawMessage(rawStringToJSON(content.String))
 		}
 		if toolCalls.Valid && toolCalls.String != "" {
-			m.ToolCalls = json.RawMessage(toolCalls.String)
+			m.ToolCalls = jsonOrString(toolCalls.String)
 		}
 		switch v := ts.(type) {
 		case float64:
@@ -577,15 +577,20 @@ func jsonOrString(s string) json.RawMessage {
 }
 
 // rawStringToJSON wraps an arbitrary content string as a JSON string so
-// projectMessages' RawMessage parser sees a valid value. If the string
-// already looks like a JSON array or object it's passed through verbatim
-// so the array-of-typed-items branch keeps working.
+// projectMessages' RawMessage parser sees a valid value. If the string is a
+// single complete JSON array or object it's passed through verbatim so the
+// array-of-typed-items branch keeps working. The first-byte check alone is
+// not enough: Hermes tool results sometimes store a JSON object followed by
+// trailing prose (e.g. `{...}\n\n[Hint: ...]`), which leads with `{`/`[` but
+// is not a single JSON value — passing it through would make the state.db
+// JSONL projection's re-marshal (json.RawMessage.MarshalJSON) reject it with
+// "invalid character after top-level value". Validate before trusting it.
 func rawStringToJSON(s string) string {
 	t := strings.TrimSpace(s)
 	if t == "" {
 		return `""`
 	}
-	if t[0] == '[' || t[0] == '{' {
+	if (t[0] == '[' || t[0] == '{') && json.Valid([]byte(t)) {
 		return s
 	}
 	b, err := json.Marshal(s)
