@@ -120,6 +120,41 @@ func TestCliAuthorizeApproveRejectsMissingCSRF(t *testing.T) {
 	require.Empty(t, requestID)
 }
 
+func TestLoginSetsOAuthStateCookieForGitHubCallback(t *testing.T) {
+	t.Parallel()
+	p, err := New(Config{
+		ServerURL:       "http://server.test",
+		AdminToken:      "secret",
+		CookieKey:       "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		OwnerEmails:     []string{"dev@localhost"},
+		ListenAddr:      ":0",
+		PublicBaseURL:   "http://panel.test",
+		OAuthGHClientID: "github-client",
+		OAuthGHSecret:   "github-secret",
+	})
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodGet, "/login", nil)
+	rec := httptest.NewRecorder()
+	p.mux.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	res := rec.Result()
+	defer res.Body.Close()
+	state := findCookie(res.Cookies(), "prosa_oauth_state")
+	require.NotNil(t, state)
+	require.NotEmpty(t, state.Value)
+	require.Equal(t, "/", state.Path)
+	require.Equal(t, 600, state.MaxAge)
+	require.True(t, state.HttpOnly)
+	require.Equal(t, http.SameSiteLaxMode, state.SameSite)
+
+	body, err := io.ReadAll(res.Body)
+	require.NoError(t, err)
+	require.Contains(t, string(body), "https://github.com/login/oauth/authorize")
+	require.Contains(t, string(body), "state="+url.QueryEscape(state.Value))
+}
+
 func TestDevLoginRequiresLoginCSRF(t *testing.T) {
 	t.Parallel()
 	p, err := New(Config{

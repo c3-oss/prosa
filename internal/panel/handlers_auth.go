@@ -53,7 +53,7 @@ func (p *Panel) handleLogin(w http.ResponseWriter, r *http.Request) {
 			MaxAge:   600,
 			HttpOnly: true,
 			Secure:   p.cfg.CookieSecure,
-			SameSite: http.SameSiteStrictMode,
+			SameSite: http.SameSiteLaxMode,
 		})
 		data["GitHubURL"] = oauth.GitHubAuthURL(
 			p.cfg.OAuthGHClientID,
