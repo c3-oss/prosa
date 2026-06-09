@@ -450,7 +450,7 @@ func rawKey(deviceID, agent, sessionID string, started time.Time) string {
 
 func extForAgent(agent string) string {
 	switch agent {
-	case "claude-code", "codex":
+	case "claude-code", "codex", "hermes":
 		return ".jsonl"
 	case "gemini":
 		return ".json"
