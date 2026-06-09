@@ -263,15 +263,32 @@ sqlite3 "$ro" "
   `session.ToolUsage`. Empty / unparseable arrays contribute nothing.
 - **Idempotency** is keyed on the source file's sha256, identical to
   every other v3 importer. Re-importing an unchanged file is a no-op.
-  For `state.db`, the same file hash applies to every session row in
-  the DB — any change to the database causes every session inside to
-  re-parse and re-upsert. This is correct (the file content really did
-  change) and only slightly wasteful (sessions are small).
-- **Raw preservation** writes the source bytes to
-  `$PROSA_HOME/raw/hermes/<YYYY>/<MM>/<session-id>.<ext>`, where
-  `<ext>` is `db`, `jsonl`, or `json`. For `state.db`, every session
-  id gets its own raw copy that points at the same underlying bytes
-  (each named after its `sessions.id`).
+  For `state.db`, the same file hash short-circuits the whole import
+  early via a synthetic `hermes-state-<hash[:12]>` marker; any change
+  to the database causes every session inside to re-parse and re-upsert.
+  This is correct (the file content really did change) and only slightly
+  wasteful (sessions are small).
+- **Raw preservation** writes per-session canonical JSONL to
+  `$PROSA_HOME/raw/hermes/<YYYY>/<MM>/<session-id>.jsonl` regardless of
+  source shape:
+  - For a sibling `<id>.jsonl` or `session_<id>.json`, the source bytes
+    are preserved verbatim under that path (extension follows the
+    source).
+  - For `state.db`, each `sessions` row is projected to its own JSONL
+    transcript — one `messages` row per line, including the hidden
+    reasoning/codex/tool-call columns the canonical `session.Turn`
+    projection does not consume. The multi-session `state.db` is **not**
+    copied: copying it once per row exhausted disk on real installs (see
+    issue #235). `raw_hash` and `raw_size` describe the projected JSONL
+    per session, so per-session idempotency is preserved across re-imports
+    of the same row.
+  - Session-level `state.db` columns without a per-message equivalent
+    (`sessions.system_prompt`, `model_config`, `end_reason`, `title`,
+    `tool_call_count`) are **not** preserved in raw for sessions sourced
+    from `state.db` — the per-session JSONL flavor has no envelope.
+    Re-projecting from the original `state.db` is the only way to
+    recover them, same as has always been the case for sessions sourced
+    from a sibling `<id>.jsonl`.
 - **Project identity** (`ProjectPath`, `ProjectRemote`,
   `ProjectMarker`) comes from `internal/projectid` against the cwd at
   sync time — Hermes itself does not record a cwd. Sessions imported
@@ -302,19 +319,26 @@ What `session.Turn` and `session.ToolUsage` surface for Hermes today:
 - **`session.Session.ParentSessionID`**: `sessions.parent_session_id`,
   the snapshot's top-level `parent_session_id`, or the first
   per-message `parent_session_id` — first non-empty wins.
-- **Preserved in raw** for future cuts:
-  - the full `state.db` (or `.jsonl` / `.json` source file) byte for
-    byte;
-  - every hidden reasoning column (`messages.reasoning`,
-    `reasoning_content`, `reasoning_details`,
-    `codex_reasoning_items`, `codex_message_items`);
-  - `sessions.system_prompt`, `model_config`, `end_reason`, `title`,
-    and per-message `token_count` / `finish_reason`;
-  - the full body of every `tool_calls` payload and `tool` -role
-    `content` blob, beyond what the `ToolUsage` aggregate counts.
+- **Preserved in raw** for future cuts (per-session JSONL):
+  - every per-message hidden column — `messages.reasoning`,
+    `reasoning_content`, `reasoning_details`, `codex_reasoning_items`,
+    `codex_message_items`, `tool_call_id`, `tool_name`, `finish_reason`,
+    `token_count`;
+  - the full body of every `tool_calls` payload and `tool`-role
+    `content` blob, beyond what the `ToolUsage` aggregate counts;
+  - for sibling `<id>.jsonl` / `session_<id>.json` shapes, the source
+    bytes verbatim (including the snapshot envelope's `system_prompt` /
+    `platform` / `last_updated` when present).
+- **Not preserved in raw** for `state.db`-sourced sessions:
+  - session-level columns without a per-message equivalent
+    (`sessions.system_prompt`, `model_config`, `end_reason`, `title`,
+    `tool_call_count`). They live in the source `state.db` only; the
+    per-session JSONL projection mirrors the per-session `.jsonl`
+    flavor, which has no envelope. Re-projecting from the original
+    `state.db` is the only path to recover them.
 - **Dual-source gap**: when both `state.db` and a transcript file
   describe the same session and one surface is dropped (because the
-  other had more messages), the dropped side's source bytes are still
-  copied to the raw tree but its rows do not appear in `turns`. A
-  future cut can read the preserved raw to merge the two surfaces; the
+  other had more messages), only the winning surface lands as raw —
+  there is no separate copy of the dropped side. A future cut that
+  wants to merge them must read both sources at projection time; the
   importer at this cut does not attempt the merge.
