@@ -106,7 +106,15 @@ type Session struct {
 //	    their parents.
 //	v9: Hermes parent edges projected from state.db `sessions.parent_session_id`
 //	    and transcript `parent_session_id` fields.
-const ProjectionVersion = 9
+//	v10: Hermes state.db rows project to per-session canonical JSONL
+//	    (one message per line, additive fields for previously hidden
+//	    reasoning/codex/tool-call columns). The raw artifact for Hermes
+//	    state.db sessions is no longer the full multi-session .db file
+//	    but a per-session .jsonl — symmetric with the existing per-session
+//	    .jsonl flavor. raw_hash / raw_size now describe the projected
+//	    JSONL per session, so sync_reconcile re-pushes Hermes sessions
+//	    with their new hashes on first contact.
+const ProjectionVersion = 10
 
 // Turn kind constants. Empty Kind is treated as KindMessage so older rows
 // and zero-value test fixtures keep working without backfill.

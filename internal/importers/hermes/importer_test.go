@@ -3,11 +3,14 @@ package hermes
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -68,10 +71,24 @@ type hermesStateMessage struct {
 	toolCalls  string
 	timestamp  float64
 	tokenCount *int64
+
+	// Optional fields populated only by tests that exercise the JSONL
+	// projection's preservation of message-level hidden columns. Zero
+	// values stay NULL in the inserted row.
+	toolCallID          string
+	toolName            string
+	finishReason        string
+	reasoning           string
+	reasoningContent    string
+	reasoningDetails    string
+	codexReasoningItems string
+	codexMessageItems   string
 }
 
 // buildHermesStateDB writes a state.db with the Hermes schema, populated
-// with the supplied session rows.
+// with the supplied session rows. Optional message-level columns are
+// inserted only when their zero-valued field is populated; everything
+// else lands as NULL — same shape older Hermes builds would produce.
 func buildHermesStateDB(t *testing.T, dir string, rows []hermesStateRow) string {
 	t.Helper()
 	require.NoError(t, os.MkdirAll(dir, 0o755))
@@ -123,13 +140,33 @@ CREATE TABLE messages (
 		require.NoError(t, err)
 		for _, m := range r.messages {
 			_, err = db.Exec(
-				`INSERT INTO messages(session_id, role, content, tool_calls, timestamp, token_count) VALUES (?, ?, ?, ?, ?, ?)`,
-				r.id, m.role, m.content, m.toolCalls, m.timestamp, m.tokenCount,
+				`INSERT INTO messages(
+					session_id, role, content, tool_call_id, tool_calls, tool_name,
+					timestamp, token_count, finish_reason, reasoning,
+					reasoning_content, reasoning_details,
+					codex_reasoning_items, codex_message_items
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				r.id, m.role, m.content,
+				nullableString(m.toolCallID), nullableString(m.toolCalls), nullableString(m.toolName),
+				m.timestamp, m.tokenCount,
+				nullableString(m.finishReason), nullableString(m.reasoning),
+				nullableString(m.reasoningContent), nullableString(m.reasoningDetails),
+				nullableString(m.codexReasoningItems), nullableString(m.codexMessageItems),
 			)
 			require.NoError(t, err)
 		}
 	}
 	return dbPath
+}
+
+// nullableString returns nil when s is empty so the column lands as SQL
+// NULL (matching what older Hermes builds without the column would
+// produce). Driver-side, modernc.org/sqlite treats a nil any as NULL.
+func nullableString(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
 }
 
 func TestWalkFindsAllFlavors(t *testing.T) {
@@ -460,6 +497,212 @@ func TestStateDBMergeYieldsToTranscript(t *testing.T) {
 	require.NotNil(t, s.FirstPrompt)
 	require.Equal(t, "richer first prompt", *s.FirstPrompt)
 	require.Len(t, sink.Turns["S"], 3) // user + assistant + user
+}
+
+// TestImportStateDBProjectsJSONL verifies that state.db sessions land as
+// per-session JSONL raws (not duplicated .db snapshots), and that the
+// hidden message-level columns the canonical Turn projection ignores
+// (`tool_call_id`, `tool_name`, `finish_reason`, `reasoning*`, `codex_*`)
+// survive into the projected JSONL byte-for-byte so a future cut can
+// recover them without re-reading the original state.db.
+func TestImportStateDBProjectsJSONL(t *testing.T) {
+	ctx := context.Background()
+	prosaHome := filepath.Join(t.TempDir(), "prosa-home")
+	t.Setenv("PROSA_HOME", prosaHome)
+
+	hermesHome := filepath.Join(t.TempDir(), ".hermes")
+	require.NoError(t, os.MkdirAll(filepath.Join(hermesHome, "sessions"), 0o755))
+
+	base := time.Date(2026, 5, 30, 6, 0, 0, 0, time.UTC)
+	rows := []hermesStateRow{
+		{
+			id:        "rich-1",
+			parentID:  "parent-rich-1",
+			model:     "claude-sonnet-4-6",
+			startedAt: float64(base.Unix()),
+			messages: []hermesStateMessage{
+				{
+					role:      "user",
+					content:   "rich prompt one",
+					timestamp: float64(base.Unix()),
+				},
+				{
+					role:                "assistant",
+					content:             "rich reply one",
+					timestamp:           float64(base.Add(5 * time.Second).Unix()),
+					toolCalls:           `[{"name":"Read"}]`,
+					toolCallID:          "call-abc",
+					toolName:            "Read",
+					tokenCount:          ptrInt64(17),
+					finishReason:        "stop",
+					reasoning:           "internal scratchpad",
+					reasoningContent:    "more detailed reasoning",
+					reasoningDetails:    `{"steps":["a","b"]}`,
+					codexReasoningItems: `[{"id":1,"text":"hmm"}]`,
+					codexMessageItems:   `[{"type":"final"}]`,
+				},
+			},
+		},
+		{
+			id:        "plain-2",
+			model:     "claude-opus-4-7",
+			startedAt: float64(base.Add(time.Hour).Unix()),
+			messages: []hermesStateMessage{
+				{role: "user", content: "plain prompt", timestamp: float64(base.Add(time.Hour).Unix())},
+				{
+					role: "assistant", content: "plain reply",
+					timestamp:  float64(base.Add(time.Hour + 5*time.Second).Unix()),
+					tokenCount: ptrInt64(19),
+				},
+			},
+		},
+	}
+	dbPath := buildHermesStateDB(t, hermesHome, rows)
+
+	sink := newSink()
+	res, err := New().Import(ctx, dbPath, sink, importer.ImportOptions{})
+	require.NoError(t, err)
+	require.False(t, res.Skipped)
+	require.True(t, res.Synthetic)
+
+	rich := sink.Sessions["rich-1"]
+	require.NotEmpty(t, rich.RawPath, "state.db session must persist a per-session raw artifact")
+	require.True(t, strings.HasSuffix(rich.RawPath, ".jsonl"),
+		"state.db raw must be a projected JSONL, got %q", rich.RawPath)
+	require.NotContains(t, rich.RawPath, ".db",
+		"state.db raw must not be a copied SQLite file")
+	require.FileExists(t, rich.RawPath)
+	require.Equal(t, "hermes", filepath.Base(filepath.Dir(filepath.Dir(filepath.Dir(rich.RawPath)))),
+		"raw lives under raw/hermes/<YYYY>/<MM>/<id>.jsonl")
+
+	// raw_hash / raw_size now describe the projected JSONL, not the state.db.
+	contents, err := os.ReadFile(rich.RawPath)
+	require.NoError(t, err)
+	require.Equal(t, int64(len(contents)), rich.RawSize)
+	sum := sha256.Sum256(contents)
+	require.Equal(t, hex.EncodeToString(sum[:]), rich.RawHash)
+
+	// Two messages → two JSONL lines, no trailing newline.
+	lines := strings.Split(strings.TrimRight(string(contents), "\n"), "\n")
+	require.Len(t, lines, 2)
+
+	// The assistant line must preserve every hidden column verbatim so a
+	// future cut can read them back without the original state.db.
+	var assistant map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal([]byte(lines[1]), &assistant))
+	require.Equal(t, `"assistant"`, string(assistant["role"]))
+	require.Equal(t, `"call-abc"`, string(assistant["tool_call_id"]))
+	require.Equal(t, `"Read"`, string(assistant["tool_name"]))
+	require.Equal(t, `"stop"`, string(assistant["finish_reason"]))
+	require.Equal(t, `"internal scratchpad"`, string(assistant["reasoning"]))
+	require.Equal(t, `"more detailed reasoning"`, string(assistant["reasoning_content"]))
+	require.JSONEq(t, `{"steps":["a","b"]}`, string(assistant["reasoning_details"]))
+	require.JSONEq(t, `[{"id":1,"text":"hmm"}]`, string(assistant["codex_reasoning_items"]))
+	require.JSONEq(t, `[{"type":"final"}]`, string(assistant["codex_message_items"]))
+	require.JSONEq(t, `[{"name":"Read"}]`, string(assistant["tool_calls"]))
+
+	// The plain session must NOT carry the hidden columns (omitempty keeps
+	// the JSONL compact and stable across Hermes builds whose schema
+	// lacks those columns at all).
+	plain := sink.Sessions["plain-2"]
+	plainContents, err := os.ReadFile(plain.RawPath)
+	require.NoError(t, err)
+	plainLines := strings.Split(strings.TrimRight(string(plainContents), "\n"), "\n")
+	require.Len(t, plainLines, 2)
+	var plainAssistant map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal([]byte(plainLines[1]), &plainAssistant))
+	require.NotContains(t, plainAssistant, "tool_call_id")
+	require.NotContains(t, plainAssistant, "reasoning")
+	require.NotContains(t, plainAssistant, "codex_reasoning_items")
+}
+
+// TestImportStateDBNoLongerCopiesFullDB is the explicit regression guard
+// for issue #235: after importing a state.db, no `.db` files may exist
+// anywhere under the prosa raw tree.
+func TestImportStateDBNoLongerCopiesFullDB(t *testing.T) {
+	ctx := context.Background()
+	prosaHome := filepath.Join(t.TempDir(), "prosa-home")
+	t.Setenv("PROSA_HOME", prosaHome)
+
+	hermesHome := filepath.Join(t.TempDir(), ".hermes")
+	require.NoError(t, os.MkdirAll(filepath.Join(hermesHome, "sessions"), 0o755))
+
+	base := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	rows := []hermesStateRow{
+		{
+			id: "no-db-1", model: "claude-sonnet-4-6", startedAt: float64(base.Unix()),
+			messages: []hermesStateMessage{
+				{role: "user", content: "hi", timestamp: float64(base.Unix())},
+				{role: "assistant", content: "hello", timestamp: float64(base.Add(time.Second).Unix()), tokenCount: ptrInt64(2)},
+			},
+		},
+	}
+	dbPath := buildHermesStateDB(t, hermesHome, rows)
+
+	sink := newSink()
+	_, err := New().Import(ctx, dbPath, sink, importer.ImportOptions{})
+	require.NoError(t, err)
+
+	rawRoot := filepath.Join(prosaHome, "raw", "hermes")
+	var dbFiles []string
+	err = filepath.WalkDir(rawRoot, func(p string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if !d.IsDir() && filepath.Ext(p) == ".db" {
+			dbFiles = append(dbFiles, p)
+		}
+		return nil
+	})
+	require.NoError(t, err)
+	require.Empty(t, dbFiles, "state.db must not be copied into the raw tree")
+}
+
+// TestImportStateDBProjectionDeterministic guards against accidental
+// non-determinism in the JSONL projection (e.g. swapping a tagged
+// struct for a map[string]any would randomize key order and break
+// idempotency-by-hash). Importing the same state.db into two separate
+// prosa homes must produce byte-identical projected JSONL.
+func TestImportStateDBProjectionDeterministic(t *testing.T) {
+	hermesHome := filepath.Join(t.TempDir(), ".hermes")
+	require.NoError(t, os.MkdirAll(filepath.Join(hermesHome, "sessions"), 0o755))
+
+	base := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	rows := []hermesStateRow{
+		{
+			id: "det-1", model: "claude-sonnet-4-6", startedAt: float64(base.Unix()),
+			messages: []hermesStateMessage{
+				{
+					role: "assistant", content: "answer",
+					timestamp:        float64(base.Unix()),
+					toolCalls:        `[{"name":"Read"}]`,
+					reasoning:        "scratchpad",
+					reasoningContent: "longer reasoning",
+					reasoningDetails: `{"k":1}`,
+					tokenCount:       ptrInt64(7),
+				},
+			},
+		},
+	}
+	dbPath := buildHermesStateDB(t, hermesHome, rows)
+
+	importAndReadRaw := func() ([]byte, string, int64) {
+		ctx := context.Background()
+		t.Setenv("PROSA_HOME", filepath.Join(t.TempDir(), "prosa-home"))
+		sink := newSink()
+		_, err := New().Import(ctx, dbPath, sink, importer.ImportOptions{})
+		require.NoError(t, err)
+		sess := sink.Sessions["det-1"]
+		raw, err := os.ReadFile(sess.RawPath)
+		require.NoError(t, err)
+		return raw, sess.RawHash, sess.RawSize
+	}
+
+	rawA, hashA, sizeA := importAndReadRaw()
+	rawB, hashB, sizeB := importAndReadRaw()
+	require.Equal(t, rawA, rawB, "projected JSONL must be byte-identical across runs")
+	require.Equal(t, hashA, hashB)
+	require.Equal(t, sizeA, sizeB)
 }
 
 // TestImportJSONLSanitizesFirstPrompt covers the bug where hermes user

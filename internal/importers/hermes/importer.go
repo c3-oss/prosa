@@ -153,7 +153,7 @@ func (i *Importer) importStateDB(ctx context.Context, path string, sink importer
 		if siblingHasMore(siblingDir, row.id, row.messageCount) {
 			continue
 		}
-		sess, turns, tools, usageState, err := projectStateDBSession(ctx, path, row)
+		sess, turns, tools, usageState, msgs, err := projectStateDBSession(ctx, path, row)
 		if err != nil {
 			return importer.ImportResult{}, fmt.Errorf("project session %s: %w", row.id, err)
 		}
@@ -166,14 +166,25 @@ func (i *Importer) importStateDB(ctx context.Context, path string, sink importer
 		}
 		sess.Agent = Name
 		sess.DeviceID = device.IDOnce()
-		sess.RawHash = hash
-		sess.RawSize = size
 
-		rawPath, err := importerutil.PreserveRaw(Name, row.id, ".db", sess.StartedAt, path)
+		// Project the row to its own canonical per-session JSONL instead
+		// of copying the whole state.db once per row. The JSONL is the
+		// shape Hermes' per-session `<id>.jsonl` flavor already uses, so
+		// downstream (push, show --raw, denoise) is agnostic to source.
+		// RawHash/RawSize then describe the projected artifact, not the
+		// multi-session state.db — preserving idempotency per session
+		// rather than per file.
+		lines, err := marshalProjectedJSONL(msgs)
 		if err != nil {
-			return importer.ImportResult{}, fmt.Errorf("preserve raw %s: %w", path, err)
+			return importer.ImportResult{}, fmt.Errorf("project session %s: %w", row.id, err)
+		}
+		rawPath, rawHash, rawSize, err := importerutil.PreserveProjectedJSONL(Name, row.id, sess.StartedAt, lines)
+		if err != nil {
+			return importer.ImportResult{}, fmt.Errorf("preserve projected raw %s: %w", row.id, err)
 		}
 		sess.RawPath = rawPath
+		sess.RawHash = rawHash
+		sess.RawSize = rawSize
 		projectid.Apply(&sess)
 
 		if err := sink.WriteSession(ctx, sess, tools, turns, hash); err != nil {
