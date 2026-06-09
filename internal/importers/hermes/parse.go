@@ -18,16 +18,29 @@ import (
 
 // hermesMessage is the loose shape carried by JSONL lines, snapshot
 // `messages[]` entries, and state.db `messages` rows. Fields absent in a
-// given shape stay zero-valued.
+// given shape stay zero-valued. The omitempty tags on every field keep
+// the marshaled JSONL projection compact and stable: state.db sessions
+// project to JSONL through json.Marshal of this struct, so absent
+// columns must not appear as `null` in the output (it would break
+// idempotency hashes across Hermes builds whose `messages` schema lacks
+// the newer reasoning/codex columns).
 type hermesMessage struct {
-	Role       string          `json:"role"`
-	Content    json.RawMessage `json:"content"`
-	Timestamp  json.RawMessage `json:"timestamp"` // float seconds or ISO string
-	Model      string          `json:"model"`
-	SessionID  string          `json:"session_id"`
-	ParentID   string          `json:"parent_session_id"`
-	ToolCalls  json.RawMessage `json:"tool_calls"`
-	TokenCount *int64          `json:"token_count"`
+	Role                string          `json:"role,omitempty"`
+	Content             json.RawMessage `json:"content,omitempty"`
+	Timestamp           json.RawMessage `json:"timestamp,omitempty"` // float seconds or ISO string
+	Model               string          `json:"model,omitempty"`
+	SessionID           string          `json:"session_id,omitempty"`
+	ParentID            string          `json:"parent_session_id,omitempty"`
+	ToolCalls           json.RawMessage `json:"tool_calls,omitempty"`
+	TokenCount          *int64          `json:"token_count,omitempty"`
+	ToolCallID          string          `json:"tool_call_id,omitempty"`
+	ToolName            string          `json:"tool_name,omitempty"`
+	FinishReason        string          `json:"finish_reason,omitempty"`
+	Reasoning           string          `json:"reasoning,omitempty"`
+	ReasoningContent    string          `json:"reasoning_content,omitempty"`
+	ReasoningDetails    json.RawMessage `json:"reasoning_details,omitempty"`
+	CodexReasoningItems json.RawMessage `json:"codex_reasoning_items,omitempty"`
+	CodexMessageItems   json.RawMessage `json:"codex_message_items,omitempty"`
 }
 
 // snapshotEnvelope is the session_<id>.json shape.
@@ -352,51 +365,88 @@ func readStateDBSessions(ctx context.Context, path string) ([]stateDBRow, error)
 
 // projectStateDBSession reads every message row for the given session id
 // and projects it through the shared message projection. Envelope-level
-// defaults come from the session row's started_at and model columns.
-func projectStateDBSession(ctx context.Context, path string, row stateDBRow) (session.Session, []session.Turn, []session.ToolUsage, session.UsageState, error) {
+// defaults come from the session row's started_at and model columns. The
+// returned []hermesMessage carries every column we know how to populate —
+// callers that need to persist the full per-session signal (e.g. the
+// JSONL raw projection) use it directly; callers that only need the
+// canonical session triple ignore it.
+func projectStateDBSession(ctx context.Context, path string, row stateDBRow) (session.Session, []session.Turn, []session.ToolUsage, session.UsageState, []hermesMessage, error) {
 	db, err := importerutil.OpenSQLiteReadOnly(path)
 	if err != nil {
-		return session.Session{}, nil, nil, session.UsageStateUnknown, err
+		return session.Session{}, nil, nil, session.UsageStateUnknown, nil, err
 	}
 	defer func() { _ = db.Close() }()
 
-	hasTokenCount, err := tableHasColumn(ctx, db, "messages", "token_count")
+	cols, err := columnSet(ctx, db, "messages")
 	if err != nil {
-		return session.Session{}, nil, nil, session.UsageStateUnknown, err
+		return session.Session{}, nil, nil, session.UsageStateUnknown, nil, err
 	}
-	query := `SELECT role, content, tool_calls, timestamp FROM messages WHERE session_id = ? ORDER BY id`
-	if hasTokenCount {
-		query = `SELECT role, content, tool_calls, timestamp, token_count FROM messages WHERE session_id = ? ORDER BY id`
+
+	// Always project these — required for the canonical session
+	// (role/content/timestamp) and tool aggregation (tool_calls).
+	const required = "role, content, tool_calls, timestamp"
+	// Optional columns: each one becomes a real SELECT projection when
+	// the column exists on this Hermes build, or a `NULL AS <name>`
+	// placeholder so the scan target stays the same. The order here
+	// matches the Scan target order below — keep them in sync.
+	optional := []string{
+		"token_count",
+		"tool_call_id",
+		"tool_name",
+		"finish_reason",
+		"reasoning",
+		"reasoning_content",
+		"reasoning_details",
+		"codex_reasoning_items",
+		"codex_message_items",
 	}
+	exprs := make([]string, 0, len(optional))
+	for _, name := range optional {
+		if cols[name] {
+			exprs = append(exprs, name)
+		} else {
+			exprs = append(exprs, "NULL AS "+name)
+		}
+	}
+	query := "SELECT " + required + ", " + strings.Join(exprs, ", ") +
+		" FROM messages WHERE session_id = ? ORDER BY id"
 	rows, err := db.QueryContext(ctx, query, row.id)
 	if err != nil {
-		return session.Session{}, nil, nil, session.UsageStateUnknown, fmt.Errorf("query messages: %w", err)
+		return session.Session{}, nil, nil, session.UsageStateUnknown, nil, fmt.Errorf("query messages: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 
 	var msgs []hermesMessage
 	for rows.Next() {
 		if err := ctx.Err(); err != nil {
-			return session.Session{}, nil, nil, session.UsageStateUnknown, err
+			return session.Session{}, nil, nil, session.UsageStateUnknown, nil, err
 		}
 		var (
-			role      sql.NullString
-			content   sql.NullString
-			toolCalls sql.NullString
-			token     sql.NullInt64
-			ts        any
+			role                sql.NullString
+			content             sql.NullString
+			toolCalls           sql.NullString
+			ts                  any
+			tokenCount          sql.NullInt64
+			toolCallID          sql.NullString
+			toolName            sql.NullString
+			finishReason        sql.NullString
+			reasoning           sql.NullString
+			reasoningContent    sql.NullString
+			reasoningDetails    sql.NullString
+			codexReasoningItems sql.NullString
+			codexMessageItems   sql.NullString
 		)
-		if hasTokenCount {
-			err = rows.Scan(&role, &content, &toolCalls, &ts, &token)
-		} else {
-			err = rows.Scan(&role, &content, &toolCalls, &ts)
-		}
-		if err != nil {
-			return session.Session{}, nil, nil, session.UsageStateUnknown, fmt.Errorf("scan message: %w", err)
+		if err := rows.Scan(
+			&role, &content, &toolCalls, &ts,
+			&tokenCount, &toolCallID, &toolName, &finishReason,
+			&reasoning, &reasoningContent, &reasoningDetails,
+			&codexReasoningItems, &codexMessageItems,
+		); err != nil {
+			return session.Session{}, nil, nil, session.UsageStateUnknown, nil, fmt.Errorf("scan message: %w", err)
 		}
 		m := hermesMessage{Role: role.String}
-		if token.Valid {
-			v := token.Int64
+		if tokenCount.Valid {
+			v := tokenCount.Int64
 			m.TokenCount = &v
 		}
 		if content.Valid {
@@ -419,10 +469,34 @@ func projectStateDBSession(ctx context.Context, path string, row stateDBRow) (se
 				m.Timestamp = b
 			}
 		}
+		if toolCallID.Valid {
+			m.ToolCallID = toolCallID.String
+		}
+		if toolName.Valid {
+			m.ToolName = toolName.String
+		}
+		if finishReason.Valid {
+			m.FinishReason = finishReason.String
+		}
+		if reasoning.Valid {
+			m.Reasoning = reasoning.String
+		}
+		if reasoningContent.Valid {
+			m.ReasoningContent = reasoningContent.String
+		}
+		if reasoningDetails.Valid && reasoningDetails.String != "" {
+			m.ReasoningDetails = jsonOrString(reasoningDetails.String)
+		}
+		if codexReasoningItems.Valid && codexReasoningItems.String != "" {
+			m.CodexReasoningItems = jsonOrString(codexReasoningItems.String)
+		}
+		if codexMessageItems.Valid && codexMessageItems.String != "" {
+			m.CodexMessageItems = jsonOrString(codexMessageItems.String)
+		}
 		msgs = append(msgs, m)
 	}
 	if err := rows.Err(); err != nil {
-		return session.Session{}, nil, nil, session.UsageStateUnknown, fmt.Errorf("iterate messages: %w", err)
+		return session.Session{}, nil, nil, session.UsageStateUnknown, nil, fmt.Errorf("iterate messages: %w", err)
 	}
 
 	var envStart time.Time
@@ -443,15 +517,27 @@ func projectStateDBSession(ctx context.Context, path string, row stateDBRow) (se
 			sess.ParentSessionID = &parentID
 		}
 	}
-	return sess, turns, tools, state, nil
+	return sess, turns, tools, state, msgs, nil
 }
 
 func tableHasColumn(ctx context.Context, db *sql.DB, table, column string) (bool, error) {
+	cols, err := columnSet(ctx, db, table)
+	if err != nil {
+		return false, err
+	}
+	return cols[column], nil
+}
+
+// columnSet returns the set of column names declared on `table`. Used to
+// build dynamic SELECT lists that tolerate Hermes builds whose `messages`
+// schema lacks the newer reasoning/codex columns.
+func columnSet(ctx context.Context, db *sql.DB, table string) (map[string]bool, error) {
 	rows, err := db.QueryContext(ctx, "PRAGMA table_info("+table+")")
 	if err != nil {
-		return false, fmt.Errorf("inspect %s schema: %w", table, err)
+		return nil, fmt.Errorf("inspect %s schema: %w", table, err)
 	}
 	defer func() { _ = rows.Close() }()
+	out := map[string]bool{}
 	for rows.Next() {
 		var (
 			cid     int
@@ -462,13 +548,32 @@ func tableHasColumn(ctx context.Context, db *sql.DB, table, column string) (bool
 			pk      int
 		)
 		if err := rows.Scan(&cid, &name, &ctype, &notNull, &dflt, &pk); err != nil {
-			return false, err
+			return nil, err
 		}
-		if name == column {
-			return true, nil
-		}
+		out[name] = true
 	}
-	return false, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// jsonOrString returns the input bytes verbatim when they parse as JSON
+// (so opaque blobs like reasoning_details / codex_* survive byte-for-byte
+// into the projected JSONL), or the input wrapped as a JSON string when
+// it doesn't. Mirrors rawStringToJSON but always returns json.RawMessage.
+func jsonOrString(s string) json.RawMessage {
+	t := strings.TrimSpace(s)
+	if t == "" {
+		return nil
+	}
+	if json.Valid([]byte(t)) {
+		return json.RawMessage(s)
+	}
+	if b, err := json.Marshal(s); err == nil {
+		return json.RawMessage(b)
+	}
+	return nil
 }
 
 // rawStringToJSON wraps an arbitrary content string as a JSON string so
