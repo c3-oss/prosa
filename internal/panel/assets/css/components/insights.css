@@ -1,0 +1,102 @@
+/* Insights page: trend charts (spend, tokens, model share), the
+   weekday × hour punch card, and the subagents table. KPI strip,
+   cards, bar lists, and heatmap cell colors are reused from
+   dashboard.css / style.css. */
+
+.trend-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.trend-subhead {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.trend-chart svg {
+  display: block;
+  width: 100%;
+  height: 140px;
+  color: var(--text-2);
+}
+
+.trend-axis {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--text-3);
+  margin-top: 2px;
+}
+
+.share-legend {
+  margin-top: 12px;
+}
+
+/* Punch card: 7 weekday rows × 24 hour cells, reusing the heatmap
+   cell color levels. */
+.punchcard {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 100%;
+  overflow-x: auto;
+  padding-bottom: 6px;
+}
+
+.punchcard-hour-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-left: 34px;
+  font-size: 10px;
+  color: var(--text-2);
+  width: calc(24 * 16px - 4px);
+}
+
+.punchcard-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.punchcard-day {
+  width: 28px;
+  font-size: 10px;
+  color: var(--text-2);
+  text-align: right;
+}
+
+.punchcard-cells {
+  display: grid;
+  grid-template-columns: repeat(24, 12px);
+  gap: 4px;
+}
+
+/* Subagents card. */
+.subagents-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.subagents-table th,
+.subagents-table td {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--divider);
+}
+
+.subagents-table th {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-2);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.subagents-table td:not(:first-child),
+.subagents-table th:not(:first-child) {
+  text-align: right;
+}
