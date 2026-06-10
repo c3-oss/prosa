@@ -127,14 +127,14 @@ func TestHomeRendersIssuesAndCharts(t *testing.T) {
 		"Tokens &amp; cost per model", // chart 2 heading (escaped &)
 		">Projects<",                  // chart 3
 		"error rate",                  // new KPI
-		`class="area-chart"`,          // hour-of-day SVG
-		`class="donut"`,               // cost donut SVG
+		`data-chart="hour-of-day"`,    // hour-of-day chart container
+		`data-chart="cost-donut"`,     // cost donut chart container
 		"cost-legend",                 // donut legend
 		"/sessions?session=sess-1",    // actionable recent issue link
 		"peak ",                       // hour peak label
 		"42",                          // sessions KPI
 		">Activity trend<",            // daily trend card
-		`class="stacked-chart"`,       // trend SVG
+		`data-chart="activity-trend"`, // trend chart container
 		"kpi-delta",                   // vs-previous-window badge
 		"vs previous 30d",             // delta badge tooltip
 	} {

@@ -163,11 +163,13 @@ func (p *Panel) handleInsights(w http.ResponseWriter, r *http.Request) {
 }
 
 // spendTrendView powers the "Spend & tokens" card: estimated spend per
-// bucket as columns with a cumulative overlay, plus a token-volume area
-// chart sharing the same buckets.
+// bucket as columns, plus a token-volume area chart sharing the same
+// buckets. The cumulative running total lives in the card subtitle —
+// Frappe Charts has no secondary axis, so a cumulative line drawn on the
+// per-bucket scale would dwarf the bars.
 type spendTrendView struct {
-	SpendChart  template.HTML
-	TokensChart template.HTML
+	SpendChart  charts.Spec
+	TokensChart charts.Spec
 	TotalSpend  string
 	TotalTokens string
 	BucketLabel string // "per day" | "per week"
@@ -249,15 +251,11 @@ func buildSpendTrend(rows []*prosav1.AnalyticsRow, since, until time.Time) spend
 
 	labels := make([]string, len(buckets))
 	spendSeries := make([]float64, len(buckets))
-	cumulative := make([]float64, len(buckets))
-	tokenPoints := make([]charts.Point, len(buckets))
-	running := 0.0
+	tokenValues := make([]float64, len(buckets))
 	for i, b := range buckets {
 		labels[i] = b.label
 		spendSeries[i] = b.spend
-		running += b.spend
-		cumulative[i] = running
-		tokenPoints[i] = charts.Point{Label: b.label, Value: float64(b.tokens)}
+		tokenValues[i] = float64(b.tokens)
 	}
 
 	totalSpendLabel := "n/a"
@@ -265,14 +263,21 @@ func buildSpendTrend(rows []*prosav1.AnalyticsRow, since, until time.Time) spend
 		totalSpendLabel = fmt.Sprintf("$%.2f", totalSpend)
 	}
 	return spendTrendView{
-		SpendChart: charts.StackedColumns(labels, []charts.Series{
-			{Name: "est. spend", Values: spendSeries},
-		}, charts.StackedOpts{
-			UnitSuffix:    " USD",
-			Overlay:       cumulative,
-			OverlaySuffix: " USD cumulative",
-		}),
-		TokensChart: charts.Area(tokenPoints, charts.AreaOpts{UnitSuffix: " tokens"}),
+		SpendChart: charts.Spec{
+			Type:        "bar",
+			Labels:      labels,
+			Datasets:    []charts.Dataset{{Name: "est. spend", Values: spendSeries}},
+			ValuePrefix: "$",
+			Height:      160,
+		},
+		TokensChart: charts.Spec{
+			Type:        "line",
+			Labels:      labels,
+			Datasets:    []charts.Dataset{{Name: "tokens", Values: tokenValues}},
+			RegionFill:  true,
+			ValueSuffix: " tokens",
+			Height:      160,
+		},
 		TotalSpend:  totalSpendLabel,
 		TotalTokens: formatPanelInt(totalTokens),
 		BucketLabel: bucketLabel,
@@ -308,10 +313,12 @@ func weekStartLabel(day string) string {
 	return monday.Format("01-02")
 }
 
-// shareLegendRow is one entry under the model-share chart: a palette
-// dot matching the series, the model name, and its session count.
+// shareLegendRow is one entry under a stacked chart's legend: a palette
+// index (charts-init.js paints the dot to match the series), the series
+// name, and its session count. Shared by the model-share and activity
+// trend cards.
 type shareLegendRow struct {
-	Dot      template.HTML
+	ColorIdx int
 	Model    string
 	Sessions string
 }
@@ -319,7 +326,7 @@ type shareLegendRow struct {
 // modelShareView powers the "Model share" card: a normalized stacked
 // chart of weekly session share per model.
 type modelShareView struct {
-	Chart      template.HTML
+	Chart      charts.Spec
 	Legend     []shareLegendRow
 	StartLabel string
 	EndLabel   string
@@ -379,17 +386,15 @@ func buildModelShare(rows []*prosav1.AnalyticsRow) modelShareView {
 		hasOther = true
 	}
 
-	series := make([]charts.Series, 0, len(top)+1)
+	datasets := make([]charts.Dataset, 0, len(top)+1)
 	legend := make([]shareLegendRow, 0, len(top)+1)
 	addSeries := func(name string, totals int64, values []float64) {
-		i := len(series)
-		series = append(series, charts.Series{Name: name, Values: values})
-		dot := fmt.Sprintf(`<span class="cost-legend-dot" style="background:%s"></span>`, charts.PaletteColor(i))
 		legend = append(legend, shareLegendRow{
-			Dot:      template.HTML(dot), //nolint:gosec // palette is a fixed CSS token, model name is not interpolated here
+			ColorIdx: len(datasets),
 			Model:    name,
 			Sessions: formatPanelInt(totals),
 		})
+		datasets = append(datasets, charts.Dataset{Name: name, Values: values})
 	}
 	for _, m := range top {
 		values := make([]float64, len(weeks))
@@ -410,11 +415,31 @@ func buildModelShare(rows []*prosav1.AnalyticsRow) modelShareView {
 		addSeries("other", otherTotal, values)
 	}
 
+	// Normalize every week's column to 100% so model migration over time
+	// reads as share shifts. Frappe has no built-in percentage-stacked
+	// mode, so we scale here; weeks with no sessions stay at zero.
+	for w := range weeks {
+		var colTotal float64
+		for _, d := range datasets {
+			colTotal += d.Values[w]
+		}
+		if colTotal <= 0 {
+			continue
+		}
+		for di := range datasets {
+			datasets[di].Values[w] = datasets[di].Values[w] / colTotal * 100
+		}
+	}
+
 	return modelShareView{
-		Chart: charts.StackedColumns(weeks, series, charts.StackedOpts{
-			Normalize:  true,
-			UnitSuffix: " sessions",
-		}),
+		Chart: charts.Spec{
+			Type:        "bar",
+			Labels:      weeks,
+			Datasets:    datasets,
+			Stacked:     true,
+			ValueSuffix: "%",
+			Height:      180,
+		},
 		Legend:     legend,
 		StartLabel: weeks[0],
 		EndLabel:   weeks[len(weeks)-1],

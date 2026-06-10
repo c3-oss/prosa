@@ -151,9 +151,11 @@ func TestBuildSpendTrendPricesOnlyMeasuredRows(t *testing.T) {
 	require.Equal(t, "per day", v.BucketLabel)
 	require.Equal(t, "05-29", v.StartLabel)
 	require.Equal(t, "05-31", v.EndLabel)
-	require.Contains(t, string(v.SpendChart), "stacked-chart")
-	require.Contains(t, string(v.SpendChart), "USD cumulative")
-	require.Contains(t, string(v.TokensChart), "area-chart")
+	require.Equal(t, "bar", v.SpendChart.Type)
+	require.Equal(t, "$", v.SpendChart.ValuePrefix)
+	require.Contains(t, v.SpendChart.Datasets[0].Values, 7.5) // the priced day
+	require.Equal(t, "line", v.TokensChart.Type)
+	require.True(t, v.TokensChart.RegionFill)
 }
 
 func TestBuildSpendTrendUnpricedIsNA(t *testing.T) {
@@ -195,8 +197,17 @@ func TestBuildModelShareTopNPlusOther(t *testing.T) {
 	// June days fall in the next weeks.
 	require.Equal(t, "05-25", v.StartLabel)
 	require.Equal(t, "06-01", v.EndLabel)
-	require.Contains(t, string(v.Chart), "stacked-chart")
-	require.Contains(t, string(v.Chart), "%)") // normalized share titles
+	require.Equal(t, "bar", v.Chart.Type)
+	require.True(t, v.Chart.Stacked)
+	require.Equal(t, "%", v.Chart.ValueSuffix)
+	// Every populated week column normalizes to 100%; empty weeks stay 0.
+	for w := range v.Chart.Labels {
+		var sum float64
+		for _, d := range v.Chart.Datasets {
+			sum += d.Values[w]
+		}
+		require.True(t, sum == 0 || (sum > 99.9 && sum < 100.1), "column %d sums to %v", w, sum)
+	}
 }
 
 func TestBuildModelShareEmpty(t *testing.T) {
@@ -261,21 +272,22 @@ func TestInsightsRendersCharts(t *testing.T) {
 	body := rec.Body.String()
 
 	for _, want := range []string{
-		"Spend &amp; tokens",    // trend card
-		">Model share<",         // share card
-		">Punch card<",          // punch card card
-		">Session duration<",    // durations card
-		">Subagents<",           // subagents card
-		"current streak",        // rhythm KPI
-		"busiest weekday",       // schedule KPI
-		"outside 09–18h",        // schedule KPI
-		`class="stacked-chart"`, // spend + share SVGs
-		`class="area-chart"`,    // tokens SVG
-		"heatmap-cell level-",   // punch card cells
-		"subagents-table",       // per-agent breakdown
-		"max fan-out",           // subagents KPI
-		`action="/insights"`,    // filter drawer posts back here
-		`class="sidebar"`,       // base chrome rendered
+		"Spend &amp; tokens",       // trend card
+		">Model share<",            // share card
+		">Punch card<",             // punch card card
+		">Session duration<",       // durations card
+		">Subagents<",              // subagents card
+		"current streak",           // rhythm KPI
+		"busiest weekday",          // schedule KPI
+		"outside 09–18h",           // schedule KPI
+		`data-chart="spend-bars"`,  // spend chart container
+		`data-chart="model-share"`, // share chart container
+		`data-chart="tokens-line"`, // tokens chart container
+		"heatmap-cell level-",      // punch card cells
+		"subagents-table",          // per-agent breakdown
+		"max fan-out",              // subagents KPI
+		`action="/insights"`,       // filter drawer posts back here
+		`class="sidebar"`,          // base chrome rendered
 	} {
 		require.Contains(t, body, want, "insights page should render %q", want)
 	}

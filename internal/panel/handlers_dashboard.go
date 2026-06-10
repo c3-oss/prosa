@@ -702,12 +702,13 @@ func buildProjectBars(rows []*prosav1.AnalyticsRow, limit int) []barRow {
 	return barsFromPairs(labels, counts, limit, formatPanelInt)
 }
 
-// costLegendRow is one entry beside the cost donut: a color dot matching its
-// segment, the model name, and its estimated spend.
+// costLegendRow is one entry beside the cost donut: a palette index
+// (charts-init.js paints the dot to match the donut slice), the model
+// name, and its estimated spend.
 type costLegendRow struct {
-	Dot   template.HTML
-	Model string
-	Cost  string
+	ColorIdx int
+	Model    string
+	Cost     string
 }
 
 // modelUsageView bundles the "tokens & cost per model" card: a token
@@ -715,7 +716,7 @@ type costLegendRow struct {
 // the card header.
 type modelUsageView struct {
 	TokenBars   []barRow
-	CostDonut   template.HTML
+	CostDonut   charts.Spec
 	CostLegend  []costLegendRow
 	TotalTokens string
 	TotalCost   string
@@ -726,7 +727,8 @@ type modelUsageView struct {
 func buildModelUsage(rows []*prosav1.AnalyticsRow) modelUsageView {
 	labels := make([]string, 0, len(rows))
 	tokenCounts := make([]int64, 0, len(rows))
-	var slices []charts.Slice
+	var donutLabels []string
+	var donutValues []float64
 	var totalTokens int64
 	var totalCost float64
 	priced := false
@@ -744,7 +746,8 @@ func buildModelUsage(rows []*prosav1.AnalyticsRow) modelUsageView {
 		totalTokens += total
 		if costStr := strings.TrimSpace(row.Values[5]); costStr != "" {
 			if c, err := strconv.ParseFloat(costStr, 64); err == nil && c > 0 {
-				slices = append(slices, charts.Slice{Label: model, Value: c})
+				donutLabels = append(donutLabels, model)
+				donutValues = append(donutValues, c)
 				totalCost += c
 				priced = true
 			}
@@ -754,31 +757,33 @@ func buildModelUsage(rows []*prosav1.AnalyticsRow) modelUsageView {
 	if priced {
 		totalCostLabel = fmt.Sprintf("$%.2f", totalCost)
 	}
-	legend := make([]costLegendRow, 0, len(slices))
-	for i, sl := range slices {
-		dot := fmt.Sprintf(`<span class="cost-legend-dot" style="background:%s"></span>`, charts.PaletteColor(i))
+	legend := make([]costLegendRow, 0, len(donutLabels))
+	for i, model := range donutLabels {
 		legend = append(legend, costLegendRow{
-			Dot:   template.HTML(dot), //nolint:gosec // palette is a fixed CSS token, model name is not interpolated here
-			Model: sl.Label,
-			Cost:  fmt.Sprintf("$%.2f", sl.Value),
+			ColorIdx: i,
+			Model:    model,
+			Cost:     fmt.Sprintf("$%.2f", donutValues[i]),
 		})
 	}
 	return modelUsageView{
 		TokenBars: barsFromPairs(labels, tokenCounts, 8, formatTokensCompact),
-		CostDonut: charts.Donut(slices, charts.DonutOpts{
-			CenterLabel: totalCostLabel,
-			CenterSub:   "est. spend",
-		}),
+		CostDonut: charts.Spec{
+			Type:        "donut",
+			Labels:      donutLabels,
+			Datasets:    []charts.Dataset{{Values: donutValues}},
+			ValuePrefix: "$",
+			Height:      200,
+		},
 		CostLegend:  legend,
 		TotalTokens: formatPanelInt(totalTokens),
 		TotalCost:   totalCostLabel,
 	}
 }
 
-// hourChartView is the "activity by hour" card: the SVG area chart plus a
+// hourChartView is the "activity by hour" card: the area chart spec plus a
 // peak-hour label for the card subtitle.
 type hourChartView struct {
-	Chart     template.HTML
+	Chart     charts.Spec
 	PeakLabel string
 }
 
@@ -808,16 +813,18 @@ func buildHourChartTZ(rows []*prosav1.AnalyticsRow, offsetHours int) hourChartVi
 	}
 	var local [24]int64
 	var total int64
-	for h := 0; h < 24; h++ {
+	for h := range 24 {
 		lh := ((h+offsetHours)%24 + 24) % 24
 		local[lh] += utc[h]
 		total += utc[h]
 	}
-	points := make([]charts.Point, 24)
+	labels := make([]string, 24)
+	values := make([]float64, 24)
 	peakHour := 0
 	var peakVal int64
-	for h := 0; h < 24; h++ {
-		points[h] = charts.Point{Label: fmt.Sprintf("%02dh", h), Value: float64(local[h])}
+	for h := range 24 {
+		labels[h] = fmt.Sprintf("%02dh", h)
+		values[h] = float64(local[h])
 		if local[h] > peakVal {
 			peakVal = local[h]
 			peakHour = h
@@ -828,7 +835,14 @@ func buildHourChartTZ(rows []*prosav1.AnalyticsRow, offsetHours int) hourChartVi
 		peakLabel = fmt.Sprintf("peak %02dh local", peakHour)
 	}
 	return hourChartView{
-		Chart:     charts.Area(points, charts.AreaOpts{UnitSuffix: " sessions"}),
+		Chart: charts.Spec{
+			Type:        "line",
+			Labels:      labels,
+			Datasets:    []charts.Dataset{{Name: "sessions", Values: values}},
+			RegionFill:  true,
+			ValueSuffix: " sessions",
+			Height:      160,
+		},
 		PeakLabel: peakLabel,
 	}
 }
@@ -985,7 +999,7 @@ func buildKPIDelta(curr, prev float64, tone deltaTone) *kpiDelta {
 // week, past the cutover) stacked by agent, with a palette-matched
 // legend.
 type trendView struct {
-	Chart       template.HTML
+	Chart       charts.Spec
 	Legend      []shareLegendRow
 	StartLabel  string
 	EndLabel    string
@@ -1063,17 +1077,15 @@ func buildActivityTrend(rows []*prosav1.AnalyticsRow) trendView {
 		bucketIdx[day] = len(labels) - 1
 	}
 
-	series := make([]charts.Series, 0, len(top)+1)
+	datasets := make([]charts.Dataset, 0, len(top)+1)
 	legend := make([]shareLegendRow, 0, len(top)+1)
 	addSeries := func(name string, totals int64, values []float64) {
-		i := len(series)
-		series = append(series, charts.Series{Name: name, Values: values})
-		dot := fmt.Sprintf(`<span class="cost-legend-dot" style="background:%s"></span>`, charts.PaletteColor(i))
 		legend = append(legend, shareLegendRow{
-			Dot:      template.HTML(dot), //nolint:gosec // palette is a fixed CSS token, agent name is not interpolated here
+			ColorIdx: len(datasets),
 			Model:    name,
 			Sessions: formatPanelInt(totals),
 		})
+		datasets = append(datasets, charts.Dataset{Name: name, Values: values})
 	}
 	for _, a := range top {
 		values := make([]float64, len(labels))
@@ -1095,9 +1107,14 @@ func buildActivityTrend(rows []*prosav1.AnalyticsRow) trendView {
 	}
 
 	return trendView{
-		Chart: charts.StackedColumns(labels, series, charts.StackedOpts{
-			UnitSuffix: " sessions",
-		}),
+		Chart: charts.Spec{
+			Type:        "bar",
+			Labels:      labels,
+			Datasets:    datasets,
+			Stacked:     true,
+			ValueSuffix: " sessions",
+			Height:      180,
+		},
 		Legend:      legend,
 		StartLabel:  labels[0],
 		EndLabel:    labels[len(labels)-1],
