@@ -26,7 +26,6 @@ type AnalyticsResult struct {
 	Rows    []AnalyticsRow
 }
 
-// AnalyticsSessions: COUNT(*), total turns, avg duration, by agent.
 func (s *Store) AnalyticsSessions(ctx context.Context, f SessionFilter) (AnalyticsResult, error) {
 	q, args := analyticsQuery(`
 		SELECT s.agent,
@@ -38,7 +37,6 @@ func (s *Store) AnalyticsSessions(ctx context.Context, f SessionFilter) (Analyti
 	return scanAnalytics(ctx, s.db, q, args, []string{"AGENT", "SESSIONS", "TURNS"})
 }
 
-// AnalyticsTools: SUM(session_tools.count) by tool name, top 20.
 func (s *Store) AnalyticsTools(ctx context.Context, f SessionFilter) (AnalyticsResult, error) {
 	q, args := analyticsQuery(`
 		SELECT st.name,
@@ -50,7 +48,6 @@ func (s *Store) AnalyticsTools(ctx context.Context, f SessionFilter) (AnalyticsR
 	return scanAnalytics(ctx, s.db, q, args, []string{"TOOL", "USES", "SESSIONS"})
 }
 
-// AnalyticsModels: COUNT(*) by sessions.model, sorted desc.
 func (s *Store) AnalyticsModels(ctx context.Context, f SessionFilter) (AnalyticsResult, error) {
 	q, args := analyticsQuery(`
 		SELECT COALESCE(s.model, '(none)') AS model,
@@ -344,14 +341,9 @@ func (s *Store) AnalyticsUsageByModel(ctx context.Context, f SessionFilter) (Ana
 	return out, rows.Err()
 }
 
-// analyticsQuery glues the SELECT skeleton to the SessionFilter's
-// generic conds. The marker `WHERE_AND` is substituted with either
-// `WHERE` (no SessionFilter conds added) or `WHERE a AND b AND` so the
-// caller can append further AND-clauses safely.
-//
-// SessionFilter.Since/Until are mandatory (cut-2 invariant). Agent /
-// DeviceName / ProjectExact / ProjectMatch / ProjectRemote /
-// ProjectMarker are all honored.
+// analyticsQuery builds a filtered analytics SQL statement from a SELECT
+// skeleton and a tail. `WHERE_AND` in the tail is replaced with the
+// SessionFilter conds so callers can append additional AND-clauses safely.
 func analyticsQuery(selectSQL, tail string, f SessionFilter) (string, []any) {
 	conds := []string{"s.started_at >= ?", "s.started_at <= ?"}
 	args := []any{formatTime(f.Since), formatTime(f.Until)}
@@ -393,8 +385,9 @@ func analyticsQuery(selectSQL, tail string, f SessionFilter) (string, []any) {
 	return body, args
 }
 
-// scanAnalytics is the generic scanner. It uses sql.RawBytes to deal
-// with mixed integer / string columns without per-report type knowledge.
+// scanAnalytics is the generic scanner for analytics queries. It uses
+// sql.NullString to handle mixed integer/string columns without per-report
+// type knowledge.
 func scanAnalytics(ctx context.Context, db *sql.DB, q string, args []any, headers []string) (AnalyticsResult, error) {
 	rows, err := db.QueryContext(ctx, q, args...)
 	if err != nil {

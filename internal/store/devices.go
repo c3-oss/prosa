@@ -74,14 +74,6 @@ func (s *Store) ListDevices(ctx context.Context) ([]Device, error) {
 	return out, rows.Err()
 }
 
-// RebindLocalSessions reassigns every `device_id = 'local'` session
-// row to the given fingerprint, in one transaction. Returns the count
-// rewritten. Used during startup to migrate sessions imported under
-// the seed device id from earlier prosa runs (or the legacy bundle
-// restore) to the real per-machine fingerprint.
-//
-// No-op when fingerprint == "local" (defensive: avoids a self-rewrite
-// if the resolver ever returns the seed value).
 // ListDevicesMap returns id → friendly_name for every device row,
 // usable as a lookup table during render so the timeline can show
 // human-readable device names instead of the raw fingerprint hex.
@@ -105,6 +97,13 @@ func (s *Store) ListDevicesMap(ctx context.Context) (map[string]string, error) {
 	return out, rows.Err()
 }
 
+// RebindLocalSessions reassigns every `device_id = 'local'` session row to
+// the given fingerprint, in one transaction. Returns the count rewritten.
+// Used during startup to migrate sessions imported under the seed device id
+// to the real per-machine fingerprint.
+//
+// No-op when fingerprint == "local" (defensive: avoids a self-rewrite if
+// the resolver ever returns the seed value).
 func (s *Store) RebindLocalSessions(ctx context.Context, fingerprint string) (int64, error) {
 	if fingerprint == "" || fingerprint == "local" {
 		return 0, nil

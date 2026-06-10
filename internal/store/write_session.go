@@ -10,11 +10,7 @@ import (
 // + session_tools, turns, and the sync_state hash — in a single
 // transaction. Importers call this instead of UpsertSession + InsertTurns +
 // RecordSync so a crash mid-write can never leave a session row visible
-// without its turns or with a stale sync_state. It mirrors the server's
-// Push handler, which already commits the analogous writes atomically.
-//
-// The prepared-statement loops inside upsertSessionTx/insertTurnsTx are
-// fine within one tx: modernc.org/sqlite serializes the inserts internally.
+// without its turns or with a stale sync_state.
 func (s *Store) WriteSession(
 	ctx context.Context,
 	sess session.Session,

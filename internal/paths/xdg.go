@@ -8,9 +8,8 @@ import (
 	"path/filepath"
 )
 
-// UserHome returns the current user's home directory. Keep direct
-// os.UserHomeDir calls inside this package so tests and future overrides
-// have one place to hook agent and OS-user paths.
+// UserHome returns the current user's home directory. Centralised so tests
+// and future overrides have one hook point.
 func UserHome() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -39,7 +38,6 @@ func Home() (string, error) {
 	return filepath.Join(home, ".local", "share", "prosa"), nil
 }
 
-// StorePath returns the absolute SQLite database file path.
 func StorePath() (string, error) {
 	h, err := Home()
 	if err != nil {

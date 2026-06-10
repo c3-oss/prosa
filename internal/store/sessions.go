@@ -156,10 +156,9 @@ type SessionFilter struct {
 	Limit int
 }
 
-// applyProjectMatch appends the OR-chain WHERE fragment and three
-// matching args for a ProjectMatch filter. This is the compatibility
-// substring path for --project; exact identity filters remain indexable.
-// Centralized so ListSessions and Search stay in lockstep.
+// applyProjectMatch appends the OR-chain WHERE fragment for a ProjectMatch
+// filter. Centralized so ListSessions and Search stay in lockstep; exact
+// identity filters remain indexable.
 func applyProjectMatch(conds []string, args []any, match string) ([]string, []any) {
 	conds = append(conds, "(s.project_path LIKE ? OR s.project_remote LIKE ? OR s.project_marker LIKE ?)")
 	pattern := "%" + match + "%"
