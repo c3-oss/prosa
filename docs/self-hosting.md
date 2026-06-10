@@ -15,8 +15,7 @@ the same Docker image; the entrypoint defaults to `prosa-server`.
   v2 API). One bucket; prosa shards inside it.
 - **A public-facing HTTPS endpoint** for the panel (if you want the OAuth
   flow to work). The CLI can talk to plain HTTP for dev.
-- **A GitHub OAuth app** (or Google — only the GitHub provider is wired in
-  this MVP cut).
+- **A GitHub OAuth app** (GitHub is the supported OAuth provider).
 - **30 minutes** for first-time setup.
 
 ## Dev stack (single command)

@@ -125,7 +125,7 @@ On headless machines, forward the callback port with `ssh -L` or copy
 Tokens are revocable via `prosa devices revoke <id|self>`. The server
 stores only the hash of each token, never the plaintext.
 
-**Panel auth (OAuth)**: GitHub OAuth (Google is wired but not in MVP cut).
+**Panel auth (OAuth)**: GitHub OAuth.
 The verified email is matched against `PROSA_OWNER_EMAILS`. Any non-listed
 email gets a 403. The session is an HMAC-signed cookie (`HttpOnly`,
 `Secure`, `SameSite=Lax`, 30-day TTL).

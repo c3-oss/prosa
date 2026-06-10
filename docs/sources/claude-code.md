@@ -238,7 +238,7 @@ metadata-rich version with tool-call summaries.
   resolves to the human content, not the wrapper. Wholly-meta user
   messages (`<command-name>`, `<system-reminder>`, etc.) fall through
   and the renderer shows `(meta)` instead.
-- `tool_result` blocks inside user-role messages now project as
+- `tool_result` blocks inside user-role messages project as
   separate `Role: "tool"`, `Kind: "tool_result"` turns. `ToolName`
   comes from the matching assistant `tool_use.id` → `name` map.
   Content is truncated to `toolPreviewMaxLines` /
@@ -283,8 +283,8 @@ What `loadTranscript` / `prosa v1 session show` surface for Claude Code sessions
   thinking) so search results stay focused on chat content. The raw
   JSONL preserves every byte verbatim.
 - **Subagents projected (v8+)**: subagent JSONLs at
-  `<parent-uuid>/subagents/agent-<uuid>.jsonl` are now imported
-  alongside their parents (walker no longer skips the `subagents/`
+  `<parent-uuid>/subagents/agent-<uuid>.jsonl` are imported
+  alongside their parents (the walker includes the `subagents/`
   directory; basename must match `agent-<uuid>.jsonl`). The parent
   UUID is recovered from the directory two levels above the JSONL
   and stored in `Session.ParentSessionID`. The panel renders the

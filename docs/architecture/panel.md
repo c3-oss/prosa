@@ -13,7 +13,7 @@ A small server-rendered web app:
   binary. There is no build step, no `node_modules`, no bundler.
 - **HTMX** for partial swaps (session detail sidepanel, raw-transcript
   pagination).
-- **Alpine.js** (planned, ~15 KB) for client-only UI state (modal toggles,
+- **Alpine.js** (~44 KB) for client-only UI state (modal toggles,
   filter pill open/close, command palette).
 - **Server-rendered HTML bars + tables** for leaderboard cards, plus a
   small Go inline-SVG charting package (`internal/panel/charts/`:
@@ -256,8 +256,7 @@ filter what it forwards.
   `hx-get` → `/sessions/<id>`, `hx-target` → `#side-panel`, `hx-swap` →
   `innerHTML`, `hx-push-url` → updates the query string with
   `?session=<id>`. The side panel opens in place; a refresh preserves
-  it. Same pattern as before, new origin page: row clicks now come from
-  the rich Sessions list instead of the old home timeline.
+  it. Row clicks originate from the Sessions list.
 - **Raw transcript pagination**: a `Load more` link near the end of
   `raw_chunk.html` has `hx-get` → `/raw/<id>?offset=N`, `hx-swap` →
   `beforeend`. Each chunk is at most 64 KB.
@@ -274,8 +273,8 @@ In short: it stays cheap to run, cheap to ship, and cheap to debug.
   hydration weirdness.
 - HTMX for the 10% of pages that need partial updates → the panel feels
   alive without being heavy.
-- Alpine planned for the few UI states that don't need a server roundtrip
-  (modal open/close, dropdown toggle) → 15 KB beats writing a vanilla
+- Alpine.js for the UI states that don't need a server roundtrip
+  (modal open/close, dropdown toggle) → 44 KB beats writing a vanilla
   toggle helper.
 
 Anything bigger than this would need to clear the INTENT bar.

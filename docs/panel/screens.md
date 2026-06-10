@@ -37,8 +37,8 @@ When the session sidepanel is open it enters from the right, taking
 ```
 
 The sidebar is five entries: **Home**, **Sessions**, **Projects**,
-**Devices**, **Settings**. There is no Analytics group; the per-report
-pages were folded into the Home dashboard and the Sessions list.
+**Devices**, **Settings**. Analytics content lives in the Home dashboard
+cards and the Sessions list; there is no separate Analytics group.
 
 Topbar and sidebar use `--bg-elev-1`. Main uses `--bg`. Region dividers
 are 1 px `--divider`. The topbar carries the brand, the "new sessions"
@@ -164,7 +164,7 @@ between the second and third rows.
   the `hours` report. UTC buckets are rotated into the panel's local
   zone for display (whole-hour, DST-naive); the subtitle names the peak
   hour.
-- **Issues** (full-width): replaces the old Errors table. An error-rate
+- **Issues** (full-width): An error-rate
   indicator, the most error-prone model, an **errors per model** bar
   leaderboard (`errors_by_model`), and a **recent flagged sessions**
   list — each row links to the transcript (agent badge + project +
@@ -320,8 +320,7 @@ Projects
   +------------------+----------+----------+
 ```
 
-- Same projects data the old analytics report drew, served by
-  `Analytics.GetReport("projects", since, until)`.
+- Projects data served by `Analytics.GetReport("projects", since, until)`.
 - The first cell of each row is an `<a href="/sessions?project=<label>&last=<window>">`
   so clicking lands on a Sessions view already filtered by that
   project, preserving the current window.
@@ -337,9 +336,8 @@ Projects
 
 ## Devices `/devices`
 
-Device admin. Same shape as before — approval form on top, table below
-— with one change: the Hostname cell of each row now navigates into a
-filtered Sessions view.
+Device admin. Approval form on top, table below. The Hostname cell of
+each row navigates into a filtered Sessions view.
 
 ```
 Devices
