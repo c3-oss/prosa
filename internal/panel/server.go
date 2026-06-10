@@ -70,6 +70,7 @@ func loadViews() (map[string]*template.Template, error) {
 		"base.html",
 		"icons.html",
 		"side_panel.html",
+		"dashboard_filters.html",
 	)
 	if err != nil {
 		return nil, fmt.Errorf("parse shared templates: %w", err)

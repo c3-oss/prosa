@@ -29,24 +29,11 @@ import (
 func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 
-	// Default window 30d — the dashboard wants a roomier rolling view
-	// than the CLI's 7d, while still letting the user narrow via ?last=.
-	lastRaw := q.Get("last")
-	if lastRaw == "" {
-		lastRaw = "30d"
-	}
 	now := nowFn().UTC()
-	var since, until time.Time
-	until = now
-	if lastRaw == "all" {
-		since = now.Add(-100 * 365 * 24 * time.Hour)
-	} else {
-		window, err := parseWindow(lastRaw)
-		if err != nil {
-			http.Error(w, "bad last= "+err.Error(), http.StatusBadRequest)
-			return
-		}
-		since = now.Add(-window)
+	lastRaw, since, until, err := parseDashboardWindow(q, now)
+	if err != nil {
+		http.Error(w, "bad last= "+err.Error(), http.StatusBadRequest)
+		return
 	}
 	heatmapSince, heatmapUntil := heatmapWindow(now)
 
@@ -54,41 +41,13 @@ func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 	projects := pickMulti(q, "project")
 	devices := pickDeviceNames(q)
 
-	// Build the shared filter knobs for the four windowed reports
-	// (tools, models, errors, usage). Heatmap uses its own request so
-	// the fixed-window override doesn't bleed into the others.
+	// Build the shared filter knobs for the windowed reports. Heatmap
+	// uses its own request so the fixed-window override doesn't bleed
+	// into the others.
 	sharedReq := func(report string) *prosav1.GetReportRequest {
-		req := &prosav1.GetReportRequest{
-			Report:      report,
-			Since:       timestamppb.New(since),
-			Until:       timestamppb.New(until),
-			DeviceNames: devices,
-		}
-		// agent and project_match are single-valued on the wire; when
-		// the user selected multiple, fall back to "any" server-side
-		// (no narrowing) — the cards then reflect the full window. A
-		// future refinement could post-filter, but for v1 we keep the
-		// dashboard honest at the price of less precise multi-selects.
-		if len(agents) == 1 {
-			req.Agent = agents[0]
-		}
-		if len(projects) == 1 {
-			req.ProjectMatch = projects[0]
-		}
-		return req
+		return dashboardReportRequest(report, since, until, agents, projects, devices)
 	}
-	heatmapReq := &prosav1.GetReportRequest{
-		Report:      "heatmap",
-		Since:       timestamppb.New(heatmapSince),
-		Until:       timestamppb.New(heatmapUntil),
-		DeviceNames: devices,
-	}
-	if len(agents) == 1 {
-		heatmapReq.Agent = agents[0]
-	}
-	if len(projects) == 1 {
-		heatmapReq.ProjectMatch = projects[0]
-	}
+	heatmapReq := dashboardReportRequest("heatmap", heatmapSince, heatmapUntil, agents, projects, devices)
 
 	// Sessions.List with limit=1 returns one row plus the unfiltered
 	// total — cheap way to get the "sessions in window" KPI without
@@ -173,16 +132,18 @@ func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 	hourChart := buildHourChart(out.hours.Rows)
 	issues := buildIssues(out.errorsByModel.Rows, out.errors.Rows, out.sessions.TotalCount)
 
-	activeFilters := buildHomeActiveFilters(r.URL.Query(), lastRaw, agents, projects, devices)
+	activeFilters := buildDashboardActiveFilters(r.URL.Query(), "/", lastRaw, agents, projects, devices)
 	clearFiltersURL := ""
 	if len(activeFilters) > 0 {
 		clearFiltersURL = "/"
 	}
 
 	data := map[string]any{
-		"Title": "Home",
-		"Nav":   "home",
-		"CSRF":  p.csrfFromRequest(r),
+		"Title":        "Home",
+		"Nav":          "home",
+		"CSRF":         p.csrfFromRequest(r),
+		"PageTitle":    "Home",
+		"FilterAction": "/",
 
 		// Filter state.
 		"Last":             lastRaw,
@@ -327,42 +288,6 @@ func clampRows(rows []*prosav1.AnalyticsRow, limit int) []*prosav1.AnalyticsRow 
 		return rows[:limit]
 	}
 	return rows
-}
-
-// buildHomeActiveFilters mirrors buildSessionsActiveFilters for the
-// dashboard. Renders one chip per active filter pointing at "/" so the
-// remove URL is bookmark-stable.
-func buildHomeActiveFilters(q url.Values, last string, agents, projects, devices []string) []activeFilter {
-	var out []activeFilter
-	mk := func(label, value string, removeQuery url.Values) activeFilter {
-		removeQuery.Del("session")
-		removeURL := "/"
-		if encoded := removeQuery.Encode(); encoded != "" {
-			removeURL += "?" + encoded
-		}
-		return activeFilter{Label: label, Value: value, RemoveURL: removeURL}
-	}
-	if last != "" && last != "30d" {
-		next := cloneValues(q)
-		next.Del("last")
-		out = append(out, mk("Window", last, next))
-	}
-	for _, a := range agents {
-		next := cloneValues(q)
-		removeFromMulti(next, "agent", a)
-		out = append(out, mk("Agent", a, next))
-	}
-	for _, p := range projects {
-		next := cloneValues(q)
-		removeFromMulti(next, "project", p)
-		out = append(out, mk("Project", p, next))
-	}
-	for _, d := range devices {
-		next := cloneValues(q)
-		removeFromMulti(next, "device", d)
-		out = append(out, mk("Device", d, next))
-	}
-	return out
 }
 
 // projectLabelsFromRows extracts unique project labels (first column

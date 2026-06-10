@@ -62,3 +62,82 @@ func analyticsRequest(report string, since, until time.Time, q url.Values) *pros
 	req.Agent = q.Get("agent")
 	return req
 }
+
+// parseDashboardWindow resolves the dashboard's ?last= filter into time
+// bounds. Default window 30d — the dashboard wants a roomier rolling
+// view than the CLI's 7d, while still letting the user narrow via
+// ?last=. The "all" sentinel maps to a -100y lower bound.
+func parseDashboardWindow(q url.Values, now time.Time) (lastRaw string, since, until time.Time, err error) {
+	lastRaw = q.Get("last")
+	if lastRaw == "" {
+		lastRaw = "30d"
+	}
+	until = now
+	if lastRaw == "all" {
+		since = now.Add(-100 * 365 * 24 * time.Hour)
+		return lastRaw, since, until, nil
+	}
+	window, err := parseWindow(lastRaw)
+	if err != nil {
+		return lastRaw, since, until, err
+	}
+	return lastRaw, now.Add(-window), until, nil
+}
+
+// dashboardReportRequest builds the GetReportRequest shared by the home
+// and insights dashboards. agent and project_match are single-valued on
+// the wire; when the user selected multiple, fall back to "any"
+// server-side (no narrowing) — the cards then reflect the full window.
+// A future refinement could post-filter, but for v1 we keep the
+// dashboard honest at the price of less precise multi-selects.
+func dashboardReportRequest(report string, since, until time.Time, agents, projects, devices []string) *prosav1.GetReportRequest {
+	req := &prosav1.GetReportRequest{
+		Report:      report,
+		Since:       timestamppb.New(since),
+		Until:       timestamppb.New(until),
+		DeviceNames: devices,
+	}
+	if len(agents) == 1 {
+		req.Agent = agents[0]
+	}
+	if len(projects) == 1 {
+		req.ProjectMatch = projects[0]
+	}
+	return req
+}
+
+// buildDashboardActiveFilters mirrors buildSessionsActiveFilters for
+// the dashboard pages. Renders one chip per active filter pointing at
+// basePath ("/" or "/insights") so the remove URL is bookmark-stable.
+func buildDashboardActiveFilters(q url.Values, basePath, last string, agents, projects, devices []string) []activeFilter {
+	var out []activeFilter
+	mk := func(label, value string, removeQuery url.Values) activeFilter {
+		removeQuery.Del("session")
+		removeURL := basePath
+		if encoded := removeQuery.Encode(); encoded != "" {
+			removeURL += "?" + encoded
+		}
+		return activeFilter{Label: label, Value: value, RemoveURL: removeURL}
+	}
+	if last != "" && last != "30d" {
+		next := cloneValues(q)
+		next.Del("last")
+		out = append(out, mk("Window", last, next))
+	}
+	for _, a := range agents {
+		next := cloneValues(q)
+		removeFromMulti(next, "agent", a)
+		out = append(out, mk("Agent", a, next))
+	}
+	for _, p := range projects {
+		next := cloneValues(q)
+		removeFromMulti(next, "project", p)
+		out = append(out, mk("Project", p, next))
+	}
+	for _, d := range devices {
+		next := cloneValues(q)
+		removeFromMulti(next, "device", d)
+		out = append(out, mk("Device", d, next))
+	}
+	return out
+}
