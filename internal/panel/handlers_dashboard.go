@@ -54,9 +54,6 @@ func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 	projects := pickMulti(q, "project")
 	devices := pickDeviceNames(q)
 
-	// Build the shared filter knobs for the four windowed reports
-	// (tools, models, errors, usage). Heatmap uses its own request so
-	// the fixed-window override doesn't bleed into the others.
 	sharedReq := func(report string) *prosav1.GetReportRequest {
 		req := &prosav1.GetReportRequest{
 			Report:      report,
@@ -159,7 +156,6 @@ func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Dropdown options for the hidden filter block.
 	deviceNames, _, err := p.loadDeviceLookup(r.Context())
 	if err != nil {
 		slog.Warn("home devices.list failed", "err", err)
@@ -184,7 +180,6 @@ func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 		"Nav":   "home",
 		"CSRF":  p.csrfFromRequest(r),
 
-		// Filter state.
 		"Last":             lastRaw,
 		"Agents":           panelAgents,
 		"AgentsSelected":   selectionSet(agents),
@@ -195,7 +190,6 @@ func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 		"ActiveFilters":    activeFilters,
 		"ClearFiltersURL":  clearFiltersURL,
 
-		// KPI strip.
 		"SessionsKPI":  out.sessions.TotalCount,
 		"ProjectsKPI":  len(projectNames),
 		"ModelsKPI":    len(out.models.Rows),
@@ -203,7 +197,6 @@ func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 		"SpendKPI":     usageCost,
 		"ErrorRateKPI": issues.Rate,
 
-		// Heatmap card.
 		"HeatmapCells":    heatmap.Cells,
 		"HeatmapTotal":    heatmap.Total,
 		"HeatmapMax":      heatmap.Max,
@@ -211,36 +204,28 @@ func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 		"HeatmapMonths":   heatmap.Months,
 		"HeatmapColumns":  heatmap.Columns,
 
-		// Tools card.
 		"ToolHeaders": out.tools.Headers,
 		"ToolBars":    buildBarRows(out.tools.Rows, 10),
 
-		// Models card.
 		"ModelHeaders": out.models.Headers,
 		"ModelBars":    buildBarRows(out.models.Rows, 10),
 
-		// Projects card (chart: most worked-on).
 		"ProjectBars": projectBars,
+		"HourChart":   hourChart.Chart,
+		"HourPeak":    hourChart.PeakLabel,
 
-		// Hour-of-day card (chart: activity by local hour).
-		"HourChart": hourChart.Chart,
-		"HourPeak":  hourChart.PeakLabel,
-
-		// Issues section (replaces the old Errors table).
 		"IssuesFlagged":  issues.Flagged,
 		"IssuesRate":     issues.Rate,
 		"IssuesTopModel": issues.TopModel,
 		"IssuesBars":     issues.PerModelBars,
 		"IssuesRecent":   issues.Recent,
 
-		// Tokens & cost per model card (chart: per-model spend).
 		"ModelTokenBars":   modelUsage.TokenBars,
 		"CostDonut":        modelUsage.CostDonut,
 		"ModelCostLegend":  modelUsage.CostLegend,
 		"ModelTotalTokens": modelUsage.TotalTokens,
 		"ModelTotalCost":   modelUsage.TotalCost,
 
-		// Usage card (per agent).
 		"UsageRows":        usageRows,
 		"UsageTotalTokens": formatPanelInt(usageTokens),
 		"UsageTotalCost":   usageCost,

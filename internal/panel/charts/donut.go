@@ -71,7 +71,6 @@ func Donut(slices []Slice, opts DonutOpts) template.HTML {
 	fmt.Fprintf(&b, `<svg class="%s" viewBox="0 0 %d %d" width="%d" height="%d" role="img">`,
 		template.HTMLEscapeString(class), size, size, size, size)
 
-	// Track ring under the segments.
 	fmt.Fprintf(&b, `<circle cx="%s" cy="%s" r="%s" fill="none" stroke="var(--bg-elev-2)" stroke-width="%s"/>`,
 		num(c), num(c), num(r), num(stroke))
 
@@ -92,7 +91,6 @@ func Donut(slices []Slice, opts DonutOpts) template.HTML {
 		offset += dash
 	}
 
-	// Center text.
 	labelY := c
 	if opts.CenterLabel != "" {
 		if opts.CenterSub != "" {

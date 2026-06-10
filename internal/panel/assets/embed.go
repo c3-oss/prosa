@@ -1,5 +1,4 @@
-// Package assets embeds the panel's static files (HTMX, CSS, small
-// JS shims) so the binary ships with everything it needs to render.
+// Package assets embeds the panel's static files.
 package assets
 
 import "embed"

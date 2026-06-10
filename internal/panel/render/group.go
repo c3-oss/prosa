@@ -27,9 +27,8 @@ type Turn struct {
 	UserExtras *UserExtras
 }
 
-// UserExtras mirrors the renderable parts of sessiontext.UserMessage,
-// exposed in this package so handlers_views.go can populate it
-// without leaking the sessiontext type through the template.
+// UserExtras mirrors the renderable parts of sessiontext.UserMessage
+// without exposing that type through the template.
 type UserExtras struct {
 	Command                 string
 	CommandArgs             string
@@ -90,11 +89,6 @@ const DividerThreshold = 30 * time.Second
 // Summary:"Worked for 2m 14s"} is inserted between them. Both turns
 // must have a non-zero Ts for the divider to fire — zero-timestamp
 // fixtures (and test inputs) stay divider-free.
-//
-// A tool-group's Summary lists the distinct tool names sorted by
-// invocation count desc (ties broken by name asc), formatted as
-// "Read ×3 · Bash ×1 · WebSearch ×1". A thinking-group's Summary
-// is "Processed" (1 block) or "Processed (N steps)" for N>1.
 func GroupTurns(in []Turn) []TurnGroup {
 	if len(in) == 0 {
 		return nil
@@ -128,15 +122,11 @@ func GroupTurns(in []Turn) []TurnGroup {
 	}
 
 	for _, t := range in {
-		// Decide whether a divider precedes this turn. We check before
-		// adding to a pending bucket so the divider sits between the
-		// previous group's last turn and the current incoming one,
-		// not inside a coalesced run.
+		// Check before adding to a pending bucket so the divider sits
+		// between groups, not inside a coalesced run.
 		if !lastTs.IsZero() && !t.Ts.IsZero() {
 			gap := t.Ts.Sub(lastTs)
 			if gap >= DividerThreshold {
-				// Flush any pending runs first so the divider lands
-				// after them, then between groups.
 				flushTools()
 				flushThinking()
 				out = append(out, TurnGroup{
@@ -166,9 +156,7 @@ func GroupTurns(in []Turn) []TurnGroup {
 	return out
 }
 
-// thinkingGroupSummary returns the label rendered on the collapsed
-// thinking block. Single step stays compact; multi-step exposes the
-// count so the user knows how much is hidden.
+// thinkingGroupSummary returns the label for the collapsed thinking block.
 func thinkingGroupSummary(in []Turn) string {
 	if len(in) <= 1 {
 		return "Processed"
@@ -177,8 +165,7 @@ func thinkingGroupSummary(in []Turn) string {
 }
 
 // toolGroupSummary builds "Read ×3 · Bash ×1" from the tool turns in
-// a group. Empty ToolName falls into a generic "tool" bucket so
-// nothing disappears. Order: count desc, name asc.
+// a group. Empty ToolName falls into a generic "tool" bucket.
 func toolGroupSummary(in []Turn) string {
 	if len(in) == 0 {
 		return ""

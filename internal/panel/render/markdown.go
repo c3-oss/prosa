@@ -16,10 +16,9 @@ import (
 	gmhtml "github.com/yuin/goldmark/renderer/html"
 )
 
-// md is the package-wide markdown renderer. Configured once, used by
-// every Render call. Hardwraps so chat-style "\n" turns into <br>.
-// Unsafe HTML is intentionally disabled — goldmark HTML-escapes any
-// inline markup the model emits.
+// md is the package-wide goldmark renderer. Hardwraps so chat-style
+// "\n" turns into <br>. Unsafe HTML is intentionally disabled —
+// goldmark HTML-escapes any inline markup the model emits.
 var md = goldmark.New(
 	goldmark.WithExtensions(extension.GFM),
 	goldmark.WithParserOptions(parser.WithAutoHeadingID()),

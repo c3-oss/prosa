@@ -194,7 +194,6 @@ func (p *Panel) handleSessions(w http.ResponseWriter, r *http.Request) {
 		page = pageCount
 	}
 
-	// Column chooser. Default omits the verbose id column.
 	cols := buildColsMap(pickMulti(q, "cols"))
 
 	// Dropdown option lists. Devices come from Devices.List; projects
@@ -210,12 +209,10 @@ func (p *Panel) handleSessions(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("sessions projects.list failed", "err", err)
 	}
 
-	// Selection maps for the template (`index .X "k"`).
 	agentsSelected := selectionSet(agents)
 	projectsSelected := selectionSet(projects)
 	devicesSelected := selectionSet(devices)
 
-	// Pre-build rows with display-formatted strings.
 	rows := make([]sessionRow, 0, len(sessions))
 	for _, s := range sessions {
 		rows = append(rows, buildSessionRow(s, r.URL, deviceLookup))
