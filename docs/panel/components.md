@@ -125,8 +125,12 @@ Variants:
 
 - **default** — value + label;
 - **with sparkline** — value + label + sparkline;
-- **with delta** — value + label + delta vs previous period (`+12%` in
-  `--ok`, `-4%` in `--danger`).
+- **with delta** — value + label + delta vs previous period. **Landed**
+  on the Home KPI strip (`.kpi-delta`): movement vs the
+  immediately-preceding window of equal length. Tone classes
+  `kpi-tone-good` (`--ok`), `kpi-tone-bad` (`--danger`), and
+  `kpi-tone-muted` (`--text-3`) carry the reading — the error rate
+  inverts (rising is bad), est. spend is always muted.
 
 ---
 
@@ -320,6 +324,63 @@ func Area(points []Point, opts AreaOpts) template.HTML
 - Empty input renders an empty canvas; all-zero values render a flat
   baseline (no peak marker);
 - Determinism: same input → byte-identical SVG (golden-tested).
+
+---
+
+## Stacked columns
+
+**Landed** in `internal/panel/charts/stacked.go`. Used by the Home
+"Activity trend" card (series per agent), the Insights "Spend &
+tokens" card (single series + cumulative `Overlay`), and the Insights
+"Model share" card (`Normalize`).
+
+### Signature
+
+```go
+type Series struct {
+    Name   string
+    Values []float64 // one per label; missing trailing values are zero
+}
+
+type StackedOpts struct {
+    Width         int       // viewBox width, default 520
+    Height        int       // viewBox height, default 140
+    Class         string    // root element class, default "stacked-chart"
+    UnitSuffix    string    // appended to each segment value in its <title>
+    Normalize     bool      // scale every column to 100% (share view)
+    Overlay       []float64 // optional line on its own max-scale
+    OverlaySuffix string    // appended to the overlay end-marker <title>
+}
+
+func StackedColumns(labels []string, series []Series, opts StackedOpts) template.HTML
+```
+
+### Visual
+
+- One column per label, stacked `<rect>` segments bottom-up, one per
+  series;
+- Segment color comes from `PaletteColor(seriesIndex)` — an HTML legend
+  rendered beside the chart matches by index (same pattern as the donut
+  cost legend);
+- Each segment carries `<title>label · name: value</title>`; with
+  `Normalize`, the title appends the column share (`(80%)`);
+- `Overlay` draws a `--accent` polyline scaled to its own max with an
+  end-marker circle (used for cumulative spend);
+- Non-positive values render no rect; empty labels render an empty
+  canvas;
+- Determinism: same input → byte-identical SVG (golden-tested).
+
+---
+
+## Punch card
+
+**Landed** as an HTML grid in `insights.html` (no SVG — same approach
+as the heatmap). 7 weekday rows × 24 local-hour columns of
+`heatmap-cell level-N` spans, so it inherits the heatmap's 5-level
+`--accent` color scale for free. A small hour axis (00h … 23h) sits on
+top; each cell carries `title`/`aria-label`
+`"<weekday> <hour>h: N sessions"`. Data is the `punchcard` report (UTC)
+rotated into the panel's local zone with weekday carry across midnight.
 
 ---
 

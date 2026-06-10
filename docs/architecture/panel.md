@@ -73,7 +73,8 @@ Routes (current MVP cut), all served from the same mux:
 - `GET /assets/*` — embedded static assets
 
 **Gated by session cookie:**
-- `GET /` — Home dashboard (KPI strip + heatmap + tools/models/projects/hour-of-day cards, the Issues section, tokens-&-cost-per-model and usage cards, collapsible filters)
+- `GET /` — Home dashboard (KPI strip with vs-previous-window deltas + heatmap + activity-trend card + tools/models/projects/hour-of-day cards, the Issues section, tokens-&-cost-per-model and usage cards, collapsible filters)
+- `GET /insights` — progression & rhythm dashboard (spend & tokens per day, weekly model share, weekday × hour punch card, streak/consistency and schedule KPIs, session-duration histogram, subagent fan-out; same filter chrome as Home)
 - `GET /sessions` — full session list (FTS, multi-select filters, column chooser, sortable headers, paginated)
 - `GET /sessions/<id>` — session detail (HTMX side-panel partial)
 - `GET /projects` — projects table; rows link into filtered Sessions
@@ -87,10 +88,12 @@ Routes (current MVP cut), all served from the same mux:
 - `POST /logout` — clear the panel session
 - `GET /events` — SSE stream (proxied from the server)
 
-There is no `/analytics/*` surface. The reports live as cards on Home —
-Tools, Models, Projects, Hour of day, Issues (the error heuristic),
-Tokens & cost per model, Usage, and the Heatmap; the per-report subpages
-were folded into the dashboard and into the filtered Sessions list.
+There is no `/analytics/*` surface. The reports live as cards on two
+dashboards: Home (Tools, Models, Projects, Hour of day, Issues,
+Tokens & cost per model, Usage, the Heatmap, and the Activity trend)
+and Insights (spend & tokens trend, model share, punch card, streaks,
+durations, subagents); the per-report subpages were folded into the
+dashboards and into the filtered Sessions list.
 
 Note: `/sessions` (exact) and `/sessions/<id>` (subtree prefix) coexist
 on the stdlib `http.ServeMux` — list vs. detail are independent
@@ -121,9 +124,15 @@ template by name.
 
 Current template files (likely set; check the directory for ground truth):
 
-- `base.html` — sidebar (5 entries), main area, side panel slot.
-- `home.html` — dashboard: collapsible filters + KPI strip + heatmap +
-  tools/models/errors/usage cards.
+- `base.html` — sidebar (6 entries), main area, side panel slot.
+- `home.html` — dashboard: KPI strip (with deltas) + heatmap +
+  activity trend + tools/models/errors/usage cards.
+- `insights.html` — progression & rhythm dashboard: spend/tokens trend,
+  model share, punch card, streak & schedule KPIs, durations,
+  subagents.
+- `dashboard_filters.html` — shared partial: the filter drawer + active
+  chips used by both dashboards (parameterized by `PageTitle` /
+  `FilterAction`).
 - `sessions.html` — full session list: FTS input, multi-select
   dropdowns, `<details>` column chooser, sortable headers, pagination
   footer.
@@ -172,6 +181,8 @@ Component CSS landed so far (under `css/components/`):
   runs (F5).
 - `subagents.css` — list of child sessions on the parent's sidepanel,
   HTMX-swappable to drill down (F7).
+- `insights.css` — Insights page: trend charts, punch card grid (reuses
+  the heatmap cell color levels), subagents table.
 
 Planned next (sidepanel redesign):
 
@@ -180,10 +191,11 @@ Planned next (sidepanel redesign):
 
 Deferred:
 
-- Inline-SVG **sparkline** (`internal/panel/charts/`). The `Donut` and
-  `Area` helpers have landed (cost-share and hour-of-day charts); the
-  sparkline sketched in [`../panel/components.md`](../panel/components.md)
-  can land later without changing routes or proto.
+- Inline-SVG **sparkline** (`internal/panel/charts/`). The `Donut`,
+  `Area`, and `StackedColumns` helpers have landed (cost-share,
+  hour-of-day, and the trend/share charts); the sparkline sketched in
+  [`../panel/components.md`](../panel/components.md) can land later
+  without changing routes or proto.
 
 ### Markdown rendering
 

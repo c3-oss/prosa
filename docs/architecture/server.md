@@ -54,6 +54,24 @@ Defaults: `PROSA_LISTEN_ADDR=:7070`, `PROSA_S3_BUCKET=prosa-raw`,
 
 Proto in `proto/prosa/v1/`. Generated Go in `gen/go/prosa/v1/`, committed.
 
+### Analytics reports
+
+`GetReport` dispatches on a report-name string, so adding a report is a
+server-side change only (no proto schema change). The CLI-facing
+reports (`sessions`, `tools`, `models`, `projects`, `errors`,
+`heatmap`, `usage`, `hours`, `usage_by_model`, `errors_by_model`)
+mirror `internal/store/analytics.go` against SQLite. The insights
+reports feed the panel's `/insights` page and Home trend card only and
+have **no SQLite/CLI mirror**:
+
+| Report | Shape | Powers |
+| --- | --- | --- |
+| `usage_by_day` | per (UTC day, model) session counts + token splits | spend & tokens trend, model share (cost priced panel-side) |
+| `punchcard` | per (UTC weekday, UTC hour) session counts | punch card + schedule-profile KPIs (rotated to local panel-side) |
+| `durations` | fixed buckets of `last_activity_at − started_at` | session-duration histogram |
+| `duration_stats` | one row: median/p90/avg/max seconds | duration card subtitle |
+| `subagents` | per parent-agent: parents, children, max fan-out | subagents card (children filtered by window) |
+
 ### Push
 
 `SessionsService.Push` accepts a session + turns + tool aggregates + the

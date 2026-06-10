@@ -108,7 +108,9 @@ Services:
 - **DevicesService** — `List`, `Rename`, `Revoke`.
 - **AnalyticsService** — `GetReport` (one of `sessions`, `tools`,
   `models`, `projects`, `errors`, `heatmap`, `usage`, `hours`,
-  `usage_by_model`, `errors_by_model`).
+  `usage_by_model`, `errors_by_model`, plus the panel-only insights
+  reports `usage_by_day`, `punchcard`, `durations`, `duration_stats`,
+  `subagents` — these have no CLI/SQLite mirror).
 - **HealthService** — standard gRPC health check.
 
 Schemas are versioned `v1`, `v2`, …. Breaking changes get a new directory,
