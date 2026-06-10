@@ -10,8 +10,7 @@ import (
 	"strconv"
 )
 
-// Config is the env-driven runtime configuration for prosa-server. All
-// fields can be overridden via the PROSA_* env vars listed inline.
+// Config is the env-driven runtime configuration for prosa-server.
 type Config struct {
 	// HTTP listen address. PROSA_LISTEN_ADDR (default ":7070").
 	ListenAddr string

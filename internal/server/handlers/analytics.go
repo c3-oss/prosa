@@ -26,7 +26,6 @@ type AnalyticsHandler struct {
 	Pool *pgxpool.Pool
 }
 
-// NewAnalyticsHandler wires the handler.
 func NewAnalyticsHandler(pool *pgxpool.Pool) *AnalyticsHandler {
 	return &AnalyticsHandler{Pool: pool}
 }
@@ -341,10 +340,8 @@ func runUsage(
 	return connect.NewResponse(out), nil
 }
 
-// runUsageByModel mirrors runUsage but groups by model instead of agent,
-// so the panel can rank token spend per model and draw a cost donut. Each
-// group shares one model, so cost is a straight pricing.CostUSD over the
-// summed usage. Mirrors internal/store/analytics.go AnalyticsUsageByModel.
+// runUsageByModel groups by model instead of agent; each group shares one
+// model so cost is a straight pricing.CostUSD over the summed usage.
 func runUsageByModel(
 	ctx context.Context,
 	pool *pgxpool.Pool,
@@ -488,9 +485,8 @@ func queryErrors(whereSQL string, args []any) (string, []any) {
 	return q, args
 }
 
-// queryHours buckets sessions by their UTC start-hour ("00".."23").
-// Canonically UTC like the heatmap; the panel rotates to local for display.
-// Mirrors internal/store/analytics.go AnalyticsHours.
+// queryHours buckets sessions by UTC start-hour ("00".."23"); the panel
+// rotates to local time for display.
 func queryHours(whereSQL string, args []any) (string, []any) {
 	q := `
 		SELECT to_char(s.started_at AT TIME ZONE 'UTC', 'HH24') AS hour,
@@ -502,9 +498,8 @@ func queryHours(whereSQL string, args []any) (string, []any) {
 	return q, args
 }
 
-// queryErrorsByModel groups the FTS error heuristic by model — the Postgres
-// tsvector equivalent of the store's AnalyticsErrorsByModel. Uncapped so the
-// row sum is the true flagged-session count for an error-rate indicator.
+// queryErrorsByModel groups the FTS error heuristic by model. Uncapped so
+// the row sum is the true flagged-session count for an error-rate indicator.
 func queryErrorsByModel(whereSQL string, args []any) (string, []any) {
 	args = append(args, errorTriggers)
 	tsParam := fmt.Sprintf("$%d", len(args))

@@ -22,7 +22,6 @@ type DevicesHandler struct {
 	Pool *pgxpool.Pool
 }
 
-// NewDevicesHandler wires the handler.
 func NewDevicesHandler(pool *pgxpool.Pool) *DevicesHandler {
 	return &DevicesHandler{Pool: pool}
 }

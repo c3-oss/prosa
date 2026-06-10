@@ -21,7 +21,6 @@ type AuthHandler struct {
 	Svc *auth.Service
 }
 
-// NewAuthHandler wires the service into the generated stub.
 func NewAuthHandler(svc *auth.Service) *AuthHandler {
 	return &AuthHandler{Svc: svc}
 }

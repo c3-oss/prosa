@@ -25,9 +25,7 @@ import (
 // multi-GB PushRequest from exhausting server memory and S3.
 const maxRequestBytes = 64 * 1024 * 1024
 
-// Server bundles the wiring between Connect handlers and their
-// dependencies (Postgres pool + S3 store). Build via New; serve via
-// Serve(ctx).
+// Server bundles Connect handlers with their Postgres and S3 dependencies.
 type Server struct {
 	cfg  Config
 	pool *pgxpool.Pool
@@ -36,7 +34,6 @@ type Server struct {
 }
 
 // New opens all backing stores and registers every Connect handler.
-// Returns the assembled Server ready to Serve.
 func New(ctx context.Context, cfg Config) (*Server, error) {
 	pool, err := storage.OpenPG(ctx, cfg.DBURL)
 	if err != nil {
@@ -60,9 +57,6 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	// panic handler close the connection and dump to stdout — the caller
 	// sees a structured Internal error, not an EOF.
 	recover := connect.WithRecover(recoverHandler)
-	// Bound the decoded request size so a malicious or buggy client can't
-	// exhaust RAM (and S3) with a multi-GB PushRequest.raw; 64 MiB is
-	// generous for legit transcripts.
 	readMax := connect.WithReadMaxBytes(maxRequestBytes)
 	base := []connect.HandlerOption{recover, readMax}
 	authed := append(append([]connect.HandlerOption{}, base...), connect.WithInterceptors(auth.Interceptor(authSvc)))
@@ -135,9 +129,7 @@ func (s *Server) registerAnalytics(opts ...connect.HandlerOption) {
 	s.mux.Handle(path, handler)
 }
 
-// recoverHandler is the connect.WithRecover callback: it logs the panic
-// (with a stack trace) through slog and returns a generic Internal error
-// so the panic value never leaks to the caller.
+// recoverHandler is the connect.WithRecover callback; panic value never leaks to the caller.
 func recoverHandler(ctx context.Context, spec connect.Spec, _ http.Header, r any) error {
 	slog.ErrorContext(
 		ctx, "connect handler panic recovered",
@@ -148,9 +140,8 @@ func recoverHandler(ctx context.Context, spec connect.Spec, _ http.Header, r any
 	return connect.NewError(connect.CodeInternal, errors.New("internal error"))
 }
 
-// healthHandler is the trivial Health.Check implementation — returns
-// SERVING when the process is up. The Postgres / S3 connections are
-// validated at boot; a per-call deep-check is overkill for the MVP.
+// healthHandler returns SERVING unconditionally; backing stores are validated
+// at boot so a per-call deep-check is intentionally omitted.
 type healthHandler struct{}
 
 func (healthHandler) Check(_ context.Context, _ *connect.Request[prosav1.CheckRequest]) (*connect.Response[prosav1.CheckResponse], error) {

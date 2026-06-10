@@ -20,8 +20,7 @@ type ObjectStore struct {
 }
 
 // OpenS3 connects to the configured S3-compatible endpoint and ensures
-// the target bucket exists. Idempotent on the bucket creation; safe to
-// call on every prosa-server boot.
+// the target bucket exists. Idempotent; safe to call on every boot.
 func OpenS3(ctx context.Context, endpoint, accessKey, secretKey, bucket, region string, useSSL bool) (*ObjectStore, error) {
 	client, err := minio.New(endpoint, &minio.Options{
 		Creds:  credentials.NewStaticV4(accessKey, secretKey, ""),
@@ -56,9 +55,9 @@ func (s *ObjectStore) ensureBucket(ctx context.Context) error {
 	return nil
 }
 
-// Put uploads body under key and returns the canonical s3://bucket/key
-// URI. Content-type is application/octet-stream since the body is
-// arbitrary raw text/binary depending on agent.
+// Put uploads body under key and returns a canonical s3://bucket/key URI.
+// Content-type is application/octet-stream; body is arbitrary raw text or
+// binary depending on agent.
 func (s *ObjectStore) Put(ctx context.Context, key string, body io.Reader, size int64) (string, error) {
 	_, err := s.Client.PutObject(ctx, s.Bucket, key, body, size, minio.PutObjectOptions{
 		ContentType: "application/octet-stream",

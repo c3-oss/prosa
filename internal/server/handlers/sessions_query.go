@@ -211,8 +211,6 @@ func (h *SessionsHandler) List(ctx context.Context, req *connect.Request[prosav1
 	return connect.NewResponse(out), nil
 }
 
-// normalizeListSort whitelists ListRequest.sort_by. Empty defaults to
-// started_at. Anything outside the allowed set returns a client error.
 func normalizeListSort(v string) (string, error) {
 	switch v {
 	case "", "started_at":
@@ -226,7 +224,6 @@ func normalizeListSort(v string) (string, error) {
 	}
 }
 
-// defaultListSortDir is the direction used when sort_dir is empty.
 func defaultListSortDir(sortBy string) string {
 	switch sortBy {
 	case "agent", "project", "device":
@@ -236,8 +233,6 @@ func defaultListSortDir(sortBy string) string {
 	}
 }
 
-// normalizeSortDir whitelists ListRequest.sort_dir and returns the SQL
-// keyword ASC or DESC for ORDER BY. Empty uses the column default.
 func normalizeSortDir(raw, sortBy string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "":
@@ -314,8 +309,6 @@ func scanSessionListRow(r scannable, withRank bool) (*prosav1.Session, error) {
 	return &s, nil
 }
 
-// Get returns one session by id along with its turns and tools.
-// Device callers may only fetch sessions belonging to their device;
 func (h *SessionsHandler) Search(ctx context.Context, req *connect.Request[prosav1.SearchRequest]) (*connect.Response[prosav1.SearchResponse], error) {
 	callerDevice, isDevice := auth.DeviceFromContext(ctx)
 	if !isDevice && !auth.IsOwner(ctx) {
