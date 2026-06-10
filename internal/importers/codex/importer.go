@@ -22,7 +22,7 @@ const Name = "codex"
 // Importer satisfies importer.Importer for Codex.
 type Importer struct{}
 
-// New returns a zero-state importer; the type has no configuration in cut 2.
+// New returns a zero-state Codex importer.
 func New() *Importer { return &Importer{} }
 
 func (i *Importer) Name() string { return Name }
@@ -35,11 +35,7 @@ func (i *Importer) DefaultRoots() []string {
 	return []string{filepath.Join(home, ".codex", "sessions")}
 }
 
-// Import is the per-file entry point used by the CLI sync command. The
-// pipeline mirrors claudecode.Import — hash, peek id, idempotency
-// short-circuit (bypassed when opts.Overwrite is set), parse, classify
-// usage, preserve raw, write through Sink — so the diff between agents
-// stays inside parse.go and walk.go.
+// Import is the per-file entry point used by the CLI sync command.
 func (i *Importer) Import(ctx context.Context, jsonlPath string, sink importer.Sink, opts importer.ImportOptions) (importer.ImportResult, error) {
 	return importerutil.RunSingleFile(ctx, importerutil.SingleFileConfig{
 		Agent:  Name,

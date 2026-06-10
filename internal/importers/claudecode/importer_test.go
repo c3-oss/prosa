@@ -185,7 +185,6 @@ func TestImportSmallSession(t *testing.T) {
 	require.Equal(t, "Read", turns[2].ToolName, "tool name resolved via tool_use_id")
 	require.Contains(t, turns[2].Content, "file body")
 
-	// Bash + Read tool uses aggregated.
 	tools := sink.Tools[fixtureSessionID]
 	names := map[string]int{}
 	for _, tu := range tools {
@@ -194,7 +193,6 @@ func TestImportSmallSession(t *testing.T) {
 	require.Equal(t, 1, names["Bash"])
 	require.Equal(t, 1, names["Read"])
 
-	// Idempotent: second import skips.
 	res2, err := imp.Import(ctx, src, sink, importer.ImportOptions{})
 	require.NoError(t, err)
 	require.True(t, res2.Skipped)
@@ -267,7 +265,6 @@ func TestImportProjectsThinkingBlocks(t *testing.T) {
 	require.False(t, res.Skipped)
 
 	turns := sink.Turns[fixtureSessionID]
-	// user + assistant text + 2 thinking
 	require.Len(t, turns, 4)
 	require.Equal(t, session.KindMessage, turns[0].Kind)
 	require.Equal(t, session.KindMessage, turns[1].Kind)
@@ -300,7 +297,6 @@ func TestImportBigLineSession(t *testing.T) {
 	require.Equal(t, fixtureSessionID, res.SessionID)
 	require.Greater(t, res.RawSize, int64(8<<20))
 
-	// Raw was copied verbatim — destination size matches source.
 	dstInfo, err := os.Stat(res.RawPath)
 	require.NoError(t, err)
 	require.Equal(t, info.Size(), dstInfo.Size())
@@ -496,7 +492,6 @@ func TestImportSubagentSetsParentSessionID(t *testing.T) {
 	proj := filepath.Join(dir, "-Users-test-proj")
 	require.NoError(t, os.MkdirAll(proj, 0o755))
 
-	// Parent session lives at <project>/<parent-uuid>.jsonl.
 	parentJSONL := filepath.Join(proj, fixtureSessionID+".jsonl")
 	base := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
 	writeJSONL(t, parentJSONL, []map[string]any{
@@ -519,7 +514,6 @@ func TestImportSubagentSetsParentSessionID(t *testing.T) {
 		},
 	})
 
-	// Subagent lives at <project>/<parent-uuid>/subagents/agent-<uuid>.jsonl.
 	subagentID := "abcdef01-1234-4abc-9def-1234567890ab"
 	subDir := filepath.Join(proj, fixtureSessionID, "subagents")
 	require.NoError(t, os.MkdirAll(subDir, 0o755))
@@ -622,7 +616,6 @@ func TestImportStripsCaveatWrapperForFirstPrompt(t *testing.T) {
 	require.NotNil(t, s.FirstPrompt)
 	require.Equal(t, "run the migration", *s.FirstPrompt)
 
-	// The projected user turn carries the cleaned content too.
 	turns := sink.Turns[fixtureSessionID]
 	require.NotEmpty(t, turns)
 	require.Equal(t, "user", turns[0].Role)

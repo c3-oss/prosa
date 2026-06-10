@@ -71,9 +71,8 @@ type toolCall struct {
 	Name string `json:"name"`
 }
 
-// peekSnapshotID returns the session id from a snapshot file: the
-// envelope's session_id when present, otherwise the filename stem with
-// the leading `session_` stripped.
+// peekSnapshotID returns the session id from a snapshot file, falling back
+// to the filename stem with the leading `session_` stripped.
 func peekSnapshotID(path string) (string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -87,9 +86,7 @@ func peekSnapshotID(path string) (string, error) {
 	return strings.TrimPrefix(base, "session_"), nil
 }
 
-// parseJSONL streams one JSON object per line and projects the canonical
-// session. Timestamps may be epoch-seconds floats or ISO strings; both
-// are tried.
+// parseJSONL streams one JSON object per line and projects the canonical session.
 func parseJSONL(ctx context.Context, path string) (session.Session, []session.Turn, []session.ToolUsage, session.UsageState, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -122,7 +119,6 @@ func parseJSONL(ctx context.Context, path string) (session.Session, []session.Tu
 	return sess, turns, tools, state, nil
 }
 
-// parseSnapshot reads a session_<id>.json envelope and projects it.
 func parseSnapshot(ctx context.Context, path string) (session.Session, []session.Turn, []session.ToolUsage, session.UsageState, error) {
 	if err := ctx.Err(); err != nil {
 		return session.Session{}, nil, nil, session.UsageStateUnknown, err
@@ -149,10 +145,8 @@ func parseSnapshot(ctx context.Context, path string) (session.Session, []session
 }
 
 // projectMessagesWithDefaults projects a slice of hermesMessage into the
-// canonical session/turns/tools triple plus a UsageState classifier.
-// envStart / envEnd / envModel supply envelope-level fallbacks for the
-// snapshot and state.db paths; the JSONL path passes zero values and
-// relies on per-message fields.
+// canonical session/turns/tools triple. envStart / envEnd / envModel are
+// envelope-level fallbacks; the JSONL path passes zero values.
 func projectMessagesWithDefaults(msgs []hermesMessage, envStart, envEnd time.Time, envModel string) (session.Session, []session.Turn, []session.ToolUsage, session.UsageState) {
 	var (
 		sess           session.Session
@@ -193,7 +187,6 @@ func projectMessagesWithDefaults(msgs []hermesMessage, envStart, envEnd time.Tim
 			toolCounts[name]++
 		}
 
-		// Pick up the first assistant-side model name we see.
 		if sess.Model == nil && m.Role == "assistant" && m.Model != "" {
 			mm := m.Model
 			sess.Model = &mm
@@ -260,8 +253,6 @@ func extractText(content json.RawMessage) string {
 	return strings.Join(parts, "\n")
 }
 
-// extractToolCallNames decodes the `tool_calls` array and returns the
-// `name` field of every entry that carries one.
 func extractToolCallNames(raw json.RawMessage) []string {
 	if len(raw) == 0 {
 		return nil
@@ -363,13 +354,9 @@ func readStateDBSessions(ctx context.Context, path string) ([]stateDBRow, error)
 	return out, nil
 }
 
-// projectStateDBSession reads every message row for the given session id
-// and projects it through the shared message projection. Envelope-level
-// defaults come from the session row's started_at and model columns. The
-// returned []hermesMessage carries every column we know how to populate —
-// callers that need to persist the full per-session signal (e.g. the
-// JSONL raw projection) use it directly; callers that only need the
-// canonical session triple ignore it.
+// projectStateDBSession projects one state.db session row into the canonical
+// triple. The returned []hermesMessage carries every column we can populate —
+// callers that persist the per-session JSONL raw use it directly.
 func projectStateDBSession(ctx context.Context, path string, row stateDBRow) (session.Session, []session.Turn, []session.ToolUsage, session.UsageState, []hermesMessage, error) {
 	db, err := importerutil.OpenSQLiteReadOnly(path)
 	if err != nil {

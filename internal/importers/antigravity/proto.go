@@ -220,7 +220,6 @@ func parseFields(buf []byte) ([]Field, error) {
 	return out, nil
 }
 
-// findField returns the first field with the given number.
 func findField(fields []Field, num protowire.Number) (Field, bool) {
 	for _, f := range fields {
 		if f.Num == num {
@@ -249,10 +248,8 @@ func readTimestamp(buf []byte) (time.Time, bool) {
 	return time.Unix(int64(sec.V), nanos).UTC(), true
 }
 
-// readStepEventTime extracts Timestamp #1 from a steps.metadata blob —
-// the protobuf path is top-level field 1 (length-delimited
-// google.protobuf.Timestamp). Returns (zero, false) when the field is
-// missing or doesn't decode.
+// readStepEventTime extracts Timestamp #1 (top-level field 1) from a
+// steps.metadata blob. Returns (zero, false) when missing or undecodable.
 func readStepEventTime(metadata []byte) (time.Time, bool) {
 	fields, err := parseFields(metadata)
 	if err != nil || len(fields) == 0 {

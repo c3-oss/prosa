@@ -93,18 +93,11 @@ func OpenSQLiteReadOnly(path string) (*sql.DB, error) {
 	return sql.Open("sqlite", dsn)
 }
 
-// PreserveProjectedJSONL writes already-serialized JSONL lines (one
-// json.RawMessage per line) to raw/<agent>/<YYYY>/<MM>/<sessionID>.jsonl
-// atomically, returning the final path, sha256, and byte size. Lines are
-// joined with '\n' and the file ends without a trailing newline — the
-// same on-disk shape Hermes' per-session `<id>.jsonl` flavor already
-// uses, so consumers can't tell whether the raw came from a transcript
-// or from a state.db projection.
-//
-// Same path layout, atomicity (`.tmp` + rename), and session-id
-// validation as PreserveRaw; the difference is the content comes from
-// memory and the sha256 is computed alongside the write via
-// io.MultiWriter rather than re-reading the file afterwards.
+// PreserveProjectedJSONL writes JSONL lines to raw/<agent>/<YYYY>/<MM>/<sessionID>.jsonl
+// atomically, returning the final path, sha256, and byte size. Lines are joined
+// with '\n' and the file ends without a trailing newline — matching the on-disk
+// shape of Hermes' per-session JSONL so consumers cannot distinguish a transcript
+// from a state.db projection. sha256 is computed alongside the write.
 func PreserveProjectedJSONL(agent, sessionID string, startedAt time.Time, lines []json.RawMessage) (string, string, int64, error) {
 	if err := session.ValidateID(sessionID); err != nil {
 		return "", "", 0, fmt.Errorf("preserve projected jsonl: %w", err)

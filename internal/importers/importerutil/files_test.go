@@ -59,7 +59,8 @@ func TestPreserveProjectedJSONL(t *testing.T) {
 	}
 	dst, hash, size, err := PreserveProjectedJSONL("test-agent", "session-1", startedAt, lines)
 	require.NoError(t, err)
-	require.Equal(t,
+	require.Equal(
+		t,
 		filepath.Join(os.Getenv("XDG_DATA_HOME"), "prosa", "raw", "test-agent", "2026", "05", "session-1.jsonl"),
 		dst,
 	)

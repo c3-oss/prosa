@@ -38,9 +38,7 @@ func (i *Importer) DefaultRoots() []string {
 	return []string{filepath.Join(home, ".gemini", "antigravity-cli", "conversations")}
 }
 
-// Import is the per-file entry point. Same flow as the other importers:
-// hash → peek id → idempotency (bypassed when opts.Overwrite is set) →
-// parse → classify usage → preserve raw → projectid.Apply → sink writes.
+// Import is the per-file entry point called by the compile pipeline.
 func (i *Importer) Import(ctx context.Context, dbPath string, sink importer.Sink, opts importer.ImportOptions) (importer.ImportResult, error) {
 	return importerutil.RunSingleFile(ctx, importerutil.SingleFileConfig{
 		Agent:  Name,

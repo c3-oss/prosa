@@ -28,9 +28,8 @@ const (
 	stepTypeCheckpoint      = 23 // CortexStepCheckpoint — turn boundary
 )
 
-// peekSessionID opens the DB read-only and reads
-// trajectory_meta.cascade_id. Falls back to the filename UUID when the
-// row is missing or empty.
+// peekSessionID reads trajectory_meta.cascade_id; falls back to the
+// filename UUID when the row is missing or empty.
 func peekSessionID(path string) (string, error) {
 	fallback := strings.TrimSuffix(filepath.Base(path), ".db")
 	db, err := importerutil.OpenSQLiteReadOnly(path)
@@ -47,10 +46,9 @@ func peekSessionID(path string) (string, error) {
 	return cascade, nil
 }
 
-// parseSession opens the .db and projects it into the canonical shape.
-// Returns UsageStateUnknown when no usage signal is decodable — that
-// admits the session without a session_usage row (same posture as
-// gemini for transcripts without a tokens block).
+// parseSession projects the .db into the canonical shape. Returns
+// UsageStateUnknown when no usage signal is decodable, admitting the
+// session without a session_usage row.
 func parseSession(ctx context.Context, path string) (session.Session, []session.Turn, []session.ToolUsage, session.UsageState, error) {
 	db, err := importerutil.OpenSQLiteReadOnly(path)
 	if err != nil {
@@ -133,12 +131,8 @@ func decodeWorkspacePath(blob []byte) string {
 	return workspace
 }
 
-// projectSteps streams steps in idx order and projects each into a
-// turn (when applicable). Tool counts aggregate alongside; timestamps
-// derive from the per-step metadata Timestamp #1. Per-step token
-// usage decoded out of metadata field 9 is aggregated into the
-// returned TokenUsage. Returns sorted tool usage so test assertions
-// stay deterministic.
+// projectSteps projects step rows into turns and tool counts. Tool
+// usage is returned sorted so test assertions stay deterministic.
 func projectSteps(ctx context.Context, db *sql.DB) (
 	turns []session.Turn,
 	tools []session.ToolUsage,
@@ -259,17 +253,11 @@ func projectSteps(ctx context.Context, db *sql.DB) (
 	sort.Slice(tools, func(i, j int) bool { return tools[i].Name < tools[j].Name })
 
 	if seenUsage {
-		// Canonical prosa shape (matches claudecode / codex / gemini
-		// importers): InputTokens is the FULL per-call prompt size
-		// summed across the trajectory — fresh + cache_read +
-		// cache_write — and CacheReadTokens / CacheCreationTokens
-		// track the cached subsets so internal/pricing can discount
-		// them at the cache rate. In an agentic session Gemini's
-		// prompt cache (system prompt + tool defs + accumulated
-		// history) is re-read on every turn, so the input total can
-		// be much larger than the "fresh content moved through the
-		// model" — the cost estimate stays accurate because the
-		// cached portion is billed at the cache_read rate.
+		// InputTokens is the FULL per-call prompt size summed across the
+		// trajectory (fresh + cache_read + cache_write) so internal/pricing
+		// can discount cached tokens at the cache_read rate. In an agentic
+		// session the prompt cache is re-read on every turn, so the total
+		// can be much larger than the "fresh" content count.
 		totalInput := sumInput + sumCacheRead + sumCacheWrite
 		usage = &session.TokenUsage{
 			TotalTokens:         totalInput + sumOutput,
@@ -284,10 +272,8 @@ func projectSteps(ctx context.Context, db *sql.DB) (
 	return turns, tools, firstTS, lastTS, firstPrompt, usage, seenUsage, nil
 }
 
-// readGenerationModel returns the canonical model identifier for the
-// trajectory. Tries executor_metadata first (carries the full model
-// name, e.g. "gemini-3.5-flash-low") and falls back to gen_metadata
-// (16-char truncated alias, e.g. "gemini-3-flash-a").
+// readGenerationModel returns the canonical model identifier. Prefers
+// executor_metadata (full name) over gen_metadata (16-char truncated alias).
 func readGenerationModel(ctx context.Context, db *sql.DB) (string, bool) {
 	var execBlob []byte
 	if err := db.QueryRowContext(

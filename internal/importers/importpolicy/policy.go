@@ -44,12 +44,10 @@ const (
 	DecisionSkipNoUsage
 )
 
-// ClassifyForImport maps a parser's UsageState observation onto an
-// importer decision. UsageStatePresent and UsageStateUnknown both
-// admit; only UsageStateExplicitZero skips. UsageStateUnknown covers
-// cursor (no usage signal by design), older codex transcripts that
-// predate the token_count event, and partial sessions that never
-// reached a usage-bearing record.
+// ClassifyForImport maps a UsageState onto an import decision.
+// UsageStateUnknown admits (not skips) because it covers cursor sessions
+// (no usage signal by design), older transcripts predating the token_count
+// event, and partial sessions that never reached a usage-bearing record.
 func ClassifyForImport(state session.UsageState) ImportDecision {
 	if state == session.UsageStateExplicitZero {
 		return DecisionSkipNoUsage

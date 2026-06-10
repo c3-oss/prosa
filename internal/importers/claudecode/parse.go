@@ -88,9 +88,7 @@ func peekSessionID(path string) (string, error) {
 
 // parseSession streams the JSONL once and returns the projected metadata
 // plus a UsageState classifying whether the transcript carried any usage
-// event (and if so, whether totals were positive). Hash + size are NOT
-// computed here — Import() does that separately so peek and full parse
-// are both cheap on warm runs.
+// event (and if so, whether totals were positive).
 func parseSession(ctx context.Context, path string) (session.Session, []session.Turn, []session.ToolUsage, session.UsageState, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -327,10 +325,8 @@ func extractUserText(msg json.RawMessage) string {
 }
 
 // extractAssistantText returns the joined text from all text blocks in an
-// assistant message. tool_use and tool_result blocks stay reachable
-// via the preserved raw JSONL but do not pollute the FTS signal here.
-// Thinking blocks are projected separately by extractAssistantThinking
-// as KindThinking turns (excluded from FTS at the store layer).
+// assistant message. Thinking blocks are projected separately by
+// extractAssistantThinking as KindThinking turns (excluded from FTS).
 func extractAssistantText(msg json.RawMessage) string {
 	if len(msg) == 0 {
 		return ""
@@ -353,11 +349,8 @@ func extractAssistantText(msg json.RawMessage) string {
 }
 
 // extractAssistantThinking returns each non-empty thinking block in an
-// assistant message, in source order. Claude Code's extended-thinking
-// content arrives as `content[].type=="thinking"` with the reasoning
-// text in the `thinking` field. Multiple thinking blocks can appear
-// in a single assistant message; each becomes its own KindThinking
-// turn so the panel can render them as discrete collapsible cards.
+// assistant message, in source order. Each block becomes its own
+// KindThinking turn so the panel can render them as discrete cards.
 func extractAssistantThinking(msg json.RawMessage) []string {
 	if len(msg) == 0 {
 		return nil
@@ -423,11 +416,9 @@ type toolResultEntry struct {
 	toolName string
 }
 
-// extractToolResults walks a user message's content for tool_result
-// blocks and projects each one into a (text, tool_name) tuple. The
-// tool_use id → name map is built earlier from the matching assistant
-// tool_use block; when missing, toolName is "" and the renderer falls
-// back to the generic "tool:" label.
+// extractToolResults projects tool_result blocks from a user message into
+// (text, tool_name) tuples. When the tool_use id → name map has no entry,
+// toolName is "" and the renderer falls back to a generic label.
 func extractToolResults(msg json.RawMessage, idToName map[string]string) []toolResultEntry {
 	if len(msg) == 0 {
 		return nil
@@ -481,10 +472,8 @@ func extractToolResultText(raw json.RawMessage) string {
 	return ""
 }
 
-// setFirstPromptIfHuman defers the cleanup pipeline (sanitize, unwrap
-// known meta wrappers, drop wholly-boilerplate inputs) to
-// sessiontext.BuildFirstPrompt — see sessiontext/sessiontext.go for the
-// rules. The local wrapper just enforces the "first wins" semantics.
+// setFirstPromptIfHuman delegates to sessiontext.BuildFirstPrompt and
+// enforces "first wins" semantics on sess.FirstPrompt.
 func setFirstPromptIfHuman(sess *session.Session, set *bool, text string) {
 	if *set {
 		return

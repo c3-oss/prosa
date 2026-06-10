@@ -67,9 +67,8 @@ func (i *Importer) Import(ctx context.Context, path string, sink importer.Sink, 
 	}
 }
 
-// importJSONL handles the per-session .jsonl transcript. The session id is
-// the filename stem; idempotency is keyed on that id (bypassed when
-// opts.Overwrite is set).
+// importJSONL handles the per-session .jsonl transcript; the session id is
+// the filename stem.
 func (i *Importer) importJSONL(ctx context.Context, path string, sink importer.Sink, opts importer.ImportOptions) (importer.ImportResult, error) {
 	return importerutil.RunSingleFile(ctx, importerutil.SingleFileConfig{
 		Agent: Name,
@@ -87,7 +86,7 @@ func (i *Importer) importJSONL(ctx context.Context, path string, sink importer.S
 	})
 }
 
-// importSnapshot handles a session_<id>.json envelope. The id comes from
+// importSnapshot handles a session_<id>.json envelope; the id comes from
 // the `session_id` field with the filename-stem fallback.
 func (i *Importer) importSnapshot(ctx context.Context, path string, sink importer.Sink, opts importer.ImportOptions) (importer.ImportResult, error) {
 	return importerutil.RunSingleFile(ctx, importerutil.SingleFileConfig{
@@ -209,7 +208,6 @@ func (i *Importer) importStateDB(ctx context.Context, path string, sink importer
 	}, nil
 }
 
-// stripExt returns the filename without its final extension.
 func stripExt(name string) string {
 	ext := filepath.Ext(name)
 	return name[:len(name)-len(ext)]

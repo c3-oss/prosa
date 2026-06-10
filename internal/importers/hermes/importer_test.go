@@ -35,7 +35,6 @@ func ptrInt64(v int64) *int64 {
 	return &v
 }
 
-// writeJSONLFixture writes records as one JSON object per line.
 func writeJSONLFixture(t *testing.T, path string, records []map[string]any) {
 	t.Helper()
 	var buf bytes.Buffer
@@ -48,7 +47,6 @@ func writeJSONLFixture(t *testing.T, path string, records []map[string]any) {
 	require.NoError(t, os.WriteFile(path, buf.Bytes(), 0o644))
 }
 
-// writeSnapshotFixture writes a session_<id>.json envelope.
 func writeSnapshotFixture(t *testing.T, path string, env map[string]any) {
 	t.Helper()
 	b, err := json.MarshalIndent(env, "", "  ")
@@ -56,7 +54,6 @@ func writeSnapshotFixture(t *testing.T, path string, env map[string]any) {
 	require.NoError(t, os.WriteFile(path, b, 0o644))
 }
 
-// hermesStateRow is a single row used by buildHermesStateDB.
 type hermesStateRow struct {
 	id        string
 	parentID  string
@@ -85,10 +82,9 @@ type hermesStateMessage struct {
 	codexMessageItems   string
 }
 
-// buildHermesStateDB writes a state.db with the Hermes schema, populated
-// with the supplied session rows. Optional message-level columns are
-// inserted only when their zero-valued field is populated; everything
-// else lands as NULL — same shape older Hermes builds would produce.
+// buildHermesStateDB writes a state.db with the Hermes schema. Optional
+// message-level columns land as NULL when the field is zero, matching
+// older Hermes builds that lack those columns.
 func buildHermesStateDB(t *testing.T, dir string, rows []hermesStateRow) string {
 	t.Helper()
 	require.NoError(t, os.MkdirAll(dir, 0o755))
@@ -159,9 +155,8 @@ CREATE TABLE messages (
 	return dbPath
 }
 
-// nullableString returns nil when s is empty so the column lands as SQL
-// NULL (matching what older Hermes builds without the column would
-// produce). Driver-side, modernc.org/sqlite treats a nil any as NULL.
+// nullableString returns nil for empty strings so the column lands as SQL
+// NULL; modernc.org/sqlite treats a nil any as NULL.
 func nullableString(s string) any {
 	if s == "" {
 		return nil
@@ -486,7 +481,6 @@ func TestStateDBMergeYieldsToTranscript(t *testing.T) {
 	require.False(t, res.Skipped)
 	require.NotContains(t, sink.Sessions, "S", "state.db Import must defer to sibling transcript")
 
-	// File-shaped Import call projects S normally.
 	res2, err := imp.Import(ctx, jsonlPath, sink, importer.ImportOptions{})
 	require.NoError(t, err)
 	require.False(t, res2.Skipped)

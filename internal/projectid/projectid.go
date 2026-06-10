@@ -54,10 +54,7 @@ const gitTimeout = 800 * time.Millisecond
 const markerFile = ".prosa.yaml"
 
 // Apply populates sess.ProjectRemote / sess.ProjectMarker from
-// Resolve(*sess.ProjectPath). No-op when ProjectPath is nil. Importers
-// call this right before handing the session to the sink so every store
-// row carries the same identity dimensions a fresh `prosa` invocation
-// would compute.
+// Resolve(*sess.ProjectPath). No-op when ProjectPath is nil.
 func Apply(sess *session.Session) {
 	if sess == nil || sess.ProjectPath == nil || *sess.ProjectPath == "" {
 		return
@@ -73,14 +70,13 @@ func Apply(sess *session.Session) {
 	}
 }
 
-// Resolve produces the Identity for the given cwd. cwd is cleaned first.
-// A non-existent cwd (legacy bundle path on a different machine) is
-// returned as Identity{Path: cleaned} — Remote/Marker stay nil.
+// Resolve produces the Identity for the given cwd. A non-existent cwd
+// (legacy bundle path on a different machine) is returned as
+// Identity{Path: cleaned} — Remote/Marker stay nil.
 func Resolve(cwd string) Identity {
 	cwd = filepath.Clean(cwd)
 	id := Identity{Path: cwd}
 
-	// Cheap quick-out: cwd missing on this machine.
 	if _, err := os.Stat(cwd); err != nil {
 		return id
 	}
@@ -96,8 +92,7 @@ func Resolve(cwd string) Identity {
 	return id
 }
 
-// gitRemote runs `git -C <cwd> remote get-url origin` with a short
-// timeout. Returns "" if the cwd isn't a repo or the command errors.
+// gitRemote runs `git -C <cwd> remote get-url origin` with a short timeout.
 func gitRemote(cwd string) (string, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 	defer cancel()
@@ -114,9 +109,7 @@ func gitRemote(cwd string) (string, bool) {
 }
 
 // markerWalk searches for .prosa.yaml from cwd upward, stopping at the
-// filesystem root. The first hit wins. We do NOT cross into a parent
-// once we leave the original git toplevel — but staying within the
-// filesystem boundary is good enough for the MVP.
+// filesystem root.
 func markerWalk(cwd string) (string, bool) {
 	dir := cwd
 	for {

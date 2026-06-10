@@ -82,9 +82,7 @@ func buildWorkspaceBlob(workspace string) []byte {
 
 // makeAntigravityFixture writes a synthetic .db that mirrors the
 // antigravity-cli schema closely enough to exercise the importer
-// end-to-end. The fixture is regenerated per test to keep the on-disk
-// repo free of binary artifacts and to avoid leaking user-private repo
-// paths from the maintainer's real conversations.
+// end-to-end. Regenerated per test — no binary artifacts in the repo.
 func makeAntigravityFixture(t *testing.T, root string, baseSeconds int64) string {
 	t.Helper()
 	require.NoError(t, os.MkdirAll(root, 0o755))
