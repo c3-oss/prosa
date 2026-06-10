@@ -89,6 +89,11 @@ they are enforced by reviewers (human or agent).
 - **Error wrapping**: `fmt.Errorf("doing X: %w", err)`. No
   `pkg/errors`-style ladders.
 - **Logging**: `log/slog` with the default text handler in CLI commands.
+- **Comments** are sparse, local, and surgical. Reach for one only to
+  document a behaviour that is not immediately obvious; otherwise let the
+  code speak for itself. Docstrings are allowed but stay short and avoid
+  narrating internals. Decisions and rationale belong in Markdown docs, not
+  inline in code.
 - **Filesystem paths** via `internal/paths` — never hardcode `~/...` or XDG
   layouts elsewhere.
 - **Tests**: stdlib `testing` plus `github.com/stretchr/testify/require`.
@@ -186,6 +191,10 @@ a new version directory, not an in-place edit.
   the matching `docs/` page in the same PR.
 - Don't write documentation that the code doesn't yet support. If a feature
   is planned, put it in [`../ROADMAP.md`](../ROADMAP.md) instead.
+- Docs describe the present and state **what the code is**, not what it was
+  or isn't. After a refactor from X to Y, the doc says "it does Y" — not
+  "instead of X, it does Y". Delete the old description; don't narrate the
+  change.
 - Don't duplicate INTENT in `docs/`. Link to it.
 - Markdown rendered by GitHub. No site generator. Keep diagrams as ASCII or
   inline SVG.
