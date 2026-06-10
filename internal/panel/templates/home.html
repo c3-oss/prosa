@@ -4,30 +4,12 @@
   {{template "dashboard_filters" .}}
 
   <section class="kpi-strip" aria-label="overview">
-    <div class="kpi">
-      <div class="kpi-value">{{.SessionsKPI}}</div>
-      <div class="kpi-label">sessions</div>
-    </div>
-    <div class="kpi">
-      <div class="kpi-value">{{.ProjectsKPI}}</div>
-      <div class="kpi-label">projects</div>
-    </div>
-    <div class="kpi">
-      <div class="kpi-value">{{.ModelsKPI}}</div>
-      <div class="kpi-label">models</div>
-    </div>
-    <div class="kpi">
-      <div class="kpi-value">{{.TokensKPI}}</div>
-      <div class="kpi-label">tokens</div>
-    </div>
-    <div class="kpi">
-      <div class="kpi-value">{{.SpendKPI}}</div>
-      <div class="kpi-label">est. spend</div>
-    </div>
-    <div class="kpi">
-      <div class="kpi-value">{{.ErrorRateKPI}}</div>
-      <div class="kpi-label">error rate</div>
-    </div>
+    {{range .KPIs}}
+      <div class="kpi">
+        <div class="kpi-value">{{.Value}}{{if .Delta}}<span class="kpi-delta kpi-delta-{{.Delta.Dir}} kpi-tone-{{.Delta.Tone}}" title="vs previous {{$.Last}}">{{.Delta.Text}}</span>{{end}}</div>
+        <div class="kpi-label">{{.Label}}</div>
+      </div>
+    {{end}}
   </section>
 
   <section class="card heatmap-card">
@@ -81,6 +63,28 @@
       </div>
     {{else}}
       <div class="empty">no activity yet.</div>
+    {{end}}
+  </section>
+
+  <section class="card">
+    <header class="card-head">
+      <h2>Activity trend</h2>
+      <span class="card-sub">{{pluralize .Trend.Total "session" "sessions"}} · {{.Trend.BucketLabel}} · by agent{{if .TrendNote}} · {{.TrendNote}}{{end}}</span>
+    </header>
+    {{if .Trend.HasData}}
+      <div class="trend-chart">
+        {{.Trend.Chart}}
+        <div class="trend-axis" aria-hidden="true">
+          <span>{{.Trend.StartLabel}}</span><span>{{.Trend.EndLabel}}</span>
+        </div>
+      </div>
+      <ul class="cost-legend share-legend">
+        {{range .Trend.Legend}}
+          <li>{{.Dot}}<span class="cost-legend-model">{{.Model}}</span><span class="cost-legend-cost">{{.Sessions}}</span></li>
+        {{end}}
+      </ul>
+    {{else}}
+      <div class="empty">no activity in this window.</div>
     {{end}}
   </section>
 

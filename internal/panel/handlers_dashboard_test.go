@@ -2,6 +2,7 @@ package panel
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -107,4 +108,80 @@ func TestBuildHourChartEmpty(t *testing.T) {
 	hv := buildHourChartTZ(nil, 0)
 	require.Equal(t, "no activity", hv.PeakLabel)
 	require.Contains(t, string(hv.Chart), "<svg")
+}
+
+func TestBuildKPIDelta(t *testing.T) {
+	t.Parallel()
+	require.Nil(t, buildKPIDelta(0, 0, deltaUpGood), "both zero → no badge")
+
+	d := buildKPIDelta(5, 0, deltaUpGood)
+	require.Equal(t, "new", d.Text)
+	require.Equal(t, "good", d.Tone)
+
+	d = buildKPIDelta(112, 100, deltaUpGood)
+	require.Equal(t, "+12%", d.Text)
+	require.Equal(t, "up", d.Dir)
+	require.Equal(t, "good", d.Tone)
+
+	d = buildKPIDelta(80, 100, deltaUpGood)
+	require.Equal(t, "-20%", d.Text)
+	require.Equal(t, "down", d.Dir)
+	require.Equal(t, "bad", d.Tone)
+
+	// Error rate inverts: rising is bad, falling is good.
+	d = buildKPIDelta(20, 10, deltaUpBad)
+	require.Equal(t, "+100%", d.Text)
+	require.Equal(t, "bad", d.Tone)
+	d = buildKPIDelta(5, 10, deltaUpBad)
+	require.Equal(t, "good", d.Tone)
+
+	// Spend is informational either way.
+	d = buildKPIDelta(20, 10, deltaNeutral)
+	require.Equal(t, "muted", d.Tone)
+	d = buildKPIDelta(5, 10, deltaNeutral)
+	require.Equal(t, "muted", d.Tone)
+
+	// Sub-half-percent movements flatten to 0%.
+	d = buildKPIDelta(1001, 1000, deltaUpGood)
+	require.Equal(t, "+0%", d.Text)
+	require.Equal(t, "flat", d.Dir)
+	require.Equal(t, "muted", d.Tone)
+}
+
+func TestBuildActivityTrendStacksByAgent(t *testing.T) {
+	t.Parallel()
+	rows := []*prosav1.AnalyticsRow{
+		aRow("2026-05-30", "claude-code", "3"),
+		aRow("2026-05-30", "codex", "1"),
+		aRow("2026-05-31", "", "0"), // zero-filled day keeps the axis continuous
+		aRow("2026-06-01", "claude-code", "2"),
+	}
+	v := buildActivityTrend(rows)
+	require.True(t, v.HasData)
+	require.Equal(t, int64(6), v.Total)
+	require.Equal(t, "per day", v.BucketLabel)
+	require.Equal(t, "05-30", v.StartLabel)
+	require.Equal(t, "06-01", v.EndLabel)
+	require.Len(t, v.Legend, 2)
+	require.Equal(t, "claude-code", v.Legend[0].Model) // highest volume first
+	require.Equal(t, "5", v.Legend[0].Sessions)
+	require.Contains(t, string(v.Chart), "stacked-chart")
+}
+
+func TestBuildActivityTrendCollapsesLongWindowsToWeeks(t *testing.T) {
+	t.Parallel()
+	rows := make([]*prosav1.AnalyticsRow, 0, 200)
+	day := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	for i := range 200 {
+		rows = append(rows, aRow(day.AddDate(0, 0, i).Format("2006-01-02"), "claude-code", "1"))
+	}
+	v := buildActivityTrend(rows)
+	require.Equal(t, "per week", v.BucketLabel)
+	require.Equal(t, int64(200), v.Total)
+}
+
+func TestBuildActivityTrendEmpty(t *testing.T) {
+	t.Parallel()
+	v := buildActivityTrend(nil)
+	require.False(t, v.HasData)
 }

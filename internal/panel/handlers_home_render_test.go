@@ -133,6 +133,10 @@ func TestHomeRendersIssuesAndCharts(t *testing.T) {
 		"/sessions?session=sess-1",    // actionable recent issue link
 		"peak ",                       // hour peak label
 		"42",                          // sessions KPI
+		">Activity trend<",            // daily trend card
+		`class="stacked-chart"`,       // trend SVG
+		"kpi-delta",                   // vs-previous-window badge
+		"vs previous 30d",             // delta badge tooltip
 	} {
 		require.Contains(t, body, want, "home page should render %q", want)
 	}
