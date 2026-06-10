@@ -132,9 +132,7 @@ func systemctl(ctx context.Context, args ...string) error {
 	return nil
 }
 
-// systemdSpec converts a Go time.Duration to systemd's OnUnitActiveSec
-// shorthand. We emit minutes (floored to 1) — covers the realistic
-// range and stays readable in the unit file.
+// systemdSpec converts a duration to systemd's OnUnitActiveSec shorthand; floored to 1 minute.
 func systemdSpec(d time.Duration) string {
 	mins := int(d.Minutes())
 	if mins < 1 {
@@ -143,9 +141,7 @@ func systemdSpec(d time.Duration) string {
 	return fmt.Sprintf("%dmin", mins)
 }
 
-// extractTimerInterval parses OnUnitActiveSec=<spec> out of the timer
-// body. Tolerates whitespace and trailing comments; returns 0 when the
-// key is missing or unparseable.
+// extractTimerInterval parses OnUnitActiveSec from a timer unit body; returns 0 when missing or unparseable.
 func extractTimerInterval(body string) time.Duration {
 	for _, raw := range strings.Split(body, "\n") {
 		line := strings.TrimSpace(raw)

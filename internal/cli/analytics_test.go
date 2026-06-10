@@ -103,7 +103,6 @@ func TestAnalyticsHeatmap(t *testing.T) {
 	}
 	require.Equal(t, 4, total)
 
-	// Rolled up for the CLI table, it collapses to per-day totals.
 	rolled := rollupHeatmapForDisplay("heatmap", r)
 	require.Equal(t, []string{"DATE", "SESSIONS"}, rolled.Headers)
 	var rolledTotal int

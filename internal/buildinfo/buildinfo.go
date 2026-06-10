@@ -4,8 +4,7 @@ package buildinfo
 import "fmt"
 
 var (
-	// Version is the semantic version set by GoReleaser. Development builds
-	// keep the default so local binaries are clearly identifiable.
+	// Version is the semantic version set by GoReleaser.
 	Version = "dev"
 	// Commit is the git commit set by GoReleaser.
 	Commit = "none"

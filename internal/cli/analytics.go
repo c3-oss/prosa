@@ -85,8 +85,6 @@ func runAnalytics(cmd *cobra.Command, args []string) error {
 		Since: w.Since,
 		Until: w.Until,
 	}
-	// Analytics inherits the same filter precedence as nu / search:
-	// --project wins; otherwise cwd auto-detect unless --all.
 	projectScope := ResolveProjectScope(ctx, g, s)
 	projectScope.ApplySessionFilter(&filter)
 	if g.Agent != "" {
@@ -148,8 +146,6 @@ func dispatchAnalytics(ctx context.Context, s *store.Store, report string, f sto
 	}
 }
 
-// runAnalyticsRemote handles --remote through AnalyticsService so CLI and
-// panel see the same server-side reports.
 func runAnalyticsRemote(ctx context.Context, report string, w Window) error {
 	auth, err := rpc.LoadAuth()
 	if err != nil {
@@ -206,11 +202,8 @@ func analyticsProtoResult(resp *prosav1.GetReportResponse) store.AnalyticsResult
 	return out
 }
 
-// rollupHeatmapForDisplay collapses the canonical per-(day, agent) heatmap
-// shape (DATE, AGENT, SESSIONS — emitted identically by the local store and
-// the server) into per-day totals (DATE, SESSIONS) for the CLI table. It is
-// applied uniformly to both backends; results already in the 2-column shape
-// (or non-heatmap reports) pass through unchanged.
+// rollupHeatmapForDisplay collapses the canonical per-(day, agent) heatmap rows
+// into per-day totals for the CLI table. Non-heatmap reports pass through unchanged.
 func rollupHeatmapForDisplay(report string, result store.AnalyticsResult) store.AnalyticsResult {
 	if report != "heatmap" || !analyticsHeadersEqual(result.Headers, []string{"DATE", "AGENT", "SESSIONS"}) {
 		return result
@@ -257,10 +250,7 @@ func parseAnalyticsCount(v any) int64 {
 	return n
 }
 
-// emitAnalyticsJSON writes one JSON object per row, mapping each
-// Header (lowercased) to its corresponding value. Numeric strings are
-// passed through unchanged — downstream tools (jq, sqlite) handle
-// the parse if needed.
+// emitAnalyticsJSON writes one JSON object per row with lowercased header keys.
 func emitAnalyticsJSON(w *os.File, r store.AnalyticsResult) error {
 	enc := json.NewEncoder(w)
 	for _, row := range r.Rows {

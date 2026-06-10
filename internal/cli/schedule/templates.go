@@ -10,9 +10,7 @@ import (
 //go:embed templates/*.tmpl
 var templatesFS embed.FS
 
-// renderTemplate executes the named embedded template against data and
-// returns the produced bytes. The template name is the path inside the
-// templates/ directory (e.g. "templates/sync.plist.tmpl").
+// renderTemplate executes an embedded template (e.g. "templates/sync.plist.tmpl") against data.
 func renderTemplate(name string, data any) ([]byte, error) {
 	body, err := templatesFS.ReadFile(name)
 	if err != nil {

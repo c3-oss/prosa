@@ -46,9 +46,6 @@ func newShowCmd() *cobra.Command {
 }
 
 // showPayload is the single JSON object emitted by `prosa show --json`.
-// Field names are camelCase to match what scripts that already consume
-// the timeline NDJSON expect after Go's default marshaller is replaced
-// with explicit tags.
 type showPayload struct {
 	Session session.Session     `json:"session"`
 	Tools   []session.ToolUsage `json:"tools"`
@@ -96,8 +93,7 @@ func runShow(cmd *cobra.Command, args []string) error {
 			MaxOutputLines: showMaxOutputLines,
 		})
 	default:
-		// Non-TTY, no --json, no --raw: stay pipeable by emitting the
-		// local raw bytes — `prosa show <id> | jq` historic behavior.
+		// Non-TTY without --json or --raw: stay pipeable (`prosa show <id> | jq`).
 		return copyRaw(payload.Session.RawPath)
 	}
 }

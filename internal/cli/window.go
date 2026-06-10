@@ -27,9 +27,7 @@ type Window struct {
 	HeatmapLabel string // "53 weeks" — non-empty iff the fixed heatmap window
 }
 
-// ParseSince parses a YYYY-MM-DD date in UTC, returning the start of
-// the day. Empty input is rejected (callers should branch on whether
-// the flag was passed before calling).
+// ParseSince parses a YYYY-MM-DD date in UTC as the start of the day.
 func ParseSince(s string) (time.Time, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -42,9 +40,8 @@ func ParseSince(s string) (time.Time, error) {
 	return t, nil
 }
 
-// ParseBetween parses "YYYY-MM-DD..YYYY-MM-DD" in UTC and returns
-// the inclusive range: start = beginning of the first day, end =
-// last nanosecond of the second day. End must be >= start.
+// ParseBetween parses "YYYY-MM-DD..YYYY-MM-DD" into an inclusive UTC range.
+// End is the last nanosecond of the second day; end must be >= start.
 func ParseBetween(s string) (time.Time, time.Time, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -66,17 +63,13 @@ func ParseBetween(s string) (time.Time, time.Time, error) {
 		return time.Time{}, time.Time{}, fmt.Errorf("end date %s before start date %s",
 			b.Format(dateLayout), a.Format(dateLayout))
 	}
-	// Inclusive end: bump to the last nanosecond of the second day.
 	end := b.Add(24*time.Hour - time.Nanosecond)
 	return a, end, nil
 }
 
-// ResolveWindow centralizes the time-window decision shared by `prosa`,
-// `prosa search`, and `prosa analytics`. Exactly one of --last,
-// --since, --between may be active; --last counts as "active" only
-// when it was explicitly set (Cobra's Changed check), because its
-// default value of "7d" would otherwise mark every invocation as
-// providing --last.
+// ResolveWindow resolves the time window from exactly one of --last / --since /
+// --between. --last is "active" only when explicitly set (Cobra Changed check),
+// so the default "7d" doesn't shadow --since or --between.
 func ResolveWindow(cmd *cobra.Command, last, since, between string, now time.Time) (Window, error) {
 	set := 0
 	lastSet := cmd != nil && cmd.Flags().Changed("last")
@@ -126,10 +119,7 @@ func ResolveWindow(cmd *cobra.Command, last, since, between string, now time.Tim
 	}, nil
 }
 
-// WindowDescriptor renders the active window as a complete English
-// fragment that slots into empty-state messages: "no sessions <X>"
-// where X is the return value. "in the" is included for --last so the
-// sentence reads "no sessions in the last 7d" without surrounding glue.
+// WindowDescriptor returns a phrase for empty-state messages ("no sessions <X>").
 func WindowDescriptor(w Window) string {
 	switch {
 	case w.BetweenLabel != "":
@@ -143,9 +133,8 @@ func WindowDescriptor(w Window) string {
 	}
 }
 
-// LastSegment is the string that slots into the context line's
-// "last X" tail. It collapses LastLabel and HeatmapLabel into one
-// channel so call sites don't branch on which field is set.
+// LastSegment returns the label for the "last X" context line tail,
+// collapsing LastLabel and HeatmapLabel so call sites don't branch.
 func (w Window) LastSegment() string {
 	if w.HeatmapLabel != "" {
 		return w.HeatmapLabel
@@ -153,9 +142,7 @@ func (w Window) LastSegment() string {
 	return w.LastLabel
 }
 
-// HeatmapWindow returns the fixed trailing-year window used by the
-// heatmap report: 53 weeks aligned to Sunday in UTC (52 prior weeks
-// plus the current one). The rightmost column always contains today.
+// HeatmapWindow returns the fixed 53-week trailing window aligned to Sunday in UTC.
 // Canonical spec: docs/panel/screens.md (heatmap).
 func HeatmapWindow(now time.Time) Window {
 	today := dayStartUTC(now)

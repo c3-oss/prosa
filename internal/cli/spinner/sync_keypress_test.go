@@ -10,11 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Non-quit keystrokes during a run must not stop the spinner from
-// consuming channel updates. If a key froze the channel read, the run
-// below would never reach finished() and the program would hang. Keys are
-// injected with p.Send so they deterministically route through Update's
-// tea.KeyMsg branch. See issue #83.
+// Non-quit keystrokes must not freeze channel consumption — a frozen read
+// would cause Run to hang indefinitely. See issue #83.
 func TestSpinnerKeepsConsumingAfterKeyPress(t *testing.T) {
 	ch := make(chan Update, 16)
 	sp := spinner.New()
@@ -41,7 +38,6 @@ func TestSpinnerKeepsConsumingAfterKeyPress(t *testing.T) {
 
 	key := func() { p.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}}) }
 
-	// Interleave stray keypresses with each lifecycle step.
 	key()
 	ch <- Update{Phase: PhaseLocal, Begin: true, Total: 1, Verb: "importing"}
 	key()

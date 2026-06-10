@@ -95,7 +95,6 @@ func (t *bearerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return t.base.RoundTrip(req)
 }
 
-// httpClient returns the http.Client used by every service client.
 func httpClient(token string) *http.Client {
 	return &http.Client{Transport: &bearerTransport{base: http.DefaultTransport, token: token}}
 }
@@ -143,7 +142,6 @@ func ConnectError(err error) string {
 	return err.Error()
 }
 
-// ContextOrBackground returns ctx when not nil, else a fresh background ctx.
 func ContextOrBackground(ctx context.Context) context.Context {
 	if ctx == nil {
 		return context.Background()

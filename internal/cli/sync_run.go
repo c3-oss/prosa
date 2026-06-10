@@ -38,11 +38,8 @@ func runSyncInteractive(
 	}
 	updates := make(chan spinner.Update, len(work)*2+16)
 
-	// Suppress the catch-up phase's structured logging while Bubble Tea
-	// repaints in place; concurrent writes (e.g. reconcile: catching up)
-	// desync the cursor and orphan frames. We scope this to the pusher's
-	// logger rather than mutating the process-global slog default, which
-	// would silently swallow every other component's logs for the duration.
+	// Scope log suppression to the pusher's logger, not the process-global slog
+	// default, so only reconcile chatter is silenced during Bubble Tea repaints.
 	var suppressedWarnings atomic.Int64
 	if push != nil {
 		push.logger = slog.New(warningCounterHandler{count: &suppressedWarnings})
@@ -135,15 +132,12 @@ func runSyncInteractive(
 				case pushAlreadyHashed, pushSkippedNoUsage, pushSkippedRemoteUnavailable:
 					u.Skipped = true
 				case pushFailed:
-					// Surface the server's real message; fall back to a
-					// generic string if (defensively) no error came through.
 					if err != nil {
 						u.Err = err
 					} else {
 						u.Err = errors.New("push failed")
 					}
 				default:
-					// pushImported counts as done (sent).
 				}
 				send(u)
 			},
@@ -244,11 +238,9 @@ func runSyncPlain(ctx context.Context, work []syncJob, sink importer.Sink, push 
 	return nil
 }
 
-// localItemErr decides what the interactive spinner shows on a local-phase
-// row. The import error wins; otherwise, when the inline push genuinely
-// failed (pushFailed — not remote-unavailable, which is a global state
-// shown on the remote row), surface that push error so a healthy import
-// with a failed push isn't rendered as a clean check mark (issue #74).
+// localItemErr returns what the spinner shows on a local-phase row.
+// Import error wins; a pushFailed outcome surfaces the push error so a healthy
+// import with a failed push isn't rendered as a clean check mark (issue #74).
 func localItemErr(importErr error, outcome pushOutcome, pushErr error) error {
 	if importErr != nil {
 		return importErr

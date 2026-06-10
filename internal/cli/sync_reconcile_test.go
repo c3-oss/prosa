@@ -82,8 +82,6 @@ func (f *fakeSessionsClient) Manifest(_ context.Context, req *connect.Request[pr
 	return connect.NewResponse(resp), nil
 }
 
-// reconcileFixture wires a tempdir store, a fake client, and writes raw
-// JSONL files on disk so pushSession can read them back.
 type reconcileFixture struct {
 	dir    string
 	store  *store.Store
@@ -120,8 +118,6 @@ func newReconcileFixture(t *testing.T, deviceID string) *reconcileFixture {
 	}
 }
 
-// addSession writes a session row with a real raw file on disk. The hash
-// is the test-friendly "h-<id>" mirror used by the manifest tests.
 func (f *reconcileFixture) addSession(t *testing.T, ctx context.Context, deviceID, id string) {
 	t.Helper()
 	rawPath := f.writeRaw(t, "claude-code", id+".jsonl", "raw-"+id)
@@ -139,8 +135,7 @@ func (f *reconcileFixture) addSession(t *testing.T, ctx context.Context, deviceI
 	require.NoError(t, f.store.UpsertSession(ctx, sess, nil))
 }
 
-// addSessionMissingRaw is like addSession but skips writing the raw to
-// disk, so the catch-up phase hits the "raw missing" error path.
+// addSessionMissingRaw registers a session whose raw file does not exist on disk.
 func (f *reconcileFixture) addSessionMissingRaw(t *testing.T, ctx context.Context, deviceID, id string) {
 	t.Helper()
 	rawPath := f.rawPath(t, "claude-code", "ghost", id+".jsonl")
@@ -281,8 +276,8 @@ func TestReconcileOnStepCarriesPushError(t *testing.T) {
 func TestReconcileDivergentPushed(t *testing.T) {
 	ctx := context.Background()
 	fx := newReconcileFixture(t, "dev")
-	fx.addSession(t, ctx, "dev", "s1") // hash h-s1
-	fx.addSession(t, ctx, "dev", "s2") // hash h-s2
+	fx.addSession(t, ctx, "dev", "s1")
+	fx.addSession(t, ctx, "dev", "s2")
 
 	// Server has s1 with a stale hash, s2 with the same hash.
 	fx.fake.manifestPages[""] = &prosav1.ManifestResponse{
