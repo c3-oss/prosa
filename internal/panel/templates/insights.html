@@ -39,19 +39,15 @@
     </header>
     {{if .Spend.HasData}}
       <div class="trend-block">
-        <h3 class="trend-subhead">Est. spend, with cumulative line</h3>
+        <h3 class="trend-subhead">Est. spend</h3>
         <div class="trend-chart">
-          {{.Spend.SpendChart}}
-          <div class="trend-axis" aria-hidden="true">
-            <span>{{.Spend.StartLabel}}</span><span>{{.Spend.EndLabel}}</span>
-          </div>
+          <div data-chart="spend-bars"></div>
+          <script type="application/json" class="chart-spec" data-for="spend-bars">{{ .Spend.SpendChart.JSON }}</script>
         </div>
         <h3 class="trend-subhead">Tokens</h3>
         <div class="trend-chart">
-          {{.Spend.TokensChart}}
-          <div class="trend-axis" aria-hidden="true">
-            <span>{{.Spend.StartLabel}}</span><span>{{.Spend.EndLabel}}</span>
-          </div>
+          <div data-chart="tokens-line"></div>
+          <script type="application/json" class="chart-spec" data-for="tokens-line">{{ .Spend.TokensChart.JSON }}</script>
         </div>
       </div>
     {{else}}
@@ -67,14 +63,12 @@
       </header>
       {{if .Share.HasData}}
         <div class="trend-chart">
-          {{.Share.Chart}}
-          <div class="trend-axis" aria-hidden="true">
-            <span>{{.Share.StartLabel}}</span><span>{{.Share.EndLabel}}</span>
-          </div>
+          <div data-chart="model-share"></div>
+          <script type="application/json" class="chart-spec" data-for="model-share">{{ .Share.Chart.JSON }}</script>
         </div>
         <ul class="cost-legend share-legend">
           {{range .Share.Legend}}
-            <li>{{.Dot}}<span class="cost-legend-model">{{.Model}}</span><span class="cost-legend-cost">{{.Sessions}}</span></li>
+            <li><span class="cost-legend-dot" data-ci="{{.ColorIdx}}"></span><span class="cost-legend-model">{{.Model}}</span><span class="cost-legend-cost">{{.Sessions}}</span></li>
           {{end}}
         </ul>
       {{else}}

@@ -1,0 +1,61 @@
+/* Frappe Charts theming. The library injects its own base stylesheet at
+   runtime with hardcoded light-gray axis/gridline colors and a dark
+   tooltip. These rules re-skin that chrome with the panel's design tokens
+   so charts match the active light/dark theme. Series colors are set in
+   charts-init.js from the --chart-* palette; this file only handles the
+   surrounding chrome. The `.card` prefix raises specificity above Frappe's
+   runtime-injected stylesheet (which loads after style.css). */
+
+.trend-chart .chart-container,
+.hour-chart .chart-container {
+  width: 100%;
+}
+
+/* axis tick labels + value labels */
+.card .chart-container .axis,
+.card .chart-container .chart-label {
+  fill: var(--text-3);
+}
+
+/* gridlines + axis baselines */
+.card .chart-container .axis line,
+.card .chart-container .chart-label line,
+.card .chart-container line.dashed {
+  stroke: var(--divider);
+}
+
+/* line-chart dot halo blends into the card surface instead of white */
+.card .chart-container .dataset-units circle {
+  stroke: var(--bg-elev-1);
+}
+
+/* Each card renders its own HTML legend (with $ / session counts and
+   theme-painted dots), so suppress Frappe's built-in SVG legend. */
+.card .chart-container .chart-legend,
+.card .graph-svg .legend-bar {
+  display: none;
+}
+
+/* Tooltip → themed surface (Frappe hardcodes a near-black bubble). */
+.graph-svg-tip {
+  background: var(--bg-elev-2) !important;
+  color: var(--text-2) !important;
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-sm) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.graph-svg-tip .svg-pointer {
+  border-top-color: var(--bg-elev-2) !important;
+}
+
+.graph-svg-tip strong,
+.graph-svg-tip .title {
+  color: var(--text-1) !important;
+}
+
+/* Cost-share donut sits in the model-usage card's left column. */
+.donut-holder {
+  width: 200px;
+  max-width: 100%;
+}

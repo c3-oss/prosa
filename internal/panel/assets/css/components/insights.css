@@ -16,21 +16,6 @@
   color: var(--text-2);
 }
 
-.trend-chart svg {
-  display: block;
-  width: 100%;
-  height: 140px;
-  color: var(--text-2);
-}
-
-.trend-axis {
-  display: flex;
-  justify-content: space-between;
-  font-size: 10px;
-  color: var(--text-3);
-  margin-top: 2px;
-}
-
 .share-legend {
   margin-top: 12px;
 }

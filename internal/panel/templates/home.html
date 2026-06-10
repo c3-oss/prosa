@@ -73,14 +73,12 @@
     </header>
     {{if .Trend.HasData}}
       <div class="trend-chart">
-        {{.Trend.Chart}}
-        <div class="trend-axis" aria-hidden="true">
-          <span>{{.Trend.StartLabel}}</span><span>{{.Trend.EndLabel}}</span>
-        </div>
+        <div data-chart="activity-trend"></div>
+        <script type="application/json" class="chart-spec" data-for="activity-trend">{{ .Trend.Chart.JSON }}</script>
       </div>
       <ul class="cost-legend share-legend">
         {{range .Trend.Legend}}
-          <li>{{.Dot}}<span class="cost-legend-model">{{.Model}}</span><span class="cost-legend-cost">{{.Sessions}}</span></li>
+          <li><span class="cost-legend-dot" data-ci="{{.ColorIdx}}"></span><span class="cost-legend-model">{{.Model}}</span><span class="cost-legend-cost">{{.Sessions}}</span></li>
         {{end}}
       </ul>
     {{else}}
@@ -157,10 +155,8 @@
         <span class="card-sub">{{.HourPeak}} · local time</span>
       </header>
       <div class="hour-chart">
-        {{.HourChart}}
-        <div class="hour-axis" aria-hidden="true">
-          <span>00h</span><span>06h</span><span>12h</span><span>18h</span><span>23h</span>
-        </div>
+        <div data-chart="hour-of-day"></div>
+        <script type="application/json" class="chart-spec" data-for="hour-of-day">{{ .HourChart.JSON }}</script>
       </div>
     </section>
   </div>
@@ -230,11 +226,14 @@
       {{if .ModelTokenBars}}
         <div class="model-usage">
           <div class="model-usage-chart">
-            {{.CostDonut}}
+            {{if .CostDonut.HasData}}
+              <div class="donut-holder" data-chart="cost-donut"></div>
+              <script type="application/json" class="chart-spec" data-for="cost-donut">{{ .CostDonut.JSON }}</script>
+            {{end}}
             {{if .ModelCostLegend}}
               <ul class="cost-legend">
                 {{range .ModelCostLegend}}
-                  <li>{{.Dot}}<span class="cost-legend-model">{{.Model}}</span><span class="cost-legend-cost">{{.Cost}}</span></li>
+                  <li><span class="cost-legend-dot" data-ci="{{.ColorIdx}}"></span><span class="cost-legend-model">{{.Model}}</span><span class="cost-legend-cost">{{.Cost}}</span></li>
                 {{end}}
               </ul>
             {{end}}
