@@ -224,7 +224,9 @@ platform, a data warehouse with a CLI sitting on top — something is wrong.
 - **Architecture direction.** Three binaries, one module, one typed contract.
   The server is a thin Postgres + S3 facade. The CLI is the primary surface
   and reads local by default. The panel is server-rendered HTML with HTMX for
-  partial swaps; nothing heavier.
+  partial swaps; nothing heavier. (It may vendor a small prebuilt JS library
+  — e.g. Frappe Charts, ~19 KB, for animated analytics charts — embedded via
+  `embed.FS` like htmx/alpine: still single-binary, still no build step.)
 - **Simplicity direction.** When in doubt, stop. The project should not need
   a microservice mesh, a CI matrix that takes twenty minutes, a documentation
   site generator, or a plugin marketplace. If you find yourself reaching for

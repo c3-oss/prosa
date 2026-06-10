@@ -1,6 +1,6 @@
 ---
 name: prosa-panel-rendering
-description: Panel behavior and rendering conventions for prosa. Use when changing internal/panel templates, HTMX partials, Alpine state, inline SVG charts, CSS tokens, or OAuth flow.
+description: Panel behavior and rendering conventions for prosa. Use when changing internal/panel templates, HTMX partials, Alpine state, Frappe charts, CSS tokens, or OAuth flow.
 ---
 
 # Prosa Panel Rendering
@@ -16,9 +16,11 @@ client-side behavior.
   pagination today; chart filter swaps as the panel grows.
 - **Alpine.js (~15 KB)** — local UI state only: toggles, modals, hover,
   filter pill open/close, command palette. Not for data fetching.
-- **Inline SVG charts generated in Go** (`internal/panel/charts/`) —
-  sparkline, bar row, donut, heatmap, trend. Deterministic; tested
-  against golden SVGs.
+- **Charts via Frappe Charts** (vendored ~19 KB SVG library). The server
+  builds a `charts.Spec` in `internal/panel/charts/` and emits it as a
+  JSON island; `assets/charts-init.js` renders it client-side with the
+  `--chart-*` palette. The heatmap / punch card stay CSS-grid (HTML, not
+  a chart library). Bar leaderboards stay server-rendered HTML.
 - **CSS in modules** under `internal/panel/templates/assets/css/`,
   imported via native `@import`. No bundler.
 - **SSE** at `/events` — live badge of new sessions; future live KPI
@@ -37,8 +39,11 @@ design contract is in `docs/panel/screens.md` and
 - **Server-first state.** Data state lives on the server; UI state lives
   on the client. The dividing line is HTMX (server data) versus Alpine
   (UI toggles).
-- **Charts in Go, not JS.** Reach for `internal/panel/charts/` helpers,
-  not Chart.js / D3 / similar.
+- **Charts via Frappe Charts only.** Build a `charts.Spec` in
+  `internal/panel/charts/` and let `charts-init.js` render it; don't add a
+  second charting library (Chart.js / D3 / ECharts / …). Vendoring the one
+  prebuilt UMD file via `embed.FS` is not a build step; adding `npm` /
+  a bundler still is, and is out.
 - **Design tokens are the only colors.** `tokens.css` defines `--bg`,
   `--text-*`, `--accent`, `--ok`, `--danger`, etc. Templates reference
   vars; nobody else uses literal hex.
@@ -66,9 +71,11 @@ Gated by session cookie: `/`, `/sessions/<id>` (HTMX partial),
   Document in `docs/architecture/panel.md`.
 - **New template**: add to `internal/panel/templates/`. If top-level,
   add to `loadViews()`.
-- **New chart primitive**: add to `internal/panel/charts/` with a golden
-  test in `testdata/`. Document the signature in
-  `docs/panel/components.md`.
+- **New chart**: build a `charts.Spec` in `internal/panel/charts/` (pick a
+  Frappe type: bar/line/donut/axis-mixed), unit-test the JSON shape in
+  `spec_test.go`, render it from the handler, and add a `[data-chart]`
+  container + JSON island in the template. Verify visually; there are no
+  golden SVGs anymore.
 - **New env var**: add to `internal/panel/config.go` and document in
   `docs/self-hosting.md`.
 - **New static asset**: drop into `templates/assets/`. `embed.FS` picks
@@ -79,7 +86,7 @@ Gated by session cookie: `/`, `/sessions/<id>` (HTMX partial),
 - Smoke render: stand up the panel with `PROSA_PANEL_DEV_LOGIN`
   set, hit `/`, click through to the sidepanel, hit `Esc`.
 - Template parse: `go test ./internal/panel/...`.
-- Chart golden: `go test ./internal/panel/charts/...`.
+- Chart spec shape: `go test ./internal/panel/charts/...`.
 - Full lane: `just test-race`.
 
 ## See also

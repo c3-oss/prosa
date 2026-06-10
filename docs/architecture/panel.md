@@ -15,10 +15,18 @@ A small server-rendered web app:
   pagination).
 - **Alpine.js** (planned, ~15 KB) for client-only UI state (modal toggles,
   filter pill open/close, command palette).
-- **Server-rendered HTML bars + tables** for leaderboard cards, plus a
-  small Go inline-SVG charting package (`internal/panel/charts/`:
-  deterministic, golden-tested `Donut` + `Area`) for the cost-share and
-  hour-of-day charts. No client-side charting library, no build step.
+- **Server-rendered HTML bars + tables** for leaderboard cards, and a
+  CSS-grid heatmap / punch card. The analytics charts (cost-share donut,
+  hour-of-day + token area, activity-trend + spend bars, normalized
+  model-share) render client-side with **Frappe Charts** — a vendored,
+  zero-dependency SVG charting library (~19 KB gzip, MIT) embedded via
+  `embed.FS` exactly like htmx/alpine, so there is still no build step,
+  no `node_modules`, no bundler. The server emits each chart as a JSON
+  island built by `internal/panel/charts` (`Spec.JSON`);
+  `assets/charts-init.js` reads it, resolves series colors from the
+  `--chart-*` CSS tokens (so a theme swap recolors charts), and draws it
+  with animation + hover tooltips. Vendoring a prebuilt UMD file is **not**
+  a build step.
 - **SSE** for live updates (badge of new sessions; future live KPI
   ticks).
 - **Connect-Go client** to talk to `prosa-server`. The panel does not touch
@@ -157,6 +165,10 @@ In `internal/panel/assets/`:
   UI state (toggles, command palette).
 - `alpine-collapse.min.js` (~1.5 KB) — Alpine `x-collapse` plugin for
   smooth open/close on `<details>`-style blocks.
+- `frappe-charts.min.umd.js` (~19 KB gzip) — vendored Frappe Charts 1.6.2
+  (MIT). Renders the analytics charts; self-injects its own base CSS at
+  runtime (re-skinned by `css/components/charts.css`). Pinned by sha256 in
+  `charts-init.js`; refresh by re-downloading the same dist file.
 - `style.css` — entrypoint that `@import`s the `css/` modules and
   carries the remaining handcrafted rules.
 - `css/tokens.css` — design tokens (palette, type scale, spacing,
@@ -167,6 +179,9 @@ In `internal/panel/assets/`:
 - `sse.js` — listens on `/events`, updates the "new sessions" badge.
 - `widgets.js` — vanilla helpers (device dropdown, heatmap tooltip,
   inline rename).
+- `charts-init.js` — reads each card's chart JSON island, resolves the
+  `--chart-*` palette from CSS, and renders it with Frappe Charts;
+  re-renders on `htmx:afterSettle` and on a `data-theme` flip.
 
 Component CSS landed so far (under `css/components/`):
 
@@ -183,6 +198,9 @@ Component CSS landed so far (under `css/components/`):
   HTMX-swappable to drill down (F7).
 - `insights.css` — Insights page: trend charts, punch card grid (reuses
   the heatmap cell color levels), subagents table.
+- `charts.css` — re-skins Frappe Charts' runtime-injected styles (axis
+  labels, gridlines, tooltip) with the design tokens, and hides Frappe's
+  built-in legend in favor of the cards' own HTML legends.
 
 Planned next (sidepanel redesign):
 
@@ -191,11 +209,12 @@ Planned next (sidepanel redesign):
 
 Deferred:
 
-- Inline-SVG **sparkline** (`internal/panel/charts/`). The `Donut`,
-  `Area`, and `StackedColumns` helpers have landed (cost-share,
-  hour-of-day, and the trend/share charts); the sparkline sketched in
-  [`../panel/components.md`](../panel/components.md) can land later
-  without changing routes or proto.
+- A **sparkline** primitive sketched in
+  [`../panel/components.md`](../panel/components.md). The cost-share,
+  hour-of-day, trend, spend, and model-share cards now render via Frappe
+  Charts (`internal/panel/charts` builds the `Spec`; `charts-init.js`
+  draws it); a compact inline sparkline can land later as a small Frappe
+  `line` chart without changing routes or proto.
 
 ### Markdown rendering
 

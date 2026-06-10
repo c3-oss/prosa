@@ -134,13 +134,22 @@ Variants:
 
 ---
 
+> **Charts render with Frappe Charts now, not server-side SVG.** The
+> donut, area, and stacked-column cards are drawn client-side by Frappe
+> Charts (`internal/panel/assets/charts-init.js`) from a `charts.Spec`
+> JSON island the server builds in `internal/panel/charts/`. Series colors
+> come from the `--chart-*` Okabe–Ito palette in `tokens.css`. The
+> `template.HTML`/SVG signatures and "byte-identical golden SVG" notes in
+> the sections below are **historical** — they describe the previous
+> implementation; the data shapes and visual intent still hold. The
+> heatmap and punch card stay CSS-grid HTML, not a chart library.
+
 ## Sparkline
 
 **Deferred.** Home cards in the current cut render HTML bars and
-tables, not inline SVG. The signatures below sketch the intended
-server-side helper for when this lands; routes and proto do not
-change when it does. Live targets: `internal/panel/charts/sparkline.go`,
-returning `template.HTML`.
+tables. A sparkline can land later as a small Frappe `line` chart
+(`charts.Spec{Type: "line"}`); routes and proto do not change when it
+does. The signature below is the original inline-SVG sketch.
 
 ### Signature
 
@@ -177,8 +186,8 @@ func Sparkline(values []float64, opts SparklineOpts) template.HTML
 
 - CSS `:hover` on the circle scales it to r=3 and reveals the tooltip
   via `<title>`;
-- Determinism: same values + same opts produce a byte-identical SVG
-  (tests check against golden files).
+- Rendering: client-side via Frappe Charts from a `charts.Spec`; the
+  `spec_test.go` unit tests assert the JSON shape (no golden SVG).
 
 ---
 
@@ -257,7 +266,8 @@ func PaletteColor(i int) string
 - Center carries `CenterLabel` (total) + `CenterSub`;
 - Slices cycle accent→text-3 tones via `PaletteColor` (token-based);
 - Each segment carries a `<title>` (`label: value (pct%)`);
-- Determinism: same input → byte-identical SVG (golden-tested).
+- Rendering: client-side via Frappe Charts from a `charts.Spec`; the
+  `spec_test.go` unit tests assert the JSON shape (no golden SVG).
 
 ---
 
@@ -323,7 +333,8 @@ func Area(points []Point, opts AreaOpts) template.HTML
 - The peak point gets a highlighted `<circle>` with a `<title>`;
 - Empty input renders an empty canvas; all-zero values render a flat
   baseline (no peak marker);
-- Determinism: same input → byte-identical SVG (golden-tested).
+- Rendering: client-side via Frappe Charts from a `charts.Spec`; the
+  `spec_test.go` unit tests assert the JSON shape (no golden SVG).
 
 ---
 
@@ -368,7 +379,8 @@ func StackedColumns(labels []string, series []Series, opts StackedOpts) template
   end-marker circle (used for cumulative spend);
 - Non-positive values render no rect; empty labels render an empty
   canvas;
-- Determinism: same input → byte-identical SVG (golden-tested).
+- Rendering: client-side via Frappe Charts from a `charts.Spec`; the
+  `spec_test.go` unit tests assert the JSON shape (no golden SVG).
 
 ---
 

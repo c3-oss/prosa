@@ -50,10 +50,13 @@ The server-first stack stays:
 
 - `html/template` remains the renderer;
 - HTMX remains the swap engine;
-- SVG is generated server-side in Go (zero JS for charts);
+- charts render with **Frappe Charts** (a vendored ~19 KB SVG library) fed
+  CSS-token colors via a JSON island the server builds in
+  `internal/panel/charts`; no other client charting library;
 - Alpine.js (~15 KB) joins for local UI state only (toggle, modal, hover,
   command palette);
-- no new build step, no `npm`, no `node_modules`.
+- no new build step, no `npm`, no `node_modules` — vendored libraries are
+  prebuilt single files embedded via `embed.FS`, like htmx and alpine.
 
 Everything must still ship as **a single binary** with embedded assets.
 
@@ -106,7 +109,8 @@ Accessibility:
 - minimum AA contrast on text;
 - visible focus rings (outline `--accent` 2 px + 2 px offset);
 - `prefers-reduced-motion` disables transitions;
-- every SVG chart has `<title>` for screen readers;
+- charts expose hover tooltips and a matching HTML legend; the CSS-grid
+  heatmap / punch card cells carry `aria-label`s;
 - keyboard shortcuts don't block input in forms.
 
 ## Flows that need to be designed

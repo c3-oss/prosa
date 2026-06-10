@@ -140,7 +140,7 @@ Tue ░ ░ ░ ▒ ▓
 ### Activity trend card
 
 Full-width card under the heatmap: sessions per day in the **filtered**
-window as inline-SVG [stacked columns](components.md#stacked-columns),
+window as a [stacked-column](components.md#stacked-columns) chart,
 one color band per agent (top 4 by volume + "other"), with a
 palette-matched legend. Past ~120 days the columns collapse into ISO
 weeks ("per week" in the subtitle); `last=all` clamps to the trailing
@@ -180,7 +180,7 @@ between the second and third rows.
 - **Projects**: HTML bar leaderboard from the `projects` report,
   aggregated per project (sessions summed across agents), labeled with
   the friendly project display.
-- **Hour of day**: inline-SVG [area chart](components.md#area-chart) from
+- **Hour of day**: an [area chart](components.md#area-chart) from
   the `hours` report. UTC buckets are rotated into the panel's local
   zone for display (whole-hour, DST-naive); the subtitle names the peak
   hour.
@@ -247,10 +247,11 @@ subagents row.
   `heatmap` report; active days from the windowed one; the schedule
   KPIs from the rotated punch card grid, so they agree with what it
   shows.
-- **Spend & tokens**: estimated spend per day as inline-SVG
-  [stacked columns](components.md#stacked-columns) with a cumulative
-  overlay line, plus a tokens [area chart](components.md#area-chart) on
-  the same buckets. Data: the `usage_by_day` report (per UTC day, per
+- **Spend & tokens**: estimated spend per day as a
+  [bar chart](components.md#stacked-columns), plus a tokens
+  [area chart](components.md#area-chart) on the same buckets. (Frappe
+  Charts has no secondary axis, so the running total lives in the card
+  subtitle rather than as a cumulative overlay line.) Data: the `usage_by_day` report (per UTC day, per
   model), priced panel-side via `internal/pricing` — rows with no
   measured usage or an unknown model count tokens but no spend, the
   same honesty rule as the Usage card. Past ~120 days, buckets collapse
