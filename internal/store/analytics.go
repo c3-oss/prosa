@@ -70,10 +70,8 @@ func (s *Store) AnalyticsProjects(ctx context.Context, f SessionFilter) (Analyti
 	return scanAnalytics(ctx, s.db, q, args, []string{"PROJECT", "AGENT", "SESSIONS"})
 }
 
-// AnalyticsProfiles breaks sessions down by device, agent, and profile so the
-// CLI can show, e.g., that a device has Codex sessions in both `default` and a
-// `work` profile. Uses a distinct join alias so a --device filter (which adds
-// its own devices join in analyticsQuery) does not collide.
+// AnalyticsProfiles breaks sessions down by device, agent, and profile. The
+// dv alias avoids colliding with the devices join analyticsQuery adds for --device.
 func (s *Store) AnalyticsProfiles(ctx context.Context, f SessionFilter) (AnalyticsResult, error) {
 	q, args := analyticsQuery(`
 		SELECT COALESCE(NULLIF(dv.friendly_name, ''), s.device_id) AS device,

@@ -34,8 +34,6 @@ func (i *Importer) DefaultRoots() []string {
 	return i.RootsUnder(filepath.Join(home, ".cursor"))
 }
 
-// RootsUnder scans <base>/chats, where Cursor stores its per-agent store.db
-// databases.
 func (i *Importer) RootsUnder(base string) []string {
 	return []string{filepath.Join(base, "chats")}
 }

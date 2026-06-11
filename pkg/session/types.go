@@ -75,10 +75,8 @@ type Session struct {
 	// envelopes. nil for top-level sessions.
 	ParentSessionID *string
 
-	// Profile is the name of the per-agent, per-device profile the session
-	// was imported from. A profile is a configured location for an agent
-	// (e.g. an alternate CODEX_HOME). Empty is treated as "default" on
-	// write, so every session belongs to exactly one profile.
+	// Profile is the per-agent profile the session was imported from; empty
+	// reads as "default".
 	Profile string
 }
 
@@ -122,13 +120,10 @@ type Session struct {
 //	    with their new hashes on first contact.
 const ProjectionVersion = 10
 
-// DefaultProfile is the profile name every agent has by default, pointing at
-// its standard location. Empty Session.Profile is normalised to this on write.
+// DefaultProfile is the profile name every agent has by default.
 const DefaultProfile = "default"
 
-// ProfileOrDefault normalises an empty profile name to DefaultProfile. Used on
-// every write path (importers, local store, server) so a missing profile —
-// from an older client or a legacy row — always reads back as "default".
+// ProfileOrDefault normalises an empty profile name to DefaultProfile.
 func ProfileOrDefault(p string) string {
 	if p == "" {
 		return DefaultProfile

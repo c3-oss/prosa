@@ -7,11 +7,12 @@
 package prosav1
 
 import (
+	reflect "reflect"
+	sync "sync"
+
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
-	reflect "reflect"
-	sync "sync"
 )
 
 const (
@@ -46,9 +47,8 @@ type Session struct {
 	// session_meta.payload.source.subagent.thread_spawn.parent_thread_id.
 	// Empty string means "top-level session".
 	ParentSessionId string `protobuf:"bytes,15,opt,name=parent_session_id,json=parentSessionId,proto3" json:"parent_session_id,omitempty"`
-	// profile is the per-agent, per-device profile the session was imported
-	// from (e.g. an alternate CODEX_HOME). Empty string is treated as
-	// "default" on write, so older clients keep working.
+	// profile is the per-agent profile the session was imported from; empty
+	// is treated as "default" on write.
 	Profile       string `protobuf:"bytes,16,opt,name=profile,proto3" json:"profile,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -747,12 +747,9 @@ type ListRequest struct {
 	// as top-level rows. Pagination + total_count apply to the filtered
 	// (parent-only) set.
 	TopLevelOnly bool `protobuf:"varint,17,opt,name=top_level_only,json=topLevelOnly,proto3" json:"top_level_only,omitempty"`
-	// profile matches sessions.profile exactly (CLI --profile). Empty means
-	// "no profile filter".
+	// profile matches sessions.profile exactly (CLI --profile).
 	Profile string `protobuf:"bytes,18,opt,name=profile,proto3" json:"profile,omitempty"`
-	// profiles is the panel-side multi-select equivalent of profile. When
-	// non-empty, the server matches any session whose profile is in the list
-	// (profile is ignored).
+	// profiles is the multi-select equivalent of profile (panel).
 	Profiles      []string `protobuf:"bytes,19,rep,name=profiles,proto3" json:"profiles,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1094,7 +1091,7 @@ type SearchRequest struct {
 	// device_name. When non-empty, the server matches any device whose
 	// friendly_name is in the list (device_name is ignored).
 	DeviceNames []string `protobuf:"bytes,9,rep,name=device_names,json=deviceNames,proto3" json:"device_names,omitempty"`
-	// profile matches sessions.profile exactly. Empty means no profile filter.
+	// profile matches sessions.profile exactly.
 	Profile       string `protobuf:"bytes,10,opt,name=profile,proto3" json:"profile,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2053,32 +2050,34 @@ func file_prosa_v1_sessions_proto_rawDescGZIP() []byte {
 	return file_prosa_v1_sessions_proto_rawDescData
 }
 
-var file_prosa_v1_sessions_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
-var file_prosa_v1_sessions_proto_goTypes = []any{
-	(*Session)(nil),               // 0: prosa.v1.Session
-	(*TokenUsage)(nil),            // 1: prosa.v1.TokenUsage
-	(*Turn)(nil),                  // 2: prosa.v1.Turn
-	(*ToolUsage)(nil),             // 3: prosa.v1.ToolUsage
-	(*PushRequest)(nil),           // 4: prosa.v1.PushRequest
-	(*PushChunkRequest)(nil),      // 5: prosa.v1.PushChunkRequest
-	(*PushResponse)(nil),          // 6: prosa.v1.PushResponse
-	(*PushChunkResponse)(nil),     // 7: prosa.v1.PushChunkResponse
-	(*ListRequest)(nil),           // 8: prosa.v1.ListRequest
-	(*ListResponse)(nil),          // 9: prosa.v1.ListResponse
-	(*GetRequest)(nil),            // 10: prosa.v1.GetRequest
-	(*GetResponse)(nil),           // 11: prosa.v1.GetResponse
-	(*SearchRequest)(nil),         // 12: prosa.v1.SearchRequest
-	(*SearchHit)(nil),             // 13: prosa.v1.SearchHit
-	(*SearchResponse)(nil),        // 14: prosa.v1.SearchResponse
-	(*ManifestRequest)(nil),       // 15: prosa.v1.ManifestRequest
-	(*ManifestEntry)(nil),         // 16: prosa.v1.ManifestEntry
-	(*ManifestResponse)(nil),      // 17: prosa.v1.ManifestResponse
-	(*GetRawRequest)(nil),         // 18: prosa.v1.GetRawRequest
-	(*GetRawResponse)(nil),        // 19: prosa.v1.GetRawResponse
-	(*ListChildrenRequest)(nil),   // 20: prosa.v1.ListChildrenRequest
-	(*ListChildrenResponse)(nil),  // 21: prosa.v1.ListChildrenResponse
-	(*timestamppb.Timestamp)(nil), // 22: google.protobuf.Timestamp
-}
+var (
+	file_prosa_v1_sessions_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
+	file_prosa_v1_sessions_proto_goTypes  = []any{
+		(*Session)(nil),               // 0: prosa.v1.Session
+		(*TokenUsage)(nil),            // 1: prosa.v1.TokenUsage
+		(*Turn)(nil),                  // 2: prosa.v1.Turn
+		(*ToolUsage)(nil),             // 3: prosa.v1.ToolUsage
+		(*PushRequest)(nil),           // 4: prosa.v1.PushRequest
+		(*PushChunkRequest)(nil),      // 5: prosa.v1.PushChunkRequest
+		(*PushResponse)(nil),          // 6: prosa.v1.PushResponse
+		(*PushChunkResponse)(nil),     // 7: prosa.v1.PushChunkResponse
+		(*ListRequest)(nil),           // 8: prosa.v1.ListRequest
+		(*ListResponse)(nil),          // 9: prosa.v1.ListResponse
+		(*GetRequest)(nil),            // 10: prosa.v1.GetRequest
+		(*GetResponse)(nil),           // 11: prosa.v1.GetResponse
+		(*SearchRequest)(nil),         // 12: prosa.v1.SearchRequest
+		(*SearchHit)(nil),             // 13: prosa.v1.SearchHit
+		(*SearchResponse)(nil),        // 14: prosa.v1.SearchResponse
+		(*ManifestRequest)(nil),       // 15: prosa.v1.ManifestRequest
+		(*ManifestEntry)(nil),         // 16: prosa.v1.ManifestEntry
+		(*ManifestResponse)(nil),      // 17: prosa.v1.ManifestResponse
+		(*GetRawRequest)(nil),         // 18: prosa.v1.GetRawRequest
+		(*GetRawResponse)(nil),        // 19: prosa.v1.GetRawResponse
+		(*ListChildrenRequest)(nil),   // 20: prosa.v1.ListChildrenRequest
+		(*ListChildrenResponse)(nil),  // 21: prosa.v1.ListChildrenResponse
+		(*timestamppb.Timestamp)(nil), // 22: google.protobuf.Timestamp
+	}
+)
 var file_prosa_v1_sessions_proto_depIdxs = []int32{
 	22, // 0: prosa.v1.Session.started_at:type_name -> google.protobuf.Timestamp
 	22, // 1: prosa.v1.Session.last_activity_at:type_name -> google.protobuf.Timestamp

@@ -36,7 +36,6 @@ func seedProfileStore(t *testing.T) (context.Context, *Store, time.Time) {
 	require.NoError(t, s.UpsertSession(ctx, mk("x1", "codex", "default", 1*time.Hour), nil))
 	require.NoError(t, s.UpsertSession(ctx, mk("x2", "codex", "work", 2*time.Hour), nil))
 	require.NoError(t, s.UpsertSession(ctx, mk("x3", "codex", "work", 3*time.Hour), nil))
-	// Empty profile must normalise to "default" on write.
 	require.NoError(t, s.UpsertSession(ctx, mk("c1", "claude-code", "", 4*time.Hour), nil))
 	return ctx, s, now
 }

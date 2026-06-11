@@ -47,9 +47,7 @@ type ImportOptions struct {
 	// from raw transcripts.
 	Overwrite bool
 
-	// Profile is the name of the profile the scanned file belongs to. The
-	// importer stamps it onto the resulting session. Empty is treated as
-	// "default".
+	// Profile names the profile the scanned file belongs to; empty means "default".
 	Profile string
 }
 
@@ -58,14 +56,10 @@ type Importer interface {
 	// Name identifies the agent (e.g. "claude-code").
 	Name() string
 
-	// DefaultRoots are filesystem locations checked for the default profile.
-	// Equivalent to RootsUnder(<agent's default home>). May return an empty
-	// slice if home dir is unresolvable.
+	// DefaultRoots are the scan locations for the default profile.
 	DefaultRoots() []string
 
-	// RootsUnder lists the scan directories under a profile's base directory
-	// (the agent's home, e.g. ~/.codex). The importer appends its own
-	// agent-specific subpath, so callers never hardcode per-agent layout.
+	// RootsUnder lists the scan directories under a profile's base directory.
 	RootsUnder(base string) []string
 
 	// Walk discovers session files under root.

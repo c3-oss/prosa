@@ -47,8 +47,6 @@ func (i *Importer) DefaultRoots() []string {
 	return i.RootsUnder(filepath.Join(home, ".hermes"))
 }
 
-// RootsUnder scans <base>/sessions. Walk also reaches the sibling state.db at
-// <base>/state.db, so the base is the Hermes home rather than the sessions dir.
 func (i *Importer) RootsUnder(base string) []string {
 	return []string{filepath.Join(base, "sessions")}
 }

@@ -8,10 +8,8 @@ import (
 	"connectrpc.com/connect"
 )
 
-// handleProfiles renders the profiles breakdown: one row per (device, agent,
-// profile) with its session count, each cell linking into a filtered /sessions
-// view. Answers "device A has Codex in both `default` and `work`". The window
-// comes from ?last= (default 30d), matching the projects landing page.
+// handleProfiles renders the device × agent × profile breakdown, each cell
+// linking into a filtered /sessions view. Window from ?last= (default 30d).
 func (p *Panel) handleProfiles(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	last := q.Get("last")

@@ -7,8 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// fakeImporter is a minimal rooter for Resolve tests: its default home is
-// /home/.agent and RootsUnder appends "sessions".
+// fakeImporter is a minimal rooter for Resolve tests.
 type fakeImporter struct{}
 
 func (fakeImporter) DefaultRoots() []string { return []string{"/home/.agent/sessions"} }
@@ -41,7 +40,6 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	require.Equal(t, Version, got.Version)
 	ps := got.For("codex")
 	require.Len(t, ps, 2)
-	// For() returns name-sorted.
 	require.Equal(t, "alt", ps[0].Name)
 	require.Equal(t, "work", ps[1].Name)
 }
@@ -57,7 +55,6 @@ func TestSetReplacesAndRemove(t *testing.T) {
 	require.True(t, c.Remove("codex", "work"))
 	_, ok = c.Find("codex", "work")
 	require.False(t, ok)
-	// Agent key pruned when its last profile is removed.
 	require.NotContains(t, c.Agents, "codex")
 	require.False(t, c.Remove("codex", "work"))
 }

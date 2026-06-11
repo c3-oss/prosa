@@ -38,8 +38,6 @@ func (i *Importer) DefaultRoots() []string {
 	return i.RootsUnder(filepath.Join(home, ".gemini"))
 }
 
-// RootsUnder scans <base>/antigravity-cli/conversations. Shares the ~/.gemini
-// base with the gemini importer, but appends its own subpath.
 func (i *Importer) RootsUnder(base string) []string {
 	return []string{filepath.Join(base, "antigravity-cli", "conversations")}
 }

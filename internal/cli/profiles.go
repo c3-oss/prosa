@@ -71,8 +71,7 @@ func newProfilesSetPathCmd() *cobra.Command {
 	}
 }
 
-// profileRow is one displayed profile: its agent, name, the directories sync
-// scans for it, and the session count already imported under it.
+// profileRow is one displayed profile with its session count.
 type profileRow struct {
 	Agent    string   `json:"agent"`
 	Name     string   `json:"profile"`
@@ -110,8 +109,7 @@ func runProfilesList(cmd *cobra.Command, _ []string) error {
 				Sessions: counts[agent][r.Name],
 			})
 		}
-		// Surface profiles that still hold sessions but are no longer
-		// configured, so the user can see where past imports landed.
+		// Surface profiles that still hold sessions but are no longer configured.
 		var orphans []string
 		for name := range counts[agent] {
 			if !seen[name] {
@@ -140,8 +138,8 @@ func runProfilesList(cmd *cobra.Command, _ []string) error {
 	return renderProfileTable(os.Stdout, rows, IsInteractive())
 }
 
-// profileSessionCounts returns counts[agent][profile] from the local store.
-// A missing store (never synced) yields empty counts rather than an error.
+// profileSessionCounts returns counts[agent][profile]. Counts are
+// supplementary, so a missing or unreadable store yields empty counts.
 func profileSessionCounts(ctx context.Context) (map[string]map[string]int, error) {
 	out := map[string]map[string]int{}
 	storePath, err := paths.StorePath()
@@ -151,8 +149,6 @@ func profileSessionCounts(ctx context.Context) (map[string]map[string]int, error
 	if _, err := os.Stat(storePath); os.IsNotExist(err) {
 		return out, nil
 	}
-	// Counts are supplementary: an unmigrated or unreadable store should not
-	// stop `profiles list` from showing the configured profiles + locations.
 	s, err := store.OpenReadOnly(ctx, storePath)
 	if err != nil {
 		return out, nil
@@ -280,8 +276,7 @@ func validateProfileArgs(agent, name string) error {
 	return nil
 }
 
-// normalizeProfilePath expands a leading ~ and makes the path absolute so a
-// profile resolves the same regardless of the cwd `prosa sync` runs from.
+// normalizeProfilePath expands a leading ~ and makes the path absolute.
 func normalizeProfilePath(p string) (string, error) {
 	p = strings.TrimSpace(p)
 	if p == "" {

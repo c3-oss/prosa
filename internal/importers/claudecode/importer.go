@@ -33,8 +33,6 @@ func (i *Importer) DefaultRoots() []string {
 	return i.RootsUnder(filepath.Join(home, ".claude"))
 }
 
-// RootsUnder scans <base>/projects, mirroring Claude Code's
-// $CLAUDE_CONFIG_DIR/projects layout.
 func (i *Importer) RootsUnder(base string) []string {
 	return []string{filepath.Join(base, "projects")}
 }

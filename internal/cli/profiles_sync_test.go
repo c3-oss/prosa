@@ -12,9 +12,6 @@ import (
 	"github.com/c3-oss/prosa/pkg/importer"
 )
 
-// TestRegisteredImportersRootsUnder asserts every importer derives its scan
-// roots from the profile base directory, so a configured profile path always
-// expands to something under it.
 func TestRegisteredImportersRootsUnder(t *testing.T) {
 	for _, imp := range registeredImporters() {
 		roots := imp.RootsUnder("/tmp/base")
@@ -44,8 +41,6 @@ func (r recordingImporter) Import(_ context.Context, _ string, _ importer.Sink, 
 	return importer.ImportResult{SessionID: "s1"}, nil
 }
 
-// TestSyncThreadsProfileIntoImport asserts a syncJob's profile reaches the
-// importer through per-job ImportOptions, even though the base opts is shared.
 func TestSyncThreadsProfileIntoImport(t *testing.T) {
 	var got string
 	work := []syncJob{{

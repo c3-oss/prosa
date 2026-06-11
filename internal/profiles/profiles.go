@@ -1,8 +1,5 @@
-// Package profiles loads and saves the local profile configuration: per-agent,
-// named locations a device imports sessions from. A profile's Path is the
-// agent's home directory (the CODEX_HOME-equivalent), which each importer
-// resolves into scan roots. The mapping is purely local — only the profile
-// name travels to the server on a session row.
+// Package profiles loads and saves the local per-agent profile config
+// (profiles.json). Only the profile name reaches the server; the path is local.
 package profiles
 
 import (
@@ -20,24 +17,20 @@ import (
 // Version is the on-disk schema version of profiles.json.
 const Version = 1
 
-// Profile is one named location for an agent on this device. Path is the
-// agent's base/home directory (e.g. ~/.codex-work); the importer derives the
-// directories it actually scans from it.
+// Profile is one named location for an agent. Path is the agent's home dir
+// (e.g. ~/.codex-work); the importer derives its scan roots from it.
 type Profile struct {
 	Name string `json:"name"`
 	Path string `json:"path"`
 }
 
-// Config is the whole profiles.json document. Agents maps an agent name to its
-// configured profiles. The synthesized "default" profile is never stored here
-// unless the user explicitly overrides its path.
+// Config is the profiles.json document, keyed by agent name.
 type Config struct {
 	Version int                  `json:"version"`
 	Agents  map[string][]Profile `json:"agents"`
 }
 
-// Load reads profiles.json. A missing file is not an error: it returns an
-// empty config, which resolves to just the default profile per agent.
+// Load reads profiles.json; a missing file yields an empty config.
 func Load() (Config, error) {
 	path, err := paths.ProfilesPath()
 	if err != nil {
@@ -60,8 +53,7 @@ func Load() (Config, error) {
 	return c, nil
 }
 
-// Save atomically writes profiles.json with 0600 permissions, mirroring how
-// auth.json is persisted.
+// Save atomically writes profiles.json with 0600 permissions.
 func Save(c Config) error {
 	if c.Version == 0 {
 		c.Version = Version
@@ -85,15 +77,13 @@ func Save(c Config) error {
 	return os.Rename(tmp, final)
 }
 
-// For returns the configured profiles for an agent in stable name order.
-// Never includes the synthesized default unless the user stored an override.
+// For returns an agent's configured profiles in name order.
 func (c Config) For(agent string) []Profile {
 	ps := append([]Profile(nil), c.Agents[agent]...)
 	sort.Slice(ps, func(i, j int) bool { return ps[i].Name < ps[j].Name })
 	return ps
 }
 
-// Find returns the named profile for an agent and whether it exists.
 func (c Config) Find(agent, name string) (Profile, bool) {
 	for _, p := range c.Agents[agent] {
 		if p.Name == name {
@@ -103,8 +93,7 @@ func (c Config) Find(agent, name string) (Profile, bool) {
 	return Profile{}, false
 }
 
-// Set inserts or updates a profile for an agent, replacing any existing entry
-// with the same name. Returns true when an existing profile was replaced.
+// Set inserts or replaces a profile; returns true when it replaced one.
 func (c *Config) Set(agent string, p Profile) bool {
 	if c.Agents == nil {
 		c.Agents = map[string][]Profile{}
@@ -121,8 +110,7 @@ func (c *Config) Set(agent string, p Profile) bool {
 	return false
 }
 
-// Remove deletes a named profile for an agent. Returns false when nothing
-// matched. Prunes the agent key when its last profile is removed.
+// Remove deletes a named profile; returns false when nothing matched.
 func (c *Config) Remove(agent, name string) bool {
 	list := c.Agents[agent]
 	for i := range list {
@@ -137,25 +125,20 @@ func (c *Config) Remove(agent, name string) bool {
 	return false
 }
 
-// Resolved is one effective profile after merging configured entries with the
-// synthesized default: a name plus the filesystem roots to scan for it.
+// Resolved is one effective profile: a name plus the roots to scan for it.
 type Resolved struct {
 	Name  string
-	Path  string // base path; empty for the synthesized default
+	Path  string
 	Roots []string
 }
 
-// rooter is the slice of the importer contract profile resolution needs: the
-// default roots and how to expand a base path into scan roots.
 type rooter interface {
 	DefaultRoots() []string
 	RootsUnder(base string) []string
 }
 
-// Resolve computes the effective profiles for an agent: always a "default"
-// (the importer's DefaultRoots, unless the config overrides its path) plus
-// every other configured profile expanded through RootsUnder. The result is
-// ordered default-first, then the rest by name.
+// Resolve returns an agent's effective profiles: a synthesized "default"
+// (overridable via config) first, then the configured extras by name.
 func (c Config) Resolve(agent string, imp rooter) []Resolved {
 	var out []Resolved
 	def := Resolved{Name: session.DefaultProfile, Roots: imp.DefaultRoots()}

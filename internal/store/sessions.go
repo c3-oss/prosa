@@ -351,16 +351,14 @@ func (s *Store) GetSession(ctx context.Context, id string) (session.Session, err
 	return list[0], nil
 }
 
-// ProfileCount is one (agent, profile) group with its session count, used by
-// `prosa profiles list` to show how many sessions each profile holds.
+// ProfileCount is one (agent, profile) group with its session count.
 type ProfileCount struct {
 	Agent   string
 	Profile string
 	Count   int
 }
 
-// ProfileCounts returns the session count per (agent, profile) across the
-// local store, ordered by agent then profile. Empty result is not an error.
+// ProfileCounts returns the session count per (agent, profile).
 func (s *Store) ProfileCounts(ctx context.Context) ([]ProfileCount, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT agent, profile, COUNT(*)

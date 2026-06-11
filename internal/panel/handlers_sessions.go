@@ -743,9 +743,7 @@ func (p *Panel) listProjectLabels(ctx context.Context, since, until time.Time) (
 }
 
 // listProfileLabels resolves the profile dropdown choices from the analytics
-// "profiles" report (DEVICE, AGENT, PROFILE, SESSIONS) for the active window.
-// The third column is the profile name; dedupe + alpha-sort. Non-fatal — the
-// caller logs and renders an empty dropdown on failure.
+// "profiles" report (profile name is the third column). Non-fatal on failure.
 func (p *Panel) listProfileLabels(ctx context.Context, since, until time.Time) ([]string, error) {
 	resp, err := p.clients.Analytics.GetReport(ctx, connect.NewRequest(&prosav1.GetReportRequest{
 		Report: "profiles",

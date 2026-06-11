@@ -35,8 +35,6 @@ func (i *Importer) DefaultRoots() []string {
 	return i.RootsUnder(filepath.Join(home, ".codex"))
 }
 
-// RootsUnder scans <base>/sessions, mirroring Codex's own $CODEX_HOME/sessions
-// layout so a profile base of ~/.codex-work resolves to ~/.codex-work/sessions.
 func (i *Importer) RootsUnder(base string) []string {
 	return []string{filepath.Join(base, "sessions")}
 }

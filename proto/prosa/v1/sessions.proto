@@ -74,9 +74,8 @@ message Session {
   // session_meta.payload.source.subagent.thread_spawn.parent_thread_id.
   // Empty string means "top-level session".
   string parent_session_id = 15;
-  // profile is the per-agent, per-device profile the session was imported
-  // from (e.g. an alternate CODEX_HOME). Empty string is treated as
-  // "default" on write, so older clients keep working.
+  // profile is the per-agent profile the session was imported from; empty
+  // is treated as "default" on write.
   string profile = 16;
 }
 
@@ -203,12 +202,9 @@ message ListRequest {
   // as top-level rows. Pagination + total_count apply to the filtered
   // (parent-only) set.
   bool top_level_only = 17;
-  // profile matches sessions.profile exactly (CLI --profile). Empty means
-  // "no profile filter".
+  // profile matches sessions.profile exactly (CLI --profile).
   string profile = 18;
-  // profiles is the panel-side multi-select equivalent of profile. When
-  // non-empty, the server matches any session whose profile is in the list
-  // (profile is ignored).
+  // profiles is the multi-select equivalent of profile (panel).
   repeated string profiles = 19;
 }
 
@@ -243,7 +239,7 @@ message SearchRequest {
   // device_name. When non-empty, the server matches any device whose
   // friendly_name is in the list (device_name is ignored).
   repeated string device_names = 9;
-  // profile matches sessions.profile exactly. Empty means no profile filter.
+  // profile matches sessions.profile exactly.
   string profile = 10;
 }
 

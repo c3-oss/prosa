@@ -41,9 +41,6 @@ func (i *Importer) DefaultRoots() []string {
 	return i.RootsUnder(filepath.Join(home, ".gemini"))
 }
 
-// RootsUnder scans <base>/tmp, where Gemini CLI keeps its per-project chat
-// histories. Shares the ~/.gemini base with antigravity, but each importer
-// appends its own subpath.
 func (i *Importer) RootsUnder(base string) []string {
 	return []string{filepath.Join(base, "tmp")}
 }

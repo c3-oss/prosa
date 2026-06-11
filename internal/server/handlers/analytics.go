@@ -467,9 +467,7 @@ func queryProjects(whereSQL string, args []any) (string, []any) {
 	return q, args
 }
 
-// queryProfiles breaks sessions down by device, agent, and profile so the
-// panel and CLI can show, e.g., that device A has Codex sessions in both the
-// `default` and a `work` profile.
+// queryProfiles breaks sessions down by device, agent, and profile.
 func queryProfiles(whereSQL string, args []any) (string, []any) {
 	q := `
 		SELECT COALESCE(NULLIF(d.friendly_name, ''), s.device_id) AS device,
