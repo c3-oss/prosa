@@ -13,6 +13,7 @@
     {{range $a, $sel := .AgentsSelected}}{{if $sel}}<input type="hidden" name="agent" value="{{$a}}">{{end}}{{end}}
     {{range $p, $sel := .ProjectsSelected}}{{if $sel}}<input type="hidden" name="project" value="{{$p}}">{{end}}{{end}}
     {{range $d, $sel := .DevicesSelected}}{{if $sel}}<input type="hidden" name="device" value="{{$d}}">{{end}}{{end}}
+    {{range $pr, $sel := .ProfilesSelected}}{{if $sel}}<input type="hidden" name="profile" value="{{$pr}}">{{end}}{{end}}
     {{if .Sort}}<input type="hidden" name="sort" value="{{.Sort}}">{{end}}
     {{if .Dir}}<input type="hidden" name="dir" value="{{.Dir}}">{{end}}
     {{range $c, $on := .Cols}}{{if $on}}<input type="hidden" name="cols" value="{{$c}}">{{end}}{{end}}
@@ -118,6 +119,30 @@
             {{end}}
           {{else}}
             <div class="dropdown-empty">no devices yet</div>
+          {{end}}
+        </div>
+      </div>
+    </label>
+
+    <label>
+      Profile
+      <div class="dropdown">
+        <button type="button" class="dropdown-toggle">
+          {{- $n := 0 -}}
+          {{- range $pr, $sel := .ProfilesSelected}}{{if $sel}}{{$n = 1}}{{end}}{{end -}}
+          {{- if eq $n 0}}all profiles{{else}}selected{{end}} ▾
+        </button>
+        <div class="dropdown-menu" hidden>
+          {{if .Profiles}}
+            {{$sel := .ProfilesSelected}}
+            {{range .Profiles}}
+              <label class="dropdown-item">
+                <input type="checkbox" name="profile" value="{{.}}" {{if index $sel .}}checked{{end}}>
+                <span>{{.}}</span>
+              </label>
+            {{end}}
+          {{else}}
+            <div class="dropdown-empty">no profiles in window</div>
           {{end}}
         </div>
       </div>

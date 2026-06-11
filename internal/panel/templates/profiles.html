@@ -1,0 +1,46 @@
+{{define "profiles"}}{{template "base" .}}{{end}}
+{{define "side"}}{{end}}
+{{define "content"}}
+  <h1>Profiles</h1>
+
+  <form method="get" action="/profiles" class="filter-bar"
+        x-data @change="$el.requestSubmit()">
+    <label>
+      Window
+      <select name="last">
+        <option value="12h" {{if eq .Last "12h"}}selected{{end}}>12h</option>
+        <option value="7d"  {{if eq .Last "7d"}}selected{{end}}>7d</option>
+        <option value="30d" {{if or (eq .Last "") (eq .Last "30d")}}selected{{end}}>30d</option>
+        <option value="365d" {{if eq .Last "365d"}}selected{{end}}>1y</option>
+        <option value="all"  {{if eq .Last "all"}}selected{{end}}>all</option>
+      </select>
+    </label>
+    <noscript><button class="btn" type="submit">Apply</button></noscript>
+  </form>
+
+  {{if .Rows}}
+    <table>
+      <thead><tr>{{range .Headers}}<th>{{.}}</th>{{end}}</tr></thead>
+      <tbody>
+        {{range .Rows}}
+          <tr>
+            {{range $i, $v := .Values}}
+              {{$h := index $.Headers $i}}
+              {{if eq $h "DEVICE"}}
+                <td><a href="/sessions?device={{urlquery $v}}&last={{$.Last}}">{{$v}}</a></td>
+              {{else if eq $h "AGENT"}}
+                <td><a href="/sessions?agent={{urlquery $v}}&last={{$.Last}}">{{$v}}</a></td>
+              {{else if eq $h "PROFILE"}}
+                <td><a href="/sessions?profile={{urlquery $v}}&last={{$.Last}}">{{$v}}</a></td>
+              {{else}}
+                <td>{{$v}}</td>
+              {{end}}
+            {{end}}
+          </tr>
+        {{end}}
+      </tbody>
+    </table>
+  {{else}}
+    <div class="empty">No profiles in this window.</div>
+  {{end}}
+{{end}}
