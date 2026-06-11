@@ -72,7 +72,9 @@ func runSyncInteractive(
 			var res importer.ImportResult
 			err := w.prepareErr
 			if err == nil {
-				res, err = w.imp.Import(ctx, w.path, sink, opts)
+				jobOpts := opts
+				jobOpts.Profile = w.profile
+				res, err = w.imp.Import(ctx, w.path, sink, jobOpts)
 			}
 			if w.prepareErr == nil && w.cleanup != nil {
 				w.cleanup()
@@ -209,7 +211,9 @@ func runSyncPlain(ctx context.Context, work []syncJob, sink importer.Sink, push 
 		var res importer.ImportResult
 		err := w.prepareErr
 		if err == nil {
-			res, err = w.imp.Import(ctx, w.path, sink, opts)
+			jobOpts := opts
+			jobOpts.Profile = w.profile
+			res, err = w.imp.Import(ctx, w.path, sink, jobOpts)
 		}
 		if w.prepareErr == nil && w.cleanup != nil {
 			w.cleanup()

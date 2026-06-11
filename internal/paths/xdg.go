@@ -85,3 +85,14 @@ func AuthPath() (string, error) {
 	}
 	return filepath.Join(c, "auth.json"), nil
 }
+
+// ProfilesPath is where `prosa profiles` writes the per-agent profile
+// definitions (name → location). Lives alongside auth.json under ConfigHome
+// so it travels with config, not with the data store.
+func ProfilesPath() (string, error) {
+	c, err := ConfigHome()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(c, "profiles.json"), nil
+}

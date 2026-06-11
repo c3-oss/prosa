@@ -17,6 +17,7 @@ import (
 	"github.com/c3-oss/prosa/internal/importers/hermes"
 	"github.com/c3-oss/prosa/internal/legacy"
 	"github.com/c3-oss/prosa/internal/paths"
+	"github.com/c3-oss/prosa/internal/profiles"
 	"github.com/c3-oss/prosa/internal/projectid"
 	"github.com/c3-oss/prosa/internal/store"
 	"github.com/c3-oss/prosa/pkg/importer"
@@ -46,6 +47,7 @@ func newSyncCmd() *cobra.Command {
 type syncJob struct {
 	imp        importer.Importer
 	path       string
+	profile    string // profile the file was discovered under ("" → default)
 	cleanup    func() // runs after Import; used by legacy bundle to delete decompressed temp
 	legacy     bool   // marks the job as coming from --legacy-bundle for the summary
 	prepareErr error  // records pre-import failures so summaries stay factual
@@ -116,15 +118,22 @@ func runSync(cmd *cobra.Command, _ []string) error {
 		tmpDir      string
 		bundle      *legacy.Bundle
 	)
+	profCfg, err := profiles.Load()
+	if err != nil {
+		slog.Warn("profiles config unreadable; scanning default locations only", "err", err)
+		profCfg = profiles.Config{}
+	}
 	for _, imp := range registeredImporters() {
-		for _, root := range imp.DefaultRoots() {
-			ps, err := imp.Walk(ctx, root)
-			if err != nil {
-				slog.Warn("walk failed", "agent", imp.Name(), "root", root, "err", err)
-				continue
-			}
-			for _, p := range ps {
-				liveWork = append(liveWork, syncJob{imp: imp, path: p})
+		for _, pr := range profCfg.Resolve(imp.Name(), imp) {
+			for _, root := range pr.Roots {
+				ps, err := imp.Walk(ctx, root)
+				if err != nil {
+					slog.Warn("walk failed", "agent", imp.Name(), "profile", pr.Name, "root", root, "err", err)
+					continue
+				}
+				for _, p := range ps {
+					liveWork = append(liveWork, syncJob{imp: imp, path: p, profile: pr.Name})
+				}
 			}
 		}
 	}
