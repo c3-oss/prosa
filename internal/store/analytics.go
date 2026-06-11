@@ -70,6 +70,22 @@ func (s *Store) AnalyticsProjects(ctx context.Context, f SessionFilter) (Analyti
 	return scanAnalytics(ctx, s.db, q, args, []string{"PROJECT", "AGENT", "SESSIONS"})
 }
 
+// AnalyticsProfiles breaks sessions down by device, agent, and profile so the
+// CLI can show, e.g., that a device has Codex sessions in both `default` and a
+// `work` profile. Uses a distinct join alias so a --device filter (which adds
+// its own devices join in analyticsQuery) does not collide.
+func (s *Store) AnalyticsProfiles(ctx context.Context, f SessionFilter) (AnalyticsResult, error) {
+	q, args := analyticsQuery(`
+		SELECT COALESCE(NULLIF(dv.friendly_name, ''), s.device_id) AS device,
+		       s.agent,
+		       s.profile,
+		       COUNT(*) AS sessions
+		FROM sessions s
+		LEFT JOIN devices dv ON dv.id = s.device_id
+	`, ` GROUP BY device, s.agent, s.profile ORDER BY device ASC, s.agent ASC, s.profile ASC`, f)
+	return scanAnalytics(ctx, s.db, q, args, []string{"DEVICE", "AGENT", "PROFILE", "SESSIONS"})
+}
+
 // AnalyticsHeatmap emits one row per (day, agent) over the selected window,
 // matching the server's heatmap report shape exactly (DATE, AGENT,
 // SESSIONS). Zero-session days still get a single (day, "", 0) row so
@@ -367,6 +383,10 @@ func analyticsQuery(selectSQL, tail string, f SessionFilter) (string, []any) {
 	if f.Agent != nil {
 		conds = append(conds, "s.agent = ?")
 		args = append(args, *f.Agent)
+	}
+	if f.Profile != nil {
+		conds = append(conds, "s.profile = ?")
+		args = append(args, *f.Profile)
 	}
 	join := ""
 	if f.DeviceName != nil {

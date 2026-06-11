@@ -54,8 +54,8 @@ func upsertSessionTx(ctx context.Context, tx *sql.Tx, sess session.Session, tool
 			started_at, last_activity_at,
 			first_prompt, model,
 			raw_path, raw_hash, raw_size,
-			parent_session_id
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			parent_session_id, profile
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			agent             = excluded.agent,
 			device_id         = excluded.device_id,
@@ -69,14 +69,15 @@ func upsertSessionTx(ctx context.Context, tx *sql.Tx, sess session.Session, tool
 			raw_path          = excluded.raw_path,
 			raw_hash          = excluded.raw_hash,
 			raw_size          = excluded.raw_size,
-			parent_session_id = excluded.parent_session_id
+			parent_session_id = excluded.parent_session_id,
+			profile           = excluded.profile
 	`,
 		sess.ID, sess.Agent, sess.DeviceID, nullableString(sess.ProjectPath),
 		nullableString(sess.ProjectRemote), nullableString(sess.ProjectMarker),
 		formatTime(sess.StartedAt), formatTime(sess.LastActivityAt),
 		nullableString(sess.FirstPrompt), nullableString(sess.Model),
 		sess.RawPath, sess.RawHash, sess.RawSize,
-		nullableString(sess.ParentSessionID),
+		nullableString(sess.ParentSessionID), session.ProfileOrDefault(sess.Profile),
 	); err != nil {
 		return fmt.Errorf("upsert session %s: %w", sess.ID, err)
 	}
@@ -152,6 +153,8 @@ type SessionFilter struct {
 	ProjectMarker *string
 	Agent         *string
 	DeviceName    *string
+	// Profile matches sessions.profile exactly. Drives the --profile filter.
+	Profile *string
 	// Limit caps the number of rows returned. 0 means no limit.
 	Limit int
 }
@@ -198,6 +201,10 @@ func (s *Store) ListSessions(ctx context.Context, f SessionFilter) ([]session.Se
 		conds = append(conds, "s.agent = ?")
 		args = append(args, *f.Agent)
 	}
+	if f.Profile != nil {
+		conds = append(conds, "s.profile = ?")
+		args = append(args, *f.Profile)
+	}
 
 	join := ""
 	if f.DeviceName != nil {
@@ -212,7 +219,7 @@ func (s *Store) ListSessions(ctx context.Context, f SessionFilter) ([]session.Se
 		       s.started_at, s.last_activity_at,
 		       s.first_prompt, s.model,
 		       s.raw_path, s.raw_hash, s.raw_size,
-		       s.parent_session_id,
+		       s.parent_session_id, s.profile,
 		       su.session_id, su.total_tokens, su.input_tokens, su.output_tokens,
 		       su.cached_tokens, su.cache_read_tokens, su.cache_creation_tokens
 		FROM sessions s
@@ -300,7 +307,7 @@ func (s *Store) ListChildren(ctx context.Context, parentID string) ([]session.Se
 		       s.started_at, s.last_activity_at,
 		       s.first_prompt, s.model,
 		       s.raw_path, s.raw_hash, s.raw_size,
-		       s.parent_session_id,
+		       s.parent_session_id, s.profile,
 		       su.session_id, su.total_tokens, su.input_tokens, su.output_tokens,
 		       su.cached_tokens, su.cache_read_tokens, su.cache_creation_tokens
 		FROM sessions s
@@ -323,7 +330,7 @@ func (s *Store) GetSession(ctx context.Context, id string) (session.Session, err
 		       s.started_at, s.last_activity_at,
 		       s.first_prompt, s.model,
 		       s.raw_path, s.raw_hash, s.raw_size,
-		       s.parent_session_id,
+		       s.parent_session_id, s.profile,
 		       su.session_id, su.total_tokens, su.input_tokens, su.output_tokens,
 		       su.cached_tokens, su.cache_read_tokens, su.cache_creation_tokens
 		FROM sessions s
@@ -342,6 +349,38 @@ func (s *Store) GetSession(ctx context.Context, id string) (session.Session, err
 		return session.Session{}, sql.ErrNoRows
 	}
 	return list[0], nil
+}
+
+// ProfileCount is one (agent, profile) group with its session count, used by
+// `prosa profiles list` to show how many sessions each profile holds.
+type ProfileCount struct {
+	Agent   string
+	Profile string
+	Count   int
+}
+
+// ProfileCounts returns the session count per (agent, profile) across the
+// local store, ordered by agent then profile. Empty result is not an error.
+func (s *Store) ProfileCounts(ctx context.Context) ([]ProfileCount, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT agent, profile, COUNT(*)
+		FROM sessions
+		GROUP BY agent, profile
+		ORDER BY agent ASC, profile ASC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ProfileCount
+	for rows.Next() {
+		var pc ProfileCount
+		if err := rows.Scan(&pc.Agent, &pc.Profile, &pc.Count); err != nil {
+			return nil, err
+		}
+		out = append(out, pc)
+	}
+	return out, rows.Err()
 }
 
 // ManifestRow is the minimal projection used by the catch-up reconcile
@@ -473,7 +512,7 @@ func scanSessions(rows *sql.Rows) ([]session.Session, error) {
 			&startedAt, &lastAct,
 			&firstPrompt, &model,
 			&sess.RawPath, &sess.RawHash, &sess.RawSize,
-			&parentID,
+			&parentID, &sess.Profile,
 			&usageSession, &totalTokens, &inputTokens, &outputTokens,
 			&cachedTokens, &cacheRead, &cacheCreate,
 		); err != nil {
