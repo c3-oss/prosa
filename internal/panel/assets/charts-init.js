@@ -86,15 +86,22 @@
       container.replaceWith(target);
     }
 
+    // Dense series (daily buckets over a month+) read better as a clean
+    // line; dots at every point turn it into a string of beads. Tooltips
+    // don't need the dots either way.
+    var dense = (spec.labels || []).length > 24;
+
     target.__chart = new frappe.Chart(target, {
       data: { labels: spec.labels || [], datasets: spec.datasets },
       type: spec.type,
       height: spec.height || 160,
       animate: 1,
       colors: colors,
-      axisOptions: { xIsSeries: true },
+      // xAxisMode 'tick' keeps short ticks under the labels instead of a
+      // full-height vertical gridline per label.
+      axisOptions: { xIsSeries: true, xAxisMode: 'tick', shortenYAxisNumbers: 1 },
       barOptions: { stacked: spec.stacked ? 1 : 0, spaceRatio: 0.4 },
-      lineOptions: { regionFill: spec.regionFill ? 1 : 0, hideDots: 0 },
+      lineOptions: { regionFill: spec.regionFill ? 1 : 0, hideDots: dense ? 1 : 0, dotSize: 3 },
       tooltipOptions: { formatTooltipY: fmt },
     });
   }
