@@ -32,7 +32,13 @@ func (i *Importer) DefaultRoots() []string {
 	if err != nil {
 		return nil
 	}
-	return []string{filepath.Join(home, ".codex", "sessions")}
+	return i.RootsUnder(filepath.Join(home, ".codex"))
+}
+
+// RootsUnder scans <base>/sessions, mirroring Codex's own $CODEX_HOME/sessions
+// layout so a profile base of ~/.codex-work resolves to ~/.codex-work/sessions.
+func (i *Importer) RootsUnder(base string) []string {
+	return []string{filepath.Join(base, "sessions")}
 }
 
 // Import is the per-file entry point used by the CLI sync command.

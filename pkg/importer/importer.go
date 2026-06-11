@@ -46,6 +46,11 @@ type ImportOptions struct {
 	// record. Used by `prosa sync --overwrite` to rebuild a converged store
 	// from raw transcripts.
 	Overwrite bool
+
+	// Profile is the name of the profile the scanned file belongs to. The
+	// importer stamps it onto the resulting session. Empty is treated as
+	// "default".
+	Profile string
 }
 
 // Importer is the plugin contract every per-agent connector implements.
@@ -53,10 +58,15 @@ type Importer interface {
 	// Name identifies the agent (e.g. "claude-code").
 	Name() string
 
-	// DefaultRoots are filesystem locations checked when the user doesn't
-	// override via flag. May return an empty slice if home dir is
-	// unresolvable.
+	// DefaultRoots are filesystem locations checked for the default profile.
+	// Equivalent to RootsUnder(<agent's default home>). May return an empty
+	// slice if home dir is unresolvable.
 	DefaultRoots() []string
+
+	// RootsUnder lists the scan directories under a profile's base directory
+	// (the agent's home, e.g. ~/.codex). The importer appends its own
+	// agent-specific subpath, so callers never hardcode per-agent layout.
+	RootsUnder(base string) []string
 
 	// Walk discovers session files under root.
 	Walk(ctx context.Context, root string) ([]string, error)

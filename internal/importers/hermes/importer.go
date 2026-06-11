@@ -25,6 +25,7 @@ import (
 	"github.com/c3-oss/prosa/internal/paths"
 	"github.com/c3-oss/prosa/internal/projectid"
 	"github.com/c3-oss/prosa/pkg/importer"
+	"github.com/c3-oss/prosa/pkg/session"
 )
 
 // Name is the agent identifier used in session rows and CLI output.
@@ -43,7 +44,13 @@ func (i *Importer) DefaultRoots() []string {
 	if err != nil {
 		return nil
 	}
-	return []string{filepath.Join(home, ".hermes", "sessions")}
+	return i.RootsUnder(filepath.Join(home, ".hermes"))
+}
+
+// RootsUnder scans <base>/sessions. Walk also reaches the sibling state.db at
+// <base>/state.db, so the base is the Hermes home rather than the sessions dir.
+func (i *Importer) RootsUnder(base string) []string {
+	return []string{filepath.Join(base, "sessions")}
 }
 
 // Import dispatches on the source path's basename + extension. state.db
@@ -165,6 +172,7 @@ func (i *Importer) importStateDB(ctx context.Context, path string, sink importer
 		}
 		sess.Agent = Name
 		sess.DeviceID = device.IDOnce()
+		sess.Profile = session.ProfileOrDefault(opts.Profile)
 
 		// Project the row to its own canonical per-session JSONL instead
 		// of copying the whole state.db once per row. The JSONL is the

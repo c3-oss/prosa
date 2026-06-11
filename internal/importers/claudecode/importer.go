@@ -30,7 +30,13 @@ func (i *Importer) DefaultRoots() []string {
 	if err != nil {
 		return nil
 	}
-	return []string{filepath.Join(home, ".claude", "projects")}
+	return i.RootsUnder(filepath.Join(home, ".claude"))
+}
+
+// RootsUnder scans <base>/projects, mirroring Claude Code's
+// $CLAUDE_CONFIG_DIR/projects layout.
+func (i *Importer) RootsUnder(base string) []string {
+	return []string{filepath.Join(base, "projects")}
 }
 
 // Import is the per-file entry point used by the CLI sync command.

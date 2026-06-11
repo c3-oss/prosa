@@ -31,7 +31,13 @@ func (i *Importer) DefaultRoots() []string {
 	if err != nil {
 		return nil
 	}
-	return []string{filepath.Join(home, ".cursor", "chats")}
+	return i.RootsUnder(filepath.Join(home, ".cursor"))
+}
+
+// RootsUnder scans <base>/chats, where Cursor stores its per-agent store.db
+// databases.
+func (i *Importer) RootsUnder(base string) []string {
+	return []string{filepath.Join(base, "chats")}
 }
 
 // Import opens the Cursor store.db read-only, parses meta + blobs into a

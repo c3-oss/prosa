@@ -72,6 +72,7 @@ func RunSingleFile(ctx context.Context, cfg SingleFileConfig) (importer.ImportRe
 	}
 	sess.Agent = cfg.Agent
 	sess.DeviceID = device.IDOnce()
+	sess.Profile = session.ProfileOrDefault(cfg.Opts.Profile)
 	sess.RawHash = hash
 	sess.RawSize = size
 
