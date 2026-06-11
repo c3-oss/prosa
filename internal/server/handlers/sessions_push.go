@@ -456,8 +456,8 @@ func upsertSession(ctx context.Context, tx pgx.Tx, s *prosav1.Session) error {
 		INSERT INTO sessions (
 			id, agent, device_id, project_path, project_remote, project_marker,
 			started_at, last_activity_at, first_prompt, model,
-			raw_uri, raw_hash, raw_size, parent_session_id
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+			raw_uri, raw_hash, raw_size, parent_session_id, profile
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 		ON CONFLICT (id) DO UPDATE SET
 			agent             = EXCLUDED.agent,
 			device_id         = EXCLUDED.device_id,
@@ -471,13 +471,14 @@ func upsertSession(ctx context.Context, tx pgx.Tx, s *prosav1.Session) error {
 			raw_uri           = EXCLUDED.raw_uri,
 			raw_hash          = EXCLUDED.raw_hash,
 			raw_size          = EXCLUDED.raw_size,
-			parent_session_id = EXCLUDED.parent_session_id
+			parent_session_id = EXCLUDED.parent_session_id,
+			profile           = EXCLUDED.profile
 	`,
 		s.Id, s.Agent, s.DeviceId,
 		nullIfEmpty(s.ProjectPath), nullIfEmpty(s.ProjectRemote), nullIfEmpty(s.ProjectMarker),
 		tsToTime(s.StartedAt), tsToTime(s.LastActivityAt),
 		nullIfEmpty(s.FirstPrompt), nullIfEmpty(s.Model),
-		s.RawUri, s.RawHash, s.RawSize, nullIfEmpty(s.ParentSessionId),
+		s.RawUri, s.RawHash, s.RawSize, nullIfEmpty(s.ParentSessionId), session.ProfileOrDefault(s.Profile),
 	)
 	if err != nil {
 		return fmt.Errorf("upsert session %s: %w", s.Id, err)

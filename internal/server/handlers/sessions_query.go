@@ -87,6 +87,14 @@ func (h *SessionsHandler) List(ctx context.Context, req *connect.Request[prosav1
 	case req.Msg.Agent != "":
 		addEq("agent", req.Msg.Agent)
 	}
+	switch {
+	case len(req.Msg.Profiles) > 0:
+		conds = append(conds, fmt.Sprintf("s.profile = ANY($%d)", idx))
+		args = append(args, req.Msg.Profiles)
+		idx++
+	case req.Msg.Profile != "":
+		addEq("profile", req.Msg.Profile)
+	}
 	join := ""
 	switch {
 	case len(req.Msg.DeviceNames) > 0:
@@ -147,7 +155,7 @@ func (h *SessionsHandler) List(ctx context.Context, req *connect.Request[prosav1
 		groupBy = `
 		GROUP BY s.id, s.agent, s.device_id, s.project_path, s.project_remote, s.project_marker,
 		         s.started_at, s.last_activity_at, s.first_prompt, s.model,
-		         s.raw_uri, s.raw_hash, s.raw_size, s.parent_session_id,
+		         s.raw_uri, s.raw_hash, s.raw_size, s.parent_session_id, s.profile,
 		         su.session_id, su.total_tokens, su.input_tokens, su.output_tokens,
 		         su.cached_tokens, su.cache_read_tokens, su.cache_creation_tokens`
 		orderBy = "_rank DESC, s.started_at DESC"
@@ -172,7 +180,7 @@ func (h *SessionsHandler) List(ctx context.Context, req *connect.Request[prosav1
 		SELECT s.id, s.agent, s.device_id, s.project_path, s.project_remote, s.project_marker,
 		       s.started_at, s.last_activity_at, s.first_prompt, s.model,
 		       s.raw_uri, s.raw_hash, s.raw_size,
-		       s.parent_session_id,
+		       s.parent_session_id, s.profile,
 		       su.session_id, su.total_tokens, su.input_tokens, su.output_tokens,
 		       su.cached_tokens, su.cache_read_tokens, su.cache_creation_tokens%s
 		FROM sessions s
@@ -269,7 +277,7 @@ func scanSessionListRow(r scannable, withRank bool) (*prosav1.Session, error) {
 		&started, &lastAct,
 		&firstPrompt, &model,
 		&s.RawUri, &s.RawHash, &s.RawSize,
-		&parentSessionID,
+		&parentSessionID, &s.Profile,
 		&usageSession, &totalTokens, &inputTokens, &outputTokens,
 		&cachedTokens, &cacheReadTokens, &cacheCreationTokens,
 		&rank,
@@ -351,6 +359,9 @@ func (h *SessionsHandler) Search(ctx context.Context, req *connect.Request[prosa
 	if req.Msg.Agent != "" {
 		addEq("agent", req.Msg.Agent)
 	}
+	if req.Msg.Profile != "" {
+		addEq("profile", req.Msg.Profile)
+	}
 	join := ""
 	switch {
 	case len(req.Msg.DeviceNames) > 0:
@@ -370,7 +381,7 @@ func (h *SessionsHandler) Search(ctx context.Context, req *connect.Request[prosa
 		       s.id, s.agent, s.device_id, s.project_path, s.project_remote, s.project_marker,
 		       s.started_at, s.last_activity_at, s.first_prompt, s.model,
 		       s.raw_uri, s.raw_hash, s.raw_size,
-		       s.parent_session_id,
+		       s.parent_session_id, s.profile,
 		       su.session_id, su.total_tokens, su.input_tokens, su.output_tokens,
 		       su.cached_tokens, su.cache_read_tokens, su.cache_creation_tokens,
 		       t.id, t.ts, t.role, t.kind, t.tool_name,

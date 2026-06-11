@@ -53,6 +53,8 @@ func (h *AnalyticsHandler) GetReport(ctx context.Context, req *connect.Request[p
 		return runReport(ctx, h.Pool, req.Msg, queryModels, []string{"MODEL", "SESSIONS"})
 	case "projects":
 		return runReport(ctx, h.Pool, req.Msg, queryProjects, []string{"PROJECT", "AGENT", "SESSIONS"})
+	case "profiles":
+		return runReport(ctx, h.Pool, req.Msg, queryProfiles, []string{"DEVICE", "AGENT", "PROFILE", "SESSIONS"})
 	case "errors":
 		return runReport(ctx, h.Pool, req.Msg, queryErrors, []string{"STARTED", "AGENT", "PROJECT", "SESSION"})
 	case "heatmap":
@@ -67,7 +69,7 @@ func (h *AnalyticsHandler) GetReport(ctx context.Context, req *connect.Request[p
 		return runUsageByModel(ctx, h.Pool, req.Msg)
 	default:
 		return nil, connect.NewError(connect.CodeInvalidArgument,
-			fmt.Errorf("unknown report %q (want sessions|tools|models|projects|errors|heatmap|usage|hours|usage_by_model|errors_by_model)", req.Msg.Report))
+			fmt.Errorf("unknown report %q (want sessions|tools|models|projects|profiles|errors|heatmap|usage|hours|usage_by_model|errors_by_model)", req.Msg.Report))
 	}
 }
 
@@ -462,6 +464,23 @@ func queryProjects(whereSQL string, args []any) (string, []any) {
 		` + whereSQL + `
 		GROUP BY project, s.agent
 		ORDER BY COUNT(*) DESC`
+	return q, args
+}
+
+// queryProfiles breaks sessions down by device, agent, and profile so the
+// panel and CLI can show, e.g., that device A has Codex sessions in both the
+// `default` and a `work` profile.
+func queryProfiles(whereSQL string, args []any) (string, []any) {
+	q := `
+		SELECT COALESCE(NULLIF(d.friendly_name, ''), s.device_id) AS device,
+		       s.agent,
+		       s.profile,
+		       COUNT(*)::text AS sessions
+		FROM sessions s
+		LEFT JOIN devices d ON d.id = s.device_id
+		` + whereSQL + `
+		GROUP BY device, s.agent, s.profile
+		ORDER BY device ASC, s.agent ASC, s.profile ASC`
 	return q, args
 }
 

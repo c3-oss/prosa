@@ -28,7 +28,7 @@ func scanSessionRow(r scannable) (*prosav1.Session, error) {
 		&started, &lastAct,
 		&firstPrompt, &model,
 		&s.RawUri, &s.RawHash, &s.RawSize,
-		&parentSessionID,
+		&parentSessionID, &s.Profile,
 		&usageSession, &totalTokens, &inputTokens, &outputTokens,
 		&cachedTokens, &cacheReadTokens, &cacheCreationTokens,
 	); err != nil {
@@ -87,7 +87,7 @@ func scanSearchHit(r scannable) (*prosav1.SearchHit, error) {
 		&started, &lastAct,
 		&firstPrompt, &model,
 		&s.RawUri, &s.RawHash, &s.RawSize,
-		&parentSessionID,
+		&parentSessionID, &s.Profile,
 		&usageSession, &totalTokens, &inputTokens, &outputTokens,
 		&cachedTokens, &cacheReadTokens, &cacheCreationTokens,
 		&turnID, &turnTS, &role, &kind, &toolName,
