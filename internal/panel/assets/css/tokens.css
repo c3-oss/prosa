@@ -94,6 +94,9 @@
   --chart-6: #cc79a7; /* reddish purple */
   --chart-7: #f0e442; /* yellow */
   --chart-8: #aeb4c0; /* neutral grey (lifted) */
+  /* gridlines/axis baselines inside chart cards; quieter than --divider,
+     which is calibrated to separate surfaces, not to sit behind data */
+  --chart-grid: #20242f;
 }
 
 /* Light palette ---------------------------------------------------- */
@@ -126,6 +129,7 @@
   --chart-6: #cc79a7;
   --chart-7: #c9a227; /* darker gold for white-bg contrast */
   --chart-8: #8a8f99; /* mid grey for white-bg contrast */
+  --chart-grid: #e7ebf1;
 }
 
 @media (prefers-color-scheme: light) {
@@ -151,5 +155,6 @@
     --chart-6: #cc79a7;
     --chart-7: #c9a227;
     --chart-8: #8a8f99;
+    --chart-grid: #e7ebf1;
   }
 }

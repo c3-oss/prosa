@@ -25,10 +25,16 @@ other layers reference these vars — never a literal value.
 --ok               #4ade80
 --danger           #f04a5c
 --divider          #232733
+--chart-grid       #20242f
 ```
 
-Future hook for light mode: `prefers-color-scheme: light` re-defines
-these vars on `:root`. Not implemented now.
+`--chart-grid` paints chart gridlines and axis baselines inside cards;
+it sits quieter than `--divider`, which separates surfaces (light value:
+`#e7ebf1`).
+
+Light mode: `tokens.css` re-defines every palette var under
+`[data-theme="light"]`, and under `[data-theme="system"]` when the OS
+reports `prefers-color-scheme: light`.
 
 ### Typography
 

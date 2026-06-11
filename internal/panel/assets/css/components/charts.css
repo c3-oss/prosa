@@ -4,7 +4,10 @@
    so charts match the active light/dark theme. Series colors are set in
    charts-init.js from the --chart-* palette; this file only handles the
    surrounding chrome. The `.card` prefix raises specificity above Frappe's
-   runtime-injected stylesheet (which loads after style.css). */
+   runtime-injected stylesheet (which loads after style.css). Line strokes
+   need !important on top of that: Frappe paints axis/grid lines with
+   inline style attributes (style="stroke: #dadada"), which outrank any
+   selector. */
 
 .trend-chart .chart-container,
 .hour-chart .chart-container {
@@ -21,7 +24,7 @@
 .card .chart-container .axis line,
 .card .chart-container .chart-label line,
 .card .chart-container line.dashed {
-  stroke: var(--divider);
+  stroke: var(--chart-grid) !important;
 }
 
 /* line-chart dot halo blends into the card surface instead of white */
@@ -42,7 +45,7 @@
   color: var(--text-2) !important;
   border: 1px solid var(--divider);
   border-radius: var(--radius-sm) !important;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
 }
 
 .graph-svg-tip .svg-pointer {
