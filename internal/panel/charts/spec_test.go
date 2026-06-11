@@ -27,8 +27,6 @@ func TestSpecJSONRoundTrips(t *testing.T) {
 	}
 }
 
-// A "</script>" hiding in a label must not be able to close the JSON
-// island; encoding/json escapes "<" to <.
 func TestSpecJSONEscapesScriptClose(t *testing.T) {
 	s := Spec{Type: "donut", Labels: []string{"</script><b>x"}, Datasets: []Dataset{{Values: []float64{1}}}}
 	out := string(s.JSON())
@@ -56,8 +54,6 @@ func TestSpecHasData(t *testing.T) {
 	}
 }
 
-// Omitempty keeps axis-only flags out of a donut spec and donut/pie-only
-// shape out of axis charts, so the island stays minimal.
 func TestSpecOmitsZeroFlags(t *testing.T) {
 	out := string(Spec{Type: "line", Datasets: []Dataset{{Values: []float64{1}}}}.JSON())
 	for _, k := range []string{"stacked", "regionFill", "valuePrefix", "valueSuffix"} {

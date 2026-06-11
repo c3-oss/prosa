@@ -24,8 +24,7 @@ const (
 type GetReportRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// One of: sessions | tools | models | projects | errors | heatmap |
-	// usage | hours | usage_by_model | errors_by_model, plus the
-	// panel-only insights reports (no CLI/SQLite mirror): usage_by_day |
+	// usage | hours | usage_by_model | errors_by_model | usage_by_day |
 	// punchcard | durations | duration_stats | subagents.
 	Report        string                 `protobuf:"bytes,1,opt,name=report,proto3" json:"report,omitempty"`
 	Since         *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=since,proto3" json:"since,omitempty"`

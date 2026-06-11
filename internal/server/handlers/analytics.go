@@ -21,9 +21,7 @@ import (
 // AnalyticsHandler implements AnalyticsService against Postgres. The
 // CLI-facing reports mirror internal/store/analytics.go (which targets
 // SQLite), rewritten with $N placeholders and tsvector FTS in place of
-// FTS5. The insights reports (usage_by_day, punchcard, durations,
-// duration_stats, subagents) feed the panel only and have no SQLite
-// mirror.
+// FTS5. The insights reports feed the panel only, with no SQLite mirror.
 type AnalyticsHandler struct {
 	prosav1connect.UnimplementedAnalyticsServiceHandler
 	Pool *pgxpool.Pool
@@ -534,9 +532,8 @@ func queryErrorsByModel(whereSQL string, args []any) (string, []any) {
 	return q, args
 }
 
-// queryUsageByDay returns raw token sums per (UTC day, model). No
-// zero-fill: the panel fills calendar gaps and prices each row via
-// internal/pricing, so the row count stays bounded by active days.
+// queryUsageByDay returns raw token sums per (UTC day, model). No zero-fill:
+// the panel fills calendar gaps and prices each row, so rows stay bounded by active days.
 func queryUsageByDay(whereSQL string, args []any) (string, []any) {
 	q := `
 		SELECT to_char((s.started_at AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD') AS day,
@@ -558,8 +555,7 @@ func queryUsageByDay(whereSQL string, args []any) (string, []any) {
 }
 
 // queryPunchcard buckets sessions by (UTC weekday, UTC start-hour).
-// EXTRACT(DOW) is 0=Sunday, matching Go's time.Weekday; the panel
-// rotates both axes to the local timezone for display.
+// EXTRACT(DOW) is 0=Sunday, matching Go's time.Weekday; the panel rotates to local time.
 func queryPunchcard(whereSQL string, args []any) (string, []any) {
 	q := `
 		SELECT EXTRACT(DOW FROM s.started_at AT TIME ZONE 'UTC')::int::text AS dow,
@@ -572,17 +568,15 @@ func queryPunchcard(whereSQL string, args []any) (string, []any) {
 	return q, args
 }
 
-// durationSeconds is the bucketing source shared by queryDurations and
-// queryDurationStats: wall-clock span of a session, clamped at zero to
-// guard against clock-skewed records.
+// durationSeconds is the wall-clock span of a session (clamped at zero for
+// clock skew), shared by queryDurations and queryDurationStats.
 const durationSeconds = `
 	SELECT GREATEST(EXTRACT(EPOCH FROM (s.last_activity_at - s.started_at)), 0) AS d
 	FROM sessions s
 	`
 
-// queryDurations histograms session durations into fixed buckets. No
-// ORDER BY: the panel emits buckets in canonical order and looks counts
-// up by name.
+// queryDurations histograms session durations into fixed buckets. No ORDER BY:
+// the panel emits buckets in canonical order and looks counts up by name.
 func queryDurations(whereSQL string, args []any) (string, []any) {
 	q := `
 		SELECT CASE
@@ -599,8 +593,8 @@ func queryDurations(whereSQL string, args []any) (string, []any) {
 	return q, args
 }
 
-// queryDurationStats returns one row of duration percentiles in whole
-// seconds. COALESCE keeps an empty window at zeros instead of NULLs.
+// queryDurationStats returns one row of duration percentiles in whole seconds.
+// COALESCE keeps an empty window at zeros instead of NULLs.
 func queryDurationStats(whereSQL string, args []any) (string, []any) {
 	q := `
 		SELECT COALESCE(ROUND(percentile_cont(0.5) WITHIN GROUP (ORDER BY d))::bigint, 0)::text AS median_s,
@@ -611,10 +605,8 @@ func queryDurationStats(whereSQL string, args []any) (string, []any) {
 	return q, args
 }
 
-// querySubagents aggregates subagent fan-out per parent agent. The
-// window/device/project filters apply to the children (sessions started
-// in the window); grouping is by the parent's agent since fan-out is a
-// property of the spawning session.
+// querySubagents aggregates subagent fan-out per parent agent. Filters apply
+// to the children, but grouping is by the parent's agent (the spawning session).
 func querySubagents(whereSQL string, args []any) (string, []any) {
 	q := `
 		SELECT agent,

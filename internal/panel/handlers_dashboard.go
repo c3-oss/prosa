@@ -42,17 +42,15 @@ func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 	projects := pickMulti(q, "project")
 	devices := pickDeviceNames(q)
 
-	// Build the shared filter knobs for the windowed reports. Heatmap
-	// uses its own request so the fixed-window override doesn't bleed
-	// into the others.
+	// Heatmap uses its own request so the fixed-window override doesn't
+	// bleed into the windowed reports.
 	sharedReq := func(report string) *prosav1.GetReportRequest {
 		return dashboardReportRequest(report, since, until, agents, projects, devices)
 	}
 	heatmapReq := dashboardReportRequest("heatmap", heatmapSince, heatmapUntil, agents, projects, devices)
 
-	// Daily activity trend: the heatmap report again, but over the
-	// filtered window. last=all would make the server zero-fill ~36k
-	// days, so it clamps to trailing 365d (the card subtitle says so).
+	// Daily activity trend over the filtered window; clamp last=all to
+	// 365d so the server doesn't zero-fill ~36k days.
 	trendSince := since
 	trendNote := ""
 	if c := now.AddDate(0, 0, -insightsTrendClampDays); lastRaw == "all" && c.After(trendSince) {
@@ -61,9 +59,7 @@ func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 	}
 	trendReq := dashboardReportRequest("heatmap", trendSince, until, agents, projects, devices)
 
-	// Sessions.List with limit=1 returns one row plus the unfiltered
-	// total — cheap way to get the "sessions in window" KPI without
-	// pulling the whole list.
+	// limit=1 yields the unfiltered total cheaply for the sessions KPI.
 	sessionsListReq := func(s, u time.Time) *prosav1.ListRequest {
 		req := &prosav1.ListRequest{
 			Since:       timestamppb.New(s),
@@ -93,8 +89,7 @@ func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 		hours         *prosav1.GetReportResponse // activity by hour card
 		trend         *prosav1.GetReportResponse // daily activity trend card
 
-		// Previous window of equal length, for the KPI deltas. Nil
-		// when lastRaw == "all" (no previous "everything").
+		// Previous window of equal length, for the KPI deltas.
 		prevSessions *prosav1.ListResponse
 		prevModels   *prosav1.GetReportResponse
 		prevUsage    *prosav1.GetReportResponse
@@ -182,9 +177,7 @@ func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 	issues := buildIssues(out.errorsByModel.Rows, out.errors.Rows, out.sessions.TotalCount)
 	trend := buildActivityTrend(out.trend.Rows)
 
-	// KPI deltas vs the previous window of equal length. Up is good for
-	// volume KPIs, bad for the error rate, and merely informational for
-	// spend (using more is not a regression).
+	// KPI deltas vs the previous window of equal length.
 	var dSessions, dProjects, dModels, dTokens, dSpend, dErrorRate *kpiDelta
 	if compare {
 		dSessions = buildKPIDelta(float64(out.sessions.TotalCount), float64(out.prevSessions.TotalCount), deltaUpGood)
@@ -587,8 +580,7 @@ type usagePanelRow struct {
 	Percent  int
 }
 
-// costLabel renders an estimated spend for display: "$X.XX", or "n/a"
-// when no row was priceable.
+// costLabel renders estimated spend as "$X.XX", or "n/a" when unpriced.
 func costLabel(cost float64, priced bool) string {
 	if !priced {
 		return "n/a"
@@ -702,9 +694,8 @@ func buildProjectBars(rows []*prosav1.AnalyticsRow, limit int) []barRow {
 	return barsFromPairs(labels, counts, limit, formatPanelInt)
 }
 
-// costLegendRow is one entry beside the cost donut: a palette index
-// (charts-init.js paints the dot to match the donut slice), the model
-// name, and its estimated spend.
+// costLegendRow is one entry beside the cost donut: palette index, model
+// name, and estimated spend.
 type costLegendRow struct {
 	ColorIdx int
 	Model    string
@@ -915,8 +906,7 @@ func buildIssues(errModelRows, errRows []*prosav1.AnalyticsRow, totalSessions in
 	}
 }
 
-// flaggedTotal sums the per-model flagged-session counts of an
-// errors_by_model report — the numerator of the error rate.
+// flaggedTotal sums the per-model flagged-session counts of an errors_by_model report.
 func flaggedTotal(rows []*prosav1.AnalyticsRow) int64 {
 	var flagged int64
 	for _, row := range rows {
@@ -928,8 +918,7 @@ func flaggedTotal(rows []*prosav1.AnalyticsRow) int64 {
 	return flagged
 }
 
-// errorRatePct is the error-rate percentage (0..100); zero sessions
-// yield zero rather than a division blow-up.
+// errorRatePct is the error-rate percentage (0..100); zero sessions yield zero.
 func errorRatePct(flagged, totalSessions int64) float64 {
 	if totalSessions <= 0 {
 		return 0
@@ -937,8 +926,7 @@ func errorRatePct(flagged, totalSessions int64) float64 {
 	return float64(flagged) / float64(totalSessions) * 100
 }
 
-// kpiView is one entry of the KPI strip: a pre-formatted value plus an
-// optional vs-previous-window delta badge.
+// kpiView is one entry of the KPI strip: a value plus an optional delta badge.
 type kpiView struct {
 	Value string
 	Label string
@@ -961,9 +949,8 @@ const (
 	deltaNeutral                  // informational (est. spend)
 )
 
-// buildKPIDelta compares a KPI against the previous window. Nil when
-// both windows are zero (nothing to say); "new" when the metric only
-// exists in the current window.
+// buildKPIDelta compares a KPI against the previous window. Nil when both
+// windows are zero; "new" when the metric only exists in the current window.
 func buildKPIDelta(curr, prev float64, tone deltaTone) *kpiDelta {
 	if curr == 0 && prev == 0 {
 		return nil
@@ -995,9 +982,7 @@ func buildKPIDelta(curr, prev float64, tone deltaTone) *kpiDelta {
 	return d
 }
 
-// trendView powers the Activity trend card: sessions per day (or ISO
-// week, past the cutover) stacked by agent, with a palette-matched
-// legend.
+// trendView powers the Activity trend card: sessions per day/week stacked by agent.
 type trendView struct {
 	Chart       charts.Spec
 	Legend      []shareLegendRow
@@ -1008,10 +993,8 @@ type trendView struct {
 	HasData     bool
 }
 
-// buildActivityTrend folds windowed heatmap rows (DATE, AGENT,
-// SESSIONS — zero-filled by the server, so the day axis is continuous)
-// into per-agent stacked columns. Agents beyond the palette's reach
-// collapse into "other", mirroring the model-share card.
+// buildActivityTrend folds windowed heatmap rows into per-agent stacked
+// columns; agents past the palette's reach collapse into "other".
 func buildActivityTrend(rows []*prosav1.AnalyticsRow) trendView {
 	type key struct{ day, agent string }
 	counts := map[key]int64{}
@@ -1065,9 +1048,9 @@ func buildActivityTrend(rows []*prosav1.AnalyticsRow) trendView {
 		bucketLabel = "per week"
 	}
 	labels := []string{}
-	bucketIdx := map[string]int{} // day → column index
+	bucketIdx := map[string]int{}
 	for _, day := range days {
-		label := day[5:] // YYYY-MM-DD → MM-DD
+		label := day[5:]
 		if weekly {
 			label = weekStartLabel(day)
 		}

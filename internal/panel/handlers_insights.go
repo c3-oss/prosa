@@ -19,22 +19,16 @@ import (
 	"github.com/c3-oss/prosa/pkg/session"
 )
 
-// insightsTrendClampDays bounds the daily-resolution reports (spend
-// trend, active-days consistency) when the user picks last=all: the
-// server zero-fills every calendar day in the heatmap report, and a
-// -100y sentinel would mean ~36k rows for no visual gain. The punch
-// card, durations, and subagents reports stay unclamped — they
-// aggregate to bounded shapes regardless of window size.
+// insightsTrendClampDays clamps the daily-resolution reports on last=all
+// so the zero-filled heatmap doesn't return ~36k rows for no visual gain.
 const insightsTrendClampDays = 365
 
-// weeklyBucketCutoverDays is where daily columns become unreadable and
-// the spend/share charts switch to ISO-week buckets.
+// weeklyBucketCutoverDays is where daily columns become unreadable and the
+// spend/share charts switch to ISO-week buckets.
 const weeklyBucketCutoverDays = 120
 
-// handleInsights renders /insights: progression (spend & tokens per
-// day, model share over time), work rhythm (punch card, streaks,
-// schedule profile, session durations), and subagent fan-out. Shares
-// the home dashboard's filter chrome and fan-out style.
+// handleInsights renders /insights: spend & token trend, model share, work
+// rhythm (punch card, streaks, schedule, durations), and subagent fan-out.
 func (p *Panel) handleInsights(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 
@@ -162,11 +156,8 @@ func (p *Panel) handleInsights(w http.ResponseWriter, r *http.Request) {
 	p.render(w, "insights", data)
 }
 
-// spendTrendView powers the "Spend & tokens" card: estimated spend per
-// bucket as columns, plus a token-volume area chart sharing the same
-// buckets. The cumulative running total lives in the card subtitle —
-// Frappe Charts has no secondary axis, so a cumulative line drawn on the
-// per-bucket scale would dwarf the bars.
+// spendTrendView powers the "Spend & tokens" card: spend columns plus a
+// token-volume area chart over the same buckets.
 type spendTrendView struct {
 	SpendChart  charts.Spec
 	TokensChart charts.Spec
@@ -185,13 +176,9 @@ type trendBucket struct {
 	tokens int64
 }
 
-// buildSpendTrend folds usage_by_day rows (DAY, MODEL, SESSIONS,
-// MEASURED, TOTAL, INPUT, OUTPUT, CACHED, CACHE_READ, CACHE_CREATION)
-// into a continuous daily series between since and until, pricing each
-// (day, model) row via internal/pricing. Rows whose model is unpriced
-// (or with no measured usage) still count tokens but contribute no
-// spend — same honesty rule as the home usage card. Past
-// weeklyBucketCutoverDays the buckets collapse into ISO weeks.
+// buildSpendTrend folds usage_by_day rows into a continuous daily series
+// between since and until, pricing each (day, model) via internal/pricing.
+// Unpriced rows still count tokens but contribute no spend.
 func buildSpendTrend(rows []*prosav1.AnalyticsRow, since, until time.Time) spendTrendView {
 	dayspan := buildDaySpan(since, until)
 	if len(dayspan) == 0 {
@@ -237,7 +224,7 @@ func buildSpendTrend(rows []*prosav1.AnalyticsRow, since, until time.Time) spend
 		bucketLabel = "per week"
 	}
 	for _, day := range dayspan {
-		label := day[5:] // YYYY-MM-DD → MM-DD
+		label := day[5:]
 		if weekly {
 			label = weekStartLabel(day)
 		}
@@ -287,8 +274,7 @@ func buildSpendTrend(rows []*prosav1.AnalyticsRow, since, until time.Time) spend
 	}
 }
 
-// buildDaySpan lists every UTC calendar day between since and until,
-// inclusive, as YYYY-MM-DD strings.
+// buildDaySpan lists every UTC calendar day in [since, until] as YYYY-MM-DD.
 func buildDaySpan(since, until time.Time) []string {
 	start := since.UTC().Truncate(24 * time.Hour)
 	end := until.UTC().Truncate(24 * time.Hour)
@@ -302,8 +288,7 @@ func buildDaySpan(since, until time.Time) []string {
 	return out
 }
 
-// weekStartLabel maps a YYYY-MM-DD day to the MM-DD of its ISO week's
-// Monday, so weekly buckets get a stable, chronological label.
+// weekStartLabel maps a YYYY-MM-DD day to the MM-DD of its ISO week's Monday.
 func weekStartLabel(day string) string {
 	t, err := time.Parse("2006-01-02", day)
 	if err != nil {
@@ -313,10 +298,8 @@ func weekStartLabel(day string) string {
 	return monday.Format("01-02")
 }
 
-// shareLegendRow is one entry under a stacked chart's legend: a palette
-// index (charts-init.js paints the dot to match the series), the series
-// name, and its session count. Shared by the model-share and activity
-// trend cards.
+// shareLegendRow is one legend entry under a stacked chart: palette index,
+// series name, and session count.
 type shareLegendRow struct {
 	ColorIdx int
 	Model    string
@@ -333,13 +316,11 @@ type modelShareView struct {
 	HasData    bool
 }
 
-// modelShareTopN caps the share chart's series count; the palette holds
-// five distinct tones, so it's top-4 models plus "other".
+// modelShareTopN caps the share chart at top-4 models plus "other" (palette has five tones).
 const modelShareTopN = 4
 
-// buildModelShare folds usage_by_day rows into weekly session counts
-// per model, keeps the top-N models by volume, and renders a normalized
-// stacked chart so model migration over time reads as share shifts.
+// buildModelShare folds usage_by_day rows into weekly session counts per
+// model, keeps the top-N by volume, and normalizes each week to 100%.
 func buildModelShare(rows []*prosav1.AnalyticsRow) modelShareView {
 	type key struct{ week, model string }
 	counts := map[key]int64{}
@@ -415,9 +396,8 @@ func buildModelShare(rows []*prosav1.AnalyticsRow) modelShareView {
 		addSeries("other", otherTotal, values)
 	}
 
-	// Normalize every week's column to 100% so model migration over time
-	// reads as share shifts. Frappe has no built-in percentage-stacked
-	// mode, so we scale here; weeks with no sessions stay at zero.
+	// Frappe has no percentage-stacked mode, so normalize each week's
+	// column to 100% here; empty weeks stay at zero.
 	for w := range weeks {
 		var colTotal float64
 		for _, d := range datasets {
@@ -460,27 +440,23 @@ type punchcardRow struct {
 	Cells []punchcardCell
 }
 
-// punchcardView powers the punch card card: 7 weekday rows × 24 local
-// hours, GitHub-heatmap color levels.
+// punchcardView powers the punch card card: 7 weekday rows × 24 local hours.
 type punchcardView struct {
 	Rows  []punchcardRow
 	Total int64
 }
 
-// punchcardGrid carries the rotated local-time counts so the schedule
-// KPIs share exactly the data the punch card displays.
+// punchcardGrid carries the rotated local-time counts shared with the schedule KPIs.
 type punchcardGrid [7][24]int64
 
-// buildPunchcard rotates the UTC punchcard report into the panel's
-// local zone. Same whole-hour DST-naive rotation as buildHourChart.
+// buildPunchcard rotates the UTC punchcard report into the panel's local zone.
 func buildPunchcard(rows []*prosav1.AnalyticsRow) (punchcardView, punchcardGrid) {
 	_, offsetSec := nowFn().In(time.Local).Zone()
 	return buildPunchcardTZ(rows, offsetSec/3600)
 }
 
 // buildPunchcardTZ is buildPunchcard with the hour offset injected for
-// tests. Rotating an hour past midnight carries into the adjacent
-// weekday (UTC Sunday 01h at offset -3 is local Saturday 22h).
+// tests. Rotating past midnight carries into the adjacent weekday.
 func buildPunchcardTZ(rows []*prosav1.AnalyticsRow, offsetHours int) (punchcardView, punchcardGrid) {
 	var grid punchcardGrid
 	var total int64
@@ -538,8 +514,7 @@ func buildPunchcardTZ(rows []*prosav1.AnalyticsRow, offsetHours int) (punchcardV
 	return view, grid
 }
 
-// scheduleView powers the schedule-profile KPIs, all derived from the
-// rotated punch card grid so they agree with what it displays.
+// scheduleView powers the schedule-profile KPIs, derived from the punch card grid.
 type scheduleView struct {
 	WeekendPct  string
 	OffHoursPct string // outside 09–18h local
@@ -547,8 +522,8 @@ type scheduleView struct {
 	HasData     bool
 }
 
-// buildScheduleKPIs reduces the local punch card grid to weekend share,
-// off-hours share (before 09h or 18h+), and the busiest weekday.
+// buildScheduleKPIs reduces the punch card grid to weekend share, off-hours
+// share (before 09h or 18h+), and the busiest weekday.
 func buildScheduleKPIs(grid punchcardGrid) scheduleView {
 	var total, weekend, offHours int64
 	var busiest int64 = -1
@@ -585,8 +560,8 @@ func buildScheduleKPIs(grid punchcardGrid) scheduleView {
 	}
 }
 
-// streaksView powers the consistency KPIs: streaks from the trailing
-// 53-week heatmap, active-day share from the filtered window.
+// streaksView powers the consistency KPIs: streaks from the trailing 53-week
+// heatmap, active-day share from the filtered window.
 type streaksView struct {
 	Current    string // "4 days"
 	Longest    string // "11 days"
@@ -594,10 +569,9 @@ type streaksView struct {
 	ActiveDays string // "45 / 72 days"
 }
 
-// buildStreaks computes the current streak (consecutive active days
-// ending today — or yesterday, when today is still quiet), the longest
-// streak in the trailing window, and the share of active days in the
-// filtered window. Days are UTC dates, same caveat as the heatmap.
+// buildStreaks computes the current streak (active days ending today, or
+// yesterday when today is quiet), the longest streak, and the active-day
+// share over the filtered window. Days are UTC dates.
 func buildStreaks(trailingRows, windowRows []*prosav1.AnalyticsRow, now time.Time) streaksView {
 	trailing := foldDayTotals(trailingRows)
 
@@ -655,9 +629,8 @@ func buildStreaks(trailingRows, windowRows []*prosav1.AnalyticsRow, now time.Tim
 	}
 }
 
-// foldDayTotals sums heatmap rows (DATE, AGENT, SESSIONS) per day. The
-// server zero-fills missing days as (date, "", 0), so the key set spans
-// the whole queried window.
+// foldDayTotals sums heatmap rows per day. The server zero-fills missing days,
+// so the key set spans the whole queried window.
 func foldDayTotals(rows []*prosav1.AnalyticsRow) map[string]int64 {
 	out := map[string]int64{}
 	for _, row := range rows {
@@ -684,8 +657,7 @@ func nextDay(day string) string {
 	return t.AddDate(0, 0, 1).Format("2006-01-02")
 }
 
-// durationsView powers the session-duration card: a fixed-order bucket
-// histogram plus percentile stats.
+// durationsView powers the session-duration card: a bucket histogram plus percentile stats.
 type durationsView struct {
 	Bars    []barRow
 	Median  string
@@ -695,13 +667,11 @@ type durationsView struct {
 	HasData bool
 }
 
-// durationBuckets is the canonical bucket order; the server emits
-// unordered (BUCKET, SESSIONS) pairs keyed by these labels.
+// durationBuckets is the canonical bucket order; the server emits unordered pairs keyed by these labels.
 var durationBuckets = []string{"<5m", "5-15m", "15-30m", "30-60m", "1-2h", ">2h"}
 
 // buildDurations shapes the durations + duration_stats reports into the
-// histogram card. Buckets keep canonical order (shortest → longest), so
-// this deliberately avoids barsFromPairs, which sorts by count.
+// histogram card, keeping the canonical bucket order (not barsFromPairs, which sorts by count).
 func buildDurations(bucketRows, statsRows []*prosav1.AnalyticsRow) durationsView {
 	counts := map[string]int64{}
 	var max, total int64
@@ -754,8 +724,7 @@ type subagentPanelRow struct {
 	MaxFan   string
 }
 
-// subagentsView powers the subagent fan-out card: totals plus the
-// per-parent-agent breakdown.
+// subagentsView powers the subagent fan-out card: totals plus the per-parent-agent breakdown.
 type subagentsView struct {
 	Parents  string
 	Children string
@@ -764,8 +733,7 @@ type subagentsView struct {
 	HasData  bool
 }
 
-// buildSubagents shapes the subagents report (AGENT, PARENTS, CHILDREN,
-// MAX_FANOUT — grouped by the parent's agent) into the card.
+// buildSubagents shapes the subagents report (grouped by parent agent) into the card.
 func buildSubagents(rows []*prosav1.AnalyticsRow) subagentsView {
 	view := subagentsView{}
 	var parents, children, maxFan int64

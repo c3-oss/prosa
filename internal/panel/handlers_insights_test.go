@@ -23,7 +23,6 @@ func TestBuildPunchcardTZRotatesWithDayCarry(t *testing.T) {
 	_, grid = buildPunchcardTZ([]*prosav1.AnalyticsRow{aRow("6", "23", "1")}, 5)
 	require.Equal(t, int64(1), grid[0][4])
 
-	// No offset: stays put.
 	_, grid = buildPunchcardTZ([]*prosav1.AnalyticsRow{aRow("2", "14", "7")}, 0)
 	require.Equal(t, int64(7), grid[2][14])
 }
@@ -31,8 +30,8 @@ func TestBuildPunchcardTZRotatesWithDayCarry(t *testing.T) {
 func TestBuildPunchcardLevelsAndLabels(t *testing.T) {
 	t.Parallel()
 	view, _ := buildPunchcardTZ([]*prosav1.AnalyticsRow{
-		aRow("1", "09", "8"), // max → level 4
-		aRow("1", "10", "1"), // small → level 1
+		aRow("1", "09", "8"),
+		aRow("1", "10", "1"),
 	}, 0)
 	require.Equal(t, int64(9), view.Total)
 	mon := view.Rows[1]
@@ -193,14 +192,12 @@ func TestBuildModelShareTopNPlusOther(t *testing.T) {
 	require.Equal(t, "model-a", v.Legend[0].Model)
 	require.Equal(t, "other", v.Legend[modelShareTopN].Model)
 	require.Equal(t, "3", v.Legend[modelShareTopN].Sessions) // model-e + model-f
-	// 2026-05-25 and 2026-05-26 share an ISO week (Monday 05-25); the
-	// June days fall in the next weeks.
+	// 05-25 and 05-26 share an ISO week (Monday 05-25).
 	require.Equal(t, "05-25", v.StartLabel)
 	require.Equal(t, "06-01", v.EndLabel)
 	require.Equal(t, "bar", v.Chart.Type)
 	require.True(t, v.Chart.Stacked)
 	require.Equal(t, "%", v.Chart.ValueSuffix)
-	// Every populated week column normalizes to 100%; empty weeks stay 0.
 	for w := range v.Chart.Labels {
 		var sum float64
 		for _, d := range v.Chart.Datasets {
@@ -239,9 +236,8 @@ func TestBuildDaySpan(t *testing.T) {
 	require.Equal(t, []string{"2026-05-30", "2026-05-31", "2026-06-01", "2026-06-02"}, days)
 }
 
-// TestInsightsRendersCharts drives the real handleInsights against the fake
-// upstream and asserts every card renders — the handler↔template key
-// mismatch guard, same rationale as TestHomeRendersIssuesAndCharts.
+// TestInsightsRendersCharts asserts every card renders, guarding against
+// handler↔template key mismatches.
 func TestInsightsRendersCharts(t *testing.T) {
 	mux := http.NewServeMux()
 	sp, sh := prosav1connect.NewSessionsServiceHandler(fakeSessionsService{})

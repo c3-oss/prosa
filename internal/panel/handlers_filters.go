@@ -64,9 +64,7 @@ func analyticsRequest(report string, since, until time.Time, q url.Values) *pros
 }
 
 // parseDashboardWindow resolves the dashboard's ?last= filter into time
-// bounds. Default window 30d — the dashboard wants a roomier rolling
-// view than the CLI's 7d, while still letting the user narrow via
-// ?last=. The "all" sentinel maps to a -100y lower bound.
+// bounds. Defaults to 30d; the "all" sentinel maps to a -100y lower bound.
 func parseDashboardWindow(q url.Values, now time.Time) (lastRaw string, since, until time.Time, err error) {
 	lastRaw = q.Get("last")
 	if lastRaw == "" {
@@ -84,12 +82,9 @@ func parseDashboardWindow(q url.Values, now time.Time) (lastRaw string, since, u
 	return lastRaw, now.Add(-window), until, nil
 }
 
-// dashboardReportRequest builds the GetReportRequest shared by the home
-// and insights dashboards. agent and project_match are single-valued on
-// the wire; when the user selected multiple, fall back to "any"
-// server-side (no narrowing) — the cards then reflect the full window.
-// A future refinement could post-filter, but for v1 we keep the
-// dashboard honest at the price of less precise multi-selects.
+// dashboardReportRequest builds the GetReportRequest shared by the home and
+// insights dashboards. agent/project_match are single-valued on the wire, so a
+// multi-select falls back to "any" and the cards reflect the full window.
 func dashboardReportRequest(report string, since, until time.Time, agents, projects, devices []string) *prosav1.GetReportRequest {
 	req := &prosav1.GetReportRequest{
 		Report:      report,
@@ -106,9 +101,8 @@ func dashboardReportRequest(report string, since, until time.Time, agents, proje
 	return req
 }
 
-// buildDashboardActiveFilters mirrors buildSessionsActiveFilters for
-// the dashboard pages. Renders one chip per active filter pointing at
-// basePath ("/" or "/insights") so the remove URL is bookmark-stable.
+// buildDashboardActiveFilters renders one removal chip per active filter,
+// pointing at basePath ("/" or "/insights").
 func buildDashboardActiveFilters(q url.Values, basePath, last string, agents, projects, devices []string) []activeFilter {
 	var out []activeFilter
 	mk := func(label, value string, removeQuery url.Values) activeFilter {
