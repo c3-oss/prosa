@@ -12,9 +12,7 @@ import (
 	"github.com/c3-oss/prosa/pkg/session"
 )
 
-// Source pairs an agent name with the filesystem root being scanned. The
-// CLI uses it to label progress output and to disambiguate concurrent
-// walks across agents.
+// Source pairs an agent name with the filesystem root being scanned.
 type Source struct {
 	Agent string
 	Root  string
@@ -41,9 +39,7 @@ type ImportResult struct {
 	Synthetic bool
 }
 
-// ImportOptions tunes a single Import call. Threaded through from the
-// CLI's `--overwrite` flag; importers default to standard idempotent
-// behaviour when the zero value is passed.
+// ImportOptions tunes a single Import call. Zero value is standard idempotent behaviour.
 type ImportOptions struct {
 	// Overwrite forces re-parse and re-upsert even when the file's hash
 	// is already in sync_state or the file has a matching import skip
@@ -52,8 +48,7 @@ type ImportOptions struct {
 	Overwrite bool
 }
 
-// Importer is the plugin contract. New agents implement this and register
-// themselves with the CLI sync command.
+// Importer is the plugin contract every per-agent connector implements.
 type Importer interface {
 	// Name identifies the agent (e.g. "claude-code").
 	Name() string
@@ -63,22 +58,18 @@ type Importer interface {
 	// unresolvable.
 	DefaultRoots() []string
 
-	// Walk discovers session files under root. Each returned path is a
-	// concrete JSONL file ready for Import.
+	// Walk discovers session files under root.
 	Walk(ctx context.Context, root string) ([]string, error)
 
-	// Import parses a single JSONL file, copies the raw bytes into the
-	// prosa raw tree, and writes the projection through sink.
+	// Import parses a single JSONL file and writes the projection through sink.
 	Import(ctx context.Context, jsonlPath string, sink Sink, opts ImportOptions) (ImportResult, error)
 }
 
-// Sink absorbs the projection produced by an importer. The store package
-// implements this directly; tests substitute in-memory fakes.
+// Sink absorbs the projection produced by an importer.
 //
-// WriteSession persists the whole projection (session row + usage + tools,
-// turns, and the sync_state hash) in one transaction so a crash mid-import
-// can never leave a session row without its turns or with a stale
-// sync_state. LastHash is read separately, before parsing, to short-circuit
+// WriteSession is atomic: session row, usage, tools, turns, and sync_state
+// hash land in one transaction so a crash mid-import can never leave a
+// partial session. LastHash is read before parsing to short-circuit
 // re-imports of unchanged files.
 type Sink interface {
 	WriteSession(ctx context.Context, s session.Session, tools []session.ToolUsage, turns []session.Turn, hash string) error
@@ -90,10 +81,9 @@ const (
 	SkipReasonStateSeen = "state_seen"
 )
 
-// SkipCache is an optional Sink extension. Stores that implement it can
-// remember policy-skipped files by hash even when no session row exists.
-// The sessionID argument may be a real session id or a synthetic marker,
-// depending on the skip reason.
+// SkipCache is an optional Sink extension that remembers policy-skipped files
+// by hash even when no session row exists. sessionID may be a real session id
+// or a synthetic marker depending on the skip reason.
 type SkipCache interface {
 	LastImportSkip(ctx context.Context, sessionID, reason string) (string, bool, error)
 	RecordImportSkip(ctx context.Context, sessionID, hash, reason string) error

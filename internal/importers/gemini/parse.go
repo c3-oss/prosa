@@ -49,8 +49,7 @@ type geminiTokens struct {
 	Total   int64 `json:"total"`
 }
 
-// peekSessionID inspects the top-level JSON to find a sessionId without
-// fully parsing the messages.
+// peekSessionID extracts the sessionId without fully parsing the messages.
 func peekSessionID(path string) (string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -65,20 +64,17 @@ func peekSessionID(path string) (string, error) {
 	return strings.TrimSuffix(filepath.Base(path), ".json"), nil
 }
 
-// parseSession decides between the two shapes and projects them.
 func parseSession(ctx context.Context, path string) (session.Session, []session.Turn, []session.ToolUsage, session.UsageState, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return session.Session{}, nil, nil, session.UsageStateUnknown, err
 	}
 
-	// Try envelope first.
 	if id, env, ok := readEnvelopeID(data); ok {
 		_ = id // session.ID set from env.SessionID below
 		return projectEnvelope(ctx, env)
 	}
 
-	// Otherwise treat as live array.
 	var rows []message
 	if err := json.Unmarshal(data, &rows); err != nil {
 		return session.Session{}, nil, nil, session.UsageStateUnknown, fmt.Errorf("decode gemini json: %w", err)

@@ -123,10 +123,8 @@ func turnLabel(t session.Turn) string {
 	return t.Role
 }
 
-// turnPreviewLines returns the lines to display for one turn. When max
-// is 0, all original lines are shown; when max is positive, the output
-// is capped and a trailing "…" sentinel marks truncation. Negative max
-// is reserved for legacy callers that still want single-line collapse.
+// turnPreviewLines returns lines for display. max==0 means no cap; max>0 caps
+// and appends "…"; max<0 collapses to a single line (legacy callers).
 func turnPreviewLines(content string, max int) []string {
 	if max < 0 {
 		return []string{normalizeDisplayText(content)}

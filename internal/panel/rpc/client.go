@@ -1,6 +1,5 @@
-// Package rpc wraps the Connect clients the panel uses to call
-// prosa-server, pre-injecting the "Authorization: Admin <token>"
-// header so handlers don't need to remember it.
+// Package rpc wraps Connect clients that call prosa-server, pre-injecting
+// "Authorization: Admin <token>" so callers never need to remember it.
 package rpc
 
 import (
@@ -11,8 +10,7 @@ import (
 	"github.com/c3-oss/prosa/gen/go/prosa/v1/prosav1connect"
 )
 
-// Clients bundles every server RPC the panel ever calls. Constructed
-// once at boot.
+// Clients bundles every server RPC the panel calls.
 type Clients struct {
 	Sessions  prosav1connect.SessionsServiceClient
 	Devices   prosav1connect.DevicesServiceClient
@@ -21,9 +19,7 @@ type Clients struct {
 }
 
 // New builds a Clients tied to serverURL, attaching the admin token on
-// every request via an HTTP RoundTripper. The HTTP client supports
-// HTTP/2 over h2c (server in dev) automatically through Connect's
-// default transport.
+// every request via an HTTP RoundTripper.
 func New(serverURL, adminToken string) *Clients {
 	hc := &http.Client{
 		Transport: &adminTransport{

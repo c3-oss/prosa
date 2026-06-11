@@ -13,11 +13,9 @@ import (
 	"github.com/c3-oss/prosa/pkg/importer"
 )
 
-// TestImportRealAntigravityDB runs the importer end-to-end against a
-// real .db (path supplied via PROSA_TEST_ANTIGRAVITY_DB) and prints
-// the projected session for human review. Logs the result rather than
-// asserting on specifics - different real conversations expose
-// different shapes.
+// TestImportRealAntigravityDB runs the importer against a real .db
+// (PROSA_TEST_ANTIGRAVITY_DB) and logs the projected session for human
+// review without asserting on specifics.
 func TestImportRealAntigravityDB(t *testing.T) {
 	path := os.Getenv("PROSA_TEST_ANTIGRAVITY_DB")
 	if path == "" {
@@ -57,11 +55,9 @@ func TestImportRealAntigravityDB(t *testing.T) {
 	}
 }
 
-// TestDebugGenMetadataSnapshot loads a real antigravity .db (path
-// supplied via PROSA_TEST_ANTIGRAVITY_DB) and logs the gen_metadata
-// rows. Never asserts - the only goal is to give the maintainer a
-// printable trace for confirming or upgrading the token-usage decoder
-// in parse.go::readUsage.
+// TestDebugGenMetadataSnapshot logs gen_metadata rows from a real .db
+// (PROSA_TEST_ANTIGRAVITY_DB) to aid in confirming or upgrading the
+// token-usage decoder. Never asserts.
 func TestDebugGenMetadataSnapshot(t *testing.T) {
 	t.Parallel()
 	path := os.Getenv("PROSA_TEST_ANTIGRAVITY_DB")

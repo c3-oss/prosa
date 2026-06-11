@@ -111,9 +111,7 @@ func (p *Panel) Serve(ctx context.Context) error {
 	return httpserver.Run(ctx, srv, 5*time.Second)
 }
 
-// routes wires every endpoint.
 func (p *Panel) routes() {
-	// Static assets.
 	assets, err := assetHandler()
 	if err != nil {
 		slog.Error("panel asset handler unavailable", "err", err)
@@ -121,13 +119,11 @@ func (p *Panel) routes() {
 	}
 	p.mux.Handle("/assets/", assets)
 
-	// Health (public).
 	p.mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok\n"))
 	})
 
-	// Auth surfaces (public).
 	p.mux.HandleFunc("/login", p.handleLogin)
 	p.mux.HandleFunc("/oauth/github/callback", p.handleGitHubCallback)
 	p.mux.HandleFunc("/logout", p.csrfProtected(p.handleLogout))
@@ -137,7 +133,6 @@ func (p *Panel) routes() {
 		p.mux.HandleFunc("/dev-login", p.csrfProtected(p.handleDevLogin))
 	}
 
-	// CLI login approval (session required; redirects to /login?next= when anonymous).
 	p.mux.HandleFunc("/cli/authorize", p.requireSession(p.handleCliAuthorize))
 	p.mux.HandleFunc("/cli/authorize/approve", p.requireSession(p.csrfProtected(p.handleCliAuthorizeApprove)))
 
@@ -198,10 +193,9 @@ func (p *Panel) requireSession(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// render shells out a template by name into w. Wraps the
-// error-rendering boilerplate so handlers stay short. Each view has
-// its own template tree so block redefinitions ("content", "search",
-// "side") in sibling views don't shadow each other.
+// render executes the named template into w. Each view has its own
+// template tree so block redefinitions ("content", "search", "side")
+// in sibling views don't shadow each other.
 func (p *Panel) render(w http.ResponseWriter, name string, data any) {
 	t, ok := p.views[name]
 	if !ok {

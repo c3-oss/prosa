@@ -153,14 +153,8 @@ func workspaceHashFromStorePath(path string) string {
 
 // resolveWorkspacePath returns the longest absolute filesystem prefix
 // from candidates whose md5 hash equals workspaceHash. Cursor's chat
-// directory is named `md5(workspacePath)` — see
-// docs/sources/cursor.md — so this is a reliable inverse when the
-// blobs carry any file the model touched.
-//
-// candidates may contain duplicates and paths outside the workspace
-// (system files, user-home configs); the search restricts itself to
-// ancestor directories shared by all candidates that start with the
-// most popular root prefix.
+// directory is named `md5(workspacePath)` — see docs/sources/cursor.md —
+// so this is a reliable inverse when the blobs carry any file the model touched.
 func resolveWorkspacePath(workspaceHash string, candidates []string) string {
 	if workspaceHash == "" || len(candidates) == 0 {
 		return ""

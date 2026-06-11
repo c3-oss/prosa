@@ -17,9 +17,8 @@ import (
 	migrations "github.com/c3-oss/prosa/migrations/server"
 )
 
-// OpenPG opens a pgx connection pool and runs every .up.sql migration
-// embedded in migrations/server that hasn't been applied yet. The pool
-// is returned even when migration fails so the caller can close it.
+// OpenPG opens a pooled Postgres connection and applies pending migrations.
+// The pool is returned even on migration failure so the caller can close it.
 func OpenPG(ctx context.Context, dbURL string) (*pgxpool.Pool, error) {
 	cfg, err := pgxpool.ParseConfig(dbURL)
 	if err != nil {
@@ -36,9 +35,7 @@ func OpenPG(ctx context.Context, dbURL string) (*pgxpool.Pool, error) {
 	return pool, nil
 }
 
-// migratePG applies *.up.sql files in lexical order, tracking applied
-// versions in schema_migrations. Mirrors internal/store/migrations.go
-// for the local SQLite store.
+// migratePG mirrors internal/store/migrations.go for the Postgres store.
 func migratePG(ctx context.Context, pool *pgxpool.Pool) error {
 	entries, err := fs.ReadDir(migrations.FS, ".")
 	if err != nil {

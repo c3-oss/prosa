@@ -447,9 +447,9 @@ Clickable chip with an Alpine dropdown + HTMX swap.
 ## Multi-select dropdown
 
 Vanilla-JS multi-pick used in the Home filters block and the Sessions
-filter row for agent / project / device. Same `.dropdown`,
-`.dropdown-menu`, and checkbox-list markup that the old analytics page
-already ships in its templates; reused as-is on the new pages.
+filter row for agent / project / device. Uses `.dropdown`,
+`.dropdown-menu`, and checkbox-list markup shared across Home and
+Sessions pages.
 
 ```html
 <div class="dropdown" data-multi="agent">

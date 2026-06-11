@@ -121,9 +121,7 @@ func macUID() string {
 	return strconv.Itoa(os.Getuid())
 }
 
-// extractStartInterval reads <key>StartInterval</key><integer>N</integer>
-// out of the plist body. Returns 0 when the key is missing or unparseable
-// — Status callers treat 0 as "unknown interval".
+// extractStartInterval reads StartInterval from a plist body; returns 0 when missing or unparseable.
 func extractStartInterval(body string) int {
 	const k = "<key>StartInterval</key>"
 	i := strings.Index(body, k)

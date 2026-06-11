@@ -83,7 +83,6 @@ func (p *Panel) handleGitHubCallback(w http.ResponseWriter, r *http.Request) {
 		redirectLoginError(w, r, "state mismatch")
 		return
 	}
-	// One-shot cookie; clear it.
 	http.SetCookie(w, &http.Cookie{
 		Name: "prosa_oauth_state", Value: "", Path: "/", MaxAge: -1,
 	})

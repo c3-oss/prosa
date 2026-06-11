@@ -56,9 +56,6 @@ func (h *SessionsHandler) Get(ctx context.Context, req *connect.Request[prosav1.
 	return connect.NewResponse(&prosav1.GetResponse{Session: s, Turns: turns, Tools: tools}), nil
 }
 
-// Search runs the FTS query (tsvector + plainto_tsquery) against the
-// turns table and returns one hit per matching session with the
-// ts_headline-derived snippet. Device callers are auto-scoped to their
 func (h *SessionsHandler) Manifest(ctx context.Context, req *connect.Request[prosav1.ManifestRequest]) (*connect.Response[prosav1.ManifestResponse], error) {
 	deviceID, ok := auth.DeviceFromContext(ctx)
 	if !ok {

@@ -18,7 +18,6 @@ import (
 )
 
 const (
-	// CookieName is the panel session cookie key.
 	CookieName = "prosa_panel"
 	// DefaultTTL mirrors INTENT §6: 30 days.
 	DefaultTTL = 30 * 24 * time.Hour
@@ -87,7 +86,6 @@ func newCSRFToken() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
-// Clear unsets the cookie on the response.
 func (m *Manager) Clear(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     CookieName,

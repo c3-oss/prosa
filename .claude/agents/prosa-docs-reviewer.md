@@ -33,6 +33,9 @@ reports.
 6. Distribution docs match the real `.goreleaser.yaml`, `install.sh`,
    `Dockerfile`, `npm/`, `.github/workflows/`.
 7. Translations and language consistency: docs are English throughout.
+8. Docs describe the present and state what the code *is*, not what it
+   was or isn't. Flag "instead of X, it does Y" phrasing and leftover
+   descriptions of replaced behaviour — the doc should just describe Y.
 
 ## Do first
 

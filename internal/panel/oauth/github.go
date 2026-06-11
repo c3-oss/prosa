@@ -21,8 +21,7 @@ const (
 	emailsAPI     = "https://api.github.com/user/emails"
 )
 
-// GitHubAuthURL builds the URL the panel redirects to when the user
-// clicks "Sign in with GitHub".
+// GitHubAuthURL builds the GitHub OAuth consent URL.
 func GitHubAuthURL(clientID, redirectURI, state string) string {
 	q := url.Values{}
 	q.Set("client_id", clientID)
@@ -33,7 +32,6 @@ func GitHubAuthURL(clientID, redirectURI, state string) string {
 	return authEndpoint + "?" + q.Encode()
 }
 
-// ExchangeArgs carries the inputs to GitHubExchange.
 type ExchangeArgs struct {
 	ClientID     string
 	ClientSecret string

@@ -5,9 +5,7 @@ import (
 	"strings"
 )
 
-// missingFields returns a small InvalidArgument error listing fields the
-// caller failed to populate. Used by every handler that does input
-// shape checks.
+// missingFields returns an error listing required fields the caller omitted.
 func missingFields(fields ...string) error {
 	return errors.New("missing required fields: " + strings.Join(fields, ", "))
 }

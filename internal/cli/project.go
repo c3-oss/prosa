@@ -21,17 +21,8 @@ type Match struct {
 	Found  bool
 }
 
-// DetectProject resolves the project to auto-filter the timeline by,
-// honoring INTENT.md §5 in priority order:
-//
-//  1. If `git remote get-url origin` works in cwd AND the store has at
-//     least one session with that remote, use it.
-//  2. Else if a .prosa.yaml is reachable from cwd AND the store has a
-//     session with that marker, use it.
-//  3. Else fall back to the legacy "longest project_path ancestor"
-//     heuristic (kept so users without git or markers still get
-//     auto-scoping in the directories they actually work in).
-//
+// DetectProject resolves the project for timeline auto-filtering per INTENT §5:
+// git remote → .prosa.yaml marker → longest project_path ancestor.
 // Returns Match{Found: false} when nothing matches.
 func DetectProject(ctx context.Context, cwd string, s *store.Store) (Match, error) {
 	id := projectid.Resolve(cwd)
@@ -60,8 +51,7 @@ func DetectProject(ctx context.Context, cwd string, s *store.Store) (Match, erro
 	return Match{}, nil
 }
 
-// detectByPath is the original substring-ancestor matcher. Used as the
-// final fallback when neither git remote nor .prosa.yaml resolves.
+// detectByPath is the longest-ancestor fallback when git remote and .prosa.yaml don't resolve.
 func detectByPath(ctx context.Context, cwd string, s *store.Store) (string, bool) {
 	paths, err := s.DistinctProjectPaths(ctx)
 	if err != nil {
@@ -81,9 +71,8 @@ func detectByPath(ctx context.Context, cwd string, s *store.Store) (string, bool
 	return "", false
 }
 
-// applyMatchFilter copies the populated dimension of m into the
-// SessionFilter so the query layer filters by exactly one identity
-// field. Caller must ensure m.Found before calling.
+// applyMatchFilter sets exactly one identity field on the filter from m.
+// Caller must ensure m.Found before calling.
 func applyMatchFilter(f *store.SessionFilter, m Match) {
 	switch {
 	case m.Remote != "":
@@ -98,8 +87,7 @@ func applyMatchFilter(f *store.SessionFilter, m Match) {
 	}
 }
 
-// HintLabel renders a short human label for a Match — used in the
-// status hint printed at the top of the timeline.
+// HintLabel returns a short human label for the context-line status hint.
 func (m Match) HintLabel() string {
 	switch {
 	case m.Remote != "":

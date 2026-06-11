@@ -76,10 +76,8 @@ type responseItemPayload struct {
 	Summary json.RawMessage `json:"summary"`
 }
 
-// functionCallOutput is the inline payload Codex emits for a
-// function_call_output response_item. Newer files wrap the output in
-// {"type":"function_call_output","output":"..."} or
-// {"output":{"content":[{"type":"text","text":"..."}]}}.
+// functionCallOutput is the payload Codex emits for a function_call_output
+// response_item. Output may be a plain string or a content-block wrapper.
 type functionCallOutput struct {
 	Output  json.RawMessage  `json:"output"`
 	Content []functionOutBlk `json:"content"`
@@ -113,9 +111,8 @@ type tokenUsageJSON struct {
 	CacheReadInputTokens int64 `json:"cache_read_input_tokens"`
 }
 
-// peekSessionID reads only as many lines as needed to find a session_meta
-// envelope (the canonical id holder). If absent, falls back to parsing
-// the UUID suffix off the filename per docs/sources/codex.md.
+// peekSessionID returns the session ID from the first session_meta record,
+// falling back to the UUID suffix in the filename.
 func peekSessionID(path string) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -148,10 +145,8 @@ func peekSessionID(path string) (string, error) {
 	return base, nil
 }
 
-// parseSession streams the JSONL once and returns the projected metadata
-// plus a UsageState classifying what the parser observed about token
-// usage in this transcript. Hash + size are computed separately by
-// Import().
+// parseSession streams the JSONL once and returns the projected session,
+// turns, tool usages, and a UsageState. Hash + size are computed by Import.
 func parseSession(ctx context.Context, path string) (session.Session, []session.Turn, []session.ToolUsage, session.UsageState, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -263,11 +258,9 @@ func parseSession(ctx context.Context, path string) (session.Session, []session.
 			}
 
 		case r.Type == "message":
-			// Legacy top-level message record.
 			handleLegacyMessage(r.Role, r.Content, r.Timestamp, &sess, &turns, &firstPromptSet)
 
 		case r.Type == "function_call":
-			// Legacy top-level function call.
 			if r.Name != "" {
 				toolCounts[r.Name]++
 				// Legacy records carry the call_id alongside; round-trip
@@ -279,7 +272,6 @@ func parseSession(ctx context.Context, path string) (session.Session, []session.
 			}
 
 		case r.Type == "function_call_output":
-			// Legacy top-level tool output.
 			text := extractToolOutput(r.Content)
 			if text == "" {
 				break
@@ -467,10 +459,8 @@ func handleLegacyMessage(
 	}
 }
 
-// setFirstPromptIfHuman defers cleanup (sanitize + unwrap + drop wholly
-// boilerplate) to sessiontext.BuildFirstPrompt — see
-// sessiontext/sessiontext.go for the rules. The local wrapper just
-// enforces "first wins" semantics so later user messages don't clobber.
+// setFirstPromptIfHuman sets sess.FirstPrompt via sessiontext.BuildFirstPrompt,
+// enforcing first-wins: later user messages never clobber an already-set value.
 func setFirstPromptIfHuman(sess *session.Session, set *bool, text string) {
 	if *set {
 		return
@@ -515,9 +505,8 @@ func extractToolOutput(raw json.RawMessage) string {
 	return ""
 }
 
-// legacyCallID best-effort pulls call_id out of a legacy top-level
-// function_call / function_call_output record. The rawRecord struct
-// doesn't carry it, so we re-decode a tiny shape.
+// legacyCallID extracts call_id from a raw line; rawRecord doesn't carry it,
+// so a minimal re-decode is needed.
 func legacyCallID(line []byte) string {
 	var probe struct {
 		CallID string `json:"call_id"`
@@ -528,21 +517,13 @@ func legacyCallID(line []byte) string {
 	return probe.CallID
 }
 
-// extractMessageText returns the joined text for a message's content,
-// filtered by the role-appropriate block type. Codex uses:
-//   - user      -> content[].type == "input_text"
-//   - assistant -> content[].type == "output_text"
+// extractReasoningSummary returns the textual summary of a Codex reasoning
+// item. Two shapes seen in the wild:
 //
-// Legacy records may carry `content` as a plain string instead of an
-// array; that path is handled too.
-// extractReasoningSummary returns the textual summary of a Codex
-// reasoning item. Two shapes seen in the wild:
+//   - plain string:  "summary": "I considered three options …"
+//   - block list:    "summary": [{"type":"summary_text","text":"…"}, …]
 //
-//   - plain string:    "summary": "I considered three options …"
-//   - block list:      "summary": [{"type":"summary_text","text":"…"}, …]
-//
-// Anything that doesn't fit those shapes returns "" so the caller
-// can skip projecting an empty thinking turn.
+// Returns "" when neither shape matches, so the caller skips an empty turn.
 func extractReasoningSummary(raw json.RawMessage) string {
 	if len(raw) == 0 {
 		return ""
@@ -570,6 +551,9 @@ func extractReasoningSummary(raw json.RawMessage) string {
 	return strings.TrimSpace(strings.Join(parts, "\n"))
 }
 
+// extractMessageText returns joined text from a message's content, selecting
+// the role-appropriate block type (input_text for user, output_text for
+// assistant). Legacy records may carry content as a plain string.
 func extractMessageText(content json.RawMessage, role string) string {
 	if len(content) == 0 {
 		return ""

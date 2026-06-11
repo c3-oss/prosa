@@ -16,17 +16,8 @@ import (
 )
 
 // globalFlags is the persistent flag set inherited by every sub-command.
-// Cut 1 only honors --last and --json; the rest are wired so the public
-// surface stays stable, but the query layer ignores them with a TODO.
-//
-// Limit is the only field bound to a non-persistent flag. The bare
-// timeline uses it directly; search treats it as a fallback when --limit
-// is placed before the subcommand.
-//
-// --remote is persistent (rather than local to analytics/search) so that
-// both `prosa --remote analytics usage` and `prosa analytics --remote
-// usage` succeed; cobra rejects a local flag placed before its
-// subcommand. Sub-commands that do not honor it ignore the value.
+// --remote is persistent so `prosa --remote analytics usage` works; cobra
+// rejects a local flag placed before its subcommand.
 type globalFlags struct {
 	Last    string
 	Since   string
@@ -69,9 +60,8 @@ func newRootCmd() *cobra.Command {
 	pf.BoolVar(&g.All, "all", false, "show every project, ignoring the current-project auto-filter")
 	pf.BoolVar(&g.JSON, "json", false, "print one JSON object per line instead of formatted output")
 	pf.BoolVar(&g.NoColor, "no-color", false, "disable color output")
-	// --limit is a root-local flag so other subcommands do not advertise it.
-	// Search also accepts it before the subcommand for consistency with the
-	// bare timeline; search's local --limit wins when both are present.
+	// Root-local so other subcommands don't advertise it; search treats it as
+	// a fallback when --limit appears before the subcommand.
 	cmd.Flags().IntVar(&g.Limit, "limit", 0, "cap timeline sessions returned (0 = no limit)")
 	pf.BoolVar(&g.Remote, "remote", false, "query the prosa server instead of the local store")
 
@@ -87,10 +77,7 @@ func newRootCmd() *cobra.Command {
 	return cmd
 }
 
-// validateGlobals rejects globally-incompatible flag combinations before
-// any command runs. --all disables the cwd project auto-filter, so pairing
-// it with an explicit --project is contradictory (INTENT §5); reject it at
-// parse time instead of silently letting one win.
+// validateGlobals rejects flag combinations that are contradictory (INTENT §5).
 func validateGlobals(cmd *cobra.Command) error {
 	if cmd.Flags().Changed("all") && cmd.Flags().Changed("project") {
 		return errors.New("--all and --project are mutually exclusive")

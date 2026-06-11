@@ -14,23 +14,16 @@ import (
 )
 
 const (
-	// denoiseMaxScanBytes caps how many bytes we read from a raw file
-	// when hunting for a clean user prompt. 1 MiB is comfortable: any
-	// realistic first user message arrives well within the first few
-	// dozen KB.
+	// denoiseMaxScanBytes: any real first-user-message is well within the first few KB.
 	denoiseMaxScanBytes = 1 << 20
 
-	// denoiseBatchLimit ceils how many sessions we touch per `prosa
-	// sync` run. Picked high enough to clear the typical backlog in
-	// one go (~3 000 sessions) but not unbounded.
+	// denoiseBatchLimit: high enough to clear a typical backlog in one run (~3000 sessions).
 	denoiseBatchLimit = 5000
 )
 
-// runDenoisePass scans sessions whose stored first_prompt looks like
-// agent-injected meta, reopens the raw JSONL, extracts the next
-// non-boilerplate user message via scanRawForCleanPrompt, and
-// UPDATEs the row. Idempotent: rows that survive a pass don't show
-// up next time. Returns the number of rows actually rewritten.
+// runDenoisePass rewrites first_prompt for sessions whose stored value is
+// agent-injected boilerplate. Idempotent: converged rows don't appear next run.
+// Returns the number of rows actually rewritten.
 func runDenoisePass(ctx context.Context, s *store.Store) int {
 	candidates, err := s.ListSessionsWithBoilerplatePrompt(ctx, denoiseBatchLimit)
 	if err != nil {
@@ -58,13 +51,8 @@ func runDenoisePass(ctx context.Context, s *store.Store) int {
 	return updated
 }
 
-// scanRawForCleanPrompt streams the raw transcript, extracts every
-// candidate "content" string (or top-level "text" for Gemini's
-// userInput shape), and returns the first one that passes
-// render.CleanFirstPrompt. The scanner is JSON-line-oriented but
-// tolerates non-JSON lines and short reads — agents disagree on
-// schema details but every one stores text in a string field
-// reachable via this pattern.
+// scanRawForCleanPrompt returns the first non-boilerplate user text found in
+// the raw JSONL, tolerating non-JSON lines and schema variation across agents.
 func scanRawForCleanPrompt(rawPath string) (string, bool) {
 	f, err := os.Open(rawPath)
 	if err != nil {
@@ -74,8 +62,6 @@ func scanRawForCleanPrompt(rawPath string) (string, bool) {
 
 	reader := io.LimitReader(f, denoiseMaxScanBytes)
 	sc := bufio.NewScanner(reader)
-	// Some assistant turns are large; bump the line buffer up so we
-	// don't truncate them mid-scan.
 	buf := make([]byte, 0, 64*1024)
 	sc.Buffer(buf, 1<<20)
 	for sc.Scan() {
@@ -93,11 +79,8 @@ func scanRawForCleanPrompt(rawPath string) (string, bool) {
 	return "", false
 }
 
-// extractStringFields walks a JSON object/array and yields every
-// string-valued leaf whose key is `content`, `text`, `prompt`, or
-// `input`. This covers the four importers' user-content shapes
-// without committing to a specific schema. Unknown shapes are
-// skipped silently.
+// extractStringFields yields every string leaf under content/text/prompt/input
+// keys, covering importer user-content shapes without committing to a schema.
 func extractStringFields(line string) []string {
 	var v any
 	if err := json.Unmarshal([]byte(line), &v); err != nil {
@@ -111,11 +94,7 @@ func extractStringFields(line string) []string {
 func walk(v any, out *[]string) {
 	switch x := v.(type) {
 	case map[string]any:
-		// Emit every string leaf in a content/text/prompt/input key.
-		// The role gate is intentionally absent: schemas vary too much
-		// across importers, and downstream CleanFirstPrompt already
-		// filters boilerplate, so being inclusive here costs nothing
-		// and rescues prompts that the role-aware filter missed.
+		// No role gate: schemas vary across importers; CleanFirstPrompt filters boilerplate downstream.
 		for _, key := range []string{"content", "text", "prompt", "input"} {
 			if val, ok := x[key]; ok {
 				if s, ok := val.(string); ok {
@@ -125,7 +104,6 @@ func walk(v any, out *[]string) {
 				}
 			}
 		}
-		// Descend into the rest of the object to catch nested turns.
 		for k, val := range x {
 			if k == "content" || k == "text" || k == "prompt" || k == "input" {
 				continue // already handled above

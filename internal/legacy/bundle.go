@@ -71,7 +71,6 @@ func Open(path string) (*Bundle, error) {
 	return &Bundle{Path: path, db: db}, nil
 }
 
-// Close releases the underlying SQLite handle.
 func (b *Bundle) Close() error {
 	if b == nil || b.db == nil {
 		return nil

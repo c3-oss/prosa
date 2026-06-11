@@ -26,13 +26,10 @@ type SSEHandler struct {
 	AdminToken string
 }
 
-// NewSSEHandler wires the handler.
 func NewSSEHandler(pool *pgxpool.Pool, adminToken string) *SSEHandler {
 	return &SSEHandler{Pool: pool, AdminToken: adminToken}
 }
 
-// ServeHTTP implements the SSE protocol: keep the connection alive,
-// pump events as `event: session.changed\ndata: <id>\n\n` chunks.
 func (h *SSEHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !h.authorized(r) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -67,7 +64,6 @@ func (h *SSEHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Initial comment so the browser knows the stream is live.
 	_, _ = fmt.Fprintln(w, ": connected")
 	flusher.Flush()
 

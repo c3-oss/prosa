@@ -25,9 +25,8 @@ import (
 	"github.com/c3-oss/prosa/internal/paths"
 )
 
-// pkceLogin runs the PKCE + localhost-callback flow against `server`.
-// onPending is invoked once after BeginLogin succeeds with the authorize
-// URL; onApproved runs after ExchangeCode and SaveAuth succeed.
+// pkceLogin runs the PKCE + localhost-callback flow against server.
+// onPending is called with the authorize URL; onApproved after exchange and save.
 func pkceLogin(ctx context.Context, server string, onPending func(url string), onApproved func()) error {
 	verifier, challenge, clientState, err := newPKCEPair()
 	if err != nil {

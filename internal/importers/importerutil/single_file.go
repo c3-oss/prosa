@@ -31,8 +31,8 @@ type SingleFileConfig struct {
 	Parse       ParseFunc
 	PreserveRaw PreserveRawFunc
 
-	// UseParsedSessionID keeps importers whose parser can refine the peeked
-	// id on their existing raw-path/result-id behavior.
+	// UseParsedSessionID uses sess.ID from Parse instead of the peeked ID for
+	// the raw path and result; allows parsers that refine the session ID.
 	UseParsedSessionID bool
 }
 

@@ -51,11 +51,7 @@ func (m UserMessage) HasExtras() bool {
 }
 
 // xmlWrapper is one tag-style wrapper we know how to extract.
-// `tag` is the opening tag (without angles) e.g. "command-name";
-// `closing` is the matching closer including angles, e.g.
-// "</command-name>". `multi` is true when the wrapper can repeat in
-// one message (system-reminder) — the parser will collect every
-// occurrence instead of just the first.
+// multi is true when the wrapper can repeat in one message (system-reminder).
 type xmlWrapper struct {
 	tag     string
 	open    string // pre-rendered "<tag>"
@@ -77,18 +73,9 @@ var userWrappers = []xmlWrapper{
 }
 
 // ParseUserMessage extracts every known wrapper from raw and returns
-// what each carried plus the leftover Body. Wrappers are matched by
-// `<tag>…</tag>` after the input is sanitized (ANSI/control chars
-// stripped via SanitizeForDisplay).
-//
-// Order in the input is irrelevant — each wrapper is searched
-// independently and removed from the working string. Body is then
-// the trimmed remainder. Unknown text passes through untouched as
-// Body.
-//
-// On a malformed wrapper (open tag with no closing) the open tag is
-// left in Body so the user can still see *something* — better than
-// silently swallowing the rest of the message.
+// what each carried plus the leftover Body. Order in the input is
+// irrelevant — each wrapper is searched independently. On a malformed
+// wrapper (open tag with no closing) the fragment is left in Body.
 func ParseUserMessage(raw string) UserMessage {
 	sanitized := SanitizeForDisplay(raw)
 	working := sanitized
@@ -130,10 +117,9 @@ func ParseUserMessage(raw string) UserMessage {
 }
 
 // extractFirst pulls the first occurrence of open…closing out of s.
-// Returns the inner text (trimmed), the string with the wrapper
-// removed, and ok=true. If the open token isn't present, ok=false.
-// If open is present but closing isn't, ok=false (caller leaves the
-// raw fragment in Body).
+// Returns (inner, remainder, true) on success. If open is present but
+// closing is absent, returns ok=false so the caller leaves the fragment
+// in Body rather than swallowing it.
 func extractFirst(s, open, closing string) (string, string, bool) {
 	o := strings.Index(s, open)
 	if o < 0 {
@@ -148,8 +134,7 @@ func extractFirst(s, open, closing string) (string, string, bool) {
 	return strings.TrimSpace(inner), rest, true
 }
 
-// extractAll repeatedly pulls open…closing pairs out of s, returning
-// every inner body (trimmed) and the leftover string.
+// extractAll pulls all open…closing pairs out of s.
 func extractAll(s, open, closing string) ([]string, string) {
 	var out []string
 	cur := s
@@ -164,8 +149,7 @@ func extractAll(s, open, closing string) ([]string, string) {
 	return out, cur
 }
 
-// assignWrapper routes the parsed body(ies) for a given tag to the
-// right struct field. Centralised so the parser loop stays declarative.
+// assignWrapper routes parsed bodies for a given tag to the right struct field.
 func assignWrapper(out *UserMessage, tag string, values []string) {
 	if len(values) == 0 {
 		return

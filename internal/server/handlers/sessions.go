@@ -14,7 +14,6 @@ type SessionsHandler struct {
 	Obj  *storage.ObjectStore
 }
 
-// NewSessionsHandler wires the handler.
 func NewSessionsHandler(pool *pgxpool.Pool, obj *storage.ObjectStore) *SessionsHandler {
 	return &SessionsHandler{Pool: pool, Obj: obj}
 }

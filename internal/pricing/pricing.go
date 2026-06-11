@@ -11,11 +11,6 @@ import (
 
 // Rates are USD-per-token prices. The table is intentionally embedded and
 // conservative; unknown models return priced=false instead of guessing.
-//
-// Values mirror the public per-million-token rates published on
-// https://models.dev/api.json, converted to per-token (÷ 1e6). Rows with a
-// dot in the version (e.g. claude-opus-4.6) are accepted as aliases of
-// the dash form so callers do not have to normalize first.
 type Rates struct {
 	Input         float64
 	Output        float64
@@ -40,8 +35,6 @@ var ratesByModel = map[string]Rates{
 	"claude-haiku-4-5":  {Input: 1.0e-6, Output: 5.0e-6, CacheRead: 1.0e-7, CacheCreation: 1.25e-6},
 
 	// OpenAI — GPT-5 generation.
-	// Each minor version (5.1, 5.2, …) has its own tariff; -codex / -mini /
-	// -nano variants inherit their family's published price.
 	"gpt-5":               {Input: 1.25e-6, Output: 1.0e-5, CacheRead: 1.25e-7},
 	"gpt-5-chat-latest":   {Input: 1.25e-6, Output: 1.0e-5, CacheRead: 1.25e-7},
 	"gpt-5-codex":         {Input: 1.25e-6, Output: 1.0e-5, CacheRead: 1.25e-7},
@@ -66,10 +59,7 @@ var ratesByModel = map[string]Rates{
 	"gpt-5.5-pro":         {Input: 3.0e-5, Output: 1.8e-4},
 
 	// Google — Gemini 2.5 / 3 / 3.5 generation.
-	// Tier-pricing for >200k context is not yet modelled; we use the base
-	// tariff for every call. The thinking-level suffixes Antigravity emits
-	// (`-low`/`-medium`/`-high`) carry the same per-token rate as the base
-	// `gemini-3.5-flash` row and resolve via the longest-prefix fallback.
+	// Tier-pricing for >200k context is not yet modelled; we use the base tariff for every call.
 	"gemini-2.5-pro":         {Input: 1.25e-6, Output: 1.0e-5, CacheRead: 1.25e-7},
 	"gemini-2.5-flash":       {Input: 3.0e-7, Output: 2.5e-6, CacheRead: 3.0e-8},
 	"gemini-2.5-flash-lite":  {Input: 1.0e-7, Output: 4.0e-7, CacheRead: 1.0e-8},
@@ -78,10 +68,7 @@ var ratesByModel = map[string]Rates{
 	"gemini-3.5-flash":       {Input: 1.5e-6, Output: 9.0e-6, CacheRead: 1.5e-7},
 }
 
-// modelAliases maps a normalized model id to a canonical key in
-// ratesByModel. Use it when an agent emits a version using a different
-// separator (dot vs dash) or vendor-suffix ordering that we still want
-// to price.
+// modelAliases maps dot-form or reordered model ids to their canonical key in ratesByModel.
 var modelAliases = map[string]string{
 	"claude-opus-4.5":   "claude-opus-4-5",
 	"claude-opus-4.6":   "claude-opus-4-6",
@@ -126,13 +113,9 @@ func CostUSD(model string, usage session.TokenUsage) (float64, bool) {
 	return cost, true
 }
 
-// Lookup resolves rates for a raw model string. The lookup is:
-//  1. normalize (lowercase, strip vendor prefix and dated suffixes),
-//  2. resolve known dot-form aliases (e.g. claude-opus-4.7 → -4-7),
-//  3. exact match in the rate table,
-//  4. longest-prefix match against table keys (deterministic by length),
-//     so claude-opus-4-7 picks its own row instead of falling back to
-//     claude-opus-4.
+// Lookup resolves rates for a raw model string. Falls back to a longest-prefix
+// match so versioned variants (e.g. claude-opus-4-7) don't collapse onto a
+// shorter key (claude-opus-4) with a different price tier.
 func Lookup(model string) (Rates, bool) {
 	norm := NormalizeModel(model)
 	if norm == "" {
@@ -152,10 +135,8 @@ func Lookup(model string) (Rates, bool) {
 	return Rates{}, false
 }
 
-// NormalizeModel strips the bits importers may attach around the raw
-// model id: provider routing prefixes, vendor-tag suffixes, and a dated
-// snapshot suffix (the family stays priced even after Anthropic / OpenAI
-// rotate the snapshot date).
+// NormalizeModel strips provider prefixes, vendor-tag suffixes, and dated
+// snapshot suffixes so a family stays priced after the snapshot date rotates.
 func NormalizeModel(model string) string {
 	s := strings.ToLower(strings.TrimSpace(model))
 	s = strings.TrimPrefix(s, "openai/")
@@ -168,9 +149,8 @@ func NormalizeModel(model string) string {
 	return datedSuffixRE.ReplaceAllString(s, "")
 }
 
-// sortedPrefixKeys returns the rate-table keys ordered longest-first so
-// the fallback prefix match in Lookup is deterministic (Go map iteration
-// order is randomised). The slice is computed once on demand.
+// sortedPrefixKeys returns rate-table keys ordered longest-first so the prefix
+// match in Lookup is deterministic despite Go's randomised map iteration.
 func sortedPrefixKeys() []string {
 	prefixKeysOnce.Do(func() {
 		prefixKeys = make([]string, 0, len(ratesByModel))

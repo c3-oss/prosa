@@ -52,11 +52,8 @@ func pushStatusString(outcome pushOutcome) string {
 	}
 }
 
-// runSyncJSON is the `--json` sync path: it imports each session and emits
-// one NDJSON record per session (and per catch-up push) to w, then runs the
-// reconcile pass. The caller emits the summary line. slog still writes
-// diagnostics to stderr, keeping stdout pure NDJSON. Honors the global
-// --json flag (issue #69).
+// runSyncJSON is the --json sync path: one NDJSON record per session plus a
+// catch-up reconcile pass. slog diagnostics go to stderr; stdout stays pure NDJSON.
 func runSyncJSON(
 	ctx context.Context,
 	w io.Writer,
@@ -93,9 +90,7 @@ func runSyncJSON(
 			case push == nil:
 				line.Push = "disabled"
 			case res.Synthetic:
-				// Multi-session marker (hermes state.db): no single store
-				// row to inline-push; the real sessions converge in the
-				// catch-up reconcile pass below.
+				// Hermes state.db marker: real sessions surface in the catch-up pass.
 				line.Push = "deferred"
 			default:
 				outcome, perr := push.pushSession(ctx, res.SessionID)
@@ -137,7 +132,6 @@ func runSyncJSON(
 	return nil
 }
 
-// emitSyncJSONSummary writes the final NDJSON summary record.
 func emitSyncJSONSummary(w io.Writer, counts *syncCounts) {
 	_ = json.NewEncoder(w).Encode(syncJSONSummary{
 		Type:           "summary",

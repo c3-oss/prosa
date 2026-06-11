@@ -18,9 +18,7 @@ import (
 	"github.com/c3-oss/prosa/internal/paths"
 )
 
-// setupDefaultServer is used when neither --server nor PROSA_SERVER_URL
-// is set. Lives here instead of the rpc package because it's a wizard
-// default, not a transport default.
+// setupDefaultServer is the wizard default, not a transport default.
 const setupDefaultServer = "https://prosa.c3.do"
 
 var (
@@ -56,9 +54,6 @@ type agentReport struct {
 	foundAny bool
 }
 
-// detectAgents iterates the registered importers and asks each whether
-// any of its DefaultRoots() exists on the filesystem. Pure read; no side
-// effects. Order is stable.
 func detectAgents() []agentReport {
 	imps := registeredImporters()
 	out := make([]agentReport, 0, len(imps))
@@ -105,7 +100,6 @@ func runSetup(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
-	// Steps 1-3: environment, agents, server.
 	if interactive {
 		fmt.Fprintln(os.Stdout, render.StyleHeader.Render("prosa setup"))
 		fmt.Fprintf(os.Stdout, "%s    %s\n",
@@ -129,17 +123,14 @@ func runSetup(cmd *cobra.Command, _ []string) error {
 		fmt.Fprintf(os.Stdout, "step=server\tvalue=%s\n", server)
 	}
 
-	// Step 4: PKCE browser auth (or fast-path on cached token).
 	if err := runSetupAuth(ctx, server, interactive); err != nil {
 		return err
 	}
 
-	// Step 5: scheduler install.
 	if err := runSetupScheduler(ctx, interactive); err != nil {
 		return err
 	}
 
-	// Step 6: first scan (opt-in).
 	if setupSkipScanFlag {
 		if interactive {
 			fmt.Fprintf(os.Stdout, "%s first scan   %s\n",
@@ -156,8 +147,6 @@ func runSetup(cmd *cobra.Command, _ []string) error {
 		} else {
 			fmt.Fprintln(os.Stdout, "step=first_scan\tstatus=running")
 		}
-		// runSync drives its own progress UI inline; on exit we print
-		// the setup footer below sync's summary.
 		if err := runSync(cmd, nil); err != nil {
 			return err
 		}
@@ -174,8 +163,7 @@ func runSetup(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-// runSetupAuth implements step 4. Fast-path: if auth.json already names
-// the same server, skip the browser login dance.
+// runSetupAuth fast-paths when auth.json already names the same server.
 func runSetupAuth(ctx context.Context, server string, interactive bool) error {
 	if existing, err := rpc.LoadAuth(); err == nil {
 		if rpc.NormalizeServerURL(existing.Server) == rpc.NormalizeServerURL(server) {
@@ -189,8 +177,6 @@ func runSetupAuth(ctx context.Context, server string, interactive bool) error {
 			return nil
 		}
 	}
-	// "→ auth waiting" goes out before BeginLogin, so the user sees
-	// activity even on slow networks.
 	if interactive {
 		fmt.Fprintf(os.Stdout, "%s auth         %s\n",
 			render.StyleAccent.Render("→"),
@@ -213,10 +199,8 @@ func runSetupAuth(ctx context.Context, server string, interactive bool) error {
 	}
 	onApproved := func() {
 		if interactive {
-			// Jump back over the URL block AND the "→ auth waiting"
-			// line, then erase to end of screen and redraw the step
-			// as approved. Same redraw trick as runLogin, with the
-			// line count computed instead of hardcoded.
+			// Jump back over the URL block and the "→ auth waiting" line; same
+			// redraw trick as runLogin but with the line count computed dynamically.
 			fmt.Fprintf(os.Stdout, "\033[%dF\033[J", urlBlockLines+1)
 			fmt.Fprintf(os.Stdout, "%s auth         %s\n",
 				render.StyleSuccess.Render("✓"),
@@ -228,9 +212,7 @@ func runSetupAuth(ctx context.Context, server string, interactive bool) error {
 	return pkceLogin(ctx, server, onPending, onApproved)
 }
 
-// runSetupScheduler implements step 5. Skips silently on platforms with
-// no native scheduler instead of failing — the rest of setup is still
-// valuable.
+// runSetupScheduler skips silently on platforms with no native scheduler.
 func runSetupScheduler(ctx context.Context, interactive bool) error {
 	binary, err := os.Executable()
 	if err != nil {
@@ -261,9 +243,7 @@ func runSetupScheduler(ctx context.Context, interactive bool) error {
 	return nil
 }
 
-// renderAgentSummary returns a "·"-separated list of agents, agent style
-// for found ones and muted for missing ones. Order is stable so the
-// summary reads the same across runs.
+// renderAgentSummary returns a "·"-separated agent list with found/missing styling.
 func renderAgentSummary(reports []agentReport) string {
 	if len(reports) == 0 {
 		return render.StyleMuted.Render("none detected")
@@ -279,9 +259,7 @@ func renderAgentSummary(reports []agentReport) string {
 	return strings.Join(parts, render.StyleMuted.Render(" · "))
 }
 
-// schedulerKind returns the OS-native label for the scheduler being
-// installed, used by the interactive checklist. Off-platform values
-// fall through to the raw GOOS string.
+// schedulerKind returns the OS-native scheduler label for the interactive checklist.
 func schedulerKind() string {
 	switch runtime.GOOS {
 	case "darwin":

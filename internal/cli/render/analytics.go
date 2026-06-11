@@ -47,7 +47,6 @@ func analyticsTTY(w io.Writer, r store.AnalyticsResult) error {
 		}
 	}
 
-	// Header row.
 	for i, h := range r.Headers {
 		if i > 0 {
 			fmt.Fprint(w, "  ")
@@ -56,7 +55,6 @@ func analyticsTTY(w io.Writer, r store.AnalyticsResult) error {
 	}
 	fmt.Fprintln(w)
 
-	// Data rows.
 	for _, row := range r.Rows {
 		for i, v := range row.Values {
 			if i > 0 {

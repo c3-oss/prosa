@@ -8,19 +8,18 @@ session, you check which devices are active, and you look at aggregates
 over your own flow (how many sessions today, which tools you used most,
 which model).
 
-Today the panel is functional and lean:
+The panel is functional and lean:
 
 - Go + `html/template` + `embed.FS` (single binary, no build step);
-- HTMX already integrated (sidepanel swap, raw pagination);
+- HTMX for partial swaps (sidepanel, raw pagination);
 - SSE for the "new sessions" badge in real time;
-- 3 screens — Home (timeline), Devices (admin), Analytics (5 reports
-  rendered as flat tables);
-- ~72 KB of assets, dark palette, system fonts, CSS grid layout;
+- 5 screens — Home (dashboard), Sessions, Projects, Devices, Settings;
+- Dark palette, system fonts, CSS grid layout;
 - Auth via GitHub OAuth with a `PROSA_PANEL_DEV_LOGIN` bypass for dev.
 
-This brief describes what the panel should **become**: more beautiful,
-more dynamic, richer in details/metrics/charts, without losing speed or
-the single-binary lightness.
+This brief describes the design direction: airy, beautiful, dynamic,
+richer in details/metrics/charts, without losing speed or the
+single-binary lightness.
 
 ## Central direction
 
@@ -113,30 +112,22 @@ Accessibility:
   heatmap / punch card cells carry `aria-label`s;
 - keyboard shortcuts don't block input in forms.
 
-## Flows that need to be designed
+## Flows
 
-The flows already exist in the current panel. The exercise is to
-**visually redesign** while keeping the logic. Per-screen details are in
-[`screens.md`](screens.md).
+Per-screen details are in [`screens.md`](screens.md).
 
 ### 1. Home `/`
 
-Today: a list of sessions grouped by day, filters via querystring, no
-aggregates.
+KPI strip at the top (sessions, projects, active models, tokens, spend,
+error rate), heatmap card, and two-column rows of analytics cards.
+Collapsible filters block with window + multi-select agent/project/device
+dropdowns; submits as a plain GET form.
 
-Direction: a **Today** block at the top with 3 large KPIs (sessions,
-projects, active models), a 14-day sparkline, a live dot if there's been
-a session in the last 10 minutes. Below, a **Recent** list with more
-breathing room and light dividers. Collapsible filter pills with Alpine
-toggle + HTMX swap.
+### 2. Analytics
 
-### 2. Analytics `/analytics/<report>`
-
-Today: analytics reports render server-side from the fixed API surface
-(sessions, projects, tools, models, errors, heatmap, usage).
-
-Direction: each report becomes a page with **title + featured chart +
-support table**. Heatmap follows the GitHub-style daily contribution graph:
+Analytics reports are embedded in the Home dashboard cards and the
+Sessions/Projects pages. Each surfaces a **featured chart + support
+table**. The heatmap follows the GitHub-style daily contribution graph:
 one cell per day, with intensity scaled by session count.
 
 | Report     | Featured chart                                       |
@@ -149,37 +140,31 @@ one cell per day, with intensity scaled by session count.
 | heatmap    | trailing 53-week contribution graph, scaled in `--accent` |
 | usage      | token totals and estimated cost by agent             |
 
-Each chart is HTMX-swappable when the filter changes (window, agent,
-device, project).
+The Home dashboard re-renders fully when the filters form submits; there
+is no HTMX chart-swap pattern on that page.
 
 ### 3. Devices `/devices`
 
-Today: admin table with approve, rename, revoke.
-
-Direction: airy pass. Table with more breathing room, friendly_name in
-medium weight, status in color (`--ok`/`--danger`). Approval form in a
-simple card at the top. No functional rewrite.
+Admin table with approve, rename, revoke. Table with breathing room,
+friendly_name in medium weight, status in color (`--ok`/`--danger`).
+Approval form in a simple card at the top.
 
 ### 4. Sidepanel (session detail)
 
-Today: HTMX swap shows metadata + paginated raw transcript.
-
-Direction: metadata becomes a grid with larger labels. A new "stats"
-cluster above the raw: turn count, tool count, duration, model. Raw
-transcript with more leading and subtle color on JSON prefixes.
+HTMX swap from a Sessions row. Metadata grid with larger labels. Stats
+cluster above the transcript: turn count, tool count, duration, model.
+Chat-style transcript with markdown rendering for assistant turns.
 
 ### 5. Command palette
 
-New. `Cmd-K` / `Ctrl-K` opens a centered modal: search input + a list of
-recent sessions + quick links (report shortcuts). Live suggestions via
-HTMX on `/search`. Native `<dialog>` + Alpine for open/close.
+`Cmd-K` / `Ctrl-K` opens a centered modal: search input + a list of
+recent sessions + quick links to pages. Live suggestions via HTMX on
+`/search`. Native `<dialog>` + Alpine for open/close.
 
 ### 6. Login `/login`
 
-Today: a centered card with OAuth button and dev-login.
-
-Direction: airy pass. Larger tagline, more marked vertical rhythm. No
-functional change.
+Centered card with OAuth button and dev-login form. Large tagline,
+marked vertical rhythm.
 
 ## Mocks requested
 

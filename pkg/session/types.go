@@ -125,10 +125,9 @@ const (
 	KindThinking    = "thinking"
 )
 
-// TokenUsage is the canonical token aggregate for one session. InputTokens is
-// the provider-reported gross input count; CachedTokens is the public total of
-// reusable/cache-hit tokens. CacheReadTokens and CacheCreationTokens are split
-// for providers that price those dimensions differently.
+// TokenUsage is the canonical token aggregate for one session.
+// CacheReadTokens and CacheCreationTokens are split for providers that price
+// those dimensions differently.
 type TokenUsage struct {
 	TotalTokens         int64
 	InputTokens         int64
@@ -187,14 +186,9 @@ func ClassifyUsage(seenUsageEvent bool, usage *TokenUsage) UsageState {
 	return UsageStateUnknown
 }
 
-// Turn is a single message body extracted from a session, populated
-// with the textual signal that drives FTS5. Chat content (Role
-// "user"/"assistant") arrives with Kind=KindMessage; projected tool
-// outputs arrive with Role="tool", Kind=KindToolResult, and ToolName
-// set to the originating tool. Reasoning/thinking blocks land as
-// Role="assistant", Kind=KindThinking (truncated to a preview); they
-// are skipped from FTS so search results stay focused on chat
-// content. Binary artifacts remain intentionally excluded.
+// Turn is a single message body extracted from a session.
+// Thinking blocks are skipped from FTS so search results stay focused on
+// chat content. Binary artifacts are intentionally excluded.
 type Turn struct {
 	Role      string // "user" | "assistant" | "tool"
 	Content   string

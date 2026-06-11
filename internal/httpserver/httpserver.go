@@ -11,11 +11,9 @@ import (
 	"time"
 )
 
-// Run starts srv.ListenAndServe in a goroutine and blocks until ctx
-// is cancelled or the server errors. On cancellation it attempts a
-// graceful Shutdown bounded by graceTimeout; if Shutdown does not
-// finish in time it calls srv.Close to force-close listeners and
-// connections so the process can exit.
+// Run blocks until ctx is cancelled or the server errors. On cancellation
+// it attempts a graceful Shutdown bounded by graceTimeout; if that times
+// out it calls srv.Close to force-terminate remaining connections.
 func Run(ctx context.Context, srv *http.Server, graceTimeout time.Duration) error {
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.ListenAndServe() }()

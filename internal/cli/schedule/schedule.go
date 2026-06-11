@@ -19,11 +19,9 @@ type State struct {
 	UnitPath  string // plist path on macOS; .timer path on Linux
 }
 
-// ErrUnsupported is returned on platforms we don't support.
 var ErrUnsupported = fmt.Errorf("scheduler not supported on this platform")
 
-// Install installs or replaces the prosa-sync scheduled job for the
-// current platform.
+// Install installs or replaces the prosa-sync scheduled job for the current platform.
 func Install(ctx context.Context, binaryPath string, interval time.Duration) error {
 	return installForGOOS(ctx, runtime.GOOS, binaryPath, interval)
 }
@@ -39,8 +37,7 @@ func installForGOOS(ctx context.Context, goos, binaryPath string, interval time.
 	}
 }
 
-// Uninstall removes the prosa-sync scheduled job for the current
-// platform. Missing jobs are treated as success.
+// Uninstall removes the prosa-sync scheduled job. Missing jobs are treated as success.
 func Uninstall(ctx context.Context) error {
 	return uninstallForGOOS(ctx, runtime.GOOS)
 }
@@ -56,8 +53,7 @@ func uninstallForGOOS(ctx context.Context, goos string) error {
 	}
 }
 
-// Status reports the prosa-sync scheduled job state for the current
-// platform.
+// Status reports the prosa-sync scheduled job state for the current platform.
 func Status(ctx context.Context) (State, error) {
 	return statusForGOOS(ctx, runtime.GOOS)
 }

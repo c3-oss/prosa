@@ -29,15 +29,8 @@ type reconcileHooks struct {
 	onStep func(done, total int, sid string, outcome pushOutcome, err error)
 }
 
-// reconcileWithServer is the catch-up phase: it enumerates every local
-// session for this device, asks the server for its current manifest,
-// and pushes any session that's missing remotely or whose raw_hash
-// diverged. Pushes are sequential (re-uses the same pusher / SQLite
-// reader).
-//
-// When opts.Overwrite is true the divergence predicate degenerates to
-// "always enqueue" — every local session is re-pushed regardless of
-// whether the remote already has a matching hash.
+// reconcileWithServer pushes any local session missing remotely or with a
+// diverged raw_hash. With opts.Overwrite every session is re-pushed regardless.
 func reconcileWithServer(
 	ctx context.Context,
 	push *pusher,
@@ -111,9 +104,7 @@ func reconcileWithServer(
 	return counts, nil
 }
 
-// fetchServerManifest pages the server's Manifest RPC until exhausted,
-// returning a map of session_id → raw_hash. Page size 1000 keeps the
-// hop count low for typical devices (≤ 3 round-trips at 2 800 sessions).
+// fetchServerManifest pages the Manifest RPC (page size 1000) until exhausted.
 type serverManifestRow struct {
 	RawHash           string
 	ProjectionVersion int
@@ -150,8 +141,6 @@ func fetchServerManifest(ctx context.Context, push *pusher) (map[string]serverMa
 	}
 }
 
-// foldReconcile merges catch-up results into syncCounts and records remote
-// unavailability when the server cannot be reached.
 func foldReconcile(counts *syncCounts, rc reconcileCounts, err error, push *pusher) {
 	if err != nil {
 		if push != nil && (push.remoteUnavailable || isRemoteUnavailable(err)) {
@@ -176,10 +165,6 @@ func foldReconcile(counts *syncCounts, rc reconcileCounts, err error, push *push
 	counts.remoteTotal = rc.remoteTotal
 }
 
-// runSyncReconcile is the orchestrator wrapper called from runSync plain
-// path. It runs the reconcile phase (no-op when push is nil) and folds the
-// results into the shared syncCounts so printSummary can render the
-// Catch-up band.
 func runSyncReconcile(ctx context.Context, push *pusher, deviceID string, counts *syncCounts, opts importer.ImportOptions) {
 	if push == nil {
 		return

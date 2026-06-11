@@ -22,7 +22,6 @@ import (
 	"github.com/c3-oss/prosa/pkg/importer"
 )
 
-// Package-level flag holders for runSync.
 var (
 	legacyBundleFlag  string
 	syncVerboseFlag   bool
@@ -87,11 +86,8 @@ func runSync(cmd *cobra.Command, _ []string) error {
 	}
 	defer func() { _ = s.Close() }()
 
-	// Resolve this device's identity once and write it through the store
-	// so every sessions.device_id we insert below references a real row.
-	// Also migrate any session rows that were inserted under the seed
-	// `'local'` device id (the v1 bundle restore path) to the real
-	// fingerprint — those sessions necessarily came from this machine.
+	// Migrate any rows inserted under the seed `'local'` device id (v1 bundle
+	// restore path) to the real fingerprint — those sessions came from this machine.
 	dev := store.Device{
 		ID:              device.IDOnce(),
 		Hostname:        device.Hostname(),
@@ -109,12 +105,6 @@ func runSync(cmd *cobra.Command, _ []string) error {
 			"device_id", dev.ID, "rows", n)
 	}
 
-	// One-shot project identity backfill: for every distinct cwd that
-	// still has NULL project_remote/marker, ask projectid.Resolve to
-	// derive the canonical identity. Cwds that no longer exist on this
-	// machine (legacy bundle rows) silently skip; the rest get
-	// retro-tagged so the timeline auto-filter and `prosa analytics
-	// projects` find them.
 	if err := backfillProjectIdentity(ctx, s); err != nil {
 		slog.Warn("project identity backfill failed", "err", err)
 	}
@@ -185,8 +175,6 @@ func runSync(cmd *cobra.Command, _ []string) error {
 	}
 
 	opts := importer.ImportOptions{Overwrite: syncOverwriteFlag}
-	// --json forces machine-readable NDJSON on stdout, so it can never use
-	// the interactive spinner.
 	interactive := !g.JSON && !syncVerboseFlag && IsInteractive()
 	switch {
 	case g.JSON:
@@ -201,14 +189,9 @@ func runSync(cmd *cobra.Command, _ []string) error {
 		if err := runSyncPlain(ctx, work, s, push, counts, opts); err != nil {
 			return err
 		}
-		// Post-import reconcile for plain/script mode only.
 		runSyncReconcile(ctx, push, dev.ID, counts, opts)
 	}
 
-	// One-shot denoise: rewrites first_prompt for any session whose
-	// stored value is agent-injected boilerplate (AGENTS.md preamble,
-	// <command-name>, system-reminder, …). Idempotent — runs against
-	// only the affected rows and reports a count of 0 on convergence.
 	counts.denoiseCleaned = runDenoisePass(ctx, s)
 
 	switch {
@@ -253,9 +236,8 @@ func prepareLegacyWork(ctx context.Context, bundle *legacy.Bundle, files []legac
 	return work, nil
 }
 
-// backfillProjectIdentity iterates every distinct project_path lacking
-// identity columns, asks projectid.Resolve, and writes back remote /
-// marker via store.FillProjectIdentity. Each path is touched once.
+// backfillProjectIdentity fills project_remote / project_marker for rows
+// that still have NULL identity columns. Each path is touched once.
 func backfillProjectIdentity(ctx context.Context, s *store.Store) error {
 	paths, err := s.DistinctProjectPathsNeedingIdentity(ctx)
 	if err != nil {

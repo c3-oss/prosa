@@ -78,6 +78,10 @@ goes through `just` (the project's task runner). There is no Makefile.
 - **Error wrapping** with `fmt.Errorf("...: %w", err)`. No `pkg/errors`-style
   ladders.
 - **Logging** is `log/slog` with the default text handler in CLI commands.
+- **Comments** are sparse, local, and surgical. Add one only to document a
+  behaviour that is not immediately obvious from the code; let the code speak
+  for itself. Docstrings are allowed but stay short and avoid narrating
+  internals. Rationale and decisions go in Markdown docs, not in code.
 - **Filesystem paths** via `internal/paths` — never hardcode `~/...` or XDG
   layouts in other packages.
 - **Tests** use stdlib `testing` plus `github.com/stretchr/testify/require`.

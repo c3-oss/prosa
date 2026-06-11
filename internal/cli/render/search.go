@@ -74,11 +74,6 @@ func SearchHitsWithOptions(w io.Writer, hits []store.SearchHit, now time.Time, o
 		}
 
 		if opts.Interactive {
-			// Header: `│ <short-id>  project · agent · device · time`.
-			// ID moves into the header line and the body uses plain
-			// indent + label (no ├/└ branches) for visual quietness.
-			// Project / device segments are dropped when the caller
-			// signals scope makes them redundant.
 			idShort := shortenID(h.Session.ID)
 			segs := []string{}
 			if !opts.HideProject {
@@ -138,9 +133,7 @@ func SearchHitsWithOptions(w io.Writer, hits []store.SearchHit, now time.Time, o
 }
 
 func highlightSnippet(s string) string {
-	// Replace each «...» occurrence with the styled rendering. Walk the
-	// string manually so we don't rely on regex (no regex import for
-	// such a tight loop).
+	// Manual scan — avoids a regex import for such a tight loop.
 	var b strings.Builder
 	rest := s
 	for {

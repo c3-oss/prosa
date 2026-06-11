@@ -314,7 +314,6 @@ func validateRawIntegrity(sess *prosav1.Session, gotSize int64, gotHash string) 
 }
 
 func (h *SessionsHandler) commitPush(ctx context.Context, deviceID string, sess *prosav1.Session, turns []*prosav1.Turn, tools []*prosav1.ToolUsage, raw io.Reader, rawSize int64) (*connect.Response[prosav1.PushResponse], error) {
-	// Upload raw to S3.
 	started := sess.StartedAt.AsTime().UTC()
 	key := rawKey(deviceID, sess.Agent, sess.Id, started)
 
@@ -353,7 +352,6 @@ func (h *SessionsHandler) commitPush(ctx context.Context, deviceID string, sess 
 		}
 	}()
 
-	// Mirror metadata + turns + tools in one tx.
 	tx, err := h.Pool.Begin(ctx)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -424,20 +422,12 @@ func validatePushedAgent(agent string) error {
 	}
 }
 
-// List returns sessions filtered by since/until + optional project /
-// agent / device dimensions. Device callers are auto-scoped to their
-// own device_id (cannot see other devices' rows); owner callers
-// (panel) get a cross-device list and may further narrow via
-// device_name. When req.Query is non-empty, results are restricted to
-// sessions whose turns match the FTS query, ordered by ts_rank desc
-// (sort_by is ignored). Offset/limit drive page-N navigation, and
-// ListResponse.TotalCount reports the number of rows that match the
-// rawKey computes the canonical S3 key. Mirrors paths.RawRoot semantics:
+// rawKey computes the canonical S3 key for a session's raw transcript.
 //
 //	<device-id>/<agent>/<YYYY>/<MM>/<id>.<ext>
 //
-// The extension is derived from the agent name, since the wire shape
-// doesn't carry it explicitly. Falls back to .bin for unknown agents.
+// The extension is derived from the agent name; falls back to .bin for
+// unknown agents.
 func rawKey(deviceID, agent, sessionID string, started time.Time) string {
 	if started.IsZero() {
 		started = time.Now().UTC()
@@ -460,7 +450,6 @@ func extForAgent(agent string) string {
 	return ".bin"
 }
 
-// upsertSession writes the session row, replacing every field on conflict.
 func upsertSession(ctx context.Context, tx pgx.Tx, s *prosav1.Session) error {
 	_, err := tx.Exec(
 		ctx, `

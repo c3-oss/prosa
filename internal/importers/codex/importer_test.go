@@ -224,7 +224,6 @@ func TestImportEnvelopeSession(t *testing.T) {
 	require.Equal(t, "user", turns[0].Role)
 	require.Equal(t, "assistant", turns[1].Role)
 
-	// One tool name with two invocations.
 	tools := sink.Tools[fixtureSessionID]
 	require.Len(t, tools, 1)
 	require.Equal(t, "shell", tools[0].Name)
@@ -269,10 +268,9 @@ func TestImportLegacySession(t *testing.T) {
 	require.Equal(t, "legacy_tool", tools[0].Name)
 }
 
-// TestImportSetsParentSessionIDFromThreadSpawn confirms the importer
-// captures Codex's `session_meta.payload.source.subagent.thread_spawn.parent_thread_id`
-// into the canonical session's ParentSessionID. Sessions without the
-// payload stay parent-less so existing fixtures keep round-tripping.
+// TestImportSetsParentSessionIDFromThreadSpawn confirms that
+// session_meta.source.subagent.thread_spawn.parent_thread_id populates
+// ParentSessionID, and that sessions without the payload remain parent-less.
 func TestImportSetsParentSessionIDFromThreadSpawn(t *testing.T) {
 	ctx := context.Background()
 	t.Setenv("PROSA_HOME", filepath.Join(t.TempDir(), "prosa-home"))
@@ -559,7 +557,6 @@ func TestWalkAcceptsRolloutPatternOnly(t *testing.T) {
 	valid := filepath.Join(day, codexFixtureFilename(base, fixtureSessionID))
 	require.NoError(t, os.WriteFile(valid, []byte("{}\n"), 0o644))
 
-	// Anything not matching the rollout-* pattern is skipped.
 	require.NoError(t, os.WriteFile(filepath.Join(day, "random.jsonl"), []byte("{}"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(day, "rollout-bad-name.jsonl"), []byte("{}"), 0o644))
 

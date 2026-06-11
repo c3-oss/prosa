@@ -52,7 +52,6 @@ func TestLookupKnownModelsFromRealStore(t *testing.T) {
 		model string
 		want  Rates
 	}{
-		// Anthropic, both dash and dot forms.
 		{"claude-opus-4-7", Rates{Input: 5.0e-6, Output: 2.5e-5, CacheRead: 5.0e-7, CacheCreation: 6.25e-6}},
 		{"claude-opus-4-6", Rates{Input: 5.0e-6, Output: 2.5e-5, CacheRead: 5.0e-7, CacheCreation: 6.25e-6}},
 		{"claude-opus-4-5-20251101", Rates{Input: 5.0e-6, Output: 2.5e-5, CacheRead: 5.0e-7, CacheCreation: 6.25e-6}},
@@ -80,7 +79,6 @@ func TestLookupKnownModelsFromRealStore(t *testing.T) {
 		{"gpt-5.5", Rates{Input: 5.0e-6, Output: 3.0e-5, CacheRead: 5.0e-7}},
 		{"gpt-codex-5.3", Rates{Input: 1.75e-6, Output: 1.4e-5, CacheRead: 1.75e-7}},
 
-		// Gemini 2.5 / 3 / 3.5.
 		{"gemini-2.5-pro", Rates{Input: 1.25e-6, Output: 1.0e-5, CacheRead: 1.25e-7}},
 		{"gemini-2.5-flash", Rates{Input: 3.0e-7, Output: 2.5e-6, CacheRead: 3.0e-8}},
 		{"gemini-2.5-flash-lite", Rates{Input: 1.0e-7, Output: 4.0e-7, CacheRead: 1.0e-8}},
@@ -114,11 +112,8 @@ func TestLookupOpus47DoesNotInheritOpus4Rate(t *testing.T) {
 	require.Equal(t, 2.5e-5, got.Output, "opus-4-7 must use the cheaper 4.5+ output rate, not opus-4's $75/M")
 }
 
-// TestLookupDeterministic exercises the prefix-match fallback to make
-// sure repeated lookups for an unmatched variant always pick the same
-// row (Go's map iteration would otherwise be randomised). The exact
-// rate doesn't matter — what we care about is that every call lands on
-// the same key.
+// TestLookupDeterministic guards against Go's randomised map iteration:
+// repeated lookups for an unmatched variant must always pick the same row.
 func TestLookupDeterministic(t *testing.T) {
 	first, ok := Lookup("claude-opus-4-99-rc")
 	require.True(t, ok, "fallback prefix match should have landed on claude-opus-4")

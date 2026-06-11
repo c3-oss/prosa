@@ -73,8 +73,7 @@ var ansiOther = regexp.MustCompile(`\x1b[@-_]`)
 
 // sanitizeControl strips ANSI escape sequences (CSI + Fe singles) and
 // other control characters from s. Whitespace (\t \n \r) and printable
-// runes are preserved. Use for any text that may have leaked from a
-// terminal or process that wrote escape codes.
+// runes are preserved.
 func sanitizeControl(s string) string {
 	if s == "" {
 		return s
@@ -94,16 +93,13 @@ func sanitizeControl(s string) string {
 	}, s)
 }
 
-// SanitizeForDisplay removes ANSI escape sequences and control
-// characters from s. Renderers in the panel/CLI use this to keep
-// terminal-leaked content from showing as invisible glyphs.
+// SanitizeForDisplay removes ANSI escape sequences and control characters from s.
 func SanitizeForDisplay(s string) string {
 	return sanitizeControl(s)
 }
 
 // IsBoilerplatePrompt reports whether s, after best-effort cleaning,
-// still classifies as one of the known meta prefixes. Use this to decide
-// whether to render a (meta) placeholder.
+// still classifies as one of the known meta prefixes.
 func IsBoilerplatePrompt(s string) bool {
 	return hasBoilerplatePrefix(CleanPrompt(s))
 }
@@ -153,10 +149,8 @@ func CleanPrompt(s string) string {
 	return cur
 }
 
-// FirstNonBoilerplate returns the first candidate whose cleaned form
-// passes IsBoilerplatePrompt. Useful for importers that want to skip
-// system/developer messages and meta wrappers without inventing custom
-// loops at every call site. Returns "" when all candidates are meta.
+// FirstNonBoilerplate returns the first candidate whose cleaned form is
+// not boilerplate. Returns "" when all candidates are meta.
 func FirstNonBoilerplate(candidates []string) string {
 	for _, c := range candidates {
 		cleaned := strings.TrimSpace(CleanPrompt(c))

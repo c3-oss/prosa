@@ -1,13 +1,6 @@
 // Package spinner provides a Bubble Tea progress display for `prosa sync`.
-// The view is compact and fixed-height regardless of how many sessions the
-// run touches:
-//
-//   - One header line (command + banner).
-//   - One found-summary line when available.
-//   - Two checklist rows (local import + optional remote catch-up).
-//   - One "current" line for the active phase.
-//   - Up to 5 persistent error blocks (rolling, preserving agent variety).
-//
+// The view is compact and fixed-height: one header, one found-summary, two
+// phase rows, one current line, and up to 5 rolling error blocks.
 // View() runs in O(K) where K = visible error slots — independent of N.
 //
 // Callers outside an interactive TTY must NOT call Run — sync.go gates on
@@ -49,7 +42,6 @@ type Item struct {
 type Update struct {
 	Phase Phase
 
-	// Phase lifecycle.
 	Begin       bool
 	Total       int
 	Verb        string
@@ -58,7 +50,6 @@ type Update struct {
 	Extra       string
 	Unavailable bool
 
-	// Per-item progress (local import index or remote step completion).
 	Index   int
 	Started bool
 	Skipped bool
@@ -115,13 +106,11 @@ type model struct {
 	spin        spinner.Model
 	ch          <-chan Update
 	opts        Options
-	// width is the current terminal width from the latest WindowSizeMsg.
-	// 0 until the first resize event; renderers fall back to defaultWidth.
+	// width is 0 until the first WindowSizeMsg; renderers fall back to defaultWidth.
 	width int
 }
 
-// defaultWidth is the assumed terminal width before the first
-// WindowSizeMsg (and a floor so error lines stay readable on tiny TTYs).
+// defaultWidth is the assumed terminal width before the first WindowSizeMsg.
 const defaultWidth = 80
 
 // errMsgIndent is the left padding (in columns) of the error-detail line in
@@ -362,10 +351,8 @@ func (m model) View() string {
 	return b.String()
 }
 
-// errMsgBudget is the column width available for an error-detail line,
-// derived from the current terminal width (or defaultWidth before the
-// first resize) minus the line's left indent. Floored so a narrow TTY
-// still shows a couple of characters plus the ellipsis.
+// errMsgBudget returns columns available for an error-detail line (terminal
+// width minus indent), floored at 8 so tiny TTYs still show something.
 func (m model) errMsgBudget() int {
 	w := m.width
 	if w <= 0 {
@@ -378,9 +365,8 @@ func (m model) errMsgBudget() int {
 	return budget
 }
 
-// truncateWidth clips s to at most n display columns, appending "…" when it
-// has to cut. Width-aware so wide runes are accounted for. Mirrors
-// render.truncateWidth; kept local to avoid widening that package's API.
+// truncateWidth clips s to at most n display columns, appending "…" when cut.
+// Kept local rather than re-exporting render.truncateWidth.
 func truncateWidth(s string, n int) string {
 	if n <= 0 {
 		return ""
@@ -501,9 +487,7 @@ func humanDur(d time.Duration) string {
 	return fmt.Sprintf("%dh%02dm", h, m)
 }
 
-// shortPath truncates a long path from the LEFT (keeps the tail, which is
-// where the session id sits) and prefixes "…" so it's clear that prefix
-// was dropped.
+// shortPath truncates from the left so the session-id tail is preserved.
 func shortPath(p string) string {
 	if len(p) <= pathMax {
 		return p
@@ -516,9 +500,8 @@ func shortPath(p string) string {
 	return "…" + tail
 }
 
-// Run blocks until every phase has finished or the updates channel is closed.
-// It does not use the alternate screen, so the user can still see the final
-// progress frame above the caller's summary.
+// Run blocks until all phases finish or the updates channel is closed.
+// Does not use the alternate screen so the final frame remains visible after exit.
 func Run(ctx context.Context, items []Item, updates <-chan Update, opts Options) error {
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot

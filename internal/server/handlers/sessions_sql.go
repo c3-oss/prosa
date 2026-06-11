@@ -18,7 +18,6 @@ func joinAnd(parts []string) string {
 	return out
 }
 
-// scanSessionRow scans the canonical session select columns into a
 func derefInt64(v *int64) int64 {
 	if v == nil {
 		return 0

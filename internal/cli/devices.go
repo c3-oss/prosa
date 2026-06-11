@@ -121,8 +121,6 @@ func loadDevicesClient() (devicesClient, error) {
 	return rpc.Devices(a.Server, a.Token), nil
 }
 
-// devicesClient is the subset of rpc.Devices output we use; aliasing
-// keeps the call sites tidy.
 type devicesClient interface {
 	List(ctx context.Context, req *connect.Request[prosav1.DevicesServiceListRequest]) (*connect.Response[prosav1.DevicesServiceListResponse], error)
 	Rename(ctx context.Context, req *connect.Request[prosav1.RenameRequest]) (*connect.Response[prosav1.RenameResponse], error)

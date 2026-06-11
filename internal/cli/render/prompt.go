@@ -23,10 +23,8 @@ func CleanFirstPrompt(s string) (string, bool) {
 	return cleaned, true
 }
 
-// RenderFirstPrompt is the convenience wrapper used by timeline and
-// search: it classifies, falls back to MetaPlaceholder (muted style)
-// when boilerplate is detected, and otherwise returns the cleaned
-// text styled as normal foreground.
+// RenderFirstPrompt returns the styled first prompt, or MetaPlaceholder
+// (muted) when the content is boilerplate.
 func RenderFirstPrompt(s string) string {
 	clean, ok := CleanFirstPrompt(s)
 	if !ok {

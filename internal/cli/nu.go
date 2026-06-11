@@ -14,17 +14,7 @@ import (
 	"github.com/c3-oss/prosa/internal/store"
 )
 
-// runNu implements the bare `prosa` invocation: list sessions in the
-// configured window with filters applied. Default window is 7 days;
-// override with --last.
-//
-// Filter scope (--all and --project are mutually exclusive, rejected at
-// parse time by validateGlobals):
-//   - --project foo   → substring match on project_path; auto-detect off.
-//   - --all           → auto-detect off; no project filter.
-//   - (neither)       → auto-detect from cwd (longest matching ancestor wins).
-//
-// --agent / --device are independent and apply regardless.
+// runNu implements the bare `prosa` invocation: list sessions in the window.
 func runNu(cmd *cobra.Command, _ []string) error {
 	ctx := cmd.Context()
 	if ctx == nil {
@@ -95,8 +85,6 @@ func runNu(cmd *cobra.Command, _ []string) error {
 	}
 
 	if len(sessions) == 0 {
-		// Empty state goes to stderr — stdout stays clean so
-		// `prosa | wc -l` returns 0 and `prosa | jq` doesn't choke.
 		if interactive {
 			if projectScope.Label != "" {
 				fmt.Fprintf(os.Stderr, "no sessions found for %s\n", projectScope.Label)

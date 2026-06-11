@@ -95,12 +95,7 @@ func readMeta(path string) (cursorMeta, error) {
 }
 
 // parseSession reads meta + all blobs and projects them into the canonical
-// session.Session / Turn / ToolUsage structs. Cursor's JSON message
-// blobs do not carry per-message timestamps (every community parser
-// agrees on that), but the protobuf state-node blobs that walk the
-// message DAG _do_ embed millisecond Unix timestamps as varints — the
-// importer scans them to advance LastActivityAt past StartedAt for
-// long sessions.
+// session.Session / Turn / ToolUsage structs.
 //
 // Workspace path is resolved in three tiers, highest confidence first:
 //
@@ -319,17 +314,9 @@ var systemWrapperTags = []string{
 	"<attached_files>",
 }
 
-// extractUserPromptText pulls the human-authored prompt out of a
-// cursor user blob. Cursor 3.x wraps the actual user text in
-// `<user_query>...</user_query>` and prepends scaffolding like
-// `<user_info>`, `<system_reminder>`, `<attached_files>`, and
-// `<timestamp>`. Behavior:
-//
-//   - If `<user_query>` is present, returns its inner text + true.
-//   - If the blob starts with any known system wrapper tag, returns
-//     ("", false) so the caller can skip it entirely.
-//   - Otherwise (legacy cursor format, fixtures without the wrappers)
-//     returns the full content + true.
+// extractUserPromptText pulls the human-authored prompt out of a cursor user
+// blob, stripping Cursor 3.x scaffolding wrappers. Returns ("", false) when
+// the blob is system-injected scaffolding the caller should skip entirely.
 func extractUserPromptText(content string) (string, bool) {
 	if open := strings.Index(content, userQueryTagOpen); open >= 0 {
 		rest := content[open+len(userQueryTagOpen):]

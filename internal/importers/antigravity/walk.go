@@ -8,11 +8,10 @@ import (
 	"strings"
 )
 
-// Walk yields every Antigravity conversation .db under root. Files of
-// zero length are skipped — antigravity creates the file lazily on the
-// first step, so an empty entry means the user opened agy but never
-// produced a step. A missing root returns an empty slice with no error
-// (same posture as the other importers).
+// Walk yields every Antigravity conversation .db under root. Zero-length
+// files are skipped — antigravity creates the file lazily on the first
+// step, so an empty entry means the user opened agy but never produced a
+// step. A missing root returns an empty slice with no error.
 func (i *Importer) Walk(ctx context.Context, root string) ([]string, error) {
 	var out []string
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {

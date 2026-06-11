@@ -134,9 +134,6 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	})
 }
 
-// countDistinctDevices / countDistinctProjects collapse a hit list
-// into the number of distinct device_ids / project labels so the
-// renderer can drop the column when cardinality is 1.
 func countDistinctDevices(hits []store.SearchHit) int {
 	seen := map[string]struct{}{}
 	for _, h := range hits {
@@ -183,11 +180,6 @@ func effectiveSearchLimit(cmd *cobra.Command) (int, error) {
 	return limit, nil
 }
 
-// runSearchRemote talks to Sessions.Search and projects the response
-// into the same store.SearchHit shape the renderer expects. The remote
-// path honors --agent / --device and the auto-detected --project, but
-// translates them to project_remote / project_marker filters since the
-// server doesn't have project_path substring semantics today.
 func runSearchRemote(ctx context.Context, query string, w Window, limit int) error {
 	auth, err := rpc.LoadAuth()
 	if err != nil {
@@ -210,9 +202,6 @@ func runSearchRemote(ctx context.Context, query string, w Window, limit int) err
 	if g.Device != "" {
 		req.DeviceName = g.Device
 	}
-	// Project identity: prefer git remote / marker; the substring
-	// --project flag stays local-only because the server doesn't
-	// expose ILIKE search to clients.
 	projectScope := ResolveProjectScopeFromLocalStore(ctx, g)
 	projectScope.ApplySearchRequest(req)
 	if interactive && !g.JSON {
@@ -247,9 +236,7 @@ func runSearchRemote(ctx context.Context, query string, w Window, limit int) err
 		fmt.Fprintf(os.Stderr, "no matches for %q (remote)\n", query)
 		return nil
 	}
-	// Remote search: open the local store JUST to fetch device labels,
-	// so the hit rows render with friendly_names rather than the raw
-	// fingerprints embedded in the wire response.
+	// Open local store only to fetch friendly device labels for rendering.
 	var deviceLabels map[string]string
 	if storePath, perr := paths.StorePath(); perr == nil {
 		if s, oerr := store.OpenReadOnly(ctx, storePath); oerr == nil {
@@ -268,8 +255,6 @@ func runSearchRemote(ctx context.Context, query string, w Window, limit int) err
 	})
 }
 
-// remoteHitsToLocal converts the proto wire shape into the local
-// SearchHit struct the renderer was written against.
 func remoteHitsToLocal(in []*prosav1.SearchHit) []store.SearchHit {
 	out := make([]store.SearchHit, 0, len(in))
 	for _, h := range in {

@@ -30,15 +30,11 @@ type pusher struct {
 	server            string
 	remoteUnavailable bool
 
-	// logger receives the catch-up phase's structured output. The
-	// interactive TTY path sets this to a discard logger so reconcile
-	// lines don't clobber Bubble Tea repaints, instead of mutating the
-	// process-global slog default. nil falls back to slog.Default().
+	// logger is scoped per pusher so the TTY path can silence reconcile
+	// chatter without touching the process-global slog default. nil → slog.Default().
 	logger *slog.Logger
 }
 
-// log returns the pusher's logger, defaulting to the package default when
-// unset (the plain path and tests that build a pusher directly).
 func (p *pusher) log() *slog.Logger {
 	if p.logger != nil {
 		return p.logger
@@ -46,9 +42,7 @@ func (p *pusher) log() *slog.Logger {
 	return slog.Default()
 }
 
-// loadPusher reads paths.AuthPath() and returns a Sessions
-// client + the local store ref. Returns (nil, nil) when no auth file
-// exists (the common case for first-run / server-less sync).
+// loadPusher returns (nil, nil) when no auth file exists (server-less sync).
 func loadPusher(s *store.Store) (*pusher, error) {
 	a, err := rpc.LoadAuth()
 	if err != nil {
@@ -84,19 +78,15 @@ const (
 	chunkPushChunkBytes           = 8 * 1024 * 1024
 )
 
-// shouldInlinePush reports whether a freshly imported session should be
-// pushed inline during the local pass. Synthetic results (multi-session
-// importer markers, e.g. hermes state.db) are excluded — they have no
-// single store row to load, and their real sessions are pushed by the
-// catch-up reconcile phase.
+// shouldInlinePush reports whether the session should be pushed immediately
+// after import. Synthetic markers (e.g. hermes state.db) are excluded; their
+// real sessions surface in the catch-up reconcile phase.
 func shouldInlinePush(push *pusher, res importer.ImportResult, importErr error) bool {
 	return push != nil && importErr == nil && !res.Skipped && !res.Synthetic
 }
 
-// pushSession loads sess + turns + tools from the store and POSTs to
-// Sessions.Push. Reads raw_path from disk (the importer already
-// preserved it). Returns the outcome and the error that drove it (nil
-// when the call succeeded, even if the server skipped).
+// pushSession loads the session from the store and POSTs to Sessions.Push.
+// Returns the outcome and the error that drove it (nil on success, even if server skipped).
 func (p *pusher) pushSession(ctx context.Context, sessionID string) (pushOutcome, error) {
 	if p == nil {
 		return pushSkippedNoAuth, nil
@@ -108,10 +98,6 @@ func (p *pusher) pushSession(ctx context.Context, sessionID string) (pushOutcome
 	if err != nil {
 		return pushFailed, fmt.Errorf("load session: %w", err)
 	}
-	// No-usage gating happens at the importer (UsageStateExplicitZero
-	// → recorded as a no_usage skip and never inserted into the store).
-	// Anything that lives in the store is admissible to push, including
-	// cursor and pre-token_count codex sessions that carry no Usage row.
 	turns, err := p.store.GetTurns(ctx, sessionID)
 	if err != nil {
 		return pushFailed, fmt.Errorf("load turns: %w", err)
@@ -367,7 +353,6 @@ func wireText(s string) string {
 	return strings.ReplaceAll(s, "\x00", " ")
 }
 
-// logPush is a thin slog wrapper used by the plain path.
 func logPush(sessionID string, outcome pushOutcome, err error) {
 	switch outcome {
 	case pushImported:

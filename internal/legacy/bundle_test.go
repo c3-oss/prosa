@@ -72,12 +72,10 @@ func buildFixtureBundle(t *testing.T) (string, map[string]string) {
 		_, err := db.Exec(`INSERT INTO source_files VALUES (?, ?, ?, ?, ?)`,
 			"sf-"+r.oid, r.tool, r.path, "blake3:"+r.oid, len(r.body))
 		require.NoError(t, err)
-		// Drop the .zst under raw/sources/.
 		compressed := compressBytes(t, r.body)
 		require.NoError(t, os.WriteFile(filepath.Join(root, "raw", "sources", r.oid+".zst"), compressed, 0o644))
 	}
 
-	// Expected oid → original body, for decompress round-trip.
 	expect := map[string]string{
 		"aaaa1111bbbb2222cccc3333dddd4444eeee5555ffff6666aaaa7777bbbb8888": string(rows[0].body),
 		"bbbb1111cccc2222dddd3333eeee4444ffff5555aaaa6666bbbb7777cccc8888": string(rows[1].body),

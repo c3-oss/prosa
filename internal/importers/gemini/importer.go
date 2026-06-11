@@ -28,7 +28,7 @@ const Name = "gemini"
 // Importer satisfies importer.Importer for Gemini.
 type Importer struct{}
 
-// New returns a zero-state importer; the type has no configuration.
+// New returns an Importer; the type carries no configuration.
 func New() *Importer { return &Importer{} }
 
 func (i *Importer) Name() string { return Name }
@@ -41,9 +41,6 @@ func (i *Importer) DefaultRoots() []string {
 	return []string{filepath.Join(home, ".gemini", "tmp")}
 }
 
-// Import is the per-file entry point. Same flow as claudecode/codex —
-// hash, peek id, idempotency (bypassed when opts.Overwrite is set),
-// parse, classify usage, preserve raw, sink writes.
 func (i *Importer) Import(ctx context.Context, jsonPath string, sink importer.Sink, opts importer.ImportOptions) (importer.ImportResult, error) {
 	return importerutil.RunSingleFile(ctx, importerutil.SingleFileConfig{
 		Agent:  Name,

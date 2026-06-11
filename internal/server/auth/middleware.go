@@ -33,12 +33,10 @@ func IsOwner(ctx context.Context) bool {
 	return v
 }
 
-// withDevice attaches deviceID to the context.
 func withDevice(ctx context.Context, deviceID string) context.Context {
 	return context.WithValue(ctx, ctxKey{}, deviceID)
 }
 
-// withOwner stamps the owner-caller flag on the context.
 func withOwner(ctx context.Context) context.Context {
 	return context.WithValue(ctx, ownerKey{}, true)
 }
