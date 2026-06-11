@@ -33,6 +33,7 @@ var ratesByModel = map[string]Rates{
 	"claude-sonnet-4-5": {Input: 3.0e-6, Output: 1.5e-5, CacheRead: 3.0e-7, CacheCreation: 3.75e-6},
 	"claude-sonnet-4-6": {Input: 3.0e-6, Output: 1.5e-5, CacheRead: 3.0e-7, CacheCreation: 3.75e-6},
 	"claude-haiku-4-5":  {Input: 1.0e-6, Output: 5.0e-6, CacheRead: 1.0e-7, CacheCreation: 1.25e-6},
+	"claude-fable-5":    {Input: 1.0e-5, Output: 5.0e-5, CacheRead: 1.0e-6, CacheCreation: 1.25e-5},
 
 	// OpenAI — GPT-5 generation.
 	"gpt-5":               {Input: 1.25e-6, Output: 1.0e-5, CacheRead: 1.25e-7},
@@ -66,6 +67,9 @@ var ratesByModel = map[string]Rates{
 	"gemini-3-pro-preview":   {Input: 2.0e-6, Output: 1.2e-5, CacheRead: 2.0e-7},
 	"gemini-3-flash-preview": {Input: 5.0e-7, Output: 3.0e-6, CacheRead: 5.0e-8},
 	"gemini-3.5-flash":       {Input: 1.5e-6, Output: 9.0e-6, CacheRead: 1.5e-7},
+
+	// Cursor — Composer generation. Fast (default) pricing; no cache tier.
+	"composer-2.5": {Input: 3.0e-6, Output: 1.5e-5},
 }
 
 // modelAliases maps dot-form or reordered model ids to their canonical key in ratesByModel.
