@@ -120,8 +120,12 @@ informally. Prosa lets you have a conversation with your own work history.
 - Push-only sync, idempotent by sha256.
 - Scheduled sync (LaunchAgent / systemd timer) plus ad-hoc `prosa sync`.
 - Chronological timeline as the default CLI output (`prosa` with no args).
-- Structured filters (`--last`, `--project`, `--device`, `--agent`) and FTS5
-  search.
+- Structured filters (`--last`, `--project`, `--device`, `--agent`,
+  `--profile`) and FTS5 search.
+- Per-agent **profiles**: one agent can be imported from more than one
+  location on a device (e.g. several `CODEX_HOME` dirs for different
+  accounts). Every agent has a `default` profile; extra ones are configured
+  with `prosa profiles` and each session records which profile it came from.
 - Auto project scoping from the current working directory when inside a known
   project; `--all` overrides.
 - Drill-down: `prosa show <session-id>` prints the preserved raw.

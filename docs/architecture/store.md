@@ -93,6 +93,7 @@ applied.
 | `0003_manifest_index` | composite `(device_id, id)` index on `sessions` for reconcile |
 | `0004_usage_projection` | `session_usage` table + `sync_state.projection_version` |
 | `0005_turns_evidence` | `turns.kind` (default `'message'`), `turns.tool_name`, indexes on both |
+| `0009_session_profile` | `sessions.profile` (default `'default'`) + `(device_id, agent, profile)` index |
 
 Each migration has an up and down `.sql` file. The store applies up only;
 down is for manual recovery.
@@ -129,6 +130,8 @@ fingerprint on first successful `prosa sync` via `RebindLocalSessions`.
 | `raw_path` | TEXT | Absolute path to preserved JSONL |
 | `raw_hash` | TEXT | sha256 of source bytes |
 | `raw_size` | INTEGER | Bytes |
+| `parent_session_id` | TEXT NULL | Parent on subagent/spawned sessions (`0008`) |
+| `profile` | TEXT NOT NULL DEFAULT `'default'` | Per-agent, per-device profile the session was imported from (`0009`) |
 
 Indexes:
 
@@ -139,6 +142,7 @@ Indexes:
 - `idx_sessions_project_marker`.
 - `idx_sessions_agent`.
 - `idx_sessions_device_id`.
+- `idx_sessions_profile` on `(device_id, agent, profile)`.
 
 ### `session_tools`
 
