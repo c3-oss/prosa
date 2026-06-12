@@ -341,7 +341,7 @@ Sessions
   |  / search prompts and tool output                     |
   +-------------------------------------------------------+
 
-  [ 30d ▾ ]   [ all agents ▾ ]   [ all projects ▾ ]   [ all devices ▾ ]   [ columns ▾ ]
+  [ 30d ▾ ]   [ all agents ▾ ]   [ all projects ▾ ]   [ all devices ▾ ]   [ all profiles ▾ ]   [ columns ▾ ]
 
   +--------+--------+----------------+--------+--------+--------+
   | AGENT  | PROJECT| FIRST PROMPT   | TOKENS▾| COST   | DEVICE |
@@ -358,7 +358,7 @@ Sessions
 A prominent full-width `<input name="q" type="search">` sits above the
 table inside a GET form pointing at `/sessions`. Submission preserves
 every other filter via hidden inputs so search composes with the
-window, agent, project, device, sort, columns, and page state.
+window, agent, project, device, profile, sort, columns, and page state.
 
 The `/` global shortcut focuses this input (the topbar search is gone).
 
@@ -368,7 +368,7 @@ the proto's `query` field joins on `turns.content_tsv` and ranks by
 
 ### Filters
 
-Four controls under the search input. Same pattern as Home, with the
+Five controls under the search input. Same pattern as Home, with the
 window as single-select and the others as
 [multi-select dropdowns](components.md#multi-select-dropdown).
 
@@ -376,6 +376,7 @@ window as single-select and the others as
 - **Agent** (multi): hardcoded slice of known agents.
 - **Project** (multi): distinct project labels.
 - **Device** (multi): friendly names.
+- **Profile** (multi): distinct profile names from the profiles report.
 
 ### Column chooser
 
@@ -515,7 +516,7 @@ table.
 
 ### States
 
-- **No profiles in window**: "No profiles in this window."; KPIs show
+- **No profiles in window**: "no profiles in this window."; KPIs show
   `—` / `0`.
 - Installs with only `default` profiles render honestly: one profile
   per agent, `0%` outside default.
@@ -675,7 +676,8 @@ open/close.
         |     4 min  brain     audit o..|
         |                               |
         |  Pages                        |
-        |    Home · Sessions · Projects |
+        |    Home · Insights · Sessions |
+        |    Projects · Profiles        |
         |    Devices · Settings         |
         |                               |
         +-------------------------------+
