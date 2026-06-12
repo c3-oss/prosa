@@ -5,6 +5,7 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -50,23 +51,28 @@ func (p *Panel) handleInsights(w http.ResponseWriter, r *http.Request) {
 	agents := pickMulti(q, "agent")
 	projects := pickMulti(q, "project")
 	devices := pickDeviceNames(q)
+	profilesSel := pickMulti(q, "profile")
 
 	sharedReq := func(report string) *prosav1.GetReportRequest {
-		return dashboardReportRequest(report, since, until, agents, projects, devices)
+		return dashboardReportRequest(report, since, until, agents, projects, devices, profilesSel)
 	}
 	trendReq := func(report string) *prosav1.GetReportRequest {
-		return dashboardReportRequest(report, trendSince, until, agents, projects, devices)
+		return dashboardReportRequest(report, trendSince, until, agents, projects, devices, profilesSel)
 	}
 
 	type fan struct {
-		usageByDay    *prosav1.GetReportResponse // spend & tokens trend + model share
-		punchcard     *prosav1.GetReportResponse // punch card + schedule profile
-		durations     *prosav1.GetReportResponse // duration histogram
-		durationStats *prosav1.GetReportResponse // duration percentiles
-		subagents     *prosav1.GetReportResponse // fan-out card
-		heatmapTrail  *prosav1.GetReportResponse // trailing 53 weeks — streaks
-		heatmapWindow *prosav1.GetReportResponse // filtered window — active days %
-		projects      *prosav1.GetReportResponse // project dropdown options
+		usageByDay      *prosav1.GetReportResponse // spend & tokens trend + model share
+		usageByHour     *prosav1.GetReportResponse // across-the-day card
+		punchcard       *prosav1.GetReportResponse // punch card + schedule profile
+		durations       *prosav1.GetReportResponse // duration histogram
+		durationStats   *prosav1.GetReportResponse // duration percentiles
+		subagents       *prosav1.GetReportResponse // per-parent-agent table
+		subagentUsage   *prosav1.GetReportResponse // delegated token share + trend
+		subagentParents *prosav1.GetReportResponse // delegation KPIs, fan-out, top delegators
+		heatmapTrail    *prosav1.GetReportResponse // trailing 53 weeks — streaks
+		heatmapWindow   *prosav1.GetReportResponse // filtered window — active days %
+		projects        *prosav1.GetReportResponse // project dropdown options
+		profiles        *prosav1.GetReportResponse // profile dropdown options
 	}
 	var out fan
 	g, gctx := errgroup.WithContext(r.Context())
@@ -76,13 +82,17 @@ func (p *Panel) handleInsights(w http.ResponseWriter, r *http.Request) {
 		dst  **prosav1.GetReportResponse
 	}{
 		{"usage_by_day", trendReq("usage_by_day"), &out.usageByDay},
+		{"usage_by_hour", sharedReq("usage_by_hour"), &out.usageByHour},
 		{"punchcard", sharedReq("punchcard"), &out.punchcard},
 		{"durations", sharedReq("durations"), &out.durations},
 		{"duration_stats", sharedReq("duration_stats"), &out.durationStats},
 		{"subagents", sharedReq("subagents"), &out.subagents},
-		{"heatmap", dashboardReportRequest("heatmap", heatmapSince, heatmapUntil, agents, projects, devices), &out.heatmapTrail},
+		{"subagent_usage_by_day", trendReq("subagent_usage_by_day"), &out.subagentUsage},
+		{"subagent_parents", sharedReq("subagent_parents"), &out.subagentParents},
+		{"heatmap", dashboardReportRequest("heatmap", heatmapSince, heatmapUntil, agents, projects, devices, profilesSel), &out.heatmapTrail},
 		{"heatmap_window", trendReq("heatmap"), &out.heatmapWindow},
 		{"projects", sharedReq("projects"), &out.projects},
+		{"profiles", sharedReq("profiles"), &out.profiles},
 	} {
 		g.Go(func() error {
 			resp, err := p.clients.Analytics.GetReport(gctx, connect.NewRequest(spec.req))
@@ -104,6 +114,7 @@ func (p *Panel) handleInsights(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("insights devices.list failed", "err", err)
 	}
 	projectNames := projectLabelsFromRows(out.projects.Rows)
+	profileNames := profileLabelsFromRows(out.profiles.Rows)
 
 	windowNote := ""
 	if trendClamped {
@@ -116,8 +127,13 @@ func (p *Panel) handleInsights(w http.ResponseWriter, r *http.Request) {
 	streaks := buildStreaks(out.heatmapTrail.Rows, out.heatmapWindow.Rows, now)
 	durations := buildDurations(out.durations.Rows, out.durationStats.Rows)
 	subagents := buildSubagents(out.subagents.Rows)
+	day := buildDayByModel(out.usageByHour.Rows)
+	delegation := buildDelegationKPIs(out.subagentUsage.Rows, out.subagentParents.Rows)
+	delegationTrend := buildDelegationTrend(out.subagentUsage.Rows)
+	fanout := buildFanoutHistogram(out.subagentParents.Rows)
+	topDelegators := buildTopDelegators(out.subagentParents.Rows, 8)
 
-	activeFilters := buildDashboardActiveFilters(r.URL.Query(), "/insights", lastRaw, agents, projects, devices)
+	activeFilters := buildDashboardActiveFilters(r.URL.Query(), "/insights", lastRaw, agents, projects, devices, profilesSel)
 	clearFiltersURL := ""
 	if len(activeFilters) > 0 {
 		clearFiltersURL = "/insights"
@@ -138,6 +154,8 @@ func (p *Panel) handleInsights(w http.ResponseWriter, r *http.Request) {
 		"ProjectsSelected": selectionSet(projects),
 		"Devices":          deviceNames,
 		"DevicesSelected":  selectionSet(devices),
+		"Profiles":         profileNames,
+		"ProfilesSelected": selectionSet(profilesSel),
 		"ActiveFilters":    activeFilters,
 		"ClearFiltersURL":  clearFiltersURL,
 
@@ -146,12 +164,17 @@ func (p *Panel) handleInsights(w http.ResponseWriter, r *http.Request) {
 		"Schedule": schedule,
 
 		// Cards.
-		"Spend":      spend,
-		"Share":      share,
-		"Punchcard":  punch,
-		"Durations":  durations,
-		"Subagents":  subagents,
-		"WindowNote": windowNote,
+		"Spend":           spend,
+		"Share":           share,
+		"Punchcard":       punch,
+		"Durations":       durations,
+		"Day":             day,
+		"Delegation":      delegation,
+		"DelegationTrend": delegationTrend,
+		"Fanout":          fanout,
+		"TopDelegators":   topDelegators,
+		"Subagents":       subagents,
+		"WindowNote":      windowNote,
 	}
 	p.render(w, "insights", data)
 }
@@ -759,4 +782,371 @@ func buildSubagents(rows []*prosav1.AnalyticsRow) subagentsView {
 	view.MaxFan = formatPanelInt(maxFan)
 	view.HasData = len(view.Rows) > 0
 	return view
+}
+
+// delegationKPIsView powers the Delegation KPI strip: how many sessions
+// spawned subagents, how many subagent sessions ran, how much of the token
+// volume (and estimated spend) went through them, and the widest fan-out.
+type delegationKPIsView struct {
+	Spawning      string
+	Children      string
+	DelegatedPct  string
+	SubagentSpend string
+	MaxFan        string
+	HasData       bool
+}
+
+// subagentUsageRow decodes one subagent_usage_by_day row. Shared by the
+// KPI strip and the trend builder, which need the same column layout.
+func subagentUsageRow(row *prosav1.AnalyticsRow) (kind, model string, usage session.TokenUsage, measured int64, ok bool) {
+	if len(row.Values) < 11 {
+		return "", "", session.TokenUsage{}, 0, false
+	}
+	usage = session.TokenUsage{
+		TotalTokens:         parsePanelInt(row.Values[5]),
+		InputTokens:         parsePanelInt(row.Values[6]),
+		OutputTokens:        parsePanelInt(row.Values[7]),
+		CachedTokens:        parsePanelInt(row.Values[8]),
+		CacheReadTokens:     parsePanelInt(row.Values[9]),
+		CacheCreationTokens: parsePanelInt(row.Values[10]),
+	}
+	return row.Values[1], row.Values[2], usage, parsePanelInt(row.Values[4]), true
+}
+
+// buildDelegationKPIs reduces subagent_usage_by_day (token attribution) and
+// subagent_parents (spawning sessions) into the Delegation KPI strip.
+func buildDelegationKPIs(usageRows, parentRows []*prosav1.AnalyticsRow) delegationKPIsView {
+	var subTokens, allTokens, subSessions int64
+	var spend float64
+	priced := false
+	for _, row := range usageRows {
+		kind, model, usage, measured, ok := subagentUsageRow(row)
+		if !ok {
+			continue
+		}
+		allTokens += usage.TotalTokens
+		if kind != "subagent" {
+			continue
+		}
+		subTokens += usage.TotalTokens
+		subSessions += parsePanelInt(row.Values[3])
+		if measured > 0 {
+			if c, ok := pricing.CostUSD(model, usage); ok {
+				spend += c
+				priced = true
+			}
+		}
+	}
+
+	var spawning, children, maxFan int64
+	for _, row := range parentRows {
+		if len(row.Values) < 5 {
+			continue
+		}
+		spawning++
+		c := parsePanelInt(row.Values[4])
+		children += c
+		maxFan = max(maxFan, c)
+	}
+
+	pct := "—"
+	if allTokens > 0 {
+		pct = fmt.Sprintf("%.0f%%", float64(subTokens)/float64(allTokens)*100)
+	}
+	return delegationKPIsView{
+		Spawning:      formatPanelInt(spawning),
+		Children:      formatPanelInt(children),
+		DelegatedPct:  pct,
+		SubagentSpend: costLabel(spend, priced),
+		MaxFan:        formatPanelInt(maxFan),
+		HasData:       spawning > 0 || subSessions > 0,
+	}
+}
+
+// delegationTrendView powers the Delegation trend chart: the weekly share of
+// tokens that ran inside subagent sessions.
+type delegationTrendView struct {
+	Chart      charts.Spec
+	StartLabel string
+	EndLabel   string
+	HasData    bool
+}
+
+// buildDelegationTrend folds subagent_usage_by_day rows into weekly buckets
+// (same ISO-week labels as the model share card) and charts the delegated
+// token share per week. Weeks with no measured tokens chart as zero.
+func buildDelegationTrend(rows []*prosav1.AnalyticsRow) delegationTrendView {
+	subByWeek := map[string]int64{}
+	allByWeek := map[string]int64{}
+	var subTotal int64
+	for _, row := range rows {
+		kind, _, usage, _, ok := subagentUsageRow(row)
+		if !ok {
+			continue
+		}
+		week := weekStartLabel(row.Values[0])
+		allByWeek[week] += usage.TotalTokens
+		if kind == "subagent" {
+			subByWeek[week] += usage.TotalTokens
+			subTotal += usage.TotalTokens
+		}
+	}
+	if len(allByWeek) == 0 || subTotal == 0 {
+		return delegationTrendView{}
+	}
+
+	weeks := make([]string, 0, len(allByWeek))
+	for w := range allByWeek {
+		weeks = append(weeks, w)
+	}
+	sort.Strings(weeks)
+	values := make([]float64, len(weeks))
+	for i, w := range weeks {
+		if allByWeek[w] > 0 {
+			values[i] = float64(subByWeek[w]) / float64(allByWeek[w]) * 100
+		}
+	}
+	return delegationTrendView{
+		Chart: charts.Spec{
+			Type:        "line",
+			Labels:      weeks,
+			Datasets:    []charts.Dataset{{Name: "delegated", Values: values}},
+			RegionFill:  true,
+			ValueSuffix: "%",
+			Height:      160,
+		},
+		StartLabel: weeks[0],
+		EndLabel:   weeks[len(weeks)-1],
+		HasData:    true,
+	}
+}
+
+// fanoutView powers the fan-out histogram: how many spawning sessions ran
+// 1, 2, … children.
+type fanoutView struct {
+	Bars    []barRow
+	HasData bool
+}
+
+// fanoutBuckets is the canonical bucket order for the fan-out histogram.
+var fanoutBuckets = []string{"1", "2", "3-4", "5-8", "9+"}
+
+// buildFanoutHistogram buckets subagent_parents rows by their child count,
+// keeping the canonical bucket order (the buildDurations pattern).
+func buildFanoutHistogram(parentRows []*prosav1.AnalyticsRow) fanoutView {
+	counts := map[string]int64{}
+	var max, total int64
+	for _, row := range parentRows {
+		if len(row.Values) < 5 {
+			continue
+		}
+		c := parsePanelInt(row.Values[4])
+		var bucket string
+		switch {
+		case c <= 0:
+			continue
+		case c == 1:
+			bucket = "1"
+		case c == 2:
+			bucket = "2"
+		case c <= 4:
+			bucket = "3-4"
+		case c <= 8:
+			bucket = "5-8"
+		default:
+			bucket = "9+"
+		}
+		counts[bucket]++
+		total++
+		if counts[bucket] > max {
+			max = counts[bucket]
+		}
+	}
+	bars := make([]barRow, 0, len(fanoutBuckets))
+	for _, bucket := range fanoutBuckets {
+		n := counts[bucket]
+		percent := 0
+		if max > 0 && n > 0 {
+			percent = int((n*100 + max - 1) / max)
+			if percent < 3 {
+				percent = 3
+			}
+		}
+		bars = append(bars, barRow{Label: bucket, Count: formatPanelInt(n), Percent: percent})
+	}
+	return fanoutView{Bars: bars, HasData: total > 0}
+}
+
+// delegatorRow is one entry of the top-delegating-sessions list: a
+// pre-rendered agent badge and project link, the start time, the child
+// count, and a deep link into the session's transcript.
+type delegatorRow struct {
+	Agent    template.HTML
+	Project  template.HTML
+	When     string
+	Children string
+	URL      string
+}
+
+// buildTopDelegators shapes the highest-fan-out subagent_parents rows (they
+// arrive ordered by children desc) into the top-delegators list.
+func buildTopDelegators(parentRows []*prosav1.AnalyticsRow, limit int) []delegatorRow {
+	rows := clampRows(parentRows, limit)
+	out := make([]delegatorRow, 0, len(rows))
+	for _, row := range rows {
+		if len(row.Values) < 5 {
+			continue
+		}
+		out = append(out, delegatorRow{
+			Agent:    agentBadge(row.Values[1]),
+			Project:  projectLink(projectDisplayFromLabel(row.Values[2])),
+			When:     row.Values[0],
+			Children: formatPanelInt(parsePanelInt(row.Values[4])),
+			URL:      "/sessions?session=" + url.QueryEscape(row.Values[3]),
+		})
+	}
+	return out
+}
+
+// dayByModelView powers the "Across the day" card: sessions per local hour
+// stacked by model, plus the token volume per hour, with a palette-matched
+// legend and a peak summary for the subtitle.
+type dayByModelView struct {
+	SessionsChart charts.Spec
+	TokensChart   charts.Spec
+	Legend        []shareLegendRow
+	PeakLabel     string
+	BusiestModel  string
+	TotalTokens   string
+	HasData       bool
+}
+
+// buildDayByModel rotates the usage_by_hour report into the panel's local zone.
+func buildDayByModel(rows []*prosav1.AnalyticsRow) dayByModelView {
+	_, offsetSec := nowFn().In(time.Local).Zone()
+	return buildDayByModelTZ(rows, offsetSec/3600)
+}
+
+// buildDayByModelTZ is buildDayByModel with the hour offset injected for
+// tests. The rotation is whole-hour and DST-naive, same as the hour-of-day
+// and punch card cards.
+func buildDayByModelTZ(rows []*prosav1.AnalyticsRow, offsetHours int) dayByModelView {
+	type key struct {
+		hour  int
+		model string
+	}
+	sessions := map[key]int64{}
+	modelTotals := map[string]int64{}
+	var tokens [24]int64
+	var totalSessions, totalTokens int64
+	for _, row := range rows {
+		if len(row.Values) < 5 {
+			continue
+		}
+		h := int(parsePanelInt(row.Values[0]))
+		if h < 0 || h > 23 {
+			continue
+		}
+		lh := ((h+offsetHours)%24 + 24) % 24
+		model := strings.TrimSpace(row.Values[1])
+		n := parsePanelInt(row.Values[2])
+		if model != "" && n > 0 {
+			sessions[key{lh, model}] += n
+			modelTotals[model] += n
+			totalSessions += n
+		}
+		tk := parsePanelInt(row.Values[4])
+		tokens[lh] += tk
+		totalTokens += tk
+	}
+	if totalSessions == 0 {
+		return dayByModelView{}
+	}
+
+	models := make([]string, 0, len(modelTotals))
+	for m := range modelTotals {
+		models = append(models, m)
+	}
+	sort.Slice(models, func(i, j int) bool {
+		if modelTotals[models[i]] == modelTotals[models[j]] {
+			return models[i] < models[j]
+		}
+		return modelTotals[models[i]] > modelTotals[models[j]]
+	})
+	top := models
+	hasOther := false
+	if len(models) > modelShareTopN {
+		top = models[:modelShareTopN]
+		hasOther = true
+	}
+
+	labels := make([]string, 24)
+	tokenValues := make([]float64, 24)
+	peakHour := 0
+	var peakVal int64
+	for h := range 24 {
+		labels[h] = fmt.Sprintf("%02dh", h)
+		tokenValues[h] = float64(tokens[h])
+		var hourTotal int64
+		for _, m := range models {
+			hourTotal += sessions[key{h, m}]
+		}
+		if hourTotal > peakVal {
+			peakVal = hourTotal
+			peakHour = h
+		}
+	}
+
+	datasets := make([]charts.Dataset, 0, len(top)+1)
+	legend := make([]shareLegendRow, 0, len(top)+1)
+	addSeries := func(name string, totals int64, values []float64) {
+		legend = append(legend, shareLegendRow{
+			ColorIdx: len(datasets),
+			Model:    name,
+			Sessions: formatPanelInt(totals),
+		})
+		datasets = append(datasets, charts.Dataset{Name: name, Values: values})
+	}
+	for _, m := range top {
+		values := make([]float64, 24)
+		for h := range 24 {
+			values[h] = float64(sessions[key{h, m}])
+		}
+		addSeries(m, modelTotals[m], values)
+	}
+	if hasOther {
+		values := make([]float64, 24)
+		var otherTotal int64
+		for _, m := range models[modelShareTopN:] {
+			otherTotal += modelTotals[m]
+			for h := range 24 {
+				values[h] += float64(sessions[key{h, m}])
+			}
+		}
+		addSeries("other", otherTotal, values)
+	}
+
+	return dayByModelView{
+		SessionsChart: charts.Spec{
+			Type:        "bar",
+			Labels:      labels,
+			Datasets:    datasets,
+			Stacked:     true,
+			ValueSuffix: " sessions",
+			Height:      180,
+		},
+		TokensChart: charts.Spec{
+			Type:        "line",
+			Labels:      labels,
+			Datasets:    []charts.Dataset{{Name: "tokens", Values: tokenValues}},
+			RegionFill:  true,
+			ValueSuffix: " tokens",
+			Height:      160,
+		},
+		Legend:       legend,
+		PeakLabel:    fmt.Sprintf("peak %02dh local", peakHour),
+		BusiestModel: top[0],
+		TotalTokens:  formatPanelInt(totalTokens),
+		HasData:      true,
+	}
 }

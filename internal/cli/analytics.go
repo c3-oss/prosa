@@ -21,7 +21,7 @@ import (
 	"github.com/c3-oss/prosa/internal/store"
 )
 
-var validAnalyticsReports = []string{"sessions", "tools", "models", "projects", "profiles", "errors", "heatmap", "usage", "hours", "usage_by_model", "errors_by_model"}
+var validAnalyticsReports = []string{"sessions", "tools", "models", "projects", "profiles", "errors", "heatmap", "usage", "hours", "usage_by_model", "errors_by_model", "subagents"}
 
 func newAnalyticsCmd() *cobra.Command {
 	return &cobra.Command{
@@ -37,7 +37,8 @@ func newAnalyticsCmd() *cobra.Command {
 			"  errors           sessions whose assistant turns look like failures\n" +
 			"  hours            sessions per UTC hour of day (00–23)\n" +
 			"  usage_by_model   tokens and estimated USD cost by model\n" +
-			"  errors_by_model  flagged sessions by model\n\n" +
+			"  errors_by_model  flagged sessions by model\n" +
+			"  subagents        subagent fan-out per parent agent\n\n" +
 			"All reports honor the global filters. heatmap ignores --last / --since / --between.",
 		ValidArgs: validAnalyticsReports,
 		Args:      cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
@@ -147,6 +148,8 @@ func dispatchAnalytics(ctx context.Context, s *store.Store, report string, f sto
 		return s.AnalyticsUsageByModel(ctx, f)
 	case "errors_by_model":
 		return s.AnalyticsErrorsByModel(ctx, f)
+	case "subagents":
+		return s.AnalyticsSubagents(ctx, f)
 	default:
 		return store.AnalyticsResult{}, fmt.Errorf("unknown report: %s", report)
 	}
@@ -172,6 +175,9 @@ func runAnalyticsRemote(ctx context.Context, report string, w Window) error {
 	}
 	if g.Device != "" {
 		req.DeviceName = g.Device
+	}
+	if g.Profile != "" {
+		req.Profile = g.Profile
 	}
 	if IsInteractive() && !g.JSON {
 		fmt.Fprintln(os.Stderr, render.ContextLine(render.ContextLineOptions{

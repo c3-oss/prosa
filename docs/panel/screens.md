@@ -23,6 +23,7 @@ All authenticated pages share:
 |  Insights |                                              |
 |  Sessions |     (content)                                |
 |  Projects |                                              |
+|  Profiles |                                              |
 |  Devices  |                                              |
 |  Settings |                                              |
 +-----------+----------------------------------------------+
@@ -37,10 +38,10 @@ When the session sidepanel is open it enters from the right, taking
 +-----------+--------------------+-------------------------+
 ```
 
-The sidebar is six entries: **Home**, **Insights**, **Sessions**,
-**Projects**, **Devices**, **Settings**. Analytics content lives in the
-Home and Insights dashboard cards and the Sessions list; there is no
-separate Analytics group.
+The sidebar is seven entries: **Home**, **Insights**, **Sessions**,
+**Projects**, **Profiles**, **Devices**, **Settings**. Analytics
+content lives in the Home, Insights, and Profiles dashboard cards and
+the Sessions list; there is no separate Analytics group.
 
 Topbar and sidebar use `--bg-elev-1`. Main uses `--bg`. Region dividers
 are 1 px `--divider`. The topbar carries the brand, the "new sessions"
@@ -71,7 +72,7 @@ crowd the dashboard.
 ▸ filters
 ```
 
-When open it reveals four controls:
+When open it reveals five controls:
 
 - **Window** (single-select): `12h`, `7d`, `30d`, `1y`, `all`. Default
   `30d`.
@@ -79,6 +80,8 @@ When open it reveals four controls:
   picks submit as repeated `agent=` query params.
 - **Project** (multi-select dropdown): distinct project labels from the
   projects analytics report.
+- **Profile** (multi-select dropdown): distinct profile names from the
+  profiles analytics report. Profile names are matched across devices.
 - **Device** (multi-select dropdown): friendly names from the device
   registry.
 
@@ -213,8 +216,9 @@ from any state change.
 Progression and work-rhythm dashboard. Shares Home's filter chrome
 (same drawer, chips, and URL state, posting back to `/insights`) via
 the `dashboard_filters.html` partial. Top to bottom: rhythm KPI strip,
-spend & tokens card, model share + punch card row, durations +
-subagents row.
+spend & tokens card, model share + punch card row, across-the-day
+card, durations + fan-out row, delegation card, top delegators +
+by-parent-agent row.
 
 ```
    4 days     11 days    62% (45/72)  18%       31%        Tuesday
@@ -232,9 +236,25 @@ subagents row.
 | ▶ normalized stacks |   | ▶ 7×24 level grid   |
 +---------------------+   +---------------------+
 
++----------------------------------------------+
+| Across the day                               |
+| ▶ sessions per local hour, stacked by model  |
+| ▶ tokens per local hour area chart           |
++----------------------------------------------+
+
 +---------------------+   +---------------------+
-| Session duration    |   | Subagents           |
-| ▶ bucket histogram  |   | ▶ KPIs + per-agent  |
+| Session duration    |   | Fan-out             |
+| ▶ bucket histogram  |   | ▶ bucket histogram  |
++---------------------+   +---------------------+
+
++----------------------------------------------+
+| Delegation                                   |
+| ▶ KPI row + delegated-share trend (SVG)      |
++----------------------------------------------+
+
++---------------------+   +---------------------+
+| Top delegating      |   | By parent agent     |
+| ▶ linked list       |   | ▶ per-agent table   |
 +---------------------+   +---------------------+
 ```
 
@@ -265,22 +285,45 @@ subagents row.
   rotated into the panel's local zone (whole-hour, DST-naive, weekday
   carry across midnight — same approach as Hour of day). Cell hover
   carries "<weekday> <hour>h: N sessions".
+- **Across the day**: sessions per local hour as stacked columns per
+  model (top 4 + "other", palette-matched legend) plus a tokens area
+  chart on the same 24 slots, from the `usage_by_hour` report. UTC
+  hours are rotated into the panel's local zone (whole-hour, DST-naive
+  — same approach as Hour of day). Subtitle carries the peak hour, the
+  busiest model, and the window's token total.
 - **Session duration**: histogram over fixed buckets (`<5m`, `5-15m`,
   `15-30m`, `30-60m`, `1-2h`, `>2h`) from the `durations` report,
   rendered in canonical order (not count order); subtitle carries
   median / p90 / longest from `duration_stats`. Duration is
   `last_activity_at − started_at` — wall-clock span, not active time.
-- **Subagents**: spawning sessions, subagent sessions, and max fan-out
-  KPIs plus a per-parent-agent table, from the `subagents` report
-  (children started in the window, grouped by the parent's agent).
+- **Fan-out**: histogram of subagents per spawning session over fixed
+  buckets (`1`, `2`, `3-4`, `5-8`, `9+`) from the `subagent_parents`
+  report, in canonical order.
+- **Delegation**: KPI row — spawning sessions, subagent sessions, and
+  max fan-out from `subagent_parents`; tokens-delegated share and
+  estimated subagent spend from `subagent_usage_by_day` (priced
+  panel-side, same honesty rule as Spend & tokens) — plus a weekly
+  delegated-token-share line chart. The share is token-based: subagent
+  tokens over all tokens in the window. Counts come from two reports
+  with slightly different reach: the usage split needs only the child's
+  parent edge, while the parent-grouped KPIs require the parent row to
+  exist, so a child whose parent was never imported counts in the share
+  but not under spawning sessions.
+- **Top delegating sessions**: the highest-fan-out spawning sessions
+  (capped at 8) with agent badge, project link, child count, and a deep
+  link into the session's transcript.
+- **By parent agent**: the per-parent-agent table from the `subagents`
+  report (children started in the window, grouped by the parent's
+  agent).
 
 ### States
 
 - **No sessions in window**: every card renders its own empty message;
   KPIs show `—` / `0 days`.
 - `last=all`: daily-resolution charts (spend & tokens, model share,
-  active-days %) clamp to the trailing 365 days and say so in their
-  subtitles; punch card, durations, and subagents stay unclamped.
+  active-days %, delegation trend) clamp to the trailing 365 days and
+  say so in their subtitles; punch card, across-the-day, durations, and
+  the subagent KPIs/tables stay unclamped.
 
 ---
 
@@ -298,7 +341,7 @@ Sessions
   |  / search prompts and tool output                     |
   +-------------------------------------------------------+
 
-  [ 30d ▾ ]   [ all agents ▾ ]   [ all projects ▾ ]   [ all devices ▾ ]   [ columns ▾ ]
+  [ 30d ▾ ]   [ all agents ▾ ]   [ all projects ▾ ]   [ all devices ▾ ]   [ all profiles ▾ ]   [ columns ▾ ]
 
   +--------+--------+----------------+--------+--------+--------+
   | AGENT  | PROJECT| FIRST PROMPT   | TOKENS▾| COST   | DEVICE |
@@ -315,7 +358,7 @@ Sessions
 A prominent full-width `<input name="q" type="search">` sits above the
 table inside a GET form pointing at `/sessions`. Submission preserves
 every other filter via hidden inputs so search composes with the
-window, agent, project, device, sort, columns, and page state.
+window, agent, project, device, profile, sort, columns, and page state.
 
 The `/` global shortcut focuses this input (the topbar search is gone).
 
@@ -325,7 +368,7 @@ the proto's `query` field joins on `turns.content_tsv` and ranks by
 
 ### Filters
 
-Four controls under the search input. Same pattern as Home, with the
+Five controls under the search input. Same pattern as Home, with the
 window as single-select and the others as
 [multi-select dropdowns](components.md#multi-select-dropdown).
 
@@ -333,6 +376,7 @@ window as single-select and the others as
 - **Agent** (multi): hardcoded slice of known agents.
 - **Project** (multi): distinct project labels.
 - **Device** (multi): friendly names.
+- **Profile** (multi): distinct profile names from the profiles report.
 
 ### Column chooser
 
@@ -427,6 +471,55 @@ Projects
 
 - **No projects in window**: "no projects in the selected window. try
   expanding."
+
+---
+
+## Profiles `/profiles`
+
+Profile analytics dashboard. Shares the dashboard filter chrome (same
+drawer, chips, and URL state, posting back to `/profiles`). Top to
+bottom: KPI strip, trend + usage row, the device × agent × profile
+table.
+
+```
+   3            40%             1.5m       $4.70
+   active       sessions        tokens     est. spend
+   profiles     outside default
+
++---------------------+   +---------------------+
+| Sessions per profile|   | Tokens & cost per   |
+| ▶ stacked weekly    |   | profile             |
+|   columns + legend  |   | ▶ bars + cost donut |
++---------------------+   +---------------------+
+
++----------------------------------------------+
+| By device                                    |
+| ▶ device × agent × profile table             |
++----------------------------------------------+
+```
+
+- **KPI strip**: active profiles (distinct device × agent × profile
+  groups in the window), share of sessions outside the `default`
+  profile, token total, and estimated spend — all from the
+  `profile_usage` report, priced panel-side per model.
+- **Sessions per profile**: stacked weekly columns per `agent·profile`
+  (top 4 + "other", same fold as Home's activity trend), from the
+  `profiles_by_day` report. Charts label `agent·profile` with devices
+  folded — the same logical account may sync from several devices.
+  `last=all` clamps to the trailing 365 days and says so.
+- **Tokens & cost per profile**: token bars per `agent·profile` plus a
+  cost-share donut with a palette-matched legend; unpriced models count
+  tokens but no spend.
+- **By device**: one row per device × agent × profile with sessions,
+  tokens, estimated cost, and last activity. Device, agent, and profile
+  cells deep-link into the filtered `/sessions` view.
+
+### States
+
+- **No profiles in window**: "no profiles in this window."; KPIs show
+  `—` / `0`.
+- Installs with only `default` profiles render honestly: one profile
+  per agent, `0%` outside default.
 
 ---
 
@@ -583,7 +676,8 @@ open/close.
         |     4 min  brain     audit o..|
         |                               |
         |  Pages                        |
-        |    Home · Sessions · Projects |
+        |    Home · Insights · Sessions |
+        |    Projects · Profiles        |
         |    Devices · Settings         |
         |                               |
         +-------------------------------+

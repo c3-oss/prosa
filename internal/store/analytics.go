@@ -84,6 +84,29 @@ func (s *Store) AnalyticsProfiles(ctx context.Context, f SessionFilter) (Analyti
 	return scanAnalytics(ctx, s.db, q, args, []string{"DEVICE", "AGENT", "PROFILE", "SESSIONS"})
 }
 
+// AnalyticsSubagents aggregates subagent fan-out per parent agent,
+// mirroring the server's subagents report. Filters apply to the children
+// (the spawned sessions); grouping is by the parent's agent. The selectSQL
+// ends inside the inner subquery so analyticsQuery's devices join for
+// --device lands against the child alias s.
+func (s *Store) AnalyticsSubagents(ctx context.Context, f SessionFilter) (AnalyticsResult, error) {
+	q, args := analyticsQuery(`
+		SELECT agent,
+		       COUNT(*)      AS parents,
+		       SUM(children) AS children,
+		       MAX(children) AS max_fanout
+		FROM (
+		  SELECT p.agent AS agent, s.parent_session_id, COUNT(*) AS children
+		  FROM sessions s
+		  JOIN sessions p ON p.id = s.parent_session_id
+	`, ` WHERE_AND s.parent_session_id IS NOT NULL
+		  GROUP BY p.agent, s.parent_session_id
+		) x
+		GROUP BY agent
+		ORDER BY children DESC, agent ASC`, f)
+	return scanAnalytics(ctx, s.db, q, args, []string{"AGENT", "PARENTS", "CHILDREN", "MAX_FANOUT"})
+}
+
 // AnalyticsHeatmap emits one row per (day, agent) over the selected window,
 // matching the server's heatmap report shape exactly (DATE, AGENT,
 // SESSIONS). Zero-session days still get a single (day, "", 0) row so

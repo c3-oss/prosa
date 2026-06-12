@@ -82,15 +82,17 @@ func parseDashboardWindow(q url.Values, now time.Time) (lastRaw string, since, u
 	return lastRaw, now.Add(-window), until, nil
 }
 
-// dashboardReportRequest builds the GetReportRequest shared by the home and
-// insights dashboards. agent/project_match are single-valued on the wire, so a
-// multi-select falls back to "any" and the cards reflect the full window.
-func dashboardReportRequest(report string, since, until time.Time, agents, projects, devices []string) *prosav1.GetReportRequest {
+// dashboardReportRequest builds the GetReportRequest shared by the home,
+// insights, and profiles dashboards. agent/project_match are single-valued on
+// the wire, so a multi-select falls back to "any" and the cards reflect the
+// full window; devices and profiles are repeated and filter fully.
+func dashboardReportRequest(report string, since, until time.Time, agents, projects, devices, profiles []string) *prosav1.GetReportRequest {
 	req := &prosav1.GetReportRequest{
 		Report:      report,
 		Since:       timestamppb.New(since),
 		Until:       timestamppb.New(until),
 		DeviceNames: devices,
+		Profiles:    profiles,
 	}
 	if len(agents) == 1 {
 		req.Agent = agents[0]
@@ -102,8 +104,8 @@ func dashboardReportRequest(report string, since, until time.Time, agents, proje
 }
 
 // buildDashboardActiveFilters renders one removal chip per active filter,
-// pointing at basePath ("/" or "/insights").
-func buildDashboardActiveFilters(q url.Values, basePath, last string, agents, projects, devices []string) []activeFilter {
+// pointing at basePath ("/", "/insights", or "/profiles").
+func buildDashboardActiveFilters(q url.Values, basePath, last string, agents, projects, devices, profiles []string) []activeFilter {
 	var out []activeFilter
 	mk := func(label, value string, removeQuery url.Values) activeFilter {
 		removeQuery.Del("session")
@@ -132,6 +134,11 @@ func buildDashboardActiveFilters(q url.Values, basePath, last string, agents, pr
 		next := cloneValues(q)
 		removeFromMulti(next, "device", d)
 		out = append(out, mk("Device", d, next))
+	}
+	for _, pr := range profiles {
+		next := cloneValues(q)
+		removeFromMulti(next, "profile", pr)
+		out = append(out, mk("Profile", pr, next))
 	}
 	return out
 }

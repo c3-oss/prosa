@@ -58,19 +58,29 @@ Proto in `proto/prosa/v1/`. Generated Go in `gen/go/prosa/v1/`, committed.
 
 `GetReport` dispatches on a report-name string, so adding a report is a
 server-side change only (no proto schema change). The CLI-facing
-reports (`sessions`, `tools`, `models`, `projects`, `errors`,
-`heatmap`, `usage`, `hours`, `usage_by_model`, `errors_by_model`)
-mirror `internal/store/analytics.go` against SQLite. The insights
-reports feed the panel's `/insights` page and Home trend card only and
-have **no SQLite/CLI mirror**:
+reports (`sessions`, `tools`, `models`, `projects`, `profiles`,
+`errors`, `heatmap`, `usage`, `hours`, `usage_by_model`,
+`errors_by_model`, `subagents`) mirror `internal/store/analytics.go`
+against SQLite. Every report honors the request's filter set, including
+the `profile`/`profiles` fields. The insights reports feed the panel
+only and have **no SQLite/CLI mirror**:
 
 | Report | Shape | Powers |
 | --- | --- | --- |
 | `usage_by_day` | per (UTC day, model) session counts + token splits | spend & tokens trend, model share (cost priced panel-side) |
+| `usage_by_hour` | per (UTC hour, model) session counts + token splits | across-the-day card (rotated to local panel-side) |
 | `punchcard` | per (UTC weekday, UTC hour) session counts | punch card + schedule-profile KPIs (rotated to local panel-side) |
 | `durations` | fixed buckets of `last_activity_at − started_at` | session-duration histogram |
 | `duration_stats` | one row: median/p90/avg/max seconds | duration card subtitle |
-| `subagents` | per parent-agent: parents, children, max fan-out | subagents card (children filtered by window) |
+| `subagent_usage_by_day` | per (UTC day, direct\|subagent, model) session counts + token splits | delegated token share + spend KPIs, delegation trend |
+| `subagent_parents` | one row per spawning session: started, agent, project, id, child count | delegation KPIs, fan-out histogram, top delegators |
+| `profile_usage` | per (device, agent, profile, model) session counts + token splits + last activity | profiles dashboard KPIs, charts, table |
+| `profiles_by_day` | per (UTC day, agent, profile) session counts | profiles dashboard trend |
+
+`subagents` (per parent-agent: parents, children, max fan-out) backs
+both the CLI report and the panel's by-parent-agent table; like the
+other subagent reports, filters apply to the children (the spawned
+sessions in the window).
 
 ### Push
 

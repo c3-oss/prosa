@@ -1,8 +1,9 @@
 {{/*
   Shared dashboard filter chrome: the page header with the Filters
-  drawer (window/agent/project/device) and the active-filter chips.
-  Pages set .PageTitle (the <h1>) and .FilterAction (the form's GET
-  target, "/" or "/insights") alongside the usual filter state keys.
+  drawer (window/agent/project/profile/device) and the active-filter
+  chips. Pages set .PageTitle (the <h1>) and .FilterAction (the form's
+  GET target, "/", "/insights", or "/profiles") alongside the usual
+  filter state keys.
 */}}
 
 {{define "dashboard_filters"}}
@@ -78,6 +79,30 @@
                 {{end}}
               {{else}}
                 <div class="dropdown-empty">no projects in window</div>
+              {{end}}
+            </div>
+          </div>
+        </label>
+
+        <label>
+          Profile
+          <div class="dropdown">
+            <button type="button" class="dropdown-toggle">
+              {{- $n := 0 -}}
+              {{- range $pr, $sel := .ProfilesSelected}}{{if $sel}}{{$n = 1}}{{end}}{{end -}}
+              {{- if eq $n 0}}all profiles{{else}}selected{{end}} ▾
+            </button>
+            <div class="dropdown-menu" hidden>
+              {{if .Profiles}}
+                {{$sel := .ProfilesSelected}}
+                {{range .Profiles}}
+                  <label class="dropdown-item">
+                    <input type="checkbox" name="profile" value="{{.}}" {{if index $sel .}}checked{{end}}>
+                    <span>{{.}}</span>
+                  </label>
+                {{end}}
+              {{else}}
+                <div class="dropdown-empty">no profiles in window</div>
               {{end}}
             </div>
           </div>

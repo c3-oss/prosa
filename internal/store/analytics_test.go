@@ -63,6 +63,50 @@ func seedAnalyticsSession(t *testing.T, ctx context.Context, s *Store, id, model
 	}
 }
 
+func TestAnalyticsSubagents(t *testing.T) {
+	t.Parallel()
+	ctx, s := openAnalyticsTestStore(t)
+	started := time.Date(2026, 1, 5, 10, 0, 0, 0, time.UTC)
+	seed := func(id, agent, profile string, at time.Time, parent *string) {
+		t.Helper()
+		require.NoError(t, s.UpsertSession(ctx, session.Session{
+			ID:              id,
+			Agent:           agent,
+			DeviceID:        "local",
+			Profile:         profile,
+			StartedAt:       at,
+			LastActivityAt:  at.Add(time.Minute),
+			RawPath:         "/tmp/" + id + ".jsonl",
+			RawHash:         "h-" + id,
+			ParentSessionID: parent,
+		}, nil))
+	}
+	p1, p2 := "p1", "p2"
+	seed("p1", "claude-code", "default", started, nil)
+	seed("c1", "claude-code", "default", started.Add(5*time.Minute), &p1)
+	seed("c2", "claude-code", "work", started.Add(10*time.Minute), &p1)
+	seed("p2", "codex", "default", started.Add(time.Hour), nil)
+	seed("c3", "codex", "default", started.Add(time.Hour+5*time.Minute), &p2)
+	// Outside the window: must not count toward p1's fan-out.
+	seed("c4", "claude-code", "default", time.Date(2026, 2, 5, 10, 0, 0, 0, time.UTC), &p1)
+
+	r, err := s.AnalyticsSubagents(ctx, wideAnalyticsFilter())
+	require.NoError(t, err)
+	require.Equal(t, []string{"AGENT", "PARENTS", "CHILDREN", "MAX_FANOUT"}, r.Headers)
+	require.Len(t, r.Rows, 2)
+	require.Equal(t, []any{"claude-code", "1", "2", "2"}, r.Rows[0].Values)
+	require.Equal(t, []any{"codex", "1", "1", "1"}, r.Rows[1].Values)
+
+	// The profile filter applies to the children, not the parents.
+	work := "work"
+	f := wideAnalyticsFilter()
+	f.Profile = &work
+	r, err = s.AnalyticsSubagents(ctx, f)
+	require.NoError(t, err)
+	require.Len(t, r.Rows, 1)
+	require.Equal(t, []any{"claude-code", "1", "1", "1"}, r.Rows[0].Values)
+}
+
 func TestAnalyticsHours(t *testing.T) {
 	t.Parallel()
 	ctx, s := openAnalyticsTestStore(t)

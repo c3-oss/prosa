@@ -236,6 +236,118 @@ func TestBuildDaySpan(t *testing.T) {
 	require.Equal(t, []string{"2026-05-30", "2026-05-31", "2026-06-01", "2026-06-02"}, days)
 }
 
+func TestBuildDelegationKPIs(t *testing.T) {
+	t.Parallel()
+	usage := []*prosav1.AnalyticsRow{
+		aRow("2026-05-30", "direct", "claude-opus-4-5", "2", "2", "1500", "1200", "300", "0", "0", "0"),
+		aRow("2026-05-30", "subagent", "claude-opus-4-5", "2", "2", "500", "400", "100", "0", "0", "0"),
+	}
+	parents := []*prosav1.AnalyticsRow{
+		aRow("2026-05-30 09:00", "claude-code", "(unscoped)", "p1", "2"),
+		aRow("2026-05-30 11:00", "claude-code", "(unscoped)", "p2", "5"),
+	}
+	v := buildDelegationKPIs(usage, parents)
+	require.True(t, v.HasData)
+	require.Equal(t, "2", v.Spawning)
+	require.Equal(t, "7", v.Children)
+	require.Equal(t, "25%", v.DelegatedPct) // 500 of 2000 tokens
+	require.Equal(t, "5", v.MaxFan)
+	require.NotEqual(t, "n/a", v.SubagentSpend) // opus is a priced model
+
+	// Unknown model → tokens count but spend stays honest.
+	unpriced := buildDelegationKPIs([]*prosav1.AnalyticsRow{
+		aRow("2026-05-30", "subagent", "some-local-model", "1", "1", "500", "400", "100", "0", "0", "0"),
+	}, nil)
+	require.Equal(t, "n/a", unpriced.SubagentSpend)
+	require.Equal(t, "100%", unpriced.DelegatedPct)
+
+	empty := buildDelegationKPIs(nil, nil)
+	require.False(t, empty.HasData)
+	require.Equal(t, "—", empty.DelegatedPct)
+}
+
+func TestBuildDelegationTrendWeeklyShare(t *testing.T) {
+	t.Parallel()
+	// Two ISO weeks: 2026-05-25 (Mon) and 2026-06-01 (Mon).
+	rows := []*prosav1.AnalyticsRow{
+		aRow("2026-05-30", "direct", "m", "1", "1", "900", "0", "0", "0", "0", "0"),
+		aRow("2026-05-30", "subagent", "m", "1", "1", "100", "0", "0", "0", "0", "0"),
+		aRow("2026-06-02", "direct", "m", "1", "1", "500", "0", "0", "0", "0", "0"),
+		aRow("2026-06-02", "subagent", "m", "1", "1", "500", "0", "0", "0", "0", "0"),
+	}
+	v := buildDelegationTrend(rows)
+	require.True(t, v.HasData)
+	require.Equal(t, []string{"05-25", "06-01"}, v.Chart.Labels)
+	require.Equal(t, []float64{10, 50}, v.Chart.Datasets[0].Values)
+
+	// No subagent tokens at all → empty card, not a flat zero line.
+	flat := buildDelegationTrend(rows[:1])
+	require.False(t, flat.HasData)
+}
+
+func TestBuildFanoutBuckets(t *testing.T) {
+	t.Parallel()
+	mk := func(id string, children string) *prosav1.AnalyticsRow {
+		return aRow("2026-05-30 09:00", "claude-code", "(unscoped)", id, children)
+	}
+	v := buildFanoutHistogram([]*prosav1.AnalyticsRow{
+		mk("a", "1"), mk("b", "1"), mk("c", "2"), mk("d", "4"), mk("e", "8"), mk("f", "30"),
+	})
+	require.True(t, v.HasData)
+	labels := make([]string, 0, len(v.Bars))
+	counts := map[string]string{}
+	for _, b := range v.Bars {
+		labels = append(labels, b.Label)
+		counts[b.Label] = b.Count
+	}
+	require.Equal(t, fanoutBuckets, labels) // canonical order, all buckets present
+	require.Equal(t, "2", counts["1"])
+	require.Equal(t, "1", counts["2"])
+	require.Equal(t, "1", counts["3-4"])
+	require.Equal(t, "1", counts["5-8"])
+	require.Equal(t, "1", counts["9+"])
+
+	require.False(t, buildFanoutHistogram(nil).HasData)
+}
+
+func TestBuildTopDelegatorsLinksAndCap(t *testing.T) {
+	t.Parallel()
+	rows := make([]*prosav1.AnalyticsRow, 0, 10)
+	for i := range 10 {
+		rows = append(rows, aRow("2026-05-30 09:00", "claude-code", "(unscoped)", string(rune('a'+i)), "3"))
+	}
+	out := buildTopDelegators(rows, 8)
+	require.Len(t, out, 8)
+	require.Equal(t, "/sessions?session=a", out[0].URL)
+	require.Equal(t, "3", out[0].Children)
+	require.Contains(t, string(out[0].Agent), "claude-code")
+}
+
+func TestBuildDayByModelRotation(t *testing.T) {
+	t.Parallel()
+	rows := []*prosav1.AnalyticsRow{
+		aRow("01", "model-a", "3", "3", "900", "0", "0", "0", "0", "0"),
+		aRow("01", "model-b", "1", "1", "100", "0", "0", "0", "0", "0"),
+		aRow("23", "model-a", "1", "1", "200", "0", "0", "0", "0", "0"),
+	}
+	// Offset -3: 01h UTC → 22h local; 23h UTC → 20h local.
+	v := buildDayByModelTZ(rows, -3)
+	require.True(t, v.HasData)
+	require.Equal(t, "peak 22h local", v.PeakLabel)
+	require.Equal(t, "model-a", v.BusiestModel)
+	require.Equal(t, "1,200", v.TotalTokens)
+	require.Len(t, v.SessionsChart.Labels, 24)
+	require.True(t, v.SessionsChart.Stacked)
+	require.Equal(t, "model-a", v.SessionsChart.Datasets[0].Name)
+	require.Equal(t, float64(3), v.SessionsChart.Datasets[0].Values[22])
+	require.Equal(t, float64(1), v.SessionsChart.Datasets[0].Values[20])
+	require.Equal(t, float64(1), v.SessionsChart.Datasets[1].Values[22])
+	require.Equal(t, float64(1000), v.TokensChart.Datasets[0].Values[22])
+	require.Len(t, v.Legend, 2)
+
+	require.False(t, buildDayByModelTZ(nil, 0).HasData)
+}
+
 // TestInsightsRendersCharts asserts every card renders, guarding against
 // handler↔template key mismatches.
 func TestInsightsRendersCharts(t *testing.T) {
@@ -268,22 +380,33 @@ func TestInsightsRendersCharts(t *testing.T) {
 	body := rec.Body.String()
 
 	for _, want := range []string{
-		"Spend &amp; tokens",       // trend card
-		">Model share<",            // share card
-		">Punch card<",             // punch card card
-		">Session duration<",       // durations card
-		">Subagents<",              // subagents card
-		"current streak",           // rhythm KPI
-		"busiest weekday",          // schedule KPI
-		"outside 09–18h",           // schedule KPI
-		`data-chart="spend-bars"`,  // spend chart container
-		`data-chart="model-share"`, // share chart container
-		`data-chart="tokens-line"`, // tokens chart container
-		"heatmap-cell level-",      // punch card cells
-		"subagents-table",          // per-agent breakdown
-		"max fan-out",              // subagents KPI
-		`action="/insights"`,       // filter drawer posts back here
-		`class="sidebar"`,          // base chrome rendered
+		"Spend &amp; tokens",            // trend card
+		">Model share<",                 // share card
+		">Punch card<",                  // punch card card
+		">Session duration<",            // durations card
+		">Across the day<",              // hour-of-day model/token card
+		">Delegation<",                  // delegation card
+		">Fan-out<",                     // fan-out histogram card
+		">Top delegating sessions<",     // top delegators card
+		">By parent agent<",             // per-agent breakdown card
+		"current streak",                // rhythm KPI
+		"busiest weekday",               // schedule KPI
+		"outside 09–18h",                // schedule KPI
+		`data-chart="spend-bars"`,       // spend chart container
+		`data-chart="model-share"`,      // share chart container
+		`data-chart="tokens-line"`,      // tokens chart container
+		`data-chart="day-models"`,       // across-the-day stacked chart
+		`data-chart="day-tokens"`,       // across-the-day token chart
+		`data-chart="delegation-trend"`, // delegated-share trend chart
+		"heatmap-cell level-",           // punch card cells
+		"subagents-table",               // per-agent breakdown
+		"max fan-out",                   // delegation KPI
+		"tokens delegated",              // delegation KPI
+		"est. subagent spend",           // delegation KPI
+		"/sessions?session=sess-1",      // top delegator deep link
+		"busiest model claude-opus-4-5", // across-the-day subtitle
+		`action="/insights"`,            // filter drawer posts back here
+		`class="sidebar"`,               // base chrome rendered
 	} {
 		require.Contains(t, body, want, "insights page should render %q", want)
 	}
