@@ -311,6 +311,9 @@ func sessionToProto(s session.Session) *prosav1.Session {
 	if s.Model != nil {
 		out.Model = wireText(*s.Model)
 	}
+	if s.ParentSessionID != nil {
+		out.ParentSessionId = *s.ParentSessionID
+	}
 	if s.Usage != nil {
 		out.Usage = &prosav1.TokenUsage{
 			TotalTokens:         s.Usage.TotalTokens,

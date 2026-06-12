@@ -15,21 +15,23 @@ func TestPushProtoSanitizesDerivedText(t *testing.T) {
 	projectMarker := "marker\x00name"
 	firstPrompt := "hello\x00world"
 	model := "model\x00name"
+	parentID := "parent-session-id"
 	now := time.Now().UTC()
 
 	sess := session.Session{
-		ID:             "session\x00id",
-		Agent:          "codex",
-		DeviceID:       "device\x00id",
-		ProjectPath:    &projectPath,
-		ProjectRemote:  &projectRemote,
-		ProjectMarker:  &projectMarker,
-		StartedAt:      now,
-		LastActivityAt: now,
-		FirstPrompt:    &firstPrompt,
-		Model:          &model,
-		RawHash:        "hash\x00value",
-		RawSize:        123,
+		ID:              "session\x00id",
+		Agent:           "codex",
+		DeviceID:        "device\x00id",
+		ProjectPath:     &projectPath,
+		ProjectRemote:   &projectRemote,
+		ProjectMarker:   &projectMarker,
+		StartedAt:       now,
+		LastActivityAt:  now,
+		FirstPrompt:     &firstPrompt,
+		Model:           &model,
+		RawHash:         "hash\x00value",
+		RawSize:         123,
+		ParentSessionID: &parentID,
 	}
 	gotSession := sessionToProto(sess)
 	require.Equal(t, "session\x00id", gotSession.Id)
@@ -40,6 +42,7 @@ func TestPushProtoSanitizesDerivedText(t *testing.T) {
 	require.Equal(t, "marker name", gotSession.ProjectMarker)
 	require.Equal(t, "hello world", gotSession.FirstPrompt)
 	require.Equal(t, "model name", gotSession.Model)
+	require.Equal(t, "parent-session-id", gotSession.ParentSessionId)
 
 	gotTurns := turnsToProto([]session.Turn{{
 		Role:      "tool\x00role",

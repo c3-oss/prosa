@@ -118,7 +118,15 @@ type Session struct {
 //	    .jsonl flavor. raw_hash / raw_size now describe the projected
 //	    JSONL per session, so sync_reconcile re-pushes Hermes sessions
 //	    with their new hashes on first contact.
-const ProjectionVersion = 10
+//	v11: parent edges reach the server — sessionToProto now maps
+//	    Session.ParentSessionID onto the wire, and Claude Code subagent
+//	    transcripts are actually imported: the walker accepts the
+//	    current `agent-<hex>.jsonl` naming alongside the older
+//	    `agent-<uuid>.jsonl`, both directly under `subagents/` and
+//	    nested at `subagents/workflows/wf_<id>/`. The child session id
+//	    is the filename stem because every record inside carries the
+//	    parent's sessionId.
+const ProjectionVersion = 11
 
 // DefaultProfile is the profile name every agent has by default.
 const DefaultProfile = "default"
