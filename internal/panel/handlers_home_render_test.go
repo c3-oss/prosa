@@ -84,6 +84,23 @@ func (fakeAnalyticsService) GetReport(_ context.Context, req *connect.Request[pr
 		"profiles": {Headers: []string{"DEVICE", "AGENT", "PROFILE", "SESSIONS"}, Rows: []*prosav1.AnalyticsRow{
 			row("Laptop", "claude-code", "default", "3"), row("Laptop", "codex", "work", "2"),
 		}},
+		"usage_by_hour": {
+			Headers: []string{"HOUR", "MODEL", "SESSIONS", "MEASURED", "TOTAL", "INPUT", "OUTPUT", "CACHED", "CACHE_READ", "CACHE_CREATION"},
+			Rows: []*prosav1.AnalyticsRow{
+				row("09", "claude-opus-4-5", "2", "2", "1500", "1200", "300", "0", "0", "0"),
+				row("14", "gpt-5-codex", "1", "1", "500", "400", "100", "0", "0", "0"),
+			},
+		},
+		"subagent_usage_by_day": {
+			Headers: []string{"DAY", "KIND", "MODEL", "SESSIONS", "MEASURED", "TOTAL", "INPUT", "OUTPUT", "CACHED", "CACHE_READ", "CACHE_CREATION"},
+			Rows: []*prosav1.AnalyticsRow{
+				row("2026-05-30", "direct", "claude-opus-4-5", "2", "2", "1500", "1200", "300", "0", "0", "0"),
+				row("2026-05-30", "subagent", "claude-opus-4-5", "2", "2", "500", "400", "100", "0", "0", "0"),
+			},
+		},
+		"subagent_parents": {Headers: []string{"STARTED", "AGENT", "PROJECT", "SESSION", "CHILDREN"}, Rows: []*prosav1.AnalyticsRow{
+			row("2026-05-30 09:00", "claude-code", "github.com/c3-oss/prosa", "sess-1", "2"),
+		}},
 	}
 	if resp, ok := canned[req.Msg.Report]; ok {
 		return connect.NewResponse(resp), nil
