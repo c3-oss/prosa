@@ -50,12 +50,13 @@ func (p *Panel) handleInsights(w http.ResponseWriter, r *http.Request) {
 	agents := pickMulti(q, "agent")
 	projects := pickMulti(q, "project")
 	devices := pickDeviceNames(q)
+	profilesSel := pickMulti(q, "profile")
 
 	sharedReq := func(report string) *prosav1.GetReportRequest {
-		return dashboardReportRequest(report, since, until, agents, projects, devices)
+		return dashboardReportRequest(report, since, until, agents, projects, devices, profilesSel)
 	}
 	trendReq := func(report string) *prosav1.GetReportRequest {
-		return dashboardReportRequest(report, trendSince, until, agents, projects, devices)
+		return dashboardReportRequest(report, trendSince, until, agents, projects, devices, profilesSel)
 	}
 
 	type fan struct {
@@ -67,6 +68,7 @@ func (p *Panel) handleInsights(w http.ResponseWriter, r *http.Request) {
 		heatmapTrail  *prosav1.GetReportResponse // trailing 53 weeks — streaks
 		heatmapWindow *prosav1.GetReportResponse // filtered window — active days %
 		projects      *prosav1.GetReportResponse // project dropdown options
+		profiles      *prosav1.GetReportResponse // profile dropdown options
 	}
 	var out fan
 	g, gctx := errgroup.WithContext(r.Context())
@@ -80,9 +82,10 @@ func (p *Panel) handleInsights(w http.ResponseWriter, r *http.Request) {
 		{"durations", sharedReq("durations"), &out.durations},
 		{"duration_stats", sharedReq("duration_stats"), &out.durationStats},
 		{"subagents", sharedReq("subagents"), &out.subagents},
-		{"heatmap", dashboardReportRequest("heatmap", heatmapSince, heatmapUntil, agents, projects, devices), &out.heatmapTrail},
+		{"heatmap", dashboardReportRequest("heatmap", heatmapSince, heatmapUntil, agents, projects, devices, profilesSel), &out.heatmapTrail},
 		{"heatmap_window", trendReq("heatmap"), &out.heatmapWindow},
 		{"projects", sharedReq("projects"), &out.projects},
+		{"profiles", sharedReq("profiles"), &out.profiles},
 	} {
 		g.Go(func() error {
 			resp, err := p.clients.Analytics.GetReport(gctx, connect.NewRequest(spec.req))
@@ -104,6 +107,7 @@ func (p *Panel) handleInsights(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("insights devices.list failed", "err", err)
 	}
 	projectNames := projectLabelsFromRows(out.projects.Rows)
+	profileNames := profileLabelsFromRows(out.profiles.Rows)
 
 	windowNote := ""
 	if trendClamped {
@@ -117,7 +121,7 @@ func (p *Panel) handleInsights(w http.ResponseWriter, r *http.Request) {
 	durations := buildDurations(out.durations.Rows, out.durationStats.Rows)
 	subagents := buildSubagents(out.subagents.Rows)
 
-	activeFilters := buildDashboardActiveFilters(r.URL.Query(), "/insights", lastRaw, agents, projects, devices)
+	activeFilters := buildDashboardActiveFilters(r.URL.Query(), "/insights", lastRaw, agents, projects, devices, profilesSel)
 	clearFiltersURL := ""
 	if len(activeFilters) > 0 {
 		clearFiltersURL = "/insights"
@@ -138,6 +142,8 @@ func (p *Panel) handleInsights(w http.ResponseWriter, r *http.Request) {
 		"ProjectsSelected": selectionSet(projects),
 		"Devices":          deviceNames,
 		"DevicesSelected":  selectionSet(devices),
+		"Profiles":         profileNames,
+		"ProfilesSelected": selectionSet(profilesSel),
 		"ActiveFilters":    activeFilters,
 		"ClearFiltersURL":  clearFiltersURL,
 

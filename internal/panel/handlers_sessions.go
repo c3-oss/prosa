@@ -753,19 +753,5 @@ func (p *Panel) listProfileLabels(ctx context.Context, since, until time.Time) (
 	if err != nil {
 		return nil, err
 	}
-	seen := map[string]bool{}
-	out := make([]string, 0, len(resp.Msg.Rows))
-	for _, row := range resp.Msg.Rows {
-		if len(row.Values) < 3 {
-			continue
-		}
-		label := strings.TrimSpace(row.Values[2])
-		if label == "" || seen[label] {
-			continue
-		}
-		seen[label] = true
-		out = append(out, label)
-	}
-	sort.Strings(out)
-	return out, nil
+	return profileLabelsFromRows(resp.Msg.Rows), nil
 }

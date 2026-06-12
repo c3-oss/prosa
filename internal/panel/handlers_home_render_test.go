@@ -81,6 +81,9 @@ func (fakeAnalyticsService) GetReport(_ context.Context, req *connect.Request[pr
 		"subagents": {Headers: []string{"AGENT", "PARENTS", "CHILDREN", "MAX_FANOUT"}, Rows: []*prosav1.AnalyticsRow{
 			row("claude-code", "1", "2", "2"),
 		}},
+		"profiles": {Headers: []string{"DEVICE", "AGENT", "PROFILE", "SESSIONS"}, Rows: []*prosav1.AnalyticsRow{
+			row("Laptop", "claude-code", "default", "3"), row("Laptop", "codex", "work", "2"),
+		}},
 	}
 	if resp, ok := canned[req.Msg.Report]; ok {
 		return connect.NewResponse(resp), nil
@@ -137,6 +140,8 @@ func TestHomeRendersIssuesAndCharts(t *testing.T) {
 		`data-chart="activity-trend"`, // trend chart container
 		"kpi-delta",                   // vs-previous-window badge
 		"vs previous 30d",             // delta badge tooltip
+		"all profiles",                // profile filter dropdown
+		`name="profile" value="work"`, // profile dropdown option
 	} {
 		require.Contains(t, body, want, "home page should render %q", want)
 	}
