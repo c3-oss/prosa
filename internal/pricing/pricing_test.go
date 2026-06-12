@@ -43,6 +43,18 @@ func TestCostUSDPricesClaudeCacheCreationSeparately(t *testing.T) {
 	require.InDelta(t, 0.00062175, cost, 0.00000001)
 }
 
+func TestCostUSDPricesFable5(t *testing.T) {
+	cost, ok := CostUSD("claude-fable-5", session.TokenUsage{
+		InputTokens:         1000,
+		OutputTokens:        200,
+		CachedTokens:        300,
+		CacheReadTokens:     300,
+		CacheCreationTokens: 100,
+	})
+	require.True(t, ok)
+	require.InDelta(t, 0.01755, cost, 0.00000001)
+}
+
 // TestLookupKnownModelsFromRealStore covers every model id observed in
 // the maintainer's local store at the time of this commit. Each entry
 // must return priced=true so that future regressions in the matcher
@@ -61,6 +73,9 @@ func TestLookupKnownModelsFromRealStore(t *testing.T) {
 		{"claude-sonnet-4-5-20250929", Rates{Input: 3.0e-6, Output: 1.5e-5, CacheRead: 3.0e-7, CacheCreation: 3.75e-6}},
 		{"claude-haiku-4-5-20251001", Rates{Input: 1.0e-6, Output: 5.0e-6, CacheRead: 1.0e-7, CacheCreation: 1.25e-6}},
 		{"claude-haiku-4.5", Rates{Input: 1.0e-6, Output: 5.0e-6, CacheRead: 1.0e-7, CacheCreation: 1.25e-6}},
+		{"claude-fable-5", Rates{Input: 1.0e-5, Output: 5.0e-5, CacheRead: 1.0e-6, CacheCreation: 1.25e-5}},
+		{"claude-fable-5-20260601", Rates{Input: 1.0e-5, Output: 5.0e-5, CacheRead: 1.0e-6, CacheCreation: 1.25e-5}},
+		{"composer-2.5", Rates{Input: 3.0e-6, Output: 1.5e-5}},
 
 		// OpenAI GPT-5 family — the live store has minor versions 5.0
 		// through 5.5 plus the codex / mini / nano variants.
@@ -130,6 +145,7 @@ func TestNormalizeModel(t *testing.T) {
 		"  GPT-5  ":                   "gpt-5",
 		"openai/gpt-5-codex-20250530": "gpt-5-codex",
 		"anthropic/claude-opus-4-7":   "claude-opus-4-7",
+		"anthropic/claude-fable-5":    "claude-fable-5",
 		"anthropic.claude-opus-4-7":   "claude-opus-4-7",
 		"google/gemini-2.5-pro":       "gemini-2.5-pro",
 		"claude-sonnet-4-5-20250929":  "claude-sonnet-4-5",

@@ -1,152 +1,15 @@
 {{define "home"}}{{template "base" .}}{{end}}
 
 {{define "content"}}
-  <header class="dashboard-head" x-data="{ filtersOpen: false }"
-          @keydown.escape.window="filtersOpen = false">
-    <h1>Home</h1>
-    <button type="button" class="dashboard-filters-toggle"
-            @click="filtersOpen = !filtersOpen"
-            :aria-expanded="filtersOpen.toString()"
-            aria-controls="dashboard-filters-drawer">
-      Filters
-    </button>
-    <div class="dashboard-filters-backdrop"
-         x-show="filtersOpen" x-cloak x-transition.opacity
-         @click="filtersOpen = false" aria-hidden="true"></div>
-    <aside id="dashboard-filters-drawer" class="dashboard-filters-drawer"
-           role="dialog" aria-label="Filters"
-           :class="{ 'open': filtersOpen }">
-      <div class="dashboard-filters-drawer-head">
-        <span class="dashboard-filters-drawer-title">Filters</span>
-        <button type="button" class="dashboard-filters-close"
-                @click="filtersOpen = false" aria-label="Close filters">×</button>
-      </div>
-      <form method="get" action="/" class="filter-bar dashboard-filters-form"
-            x-data @change="$el.requestSubmit()">
-        <label>
-          Window
-          <select name="last">
-            <option value="12h"  {{if eq .Last "12h"}}selected{{end}}>12h</option>
-            <option value="7d"   {{if eq .Last "7d"}}selected{{end}}>7d</option>
-            <option value="30d"  {{if or (eq .Last "") (eq .Last "30d")}}selected{{end}}>30d</option>
-            <option value="365d" {{if eq .Last "365d"}}selected{{end}}>1y</option>
-            <option value="all"  {{if eq .Last "all"}}selected{{end}}>all</option>
-          </select>
-        </label>
-
-        <label>
-          Agent
-          <div class="dropdown">
-            <button type="button" class="dropdown-toggle">
-              {{- $n := 0 -}}
-              {{- range $a, $sel := .AgentsSelected}}{{if $sel}}{{$n = 1}}{{end}}{{end -}}
-              {{- if eq $n 0}}all agents{{else}}selected{{end}} ▾
-            </button>
-            <div class="dropdown-menu" hidden>
-              {{$sel := .AgentsSelected}}
-              {{range .Agents}}
-                <label class="dropdown-item">
-                  <input type="checkbox" name="agent" value="{{.}}" {{if index $sel .}}checked{{end}}>
-                  <span>{{.}}</span>
-                </label>
-              {{end}}
-            </div>
-          </div>
-        </label>
-
-        <label>
-          Project
-          <div class="dropdown">
-            <button type="button" class="dropdown-toggle">
-              {{- $n := 0 -}}
-              {{- range $p, $sel := .ProjectsSelected}}{{if $sel}}{{$n = 1}}{{end}}{{end -}}
-              {{- if eq $n 0}}all projects{{else}}selected{{end}} ▾
-            </button>
-            <div class="dropdown-menu" hidden>
-              {{if .Projects}}
-                {{$sel := .ProjectsSelected}}
-                {{range .Projects}}
-                  <label class="dropdown-item">
-                    <input type="checkbox" name="project" value="{{.}}" {{if index $sel .}}checked{{end}}>
-                    <span>{{.}}</span>
-                  </label>
-                {{end}}
-              {{else}}
-                <div class="dropdown-empty">no projects in window</div>
-              {{end}}
-            </div>
-          </div>
-        </label>
-
-        <label>
-          Device
-          <div class="dropdown">
-            <button type="button" class="dropdown-toggle">
-              {{- $n := 0 -}}
-              {{- range $d, $sel := .DevicesSelected}}{{if $sel}}{{$n = 1}}{{end}}{{end -}}
-              {{- if eq $n 0}}all devices{{else}}selected{{end}} ▾
-            </button>
-            <div class="dropdown-menu" hidden>
-              {{if .Devices}}
-                {{$sel := .DevicesSelected}}
-                {{range .Devices}}
-                  <label class="dropdown-item">
-                    <input type="checkbox" name="device" value="{{.}}" {{if index $sel .}}checked{{end}}>
-                    <span>{{.}}</span>
-                  </label>
-                {{end}}
-              {{else}}
-                <div class="dropdown-empty">no devices yet</div>
-              {{end}}
-            </div>
-          </div>
-        </label>
-
-        <noscript><button class="btn" type="submit">Apply</button></noscript>
-      </form>
-    </aside>
-  </header>
-
-  {{if .ActiveFilters}}
-    <div class="active-filters" aria-label="active filters">
-      {{range .ActiveFilters}}
-        <a class="active-filter-chip" href="{{.RemoveURL}}" title="remove this filter">
-          <span class="label">{{.Label}}</span>
-          <span class="value">{{.Value}}</span>
-          <span class="remove" aria-hidden="true">×</span>
-        </a>
-      {{end}}
-      {{if .ClearFiltersURL}}
-        <a class="active-filters-clear" href="{{.ClearFiltersURL}}">Clear all</a>
-      {{end}}
-    </div>
-  {{end}}
+  {{template "dashboard_filters" .}}
 
   <section class="kpi-strip" aria-label="overview">
-    <div class="kpi">
-      <div class="kpi-value">{{.SessionsKPI}}</div>
-      <div class="kpi-label">sessions</div>
-    </div>
-    <div class="kpi">
-      <div class="kpi-value">{{.ProjectsKPI}}</div>
-      <div class="kpi-label">projects</div>
-    </div>
-    <div class="kpi">
-      <div class="kpi-value">{{.ModelsKPI}}</div>
-      <div class="kpi-label">models</div>
-    </div>
-    <div class="kpi">
-      <div class="kpi-value">{{.TokensKPI}}</div>
-      <div class="kpi-label">tokens</div>
-    </div>
-    <div class="kpi">
-      <div class="kpi-value">{{.SpendKPI}}</div>
-      <div class="kpi-label">est. spend</div>
-    </div>
-    <div class="kpi">
-      <div class="kpi-value">{{.ErrorRateKPI}}</div>
-      <div class="kpi-label">error rate</div>
-    </div>
+    {{range .KPIs}}
+      <div class="kpi">
+        <div class="kpi-value">{{.Value}}{{if .Delta}}<span class="kpi-delta kpi-delta-{{.Delta.Dir}} kpi-tone-{{.Delta.Tone}}" title="vs previous {{$.Last}}">{{.Delta.Text}}</span>{{end}}</div>
+        <div class="kpi-label">{{.Label}}</div>
+      </div>
+    {{end}}
   </section>
 
   <section class="card heatmap-card">
@@ -200,6 +63,26 @@
       </div>
     {{else}}
       <div class="empty">no activity yet.</div>
+    {{end}}
+  </section>
+
+  <section class="card">
+    <header class="card-head">
+      <h2>Activity trend</h2>
+      <span class="card-sub">{{pluralize .Trend.Total "session" "sessions"}} · {{.Trend.BucketLabel}} · by agent{{if .TrendNote}} · {{.TrendNote}}{{end}}</span>
+    </header>
+    {{if .Trend.HasData}}
+      <div class="trend-chart">
+        <div data-chart="activity-trend"></div>
+        <script type="application/json" class="chart-spec" data-for="activity-trend">{{ .Trend.Chart.JSON }}</script>
+      </div>
+      <ul class="cost-legend share-legend">
+        {{range .Trend.Legend}}
+          <li><span class="cost-legend-dot" data-ci="{{.ColorIdx}}"></span><span class="cost-legend-model">{{.Model}}</span><span class="cost-legend-cost">{{.Sessions}}</span></li>
+        {{end}}
+      </ul>
+    {{else}}
+      <div class="empty">no activity in this window.</div>
     {{end}}
   </section>
 
@@ -272,10 +155,8 @@
         <span class="card-sub">{{.HourPeak}} · local time</span>
       </header>
       <div class="hour-chart">
-        {{.HourChart}}
-        <div class="hour-axis" aria-hidden="true">
-          <span>00h</span><span>06h</span><span>12h</span><span>18h</span><span>23h</span>
-        </div>
+        <div data-chart="hour-of-day"></div>
+        <script type="application/json" class="chart-spec" data-for="hour-of-day">{{ .HourChart.JSON }}</script>
       </div>
     </section>
   </div>
@@ -345,11 +226,14 @@
       {{if .ModelTokenBars}}
         <div class="model-usage">
           <div class="model-usage-chart">
-            {{.CostDonut}}
+            {{if .CostDonut.HasData}}
+              <div class="donut-holder" data-chart="cost-donut"></div>
+              <script type="application/json" class="chart-spec" data-for="cost-donut">{{ .CostDonut.JSON }}</script>
+            {{end}}
             {{if .ModelCostLegend}}
               <ul class="cost-legend">
                 {{range .ModelCostLegend}}
-                  <li>{{.Dot}}<span class="cost-legend-model">{{.Model}}</span><span class="cost-legend-cost">{{.Cost}}</span></li>
+                  <li><span class="cost-legend-dot" data-ci="{{.ColorIdx}}"></span><span class="cost-legend-model">{{.Model}}</span><span class="cost-legend-cost">{{.Cost}}</span></li>
                 {{end}}
               </ul>
             {{end}}

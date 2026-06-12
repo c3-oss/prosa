@@ -35,6 +35,7 @@
     </header>
     <nav class="sidebar">
       <a href="/" class="{{if eq .Nav "home"}}active{{end}}">Home</a>
+      <a href="/insights" class="{{if eq .Nav "insights"}}active{{end}}">Insights</a>
       <a href="/sessions" class="{{if eq .Nav "sessions"}}active{{end}}">Sessions</a>
       <a href="/projects" class="{{if eq .Nav "projects"}}active{{end}}">Projects</a>
       <a href="/profiles" class="{{if eq .Nav "profiles"}}active{{end}}">Profiles</a>
@@ -51,5 +52,7 @@
   <script src="{{assetPath "keyboard.js"}}"></script>
   <script src="{{assetPath "sse.js"}}"></script>
   <script src="{{assetPath "widgets.js"}}"></script>
+  <script defer src="{{assetPath "frappe-charts.min.umd.js"}}"></script>
+  <script defer src="{{assetPath "charts-init.js"}}"></script>
 </body>
 </html>{{end}}

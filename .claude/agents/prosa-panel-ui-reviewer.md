@@ -1,6 +1,6 @@
 ---
 name: prosa-panel-ui-reviewer
-description: Read-only reviewer for prosa panel changes — html/template, HTMX, Alpine, inline SVG charts, CSS modules, OAuth flow, SSE.
+description: Read-only reviewer for prosa panel changes — html/template, HTMX, Alpine, Frappe charts, CSS modules, OAuth flow, SSE.
 tools:
   - Read
   - Grep
@@ -24,9 +24,11 @@ code; it inspects diffs and reports.
    needs to change.
 3. Alpine.js usage is local UI state only (toggle, modal, hover, command
    palette). No data fetching, no cross-component store.
-4. Inline SVG charts come from `internal/panel/charts/` helpers (no
-   client-side chart library). Determinism preserved — same input
-   produces the same SVG.
+4. Charts are built as a `charts.Spec` in `internal/panel/charts/` and
+   rendered client-side by Frappe Charts (`assets/charts-init.js`) from a
+   JSON island; no second chart library is added. Series colors come from
+   the `--chart-*` tokens, not hardcoded hex. Heatmap/punch card stay
+   CSS-grid HTML.
 5. No build step introduced. No esbuild, no vite, no `npm install`.
    All assets remain embeddable via `embed.FS`.
 6. CSS uses the design tokens documented in

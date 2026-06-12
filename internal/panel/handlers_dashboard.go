@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"html/template"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/url"
 	"sort"
@@ -29,24 +30,11 @@ import (
 func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 
-	// Default window 30d — the dashboard wants a roomier rolling view
-	// than the CLI's 7d, while still letting the user narrow via ?last=.
-	lastRaw := q.Get("last")
-	if lastRaw == "" {
-		lastRaw = "30d"
-	}
 	now := nowFn().UTC()
-	var since, until time.Time
-	until = now
-	if lastRaw == "all" {
-		since = now.Add(-100 * 365 * 24 * time.Hour)
-	} else {
-		window, err := parseWindow(lastRaw)
-		if err != nil {
-			http.Error(w, "bad last= "+err.Error(), http.StatusBadRequest)
-			return
-		}
-		since = now.Add(-window)
+	lastRaw, since, until, err := parseDashboardWindow(q, now)
+	if err != nil {
+		http.Error(w, "bad last= "+err.Error(), http.StatusBadRequest)
+		return
 	}
 	heatmapSince, heatmapUntil := heatmapWindow(now)
 
@@ -54,18 +42,31 @@ func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 	projects := pickMulti(q, "project")
 	devices := pickDeviceNames(q)
 
+	// Heatmap uses its own request so the fixed-window override doesn't
+	// bleed into the windowed reports.
 	sharedReq := func(report string) *prosav1.GetReportRequest {
-		req := &prosav1.GetReportRequest{
-			Report:      report,
-			Since:       timestamppb.New(since),
-			Until:       timestamppb.New(until),
+		return dashboardReportRequest(report, since, until, agents, projects, devices)
+	}
+	heatmapReq := dashboardReportRequest("heatmap", heatmapSince, heatmapUntil, agents, projects, devices)
+
+	// Daily activity trend over the filtered window; clamp last=all to
+	// 365d so the server doesn't zero-fill ~36k days.
+	trendSince := since
+	trendNote := ""
+	if c := now.AddDate(0, 0, -insightsTrendClampDays); lastRaw == "all" && c.After(trendSince) {
+		trendSince = c
+		trendNote = "trailing 365d"
+	}
+	trendReq := dashboardReportRequest("heatmap", trendSince, until, agents, projects, devices)
+
+	// limit=1 yields the unfiltered total cheaply for the sessions KPI.
+	sessionsListReq := func(s, u time.Time) *prosav1.ListRequest {
+		req := &prosav1.ListRequest{
+			Since:       timestamppb.New(s),
+			Until:       timestamppb.New(u),
+			Limit:       1,
 			DeviceNames: devices,
 		}
-		// agent and project_match are single-valued on the wire; when
-		// the user selected multiple, fall back to "any" server-side
-		// (no narrowing) — the cards then reflect the full window. A
-		// future refinement could post-filter, but for v1 we keep the
-		// dashboard honest at the price of less precise multi-selects.
 		if len(agents) == 1 {
 			req.Agent = agents[0]
 		}
@@ -73,34 +74,6 @@ func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 			req.ProjectMatch = projects[0]
 		}
 		return req
-	}
-	heatmapReq := &prosav1.GetReportRequest{
-		Report:      "heatmap",
-		Since:       timestamppb.New(heatmapSince),
-		Until:       timestamppb.New(heatmapUntil),
-		DeviceNames: devices,
-	}
-	if len(agents) == 1 {
-		heatmapReq.Agent = agents[0]
-	}
-	if len(projects) == 1 {
-		heatmapReq.ProjectMatch = projects[0]
-	}
-
-	// Sessions.List with limit=1 returns one row plus the unfiltered
-	// total — cheap way to get the "sessions in window" KPI without
-	// pulling the whole list.
-	sessionsReq := &prosav1.ListRequest{
-		Since:       timestamppb.New(since),
-		Until:       timestamppb.New(until),
-		Limit:       1,
-		DeviceNames: devices,
-	}
-	if len(agents) == 1 {
-		sessionsReq.Agent = agents[0]
-	}
-	if len(projects) == 1 {
-		sessionsReq.ProjectMatch = projects[0]
 	}
 
 	type fan struct {
@@ -114,22 +87,31 @@ func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 		usageByModel  *prosav1.GetReportResponse // tokens & cost per model card
 		errorsByModel *prosav1.GetReportResponse // errors per model (Issues)
 		hours         *prosav1.GetReportResponse // activity by hour card
+		trend         *prosav1.GetReportResponse // daily activity trend card
+
+		// Previous window of equal length, for the KPI deltas.
+		prevSessions *prosav1.ListResponse
+		prevModels   *prosav1.GetReportResponse
+		prevUsage    *prosav1.GetReportResponse
+		prevProjects *prosav1.GetReportResponse
+		prevErrors   *prosav1.GetReportResponse
 	}
 	var out fan
 	g, gctx := errgroup.WithContext(r.Context())
 	g.Go(func() error {
-		resp, err := p.clients.Sessions.List(gctx, connect.NewRequest(sessionsReq))
+		resp, err := p.clients.Sessions.List(gctx, connect.NewRequest(sessionsListReq(since, until)))
 		if err != nil {
 			return fmt.Errorf("sessions.list: %w", err)
 		}
 		out.sessions = resp.Msg
 		return nil
 	})
-	for _, spec := range []struct {
+	type reportSpec struct {
 		name string
 		req  *prosav1.GetReportRequest
 		dst  **prosav1.GetReportResponse
-	}{
+	}
+	specs := []reportSpec{
 		{"tools", sharedReq("tools"), &out.tools},
 		{"models", sharedReq("models"), &out.models},
 		{"errors", sharedReq("errors"), &out.errors},
@@ -139,8 +121,31 @@ func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 		{"usage_by_model", sharedReq("usage_by_model"), &out.usageByModel},
 		{"errors_by_model", sharedReq("errors_by_model"), &out.errorsByModel},
 		{"hours", sharedReq("hours"), &out.hours},
-	} {
-		spec := spec
+		{"trend", trendReq, &out.trend},
+	}
+	compare := lastRaw != "all"
+	if compare {
+		prevSince := since.Add(-until.Sub(since))
+		prevReq := func(report string) *prosav1.GetReportRequest {
+			return dashboardReportRequest(report, prevSince, since, agents, projects, devices)
+		}
+		specs = append(
+			specs,
+			reportSpec{"models_prev", prevReq("models"), &out.prevModels},
+			reportSpec{"usage_prev", prevReq("usage"), &out.prevUsage},
+			reportSpec{"projects_prev", prevReq("projects"), &out.prevProjects},
+			reportSpec{"errors_by_model_prev", prevReq("errors_by_model"), &out.prevErrors},
+		)
+		g.Go(func() error {
+			resp, err := p.clients.Sessions.List(gctx, connect.NewRequest(sessionsListReq(prevSince, since)))
+			if err != nil {
+				return fmt.Errorf("sessions.list prev: %w", err)
+			}
+			out.prevSessions = resp.Msg
+			return nil
+		})
+	}
+	for _, spec := range specs {
 		g.Go(func() error {
 			resp, err := p.clients.Analytics.GetReport(gctx, connect.NewRequest(spec.req))
 			if err != nil {
@@ -163,22 +168,52 @@ func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 	projectNames := projectLabelsFromRows(out.projects.Rows)
 
 	heatmap := buildHeatmap(out.heatmap.Rows)
-	usageRows, usageTokens, usageCost := buildUsage(out.usage.Rows)
+	usageRows, usageTokens, usageCost, usagePriced := buildUsage(out.usage.Rows)
+	usageCostLabel := costLabel(usageCost, usagePriced)
 	projectBars := buildProjectBars(out.projects.Rows, 10)
 	modelUsage := buildModelUsage(out.usageByModel.Rows)
 	hourChart := buildHourChart(out.hours.Rows)
 	issues := buildIssues(out.errorsByModel.Rows, out.errors.Rows, out.sessions.TotalCount)
+	trend := buildActivityTrend(out.trend.Rows)
 
-	activeFilters := buildHomeActiveFilters(r.URL.Query(), lastRaw, agents, projects, devices)
+	// KPI deltas vs the previous window of equal length.
+	var dSessions, dProjects, dModels, dTokens, dSpend, dErrorRate *kpiDelta
+	if compare {
+		dSessions = buildKPIDelta(float64(out.sessions.TotalCount), float64(out.prevSessions.TotalCount), deltaUpGood)
+		dProjects = buildKPIDelta(float64(len(projectNames)), float64(len(projectLabelsFromRows(out.prevProjects.Rows))), deltaUpGood)
+		dModels = buildKPIDelta(float64(len(out.models.Rows)), float64(len(out.prevModels.Rows)), deltaUpGood)
+		_, prevTokens, prevCost, prevPriced := buildUsage(out.prevUsage.Rows)
+		dTokens = buildKPIDelta(float64(usageTokens), float64(prevTokens), deltaUpGood)
+		if usagePriced || prevPriced {
+			dSpend = buildKPIDelta(usageCost, prevCost, deltaNeutral)
+		}
+		dErrorRate = buildKPIDelta(
+			errorRatePct(issues.Flagged, out.sessions.TotalCount),
+			errorRatePct(flaggedTotal(out.prevErrors.Rows), out.prevSessions.TotalCount),
+			deltaUpBad,
+		)
+	}
+	kpis := []kpiView{
+		{Value: formatPanelInt(out.sessions.TotalCount), Label: "sessions", Delta: dSessions},
+		{Value: formatPanelInt(int64(len(projectNames))), Label: "projects", Delta: dProjects},
+		{Value: formatPanelInt(int64(len(out.models.Rows))), Label: "models", Delta: dModels},
+		{Value: formatPanelInt(usageTokens), Label: "tokens", Delta: dTokens},
+		{Value: usageCostLabel, Label: "est. spend", Delta: dSpend},
+		{Value: issues.Rate, Label: "error rate", Delta: dErrorRate},
+	}
+
+	activeFilters := buildDashboardActiveFilters(r.URL.Query(), "/", lastRaw, agents, projects, devices)
 	clearFiltersURL := ""
 	if len(activeFilters) > 0 {
 		clearFiltersURL = "/"
 	}
 
 	data := map[string]any{
-		"Title": "Home",
-		"Nav":   "home",
-		"CSRF":  p.csrfFromRequest(r),
+		"Title":        "Home",
+		"Nav":          "home",
+		"CSRF":         p.csrfFromRequest(r),
+		"PageTitle":    "Home",
+		"FilterAction": "/",
 
 		"Last":             lastRaw,
 		"Agents":           panelAgents,
@@ -190,12 +225,12 @@ func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 		"ActiveFilters":    activeFilters,
 		"ClearFiltersURL":  clearFiltersURL,
 
-		"SessionsKPI":  out.sessions.TotalCount,
-		"ProjectsKPI":  len(projectNames),
-		"ModelsKPI":    len(out.models.Rows),
-		"TokensKPI":    formatPanelInt(usageTokens),
-		"SpendKPI":     usageCost,
-		"ErrorRateKPI": issues.Rate,
+		// KPI strip (value + optional vs-previous-window delta badge).
+		"KPIs": kpis,
+
+		// Activity trend card (chart: sessions per day/week, by agent).
+		"Trend":     trend,
+		"TrendNote": trendNote,
 
 		"HeatmapCells":    heatmap.Cells,
 		"HeatmapTotal":    heatmap.Total,
@@ -228,7 +263,7 @@ func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 
 		"UsageRows":        usageRows,
 		"UsageTotalTokens": formatPanelInt(usageTokens),
-		"UsageTotalCost":   usageCost,
+		"UsageTotalCost":   usageCostLabel,
 	}
 	p.render(w, "home", data)
 }
@@ -312,42 +347,6 @@ func clampRows(rows []*prosav1.AnalyticsRow, limit int) []*prosav1.AnalyticsRow 
 		return rows[:limit]
 	}
 	return rows
-}
-
-// buildHomeActiveFilters mirrors buildSessionsActiveFilters for the
-// dashboard. Renders one chip per active filter pointing at "/" so the
-// remove URL is bookmark-stable.
-func buildHomeActiveFilters(q url.Values, last string, agents, projects, devices []string) []activeFilter {
-	var out []activeFilter
-	mk := func(label, value string, removeQuery url.Values) activeFilter {
-		removeQuery.Del("session")
-		removeURL := "/"
-		if encoded := removeQuery.Encode(); encoded != "" {
-			removeURL += "?" + encoded
-		}
-		return activeFilter{Label: label, Value: value, RemoveURL: removeURL}
-	}
-	if last != "" && last != "30d" {
-		next := cloneValues(q)
-		next.Del("last")
-		out = append(out, mk("Window", last, next))
-	}
-	for _, a := range agents {
-		next := cloneValues(q)
-		removeFromMulti(next, "agent", a)
-		out = append(out, mk("Agent", a, next))
-	}
-	for _, p := range projects {
-		next := cloneValues(q)
-		removeFromMulti(next, "project", p)
-		out = append(out, mk("Project", p, next))
-	}
-	for _, d := range devices {
-		next := cloneValues(q)
-		removeFromMulti(next, "device", d)
-		out = append(out, mk("Device", d, next))
-	}
-	return out
 }
 
 // projectLabelsFromRows extracts unique project labels (first column
@@ -570,7 +569,15 @@ type usagePanelRow struct {
 	Percent  int
 }
 
-func buildUsage(rows []*prosav1.AnalyticsRow) ([]usagePanelRow, int64, string) {
+// costLabel renders estimated spend as "$X.XX", or "n/a" when unpriced.
+func costLabel(cost float64, priced bool) string {
+	if !priced {
+		return "n/a"
+	}
+	return fmt.Sprintf("$%.2f", cost)
+}
+
+func buildUsage(rows []*prosav1.AnalyticsRow) ([]usagePanelRow, int64, float64, bool) {
 	type parsedRow struct {
 		values usagePanelRow
 		total  int64
@@ -644,10 +651,7 @@ func buildUsage(rows []*prosav1.AnalyticsRow) ([]usagePanelRow, int64, string) {
 		}
 		out = append(out, row.values)
 	}
-	if !priced {
-		return out, totalTokens, "n/a"
-	}
-	return out, totalTokens, fmt.Sprintf("$%.2f", totalCost)
+	return out, totalTokens, totalCost, priced
 }
 
 // buildProjectBars folds the projects report's per-(project, agent) rows into
@@ -679,12 +683,12 @@ func buildProjectBars(rows []*prosav1.AnalyticsRow, limit int) []barRow {
 	return barsFromPairs(labels, counts, limit, formatPanelInt)
 }
 
-// costLegendRow is one entry beside the cost donut: a color dot matching its
-// segment, the model name, and its estimated spend.
+// costLegendRow is one entry beside the cost donut: palette index, model
+// name, and estimated spend.
 type costLegendRow struct {
-	Dot   template.HTML
-	Model string
-	Cost  string
+	ColorIdx int
+	Model    string
+	Cost     string
 }
 
 // modelUsageView bundles the "tokens & cost per model" card: a token
@@ -692,7 +696,7 @@ type costLegendRow struct {
 // the card header.
 type modelUsageView struct {
 	TokenBars   []barRow
-	CostDonut   template.HTML
+	CostDonut   charts.Spec
 	CostLegend  []costLegendRow
 	TotalTokens string
 	TotalCost   string
@@ -703,7 +707,8 @@ type modelUsageView struct {
 func buildModelUsage(rows []*prosav1.AnalyticsRow) modelUsageView {
 	labels := make([]string, 0, len(rows))
 	tokenCounts := make([]int64, 0, len(rows))
-	var slices []charts.Slice
+	var donutLabels []string
+	var donutValues []float64
 	var totalTokens int64
 	var totalCost float64
 	priced := false
@@ -721,7 +726,8 @@ func buildModelUsage(rows []*prosav1.AnalyticsRow) modelUsageView {
 		totalTokens += total
 		if costStr := strings.TrimSpace(row.Values[5]); costStr != "" {
 			if c, err := strconv.ParseFloat(costStr, 64); err == nil && c > 0 {
-				slices = append(slices, charts.Slice{Label: model, Value: c})
+				donutLabels = append(donutLabels, model)
+				donutValues = append(donutValues, c)
 				totalCost += c
 				priced = true
 			}
@@ -731,31 +737,33 @@ func buildModelUsage(rows []*prosav1.AnalyticsRow) modelUsageView {
 	if priced {
 		totalCostLabel = fmt.Sprintf("$%.2f", totalCost)
 	}
-	legend := make([]costLegendRow, 0, len(slices))
-	for i, sl := range slices {
-		dot := fmt.Sprintf(`<span class="cost-legend-dot" style="background:%s"></span>`, charts.PaletteColor(i))
+	legend := make([]costLegendRow, 0, len(donutLabels))
+	for i, model := range donutLabels {
 		legend = append(legend, costLegendRow{
-			Dot:   template.HTML(dot), //nolint:gosec // palette is a fixed CSS token, model name is not interpolated here
-			Model: sl.Label,
-			Cost:  fmt.Sprintf("$%.2f", sl.Value),
+			ColorIdx: i,
+			Model:    model,
+			Cost:     fmt.Sprintf("$%.2f", donutValues[i]),
 		})
 	}
 	return modelUsageView{
 		TokenBars: barsFromPairs(labels, tokenCounts, 8, formatTokensCompact),
-		CostDonut: charts.Donut(slices, charts.DonutOpts{
-			CenterLabel: totalCostLabel,
-			CenterSub:   "est. spend",
-		}),
+		CostDonut: charts.Spec{
+			Type:        "donut",
+			Labels:      donutLabels,
+			Datasets:    []charts.Dataset{{Values: donutValues}},
+			ValuePrefix: "$",
+			Height:      200,
+		},
 		CostLegend:  legend,
 		TotalTokens: formatPanelInt(totalTokens),
 		TotalCost:   totalCostLabel,
 	}
 }
 
-// hourChartView is the "activity by hour" card: the SVG area chart plus a
+// hourChartView is the "activity by hour" card: the area chart spec plus a
 // peak-hour label for the card subtitle.
 type hourChartView struct {
-	Chart     template.HTML
+	Chart     charts.Spec
 	PeakLabel string
 }
 
@@ -785,16 +793,18 @@ func buildHourChartTZ(rows []*prosav1.AnalyticsRow, offsetHours int) hourChartVi
 	}
 	var local [24]int64
 	var total int64
-	for h := 0; h < 24; h++ {
+	for h := range 24 {
 		lh := ((h+offsetHours)%24 + 24) % 24
 		local[lh] += utc[h]
 		total += utc[h]
 	}
-	points := make([]charts.Point, 24)
+	labels := make([]string, 24)
+	values := make([]float64, 24)
 	peakHour := 0
 	var peakVal int64
-	for h := 0; h < 24; h++ {
-		points[h] = charts.Point{Label: fmt.Sprintf("%02dh", h), Value: float64(local[h])}
+	for h := range 24 {
+		labels[h] = fmt.Sprintf("%02dh", h)
+		values[h] = float64(local[h])
 		if local[h] > peakVal {
 			peakVal = local[h]
 			peakHour = h
@@ -805,7 +815,14 @@ func buildHourChartTZ(rows []*prosav1.AnalyticsRow, offsetHours int) hourChartVi
 		peakLabel = fmt.Sprintf("peak %02dh local", peakHour)
 	}
 	return hourChartView{
-		Chart:     charts.Area(points, charts.AreaOpts{UnitSuffix: " sessions"}),
+		Chart: charts.Spec{
+			Type:        "line",
+			Labels:      labels,
+			Datasets:    []charts.Dataset{{Name: "sessions", Values: values}},
+			RegionFill:  true,
+			ValueSuffix: " sessions",
+			Height:      160,
+		},
 		PeakLabel: peakLabel,
 	}
 }
@@ -836,22 +853,21 @@ type issuesView struct {
 // per-model flagged counts) and errors (the recent-rows list), plus the total
 // session count for the rate.
 func buildIssues(errModelRows, errRows []*prosav1.AnalyticsRow, totalSessions int64) issuesView {
-	var flagged, topCount int64
+	flagged := flaggedTotal(errModelRows)
+	var topCount int64
 	topModel := ""
 	for _, row := range errModelRows {
 		if len(row.Values) < 2 {
 			continue
 		}
-		c := parsePanelInt(row.Values[1])
-		flagged += c
-		if c > topCount {
+		if c := parsePanelInt(row.Values[1]); c > topCount {
 			topCount = c
 			topModel = strings.TrimSpace(row.Values[0])
 		}
 	}
 	rate := "0%"
 	if totalSessions > 0 {
-		rate = fmt.Sprintf("%.0f%%", float64(flagged)/float64(totalSessions)*100)
+		rate = fmt.Sprintf("%.0f%%", errorRatePct(flagged, totalSessions))
 	}
 	if topModel == "" {
 		topModel = "—"
@@ -876,5 +892,206 @@ func buildIssues(errModelRows, errRows []*prosav1.AnalyticsRow, totalSessions in
 		TopModel:     topModel,
 		PerModelBars: buildBarRows(errModelRows, 8),
 		Recent:       recent,
+	}
+}
+
+// flaggedTotal sums the per-model flagged-session counts of an errors_by_model report.
+func flaggedTotal(rows []*prosav1.AnalyticsRow) int64 {
+	var flagged int64
+	for _, row := range rows {
+		if len(row.Values) < 2 {
+			continue
+		}
+		flagged += parsePanelInt(row.Values[1])
+	}
+	return flagged
+}
+
+// errorRatePct is the error-rate percentage (0..100); zero sessions yield zero.
+func errorRatePct(flagged, totalSessions int64) float64 {
+	if totalSessions <= 0 {
+		return 0
+	}
+	return float64(flagged) / float64(totalSessions) * 100
+}
+
+// kpiView is one entry of the KPI strip: a value plus an optional delta badge.
+type kpiView struct {
+	Value string
+	Label string
+	Delta *kpiDelta
+}
+
+// kpiDelta is the movement badge beside a KPI value.
+type kpiDelta struct {
+	Text string // "+12%", "-8%", "0%", "new"
+	Dir  string // "up" | "down" | "flat"
+	Tone string // "good" | "bad" | "muted"
+}
+
+// deltaTone says how to read a KPI's movement direction.
+type deltaTone int
+
+const (
+	deltaUpGood  deltaTone = iota // more is better (sessions, tokens, …)
+	deltaUpBad                    // more is worse (error rate)
+	deltaNeutral                  // informational (est. spend)
+)
+
+// buildKPIDelta compares a KPI against the previous window. Nil when both
+// windows are zero; "new" when the metric only exists in the current window.
+func buildKPIDelta(curr, prev float64, tone deltaTone) *kpiDelta {
+	if curr == 0 && prev == 0 {
+		return nil
+	}
+	d := &kpiDelta{}
+	if prev == 0 {
+		d.Text = "new"
+		d.Dir = "up"
+	} else {
+		pct := int(math.Round((curr - prev) / prev * 100))
+		d.Text = fmt.Sprintf("%+d%%", pct)
+		switch {
+		case pct > 0:
+			d.Dir = "up"
+		case pct < 0:
+			d.Dir = "down"
+		default:
+			d.Dir = "flat"
+		}
+	}
+	switch {
+	case tone == deltaNeutral || d.Dir == "flat":
+		d.Tone = "muted"
+	case (d.Dir == "up") == (tone == deltaUpGood):
+		d.Tone = "good"
+	default:
+		d.Tone = "bad"
+	}
+	return d
+}
+
+// trendView powers the Activity trend card: sessions per day/week stacked by agent.
+type trendView struct {
+	Chart       charts.Spec
+	Legend      []shareLegendRow
+	StartLabel  string
+	EndLabel    string
+	BucketLabel string // "per day" | "per week"
+	Total       int64
+	HasData     bool
+}
+
+// buildActivityTrend folds windowed heatmap rows into per-agent stacked
+// columns; agents past the palette's reach collapse into "other".
+func buildActivityTrend(rows []*prosav1.AnalyticsRow) trendView {
+	type key struct{ day, agent string }
+	counts := map[key]int64{}
+	agentTotals := map[string]int64{}
+	days := []string{}
+	seenDay := map[string]bool{}
+	var total int64
+	for _, row := range rows {
+		if len(row.Values) < 3 || row.Values[0] == "" {
+			continue
+		}
+		day := row.Values[0]
+		if !seenDay[day] {
+			seenDay[day] = true
+			days = append(days, day)
+		}
+		agent := strings.TrimSpace(row.Values[1])
+		n := parsePanelInt(row.Values[2])
+		if agent == "" || n <= 0 {
+			continue
+		}
+		counts[key{day, agent}] += n
+		agentTotals[agent] += n
+		total += n
+	}
+	if len(days) == 0 {
+		return trendView{BucketLabel: "per day"}
+	}
+	sort.Strings(days)
+
+	agents := make([]string, 0, len(agentTotals))
+	for a := range agentTotals {
+		agents = append(agents, a)
+	}
+	sort.Slice(agents, func(i, j int) bool {
+		if agentTotals[agents[i]] == agentTotals[agents[j]] {
+			return agents[i] < agents[j]
+		}
+		return agentTotals[agents[i]] > agentTotals[agents[j]]
+	})
+	top := agents
+	hasOther := false
+	if len(agents) > modelShareTopN {
+		top = agents[:modelShareTopN]
+		hasOther = true
+	}
+
+	weekly := len(days) > weeklyBucketCutoverDays
+	bucketLabel := "per day"
+	if weekly {
+		bucketLabel = "per week"
+	}
+	labels := []string{}
+	bucketIdx := map[string]int{}
+	for _, day := range days {
+		label := day[5:]
+		if weekly {
+			label = weekStartLabel(day)
+		}
+		if n := len(labels); n == 0 || labels[n-1] != label {
+			labels = append(labels, label)
+		}
+		bucketIdx[day] = len(labels) - 1
+	}
+
+	datasets := make([]charts.Dataset, 0, len(top)+1)
+	legend := make([]shareLegendRow, 0, len(top)+1)
+	addSeries := func(name string, totals int64, values []float64) {
+		legend = append(legend, shareLegendRow{
+			ColorIdx: len(datasets),
+			Model:    name,
+			Sessions: formatPanelInt(totals),
+		})
+		datasets = append(datasets, charts.Dataset{Name: name, Values: values})
+	}
+	for _, a := range top {
+		values := make([]float64, len(labels))
+		for _, day := range days {
+			values[bucketIdx[day]] += float64(counts[key{day, a}])
+		}
+		addSeries(a, agentTotals[a], values)
+	}
+	if hasOther {
+		values := make([]float64, len(labels))
+		var otherTotal int64
+		for _, a := range agents[modelShareTopN:] {
+			otherTotal += agentTotals[a]
+			for _, day := range days {
+				values[bucketIdx[day]] += float64(counts[key{day, a}])
+			}
+		}
+		addSeries("other", otherTotal, values)
+	}
+
+	return trendView{
+		Chart: charts.Spec{
+			Type:        "bar",
+			Labels:      labels,
+			Datasets:    datasets,
+			Stacked:     true,
+			ValueSuffix: " sessions",
+			Height:      180,
+		},
+		Legend:      legend,
+		StartLabel:  labels[0],
+		EndLabel:    labels[len(labels)-1],
+		BucketLabel: bucketLabel,
+		Total:       total,
+		HasData:     total > 0,
 	}
 }

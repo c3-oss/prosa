@@ -2,6 +2,7 @@ package panel
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -42,7 +43,10 @@ func TestBuildModelUsageTokensCostAndLegend(t *testing.T) {
 	require.Len(t, mv.CostLegend, 1) // only the priced model
 	require.Equal(t, "claude-opus-4-5", mv.CostLegend[0].Model)
 	require.Equal(t, "$0.12", mv.CostLegend[0].Cost)
-	require.Contains(t, string(mv.CostDonut), "<svg")
+	require.Equal(t, 0, mv.CostLegend[0].ColorIdx)
+	require.Equal(t, "donut", mv.CostDonut.Type)
+	require.Equal(t, []string{"claude-opus-4-5"}, mv.CostDonut.Labels)
+	require.Equal(t, []float64{0.12}, mv.CostDonut.Datasets[0].Values)
 }
 
 func TestBuildModelUsageNoCostIsNA(t *testing.T) {
@@ -87,15 +91,16 @@ func TestBuildHourChartRotatesToLocalOffset(t *testing.T) {
 	t.Parallel()
 	rows := []*prosav1.AnalyticsRow{aRow("09", "2"), aRow("14", "1")}
 
-	// UTC (offset 0): peak stays at 09h.
+	// UTC (offset 0): peak stays at 09h (label index 9 carries the value).
 	utc := buildHourChartTZ(rows, 0)
 	require.Equal(t, "peak 09h local", utc.PeakLabel)
-	require.Contains(t, string(utc.Chart), "09h: 2 sessions")
+	require.Equal(t, "09h", utc.Chart.Labels[9])
+	require.Equal(t, 2.0, utc.Chart.Datasets[0].Values[9])
 
 	// America/Sao_Paulo style (offset -3): 09 UTC → 06 local.
 	br := buildHourChartTZ(rows, -3)
 	require.Equal(t, "peak 06h local", br.PeakLabel)
-	require.Contains(t, string(br.Chart), "06h: 2 sessions")
+	require.Equal(t, 2.0, br.Chart.Datasets[0].Values[6])
 
 	// Wrap across midnight (offset +5): 14 + 5 = 19; 09 + 5 = 14 (peak still 14 local, value 2).
 	ist := buildHourChartTZ(rows, 5)
@@ -106,5 +111,85 @@ func TestBuildHourChartEmpty(t *testing.T) {
 	t.Parallel()
 	hv := buildHourChartTZ(nil, 0)
 	require.Equal(t, "no activity", hv.PeakLabel)
-	require.Contains(t, string(hv.Chart), "<svg")
+	require.Equal(t, "line", hv.Chart.Type)
+	require.Len(t, hv.Chart.Datasets[0].Values, 24)
+}
+
+func TestBuildKPIDelta(t *testing.T) {
+	t.Parallel()
+	require.Nil(t, buildKPIDelta(0, 0, deltaUpGood), "both zero → no badge")
+
+	d := buildKPIDelta(5, 0, deltaUpGood)
+	require.Equal(t, "new", d.Text)
+	require.Equal(t, "good", d.Tone)
+
+	d = buildKPIDelta(112, 100, deltaUpGood)
+	require.Equal(t, "+12%", d.Text)
+	require.Equal(t, "up", d.Dir)
+	require.Equal(t, "good", d.Tone)
+
+	d = buildKPIDelta(80, 100, deltaUpGood)
+	require.Equal(t, "-20%", d.Text)
+	require.Equal(t, "down", d.Dir)
+	require.Equal(t, "bad", d.Tone)
+
+	// Error rate inverts: rising is bad, falling is good.
+	d = buildKPIDelta(20, 10, deltaUpBad)
+	require.Equal(t, "+100%", d.Text)
+	require.Equal(t, "bad", d.Tone)
+	d = buildKPIDelta(5, 10, deltaUpBad)
+	require.Equal(t, "good", d.Tone)
+
+	// Spend is informational either way.
+	d = buildKPIDelta(20, 10, deltaNeutral)
+	require.Equal(t, "muted", d.Tone)
+	d = buildKPIDelta(5, 10, deltaNeutral)
+	require.Equal(t, "muted", d.Tone)
+
+	// Sub-half-percent movements flatten to 0%.
+	d = buildKPIDelta(1001, 1000, deltaUpGood)
+	require.Equal(t, "+0%", d.Text)
+	require.Equal(t, "flat", d.Dir)
+	require.Equal(t, "muted", d.Tone)
+}
+
+func TestBuildActivityTrendStacksByAgent(t *testing.T) {
+	t.Parallel()
+	rows := []*prosav1.AnalyticsRow{
+		aRow("2026-05-30", "claude-code", "3"),
+		aRow("2026-05-30", "codex", "1"),
+		aRow("2026-05-31", "", "0"), // zero-filled day keeps the axis continuous
+		aRow("2026-06-01", "claude-code", "2"),
+	}
+	v := buildActivityTrend(rows)
+	require.True(t, v.HasData)
+	require.Equal(t, int64(6), v.Total)
+	require.Equal(t, "per day", v.BucketLabel)
+	require.Equal(t, "05-30", v.StartLabel)
+	require.Equal(t, "06-01", v.EndLabel)
+	require.Len(t, v.Legend, 2)
+	require.Equal(t, "claude-code", v.Legend[0].Model) // highest volume first
+	require.Equal(t, "5", v.Legend[0].Sessions)
+	require.Equal(t, 0, v.Legend[0].ColorIdx)
+	require.Equal(t, "bar", v.Chart.Type)
+	require.True(t, v.Chart.Stacked)
+	require.Len(t, v.Chart.Datasets, 2) // claude-code + codex
+}
+
+func TestBuildActivityTrendCollapsesLongWindowsToWeeks(t *testing.T) {
+	t.Parallel()
+	rows := make([]*prosav1.AnalyticsRow, 0, 200)
+	day := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	for i := range 200 {
+		rows = append(rows, aRow(day.AddDate(0, 0, i).Format("2006-01-02"), "claude-code", "1"))
+	}
+	v := buildActivityTrend(rows)
+	require.Equal(t, "per week", v.BucketLabel)
+	require.Equal(t, int64(200), v.Total)
+}
+
+func TestBuildActivityTrendEmpty(t *testing.T) {
+	t.Parallel()
+	v := buildActivityTrend(nil)
+	require.False(t, v.HasData)
 }

@@ -77,6 +77,26 @@
   --agent-antigrav-soft: #f06bcd26;
   --agent-hermes: #5be0d6;
   --agent-hermes-soft: #5be0d626;
+
+  /* Categorical chart palette --------------------------------------- */
+  /* Okabe–Ito colorblind-safe qualitative palette (distinguishable
+     under protanopia/deuteranopia and in grayscale). Charts cycle
+     --chart-1..8 by series index; charts-init.js reads these tokens so
+     a light/dark swap recolors every chart with no JS change. These are
+     the dark-theme values: the canonical Okabe–Ito hues with the darker
+     ones lifted in lightness for contrast on the near-black --bg. The
+     light theme below uses the canonical (white-tuned) hues. */
+  --chart-1: #56b4e9; /* sky blue */
+  --chart-2: #e69f00; /* orange */
+  --chart-3: #1fb894; /* bluish green (lifted) */
+  --chart-4: #ef6c1a; /* vermillion (lifted) */
+  --chart-5: #3d8fd6; /* blue (lifted) */
+  --chart-6: #cc79a7; /* reddish purple */
+  --chart-7: #f0e442; /* yellow */
+  --chart-8: #aeb4c0; /* neutral grey (lifted) */
+  /* gridlines/axis baselines inside chart cards; quieter than --divider,
+     which is calibrated to separate surfaces, not to sit behind data */
+  --chart-grid: #20242f;
 }
 
 /* Light palette ---------------------------------------------------- */
@@ -98,6 +118,18 @@
   --danger: #d63648;
   --divider: #d8dde6;
   --warn: #c48415;
+
+  /* Canonical Okabe–Ito hues, tuned for the white --bg: yellow and grey
+     are darkened so they keep contrast on light surfaces. */
+  --chart-1: #56b4e9;
+  --chart-2: #e69f00;
+  --chart-3: #009e73;
+  --chart-4: #d55e00;
+  --chart-5: #0072b2;
+  --chart-6: #cc79a7;
+  --chart-7: #c9a227; /* darker gold for white-bg contrast */
+  --chart-8: #8a8f99; /* mid grey for white-bg contrast */
+  --chart-grid: #e7ebf1;
 }
 
 @media (prefers-color-scheme: light) {
@@ -114,5 +146,15 @@
     --danger: #d63648;
     --divider: #d8dde6;
     --warn: #c48415;
+
+    --chart-1: #56b4e9;
+    --chart-2: #e69f00;
+    --chart-3: #009e73;
+    --chart-4: #d55e00;
+    --chart-5: #0072b2;
+    --chart-6: #cc79a7;
+    --chart-7: #c9a227;
+    --chart-8: #8a8f99;
+    --chart-grid: #e7ebf1;
   }
 }

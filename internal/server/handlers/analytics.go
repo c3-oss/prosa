@@ -19,8 +19,9 @@ import (
 )
 
 // AnalyticsHandler implements AnalyticsService against Postgres. The
-// queries mirror internal/store/analytics.go (which targets SQLite),
-// rewritten with $N placeholders and tsvector FTS in place of FTS5.
+// CLI-facing reports mirror internal/store/analytics.go (which targets
+// SQLite), rewritten with $N placeholders and tsvector FTS in place of
+// FTS5. The insights reports feed the panel only, with no SQLite mirror.
 type AnalyticsHandler struct {
 	prosav1connect.UnimplementedAnalyticsServiceHandler
 	Pool *pgxpool.Pool
@@ -67,9 +68,20 @@ func (h *AnalyticsHandler) GetReport(ctx context.Context, req *connect.Request[p
 		return runReport(ctx, h.Pool, req.Msg, queryErrorsByModel, []string{"MODEL", "SESSIONS"})
 	case "usage_by_model":
 		return runUsageByModel(ctx, h.Pool, req.Msg)
+	case "usage_by_day":
+		return runReport(ctx, h.Pool, req.Msg, queryUsageByDay,
+			[]string{"DAY", "MODEL", "SESSIONS", "MEASURED", "TOTAL", "INPUT", "OUTPUT", "CACHED", "CACHE_READ", "CACHE_CREATION"})
+	case "punchcard":
+		return runReport(ctx, h.Pool, req.Msg, queryPunchcard, []string{"DOW", "HOUR", "SESSIONS"})
+	case "durations":
+		return runReport(ctx, h.Pool, req.Msg, queryDurations, []string{"BUCKET", "SESSIONS"})
+	case "duration_stats":
+		return runReport(ctx, h.Pool, req.Msg, queryDurationStats, []string{"MEDIAN_S", "P90_S", "AVG_S", "MAX_S"})
+	case "subagents":
+		return runReport(ctx, h.Pool, req.Msg, querySubagents, []string{"AGENT", "PARENTS", "CHILDREN", "MAX_FANOUT"})
 	default:
 		return nil, connect.NewError(connect.CodeInvalidArgument,
-			fmt.Errorf("unknown report %q (want sessions|tools|models|projects|profiles|errors|heatmap|usage|hours|usage_by_model|errors_by_model)", req.Msg.Report))
+			fmt.Errorf("unknown report %q (want sessions|tools|models|projects|profiles|errors|heatmap|usage|hours|usage_by_model|errors_by_model|usage_by_day|punchcard|durations|duration_stats|subagents)", req.Msg.Report))
 	}
 }
 
@@ -529,5 +541,98 @@ func queryErrorsByModel(whereSQL string, args []any) (string, []any) {
 		             AND t.content_tsv @@ to_tsquery('simple', ` + tsParam + `)
 		GROUP BY model
 		ORDER BY COUNT(DISTINCT s.id) DESC`
+	return q, args
+}
+
+// queryUsageByDay returns raw token sums per (UTC day, model). No zero-fill:
+// the panel fills calendar gaps and prices each row, so rows stay bounded by active days.
+func queryUsageByDay(whereSQL string, args []any) (string, []any) {
+	q := `
+		SELECT to_char((s.started_at AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD') AS day,
+		       COALESCE(s.model, '(none)') AS model,
+		       COUNT(DISTINCT s.id)::text  AS sessions,
+		       COUNT(su.session_id)::text  AS measured,
+		       COALESCE(SUM(su.total_tokens), 0)::text          AS total_tokens,
+		       COALESCE(SUM(su.input_tokens), 0)::text          AS input_tokens,
+		       COALESCE(SUM(su.output_tokens), 0)::text         AS output_tokens,
+		       COALESCE(SUM(su.cached_tokens), 0)::text         AS cached_tokens,
+		       COALESCE(SUM(su.cache_read_tokens), 0)::text     AS cache_read_tokens,
+		       COALESCE(SUM(su.cache_creation_tokens), 0)::text AS cache_creation_tokens
+		FROM sessions s
+		LEFT JOIN session_usage su ON su.session_id = s.id
+		` + whereSQL + `
+		GROUP BY day, model
+		ORDER BY day ASC, model ASC`
+	return q, args
+}
+
+// queryPunchcard buckets sessions by (UTC weekday, UTC start-hour).
+// EXTRACT(DOW) is 0=Sunday, matching Go's time.Weekday; the panel rotates to local time.
+func queryPunchcard(whereSQL string, args []any) (string, []any) {
+	q := `
+		SELECT EXTRACT(DOW FROM s.started_at AT TIME ZONE 'UTC')::int::text AS dow,
+		       to_char(s.started_at AT TIME ZONE 'UTC', 'HH24')             AS hour,
+		       COUNT(*)::text                                               AS sessions
+		FROM sessions s
+		` + whereSQL + `
+		GROUP BY dow, hour
+		ORDER BY dow ASC, hour ASC`
+	return q, args
+}
+
+// durationSeconds is the wall-clock span of a session (clamped at zero for
+// clock skew), shared by queryDurations and queryDurationStats.
+const durationSeconds = `
+	SELECT GREATEST(EXTRACT(EPOCH FROM (s.last_activity_at - s.started_at)), 0) AS d
+	FROM sessions s
+	`
+
+// queryDurations histograms session durations into fixed buckets. No ORDER BY:
+// the panel emits buckets in canonical order and looks counts up by name.
+func queryDurations(whereSQL string, args []any) (string, []any) {
+	q := `
+		SELECT CASE
+		         WHEN d < 300  THEN '<5m'
+		         WHEN d < 900  THEN '5-15m'
+		         WHEN d < 1800 THEN '15-30m'
+		         WHEN d < 3600 THEN '30-60m'
+		         WHEN d < 7200 THEN '1-2h'
+		         ELSE '>2h'
+		       END AS bucket,
+		       COUNT(*)::text AS sessions
+		FROM (` + durationSeconds + whereSQL + `) x
+		GROUP BY bucket`
+	return q, args
+}
+
+// queryDurationStats returns one row of duration percentiles in whole seconds.
+// COALESCE keeps an empty window at zeros instead of NULLs.
+func queryDurationStats(whereSQL string, args []any) (string, []any) {
+	q := `
+		SELECT COALESCE(ROUND(percentile_cont(0.5) WITHIN GROUP (ORDER BY d))::bigint, 0)::text AS median_s,
+		       COALESCE(ROUND(percentile_cont(0.9) WITHIN GROUP (ORDER BY d))::bigint, 0)::text AS p90_s,
+		       COALESCE(ROUND(AVG(d))::bigint, 0)::text AS avg_s,
+		       COALESCE(ROUND(MAX(d))::bigint, 0)::text AS max_s
+		FROM (` + durationSeconds + whereSQL + `) x`
+	return q, args
+}
+
+// querySubagents aggregates subagent fan-out per parent agent. Filters apply
+// to the children, but grouping is by the parent's agent (the spawning session).
+func querySubagents(whereSQL string, args []any) (string, []any) {
+	q := `
+		SELECT agent,
+		       COUNT(*)::text      AS parents,
+		       SUM(children)::text AS children,
+		       MAX(children)::text AS max_fanout
+		FROM (
+		  SELECT p.agent AS agent, s.parent_session_id, COUNT(*) AS children
+		  FROM sessions s
+		  JOIN sessions p ON p.id = s.parent_session_id
+		  ` + whereSQL + ` AND s.parent_session_id IS NOT NULL
+		  GROUP BY p.agent, s.parent_session_id
+		) x
+		GROUP BY agent
+		ORDER BY SUM(children) DESC, agent ASC`
 	return q, args
 }

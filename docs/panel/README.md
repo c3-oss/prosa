@@ -10,7 +10,7 @@ implementation internals see
   list of requested mocks.
 - [Screens](screens.md) — screen-by-screen spec: layout, data shown,
   behavior.
-- [Components](components.md) — KPI card, SVG charts, filter pills,
+- [Components](components.md) — KPI card, charts, filter pills,
   command palette, design tokens.
 - [Mock prompts](mock-prompts.md) — ready-to-use prompts for generating
   visual mocks with AI (Claude artifacts, v0.dev, Midjourney, etc).
@@ -21,8 +21,9 @@ implementation internals see
 - HTMX — partial swaps (sidepanel, raw pagination, chart swaps by
   filter).
 - Alpine.js (~15 KB) — local UI state (toggle, modal, hover).
-- Inline SVG generated in Go (`internal/panel/charts/`) — sparkline, bar,
-  donut, heatmap, trend.
+- Frappe Charts (vendored ~19 KB SVG library) fed a Go-built JSON spec
+  (`internal/panel/charts/`) — donut, area, stacked/normalized bars; the
+  heatmap and punch card stay CSS-grid HTML.
 - Modular CSS via native `@import`, no build step.
 - SSE — live updates (new-sessions badge, KPI tick-up).
 
