@@ -19,9 +19,10 @@ import (
 )
 
 // AnalyticsHandler implements AnalyticsService against Postgres. The
-// CLI-facing reports mirror internal/store/analytics.go (which targets
-// SQLite), rewritten with $N placeholders and tsvector FTS in place of
-// FTS5. The insights reports feed the panel only, with no SQLite mirror.
+// CLI-facing reports (subagents included) mirror
+// internal/store/analytics.go (which targets SQLite), rewritten with $N
+// placeholders and tsvector FTS in place of FTS5. The remaining insights
+// reports feed the panel only, with no SQLite mirror.
 type AnalyticsHandler struct {
 	prosav1connect.UnimplementedAnalyticsServiceHandler
 	Pool *pgxpool.Pool

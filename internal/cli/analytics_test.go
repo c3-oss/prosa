@@ -216,7 +216,7 @@ func TestAnalyticsErrors(t *testing.T) {
 }
 
 func TestValidAnalyticsReportsIncludesNewReports(t *testing.T) {
-	for _, name := range []string{"hours", "usage_by_model", "errors_by_model"} {
+	for _, name := range []string{"hours", "usage_by_model", "errors_by_model", "subagents"} {
 		require.Contains(t, validAnalyticsReports, name)
 	}
 }
@@ -233,6 +233,7 @@ func TestDispatchAnalyticsRoutesNewReports(t *testing.T) {
 		{"hours", []string{"HOUR", "SESSIONS"}},
 		{"usage_by_model", []string{"MODEL", "SESSIONS", "TOTAL", "INPUT", "OUTPUT", "EST_COST_USD"}},
 		{"errors_by_model", []string{"MODEL", "SESSIONS"}},
+		{"subagents", []string{"AGENT", "PARENTS", "CHILDREN", "MAX_FANOUT"}},
 	} {
 		t.Run(tc.report, func(t *testing.T) {
 			r, err := dispatchAnalytics(ctx, s, tc.report, filter(now))
