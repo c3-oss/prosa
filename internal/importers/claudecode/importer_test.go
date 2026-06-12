@@ -456,16 +456,24 @@ func TestWalkFiltersSubagentsAndNonUUID(t *testing.T) {
 	valid := filepath.Join(proj, fixtureSessionID+".jsonl")
 	require.NoError(t, os.WriteFile(valid, []byte("{}\n"), 0o644))
 
-	// Subagent JSONL with the canonical `agent-<uuid>.jsonl` name —
-	// v8 picks it up alongside the parent so the panel can render the
-	// expansion. A subagent file that does NOT match the pattern
-	// (`agent-foo.jsonl`) is still ignored.
+	// Subagent JSONLs are picked up alongside the parent so the panel
+	// can render the expansion — both the current `agent-<hex>.jsonl`
+	// naming and the older `agent-<uuid>.jsonl`. A subagent file that
+	// matches neither pattern (`agent-foo.jsonl`) is still ignored.
 	subDir := filepath.Join(proj, fixtureSessionID, "subagents")
 	require.NoError(t, os.MkdirAll(subDir, 0o755))
-	subagentID := "abcdef01-1234-4abc-9def-1234567890ab"
-	subagentValid := filepath.Join(subDir, "agent-"+subagentID+".jsonl")
-	require.NoError(t, os.WriteFile(subagentValid, []byte("{}\n"), 0o644))
+	subagentHex := filepath.Join(subDir, "agent-a189cf08bb8bed417.jsonl")
+	require.NoError(t, os.WriteFile(subagentHex, []byte("{}\n"), 0o644))
+	subagentUUID := filepath.Join(subDir, "agent-abcdef01-1234-4abc-9def-1234567890ab.jsonl")
+	require.NoError(t, os.WriteFile(subagentUUID, []byte("{}\n"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(subDir, "agent-foo.jsonl"), []byte("{}\n"), 0o644))
+
+	// Workflow-tool spawns nest one level deeper under subagents/.
+	wfDir := filepath.Join(subDir, "workflows", "wf_3ae03bc2-d76")
+	require.NoError(t, os.MkdirAll(wfDir, 0o755))
+	subagentWorkflow := filepath.Join(wfDir, "agent-a00cb638405bb4c90.jsonl")
+	require.NoError(t, os.WriteFile(subagentWorkflow, []byte("{}\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(wfDir, "agent-a00cb638405bb4c90.meta.json"), []byte("{}"), 0o644))
 
 	memDir := filepath.Join(proj, "memory")
 	require.NoError(t, os.MkdirAll(memDir, 0o755))
@@ -477,13 +485,74 @@ func TestWalkFiltersSubagentsAndNonUUID(t *testing.T) {
 	imp := New()
 	got, err := imp.Walk(context.Background(), root)
 	require.NoError(t, err)
-	require.ElementsMatch(t, []string{valid, subagentValid}, got)
+	require.ElementsMatch(t, []string{valid, subagentHex, subagentUUID, subagentWorkflow}, got)
+}
+
+// TestSubagentPathHelpers pins identity and parent-edge recovery for
+// every observed subagent layout: Agent-tool spawns directly under
+// `<parent>/subagents/`, Workflow-tool spawns nested under
+// `subagents/workflows/wf_<id>/`, and degraded layouts where the
+// directory above `subagents` is not UUID-shaped.
+func TestSubagentPathHelpers(t *testing.T) {
+	t.Parallel()
+	parent := "5c91f397-d35c-4805-81ee-d0ee268909e3"
+	cases := []struct {
+		name   string
+		path   string
+		wantID string
+		wantPa string
+	}{
+		{
+			name:   "agent tool spawn",
+			path:   "/r/-proj/" + parent + "/subagents/agent-a189cf08bb8bed417.jsonl",
+			wantID: "agent-a189cf08bb8bed417",
+			wantPa: parent,
+		},
+		{
+			name:   "workflow tool spawn",
+			path:   "/r/-proj/" + parent + "/subagents/workflows/wf_3ae03bc2-d76/agent-a00cb638405bb4c90.jsonl",
+			wantID: "agent-a00cb638405bb4c90",
+			wantPa: parent,
+		},
+		{
+			name:   "old uuid naming",
+			path:   "/r/-proj/" + parent + "/subagents/agent-abcdef01-1234-4abc-9def-1234567890ab.jsonl",
+			wantID: "agent-abcdef01-1234-4abc-9def-1234567890ab",
+			wantPa: parent,
+		},
+		{
+			name:   "subagents dir without uuid parent keeps identity, no edge",
+			path:   "/r/-proj/subagents/agent-a189cf08bb8bed417.jsonl",
+			wantID: "agent-a189cf08bb8bed417",
+			wantPa: "",
+		},
+		{
+			name:   "non-matching basename",
+			path:   "/r/-proj/" + parent + "/subagents/agent-foo.jsonl",
+			wantID: "",
+			wantPa: parent,
+		},
+		{
+			name:   "top-level session",
+			path:   "/r/-proj/" + parent + ".jsonl",
+			wantID: "",
+			wantPa: "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.wantID, subagentSessionIDFromPath(tc.path))
+			require.Equal(t, tc.wantPa, parentSessionIDFromPath(tc.path))
+		})
+	}
 }
 
 // TestImportSubagentSetsParentSessionID writes a parent JSONL plus a
-// subagent JSONL under `<parent>/subagents/agent-<uuid>.jsonl` and
-// verifies that the subagent's projected session carries
-// ParentSessionID pointing at the directory above `subagents/`.
+// subagent JSONL under `<parent>/subagents/agent-<hex>.jsonl` in the
+// real on-disk shape — every subagent record carries the PARENT's
+// sessionId — and verifies the child is stored under the filename stem
+// with ParentSessionID pointing at the directory above `subagents/`,
+// without clobbering the parent's own row.
 func TestImportSubagentSetsParentSessionID(t *testing.T) {
 	ctx := context.Background()
 	t.Setenv("PROSA_HOME", filepath.Join(t.TempDir(), "prosa-home"))
@@ -514,22 +583,28 @@ func TestImportSubagentSetsParentSessionID(t *testing.T) {
 		},
 	})
 
-	subagentID := "abcdef01-1234-4abc-9def-1234567890ab"
+	// Real subagent shape: filename is `agent-<hex>`, every record's
+	// sessionId is the PARENT's, and agentId/isSidechain mark the spawn.
+	agentID := "a189cf08bb8bed417"
 	subDir := filepath.Join(proj, fixtureSessionID, "subagents")
 	require.NoError(t, os.MkdirAll(subDir, 0o755))
-	subagentJSONL := filepath.Join(subDir, "agent-"+subagentID+".jsonl")
+	subagentJSONL := filepath.Join(subDir, "agent-"+agentID+".jsonl")
 	writeJSONL(t, subagentJSONL, []map[string]any{
 		{
-			"type":      "user",
-			"sessionId": subagentID,
-			"timestamp": base.Add(2 * time.Second).Format(time.RFC3339Nano),
-			"cwd":       "/proj",
-			"message":   map[string]any{"role": "user", "content": "child task"},
+			"type":        "user",
+			"sessionId":   fixtureSessionID,
+			"agentId":     agentID,
+			"isSidechain": true,
+			"timestamp":   base.Add(2 * time.Second).Format(time.RFC3339Nano),
+			"cwd":         "/proj",
+			"message":     map[string]any{"role": "user", "content": "child task"},
 		},
 		{
-			"type":      "assistant",
-			"sessionId": subagentID,
-			"timestamp": base.Add(3 * time.Second).Format(time.RFC3339Nano),
+			"type":        "assistant",
+			"sessionId":   fixtureSessionID,
+			"agentId":     agentID,
+			"isSidechain": true,
+			"timestamp":   base.Add(3 * time.Second).Format(time.RFC3339Nano),
 			"message": map[string]any{
 				"role": "assistant", "model": "claude-sonnet-4-6",
 				"usage":   map[string]any{"input_tokens": 1, "output_tokens": 1},
@@ -547,13 +622,71 @@ func TestImportSubagentSetsParentSessionID(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, childRes.Skipped)
 
+	require.Equal(t, "agent-"+agentID, childRes.SessionID,
+		"child id must come from the filename stem, not the embedded (parent) sessionId")
+
 	parent := sink.Sessions[fixtureSessionID]
 	require.Nil(t, parent.ParentSessionID, "top-level session has no parent")
+	require.NotNil(t, parent.FirstPrompt)
+	require.Equal(t, "spawn an agent", *parent.FirstPrompt,
+		"importing the child must not clobber the parent row")
 
-	child := sink.Sessions[subagentID]
+	child := sink.Sessions["agent-"+agentID]
 	require.NotNil(t, child.ParentSessionID,
 		"subagent session must carry the parent UUID from its path")
 	require.Equal(t, fixtureSessionID, *child.ParentSessionID)
+}
+
+// TestImportSubagentWithoutUUIDParentDirKeepsOwnIdentity covers the
+// degraded layout where a `subagents/` directory sits under a non-UUID
+// directory: the child still takes its identity from the filename stem
+// (never the embedded parent sessionId, which would clobber the parent
+// row on upsert) and carries no parent edge.
+func TestImportSubagentWithoutUUIDParentDirKeepsOwnIdentity(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv("PROSA_HOME", filepath.Join(t.TempDir(), "prosa-home"))
+
+	dir := t.TempDir()
+	subDir := filepath.Join(dir, "-Users-test-proj", "subagents")
+	require.NoError(t, os.MkdirAll(subDir, 0o755))
+
+	agentID := "a189cf08bb8bed417"
+	subagentJSONL := filepath.Join(subDir, "agent-"+agentID+".jsonl")
+	base := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
+	writeJSONL(t, subagentJSONL, []map[string]any{
+		{
+			"type":        "user",
+			"sessionId":   fixtureSessionID,
+			"agentId":     agentID,
+			"isSidechain": true,
+			"timestamp":   base.Format(time.RFC3339Nano),
+			"cwd":         "/proj",
+			"message":     map[string]any{"role": "user", "content": "child task"},
+		},
+		{
+			"type":      "assistant",
+			"sessionId": fixtureSessionID,
+			"timestamp": base.Add(time.Second).Format(time.RFC3339Nano),
+			"message": map[string]any{
+				"role": "assistant", "model": "claude-sonnet-4-6",
+				"usage":   map[string]any{"input_tokens": 1, "output_tokens": 1},
+				"content": []map[string]any{{"type": "text", "text": "done"}},
+			},
+		},
+	})
+
+	sink := newSink()
+	res, err := New().Import(ctx, subagentJSONL, sink, importer.ImportOptions{})
+	require.NoError(t, err)
+	require.False(t, res.Skipped)
+	require.Equal(t, "agent-"+agentID, res.SessionID)
+
+	child := sink.Sessions["agent-"+agentID]
+	require.Nil(t, child.ParentSessionID,
+		"no UUID-shaped parent directory means no edge")
+	_, clobbered := sink.Sessions[fixtureSessionID]
+	require.False(t, clobbered,
+		"embedded sessionId must not become a session row")
 }
 
 func TestWalkMissingRootReturnsEmpty(t *testing.T) {

@@ -16,8 +16,12 @@ Imported by `packages/prosa-core/src/importers/claude/`.
     memory/*.md                                # project memory
     <session-id>/
       subagents/
-        agent-<agent-id>.jsonl                 # subagent transcript
+        agent-<agent-id>.jsonl                 # Agent-tool subagent transcript
         agent-<agent-id>.meta.json             # subagent metadata
+        workflows/
+          wf_<id>/
+            agent-<agent-id>.jsonl             # Workflow-tool subagent transcript
+            agent-<agent-id>.meta.json
       tool-results/
         *.txt | *.json | pdf-<id>/page-NN.jpg  # large outputs and PDFs
 ```
@@ -282,14 +286,19 @@ What `loadTranscript` / `prosa v1 session show` surface for Claude Code sessions
   `WHEN kind != 'thinking'`; server `content_tsv` returns empty for
   thinking) so search results stay focused on chat content. The raw
   JSONL preserves every byte verbatim.
-- **Subagents projected (v8+)**: subagent JSONLs at
-  `<parent-uuid>/subagents/agent-<uuid>.jsonl` are imported
-  alongside their parents (the walker includes the `subagents/`
-  directory; basename must match `agent-<uuid>.jsonl`). The parent
-  UUID is recovered from the directory two levels above the JSONL
-  and stored in `Session.ParentSessionID`. The panel renders the
-  Subagents disclosure on the parent's sidepanel; clicking a child
-  reopens the same sidepanel scoped to it.
+- **Subagents projected (v8+)**: subagent JSONLs under
+  `<parent-uuid>/subagents/` are imported alongside their parents —
+  both Agent-tool spawns directly in `subagents/` and Workflow-tool
+  spawns nested at `subagents/workflows/wf_<id>/`. The basename must
+  be `agent-` plus either a bare hex id (current CLIs, observed 17 hex
+  chars) or an older dashed UUID. The child's session id is the
+  filename stem (`agent-<agent-id>`): every record inside carries the
+  parent's `sessionId`, so the stem is the only stable identity the
+  child has. The parent UUID is the directory immediately above the
+  innermost `subagents` component, stored in
+  `Session.ParentSessionID`. The panel renders the Subagents
+  disclosure on the parent's sidepanel; clicking a child reopens the
+  same sidepanel scoped to it.
 - **Summarized vs verbatim**: `tool_results.preview` is a short snapshot
   of the result text; the verbatim payload is reachable via
   `*_object_id`. Subagent-side artifacts cross-link to the parent assistant

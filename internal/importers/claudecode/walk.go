@@ -16,10 +16,11 @@ import (
 var uuidFileRE = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jsonl$`)
 
 // subagentFileRE matches the basename Claude Code uses for subagent
-// JSONLs: `agent-<uuid>.jsonl` inside a `<parent-uuid>/subagents/`
-// directory. Parent UUID is recovered from the directory two levels up
-// at parse time.
-var subagentFileRE = regexp.MustCompile(`^agent-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jsonl$`)
+// JSONLs inside a `<parent-uuid>/subagents/` directory. Current CLIs
+// name them `agent-<hex-id>.jsonl` (observed: 17 hex chars); older
+// builds used a full dashed UUID. Parent UUID is recovered from the
+// directory two levels up at parse time.
+var subagentFileRE = regexp.MustCompile(`^agent-(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{12,32})\.jsonl$`)
 
 // Walk discovers session JSONL files under root, both top-level
 // sessions and the subagent files Claude Code stores under
@@ -72,18 +73,21 @@ func (i *Importer) Walk(ctx context.Context, root string) ([]string, error) {
 
 // parentSessionIDFromPath returns the parent session UUID for a Claude
 // Code subagent JSONL or "" when path doesn't look like a subagent.
-// Subagent layout: `<root>/<project-slug>/<parent-uuid>/subagents/agent-<uuid>.jsonl`.
-// The parent uuid is the directory two levels above the JSONL.
+// Agent-tool spawns sit directly under the parent's `subagents/`
+// directory; Workflow-tool spawns nest deeper
+// (`subagents/workflows/wf_<id>/agent-<hex>.jsonl`). Either way the
+// parent UUID is the directory immediately above the innermost
+// `subagents` component.
 func parentSessionIDFromPath(path string) string {
-	slash := filepath.ToSlash(path)
-	if !strings.Contains(slash, "/subagents/") {
+	parts := strings.Split(filepath.ToSlash(path), "/")
+	for i := len(parts) - 2; i > 0; i-- {
+		if parts[i] != "subagents" {
+			continue
+		}
+		if candidate := parts[i-1]; uuidLikeRE.MatchString(candidate) {
+			return candidate
+		}
 		return ""
-	}
-	// dir of the JSONL is `.../subagents`; one level up is the parent UUID.
-	parentDir := filepath.Dir(filepath.Dir(path))
-	candidate := filepath.Base(parentDir)
-	if uuidLikeRE.MatchString(candidate) {
-		return candidate
 	}
 	return ""
 }
@@ -92,3 +96,21 @@ func parentSessionIDFromPath(path string) string {
 // minus the `.jsonl` suffix so parentSessionIDFromPath can validate a
 // directory name.
 var uuidLikeRE = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+
+// subagentSessionIDFromPath returns the canonical session id for a
+// subagent JSONL — the filename stem (`agent-<id>`) — or "" when path
+// is not a subagent transcript. The stem is the only stable identity a
+// subagent has: every record inside carries the parent's sessionId.
+// Mirrors Walk's admission criteria exactly so anything Walk admits
+// gets filename-stem identity, even when the directory two levels up
+// is not UUID-shaped and no parent edge can be recovered.
+func subagentSessionIDFromPath(path string) string {
+	if !strings.Contains(filepath.ToSlash(path), "/subagents/") {
+		return ""
+	}
+	base := filepath.Base(path)
+	if !subagentFileRE.MatchString(base) {
+		return ""
+	}
+	return strings.TrimSuffix(base, ".jsonl")
+}
