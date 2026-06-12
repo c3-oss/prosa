@@ -67,6 +67,7 @@ func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 			Until:       timestamppb.New(u),
 			Limit:       1,
 			DeviceNames: devices,
+			Profiles:    profilesSel,
 		}
 		if len(agents) == 1 {
 			req.Agent = agents[0]

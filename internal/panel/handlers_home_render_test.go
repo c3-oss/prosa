@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -15,9 +16,13 @@ import (
 
 type fakeSessionsService struct {
 	prosav1connect.UnimplementedSessionsServiceHandler
+	onList func(*prosav1.ListRequest)
 }
 
-func (fakeSessionsService) List(context.Context, *connect.Request[prosav1.ListRequest]) (*connect.Response[prosav1.ListResponse], error) {
+func (s fakeSessionsService) List(_ context.Context, req *connect.Request[prosav1.ListRequest]) (*connect.Response[prosav1.ListResponse], error) {
+	if s.onList != nil {
+		s.onList(req.Msg)
+	}
 	return connect.NewResponse(&prosav1.ListResponse{TotalCount: 42}), nil
 }
 
@@ -124,7 +129,19 @@ func (fakeAnalyticsService) GetReport(_ context.Context, req *connect.Request[pr
 // catches a handler↔template key mismatch — the template-parse test cannot.
 func TestHomeRendersIssuesAndCharts(t *testing.T) {
 	mux := http.NewServeMux()
-	sp, sh := prosav1connect.NewSessionsServiceHandler(fakeSessionsService{})
+	var (
+		mu       sync.Mutex
+		listReqs []*prosav1.ListRequest
+	)
+	sp, sh := prosav1connect.NewSessionsServiceHandler(fakeSessionsService{
+		onList: func(req *prosav1.ListRequest) {
+			mu.Lock()
+			defer mu.Unlock()
+			listReqs = append(listReqs, &prosav1.ListRequest{
+				Profiles: append([]string(nil), req.Profiles...),
+			})
+		},
+	})
 	mux.Handle(sp, sh)
 	dp, dh := prosav1connect.NewDevicesServiceHandler(fakeDevicesService{})
 	mux.Handle(dp, dh)
@@ -143,7 +160,7 @@ func TestHomeRendersIssuesAndCharts(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req := httptest.NewRequest(http.MethodGet, "/?profile=work", nil)
 	req.AddCookie(cookieFor(t, p, "owner@example.com"))
 	rec := httptest.NewRecorder()
 	p.mux.ServeHTTP(rec, req)
@@ -152,25 +169,28 @@ func TestHomeRendersIssuesAndCharts(t *testing.T) {
 	body := rec.Body.String()
 
 	for _, want := range []string{
-		">Issues<",                    // section heading
-		">Hour of day<",               // chart 4
-		"Tokens &amp; cost per model", // chart 2 heading (escaped &)
-		">Projects<",                  // chart 3
-		"error rate",                  // new KPI
-		`data-chart="hour-of-day"`,    // hour-of-day chart container
-		`data-chart="cost-donut"`,     // cost donut chart container
-		"cost-legend",                 // donut legend
-		"/sessions?session=sess-1",    // actionable recent issue link
-		"peak ",                       // hour peak label
-		"42",                          // sessions KPI
-		">Activity trend<",            // daily trend card
-		`data-chart="activity-trend"`, // trend chart container
-		"kpi-delta",                   // vs-previous-window badge
-		"vs previous 30d",             // delta badge tooltip
-		"all profiles",                // profile filter dropdown
-		`name="profile" value="work"`, // profile dropdown option
+		">Issues<",                            // section heading
+		">Hour of day<",                       // chart 4
+		"Tokens &amp; cost per model",         // chart 2 heading (escaped &)
+		">Projects<",                          // chart 3
+		"error rate",                          // new KPI
+		`data-chart="hour-of-day"`,            // hour-of-day chart container
+		`data-chart="cost-donut"`,             // cost donut chart container
+		"cost-legend",                         // donut legend
+		"/sessions?session=sess-1",            // actionable recent issue link
+		"peak ",                               // hour peak label
+		"42",                                  // sessions KPI
+		">Activity trend<",                    // daily trend card
+		`data-chart="activity-trend"`,         // trend chart container
+		"kpi-delta",                           // vs-previous-window badge
+		"vs previous 30d",                     // delta badge tooltip
+		`name="profile" value="work" checked`, // selected profile dropdown option
 	} {
 		require.Contains(t, body, want, "home page should render %q", want)
+	}
+	require.NotEmpty(t, listReqs)
+	for _, req := range listReqs {
+		require.Equal(t, []string{"work"}, req.Profiles)
 	}
 
 	// The old dumb Errors table must be gone.
