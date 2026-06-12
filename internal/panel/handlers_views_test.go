@@ -78,7 +78,7 @@ func TestBinaryPlaceholderMentionsSize(t *testing.T) {
 func TestLoadViewsParsesAllTemplates(t *testing.T) {
 	views, err := loadViews()
 	require.NoError(t, err)
-	for _, name := range []string{"home", "sessions", "projects", "settings", "devices", "login", "cli_authorize", "side_panel", "raw_chunk"} {
+	for _, name := range []string{"home", "insights", "sessions", "projects", "profiles", "settings", "devices", "login", "cli_authorize", "side_panel", "raw_chunk"} {
 		require.Contains(t, views, name, "view %q should be parsed", name)
 	}
 }
@@ -87,11 +87,36 @@ func TestLoadViewsSharesCommonPartials(t *testing.T) {
 	views, err := loadViews()
 	require.NoError(t, err)
 
-	for _, name := range []string{"home", "sessions", "projects", "settings", "devices"} {
+	for _, name := range []string{"home", "insights", "sessions", "projects", "profiles", "settings", "devices"} {
 		require.NotNil(t, views[name].Lookup("base"), "view %q should include base layout", name)
 		require.NotNil(t, views[name].Lookup("icon-github"), "view %q should include shared icons", name)
 		require.NotNil(t, views[name].Lookup("side_panel_body"), "view %q should include side-panel partials", name)
 	}
+}
+
+func TestProfilesTemplateRendersRows(t *testing.T) {
+	views, err := loadViews()
+	require.NoError(t, err)
+
+	data := map[string]any{
+		"Title":   "Profiles",
+		"Nav":     "profiles",
+		"CSRF":    "csrf-token",
+		"Last":    "30d",
+		"Headers": []string{"DEVICE", "AGENT", "PROFILE", "SESSIONS"},
+		"Rows": []*prosav1.AnalyticsRow{{
+			Values: []string{"laptop", "codex", "default", "12"},
+		}},
+	}
+
+	var out bytes.Buffer
+	require.NoError(t, views["profiles"].ExecuteTemplate(&out, "base", data))
+	html := out.String()
+	require.Contains(t, html, "Profiles")
+	require.Contains(t, html, `/sessions?device=laptop&last=30d`)
+	require.Contains(t, html, `/sessions?agent=codex&last=30d`)
+	require.Contains(t, html, `/sessions?profile=default&last=30d`)
+	require.Contains(t, html, "<td>12</td>")
 }
 
 func TestSessionsRowsDoNotCarryHxPushURL(t *testing.T) {

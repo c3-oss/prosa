@@ -59,6 +59,7 @@ func loadViews() (map[string]*template.Template, error) {
 		{"insights", "insights.html"},
 		{"sessions", "sessions.html"},
 		{"projects", "projects.html"},
+		{"profiles", "profiles.html"},
 		{"settings", "settings.html"},
 		{"devices", "devices.html"},
 		{"login", "login.html"},
