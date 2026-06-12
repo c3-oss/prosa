@@ -61,8 +61,12 @@ type claudeCacheCreationUsage struct {
 
 // peekSessionID reads only as many lines as needed to find the first
 // sessionId field, then returns. Falls back to the filename (sans .jsonl)
-// if no record carries one.
+// if no record carries one. Subagent transcripts short-circuit to the
+// filename stem: their records carry the parent's sessionId, not their own.
 func peekSessionID(path string) (string, error) {
+	if id := subagentSessionIDFromPath(path); id != "" {
+		return id, nil
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return "", err
@@ -111,6 +115,19 @@ func parseSession(ctx context.Context, path string) (session.Session, []session.
 		firstPromptSet  bool
 		line            int
 	)
+
+	// Subagent transcripts live under `<parent-uuid>/subagents/` and
+	// every record inside carries the parent's sessionId. Identity comes
+	// from the filename stem instead — set before the scan so the loop
+	// never adopts the parent's id — and the parent edge from the
+	// directory two levels up, when it is UUID-shaped.
+	if id := subagentSessionIDFromPath(path); id != "" {
+		sess.ID = id
+		sessIDSet = true
+		if parent := parentSessionIDFromPath(path); parent != "" {
+			sess.ParentSessionID = &parent
+		}
+	}
 
 	for sc.Scan() {
 		line++
@@ -224,13 +241,6 @@ func parseSession(ctx context.Context, path string) (session.Session, []session.
 	}
 	if usage := buildClaudeUsage(usageByKey); usage != nil {
 		sess.Usage = usage
-	}
-	// Subagent sessions live under `<parent-uuid>/subagents/agent-<uuid>.jsonl`;
-	// the parent UUID is recoverable from the path two levels up so the
-	// renderer can walk parent → child without inspecting raw JSONL.
-	if parent := parentSessionIDFromPath(path); parent != "" {
-		p := parent
-		sess.ParentSessionID = &p
 	}
 	// Any populated usageByKey entry means we observed at least one
 	// assistant.message.usage block — even if every field came back
