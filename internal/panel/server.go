@@ -56,6 +56,7 @@ func loadViews() (map[string]*template.Template, error) {
 	}
 	specs := []viewSpec{
 		{"home", "home.html"},
+		{"insights", "insights.html"},
 		{"sessions", "sessions.html"},
 		{"projects", "projects.html"},
 		{"settings", "settings.html"},
@@ -70,6 +71,7 @@ func loadViews() (map[string]*template.Template, error) {
 		"base.html",
 		"icons.html",
 		"side_panel.html",
+		"dashboard_filters.html",
 	)
 	if err != nil {
 		return nil, fmt.Errorf("parse shared templates: %w", err)
@@ -140,6 +142,7 @@ func (p *Panel) routes() {
 	// the longer match first, so they coexist. Don't tighten one without
 	// minding the other.
 	p.mux.HandleFunc("/", p.requireSession(p.handleHome))
+	p.mux.HandleFunc("/insights", p.requireSession(p.handleInsights))
 	p.mux.HandleFunc("/sessions", p.requireSession(p.handleSessions))
 	p.mux.HandleFunc("/sessions/", p.requireSession(p.handleSessionDetail))
 	p.mux.HandleFunc("/projects", p.requireSession(p.handleProjects))

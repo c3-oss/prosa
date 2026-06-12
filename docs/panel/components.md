@@ -25,10 +25,16 @@ other layers reference these vars — never a literal value.
 --ok               #4ade80
 --danger           #f04a5c
 --divider          #232733
+--chart-grid       #20242f
 ```
 
-Future hook for light mode: `prefers-color-scheme: light` re-defines
-these vars on `:root`. Not implemented now.
+`--chart-grid` paints chart gridlines and axis baselines inside cards;
+it sits quieter than `--divider`, which separates surfaces (light value:
+`#e7ebf1`).
+
+Light mode: `tokens.css` re-defines every palette var under
+`[data-theme="light"]`, and under `[data-theme="system"]` when the OS
+reports `prefers-color-scheme: light`.
 
 ### Typography
 
@@ -125,18 +131,31 @@ Variants:
 
 - **default** — value + label;
 - **with sparkline** — value + label + sparkline;
-- **with delta** — value + label + delta vs previous period (`+12%` in
-  `--ok`, `-4%` in `--danger`).
+- **with delta** — value + label + delta vs previous period. **Landed**
+  on the Home KPI strip (`.kpi-delta`): movement vs the
+  immediately-preceding window of equal length. Tone classes
+  `kpi-tone-good` (`--ok`), `kpi-tone-bad` (`--danger`), and
+  `kpi-tone-muted` (`--text-3`) carry the reading — the error rate
+  inverts (rising is bad), est. spend is always muted.
 
 ---
+
+> **Charts render with Frappe Charts now, not server-side SVG.** The
+> donut, area, and stacked-column cards are drawn client-side by Frappe
+> Charts (`internal/panel/assets/charts-init.js`) from a `charts.Spec`
+> JSON island the server builds in `internal/panel/charts/`. Series colors
+> come from the `--chart-*` Okabe–Ito palette in `tokens.css`. The
+> `template.HTML`/SVG signatures and "byte-identical golden SVG" notes in
+> the sections below are **historical** — they describe the previous
+> implementation; the data shapes and visual intent still hold. The
+> heatmap and punch card stay CSS-grid HTML, not a chart library.
 
 ## Sparkline
 
 **Deferred.** Home cards in the current cut render HTML bars and
-tables, not inline SVG. The signatures below sketch the intended
-server-side helper for when this lands; routes and proto do not
-change when it does. Live targets: `internal/panel/charts/sparkline.go`,
-returning `template.HTML`.
+tables. A sparkline can land later as a small Frappe `line` chart
+(`charts.Spec{Type: "line"}`); routes and proto do not change when it
+does. The signature below is the original inline-SVG sketch.
 
 ### Signature
 
@@ -173,8 +192,8 @@ func Sparkline(values []float64, opts SparklineOpts) template.HTML
 
 - CSS `:hover` on the circle scales it to r=3 and reveals the tooltip
   via `<title>`;
-- Determinism: same values + same opts produce a byte-identical SVG
-  (tests check against golden files).
+- Rendering: client-side via Frappe Charts from a `charts.Spec`; the
+  `spec_test.go` unit tests assert the JSON shape (no golden SVG).
 
 ---
 
@@ -253,7 +272,8 @@ func PaletteColor(i int) string
 - Center carries `CenterLabel` (total) + `CenterSub`;
 - Slices cycle accent→text-3 tones via `PaletteColor` (token-based);
 - Each segment carries a `<title>` (`label: value (pct%)`);
-- Determinism: same input → byte-identical SVG (golden-tested).
+- Rendering: client-side via Frappe Charts from a `charts.Spec`; the
+  `spec_test.go` unit tests assert the JSON shape (no golden SVG).
 
 ---
 
@@ -319,7 +339,66 @@ func Area(points []Point, opts AreaOpts) template.HTML
 - The peak point gets a highlighted `<circle>` with a `<title>`;
 - Empty input renders an empty canvas; all-zero values render a flat
   baseline (no peak marker);
-- Determinism: same input → byte-identical SVG (golden-tested).
+- Rendering: client-side via Frappe Charts from a `charts.Spec`; the
+  `spec_test.go` unit tests assert the JSON shape (no golden SVG).
+
+---
+
+## Stacked columns
+
+**Landed** in `internal/panel/charts/stacked.go`. Used by the Home
+"Activity trend" card (series per agent), the Insights "Spend &
+tokens" card (single series + cumulative `Overlay`), and the Insights
+"Model share" card (`Normalize`).
+
+### Signature
+
+```go
+type Series struct {
+    Name   string
+    Values []float64 // one per label; missing trailing values are zero
+}
+
+type StackedOpts struct {
+    Width         int       // viewBox width, default 520
+    Height        int       // viewBox height, default 140
+    Class         string    // root element class, default "stacked-chart"
+    UnitSuffix    string    // appended to each segment value in its <title>
+    Normalize     bool      // scale every column to 100% (share view)
+    Overlay       []float64 // optional line on its own max-scale
+    OverlaySuffix string    // appended to the overlay end-marker <title>
+}
+
+func StackedColumns(labels []string, series []Series, opts StackedOpts) template.HTML
+```
+
+### Visual
+
+- One column per label, stacked `<rect>` segments bottom-up, one per
+  series;
+- Segment color comes from `PaletteColor(seriesIndex)` — an HTML legend
+  rendered beside the chart matches by index (same pattern as the donut
+  cost legend);
+- Each segment carries `<title>label · name: value</title>`; with
+  `Normalize`, the title appends the column share (`(80%)`);
+- `Overlay` draws a `--accent` polyline scaled to its own max with an
+  end-marker circle (used for cumulative spend);
+- Non-positive values render no rect; empty labels render an empty
+  canvas;
+- Rendering: client-side via Frappe Charts from a `charts.Spec`; the
+  `spec_test.go` unit tests assert the JSON shape (no golden SVG).
+
+---
+
+## Punch card
+
+**Landed** as an HTML grid in `insights.html` (no SVG — same approach
+as the heatmap). 7 weekday rows × 24 local-hour columns of
+`heatmap-cell level-N` spans, so it inherits the heatmap's 5-level
+`--accent` color scale for free. A small hour axis (00h … 23h) sits on
+top; each cell carries `title`/`aria-label`
+`"<weekday> <hour>h: N sessions"`. Data is the `punchcard` report (UTC)
+rotated into the panel's local zone with weekday carry across midnight.
 
 ---
 

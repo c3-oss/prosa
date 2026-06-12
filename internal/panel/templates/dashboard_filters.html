@@ -1,0 +1,129 @@
+{{/*
+  Shared dashboard filter chrome: the page header with the Filters
+  drawer (window/agent/project/device) and the active-filter chips.
+  Pages set .PageTitle (the <h1>) and .FilterAction (the form's GET
+  target, "/" or "/insights") alongside the usual filter state keys.
+*/}}
+
+{{define "dashboard_filters"}}
+  <header class="dashboard-head" x-data="{ filtersOpen: false }"
+          @keydown.escape.window="filtersOpen = false">
+    <h1>{{.PageTitle}}</h1>
+    <button type="button" class="dashboard-filters-toggle"
+            @click="filtersOpen = !filtersOpen"
+            :aria-expanded="filtersOpen.toString()"
+            aria-controls="dashboard-filters-drawer">
+      Filters
+    </button>
+    <div class="dashboard-filters-backdrop"
+         x-show="filtersOpen" x-cloak x-transition.opacity
+         @click="filtersOpen = false" aria-hidden="true"></div>
+    <aside id="dashboard-filters-drawer" class="dashboard-filters-drawer"
+           role="dialog" aria-label="Filters"
+           :class="{ 'open': filtersOpen }">
+      <div class="dashboard-filters-drawer-head">
+        <span class="dashboard-filters-drawer-title">Filters</span>
+        <button type="button" class="dashboard-filters-close"
+                @click="filtersOpen = false" aria-label="Close filters">×</button>
+      </div>
+      <form method="get" action="{{.FilterAction}}" class="filter-bar dashboard-filters-form"
+            x-data @change="$el.requestSubmit()">
+        <label>
+          Window
+          <select name="last">
+            <option value="12h"  {{if eq .Last "12h"}}selected{{end}}>12h</option>
+            <option value="7d"   {{if eq .Last "7d"}}selected{{end}}>7d</option>
+            <option value="30d"  {{if or (eq .Last "") (eq .Last "30d")}}selected{{end}}>30d</option>
+            <option value="365d" {{if eq .Last "365d"}}selected{{end}}>1y</option>
+            <option value="all"  {{if eq .Last "all"}}selected{{end}}>all</option>
+          </select>
+        </label>
+
+        <label>
+          Agent
+          <div class="dropdown">
+            <button type="button" class="dropdown-toggle">
+              {{- $n := 0 -}}
+              {{- range $a, $sel := .AgentsSelected}}{{if $sel}}{{$n = 1}}{{end}}{{end -}}
+              {{- if eq $n 0}}all agents{{else}}selected{{end}} ▾
+            </button>
+            <div class="dropdown-menu" hidden>
+              {{$sel := .AgentsSelected}}
+              {{range .Agents}}
+                <label class="dropdown-item">
+                  <input type="checkbox" name="agent" value="{{.}}" {{if index $sel .}}checked{{end}}>
+                  <span>{{.}}</span>
+                </label>
+              {{end}}
+            </div>
+          </div>
+        </label>
+
+        <label>
+          Project
+          <div class="dropdown">
+            <button type="button" class="dropdown-toggle">
+              {{- $n := 0 -}}
+              {{- range $p, $sel := .ProjectsSelected}}{{if $sel}}{{$n = 1}}{{end}}{{end -}}
+              {{- if eq $n 0}}all projects{{else}}selected{{end}} ▾
+            </button>
+            <div class="dropdown-menu" hidden>
+              {{if .Projects}}
+                {{$sel := .ProjectsSelected}}
+                {{range .Projects}}
+                  <label class="dropdown-item">
+                    <input type="checkbox" name="project" value="{{.}}" {{if index $sel .}}checked{{end}}>
+                    <span>{{.}}</span>
+                  </label>
+                {{end}}
+              {{else}}
+                <div class="dropdown-empty">no projects in window</div>
+              {{end}}
+            </div>
+          </div>
+        </label>
+
+        <label>
+          Device
+          <div class="dropdown">
+            <button type="button" class="dropdown-toggle">
+              {{- $n := 0 -}}
+              {{- range $d, $sel := .DevicesSelected}}{{if $sel}}{{$n = 1}}{{end}}{{end -}}
+              {{- if eq $n 0}}all devices{{else}}selected{{end}} ▾
+            </button>
+            <div class="dropdown-menu" hidden>
+              {{if .Devices}}
+                {{$sel := .DevicesSelected}}
+                {{range .Devices}}
+                  <label class="dropdown-item">
+                    <input type="checkbox" name="device" value="{{.}}" {{if index $sel .}}checked{{end}}>
+                    <span>{{.}}</span>
+                  </label>
+                {{end}}
+              {{else}}
+                <div class="dropdown-empty">no devices yet</div>
+              {{end}}
+            </div>
+          </div>
+        </label>
+
+        <noscript><button class="btn" type="submit">Apply</button></noscript>
+      </form>
+    </aside>
+  </header>
+
+  {{if .ActiveFilters}}
+    <div class="active-filters" aria-label="active filters">
+      {{range .ActiveFilters}}
+        <a class="active-filter-chip" href="{{.RemoveURL}}" title="remove this filter">
+          <span class="label">{{.Label}}</span>
+          <span class="value">{{.Value}}</span>
+          <span class="remove" aria-hidden="true">×</span>
+        </a>
+      {{end}}
+      {{if .ClearFiltersURL}}
+        <a class="active-filters-clear" href="{{.ClearFiltersURL}}">Clear all</a>
+      {{end}}
+    </div>
+  {{end}}
+{{end}}

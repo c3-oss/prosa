@@ -20,8 +20,9 @@ All authenticated pages share:
 | (220 px)  |                                              |
 |           |                                              |
 |  Home     |                                              |
-|  Sessions |                                              |
-|  Projects |     (content)                                |
+|  Insights |                                              |
+|  Sessions |     (content)                                |
+|  Projects |                                              |
 |  Devices  |                                              |
 |  Settings |                                              |
 +-----------+----------------------------------------------+
@@ -36,9 +37,10 @@ When the session sidepanel is open it enters from the right, taking
 +-----------+--------------------+-------------------------+
 ```
 
-The sidebar is five entries: **Home**, **Sessions**, **Projects**,
-**Devices**, **Settings**. Analytics content lives in the Home dashboard
-cards and the Sessions list; there is no separate Analytics group.
+The sidebar is six entries: **Home**, **Insights**, **Sessions**,
+**Projects**, **Devices**, **Settings**. Analytics content lives in the
+Home and Insights dashboard cards and the Sessions list; there is no
+separate Analytics group.
 
 Topbar and sidebar use `--bg-elev-1`. Main uses `--bg`. Region dividers
 are 1 px `--divider`. The topbar carries the brand, the "new sessions"
@@ -58,7 +60,7 @@ Global shortcuts:
 
 Default page after login. Dashboard composed of cards drawn from the
 analytics service. Top to bottom: filters (collapsed), KPI strip,
-heatmap card, then two-column rows of cards.
+heatmap card, activity trend card, then two-column rows of cards.
 
 ### Filters
 
@@ -91,7 +93,7 @@ Six KPIs across the top, each in a [`kpi`](components.md#kpi-card) card.
 The strip wraps on narrow widths.
 
 ```
-   12         3          2        1.5m      $4.70       7%
+   12 +20%    3 +50%     2 0%     1.5m +8%  $4.70 -5%   7% -2%
    sessions   projects   models   tokens    est spend   error rate
 ```
 
@@ -101,6 +103,14 @@ The strip wraps on narrow widths.
 - **Tokens** measured in window;
 - **Est. spend** — summed cost of priced models (`n/a` when none priced);
 - **Error rate** — flagged sessions ÷ total (heuristic; see Issues).
+
+Each KPI carries a small **delta badge** comparing the selected window
+to the immediately-preceding window of equal length (e.g. 30d vs the
+30d before). Tone semantics: volume KPIs up = `--ok`, error rate up =
+`--danger` (inverted), est. spend is always muted (spending more is
+informational, not a regression). `prev == 0 && curr > 0` renders
+"new"; both-zero renders no badge. The badges are skipped entirely for
+`last=all` (there is no previous "everything").
 
 No sparkline in this cut.
 
@@ -126,6 +136,16 @@ Tue ░ ░ ░ ▒ ▓
   breakdown. Cells expose `aria-label="<date>: N sessions"` and stay
   keyboard-focusable.
 - Discreet legend in the corner: scale gradient + "less / more".
+
+### Activity trend card
+
+Full-width card under the heatmap: sessions per day in the **filtered**
+window as a [stacked-column](components.md#stacked-columns) chart,
+one color band per agent (top 4 by volume + "other"), with a
+palette-matched legend. Past ~120 days the columns collapse into ISO
+weeks ("per week" in the subtitle); `last=all` clamps to the trailing
+365 days (subtitle says so). Data: the `heatmap` report re-run with the
+filtered window — the 53-week heatmap call above is untouched.
 
 ### Cards
 
@@ -160,7 +180,7 @@ between the second and third rows.
 - **Projects**: HTML bar leaderboard from the `projects` report,
   aggregated per project (sessions summed across agents), labeled with
   the friendly project display.
-- **Hour of day**: inline-SVG [area chart](components.md#area-chart) from
+- **Hour of day**: an [area chart](components.md#area-chart) from
   the `hours` report. UTC buckets are rotated into the panel's local
   zone for display (whole-hour, DST-naive); the subtitle names the peak
   hour.
@@ -185,6 +205,82 @@ from any state change.
   empty messages. The heatmap still draws (its window is fixed).
 - **Loading**: the server renders with values ready before sending the
   response — no skeleton.
+
+---
+
+## Insights `/insights`
+
+Progression and work-rhythm dashboard. Shares Home's filter chrome
+(same drawer, chips, and URL state, posting back to `/insights`) via
+the `dashboard_filters.html` partial. Top to bottom: rhythm KPI strip,
+spend & tokens card, model share + punch card row, durations +
+subagents row.
+
+```
+   4 days     11 days    62% (45/72)  18%       31%        Tuesday
+   current    longest    active days  weekend   outside    busiest
+   streak     streak                  sessions  09–18h     weekday
+
++----------------------------------------------+
+| Spend & tokens                               |
+| ▶ est. spend columns + cumulative line (SVG) |
+| ▶ tokens area chart (SVG)                    |
++----------------------------------------------+
+
++---------------------+   +---------------------+
+| Model share         |   | Punch card          |
+| ▶ normalized stacks |   | ▶ 7×24 level grid   |
++---------------------+   +---------------------+
+
++---------------------+   +---------------------+
+| Session duration    |   | Subagents           |
+| ▶ bucket histogram  |   | ▶ KPIs + per-agent  |
++---------------------+   +---------------------+
+```
+
+- **Rhythm KPI strip**: current streak (consecutive active days ending
+  today — or yesterday when today is still quiet), longest streak over
+  the trailing 53 weeks, % active days in the window, weekend-session
+  share, outside-09–18h share, busiest weekday. Streak days are **UTC
+  dates** (same caveat as the heatmap: a late-evening local session may
+  count toward "tomorrow"). Streaks come from the trailing 53-week
+  `heatmap` report; active days from the windowed one; the schedule
+  KPIs from the rotated punch card grid, so they agree with what it
+  shows.
+- **Spend & tokens**: estimated spend per day as a
+  [bar chart](components.md#stacked-columns), plus a tokens
+  [area chart](components.md#area-chart) on the same buckets. (Frappe
+  Charts has no secondary axis, so the running total lives in the card
+  subtitle rather than as a cumulative overlay line.) Data: the `usage_by_day` report (per UTC day, per
+  model), priced panel-side via `internal/pricing` — rows with no
+  measured usage or an unknown model count tokens but no spend, the
+  same honesty rule as the Usage card. Past ~120 days, buckets collapse
+  into ISO weeks; `last=all` clamps to trailing 365d (subtitle says
+  so).
+- **Model share**: weekly share of sessions per model as normalized
+  stacked columns (top 4 + "other"), with a palette-matched legend —
+  model migration reads as share shifts. Same `usage_by_day` rows.
+- **Punch card**: 7 weekday rows × 24 local hours from the `punchcard`
+  report, colored with the heatmap's level classes. UTC cells are
+  rotated into the panel's local zone (whole-hour, DST-naive, weekday
+  carry across midnight — same approach as Hour of day). Cell hover
+  carries "<weekday> <hour>h: N sessions".
+- **Session duration**: histogram over fixed buckets (`<5m`, `5-15m`,
+  `15-30m`, `30-60m`, `1-2h`, `>2h`) from the `durations` report,
+  rendered in canonical order (not count order); subtitle carries
+  median / p90 / longest from `duration_stats`. Duration is
+  `last_activity_at − started_at` — wall-clock span, not active time.
+- **Subagents**: spawning sessions, subagent sessions, and max fan-out
+  KPIs plus a per-parent-agent table, from the `subagents` report
+  (children started in the window, grouped by the parent's agent).
+
+### States
+
+- **No sessions in window**: every card renders its own empty message;
+  KPIs show `—` / `0 days`.
+- `last=all`: daily-resolution charts (spend & tokens, model share,
+  active-days %) clamp to the trailing 365 days and say so in their
+  subtitles; punch card, durations, and subagents stay unclamped.
 
 ---
 

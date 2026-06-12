@@ -62,3 +62,76 @@ func analyticsRequest(report string, since, until time.Time, q url.Values) *pros
 	req.Agent = q.Get("agent")
 	return req
 }
+
+// parseDashboardWindow resolves the dashboard's ?last= filter into time
+// bounds. Defaults to 30d; the "all" sentinel maps to a -100y lower bound.
+func parseDashboardWindow(q url.Values, now time.Time) (lastRaw string, since, until time.Time, err error) {
+	lastRaw = q.Get("last")
+	if lastRaw == "" {
+		lastRaw = "30d"
+	}
+	until = now
+	if lastRaw == "all" {
+		since = now.Add(-100 * 365 * 24 * time.Hour)
+		return lastRaw, since, until, nil
+	}
+	window, err := parseWindow(lastRaw)
+	if err != nil {
+		return lastRaw, since, until, err
+	}
+	return lastRaw, now.Add(-window), until, nil
+}
+
+// dashboardReportRequest builds the GetReportRequest shared by the home and
+// insights dashboards. agent/project_match are single-valued on the wire, so a
+// multi-select falls back to "any" and the cards reflect the full window.
+func dashboardReportRequest(report string, since, until time.Time, agents, projects, devices []string) *prosav1.GetReportRequest {
+	req := &prosav1.GetReportRequest{
+		Report:      report,
+		Since:       timestamppb.New(since),
+		Until:       timestamppb.New(until),
+		DeviceNames: devices,
+	}
+	if len(agents) == 1 {
+		req.Agent = agents[0]
+	}
+	if len(projects) == 1 {
+		req.ProjectMatch = projects[0]
+	}
+	return req
+}
+
+// buildDashboardActiveFilters renders one removal chip per active filter,
+// pointing at basePath ("/" or "/insights").
+func buildDashboardActiveFilters(q url.Values, basePath, last string, agents, projects, devices []string) []activeFilter {
+	var out []activeFilter
+	mk := func(label, value string, removeQuery url.Values) activeFilter {
+		removeQuery.Del("session")
+		removeURL := basePath
+		if encoded := removeQuery.Encode(); encoded != "" {
+			removeURL += "?" + encoded
+		}
+		return activeFilter{Label: label, Value: value, RemoveURL: removeURL}
+	}
+	if last != "" && last != "30d" {
+		next := cloneValues(q)
+		next.Del("last")
+		out = append(out, mk("Window", last, next))
+	}
+	for _, a := range agents {
+		next := cloneValues(q)
+		removeFromMulti(next, "agent", a)
+		out = append(out, mk("Agent", a, next))
+	}
+	for _, p := range projects {
+		next := cloneValues(q)
+		removeFromMulti(next, "project", p)
+		out = append(out, mk("Project", p, next))
+	}
+	for _, d := range devices {
+		next := cloneValues(q)
+		removeFromMulti(next, "device", d)
+		out = append(out, mk("Device", d, next))
+	}
+	return out
+}

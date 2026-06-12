@@ -1,0 +1,169 @@
+{{define "insights"}}{{template "base" .}}{{end}}
+
+{{define "content"}}
+  {{template "dashboard_filters" .}}
+
+  <section class="kpi-strip" aria-label="rhythm overview">
+    <div class="kpi">
+      <div class="kpi-value">{{.Streaks.Current}}</div>
+      <div class="kpi-label">current streak</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-value">{{.Streaks.Longest}}</div>
+      <div class="kpi-label">longest streak</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-value">{{.Streaks.ActivePct}}</div>
+      <div class="kpi-label">active days · {{.Streaks.ActiveDays}}</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-value">{{.Schedule.WeekendPct}}</div>
+      <div class="kpi-label">weekend sessions</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-value">{{.Schedule.OffHoursPct}}</div>
+      <div class="kpi-label">outside 09–18h</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-value">{{.Schedule.BusiestDay}}</div>
+      <div class="kpi-label">busiest weekday</div>
+    </div>
+  </section>
+
+  <section class="card">
+    <header class="card-head">
+      <h2>Spend &amp; tokens</h2>
+      <span class="card-sub">
+        {{.Spend.TotalTokens}} tokens · {{.Spend.TotalSpend}} est. spend · {{.Spend.BucketLabel}}{{if .WindowNote}} · {{.WindowNote}}{{end}}
+      </span>
+    </header>
+    {{if .Spend.HasData}}
+      <div class="trend-block">
+        <h3 class="trend-subhead">Est. spend</h3>
+        <div class="trend-chart">
+          <div data-chart="spend-bars"></div>
+          <script type="application/json" class="chart-spec" data-for="spend-bars">{{ .Spend.SpendChart.JSON }}</script>
+        </div>
+        <h3 class="trend-subhead">Tokens</h3>
+        <div class="trend-chart">
+          <div data-chart="tokens-line"></div>
+          <script type="application/json" class="chart-spec" data-for="tokens-line">{{ .Spend.TokensChart.JSON }}</script>
+        </div>
+      </div>
+    {{else}}
+      <div class="empty">no usage in this window.</div>
+    {{end}}
+  </section>
+
+  <div class="dashboard-grid">
+    <section class="card">
+      <header class="card-head">
+        <h2>Model share</h2>
+        <span class="card-sub">weekly share of sessions{{if .WindowNote}} · {{.WindowNote}}{{end}}</span>
+      </header>
+      {{if .Share.HasData}}
+        <div class="trend-chart">
+          <div data-chart="model-share"></div>
+          <script type="application/json" class="chart-spec" data-for="model-share">{{ .Share.Chart.JSON }}</script>
+        </div>
+        <ul class="cost-legend share-legend">
+          {{range .Share.Legend}}
+            <li><span class="cost-legend-dot" data-ci="{{.ColorIdx}}"></span><span class="cost-legend-model">{{.Model}}</span><span class="cost-legend-cost">{{.Sessions}}</span></li>
+          {{end}}
+        </ul>
+      {{else}}
+        <div class="empty">no sessions in this window.</div>
+      {{end}}
+    </section>
+
+    <section class="card">
+      <header class="card-head">
+        <h2>Punch card</h2>
+        <span class="card-sub">{{pluralize .Punchcard.Total "session" "sessions"}} · weekday × local hour</span>
+      </header>
+      {{if .Punchcard.Total}}
+        <div class="punchcard">
+          <div class="punchcard-hour-axis" aria-hidden="true">
+            <span>00h</span><span>06h</span><span>12h</span><span>18h</span><span>23h</span>
+          </div>
+          {{range .Punchcard.Rows}}
+            <div class="punchcard-row">
+              <span class="punchcard-day">{{.Label}}</span>
+              <div class="punchcard-cells">
+                {{range .Cells}}
+                  <span class="heatmap-cell level-{{.Level}}" title="{{.Label}}" aria-label="{{.Label}}"></span>
+                {{end}}
+              </div>
+            </div>
+          {{end}}
+        </div>
+      {{else}}
+        <div class="empty">no activity in this window.</div>
+      {{end}}
+    </section>
+  </div>
+
+  <div class="dashboard-grid">
+    <section class="card">
+      <header class="card-head">
+        <h2>Session duration</h2>
+        <span class="card-sub">median {{.Durations.Median}} · p90 {{.Durations.P90}} · longest {{.Durations.Longest}}</span>
+      </header>
+      {{if .Durations.HasData}}
+        <div class="bar-list">
+          {{range .Durations.Bars}}
+            <div class="bar-row">
+              <span class="bar-label">{{.Label}}</span>
+              <span class="bar-track"><span class="bar-fill" style="width: {{.Percent}}%"></span></span>
+              <span class="bar-count">{{.Count}}</span>
+            </div>
+          {{end}}
+        </div>
+      {{else}}
+        <div class="empty">no sessions in this window.</div>
+      {{end}}
+    </section>
+
+    <section class="card">
+      <header class="card-head">
+        <h2>Subagents</h2>
+        <span class="card-sub">sessions that spawned agents</span>
+      </header>
+      {{if .Subagents.HasData}}
+        <div class="issues-indicators">
+          <div class="kpi">
+            <div class="kpi-value">{{.Subagents.Parents}}</div>
+            <div class="kpi-label">spawning sessions</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-value">{{.Subagents.Children}}</div>
+            <div class="kpi-label">subagent sessions</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-value">{{.Subagents.MaxFan}}</div>
+            <div class="kpi-label">max fan-out</div>
+          </div>
+        </div>
+        <table class="subagents-table">
+          <thead>
+            <tr><th>agent</th><th>spawning</th><th>subagents</th><th>max fan-out</th></tr>
+          </thead>
+          <tbody>
+            {{range .Subagents.Rows}}
+              <tr>
+                <td>{{.Agent}}</td>
+                <td>{{.Parents}}</td>
+                <td>{{.Children}}</td>
+                <td>{{.MaxFan}}</td>
+              </tr>
+            {{end}}
+          </tbody>
+        </table>
+      {{else}}
+        <div class="empty">no subagent sessions in this window.</div>
+      {{end}}
+    </section>
+  </div>
+{{end}}
+
+{{define "side"}}{{end}}

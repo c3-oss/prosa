@@ -253,11 +253,11 @@ func TestBuildUsage_HidesZeroTokenAgents(t *testing.T) {
 		usageRow("cursor", 654, 0, 0, 0, 0, 0, ""),
 		usageRow("codex", 1761, 1531, 8869844323, 8828845273, 40877450, 8377491617, "4697.1771"),
 	}
-	out, totalTokens, totalCost := buildUsage(rows)
+	out, totalTokens, totalCost, priced := buildUsage(rows)
 	require.Len(t, out, 1, "cursor (zero total) should be filtered out")
 	require.Equal(t, "codex", out[0].Agent)
 	require.Equal(t, int64(8869844323), totalTokens)
-	require.Equal(t, "$4697.18", totalCost, "totalCost rounded to 2 decimals")
+	require.Equal(t, "$4697.18", costLabel(totalCost, priced), "totalCost rounded to 2 decimals")
 	require.Equal(t, "$4697.18", out[0].Cost, "per-row cost rounded to 2 decimals")
 }
 
@@ -265,10 +265,10 @@ func TestBuildUsage_NoPriced_ReturnsNA(t *testing.T) {
 	rows := []*prosav1.AnalyticsRow{
 		usageRow("codex", 10, 5, 1000, 800, 200, 0, ""),
 	}
-	out, totalTokens, totalCost := buildUsage(rows)
+	out, totalTokens, totalCost, priced := buildUsage(rows)
 	require.Len(t, out, 1)
 	require.Equal(t, int64(1000), totalTokens)
-	require.Equal(t, "n/a", totalCost)
+	require.Equal(t, "n/a", costLabel(totalCost, priced))
 	require.Equal(t, "n/a", out[0].Cost)
 }
 
@@ -276,10 +276,10 @@ func TestBuildUsage_AllZero_ReturnsEmpty(t *testing.T) {
 	rows := []*prosav1.AnalyticsRow{
 		usageRow("cursor", 654, 0, 0, 0, 0, 0, ""),
 	}
-	out, totalTokens, totalCost := buildUsage(rows)
+	out, totalTokens, totalCost, priced := buildUsage(rows)
 	require.Empty(t, out)
 	require.Equal(t, int64(0), totalTokens)
-	require.Equal(t, "n/a", totalCost)
+	require.Equal(t, "n/a", costLabel(totalCost, priced))
 }
 
 func TestBuildHeatmap_PerAgentBreakdown(t *testing.T) {

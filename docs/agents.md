@@ -133,7 +133,7 @@ Each subagent below has both `.codex/agents/<name>.toml` and
 | `prosa-architect` | Cross-package design, proto, store, CLI, server, panel boundaries | yes | INTENT, dev-workflow skill |
 | `prosa-cli-ux-reviewer` | CLI behavior, flags, terminal rendering, JSON output | no | cli-rendering skill, INTENT |
 | `prosa-importer-reviewer` | Importer + canonical-session conformance | no | importer-session skill, sources doc for the agent |
-| `prosa-panel-ui-reviewer` | Panel templates, HTMX, Alpine, SVG charts | no | panel-rendering skill, panel design docs |
+| `prosa-panel-ui-reviewer` | Panel templates, HTMX, Alpine, Frappe charts | no | panel-rendering skill, panel design docs |
 | `prosa-docs-reviewer` | Drift between docs and code, hierarchy of truth | no | this file, INTENT |
 | `prosa-test-runner` | Run the validation suite, report concisely | no | dev-workflow skill |
 
@@ -151,8 +151,8 @@ Reusable skills (in `.codex/skills/`):
   expectations, raw preservation, hash idempotency.
 - **prosa-cli-rendering** — TTY vs plain vs JSON output, color tokens,
   truncation, Bubble Tea fallback for cron.
-- **prosa-panel-rendering** — `html/template` + HTMX + Alpine + SVG charts
-  in Go, no build step, single binary.
+- **prosa-panel-rendering** — `html/template` + HTMX + Alpine + Frappe
+  charts (fed a Go-built JSON spec), no build step, single binary.
 
 ## Prompts
 
@@ -169,7 +169,9 @@ Task-shaped prompts (in `.codex/prompts/`):
 - Edit generated files in `gen/` by hand. Run `just gen`.
 - Hardcode `~/.config/prosa` or XDG paths outside `internal/paths`.
 - Introduce a build step for the panel (esbuild, vite, npm install). The
-  panel is a single binary with embedded assets, by design.
+  panel is a single binary with embedded assets, by design. (Vendoring a
+  prebuilt single-file library like `frappe-charts.min.umd.js` via
+  `embed.FS`, the way htmx/alpine are, is fine — that is not a build step.)
 - Add a Makefile target. `just` is the canonical task runner.
 - Move INTENT or AGENTS without updating every reference.
 - Write a documentation page that depends on code that doesn't exist yet.

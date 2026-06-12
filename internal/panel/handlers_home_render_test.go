@@ -63,6 +63,24 @@ func (fakeAnalyticsService) GetReport(_ context.Context, req *connect.Request[pr
 		"hours": {Headers: []string{"HOUR", "SESSIONS"}, Rows: []*prosav1.AnalyticsRow{
 			row("09", "5"), row("14", "3"),
 		}},
+		"usage_by_day": {
+			Headers: []string{"DAY", "MODEL", "SESSIONS", "MEASURED", "TOTAL", "INPUT", "OUTPUT", "CACHED", "CACHE_READ", "CACHE_CREATION"},
+			Rows: []*prosav1.AnalyticsRow{
+				row("2026-05-30", "claude-opus-4-5", "2", "2", "1500", "1200", "300", "0", "0", "0"),
+			},
+		},
+		"punchcard": {Headers: []string{"DOW", "HOUR", "SESSIONS"}, Rows: []*prosav1.AnalyticsRow{
+			row("6", "09", "3"), row("2", "14", "1"),
+		}},
+		"durations": {Headers: []string{"BUCKET", "SESSIONS"}, Rows: []*prosav1.AnalyticsRow{
+			row("<5m", "2"), row("1-2h", "1"),
+		}},
+		"duration_stats": {Headers: []string{"MEDIAN_S", "P90_S", "AVG_S", "MAX_S"}, Rows: []*prosav1.AnalyticsRow{
+			row("600", "8640", "3408", "10800"),
+		}},
+		"subagents": {Headers: []string{"AGENT", "PARENTS", "CHILDREN", "MAX_FANOUT"}, Rows: []*prosav1.AnalyticsRow{
+			row("claude-code", "1", "2", "2"),
+		}},
 	}
 	if resp, ok := canned[req.Msg.Report]; ok {
 		return connect.NewResponse(resp), nil
@@ -109,12 +127,16 @@ func TestHomeRendersIssuesAndCharts(t *testing.T) {
 		"Tokens &amp; cost per model", // chart 2 heading (escaped &)
 		">Projects<",                  // chart 3
 		"error rate",                  // new KPI
-		`class="area-chart"`,          // hour-of-day SVG
-		`class="donut"`,               // cost donut SVG
+		`data-chart="hour-of-day"`,    // hour-of-day chart container
+		`data-chart="cost-donut"`,     // cost donut chart container
 		"cost-legend",                 // donut legend
 		"/sessions?session=sess-1",    // actionable recent issue link
 		"peak ",                       // hour peak label
 		"42",                          // sessions KPI
+		">Activity trend<",            // daily trend card
+		`data-chart="activity-trend"`, // trend chart container
+		"kpi-delta",                   // vs-previous-window badge
+		"vs previous 30d",             // delta badge tooltip
 	} {
 		require.Contains(t, body, want, "home page should render %q", want)
 	}
