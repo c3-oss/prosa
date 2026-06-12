@@ -146,6 +146,7 @@ func (p *Panel) routes() {
 	p.mux.HandleFunc("/sessions", p.requireSession(p.handleSessions))
 	p.mux.HandleFunc("/sessions/", p.requireSession(p.handleSessionDetail))
 	p.mux.HandleFunc("/projects", p.requireSession(p.handleProjects))
+	p.mux.HandleFunc("/profiles", p.requireSession(p.handleProfiles))
 	p.mux.HandleFunc("/settings", p.requireSession(p.handleSettings))
 	p.mux.HandleFunc("/raw/", p.requireSession(p.handleRawChunk))
 	p.mux.HandleFunc("/devices", p.requireSession(p.handleDevices))

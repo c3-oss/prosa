@@ -25,6 +25,7 @@ type globalFlags struct {
 	Project string
 	Device  string
 	Agent   string
+	Profile string
 	All     bool
 	JSON    bool
 	NoColor bool
@@ -57,6 +58,7 @@ func newRootCmd() *cobra.Command {
 	pf.StringVar(&g.Project, "project", "", "filter by project path (substring match)")
 	pf.StringVar(&g.Device, "device", "", "filter by device name")
 	pf.StringVar(&g.Agent, "agent", "", "filter by agent ("+registeredAgentHelp()+")")
+	pf.StringVar(&g.Profile, "profile", "", "filter by profile name")
 	pf.BoolVar(&g.All, "all", false, "show every project, ignoring the current-project auto-filter")
 	pf.BoolVar(&g.JSON, "json", false, "print one JSON object per line instead of formatted output")
 	pf.BoolVar(&g.NoColor, "no-color", false, "disable color output")
@@ -72,6 +74,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newLoginCmd())
 	cmd.AddCommand(newLogoutCmd())
 	cmd.AddCommand(newDevicesCmd())
+	cmd.AddCommand(newProfilesCmd())
 	cmd.AddCommand(newScheduleCmd())
 	cmd.AddCommand(newSetupCmd())
 	return cmd

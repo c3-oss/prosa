@@ -32,7 +32,11 @@ func (i *Importer) DefaultRoots() []string {
 	if err != nil {
 		return nil
 	}
-	return []string{filepath.Join(home, ".codex", "sessions")}
+	return i.RootsUnder(filepath.Join(home, ".codex"))
+}
+
+func (i *Importer) RootsUnder(base string) []string {
+	return []string{filepath.Join(base, "sessions")}
 }
 
 // Import is the per-file entry point used by the CLI sync command.

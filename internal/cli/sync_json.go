@@ -70,7 +70,9 @@ func runSyncJSON(
 		var res importer.ImportResult
 		err := job.prepareErr
 		if err == nil {
-			res, err = job.imp.Import(ctx, job.path, sink, opts)
+			jobOpts := opts
+			jobOpts.Profile = job.profile
+			res, err = job.imp.Import(ctx, job.path, sink, jobOpts)
 		}
 		if job.prepareErr == nil && job.cleanup != nil {
 			job.cleanup()

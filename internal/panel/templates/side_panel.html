@@ -51,6 +51,7 @@
       <dt>Started</dt><dd>{{(.Session.StartedAt.AsTime).Format "2006-01-02 15:04:05"}}</dd>
       <dt>Last activity</dt><dd>{{(.Session.LastActivityAt.AsTime).Format "2006-01-02 15:04:05"}}</dd>
       <dt>Device</dt><dd class="mono">{{.Session.DeviceId}}</dd>
+      <dt>Profile</dt><dd>{{with .Session.Profile}}{{.}}{{else}}default{{end}}</dd>
       <dt>Project</dt><dd>{{projectLink .Project}}</dd>
       <dt>Tokens</dt><dd class="mono">{{.TokensIn}} in · {{.TokensOut}} out · {{.TokensTotal}} total</dd>
       <dt>Raw</dt><dd class="mono sp-meta-raw">{{.Session.RawSize}} bytes · {{.Session.RawHash}}</dd>

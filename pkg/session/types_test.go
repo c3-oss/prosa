@@ -6,6 +6,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestProfileOrDefault(t *testing.T) {
+	require.Equal(t, DefaultProfile, ProfileOrDefault(""))
+	require.Equal(t, "default", ProfileOrDefault(""))
+	require.Equal(t, "work", ProfileOrDefault("work"))
+}
+
 func TestHasTokenUsage(t *testing.T) {
 	require.False(t, HasTokenUsage(nil))
 	require.False(t, HasTokenUsage(&TokenUsage{}))

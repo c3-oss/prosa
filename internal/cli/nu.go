@@ -68,6 +68,10 @@ func runNu(cmd *cobra.Command, _ []string) error {
 		d := g.Device
 		filter.DeviceName = &d
 	}
+	if g.Profile != "" {
+		p := g.Profile
+		filter.Profile = &p
+	}
 
 	sessions, err := s.ListSessions(ctx, filter)
 	if err != nil {

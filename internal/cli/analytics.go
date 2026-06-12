@@ -21,7 +21,7 @@ import (
 	"github.com/c3-oss/prosa/internal/store"
 )
 
-var validAnalyticsReports = []string{"sessions", "tools", "models", "projects", "errors", "heatmap", "usage", "hours", "usage_by_model", "errors_by_model"}
+var validAnalyticsReports = []string{"sessions", "tools", "models", "projects", "profiles", "errors", "heatmap", "usage", "hours", "usage_by_model", "errors_by_model"}
 
 func newAnalyticsCmd() *cobra.Command {
 	return &cobra.Command{
@@ -95,6 +95,10 @@ func runAnalytics(cmd *cobra.Command, args []string) error {
 		d := g.Device
 		filter.DeviceName = &d
 	}
+	if g.Profile != "" {
+		p := g.Profile
+		filter.Profile = &p
+	}
 	if IsInteractive() && !g.JSON {
 		fmt.Fprintln(os.Stderr, render.ContextLine(render.ContextLineOptions{
 			Command:    "analytics",
@@ -129,6 +133,8 @@ func dispatchAnalytics(ctx context.Context, s *store.Store, report string, f sto
 		return s.AnalyticsModels(ctx, f)
 	case "projects":
 		return s.AnalyticsProjects(ctx, f)
+	case "profiles":
+		return s.AnalyticsProfiles(ctx, f)
 	case "errors":
 		return s.AnalyticsErrors(ctx, f)
 	case "heatmap":

@@ -290,6 +290,7 @@ func sessionToProto(s session.Session) *prosav1.Session {
 		Id:             s.ID,
 		Agent:          s.Agent,
 		DeviceId:       s.DeviceID,
+		Profile:        session.ProfileOrDefault(s.Profile),
 		StartedAt:      timestamppb.New(s.StartedAt),
 		LastActivityAt: timestamppb.New(s.LastActivityAt),
 		RawHash:        s.RawHash,

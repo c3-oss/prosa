@@ -12,6 +12,12 @@ Imported by `packages/prosa-core/src/importers/codex/`.
 ```
 
 - One file per session (or sub-session).
+- Codex resolves its home from `$CODEX_HOME` (default `~/.codex`), so multiple
+  authenticated accounts can live side by side, each under its own directory.
+  prosa imports them all via [profiles](../architecture/importers.md#profiles):
+  `prosa profiles add codex work ~/.codex-work` makes sync scan
+  `~/.codex-work/sessions/` and tag those sessions with profile `work`. The
+  built-in `default` profile keeps scanning `~/.codex/sessions/`.
 - The `YYYY/MM/DD` tree uses the machine's **local** date.
 - Internal record timestamps are ISO UTC.
 - The filename suffix is the `session-id` and matches

@@ -15,6 +15,7 @@ In `pkg/importer/importer.go`:
 type Importer interface {
     Name() string
     DefaultRoots() []string
+    RootsUnder(base string) []string
     Walk(ctx context.Context, root string) ([]string, error)
     Import(ctx context.Context, jsonlPath string, sink Sink, opts ImportOptions) (ImportResult, error)
 }
@@ -33,9 +34,14 @@ type SkipCache interface {
 - **`Name()`** — short agent key (`"claude-code"`, `"codex"`, etc.). Used
   as the directory shard for raw files and as the `agent` field in
   sessions.
-- **`DefaultRoots()`** — the per-platform roots `prosa sync` should walk
-  by default (e.g. `~/.claude/projects/`). These are suggestions; users
-  can override (planned).
+- **`DefaultRoots()`** — the roots `prosa sync` walks for the `default`
+  profile (e.g. `~/.claude/projects/`). Equivalent to
+  `RootsUnder(<agent's default home>)`.
+- **`RootsUnder(base)`** — the scan roots under a profile's base directory
+  (the agent's home, e.g. `~/.codex`). The importer appends its own
+  agent-specific subpath, so the sync layer never hardcodes per-agent
+  layout. This is how a configured profile resolves its locations — see
+  [Profiles](#profiles) below.
 - **`Walk(ctx, root)`** — find candidate session files under `root`,
   returning their absolute paths. Walk is allowed to filter (e.g. skip
   files with the wrong extension or in the wrong subdirectory).
@@ -115,6 +121,7 @@ session.Session{
     ID:             // agent-assigned, stable across re-imports
     Agent:          // importer.Name()
     DeviceID:       // device.IDOnce() — passed in via context
+    Profile:        // opts.Profile — the profile this file was scanned under ("default")
     ProjectPath:    // cwd if discoverable, else nil
     ProjectRemote: // git remote of cwd if a git repo
     ProjectMarker: // .prosa.yaml project: field if present
@@ -156,7 +163,9 @@ the lookup.
 
 ## Currently registered importers
 
-Listed in `internal/cli/sync.go`:
+Listed in `internal/cli/agents.go` (`registeredImporters()`). The default root
+is the `default` profile's scan root; other profiles scan
+`RootsUnder(<their base>)`:
 
 | Agent | Package | Default root |
 | --- | --- | --- |
@@ -168,6 +177,27 @@ Listed in `internal/cli/sync.go`:
 | `hermes` | `internal/importers/hermes/` | `~/.hermes/sessions/` |
 
 For per-agent source format details, see [`../sources/`](../sources/).
+
+## Profiles
+
+A **profile** is a named location for an agent on a device — e.g. an alternate
+`CODEX_HOME` holding a second authenticated account. Every agent has a
+`default` profile pointing at its standard location (`DefaultRoots()`); users
+add more with `prosa profiles add <agent> <name> <path>`, where `<path>` is the
+agent's home directory.
+
+During sync, for each importer prosa resolves its effective profiles
+(`internal/profiles`): the synthesized `default` plus every configured profile,
+expanded into scan roots via `RootsUnder(<profile path>)`. Each session is
+stamped with the profile name it was discovered under (empty → `default`),
+stored in `sessions.profile`, pushed to the server, and queryable by
+`(device, agent, profile)`. The name→path mapping lives only in the local
+`profiles.json`; only the name travels to the server.
+
+A new importer needs no profile-specific code beyond implementing
+`RootsUnder`. `importerutil.RunSingleFile` stamps `opts.Profile` onto the
+session automatically; bespoke importers (Hermes `state.db`) stamp it
+themselves.
 
 ## Adding a new importer
 

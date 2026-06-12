@@ -8,6 +8,17 @@ formats project into them.
 When introducing a new agent, add a column / section here so the next reader
 can see how each field is resolved without spelunking through importer code.
 
+## Sync-context fields
+
+A few `session.Session` fields are not parsed from the transcript — they come
+from the sync context and are set the same way for every agent:
+
+| Field | Source |
+|---|---|
+| `Agent` | `importer.Name()` |
+| `DeviceID` | `device.IDOnce()` |
+| `Profile` | the profile the file was scanned under (`opts.Profile`); empty normalises to `default`. A profile is a configured per-agent location on this device (e.g. an alternate `CODEX_HOME`). Stored in `sessions.profile`. Not projection-versioned: it reflects *where* a file was found, not parsed bytes, so re-importing an unchanged file does not re-tag it. |
+
 ## Turn shape
 
 `session.Turn` carries:

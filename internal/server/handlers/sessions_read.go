@@ -27,7 +27,7 @@ func (h *SessionsHandler) Get(ctx context.Context, req *connect.Request[prosav1.
 		SELECT s.id, s.agent, s.device_id, s.project_path, s.project_remote, s.project_marker,
 		       s.started_at, s.last_activity_at, s.first_prompt, s.model,
 		       s.raw_uri, s.raw_hash, s.raw_size,
-		       s.parent_session_id,
+		       s.parent_session_id, s.profile,
 		       su.session_id, su.total_tokens, su.input_tokens, su.output_tokens,
 		       su.cached_tokens, su.cache_read_tokens, su.cache_creation_tokens
 		FROM sessions s
@@ -142,7 +142,7 @@ func (h *SessionsHandler) ListChildren(ctx context.Context, req *connect.Request
 		SELECT s.id, s.agent, s.device_id, s.project_path, s.project_remote, s.project_marker,
 		       s.started_at, s.last_activity_at, s.first_prompt, s.model,
 		       s.raw_uri, s.raw_hash, s.raw_size,
-		       s.parent_session_id,
+		       s.parent_session_id, s.profile,
 		       su.session_id, su.total_tokens, su.input_tokens, su.output_tokens,
 		       su.cached_tokens, su.cache_read_tokens, su.cache_creation_tokens
 		FROM sessions s

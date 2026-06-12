@@ -20,8 +20,9 @@ type stubImporter struct {
 	err  error
 }
 
-func (s stubImporter) Name() string           { return s.name }
-func (s stubImporter) DefaultRoots() []string { return nil }
+func (s stubImporter) Name() string                    { return s.name }
+func (s stubImporter) DefaultRoots() []string          { return nil }
+func (s stubImporter) RootsUnder(base string) []string { return []string{base} }
 func (s stubImporter) Walk(context.Context, string) ([]string, error) {
 	return nil, nil
 }

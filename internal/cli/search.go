@@ -97,6 +97,10 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		d := g.Device
 		filter.DeviceName = &d
 	}
+	if g.Profile != "" {
+		p := g.Profile
+		filter.Profile = &p
+	}
 
 	hits, err := s.Search(ctx, query, filter, limit)
 	if err != nil {
@@ -201,6 +205,9 @@ func runSearchRemote(ctx context.Context, query string, w Window, limit int) err
 	}
 	if g.Device != "" {
 		req.DeviceName = g.Device
+	}
+	if g.Profile != "" {
+		req.Profile = g.Profile
 	}
 	projectScope := ResolveProjectScopeFromLocalStore(ctx, g)
 	projectScope.ApplySearchRequest(req)

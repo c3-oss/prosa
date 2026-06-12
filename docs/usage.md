@@ -112,6 +112,7 @@ prosa analytics sessions            # count by agent + total turns
 prosa analytics tools               # top 20 tools across the window
 prosa analytics models              # session distribution by model
 prosa analytics projects            # sessions per project, grouped by agent
+prosa analytics profiles            # sessions per device + agent + profile
 prosa analytics heatmap             # trailing 53 weeks; ignores --last/--since/--between
 prosa analytics usage               # token totals + estimated USD cost
 prosa analytics errors              # sessions matching error heuristics
@@ -122,8 +123,26 @@ prosa analytics errors_by_model     # flagged sessions by model (same heuristic 
 
 `--remote` runs the report against the server. All reports honor the global
 filters below, including `--last`, `--since`, `--between`, `--project`,
-`--agent`, `--device`, and `--all`. Exception: `heatmap` has a fixed
-trailing 53-week window and rejects `--last`, `--since`, and `--between`.
+`--agent`, `--device`, `--profile`, and `--all`. Exception: `heatmap` has a
+fixed trailing 53-week window and rejects `--last`, `--since`, and `--between`.
+
+### Profiles (per-agent locations)
+
+A profile is a named location for an agent on this device — e.g. a second
+`CODEX_HOME` for another account. Every agent has a `default` profile; add
+more so sync imports from extra directories. The `<path>` is the agent's home
+directory (the importer appends its own subdir, e.g. `sessions` for Codex).
+
+```sh
+prosa profiles list                            # configured profiles + session counts
+prosa profiles add codex work ~/.codex-work    # scan ~/.codex-work/sessions as profile "work"
+prosa profiles set-path codex work ~/.codex-2  # repoint an existing profile
+prosa profiles remove codex work               # stop scanning it (keeps imported sessions)
+```
+
+Profiles are stored in the local `profiles.json` (under the prosa config dir);
+each imported session records its profile name, so `prosa --profile work` and
+`prosa analytics profiles` work both locally and against the server.
 
 ### Devices (cross-device)
 
@@ -161,6 +180,7 @@ subcommand):
 | `--project <name>` | | Convenience substring filter. Matches `project_path`, `project_remote`, or `project_marker` — so `--project movaincentivo` finds sessions captured under any of the three. Because this is substring matching, large stores should prefer cwd auto-scoping when possible; auto-scoping uses exact project identity filters. |
 | `--device <name>` | | Match `friendly_name` (cross-device only). |
 | `--agent <name>` | | One of `claude-code`, `codex`, `cursor`, `gemini`, `antigravity`, `hermes`. |
+| `--profile <name>` | | Match `sessions.profile` exactly (e.g. `default`, `work`). |
 | `--all` | | Drop the auto cwd-based project scoping. |
 | `--remote` | | Query the server instead of the local store. |
 | `--json` | | NDJSON output, one record per line. |

@@ -31,6 +31,7 @@ is the Connect-Go client in `internal/cli` that talks to `prosa-server`.
 | `prosa analytics` | `internal/cli/analytics.go` | Fixed reports, including heatmap and usage. The heatmap report has a fixed trailing 53-week window and rejects `--last/--since/--between`. |
 | `prosa login` | `internal/cli/login.go` | PKCE browser auth |
 | `prosa devices …` | `internal/cli/devices.go` | `list`, `rename`, `revoke` |
+| `prosa profiles …` | `internal/cli/profiles.go` | `list`, `add`, `remove`, `set-path` — manage per-agent import locations (local `profiles.json`) |
 | `prosa schedule …` | `internal/cli/schedule_cmd.go` + `internal/cli/schedule/` | `install`, `status`, `uninstall` |
 | `prosa setup` | `internal/cli/setup.go` | Wizard wrapping login + schedule + first sync |
 
@@ -52,6 +53,7 @@ Registered on the cobra root in `internal/cli/root.go`:
 - `--project <name>`
 - `--device <name>`
 - `--agent <name>`
+- `--profile <name>`
 - `--all`
 - `--remote`
 - `--json`

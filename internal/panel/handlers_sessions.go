@@ -113,6 +113,7 @@ func (p *Panel) handleSessions(w http.ResponseWriter, r *http.Request) {
 	agents := pickMulti(q, "agent")
 	projects := pickMulti(q, "project")
 	devices := pickDeviceNames(q)
+	profilesSel := pickMulti(q, "profile")
 	sortBy := q.Get("sort")
 	sortDirRaw := q.Get("dir")
 	activeSort, activeDir := resolveSessionsSort(sortBy, sortDirRaw)
@@ -150,6 +151,9 @@ func (p *Panel) handleSessions(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(projects) > 0 {
 		baseReq.ProjectMatches = projects
+	}
+	if len(profilesSel) > 0 {
+		baseReq.Profiles = profilesSel
 	}
 
 	var (
@@ -208,10 +212,15 @@ func (p *Panel) handleSessions(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Warn("sessions projects.list failed", "err", err)
 	}
+	profileNames, err := p.listProfileLabels(r.Context(), since, until)
+	if err != nil {
+		slog.Warn("sessions profiles.list failed", "err", err)
+	}
 
 	agentsSelected := selectionSet(agents)
 	projectsSelected := selectionSet(projects)
 	devicesSelected := selectionSet(devices)
+	profilesSelected := selectionSet(profilesSel)
 
 	rows := make([]sessionRow, 0, len(sessions))
 	for _, s := range sessions {
@@ -253,7 +262,7 @@ func (p *Panel) handleSessions(w http.ResponseWriter, r *http.Request) {
 		nextURL = "?" + appendKey(stripQuery(r.URL.Query(), "page"), "page", strconv.Itoa(page+1))
 	}
 
-	activeFilters := buildSessionsActiveFilters(r.URL.Query(), queryStr, lastRaw, agents, projects, devices)
+	activeFilters := buildSessionsActiveFilters(r.URL.Query(), queryStr, lastRaw, agents, projects, devices, profilesSel)
 	clearURL := ""
 	if len(activeFilters) > 0 {
 		clearURL = "/sessions"
@@ -271,6 +280,8 @@ func (p *Panel) handleSessions(w http.ResponseWriter, r *http.Request) {
 		"ProjectsSelected": projectsSelected,
 		"Devices":          deviceNames,
 		"DevicesSelected":  devicesSelected,
+		"Profiles":         profileNames,
+		"ProfilesSelected": profilesSelected,
 		"Sort":             sortBy,
 		"Dir":              sortDirRaw,
 		"Cols":             cols,
@@ -319,7 +330,7 @@ type activeFilter struct {
 // something other than the default (30d). Multi-select dimensions
 // (agent, project, device) emit one chip per selected value so a click
 // removes exactly that value rather than the whole dimension.
-func buildSessionsActiveFilters(q url.Values, queryStr, last string, agents, projects, devices []string) []activeFilter {
+func buildSessionsActiveFilters(q url.Values, queryStr, last string, agents, projects, devices, profilesSel []string) []activeFilter {
 	var out []activeFilter
 	mk := func(label, value string, removeQuery url.Values) activeFilter {
 		// Page resets on any filter change so the user lands at row 1
@@ -356,6 +367,11 @@ func buildSessionsActiveFilters(q url.Values, queryStr, last string, agents, pro
 		next := cloneValues(q)
 		removeFromMulti(next, "device", d)
 		out = append(out, mk("Device", d, next))
+	}
+	for _, pr := range profilesSel {
+		next := cloneValues(q)
+		removeFromMulti(next, "profile", pr)
+		out = append(out, mk("Profile", pr, next))
 	}
 	return out
 }
@@ -672,6 +688,7 @@ func cloneListRequest(in *prosav1.ListRequest) *prosav1.ListRequest {
 		ProjectMarker: in.ProjectMarker,
 		Agent:         in.Agent,
 		DeviceName:    in.DeviceName,
+		Profile:       in.Profile,
 		Query:         in.Query,
 		SortBy:        in.SortBy,
 		SortDir:       in.SortDir,
@@ -687,6 +704,9 @@ func cloneListRequest(in *prosav1.ListRequest) *prosav1.ListRequest {
 	}
 	if len(in.ProjectMatches) > 0 {
 		out.ProjectMatches = append([]string(nil), in.ProjectMatches...)
+	}
+	if len(in.Profiles) > 0 {
+		out.Profiles = append([]string(nil), in.Profiles...)
 	}
 	return out
 }
@@ -712,6 +732,34 @@ func (p *Panel) listProjectLabels(ctx context.Context, since, until time.Time) (
 			continue
 		}
 		label := strings.TrimSpace(row.Values[0])
+		if label == "" || seen[label] {
+			continue
+		}
+		seen[label] = true
+		out = append(out, label)
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+// listProfileLabels resolves the profile dropdown choices from the analytics
+// "profiles" report (profile name is the third column). Non-fatal on failure.
+func (p *Panel) listProfileLabels(ctx context.Context, since, until time.Time) ([]string, error) {
+	resp, err := p.clients.Analytics.GetReport(ctx, connect.NewRequest(&prosav1.GetReportRequest{
+		Report: "profiles",
+		Since:  timestamppb.New(since),
+		Until:  timestamppb.New(until),
+	}))
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(resp.Msg.Rows))
+	for _, row := range resp.Msg.Rows {
+		if len(row.Values) < 3 {
+			continue
+		}
+		label := strings.TrimSpace(row.Values[2])
 		if label == "" || seen[label] {
 			continue
 		}

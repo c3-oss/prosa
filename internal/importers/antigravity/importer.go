@@ -35,7 +35,11 @@ func (i *Importer) DefaultRoots() []string {
 	if err != nil {
 		return nil
 	}
-	return []string{filepath.Join(home, ".gemini", "antigravity-cli", "conversations")}
+	return i.RootsUnder(filepath.Join(home, ".gemini"))
+}
+
+func (i *Importer) RootsUnder(base string) []string {
+	return []string{filepath.Join(base, "antigravity-cli", "conversations")}
 }
 
 // Import is the per-file entry point called by the compile pipeline.

@@ -74,6 +74,10 @@ type Session struct {
 	// Hermes: parent is `parent_session_id` from state.db or transcript
 	// envelopes. nil for top-level sessions.
 	ParentSessionID *string
+
+	// Profile is the per-agent profile the session was imported from; empty
+	// reads as "default".
+	Profile string
 }
 
 // ProjectionVersion identifies the current derived-data projection stored
@@ -115,6 +119,17 @@ type Session struct {
 //	    JSONL per session, so sync_reconcile re-pushes Hermes sessions
 //	    with their new hashes on first contact.
 const ProjectionVersion = 10
+
+// DefaultProfile is the profile name every agent has by default.
+const DefaultProfile = "default"
+
+// ProfileOrDefault normalises an empty profile name to DefaultProfile.
+func ProfileOrDefault(p string) string {
+	if p == "" {
+		return DefaultProfile
+	}
+	return p
+}
 
 // Turn kind constants. Empty Kind is treated as KindMessage so older rows
 // and zero-value test fixtures keep working without backfill.

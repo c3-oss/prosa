@@ -38,7 +38,11 @@ func (i *Importer) DefaultRoots() []string {
 	if err != nil {
 		return nil
 	}
-	return []string{filepath.Join(home, ".gemini", "tmp")}
+	return i.RootsUnder(filepath.Join(home, ".gemini"))
+}
+
+func (i *Importer) RootsUnder(base string) []string {
+	return []string{filepath.Join(base, "tmp")}
 }
 
 func (i *Importer) Import(ctx context.Context, jsonPath string, sink importer.Sink, opts importer.ImportOptions) (importer.ImportResult, error) {
