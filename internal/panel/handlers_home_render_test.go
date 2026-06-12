@@ -101,6 +101,16 @@ func (fakeAnalyticsService) GetReport(_ context.Context, req *connect.Request[pr
 		"subagent_parents": {Headers: []string{"STARTED", "AGENT", "PROJECT", "SESSION", "CHILDREN"}, Rows: []*prosav1.AnalyticsRow{
 			row("2026-05-30 09:00", "claude-code", "github.com/c3-oss/prosa", "sess-1", "2"),
 		}},
+		"profile_usage": {
+			Headers: []string{"DEVICE", "AGENT", "PROFILE", "MODEL", "SESSIONS", "MEASURED", "TOTAL", "INPUT", "OUTPUT", "CACHED", "CACHE_READ", "CACHE_CREATION", "LAST_ACTIVITY"},
+			Rows: []*prosav1.AnalyticsRow{
+				row("Laptop", "claude-code", "default", "claude-opus-4-5", "3", "3", "1500", "1200", "300", "0", "0", "0", "2026-05-30 09:00"),
+				row("Laptop", "codex", "work", "gpt-5-codex", "2", "2", "500", "400", "100", "0", "0", "0", "2026-05-31 14:00"),
+			},
+		},
+		"profiles_by_day": {Headers: []string{"DAY", "AGENT", "PROFILE", "SESSIONS"}, Rows: []*prosav1.AnalyticsRow{
+			row("2026-05-30", "claude-code", "default", "3"), row("2026-05-31", "codex", "work", "2"),
+		}},
 	}
 	if resp, ok := canned[req.Msg.Report]; ok {
 		return connect.NewResponse(resp), nil
@@ -165,4 +175,55 @@ func TestHomeRendersIssuesAndCharts(t *testing.T) {
 
 	// The old dumb Errors table must be gone.
 	require.NotContains(t, body, "latest 20 sessions matching error heuristic")
+}
+
+// TestProfilesRendersDashboard drives the real handleProfiles against a fake
+// upstream and asserts the KPI strip, charts, and enriched table render.
+func TestProfilesRendersDashboard(t *testing.T) {
+	mux := http.NewServeMux()
+	sp, sh := prosav1connect.NewSessionsServiceHandler(fakeSessionsService{})
+	mux.Handle(sp, sh)
+	dp, dh := prosav1connect.NewDevicesServiceHandler(fakeDevicesService{})
+	mux.Handle(dp, dh)
+	ap, ah := prosav1connect.NewAnalyticsServiceHandler(fakeAnalyticsService{})
+	mux.Handle(ap, ah)
+	upstream := httptest.NewServer(mux)
+	t.Cleanup(upstream.Close)
+
+	p, err := New(Config{
+		ServerURL:     upstream.URL,
+		AdminToken:    "secret",
+		CookieKey:     "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		OwnerEmails:   []string{"owner@example.com"},
+		ListenAddr:    ":0",
+		PublicBaseURL: "http://panel.test",
+	})
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodGet, "/profiles", nil)
+	req.AddCookie(cookieFor(t, p, "owner@example.com"))
+	rec := httptest.NewRecorder()
+	p.mux.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	body := rec.Body.String()
+
+	for _, want := range []string{
+		"active profiles",                  // KPI strip
+		"sessions outside default",         // KPI strip
+		">Sessions per profile<",           // trend card
+		"Tokens &amp; cost per profile",    // usage card
+		">By device<",                      // table card
+		`data-chart="profile-trend"`,       // trend chart island
+		"claude-code·default",              // agent·profile chart label
+		"codex·work",                       // agent·profile chart label
+		"/sessions?device=Laptop&last=30d", // table device link
+		"/sessions?profile=work&last=30d",  // table profile link
+		"2026-05-31 14:00",                 // last seen cell
+		`action="/profiles"`,               // filter drawer posts back here
+		`name="profile" value="work"`,      // profile dropdown option
+		"40%",                              // 2 of 5 sessions outside default
+	} {
+		require.Contains(t, body, want, "profiles page should render %q", want)
+	}
 }

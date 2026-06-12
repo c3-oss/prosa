@@ -1,46 +1,106 @@
 {{define "profiles"}}{{template "base" .}}{{end}}
 {{define "side"}}{{end}}
 {{define "content"}}
-  <h1>Profiles</h1>
+  {{template "dashboard_filters" .}}
 
-  <form method="get" action="/profiles" class="filter-bar"
-        x-data @change="$el.requestSubmit()">
-    <label>
-      Window
-      <select name="last">
-        <option value="12h" {{if eq .Last "12h"}}selected{{end}}>12h</option>
-        <option value="7d"  {{if eq .Last "7d"}}selected{{end}}>7d</option>
-        <option value="30d" {{if or (eq .Last "") (eq .Last "30d")}}selected{{end}}>30d</option>
-        <option value="365d" {{if eq .Last "365d"}}selected{{end}}>1y</option>
-        <option value="all"  {{if eq .Last "all"}}selected{{end}}>all</option>
-      </select>
-    </label>
-    <noscript><button class="btn" type="submit">Apply</button></noscript>
-  </form>
+  <section class="kpi-strip" aria-label="profiles overview">
+    <div class="kpi">
+      <div class="kpi-value">{{.Usage.ActiveProfiles}}</div>
+      <div class="kpi-label">active profiles</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-value">{{.Usage.NonDefaultPct}}</div>
+      <div class="kpi-label">sessions outside default</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-value">{{.Usage.TotalTokens}}</div>
+      <div class="kpi-label">tokens</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-value">{{.Usage.TotalSpend}}</div>
+      <div class="kpi-label">est. spend</div>
+    </div>
+  </section>
 
-  {{if .Rows}}
-    <table>
-      <thead><tr>{{range .Headers}}<th>{{.}}</th>{{end}}</tr></thead>
-      <tbody>
-        {{range .Rows}}
-          <tr>
-            {{range $i, $v := .Values}}
-              {{$h := index $.Headers $i}}
-              {{if eq $h "DEVICE"}}
-                <td><a href="/sessions?device={{urlquery $v}}&last={{$.Last}}">{{$v}}</a></td>
-              {{else if eq $h "AGENT"}}
-                <td><a href="/sessions?agent={{urlquery $v}}&last={{$.Last}}">{{$v}}</a></td>
-              {{else if eq $h "PROFILE"}}
-                <td><a href="/sessions?profile={{urlquery $v}}&last={{$.Last}}">{{$v}}</a></td>
-              {{else}}
-                <td>{{$v}}</td>
-              {{end}}
+  <div class="dashboard-grid">
+    <section class="card">
+      <header class="card-head">
+        <h2>Sessions per profile</h2>
+        <span class="card-sub">{{.Trend.BucketLabel}}{{if .WindowNote}} · {{.WindowNote}}{{end}}</span>
+      </header>
+      {{if .Trend.HasData}}
+        <div class="trend-chart">
+          <div data-chart="profile-trend"></div>
+          <script type="application/json" class="chart-spec" data-for="profile-trend">{{ .Trend.Chart.JSON }}</script>
+        </div>
+        <ul class="cost-legend share-legend">
+          {{range .Trend.Legend}}
+            <li><span class="cost-legend-dot" data-ci="{{.ColorIdx}}"></span><span class="cost-legend-model">{{.Model}}</span><span class="cost-legend-cost">{{.Sessions}}</span></li>
+          {{end}}
+        </ul>
+      {{else}}
+        <div class="empty">no sessions in this window.</div>
+      {{end}}
+    </section>
+
+    <section class="card">
+      <header class="card-head">
+        <h2>Tokens &amp; cost per profile</h2>
+        <span class="card-sub">{{.Usage.TotalTokens}} tokens · {{.Usage.TotalSpend}} est. spend</span>
+      </header>
+      {{if .Usage.TokenBars}}
+        <div class="bar-list">
+          {{range .Usage.TokenBars}}
+            <div class="bar-row">
+              <span class="bar-label">{{.Label}}</span>
+              <span class="bar-track"><span class="bar-fill" style="width: {{.Percent}}%"></span></span>
+              <span class="bar-count">{{.Count}}</span>
+            </div>
+          {{end}}
+        </div>
+        {{if .Usage.CostLegend}}
+          <div class="trend-chart">
+            <div data-chart="profile-cost-donut"></div>
+            <script type="application/json" class="chart-spec" data-for="profile-cost-donut">{{ .Usage.CostDonut.JSON }}</script>
+          </div>
+          <ul class="cost-legend">
+            {{range .Usage.CostLegend}}
+              <li><span class="cost-legend-dot" data-ci="{{.ColorIdx}}"></span><span class="cost-legend-model">{{.Model}}</span><span class="cost-legend-cost">{{.Cost}}</span></li>
             {{end}}
-          </tr>
+          </ul>
         {{end}}
-      </tbody>
-    </table>
-  {{else}}
-    <div class="empty">No profiles in this window.</div>
-  {{end}}
+      {{else}}
+        <div class="empty">no measured usage in this window.</div>
+      {{end}}
+    </section>
+  </div>
+
+  <section class="card">
+    <header class="card-head">
+      <h2>By device</h2>
+      <span class="card-sub">device × agent × profile</span>
+    </header>
+    {{if .Usage.Rows}}
+      <table class="subagents-table">
+        <thead>
+          <tr><th>device</th><th>agent</th><th>profile</th><th>sessions</th><th>tokens</th><th>est. cost</th><th>last seen</th></tr>
+        </thead>
+        <tbody>
+          {{range .Usage.Rows}}
+            <tr>
+              <td><a href="/sessions?device={{urlquery .Device}}&last={{$.Last}}">{{.Device}}</a></td>
+              <td><a href="/sessions?agent={{urlquery .Agent}}&last={{$.Last}}">{{.Agent}}</a></td>
+              <td><a href="/sessions?profile={{urlquery .Profile}}&last={{$.Last}}">{{.Profile}}</a></td>
+              <td>{{.Sessions}}</td>
+              <td>{{.Tokens}}</td>
+              <td>{{.Cost}}</td>
+              <td>{{.LastSeen}}</td>
+            </tr>
+          {{end}}
+        </tbody>
+      </table>
+    {{else}}
+      <div class="empty">No profiles in this window.</div>
+    {{end}}
+  </section>
 {{end}}

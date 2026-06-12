@@ -99,14 +99,22 @@ func TestProfilesTemplateRendersRows(t *testing.T) {
 	require.NoError(t, err)
 
 	data := map[string]any{
-		"Title":   "Profiles",
-		"Nav":     "profiles",
-		"CSRF":    "csrf-token",
-		"Last":    "30d",
-		"Headers": []string{"DEVICE", "AGENT", "PROFILE", "SESSIONS"},
-		"Rows": []*prosav1.AnalyticsRow{{
-			Values: []string{"laptop", "codex", "default", "12"},
-		}},
+		"Title": "Profiles",
+		"Nav":   "profiles",
+		"CSRF":  "csrf-token",
+		"Last":  "30d",
+		"Usage": profileUsageView{
+			ActiveProfiles: "1",
+			NonDefaultPct:  "0%",
+			TotalTokens:    "1,500",
+			TotalSpend:     "$0.12",
+			Rows: []profilePanelRow{{
+				Device: "laptop", Agent: "codex", Profile: "default",
+				Sessions: "12", Tokens: "1.5k", Cost: "$0.12", LastSeen: "2026-05-30 09:00",
+			}},
+			HasData: true,
+		},
+		"Trend": trendView{BucketLabel: "per day"},
 	}
 
 	var out bytes.Buffer
@@ -117,6 +125,8 @@ func TestProfilesTemplateRendersRows(t *testing.T) {
 	require.Contains(t, html, `/sessions?agent=codex&last=30d`)
 	require.Contains(t, html, `/sessions?profile=default&last=30d`)
 	require.Contains(t, html, "<td>12</td>")
+	require.Contains(t, html, "active profiles")
+	require.Contains(t, html, "sessions outside default")
 }
 
 func TestSessionsRowsDoNotCarryHxPushURL(t *testing.T) {
