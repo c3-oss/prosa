@@ -83,6 +83,17 @@ jobs:
       # stage via buildx cache. Each image is published at
       # ghcr.io/<owner>/<binary> with the release tag and `latest`.
 
+      # Mirrors GoReleaser's {{.Version}} / {{.Commit}} / {{.Date}} so
+      # binaries inside the images report the same buildinfo as the
+      # tarball binaries.
+      - name: Compute Docker build metadata
+        run: |
+          {
+            echo "BUILD_VERSION=${GITHUB_REF_NAME#v}"
+            echo "BUILD_COMMIT=${GITHUB_SHA}"
+            echo "BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } >> "$GITHUB_ENV"
+
       - name: Docker meta — prosa (CLI)
         id: meta-cli
         uses: docker/metadata-action@v6
@@ -101,6 +112,10 @@ jobs:
           push: true
           tags: ${{ steps.meta-cli.outputs.tags }}
           labels: ${{ steps.meta-cli.outputs.labels }}
+          build-args: |
+            VERSION=${{ env.BUILD_VERSION }}
+            COMMIT=${{ env.BUILD_COMMIT }}
+            BUILD_DATE=${{ env.BUILD_DATE }}
 
       - name: Docker meta — prosa-server
         id: meta-server
@@ -120,6 +135,10 @@ jobs:
           push: true
           tags: ${{ steps.meta-server.outputs.tags }}
           labels: ${{ steps.meta-server.outputs.labels }}
+          build-args: |
+            VERSION=${{ env.BUILD_VERSION }}
+            COMMIT=${{ env.BUILD_COMMIT }}
+            BUILD_DATE=${{ env.BUILD_DATE }}
 
       - name: Docker meta — prosa-panel
         id: meta-panel
@@ -139,3 +158,7 @@ jobs:
           push: true
           tags: ${{ steps.meta-panel.outputs.tags }}
           labels: ${{ steps.meta-panel.outputs.labels }}
+          build-args: |
+            VERSION=${{ env.BUILD_VERSION }}
+            COMMIT=${{ env.BUILD_COMMIT }}
+            BUILD_DATE=${{ env.BUILD_DATE }}
