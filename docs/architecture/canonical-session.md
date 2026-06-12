@@ -38,17 +38,17 @@ stays excluded.
 
 ## Projection version
 
-`session.ProjectionVersion = 9`. The server's push handler compares
+`session.ProjectionVersion = 11`. The server's push handler compares
 `projection_version >= session.ProjectionVersion` before short-
 circuiting, so bumping this constant forces existing sessions to be
 re-projected on the next push from any client. Recent versions:
-v7 rewrites FTS triggers (local) and `content_tsv` (server) to
-exclude `kind='thinking'` (migrations `0007_thinking_excluded_from_fts`);
 v8 adds the `parent_session_id` column + index plus the
 `Sessions.ListChildren` RPC (migrations `0008_subagent_edges`) and
 starts walking Claude Code subagent JSONLs alongside parents; v9 projects
 Hermes parent edges from `state.db` and transcript `parent_session_id`
-fields.
+fields; v10 projects Hermes `state.db` rows to per-session canonical
+JSONL; v11 maps `ParentSessionID` onto the push wire and imports
+Claude Code subagent transcripts under their real on-disk naming.
 
 | Version | Brought |
 |---|---|
@@ -61,6 +61,8 @@ fields.
 | 7 | thinking blocks projected — Claude Code `content[].type=="thinking"` and Codex `response_item.type=="reasoning"` `.summary` land as `Turn{Role:"assistant", Kind:KindThinking, Content:<truncated to 4 KB>}`. FTS excludes `kind='thinking'` rows so search results stay focused on chat content. |
 | 8 | subagent edge captured — `Session.ParentSessionID` set when a transcript is a Claude Code subagent (under `<parent>/subagents/agent-<id>.jsonl`) or a Codex thread spawn (`session_meta.payload.source.subagent.thread_spawn.parent_thread_id`). Claude Code's walker now picks up subagent JSONLs alongside parents. New SQL column `parent_session_id` + index (migration `0008_subagent_edges`); new RPC `Sessions.ListChildren(parent_id)` powers the panel's Subagents disclosure. |
 | 9 | Hermes parent edges projected — `Session.ParentSessionID` set from `sessions.parent_session_id` in `state.db`, snapshot envelopes, and JSONL message records carrying `parent_session_id`. |
+| 10 | Hermes `state.db` rows project to per-session canonical JSONL — the raw artifact for those sessions is a per-session `.jsonl` instead of the multi-session `.db` container; `raw_hash` / `raw_size` describe the projected JSONL. |
+| 11 | parent edges reach the server — `sessionToProto` maps `Session.ParentSessionID` onto the wire (previously dropped at push, so the server never stored an edge). Claude Code subagent transcripts are imported under their real layouts: the walker accepts `agent-<hex>.jsonl` alongside the older `agent-<uuid>.jsonl`, both directly under `subagents/` (Agent tool) and nested at `subagents/workflows/wf_<id>/` (Workflow tool). The child session id is the filename stem because every record inside carries the parent's `sessionId`; the parent UUID is the directory above the innermost `subagents` component. |
 
 ## Import eligibility
 
