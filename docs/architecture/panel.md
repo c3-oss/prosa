@@ -82,10 +82,11 @@ Routes (current MVP cut), all served from the same mux:
 
 **Gated by session cookie:**
 - `GET /` — Home dashboard (KPI strip with vs-previous-window deltas + heatmap + activity-trend card + tools/models/projects/hour-of-day cards, the Issues section, tokens-&-cost-per-model and usage cards, collapsible filters)
-- `GET /insights` — progression & rhythm dashboard (spend & tokens per day, weekly model share, weekday × hour punch card, streak/consistency and schedule KPIs, session-duration histogram, subagent fan-out; same filter chrome as Home)
+- `GET /insights` — progression & rhythm dashboard (spend & tokens per day, weekly model share, weekday × hour punch card, hour-of-day model/token breakdown, streak/consistency and schedule KPIs, session-duration histogram, the Delegation section with fan-out and top delegators; same filter chrome as Home)
 - `GET /sessions` — full session list (FTS, multi-select filters, column chooser, sortable headers, paginated)
 - `GET /sessions/<id>` — session detail (HTMX side-panel partial)
 - `GET /projects` — projects table; rows link into filtered Sessions
+- `GET /profiles` — profile analytics dashboard (KPIs, sessions-per-profile trend, tokens & cost per profile, device × agent × profile table; same filter chrome as Home)
 - `GET /devices` — device admin; Hostname cells link into filtered Sessions
 - `POST /devices/<id>/rename`
 - `POST /devices/<id>/revoke`
@@ -96,11 +97,13 @@ Routes (current MVP cut), all served from the same mux:
 - `POST /logout` — clear the panel session
 - `GET /events` — SSE stream (proxied from the server)
 
-There is no `/analytics/*` surface. The reports live as cards on two
+There is no `/analytics/*` surface. The reports live as cards on three
 dashboards: Home (Tools, Models, Projects, Hour of day, Issues,
-Tokens & cost per model, Usage, the Heatmap, and the Activity trend)
-and Insights (spend & tokens trend, model share, punch card, streaks,
-durations, subagents); the per-report subpages were folded into the
+Tokens & cost per model, Usage, the Heatmap, and the Activity trend),
+Insights (spend & tokens trend, model share, punch card, across the
+day, streaks, durations, delegation, fan-out, top delegators), and
+Profiles (sessions-per-profile trend, tokens & cost per profile, the
+by-device table); the per-report subpages were folded into the
 dashboards and into the filtered Sessions list.
 
 Note: `/sessions` (exact) and `/sessions/<id>` (subtree prefix) coexist
@@ -132,12 +135,12 @@ template by name.
 
 Current template files (likely set; check the directory for ground truth):
 
-- `base.html` — sidebar (6 entries), main area, side panel slot.
+- `base.html` — sidebar (7 entries), main area, side panel slot.
 - `home.html` — dashboard: KPI strip (with deltas) + heatmap +
   activity trend + tools/models/errors/usage cards.
 - `insights.html` — progression & rhythm dashboard: spend/tokens trend,
-  model share, punch card, streak & schedule KPIs, durations,
-  subagents.
+  model share, punch card, across-the-day, streak & schedule KPIs,
+  durations, delegation, fan-out, top delegators.
 - `dashboard_filters.html` — shared partial: the filter drawer + active
   chips used by both dashboards (parameterized by `PageTitle` /
   `FilterAction`).
@@ -146,6 +149,8 @@ Current template files (likely set; check the directory for ground truth):
   footer.
 - `projects.html` — table from the projects analytics report; rows link
   into `/sessions?project=<label>&last=<window>`.
+- `profiles.html` — profile analytics dashboard from the profile_usage
+  and profiles_by_day reports; table cells link into filtered Sessions.
 - `devices.html` — device table + approval form; Hostname cells link
   into `/sessions?device=<friendly_name>`.
 - `settings.html` — single card: email + logout.
