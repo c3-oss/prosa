@@ -53,7 +53,7 @@
 
 .badge {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-size: 11px;
   border-radius: 10px;
   padding: 2px 7px;
@@ -152,7 +152,7 @@
 /* .sp-header, .sp-body, .sp-meta live in css/components/sidepanel.css. */
 
 .raw {
-  background: #08090d;
+  background: var(--bg);
   padding: 12px 14px;
   font-family: var(--font-mono);
   font-size: 11px;
@@ -461,7 +461,7 @@ tr:hover {
 }
 
 .dev-warn {
-  background: rgba(245, 185, 74, 0.1);
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
   border: 1px solid var(--warn);
   color: var(--warn);
   padding: 8px 10px;

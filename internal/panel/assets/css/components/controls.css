@@ -42,13 +42,13 @@
 .btn-primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #ffffff;
+  color: var(--on-accent);
 }
 
 .btn-primary:hover {
   background: color-mix(in srgb, var(--accent) 85%, #ffffff);
   border-color: color-mix(in srgb, var(--accent) 85%, #ffffff);
-  color: #ffffff;
+  color: var(--on-accent);
 }
 
 .btn-danger:hover {

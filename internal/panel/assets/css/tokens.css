@@ -4,19 +4,26 @@
    Other CSS layers reference these vars, never literals. */
 
 :root {
-  /* Dark palette (default) ----------------------------------------- */
+  /* Colorblind (Okabe–Ito) palette — the default theme. Surfaces stay a
+     neutral dark; accent and status hues are drawn from the Okabe–Ito
+     palette so the chrome reads as one system with the charts below.
+     Other themes live in their own [data-theme="…"] blocks. ---------- */
   --bg: #0f1117;
   --bg-elev-1: #1a1d27;
   --bg-elev-2: #232733;
   --text-1: #e8eaf0;
   --text-2: #aab0bf;
   --text-3: #6b7186;
-  --accent: #6b7afc;
-  --accent-soft: #6b7afc33;
-  --ok: #4ade80;
-  --danger: #f04a5c;
+  --accent: #56b4e9;
+  --accent-soft: #56b4e933;
+  /* Text/icon color that sits ON --accent (buttons, badges). Each theme
+     sets this to whichever of dark/light clears the accent for contrast;
+     sky blue needs dark. */
+  --on-accent: #0f1117;
+  --ok: #1fb894;
+  --danger: #ef6c1a;
   --divider: #232733;
-  --warn: #f5b94a;
+  --warn: #e69f00;
 
   /* Typography ------------------------------------------------------ */
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
@@ -114,10 +121,26 @@
   --text-3: #7d8497;
   --accent: #4a5af0;
   --accent-soft: #4a5af029;
+  --on-accent: #ffffff;
   --ok: #1f9d55;
   --danger: #d63648;
   --divider: #d8dde6;
   --warn: #c48415;
+
+  /* Agent identity hues darkened for contrast on the light --bg; the
+     soft tint stays a quiet wash behind the badge. */
+  --agent-claude: #bf6a12;
+  --agent-claude-soft: #bf6a121f;
+  --agent-codex: #7c3aed;
+  --agent-codex-soft: #7c3aed1f;
+  --agent-gemini: #1f6fd0;
+  --agent-gemini-soft: #1f6fd01f;
+  --agent-cursor: #1f9d55;
+  --agent-cursor-soft: #1f9d551f;
+  --agent-antigrav: #c0288f;
+  --agent-antigrav-soft: #c0288f1f;
+  --agent-hermes: #0e9b90;
+  --agent-hermes-soft: #0e9b901f;
 
   /* Canonical Okabe–Ito hues, tuned for the white --bg: yellow and grey
      are darkened so they keep contrast on light surfaces. */
@@ -142,10 +165,24 @@
     --text-3: #7d8497;
     --accent: #4a5af0;
     --accent-soft: #4a5af029;
+    --on-accent: #ffffff;
     --ok: #1f9d55;
     --danger: #d63648;
     --divider: #d8dde6;
     --warn: #c48415;
+
+    --agent-claude: #bf6a12;
+    --agent-claude-soft: #bf6a121f;
+    --agent-codex: #7c3aed;
+    --agent-codex-soft: #7c3aed1f;
+    --agent-gemini: #1f6fd0;
+    --agent-gemini-soft: #1f6fd01f;
+    --agent-cursor: #1f9d55;
+    --agent-cursor-soft: #1f9d551f;
+    --agent-antigrav: #c0288f;
+    --agent-antigrav-soft: #c0288f1f;
+    --agent-hermes: #0e9b90;
+    --agent-hermes-soft: #0e9b901f;
 
     --chart-1: #56b4e9;
     --chart-2: #e69f00;
@@ -157,4 +194,188 @@
     --chart-8: #8a8f99;
     --chart-grid: #e7ebf1;
   }
+}
+
+/* Named themes ----------------------------------------------------- */
+/* Each block overrides only the color tokens (surfaces, text, accent,
+   status, chart palette); typography, spacing, radius, and motion are
+   inherited from :root so every component swaps palette with no per-rule
+   changes. Chart palettes are theme-cohesive; charts-init.js reads
+   --chart-* on a data-theme flip and recolors in place. */
+
+/* Nord — cool arctic dark (https://www.nordtheme.com). */
+[data-theme="nord"] {
+  --bg: #2e3440;
+  --bg-elev-1: #3b4252;
+  --bg-elev-2: #434c5e;
+  --text-1: #eceff4;
+  --text-2: #d8dee9;
+  --text-3: #7b88a1;
+  --accent: #88c0d0;
+  --accent-soft: #88c0d033;
+  --on-accent: #2e3440;
+  --ok: #a3be8c;
+  --danger: #bf616a;
+  --warn: #ebcb8b;
+  --divider: #3b4252;
+
+  --chart-1: #88c0d0;
+  --chart-2: #ebcb8b;
+  --chart-3: #a3be8c;
+  --chart-4: #bf616a;
+  --chart-5: #81a1c1;
+  --chart-6: #b48ead;
+  --chart-7: #d08770;
+  --chart-8: #8fbcbb;
+  --chart-grid: #3b4252;
+}
+
+/* Solarized Dark — Ethan Schoonover's precision palette. */
+[data-theme="solarized-dark"] {
+  --bg: #002b36;
+  --bg-elev-1: #073642;
+  --bg-elev-2: #094352;
+  --text-1: #eee8d5;
+  --text-2: #93a1a1;
+  --text-3: #657b83;
+  --accent: #268bd2;
+  --accent-soft: #268bd233;
+  --on-accent: #ffffff;
+  --ok: #859900;
+  --danger: #dc322f;
+  --warn: #b58900;
+  --divider: #073642;
+
+  --chart-1: #268bd2;
+  --chart-2: #b58900;
+  --chart-3: #859900;
+  --chart-4: #dc322f;
+  --chart-5: #2aa198;
+  --chart-6: #d33682;
+  --chart-7: #cb4b16;
+  --chart-8: #6c71c4;
+  --chart-grid: #073642;
+}
+
+/* Solarized Light — the light side of the same palette. */
+[data-theme="solarized-light"] {
+  --bg: #fdf6e3;
+  --bg-elev-1: #eee8d5;
+  --bg-elev-2: #e8e1cb;
+  --text-1: #073642;
+  --text-2: #586e75;
+  --text-3: #93a1a1;
+  --accent: #268bd2;
+  --accent-soft: #268bd229;
+  --on-accent: #ffffff;
+  --ok: #859900;
+  --danger: #dc322f;
+  --warn: #b58900;
+  --divider: #ddd6c1;
+
+  /* Agent identity hues darkened for the light --bg. */
+  --agent-claude: #bf6a12;
+  --agent-claude-soft: #bf6a121f;
+  --agent-codex: #7c3aed;
+  --agent-codex-soft: #7c3aed1f;
+  --agent-gemini: #1f6fd0;
+  --agent-gemini-soft: #1f6fd01f;
+  --agent-cursor: #1f9d55;
+  --agent-cursor-soft: #1f9d551f;
+  --agent-antigrav: #c0288f;
+  --agent-antigrav-soft: #c0288f1f;
+  --agent-hermes: #0e9b90;
+  --agent-hermes-soft: #0e9b901f;
+
+  --chart-1: #268bd2;
+  --chart-2: #b58900;
+  --chart-3: #859900;
+  --chart-4: #cb4b16;
+  --chart-5: #2aa198;
+  --chart-6: #d33682;
+  --chart-7: #6c71c4;
+  --chart-8: #657b83;
+  --chart-grid: #e8e1cb;
+}
+
+/* Dracula — purple night (https://draculatheme.com). */
+[data-theme="dracula"] {
+  --bg: #282a36;
+  --bg-elev-1: #343746;
+  --bg-elev-2: #44475a;
+  --text-1: #f8f8f2;
+  --text-2: #d6d6d0;
+  --text-3: #9a9cb8;
+  --accent: #bd93f9;
+  --accent-soft: #bd93f933;
+  --on-accent: #282a36;
+  --ok: #50fa7b;
+  --danger: #ff5555;
+  --warn: #ffb86c;
+  --divider: #343746;
+
+  --chart-1: #bd93f9;
+  --chart-2: #ffb86c;
+  --chart-3: #50fa7b;
+  --chart-4: #ff5555;
+  --chart-5: #8be9fd;
+  --chart-6: #ff79c6;
+  --chart-7: #f1fa8c;
+  --chart-8: #6272a4;
+  --chart-grid: #343746;
+}
+
+/* Gruvbox — warm retro dark (https://github.com/morhetz/gruvbox). */
+[data-theme="gruvbox"] {
+  --bg: #282828;
+  --bg-elev-1: #3c3836;
+  --bg-elev-2: #504945;
+  --text-1: #ebdbb2;
+  --text-2: #d5c4a1;
+  --text-3: #a89984;
+  --accent: #fabd2f;
+  --accent-soft: #fabd2f33;
+  --on-accent: #282828;
+  --ok: #b8bb26;
+  --danger: #fb4934;
+  --warn: #fe8019;
+  --divider: #3c3836;
+
+  --chart-1: #83a598;
+  --chart-2: #fe8019;
+  --chart-3: #b8bb26;
+  --chart-4: #fb4934;
+  --chart-5: #8ec07c;
+  --chart-6: #d3869b;
+  --chart-7: #fabd2f;
+  --chart-8: #a89984;
+  --chart-grid: #3c3836;
+}
+
+/* High Contrast — black ground, bright hues, visible dividers for
+   maximum legibility. */
+[data-theme="high-contrast"] {
+  --bg: #000000;
+  --bg-elev-1: #0d0d0d;
+  --bg-elev-2: #1a1a1a;
+  --text-1: #ffffff;
+  --text-2: #e6e6e6;
+  --text-3: #c2c2c2;
+  --accent: #ffd400;
+  --accent-soft: #ffd40033;
+  --on-accent: #000000;
+  --ok: #00e676;
+  --danger: #ff3b30;
+  --warn: #ffab00;
+  --divider: #3d3d3d;
+
+  --chart-1: #4dd2ff;
+  --chart-2: #ffab00;
+  --chart-3: #00e676;
+  --chart-4: #ff3b30;
+  --chart-5: #5b8dff;
+  --chart-6: #ff6ad5;
+  --chart-7: #ffe600;
+  --chart-8: #c7ccd6;
+  --chart-grid: #2a2a2a;
 }

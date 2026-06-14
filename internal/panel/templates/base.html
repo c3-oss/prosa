@@ -1,19 +1,15 @@
 {{define "base"}}<!doctype html>
-<html lang="en">
+<html lang="en" data-theme="{{.Theme}}">
 <head>
   <meta charset="utf-8">
   <title>{{.Title}} · prosa</title>
   <script>
-    /* Apply theme BEFORE stylesheets load to avoid FOUC. Persists in
-       localStorage; unknown / missing → "dark" (the historical default). */
+    /* The server stamps data-theme on <html> from the owner's saved
+       preference, so the first paint is already correct. This only
+       backfills the default if the attribute is somehow absent. */
     (function () {
-      try {
-        var t = localStorage.getItem("prosa-theme");
-        if (t !== "light" && t !== "system") t = "dark";
-        document.documentElement.dataset.theme = t;
-      } catch (_) {
-        document.documentElement.dataset.theme = "dark";
-      }
+      var e = document.documentElement;
+      if (!e.dataset.theme) e.dataset.theme = "colorblind";
     })();
   </script>
   <link rel="stylesheet" href="{{assetPath "style.css"}}">

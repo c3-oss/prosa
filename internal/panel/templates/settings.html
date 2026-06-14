@@ -17,34 +17,42 @@
 
   <section class="settings-card"
            x-data="{
-             theme: localStorage.getItem('prosa-theme') || 'dark',
+             theme: '{{.Current}}',
+             csrf: '{{.CSRF}}',
+             status: '',
              apply(t) {
                this.theme = t;
-               localStorage.setItem('prosa-theme', t);
                document.documentElement.dataset.theme = t;
+               this.status = 'Saving...';
+               var self = this;
+               var body = new URLSearchParams();
+               body.set('theme', t);
+               body.set('csrf', this.csrf);
+               fetch('/settings/theme', {
+                 method: 'POST',
+                 headers: { 'HX-Request': 'true', 'Content-Type': 'application/x-www-form-urlencoded' },
+                 body: body.toString()
+               }).then(function (r) { self.status = r.ok ? 'Saved' : 'Save failed'; })
+                 .catch(function () { self.status = 'Save failed'; });
              }
            }">
     <h2>Appearance</h2>
-    <p class="settings-hint">Applies immediately. Persists across reloads (per-browser).</p>
+    <p class="settings-hint">
+      Saved to your account — applies immediately and follows you across browsers.
+      <span class="settings-status" x-text="status"></span>
+    </p>
     <div class="theme-options" role="radiogroup" aria-label="Theme">
-      <label class="theme-option" :class="{ 'is-active': theme === 'system' }">
-        <input type="radio" name="theme" value="system"
-               :checked="theme === 'system'" @change="apply('system')">
-        <span class="theme-option-label">System</span>
-        <span class="theme-option-hint">Follow OS preference</span>
+      {{range .Themes}}
+      <label class="theme-option" :class="{ 'is-active': theme === '{{.ID}}' }">
+        <input type="radio" name="theme" value="{{.ID}}"
+               :checked="theme === '{{.ID}}'" @change="apply('{{.ID}}')">
+        <span class="theme-swatch" aria-hidden="true">
+          {{range .Swatch}}<span class="theme-swatch-dot" style="background: {{.}}"></span>{{end}}
+        </span>
+        <span class="theme-option-label">{{.Label}}</span>
+        <span class="theme-option-hint">{{.Hint}}</span>
       </label>
-      <label class="theme-option" :class="{ 'is-active': theme === 'light' }">
-        <input type="radio" name="theme" value="light"
-               :checked="theme === 'light'" @change="apply('light')">
-        <span class="theme-option-label">Light</span>
-        <span class="theme-option-hint">Always light</span>
-      </label>
-      <label class="theme-option" :class="{ 'is-active': theme === 'dark' }">
-        <input type="radio" name="theme" value="dark"
-               :checked="theme === 'dark'" @change="apply('dark')">
-        <span class="theme-option-label">Dark</span>
-        <span class="theme-option-hint">Always dark (default)</span>
-      </label>
+      {{end}}
     </div>
   </section>
 {{end}}

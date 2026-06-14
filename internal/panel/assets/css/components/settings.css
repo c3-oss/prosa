@@ -95,3 +95,25 @@
   font-size: var(--text-xs);
   color: var(--text-3);
 }
+
+/* Preview dots: a few representative hues from each theme so the choice
+   is visible before applying. The neutral inset ring keeps pale dots
+   legible on light cards and dark dots legible on dark ones. */
+.theme-swatch {
+  display: flex;
+  gap: var(--space-1);
+  margin-bottom: var(--space-1);
+}
+
+.theme-swatch-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: var(--radius-full);
+  box-shadow: inset 0 0 0 1px rgba(127, 127, 127, 0.35);
+}
+
+.settings-status {
+  margin-left: var(--space-2);
+  color: var(--text-3);
+  font-size: var(--text-xs);
+}
