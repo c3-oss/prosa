@@ -19,9 +19,10 @@ import (
 )
 
 // AnalyticsHandler implements AnalyticsService against Postgres. The
-// CLI-facing reports mirror internal/store/analytics.go (which targets
-// SQLite), rewritten with $N placeholders and tsvector FTS in place of
-// FTS5. The insights reports feed the panel only, with no SQLite mirror.
+// CLI-facing reports (subagents included) mirror
+// internal/store/analytics.go (which targets SQLite), rewritten with $N
+// placeholders and tsvector FTS in place of FTS5. The remaining insights
+// reports feed the panel only, with no SQLite mirror.
 type AnalyticsHandler struct {
 	prosav1connect.UnimplementedAnalyticsServiceHandler
 	Pool *pgxpool.Pool
@@ -71,6 +72,20 @@ func (h *AnalyticsHandler) GetReport(ctx context.Context, req *connect.Request[p
 	case "usage_by_day":
 		return runReport(ctx, h.Pool, req.Msg, queryUsageByDay,
 			[]string{"DAY", "MODEL", "SESSIONS", "MEASURED", "TOTAL", "INPUT", "OUTPUT", "CACHED", "CACHE_READ", "CACHE_CREATION"})
+	case "usage_by_hour":
+		return runReport(ctx, h.Pool, req.Msg, queryUsageByHour,
+			[]string{"HOUR", "MODEL", "SESSIONS", "MEASURED", "TOTAL", "INPUT", "OUTPUT", "CACHED", "CACHE_READ", "CACHE_CREATION"})
+	case "subagent_usage_by_day":
+		return runReport(ctx, h.Pool, req.Msg, querySubagentUsageByDay,
+			[]string{"DAY", "KIND", "MODEL", "SESSIONS", "MEASURED", "TOTAL", "INPUT", "OUTPUT", "CACHED", "CACHE_READ", "CACHE_CREATION"})
+	case "subagent_parents":
+		return runReport(ctx, h.Pool, req.Msg, querySubagentParents,
+			[]string{"STARTED", "AGENT", "PROJECT", "SESSION", "CHILDREN"})
+	case "profile_usage":
+		return runReport(ctx, h.Pool, req.Msg, queryProfileUsage,
+			[]string{"DEVICE", "AGENT", "PROFILE", "MODEL", "SESSIONS", "MEASURED", "TOTAL", "INPUT", "OUTPUT", "CACHED", "CACHE_READ", "CACHE_CREATION", "LAST_ACTIVITY"})
+	case "profiles_by_day":
+		return runReport(ctx, h.Pool, req.Msg, queryProfilesByDay, []string{"DAY", "AGENT", "PROFILE", "SESSIONS"})
 	case "punchcard":
 		return runReport(ctx, h.Pool, req.Msg, queryPunchcard, []string{"DOW", "HOUR", "SESSIONS"})
 	case "durations":
@@ -81,7 +96,7 @@ func (h *AnalyticsHandler) GetReport(ctx context.Context, req *connect.Request[p
 		return runReport(ctx, h.Pool, req.Msg, querySubagents, []string{"AGENT", "PARENTS", "CHILDREN", "MAX_FANOUT"})
 	default:
 		return nil, connect.NewError(connect.CodeInvalidArgument,
-			fmt.Errorf("unknown report %q (want sessions|tools|models|projects|profiles|errors|heatmap|usage|hours|usage_by_model|errors_by_model|usage_by_day|punchcard|durations|duration_stats|subagents)", req.Msg.Report))
+			fmt.Errorf("unknown report %q (want sessions|tools|models|projects|profiles|errors|heatmap|usage|hours|usage_by_model|errors_by_model|usage_by_day|usage_by_hour|punchcard|durations|duration_stats|subagents|subagent_usage_by_day|subagent_parents|profile_usage|profiles_by_day)", req.Msg.Report))
 	}
 }
 
@@ -160,6 +175,14 @@ func buildWhere(ctx context.Context, msg *prosav1.GetReportRequest) (string, []a
 	}
 	if msg.Agent != "" {
 		addEq("agent", msg.Agent)
+	}
+	switch {
+	case len(msg.Profiles) > 0:
+		conds = append(conds, fmt.Sprintf("s.profile = ANY($%d)", idx))
+		args = append(args, msg.Profiles)
+		idx++
+	case msg.Profile != "":
+		addEq("profile", msg.Profile)
 	}
 	switch {
 	case len(msg.DeviceNames) > 0:
@@ -614,6 +637,115 @@ func queryDurationStats(whereSQL string, args []any) (string, []any) {
 		       COALESCE(ROUND(AVG(d))::bigint, 0)::text AS avg_s,
 		       COALESCE(ROUND(MAX(d))::bigint, 0)::text AS max_s
 		FROM (` + durationSeconds + whereSQL + `) x`
+	return q, args
+}
+
+// queryUsageByHour mirrors queryUsageByDay with UTC start-hour buckets, so
+// the panel can draw an hour-of-day model/token profile. The panel rotates
+// hours into its local zone, same as the hours and punchcard reports.
+func queryUsageByHour(whereSQL string, args []any) (string, []any) {
+	q := `
+		SELECT to_char(s.started_at AT TIME ZONE 'UTC', 'HH24') AS hour,
+		       COALESCE(s.model, '(none)') AS model,
+		       COUNT(DISTINCT s.id)::text  AS sessions,
+		       COUNT(su.session_id)::text  AS measured,
+		       COALESCE(SUM(su.total_tokens), 0)::text          AS total_tokens,
+		       COALESCE(SUM(su.input_tokens), 0)::text          AS input_tokens,
+		       COALESCE(SUM(su.output_tokens), 0)::text         AS output_tokens,
+		       COALESCE(SUM(su.cached_tokens), 0)::text         AS cached_tokens,
+		       COALESCE(SUM(su.cache_read_tokens), 0)::text     AS cache_read_tokens,
+		       COALESCE(SUM(su.cache_creation_tokens), 0)::text AS cache_creation_tokens
+		FROM sessions s
+		LEFT JOIN session_usage su ON su.session_id = s.id
+		` + whereSQL + `
+		GROUP BY hour, model
+		ORDER BY hour ASC, model ASC`
+	return q, args
+}
+
+// querySubagentUsageByDay is queryUsageByDay split by delegation kind:
+// 'subagent' rows are sessions spawned by another session (parent edge
+// set), 'direct' rows are top-level work. Kind needs only the child's own
+// parent_session_id, so children whose parent was never imported still
+// count as delegated.
+func querySubagentUsageByDay(whereSQL string, args []any) (string, []any) {
+	q := `
+		SELECT to_char((s.started_at AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD') AS day,
+		       CASE WHEN s.parent_session_id IS NULL THEN 'direct' ELSE 'subagent' END AS kind,
+		       COALESCE(s.model, '(none)') AS model,
+		       COUNT(DISTINCT s.id)::text  AS sessions,
+		       COUNT(su.session_id)::text  AS measured,
+		       COALESCE(SUM(su.total_tokens), 0)::text          AS total_tokens,
+		       COALESCE(SUM(su.input_tokens), 0)::text          AS input_tokens,
+		       COALESCE(SUM(su.output_tokens), 0)::text         AS output_tokens,
+		       COALESCE(SUM(su.cached_tokens), 0)::text         AS cached_tokens,
+		       COALESCE(SUM(su.cache_read_tokens), 0)::text     AS cache_read_tokens,
+		       COALESCE(SUM(su.cache_creation_tokens), 0)::text AS cache_creation_tokens
+		FROM sessions s
+		LEFT JOIN session_usage su ON su.session_id = s.id
+		` + whereSQL + `
+		GROUP BY day, kind, model
+		ORDER BY day ASC, kind ASC, model ASC`
+	return q, args
+}
+
+// querySubagentParents emits one row per spawning session: parent metadata
+// plus how many children it spawned in the window. Like querySubagents,
+// filters apply to the children; the parent supplies the display columns.
+// GROUP BY p.id is enough because sessions.id is the primary key.
+func querySubagentParents(whereSQL string, args []any) (string, []any) {
+	q := `
+		SELECT to_char(p.started_at, 'YYYY-MM-DD HH24:MI') AS started,
+		       p.agent,
+		       COALESCE(p.project_remote, p.project_marker, p.project_path, '(unscoped)') AS project,
+		       p.id,
+		       COUNT(*)::text AS children
+		FROM sessions s
+		JOIN sessions p ON p.id = s.parent_session_id
+		` + whereSQL + ` AND s.parent_session_id IS NOT NULL
+		GROUP BY p.id
+		ORDER BY COUNT(*) DESC, p.started_at DESC`
+	return q, args
+}
+
+// queryProfileUsage extends queryProfiles with a model split (so the panel
+// can price each group), token sums, and the group's latest activity.
+func queryProfileUsage(whereSQL string, args []any) (string, []any) {
+	q := `
+		SELECT COALESCE(NULLIF(d.friendly_name, ''), s.device_id) AS device,
+		       s.agent,
+		       s.profile,
+		       COALESCE(s.model, '(none)') AS model,
+		       COUNT(DISTINCT s.id)::text  AS sessions,
+		       COUNT(su.session_id)::text  AS measured,
+		       COALESCE(SUM(su.total_tokens), 0)::text          AS total_tokens,
+		       COALESCE(SUM(su.input_tokens), 0)::text          AS input_tokens,
+		       COALESCE(SUM(su.output_tokens), 0)::text         AS output_tokens,
+		       COALESCE(SUM(su.cached_tokens), 0)::text         AS cached_tokens,
+		       COALESCE(SUM(su.cache_read_tokens), 0)::text     AS cache_read_tokens,
+		       COALESCE(SUM(su.cache_creation_tokens), 0)::text AS cache_creation_tokens,
+		       to_char(MAX(s.last_activity_at), 'YYYY-MM-DD HH24:MI') AS last_activity
+		FROM sessions s
+		LEFT JOIN devices d ON d.id = s.device_id
+		LEFT JOIN session_usage su ON su.session_id = s.id
+		` + whereSQL + `
+		GROUP BY device, s.agent, s.profile, model
+		ORDER BY device ASC, s.agent ASC, s.profile ASC, model ASC`
+	return q, args
+}
+
+// queryProfilesByDay counts sessions per (UTC day, agent, profile). No
+// zero-fill: the panel folds days into weekly buckets.
+func queryProfilesByDay(whereSQL string, args []any) (string, []any) {
+	q := `
+		SELECT to_char((s.started_at AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD') AS day,
+		       s.agent,
+		       s.profile,
+		       COUNT(*)::text AS sessions
+		FROM sessions s
+		` + whereSQL + `
+		GROUP BY day, s.agent, s.profile
+		ORDER BY day ASC, s.agent ASC, s.profile ASC`
 	return q, args
 }
 

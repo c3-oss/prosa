@@ -41,13 +41,14 @@ func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 	agents := pickMulti(q, "agent")
 	projects := pickMulti(q, "project")
 	devices := pickDeviceNames(q)
+	profilesSel := pickMulti(q, "profile")
 
 	// Heatmap uses its own request so the fixed-window override doesn't
 	// bleed into the windowed reports.
 	sharedReq := func(report string) *prosav1.GetReportRequest {
-		return dashboardReportRequest(report, since, until, agents, projects, devices)
+		return dashboardReportRequest(report, since, until, agents, projects, devices, profilesSel)
 	}
-	heatmapReq := dashboardReportRequest("heatmap", heatmapSince, heatmapUntil, agents, projects, devices)
+	heatmapReq := dashboardReportRequest("heatmap", heatmapSince, heatmapUntil, agents, projects, devices, profilesSel)
 
 	// Daily activity trend over the filtered window; clamp last=all to
 	// 365d so the server doesn't zero-fill ~36k days.
@@ -57,7 +58,7 @@ func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 		trendSince = c
 		trendNote = "trailing 365d"
 	}
-	trendReq := dashboardReportRequest("heatmap", trendSince, until, agents, projects, devices)
+	trendReq := dashboardReportRequest("heatmap", trendSince, until, agents, projects, devices, profilesSel)
 
 	// limit=1 yields the unfiltered total cheaply for the sessions KPI.
 	sessionsListReq := func(s, u time.Time) *prosav1.ListRequest {
@@ -66,6 +67,7 @@ func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 			Until:       timestamppb.New(u),
 			Limit:       1,
 			DeviceNames: devices,
+			Profiles:    profilesSel,
 		}
 		if len(agents) == 1 {
 			req.Agent = agents[0]
@@ -84,6 +86,7 @@ func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 		usage         *prosav1.GetReportResponse
 		heatmap       *prosav1.GetReportResponse
 		projects      *prosav1.GetReportResponse // Projects KPI + chart + dropdown
+		profiles      *prosav1.GetReportResponse // profile dropdown options
 		usageByModel  *prosav1.GetReportResponse // tokens & cost per model card
 		errorsByModel *prosav1.GetReportResponse // errors per model (Issues)
 		hours         *prosav1.GetReportResponse // activity by hour card
@@ -117,6 +120,7 @@ func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 		{"errors", sharedReq("errors"), &out.errors},
 		{"usage", sharedReq("usage"), &out.usage},
 		{"projects", sharedReq("projects"), &out.projects},
+		{"profiles", sharedReq("profiles"), &out.profiles},
 		{"heatmap", heatmapReq, &out.heatmap},
 		{"usage_by_model", sharedReq("usage_by_model"), &out.usageByModel},
 		{"errors_by_model", sharedReq("errors_by_model"), &out.errorsByModel},
@@ -127,7 +131,7 @@ func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 	if compare {
 		prevSince := since.Add(-until.Sub(since))
 		prevReq := func(report string) *prosav1.GetReportRequest {
-			return dashboardReportRequest(report, prevSince, since, agents, projects, devices)
+			return dashboardReportRequest(report, prevSince, since, agents, projects, devices, profilesSel)
 		}
 		specs = append(
 			specs,
@@ -166,6 +170,7 @@ func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("home devices.list failed", "err", err)
 	}
 	projectNames := projectLabelsFromRows(out.projects.Rows)
+	profileNames := profileLabelsFromRows(out.profiles.Rows)
 
 	heatmap := buildHeatmap(out.heatmap.Rows)
 	usageRows, usageTokens, usageCost, usagePriced := buildUsage(out.usage.Rows)
@@ -202,7 +207,7 @@ func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 		{Value: issues.Rate, Label: "error rate", Delta: dErrorRate},
 	}
 
-	activeFilters := buildDashboardActiveFilters(r.URL.Query(), "/", lastRaw, agents, projects, devices)
+	activeFilters := buildDashboardActiveFilters(r.URL.Query(), "/", lastRaw, agents, projects, devices, profilesSel)
 	clearFiltersURL := ""
 	if len(activeFilters) > 0 {
 		clearFiltersURL = "/"
@@ -222,6 +227,8 @@ func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 		"ProjectsSelected": selectionSet(projects),
 		"Devices":          deviceNames,
 		"DevicesSelected":  selectionSet(devices),
+		"Profiles":         profileNames,
+		"ProfilesSelected": selectionSet(profilesSel),
 		"ActiveFilters":    activeFilters,
 		"ClearFiltersURL":  clearFiltersURL,
 
@@ -360,6 +367,27 @@ func projectLabelsFromRows(rows []*prosav1.AnalyticsRow) []string {
 			continue
 		}
 		v := strings.TrimSpace(row.Values[0])
+		if v == "" || seen[v] {
+			continue
+		}
+		seen[v] = true
+		out = append(out, v)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// profileLabelsFromRows extracts unique profile labels (third column of
+// each analytics-profiles row) for use as the profile dropdown option
+// set. Sorted alphabetically; empties dropped.
+func profileLabelsFromRows(rows []*prosav1.AnalyticsRow) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(rows))
+	for _, row := range rows {
+		if len(row.Values) < 3 {
+			continue
+		}
+		v := strings.TrimSpace(row.Values[2])
 		if v == "" || seen[v] {
 			continue
 		}

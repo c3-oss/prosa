@@ -103,6 +103,36 @@
     </section>
   </div>
 
+  <section class="card">
+    <header class="card-head">
+      <h2>Across the day</h2>
+      <span class="card-sub">
+        {{if .Day.HasData}}{{.Day.PeakLabel}} · busiest model {{.Day.BusiestModel}} · {{.Day.TotalTokens}} tokens{{else}}sessions and tokens per local hour{{end}}
+      </span>
+    </header>
+    {{if .Day.HasData}}
+      <div class="trend-block">
+        <h3 class="trend-subhead">Sessions by model</h3>
+        <div class="trend-chart">
+          <div data-chart="day-models"></div>
+          <script type="application/json" class="chart-spec" data-for="day-models">{{ .Day.SessionsChart.JSON }}</script>
+        </div>
+        <ul class="cost-legend share-legend">
+          {{range .Day.Legend}}
+            <li><span class="cost-legend-dot" data-ci="{{.ColorIdx}}"></span><span class="cost-legend-model">{{.Model}}</span><span class="cost-legend-cost">{{.Sessions}}</span></li>
+          {{end}}
+        </ul>
+        <h3 class="trend-subhead">Tokens</h3>
+        <div class="trend-chart">
+          <div data-chart="day-tokens"></div>
+          <script type="application/json" class="chart-spec" data-for="day-tokens">{{ .Day.TokensChart.JSON }}</script>
+        </div>
+      </div>
+    {{else}}
+      <div class="empty">no sessions in this window.</div>
+    {{end}}
+  </section>
+
   <div class="dashboard-grid">
     <section class="card">
       <header class="card-head">
@@ -126,24 +156,93 @@
 
     <section class="card">
       <header class="card-head">
-        <h2>Subagents</h2>
+        <h2>Fan-out</h2>
+        <span class="card-sub">subagents per spawning session</span>
+      </header>
+      {{if .Fanout.HasData}}
+        <div class="bar-list">
+          {{range .Fanout.Bars}}
+            <div class="bar-row">
+              <span class="bar-label">{{.Label}}</span>
+              <span class="bar-track"><span class="bar-fill" style="width: {{.Percent}}%"></span></span>
+              <span class="bar-count">{{.Count}}</span>
+            </div>
+          {{end}}
+        </div>
+      {{else}}
+        <div class="empty">no subagent sessions in this window.</div>
+      {{end}}
+    </section>
+  </div>
+
+  <section class="card">
+    <header class="card-head">
+      <h2>Delegation</h2>
+      <span class="card-sub">work routed through subagent sessions{{if .WindowNote}} · {{.WindowNote}}{{end}}</span>
+    </header>
+    {{if .Delegation.HasData}}
+      <div class="issues-indicators">
+        <div class="kpi">
+          <div class="kpi-value">{{.Delegation.Spawning}}</div>
+          <div class="kpi-label">spawning sessions</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-value">{{.Delegation.Children}}</div>
+          <div class="kpi-label">subagent sessions</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-value">{{.Delegation.DelegatedPct}}</div>
+          <div class="kpi-label">tokens delegated</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-value">{{.Delegation.SubagentSpend}}</div>
+          <div class="kpi-label">est. subagent spend</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-value">{{.Delegation.MaxFan}}</div>
+          <div class="kpi-label">max fan-out</div>
+        </div>
+      </div>
+      {{if .DelegationTrend.HasData}}
+        <h3 class="trend-subhead">Delegated token share per week</h3>
+        <div class="trend-chart">
+          <div data-chart="delegation-trend"></div>
+          <script type="application/json" class="chart-spec" data-for="delegation-trend">{{ .DelegationTrend.Chart.JSON }}</script>
+        </div>
+      {{end}}
+    {{else}}
+      <div class="empty">no subagent sessions in this window.</div>
+    {{end}}
+  </section>
+
+  <div class="dashboard-grid">
+    <section class="card">
+      <header class="card-head">
+        <h2>Top delegating sessions</h2>
+        <span class="card-sub">most subagents spawned</span>
+      </header>
+      {{if .TopDelegators}}
+        <ul class="issues-list">
+          {{range .TopDelegators}}
+            <li class="issues-item">
+              <a class="issues-item-link" href="{{.URL}}">
+                <span class="issues-item-meta">{{.Agent}} {{.Project}} · {{.Children}} subagents</span>
+                <span class="issues-item-when">{{.When}}</span>
+              </a>
+            </li>
+          {{end}}
+        </ul>
+      {{else}}
+        <div class="empty">no subagent sessions in this window.</div>
+      {{end}}
+    </section>
+
+    <section class="card">
+      <header class="card-head">
+        <h2>By parent agent</h2>
         <span class="card-sub">sessions that spawned agents</span>
       </header>
       {{if .Subagents.HasData}}
-        <div class="issues-indicators">
-          <div class="kpi">
-            <div class="kpi-value">{{.Subagents.Parents}}</div>
-            <div class="kpi-label">spawning sessions</div>
-          </div>
-          <div class="kpi">
-            <div class="kpi-value">{{.Subagents.Children}}</div>
-            <div class="kpi-label">subagent sessions</div>
-          </div>
-          <div class="kpi">
-            <div class="kpi-value">{{.Subagents.MaxFan}}</div>
-            <div class="kpi-label">max fan-out</div>
-          </div>
-        </div>
         <table class="subagents-table">
           <thead>
             <tr><th>agent</th><th>spawning</th><th>subagents</th><th>max fan-out</th></tr>
