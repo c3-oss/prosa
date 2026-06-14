@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package prosa.v1;
+
+option go_package = "github.com/c3-oss/prosa/gen/go/prosa/v1;prosav1";
+
+// PreferencesService stores panel UI preferences (e.g. the chosen theme)
+// keyed by owner email. Only owner callers (the panel, via the admin
+// token) may read or write; the email scopes which owner's prefs the
+// call touches.
+service PreferencesService {
+  // Request/response types are service-qualified to avoid clashing with
+  // SessionsService.Get's GetRequest/GetResponse in this package.
+  rpc Get(PreferencesServiceGetRequest) returns (PreferencesServiceGetResponse);
+  rpc Set(PreferencesServiceSetRequest) returns (PreferencesServiceSetResponse);
+}
+
+message PreferencesServiceGetRequest {
+  string owner_email = 1;
+}
+
+message PreferencesServiceGetResponse {
+  // Every stored key/value for the owner. Absent keys mean "unset".
+  map<string, string> preferences = 1;
+}
+
+message PreferencesServiceSetRequest {
+  string owner_email = 1;
+  string key = 2;
+  string value = 3;
+}
+
+message PreferencesServiceSetResponse {}
