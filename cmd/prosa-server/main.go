@@ -17,6 +17,10 @@ import (
 )
 
 func main() {
+	if len(os.Args) == 2 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
+		fmt.Fprintf(os.Stdout, "prosa-server version %s\n", buildinfo.String())
+		return
+	}
 	if err := runServer(); err != nil {
 		fmt.Fprintln(os.Stderr, "server:", err)
 		os.Exit(1)

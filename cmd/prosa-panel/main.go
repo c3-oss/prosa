@@ -16,6 +16,10 @@ import (
 )
 
 func main() {
+	if len(os.Args) == 2 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
+		fmt.Fprintf(os.Stdout, "prosa-panel version %s\n", buildinfo.String())
+		return
+	}
 	slog.Info("prosa-panel starting", "version", buildinfo.String())
 	cfg, err := panel.Load()
 	if err != nil {
