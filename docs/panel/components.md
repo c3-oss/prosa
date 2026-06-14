@@ -11,7 +11,7 @@ see [screens.md](screens.md). For visual direction see the
 CSS vars defined in `internal/panel/templates/assets/css/tokens.css`. All
 other layers reference these vars — never a literal value.
 
-### Dark palette
+### Default palette — Colorblind (Okabe–Ito)
 
 ```
 --bg               #0f1117
@@ -20,10 +20,11 @@ other layers reference these vars — never a literal value.
 --text-1           #e8eaf0
 --text-2           #aab0bf
 --text-3           #6b7186
---accent           #6b7afc
---accent-soft      #6b7afc33
---ok               #4ade80
---danger           #f04a5c
+--accent           #56b4e9
+--accent-soft      #56b4e933
+--ok               #1fb894
+--danger           #ef6c1a
+--warn             #e69f00
 --divider          #232733
 --chart-grid       #20242f
 ```
@@ -32,9 +33,23 @@ other layers reference these vars — never a literal value.
 it sits quieter than `--divider`, which separates surfaces (light value:
 `#e7ebf1`).
 
-Light mode: `tokens.css` re-defines every palette var under
-`[data-theme="light"]`, and under `[data-theme="system"]` when the OS
-reports `prefers-color-scheme: light`.
+Themes: the colorblind (Okabe–Ito) palette above lives in `:root` as the
+default. Each alternate overrides the color tokens under its own
+`[data-theme="<id>"]` block — `light`, `nord`, `solarized-dark`,
+`solarized-light`, `dracula`, `gruvbox`, `high-contrast` — and `system`
+follows the OS via `prefers-color-scheme`. The panel stamps the owner's
+saved `data-theme` on `<html>` server-side; `charts-init.js` recolors
+charts on the flip.
+
+Every color the panel paints is a token, so no theme leaves anything
+unthemed: surfaces, text, `--accent` plus `--on-accent` (the text/icon
+color that rides on the accent — dark on a light accent, light on a dark
+one), status (`--ok`/`--danger`/`--warn`), `--divider`, the `--chart-*`
+palette, and the `--agent-*` identity hues. Agent hues keep their
+identity across themes; on light backgrounds (`light`, `solarized-light`,
+`system` under OS-light) they darken for contrast. The only literals left
+in CSS are drop shadows and the modal scrim — neutral black on purpose,
+correct against any palette.
 
 ### Typography
 

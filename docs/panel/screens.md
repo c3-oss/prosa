@@ -561,24 +561,39 @@ Devices
 
 ## Settings `/settings`
 
-Single-card surface for the logged-in owner. Spartan by design.
+Two cards for the logged-in owner: identity and appearance.
 
 ```
 Settings
 
   +---------------------------------------------------+
-  |  Signed in as                                     |
+  |  Logged in as                                     |
   |  hi@caian.org                                     |
-  |                                                   |
-  |  [ logout ]                                       |
+  |  [ log out ]                                      |
+  +---------------------------------------------------+
+  +---------------------------------------------------+
+  |  Appearance                                       |
+  |  (o) Colorblind   ( ) Light       ( ) Nord        |
+  |  ( ) Solar. Dark  ( ) Solar. Light( ) Dracula     |
+  |  ( ) Gruvbox      ( ) High Contr. ( ) System      |
   +---------------------------------------------------+
 ```
 
-- One card, no tabs, no preferences sub-pages.
 - Email comes from the session cookie (`p.cookie.FromRequest(r)`).
 - Logout button posts to `/logout` (same as the topbar form).
-- No SSE, no Alpine, no charts. If a future setting earns its place,
-  it joins this card.
+- The theme picker is a swatch grid of nine options: the colorblind
+  (Okabe–Ito) default, seven alternates (`light`, `nord`,
+  `solarized-dark`, `solarized-light`, `dracula`, `gruvbox`,
+  `high-contrast`), and `system`. Picking one sets `data-theme` on
+  `<html>` immediately — recoloring chrome and charts — and POSTs to
+  `/settings/theme`.
+- `/settings/theme` persists the choice server-side via
+  `PreferencesService.Set`, keyed by owner email. The panel renders
+  `data-theme` from the stored value on first paint, so the theme
+  follows the owner across browsers with no flash.
+- The catalog is `panel.Themes`: the picker renders from it and the
+  handler validates the submitted value against it, so the two never
+  drift.
 
 ---
 

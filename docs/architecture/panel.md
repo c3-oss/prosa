@@ -277,9 +277,16 @@ POST forms (`/logout`, `/cli/authorize/approve`, and device actions).
 ## Talking to the server
 
 `internal/panel/rpc/client.go` builds Connect clients for
-`SessionsService`, `DevicesService`, `AuthService`, `AnalyticsService`.
-Each call sends `Authorization: Admin <PROSA_ADMIN_TOKEN>` so the server
-treats the panel as the owner.
+`SessionsService`, `DevicesService`, `AuthService`, `AnalyticsService`,
+`PreferencesService`. Each call sends `Authorization: Admin
+<PROSA_ADMIN_TOKEN>` so the server treats the panel as the owner.
+
+`PreferencesService` stores panel UI preferences (currently the chosen
+theme) in the `panel_preferences` Postgres table, keyed by owner email.
+The panel resolves the owner's theme on every full-page render — cached
+in-process, invalidated on write — and stamps it onto `<html data-theme>`
+server-side, so the first paint is correct with no flash. The Settings
+picker POSTs to `/settings/theme`, which calls `PreferencesService.Set`.
 
 The `/events` route is a proxy: the panel opens an SSE stream to the
 server's `/sse/events` and re-emits the bytes to the browser. This
