@@ -66,6 +66,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	s.registerSessions(authed...)
 	s.registerDevices(authed...)
 	s.registerAnalytics(authed...)
+	s.registerPreferences(authed...)
 	s.mux.Handle("/sse/events", handlers.NewSSEHandler(s.pool, cfg.AdminToken))
 	return s, nil
 }
@@ -126,6 +127,12 @@ func (s *Server) registerDevices(opts ...connect.HandlerOption) {
 func (s *Server) registerAnalytics(opts ...connect.HandlerOption) {
 	h := handlers.NewAnalyticsHandler(s.pool)
 	path, handler := prosav1connect.NewAnalyticsServiceHandler(h, opts...)
+	s.mux.Handle(path, handler)
+}
+
+func (s *Server) registerPreferences(opts ...connect.HandlerOption) {
+	h := handlers.NewPreferencesHandler(s.pool)
+	path, handler := prosav1connect.NewPreferencesServiceHandler(h, opts...)
 	s.mux.Handle(path, handler)
 }
 
