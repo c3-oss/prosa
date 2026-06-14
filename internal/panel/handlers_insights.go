@@ -176,7 +176,7 @@ func (p *Panel) handleInsights(w http.ResponseWriter, r *http.Request) {
 		"Subagents":       subagents,
 		"WindowNote":      windowNote,
 	}
-	p.render(w, "insights", data)
+	p.render(w, r, "insights", data)
 }
 
 // spendTrendView powers the "Spend & tokens" card: spend columns plus a

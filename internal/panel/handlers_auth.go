@@ -61,7 +61,7 @@ func (p *Panel) handleLogin(w http.ResponseWriter, r *http.Request) {
 			state,
 		)
 	}
-	p.render(w, "login", data)
+	p.render(w, r, "login", data)
 }
 
 // handleGitHubCallback exchanges the code and lights up the session

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/c3-oss/prosa/internal/httpserver"
@@ -23,6 +24,11 @@ type Panel struct {
 	views   map[string]*template.Template
 	cookie  *session.Manager
 	clients *rpc.Clients
+
+	// themeCache memoizes the per-owner theme so full-page renders don't
+	// hit the server on every request; handleSetTheme invalidates it.
+	themeMu    sync.RWMutex
+	themeCache map[string]string
 }
 
 // New parses the embedded templates and wires every route. Each view gets
@@ -149,6 +155,7 @@ func (p *Panel) routes() {
 	p.mux.HandleFunc("/projects", p.requireSession(p.handleProjects))
 	p.mux.HandleFunc("/profiles", p.requireSession(p.handleProfiles))
 	p.mux.HandleFunc("/settings", p.requireSession(p.handleSettings))
+	p.mux.HandleFunc("/settings/theme", p.requireSession(p.csrfProtected(p.handleSetTheme)))
 	p.mux.HandleFunc("/raw/", p.requireSession(p.handleRawChunk))
 	p.mux.HandleFunc("/devices", p.requireSession(p.handleDevices))
 	p.mux.HandleFunc("/devices/", p.requireSession(p.csrfProtected(p.handleDevicesAction)))
@@ -198,7 +205,7 @@ func (p *Panel) requireSession(next http.HandlerFunc) http.HandlerFunc {
 // render executes the named template into w. Each view has its own
 // template tree so block redefinitions ("content", "search", "side")
 // in sibling views don't shadow each other.
-func (p *Panel) render(w http.ResponseWriter, name string, data any) {
+func (p *Panel) render(w http.ResponseWriter, r *http.Request, name string, data any) {
 	t, ok := p.views[name]
 	if !ok {
 		slog.Error("template not found", "name", name)
@@ -212,6 +219,16 @@ func (p *Panel) render(w http.ResponseWriter, name string, data any) {
 	switch name {
 	case "login", "cli_authorize", "side_panel", "raw_chunk":
 		root = name
+	}
+	// Full-page (base layout) renders resolve the owner's theme so
+	// <html data-theme> is correct on first paint. Partial swaps and
+	// pre-auth pages skip the lookup. A handler may preset "Theme".
+	if root == "base" {
+		if m, ok := data.(map[string]any); ok {
+			if _, set := m["Theme"]; !set {
+				m["Theme"] = p.currentTheme(r)
+			}
+		}
 	}
 	if err := t.ExecuteTemplate(w, root, data); err != nil {
 		slog.Error("template render failed", "name", name, "err", err)

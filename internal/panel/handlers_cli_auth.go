@@ -15,23 +15,23 @@ import (
 func (p *Panel) handleCliAuthorize(w http.ResponseWriter, r *http.Request) {
 	requestID := strings.TrimSpace(r.URL.Query().Get("request_id"))
 	if requestID == "" {
-		p.renderCliAuthorizeError(w, "missing request_id")
+		p.renderCliAuthorizeError(w, r, "missing request_id")
 		return
 	}
 	if errMsg := r.URL.Query().Get("approve_error"); errMsg != "" {
-		p.renderCliAuthorizeError(w, errMsg)
+		p.renderCliAuthorizeError(w, r, errMsg)
 		return
 	}
 	resp, err := p.clients.Auth.GetLoginRequest(r.Context(),
 		connect.NewRequest(&prosav1.GetLoginRequestRequest{RequestId: requestID}))
 	if err != nil {
 		slog.Warn("get login request failed", "request_id", requestID, "err", err)
-		p.renderCliAuthorizeError(w, "login request not found or expired")
+		p.renderCliAuthorizeError(w, r, "login request not found or expired")
 		return
 	}
 	msg := resp.Msg
 	if msg.State != "PENDING" {
-		p.renderCliAuthorizeError(w, fmt.Sprintf("login request is %s", msg.State))
+		p.renderCliAuthorizeError(w, r, fmt.Sprintf("login request is %s", msg.State))
 		return
 	}
 	expires := "—"
@@ -42,7 +42,7 @@ func (p *Panel) handleCliAuthorize(w http.ResponseWriter, r *http.Request) {
 	if len(fp) > 16 {
 		fp = fp[:8] + "…" + fp[len(fp)-8:]
 	}
-	p.render(w, "cli_authorize", map[string]any{
+	p.render(w, r, "cli_authorize", map[string]any{
 		"RequestID":   requestID,
 		"Hostname":    msg.Hostname,
 		"Fingerprint": fp,
@@ -112,8 +112,8 @@ func isLoopbackCallback(u *url.URL) bool {
 	return u.Path == "/callback"
 }
 
-func (p *Panel) renderCliAuthorizeError(w http.ResponseWriter, msg string) {
-	p.render(w, "cli_authorize", map[string]any{
+func (p *Panel) renderCliAuthorizeError(w http.ResponseWriter, r *http.Request, msg string) {
+	p.render(w, r, "cli_authorize", map[string]any{
 		"Error": msg,
 	})
 }

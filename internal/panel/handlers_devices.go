@@ -20,7 +20,7 @@ func (p *Panel) handleDevices(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
-	p.render(w, "devices", map[string]any{
+	p.render(w, r, "devices", map[string]any{
 		"Title":   "Devices",
 		"Nav":     "devices",
 		"Devices": resp.Msg.Devices,

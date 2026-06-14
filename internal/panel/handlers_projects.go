@@ -40,7 +40,7 @@ func (p *Panel) handleProjects(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
-	p.render(w, "projects", map[string]any{
+	p.render(w, r, "projects", map[string]any{
 		"Title":   "Projects",
 		"Nav":     "projects",
 		"CSRF":    p.csrfFromRequest(r),

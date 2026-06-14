@@ -33,7 +33,7 @@ func (p *Panel) handleSessionDetail(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
-	p.render(w, "side_panel", map[string]any{
+	p.render(w, r, "side_panel", map[string]any{
 		"SidePanel": sp,
 	})
 }
@@ -67,7 +67,7 @@ func (p *Panel) handleRawChunk(w http.ResponseWriter, r *http.Request) {
 		eof = true
 		nextURL = ""
 	}
-	p.render(w, "raw_chunk", map[string]any{
+	p.render(w, r, "raw_chunk", map[string]any{
 		"ID":       sid,
 		"Chunk":    chunkText,
 		"NextURL":  nextURL,

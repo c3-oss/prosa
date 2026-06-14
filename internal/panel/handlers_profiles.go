@@ -93,7 +93,7 @@ func (p *Panel) handleProfiles(w http.ResponseWriter, r *http.Request) {
 		clearFiltersURL = "/profiles"
 	}
 
-	p.render(w, "profiles", map[string]any{
+	p.render(w, r, "profiles", map[string]any{
 		"Title":        "Profiles",
 		"Nav":          "profiles",
 		"CSRF":         p.csrfFromRequest(r),

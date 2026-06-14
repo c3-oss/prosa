@@ -312,7 +312,7 @@ func (p *Panel) handleSessions(w http.ResponseWriter, r *http.Request) {
 			data["SidePanel"] = sp
 		}
 	}
-	p.render(w, "sessions", data)
+	p.render(w, r, "sessions", data)
 }
 
 // activeFilter is one chip in the "what's narrowing the result set"

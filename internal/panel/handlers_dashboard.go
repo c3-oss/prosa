@@ -272,7 +272,7 @@ func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 		"UsageTotalTokens": formatPanelInt(usageTokens),
 		"UsageTotalCost":   usageCostLabel,
 	}
-	p.render(w, "home", data)
+	p.render(w, r, "home", data)
 }
 
 // barRow is a single bar in a horizontal bar leaderboard. Used by the
