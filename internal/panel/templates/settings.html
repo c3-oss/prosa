@@ -55,4 +55,44 @@
       {{end}}
     </div>
   </section>
+
+  <section class="settings-card"
+           x-data="{
+             defaultWindow: '{{.DefaultWindow}}',
+             csrf: '{{.CSRF}}',
+             status: '',
+             apply(w) {
+               this.defaultWindow = w;
+               this.status = 'Saving...';
+               var self = this;
+               var body = new URLSearchParams();
+               body.set('window', w);
+               body.set('csrf', this.csrf);
+               fetch('/settings/window', {
+                 method: 'POST',
+                 headers: { 'HX-Request': 'true', 'Content-Type': 'application/x-www-form-urlencoded' },
+                 body: body.toString()
+               }).then(function (r) { self.status = r.ok ? 'Saved' : 'Save failed'; })
+                 .catch(function () { self.status = 'Save failed'; });
+             }
+           }">
+    <h2>Time window</h2>
+    <p class="settings-hint" x-show="status" x-cloak><span class="settings-status" x-text="status"></span></p>
+    <label class="settings-field">
+      <span>Default window</span>
+      <select class="select" name="window" x-model="defaultWindow" @change="apply(defaultWindow)">
+        {{range .WindowOptions}}
+        <option value="{{.Value}}" {{if eq $.DefaultWindow .Value}}selected{{end}}>{{.Label}}</option>
+        {{end}}
+      </select>
+    </label>
+  </section>
+
+  <section class="settings-card">
+    <h2>Reset preferences</h2>
+    <form method="post" action="/settings/reset">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <button class="btn btn-danger" type="submit">Reset preferences</button>
+    </form>
+  </section>
 {{end}}

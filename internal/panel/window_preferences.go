@@ -21,6 +21,19 @@ const (
 	windowPageProfiles = "profiles"
 )
 
+type windowOption struct {
+	Value string
+	Label string
+}
+
+var windowOptions = []windowOption{
+	{"12h", "12h"},
+	{"7d", "7d"},
+	{"30d", "30d"},
+	{"365d", "1y"},
+	{"all", "all"},
+}
+
 func windowPageKey(page string) string {
 	return "window." + page
 }
@@ -39,6 +52,19 @@ func defaultWindowFromPrefs(prefs map[string]string) string {
 		return prefs[windowDefaultKey]
 	}
 	return defaultWindowValue
+}
+
+func (p *Panel) currentDefaultWindow(r *http.Request) string {
+	s, ok := p.cookie.FromRequest(r)
+	if !ok {
+		return defaultWindowValue
+	}
+	prefs, err := p.preferencesFor(r.Context(), s.Email)
+	if err != nil {
+		slog.Warn("preferences.get failed", "email", s.Email, "err", err)
+		return defaultWindowValue
+	}
+	return defaultWindowFromPrefs(prefs)
 }
 
 func (p *Panel) resolvePageWindow(r *http.Request, page string) (last, defaultLast string) {
@@ -97,24 +123,34 @@ func (p *Panel) preferencesFor(ctx context.Context, email string) (map[string]st
 }
 
 func (p *Panel) setPreference(ctx context.Context, email, key, value string) {
-	if _, err := p.clients.Preferences.Set(ctx,
-		connect.NewRequest(&prosav1.PreferencesServiceSetRequest{
-			OwnerEmail: email,
-			Key:        key,
-			Value:      value,
-		})); err != nil {
+	if err := p.setPreferenceValue(ctx, email, key, value); err != nil {
 		slog.Warn("preferences.set failed", "email", email, "key", key, "err", err)
 	}
 }
 
 func (p *Panel) deletePreference(ctx context.Context, email, key string) {
-	if _, err := p.clients.Preferences.Delete(ctx,
+	if err := p.deletePreferenceValue(ctx, email, key); err != nil {
+		slog.Warn("preferences.delete failed", "email", email, "key", key, "err", err)
+	}
+}
+
+func (p *Panel) setPreferenceValue(ctx context.Context, email, key, value string) error {
+	_, err := p.clients.Preferences.Set(ctx,
+		connect.NewRequest(&prosav1.PreferencesServiceSetRequest{
+			OwnerEmail: email,
+			Key:        key,
+			Value:      value,
+		}))
+	return err
+}
+
+func (p *Panel) deletePreferenceValue(ctx context.Context, email, key string) error {
+	_, err := p.clients.Preferences.Delete(ctx,
 		connect.NewRequest(&prosav1.PreferencesServiceDeleteRequest{
 			OwnerEmail: email,
 			Key:        key,
-		})); err != nil {
-		slog.Warn("preferences.delete failed", "email", email, "key", key, "err", err)
-	}
+		}))
+	return err
 }
 
 func clearFiltersTarget(basePath, last, defaultLast string) string {

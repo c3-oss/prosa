@@ -156,6 +156,8 @@ func (p *Panel) routes() {
 	p.mux.HandleFunc("/profiles", p.requireSession(p.handleProfiles))
 	p.mux.HandleFunc("/settings", p.requireSession(p.handleSettings))
 	p.mux.HandleFunc("/settings/theme", p.requireSession(p.csrfProtected(p.handleSetTheme)))
+	p.mux.HandleFunc("/settings/window", p.requireSession(p.csrfProtected(p.handleSetDefaultWindow)))
+	p.mux.HandleFunc("/settings/reset", p.requireSession(p.csrfProtected(p.handleResetPreferences)))
 	p.mux.HandleFunc("/raw/", p.requireSession(p.handleRawChunk))
 	p.mux.HandleFunc("/devices", p.requireSession(p.handleDevices))
 	p.mux.HandleFunc("/devices/", p.requireSession(p.csrfProtected(p.handleDevicesAction)))
