@@ -90,7 +90,10 @@ Routes (current MVP cut), all served from the same mux:
 - `GET /devices` — device admin; Hostname cells link into filtered Sessions
 - `POST /devices/<id>/rename`
 - `POST /devices/<id>/revoke`
-- `GET /settings` — logged-in email + logout
+- `GET /settings` — identity, logout, appearance, and preference controls
+- `POST /settings/theme` — save the owner theme preference
+- `POST /settings/window` — save the owner default time-window preference
+- `POST /settings/reset` — reset panel UI preferences
 - `GET /raw/<id>?offset=N` — raw transcript chunk (HTMX append-mode)
 - `GET /cli/authorize` — CLI login confirmation (session required)
 - `POST /cli/authorize/approve` — approve CLI device, redirect to localhost callback
@@ -281,12 +284,19 @@ POST forms (`/logout`, `/cli/authorize/approve`, and device actions).
 `PreferencesService`. Each call sends `Authorization: Admin
 <PROSA_ADMIN_TOKEN>` so the server treats the panel as the owner.
 
-`PreferencesService` stores panel UI preferences (currently the chosen
-theme) in the `panel_preferences` Postgres table, keyed by owner email.
-The panel resolves the owner's theme on every full-page render — cached
-in-process, invalidated on write — and stamps it onto `<html data-theme>`
-server-side, so the first paint is correct with no flash. The Settings
-picker POSTs to `/settings/theme`, which calls `PreferencesService.Set`.
+`PreferencesService` stores panel UI preferences in the
+`panel_preferences` Postgres table, keyed by owner email. Stored keys
+cover the chosen theme, the default time window, and each page's saved
+time window. The panel resolves the owner's theme on every full-page
+render — cached in-process, invalidated on write — and stamps it onto
+`<html data-theme>` server-side, so the first paint is correct with no
+flash. Window filters resolve from `?last=`, then the page preference,
+then the Settings default, then `30d`; valid `?last=` values are saved
+for that page.
+
+Settings POSTs to `/settings/theme`, `/settings/window`, and
+`/settings/reset`. The reset deletes the stored panel preference keys,
+so the rendered defaults are `colorblind` and `30d`.
 
 The `/events` route is a proxy: the panel opens an SSE stream to the
 server's `/sse/events` and re-emits the bytes to the browser. This

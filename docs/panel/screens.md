@@ -74,8 +74,8 @@ crowd the dashboard.
 
 When open it reveals five controls:
 
-- **Window** (single-select): `12h`, `7d`, `30d`, `1y`, `all`. Default
-  `30d`.
+- **Window** (single-select): `12h`, `7d`, `30d`, `1y`, `all`. The
+  default comes from Settings and starts at `30d`.
 - **Agent** (multi-select dropdown): all known agent names. Multiple
   picks submit as repeated `agent=` query params.
 - **Project** (multi-select dropdown): distinct project labels from the
@@ -372,7 +372,8 @@ Five controls under the search input. Same pattern as Home, with the
 window as single-select and the others as
 [multi-select dropdowns](components.md#multi-select-dropdown).
 
-- **Window**: `12h`, `7d`, `30d`, `1y`, `all`. Default `30d`.
+- **Window**: `12h`, `7d`, `30d`, `1y`, `all`. The default comes from
+  Settings and starts at `30d`.
 - **Agent** (multi): hardcoded slice of known agents.
 - **Project** (multi): distinct project labels.
 - **Device** (multi): friendly names.
@@ -561,7 +562,8 @@ Devices
 
 ## Settings `/settings`
 
-Two cards for the logged-in owner: identity and appearance.
+Four cards for the logged-in owner: identity, appearance, time window,
+and reset.
 
 ```
 Settings
@@ -577,6 +579,14 @@ Settings
   |  ( ) Solar. Dark  ( ) Solar. Light( ) Dracula     |
   |  ( ) Gruvbox      ( ) High Contr. ( ) System      |
   +---------------------------------------------------+
+  +---------------------------------------------------+
+  |  Time window                                      |
+  |  Default window [ 30d v ]                         |
+  +---------------------------------------------------+
+  +---------------------------------------------------+
+  |  Reset preferences                                |
+  |  [ reset preferences ]                            |
+  +---------------------------------------------------+
 ```
 
 - Email comes from the session cookie (`p.cookie.FromRequest(r)`).
@@ -591,6 +601,15 @@ Settings
   `PreferencesService.Set`, keyed by owner email. The panel renders
   `data-theme` from the stored value on first paint, so the theme
   follows the owner across browsers with no flash.
+- The default-window picker uses the same window catalog as the page
+  filters (`12h`, `7d`, `30d`, `1y`, `all`) and POSTs to
+  `/settings/window`.
+- Page window filters persist per page through `PreferencesService.Set`.
+  Home, Insights, Sessions, Projects, and Profiles each have their own
+  saved window. A page without its own saved window uses the Settings
+  default.
+- `/settings/reset` clears the stored theme, default window, and page
+  window preferences. The rendered defaults are Colorblind and `30d`.
 - The catalog is `panel.Themes`: the picker renders from it and the
   handler validates the submitted value against it, so the two never
   drift.
