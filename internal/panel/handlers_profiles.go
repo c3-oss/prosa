@@ -24,7 +24,8 @@ func (p *Panel) handleProfiles(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 
 	now := nowFn().UTC()
-	lastRaw, since, until, err := parseDashboardWindow(q, now)
+	lastRaw, defaultLast := p.resolvePageWindow(r, windowPageProfiles)
+	since, until, err := parseDashboardWindow(lastRaw, now)
 	if err != nil {
 		http.Error(w, "bad last= "+err.Error(), http.StatusBadRequest)
 		return
@@ -87,10 +88,10 @@ func (p *Panel) handleProfiles(w http.ResponseWriter, r *http.Request) {
 	usage := buildProfileUsage(out.usage.Rows)
 	trend := buildProfileTrend(out.byDay.Rows)
 
-	activeFilters := buildDashboardActiveFilters(r.URL.Query(), "/profiles", lastRaw, agents, projects, devices, profilesSel)
+	activeFilters := buildDashboardActiveFilters(r.URL.Query(), "/profiles", lastRaw, defaultLast, agents, projects, devices, profilesSel)
 	clearFiltersURL := ""
 	if len(activeFilters) > 0 {
-		clearFiltersURL = "/profiles"
+		clearFiltersURL = clearFiltersTarget("/profiles", lastRaw, defaultLast)
 	}
 
 	p.render(w, r, "profiles", map[string]any{
@@ -102,6 +103,7 @@ func (p *Panel) handleProfiles(w http.ResponseWriter, r *http.Request) {
 
 		// Filter state.
 		"Last":             lastRaw,
+		"DefaultWindow":    defaultLast,
 		"Agents":           panelAgents,
 		"AgentsSelected":   selectionSet(agents),
 		"Projects":         projectNames,

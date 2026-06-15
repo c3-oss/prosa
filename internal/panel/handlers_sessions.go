@@ -88,25 +88,12 @@ type sessionRow struct {
 func (p *Panel) handleSessions(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 
-	// Window: "12h"/"7d"/"30d"/"365d" go through parseWindow; "all"
-	// uses a deliberately huge window so the server's required since/
-	// until bounds are satisfied without us inventing a new RPC shape.
-	lastRaw := q.Get("last")
-	if lastRaw == "" {
-		lastRaw = "30d"
-	}
+	lastRaw, defaultLast := p.resolvePageWindow(r, windowPageSessions)
 	now := nowFn().UTC()
-	var since, until time.Time
-	until = now
-	if lastRaw == "all" {
-		since = now.Add(-100 * 365 * 24 * time.Hour)
-	} else {
-		window, err := parseWindow(lastRaw)
-		if err != nil {
-			http.Error(w, "bad last= "+err.Error(), http.StatusBadRequest)
-			return
-		}
-		since = now.Add(-window)
+	since, until, err := parseDashboardWindow(lastRaw, now)
+	if err != nil {
+		http.Error(w, "bad last= "+err.Error(), http.StatusBadRequest)
+		return
 	}
 
 	// Filters.
@@ -160,7 +147,6 @@ func (p *Panel) handleSessions(w http.ResponseWriter, r *http.Request) {
 		sessions  []*prosav1.Session
 		total     int64
 		pageCount int
-		err       error
 	)
 	if sortBy == "cost" && queryStr == "" {
 		sessions, total, pageCount, err = p.listSessionsSortedByCost(r.Context(), baseReq, page, pageLimit, activeDir)
@@ -262,10 +248,10 @@ func (p *Panel) handleSessions(w http.ResponseWriter, r *http.Request) {
 		nextURL = "?" + appendKey(stripQuery(r.URL.Query(), "page"), "page", strconv.Itoa(page+1))
 	}
 
-	activeFilters := buildSessionsActiveFilters(r.URL.Query(), queryStr, lastRaw, agents, projects, devices, profilesSel)
+	activeFilters := buildSessionsActiveFilters(r.URL.Query(), queryStr, lastRaw, defaultLast, agents, projects, devices, profilesSel)
 	clearURL := ""
 	if len(activeFilters) > 0 {
-		clearURL = "/sessions"
+		clearURL = clearFiltersTarget("/sessions", lastRaw, defaultLast)
 	}
 
 	data := map[string]any{
@@ -274,6 +260,7 @@ func (p *Panel) handleSessions(w http.ResponseWriter, r *http.Request) {
 		"CSRF":             p.csrfFromRequest(r),
 		"Q":                queryStr,
 		"Last":             lastRaw,
+		"DefaultWindow":    defaultLast,
 		"Agents":           panelAgents,
 		"AgentsSelected":   agentsSelected,
 		"Projects":         projectNames,
@@ -327,10 +314,10 @@ type activeFilter struct {
 
 // buildSessionsActiveFilters renders the current filter state as a
 // slice of chips. Window stays visible only when the user picked
-// something other than the default (30d). Multi-select dimensions
+// something other than the resolved default. Multi-select dimensions
 // (agent, project, device) emit one chip per selected value so a click
 // removes exactly that value rather than the whole dimension.
-func buildSessionsActiveFilters(q url.Values, queryStr, last string, agents, projects, devices, profilesSel []string) []activeFilter {
+func buildSessionsActiveFilters(q url.Values, queryStr, last, defaultLast string, agents, projects, devices, profilesSel []string) []activeFilter {
 	var out []activeFilter
 	mk := func(label, value string, removeQuery url.Values) activeFilter {
 		// Page resets on any filter change so the user lands at row 1
@@ -348,9 +335,9 @@ func buildSessionsActiveFilters(q url.Values, queryStr, last string, agents, pro
 		next.Del("q")
 		out = append(out, mk("Search", queryStr, next))
 	}
-	if last != "" && last != "30d" {
+	if last != "" && last != defaultLast {
 		next := cloneValues(q)
-		next.Del("last")
+		next.Set("last", "")
 		out = append(out, mk("Window", last, next))
 	}
 	for _, a := range agents {

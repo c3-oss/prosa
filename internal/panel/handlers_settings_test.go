@@ -46,10 +46,28 @@ func (f *fakePreferencesService) Set(_ context.Context, req *connect.Request[pro
 	return connect.NewResponse(&prosav1.PreferencesServiceSetResponse{}), nil
 }
 
+func (f *fakePreferencesService) Delete(_ context.Context, req *connect.Request[prosav1.PreferencesServiceDeleteRequest]) (*connect.Response[prosav1.PreferencesServiceDeleteResponse], error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.prefs, req.Msg.Key)
+	f.lastEmail = req.Msg.OwnerEmail
+	return connect.NewResponse(&prosav1.PreferencesServiceDeleteResponse{}), nil
+}
+
 func (f *fakePreferencesService) snapshot() (calls int, email string, theme string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.setCalls, f.lastEmail, f.prefs["theme"]
+}
+
+func (f *fakePreferencesService) snapshotPrefs() map[string]string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := map[string]string{}
+	for k, v := range f.prefs {
+		out[k] = v
+	}
+	return out
 }
 
 func newPanelWithPreferences(t *testing.T) (*Panel, *fakePreferencesService) {
