@@ -77,10 +77,27 @@ func TestPreferencesConnectEndToEnd(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "nord", getResp3.Msg.Preferences["theme"])
 
+	deleteReq := connect.NewRequest(&prosav1.PreferencesServiceDeleteRequest{OwnerEmail: owner, Key: "theme"})
+	owned(deleteReq)
+	_, err = client.Delete(ctx, deleteReq)
+	require.NoError(t, err)
+
+	getReq4 := connect.NewRequest(&prosav1.PreferencesServiceGetRequest{OwnerEmail: owner})
+	owned(getReq4)
+	getResp4, err := client.Get(ctx, getReq4)
+	require.NoError(t, err)
+	require.NotContains(t, getResp4.Msg.Preferences, "theme")
+
 	// Missing value is rejected.
 	badReq := connect.NewRequest(&prosav1.PreferencesServiceSetRequest{OwnerEmail: owner, Key: "theme"})
 	owned(badReq)
 	_, err = client.Set(ctx, badReq)
+	require.Error(t, err)
+	require.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+
+	badDeleteReq := connect.NewRequest(&prosav1.PreferencesServiceDeleteRequest{OwnerEmail: owner})
+	owned(badDeleteReq)
+	_, err = client.Delete(ctx, badDeleteReq)
 	require.Error(t, err)
 	require.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 

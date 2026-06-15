@@ -88,3 +88,27 @@ func (h *PreferencesHandler) Set(ctx context.Context, req *connect.Request[prosa
 	}
 	return connect.NewResponse(&prosav1.PreferencesServiceSetResponse{}), nil
 }
+
+func (h *PreferencesHandler) Delete(ctx context.Context, req *connect.Request[prosav1.PreferencesServiceDeleteRequest]) (*connect.Response[prosav1.PreferencesServiceDeleteResponse], error) {
+	if !auth.IsOwner(ctx) {
+		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("owner context required"))
+	}
+	var missing []string
+	if req.Msg.OwnerEmail == "" {
+		missing = append(missing, "owner_email")
+	}
+	if req.Msg.Key == "" {
+		missing = append(missing, "key")
+	}
+	if len(missing) > 0 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, missingFields(missing...))
+	}
+	if _, err := h.Pool.Exec(
+		ctx,
+		`DELETE FROM panel_preferences WHERE owner_email = $1 AND pref_key = $2`,
+		req.Msg.OwnerEmail, req.Msg.Key,
+	); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	return connect.NewResponse(&prosav1.PreferencesServiceDeleteResponse{}), nil
+}
