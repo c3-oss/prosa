@@ -78,6 +78,12 @@ type Session struct {
 	// Profile is the per-agent profile the session was imported from; empty
 	// reads as "default".
 	Profile string
+
+	// Kinds are the projected "special session" classifications this
+	// session carries (any of internal/sessionkind's Kind* constants:
+	// "goal", "workflow", "ralph-loop", "orchestrator"). A session may
+	// carry several; nil/empty for an ordinary session.
+	Kinds []string
 }
 
 // ProjectionVersion identifies the current derived-data projection stored
@@ -126,7 +132,14 @@ type Session struct {
 //	    nested at `subagents/workflows/wf_<id>/`. The child session id
 //	    is the filename stem because every record inside carries the
 //	    parent's sessionId.
-const ProjectionVersion = 11
+//	v12: special-session classification projected — Session.Kinds carries
+//	    any of "goal" (Codex <codex_internal_context source="goal">),
+//	    "workflow" (Claude Code Workflow tool), "ralph-loop" (Claude Code
+//	    /ralph-loop:ralph-loop command), and "orchestrator" (session that
+//	    spawned subagents). Stored in the session_kinds table and pushed
+//	    to the server. The Codex goal objective is also unwrapped into
+//	    FirstPrompt instead of the raw scaffold.
+const ProjectionVersion = 12
 
 // DefaultProfile is the profile name every agent has by default.
 const DefaultProfile = "default"

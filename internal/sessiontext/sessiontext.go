@@ -176,6 +176,13 @@ func BuildFirstPrompt(text string, maxRunes int) (string, bool) {
 	if maxRunes <= 0 {
 		return "", false
 	}
+	// Codex goal sessions bury the human request inside a large injected
+	// scaffold; surface the <objective> so the timeline shows the task,
+	// not the wrapper. Handled here (not in Prefixes) so CleanPrompt's
+	// behavior for every other caller is unchanged.
+	if obj, ok := ExtractGoalObjective(text); ok {
+		text = obj
+	}
 	if IsBoilerplatePrompt(text) {
 		return "", false
 	}
