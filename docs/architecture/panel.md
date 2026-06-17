@@ -82,9 +82,9 @@ Routes (current MVP cut), all served from the same mux:
 
 **Gated by session cookie:**
 - `GET /` — Home dashboard (KPI strip with vs-previous-window deltas + heatmap + activity-trend card + tools/models/projects/hour-of-day cards, the Issues section, tokens-&-cost-per-model and usage cards, collapsible filters)
-- `GET /insights` — progression & rhythm dashboard (spend & tokens per day, weekly model share, weekday × hour punch card, hour-of-day model/token breakdown, streak/consistency and schedule KPIs, session-duration histogram, the Delegation section with fan-out and top delegators; same filter chrome as Home)
-- `GET /sessions` — full session list (FTS, multi-select filters, column chooser, sortable headers, paginated)
-- `GET /sessions/<id>` — session detail (HTMX side-panel partial)
+- `GET /insights` — progression & rhythm dashboard (spend & tokens per day, weekly model share, weekday × hour punch card, hour-of-day model/token breakdown, streak/consistency and schedule KPIs, session-duration histogram, the Delegation section with fan-out and top delegators, the agentic-session-kinds card; same filter chrome as Home)
+- `GET /sessions` — full session list (FTS, multi-select filters including a Kind filter for special-session classifications, column chooser, sortable headers, paginated). Kind badges (goal / workflow / ralph-loop / orchestrator) render beside the agent badge.
+- `GET /sessions/<id>` — session detail (HTMX side-panel partial). Kind badges show in the header; a Codex goal session renders its `<objective>` as the prompt body with the budget and scaffold as disclosures.
 - `GET /projects` — projects table; rows link into filtered Sessions
 - `GET /profiles` — profile analytics dashboard (KPIs, sessions-per-profile trend, tokens & cost per profile, device × agent × profile table; same filter chrome as Home)
 - `GET /devices` — device admin; Hostname cells link into filtered Sessions
@@ -204,6 +204,9 @@ Component CSS landed so far (under `css/components/`):
   runs (F5).
 - `subagents.css` — list of child sessions on the parent's sidepanel,
   HTMX-swappable to drill down (F7).
+- `kind-badge.css` — per-kind colored pills for special-session
+  classifications (goal / workflow / ralph-loop / orchestrator) shown in
+  the Sessions table and side-panel header.
 - `insights.css` — Insights page: trend charts, punch card grid (reuses
   the heatmap cell color levels), subagents table.
 - `charts.css` — re-skins Frappe Charts' runtime-injected styles (axis

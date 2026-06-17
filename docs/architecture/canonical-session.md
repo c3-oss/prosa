@@ -38,7 +38,7 @@ stays excluded.
 
 ## Projection version
 
-`session.ProjectionVersion = 11`. The server's push handler compares
+`session.ProjectionVersion = 12`. The server's push handler compares
 `projection_version >= session.ProjectionVersion` before short-
 circuiting, so bumping this constant forces existing sessions to be
 re-projected on the next push from any client. Recent versions:
@@ -48,7 +48,8 @@ starts walking Claude Code subagent JSONLs alongside parents; v9 projects
 Hermes parent edges from `state.db` and transcript `parent_session_id`
 fields; v10 projects Hermes `state.db` rows to per-session canonical
 JSONL; v11 maps `ParentSessionID` onto the push wire and imports
-Claude Code subagent transcripts under their real on-disk naming.
+Claude Code subagent transcripts under their real on-disk naming; v12
+projects special-session `Kinds` into the `session_kinds` table.
 
 | Version | Brought |
 |---|---|
@@ -63,6 +64,7 @@ Claude Code subagent transcripts under their real on-disk naming.
 | 9 | Hermes parent edges projected — `Session.ParentSessionID` set from `sessions.parent_session_id` in `state.db`, snapshot envelopes, and JSONL message records carrying `parent_session_id`. |
 | 10 | Hermes `state.db` rows project to per-session canonical JSONL — the raw artifact for those sessions is a per-session `.jsonl` instead of the multi-session `.db` container; `raw_hash` / `raw_size` describe the projected JSONL. |
 | 11 | parent edges reach the server — `sessionToProto` maps `Session.ParentSessionID` onto the wire (previously dropped at push, so the server never stored an edge). Claude Code subagent transcripts are imported under their real layouts: the walker accepts `agent-<hex>.jsonl` alongside the older `agent-<uuid>.jsonl`, both directly under `subagents/` (Agent tool) and nested at `subagents/workflows/wf_<id>/` (Workflow tool). The child session id is the filename stem because every record inside carries the parent's `sessionId`; the parent UUID is the directory above the innermost `subagents` component. |
+| 12 | special-session classification projected — `Session.Kinds` carries any of `goal` (Codex `<codex_internal_context source="goal">` first user turn), `workflow` (Claude Code `Workflow` tool), `ralph-loop` (Claude Code `/ralph-loop:ralph-loop` command), and `orchestrator` (session that spawned subagents). Stored in the `session_kinds` table (migration `0010_session_kinds` local / `0013_session_kinds` server) and pushed on the wire as `Session.kinds`. `goal`/`workflow`/`ralph-loop` are derived per session by `internal/sessionkind`; `orchestrator` is edge-derived — the client reconciles it post-sweep via `store.RefreshOrchestratorKinds` and the server derives it from parent edges at push (`deriveOrchestratorKinds`). The Codex goal `<objective>` is also unwrapped into `FirstPrompt` instead of the raw scaffold. |
 
 ## Import eligibility
 
