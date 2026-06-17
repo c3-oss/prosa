@@ -24,6 +24,7 @@ import (
 	"github.com/c3-oss/prosa/internal/importers/importpolicy"
 	"github.com/c3-oss/prosa/internal/paths"
 	"github.com/c3-oss/prosa/internal/projectid"
+	"github.com/c3-oss/prosa/internal/sessionkind"
 	"github.com/c3-oss/prosa/pkg/importer"
 	"github.com/c3-oss/prosa/pkg/session"
 )
@@ -191,6 +192,7 @@ func (i *Importer) importStateDB(ctx context.Context, path string, sink importer
 		sess.RawHash = rawHash
 		sess.RawSize = rawSize
 		projectid.Apply(&sess)
+		sess.Kinds = sessionkind.Classify(turns, importerutil.ToolNames(tools))
 
 		if err := sink.WriteSession(ctx, sess, tools, turns, hash); err != nil {
 			return importer.ImportResult{}, fmt.Errorf("write session %s: %w", row.id, err)

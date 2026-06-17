@@ -201,6 +201,13 @@ func runSync(cmd *cobra.Command, _ []string) error {
 		runSyncReconcile(ctx, push, dev.ID, counts, opts)
 	}
 
+	// Reconcile the edge-dependent orchestrator kind once the whole sweep
+	// has landed every parent and child. Local-only: the server derives
+	// its own orchestrator tags from the parent edges it receives.
+	if err := s.RefreshOrchestratorKinds(ctx); err != nil {
+		slog.Warn("orchestrator kind refresh failed", "err", err)
+	}
+
 	counts.denoiseCleaned = runDenoisePass(ctx, s)
 
 	switch {
