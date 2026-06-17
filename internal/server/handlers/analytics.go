@@ -94,9 +94,11 @@ func (h *AnalyticsHandler) GetReport(ctx context.Context, req *connect.Request[p
 		return runReport(ctx, h.Pool, req.Msg, queryDurationStats, []string{"MEDIAN_S", "P90_S", "AVG_S", "MAX_S"})
 	case "subagents":
 		return runReport(ctx, h.Pool, req.Msg, querySubagents, []string{"AGENT", "PARENTS", "CHILDREN", "MAX_FANOUT"})
+	case "session_kinds":
+		return runReport(ctx, h.Pool, req.Msg, querySessionKinds, []string{"KIND", "SESSIONS"})
 	default:
 		return nil, connect.NewError(connect.CodeInvalidArgument,
-			fmt.Errorf("unknown report %q (want sessions|tools|models|projects|profiles|errors|heatmap|usage|hours|usage_by_model|errors_by_model|usage_by_day|usage_by_hour|punchcard|durations|duration_stats|subagents|subagent_usage_by_day|subagent_parents|profile_usage|profiles_by_day)", req.Msg.Report))
+			fmt.Errorf("unknown report %q (want sessions|tools|models|projects|profiles|errors|heatmap|usage|hours|usage_by_model|errors_by_model|usage_by_day|usage_by_hour|punchcard|durations|duration_stats|subagents|session_kinds|subagent_usage_by_day|subagent_parents|profile_usage|profiles_by_day)", req.Msg.Report))
 	}
 }
 
@@ -476,6 +478,18 @@ func queryTools(whereSQL string, args []any) (string, []any) {
 		GROUP BY st.name
 		ORDER BY SUM(st.count) DESC
 		LIMIT 20`
+	return q, args
+}
+
+func querySessionKinds(whereSQL string, args []any) (string, []any) {
+	q := `
+		SELECT sk.kind,
+		       COUNT(DISTINCT s.id)::text AS sessions
+		FROM session_kinds sk
+		JOIN sessions s ON s.id = sk.session_id
+		` + whereSQL + `
+		GROUP BY sk.kind
+		ORDER BY COUNT(DISTINCT s.id) DESC, sk.kind ASC`
 	return q, args
 }
 

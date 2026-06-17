@@ -20,6 +20,7 @@ import (
 
 	prosav1 "github.com/c3-oss/prosa/gen/go/prosa/v1"
 	"github.com/c3-oss/prosa/internal/server/auth"
+	"github.com/c3-oss/prosa/internal/sessionkind"
 	"github.com/c3-oss/prosa/pkg/session"
 )
 
@@ -367,6 +368,12 @@ func (h *SessionsHandler) commitPush(ctx context.Context, deviceID string, sess 
 	if err := replaceSessionTools(ctx, tx, sess.Id, tools); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
+	if err := replaceSessionKinds(ctx, tx, sess.Id, sess.Kinds); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	if err := deriveOrchestratorKinds(ctx, tx, sess); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
 	if err := replaceTurns(ctx, tx, sess.Id, turns); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
@@ -501,6 +508,58 @@ func replaceSessionTools(ctx context.Context, tx pgx.Tx, sessionID string, tools
 		); err != nil {
 			return fmt.Errorf("insert session_tools(%s,%s): %w", sessionID, t.Name, err)
 		}
+	}
+	return nil
+}
+
+// replaceSessionKinds writes the client-projected kinds (goal / workflow /
+// ralph-loop). The orchestrator kind is intentionally dropped here and
+// owned server-side by deriveOrchestratorKinds, since it depends on
+// parent/child edges the server resolves itself.
+func replaceSessionKinds(ctx context.Context, tx pgx.Tx, sessionID string, kinds []string) error {
+	if _, err := tx.Exec(
+		ctx,
+		`DELETE FROM session_kinds WHERE session_id = $1`, sessionID,
+	); err != nil {
+		return fmt.Errorf("clear session_kinds: %w", err)
+	}
+	for _, k := range kinds {
+		if k == sessionkind.KindOrchestrator {
+			continue
+		}
+		if _, err := tx.Exec(
+			ctx,
+			`INSERT INTO session_kinds(session_id, kind) VALUES ($1, $2)
+			 ON CONFLICT (session_id, kind) DO NOTHING`,
+			sessionID, pgText(k),
+		); err != nil {
+			return fmt.Errorf("insert session_kinds(%s,%s): %w", sessionID, k, err)
+		}
+	}
+	return nil
+}
+
+// deriveOrchestratorKinds reconciles the edge-dependent orchestrator kind
+// around the just-committed session. It is order-independent across push
+// arrival: marks the session's parent (a child just landed) and marks the
+// session itself when it already has children. Both inserts are guarded by
+// EXISTS so a child arriving before its parent never trips the foreign key.
+func deriveOrchestratorKinds(ctx context.Context, tx pgx.Tx, sess *prosav1.Session) error {
+	if pid := sess.ParentSessionId; pid != "" {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO session_kinds(session_id, kind)
+			SELECT $1, $2 WHERE EXISTS (SELECT 1 FROM sessions WHERE id = $1)
+			ON CONFLICT (session_id, kind) DO NOTHING
+		`, pid, sessionkind.KindOrchestrator); err != nil {
+			return fmt.Errorf("mark parent orchestrator %s: %w", pid, err)
+		}
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO session_kinds(session_id, kind)
+		SELECT $1, $2 WHERE EXISTS (SELECT 1 FROM sessions WHERE parent_session_id = $1)
+		ON CONFLICT (session_id, kind) DO NOTHING
+	`, sess.Id, sessionkind.KindOrchestrator); err != nil {
+		return fmt.Errorf("mark self orchestrator %s: %w", sess.Id, err)
 	}
 	return nil
 }

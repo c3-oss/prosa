@@ -95,6 +95,15 @@ func (h *SessionsHandler) List(ctx context.Context, req *connect.Request[prosav1
 	case req.Msg.Profile != "":
 		addEq("profile", req.Msg.Profile)
 	}
+	if len(req.Msg.Kinds) > 0 {
+		// EXISTS (not a JOIN) keeps one row per session, composing cleanly
+		// with the FTS join + GROUP BY below. OR semantics across kinds.
+		conds = append(conds, fmt.Sprintf(
+			"EXISTS (SELECT 1 FROM session_kinds sk WHERE sk.session_id = s.id AND sk.kind = ANY($%d))", idx,
+		))
+		args = append(args, req.Msg.Kinds)
+		idx++
+	}
 	join := ""
 	switch {
 	case len(req.Msg.DeviceNames) > 0:
@@ -207,6 +216,9 @@ func (h *SessionsHandler) List(ctx context.Context, req *connect.Request[prosav1
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	if err := attachSessionKinds(ctx, h.Pool, out.Sessions); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 
