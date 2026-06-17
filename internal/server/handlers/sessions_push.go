@@ -359,6 +359,14 @@ func (h *SessionsHandler) commitPush(ctx context.Context, deviceID string, sess 
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	// Capture the previous parent before the upsert overwrites it, so a
+	// re-parented or de-parented child can prune the orchestrator tag off
+	// its former parent (issue #249).
+	oldParent, err := selectSessionParent(ctx, tx, sess.Id)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+
 	if err := upsertSession(ctx, tx, sess); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
@@ -371,7 +379,7 @@ func (h *SessionsHandler) commitPush(ctx context.Context, deviceID string, sess 
 	if err := replaceSessionKinds(ctx, tx, sess.Id, sess.Kinds); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	if err := deriveOrchestratorKinds(ctx, tx, sess); err != nil {
+	if err := reconcileOrchestratorKinds(ctx, tx, sess.Id, sess.ParentSessionId, oldParent); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	if err := replaceTurns(ctx, tx, sess.Id, turns); err != nil {
@@ -539,27 +547,55 @@ func replaceSessionKinds(ctx context.Context, tx pgx.Tx, sessionID string, kinds
 	return nil
 }
 
-// deriveOrchestratorKinds reconciles the edge-dependent orchestrator kind
-// around the just-committed session. It is order-independent across push
-// arrival: marks the session's parent (a child just landed) and marks the
-// session itself when it already has children. Both inserts are guarded by
-// EXISTS so a child arriving before its parent never trips the foreign key.
-func deriveOrchestratorKinds(ctx context.Context, tx pgx.Tx, sess *prosav1.Session) error {
-	if pid := sess.ParentSessionId; pid != "" {
+// selectSessionParent returns the stored parent_session_id for id, or ""
+// when the session is new or has no parent. Read inside the push tx before
+// the upsert so a changed edge can be reconciled against its old value.
+func selectSessionParent(ctx context.Context, tx pgx.Tx, id string) (string, error) {
+	var parent *string
+	err := tx.QueryRow(ctx, `SELECT parent_session_id FROM sessions WHERE id = $1`, id).Scan(&parent)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("read parent %s: %w", id, err)
+	}
+	if parent == nil {
+		return "", nil
+	}
+	return *parent, nil
+}
+
+// reconcileOrchestratorKinds brings the edge-dependent orchestrator tag in
+// line for every candidate id: a session is an orchestrator iff it
+// currently has at least one child. Ensure the tag when it does (and the
+// row exists — so a child arriving before its parent never trips the
+// foreign key), prune it when it does not. Passing the session, its new
+// parent, and its previous parent makes re-parenting and de-parenting
+// order-independent and free of stale tags (issue #249). Empty / duplicate
+// ids are skipped.
+func reconcileOrchestratorKinds(ctx context.Context, tx pgx.Tx, ids ...string) error {
+	seen := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO session_kinds(session_id, kind)
-			SELECT $1, $2 WHERE EXISTS (SELECT 1 FROM sessions WHERE id = $1)
+			SELECT $1, $2
+			WHERE EXISTS (SELECT 1 FROM sessions WHERE id = $1)
+			  AND EXISTS (SELECT 1 FROM sessions WHERE parent_session_id = $1)
 			ON CONFLICT (session_id, kind) DO NOTHING
-		`, pid, sessionkind.KindOrchestrator); err != nil {
-			return fmt.Errorf("mark parent orchestrator %s: %w", pid, err)
+		`, id, sessionkind.KindOrchestrator); err != nil {
+			return fmt.Errorf("ensure orchestrator %s: %w", id, err)
 		}
-	}
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO session_kinds(session_id, kind)
-		SELECT $1, $2 WHERE EXISTS (SELECT 1 FROM sessions WHERE parent_session_id = $1)
-		ON CONFLICT (session_id, kind) DO NOTHING
-	`, sess.Id, sessionkind.KindOrchestrator); err != nil {
-		return fmt.Errorf("mark self orchestrator %s: %w", sess.Id, err)
+		if _, err := tx.Exec(ctx, `
+			DELETE FROM session_kinds
+			WHERE session_id = $1 AND kind = $2
+			  AND NOT EXISTS (SELECT 1 FROM sessions WHERE parent_session_id = $1)
+		`, id, sessionkind.KindOrchestrator); err != nil {
+			return fmt.Errorf("prune orchestrator %s: %w", id, err)
+		}
 	}
 	return nil
 }
