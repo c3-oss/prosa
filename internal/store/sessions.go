@@ -124,6 +124,22 @@ func upsertSessionTx(ctx context.Context, tx *sql.Tx, sess session.Session, tool
 		}
 	}
 
+	// session_kinds mirrors session_tools: delete-then-insert so the
+	// post-condition matches sess.Kinds exactly. The orchestrator kind is
+	// edge-dependent and reconciled separately (RefreshOrchestratorKinds).
+	if _, err := tx.ExecContext(ctx, `DELETE FROM session_kinds WHERE session_id = ?`, sess.ID); err != nil {
+		return fmt.Errorf("clear session_kinds %s: %w", sess.ID, err)
+	}
+	for _, k := range sess.Kinds {
+		if _, err := tx.ExecContext(
+			ctx,
+			`INSERT INTO session_kinds(session_id, kind) VALUES (?, ?)`,
+			sess.ID, k,
+		); err != nil {
+			return fmt.Errorf("insert session_kinds(%s,%s): %w", sess.ID, k, err)
+		}
+	}
+
 	return nil
 }
 
@@ -155,6 +171,9 @@ type SessionFilter struct {
 	DeviceName    *string
 	// Profile matches sessions.profile exactly. Drives the --profile filter.
 	Profile *string
+	// Kinds restricts results to sessions carrying at least one of the
+	// listed session_kinds (OR semantics). Empty means no kind filter.
+	Kinds []string
 	// Limit caps the number of rows returned. 0 means no limit.
 	Limit int
 }
@@ -167,6 +186,55 @@ func applyProjectMatch(conds []string, args []any, match string) ([]string, []an
 	pattern := "%" + match + "%"
 	args = append(args, pattern, pattern, pattern)
 	return conds, args
+}
+
+// applyKindsFilter appends an EXISTS subquery restricting results to
+// sessions carrying at least one of kinds. EXISTS (not a JOIN) keeps the
+// row count stable, so it composes cleanly with the FTS join and LIMIT.
+func applyKindsFilter(conds []string, args []any, kinds []string) ([]string, []any) {
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(kinds)), ",")
+	conds = append(conds,
+		"EXISTS (SELECT 1 FROM session_kinds sk WHERE sk.session_id = s.id AND sk.kind IN ("+placeholders+"))")
+	for _, k := range kinds {
+		args = append(args, k)
+	}
+	return conds, args
+}
+
+// attachKinds loads session_kinds for every session in list and assigns
+// them onto the matching Session.Kinds. One batched query (no per-row
+// N+1); a no-op for an empty list.
+func attachKinds(ctx context.Context, db *sql.DB, list []session.Session) error {
+	if len(list) == 0 {
+		return nil
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(list)), ",")
+	args := make([]any, 0, len(list))
+	for i := range list {
+		args = append(args, list[i].ID)
+	}
+	rows, err := db.QueryContext(ctx,
+		`SELECT session_id, kind FROM session_kinds WHERE session_id IN (`+placeholders+`) ORDER BY session_id, kind`,
+		args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	byID := make(map[string][]string, len(list))
+	for rows.Next() {
+		var id, kind string
+		if err := rows.Scan(&id, &kind); err != nil {
+			return err
+		}
+		byID[id] = append(byID[id], kind)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for i := range list {
+		list[i].Kinds = byID[list[i].ID]
+	}
+	return nil
 }
 
 // ListSessionsByRange is a thin convenience wrapper preserving the cut-1
@@ -205,6 +273,9 @@ func (s *Store) ListSessions(ctx context.Context, f SessionFilter) ([]session.Se
 		conds = append(conds, "s.profile = ?")
 		args = append(args, *f.Profile)
 	}
+	if len(f.Kinds) > 0 {
+		conds, args = applyKindsFilter(conds, args, f.Kinds)
+	}
 
 	join := ""
 	if f.DeviceName != nil {
@@ -237,7 +308,14 @@ func (s *Store) ListSessions(ctx context.Context, f SessionFilter) ([]session.Se
 		return nil, err
 	}
 	defer rows.Close()
-	return scanSessions(rows)
+	list, err := scanSessions(rows)
+	if err != nil {
+		return nil, err
+	}
+	if err := attachKinds(ctx, s.db, list); err != nil {
+		return nil, err
+	}
+	return list, nil
 }
 
 // DistinctProjectPaths returns every non-null project_path stored. Used
@@ -319,7 +397,14 @@ func (s *Store) ListChildren(ctx context.Context, parentID string) ([]session.Se
 		return nil, err
 	}
 	defer rows.Close()
-	return scanSessions(rows)
+	list, err := scanSessions(rows)
+	if err != nil {
+		return nil, err
+	}
+	if err := attachKinds(ctx, s.db, list); err != nil {
+		return nil, err
+	}
+	return list, nil
 }
 
 // GetSession returns a single session by id, or sql.ErrNoRows if missing.
@@ -347,6 +432,9 @@ func (s *Store) GetSession(ctx context.Context, id string) (session.Session, err
 	}
 	if len(list) == 0 {
 		return session.Session{}, sql.ErrNoRows
+	}
+	if err := attachKinds(ctx, s.db, list); err != nil {
+		return session.Session{}, err
 	}
 	return list[0], nil
 }
