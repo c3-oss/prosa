@@ -25,6 +25,11 @@ import (
 // analytics handler's signature just to share it.
 var panelAgents = []string{"codex", "claude-code", "gemini", "antigravity", "hermes", "cursor"}
 
+// panelKinds is the special-session classification list the Sessions
+// Kind filter exposes. Order matches the badge precedence the template
+// renders. Mirrors internal/sessionkind's Kind* constants.
+var panelKinds = []string{"goal", "workflow", "ralph-loop", "orchestrator"}
+
 // sessionsPageLimitDefault is the default rows-per-page when no
 // ?limit= is supplied.
 const sessionsPageLimitDefault = 50
@@ -78,6 +83,7 @@ type sessionRow struct {
 	StartedAtFull   string
 	StartedRel      string
 	OpenURL         string
+	Kinds           []string
 	IsChild         bool
 	Children        []sessionRow
 }
@@ -101,6 +107,7 @@ func (p *Panel) handleSessions(w http.ResponseWriter, r *http.Request) {
 	projects := pickMulti(q, "project")
 	devices := pickDeviceNames(q)
 	profilesSel := pickMulti(q, "profile")
+	kindsSel := pickMulti(q, "kind")
 	sortBy := q.Get("sort")
 	sortDirRaw := q.Get("dir")
 	activeSort, activeDir := resolveSessionsSort(sortBy, sortDirRaw)
@@ -141,6 +148,9 @@ func (p *Panel) handleSessions(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(profilesSel) > 0 {
 		baseReq.Profiles = profilesSel
+	}
+	if len(kindsSel) > 0 {
+		baseReq.Kinds = kindsSel
 	}
 
 	var (
@@ -207,6 +217,7 @@ func (p *Panel) handleSessions(w http.ResponseWriter, r *http.Request) {
 	projectsSelected := selectionSet(projects)
 	devicesSelected := selectionSet(devices)
 	profilesSelected := selectionSet(profilesSel)
+	kindsSelected := selectionSet(kindsSel)
 
 	rows := make([]sessionRow, 0, len(sessions))
 	for _, s := range sessions {
@@ -248,7 +259,7 @@ func (p *Panel) handleSessions(w http.ResponseWriter, r *http.Request) {
 		nextURL = "?" + appendKey(stripQuery(r.URL.Query(), "page"), "page", strconv.Itoa(page+1))
 	}
 
-	activeFilters := buildSessionsActiveFilters(r.URL.Query(), queryStr, lastRaw, defaultLast, agents, projects, devices, profilesSel)
+	activeFilters := buildSessionsActiveFilters(r.URL.Query(), queryStr, lastRaw, defaultLast, agents, projects, devices, profilesSel, kindsSel)
 	clearURL := ""
 	if len(activeFilters) > 0 {
 		clearURL = clearFiltersTarget("/sessions", lastRaw, defaultLast)
@@ -269,6 +280,8 @@ func (p *Panel) handleSessions(w http.ResponseWriter, r *http.Request) {
 		"DevicesSelected":  devicesSelected,
 		"Profiles":         profileNames,
 		"ProfilesSelected": profilesSelected,
+		"KindOptions":      panelKinds,
+		"KindsSelected":    kindsSelected,
 		"Sort":             sortBy,
 		"Dir":              sortDirRaw,
 		"Cols":             cols,
@@ -317,7 +330,7 @@ type activeFilter struct {
 // something other than the resolved default. Multi-select dimensions
 // (agent, project, device) emit one chip per selected value so a click
 // removes exactly that value rather than the whole dimension.
-func buildSessionsActiveFilters(q url.Values, queryStr, last, defaultLast string, agents, projects, devices, profilesSel []string) []activeFilter {
+func buildSessionsActiveFilters(q url.Values, queryStr, last, defaultLast string, agents, projects, devices, profilesSel, kindsSel []string) []activeFilter {
 	var out []activeFilter
 	mk := func(label, value string, removeQuery url.Values) activeFilter {
 		// Page resets on any filter change so the user lands at row 1
@@ -359,6 +372,11 @@ func buildSessionsActiveFilters(q url.Values, queryStr, last, defaultLast string
 		next := cloneValues(q)
 		removeFromMulti(next, "profile", pr)
 		out = append(out, mk("Profile", pr, next))
+	}
+	for _, k := range kindsSel {
+		next := cloneValues(q)
+		removeFromMulti(next, "kind", k)
+		out = append(out, mk("Kind", k, next))
 	}
 	return out
 }
@@ -584,6 +602,7 @@ func buildSessionRow(s *prosav1.Session, current *url.URL, deviceLookup map[stri
 		StartedAtFull:   startedFull,
 		StartedRel:      startedRel,
 		OpenURL:         openURL,
+		Kinds:           append([]string(nil), s.Kinds...),
 	}
 }
 
@@ -694,6 +713,9 @@ func cloneListRequest(in *prosav1.ListRequest) *prosav1.ListRequest {
 	}
 	if len(in.Profiles) > 0 {
 		out.Profiles = append([]string(nil), in.Profiles...)
+	}
+	if len(in.Kinds) > 0 {
+		out.Kinds = append([]string(nil), in.Kinds...)
 	}
 	return out
 }

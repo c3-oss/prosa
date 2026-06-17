@@ -245,6 +245,7 @@ func templateFuncs() template.FuncMap {
 		"pluralize":           pluralize,
 		"agentBadge":          agentBadge,
 		"agentShortLabel":     agentShortLabel,
+		"kindBadge":           kindBadge,
 		"assetPath":           assetPath,
 		"projectLink":         projectLink,
 		"projectDisplayLabel": projectDisplayFromLabel,
@@ -276,6 +277,39 @@ func agentBadge(agent string) template.HTML {
 		`<span class="agent-badge" data-agent="%s" title="%s">%s</span>`,
 		a, a, short,
 	))
+}
+
+// kindBadge renders a special-session classification as the small
+// colored pill the Sessions table and side panel show. The data-kind
+// attribute drives per-kind colors via kind-badge.css; the title carries
+// a human description. Unknown kinds pass through with their raw label.
+func kindBadge(kind string) template.HTML {
+	k := template.HTMLEscapeString(strings.TrimSpace(kind))
+	if k == "" {
+		return ""
+	}
+	short := template.HTMLEscapeString(kindShortLabel(kind))
+	return template.HTML(fmt.Sprintf(
+		`<span class="kind-badge" data-kind="%s" title="%s session">%s</span>`,
+		k, k, short,
+	))
+}
+
+// kindShortLabel collapses a kind to the compact label shown in the
+// table; the title attribute keeps the full kind on hover.
+func kindShortLabel(kind string) string {
+	switch strings.TrimSpace(kind) {
+	case "goal":
+		return "goal"
+	case "workflow":
+		return "workflow"
+	case "ralph-loop":
+		return "ralph"
+	case "orchestrator":
+		return "orch"
+	default:
+		return kind
+	}
 }
 
 // agentShortLabel collapses the on-the-wire agent name to a compact

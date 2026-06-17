@@ -1,0 +1,58 @@
+/* Kind badge — small colored pill marking a session's special-session
+   classification (goal / workflow / ralph-loop / orchestrator). Sits
+   beside the agent badge in the Sessions table and the side-panel
+   header. The data-kind attribute drives the per-kind color; the soft
+   background is mixed from the same hue so light and dark themes both
+   read well. Pairs with the kindBadge Go template helper in
+   internal/panel/server.go. */
+
+.kind-badges {
+  display: inline-flex;
+  gap: var(--space-1);
+  margin-left: var(--space-2);
+  vertical-align: middle;
+}
+
+.kind-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-full);
+  background: var(--bg-elev-2);
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: var(--w-medium);
+  text-transform: lowercase;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.kind-badge[data-kind="goal"] {
+  color: var(--chart-3);
+  background: color-mix(in srgb, var(--chart-3) 16%, transparent);
+}
+
+.kind-badge[data-kind="workflow"] {
+  color: var(--chart-1);
+  background: color-mix(in srgb, var(--chart-1) 16%, transparent);
+}
+
+.kind-badge[data-kind="ralph-loop"] {
+  color: var(--chart-6);
+  background: color-mix(in srgb, var(--chart-6) 18%, transparent);
+}
+
+.kind-badge[data-kind="orchestrator"] {
+  color: var(--chart-2);
+  background: color-mix(in srgb, var(--chart-2) 18%, transparent);
+}
+
+/* Size-up variant for the side-panel header, matching .agent-badge-md. */
+.kind-badge-md {
+  height: 22px;
+  padding: 0 var(--space-3);
+  font-size: var(--text-sm);
+}

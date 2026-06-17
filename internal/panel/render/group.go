@@ -41,6 +41,11 @@ type UserExtras struct {
 	LocalCommandCaveat      string
 	LocalCommandStdout      string
 	LocalCommandStderr      string
+	// GoalBudget and GoalScaffold are the Codex goal wrapper parts kept
+	// out of the bubble body (which shows the human objective). The
+	// template surfaces each as a collapsible disclosure.
+	GoalBudget   string
+	GoalScaffold string
 }
 
 // HasDetails reports whether any disclosure block (reminders, stdout,
@@ -52,7 +57,7 @@ func (e *UserExtras) HasDetails() bool {
 	return len(e.Reminders) > 0 || e.EnvContext != "" || e.Instructions != "" ||
 		e.CollaborationMode != "" || e.PermissionsInstructions != "" ||
 		e.LocalCommandCaveat != "" || e.LocalCommandStdout != "" ||
-		e.LocalCommandStderr != ""
+		e.LocalCommandStderr != "" || e.GoalBudget != "" || e.GoalScaffold != ""
 }
 
 // TurnGroup is one renderable block in the transcript. Either:

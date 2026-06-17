@@ -86,6 +86,7 @@ func (p *Panel) handleRawChunk(w http.ResponseWriter, r *http.Request) {
 // loadSidePanel so the template stays declarative.
 type sidePanelData struct {
 	Session       *prosav1.Session
+	Kinds         []string
 	Project       projectDisplay
 	TokensTotal   string
 	TokensIn      string
@@ -144,6 +145,7 @@ func (p *Panel) loadSidePanel(ctx context.Context, id string) (sidePanelData, er
 	}
 	sp := sidePanelData{
 		Session:       sess,
+		Kinds:         sess.GetKinds(),
 		Project:       projectDisplayFromSession(sess),
 		TokensTotal:   formatPanelInt(usage.TotalTokens),
 		TokensIn:      formatPanelInt(usage.InputTokens),
@@ -272,6 +274,8 @@ func userExtrasFromParsed(p sessiontext.UserMessage) *render.UserExtras {
 		LocalCommandCaveat:      p.LocalCommandCaveat,
 		LocalCommandStdout:      p.LocalCommandStdout,
 		LocalCommandStderr:      p.LocalCommandStderr,
+		GoalBudget:              p.GoalBudget,
+		GoalScaffold:            p.GoalScaffold,
 	}
 }
 

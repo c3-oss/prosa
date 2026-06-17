@@ -70,6 +70,7 @@ func (p *Panel) handleInsights(w http.ResponseWriter, r *http.Request) {
 		subagents       *prosav1.GetReportResponse // per-parent-agent table
 		subagentUsage   *prosav1.GetReportResponse // delegated token share + trend
 		subagentParents *prosav1.GetReportResponse // delegation KPIs, fan-out, top delegators
+		sessionKinds    *prosav1.GetReportResponse // special-session classification counts
 		heatmapTrail    *prosav1.GetReportResponse // trailing 53 weeks — streaks
 		heatmapWindow   *prosav1.GetReportResponse // filtered window — active days %
 		projects        *prosav1.GetReportResponse // project dropdown options
@@ -90,6 +91,7 @@ func (p *Panel) handleInsights(w http.ResponseWriter, r *http.Request) {
 		{"subagents", sharedReq("subagents"), &out.subagents},
 		{"subagent_usage_by_day", trendReq("subagent_usage_by_day"), &out.subagentUsage},
 		{"subagent_parents", sharedReq("subagent_parents"), &out.subagentParents},
+		{"session_kinds", sharedReq("session_kinds"), &out.sessionKinds},
 		{"heatmap", dashboardReportRequest("heatmap", heatmapSince, heatmapUntil, agents, projects, devices, profilesSel), &out.heatmapTrail},
 		{"heatmap_window", trendReq("heatmap"), &out.heatmapWindow},
 		{"projects", sharedReq("projects"), &out.projects},
@@ -133,6 +135,7 @@ func (p *Panel) handleInsights(w http.ResponseWriter, r *http.Request) {
 	delegationTrend := buildDelegationTrend(out.subagentUsage.Rows)
 	fanout := buildFanoutHistogram(out.subagentParents.Rows)
 	topDelegators := buildTopDelegators(out.subagentParents.Rows, 8)
+	sessionKinds := buildSessionKinds(out.sessionKinds.Rows)
 
 	activeFilters := buildDashboardActiveFilters(r.URL.Query(), "/insights", lastRaw, defaultLast, agents, projects, devices, profilesSel)
 	clearFiltersURL := ""
@@ -176,6 +179,7 @@ func (p *Panel) handleInsights(w http.ResponseWriter, r *http.Request) {
 		"Fanout":          fanout,
 		"TopDelegators":   topDelegators,
 		"Subagents":       subagents,
+		"SessionKinds":    sessionKinds,
 		"WindowNote":      windowNote,
 	}
 	p.render(w, r, "insights", data)
@@ -759,6 +763,51 @@ type subagentsView struct {
 }
 
 // buildSubagents shapes the subagents report (grouped by parent agent) into the card.
+// sessionKindsView powers the "Agentic session kinds" card: one row per
+// special-session classification with its count and a bar sized against
+// the largest kind in the window.
+type sessionKindsView struct {
+	Rows    []sessionKindRow
+	HasData bool
+}
+
+type sessionKindRow struct {
+	Badge  template.HTML
+	Count  string
+	BarPct int
+}
+
+func buildSessionKinds(rows []*prosav1.AnalyticsRow) sessionKindsView {
+	view := sessionKindsView{}
+	type item struct {
+		kind string
+		n    int64
+	}
+	var items []item
+	var maxCount int64
+	for _, row := range rows {
+		if len(row.Values) < 2 {
+			continue
+		}
+		n := parsePanelInt(row.Values[1])
+		items = append(items, item{kind: row.Values[0], n: n})
+		maxCount = max(maxCount, n)
+	}
+	for _, it := range items {
+		pct := 0
+		if maxCount > 0 {
+			pct = int(it.n * 100 / maxCount)
+		}
+		view.Rows = append(view.Rows, sessionKindRow{
+			Badge:  kindBadge(it.kind),
+			Count:  formatPanelInt(it.n),
+			BarPct: pct,
+		})
+	}
+	view.HasData = len(view.Rows) > 0
+	return view
+}
+
 func buildSubagents(rows []*prosav1.AnalyticsRow) subagentsView {
 	view := subagentsView{}
 	var parents, children, maxFan int64
