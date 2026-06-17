@@ -1,6 +1,9 @@
 package sessiontext
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 const goalFixture = `<codex_internal_context source="goal">
 Continue working toward the active thread goal.
@@ -84,5 +87,22 @@ func TestParseUserMessageGoal(t *testing.T) {
 	}
 	if !m.HasExtras() {
 		t.Fatal("expected goal message to report extras")
+	}
+}
+
+// The budget is surfaced on its own disclosure, so it must not also appear
+// inside the scaffold (issue #250) — otherwise the side panel shows it twice.
+func TestGoalScaffoldExcludesBudget(t *testing.T) {
+	m := ParseUserMessage(goalFixture)
+	if !strings.Contains(m.GoalBudget, "Tokens used: 1200") {
+		t.Fatalf("budget should carry the readout, got %q", m.GoalBudget)
+	}
+	if strings.Contains(m.GoalScaffold, "Budget:") || strings.Contains(m.GoalScaffold, "Tokens used") {
+		t.Fatalf("scaffold should not repeat the budget, got %q", m.GoalScaffold)
+	}
+	// The surrounding scaffold sections survive the strip.
+	if !strings.Contains(m.GoalScaffold, "Continuation behavior") ||
+		!strings.Contains(m.GoalScaffold, "Work from evidence") {
+		t.Fatalf("scaffold should keep the non-budget sections, got %q", m.GoalScaffold)
 	}
 }

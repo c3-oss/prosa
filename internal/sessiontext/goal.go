@@ -52,19 +52,43 @@ func splitGoal(sanitized string) (objective, budget, scaffold string, ok bool) {
 	if !found {
 		obj, rest = "", inner
 	}
-	return obj, budgetBlock(inner), strings.TrimSpace(rest), true
+	// The budget paragraph is surfaced on its own disclosure, so strip it
+	// from the scaffold to avoid showing the same lines twice.
+	return obj, budgetBlock(inner), strings.TrimSpace(stripBudget(rest)), true
 }
 
-// budgetBlock returns the "Budget:" paragraph from s — the header plus the
-// lines that follow it until the next blank line. Empty when no Budget.
+// budgetSpan locates the "Budget:" paragraph in s — from the header to the
+// next blank line (or end of input). ok is false when there is no Budget.
+func budgetSpan(s string) (start, end int, ok bool) {
+	start = strings.Index(s, "Budget:")
+	if start < 0 {
+		return 0, 0, false
+	}
+	end = len(s)
+	if rel := strings.Index(s[start:], "\n\n"); rel >= 0 {
+		end = start + rel
+	}
+	return start, end, true
+}
+
+// budgetBlock returns the trimmed "Budget:" paragraph. Empty when absent.
 func budgetBlock(s string) string {
-	idx := strings.Index(s, "Budget:")
-	if idx < 0 {
+	start, end, ok := budgetSpan(s)
+	if !ok {
 		return ""
 	}
-	block := s[idx:]
-	if end := strings.Index(block, "\n\n"); end >= 0 {
-		block = block[:end]
+	return strings.TrimSpace(s[start:end])
+}
+
+// stripBudget removes the "Budget:" paragraph (and its trailing blank line)
+// from s. Returns s unchanged when there is no Budget block.
+func stripBudget(s string) string {
+	start, end, ok := budgetSpan(s)
+	if !ok {
+		return s
 	}
-	return strings.TrimSpace(block)
+	for end < len(s) && (s[end] == '\n' || s[end] == '\r') {
+		end++
+	}
+	return s[:start] + s[end:]
 }
