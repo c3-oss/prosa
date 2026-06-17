@@ -77,6 +77,11 @@ message Session {
   // profile is the per-agent profile the session was imported from; empty
   // is treated as "default" on write.
   string profile = 16;
+  // kinds are the projected "special session" classifications a session
+  // carries: any of "goal", "workflow", "ralph-loop", "orchestrator". A
+  // session may carry several (e.g. a goal that orchestrates subagents).
+  // Empty for an ordinary session.
+  repeated string kinds = 17;
 }
 
 message TokenUsage {
@@ -206,6 +211,10 @@ message ListRequest {
   string profile = 18;
   // profiles is the multi-select equivalent of profile (panel).
   repeated string profiles = 19;
+  // kinds restricts results to sessions carrying at least one of the
+  // listed classifications ("goal", "workflow", "ralph-loop",
+  // "orchestrator"). OR semantics; empty means no kind filter.
+  repeated string kinds = 20;
 }
 
 message ListResponse {
