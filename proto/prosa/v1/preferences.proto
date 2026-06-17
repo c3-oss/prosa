@@ -13,6 +13,7 @@ service PreferencesService {
   // SessionsService.Get's GetRequest/GetResponse in this package.
   rpc Get(PreferencesServiceGetRequest) returns (PreferencesServiceGetResponse);
   rpc Set(PreferencesServiceSetRequest) returns (PreferencesServiceSetResponse);
+  rpc Delete(PreferencesServiceDeleteRequest) returns (PreferencesServiceDeleteResponse);
 }
 
 message PreferencesServiceGetRequest {
@@ -31,3 +32,10 @@ message PreferencesServiceSetRequest {
 }
 
 message PreferencesServiceSetResponse {}
+
+message PreferencesServiceDeleteRequest {
+  string owner_email = 1;
+  string key = 2;
+}
+
+message PreferencesServiceDeleteResponse {}

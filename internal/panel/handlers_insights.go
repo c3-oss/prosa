@@ -34,7 +34,8 @@ func (p *Panel) handleInsights(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 
 	now := nowFn().UTC()
-	lastRaw, since, until, err := parseDashboardWindow(q, now)
+	lastRaw, defaultLast := p.resolvePageWindow(r, windowPageInsights)
+	since, until, err := parseDashboardWindow(lastRaw, now)
 	if err != nil {
 		http.Error(w, "bad last= "+err.Error(), http.StatusBadRequest)
 		return
@@ -133,10 +134,10 @@ func (p *Panel) handleInsights(w http.ResponseWriter, r *http.Request) {
 	fanout := buildFanoutHistogram(out.subagentParents.Rows)
 	topDelegators := buildTopDelegators(out.subagentParents.Rows, 8)
 
-	activeFilters := buildDashboardActiveFilters(r.URL.Query(), "/insights", lastRaw, agents, projects, devices, profilesSel)
+	activeFilters := buildDashboardActiveFilters(r.URL.Query(), "/insights", lastRaw, defaultLast, agents, projects, devices, profilesSel)
 	clearFiltersURL := ""
 	if len(activeFilters) > 0 {
-		clearFiltersURL = "/insights"
+		clearFiltersURL = clearFiltersTarget("/insights", lastRaw, defaultLast)
 	}
 
 	data := map[string]any{
@@ -148,6 +149,7 @@ func (p *Panel) handleInsights(w http.ResponseWriter, r *http.Request) {
 
 		// Filter state.
 		"Last":             lastRaw,
+		"DefaultWindow":    defaultLast,
 		"Agents":           panelAgents,
 		"AgentsSelected":   selectionSet(agents),
 		"Projects":         projectNames,

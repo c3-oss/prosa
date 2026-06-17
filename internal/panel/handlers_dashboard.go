@@ -31,7 +31,8 @@ func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 
 	now := nowFn().UTC()
-	lastRaw, since, until, err := parseDashboardWindow(q, now)
+	lastRaw, defaultLast := p.resolvePageWindow(r, windowPageHome)
+	since, until, err := parseDashboardWindow(lastRaw, now)
 	if err != nil {
 		http.Error(w, "bad last= "+err.Error(), http.StatusBadRequest)
 		return
@@ -207,10 +208,10 @@ func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 		{Value: issues.Rate, Label: "error rate", Delta: dErrorRate},
 	}
 
-	activeFilters := buildDashboardActiveFilters(r.URL.Query(), "/", lastRaw, agents, projects, devices, profilesSel)
+	activeFilters := buildDashboardActiveFilters(r.URL.Query(), "/", lastRaw, defaultLast, agents, projects, devices, profilesSel)
 	clearFiltersURL := ""
 	if len(activeFilters) > 0 {
-		clearFiltersURL = "/"
+		clearFiltersURL = clearFiltersTarget("/", lastRaw, defaultLast)
 	}
 
 	data := map[string]any{
@@ -221,6 +222,7 @@ func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 		"FilterAction": "/",
 
 		"Last":             lastRaw,
+		"DefaultWindow":    defaultLast,
 		"Agents":           panelAgents,
 		"AgentsSelected":   selectionSet(agents),
 		"Projects":         projectNames,

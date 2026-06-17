@@ -37,6 +37,9 @@ const (
 	PreferencesServiceGetProcedure = "/prosa.v1.PreferencesService/Get"
 	// PreferencesServiceSetProcedure is the fully-qualified name of the PreferencesService's Set RPC.
 	PreferencesServiceSetProcedure = "/prosa.v1.PreferencesService/Set"
+	// PreferencesServiceDeleteProcedure is the fully-qualified name of the PreferencesService's Delete
+	// RPC.
+	PreferencesServiceDeleteProcedure = "/prosa.v1.PreferencesService/Delete"
 )
 
 // PreferencesServiceClient is a client for the prosa.v1.PreferencesService service.
@@ -45,6 +48,7 @@ type PreferencesServiceClient interface {
 	// SessionsService.Get's GetRequest/GetResponse in this package.
 	Get(context.Context, *connect.Request[v1.PreferencesServiceGetRequest]) (*connect.Response[v1.PreferencesServiceGetResponse], error)
 	Set(context.Context, *connect.Request[v1.PreferencesServiceSetRequest]) (*connect.Response[v1.PreferencesServiceSetResponse], error)
+	Delete(context.Context, *connect.Request[v1.PreferencesServiceDeleteRequest]) (*connect.Response[v1.PreferencesServiceDeleteResponse], error)
 }
 
 // NewPreferencesServiceClient constructs a client for the prosa.v1.PreferencesService service. By
@@ -70,13 +74,20 @@ func NewPreferencesServiceClient(httpClient connect.HTTPClient, baseURL string, 
 			connect.WithSchema(preferencesServiceMethods.ByName("Set")),
 			connect.WithClientOptions(opts...),
 		),
+		delete: connect.NewClient[v1.PreferencesServiceDeleteRequest, v1.PreferencesServiceDeleteResponse](
+			httpClient,
+			baseURL+PreferencesServiceDeleteProcedure,
+			connect.WithSchema(preferencesServiceMethods.ByName("Delete")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // preferencesServiceClient implements PreferencesServiceClient.
 type preferencesServiceClient struct {
-	get *connect.Client[v1.PreferencesServiceGetRequest, v1.PreferencesServiceGetResponse]
-	set *connect.Client[v1.PreferencesServiceSetRequest, v1.PreferencesServiceSetResponse]
+	get    *connect.Client[v1.PreferencesServiceGetRequest, v1.PreferencesServiceGetResponse]
+	set    *connect.Client[v1.PreferencesServiceSetRequest, v1.PreferencesServiceSetResponse]
+	delete *connect.Client[v1.PreferencesServiceDeleteRequest, v1.PreferencesServiceDeleteResponse]
 }
 
 // Get calls prosa.v1.PreferencesService.Get.
@@ -89,12 +100,18 @@ func (c *preferencesServiceClient) Set(ctx context.Context, req *connect.Request
 	return c.set.CallUnary(ctx, req)
 }
 
+// Delete calls prosa.v1.PreferencesService.Delete.
+func (c *preferencesServiceClient) Delete(ctx context.Context, req *connect.Request[v1.PreferencesServiceDeleteRequest]) (*connect.Response[v1.PreferencesServiceDeleteResponse], error) {
+	return c.delete.CallUnary(ctx, req)
+}
+
 // PreferencesServiceHandler is an implementation of the prosa.v1.PreferencesService service.
 type PreferencesServiceHandler interface {
 	// Request/response types are service-qualified to avoid clashing with
 	// SessionsService.Get's GetRequest/GetResponse in this package.
 	Get(context.Context, *connect.Request[v1.PreferencesServiceGetRequest]) (*connect.Response[v1.PreferencesServiceGetResponse], error)
 	Set(context.Context, *connect.Request[v1.PreferencesServiceSetRequest]) (*connect.Response[v1.PreferencesServiceSetResponse], error)
+	Delete(context.Context, *connect.Request[v1.PreferencesServiceDeleteRequest]) (*connect.Response[v1.PreferencesServiceDeleteResponse], error)
 }
 
 // NewPreferencesServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -116,12 +133,20 @@ func NewPreferencesServiceHandler(svc PreferencesServiceHandler, opts ...connect
 		connect.WithSchema(preferencesServiceMethods.ByName("Set")),
 		connect.WithHandlerOptions(opts...),
 	)
+	preferencesServiceDeleteHandler := connect.NewUnaryHandler(
+		PreferencesServiceDeleteProcedure,
+		svc.Delete,
+		connect.WithSchema(preferencesServiceMethods.ByName("Delete")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/prosa.v1.PreferencesService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case PreferencesServiceGetProcedure:
 			preferencesServiceGetHandler.ServeHTTP(w, r)
 		case PreferencesServiceSetProcedure:
 			preferencesServiceSetHandler.ServeHTTP(w, r)
+		case PreferencesServiceDeleteProcedure:
+			preferencesServiceDeleteHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -137,4 +162,8 @@ func (UnimplementedPreferencesServiceHandler) Get(context.Context, *connect.Requ
 
 func (UnimplementedPreferencesServiceHandler) Set(context.Context, *connect.Request[v1.PreferencesServiceSetRequest]) (*connect.Response[v1.PreferencesServiceSetResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("prosa.v1.PreferencesService.Set is not implemented"))
+}
+
+func (UnimplementedPreferencesServiceHandler) Delete(context.Context, *connect.Request[v1.PreferencesServiceDeleteRequest]) (*connect.Response[v1.PreferencesServiceDeleteResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("prosa.v1.PreferencesService.Delete is not implemented"))
 }

@@ -63,23 +63,22 @@ func analyticsRequest(report string, since, until time.Time, q url.Values) *pros
 	return req
 }
 
-// parseDashboardWindow resolves the dashboard's ?last= filter into time
+// parseDashboardWindow resolves the dashboard's last filter into time
 // bounds. Defaults to 30d; the "all" sentinel maps to a -100y lower bound.
-func parseDashboardWindow(q url.Values, now time.Time) (lastRaw string, since, until time.Time, err error) {
-	lastRaw = q.Get("last")
+func parseDashboardWindow(lastRaw string, now time.Time) (since, until time.Time, err error) {
 	if lastRaw == "" {
-		lastRaw = "30d"
+		lastRaw = defaultWindowValue
 	}
 	until = now
 	if lastRaw == "all" {
 		since = now.Add(-100 * 365 * 24 * time.Hour)
-		return lastRaw, since, until, nil
+		return since, until, nil
 	}
 	window, err := parseWindow(lastRaw)
 	if err != nil {
-		return lastRaw, since, until, err
+		return since, until, err
 	}
-	return lastRaw, now.Add(-window), until, nil
+	return now.Add(-window), until, nil
 }
 
 // dashboardReportRequest builds the GetReportRequest shared by the home,
@@ -105,7 +104,7 @@ func dashboardReportRequest(report string, since, until time.Time, agents, proje
 
 // buildDashboardActiveFilters renders one removal chip per active filter,
 // pointing at basePath ("/", "/insights", or "/profiles").
-func buildDashboardActiveFilters(q url.Values, basePath, last string, agents, projects, devices, profiles []string) []activeFilter {
+func buildDashboardActiveFilters(q url.Values, basePath, last, defaultLast string, agents, projects, devices, profiles []string) []activeFilter {
 	var out []activeFilter
 	mk := func(label, value string, removeQuery url.Values) activeFilter {
 		removeQuery.Del("session")
@@ -115,9 +114,9 @@ func buildDashboardActiveFilters(q url.Values, basePath, last string, agents, pr
 		}
 		return activeFilter{Label: label, Value: value, RemoveURL: removeURL}
 	}
-	if last != "" && last != "30d" {
+	if last != "" && last != defaultLast {
 		next := cloneValues(q)
-		next.Del("last")
+		next.Set("last", "")
 		out = append(out, mk("Window", last, next))
 	}
 	for _, a := range agents {
