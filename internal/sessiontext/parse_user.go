@@ -26,6 +26,9 @@ type UserMessage struct {
 	LocalCommandCaveat      string   // <local-command-caveat> body
 	LocalCommandStdout      string   // <local-command-stdout> body
 	LocalCommandStderr      string   // <local-command-stderr> body
+	GoalObjective           string   // <objective> inside a Codex goal wrapper
+	GoalBudget              string   // "Budget:" block from a Codex goal wrapper
+	GoalScaffold            string   // rest of the goal wrapper (objective removed)
 	Body                    string   // what's left after stripping wrappers
 }
 
@@ -36,7 +39,8 @@ func (m UserMessage) IsEmpty() bool {
 		len(m.Reminders) == 0 && m.EnvContext == "" && m.Instructions == "" &&
 		m.CollaborationMode == "" && m.PermissionsInstructions == "" &&
 		m.LocalCommandCaveat == "" && m.LocalCommandStdout == "" &&
-		m.LocalCommandStderr == "" && m.Body == ""
+		m.LocalCommandStderr == "" && m.GoalObjective == "" &&
+		m.GoalBudget == "" && m.GoalScaffold == "" && m.Body == ""
 }
 
 // HasExtras reports whether anything other than Body needs surfacing —
@@ -47,7 +51,7 @@ func (m UserMessage) HasExtras() bool {
 		len(m.Reminders) > 0 || m.EnvContext != "" || m.Instructions != "" ||
 		m.CollaborationMode != "" || m.PermissionsInstructions != "" ||
 		m.LocalCommandCaveat != "" || m.LocalCommandStdout != "" ||
-		m.LocalCommandStderr != ""
+		m.LocalCommandStderr != "" || m.GoalBudget != "" || m.GoalScaffold != ""
 }
 
 // xmlWrapper is one tag-style wrapper we know how to extract.
@@ -80,6 +84,16 @@ func ParseUserMessage(raw string) UserMessage {
 	sanitized := SanitizeForDisplay(raw)
 	working := sanitized
 	out := UserMessage{}
+
+	// Codex goal wrapper: surface the human <objective> as the body and
+	// keep the Budget readout + remaining scaffold as discrete
+	// disclosures. The rest of the parse then runs on the objective only.
+	if obj, budget, scaffold, ok := splitGoal(sanitized); ok {
+		out.GoalObjective = obj
+		out.GoalBudget = budget
+		out.GoalScaffold = scaffold
+		working = obj
+	}
 
 	// "<permissions instructions>" has no documented closing tag and
 	// runs from the open tag until the next `<` (start of any other

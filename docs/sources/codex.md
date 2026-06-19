@@ -220,6 +220,13 @@ metadata and tool-call summaries; the recipe above is for raw inspection.
   leaked "You are Codex, a coding agent" / "Knowledge cutoff: …"
   user-role message never wins. The next real user prompt does.
   Developer/system roles never enter the turn stream.
+- Goal sessions (Codex's [goal mode](https://developers.openai.com/cookbook/examples/codex/using_goals_in_codex))
+  inject a `<codex_internal_context source="goal">…</codex_internal_context>`
+  block as a user turn on every turn, wrapping the human request in
+  `<objective>…</objective>` plus continuation/budget/audit scaffolding.
+  Such a session is classified `goal` (see `internal/sessionkind`), and
+  `sessiontext.BuildFirstPrompt` unwraps the `<objective>` so the
+  timeline shows the real task instead of the scaffold.
 - `function_call_output` (envelope) and the legacy top-level
   `function_call_output` records project into the turn stream as
   `Role: "tool"`, `Kind: "tool_result"`, `ToolName` resolved via the

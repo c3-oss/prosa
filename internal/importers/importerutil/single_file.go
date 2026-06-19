@@ -8,6 +8,7 @@ import (
 	"github.com/c3-oss/prosa/internal/device"
 	"github.com/c3-oss/prosa/internal/importers/importpolicy"
 	"github.com/c3-oss/prosa/internal/projectid"
+	"github.com/c3-oss/prosa/internal/sessionkind"
 	"github.com/c3-oss/prosa/pkg/importer"
 	"github.com/c3-oss/prosa/pkg/session"
 )
@@ -91,6 +92,11 @@ func RunSingleFile(ctx context.Context, cfg SingleFileConfig) (importer.ImportRe
 	sess.RawPath = rawPath
 	projectid.Apply(&sess)
 
+	// Classify the single-session kinds (goal/workflow/ralph-loop) from the
+	// turns and tool counters. The orchestrator kind is edge-dependent and
+	// reconciled post-sweep via store.RefreshOrchestratorKinds.
+	sess.Kinds = sessionkind.Classify(turns, ToolNames(tools))
+
 	if err := cfg.Sink.WriteSession(ctx, sess, tools, turns, hash); err != nil {
 		return importer.ImportResult{}, fmt.Errorf("write session %s: %w", writeID, err)
 	}
@@ -102,4 +108,17 @@ func RunSingleFile(ctx context.Context, cfg SingleFileConfig) (importer.ImportRe
 		RawSize:   size,
 		Skipped:   false,
 	}, nil
+}
+
+// ToolNames projects the tool-usage slice to bare names for the kind
+// classifier, which only cares about presence (e.g. the Workflow tool).
+func ToolNames(tools []session.ToolUsage) []string {
+	if len(tools) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(tools))
+	for _, t := range tools {
+		names = append(names, t.Name)
+	}
+	return names
 }

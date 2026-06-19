@@ -44,6 +44,9 @@ func (h *SessionsHandler) Get(ctx context.Context, req *connect.Request[prosav1.
 	if isDevice && !auth.IsOwner(ctx) && s.DeviceId != callerDevice {
 		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("session belongs to another device"))
 	}
+	if err := attachSessionKinds(ctx, h.Pool, []*prosav1.Session{s}); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
 
 	turns, err := selectTurns(ctx, h.Pool, req.Msg.Id)
 	if err != nil {
@@ -165,7 +168,48 @@ func (h *SessionsHandler) ListChildren(ctx context.Context, req *connect.Request
 		}
 		out.Sessions = append(out.Sessions, s)
 	}
-	return connect.NewResponse(out), rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	if err := attachSessionKinds(ctx, h.Pool, out.Sessions); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	return connect.NewResponse(out), nil
+}
+
+// attachSessionKinds batch-loads session_kinds for every session in the
+// slice and assigns them onto Session.Kinds. One query (no per-row N+1);
+// a no-op for an empty slice.
+func attachSessionKinds(ctx context.Context, pool *pgxpool.Pool, sessions []*prosav1.Session) error {
+	if len(sessions) == 0 {
+		return nil
+	}
+	ids := make([]string, len(sessions))
+	for i, s := range sessions {
+		ids[i] = s.Id
+	}
+	rows, err := pool.Query(ctx,
+		`SELECT session_id, kind FROM session_kinds WHERE session_id = ANY($1) ORDER BY session_id, kind`,
+		ids)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	byID := make(map[string][]string, len(sessions))
+	for rows.Next() {
+		var id, kind string
+		if err := rows.Scan(&id, &kind); err != nil {
+			return err
+		}
+		byID[id] = append(byID[id], kind)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, s := range sessions {
+		s.Kinds = byID[s.Id]
+	}
+	return nil
 }
 
 func selectTurns(ctx context.Context, pool *pgxpool.Pool, sessionID string) ([]*prosav1.Turn, error) {

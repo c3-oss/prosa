@@ -14,6 +14,7 @@
     {{range $p, $sel := .ProjectsSelected}}{{if $sel}}<input type="hidden" name="project" value="{{$p}}">{{end}}{{end}}
     {{range $d, $sel := .DevicesSelected}}{{if $sel}}<input type="hidden" name="device" value="{{$d}}">{{end}}{{end}}
     {{range $pr, $sel := .ProfilesSelected}}{{if $sel}}<input type="hidden" name="profile" value="{{$pr}}">{{end}}{{end}}
+    {{range $k, $sel := .KindsSelected}}{{if $sel}}<input type="hidden" name="kind" value="{{$k}}">{{end}}{{end}}
     {{if .Sort}}<input type="hidden" name="sort" value="{{.Sort}}">{{end}}
     {{if .Dir}}<input type="hidden" name="dir" value="{{.Dir}}">{{end}}
     {{range $c, $on := .Cols}}{{if $on}}<input type="hidden" name="cols" value="{{$c}}">{{end}}{{end}}
@@ -149,6 +150,26 @@
     </label>
 
     <label>
+      Kind
+      <div class="dropdown">
+        <button type="button" class="dropdown-toggle">
+          {{- $n := 0 -}}
+          {{- range $k, $sel := .KindsSelected}}{{if $sel}}{{$n = 1}}{{end}}{{end -}}
+          {{- if eq $n 0}}all kinds{{else}}selected{{end}} ▾
+        </button>
+        <div class="dropdown-menu" hidden>
+          {{$sel := .KindsSelected}}
+          {{range .KindOptions}}
+            <label class="dropdown-item">
+              <input type="checkbox" name="kind" value="{{.}}" {{if index $sel .}}checked{{end}}>
+              <span>{{kindBadge .}}</span>
+            </label>
+          {{end}}
+        </div>
+      </div>
+    </label>
+
+    <label>
       Columns
       <div class="dropdown dropdown-columns">
         <button type="button" class="dropdown-toggle">columns ▾</button>
@@ -211,7 +232,7 @@
                 <span class="row-expand-count">{{len $session.Children}}</span>
               </button>
             </td>
-            {{if index $cols "agent"}}<td>{{agentBadge $session.Agent}}</td>{{end}}
+            {{if index $cols "agent"}}<td>{{agentBadge $session.Agent}}{{template "kindBadges" $session.Kinds}}</td>{{end}}
             {{if index $cols "project"}}
               <td class="cell-project">
                 {{if $session.ProjectURL}}
@@ -239,7 +260,7 @@
                 data-href="{{$child.OpenURL}}" data-detail="/sessions/{{$child.Id}}"
                 x-show="open">
               <td class="cell-expand"></td>
-              {{if index $cols "agent"}}<td><span class="row-child-indent" aria-hidden="true">↳</span>{{agentBadge $child.Agent}}</td>{{end}}
+              {{if index $cols "agent"}}<td><span class="row-child-indent" aria-hidden="true">↳</span>{{agentBadge $child.Agent}}{{template "kindBadges" $child.Kinds}}</td>{{end}}
               {{if index $cols "project"}}
                 <td class="cell-project">
                   {{if $child.ProjectURL}}
@@ -268,7 +289,7 @@
         <tbody>
           <tr class="session-row" data-href="{{$session.OpenURL}}" data-detail="/sessions/{{$session.Id}}">
             <td class="cell-expand"></td>
-            {{if index $cols "agent"}}<td>{{agentBadge $session.Agent}}</td>{{end}}
+            {{if index $cols "agent"}}<td>{{agentBadge $session.Agent}}{{template "kindBadges" $session.Kinds}}</td>{{end}}
             {{if index $cols "project"}}
               <td class="cell-project">
                 {{if $session.ProjectURL}}

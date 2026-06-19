@@ -262,6 +262,26 @@
         <div class="empty">no subagent sessions in this window.</div>
       {{end}}
     </section>
+
+    <section class="card">
+      <header class="card-head">
+        <h2>Agentic session kinds</h2>
+        <span class="card-sub">special sessions by classification</span>
+      </header>
+      {{if .SessionKinds.HasData}}
+        <div class="bar-list">
+          {{range .SessionKinds.Rows}}
+            <div class="bar-row">
+              <span class="bar-label">{{.Badge}}</span>
+              <span class="bar-track"><span class="bar-fill" style="width: {{.BarPct}}%"></span></span>
+              <span class="bar-count">{{.Count}}</span>
+            </div>
+          {{end}}
+        </div>
+      {{else}}
+        <div class="empty">no special sessions in this window.</div>
+      {{end}}
+    </section>
   </div>
 {{end}}
 

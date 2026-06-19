@@ -3,7 +3,7 @@
 {{define "side_panel_body"}}
   <header class="sp-header" x-data="{ allCollapsed: false }">
     <div class="sp-header-text">
-      <div class="sp-agent">{{agentBadge .Session.Agent}}</div>
+      <div class="sp-agent">{{agentBadge .Session.Agent}}{{template "kindBadges" .Kinds}}</div>
       <div class="sp-prompt">{{or .Session.FirstPrompt "(no prompt)"}}</div>
     </div>
     {{if .TurnGroups}}
@@ -248,6 +248,18 @@
                       <details class="extra-details">
                         <summary>command caveat</summary>
                         <pre class="extra-block">{{.UserExtras.LocalCommandCaveat}}</pre>
+                      </details>
+                    {{end}}
+                    {{if .UserExtras.GoalBudget}}
+                      <details class="extra-details" open>
+                        <summary>goal budget</summary>
+                        <pre class="extra-block">{{.UserExtras.GoalBudget}}</pre>
+                      </details>
+                    {{end}}
+                    {{if .UserExtras.GoalScaffold}}
+                      <details class="extra-details">
+                        <summary>goal scaffolding</summary>
+                        <pre class="extra-block">{{.UserExtras.GoalScaffold}}</pre>
                       </details>
                     {{end}}
                   </div>
