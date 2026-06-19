@@ -16,14 +16,29 @@ import (
 
 type fakeSessionsService struct {
 	prosav1connect.UnimplementedSessionsServiceHandler
-	onList func(*prosav1.ListRequest)
+	listResponse   *prosav1.ListResponse
+	children       map[string][]*prosav1.Session
+	onList         func(*prosav1.ListRequest)
+	onListChildren func(*prosav1.ListChildrenRequest)
 }
 
 func (s fakeSessionsService) List(_ context.Context, req *connect.Request[prosav1.ListRequest]) (*connect.Response[prosav1.ListResponse], error) {
 	if s.onList != nil {
 		s.onList(req.Msg)
 	}
+	if s.listResponse != nil {
+		return connect.NewResponse(s.listResponse), nil
+	}
 	return connect.NewResponse(&prosav1.ListResponse{TotalCount: 42}), nil
+}
+
+func (s fakeSessionsService) ListChildren(_ context.Context, req *connect.Request[prosav1.ListChildrenRequest]) (*connect.Response[prosav1.ListChildrenResponse], error) {
+	if s.onListChildren != nil {
+		s.onListChildren(req.Msg)
+	}
+	return connect.NewResponse(&prosav1.ListChildrenResponse{
+		Sessions: s.children[req.Msg.ParentId],
+	}), nil
 }
 
 type fakeDevicesService struct {
