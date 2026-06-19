@@ -2,7 +2,6 @@ package panel
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -78,6 +77,8 @@ type sessionRow struct {
 	TokensIn        string
 	TokensOut       string
 	Cost            string
+	costAmount      float64
+	costPriced      bool
 	Device          string
 	StartedAt       string
 	StartedAtFull   string
@@ -240,6 +241,7 @@ func (p *Panel) handleSessions(w http.ResponseWriter, r *http.Request) {
 				childRow.IsChild = true
 				rows[i].Children = append(rows[i].Children, childRow)
 			}
+			rollUpSessionRowCost(&rows[i])
 		}
 	}
 
@@ -500,9 +502,9 @@ func (p *Panel) listSessionsSortedByCost(
 		}
 	}
 	rows := make([]costSortRow, len(all))
+	includeChildren := base.GetTopLevelOnly()
 	for i, s := range all {
-		usage := tokenUsageFromProto(s.Usage)
-		cost, ok := pricing.CostUSD(s.Model, usage)
+		cost, ok := p.sessionCostForSort(ctx, s, includeChildren)
 		rows[i] = costSortRow{session: s, cost: cost, ok: ok}
 	}
 	costDesc := costDir != "asc"
@@ -547,6 +549,23 @@ func (p *Panel) listSessionsSortedByCost(
 	return out, total, pageCount, nil
 }
 
+func (p *Panel) sessionCostForSort(ctx context.Context, s *prosav1.Session, includeChildren bool) (float64, bool) {
+	cost, ok := sessionCost(s)
+	if !includeChildren || s == nil {
+		return cost, ok
+	}
+	childResp, err := p.clients.Sessions.ListChildren(ctx,
+		connect.NewRequest(&prosav1.ListChildrenRequest{ParentId: s.Id}))
+	if err != nil {
+		slog.Warn("sessions.listChildren cost sort failed", "id", s.Id, "err", err)
+		return cost, ok
+	}
+	for _, child := range childResp.Msg.Sessions {
+		cost, ok = addSessionCost(cost, ok, child)
+	}
+	return cost, ok
+}
+
 func sessionStartedAt(s *prosav1.Session) time.Time {
 	if s == nil || s.StartedAt == nil {
 		return time.Time{}
@@ -565,10 +584,7 @@ func buildSessionRow(s *prosav1.Session, current *url.URL, deviceLookup map[stri
 		return sessionRow{}
 	}
 	usage := tokenUsageFromProto(s.Usage)
-	costLabel := "n/a"
-	if cost, ok := pricing.CostUSD(s.Model, usage); ok {
-		costLabel = fmt.Sprintf("$%.2f", cost)
-	}
+	cost, priced := sessionCost(s)
 	startedFull := ""
 	startedRel := ""
 	if s.StartedAt != nil {
@@ -596,7 +612,9 @@ func buildSessionRow(s *prosav1.Session, current *url.URL, deviceLookup map[stri
 		TokensTotalFull: formatPanelInt(usage.TotalTokens),
 		TokensIn:        formatPanelInt(usage.InputTokens),
 		TokensOut:       formatPanelInt(usage.OutputTokens),
-		Cost:            costLabel,
+		Cost:            costLabel(cost, priced),
+		costAmount:      cost,
+		costPriced:      priced,
 		Device:          device,
 		StartedAt:       startedRel,
 		StartedAtFull:   startedFull,
@@ -604,6 +622,38 @@ func buildSessionRow(s *prosav1.Session, current *url.URL, deviceLookup map[stri
 		OpenURL:         openURL,
 		Kinds:           append([]string(nil), s.Kinds...),
 	}
+}
+
+func rollUpSessionRowCost(row *sessionRow) {
+	if row == nil {
+		return
+	}
+	cost := row.costAmount
+	priced := row.costPriced
+	for _, child := range row.Children {
+		if child.costPriced {
+			cost += child.costAmount
+			priced = true
+		}
+	}
+	row.costAmount = cost
+	row.costPriced = priced
+	row.Cost = costLabel(cost, priced)
+}
+
+func sessionCost(s *prosav1.Session) (float64, bool) {
+	if s == nil {
+		return 0, false
+	}
+	return pricing.CostUSD(s.Model, tokenUsageFromProto(s.Usage))
+}
+
+func addSessionCost(total float64, priced bool, s *prosav1.Session) (float64, bool) {
+	cost, ok := sessionCost(s)
+	if ok {
+		return total + cost, true
+	}
+	return total, priced
 }
 
 // loadDeviceLookup returns the dropdown-ready sorted list of device
