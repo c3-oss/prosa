@@ -218,6 +218,13 @@ func runSync(cmd *cobra.Command, _ []string) error {
 	default:
 		counts.printSummary()
 	}
+	if counts.legacyErr > 0 {
+		errWord := "errors"
+		if counts.legacyErr == 1 {
+			errWord = "error"
+		}
+		return fmt.Errorf("legacy bundle partially mirrored with %d %s", counts.legacyErr, errWord)
+	}
 	return nil
 }
 

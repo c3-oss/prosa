@@ -145,6 +145,53 @@ func TestDecompressRoundTrip(t *testing.T) {
 	}
 }
 
+func TestDecompressSupportsBinFallback(t *testing.T) {
+	root, expected := buildFixtureBundle(t)
+	b, err := Open(root)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = b.Close() })
+
+	files, err := b.SourceFiles(context.Background())
+	require.NoError(t, err)
+	require.NotEmpty(t, files)
+	sf := files[0]
+
+	zstPath := filepath.Join(root, "raw", "sources", sf.ObjectIDHex+".zst")
+	binPath := filepath.Join(root, "raw", "sources", sf.ObjectIDHex+".bin")
+	require.NoError(t, os.Remove(zstPath))
+	require.NoError(t, os.WriteFile(binPath, []byte(expected[sf.ObjectIDHex]), 0o644))
+
+	dst, err := b.Decompress(context.Background(), sf, t.TempDir())
+	require.NoError(t, err)
+	raw, err := os.ReadFile(dst)
+	require.NoError(t, err)
+	require.Equal(t, expected[sf.ObjectIDHex], string(raw))
+}
+
+func TestDecompressIgnoresAppleDoubleBinSidecar(t *testing.T) {
+	root, _ := buildFixtureBundle(t)
+	b, err := Open(root)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = b.Close() })
+
+	files, err := b.SourceFiles(context.Background())
+	require.NoError(t, err)
+	require.NotEmpty(t, files)
+	sf := files[0]
+
+	zstPath := filepath.Join(root, "raw", "sources", sf.ObjectIDHex+".zst")
+	binPath := filepath.Join(root, "raw", "sources", sf.ObjectIDHex+".bin")
+	sidecarPath := filepath.Join(root, "raw", "sources", "._"+sf.ObjectIDHex+".bin")
+	require.NoError(t, os.Remove(zstPath))
+	require.NoError(t, os.WriteFile(sidecarPath, []byte("sidecar"), 0o644))
+
+	_, err = b.Decompress(context.Background(), sf, t.TempDir())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), zstPath)
+	require.Contains(t, err.Error(), binPath)
+	require.NotContains(t, err.Error(), sidecarPath)
+}
+
 func TestOpenMissingPaths(t *testing.T) {
 	_, err := Open(t.TempDir())
 	require.Error(t, err)
