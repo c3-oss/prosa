@@ -12,6 +12,7 @@ package legacy
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -45,7 +46,7 @@ type SourceFile struct {
 	OriginalPath string
 
 	// ObjectIDHex is the content hash without the "blake3:" prefix —
-	// matches the filename in <bundle>/raw/sources/<hex>.zst.
+	// matches the filename in <bundle>/raw/sources/<hex>.zst or .bin.
 	ObjectIDHex string
 
 	// SizeBytes is the uncompressed source file size at v1 import time.
@@ -109,11 +110,12 @@ func (b *Bundle) SourceFiles(ctx context.Context) ([]SourceFile, error) {
 	return out, rows.Err()
 }
 
-// Decompress reads <bundle>/raw/sources/<ObjectIDHex>.zst, writes the
-// uncompressed bytes to <tmpDir>/<basename(OriginalPath)>, and returns
-// the temp path. Preserving the source basename matters for codex (the
-// importer falls back to the filename UUID when session_meta is absent)
-// and for cursor (where the temp file is opened as a SQLite db).
+// Decompress reads <bundle>/raw/sources/<ObjectIDHex>.zst, falling back
+// to an uncompressed <ObjectIDHex>.bin object when present. It writes the
+// source bytes to <tmpDir>/<basename(OriginalPath)> and returns the temp
+// path. Preserving the source basename matters for codex (the importer
+// falls back to the filename UUID when session_meta is absent) and for
+// cursor (where the temp file is opened as a SQLite db).
 //
 // Respects ctx.Done() before opening the source file. The decompress
 // itself is not cancellable mid-stream — zstd reads can take seconds on
@@ -122,18 +124,34 @@ func (b *Bundle) Decompress(ctx context.Context, sf SourceFile, tmpDir string) (
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	src := filepath.Join(b.Path, "raw", "sources", sf.ObjectIDHex+".zst")
-	in, err := os.Open(src)
-	if err != nil {
-		return "", fmt.Errorf("open zst %s: %w", src, err)
-	}
-	defer func() { _ = in.Close() }()
+	zstPath := filepath.Join(b.Path, "raw", "sources", sf.ObjectIDHex+".zst")
+	binPath := filepath.Join(b.Path, "raw", "sources", sf.ObjectIDHex+".bin")
 
-	dec, err := zstd.NewReader(in)
-	if err != nil {
-		return "", fmt.Errorf("zstd reader: %w", err)
+	var source io.Reader
+	zstFile, err := os.Open(zstPath)
+	switch {
+	case err == nil:
+		defer func() { _ = zstFile.Close() }()
+		dec, err := zstd.NewReader(zstFile)
+		if err != nil {
+			return "", fmt.Errorf("zstd reader %s: %w", zstPath, err)
+		}
+		defer dec.Close()
+		source = dec
+	case errors.Is(err, os.ErrNotExist):
+		binFile, binErr := os.Open(binPath)
+		if binErr != nil {
+			if errors.Is(binErr, os.ErrNotExist) {
+				return "", fmt.Errorf("open legacy source %s: missing %s and %s: %w",
+					sf.ObjectIDHex, zstPath, binPath, binErr)
+			}
+			return "", fmt.Errorf("open bin %s: %w", binPath, binErr)
+		}
+		defer func() { _ = binFile.Close() }()
+		source = binFile
+	default:
+		return "", fmt.Errorf("open zst %s: %w", zstPath, err)
 	}
-	defer dec.Close()
 
 	base := filepath.Base(sf.OriginalPath)
 	if base == "" || base == "." || base == string(os.PathSeparator) {
@@ -151,10 +169,10 @@ func (b *Bundle) Decompress(ctx context.Context, sf SourceFile, tmpDir string) (
 	if err != nil {
 		return "", fmt.Errorf("create temp %s: %w", dst, err)
 	}
-	if _, err := io.Copy(out, dec); err != nil {
+	if _, err := io.Copy(out, source); err != nil {
 		_ = out.Close()
 		_ = os.Remove(dst)
-		return "", fmt.Errorf("decompress: %w", err)
+		return "", fmt.Errorf("write legacy source: %w", err)
 	}
 	if err := out.Close(); err != nil {
 		_ = os.Remove(dst)
