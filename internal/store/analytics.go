@@ -412,8 +412,8 @@ func analyticsQuery(selectSQL, tail string, f SessionFilter) (string, []any) {
 	join := ""
 	if f.DeviceName != nil {
 		join = " JOIN devices d ON d.id = s.device_id"
-		conds = append(conds, "d.friendly_name = ?")
-		args = append(args, *f.DeviceName)
+		conds = append(conds, "(s.device_id = ? OR d.friendly_name = ?)")
+		args = append(args, *f.DeviceName, *f.DeviceName)
 	}
 	where := "WHERE " + strings.Join(conds, " AND ")
 	whereAnd := where + " AND"

@@ -151,7 +151,7 @@ func upsertSessionTx(ctx context.Context, tx *sql.Tx, sess session.Session, tool
 // project_marker so `--project movaincentivo` finds sessions stored
 // under any of the three columns. Agent matches the canonical agent
 // string ("claude-code" | "codex"). DeviceName matches against
-// devices.friendly_name via JOIN. Limit > 0 caps the returned rows.
+// sessions.device_id or devices.friendly_name. Limit > 0 caps the returned rows.
 type SessionFilter struct {
 	Since, Until time.Time
 	ProjectExact *string // exact match on sessions.project_path
@@ -280,8 +280,8 @@ func (s *Store) ListSessions(ctx context.Context, f SessionFilter) ([]session.Se
 	join := ""
 	if f.DeviceName != nil {
 		join = " JOIN devices d ON d.id = s.device_id"
-		conds = append(conds, "d.friendly_name = ?")
-		args = append(args, *f.DeviceName)
+		conds = append(conds, "(s.device_id = ? OR d.friendly_name = ?)")
+		args = append(args, *f.DeviceName, *f.DeviceName)
 	}
 
 	query := `

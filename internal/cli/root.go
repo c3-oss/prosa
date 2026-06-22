@@ -56,7 +56,7 @@ func newRootCmd() *cobra.Command {
 	pf.StringVar(&g.Since, "since", "", "lower-bound date in UTC (YYYY-MM-DD)")
 	pf.StringVar(&g.Between, "between", "", "closed UTC date range (YYYY-MM-DD..YYYY-MM-DD)")
 	pf.StringVar(&g.Project, "project", "", "filter by project path (substring match)")
-	pf.StringVar(&g.Device, "device", "", "filter by device name")
+	pf.StringVar(&g.Device, "device", "", "filter by device name or id")
 	pf.StringVar(&g.Agent, "agent", "", "filter by agent ("+registeredAgentHelp()+")")
 	pf.StringVar(&g.Profile, "profile", "", "filter by profile name")
 	pf.BoolVar(&g.All, "all", false, "show every project, ignoring the current-project auto-filter")

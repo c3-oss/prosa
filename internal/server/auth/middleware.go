@@ -26,8 +26,7 @@ func DeviceFromContext(ctx context.Context) (string, bool) {
 }
 
 // IsOwner returns true when the caller authenticated via the admin
-// header (panel-to-server). Owner callers bypass device scoping in
-// List/Get/Search/Devices/GetRaw/Analytics.
+// header (panel-to-server).
 func IsOwner(ctx context.Context) bool {
 	v, _ := ctx.Value(ownerKey{}).(bool)
 	return v

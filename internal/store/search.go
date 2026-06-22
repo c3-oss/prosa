@@ -86,8 +86,8 @@ func (s *Store) Search(ctx context.Context, query string, f SessionFilter, limit
 	join := ""
 	if f.DeviceName != nil {
 		join = " JOIN devices d ON d.id = s.device_id"
-		conds = append(conds, "d.friendly_name = ?")
-		args = append(args, *f.DeviceName)
+		conds = append(conds, "(s.device_id = ? OR d.friendly_name = ?)")
+		args = append(args, *f.DeviceName, *f.DeviceName)
 	}
 
 	// SQLite FTS5's snippet() only works when the query is a direct
