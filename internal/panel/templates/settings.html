@@ -89,6 +89,48 @@
   </section>
 
   <section class="settings-card">
+    <h2>App tokens</h2>
+    <p class="settings-hint">Read-only analytics tokens for automation.</p>
+    {{if .AppTokenError}}
+      <p class="settings-error">{{.AppTokenError}}</p>
+    {{end}}
+    {{if .NewAppToken}}
+      <div class="settings-secret">
+        <span>New token</span>
+        <code>{{.NewAppToken}}</code>
+      </div>
+    {{end}}
+    <form class="settings-inline-form" method="post" action="/settings/app-tokens">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <label class="settings-field">
+        <span>Name</span>
+        <input class="input" type="text" name="name" value="prosa-webp-widgets" autocomplete="off">
+      </label>
+      <button class="btn" type="submit">Create token</button>
+    </form>
+
+    <div class="settings-token-list">
+      {{range .AppTokens}}
+        <div class="settings-token">
+          <div>
+            <div class="settings-token-name">{{.Name}}</div>
+            <div class="settings-token-meta">created {{.Created}} · last used {{.LastUsed}} · {{.Status}}</div>
+          </div>
+          {{if .Active}}
+            <form method="post" action="/settings/app-tokens/revoke">
+              <input type="hidden" name="csrf" value="{{$.CSRF}}">
+              <input type="hidden" name="id" value="{{.ID}}">
+              <button class="btn btn-danger" type="submit">Revoke</button>
+            </form>
+          {{end}}
+        </div>
+      {{else}}
+        <p class="settings-hint">No app tokens yet.</p>
+      {{end}}
+    </div>
+  </section>
+
+  <section class="settings-card">
     <h2>Reset preferences</h2>
     <form method="post" action="/settings/reset">
       <input type="hidden" name="csrf" value="{{.CSRF}}">

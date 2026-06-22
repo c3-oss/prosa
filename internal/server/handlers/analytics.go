@@ -41,7 +41,9 @@ const errorTriggers = "error | exception | traceback | panic | fatal"
 // to their own sessions; owner callers (panel) see every device.
 func (h *AnalyticsHandler) GetReport(ctx context.Context, req *connect.Request[prosav1.GetReportRequest]) (*connect.Response[prosav1.GetReportResponse], error) {
 	if _, isDevice := auth.DeviceFromContext(ctx); !isDevice && !auth.IsOwner(ctx) {
-		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing device or owner context"))
+		if _, isApp := auth.AppTokenFromContext(ctx); !isApp {
+			return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing device, owner, or app token context"))
+		}
 	}
 	if req.Msg.Since == nil || req.Msg.Until == nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, missingFields("since", "until"))

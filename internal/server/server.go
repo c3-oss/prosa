@@ -63,6 +63,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 
 	s.registerHealth(base...)
 	s.registerAuth(authSvc, authed...)
+	s.registerAppTokens(authSvc, authed...)
 	s.registerSessions(authed...)
 	s.registerDevices(authed...)
 	s.registerAnalytics(authed...)
@@ -109,6 +110,11 @@ func (s *Server) registerHealth(opts ...connect.HandlerOption) {
 
 func (s *Server) registerAuth(svc *auth.Service, opts ...connect.HandlerOption) {
 	path, handler := prosav1connect.NewAuthServiceHandler(handlers.NewAuthHandler(svc), opts...)
+	s.mux.Handle(path, handler)
+}
+
+func (s *Server) registerAppTokens(svc *auth.Service, opts ...connect.HandlerOption) {
+	path, handler := prosav1connect.NewAppTokensServiceHandler(handlers.NewAppTokensHandler(svc), opts...)
 	s.mux.Handle(path, handler)
 }
 

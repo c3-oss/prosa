@@ -1,0 +1,43 @@
+syntax = "proto3";
+
+package prosa.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/c3-oss/prosa/gen/go/prosa/v1;prosav1";
+
+// AppTokensService manages owner-issued read-only analytics tokens.
+service AppTokensService {
+  rpc Create(AppTokensServiceCreateRequest) returns (AppTokensServiceCreateResponse);
+  rpc List(AppTokensServiceListRequest) returns (AppTokensServiceListResponse);
+  rpc Revoke(AppTokensServiceRevokeRequest) returns (AppTokensServiceRevokeResponse);
+}
+
+message AppToken {
+  string id = 1;
+  string name = 2;
+  google.protobuf.Timestamp created_at = 3;
+  google.protobuf.Timestamp last_used_at = 4;
+  google.protobuf.Timestamp revoked_at = 5;
+}
+
+message AppTokensServiceCreateRequest {
+  string name = 1;
+}
+
+message AppTokensServiceCreateResponse {
+  AppToken token = 1;
+  string secret = 2;
+}
+
+message AppTokensServiceListRequest {}
+
+message AppTokensServiceListResponse {
+  repeated AppToken tokens = 1;
+}
+
+message AppTokensServiceRevokeRequest {
+  string id = 1;
+}
+
+message AppTokensServiceRevokeResponse {}
