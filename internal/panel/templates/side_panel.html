@@ -1,24 +1,23 @@
 {{define "side_panel"}}{{template "side_panel_body" .SidePanel}}{{end}}
 
 {{define "side_panel_body"}}
-  <header class="sp-header" x-data="{ allCollapsed: false }">
-    <div class="sp-header-text">
-      <div class="sp-agent">{{agentBadge .Session.Agent}}{{template "kindBadges" .Kinds}}</div>
-      <div class="sp-prompt">{{or .Session.FirstPrompt "(no prompt)"}}</div>
-    </div>
-    {{if .TurnGroups}}
-      <button class="sp-collapse-all" type="button"
-              @click="allCollapsed = !allCollapsed; $dispatch('messages-toggle-all', { collapsed: allCollapsed })"
-              :aria-pressed="allCollapsed.toString()"
-              :title="allCollapsed ? 'Expand all messages' : 'Collapse all messages'"
-              x-text="allCollapsed ? 'Expand all' : 'Collapse all'">Collapse all</button>
-    {{end}}
+<article class="sp" x-data="{ allCollapsed: false }">
+  <header class="sp-header">
+    <div class="sp-agent">{{agentBadge .Session.Agent}}{{template "kindBadges" .Kinds}}</div>
     <button class="sp-close" type="button"
             aria-label="Close (Esc)"
             title="Close (Esc)">×</button>
   </header>
 
   <div class="sp-body">
+    <div class="sp-masthead">
+      <h2 class="sp-prompt">{{or .Session.FirstPrompt "(no prompt)"}}</h2>
+      <p class="sp-byline">
+        <span class="sp-byline-item">{{projectLink .Project}}</span>
+        <span class="sp-byline-item"><time>{{(.Session.StartedAt.AsTime).Format "Jan 2, 15:04"}}</time></span>
+        {{if .Session.Model}}<span class="sp-byline-item mono">{{.Session.Model}}</span>{{end}}
+      </p>
+    </div>
     <section class="stats-cluster" aria-label="session stats">
       <div class="stat-kpi">
         <div class="stat-value">{{.TurnsCount}}</div>
@@ -33,10 +32,6 @@
         <div class="stat-label">duration</div>
       </div>
       <div class="stat-kpi">
-        <div class="stat-value sp-model">{{or .Session.Model "—"}}</div>
-        <div class="stat-label">model</div>
-      </div>
-      <div class="stat-kpi">
         <div class="stat-value">{{.TokensTotal}}</div>
         <div class="stat-label">tokens</div>
       </div>
@@ -46,7 +41,9 @@
       </div>
     </section>
 
-    <dl class="sp-meta">
+    <details class="sp-details">
+      <summary class="sp-details-summary">Details</summary>
+      <dl class="sp-meta">
       <dt>ID</dt><dd class="mono">{{.Session.Id}}</dd>
       <dt>Started</dt><dd>{{(.Session.StartedAt.AsTime).Format "2006-01-02 15:04:05"}}</dd>
       <dt>Last activity</dt><dd>{{(.Session.LastActivityAt.AsTime).Format "2006-01-02 15:04:05"}}</dd>
@@ -60,7 +57,20 @@
           <div class="chips">{{range .Tools}}<span class="chip" style="cursor: default">{{.Name}} ×{{.Count}}</span>{{end}}</div>
         {{else}}—{{end}}
       </dd>
-    </dl>
+      </dl>
+    </details>
+
+    <div class="sp-transcript-head">
+      <h3 class="sp-section-title">Transcript</h3>
+      {{if .TurnGroups}}
+        <span class="sp-transcript-count">{{.TurnsCount}} turns · {{.ToolsCount}} tools</span>
+        <button class="sp-collapse-all" type="button"
+                @click="allCollapsed = !allCollapsed; $dispatch('messages-toggle-all', { collapsed: allCollapsed })"
+                :aria-pressed="allCollapsed.toString()"
+                :title="allCollapsed ? 'Expand all messages' : 'Collapse all messages'"
+                x-text="allCollapsed ? 'Expand all' : 'Collapse all'">Collapse all</button>
+      {{end}}
+    </div>
 
     {{if .TurnGroups}}
       <div class="transcript-search"
@@ -175,7 +185,6 @@
       </div>
     {{end}}
 
-    <h3 class="panel-section-title">Transcript</h3>
     {{if .TurnGroups}}
       <section class="transcript" aria-label="session transcript">
         {{range .TurnGroups}}
@@ -319,7 +328,7 @@
 
     {{if .Children}}
       <section class="subagents" aria-label="subagents">
-        <h3 class="panel-section-title">Subagents · {{len .Children}}</h3>
+        <h3 class="sp-section-title">Subagents · {{len .Children}}</h3>
         <ul class="subagent-list">
           {{range .Children}}
             <li class="subagent-item">
@@ -353,4 +362,5 @@
       </div>
     </details>
   </div>
+</article>
 {{end}}

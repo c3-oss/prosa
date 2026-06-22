@@ -23,7 +23,6 @@
   gap: 4px;
   margin-top: var(--space-2);
   width: 100%;
-  align-self: flex-end;
   max-width: 100%;
 }
 
@@ -37,7 +36,7 @@
 .extra-details > summary {
   cursor: pointer;
   padding: 4px var(--space-3);
-  color: var(--text-3);
+  color: var(--text-2);
   text-transform: lowercase;
   letter-spacing: 0.02em;
   list-style: none;
@@ -78,9 +77,4 @@
   overflow: auto;
 }
 
-/* When the chip lives in the meta of a user bubble (which is
-   row-reverse), keep it next to the role label rather than at the
-   far edge. */
-.bubble-user .bubble-meta .cmd-chip {
-  order: -1;
-}
+/* The slash-command chip sits in the user meta row after the role. */
