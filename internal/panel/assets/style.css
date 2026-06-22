@@ -2,6 +2,7 @@
    live in their own modules so component CSS can `@import` them
    without pulling in the rest of this file. Keep imports first —
    CSS @import is order-sensitive. */
+@import url("css/fonts.css");
 @import url("css/tokens.css");
 @import url("css/base.css");
 @import url("css/typography.css");
