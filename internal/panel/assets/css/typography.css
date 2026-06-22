@@ -15,28 +15,33 @@ h4 {
   line-height: 1.25;
 }
 
-/* Page title — one per page, sits at the top of `.main`. */
+/* Page title — serif, one per page, sits at the top of `.main`. */
 h1 {
-  font-size: var(--text-xl);
-  font-weight: var(--w-light);
+  font-family: var(--font-serif);
+  font-size: var(--text-2xl);
+  font-weight: 400;
   margin-bottom: var(--space-5);
+  color: var(--text-1);
+  line-height: 1.2;
 }
 
 /* Section heading inside a page (e.g. Dashboard cards, Settings
-   card). */
+   card). Serif, lighter weight. */
 h2 {
-  font-size: var(--text-md);
+  font-family: var(--font-serif);
+  font-size: var(--text-lg);
+  font-weight: 400;
   margin-bottom: var(--space-3);
+  color: var(--text-1);
 }
 
-/* Subsection heading — the "panel-section-title" feel: uppercase eyebrow
-   above grouped content (raw transcript, subagents, etc.). */
+/* Subsection heading — small-caps eyebrow above grouped content. */
 h3 {
-  font-size: var(--text-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  font-size: var(--text-sm);
+  font-variant: small-caps;
+  letter-spacing: 0.08em;
   color: var(--text-3);
-  font-weight: var(--w-medium);
+  font-weight: var(--w-regular);
   margin-bottom: var(--space-2);
 }
 

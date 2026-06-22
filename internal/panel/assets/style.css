@@ -33,16 +33,21 @@
   grid-column: 1 / 3;
   display: flex;
   align-items: center;
-  padding: 0 16px;
+  padding: 0 24px;
   border-bottom: 1px solid var(--divider);
-  background: var(--bg-elev-1);
+  background: var(--bg);
   gap: 16px;
 }
 
+/* Folio running header: serif small-caps wordmark */
 .brand {
-  font-weight: 700;
-  letter-spacing: 0.5px;
-  font-family: var(--font-mono);
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-size: var(--text-md);
+  font-variant: small-caps;
+  letter-spacing: 0.08em;
+  color: var(--text-1);
+  text-decoration: none;
 }
 
 .topbar-right {
@@ -71,29 +76,40 @@
 
 .sidebar {
   border-right: 1px solid var(--divider);
-  background: var(--bg-elev-1);
-  padding: 12px 8px;
+  background: var(--bg);
+  padding: 20px 12px;
   overflow-y: auto;
 }
 
 .sidebar a {
   display: block;
-  color: var(--text-2);
-  padding: 8px 12px;
-  border-radius: 6px;
-  margin-bottom: 2px;
+  color: var(--text-3);
+  padding: 7px 12px;
+  border-radius: 0;
+  margin-bottom: 0;
+  font-size: var(--text-sm);
+  letter-spacing: 0.02em;
+  border-left: 2px solid transparent;
+  transition: color var(--duration-fast) var(--ease),
+              border-color var(--duration-fast) var(--ease);
 }
 
-.sidebar a:hover,
-.sidebar a.active {
-  background: var(--bg-elev-2);
+.sidebar a:hover {
   color: var(--text-1);
   text-decoration: none;
+  border-left-color: var(--divider);
+}
+
+.sidebar a.active {
+  color: var(--accent);
+  text-decoration: none;
+  border-left-color: var(--accent);
+  font-weight: var(--w-medium);
 }
 
 .main {
   overflow-y: auto;
-  padding: 16px 24px;
+  padding: var(--space-7) var(--space-7);
   position: relative;
 }
 
@@ -142,7 +158,7 @@
   border-left: 1px solid var(--divider);
   overflow-y: auto;
   z-index: 10;
-  transition: transform 120ms ease-out;
+  transition: transform var(--duration-slow) var(--ease);
 }
 
 #side-panel:empty {
@@ -170,10 +186,10 @@
 }
 
 .panel-section-title {
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: .6px;
-  color: var(--text-2);
+  font-size: var(--text-sm);
+  font-variant: small-caps;
+  letter-spacing: 0.08em;
+  color: var(--text-3);
   margin-bottom: 8px;
 }
 
@@ -194,10 +210,10 @@
 
 .raw-toggle summary {
   cursor: pointer;
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: .6px;
-  color: var(--text-2);
+  font-size: var(--text-sm);
+  font-variant: small-caps;
+  letter-spacing: 0.08em;
+  color: var(--text-3);
   margin-bottom: 8px;
   user-select: none;
 }
@@ -221,11 +237,11 @@ td {
 }
 
 th {
-  font-weight: 500;
-  color: var(--text-2);
-  text-transform: uppercase;
-  font-size: 10px;
-  letter-spacing: 0.5px;
+  font-weight: var(--w-regular);
+  color: var(--text-3);
+  font-variant: small-caps;
+  font-size: var(--text-sm);
+  letter-spacing: 0.06em;
 }
 
 tr:hover {
@@ -303,7 +319,7 @@ tr:hover {
 
 .heatmap-cell {
   background: var(--bg-elev-2);
-  border: 1px solid var(--divider);
+  border: 1px solid transparent;
 }
 
 .heatmap-cell.level-1 {
@@ -344,19 +360,21 @@ tr:hover {
 
 .usage-summary-value {
   display: block;
-  font-size: 30px;
-  line-height: 1.1;
-  font-weight: 500;
+  font-family: var(--font-serif);
+  font-size: var(--text-3xl);
+  line-height: 1;
+  font-weight: 400;
   font-variant-numeric: tabular-nums;
+  color: var(--text-1);
 }
 
 .usage-summary-label {
   display: block;
-  margin-top: 4px;
-  color: var(--text-2);
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.6px;
+  margin-top: 6px;
+  color: var(--text-3);
+  font-variant: small-caps;
+  font-size: var(--text-sm);
+  letter-spacing: 0.08em;
 }
 
 .usage-list {
@@ -366,7 +384,8 @@ tr:hover {
 }
 
 .usage-row {
-  border-bottom: 1px solid var(--divider);
+  border-top: 1px solid var(--divider);
+  padding-top: 14px;
   padding-bottom: 14px;
 }
 
@@ -435,30 +454,35 @@ tr:hover {
 .login-box {
   background: var(--bg-elev-1);
   border: 1px solid var(--divider);
-  border-radius: 8px;
-  padding: 32px 28px;
+  border-top: 3px solid var(--accent);
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  padding: 40px 36px;
   width: 360px;
   text-align: center;
 }
 
-/* Wider variant for the CLI authorize page — it surfaces a device
-   fingerprint that needs more breathing room than a stock 360px
-   login card. */
+/* Wider variant for the CLI authorize page. */
 .login-box-wide {
   width: 420px;
   max-width: 420px;
 }
 
 .login-box h1 {
-  margin: 0 0 4px;
-  font-family: var(--font-mono);
-  letter-spacing: 1px;
+  margin: 0 0 8px;
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-variant: small-caps;
+  font-size: var(--text-xl);
+  letter-spacing: 0.1em;
+  color: var(--text-1);
 }
 
 .login-box p {
-  color: var(--text-2);
-  margin: 0 0 24px;
-  font-size: 13px;
+  color: var(--text-3);
+  margin: 0 0 28px;
+  font-size: var(--text-sm);
+  font-style: italic;
+  font-family: var(--font-serif);
 }
 
 .dev-warn {
