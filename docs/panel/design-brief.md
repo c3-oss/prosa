@@ -14,7 +14,7 @@ The panel is functional and lean:
 - HTMX for partial swaps (sidepanel, raw pagination);
 - SSE for the "new sessions" badge in real time;
 - 5 screens — Home (dashboard), Sessions, Projects, Devices, Settings;
-- Dark palette, system fonts, CSS grid layout;
+- Editorial Almanac palette, self-hosted serif and sans-serif fonts, CSS grid layout;
 - Auth via GitHub OAuth with a `PROSA_PANEL_DEV_LOGIN` bypass for dev.
 
 This brief describes the design direction: airy, beautiful, dynamic,
@@ -61,28 +61,46 @@ Everything must still ship as **a single binary** with embedded assets.
 
 ## Visual language
 
-Dark palette (light mode is a hook in CSS vars, not implemented now):
+"Editorial Almanac": a warm-ink dark palette with a single petrol accent.
+The layout is folio-style: hairline rules separate sections (no bordered
+cards or box shadows); section labels are small-caps; the topbar reads as
+a magazine header. Generous page margins and comfortable reading distances
+reinforce the contemplative register.
 
-- `--bg`           `#0f1117`   background;
-- `--bg-elev-1`    `#1a1d27`   elevated surface (topbar, sidebar);
-- `--bg-elev-2`    `#232733`   hover, inputs, subtle KPI background;
-- `--text-1`       `#e8eaf0`   primary text;
-- `--text-2`       `#aab0bf`   secondary text;
-- `--text-3`       `#6b7186`   tertiary text (timestamps, labels);
-- `--accent`       `#6b7afc`   links, charts, active states;
-- `--accent-soft`  `#6b7afc33` sparkline / heatmap fills;
-- `--ok`           `#4ade80`   live indicator, success;
-- `--danger`       `#f04a5c`   errors;
-- `--divider`      `#232733`   very thin lines between rows.
+Default palette (`:root`):
+
+- `--bg`           `#15140f`   background (warm near-black);
+- `--bg-elev-1`    `#1d1b15`   elevated surface (topbar, sidebar);
+- `--bg-elev-2`    `#25221a`   hover, inputs, subtle KPI background;
+- `--text-1`       `#ece6d7`   primary text (warm near-white);
+- `--text-2`       `#a8a193`   secondary text;
+- `--text-3`       `#76705f`   tertiary text (timestamps, labels);
+- `--accent`       `#2f8f7f`   links, charts, active states (petrol teal);
+- `--accent-soft`  `#2f8f7f33` sparkline / heatmap fills;
+- `--ok`           `#6fae6a`   live indicator, success;
+- `--danger`       `#cf6b4a`   errors;
+- `--divider`      `#2a2820`   very thin lines between rows.
+
+The chart palette (`--chart-1` through `--chart-8`) is warm-neutral with
+petrol as the primary series color. Each named theme (Colorblind, Nord,
+Solarized, etc.) overrides the color tokens under its own
+`[data-theme="<id>"]` block; the editorial layout and type are global and
+apply to every theme.
 
 Typography:
 
-- system fonts (`-apple-system, BlinkMacSystemFont, "Segoe UI", …`);
-- base 16 px, line-height 1.5;
-- scale: 12, 14, 16, 18, 22, 28, 36, 44;
-- large KPIs: 44 px, weight 300, letter-spacing -0.02em;
-- numerals always `font-variant-numeric: tabular-nums`;
-- mono for IDs, timestamps, raw transcripts.
+- Serif display: **Newsreader** (`--font-serif`) for h1/h2 headings,
+  the wordmark, and large KPI numerals;
+- Body sans-serif: **Geist** (`--font-sans`) for prose, tables, labels,
+  and general UI chrome;
+- Monospace: **Geist Mono** (`--font-mono`) for IDs, timestamps, costs,
+  and raw transcript;
+- All three families are self-hosted `woff2` files embedded in the binary
+  (see `internal/panel/assets/fonts/`); no web-font or CDN requests;
+- Base 16 px, line-height 1.5;
+- Scale: 12, 14, 16, 18, 22, 28, 36, 44;
+- Large KPIs: 44 px, Newsreader, weight 300;
+- Numerals always `font-variant-numeric: tabular-nums`.
 
 Spacing: scale 4-8-12-16-24-32-48-64. Generous padding in main
 containers (32–48 px). Gap between KPIs ≥ 48 px.
@@ -198,7 +216,7 @@ Ready-to-use prompts to generate each mock live in
 
 ## Expected result
 
-The ideal prosa panel should look like a **well-designed digital
+The ideal prosa panel should look like a **well-designed editorial
 notebook**, not an operations console.
 
 When you open it in the morning, it orients you quietly: a few large
