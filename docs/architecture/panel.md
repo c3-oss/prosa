@@ -309,7 +309,7 @@ for that page.
 
 Settings POSTs to `/settings/theme`, `/settings/window`, and
 `/settings/reset`. The reset deletes the stored panel preference keys,
-so the rendered defaults are `colorblind` and `30d`.
+so the rendered defaults are `almanac` and `30d`.
 
 The `/events` route is a proxy: the panel opens an SSE stream to the
 server's `/sse/events` and re-emits the bytes to the browser. This
