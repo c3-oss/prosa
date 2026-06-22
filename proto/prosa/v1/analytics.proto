@@ -36,7 +36,7 @@ message GetReportRequest {
   string project_path = 9;
   // device_names is the panel-side multi-select equivalent of
   // device_name. When non-empty, the server matches any device whose
-  // friendly_name is in the list (device_name is ignored).
+  // id or friendly_name is in the list (device_name is ignored).
   repeated string device_names = 10;
   // profile matches sessions.profile exactly (CLI --profile).
   string profile = 11;

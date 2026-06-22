@@ -133,6 +133,96 @@ func TestAnalyticsReportsEndToEnd(t *testing.T) {
 	require.False(t, codexFlagged)
 }
 
+func TestAnalyticsDeviceFilterMatchesNameOrIDAcrossDevices(t *testing.T) {
+	ctx := context.Background()
+	pool := newHandlersPostgresPool(t, ctx)
+	obj := newTestObjectStore(t)
+
+	const (
+		adminToken = "admin-token"
+		bearerA    = "analytics-device-a-bearer"
+		bearerB    = "analytics-device-b-bearer"
+		deviceA    = "analytics-device-a"
+		deviceB    = "analytics-device-b"
+	)
+	insertDeviceToken(t, ctx, pool, deviceA, bearerA)
+	insertDeviceToken(t, ctx, pool, deviceB, bearerB)
+	_, err := pool.Exec(ctx, `UPDATE devices SET friendly_name = $1 WHERE id = $2`, "homebox", deviceA)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE devices SET friendly_name = $1 WHERE id = $2`, "tbox", deviceB)
+	require.NoError(t, err)
+
+	mux := http.NewServeMux()
+	authSvc := auth.New(pool, adminToken, "http://panel.test")
+	sessPath, sessHandler := prosav1connect.NewSessionsServiceHandler(
+		NewSessionsHandler(pool, obj),
+		connect.WithInterceptors(auth.Interceptor(authSvc)),
+	)
+	mux.Handle(sessPath, sessHandler)
+	anPath, anHandler := prosav1connect.NewAnalyticsServiceHandler(
+		NewAnalyticsHandler(pool),
+		connect.WithInterceptors(auth.Interceptor(authSvc)),
+	)
+	mux.Handle(anPath, anHandler)
+
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+
+	sessClient := prosav1connect.NewSessionsServiceClient(server.Client(), server.URL)
+	anClient := prosav1connect.NewAnalyticsServiceClient(server.Client(), server.URL)
+
+	started := time.Date(2026, 6, 22, 12, 0, 0, 0, time.UTC)
+	push := func(id, bearer string, offset time.Duration) {
+		t.Helper()
+		raw := []byte("raw-" + id)
+		rawSum := sha256.Sum256(raw)
+		req := connect.NewRequest(&prosav1.PushRequest{
+			Session: &prosav1.Session{
+				Id:             id,
+				Agent:          "codex",
+				StartedAt:      timestamppb.New(started.Add(offset)),
+				LastActivityAt: timestamppb.New(started.Add(offset + time.Minute)),
+				RawHash:        hex.EncodeToString(rawSum[:]),
+				RawSize:        int64(len(raw)),
+			},
+			Turns: []*prosav1.Turn{{
+				Role:    "user",
+				Content: "analytics work",
+				Ts:      timestamppb.New(started.Add(offset)),
+			}},
+			Raw: raw,
+		})
+		req.Header().Set("Authorization", "Bearer "+bearer)
+		_, err := sessClient.Push(ctx, req)
+		require.NoError(t, err)
+	}
+	push("homebox-analytics", bearerA, 0)
+	push("tbox-analytics", bearerB, time.Minute)
+
+	report := func(device string) *prosav1.GetReportResponse {
+		t.Helper()
+		req := connect.NewRequest(&prosav1.GetReportRequest{
+			Report:     "sessions",
+			Since:      timestamppb.New(started.Add(-time.Hour)),
+			Until:      timestamppb.New(started.Add(time.Hour)),
+			DeviceName: device,
+		})
+		req.Header().Set("Authorization", "Bearer "+bearerA)
+		resp, err := anClient.GetReport(ctx, req)
+		require.NoError(t, err)
+		return resp.Msg
+	}
+
+	byName := report("tbox")
+	require.Equal(t, []string{"AGENT", "SESSIONS", "TURNS"}, byName.Headers)
+	require.Len(t, byName.Rows, 1)
+	require.Equal(t, []string{"codex", "1", "1"}, byName.Rows[0].Values)
+
+	byID := report(deviceB)
+	require.Len(t, byID.Rows, 1)
+	require.Equal(t, []string{"codex", "1", "1"}, byID.Rows[0].Values)
+}
+
 // TestInsightsReportsEndToEnd validates the panel-only insights reports
 // (usage_by_day, punchcard, durations, duration_stats, subagents)
 // against real Postgres. Skips without PROSA_TEST_PG_URL.

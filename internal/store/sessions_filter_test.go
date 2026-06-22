@@ -133,6 +133,26 @@ func TestListSessionsByProjectSubstring(t *testing.T) {
 func TestListSessionsByDeviceName(t *testing.T) {
 	t.Parallel()
 	ctx, s, now := seedFilterStore(t)
+	require.NoError(t, s.UpsertDevice(ctx, Device{
+		ID:              "device-remote-id",
+		Hostname:        "remote-host",
+		MachineID:       "remote-machine",
+		FriendlyName:    "remote-friendly",
+		FingerprintedAt: now,
+	}))
+	project := "/u/proj-remote"
+	require.NoError(t, s.UpsertSession(ctx, session.Session{
+		ID:             "remote-session",
+		Agent:          "codex",
+		DeviceID:       "device-remote-id",
+		ProjectPath:    &project,
+		StartedAt:      now.Add(-15 * time.Minute),
+		LastActivityAt: now.Add(-14 * time.Minute),
+		RawPath:        "/tmp/remote-session.jsonl",
+		RawHash:        "h-remote-session",
+		RawSize:        100,
+	}, nil))
+
 	got, err := s.ListSessions(ctx, SessionFilter{
 		Since:      now.Add(-7 * 24 * time.Hour),
 		Until:      now,
@@ -140,6 +160,24 @@ func TestListSessionsByDeviceName(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Len(t, got, 4)
+
+	got, err = s.ListSessions(ctx, SessionFilter{
+		Since:      now.Add(-7 * 24 * time.Hour),
+		Until:      now,
+		DeviceName: ptrStr("remote-friendly"),
+	})
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.Equal(t, "remote-session", got[0].ID)
+
+	got, err = s.ListSessions(ctx, SessionFilter{
+		Since:      now.Add(-7 * 24 * time.Hour),
+		Until:      now,
+		DeviceName: ptrStr("device-remote-id"),
+	})
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.Equal(t, "remote-session", got[0].ID)
 
 	got, err = s.ListSessions(ctx, SessionFilter{
 		Since:      now.Add(-7 * 24 * time.Hour),

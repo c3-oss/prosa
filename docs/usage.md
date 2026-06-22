@@ -179,7 +179,7 @@ subcommand):
 | `--since <YYYY-MM-DD>` | | Anchored lower bound in UTC. |
 | `--between <A..B>` | | Closed UTC range. Both ends `YYYY-MM-DD`, separated by `..`. |
 | `--project <name>` | | Convenience substring filter. Matches `project_path`, `project_remote`, or `project_marker` — so `--project movaincentivo` finds sessions captured under any of the three. Because this is substring matching, large stores should prefer cwd auto-scoping when possible; auto-scoping uses exact project identity filters. |
-| `--device <name>` | | Match `friendly_name` (cross-device only). |
+| `--device <name-or-id>` | | Match a device friendly name or id. |
 | `--agent <name>` | | One of `claude-code`, `codex`, `cursor`, `gemini`, `antigravity`, `hermes`. |
 | `--profile <name>` | | Match `sessions.profile` exactly (e.g. `default`, `work`). |
 | `--all` | | Drop the auto cwd-based project scoping. |

@@ -80,6 +80,21 @@ func (s ProjectScope) ApplyReportRequest(req *prosav1.GetReportRequest) {
 	}
 }
 
+func (s ProjectScope) ApplyListRequest(req *prosav1.ListRequest) {
+	if s.Project != "" {
+		req.ProjectMatch = s.Project
+		return
+	}
+	switch {
+	case s.Match.Remote != "":
+		req.ProjectRemote = s.Match.Remote
+	case s.Match.Marker != "":
+		req.ProjectMarker = s.Match.Marker
+	case s.Match.Path != "":
+		req.ProjectPath = s.Match.Path
+	}
+}
+
 func (s ProjectScope) ApplySearchRequest(req *prosav1.SearchRequest) {
 	switch {
 	case s.Match.Remote != "":

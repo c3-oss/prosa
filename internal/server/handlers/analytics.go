@@ -37,8 +37,7 @@ func NewAnalyticsHandler(pool *pgxpool.Pool) *AnalyticsHandler {
 // session.
 const errorTriggers = "error | exception | traceback | panic | fatal"
 
-// GetReport dispatches by report name. Device callers are auto-scoped
-// to their own sessions; owner callers (panel) see every device.
+// GetReport dispatches by report name.
 func (h *AnalyticsHandler) GetReport(ctx context.Context, req *connect.Request[prosav1.GetReportRequest]) (*connect.Response[prosav1.GetReportResponse], error) {
 	if _, isDevice := auth.DeviceFromContext(ctx); !isDevice && !auth.IsOwner(ctx) {
 		if _, isApp := auth.AppTokenFromContext(ctx); !isApp {
@@ -152,9 +151,8 @@ func runReport(
 }
 
 // buildWhere produces the WHERE clause shared by every report. Honors
-// time bounds (required), agent / device_name / project filters, and
-// owner vs device scoping (device callers see only their sessions).
-func buildWhere(ctx context.Context, msg *prosav1.GetReportRequest) (string, []any, error) {
+// time bounds (required), agent / device_name / project filters.
+func buildWhere(_ context.Context, msg *prosav1.GetReportRequest) (string, []any, error) {
 	conds := []string{"s.started_at >= $1", "s.started_at <= $2"}
 	args := []any{tsToTime(msg.Since), tsToTime(msg.Until)}
 	idx := 3
@@ -190,17 +188,12 @@ func buildWhere(ctx context.Context, msg *prosav1.GetReportRequest) (string, []a
 	}
 	switch {
 	case len(msg.DeviceNames) > 0:
-		conds = append(conds, fmt.Sprintf("s.device_id IN (SELECT id FROM devices WHERE friendly_name = ANY($%d))", idx))
+		conds = append(conds, fmt.Sprintf("s.device_id IN (SELECT id FROM devices WHERE id = ANY($%d) OR friendly_name = ANY($%d))", idx, idx))
 		args = append(args, msg.DeviceNames)
 		idx++
 	case msg.DeviceName != "":
-		conds = append(conds, fmt.Sprintf("s.device_id IN (SELECT id FROM devices WHERE friendly_name = $%d)", idx))
+		conds = append(conds, fmt.Sprintf("s.device_id IN (SELECT id FROM devices WHERE id = $%d OR friendly_name = $%d)", idx, idx))
 		args = append(args, msg.DeviceName)
-		idx++
-	}
-	if caller, isDevice := auth.DeviceFromContext(ctx); isDevice && !auth.IsOwner(ctx) {
-		conds = append(conds, fmt.Sprintf("s.device_id = $%d", idx))
-		args = append(args, caller)
 		idx++
 	}
 	return "WHERE " + strings.Join(conds, " AND "), args, nil

@@ -15,7 +15,7 @@ import (
 )
 
 func (h *SessionsHandler) List(ctx context.Context, req *connect.Request[prosav1.ListRequest]) (*connect.Response[prosav1.ListResponse], error) {
-	callerDevice, isDevice := auth.DeviceFromContext(ctx)
+	_, isDevice := auth.DeviceFromContext(ctx)
 	if !isDevice && !auth.IsOwner(ctx) {
 		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing device or owner context"))
 	}
@@ -33,11 +33,6 @@ func (h *SessionsHandler) List(ctx context.Context, req *connect.Request[prosav1
 	conds := []string{"s.started_at >= $1", "s.started_at <= $2"}
 	args := []any{tsToTime(req.Msg.Since), tsToTime(req.Msg.Until)}
 	idx := 3
-	if isDevice && !auth.IsOwner(ctx) {
-		conds = append(conds, fmt.Sprintf("s.device_id = $%d", idx))
-		args = append(args, callerDevice)
-		idx++
-	}
 	addEq := func(col, val string) {
 		conds = append(conds, fmt.Sprintf("s.%s = $%d", col, idx))
 		args = append(args, val)
@@ -108,12 +103,12 @@ func (h *SessionsHandler) List(ctx context.Context, req *connect.Request[prosav1
 	switch {
 	case len(req.Msg.DeviceNames) > 0:
 		join = " JOIN devices d ON d.id = s.device_id"
-		conds = append(conds, fmt.Sprintf("d.friendly_name = ANY($%d)", idx))
+		conds = append(conds, fmt.Sprintf("(s.device_id = ANY($%d) OR d.friendly_name = ANY($%d))", idx, idx))
 		args = append(args, req.Msg.DeviceNames)
 		idx++
 	case req.Msg.DeviceName != "":
 		join = " JOIN devices d ON d.id = s.device_id"
-		conds = append(conds, fmt.Sprintf("d.friendly_name = $%d", idx))
+		conds = append(conds, fmt.Sprintf("(s.device_id = $%d OR d.friendly_name = $%d)", idx, idx))
 		args = append(args, req.Msg.DeviceName)
 		idx++
 	}
@@ -330,7 +325,7 @@ func scanSessionListRow(r scannable, withRank bool) (*prosav1.Session, error) {
 }
 
 func (h *SessionsHandler) Search(ctx context.Context, req *connect.Request[prosav1.SearchRequest]) (*connect.Response[prosav1.SearchResponse], error) {
-	callerDevice, isDevice := auth.DeviceFromContext(ctx)
+	_, isDevice := auth.DeviceFromContext(ctx)
 	if !isDevice && !auth.IsOwner(ctx) {
 		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing device or owner context"))
 	}
@@ -352,11 +347,6 @@ func (h *SessionsHandler) Search(ctx context.Context, req *connect.Request[prosa
 	}
 	args := []any{tsToTime(req.Msg.Since), tsToTime(req.Msg.Until), req.Msg.Query}
 	idx := 4
-	if isDevice && !auth.IsOwner(ctx) {
-		conds = append(conds, fmt.Sprintf("s.device_id = $%d", idx))
-		args = append(args, callerDevice)
-		idx++
-	}
 	addEq := func(col, val string) {
 		conds = append(conds, fmt.Sprintf("s.%s = $%d", col, idx))
 		args = append(args, val)
@@ -378,12 +368,12 @@ func (h *SessionsHandler) Search(ctx context.Context, req *connect.Request[prosa
 	switch {
 	case len(req.Msg.DeviceNames) > 0:
 		join = " JOIN devices d ON d.id = s.device_id"
-		conds = append(conds, fmt.Sprintf("d.friendly_name = ANY($%d)", idx))
+		conds = append(conds, fmt.Sprintf("(s.device_id = ANY($%d) OR d.friendly_name = ANY($%d))", idx, idx))
 		args = append(args, req.Msg.DeviceNames)
 		idx++
 	case req.Msg.DeviceName != "":
 		join = " JOIN devices d ON d.id = s.device_id"
-		conds = append(conds, fmt.Sprintf("d.friendly_name = $%d", idx))
+		conds = append(conds, fmt.Sprintf("(s.device_id = $%d OR d.friendly_name = $%d)", idx, idx))
 		args = append(args, req.Msg.DeviceName)
 		idx++
 	}

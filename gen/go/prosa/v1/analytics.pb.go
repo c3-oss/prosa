@@ -39,7 +39,7 @@ type GetReportRequest struct {
 	ProjectPath   string                 `protobuf:"bytes,9,opt,name=project_path,json=projectPath,proto3" json:"project_path,omitempty"`
 	// device_names is the panel-side multi-select equivalent of
 	// device_name. When non-empty, the server matches any device whose
-	// friendly_name is in the list (device_name is ignored).
+	// id or friendly_name is in the list (device_name is ignored).
 	DeviceNames []string `protobuf:"bytes,10,rep,name=device_names,json=deviceNames,proto3" json:"device_names,omitempty"`
 	// profile matches sessions.profile exactly (CLI --profile).
 	Profile string `protobuf:"bytes,11,opt,name=profile,proto3" json:"profile,omitempty"`

@@ -16,7 +16,7 @@ import (
 )
 
 func (h *SessionsHandler) Get(ctx context.Context, req *connect.Request[prosav1.GetRequest]) (*connect.Response[prosav1.GetResponse], error) {
-	callerDevice, isDevice := auth.DeviceFromContext(ctx)
+	_, isDevice := auth.DeviceFromContext(ctx)
 	if !isDevice && !auth.IsOwner(ctx) {
 		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing device or owner context"))
 	}
@@ -40,9 +40,6 @@ func (h *SessionsHandler) Get(ctx context.Context, req *connect.Request[prosav1.
 	}
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
-	}
-	if isDevice && !auth.IsOwner(ctx) && s.DeviceId != callerDevice {
-		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("session belongs to another device"))
 	}
 	if err := attachSessionKinds(ctx, h.Pool, []*prosav1.Session{s}); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -122,11 +119,9 @@ func (h *SessionsHandler) Manifest(ctx context.Context, req *connect.Request[pro
 
 // ListChildren returns every session whose parent_session_id matches
 // the request id, ordered started_at ASC so the panel can render them
-// in spawn order. Owner callers see all children; device callers only
-// see children belonging to their device (so cross-device leakage stays
-// closed even when a parent is shared across machines).
+// in spawn order.
 func (h *SessionsHandler) ListChildren(ctx context.Context, req *connect.Request[prosav1.ListChildrenRequest]) (*connect.Response[prosav1.ListChildrenResponse], error) {
-	callerDevice, isDevice := auth.DeviceFromContext(ctx)
+	_, isDevice := auth.DeviceFromContext(ctx)
 	if !isDevice && !auth.IsOwner(ctx) {
 		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing device or owner context"))
 	}
@@ -136,10 +131,6 @@ func (h *SessionsHandler) ListChildren(ctx context.Context, req *connect.Request
 
 	conds := []string{"s.parent_session_id = $1"}
 	args := []any{req.Msg.ParentId}
-	if isDevice && !auth.IsOwner(ctx) {
-		conds = append(conds, "s.device_id = $2")
-		args = append(args, callerDevice)
-	}
 
 	q := fmt.Sprintf(`
 		SELECT s.id, s.agent, s.device_id, s.project_path, s.project_remote, s.project_marker,

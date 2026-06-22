@@ -21,10 +21,9 @@ const (
 )
 
 // GetRaw streams a byte-range window of the session's raw transcript
-// from S3. Device callers may only read their own sessions; owner
-// callers (panel) can read anyone's.
+// from S3.
 func (h *SessionsHandler) GetRaw(ctx context.Context, req *connect.Request[prosav1.GetRawRequest]) (*connect.Response[prosav1.GetRawResponse], error) {
-	callerDevice, isDevice := auth.DeviceFromContext(ctx)
+	_, isDevice := auth.DeviceFromContext(ctx)
 	if !isDevice && !auth.IsOwner(ctx) {
 		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing device or owner context"))
 	}
@@ -35,22 +34,16 @@ func (h *SessionsHandler) GetRaw(ctx context.Context, req *connect.Request[prosa
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("offset must be >= 0"))
 	}
 
-	var (
-		rawURI   string
-		deviceID string
-	)
+	var rawURI string
 	err := h.Pool.QueryRow(
 		ctx,
-		`SELECT raw_uri, device_id FROM sessions WHERE id = $1`, req.Msg.Id,
-	).Scan(&rawURI, &deviceID)
+		`SELECT raw_uri FROM sessions WHERE id = $1`, req.Msg.Id,
+	).Scan(&rawURI)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("no session %s", req.Msg.Id))
 	}
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("lookup session: %w", err))
-	}
-	if isDevice && !auth.IsOwner(ctx) && deviceID != callerDevice {
-		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("session belongs to another device"))
 	}
 
 	bucket, key, err := parseS3URI(rawURI)
