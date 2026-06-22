@@ -125,3 +125,70 @@
   color: var(--text-3);
   font-size: var(--text-xs);
 }
+
+.settings-inline-form {
+  display: flex;
+  align-items: end;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.settings-token-list {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.settings-token {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--divider);
+}
+
+.settings-token-name {
+  color: var(--text-1);
+  font-size: var(--text-sm);
+  font-weight: var(--w-medium);
+}
+
+.settings-token-meta {
+  color: var(--text-3);
+  font-size: var(--text-xs);
+}
+
+.settings-secret {
+  display: grid;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+  padding: var(--space-3);
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev-2);
+}
+
+.settings-secret span,
+.settings-error {
+  color: var(--text-3);
+  font-size: var(--text-xs);
+}
+
+.settings-secret code {
+  overflow-wrap: anywhere;
+  color: var(--text-1);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.settings-error {
+  color: var(--danger);
+}
+
+@media (max-width: 700px) {
+  .settings-inline-form,
+  .settings-token {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

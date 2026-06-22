@@ -47,6 +47,7 @@ Defaults: `PROSA_LISTEN_ADDR=:7070`, `PROSA_S3_BUCKET=prosa-raw`,
 | Service | Methods | Purpose |
 | --- | --- | --- |
 | `AuthService` | `BeginLogin`, `ExchangeCode`, `GetLoginRequest`, `ApproveLogin`, `Whoami` | PKCE CLI login |
+| `AppTokensService` | `Create`, `List`, `Revoke` | Owner-managed read-only automation tokens |
 | `SessionsService` | `Push`, `List`, `Get`, `Search`, `Manifest`, `GetRaw` | Session CRUD + reconcile |
 | `DevicesService` | `List`, `Rename`, `Revoke` | Device registry |
 | `AnalyticsService` | `GetReport` | Fixed timeline, usage, issue, and activity reports |
@@ -155,6 +156,8 @@ A Connect interceptor runs on every request:
 - Extracts the `Authorization` header.
 - If it starts with `Admin `, verifies against `PROSA_ADMIN_TOKEN` and
   attaches a `(role=owner)` context.
+- If it starts with `App `, looks up `sha256(token)` in `app_tokens`,
+  verifies the token is live, and permits analytics reports only.
 - If it starts with `Bearer `, looks up `sha256(token)` in
   `device_tokens`, verifies not revoked, attaches a `(device_id, ...)`
   context.
@@ -170,6 +173,7 @@ Migrations in `migrations/server/`, applied at startup via `embed.FS`.
 | --- | --- |
 | `0001_init` | `devices`, `sessions`, `session_tools`, `turns` (with `content_tsv` GENERATED column + GIN index), `sync_state`, `device_codes`, `device_tokens` |
 | `0009_auth_codes` | replaces `device_codes` with `auth_codes` for PKCE login |
+| `0014_app_tokens` | `app_tokens` for read-only analytics automation |
 | `0002_manifest_index` | composite `(device_id, started_at DESC)` index on `sessions` |
 | `0003_turns_tsvector_cap` | guards against the 1 MiB tsvector ceiling |
 | `0004_session_notify` | `pg_notify` trigger feeding the SSE stream |

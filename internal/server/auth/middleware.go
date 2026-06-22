@@ -18,6 +18,15 @@ type ctxKey struct{}
 // device callers (bearer) never see it.
 type ownerKey struct{}
 
+// appTokenKey is the unexported context key for app-token callers.
+type appTokenKey struct{}
+
+// AppToken is the context projection for a live application token.
+type AppToken struct {
+	ID   string
+	Name string
+}
+
 // DeviceFromContext returns the device id stamped by Interceptor. The
 // caller MUST treat a missing value as an unauthenticated condition.
 func DeviceFromContext(ctx context.Context) (string, bool) {
@@ -33,6 +42,12 @@ func IsOwner(ctx context.Context) bool {
 	return v
 }
 
+// AppTokenFromContext returns the app token stamped by Interceptor.
+func AppTokenFromContext(ctx context.Context) (AppToken, bool) {
+	v, ok := ctx.Value(appTokenKey{}).(AppToken)
+	return v, ok && v.ID != ""
+}
+
 func withDevice(ctx context.Context, deviceID string) context.Context {
 	return context.WithValue(ctx, ctxKey{}, deviceID)
 }
@@ -41,12 +56,21 @@ func withOwner(ctx context.Context) context.Context {
 	return context.WithValue(ctx, ownerKey{}, true)
 }
 
+func withAppToken(ctx context.Context, token AppToken) context.Context {
+	return context.WithValue(ctx, appTokenKey{}, token)
+}
+
 // PublicRPCs are the procedure paths that skip bearer enforcement.
 // Anything not in this set must present a valid Authorization header.
 var PublicRPCs = map[string]struct{}{
 	"/prosa.v1.HealthService/Check":      {},
 	"/prosa.v1.AuthService/BeginLogin":   {},
 	"/prosa.v1.AuthService/ExchangeCode": {},
+}
+
+// AppTokenRPCs are the read-only procedures available to app tokens.
+var AppTokenRPCs = map[string]struct{}{
+	"/prosa.v1.AnalyticsService/GetReport": {},
 }
 
 // Interceptor is a Connect unary interceptor that pulls the bearer
@@ -67,6 +91,17 @@ func Interceptor(svc *Service) connect.UnaryInterceptorFunc {
 						errors.New("admin token mismatch"))
 				}
 				return next(withOwner(ctx), req)
+			}
+			if tok, ok := appTokenHeader(h); ok {
+				if _, allowed := AppTokenRPCs[req.Spec().Procedure]; !allowed {
+					return nil, connect.NewError(connect.CodePermissionDenied,
+						errors.New("app token cannot access this procedure"))
+				}
+				app, err := svc.AppTokenFromBearer(ctx, tok)
+				if err != nil {
+					return nil, connect.NewError(connect.CodeUnauthenticated, err)
+				}
+				return next(withAppToken(ctx, app), req)
 			}
 			bearer, ok := bearerToken(h)
 			if !ok {
@@ -109,6 +144,11 @@ func bearerToken(h string) (string, bool) {
 // panel-to-server auth handshake.
 func adminToken(h string) (string, bool) {
 	return schemeToken(h, "admin ")
+}
+
+// appTokenHeader extracts the raw token from "App <token>".
+func appTokenHeader(h string) (string, bool) {
+	return schemeToken(h, "app ")
 }
 
 func schemeToken(h, prefix string) (string, bool) {

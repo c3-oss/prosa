@@ -15,6 +15,7 @@ type Clients struct {
 	Sessions    prosav1connect.SessionsServiceClient
 	Devices     prosav1connect.DevicesServiceClient
 	Auth        prosav1connect.AuthServiceClient
+	AppTokens   prosav1connect.AppTokensServiceClient
 	Analytics   prosav1connect.AnalyticsServiceClient
 	Preferences prosav1connect.PreferencesServiceClient
 }
@@ -32,6 +33,7 @@ func New(serverURL, adminToken string) *Clients {
 		Sessions:    prosav1connect.NewSessionsServiceClient(hc, serverURL),
 		Devices:     prosav1connect.NewDevicesServiceClient(hc, serverURL),
 		Auth:        prosav1connect.NewAuthServiceClient(hc, serverURL),
+		AppTokens:   prosav1connect.NewAppTokensServiceClient(hc, serverURL),
 		Analytics:   prosav1connect.NewAnalyticsServiceClient(hc, serverURL),
 		Preferences: prosav1connect.NewPreferencesServiceClient(hc, serverURL),
 	}
