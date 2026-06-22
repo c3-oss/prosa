@@ -4,9 +4,9 @@
    Other CSS layers reference these vars, never literals. */
 
 :root {
-  /* Editorial Almanac — warm ink, dark parchment. The default palette
-     here is replaced with the Almanac warm-dark tones. Other themes
-     live in their own [data-theme="…"] blocks and are untouched. ----- */
+  /* Almanac (warm ink, dark parchment) is the default palette and lives
+     in :root. The colorblind-safe Okabe-Ito palette moved to its own
+     [data-theme="colorblind"] block below; the other themes follow. ---- */
   --bg: #15140f;
   --bg-elev-1: #1d1b15;
   --bg-elev-2: #25221a;
@@ -93,6 +93,37 @@
   --chart-8: #7a7268; /* warm grey */
   /* gridlines/axis baselines inside chart cards */
   --chart-grid: #221f18;
+}
+
+/* Colorblind (Okabe-Ito) — the original colorblind-safe default, now a
+   selectable theme. Dark surfaces with the Okabe-Ito qualitative palette
+   so chrome and charts stay distinguishable under protanopia/deuteranopia
+   and in grayscale. Agent hues inherit from :root, like the other dark
+   themes. */
+[data-theme="colorblind"] {
+  --bg: #0f1117;
+  --bg-elev-1: #1a1d27;
+  --bg-elev-2: #232733;
+  --text-1: #e8eaf0;
+  --text-2: #aab0bf;
+  --text-3: #6b7186;
+  --accent: #56b4e9;
+  --accent-soft: #56b4e933;
+  --on-accent: #0f1117;
+  --ok: #1fb894;
+  --danger: #ef6c1a;
+  --divider: #232733;
+  --warn: #e69f00;
+
+  --chart-1: #56b4e9;
+  --chart-2: #e69f00;
+  --chart-3: #1fb894;
+  --chart-4: #ef6c1a;
+  --chart-5: #3d8fd6;
+  --chart-6: #cc79a7;
+  --chart-7: #f0e442;
+  --chart-8: #aeb4c0;
+  --chart-grid: #20242f;
 }
 
 /* Light palette ---------------------------------------------------- */
