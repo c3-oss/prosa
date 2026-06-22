@@ -12,6 +12,7 @@
   padding: var(--space-5) var(--space-6);
   background: var(--bg-elev-1);
   border-bottom: 1px solid var(--divider);
+  background: var(--bg);
 }
 
 .sp-header-text {
@@ -29,10 +30,11 @@
 }
 
 .sp-prompt {
+  font-family: var(--font-serif);
   font-size: var(--text-md);
-  font-weight: var(--w-medium);
+  font-weight: 400;
   color: var(--text-1);
-  line-height: 1.35;
+  line-height: 1.4;
   word-break: break-word;
 }
 
@@ -74,8 +76,8 @@
   border: 1px solid var(--divider);
   border-radius: var(--radius-sm);
   color: var(--text-3);
-  font-size: var(--text-xs);
-  text-transform: uppercase;
+  font-size: var(--text-sm);
+  font-variant: small-caps;
   letter-spacing: 0.06em;
   cursor: pointer;
   transition: color var(--duration-fast) var(--ease),
@@ -211,8 +213,9 @@ mark.search-match.is-active {
 }
 
 .stat-value {
-  font-size: var(--text-lg);
-  font-weight: var(--w-regular);
+  font-family: var(--font-serif);
+  font-size: var(--text-xl);
+  font-weight: 400;
   color: var(--text-1);
   line-height: 1.1;
   margin-bottom: 4px;
@@ -226,8 +229,8 @@ mark.search-match.is-active {
 }
 
 .stat-label {
-  font-size: var(--text-xs);
-  text-transform: uppercase;
+  font-size: var(--text-sm);
+  font-variant: small-caps;
   letter-spacing: 0.06em;
   color: var(--text-3);
 }
@@ -242,8 +245,8 @@ mark.search-match.is-active {
 }
 
 .sp-meta dt {
-  font-size: var(--text-xs);
-  text-transform: uppercase;
+  font-size: var(--text-sm);
+  font-variant: small-caps;
   letter-spacing: 0.06em;
   color: var(--text-3);
   padding-top: 2px;

@@ -1,25 +1,24 @@
-/* Settings page chrome. Cards stack vertically with consistent
-   spacing; theme picker uses a radiogroup of pill cards. Pulls every
-   dimension from tokens — the cards themselves swap palette when the
-   theme variant changes. */
+/* Settings page chrome — hairline top rule, serif headings. */
 
 .settings-card {
-  background: var(--bg-elev-1);
-  border-radius: var(--radius-md);
-  padding: var(--space-6);
+  background: transparent;
+  border-radius: 0;
+  border-top: 1px solid var(--divider);
+  padding: var(--space-6) 0;
   margin: 0 0 var(--space-5);
 }
 
 .settings-card h2 {
-  font-size: var(--text-md);
-  font-weight: var(--w-medium);
+  font-family: var(--font-serif);
+  font-size: var(--text-lg);
+  font-weight: 400;
   margin: 0 0 var(--space-4);
   color: var(--text-1);
 }
 
 .settings-card dl {
   display: grid;
-  grid-template-columns: 110px 1fr;
+  grid-template-columns: 130px 1fr;
   gap: var(--space-2) var(--space-4);
   margin: 0 0 var(--space-4);
   font-size: var(--text-sm);
@@ -27,9 +26,9 @@
 
 .settings-card dt {
   color: var(--text-3);
-  text-transform: uppercase;
+  font-variant: small-caps;
   letter-spacing: 0.06em;
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   padding-top: 2px;
 }
 

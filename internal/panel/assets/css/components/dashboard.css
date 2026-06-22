@@ -12,9 +12,11 @@
 }
 
 .dashboard-head h1 {
-  font-size: var(--text-lg);
-  font-weight: var(--w-medium);
+  font-family: var(--font-serif);
+  font-size: var(--text-2xl);
+  font-weight: 400;
   margin: 0;
+  color: var(--text-1);
 }
 
 /* Filters drawer (right side, mirrors #side-panel) ------------------- */
@@ -79,10 +81,10 @@
 
 .dashboard-filters-drawer-title {
   font-size: var(--text-sm);
-  font-weight: var(--w-medium);
+  font-weight: var(--w-regular);
   color: var(--text-1);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  font-variant: small-caps;
+  letter-spacing: 0.08em;
 }
 
 .dashboard-filters-close {
@@ -117,7 +119,9 @@
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-5) var(--space-7);
-  padding: var(--space-5) 0 var(--space-6);
+  padding: var(--space-5) 0 var(--space-7);
+  border-bottom: 1px solid var(--divider);
+  margin-bottom: var(--space-6);
 }
 
 .kpi-value-mono {
@@ -135,8 +139,9 @@
 }
 
 .kpi-value {
+  font-family: var(--font-serif);
   font-size: var(--text-3xl);
-  font-weight: var(--w-light);
+  font-weight: 400;
   font-variant-numeric: tabular-nums;
   color: var(--text-1);
   line-height: 1;
@@ -165,18 +170,19 @@
 }
 
 .kpi-label {
-  font-size: var(--text-xs);
-  text-transform: uppercase;
+  font-size: var(--text-sm);
+  font-variant: small-caps;
   letter-spacing: 0.06em;
   color: var(--text-3);
-  font-weight: var(--w-medium);
+  font-weight: var(--w-regular);
 }
 
-/* Card chrome --------------------------------------------------------- */
+/* Card chrome — hairline top rule instead of box. ------------------- */
 .card {
-  background: var(--bg-elev-1);
-  border-radius: var(--radius-md);
-  padding: var(--space-6);
+  background: transparent;
+  border-radius: 0;
+  border-top: 1px solid var(--divider);
+  padding: var(--space-6) 0;
   margin-bottom: var(--space-5);
 }
 
@@ -189,8 +195,9 @@
 }
 
 .card-head h2 {
+  font-family: var(--font-serif);
   font-size: var(--text-md);
-  font-weight: var(--w-medium);
+  font-weight: 400;
   margin: 0;
   color: var(--text-1);
 }
@@ -221,11 +228,11 @@
 }
 
 .card-table th {
-  font-size: var(--text-xs);
-  text-transform: uppercase;
+  font-size: var(--text-sm);
+  font-variant: small-caps;
   letter-spacing: 0.06em;
   color: var(--text-3);
-  font-weight: var(--w-medium);
+  font-weight: var(--w-regular);
 }
 
 /* Two-column grid for tools/models, errors/usage --------------------- */
@@ -360,11 +367,11 @@
 }
 
 .issues-subhead {
-  font-size: var(--text-xs);
-  text-transform: uppercase;
+  font-size: var(--text-sm);
+  font-variant: small-caps;
   letter-spacing: 0.06em;
   color: var(--text-3);
-  font-weight: var(--w-medium);
+  font-weight: var(--w-regular);
   margin: 0 0 var(--space-3);
 }
 

@@ -74,11 +74,11 @@
 }
 
 .subagents-table th {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-2);
-  text-transform: uppercase;
-  letter-spacing: 0.4px;
+  font-size: var(--text-sm);
+  font-weight: var(--w-regular);
+  color: var(--text-3);
+  font-variant: small-caps;
+  letter-spacing: 0.06em;
 }
 
 .subagents-table td:not(:first-child),

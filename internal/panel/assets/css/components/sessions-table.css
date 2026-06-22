@@ -11,14 +11,15 @@
   padding: var(--space-3) var(--space-4);
   font-size: var(--text-md);
   background: var(--bg-elev-1);
-  border: 1px solid var(--divider);
-  border-radius: var(--radius-sm);
+  border: none;
+  border-bottom: 1px solid var(--divider);
+  border-radius: 0;
   color: var(--text-1);
 }
 
 .sessions-search input:focus {
   outline: none;
-  border-color: var(--accent);
+  border-bottom-color: var(--accent);
 }
 
 .filter-bar {
@@ -49,11 +50,11 @@
 }
 
 .sessions-table th {
-  font-size: var(--text-xs);
-  text-transform: uppercase;
+  font-size: var(--text-sm);
+  font-variant: small-caps;
   letter-spacing: 0.06em;
   color: var(--text-3);
-  font-weight: var(--w-medium);
+  font-weight: var(--w-regular);
   white-space: nowrap;
 }
 
