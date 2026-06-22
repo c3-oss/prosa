@@ -51,7 +51,7 @@ Registered on the cobra root in `internal/cli/root.go`:
 - `--since <date>`
 - `--between <A..B>`
 - `--project <name>`
-- `--device <name>`
+- `--device <name-or-id>`
 - `--agent <name>`
 - `--profile <name>`
 - `--all`

@@ -106,7 +106,7 @@ Useful flags everywhere:
 - `--between 2026-01-01..2026-03-15` — closed UTC range.
 - `--project <name>` — project filter.
 - `--agent claude-code|codex|cursor|gemini|antigravity|hermes` — agent filter.
-- `--device <name-or-id>` — device filter (cross-device only).
+- `--device <name-or-id>` — device filter; matches a device id or friendly name.
 - `--remote` — query the server instead of the local store.
 - `--json` — machine-readable NDJSON output.
 

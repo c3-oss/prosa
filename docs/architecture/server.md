@@ -162,6 +162,12 @@ A Connect interceptor runs on every request:
 
 Handlers read the context to decide who the caller is.
 
+Because the MVP is single-user, bearer (device) callers are not scoped to
+their own sessions on read paths: `List`, `Get`, `Search`, `GetRaw`,
+`ListChildren`, and `GetReport` return data across every device. The device
+identity is used only to attribute pushes and to scope `Push` and
+`Manifest`, which stay device-scoped.
+
 ## Schema
 
 Migrations in `migrations/server/`, applied at startup via `embed.FS`.
