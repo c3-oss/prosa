@@ -168,11 +168,11 @@ message ListRequest {
   string project_remote = 5;
   string project_marker = 6;
   string agent = 7;
-  string device_name = 8;      // matches devices.friendly_name
+  string device_name = 8;      // matches sessions.device_id or devices.friendly_name
   int32 limit = 9;             // default 200
   // device_names is the panel-side multi-select equivalent of
   // device_name. When non-empty, the server matches any device whose
-  // friendly_name is in the list (device_name is ignored).
+  // id or friendly_name is in the list (device_name is ignored).
   repeated string device_names = 10;
   // query, when non-empty, restricts results to sessions containing a
   // turn whose content matches the FTS query (plainto_tsquery). Ranks
@@ -246,7 +246,7 @@ message SearchRequest {
   int32 limit = 8;
   // device_names is the panel-side multi-select equivalent of
   // device_name. When non-empty, the server matches any device whose
-  // friendly_name is in the list (device_name is ignored).
+  // id or friendly_name is in the list (device_name is ignored).
   repeated string device_names = 9;
   // profile matches sessions.profile exactly.
   string profile = 10;

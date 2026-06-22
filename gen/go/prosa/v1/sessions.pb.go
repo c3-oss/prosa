@@ -719,11 +719,11 @@ type ListRequest struct {
 	ProjectRemote string                 `protobuf:"bytes,5,opt,name=project_remote,json=projectRemote,proto3" json:"project_remote,omitempty"`
 	ProjectMarker string                 `protobuf:"bytes,6,opt,name=project_marker,json=projectMarker,proto3" json:"project_marker,omitempty"`
 	Agent         string                 `protobuf:"bytes,7,opt,name=agent,proto3" json:"agent,omitempty"`
-	DeviceName    string                 `protobuf:"bytes,8,opt,name=device_name,json=deviceName,proto3" json:"device_name,omitempty"` // matches devices.friendly_name
+	DeviceName    string                 `protobuf:"bytes,8,opt,name=device_name,json=deviceName,proto3" json:"device_name,omitempty"` // matches sessions.device_id or devices.friendly_name
 	Limit         int32                  `protobuf:"varint,9,opt,name=limit,proto3" json:"limit,omitempty"`                            // default 200
 	// device_names is the panel-side multi-select equivalent of
 	// device_name. When non-empty, the server matches any device whose
-	// friendly_name is in the list (device_name is ignored).
+	// id or friendly_name is in the list (device_name is ignored).
 	DeviceNames []string `protobuf:"bytes,10,rep,name=device_names,json=deviceNames,proto3" json:"device_names,omitempty"`
 	// query, when non-empty, restricts results to sessions containing a
 	// turn whose content matches the FTS query (plainto_tsquery). Ranks
@@ -1111,7 +1111,7 @@ type SearchRequest struct {
 	Limit         int32                  `protobuf:"varint,8,opt,name=limit,proto3" json:"limit,omitempty"`
 	// device_names is the panel-side multi-select equivalent of
 	// device_name. When non-empty, the server matches any device whose
-	// friendly_name is in the list (device_name is ignored).
+	// id or friendly_name is in the list (device_name is ignored).
 	DeviceNames []string `protobuf:"bytes,9,rep,name=device_names,json=deviceNames,proto3" json:"device_names,omitempty"`
 	// profile matches sessions.profile exactly.
 	Profile       string `protobuf:"bytes,10,opt,name=profile,proto3" json:"profile,omitempty"`
