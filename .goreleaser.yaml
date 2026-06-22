@@ -134,18 +134,18 @@ changelog:
   use: github
   filters:
     exclude:
-      - '^docs:'
-      - '^test:'
-      - '^chore:'
-      - '^ci:'
+      - '^docs(\([^)]+\))?!?:'
+      - '^test(\([^)]+\))?!?:'
+      - '^chore(\([^)]+\))?!?:'
+      - '^ci(\([^)]+\))?!?:'
       - Merge pull request
       - Merge branch
   groups:
     - title: Features
-      regexp: '^.*?feat(\([[:word:]-]+\))??!?:.+$'
+      regexp: '^.*?feat(\([[:word:],-]+\))??!?:.+$'
       order: 0
     - title: Bug Fixes
-      regexp: '^.*?fix(\([[:word:]-]+\))??!?:.+$'
+      regexp: '^.*?fix(\([[:word:],-]+\))??!?:.+$'
       order: 1
     - title: Others
       order: 999
