@@ -76,7 +76,7 @@
 .subagents-table th {
   font-size: var(--text-sm);
   font-weight: var(--w-regular);
-  color: var(--text-3);
+  color: var(--text-2);
   font-variant: small-caps;
   letter-spacing: 0.06em;
 }

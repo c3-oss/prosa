@@ -84,7 +84,7 @@
 
 .sidebar a {
   display: block;
-  color: var(--text-3);
+  color: var(--text-2);
   padding: 7px 12px;
   border-radius: 0;
   margin-bottom: 0;
@@ -190,7 +190,7 @@
   font-size: var(--text-sm);
   font-variant: small-caps;
   letter-spacing: 0.08em;
-  color: var(--text-3);
+  color: var(--text-2);
   margin-bottom: 8px;
 }
 
@@ -214,7 +214,7 @@
   font-size: var(--text-sm);
   font-variant: small-caps;
   letter-spacing: 0.08em;
-  color: var(--text-3);
+  color: var(--text-2);
   margin-bottom: 8px;
   user-select: none;
 }
@@ -239,7 +239,7 @@ td {
 
 th {
   font-weight: var(--w-regular);
-  color: var(--text-3);
+  color: var(--text-2);
   font-variant: small-caps;
   font-size: var(--text-sm);
   letter-spacing: 0.06em;
@@ -372,7 +372,7 @@ tr:hover {
 .usage-summary-label {
   display: block;
   margin-top: 6px;
-  color: var(--text-3);
+  color: var(--text-2);
   font-variant: small-caps;
   font-size: var(--text-sm);
   letter-spacing: 0.08em;
@@ -479,7 +479,7 @@ tr:hover {
 }
 
 .login-box p {
-  color: var(--text-3);
+  color: var(--text-2);
   margin: 0 0 28px;
   font-size: var(--text-sm);
   font-style: italic;

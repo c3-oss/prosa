@@ -40,7 +40,7 @@ h3 {
   font-size: var(--text-sm);
   font-variant: small-caps;
   letter-spacing: 0.08em;
-  color: var(--text-3);
+  color: var(--text-2);
   font-weight: var(--w-regular);
   margin-bottom: var(--space-2);
 }
