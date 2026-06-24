@@ -1200,7 +1200,7 @@ func buildDayByModelTZ(rows []*prosav1.AnalyticsRow, offsetHours int) dayByModel
 			Datasets:    datasets,
 			Stacked:     true,
 			ValueSuffix: " sessions",
-			Height:      180,
+			Height:      260,
 		},
 		TokensChart: charts.Spec{
 			Type:        "line",
