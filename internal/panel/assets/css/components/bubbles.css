@@ -33,34 +33,35 @@
   border-left-color: var(--divider);
 }
 
+/* The whole meta row is the collapse toggle (a full-width button), so a click
+   anywhere on the header — not just the small caret — folds the message. */
 .bubble-meta {
   display: flex;
   align-items: baseline;
   gap: var(--space-2);
-  font-size: var(--text-xs);
-  letter-spacing: 0.04em;
-}
-
-.bubble-toggle {
+  width: 100%;
+  padding: var(--space-1) 0;
   background: transparent;
   border: 0;
-  padding: 0 2px;
-  margin: 0;
-  cursor: pointer;
-  color: var(--text-3);
   font: inherit;
-  line-height: 1;
-  align-self: center;
+  font-size: var(--text-xs);
+  letter-spacing: 0.04em;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
 }
 
-.bubble-toggle:hover {
+.bubble-meta:hover .bubble-caret,
+.bubble-meta:hover .bubble-role {
   color: var(--text-1);
 }
 
 .bubble-caret {
   display: inline-block;
-  font-size: 0.7em;
-  transition: transform var(--duration-fast) var(--ease);
+  font-size: 0.9em;
+  color: var(--text-3);
+  transition: transform var(--duration-fast) var(--ease),
+              color var(--duration-fast) var(--ease);
   transform: rotate(0deg);
 }
 
