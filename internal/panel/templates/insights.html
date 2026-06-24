@@ -38,18 +38,14 @@
       </span>
     </header>
     {{if .Spend.HasData}}
-      <div class="trend-block">
-        <h3 class="trend-subhead">Est. spend</h3>
-        <div class="trend-chart">
-          <div data-chart="spend-bars"></div>
-          <script type="application/json" class="chart-spec" data-for="spend-bars">{{ .Spend.SpendChart.JSON }}</script>
-        </div>
-        <h3 class="trend-subhead">Tokens</h3>
-        <div class="trend-chart">
-          <div data-chart="tokens-line"></div>
-          <script type="application/json" class="chart-spec" data-for="tokens-line">{{ .Spend.TokensChart.JSON }}</script>
-        </div>
+      <div class="trend-chart">
+        <div data-chart="spend-tokens"></div>
+        <script type="application/json" class="chart-spec" data-for="spend-tokens">{{ .Spend.Chart.JSON }}</script>
       </div>
+      <ul class="cost-legend share-legend">
+        <li><span class="cost-legend-dot" data-ci="0"></span><span class="cost-legend-model">est. spend</span></li>
+        <li><span class="cost-legend-dot" data-ci="1"></span><span class="cost-legend-model">tokens</span></li>
+      </ul>
     {{else}}
       <div class="empty">no usage in this window.</div>
     {{end}}
@@ -91,7 +87,7 @@
               <span class="punchcard-day">{{.Label}}</span>
               <div class="punchcard-cells">
                 {{range .Cells}}
-                  <span class="heatmap-cell level-{{.Level}}" title="{{.Label}}" aria-label="{{.Label}}"></span>
+                  <span class="heatmap-cell level-{{.Level}}" data-date="{{.Slot}}" data-total="{{.Count}}" tabindex="0" title="{{.Label}}" aria-label="{{.Label}}"></span>
                 {{end}}
               </div>
             </div>
@@ -107,12 +103,11 @@
     <header class="card-head">
       <h2>Across the day</h2>
       <span class="card-sub">
-        {{if .Day.HasData}}{{.Day.PeakLabel}} · busiest model {{.Day.BusiestModel}} · {{.Day.TotalTokens}} tokens{{else}}sessions and tokens per local hour{{end}}
+        {{if .Day.HasData}}{{.Day.PeakLabel}} · busiest model {{.Day.BusiestModel}}{{else}}sessions per local hour{{end}}
       </span>
     </header>
     {{if .Day.HasData}}
       <div class="trend-block">
-        <h3 class="trend-subhead">Sessions by model</h3>
         <div class="trend-chart">
           <div data-chart="day-models"></div>
           <script type="application/json" class="chart-spec" data-for="day-models">{{ .Day.SessionsChart.JSON }}</script>
@@ -122,11 +117,6 @@
             <li><span class="cost-legend-dot" data-ci="{{.ColorIdx}}"></span><span class="cost-legend-model">{{.Model}}</span><span class="cost-legend-cost">{{.Sessions}}</span></li>
           {{end}}
         </ul>
-        <h3 class="trend-subhead">Tokens</h3>
-        <div class="trend-chart">
-          <div data-chart="day-tokens"></div>
-          <script type="application/json" class="chart-spec" data-for="day-tokens">{{ .Day.TokensChart.JSON }}</script>
-        </div>
       </div>
     {{else}}
       <div class="empty">no sessions in this window.</div>
@@ -215,7 +205,7 @@
     {{end}}
   </section>
 
-  <div class="dashboard-grid">
+  <div class="dashboard-grid insights-delegators-grid">
     <section class="card">
       <header class="card-head">
         <h2>Top delegating sessions</h2>

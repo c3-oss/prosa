@@ -39,9 +39,9 @@
 
 .active-filter-chip .label {
   color: var(--text-3);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  font-weight: var(--w-medium);
+  font-variant: small-caps;
+  letter-spacing: 0.06em;
+  font-weight: var(--w-regular);
 }
 
 .active-filter-chip .value {
@@ -70,9 +70,9 @@
 .active-filters-clear {
   margin-left: var(--space-2);
   color: var(--text-3);
-  font-size: var(--text-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  font-size: var(--text-sm);
+  font-variant: small-caps;
+  letter-spacing: 0.06em;
 }
 
 .active-filters-clear:hover {

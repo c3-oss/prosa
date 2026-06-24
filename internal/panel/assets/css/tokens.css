@@ -4,32 +4,28 @@
    Other CSS layers reference these vars, never literals. */
 
 :root {
-  /* Colorblind (Okabe–Ito) palette — the default theme. Surfaces stay a
-     neutral dark; accent and status hues are drawn from the Okabe–Ito
-     palette so the chrome reads as one system with the charts below.
-     Other themes live in their own [data-theme="…"] blocks. ---------- */
-  --bg: #0f1117;
-  --bg-elev-1: #1a1d27;
-  --bg-elev-2: #232733;
-  --text-1: #e8eaf0;
-  --text-2: #aab0bf;
-  --text-3: #6b7186;
-  --accent: #56b4e9;
-  --accent-soft: #56b4e933;
-  /* Text/icon color that sits ON --accent (buttons, badges). Each theme
-     sets this to whichever of dark/light clears the accent for contrast;
-     sky blue needs dark. */
-  --on-accent: #0f1117;
-  --ok: #1fb894;
-  --danger: #ef6c1a;
-  --divider: #232733;
-  --warn: #e69f00;
+  /* Almanac (warm ink, dark parchment) is the default palette and lives
+     in :root. The colorblind-safe Okabe-Ito palette moved to its own
+     [data-theme="colorblind"] block below; the other themes follow. ---- */
+  --bg: #15140f;
+  --bg-elev-1: #1d1b15;
+  --bg-elev-2: #25221a;
+  --text-1: #ece6d7;
+  --text-2: #a8a193;
+  --text-3: #76705f;
+  --accent: #2f8f7f;
+  --accent-soft: #2f8f7f33;
+  /* On-accent: dark ink on petrol button/badge surface. */
+  --on-accent: #15140f;
+  --ok: #6fae6a;
+  --danger: #cf6b4a;
+  --divider: #2a2820;
+  --warn: #c9952f;
 
   /* Typography ------------------------------------------------------ */
-  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, sans-serif;
-  --font-mono: ui-monospace, "SF Mono", Menlo, Monaco, "Cascadia Mono",
-    monospace;
+  --font-serif: "Newsreader", Georgia, "Times New Roman", serif;
+  --font-sans: "Geist", system-ui, -apple-system, sans-serif;
+  --font-mono: "Geist Mono", "SF Mono", ui-monospace, monospace;
 
   --text-xs: 12px;
   --text-sm: 14px;
@@ -85,24 +81,48 @@
   --agent-hermes: #5be0d6;
   --agent-hermes-soft: #5be0d626;
 
-  /* Categorical chart palette --------------------------------------- */
-  /* Okabe–Ito colorblind-safe qualitative palette (distinguishable
-     under protanopia/deuteranopia and in grayscale). Charts cycle
-     --chart-1..8 by series index; charts-init.js reads these tokens so
-     a light/dark swap recolors every chart with no JS change. These are
-     the dark-theme values: the canonical Okabe–Ito hues with the darker
-     ones lifted in lightness for contrast on the near-black --bg. The
-     light theme below uses the canonical (white-tuned) hues. */
-  --chart-1: #56b4e9; /* sky blue */
-  --chart-2: #e69f00; /* orange */
-  --chart-3: #1fb894; /* bluish green (lifted) */
-  --chart-4: #ef6c1a; /* vermillion (lifted) */
-  --chart-5: #3d8fd6; /* blue (lifted) */
-  --chart-6: #cc79a7; /* reddish purple */
-  --chart-7: #f0e442; /* yellow */
-  --chart-8: #aeb4c0; /* neutral grey (lifted) */
-  /* gridlines/axis baselines inside chart cards; quieter than --divider,
-     which is calibrated to separate surfaces, not to sit behind data */
+  /* Categorical chart palette — warm-neutral + petrol, legible on the
+     warm-dark bg. Charts-init.js reads these tokens. */
+  --chart-1: #2f8f7f; /* petrol teal (primary/accent) */
+  --chart-2: #c9952f; /* warm gold */
+  --chart-3: #7aaa6d; /* sage green */
+  --chart-4: #cf6b4a; /* soft terracotta */
+  --chart-5: #5b85aa; /* muted blue */
+  --chart-6: #b87b8a; /* dusty rose */
+  --chart-7: #b89b3f; /* ochre */
+  --chart-8: #7a7268; /* warm grey */
+  /* gridlines/axis baselines inside chart cards */
+  --chart-grid: #221f18;
+}
+
+/* Colorblind (Okabe-Ito) — the original colorblind-safe default, now a
+   selectable theme. Dark surfaces with the Okabe-Ito qualitative palette
+   so chrome and charts stay distinguishable under protanopia/deuteranopia
+   and in grayscale. Agent hues inherit from :root, like the other dark
+   themes. */
+[data-theme="colorblind"] {
+  --bg: #0f1117;
+  --bg-elev-1: #1a1d27;
+  --bg-elev-2: #232733;
+  --text-1: #e8eaf0;
+  --text-2: #aab0bf;
+  --text-3: #6b7186;
+  --accent: #56b4e9;
+  --accent-soft: #56b4e933;
+  --on-accent: #0f1117;
+  --ok: #1fb894;
+  --danger: #ef6c1a;
+  --divider: #232733;
+  --warn: #e69f00;
+
+  --chart-1: #56b4e9;
+  --chart-2: #e69f00;
+  --chart-3: #1fb894;
+  --chart-4: #ef6c1a;
+  --chart-5: #3d8fd6;
+  --chart-6: #cc79a7;
+  --chart-7: #f0e442;
+  --chart-8: #aeb4c0;
   --chart-grid: #20242f;
 }
 

@@ -177,7 +177,7 @@ func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 	usageRows, usageTokens, usageCost, usagePriced := buildUsage(out.usage.Rows)
 	usageCostLabel := costLabel(usageCost, usagePriced)
 	projectBars := buildProjectBars(out.projects.Rows, 10)
-	modelUsage := buildModelUsage(out.usageByModel.Rows)
+	modelBoard := buildModelBoard(out.usageByModel.Rows, 12)
 	hourChart := buildHourChart(out.hours.Rows)
 	issues := buildIssues(out.errorsByModel.Rows, out.errors.Rows, out.sessions.TotalCount)
 	trend := buildActivityTrend(out.trend.Rows)
@@ -203,7 +203,7 @@ func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 		{Value: formatPanelInt(out.sessions.TotalCount), Label: "sessions", Delta: dSessions},
 		{Value: formatPanelInt(int64(len(projectNames))), Label: "projects", Delta: dProjects},
 		{Value: formatPanelInt(int64(len(out.models.Rows))), Label: "models", Delta: dModels},
-		{Value: formatPanelInt(usageTokens), Label: "tokens", Delta: dTokens},
+		{Value: formatTokensCompact(usageTokens), Label: "tokens", Delta: dTokens},
 		{Value: usageCostLabel, Label: "est. spend", Delta: dSpend},
 		{Value: issues.Rate, Label: "error rate", Delta: dErrorRate},
 	}
@@ -251,8 +251,7 @@ func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 		"ToolHeaders": out.tools.Headers,
 		"ToolBars":    buildBarRows(out.tools.Rows, 10),
 
-		"ModelHeaders": out.models.Headers,
-		"ModelBars":    buildBarRows(out.models.Rows, 10),
+		"ModelBoard": modelBoard,
 
 		"ProjectBars": projectBars,
 		"HourChart":   hourChart.Chart,
@@ -264,14 +263,8 @@ func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 		"IssuesBars":     issues.PerModelBars,
 		"IssuesRecent":   issues.Recent,
 
-		"ModelTokenBars":   modelUsage.TokenBars,
-		"CostDonut":        modelUsage.CostDonut,
-		"ModelCostLegend":  modelUsage.CostLegend,
-		"ModelTotalTokens": modelUsage.TotalTokens,
-		"ModelTotalCost":   modelUsage.TotalCost,
-
 		"UsageRows":        usageRows,
-		"UsageTotalTokens": formatPanelInt(usageTokens),
+		"UsageTotalTokens": formatTokensCompact(usageTokens),
 		"UsageTotalCost":   usageCostLabel,
 	}
 	p.render(w, r, "home", data)
@@ -604,7 +597,7 @@ func costLabel(cost float64, priced bool) string {
 	if !priced {
 		return "n/a"
 	}
-	return fmt.Sprintf("$%.2f", cost)
+	return formatUSD(cost)
 }
 
 func buildUsage(rows []*prosav1.AnalyticsRow) ([]usagePanelRow, int64, float64, bool) {
@@ -639,7 +632,7 @@ func buildUsage(rows []*prosav1.AnalyticsRow) ([]usagePanelRow, int64, float64, 
 			if f, err := strconv.ParseFloat(costStr, 64); err == nil {
 				costFloat = f
 				priced = true
-				costLabel = fmt.Sprintf("$%.2f", f)
+				costLabel = formatUSD(f)
 			} else {
 				costLabel = "$" + costStr
 			}
@@ -713,35 +706,31 @@ func buildProjectBars(rows []*prosav1.AnalyticsRow, limit int) []barRow {
 	return barsFromPairs(labels, counts, limit, formatPanelInt)
 }
 
-// costLegendRow is one entry beside the cost donut: palette index, model
-// name, and estimated spend.
-type costLegendRow struct {
+// modelBoardRow is one row of the Home "Models" leaderboard: a palette index
+// for the dot, the model name, its formatted sessions/tokens/cost, and the
+// session count as a percentage of the busiest model so the row draws a bar.
+type modelBoardRow struct {
 	ColorIdx int
 	Model    string
+	Sessions string
+	Tokens   string
 	Cost     string
+	Percent  int
 }
 
-// modelUsageView bundles the "tokens & cost per model" card: a token
-// leaderboard, a cost-share donut with a matching legend, and the totals for
-// the card header.
-type modelUsageView struct {
-	TokenBars   []barRow
-	CostDonut   charts.Spec
-	CostLegend  []costLegendRow
-	TotalTokens string
-	TotalCost   string
-}
-
-// buildModelUsage shapes the usage_by_model rows
-// (MODEL, SESSIONS, TOTAL, INPUT, OUTPUT, EST_COST_USD) into the card.
-func buildModelUsage(rows []*prosav1.AnalyticsRow) modelUsageView {
-	labels := make([]string, 0, len(rows))
-	tokenCounts := make([]int64, 0, len(rows))
-	var donutLabels []string
-	var donutValues []float64
-	var totalTokens int64
-	var totalCost float64
-	priced := false
+// buildModelBoard shapes the usage_by_model rows
+// (MODEL, SESSIONS, TOTAL, INPUT, OUTPUT, EST_COST_USD) into the Home "Models"
+// leaderboard: one row per model carrying its sessions, tokens, and cost,
+// ordered by sessions desc and capped, with a bar scaled to the busiest model.
+func buildModelBoard(rows []*prosav1.AnalyticsRow, limit int) []modelBoardRow {
+	type agg struct {
+		model    string
+		sessions int64
+		tokens   int64
+		cost     float64
+		priced   bool
+	}
+	items := make([]agg, 0, len(rows))
 	for _, row := range rows {
 		if len(row.Values) < 6 {
 			continue
@@ -750,44 +739,47 @@ func buildModelUsage(rows []*prosav1.AnalyticsRow) modelUsageView {
 		if model == "" {
 			continue
 		}
-		total := parsePanelInt(row.Values[2])
-		labels = append(labels, model)
-		tokenCounts = append(tokenCounts, total)
-		totalTokens += total
+		it := agg{
+			model:    model,
+			sessions: parsePanelInt(row.Values[1]),
+			tokens:   parsePanelInt(row.Values[2]),
+		}
 		if costStr := strings.TrimSpace(row.Values[5]); costStr != "" {
-			if c, err := strconv.ParseFloat(costStr, 64); err == nil && c > 0 {
-				donutLabels = append(donutLabels, model)
-				donutValues = append(donutValues, c)
-				totalCost += c
-				priced = true
+			if c, err := strconv.ParseFloat(costStr, 64); err == nil {
+				it.cost = c
+				it.priced = true
 			}
 		}
+		items = append(items, it)
 	}
-	totalCostLabel := "n/a"
-	if priced {
-		totalCostLabel = fmt.Sprintf("$%.2f", totalCost)
+	sort.SliceStable(items, func(i, j int) bool {
+		return items[i].sessions > items[j].sessions
+	})
+	if limit > 0 && len(items) > limit {
+		items = items[:limit]
 	}
-	legend := make([]costLegendRow, 0, len(donutLabels))
-	for i, model := range donutLabels {
-		legend = append(legend, costLegendRow{
+	var maxSessions int64
+	for _, it := range items {
+		if it.sessions > maxSessions {
+			maxSessions = it.sessions
+		}
+	}
+	board := make([]modelBoardRow, 0, len(items))
+	for i, it := range items {
+		pct := 0
+		if maxSessions > 0 {
+			pct = int(it.sessions * 100 / maxSessions)
+		}
+		board = append(board, modelBoardRow{
 			ColorIdx: i,
-			Model:    model,
-			Cost:     fmt.Sprintf("$%.2f", donutValues[i]),
+			Model:    displayModel(it.model),
+			Sessions: formatPanelInt(it.sessions),
+			Tokens:   formatTokensCompact(it.tokens),
+			Cost:     costLabel(it.cost, it.priced),
+			Percent:  pct,
 		})
 	}
-	return modelUsageView{
-		TokenBars: barsFromPairs(labels, tokenCounts, 8, formatTokensCompact),
-		CostDonut: charts.Spec{
-			Type:        "donut",
-			Labels:      donutLabels,
-			Datasets:    []charts.Dataset{{Values: donutValues}},
-			ValuePrefix: "$",
-			Height:      200,
-		},
-		CostLegend:  legend,
-		TotalTokens: formatPanelInt(totalTokens),
-		TotalCost:   totalCostLabel,
-	}
+	return board
 }
 
 // hourChartView is the "activity by hour" card: the area chart spec plus a
@@ -851,7 +843,7 @@ func buildHourChartTZ(rows []*prosav1.AnalyticsRow, offsetHours int) hourChartVi
 			Datasets:    []charts.Dataset{{Name: "sessions", Values: values}},
 			RegionFill:  true,
 			ValueSuffix: " sessions",
-			Height:      160,
+			Height:      240,
 		},
 		PeakLabel: peakLabel,
 	}
@@ -901,6 +893,8 @@ func buildIssues(errModelRows, errRows []*prosav1.AnalyticsRow, totalSessions in
 	}
 	if topModel == "" {
 		topModel = "—"
+	} else {
+		topModel = displayModel(topModel)
 	}
 	recentRows := clampRows(errRows, 8)
 	recent := make([]issueRow, 0, len(recentRows))
@@ -911,16 +905,20 @@ func buildIssues(errModelRows, errRows []*prosav1.AnalyticsRow, totalSessions in
 		id := strings.TrimSpace(row.Values[3])
 		recent = append(recent, issueRow{
 			Agent:   agentBadge(row.Values[1]),
-			Project: projectLink(projectDisplayFromLabel(row.Values[2])),
+			Project: projectLabel(projectDisplayFromLabel(row.Values[2])),
 			When:    row.Values[0],
 			URL:     "/sessions?session=" + url.QueryEscape(id),
 		})
+	}
+	perModelBars := buildBarRows(errModelRows, 8)
+	for i := range perModelBars {
+		perModelBars[i].Label = displayModel(perModelBars[i].Label)
 	}
 	return issuesView{
 		Flagged:      flagged,
 		Rate:         rate,
 		TopModel:     topModel,
-		PerModelBars: buildBarRows(errModelRows, 8),
+		PerModelBars: perModelBars,
 		Recent:       recent,
 	}
 }

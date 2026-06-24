@@ -8,38 +8,38 @@ see [screens.md](screens.md). For visual direction see the
 
 ## Design tokens
 
-CSS vars defined in `internal/panel/templates/assets/css/tokens.css`. All
-other layers reference these vars — never a literal value.
+CSS vars defined in `internal/panel/assets/css/tokens.css`. All other
+layers reference these vars — never a literal value.
 
-### Default palette — Colorblind (Okabe–Ito)
+### Default palette: Almanac (warm editorial)
 
 ```
---bg               #0f1117
---bg-elev-1        #1a1d27
---bg-elev-2        #232733
---text-1           #e8eaf0
---text-2           #aab0bf
---text-3           #6b7186
---accent           #56b4e9
---accent-soft      #56b4e933
---ok               #1fb894
---danger           #ef6c1a
---warn             #e69f00
---divider          #232733
---chart-grid       #20242f
+--bg               #15140f
+--bg-elev-1        #1d1b15
+--bg-elev-2        #25221a
+--text-1           #ece6d7
+--text-2           #a8a193
+--text-3           #76705f
+--accent           #2f8f7f
+--accent-soft      #2f8f7f33
+--on-accent        #15140f
+--ok               #6fae6a
+--danger           #cf6b4a
+--warn             #c9952f
+--divider          #2a2820
+--chart-grid       #221f18
 ```
 
-`--chart-grid` paints chart gridlines and axis baselines inside cards;
-it sits quieter than `--divider`, which separates surfaces (light value:
-`#e7ebf1`).
+`--chart-grid` paints chart gridlines and axis baselines inside cards.
+`--on-accent` is the text/icon color placed on an accent-filled surface.
 
-Themes: the colorblind (Okabe–Ito) palette above lives in `:root` as the
+Themes: the Almanac (warm editorial) palette lives in `:root` as the
 default. Each alternate overrides the color tokens under its own
-`[data-theme="<id>"]` block — `light`, `nord`, `solarized-dark`,
-`solarized-light`, `dracula`, `gruvbox`, `high-contrast` — and `system`
-follows the OS via `prefers-color-scheme`. The panel stamps the owner's
-saved `data-theme` on `<html>` server-side; `charts-init.js` recolors
-charts on the flip.
+`[data-theme="<id>"]` block: `colorblind` (Okabe-Ito), `light`, `nord`,
+`solarized-dark`, `solarized-light`, `dracula`, `gruvbox`,
+`high-contrast`, and `system` (follows the OS via `prefers-color-scheme`).
+The panel stamps the owner's saved `data-theme` on `<html>` server-side;
+`charts-init.js` recolors charts on the flip.
 
 Every color the panel paints is a token, so no theme leaves anything
 unthemed: surfaces, text, `--accent` plus `--on-accent` (the text/icon
@@ -54,8 +54,9 @@ correct against any palette.
 ### Typography
 
 ```
---font-sans        -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif
---font-mono        "SF Mono", Menlo, Monaco, "Cascadia Mono", monospace
+--font-serif       "Newsreader", Georgia, "Times New Roman", serif
+--font-sans        "Geist", system-ui, -apple-system, sans-serif
+--font-mono        "Geist Mono", "SF Mono", ui-monospace, monospace
 
 --text-xs          12px
 --text-sm          14px
@@ -71,6 +72,16 @@ correct against any palette.
 --w-light          300
 --w-thin           200
 ```
+
+Role assignments: `--font-serif` (Newsreader) for h1/h2 headings, the
+wordmark, and large KPI numerals; `--font-sans` (Geist) for body, tables,
+labels, and general UI chrome; `--font-mono` (Geist Mono) for IDs,
+timestamps, costs, and raw transcript.
+
+All three families are self-hosted latin-subset `woff2` files in
+`internal/panel/assets/fonts/`, embedded via `embed.FS` and declared
+with `@font-face` / `font-display: swap` in
+`internal/panel/assets/css/fonts.css`. No web-font or CDN requests.
 
 Apply `font-variant-numeric: tabular-nums` to any element with a number
 (KPI, table, duration, count).
@@ -130,14 +141,14 @@ Used in the Home Today block and in the Sidepanel (stats cluster).
 
 ```
 +-----------------+
-|       12        |    <- 44 px weight 300, tabular
-|    sessions     |    <- 14 px uppercase letter-spacing 0.06em --text-3
+|       12        |    <- 44 px Newsreader weight 300, tabular
+|    sessions     |    <- 14 px small-caps --text-3
 |   ▁▂▅█▇▅▃▂▁    |    <- optional sparkline, 80 x 24 px
 +-----------------+
 ```
 
-- No border, no visible background (let the breathing room do the
-  hierarchy);
+- No border, no background fill; hairline dividers do the hierarchy work;
+- Numeral uses `--font-serif` (Newsreader) at `--text-3xl`;
 - Internal gap: `--space-3` (12 px) between value, label, sparkline;
 - When grouped in a grid (Today): `gap: --space-7` minimum between
   cards.

@@ -109,28 +109,6 @@
 
     <section class="card">
       <header class="card-head">
-        <h2>Models</h2>
-        <span class="card-sub">top 10 by sessions</span>
-      </header>
-      {{if .ModelBars}}
-        <div class="bar-list">
-          {{range .ModelBars}}
-            <div class="bar-row">
-              <span class="bar-label">{{.Label}}</span>
-              <span class="bar-track"><span class="bar-fill" style="width: {{.Percent}}%"></span></span>
-              <span class="bar-count">{{.Count}}</span>
-            </div>
-          {{end}}
-        </div>
-      {{else}}
-        <div class="empty">no model usage in this window.</div>
-      {{end}}
-    </section>
-  </div>
-
-  <div class="dashboard-grid">
-    <section class="card">
-      <header class="card-head">
         <h2>Projects</h2>
         <span class="card-sub">most worked-on</span>
       </header>
@@ -148,7 +126,9 @@
         <div class="empty">no projects in this window.</div>
       {{end}}
     </section>
+  </div>
 
+  <div class="dashboard-grid">
     <section class="card">
       <header class="card-head">
         <h2>Hour of day</h2>
@@ -158,99 +138,6 @@
         <div data-chart="hour-of-day"></div>
         <script type="application/json" class="chart-spec" data-for="hour-of-day">{{ .HourChart.JSON }}</script>
       </div>
-    </section>
-  </div>
-
-  <section class="card issues-card">
-    <header class="card-head">
-      <h2>Issues</h2>
-      <span class="card-sub">heuristic — transcripts mentioning error · exception · panic · …</span>
-    </header>
-    <div class="issues-indicators">
-      <div class="kpi">
-        <div class="kpi-value">{{.IssuesFlagged}}</div>
-        <div class="kpi-label">flagged sessions</div>
-      </div>
-      <div class="kpi">
-        <div class="kpi-value">{{.IssuesRate}}</div>
-        <div class="kpi-label">error rate</div>
-      </div>
-      <div class="kpi">
-        <div class="kpi-value kpi-value-mono">{{.IssuesTopModel}}</div>
-        <div class="kpi-label">most error-prone model</div>
-      </div>
-    </div>
-    <div class="issues-body">
-      <div class="issues-col">
-        <h3 class="issues-subhead">Errors per model</h3>
-        {{if .IssuesBars}}
-          <div class="bar-list">
-            {{range .IssuesBars}}
-              <div class="bar-row">
-                <span class="bar-label">{{.Label}}</span>
-                <span class="bar-track"><span class="bar-fill bar-fill-danger" style="width: {{.Percent}}%"></span></span>
-                <span class="bar-count">{{.Count}}</span>
-              </div>
-            {{end}}
-          </div>
-        {{else}}
-          <div class="empty">no flagged sessions in this window.</div>
-        {{end}}
-      </div>
-      <div class="issues-col">
-        <h3 class="issues-subhead">Recent flagged sessions</h3>
-        {{if .IssuesRecent}}
-          <ul class="issues-list">
-            {{range .IssuesRecent}}
-              <li class="issues-item">
-                <a class="issues-item-link" href="{{.URL}}">
-                  <span class="issues-item-meta">{{.Agent}} {{.Project}}</span>
-                  <span class="issues-item-when">{{.When}}</span>
-                </a>
-              </li>
-            {{end}}
-          </ul>
-        {{else}}
-          <div class="empty">nothing flagged. nice.</div>
-        {{end}}
-      </div>
-    </div>
-  </section>
-
-  <div class="dashboard-grid">
-    <section class="card">
-      <header class="card-head">
-        <h2>Tokens &amp; cost per model</h2>
-        <span class="card-sub">{{.ModelTotalTokens}} tokens · {{.ModelTotalCost}}</span>
-      </header>
-      {{if .ModelTokenBars}}
-        <div class="model-usage">
-          <div class="model-usage-chart">
-            {{if .CostDonut.HasData}}
-              <div class="donut-holder" data-chart="cost-donut"></div>
-              <script type="application/json" class="chart-spec" data-for="cost-donut">{{ .CostDonut.JSON }}</script>
-            {{end}}
-            {{if .ModelCostLegend}}
-              <ul class="cost-legend">
-                {{range .ModelCostLegend}}
-                  <li><span class="cost-legend-dot" data-ci="{{.ColorIdx}}"></span><span class="cost-legend-model">{{.Model}}</span><span class="cost-legend-cost">{{.Cost}}</span></li>
-                {{end}}
-              </ul>
-            {{end}}
-          </div>
-          <div class="bar-list model-usage-bars">
-            {{range .ModelTokenBars}}
-              <div class="bar-row">
-                <span class="bar-label">{{.Label}}</span>
-                <span class="bar-track"><span class="bar-fill" style="width: {{.Percent}}%"></span></span>
-                <span class="bar-count">{{.Count}}</span>
-              </div>
-            {{end}}
-          </div>
-        </div>
-      {{else}}
-        <div class="empty">no measured usage in this window.</div>
-      {{end}}
     </section>
 
     <section class="card">
@@ -296,6 +183,93 @@
       {{end}}
     </section>
   </div>
+
+  <section class="card issues-card">
+    <header class="card-head">
+      <h2>Issues</h2>
+      <span class="card-sub">heuristic — transcripts mentioning error · exception · panic · …</span>
+    </header>
+    <div class="issues-indicators">
+      <div class="kpi">
+        <div class="kpi-value">{{.IssuesFlagged}}</div>
+        <div class="kpi-label">flagged sessions</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-value">{{.IssuesRate}}</div>
+        <div class="kpi-label">error rate</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-value kpi-value-mono" title="{{.IssuesTopModel}}">{{.IssuesTopModel}}</div>
+        <div class="kpi-label">most error-prone model</div>
+      </div>
+    </div>
+    <div class="issues-body">
+      <div class="issues-col">
+        <h3 class="issues-subhead">Errors per model</h3>
+        {{if .IssuesBars}}
+          <div class="bar-list">
+            {{range .IssuesBars}}
+              <div class="bar-row">
+                <span class="bar-label">{{.Label}}</span>
+                <span class="bar-track"><span class="bar-fill bar-fill-danger" style="width: {{.Percent}}%"></span></span>
+                <span class="bar-count">{{.Count}}</span>
+              </div>
+            {{end}}
+          </div>
+        {{else}}
+          <div class="empty">no flagged sessions in this window.</div>
+        {{end}}
+      </div>
+      <div class="issues-col">
+        <h3 class="issues-subhead">Recent flagged sessions</h3>
+        {{if .IssuesRecent}}
+          <ul class="issues-list">
+            {{range .IssuesRecent}}
+              <li class="issues-item">
+                <a class="issues-item-link" href="{{.URL}}">
+                  <span class="issues-item-meta">{{.Agent}} {{.Project}}</span>
+                  <span class="issues-item-when">{{.When}}</span>
+                </a>
+              </li>
+            {{end}}
+          </ul>
+        {{else}}
+          <div class="empty">nothing flagged. nice.</div>
+        {{end}}
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <header class="card-head">
+      <h2>Models</h2>
+      <span class="card-sub">top by sessions · tokens · est. spend</span>
+    </header>
+    {{if .ModelBoard}}
+      <div class="models-board">
+        <div class="models-row models-row-head" aria-hidden="true">
+          <span></span>
+          <span>Model</span>
+          <span class="models-num">Sessions</span>
+          <span class="models-num">Tokens</span>
+          <span class="models-num">Spend</span>
+          <span></span>
+        </div>
+        {{range .ModelBoard}}
+          <div class="models-row">
+            <span class="cost-legend-dot" data-ci="{{.ColorIdx}}"></span>
+            <span class="models-name">{{.Model}}</span>
+            <span class="models-num">{{.Sessions}}</span>
+            <span class="models-num">{{.Tokens}}</span>
+            <span class="models-num">{{.Cost}}</span>
+            <span class="bar-track"><span class="bar-fill" style="width: {{.Percent}}%"></span></span>
+          </div>
+        {{end}}
+      </div>
+    {{else}}
+      <div class="empty">no model usage in this window.</div>
+    {{end}}
+  </section>
 {{end}}
 
 {{define "side"}}{{end}}

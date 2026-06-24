@@ -12,9 +12,11 @@
 }
 
 .dashboard-head h1 {
-  font-size: var(--text-lg);
-  font-weight: var(--w-medium);
+  font-family: var(--font-serif);
+  font-size: var(--text-2xl);
+  font-weight: 400;
   margin: 0;
+  color: var(--text-1);
 }
 
 /* Filters drawer (right side, mirrors #side-panel) ------------------- */
@@ -79,10 +81,10 @@
 
 .dashboard-filters-drawer-title {
   font-size: var(--text-sm);
-  font-weight: var(--w-medium);
+  font-weight: var(--w-regular);
   color: var(--text-1);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  font-variant: small-caps;
+  letter-spacing: 0.08em;
 }
 
 .dashboard-filters-close {
@@ -113,6 +115,9 @@
 }
 
 /* KPI strip ----------------------------------------------------------- */
+/* No bottom rule: the first card below the strip already draws its own
+   border-top, so a border here would stack into a doubled hairline on the
+   right where no KPI fills the gap. The card's top border is the separator. */
 .kpi-strip {
   display: flex;
   flex-wrap: wrap;
@@ -120,12 +125,17 @@
   padding: var(--space-5) 0 var(--space-6);
 }
 
-.kpi-value-mono {
+/* A model id is a label, not a 44px headline: the compound selector wins
+   over .kpi-value (declared later) so the mono value renders at label
+   scale and wraps at the hyphens instead of blowing out the strip. */
+.kpi-value.kpi-value-mono {
   font-family: var(--font-mono);
-  font-size: var(--text-base);
+  font-size: var(--text-md);
   font-weight: var(--w-regular);
   line-height: 1.3;
-  word-break: break-all;
+  letter-spacing: 0;
+  max-width: 26ch;
+  word-break: break-word;
 }
 
 .kpi {
@@ -135,8 +145,9 @@
 }
 
 .kpi-value {
+  font-family: var(--font-serif);
   font-size: var(--text-3xl);
-  font-weight: var(--w-light);
+  font-weight: 400;
   font-variant-numeric: tabular-nums;
   color: var(--text-1);
   line-height: 1;
@@ -165,18 +176,19 @@
 }
 
 .kpi-label {
-  font-size: var(--text-xs);
-  text-transform: uppercase;
+  font-size: var(--text-sm);
+  font-variant: small-caps;
   letter-spacing: 0.06em;
   color: var(--text-3);
-  font-weight: var(--w-medium);
+  font-weight: var(--w-regular);
 }
 
-/* Card chrome --------------------------------------------------------- */
+/* Card chrome — hairline top rule instead of box. ------------------- */
 .card {
-  background: var(--bg-elev-1);
-  border-radius: var(--radius-md);
-  padding: var(--space-6);
+  background: transparent;
+  border-radius: 0;
+  border-top: 1px solid var(--divider);
+  padding: var(--space-6) 0;
   margin-bottom: var(--space-5);
 }
 
@@ -189,8 +201,9 @@
 }
 
 .card-head h2 {
+  font-family: var(--font-serif);
   font-size: var(--text-md);
-  font-weight: var(--w-medium);
+  font-weight: 400;
   margin: 0;
   color: var(--text-1);
 }
@@ -221,11 +234,11 @@
 }
 
 .card-table th {
-  font-size: var(--text-xs);
-  text-transform: uppercase;
+  font-size: var(--text-sm);
+  font-variant: small-caps;
   letter-spacing: 0.06em;
   color: var(--text-3);
-  font-weight: var(--w-medium);
+  font-weight: var(--w-regular);
 }
 
 /* Two-column grid for tools/models, errors/usage --------------------- */
@@ -238,6 +251,28 @@
 
 .dashboard-grid > .card {
   margin-bottom: 0;
+}
+
+/* Insights delegation row: a tall "Top delegating sessions" list in the left
+   column, with "By parent agent" and "Agentic session kinds" stacked in the
+   right column so the row reads as balanced instead of leaving a hole under
+   the short table. Placement only applies once the grid is two columns. */
+@media (min-width: 1101px) {
+  .insights-delegators-grid {
+    align-items: start;
+  }
+  .insights-delegators-grid > :nth-child(1) {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+  }
+  .insights-delegators-grid > :nth-child(2) {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .insights-delegators-grid > :nth-child(3) {
+    grid-column: 2;
+    grid-row: 2;
+  }
 }
 
 /* Bar leaderboard (tools, models) ------------------------------------ */
@@ -292,19 +327,100 @@
   gap: var(--space-2);
 }
 
-/* Tokens & cost per model card --------------------------------------- */
-.model-usage {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: var(--space-6);
-  align-items: center;
-}
-
-.model-usage-chart {
+/* Models leaderboard (Home) — one row per model: color dot · name ·
+   sessions · tokens · spend · magnitude bar (by sessions). Mirrors the
+   Projects board; merges what were the Models and Tokens-&-cost cards. */
+.models-board {
   display: flex;
   flex-direction: column;
+}
+
+.models-row {
+  display: grid;
+  grid-template-columns: 10px minmax(120px, 1fr) 72px 72px 92px minmax(80px, 220px);
   align-items: center;
   gap: var(--space-4);
+  padding: var(--space-2);
+  border-top: 1px solid var(--divider);
+  font-size: var(--text-sm);
+}
+
+.models-row:first-child {
+  border-top: 0;
+}
+
+.models-row-head {
+  color: var(--text-3);
+  font-variant: small-caps;
+  letter-spacing: 0.06em;
+}
+
+.models-row .cost-legend-dot {
+  justify-self: center;
+}
+
+.models-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-1);
+}
+
+.models-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+}
+
+.models-row-head .models-num {
+  color: var(--text-3);
+}
+
+@media (max-width: 760px) {
+  .models-row {
+    grid-template-columns: 10px minmax(0, 1fr) auto auto auto;
+    gap: var(--space-1) var(--space-3);
+  }
+  .models-row > .bar-track {
+    display: none;
+  }
+}
+
+/* Profiles "Tokens & cost per profile": one row per profile carrying its
+   token magnitude bar and the est. spend, replacing the old bars + donut +
+   legend stack. */
+.profile-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 1.4fr) minmax(80px, 2fr) 72px 80px;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.profile-row-head {
+  color: var(--text-3);
+  font-variant: small-caps;
+  letter-spacing: 0.06em;
+}
+
+.profile-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+}
+
+.profile-row-head .profile-num {
+  color: var(--text-3);
+}
+
+@media (max-width: 760px) {
+  .profile-row {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: var(--space-1) var(--space-3);
+  }
+  .profile-row > :nth-child(2) {
+    display: none;
+  }
 }
 
 .cost-legend {
@@ -345,10 +461,38 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Chart series legend — the model identity for a chart reads as a compact
+   horizontal strip of dots + labels. The per-model count it used to stack
+   vertically duplicated the Models card and is available on chart hover, so
+   it's dropped here. (Plain .cost-legend stays a vertical cost breakdown.) */
+.share-legend {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  margin-top: var(--space-4);
+}
+
+.share-legend li {
+  gap: var(--space-2);
+}
+
+.share-legend .cost-legend-model {
+  overflow: visible;
+  color: var(--text-2);
+}
+
+.share-legend .cost-legend-cost {
+  display: none;
+}
+
 /* Issues section ----------------------------------------------------- */
+/* Baseline-align so the small-caps labels share a line even though the
+   error-prone-model value is a short mono label next to two big serif
+   numerals (the values sit on one baseline; the labels hang together). */
 .issues-indicators {
   display: flex;
   flex-wrap: wrap;
+  align-items: baseline;
   gap: var(--space-7);
   margin-bottom: var(--space-6);
 }
@@ -360,11 +504,11 @@
 }
 
 .issues-subhead {
-  font-size: var(--text-xs);
-  text-transform: uppercase;
+  font-size: var(--text-sm);
+  font-variant: small-caps;
   letter-spacing: 0.06em;
   color: var(--text-3);
-  font-weight: var(--w-medium);
+  font-weight: var(--w-regular);
   margin: 0 0 var(--space-3);
 }
 
@@ -401,6 +545,23 @@
   overflow: hidden;
 }
 
+/* Non-link project label (icon + name) for rows that are themselves a
+   link — used in the Issues and Top-delegators lists. */
+.project-name {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  color: var(--text-2);
+}
+
+.project-name > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .issues-item-when {
   font-size: var(--text-xs);
   color: var(--text-3);
@@ -416,9 +577,6 @@
     grid-template-columns: 120px 1fr 60px;
   }
   .issues-body {
-    grid-template-columns: 1fr;
-  }
-  .model-usage {
     grid-template-columns: 1fr;
   }
 }

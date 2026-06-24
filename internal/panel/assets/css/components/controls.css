@@ -144,8 +144,8 @@
   display: grid;
   gap: var(--space-1);
   color: var(--text-3);
-  font-size: var(--text-xs);
-  text-transform: uppercase;
+  font-size: var(--text-sm);
+  font-variant: small-caps;
   letter-spacing: 0.06em;
 }
 

@@ -46,7 +46,8 @@ cmd/prosa-panel/main.go                 thin entrypoint
    ├─ internal/panel/rpc/client.go      Connect clients for the server's services
    ├─ internal/panel/handlers/          per-route handlers
    ├─ internal/panel/session/           cookie signing
-   ├─ internal/panel/templates/         HTML, CSS, JS via embed.FS
+   ├─ internal/panel/templates/         HTML templates via embed.FS
+   ├─ internal/panel/assets/            JS, CSS, fonts via embed.FS
    └─ internal/panel/config.go          env-driven configuration
 ```
 
@@ -123,11 +124,13 @@ Each handler:
 
 ## Templates
 
-`internal/panel/templates/` contains HTML files plus the `assets/`
-subtree. Everything is embedded:
+`internal/panel/templates/` contains the HTML files. Static assets
+(JS, CSS, fonts) live in `internal/panel/assets/` and are embedded
+separately:
 
 ```go
-//go:embed *.html assets
+// internal/panel/assets/embed.go
+//go:embed *.js *.css css fonts
 var FS embed.FS
 ```
 
@@ -166,7 +169,7 @@ Helper template funcs: minimal — `hasPrefix` for active-nav matching.
 
 ## Static assets
 
-In `internal/panel/assets/`:
+In `internal/panel/assets/` (embedded via `assets.FS`):
 
 - `htmx.min.js` (~50 KB) — vendored HTMX.
 - `alpine.min.js` (~44 KB) — vendored Alpine.js 3.14.9 for client-only
@@ -179,8 +182,15 @@ In `internal/panel/assets/`:
   `charts-init.js`; refresh by re-downloading the same dist file.
 - `style.css` — entrypoint that `@import`s the `css/` modules and
   carries the remaining handcrafted rules.
-- `css/tokens.css` — design tokens (palette, type scale, spacing,
-  radius, motion). Source of truth for color and rhythm.
+- `css/fonts.css` — `@font-face` declarations for the three self-hosted
+  families (Newsreader, Geist, Geist Mono), all `font-display: swap`,
+  pointing at `../fonts/*.woff2`. No CDN or web-font requests.
+- `fonts/` — latin-subset `woff2` files for Newsreader (400/500/600,
+  400-italic), Geist (400/500/600), and Geist Mono (400/500), embedded
+  by the `//go:embed *.js *.css css fonts` directive in `embed.go`.
+- `css/tokens.css` — design tokens (Almanac palette, three font-family
+  vars, type scale, spacing, radius, motion). Source of truth for color
+  and rhythm.
 - `css/base.css` — reset, body baseline, `:focus-visible` ring,
   `prefers-reduced-motion` overrides.
 - `keyboard.js` — small keyboard handlers (`/`, `j/k`, `Esc`).
@@ -299,7 +309,7 @@ for that page.
 
 Settings POSTs to `/settings/theme`, `/settings/window`, and
 `/settings/reset`. The reset deletes the stored panel preference keys,
-so the rendered defaults are `colorblind` and `30d`.
+so the rendered defaults are `almanac` and `30d`.
 
 The `/events` route is a proxy: the panel opens an SSE stream to the
 server's `/sse/events` and re-emits the bytes to the browser. This
@@ -345,8 +355,9 @@ applies that posture to the panel's visual direction.
 - New route → add to the mux in `server.go`, decide whether it's gated.
 - New env var → document in [`../self-hosting.md`](../self-hosting.md) and
   `internal/panel/config.go`.
-- New static asset → drop into `templates/assets/`. `embed.FS` picks it up
-  on rebuild.
+- New static asset → drop into `internal/panel/assets/`. `embed.FS` picks
+  it up on rebuild. New font files also need a corresponding `@font-face`
+  in `css/fonts.css`.
 - New visual component → first sketch in [`../panel/components.md`](../panel/components.md);
   then implement.
 - New panel-level decision → consider invoking `prosa-panel-ui-reviewer`.

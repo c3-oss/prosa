@@ -129,7 +129,7 @@ func TestProfilesTemplateRendersRows(t *testing.T) {
 	require.Contains(t, html, "sessions outside default")
 }
 
-func TestSessionsRowsDoNotCarryHxPushURL(t *testing.T) {
+func TestSessionsFeedRowSwapsSidePanel(t *testing.T) {
 	views, err := loadViews()
 	require.NoError(t, err)
 
@@ -184,15 +184,16 @@ func TestSessionsRowsDoNotCarryHxPushURL(t *testing.T) {
 	var out bytes.Buffer
 	require.NoError(t, views["sessions"].ExecuteTemplate(&out, "sessions", data))
 	html := out.String()
-	rowStart := strings.Index(html, `<tr class="session-row"`)
+	rowStart := strings.Index(html, `<a class="feed-row`)
 	require.NotEqual(t, -1, rowStart)
 	rowEnd := strings.Index(html[rowStart:], ">")
 	require.NotEqual(t, -1, rowEnd)
 	rowTag := html[rowStart : rowStart+rowEnd]
 
-	require.Contains(t, rowTag, `data-href="`+openURL+`"`)
-	require.NotContains(t, rowTag, "hx-push-url")
-	require.Contains(t, html, `hx-push-url="`+openURL+`"`)
+	require.Contains(t, rowTag, `hx-get="/sessions/s1"`)
+	require.Contains(t, rowTag, `hx-target="#side-panel"`)
+	require.Contains(t, rowTag, `hx-push-url="`+openURL+`"`)
+	require.Contains(t, rowTag, `href="`+openURL+`"`)
 }
 
 func TestBuildDisplayTurnsSanitizesAndDoesNotMutateInput(t *testing.T) {
@@ -292,8 +293,8 @@ func TestBuildUsage_HidesZeroTokenAgents(t *testing.T) {
 	require.Len(t, out, 1, "cursor (zero total) should be filtered out")
 	require.Equal(t, "codex", out[0].Agent)
 	require.Equal(t, int64(8869844323), totalTokens)
-	require.Equal(t, "$4697.18", costLabel(totalCost, priced), "totalCost rounded to 2 decimals")
-	require.Equal(t, "$4697.18", out[0].Cost, "per-row cost rounded to 2 decimals")
+	require.Equal(t, "$4,697.18", costLabel(totalCost, priced), "totalCost rounded to 2 decimals")
+	require.Equal(t, "$4,697.18", out[0].Cost, "per-row cost rounded to 2 decimals")
 }
 
 func TestBuildUsage_NoPriced_ReturnsNA(t *testing.T) {

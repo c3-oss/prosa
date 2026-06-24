@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"io/fs"
+	"mime"
 	"net/http"
 	"path"
 	"strings"
@@ -11,6 +12,13 @@ import (
 	"github.com/c3-oss/prosa/internal/buildinfo"
 	"github.com/c3-oss/prosa/internal/panel/assets"
 )
+
+// Some platforms lack a registry entry for woff2, which would serve the
+// embedded fonts as octet-stream. Register the font types explicitly.
+func init() {
+	_ = mime.AddExtensionType(".woff2", "font/woff2")
+	_ = mime.AddExtensionType(".woff", "font/woff")
+}
 
 func assetPath(name string) string {
 	name = strings.TrimLeft(path.Clean("/"+name), "/")

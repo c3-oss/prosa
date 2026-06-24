@@ -1,0 +1,60 @@
+/* Self-hosted editorial type families, subsetted to latin and embedded
+   via embed.FS (see assets/fonts/). Loaded ahead of the token and
+   component layers so the serif display, body, and mono faces resolve on
+   first paint with no external request. URLs are relative to this file
+   (/assets/<v>/css/fonts.css), so they resolve under /assets/<v>/fonts/. */
+
+/* Newsreader — serif display: headings, wordmark, KPI numerals. */
+@font-face {
+  font-family: "Newsreader";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("../fonts/newsreader-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Newsreader";
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url("../fonts/newsreader-400-italic.woff2") format("woff2");
+}
+
+/* Geist — body, tables, UI chrome. */
+@font-face {
+  font-family: "Geist";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("../fonts/geist-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Geist";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("../fonts/geist-500.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Geist";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("../fonts/geist-600.woff2") format("woff2");
+}
+
+/* Geist Mono — IDs, timestamps, costs, raw transcript. */
+@font-face {
+  font-family: "Geist Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("../fonts/geist-mono-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Geist Mono";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("../fonts/geist-mono-500.woff2") format("woff2");
+}

@@ -2,6 +2,7 @@
    live in their own modules so component CSS can `@import` them
    without pulling in the rest of this file. Keep imports first —
    CSS @import is order-sensitive. */
+@import url("css/fonts.css");
 @import url("css/tokens.css");
 @import url("css/base.css");
 @import url("css/typography.css");
@@ -33,16 +34,21 @@
   grid-column: 1 / 3;
   display: flex;
   align-items: center;
-  padding: 0 16px;
+  padding: 0 24px;
   border-bottom: 1px solid var(--divider);
-  background: var(--bg-elev-1);
+  background: var(--bg);
   gap: 16px;
 }
 
+/* Folio running header: serif small-caps wordmark */
 .brand {
-  font-weight: 700;
-  letter-spacing: 0.5px;
-  font-family: var(--font-mono);
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-size: var(--text-md);
+  font-variant: small-caps;
+  letter-spacing: 0.08em;
+  color: var(--text-1);
+  text-decoration: none;
 }
 
 .topbar-right {
@@ -71,29 +77,42 @@
 
 .sidebar {
   border-right: 1px solid var(--divider);
-  background: var(--bg-elev-1);
-  padding: 12px 8px;
+  background: var(--bg);
+  padding: 20px 12px;
   overflow-y: auto;
 }
 
 .sidebar a {
   display: block;
   color: var(--text-2);
-  padding: 8px 12px;
-  border-radius: 6px;
-  margin-bottom: 2px;
+  padding: 7px 12px;
+  border-radius: 0;
+  margin-bottom: 0;
+  font-size: var(--text-sm);
+  letter-spacing: 0.02em;
+  border-left: 2px solid transparent;
+  transition: color var(--duration-fast) var(--ease),
+              border-color var(--duration-fast) var(--ease);
 }
 
-.sidebar a:hover,
-.sidebar a.active {
-  background: var(--bg-elev-2);
+.sidebar a:hover {
   color: var(--text-1);
   text-decoration: none;
+  border-left-color: var(--divider);
+}
+
+.sidebar a.active {
+  color: var(--accent);
+  text-decoration: none;
+  border-left-color: var(--accent);
+  font-weight: var(--w-medium);
 }
 
 .main {
   overflow-y: auto;
-  padding: 16px 24px;
+  /* Cap the reading measure so wide screens stay composed instead of
+     spreading edge to edge; gutters never fall below the page margin. */
+  padding: var(--space-7) max(var(--space-7), (100% - 1320px) / 2);
   position: relative;
 }
 
@@ -142,7 +161,7 @@
   border-left: 1px solid var(--divider);
   overflow-y: auto;
   z-index: 10;
-  transition: transform 120ms ease-out;
+  transition: transform var(--duration-slow) var(--ease);
 }
 
 #side-panel:empty {
@@ -170,9 +189,9 @@
 }
 
 .panel-section-title {
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: .6px;
+  font-size: var(--text-sm);
+  font-variant: small-caps;
+  letter-spacing: 0.08em;
   color: var(--text-2);
   margin-bottom: 8px;
 }
@@ -194,9 +213,9 @@
 
 .raw-toggle summary {
   cursor: pointer;
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: .6px;
+  font-size: var(--text-sm);
+  font-variant: small-caps;
+  letter-spacing: 0.08em;
   color: var(--text-2);
   margin-bottom: 8px;
   user-select: none;
@@ -221,15 +240,121 @@ td {
 }
 
 th {
-  font-weight: 500;
+  font-weight: var(--w-regular);
   color: var(--text-2);
-  text-transform: uppercase;
-  font-size: 10px;
-  letter-spacing: 0.5px;
+  font-variant: small-caps;
+  font-size: var(--text-sm);
+  letter-spacing: 0.06em;
 }
 
 tr:hover {
   background: var(--bg-elev-1);
+}
+
+/* Data-table cell links read as text; accent is reserved for hover and for
+   genuine navigation chrome (pagination, sidebar), not entire columns. The
+   Sessions table keeps its own more-specific rules. */
+.main td a {
+  color: var(--text-1);
+}
+
+.main td a:hover {
+  color: var(--accent);
+}
+
+/* Projects leaderboard: name · agent · magnitude bar · count. A bar per row
+   fills what used to be dead horizontal space and makes the ranking
+   scannable; accent stays for hover, the data reads as text. */
+.projects-board {
+  display: flex;
+  flex-direction: column;
+  max-width: 1080px;
+}
+
+.projects-row {
+  display: grid;
+  grid-template-columns: minmax(200px, 340px) 104px minmax(80px, 1fr) 64px;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--divider);
+  font-size: var(--text-sm);
+}
+
+.projects-row-head {
+  color: var(--text-3);
+  font-variant: small-caps;
+  letter-spacing: 0.06em;
+}
+
+.projects-name {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.projects-name a {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  color: var(--text-1);
+  text-decoration: none;
+}
+
+.projects-name a > span,
+.projects-name > a:not(.project-link) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.projects-name a:hover {
+  color: var(--accent);
+}
+
+.project-sessions-link {
+  flex: none;
+  color: var(--text-3);
+}
+
+.projects-agent {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.projects-agent a {
+  color: var(--text-2);
+}
+
+.projects-agent a:hover {
+  color: var(--accent);
+}
+
+.projects-count {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-1);
+}
+
+@media (max-width: 760px) {
+  .projects-row-head {
+    display: none;
+  }
+  .projects-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: var(--space-1) var(--space-3);
+    padding: var(--space-3) 0;
+  }
+  .projects-name {
+    grid-column: 1 / -1;
+  }
+  .projects-row .bar-track {
+    display: none;
+  }
 }
 
 .heatmap-summary {
@@ -240,8 +365,15 @@ tr:hover {
   margin-bottom: 10px;
 }
 
+/* The month axis, weekday axis, grid, and cells all size off --heatmap-cell,
+   so one larger value scales the whole calendar in step. Sized up from 12px
+   so 53 weeks fill the content measure instead of leaving a wide right gap;
+   block (not inline-block) lets it occupy the card's full width. */
 .heatmap {
-  display: inline-block;
+  --heatmap-cell: 18px;
+  --heatmap-gap: 4px;
+  --heatmap-axis: 24px;
+  display: block;
   max-width: 100%;
   overflow-x: auto;
   padding-bottom: 6px;
@@ -249,11 +381,11 @@ tr:hover {
 
 .heatmap-month-axis {
   display: grid;
-  grid-template-columns: repeat(var(--cols, 0), 12px);
-  gap: 4px;
-  margin-left: 30px;
+  grid-template-columns: repeat(var(--cols, 0), var(--heatmap-cell));
+  gap: var(--heatmap-gap);
+  margin-left: calc(var(--heatmap-axis) + 6px);
   margin-bottom: 4px;
-  height: 12px;
+  height: var(--heatmap-cell);
   font-size: 10px;
   color: var(--text-2);
   letter-spacing: 0.4px;
@@ -272,38 +404,38 @@ tr:hover {
 
 .heatmap-weekday-axis {
   display: grid;
-  grid-template-rows: repeat(7, 12px);
-  gap: 4px;
+  grid-template-rows: repeat(7, var(--heatmap-cell));
+  gap: var(--heatmap-gap);
   font-size: 10px;
   color: var(--text-2);
   text-align: right;
-  width: 24px;
+  width: var(--heatmap-axis);
 }
 
 .heatmap-weekday-axis > span {
-  line-height: 12px;
-  height: 12px;
+  line-height: var(--heatmap-cell);
+  height: var(--heatmap-cell);
 }
 
 .heatmap-grid {
   display: grid;
   grid-auto-flow: column;
-  grid-template-rows: repeat(7, 12px);
-  grid-auto-columns: 12px;
-  gap: 4px;
+  grid-template-rows: repeat(7, var(--heatmap-cell));
+  grid-auto-columns: var(--heatmap-cell);
+  gap: var(--heatmap-gap);
   align-items: center;
 }
 
 .heatmap-cell,
 .heatmap-spacer {
-  width: 12px;
-  height: 12px;
+  width: var(--heatmap-cell);
+  height: var(--heatmap-cell);
   border-radius: 2px;
 }
 
 .heatmap-cell {
   background: var(--bg-elev-2);
-  border: 1px solid var(--divider);
+  border: 1px solid transparent;
 }
 
 .heatmap-cell.level-1 {
@@ -327,7 +459,7 @@ tr:hover {
   display: flex;
   align-items: center;
   gap: 4px;
-  margin: 10px 0 0 30px;
+  margin: 10px 0 0 calc(var(--heatmap-axis) + 6px);
   font-size: 11px;
   color: var(--text-2);
 }
@@ -344,19 +476,21 @@ tr:hover {
 
 .usage-summary-value {
   display: block;
-  font-size: 30px;
-  line-height: 1.1;
-  font-weight: 500;
+  font-family: var(--font-serif);
+  font-size: var(--text-xl);
+  line-height: 1;
+  font-weight: 400;
   font-variant-numeric: tabular-nums;
+  color: var(--text-1);
 }
 
 .usage-summary-label {
   display: block;
-  margin-top: 4px;
+  margin-top: 6px;
   color: var(--text-2);
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.6px;
+  font-variant: small-caps;
+  font-size: var(--text-sm);
+  letter-spacing: 0.08em;
 }
 
 .usage-list {
@@ -366,7 +500,8 @@ tr:hover {
 }
 
 .usage-row {
-  border-bottom: 1px solid var(--divider);
+  border-top: 1px solid var(--divider);
+  padding-top: 14px;
   padding-bottom: 14px;
 }
 
@@ -435,30 +570,35 @@ tr:hover {
 .login-box {
   background: var(--bg-elev-1);
   border: 1px solid var(--divider);
-  border-radius: 8px;
-  padding: 32px 28px;
+  border-top: 3px solid var(--accent);
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  padding: 40px 36px;
   width: 360px;
   text-align: center;
 }
 
-/* Wider variant for the CLI authorize page — it surfaces a device
-   fingerprint that needs more breathing room than a stock 360px
-   login card. */
+/* Wider variant for the CLI authorize page. */
 .login-box-wide {
   width: 420px;
   max-width: 420px;
 }
 
 .login-box h1 {
-  margin: 0 0 4px;
-  font-family: var(--font-mono);
-  letter-spacing: 1px;
+  margin: 0 0 8px;
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-variant: small-caps;
+  font-size: var(--text-xl);
+  letter-spacing: 0.1em;
+  color: var(--text-1);
 }
 
 .login-box p {
   color: var(--text-2);
-  margin: 0 0 24px;
-  font-size: 13px;
+  margin: 0 0 28px;
+  font-size: var(--text-sm);
+  font-style: italic;
+  font-family: var(--font-serif);
 }
 
 .dev-warn {
@@ -655,6 +795,56 @@ tr:hover {
     overflow-x: auto;
   }
 
+  .heatmap {
+    --heatmap-cell: 5px;
+    --heatmap-gap: 1px;
+    --heatmap-axis: 20px;
+    width: 100%;
+  }
+
+  .heatmap-month-axis,
+  .heatmap-weekday-axis {
+    font-size: 9px;
+  }
+
+  .devices-table {
+    display: block;
+    overflow-x: visible;
+  }
+
+  .devices-table thead {
+    display: none;
+  }
+
+  .devices-table tbody,
+  .devices-table tr,
+  .devices-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .devices-table tr {
+    padding: var(--space-4) 0;
+    border-bottom: 1px solid var(--divider);
+  }
+
+  .devices-table td {
+    display: grid;
+    grid-template-columns: 82px minmax(0, 1fr);
+    gap: var(--space-3);
+    align-items: start;
+    padding: var(--space-1) 0;
+    border-bottom: 0;
+    word-break: break-word;
+  }
+
+  .devices-table td::before {
+    content: attr(data-label);
+    color: var(--text-3);
+    font-variant: small-caps;
+    letter-spacing: 0.06em;
+  }
+
   .usage-summary {
     gap: 28px;
     flex-wrap: wrap;
@@ -696,5 +886,13 @@ tr:hover {
   #side-panel {
     left: 0;
     width: 100%;
+  }
+}
+
+@media (min-width: 761px) and (max-width: 1100px) {
+  .heatmap {
+    --heatmap-cell: 8px;
+    --heatmap-gap: 2px;
+    --heatmap-axis: 24px;
   }
 }

@@ -10,10 +10,10 @@ import (
 	prosav1 "github.com/c3-oss/prosa/gen/go/prosa/v1"
 )
 
-// defaultTheme is the colorblind-safe (Okabe–Ito) palette, applied when
-// the owner has never picked one or the stored value is unknown. It
+// defaultTheme is the Almanac (warm editorial) palette in :root, applied
+// when the owner has never picked one or the stored value is unknown. It
 // matches the chart palette so UI and charts read as one system.
-const defaultTheme = "colorblind"
+const defaultTheme = "almanac"
 
 // themePrefKey is the panel_preferences row key the theme lives under.
 const themePrefKey = "theme"
@@ -32,7 +32,8 @@ type ThemeMeta struct {
 // renders from it and the Set handler validates against it, so the two
 // can never drift. Order here is the order shown on the Settings page.
 var Themes = []ThemeMeta{
-	{"colorblind", "Colorblind", "Colorblind-safe (default)", []string{"#56b4e9", "#e69f00", "#1fb894", "#ef6c1a"}},
+	{"almanac", "Almanac", "Warm editorial (default)", []string{"#2f8f7f", "#c9952f", "#7aaa6d", "#cf6b4a"}},
+	{"colorblind", "Colorblind", "Colorblind-safe Okabe-Ito", []string{"#56b4e9", "#e69f00", "#1fb894", "#ef6c1a"}},
 	{"light", "Light", "Always light", []string{"#4a5af0", "#56b4e9", "#e69f00", "#009e73"}},
 	{"nord", "Nord", "Cool arctic", []string{"#88c0d0", "#ebcb8b", "#a3be8c", "#bf616a"}},
 	{"solarized-dark", "Solarized Dark", "Solarized dark", []string{"#268bd2", "#b58900", "#859900", "#dc322f"}},
@@ -54,7 +55,7 @@ func validTheme(id string) bool {
 }
 
 // currentTheme resolves the theme for the request's owner, defaulting to
-// colorblind for anonymous requests or on any lookup failure.
+// almanac for anonymous requests or on any lookup failure.
 func (p *Panel) currentTheme(r *http.Request) string {
 	s, ok := p.cookie.FromRequest(r)
 	if !ok {

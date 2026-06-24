@@ -575,9 +575,10 @@ Settings
   +---------------------------------------------------+
   +---------------------------------------------------+
   |  Appearance                                       |
-  |  (o) Colorblind   ( ) Light       ( ) Nord        |
-  |  ( ) Solar. Dark  ( ) Solar. Light( ) Dracula     |
-  |  ( ) Gruvbox      ( ) High Contr. ( ) System      |
+  |  (o) Almanac      ( ) Colorblind  ( ) Light       |
+  |  ( ) Nord         ( ) Solar. Dark ( ) Solar. Light|
+  |  ( ) Dracula      ( ) Gruvbox     ( ) High Contr. |
+  |  ( ) System                                       |
   +---------------------------------------------------+
   +---------------------------------------------------+
   |  Time window                                      |
@@ -591,10 +592,10 @@ Settings
 
 - Email comes from the session cookie (`p.cookie.FromRequest(r)`).
 - Logout button posts to `/logout` (same as the topbar form).
-- The theme picker is a swatch grid of nine options: the colorblind
-  (Okabe–Ito) default, seven alternates (`light`, `nord`,
+- The theme picker is a swatch grid of ten options: the Almanac (warm
+  editorial) default, then Colorblind (Okabe-Ito), `light`, `nord`,
   `solarized-dark`, `solarized-light`, `dracula`, `gruvbox`,
-  `high-contrast`), and `system`. Picking one sets `data-theme` on
+  `high-contrast`, and `system`. Picking one sets `data-theme` on
   `<html>` immediately — recoloring chrome and charts — and POSTs to
   `/settings/theme`.
 - `/settings/theme` persists the choice server-side via
@@ -609,7 +610,7 @@ Settings
   saved window. A page without its own saved window uses the Settings
   default.
 - `/settings/reset` clears the stored theme, default window, and page
-  window preferences. The rendered defaults are Colorblind and `30d`.
+  window preferences. The rendered defaults are Almanac and `30d`.
 - The catalog is `panel.Themes`: the picker renders from it and the
   handler validates the submitted value against it, so the two never
   drift.
