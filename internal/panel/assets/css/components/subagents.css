@@ -12,68 +12,62 @@
   list-style: none;
   margin: 0;
   padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
 }
 
 .subagent-item {
   margin: 0;
 }
 
+/* Minimal feed row (echoes the Sessions feed): a hairline-separated line of
+   agent badge · first prompt · time, transparent until hover — lighter than
+   the old bordered card. */
 .subagent-link {
-  display: block;
-  padding: var(--space-3) var(--space-4);
-  background: var(--bg-elev-1);
-  border: 1px solid var(--divider);
-  border-radius: var(--radius-sm);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2);
+  border-top: 1px solid var(--divider);
   color: var(--text-1);
   text-decoration: none;
-  transition: background var(--duration-fast) var(--ease),
-              border-color var(--duration-fast) var(--ease);
+  transition: background var(--duration-fast) var(--ease);
+}
+
+.subagent-item:first-child .subagent-link {
+  border-top: 0;
 }
 
 .subagent-link:hover {
-  background: var(--bg-elev-2);
-  border-color: var(--accent-soft);
+  background: var(--bg-elev-1);
   text-decoration: none;
-}
-
-.subagent-meta {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-3);
-  font-size: var(--text-xs);
-  color: var(--text-2);
-  margin-bottom: 4px;
-}
-
-/* .subagent-agent was the plain-text agent label; superseded by the
-   agentBadge template helper which renders the colored pill directly
-   inside .subagent-meta. */
-
-.subagent-time {
-  margin-left: auto;
-  font-family: var(--font-mono);
 }
 
 .subagent-prompt {
   font-size: var(--text-sm);
-  line-height: 1.4;
-  color: var(--text-1);
+  color: var(--text-2);
   overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  -webkit-box-orient: vertical;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.subagent-time {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-3);
+  white-space: nowrap;
 }
 
 /* Top placement: subagents sit just under the stats so they're seen first,
-   not buried at the end. A capped, scrollable list keeps a parent with many
-   children from pushing the transcript off-screen. */
+   not buried at the end. Carries the same section treatment as the masthead
+   and stats above (bottom rule + padding) so the scrollable list never
+   collides with the Details disclosure below it. A capped, scrollable list
+   keeps a parent with many children from pushing the transcript off-screen. */
 .sp-subagents-top {
-  margin-top: var(--space-5);
-  margin-bottom: 0;
+  margin-top: 0;
+  margin-bottom: var(--space-6);
+  padding-bottom: var(--space-5);
+  border-bottom: 1px solid var(--divider);
 }
 
 .sp-subagents-top .subagent-list {

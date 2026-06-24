@@ -25,8 +25,8 @@
       <h2 class="sp-prompt">{{or .Session.FirstPrompt "(no prompt)"}}</h2>
       <p class="sp-byline">
         <span class="sp-byline-item">{{projectLink .Project}}</span>
-        <span class="sp-byline-item"><time>{{(.Session.StartedAt.AsTime).Format "Jan 2, 15:04"}}</time></span>
-        {{if .Session.Model}}<span class="sp-byline-item mono">{{.Session.Model}}</span>{{end}}
+        <span class="sp-byline-item mono"><time>{{(.Session.StartedAt.AsTime).Format "Jan 2, 15:04"}}</time></span>
+        {{if .Session.Model}}<span class="sp-byline-item mono">{{displayModel .Session.Model}}</span>{{end}}
       </p>
     </div>
     <section class="stats-cluster" aria-label="session stats">
@@ -64,11 +64,9 @@
                  hx-target="#side-panel"
                  hx-push-url="?session={{.Id}}"
                  hx-swap="innerHTML">
-                <div class="subagent-meta">
-                  {{agentBadge .Agent}}
-                  {{if .StartedAt}}<time class="subagent-time">{{(.StartedAt.AsTime).Format "15:04:05"}}</time>{{end}}
-                </div>
-                <div class="subagent-prompt">{{or .FirstPrompt "(no prompt)"}}</div>
+                {{agentBadge .Agent}}
+                <span class="subagent-prompt">{{or .FirstPrompt "(no prompt)"}}</span>
+                {{if .StartedAt}}<time class="subagent-time">{{(.StartedAt.AsTime).Format "15:04:05"}}</time>{{end}}
               </a>
             </li>
           {{end}}
