@@ -40,7 +40,7 @@
               <a href="/sessions?project={{urlquery $row.Project}}&last={{$.Last}}" title="{{$proj.Label}}">{{$proj.Label}}</a>
             {{end}}
           </span>
-          <span class="projects-agent"><a href="/sessions?agent={{urlquery $row.Agent}}&last={{$.Last}}">{{$row.Agent}}</a></span>
+          <span class="projects-agent"><a href="/sessions?agent={{urlquery $row.Agent}}&last={{$.Last}}">{{displayAgent $row.Agent}}</a></span>
           <span class="bar-track"><span class="bar-fill" style="width: {{$row.Percent}}%"></span></span>
           <span class="projects-count">{{$row.Sessions}}</span>
         </div>

@@ -78,7 +78,7 @@
       </div>
       <ul class="cost-legend share-legend">
         {{range .Trend.Legend}}
-          <li><span class="cost-legend-dot" data-ci="{{.ColorIdx}}"></span><span class="cost-legend-model">{{.Model}}</span><span class="cost-legend-cost">{{.Sessions}}</span></li>
+          <li><span class="cost-legend-dot" data-ci="{{.ColorIdx}}"></span><span class="cost-legend-model">{{displayAgent .Model}}</span><span class="cost-legend-cost">{{.Sessions}}</span></li>
         {{end}}
       </ul>
     {{else}}
@@ -161,12 +161,12 @@
             <div class="usage-row">
               <div class="usage-head">
                 <div>
-                  <strong>{{.Agent}}</strong>
+                  <strong>{{displayAgent .Agent}}</strong>
                   <span>{{.Sessions}} sessions · {{.Measured}} measured</span>
                 </div>
                 <div class="usage-cost">{{.Cost}}</div>
               </div>
-              <div class="usage-bar" aria-label="{{.Agent}} token share">
+              <div class="usage-bar" aria-label="{{displayAgent .Agent}} token share">
                 <span style="width: {{.Percent}}%"></span>
               </div>
               <div class="usage-breakdown">
