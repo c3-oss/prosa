@@ -256,6 +256,7 @@ func templateFuncs() template.FuncMap {
 		"projectLink":         projectLink,
 		"projectDisplayLabel": projectDisplayFromLabel,
 		"displayModel":        displayModel,
+		"displayAgent":        displayAgent,
 	}
 }
 

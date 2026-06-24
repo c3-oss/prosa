@@ -2,6 +2,23 @@ package panel
 
 import "testing"
 
+func TestDisplayAgent(t *testing.T) {
+	cases := []struct{ raw, want string }{
+		{"claude-code", "Claude Code"},
+		{"codex", "Codex"},
+		{"gemini", "Gemini"},
+		{"antigravity", "Antigravity"},
+		{"hermes", "Hermes"},
+		{"cursor", "Cursor"},
+		{"", ""},
+	}
+	for _, c := range cases {
+		if got := displayAgent(c.raw); got != c.want {
+			t.Errorf("displayAgent(%q) = %q, want %q", c.raw, got, c.want)
+		}
+	}
+}
+
 func TestDisplayModel(t *testing.T) {
 	cases := []struct {
 		raw  string

@@ -126,6 +126,17 @@ func displayModel(raw string) string {
 	return titleWords(s)
 }
 
+// displayAgent renders a raw agent id as a human label for display
+// ("claude-code" → "Claude Code", "codex" → "Codex"). Presentation only —
+// callers keep the raw id for links, filters, and badges.
+func displayAgent(raw string) string {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return s
+	}
+	return titleWords(s)
+}
+
 // isDateStamp reports whether s is an 8-digit YYYYMMDD-style suffix.
 func isDateStamp(s string) bool {
 	if len(s) != 8 {
