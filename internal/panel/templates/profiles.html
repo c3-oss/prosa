@@ -48,27 +48,23 @@
         <h2>Tokens &amp; cost per profile</h2>
         <span class="card-sub">{{.Usage.TotalTokens}} tokens · {{.Usage.TotalSpend}} est. spend</span>
       </header>
-      {{if .Usage.TokenBars}}
-        <div class="bar-list">
-          {{range .Usage.TokenBars}}
-            <div class="bar-row">
+      {{if .Usage.ProfileBars}}
+        <div class="bar-list profile-board">
+          <div class="profile-row profile-row-head" aria-hidden="true">
+            <span>Profile</span>
+            <span></span>
+            <span class="profile-num">Tokens</span>
+            <span class="profile-num">Spend</span>
+          </div>
+          {{range .Usage.ProfileBars}}
+            <div class="profile-row">
               <span class="bar-label">{{.Label}}</span>
               <span class="bar-track"><span class="bar-fill" style="width: {{.Percent}}%"></span></span>
-              <span class="bar-count">{{.Count}}</span>
+              <span class="profile-num">{{.Tokens}}</span>
+              <span class="profile-num">{{.Cost}}</span>
             </div>
           {{end}}
         </div>
-        {{if .Usage.CostLegend}}
-          <div class="trend-chart">
-            <div data-chart="profile-cost-donut"></div>
-            <script type="application/json" class="chart-spec" data-for="profile-cost-donut">{{ .Usage.CostDonut.JSON }}</script>
-          </div>
-          <ul class="cost-legend">
-            {{range .Usage.CostLegend}}
-              <li><span class="cost-legend-dot" data-ci="{{.ColorIdx}}"></span><span class="cost-legend-model">{{.Model}}</span><span class="cost-legend-cost">{{.Cost}}</span></li>
-            {{end}}
-          </ul>
-        {{end}}
       {{else}}
         <div class="empty">no measured usage in this window.</div>
       {{end}}

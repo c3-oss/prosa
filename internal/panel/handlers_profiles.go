@@ -11,7 +11,6 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	prosav1 "github.com/c3-oss/prosa/gen/go/prosa/v1"
-	"github.com/c3-oss/prosa/internal/panel/charts"
 	"github.com/c3-oss/prosa/internal/pricing"
 	"github.com/c3-oss/prosa/pkg/session"
 )
@@ -135,17 +134,25 @@ type profilePanelRow struct {
 }
 
 // profileUsageView powers the profiles dashboard: the KPI strip, the
-// tokens-per-profile bars, the cost donut, and the enriched table.
+// tokens-and-cost-per-profile leaderboard, and the enriched table.
 type profileUsageView struct {
 	ActiveProfiles string
 	NonDefaultPct  string
 	TotalTokens    string
 	TotalSpend     string
-	TokenBars      []barRow
-	CostDonut      charts.Spec
-	CostLegend     []costLegendRow
+	ProfileBars    []profileCostRow
 	Rows           []profilePanelRow
 	HasData        bool
+}
+
+// profileCostRow is one row of the per-profile leaderboard: the agent·profile
+// label, its compact token total with a magnitude bar, and the estimated cost
+// folded onto the same line (so the bars carry both numbers, no separate donut).
+type profileCostRow struct {
+	Label   string
+	Tokens  string
+	Cost    string
+	Percent int
 }
 
 // buildProfileUsage folds profile_usage rows (one per device × agent ×
@@ -240,29 +247,18 @@ func buildProfileUsage(rows []*prosav1.AnalyticsRow) profileUsageView {
 
 	labels := make([]string, 0, len(chartOrder))
 	tokenCounts := make([]int64, 0, len(chartOrder))
-	var donutLabels []string
-	var donutValues []float64
 	for _, ck := range chartOrder {
 		labels = append(labels, ck)
 		tokenCounts = append(tokenCounts, chartTokens[ck])
-		if c := chartCost[ck]; c > 0 {
-			donutLabels = append(donutLabels, ck)
-			donutValues = append(donutValues, c)
-		}
 	}
-	view.TokenBars = barsFromPairs(labels, tokenCounts, 8, formatTokensCompact)
-	view.CostDonut = charts.Spec{
-		Type:        "donut",
-		Labels:      donutLabels,
-		Datasets:    []charts.Dataset{{Values: donutValues}},
-		ValuePrefix: "$",
-		Height:      200,
-	}
-	for i, label := range donutLabels {
-		view.CostLegend = append(view.CostLegend, costLegendRow{
-			ColorIdx: i,
-			Model:    label,
-			Cost:     formatUSD(donutValues[i]),
+	// One leaderboard: token magnitude bar plus the est. cost on the same row.
+	for _, b := range barsFromPairs(labels, tokenCounts, 8, formatTokensCompact) {
+		cost := chartCost[b.Label]
+		view.ProfileBars = append(view.ProfileBars, profileCostRow{
+			Label:   b.Label,
+			Tokens:  b.Count,
+			Cost:    costLabel(cost, cost > 0),
+			Percent: b.Percent,
 		})
 	}
 
