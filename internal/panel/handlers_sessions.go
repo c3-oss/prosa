@@ -83,6 +83,7 @@ type sessionRow struct {
 	StartedAt       string
 	StartedAtFull   string
 	StartedRel      string
+	StartedDay      string
 	OpenURL         string
 	Kinds           []string
 	IsChild         bool
@@ -587,10 +588,12 @@ func buildSessionRow(s *prosav1.Session, current *url.URL, deviceLookup map[stri
 	cost, priced := sessionCost(s)
 	startedFull := ""
 	startedRel := ""
+	startedDay := ""
 	if s.StartedAt != nil {
 		t := s.StartedAt.AsTime().In(time.Local)
 		startedFull = t.Format("2006-01-02 15:04:05")
 		startedRel = relativeTime(t)
+		startedDay = dayBucket(t)
 	}
 	device := s.DeviceId
 	if name, ok := deviceLookup[s.DeviceId]; ok && name != "" {
@@ -619,8 +622,31 @@ func buildSessionRow(s *prosav1.Session, current *url.URL, deviceLookup map[stri
 		StartedAt:       startedRel,
 		StartedAtFull:   startedFull,
 		StartedRel:      startedRel,
+		StartedDay:      startedDay,
 		OpenURL:         openURL,
 		Kinds:           append([]string(nil), s.Kinds...),
+	}
+}
+
+// dayBucket labels a start time as the feed's day header: "Today",
+// "Yesterday", or a dated weekday (the year is shown only when it differs
+// from the current one). Buckets are computed in local time against nowFn so
+// the grouping matches the relative timestamps in each row.
+func dayBucket(t time.Time) string {
+	now := nowFn().In(time.Local)
+	y, m, d := now.Date()
+	today := time.Date(y, m, d, 0, 0, 0, 0, time.Local)
+	ty, tm, td := t.In(time.Local).Date()
+	day := time.Date(ty, tm, td, 0, 0, 0, 0, time.Local)
+	switch days := int(today.Sub(day).Hours()) / 24; {
+	case days == 0:
+		return "Today"
+	case days == 1:
+		return "Yesterday"
+	case ty == y:
+		return t.In(time.Local).Format("Mon, Jan 2")
+	default:
+		return t.In(time.Local).Format("Mon, Jan 2, 2006")
 	}
 }
 

@@ -7,7 +7,7 @@
 
   <form class="sessions-search" method="get" action="/sessions" x-data>
     <input id="search" type="search" name="q" value="{{.Q}}"
-           placeholder="search sessions (FTS)" autofocus
+           placeholder="Search sessions…" autofocus
            @input.debounce.300ms="$el.form.requestSubmit()">
     {{if .Last}}<input type="hidden" name="last" value="{{.Last}}">{{end}}
     {{range $a, $sel := .AgentsSelected}}{{if $sel}}<input type="hidden" name="agent" value="{{$a}}">{{end}}{{end}}
@@ -15,32 +15,36 @@
     {{range $d, $sel := .DevicesSelected}}{{if $sel}}<input type="hidden" name="device" value="{{$d}}">{{end}}{{end}}
     {{range $pr, $sel := .ProfilesSelected}}{{if $sel}}<input type="hidden" name="profile" value="{{$pr}}">{{end}}{{end}}
     {{range $k, $sel := .KindsSelected}}{{if $sel}}<input type="hidden" name="kind" value="{{$k}}">{{end}}{{end}}
-    {{if .Sort}}<input type="hidden" name="sort" value="{{.Sort}}">{{end}}
-    {{if .Dir}}<input type="hidden" name="dir" value="{{.Dir}}">{{end}}
-    {{range $c, $on := .Cols}}{{if $on}}<input type="hidden" name="cols" value="{{$c}}">{{end}}{{end}}
+    <input type="hidden" name="group_subagents" value="on">
   </form>
 
-  {{if .ActiveFilters}}
-    <div class="active-filters" aria-label="active filters">
-      {{range .ActiveFilters}}
-        <a class="active-filter-chip" href="{{.RemoveURL}}" title="remove this filter">
-          <span class="label">{{.Label}}</span>
-          <span class="value">{{.Value}}</span>
-          <span class="remove" aria-hidden="true">×</span>
-        </a>
-      {{end}}
-      {{if .ClearFiltersURL}}
-        <a class="active-filters-clear" href="{{.ClearFiltersURL}}">Clear all</a>
+  <div class="sessions-controls" x-data="{ open: false }">
+    <div class="sessions-controls-head">
+      <button type="button" class="sessions-filters-toggle"
+              @click="open = !open" :aria-expanded="open.toString()">
+        Filters{{if .ActiveFilters}} · {{len .ActiveFilters}}{{end}}
+        <span class="caret" :class="{ 'is-open': open }" aria-hidden="true">▾</span>
+      </button>
+      {{if .ActiveFilters}}
+        <div class="active-filters" aria-label="active filters">
+          {{range .ActiveFilters}}
+            <a class="active-filter-chip" href="{{.RemoveURL}}" title="remove this filter">
+              <span class="label">{{.Label}}</span>
+              <span class="value">{{.Value}}</span>
+              <span class="remove" aria-hidden="true">×</span>
+            </a>
+          {{end}}
+          {{if .ClearFiltersURL}}
+            <a class="active-filters-clear" href="{{.ClearFiltersURL}}">Clear all</a>
+          {{end}}
+        </div>
       {{end}}
     </div>
-  {{end}}
 
-  <form class="filter-bar" method="get" action="/sessions"
-        x-data @change="$el.requestSubmit()">
+  <form class="filter-bar sessions-filter-bar" method="get" action="/sessions"
+        x-show="open" x-collapse x-cloak @change="$el.requestSubmit()">
     <input type="hidden" name="q" value="{{.Q}}">
-    {{if .Sort}}<input type="hidden" name="sort" value="{{.Sort}}">{{end}}
-    {{if .Dir}}<input type="hidden" name="dir" value="{{.Dir}}">{{end}}
-    {{range $c, $on := .Cols}}{{if $on}}<input type="hidden" name="cols" value="{{$c}}">{{end}}{{end}}
+    <input type="hidden" name="group_subagents" value="on">
 
     <label>
       Window
@@ -170,21 +174,6 @@
     </label>
 
     <label>
-      Columns
-      <div class="dropdown dropdown-columns">
-        <button type="button" class="dropdown-toggle">columns ▾</button>
-        <div class="dropdown-menu dropdown-menu-wide" hidden>
-          {{range $c, $on := .Cols}}
-            <label class="dropdown-item">
-              <input type="checkbox" name="cols" value="{{$c}}" {{if $on}}checked{{end}}>
-              <span>{{$c}}</span>
-            </label>
-          {{end}}
-        </div>
-      </div>
-    </label>
-
-    <label>
       Per page
       <select name="limit" aria-label="rows per page">
         {{$cur := .PageLimit}}
@@ -194,135 +183,36 @@
       </select>
     </label>
 
-    <label class="filter-toggle">
-      <input type="hidden" name="group_subagents" value="off">
-      <input type="checkbox" name="group_subagents" value="on" {{if .GroupSubagents}}checked{{end}}>
-      <span>Group subagents</span>
-    </label>
-
     <noscript><button class="btn" type="submit">Apply</button></noscript>
   </form>
+  </div>
 
-  <table class="sessions-table">
-    <thead>
-      <tr>
-        <th class="cell-expand" aria-label="expand subagents"></th>
-        {{if index .Cols "agent"}}<th><a href="{{index .SortURLs "agent"}}"><span class="sort-arrow">{{index .SortArrows "agent"}}</span>Agent</a></th>{{end}}
-        {{if index .Cols "project"}}<th><a href="{{index .SortURLs "project"}}"><span class="sort-arrow">{{index .SortArrows "project"}}</span>Project</a></th>{{end}}
-        {{if index .Cols "first_prompt"}}<th class="cell-prompt">First message</th>{{end}}
-        {{if index .Cols "tokens"}}<th class="cell-tokens"><a href="{{index .SortURLs "total_tokens"}}"><span class="sort-arrow">{{index .SortArrows "total_tokens"}}</span>Tokens</a></th>{{end}}
-        {{if index .Cols "cost"}}<th class="cell-tokens"><a href="{{index .SortURLs "cost"}}"><span class="sort-arrow">{{index .SortArrows "cost"}}</span>Cost</a></th>{{end}}
-        {{if index .Cols "device"}}<th><a href="{{index .SortURLs "device"}}"><span class="sort-arrow">{{index .SortArrows "device"}}</span>Device</a></th>{{end}}
-        {{if index .Cols "id"}}<th>ID</th>{{end}}
-        <th class="cell-started"><a href="{{index .SortURLs "started_at"}}"><span class="sort-arrow">{{index .SortArrows "started_at"}}</span>Started</a></th>
-      </tr>
-    </thead>
-    {{$cols := .Cols}}
+  <div class="session-feed">
+    {{$lastDay := ""}}
     {{range $session := .Sessions}}
-      {{if $session.Children}}
-        <tbody class="session-group" x-data="{ open: false }">
-          <tr class="session-row session-row-parent"
-              data-href="{{$session.OpenURL}}" data-detail="/sessions/{{$session.Id}}">
-            <td class="cell-expand">
-              <button type="button" class="row-expand"
-                      @click.stop="open = !open"
-                      :aria-expanded="open.toString()"
-                      :title="open ? 'Hide subagents' : 'Show subagents'">
-                <span class="row-expand-caret" :class="{ 'is-open': open }" aria-hidden="true">▸</span>
-                <span class="row-expand-count">{{len $session.Children}}</span>
-              </button>
-            </td>
-            {{if index $cols "agent"}}<td>{{agentBadge $session.Agent}}{{template "kindBadges" $session.Kinds}}</td>{{end}}
-            {{if index $cols "project"}}
-              <td class="cell-project">
-                {{if $session.ProjectURL}}
-                  <a class="project-link" href="{{$session.ProjectURL}}" target="_blank" rel="noopener" onclick="event.stopPropagation()">
-                    {{if eq $session.ProjectProvider "github"}}{{template "icon-github"}}{{else if eq $session.ProjectProvider "gitlab"}}{{template "icon-gitlab"}}{{end}}
-                    <span>{{$session.ProjectLabel}}</span>
-                  </a>
-                {{else}}{{$session.ProjectLabel}}{{end}}
-              </td>
-            {{end}}
-            {{if index $cols "first_prompt"}}
-              <td class="cell-prompt">
-                <a href="{{$session.OpenURL}}" title="{{$session.FirstPromptFull}}"
-                   hx-get="/sessions/{{$session.Id}}" hx-target="#side-panel" hx-swap="innerHTML" hx-push-url="{{$session.OpenURL}}">{{or $session.FirstPrompt "(no prompt)"}}</a>
-              </td>
-            {{end}}
-            {{if index $cols "tokens"}}<td class="cell-tokens" title="{{$session.TokensTotalFull}}">{{$session.TokensTotal}}</td>{{end}}
-            {{if index $cols "cost"}}<td class="cell-tokens">{{$session.Cost}}</td>{{end}}
-            {{if index $cols "device"}}<td>{{$session.Device}}</td>{{end}}
-            {{if index $cols "id"}}<td class="text-mono">{{$session.Id}}</td>{{end}}
-            <td class="cell-started"><time title="{{$session.StartedAtFull}}">{{$session.StartedRel}}</time></td>
-          </tr>
-          {{range $child := $session.Children}}
-            <tr class="session-row session-row-child"
-                data-href="{{$child.OpenURL}}" data-detail="/sessions/{{$child.Id}}"
-                x-show="open">
-              <td class="cell-expand"></td>
-              {{if index $cols "agent"}}<td><span class="row-child-indent" aria-hidden="true">↳</span>{{agentBadge $child.Agent}}{{template "kindBadges" $child.Kinds}}</td>{{end}}
-              {{if index $cols "project"}}
-                <td class="cell-project">
-                  {{if $child.ProjectURL}}
-                    <a class="project-link" href="{{$child.ProjectURL}}" target="_blank" rel="noopener" onclick="event.stopPropagation()">
-                      {{if eq $child.ProjectProvider "github"}}{{template "icon-github"}}{{else if eq $child.ProjectProvider "gitlab"}}{{template "icon-gitlab"}}{{end}}
-                      <span>{{$child.ProjectLabel}}</span>
-                    </a>
-                  {{else}}{{$child.ProjectLabel}}{{end}}
-                </td>
-              {{end}}
-              {{if index $cols "first_prompt"}}
-                <td class="cell-prompt">
-                  <a href="{{$child.OpenURL}}" title="{{$child.FirstPromptFull}}"
-                     hx-get="/sessions/{{$child.Id}}" hx-target="#side-panel" hx-swap="innerHTML" hx-push-url="{{$child.OpenURL}}">{{or $child.FirstPrompt "(no prompt)"}}</a>
-                </td>
-              {{end}}
-              {{if index $cols "tokens"}}<td class="cell-tokens" title="{{$child.TokensTotalFull}}">{{$child.TokensTotal}}</td>{{end}}
-              {{if index $cols "cost"}}<td class="cell-tokens">{{$child.Cost}}</td>{{end}}
-              {{if index $cols "device"}}<td>{{$child.Device}}</td>{{end}}
-              {{if index $cols "id"}}<td class="text-mono">{{$child.Id}}</td>{{end}}
-              <td class="cell-started"><time title="{{$child.StartedAtFull}}">{{$child.StartedRel}}</time></td>
-            </tr>
-          {{end}}
-        </tbody>
-      {{else}}
-        <tbody>
-          <tr class="session-row" data-href="{{$session.OpenURL}}" data-detail="/sessions/{{$session.Id}}">
-            <td class="cell-expand"></td>
-            {{if index $cols "agent"}}<td>{{agentBadge $session.Agent}}{{template "kindBadges" $session.Kinds}}</td>{{end}}
-            {{if index $cols "project"}}
-              <td class="cell-project">
-                {{if $session.ProjectURL}}
-                  <a class="project-link" href="{{$session.ProjectURL}}" target="_blank" rel="noopener" onclick="event.stopPropagation()">
-                    {{if eq $session.ProjectProvider "github"}}{{template "icon-github"}}{{else if eq $session.ProjectProvider "gitlab"}}{{template "icon-gitlab"}}{{end}}
-                    <span>{{$session.ProjectLabel}}</span>
-                  </a>
-                {{else}}{{$session.ProjectLabel}}{{end}}
-              </td>
-            {{end}}
-            {{if index $cols "first_prompt"}}
-              <td class="cell-prompt">
-                <a href="{{$session.OpenURL}}" title="{{$session.FirstPromptFull}}"
-                   hx-get="/sessions/{{$session.Id}}" hx-target="#side-panel" hx-swap="innerHTML" hx-push-url="{{$session.OpenURL}}">{{or $session.FirstPrompt "(no prompt)"}}</a>
-              </td>
-            {{end}}
-            {{if index $cols "tokens"}}<td class="cell-tokens" title="{{$session.TokensTotalFull}}">{{$session.TokensTotal}}</td>{{end}}
-            {{if index $cols "cost"}}<td class="cell-tokens">{{$session.Cost}}</td>{{end}}
-            {{if index $cols "device"}}<td>{{$session.Device}}</td>{{end}}
-            {{if index $cols "id"}}<td class="text-mono">{{$session.Id}}</td>{{end}}
-            <td class="cell-started"><time title="{{$session.StartedAtFull}}">{{$session.StartedRel}}</time></td>
-          </tr>
-        </tbody>
+      {{if ne $session.StartedDay $lastDay}}
+        <div class="feed-day">{{$session.StartedDay}}</div>
+        {{$lastDay = $session.StartedDay}}
       {{end}}
+      <a class="feed-row{{if $session.Children}} is-orchestrator{{end}}" href="{{$session.OpenURL}}"
+         hx-get="/sessions/{{$session.Id}}" hx-target="#side-panel" hx-swap="innerHTML" hx-push-url="{{$session.OpenURL}}"
+         title="{{$session.FirstPromptFull}}">
+        <span class="feed-dot" data-agent="{{$session.Agent}}" title="{{$session.Agent}}"></span>
+        <span class="feed-msg">
+          <span class="feed-msg-text">{{or $session.FirstPrompt "(no prompt)"}}</span>
+          {{if $session.Children}}<span class="feed-subs" title="{{len $session.Children}} subagents">{{len $session.Children}} ⤵</span>{{end}}
+        </span>
+        <span class="feed-project">{{$session.ProjectLabel}}</span>
+        <span class="feed-tokens" title="{{$session.TokensTotalFull}}">{{$session.TokensTotal}}</span>
+        <span class="feed-when"><time title="{{$session.StartedAtFull}}">{{$session.StartedRel}}</time></span>
+      </a>
     {{else}}
-      <tbody>
-        <tr><td colspan="99" class="empty">
-          nothing matched these filters.
-          {{if .ClearFiltersURL}}<a href="{{.ClearFiltersURL}}">Clear all filters</a> to start over.{{end}}
-        </td></tr>
-      </tbody>
+      <div class="empty">
+        nothing matched these filters.
+        {{if .ClearFiltersURL}}<a href="{{.ClearFiltersURL}}">Clear all filters</a> to start over.{{end}}
+      </div>
     {{end}}
-  </table>
+  </div>
 
   <div class="sessions-pagination">
     <span>Page {{.Page}} of {{.PageCount}} · {{.TotalCount}} sessions</span>

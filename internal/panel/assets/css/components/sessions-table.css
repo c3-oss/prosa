@@ -30,12 +30,18 @@
   min-width: 200px;
 }
 
+.sessions-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
 /* Table. Defaults to the same row rhythm as the panel's other tables
    so the visual hierarchy stays consistent across pages. The class
    selector overrides the bare `table` rules that style the analytics
    tables so we keep tighter control over header alignment + hover. */
 .sessions-table {
   width: 100%;
+  min-width: 940px;
   border-collapse: collapse;
 }
 
@@ -106,6 +112,11 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--text-1);
+}
+
+.sessions-table .cell-prompt a:hover {
+  color: var(--accent);
 }
 
 .sessions-table .cell-project {
@@ -126,11 +137,12 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  color: var(--accent);
+  color: var(--text-2);
   text-decoration: none;
 }
 
 .sessions-table .cell-project .project-link:hover {
+  color: var(--accent);
   text-decoration: underline;
 }
 
@@ -256,4 +268,307 @@
 .filter-toggle:has(input[type="checkbox"]:checked) {
   color: var(--text-1);
   border-color: var(--accent-soft);
+}
+
+@media (max-width: 760px) {
+  .sessions-table-wrap {
+    overflow-x: visible;
+  }
+
+  .sessions-table {
+    min-width: 0;
+    display: block;
+  }
+
+  .sessions-table thead {
+    display: none;
+  }
+
+  .sessions-table tbody {
+    display: block;
+    border-top: 1px solid var(--divider);
+  }
+
+  .sessions-table tbody tr.session-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: var(--space-2) var(--space-3);
+    padding: var(--space-4) 0;
+    border-bottom: 1px solid var(--divider);
+  }
+
+  .sessions-table tbody tr.session-row:hover {
+    background: transparent;
+  }
+
+  .sessions-table th,
+  .sessions-table td {
+    display: block;
+    width: auto;
+    min-width: 0;
+    height: auto;
+    padding: 0;
+    border-bottom: 0;
+  }
+
+  .sessions-table .cell-expand {
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
+  }
+
+  .sessions-table .cell-expand:empty {
+    display: none;
+  }
+
+  .sessions-table .cell-agent {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .sessions-table .cell-started {
+    grid-column: 2;
+    grid-row: 1;
+    color: var(--text-3);
+    font-size: var(--text-xs);
+    text-align: right;
+  }
+
+  .sessions-table .session-row-parent .cell-started {
+    grid-column: 1 / -1;
+    grid-row: auto;
+    text-align: left;
+  }
+
+  .sessions-table .session-row-parent .cell-expand {
+    grid-column: 2;
+  }
+
+  .sessions-table .cell-project,
+  .sessions-table .cell-prompt {
+    grid-column: 1 / -1;
+    white-space: normal;
+  }
+
+  .sessions-table .cell-project .project-link {
+    max-width: 100%;
+  }
+
+  .sessions-table .cell-project .project-link span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .sessions-table .cell-prompt {
+    width: auto;
+    max-width: none;
+  }
+
+  .sessions-table .cell-prompt a {
+    display: -webkit-box;
+    white-space: normal;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    -webkit-box-orient: vertical;
+  }
+
+  .sessions-table .cell-token,
+  .sessions-table .cell-cost,
+  .sessions-table .cell-device,
+  .sessions-table .cell-id {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: 84px minmax(0, 1fr);
+    gap: var(--space-3);
+    align-items: baseline;
+    text-align: left;
+    color: var(--text-2);
+    font-size: var(--text-xs);
+  }
+
+  .sessions-table td.cell-token,
+  .sessions-table td.cell-cost,
+  .sessions-table td.cell-device,
+  .sessions-table td.cell-id {
+    text-align: left;
+  }
+
+  .sessions-table .cell-token::before,
+  .sessions-table .cell-cost::before,
+  .sessions-table .cell-device::before,
+  .sessions-table .cell-id::before {
+    content: attr(data-label);
+    color: var(--text-3);
+    font-variant: small-caps;
+    letter-spacing: 0.06em;
+  }
+
+  .sessions-table tbody tr.session-row-child {
+    padding-left: var(--space-4);
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Sessions feed — the refined list: search-led, collapsed filters, sessions
+   grouped by day, one quiet line per session (agent dot · message · project ·
+   tokens · time). Replaces the column table. Pairs with sessions.html.
+   -------------------------------------------------------------------------- */
+
+.sessions-controls {
+  margin: 0 0 var(--space-2);
+}
+
+.sessions-controls-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.sessions-filters-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 32px;
+  padding: 0 var(--space-3);
+  background: transparent;
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-sm);
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+  transition: color var(--duration-fast) var(--ease),
+              border-color var(--duration-fast) var(--ease);
+}
+
+.sessions-filters-toggle:hover,
+.sessions-filters-toggle[aria-expanded="true"] {
+  color: var(--text-1);
+  border-color: var(--text-3);
+}
+
+.sessions-filters-toggle .caret {
+  font-size: 0.85em;
+  transition: transform var(--duration-fast) var(--ease);
+}
+
+.sessions-filters-toggle .caret.is-open {
+  transform: rotate(180deg);
+}
+
+.sessions-filter-bar {
+  margin-top: var(--space-4);
+}
+
+.session-feed {
+  display: flex;
+  flex-direction: column;
+  margin-top: var(--space-4);
+}
+
+.feed-day {
+  font-size: var(--text-sm);
+  font-variant: small-caps;
+  letter-spacing: 0.08em;
+  color: var(--text-3);
+  padding: var(--space-6) 0 var(--space-2);
+}
+
+.feed-day:first-child {
+  padding-top: 0;
+}
+
+.feed-row {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) minmax(90px, 200px) 64px 56px;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-2);
+  border-top: 1px solid var(--divider);
+  color: var(--text-1);
+  text-decoration: none;
+  transition: background var(--duration-fast) var(--ease);
+}
+
+.feed-row:hover {
+  background: var(--bg-elev-1);
+}
+
+.feed-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: var(--radius-full);
+  background: var(--text-3);
+  justify-self: center;
+}
+
+.feed-msg {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.feed-msg-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-1);
+}
+
+.feed-subs {
+  flex: none;
+  color: var(--text-3);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.feed-project {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-2);
+  font-size: var(--text-sm);
+}
+
+.feed-tokens {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+  font-size: var(--text-sm);
+}
+
+.feed-when {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+/* Agent identity — the dot's hue is the only color cue per row. */
+.feed-dot[data-agent="claude-code"],
+.feed-dot[data-agent="claude"] { background: var(--agent-claude); }
+.feed-dot[data-agent="codex"] { background: var(--agent-codex); }
+.feed-dot[data-agent="gemini"] { background: var(--agent-gemini); }
+.feed-dot[data-agent="cursor"] { background: var(--agent-cursor); }
+.feed-dot[data-agent="antigravity"],
+.feed-dot[data-agent="antigrav"] { background: var(--agent-antigrav); }
+.feed-dot[data-agent="hermes"] { background: var(--agent-hermes); }
+
+@media (max-width: 760px) {
+  .feed-row {
+    grid-template-columns: 12px minmax(0, 1fr) auto;
+    gap: var(--space-2) var(--space-3);
+  }
+  .feed-project {
+    grid-column: 2 / -1;
+    font-size: var(--text-xs);
+  }
+  .feed-tokens {
+    display: none;
+  }
 }

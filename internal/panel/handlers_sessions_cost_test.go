@@ -12,7 +12,7 @@ import (
 	"github.com/c3-oss/prosa/gen/go/prosa/v1/prosav1connect"
 )
 
-func TestSessionsGroupedRowsRollUpSubagentCost(t *testing.T) {
+func TestSessionsGroupedFeedShowsParentsOnly(t *testing.T) {
 	parent := pricedPanelSession("parent", "parent prompt", 1000)
 	child := pricedPanelSession("child", "child prompt", 2000)
 	unpriced := unpricedPanelSession("unpriced", "unpriced child")
@@ -47,15 +47,17 @@ func TestSessionsGroupedRowsRollUpSubagentCost(t *testing.T) {
 	require.Equal(t, "parent", childReqs[0].ParentId)
 
 	body := rec.Body.String()
+	// The grouped feed is parent-only: the orchestrator appears with a
+	// subagent count; its children are reached from the detail panel, not
+	// rendered as feed rows. (Cost rollup itself is covered by
+	// TestListSessionsSortedByCostUsesGroupedCost.)
 	require.Contains(t, body, "parent prompt")
-	require.Contains(t, body, `<td class="cell-tokens">$0.03</td>`)
-	require.Contains(t, body, "child prompt")
-	require.Contains(t, body, `<td class="cell-tokens">$0.02</td>`)
-	require.Contains(t, body, "unpriced child")
-	require.Contains(t, body, `<td class="cell-tokens">n/a</td>`)
+	require.Contains(t, body, "2 ⤵")
+	require.NotContains(t, body, "child prompt")
+	require.NotContains(t, body, "unpriced child")
 }
 
-func TestSessionsUngroupedRowsKeepOwnCost(t *testing.T) {
+func TestSessionsUngroupedFeedShowsFlatRows(t *testing.T) {
 	parent := pricedPanelSession("parent", "parent prompt", 1000)
 	child := pricedPanelSession("child", "child prompt", 2000)
 
@@ -82,11 +84,10 @@ func TestSessionsUngroupedRowsKeepOwnCost(t *testing.T) {
 	require.Equal(t, 0, childCalls)
 
 	body := rec.Body.String()
+	// Ungrouped (?group_subagents=off): parent and child are independent
+	// feed rows; no children are fetched for a rollup.
 	require.Contains(t, body, "parent prompt")
-	require.Contains(t, body, `<td class="cell-tokens">$0.01</td>`)
 	require.Contains(t, body, "child prompt")
-	require.Contains(t, body, `<td class="cell-tokens">$0.02</td>`)
-	require.NotContains(t, body, `<td class="cell-tokens">$0.03</td>`)
 }
 
 func TestListSessionsSortedByCostUsesGroupedCost(t *testing.T) {
