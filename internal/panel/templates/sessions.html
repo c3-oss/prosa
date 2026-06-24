@@ -5,41 +5,40 @@
 {{define "content"}}
   <h1>Sessions</h1>
 
-  <form class="sessions-search" method="get" action="/sessions" x-data>
-    <input id="search" type="search" name="q" value="{{.Q}}"
-           placeholder="Search sessions…" autofocus
-           @input.debounce.300ms="$el.form.requestSubmit()">
-    {{if .Last}}<input type="hidden" name="last" value="{{.Last}}">{{end}}
-    {{range $a, $sel := .AgentsSelected}}{{if $sel}}<input type="hidden" name="agent" value="{{$a}}">{{end}}{{end}}
-    {{range $p, $sel := .ProjectsSelected}}{{if $sel}}<input type="hidden" name="project" value="{{$p}}">{{end}}{{end}}
-    {{range $d, $sel := .DevicesSelected}}{{if $sel}}<input type="hidden" name="device" value="{{$d}}">{{end}}{{end}}
-    {{range $pr, $sel := .ProfilesSelected}}{{if $sel}}<input type="hidden" name="profile" value="{{$pr}}">{{end}}{{end}}
-    {{range $k, $sel := .KindsSelected}}{{if $sel}}<input type="hidden" name="kind" value="{{$k}}">{{end}}{{end}}
-    <input type="hidden" name="group_subagents" value="on">
-  </form>
-
   <div class="sessions-controls" x-data="{ open: false }">
-    <div class="sessions-controls-head">
+    <div class="sessions-search-row">
+      <form class="sessions-search" method="get" action="/sessions">
+        <input id="search" type="search" name="q" value="{{.Q}}"
+               placeholder="Search sessions…" autofocus
+               @input.debounce.300ms="$el.form.requestSubmit()">
+        {{if .Last}}<input type="hidden" name="last" value="{{.Last}}">{{end}}
+        {{range $a, $sel := .AgentsSelected}}{{if $sel}}<input type="hidden" name="agent" value="{{$a}}">{{end}}{{end}}
+        {{range $p, $sel := .ProjectsSelected}}{{if $sel}}<input type="hidden" name="project" value="{{$p}}">{{end}}{{end}}
+        {{range $d, $sel := .DevicesSelected}}{{if $sel}}<input type="hidden" name="device" value="{{$d}}">{{end}}{{end}}
+        {{range $pr, $sel := .ProfilesSelected}}{{if $sel}}<input type="hidden" name="profile" value="{{$pr}}">{{end}}{{end}}
+        {{range $k, $sel := .KindsSelected}}{{if $sel}}<input type="hidden" name="kind" value="{{$k}}">{{end}}{{end}}
+        <input type="hidden" name="group_subagents" value="on">
+      </form>
       <button type="button" class="sessions-filters-toggle"
               @click="open = !open" :aria-expanded="open.toString()">
         Filters{{if .ActiveFilters}} · {{len .ActiveFilters}}{{end}}
         <span class="caret" :class="{ 'is-open': open }" aria-hidden="true">▾</span>
       </button>
-      {{if .ActiveFilters}}
-        <div class="active-filters" aria-label="active filters">
-          {{range .ActiveFilters}}
-            <a class="active-filter-chip" href="{{.RemoveURL}}" title="remove this filter">
-              <span class="label">{{.Label}}</span>
-              <span class="value">{{.Value}}</span>
-              <span class="remove" aria-hidden="true">×</span>
-            </a>
-          {{end}}
-          {{if .ClearFiltersURL}}
-            <a class="active-filters-clear" href="{{.ClearFiltersURL}}">Clear all</a>
-          {{end}}
-        </div>
-      {{end}}
     </div>
+    {{if .ActiveFilters}}
+      <div class="active-filters" aria-label="active filters">
+        {{range .ActiveFilters}}
+          <a class="active-filter-chip" href="{{.RemoveURL}}" title="remove this filter">
+            <span class="label">{{.Label}}</span>
+            <span class="value">{{.Value}}</span>
+            <span class="remove" aria-hidden="true">×</span>
+          </a>
+        {{end}}
+        {{if .ClearFiltersURL}}
+          <a class="active-filters-clear" href="{{.ClearFiltersURL}}">Clear all</a>
+        {{end}}
+      </div>
+    {{end}}
 
   <form class="filter-bar sessions-filter-bar" method="get" action="/sessions"
         x-show="open" x-collapse x-cloak @change="$el.requestSubmit()">
