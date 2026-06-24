@@ -2,8 +2,23 @@
    row table, pagination. Pulls layout from design tokens; no literal
    colors or sizes. Pairs with internal/panel/templates/sessions.html. */
 
+/* Search bar and the Filters toggle share a row: the search grows, the
+   Filters button trails on the right. */
+.sessions-search-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-2);
+}
+
 .sessions-search {
-  margin: 0 0 var(--space-4);
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+
+.sessions-search-row .sessions-filters-toggle {
+  flex: none;
 }
 
 .sessions-search input {
