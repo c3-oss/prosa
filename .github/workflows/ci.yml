@@ -21,6 +21,7 @@ jobs:
         uses: jetify-com/devbox-install-action@v0.15.0
         with:
           enable-cache: true
+          devbox-version: 0.17.4
 
       - name: Install Node tooling
         run: devbox run -- pnpm install --frozen-lockfile
@@ -59,6 +60,7 @@ jobs:
         uses: jetify-com/devbox-install-action@v0.15.0
         with:
           enable-cache: true
+          devbox-version: 0.17.4
 
       - name: Cache Go modules and build
         uses: actions/cache@v5
@@ -106,6 +108,7 @@ jobs:
         uses: jetify-com/devbox-install-action@v0.15.0
         with:
           enable-cache: true
+          devbox-version: 0.17.4
 
       - name: Run golangci-lint
         run: devbox run -- just lint
@@ -125,6 +128,7 @@ jobs:
         uses: jetify-com/devbox-install-action@v0.15.0
         with:
           enable-cache: true
+          devbox-version: 0.17.4
 
       - name: Cache Go modules and build
         uses: actions/cache@v5
