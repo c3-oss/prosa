@@ -19,36 +19,33 @@
   </form>
 
   {{if .Rows}}
-    <table>
-      <thead><tr>{{range .Headers}}<th>{{.}}</th>{{end}}</tr></thead>
-      <tbody>
-        {{range .Rows}}
-          <tr>
-            {{range $i, $v := .Values}}
-              {{$h := index $.Headers $i}}
-              {{if eq $h "PROJECT"}}
-                {{$proj := projectDisplayLabel $v}}
-                <td class="cell-project">
-                  {{if $proj.URL}}
-                    <a class="project-link" href="{{$proj.URL}}" target="_blank" rel="noopener">
-                      {{if eq $proj.Provider "github"}}{{template "icon-github"}}{{else if eq $proj.Provider "gitlab"}}{{template "icon-gitlab"}}{{end}}
-                      <span>{{$proj.Label}}</span>
-                    </a>
-                    <a class="project-sessions-link" href="/sessions?project={{urlquery $v}}&last={{$.Last}}" title="view sessions">↗</a>
-                  {{else}}
-                    <a href="/sessions?project={{urlquery $v}}&last={{$.Last}}">{{$v}}</a>
-                  {{end}}
-                </td>
-              {{else if eq $h "AGENT"}}
-                <td><a href="/sessions?agent={{urlquery $v}}&last={{$.Last}}">{{$v}}</a></td>
-              {{else}}
-                <td>{{$v}}</td>
-              {{end}}
+    <div class="projects-board">
+      <div class="projects-row projects-row-head" aria-hidden="true">
+        <span>Project</span>
+        <span>Agent</span>
+        <span></span>
+        <span class="projects-count">Sessions</span>
+      </div>
+      {{range $row := .Rows}}
+        {{$proj := projectDisplayLabel $row.Project}}
+        <div class="projects-row">
+          <span class="projects-name">
+            {{if $proj.URL}}
+              <a class="project-link" href="{{$proj.URL}}" target="_blank" rel="noopener" title="{{$proj.Label}}">
+                {{if eq $proj.Provider "github"}}{{template "icon-github"}}{{else if eq $proj.Provider "gitlab"}}{{template "icon-gitlab"}}{{end}}
+                <span>{{$proj.Label}}</span>
+              </a>
+              <a class="project-sessions-link" href="/sessions?project={{urlquery $row.Project}}&last={{$.Last}}" title="view sessions">↗</a>
+            {{else}}
+              <a href="/sessions?project={{urlquery $row.Project}}&last={{$.Last}}" title="{{$proj.Label}}">{{$proj.Label}}</a>
             {{end}}
-          </tr>
-        {{end}}
-      </tbody>
-    </table>
+          </span>
+          <span class="projects-agent"><a href="/sessions?agent={{urlquery $row.Agent}}&last={{$.Last}}">{{$row.Agent}}</a></span>
+          <span class="bar-track"><span class="bar-fill" style="width: {{$row.Percent}}%"></span></span>
+          <span class="projects-count">{{$row.Sessions}}</span>
+        </div>
+      {{end}}
+    </div>
   {{else}}
     <div class="empty">No projects in this window.</div>
   {{end}}
