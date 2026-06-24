@@ -64,7 +64,6 @@
                  hx-target="#side-panel"
                  hx-push-url="?session={{.Id}}"
                  hx-swap="innerHTML">
-                {{agentBadge .Agent}}
                 <span class="subagent-prompt">{{or .FirstPrompt "(no prompt)"}}</span>
                 {{if .StartedAt}}<time class="subagent-time">{{(.StartedAt.AsTime).Format "15:04:05"}}</time>{{end}}
               </a>
