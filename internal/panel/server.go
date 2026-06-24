@@ -253,6 +253,7 @@ func templateFuncs() template.FuncMap {
 		"assetPath":           assetPath,
 		"projectLink":         projectLink,
 		"projectDisplayLabel": projectDisplayFromLabel,
+		"displayModel":        displayModel,
 	}
 }
 

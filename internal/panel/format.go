@@ -68,6 +68,106 @@ func formatCompactDecimal(v float64) string {
 	return s
 }
 
+// displayModel turns a raw model id into a compact, human label for display.
+// Presentation only — callers keep the raw id for links, filters, and map
+// keys. Examples:
+//
+//	claude-opus-4-8            → "Opus 4.8"
+//	claude-sonnet-4-6          → "Sonnet 4.6"
+//	claude-haiku-4-5-20251001  → "Haiku 4.5"   (trailing date stamp dropped)
+//	claude-3-5-sonnet          → "Sonnet 3.5"  (older ordering)
+//	gpt-5.5                    → "GPT-5.5"
+//	gpt-5.3-codex              → "GPT-5.3 Codex"
+//	gemini-2.5-pro             → "Gemini 2.5 Pro"
+//	"" / "(none)"              → "(none)"
+func displayModel(raw string) string {
+	s := strings.TrimSpace(raw)
+	if s == "" || s == "(none)" {
+		return "(none)"
+	}
+	low := strings.ToLower(s)
+
+	switch {
+	case strings.HasPrefix(low, "claude-"):
+		parts := strings.Split(s[len("claude-"):], "-")
+		if n := len(parts); n > 1 && isDateStamp(parts[n-1]) {
+			parts = parts[:n-1]
+		}
+		tier := ""
+		ver := make([]string, 0, len(parts))
+		for _, p := range parts {
+			switch strings.ToLower(p) {
+			case "opus", "sonnet", "haiku":
+				tier = titleWord(p)
+			default:
+				ver = append(ver, p)
+			}
+		}
+		if tier == "" {
+			return titleWords(s[len("claude-"):])
+		}
+		if len(ver) == 0 {
+			return tier
+		}
+		return tier + " " + strings.Join(ver, ".")
+
+	case strings.HasPrefix(low, "gpt-"):
+		segs := strings.SplitN(s[len("gpt-"):], "-", 2)
+		out := "GPT-" + segs[0]
+		if len(segs) == 2 && segs[1] != "" {
+			out += " " + titleWords(segs[1])
+		}
+		return out
+
+	case strings.HasPrefix(low, "gemini-"):
+		return "Gemini " + titleWords(s[len("gemini-"):])
+	}
+
+	return titleWords(s)
+}
+
+// isDateStamp reports whether s is an 8-digit YYYYMMDD-style suffix.
+func isDateStamp(s string) bool {
+	if len(s) != 8 {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// titleWord upper-cases the first rune of a single word and lower-cases the
+// rest ("opus" → "Opus"); version-like tokens with a leading digit pass
+// through unchanged.
+func titleWord(s string) string {
+	if s == "" {
+		return s
+	}
+	if s[0] >= '0' && s[0] <= '9' {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + strings.ToLower(s[1:])
+}
+
+// titleWords splits on dashes/spaces and title-cases each word, upper-casing
+// the few acronyms we render ("gpt" → "GPT"). Used for vendor suffixes and
+// the unknown-vendor fallback.
+func titleWords(s string) string {
+	fields := strings.FieldsFunc(s, func(r rune) bool { return r == '-' || r == ' ' })
+	for i, f := range fields {
+		switch strings.ToLower(f) {
+		case "gpt":
+			fields[i] = "GPT"
+		default:
+			fields[i] = titleWord(f)
+		}
+	}
+	return strings.Join(fields, " ")
+}
+
 // formatUSD renders a dollar amount with thousands separators and two
 // decimals (17436.35 → "$17,436.35"), so spend reads consistently with the
 // comma-grouped integer counts. Small values round-trip unchanged ("$5.71").
