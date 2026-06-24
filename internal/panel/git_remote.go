@@ -10,11 +10,13 @@ import (
 )
 
 // projectDisplay is the resolved label + optional git host link for a session
-// project field.
+// project field. Filter is the raw project identifier used to filter sessions
+// (?project=…) — the same string the Projects report keys on.
 type projectDisplay struct {
 	Label    string
 	URL      string
 	Provider string // "github" | "gitlab" | ""
+	Filter   string
 }
 
 // gitRemoteLink picks the best project string from marker/remote/path and, when
@@ -109,35 +111,55 @@ func projectDisplayFromSession(s *prosav1.Session) projectDisplay {
 		return projectDisplay{Label: "(unscoped)"}
 	}
 	label, linkURL, provider := gitRemoteLink(s.ProjectMarker, s.ProjectRemote, s.ProjectPath)
-	return projectDisplay{Label: label, URL: linkURL, Provider: provider}
+	return projectDisplay{Label: label, URL: linkURL, Provider: provider, Filter: firstNonEmpty(s.ProjectMarker, s.ProjectRemote, s.ProjectPath)}
 }
 
 func projectDisplayFromLabel(label string) projectDisplay {
 	l, u, p := gitRemoteLink(label, "", "")
-	return projectDisplay{Label: l, URL: u, Provider: p}
+	return projectDisplay{Label: l, URL: u, Provider: p, Filter: strings.TrimSpace(label)}
 }
 
-// projectLink renders a project label with optional provider icon + hyperlink.
+// firstNonEmpty returns the first trimmed-non-empty value.
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if t := strings.TrimSpace(v); t != "" {
+			return t
+		}
+	}
+	return ""
+}
+
+// projectLink renders a project so the NAME filters sessions for that project,
+// with a small trailing provider icon that opens the external repo. The name
+// no longer navigates off-site — only the trailing icon does.
 func projectLink(d projectDisplay) template.HTML {
 	if d.Label == "" {
 		d.Label = "(unscoped)"
 	}
-	if d.URL == "" {
-		return template.HTML(template.HTMLEscapeString(d.Label))
-	}
-	icon := ""
-	switch d.Provider {
-	case "github":
-		icon = iconGitHubSVG
-	case "gitlab":
-		icon = iconGitLabSVG
-	}
 	label := template.HTMLEscapeString(d.Label)
-	href := template.HTMLEscapeString(d.URL)
-	return template.HTML(fmt.Sprintf(
-		`<a class="project-link" href="%s" target="_blank" rel="noopener">%s<span>%s</span></a>`,
-		href, icon, label,
-	))
+	var b strings.Builder
+	if d.Filter != "" && d.Label != "(unscoped)" {
+		fmt.Fprintf(&b,
+			`<a class="project-link" href="/sessions?project=%s" title="view sessions"><span>%s</span></a>`,
+			url.QueryEscape(d.Filter), label,
+		)
+	} else {
+		fmt.Fprintf(&b, `<span class="project-link"><span>%s</span></span>`, label)
+	}
+	if d.URL != "" {
+		icon := ""
+		switch d.Provider {
+		case "github":
+			icon = iconGitHubSVG
+		case "gitlab":
+			icon = iconGitLabSVG
+		}
+		fmt.Fprintf(&b,
+			` <a class="project-external-link" href="%s" target="_blank" rel="noopener" title="open repository">%s</a>`,
+			template.HTMLEscapeString(d.URL), icon,
+		)
+	}
+	return template.HTML(b.String())
 }
 
 // projectLabel renders the provider icon + label without a hyperlink, for

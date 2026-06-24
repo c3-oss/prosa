@@ -30,14 +30,11 @@
         {{$proj := projectDisplayLabel $row.Project}}
         <div class="projects-row">
           <span class="projects-name">
+            <a class="project-link" href="/sessions?project={{urlquery $row.Project}}&last={{$.Last}}" title="view sessions for {{$proj.Label}}"><span>{{$proj.Label}}</span></a>
             {{if $proj.URL}}
-              <a class="project-link" href="{{$proj.URL}}" target="_blank" rel="noopener" title="{{$proj.Label}}">
+              <a class="project-external-link" href="{{$proj.URL}}" target="_blank" rel="noopener" title="open repository">
                 {{if eq $proj.Provider "github"}}{{template "icon-github"}}{{else if eq $proj.Provider "gitlab"}}{{template "icon-gitlab"}}{{end}}
-                <span>{{$proj.Label}}</span>
               </a>
-              <a class="project-sessions-link" href="/sessions?project={{urlquery $row.Project}}&last={{$.Last}}" title="view sessions">↗</a>
-            {{else}}
-              <a href="/sessions?project={{urlquery $row.Project}}&last={{$.Last}}" title="{{$proj.Label}}">{{$proj.Label}}</a>
             {{end}}
           </span>
           <span class="projects-agent"><a href="/sessions?agent={{urlquery $row.Agent}}&last={{$.Last}}">{{displayAgent $row.Agent}}</a></span>
