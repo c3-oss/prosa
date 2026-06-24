@@ -186,12 +186,12 @@ func TestHomeRendersIssuesAndCharts(t *testing.T) {
 	for _, want := range []string{
 		">Issues<",                            // section heading
 		">Hour of day<",                       // chart 4
-		"Tokens &amp; cost per model",         // chart 2 heading (escaped &)
+		">Models<",                            // merged model leaderboard heading
 		">Projects<",                          // chart 3
 		"error rate",                          // new KPI
 		`data-chart="hour-of-day"`,            // hour-of-day chart container
-		`data-chart="cost-donut"`,             // cost donut chart container
-		"cost-legend",                         // donut legend
+		`class="models-board"`,                // merged Models leaderboard
+		"models-row",                          // a model row in the board
 		"/sessions?session=sess-1",            // actionable recent issue link
 		"peak ",                               // hour peak label
 		"42",                                  // sessions KPI

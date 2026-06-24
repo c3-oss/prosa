@@ -107,12 +107,11 @@
     <header class="card-head">
       <h2>Across the day</h2>
       <span class="card-sub">
-        {{if .Day.HasData}}{{.Day.PeakLabel}} · busiest model {{.Day.BusiestModel}} · {{.Day.TotalTokens}} tokens{{else}}sessions and tokens per local hour{{end}}
+        {{if .Day.HasData}}{{.Day.PeakLabel}} · busiest model {{.Day.BusiestModel}}{{else}}sessions per local hour{{end}}
       </span>
     </header>
     {{if .Day.HasData}}
       <div class="trend-block">
-        <h3 class="trend-subhead">Sessions by model</h3>
         <div class="trend-chart">
           <div data-chart="day-models"></div>
           <script type="application/json" class="chart-spec" data-for="day-models">{{ .Day.SessionsChart.JSON }}</script>
@@ -122,11 +121,6 @@
             <li><span class="cost-legend-dot" data-ci="{{.ColorIdx}}"></span><span class="cost-legend-model">{{.Model}}</span><span class="cost-legend-cost">{{.Sessions}}</span></li>
           {{end}}
         </ul>
-        <h3 class="trend-subhead">Tokens</h3>
-        <div class="trend-chart">
-          <div data-chart="day-tokens"></div>
-          <script type="application/json" class="chart-spec" data-for="day-tokens">{{ .Day.TokensChart.JSON }}</script>
-        </div>
       </div>
     {{else}}
       <div class="empty">no sessions in this window.</div>

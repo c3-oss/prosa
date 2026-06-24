@@ -28,32 +28,41 @@ func TestBuildProjectBarsAggregatesAcrossAgents(t *testing.T) {
 	require.Equal(t, "4", bars[1].Count)
 }
 
-func TestBuildModelUsageTokensCostAndLegend(t *testing.T) {
+func TestBuildModelBoardJoinsSessionsTokensCost(t *testing.T) {
 	t.Parallel()
 	rows := []*prosav1.AnalyticsRow{
 		aRow("claude-opus-4-5", "2", "1500", "1200", "300", "0.1200"),
-		aRow("gpt-5-codex", "1", "300", "200", "100", ""), // unpriced
+		aRow("gpt-5-codex", "5", "300", "200", "100", ""), // unpriced, more sessions
 	}
-	mv := buildModelUsage(rows)
-	require.Len(t, mv.TokenBars, 2)
-	require.Equal(t, "claude-opus-4-5", mv.TokenBars[0].Label)
-	require.Equal(t, "1.5k", mv.TokenBars[0].Count) // compact token formatting
-	require.Equal(t, "1,800", mv.TotalTokens)
-	require.Equal(t, "$0.12", mv.TotalCost)
-	require.Len(t, mv.CostLegend, 1) // only the priced model
-	require.Equal(t, "claude-opus-4-5", mv.CostLegend[0].Model)
-	require.Equal(t, "$0.12", mv.CostLegend[0].Cost)
-	require.Equal(t, 0, mv.CostLegend[0].ColorIdx)
-	require.Equal(t, "donut", mv.CostDonut.Type)
-	require.Equal(t, []string{"claude-opus-4-5"}, mv.CostDonut.Labels)
-	require.Equal(t, []float64{0.12}, mv.CostDonut.Datasets[0].Values)
+	board := buildModelBoard(rows, 12)
+	require.Len(t, board, 2)
+	// ordered by sessions desc → gpt-5-codex (5) ranks first and is the bar max
+	require.Equal(t, "gpt-5-codex", board[0].Model)
+	require.Equal(t, "5", board[0].Sessions)
+	require.Equal(t, "300", board[0].Tokens)
+	require.Equal(t, "n/a", board[0].Cost)
+	require.Equal(t, 100, board[0].Percent)
+	require.Equal(t, 0, board[0].ColorIdx)
+	require.Equal(t, "claude-opus-4-5", board[1].Model)
+	require.Equal(t, "2", board[1].Sessions)
+	require.Equal(t, "1.5k", board[1].Tokens) // compact token formatting
+	require.Equal(t, "$0.12", board[1].Cost)
+	require.Equal(t, 40, board[1].Percent) // 2/5
+	require.Equal(t, 1, board[1].ColorIdx)
 }
 
-func TestBuildModelUsageNoCostIsNA(t *testing.T) {
+func TestBuildModelBoardCapsAndSkipsEmpty(t *testing.T) {
 	t.Parallel()
-	mv := buildModelUsage([]*prosav1.AnalyticsRow{aRow("mystery-model", "1", "500", "400", "100", "")})
-	require.Equal(t, "n/a", mv.TotalCost)
-	require.Empty(t, mv.CostLegend)
+	rows := []*prosav1.AnalyticsRow{
+		aRow("", "9", "1", "1", "0", ""),           // empty model skipped
+		aRow("a", "3", "100", "50", "50", "1.00"),
+		aRow("b", "2", "50", "25", "25", "0.50"),
+		aRow("short"),                              // < 6 columns skipped
+	}
+	board := buildModelBoard(rows, 1)
+	require.Len(t, board, 1)               // capped to top 1 by sessions
+	require.Equal(t, "a", board[0].Model)
+	require.Equal(t, "$1.00", board[0].Cost)
 }
 
 func TestBuildIssuesRateAndRecent(t *testing.T) {

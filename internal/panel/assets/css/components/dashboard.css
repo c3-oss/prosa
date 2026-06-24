@@ -119,17 +119,22 @@
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-5) var(--space-7);
-  padding: var(--space-5) 0 var(--space-7);
+  padding: var(--space-5) 0 var(--space-6);
   border-bottom: 1px solid var(--divider);
   margin-bottom: var(--space-6);
 }
 
-.kpi-value-mono {
+/* A model id is a label, not a 44px headline: the compound selector wins
+   over .kpi-value (declared later) so the mono value renders at label
+   scale and wraps at the hyphens instead of blowing out the strip. */
+.kpi-value.kpi-value-mono {
   font-family: var(--font-mono);
-  font-size: var(--text-base);
+  font-size: var(--text-md);
   font-weight: var(--w-regular);
   line-height: 1.3;
-  word-break: break-all;
+  letter-spacing: 0;
+  max-width: 26ch;
+  word-break: break-word;
 }
 
 .kpi {
@@ -299,19 +304,63 @@
   gap: var(--space-2);
 }
 
-/* Tokens & cost per model card --------------------------------------- */
-.model-usage {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: var(--space-6);
-  align-items: center;
-}
-
-.model-usage-chart {
+/* Models leaderboard (Home) — one row per model: color dot · name ·
+   sessions · tokens · spend · magnitude bar (by sessions). Mirrors the
+   Projects board; merges what were the Models and Tokens-&-cost cards. */
+.models-board {
   display: flex;
   flex-direction: column;
+}
+
+.models-row {
+  display: grid;
+  grid-template-columns: 10px minmax(120px, 1fr) 72px 72px 92px minmax(80px, 220px);
   align-items: center;
   gap: var(--space-4);
+  padding: var(--space-2);
+  border-top: 1px solid var(--divider);
+  font-size: var(--text-sm);
+}
+
+.models-row:first-child {
+  border-top: 0;
+}
+
+.models-row-head {
+  color: var(--text-3);
+  font-variant: small-caps;
+  letter-spacing: 0.06em;
+}
+
+.models-row .cost-legend-dot {
+  justify-self: center;
+}
+
+.models-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-1);
+}
+
+.models-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+}
+
+.models-row-head .models-num {
+  color: var(--text-3);
+}
+
+@media (max-width: 760px) {
+  .models-row {
+    grid-template-columns: 10px minmax(0, 1fr) auto auto auto;
+    gap: var(--space-1) var(--space-3);
+  }
+  .models-row > .bar-track {
+    display: none;
+  }
 }
 
 .cost-legend {
@@ -350,6 +399,30 @@
   margin-left: auto;
   color: var(--text-3);
   font-variant-numeric: tabular-nums;
+}
+
+/* Chart series legend — the model identity for a chart reads as a compact
+   horizontal strip of dots + labels. The per-model count it used to stack
+   vertically duplicated the Models card and is available on chart hover, so
+   it's dropped here. (Plain .cost-legend stays a vertical cost breakdown.) */
+.share-legend {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  margin-top: var(--space-4);
+}
+
+.share-legend li {
+  gap: var(--space-2);
+}
+
+.share-legend .cost-legend-model {
+  overflow: visible;
+  color: var(--text-2);
+}
+
+.share-legend .cost-legend-cost {
+  display: none;
 }
 
 /* Issues section ----------------------------------------------------- */
@@ -408,6 +481,23 @@
   overflow: hidden;
 }
 
+/* Non-link project label (icon + name) for rows that are themselves a
+   link — used in the Issues and Top-delegators lists. */
+.project-name {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  color: var(--text-2);
+}
+
+.project-name > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .issues-item-when {
   font-size: var(--text-xs);
   color: var(--text-3);
@@ -423,9 +513,6 @@
     grid-template-columns: 120px 1fr 60px;
   }
   .issues-body {
-    grid-template-columns: 1fr;
-  }
-  .model-usage {
     grid-template-columns: 1fr;
   }
 }

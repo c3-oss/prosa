@@ -146,7 +146,7 @@ func TestBuildSpendTrendPricesOnlyMeasuredRows(t *testing.T) {
 	v := buildSpendTrend(rows, since, until)
 	require.True(t, v.HasData)
 	require.Equal(t, "$7.50", v.TotalSpend)
-	require.Equal(t, "1,100,500", v.TotalTokens)
+	require.Equal(t, "1.1m", v.TotalTokens)
 	require.Equal(t, "per day", v.BucketLabel)
 	require.Equal(t, "05-29", v.StartLabel)
 	require.Equal(t, "05-31", v.EndLabel)
@@ -335,7 +335,7 @@ func TestBuildDayByModelRotation(t *testing.T) {
 	require.True(t, v.HasData)
 	require.Equal(t, "peak 22h local", v.PeakLabel)
 	require.Equal(t, "model-a", v.BusiestModel)
-	require.Equal(t, "1,200", v.TotalTokens)
+	require.Equal(t, "1.2k", v.TotalTokens)
 	require.Len(t, v.SessionsChart.Labels, 24)
 	require.True(t, v.SessionsChart.Stacked)
 	require.Equal(t, "model-a", v.SessionsChart.Datasets[0].Name)
@@ -396,7 +396,6 @@ func TestInsightsRendersCharts(t *testing.T) {
 		`data-chart="model-share"`,      // share chart container
 		`data-chart="tokens-line"`,      // tokens chart container
 		`data-chart="day-models"`,       // across-the-day stacked chart
-		`data-chart="day-tokens"`,       // across-the-day token chart
 		`data-chart="delegation-trend"`, // delegated-share trend chart
 		"heatmap-cell level-",           // punch card cells
 		"subagents-table",               // per-agent breakdown

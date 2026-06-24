@@ -276,7 +276,7 @@ func buildSpendTrend(rows []*prosav1.AnalyticsRow, since, until time.Time) spend
 
 	totalSpendLabel := "n/a"
 	if priced {
-		totalSpendLabel = fmt.Sprintf("$%.2f", totalSpend)
+		totalSpendLabel = formatUSD(totalSpend)
 	}
 	return spendTrendView{
 		SpendChart: charts.Spec{
@@ -295,7 +295,7 @@ func buildSpendTrend(rows []*prosav1.AnalyticsRow, since, until time.Time) spend
 			Height:      160,
 		},
 		TotalSpend:  totalSpendLabel,
-		TotalTokens: formatPanelInt(totalTokens),
+		TotalTokens: formatTokensCompact(totalTokens),
 		BucketLabel: bucketLabel,
 		StartLabel:  labels[0],
 		EndLabel:    labels[len(labels)-1],
@@ -1050,7 +1050,7 @@ func buildTopDelegators(parentRows []*prosav1.AnalyticsRow, limit int) []delegat
 		}
 		out = append(out, delegatorRow{
 			Agent:    agentBadge(row.Values[1]),
-			Project:  projectLink(projectDisplayFromLabel(row.Values[2])),
+			Project:  projectLabel(projectDisplayFromLabel(row.Values[2])),
 			When:     row.Values[0],
 			Children: formatPanelInt(parsePanelInt(row.Values[4])),
 			URL:      "/sessions?session=" + url.QueryEscape(row.Values[3]),
@@ -1197,7 +1197,7 @@ func buildDayByModelTZ(rows []*prosav1.AnalyticsRow, offsetHours int) dayByModel
 		Legend:       legend,
 		PeakLabel:    fmt.Sprintf("peak %02dh local", peakHour),
 		BusiestModel: top[0],
-		TotalTokens:  formatPanelInt(totalTokens),
+		TotalTokens:  formatTokensCompact(totalTokens),
 		HasData:      true,
 	}
 }
