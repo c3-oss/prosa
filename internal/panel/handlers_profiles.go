@@ -136,13 +136,14 @@ type profilePanelRow struct {
 // profileUsageView powers the profiles dashboard: the KPI strip, the
 // tokens-and-cost-per-profile leaderboard, and the enriched table.
 type profileUsageView struct {
-	ActiveProfiles string
-	NonDefaultPct  string
-	TotalTokens    string
-	TotalSpend     string
-	ProfileBars    []profileCostRow
-	Rows           []profilePanelRow
-	HasData        bool
+	ActiveProfiles  string
+	NonDefaultPct   string
+	TotalTokens     string
+	TotalTokensFull string // exact token count, revealed on hover
+	TotalSpend      string
+	ProfileBars     []profileCostRow
+	Rows            []profilePanelRow
+	HasData         bool
 }
 
 // profileCostRow is one row of the per-profile leaderboard: the agent·profile
@@ -235,11 +236,12 @@ func buildProfileUsage(rows []*prosav1.AnalyticsRow) profileUsageView {
 	}
 
 	view := profileUsageView{
-		ActiveProfiles: formatPanelInt(int64(len(tableOrder))),
-		TotalTokens:    formatTokensCompact(totalTokens),
-		TotalSpend:     costLabel(totalCost, priced),
-		NonDefaultPct:  "—",
-		HasData:        totalSessions > 0,
+		ActiveProfiles:  formatPanelInt(int64(len(tableOrder))),
+		TotalTokens:     formatTokensCompact(totalTokens),
+		TotalTokensFull: formatPanelInt(totalTokens),
+		TotalSpend:      costLabel(totalCost, priced),
+		NonDefaultPct:   "—",
+		HasData:         totalSessions > 0,
 	}
 	if totalSessions > 0 {
 		view.NonDefaultPct = fmt.Sprintf("%.0f%%", float64(nonDefault)/float64(totalSessions)*100)

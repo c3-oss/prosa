@@ -26,7 +26,7 @@
       <p class="sp-byline">
         <span class="sp-byline-item">{{projectLink .Project}}</span>
         <span class="sp-byline-item mono"><time>{{(.Session.StartedAt.AsTime).Format "Jan 2, 15:04"}}</time></span>
-        {{if .Session.Model}}<span class="sp-byline-item mono">{{displayModel .Session.Model}}</span>{{end}}
+        {{if .Session.Model}}<span class="sp-byline-item mono" title="{{.Session.Model}}">{{displayModel .Session.Model}}</span>{{end}}
       </p>
     </div>
     <section class="stats-cluster" aria-label="session stats">
@@ -43,7 +43,7 @@
         <div class="stat-label">duration</div>
       </div>
       <div class="stat-kpi">
-        <div class="stat-value">{{.TokensTotal}}</div>
+        <div class="stat-value" title="{{.TokensTotalFull}}">{{.TokensTotal}}</div>
         <div class="stat-label">tokens</div>
       </div>
       <div class="stat-kpi">
