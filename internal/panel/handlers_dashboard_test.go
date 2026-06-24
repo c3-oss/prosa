@@ -37,13 +37,13 @@ func TestBuildModelBoardJoinsSessionsTokensCost(t *testing.T) {
 	board := buildModelBoard(rows, 12)
 	require.Len(t, board, 2)
 	// ordered by sessions desc → gpt-5-codex (5) ranks first and is the bar max
-	require.Equal(t, "gpt-5-codex", board[0].Model)
+	require.Equal(t, "GPT-5 Codex", board[0].Model) // raw id prettified for display
 	require.Equal(t, "5", board[0].Sessions)
 	require.Equal(t, "300", board[0].Tokens)
 	require.Equal(t, "n/a", board[0].Cost)
 	require.Equal(t, 100, board[0].Percent)
 	require.Equal(t, 0, board[0].ColorIdx)
-	require.Equal(t, "claude-opus-4-5", board[1].Model)
+	require.Equal(t, "Opus 4.5", board[1].Model)
 	require.Equal(t, "2", board[1].Sessions)
 	require.Equal(t, "1.5k", board[1].Tokens) // compact token formatting
 	require.Equal(t, "$0.12", board[1].Cost)
@@ -60,8 +60,8 @@ func TestBuildModelBoardCapsAndSkipsEmpty(t *testing.T) {
 		aRow("short"),                              // < 6 columns skipped
 	}
 	board := buildModelBoard(rows, 1)
-	require.Len(t, board, 1)               // capped to top 1 by sessions
-	require.Equal(t, "a", board[0].Model)
+	require.Len(t, board, 1)                // capped to top 1 by sessions
+	require.Equal(t, "A", board[0].Model)   // "a" title-cased by displayModel
 	require.Equal(t, "$1.00", board[0].Cost)
 }
 
@@ -78,7 +78,7 @@ func TestBuildIssuesRateAndRecent(t *testing.T) {
 	iv := buildIssues(errModel, errRows, 20)
 	require.Equal(t, int64(4), iv.Flagged)
 	require.Equal(t, "20%", iv.Rate)
-	require.Equal(t, "claude-opus-4-5", iv.TopModel) // highest flagged count
+	require.Equal(t, "Opus 4.5", iv.TopModel) // highest flagged count, prettified
 	require.Len(t, iv.PerModelBars, 2)
 	require.Len(t, iv.Recent, 2)
 	require.Equal(t, "/sessions?session=s1", iv.Recent[0].URL)

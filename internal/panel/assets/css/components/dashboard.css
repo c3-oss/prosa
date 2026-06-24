@@ -115,13 +115,14 @@
 }
 
 /* KPI strip ----------------------------------------------------------- */
+/* No bottom rule: the first card below the strip already draws its own
+   border-top, so a border here would stack into a doubled hairline on the
+   right where no KPI fills the gap. The card's top border is the separator. */
 .kpi-strip {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-5) var(--space-7);
   padding: var(--space-5) 0 var(--space-6);
-  border-bottom: 1px solid var(--divider);
-  margin-bottom: var(--space-6);
 }
 
 /* A model id is a label, not a 44px headline: the compound selector wins
@@ -426,9 +427,13 @@
 }
 
 /* Issues section ----------------------------------------------------- */
+/* Baseline-align so the small-caps labels share a line even though the
+   error-prone-model value is a short mono label next to two big serif
+   numerals (the values sit on one baseline; the labels hang together). */
 .issues-indicators {
   display: flex;
   flex-wrap: wrap;
+  align-items: baseline;
   gap: var(--space-7);
   margin-bottom: var(--space-6);
 }

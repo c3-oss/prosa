@@ -706,14 +706,6 @@ func buildProjectBars(rows []*prosav1.AnalyticsRow, limit int) []barRow {
 	return barsFromPairs(labels, counts, limit, formatPanelInt)
 }
 
-// costLegendRow is one entry beside the cost donut: palette index, model
-// name, and estimated spend.
-type costLegendRow struct {
-	ColorIdx int
-	Model    string
-	Cost     string
-}
-
 // modelBoardRow is one row of the Home "Models" leaderboard: a palette index
 // for the dot, the model name, its formatted sessions/tokens/cost, and the
 // session count as a percentage of the busiest model so the row draws a bar.
@@ -780,7 +772,7 @@ func buildModelBoard(rows []*prosav1.AnalyticsRow, limit int) []modelBoardRow {
 		}
 		board = append(board, modelBoardRow{
 			ColorIdx: i,
-			Model:    it.model,
+			Model:    displayModel(it.model),
 			Sessions: formatPanelInt(it.sessions),
 			Tokens:   formatTokensCompact(it.tokens),
 			Cost:     costLabel(it.cost, it.priced),
@@ -851,7 +843,7 @@ func buildHourChartTZ(rows []*prosav1.AnalyticsRow, offsetHours int) hourChartVi
 			Datasets:    []charts.Dataset{{Name: "sessions", Values: values}},
 			RegionFill:  true,
 			ValueSuffix: " sessions",
-			Height:      160,
+			Height:      240,
 		},
 		PeakLabel: peakLabel,
 	}
@@ -901,6 +893,8 @@ func buildIssues(errModelRows, errRows []*prosav1.AnalyticsRow, totalSessions in
 	}
 	if topModel == "" {
 		topModel = "—"
+	} else {
+		topModel = displayModel(topModel)
 	}
 	recentRows := clampRows(errRows, 8)
 	recent := make([]issueRow, 0, len(recentRows))
@@ -916,11 +910,15 @@ func buildIssues(errModelRows, errRows []*prosav1.AnalyticsRow, totalSessions in
 			URL:     "/sessions?session=" + url.QueryEscape(id),
 		})
 	}
+	perModelBars := buildBarRows(errModelRows, 8)
+	for i := range perModelBars {
+		perModelBars[i].Label = displayModel(perModelBars[i].Label)
+	}
 	return issuesView{
 		Flagged:      flagged,
 		Rate:         rate,
 		TopModel:     topModel,
-		PerModelBars: buildBarRows(errModelRows, 8),
+		PerModelBars: perModelBars,
 		Recent:       recent,
 	}
 }

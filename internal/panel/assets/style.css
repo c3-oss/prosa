@@ -365,11 +365,15 @@ tr:hover {
   margin-bottom: 10px;
 }
 
+/* The month axis, weekday axis, grid, and cells all size off --heatmap-cell,
+   so one larger value scales the whole calendar in step. Sized up from 12px
+   so 53 weeks fill the content measure instead of leaving a wide right gap;
+   block (not inline-block) lets it occupy the card's full width. */
 .heatmap {
-  --heatmap-cell: 12px;
+  --heatmap-cell: 18px;
   --heatmap-gap: 4px;
   --heatmap-axis: 24px;
-  display: inline-block;
+  display: block;
   max-width: 100%;
   overflow-x: auto;
   padding-bottom: 6px;
