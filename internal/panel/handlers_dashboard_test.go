@@ -54,14 +54,14 @@ func TestBuildModelBoardJoinsSessionsTokensCost(t *testing.T) {
 func TestBuildModelBoardCapsAndSkipsEmpty(t *testing.T) {
 	t.Parallel()
 	rows := []*prosav1.AnalyticsRow{
-		aRow("", "9", "1", "1", "0", ""),           // empty model skipped
+		aRow("", "9", "1", "1", "0", ""), // empty model skipped
 		aRow("a", "3", "100", "50", "50", "1.00"),
 		aRow("b", "2", "50", "25", "25", "0.50"),
-		aRow("short"),                              // < 6 columns skipped
+		aRow("short"), // < 6 columns skipped
 	}
 	board := buildModelBoard(rows, 1)
-	require.Len(t, board, 1)                // capped to top 1 by sessions
-	require.Equal(t, "A", board[0].Model)   // "a" title-cased by displayModel
+	require.Len(t, board, 1)              // capped to top 1 by sessions
+	require.Equal(t, "A", board[0].Model) // "a" title-cased by displayModel
 	require.Equal(t, "$1.00", board[0].Cost)
 }
 
