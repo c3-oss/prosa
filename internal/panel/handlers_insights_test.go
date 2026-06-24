@@ -150,11 +150,16 @@ func TestBuildSpendTrendPricesOnlyMeasuredRows(t *testing.T) {
 	require.Equal(t, "per day", v.BucketLabel)
 	require.Equal(t, "05-29", v.StartLabel)
 	require.Equal(t, "05-31", v.EndLabel)
-	require.Equal(t, "bar", v.SpendChart.Type)
-	require.Equal(t, "$", v.SpendChart.ValuePrefix)
-	require.Contains(t, v.SpendChart.Datasets[0].Values, 7.5) // the priced day
-	require.Equal(t, "line", v.TokensChart.Type)
-	require.True(t, v.TokensChart.RegionFill)
+	// One axis-mixed chart: spend bars + tokens line, each normalized to a
+	// share of its own peak (the busiest bucket reads 100).
+	require.Equal(t, "axis-mixed", v.Chart.Type)
+	require.Len(t, v.Chart.Datasets, 2)
+	require.Equal(t, "est. spend", v.Chart.Datasets[0].Name)
+	require.Equal(t, "bar", v.Chart.Datasets[0].ChartType)
+	require.Equal(t, "tokens", v.Chart.Datasets[1].Name)
+	require.Equal(t, "line", v.Chart.Datasets[1].ChartType)
+	require.Contains(t, v.Chart.Datasets[0].Values, float64(100)) // peak spend day
+	require.Contains(t, v.Chart.Datasets[1].Values, float64(100)) // peak tokens day
 }
 
 func TestBuildSpendTrendUnpricedIsNA(t *testing.T) {
@@ -178,21 +183,25 @@ func TestBuildSpendTrendWeeklyCutover(t *testing.T) {
 
 func TestBuildModelShareTopNPlusOther(t *testing.T) {
 	t.Parallel()
+	// Nine models so the top-7 each get a series and the rest fold into "other".
 	rows := []*prosav1.AnalyticsRow{
 		aRow("2026-05-25", "model-a", "10"),
-		aRow("2026-05-26", "model-b", "8"),
-		aRow("2026-06-01", "model-c", "6"),
-		aRow("2026-06-02", "model-d", "4"),
-		aRow("2026-06-03", "model-e", "2"),
-		aRow("2026-06-04", "model-f", "1"),
+		aRow("2026-05-26", "model-b", "9"),
+		aRow("2026-06-01", "model-c", "8"),
+		aRow("2026-06-02", "model-d", "7"),
+		aRow("2026-06-03", "model-e", "6"),
+		aRow("2026-06-04", "model-f", "5"),
+		aRow("2026-06-05", "model-g", "4"),
+		aRow("2026-06-06", "model-h", "3"),
+		aRow("2026-06-07", "model-i", "2"),
 	}
 	v := buildModelShare(rows)
 	require.True(t, v.HasData)
 	require.Len(t, v.Legend, modelShareTopN+1)
-	require.Equal(t, "model-a", v.Legend[0].Model)
+	require.Equal(t, "Model A", v.Legend[0].Model) // raw id prettified for display
 	require.Equal(t, "other", v.Legend[modelShareTopN].Model)
-	require.Equal(t, "3", v.Legend[modelShareTopN].Sessions) // model-e + model-f
-	// 05-25 and 05-26 share an ISO week (Monday 05-25).
+	require.Equal(t, "5", v.Legend[modelShareTopN].Sessions) // model-h (3) + model-i (2)
+	// 05-25 and 05-26 share an ISO week (Monday 05-25); 06-01..06-07 share Monday 06-01.
 	require.Equal(t, "05-25", v.StartLabel)
 	require.Equal(t, "06-01", v.EndLabel)
 	require.Equal(t, "bar", v.Chart.Type)
@@ -334,11 +343,11 @@ func TestBuildDayByModelRotation(t *testing.T) {
 	v := buildDayByModelTZ(rows, -3)
 	require.True(t, v.HasData)
 	require.Equal(t, "peak 22h local", v.PeakLabel)
-	require.Equal(t, "model-a", v.BusiestModel)
+	require.Equal(t, "Model A", v.BusiestModel) // prettified for display
 	require.Equal(t, "1.2k", v.TotalTokens)
 	require.Len(t, v.SessionsChart.Labels, 24)
 	require.True(t, v.SessionsChart.Stacked)
-	require.Equal(t, "model-a", v.SessionsChart.Datasets[0].Name)
+	require.Equal(t, "Model A", v.SessionsChart.Datasets[0].Name)
 	require.Equal(t, float64(3), v.SessionsChart.Datasets[0].Values[22])
 	require.Equal(t, float64(1), v.SessionsChart.Datasets[0].Values[20])
 	require.Equal(t, float64(1), v.SessionsChart.Datasets[1].Values[22])
@@ -392,9 +401,8 @@ func TestInsightsRendersCharts(t *testing.T) {
 		"current streak",                // rhythm KPI
 		"busiest weekday",               // schedule KPI
 		"outside 09–18h",                // schedule KPI
-		`data-chart="spend-bars"`,       // spend chart container
+		`data-chart="spend-tokens"`,     // merged spend+tokens overlay chart
 		`data-chart="model-share"`,      // share chart container
-		`data-chart="tokens-line"`,      // tokens chart container
 		`data-chart="day-models"`,       // across-the-day stacked chart
 		`data-chart="delegation-trend"`, // delegated-share trend chart
 		"heatmap-cell level-",           // punch card cells
@@ -403,7 +411,7 @@ func TestInsightsRendersCharts(t *testing.T) {
 		"tokens delegated",              // delegation KPI
 		"est. subagent spend",           // delegation KPI
 		"/sessions?session=sess-1",      // top delegator deep link
-		"busiest model claude-opus-4-5", // across-the-day subtitle
+		"busiest model Opus 4.5",        // across-the-day subtitle (prettified)
 		`action="/insights"`,            // filter drawer posts back here
 		`class="sidebar"`,               // base chrome rendered
 	} {

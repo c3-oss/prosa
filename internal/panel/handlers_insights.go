@@ -185,11 +185,13 @@ func (p *Panel) handleInsights(w http.ResponseWriter, r *http.Request) {
 	p.render(w, r, "insights", data)
 }
 
-// spendTrendView powers the "Spend & tokens" card: spend columns plus a
-// token-volume area chart over the same buckets.
+// spendTrendView powers the "Spend & tokens" card: one overlaid chart with
+// spend columns and a token-volume line over the same buckets. The two series
+// live on very different scales ($ vs. billions of tokens) and Frappe has no
+// second y-axis, so each is normalized to a share of its own peak; the card
+// caption carries the real totals.
 type spendTrendView struct {
-	SpendChart  charts.Spec
-	TokensChart charts.Spec
+	Chart       charts.Spec
 	TotalSpend  string
 	TotalTokens string
 	BucketLabel string // "per day" | "per week"
@@ -266,12 +268,25 @@ func buildSpendTrend(rows []*prosav1.AnalyticsRow, since, until time.Time) spend
 	}
 
 	labels := make([]string, len(buckets))
-	spendSeries := make([]float64, len(buckets))
-	tokenValues := make([]float64, len(buckets))
+	spendShare := make([]float64, len(buckets))
+	tokenShare := make([]float64, len(buckets))
+	var maxSpend, maxTokens float64
+	for _, b := range buckets {
+		if b.spend > maxSpend {
+			maxSpend = b.spend
+		}
+		if t := float64(b.tokens); t > maxTokens {
+			maxTokens = t
+		}
+	}
 	for i, b := range buckets {
 		labels[i] = b.label
-		spendSeries[i] = b.spend
-		tokenValues[i] = float64(b.tokens)
+		if maxSpend > 0 {
+			spendShare[i] = b.spend / maxSpend * 100
+		}
+		if maxTokens > 0 {
+			tokenShare[i] = float64(b.tokens) / maxTokens * 100
+		}
 	}
 
 	totalSpendLabel := "n/a"
@@ -279,20 +294,18 @@ func buildSpendTrend(rows []*prosav1.AnalyticsRow, since, until time.Time) spend
 		totalSpendLabel = formatUSD(totalSpend)
 	}
 	return spendTrendView{
-		SpendChart: charts.Spec{
-			Type:        "bar",
-			Labels:      labels,
-			Datasets:    []charts.Dataset{{Name: "est. spend", Values: spendSeries}},
-			ValuePrefix: "$",
-			Height:      160,
-		},
-		TokensChart: charts.Spec{
-			Type:        "line",
-			Labels:      labels,
-			Datasets:    []charts.Dataset{{Name: "tokens", Values: tokenValues}},
-			RegionFill:  true,
-			ValueSuffix: " tokens",
-			Height:      160,
+		// One axis-mixed chart: spend bars + tokens line, each as a share of
+		// its own peak so both read on a single 0–100 axis. Real magnitudes
+		// are in the card caption.
+		Chart: charts.Spec{
+			Type:   "axis-mixed",
+			Labels: labels,
+			Datasets: []charts.Dataset{
+				{Name: "est. spend", Values: spendShare, ChartType: "bar"},
+				{Name: "tokens", Values: tokenShare, ChartType: "line"},
+			},
+			ValueSuffix: "% of peak",
+			Height:      260,
 		},
 		TotalSpend:  totalSpendLabel,
 		TotalTokens: formatTokensCompact(totalTokens),
@@ -345,8 +358,9 @@ type modelShareView struct {
 	HasData    bool
 }
 
-// modelShareTopN caps the share chart at top-4 models plus "other" (palette has five tones).
-const modelShareTopN = 4
+// modelShareTopN caps the share chart at top-7 models plus "other" (the
+// categorical palette has eight tones, so 7 + other fills it).
+const modelShareTopN = 7
 
 // buildModelShare folds usage_by_day rows into weekly session counts per
 // model, keeps the top-N by volume, and normalizes each week to 100%.
@@ -411,7 +425,7 @@ func buildModelShare(rows []*prosav1.AnalyticsRow) modelShareView {
 		for i, w := range weeks {
 			values[i] = float64(counts[key{w, m}])
 		}
-		addSeries(m, modelTotals[m], values)
+		addSeries(displayModel(m), modelTotals[m], values)
 	}
 	if hasOther {
 		values := make([]float64, len(weeks))
@@ -460,6 +474,7 @@ func buildModelShare(rows []*prosav1.AnalyticsRow) modelShareView {
 type punchcardCell struct {
 	Count int64
 	Level int
+	Slot  string // tooltip date label: "Mon 14h"
 	Label string // hover/a11y: "Mon 14h: 3 sessions"
 }
 
@@ -535,6 +550,7 @@ func buildPunchcardTZ(rows []*prosav1.AnalyticsRow, offsetHours int) (punchcardV
 			cells[h] = punchcardCell{
 				Count: n,
 				Level: level,
+				Slot:  fmt.Sprintf("%s %02dh", weekdays[d], h),
 				Label: fmt.Sprintf("%s %02dh: %s", weekdays[d], h, pluralize(n, "session", "sessions")),
 			}
 		}
@@ -1163,7 +1179,7 @@ func buildDayByModelTZ(rows []*prosav1.AnalyticsRow, offsetHours int) dayByModel
 		for h := range 24 {
 			values[h] = float64(sessions[key{h, m}])
 		}
-		addSeries(m, modelTotals[m], values)
+		addSeries(displayModel(m), modelTotals[m], values)
 	}
 	if hasOther {
 		values := make([]float64, 24)
@@ -1196,7 +1212,7 @@ func buildDayByModelTZ(rows []*prosav1.AnalyticsRow, offsetHours int) dayByModel
 		},
 		Legend:       legend,
 		PeakLabel:    fmt.Sprintf("peak %02dh local", peakHour),
-		BusiestModel: top[0],
+		BusiestModel: displayModel(top[0]),
 		TotalTokens:  formatTokensCompact(totalTokens),
 		HasData:      true,
 	}

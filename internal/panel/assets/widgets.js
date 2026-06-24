@@ -79,8 +79,9 @@
   function hideTip() {
     if (tip) tip.setAttribute('hidden', '');
   }
-  function initHeatmap(root) {
-    var grid = root.querySelector('.heatmap-grid');
+  // Delegate the floating tooltip on any container holding .heatmap-cell
+  // nodes — the Home activity grid and the Insights punch card share it.
+  function bindHeatmapTips(grid) {
     if (!grid || grid.dataset.bound === '1') return;
     grid.dataset.bound = '1';
     grid.addEventListener('mouseover', function (ev) {
@@ -96,6 +97,9 @@
       if (cell && cell.dataset.date) showTip(cell);
     });
     grid.addEventListener('focusout', hideTip);
+  }
+  function initHeatmap(root) {
+    root.querySelectorAll('.heatmap-grid, .punchcard').forEach(bindHeatmapTips);
   }
 
   // --- friendly-name edit toggle -------------------------------------------

@@ -253,6 +253,28 @@
   margin-bottom: 0;
 }
 
+/* Insights delegation row: a tall "Top delegating sessions" list in the left
+   column, with "By parent agent" and "Agentic session kinds" stacked in the
+   right column so the row reads as balanced instead of leaving a hole under
+   the short table. Placement only applies once the grid is two columns. */
+@media (min-width: 1101px) {
+  .insights-delegators-grid {
+    align-items: start;
+  }
+  .insights-delegators-grid > :nth-child(1) {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+  }
+  .insights-delegators-grid > :nth-child(2) {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .insights-delegators-grid > :nth-child(3) {
+    grid-column: 2;
+    grid-row: 2;
+  }
+}
+
 /* Bar leaderboard (tools, models) ------------------------------------ */
 .bar-list {
   display: flex;
