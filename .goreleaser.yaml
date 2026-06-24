@@ -77,7 +77,7 @@ archives:
 homebrew_casks:
   - name: prosa
     ids: [prosa]
-    binary: prosa
+    binaries: [prosa]
     repository:
       owner: c3-oss
       name: homebrew-prosa
@@ -99,7 +99,7 @@ homebrew_casks:
 
   - name: prosa-server
     ids: [prosa-server]
-    binary: prosa-server
+    binaries: [prosa-server]
     repository:
       owner: c3-oss
       name: homebrew-prosa
@@ -113,7 +113,7 @@ homebrew_casks:
 
   - name: prosa-panel
     ids: [prosa-panel]
-    binary: prosa-panel
+    binaries: [prosa-panel]
     repository:
       owner: c3-oss
       name: homebrew-prosa
