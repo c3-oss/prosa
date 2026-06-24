@@ -229,7 +229,7 @@ func buildProfileUsage(rows []*prosav1.AnalyticsRow) profileUsageView {
 
 	view := profileUsageView{
 		ActiveProfiles: formatPanelInt(int64(len(tableOrder))),
-		TotalTokens:    formatPanelInt(totalTokens),
+		TotalTokens:    formatTokensCompact(totalTokens),
 		TotalSpend:     costLabel(totalCost, priced),
 		NonDefaultPct:  "—",
 		HasData:        totalSessions > 0,
@@ -262,7 +262,7 @@ func buildProfileUsage(rows []*prosav1.AnalyticsRow) profileUsageView {
 		view.CostLegend = append(view.CostLegend, costLegendRow{
 			ColorIdx: i,
 			Model:    label,
-			Cost:     fmt.Sprintf("$%.2f", donutValues[i]),
+			Cost:     formatUSD(donutValues[i]),
 		})
 	}
 

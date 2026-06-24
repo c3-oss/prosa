@@ -67,3 +67,22 @@ func formatCompactDecimal(v float64) string {
 	}
 	return s
 }
+
+// formatUSD renders a dollar amount with thousands separators and two
+// decimals (17436.35 → "$17,436.35"), so spend reads consistently with the
+// comma-grouped integer counts. Small values round-trip unchanged ("$5.71").
+func formatUSD(v float64) string {
+	sign := ""
+	if v < 0 {
+		sign = "-"
+		v = -v
+	}
+	cents := int64(math.Round(v * 100))
+	whole := cents / 100
+	frac := cents % 100
+	fracStr := strconv.FormatInt(frac, 10)
+	if len(fracStr) < 2 {
+		fracStr = "0" + fracStr
+	}
+	return sign + "$" + formatPanelInt(whole) + "." + fracStr
+}
