@@ -9,8 +9,7 @@
     <div class="sessions-search-row">
       <form class="sessions-search" method="get" action="/sessions">
         <input id="search" type="search" name="q" value="{{.Q}}"
-               placeholder="Search sessions…" autofocus
-               @input.debounce.300ms="$el.form.requestSubmit()">
+               placeholder="Search sessions… (press Enter)" autofocus>
         {{if .Last}}<input type="hidden" name="last" value="{{.Last}}">{{end}}
         {{range $a, $sel := .AgentsSelected}}{{if $sel}}<input type="hidden" name="agent" value="{{$a}}">{{end}}{{end}}
         {{range $p, $sel := .ProjectsSelected}}{{if $sel}}<input type="hidden" name="project" value="{{$p}}">{{end}}{{end}}
