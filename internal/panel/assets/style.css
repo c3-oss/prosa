@@ -314,9 +314,18 @@ tr:hover {
   color: var(--accent);
 }
 
-.project-sessions-link {
+/* Small trailing icon next to a project name that opens the external repo;
+   the name itself filters sessions. */
+.project-external-link {
   flex: none;
+  display: inline-flex;
+  align-items: center;
   color: var(--text-3);
+  text-decoration: none;
+}
+
+.project-external-link:hover {
+  color: var(--text-1);
 }
 
 .projects-agent {
