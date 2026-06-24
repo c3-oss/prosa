@@ -67,3 +67,73 @@
   line-clamp: 2;
   -webkit-box-orient: vertical;
 }
+
+/* Top placement: subagents sit just under the stats so they're seen first,
+   not buried at the end. A capped, scrollable list keeps a parent with many
+   children from pushing the transcript off-screen. */
+.sp-subagents-top {
+  margin-top: var(--space-5);
+  margin-bottom: 0;
+}
+
+.sp-subagents-top .subagent-list {
+  max-height: 264px;
+  overflow-y: auto;
+  padding-right: var(--space-1);
+}
+
+/* Sibling pager — on a subagent's detail, a strip at the very top to step
+   through its siblings and jump back to the parent. */
+.sp-sibling-nav {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-4);
+  background: var(--bg-elev-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+}
+
+.sp-sib-back {
+  color: var(--accent);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.sp-sib-back:hover {
+  text-decoration: underline;
+}
+
+.sp-sib-pos {
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.sp-sib-pager {
+  margin-left: auto;
+  display: inline-flex;
+  gap: var(--space-1);
+}
+
+.sp-sib-pager a,
+.sp-sib-pager .is-disabled {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm);
+  color: var(--text-2);
+  text-decoration: none;
+}
+
+.sp-sib-pager a:hover {
+  background: var(--bg-elev-1);
+  color: var(--text-1);
+}
+
+.sp-sib-pager .is-disabled {
+  color: var(--text-3);
+  opacity: 0.4;
+}

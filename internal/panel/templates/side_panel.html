@@ -10,6 +10,17 @@
   </header>
 
   <div class="sp-body">
+    {{if .ParentId}}
+      <nav class="sp-sibling-nav" aria-label="subagent navigation">
+        <a class="sp-sib-back" href="?session={{.ParentId}}"
+           hx-get="/sessions/{{.ParentId}}" hx-target="#side-panel" hx-push-url="?session={{.ParentId}}" hx-swap="innerHTML">‹ parent</a>
+        {{if .SiblingCount}}<span class="sp-sib-pos">subagent {{.SiblingIndex}} / {{.SiblingCount}}</span>{{end}}
+        <span class="sp-sib-pager">
+          {{if .PrevSiblingId}}<a href="?session={{.PrevSiblingId}}" hx-get="/sessions/{{.PrevSiblingId}}" hx-target="#side-panel" hx-push-url="?session={{.PrevSiblingId}}" hx-swap="innerHTML" title="Previous subagent" aria-label="Previous subagent">↑</a>{{else}}<span class="is-disabled" aria-hidden="true">↑</span>{{end}}
+          {{if .NextSiblingId}}<a href="?session={{.NextSiblingId}}" hx-get="/sessions/{{.NextSiblingId}}" hx-target="#side-panel" hx-push-url="?session={{.NextSiblingId}}" hx-swap="innerHTML" title="Next subagent" aria-label="Next subagent">↓</a>{{else}}<span class="is-disabled" aria-hidden="true">↓</span>{{end}}
+        </span>
+      </nav>
+    {{end}}
     <div class="sp-masthead">
       <h2 class="sp-prompt">{{or .Session.FirstPrompt "(no prompt)"}}</h2>
       <p class="sp-byline">
@@ -40,6 +51,30 @@
         <div class="stat-label">cost</div>
       </div>
     </section>
+
+    {{if .Children}}
+      <section class="subagents sp-subagents-top" aria-label="subagents">
+        <h3 class="sp-section-title">Subagents · {{len .Children}}</h3>
+        <ul class="subagent-list">
+          {{range .Children}}
+            <li class="subagent-item">
+              <a class="subagent-link"
+                 href="?session={{.Id}}"
+                 hx-get="/sessions/{{.Id}}"
+                 hx-target="#side-panel"
+                 hx-push-url="?session={{.Id}}"
+                 hx-swap="innerHTML">
+                <div class="subagent-meta">
+                  {{agentBadge .Agent}}
+                  {{if .StartedAt}}<time class="subagent-time">{{(.StartedAt.AsTime).Format "15:04:05"}}</time>{{end}}
+                </div>
+                <div class="subagent-prompt">{{or .FirstPrompt "(no prompt)"}}</div>
+              </a>
+            </li>
+          {{end}}
+        </ul>
+      </section>
+    {{end}}
 
     <details class="sp-details">
       <summary class="sp-details-summary">Details</summary>
@@ -324,30 +359,6 @@
       </section>
     {{else}}
       <p class="empty">no transcript available</p>
-    {{end}}
-
-    {{if .Children}}
-      <section class="subagents" aria-label="subagents">
-        <h3 class="sp-section-title">Subagents · {{len .Children}}</h3>
-        <ul class="subagent-list">
-          {{range .Children}}
-            <li class="subagent-item">
-              <a class="subagent-link"
-                 href="?session={{.Id}}"
-                 hx-get="/sessions/{{.Id}}"
-                 hx-target="#side-panel"
-                 hx-push-url="?session={{.Id}}"
-                 hx-swap="innerHTML">
-                <div class="subagent-meta">
-                  {{agentBadge .Agent}}
-                  {{if .StartedAt}}<time class="subagent-time">{{(.StartedAt.AsTime).Format "15:04:05"}}</time>{{end}}
-                </div>
-                <div class="subagent-prompt">{{or .FirstPrompt "(no prompt)"}}</div>
-              </a>
-            </li>
-          {{end}}
-        </ul>
-      </section>
     {{end}}
 
     <details class="raw-toggle">

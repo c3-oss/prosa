@@ -104,6 +104,16 @@ type sidePanelData struct {
 	EOF           bool
 	Total         int64
 	Progress      int64
+
+	// Sibling navigation, populated only when this session is a subagent
+	// (it has a parent). The detail panel renders a pager that steps
+	// through the parent's children and a link back to the parent.
+	// SiblingIndex is 1-based; the *Id fields are empty at the ends.
+	ParentId      string
+	SiblingIndex  int
+	SiblingCount  int
+	PrevSiblingId string
+	NextSiblingId string
 }
 
 func (p *Panel) loadSidePanel(ctx context.Context, id string) (sidePanelData, error) {
@@ -138,16 +148,43 @@ func (p *Panel) loadSidePanel(ctx context.Context, id string) (sidePanelData, er
 		children = childResp.Msg.Sessions
 	}
 	sess := getResp.Msg.Session
+	// When this session is a subagent, resolve its position among its
+	// siblings so the panel can offer a parent link + prev/next pager.
+	parentID := sess.GetParentSessionId()
+	var sibIndex, sibCount int
+	var prevSib, nextSib string
+	if parentID != "" {
+		sibResp, sibErr := p.clients.Sessions.ListChildren(ctx,
+			connect.NewRequest(&prosav1.ListChildrenRequest{ParentId: parentID}))
+		if sibErr != nil {
+			slog.Warn("side panel list siblings failed", "id", id, "parent", parentID, "err", sibErr)
+		} else {
+			sibs := sibResp.Msg.Sessions
+			sibCount = len(sibs)
+			for i, s := range sibs {
+				if s.Id == id {
+					sibIndex = i + 1
+					if i > 0 {
+						prevSib = sibs[i-1].Id
+					}
+					if i < len(sibs)-1 {
+						nextSib = sibs[i+1].Id
+					}
+					break
+				}
+			}
+		}
+	}
 	usage := tokenUsageFromProto(sess.GetUsage())
 	costLabel := "n/a"
 	if cost, ok := pricing.CostUSD(sess.GetModel(), usage); ok {
-		costLabel = fmt.Sprintf("$%.2f", cost)
+		costLabel = formatUSD(cost)
 	}
 	sp := sidePanelData{
 		Session:       sess,
 		Kinds:         sess.GetKinds(),
 		Project:       projectDisplayFromSession(sess),
-		TokensTotal:   formatPanelInt(usage.TotalTokens),
+		TokensTotal:   formatTokensCompact(usage.TotalTokens),
 		TokensIn:      formatPanelInt(usage.InputTokens),
 		TokensOut:     formatPanelInt(usage.OutputTokens),
 		Cost:          costLabel,
@@ -158,6 +195,11 @@ func (p *Panel) loadSidePanel(ctx context.Context, id string) (sidePanelData, er
 		TurnsCount:    countMessageDisplayTurns(turns),
 		ToolsCount:    sumToolCounts(getResp.Msg.Tools),
 		DurationLabel: sessionDurationLabel(sess),
+		ParentId:      parentID,
+		SiblingIndex:  sibIndex,
+		SiblingCount:  sibCount,
+		PrevSiblingId: prevSib,
+		NextSiblingId: nextSib,
 		Chunk:         chunkText,
 		EOF:           eof,
 		Total:         rawResp.Msg.TotalSize,
