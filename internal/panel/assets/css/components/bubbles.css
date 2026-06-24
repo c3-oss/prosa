@@ -6,31 +6,38 @@
 .transcript {
   display: flex;
   flex-direction: column;
-  gap: var(--space-5);
+  gap: var(--space-3);
   margin: var(--space-2) 0 var(--space-6);
 }
 
+/* iMessage-style thread: your prompts align right, the agent — and the tool
+   and thinking groups belonging to its turn — align left, so each side reads
+   as one voice in a chat. */
 .bubble {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
-  max-width: 100%;
+  gap: 4px;
+  max-width: 82%;
   min-width: 0;
-  padding-left: var(--space-4);
-  border-left: 2px solid var(--divider);
 }
 
-/* Role rails — the left rule color carries identity. */
 .bubble-user {
-  border-left-color: var(--text-3);
+  align-self: flex-end;
+  align-items: flex-end;
 }
 
-.bubble-assistant {
-  border-left-color: var(--accent);
-}
-
+.bubble-assistant,
 .bubble-tool {
-  border-left-color: var(--divider);
+  align-self: flex-start;
+  align-items: flex-start;
+}
+
+/* Tool and thinking groups belong to the agent's turn: left-aligned and
+   width-matched to the agent bubbles, so they read as part of that side. */
+.tool-group,
+.thinking-group {
+  align-self: flex-start;
+  max-width: 82%;
 }
 
 /* The whole meta row is the collapse toggle (a full-width button), so a click
@@ -100,26 +107,28 @@
 }
 
 .bubble-body {
+  width: fit-content;
+  max-width: 100%;
   font-size: var(--text-sm);
   line-height: 1.6;
   color: var(--text-1);
   word-wrap: break-word;
   overflow-wrap: anywhere;
+  border-radius: var(--radius-lg);
+  padding: var(--space-3) var(--space-4);
 }
 
-/* User: input on a subtle surface so the human's turns stand out. */
+/* Your prompts: a tinted "me" bubble on the right. */
 .bubble-user .bubble-body {
-  background: var(--bg-elev-1);
-  border-radius: var(--radius-sm);
-  padding: var(--space-3) var(--space-4);
+  background: color-mix(in srgb, var(--accent) 16%, var(--bg-elev-1));
   white-space: pre-wrap;
   font-family: var(--font-sans);
 }
 
-/* Assistant: bare prose, breathing room instead of a surface. */
+/* The agent: a neutral bubble on the left, outlined so it reads as a bubble. */
 .bubble-assistant .bubble-body {
-  background: transparent;
-  padding: 0;
+  background: var(--bg-elev-1);
+  border: 1px solid var(--divider);
 }
 
 /* Tool: discrete monospace block so the eye can skip it when scanning. */
