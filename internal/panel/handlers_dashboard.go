@@ -181,6 +181,7 @@ func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 	hourChart := buildHourChart(out.hours.Rows)
 	issues := buildIssues(out.errorsByModel.Rows, out.errors.Rows, out.sessions.TotalCount)
 	trend := buildActivityTrend(out.trend.Rows)
+	trend.Chart.Height = 240 // a touch taller on Home (Profiles keeps the default)
 
 	// KPI deltas vs the previous window of equal length.
 	var dSessions, dProjects, dModels, dTokens, dSpend, dErrorRate *kpiDelta
