@@ -162,59 +162,32 @@
   color: var(--text-2);
 }
 
-/* Details disclosure: full metadata, collapsed by default. */
+/* Details: an always-visible metadata panel — a serif section title over a
+   hairline-ruled key/value ledger — placed above the subagents. */
 .sp-details {
   margin-bottom: var(--space-6);
   padding-bottom: var(--space-5);
   border-bottom: 1px solid var(--divider);
 }
 
-.sp-details-summary {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  cursor: pointer;
-  list-style: none;
-  user-select: none;
-  font-size: var(--text-sm);
-  font-variant: small-caps;
-  letter-spacing: 0.06em;
-  color: var(--text-2);
-}
-
-.sp-details-summary::-webkit-details-marker {
-  display: none;
-}
-
-.sp-details-summary::before {
-  content: "▸";
-  display: inline-block;
-  font-size: var(--text-xs);
-  color: var(--text-3);
-  transition: transform var(--duration-base) var(--ease);
-}
-
-.sp-details[open] .sp-details-summary::before {
-  transform: rotate(90deg);
-}
-
-.sp-details-summary:hover {
-  color: var(--text-1);
-}
-
 .sp-meta {
   display: grid;
   grid-template-columns: 120px 1fr;
-  gap: var(--space-3) var(--space-4);
   margin: var(--space-4) 0 0;
 }
 
+.sp-meta dt,
+.sp-meta dd {
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--divider);
+}
+
 .sp-meta dt {
+  padding-right: var(--space-4);
   font-size: var(--text-sm);
   font-variant: small-caps;
   letter-spacing: 0.06em;
   color: var(--text-2);
-  padding-top: 2px;
 }
 
 .sp-meta dd {
