@@ -204,7 +204,7 @@ func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 		{Value: formatPanelInt(out.sessions.TotalCount), Label: "sessions", Delta: dSessions},
 		{Value: formatPanelInt(int64(len(projectNames))), Label: "projects", Delta: dProjects},
 		{Value: formatPanelInt(int64(len(out.models.Rows))), Label: "models", Delta: dModels},
-		{Value: formatTokensCompact(usageTokens), Label: "tokens", Delta: dTokens},
+		{Value: formatTokensCompact(usageTokens), Title: formatPanelInt(usageTokens), Label: "tokens", Delta: dTokens},
 		{Value: usageCostLabel, Label: "est. spend", Delta: dSpend},
 		{Value: issues.Rate, Label: "error rate", Delta: dErrorRate},
 	}
@@ -258,15 +258,17 @@ func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 		"HourChart":   hourChart.Chart,
 		"HourPeak":    hourChart.PeakLabel,
 
-		"IssuesFlagged":  issues.Flagged,
-		"IssuesRate":     issues.Rate,
-		"IssuesTopModel": issues.TopModel,
-		"IssuesBars":     issues.PerModelBars,
-		"IssuesRecent":   issues.Recent,
+		"IssuesFlagged":     issues.Flagged,
+		"IssuesRate":        issues.Rate,
+		"IssuesTopModel":    issues.TopModel,
+		"IssuesTopModelRaw": issues.TopModelRaw,
+		"IssuesBars":        issues.PerModelBars,
+		"IssuesRecent":      issues.Recent,
 
-		"UsageRows":        usageRows,
-		"UsageTotalTokens": formatTokensCompact(usageTokens),
-		"UsageTotalCost":   usageCostLabel,
+		"UsageRows":            usageRows,
+		"UsageTotalTokens":     formatTokensCompact(usageTokens),
+		"UsageTotalTokensFull": formatPanelInt(usageTokens),
+		"UsageTotalCost":       usageCostLabel,
 	}
 	p.render(w, r, "home", data)
 }
@@ -582,15 +584,16 @@ func monthBands(cells []heatmapCell, columns int) []heatmapMonth {
 }
 
 type usagePanelRow struct {
-	Agent    string
-	Sessions string
-	Measured string
-	Total    string
-	Input    string
-	Output   string
-	Cached   string
-	Cost     string
-	Percent  int
+	Agent     string
+	Sessions  string
+	Measured  string
+	Total     string
+	TotalFull string // exact token count, revealed on hover
+	Input     string
+	Output    string
+	Cached    string
+	Cost      string
+	Percent   int
 }
 
 // costLabel renders estimated spend as "$X.XX", or "n/a" when unpriced.
@@ -643,14 +646,15 @@ func buildUsage(rows []*prosav1.AnalyticsRow) ([]usagePanelRow, int64, float64, 
 			cost:   costFloat,
 			priced: priced,
 			values: usagePanelRow{
-				Agent:    row.Values[0],
-				Sessions: formatPanelInt(parsePanelInt(row.Values[1])),
-				Measured: formatPanelInt(parsePanelInt(row.Values[2])),
-				Total:    formatTokensCompact(total),
-				Input:    formatTokensCompact(parsePanelInt(row.Values[4])),
-				Output:   formatTokensCompact(parsePanelInt(row.Values[5])),
-				Cached:   formatTokensCompact(parsePanelInt(row.Values[6])),
-				Cost:     costLabel,
+				Agent:     row.Values[0],
+				Sessions:  formatPanelInt(parsePanelInt(row.Values[1])),
+				Measured:  formatPanelInt(parsePanelInt(row.Values[2])),
+				Total:     formatTokensCompact(total),
+				TotalFull: formatPanelInt(total),
+				Input:     formatTokensCompact(parsePanelInt(row.Values[4])),
+				Output:    formatTokensCompact(parsePanelInt(row.Values[5])),
+				Cached:    formatTokensCompact(parsePanelInt(row.Values[6])),
+				Cost:      costLabel,
 			},
 		})
 	}
@@ -711,12 +715,14 @@ func buildProjectBars(rows []*prosav1.AnalyticsRow, limit int) []barRow {
 // for the dot, the model name, its formatted sessions/tokens/cost, and the
 // session count as a percentage of the busiest model so the row draws a bar.
 type modelBoardRow struct {
-	ColorIdx int
-	Model    string
-	Sessions string
-	Tokens   string
-	Cost     string
-	Percent  int
+	ColorIdx   int
+	Model      string
+	ModelRaw   string // exact model id, revealed on hover
+	Sessions   string
+	Tokens     string
+	TokensFull string // exact token count, revealed on hover
+	Cost       string
+	Percent    int
 }
 
 // buildModelBoard shapes the usage_by_model rows
@@ -772,12 +778,14 @@ func buildModelBoard(rows []*prosav1.AnalyticsRow, limit int) []modelBoardRow {
 			pct = int(it.sessions * 100 / maxSessions)
 		}
 		board = append(board, modelBoardRow{
-			ColorIdx: i,
-			Model:    displayModel(it.model),
-			Sessions: formatPanelInt(it.sessions),
-			Tokens:   formatTokensCompact(it.tokens),
-			Cost:     costLabel(it.cost, it.priced),
-			Percent:  pct,
+			ColorIdx:   i,
+			Model:      displayModel(it.model),
+			ModelRaw:   it.model,
+			Sessions:   formatPanelInt(it.sessions),
+			Tokens:     formatTokensCompact(it.tokens),
+			TokensFull: formatPanelInt(it.tokens),
+			Cost:       costLabel(it.cost, it.priced),
+			Percent:    pct,
 		})
 	}
 	return board
@@ -868,6 +876,7 @@ type issuesView struct {
 	Flagged      int64
 	Rate         string
 	TopModel     string
+	TopModelRaw  string // exact model id, revealed on hover
 	PerModelBars []barRow
 	Recent       []issueRow
 }
@@ -892,6 +901,7 @@ func buildIssues(errModelRows, errRows []*prosav1.AnalyticsRow, totalSessions in
 	if totalSessions > 0 {
 		rate = fmt.Sprintf("%.0f%%", errorRatePct(flagged, totalSessions))
 	}
+	rawTopModel := topModel
 	if topModel == "" {
 		topModel = "—"
 	} else {
@@ -919,6 +929,7 @@ func buildIssues(errModelRows, errRows []*prosav1.AnalyticsRow, totalSessions in
 		Flagged:      flagged,
 		Rate:         rate,
 		TopModel:     topModel,
+		TopModelRaw:  rawTopModel,
 		PerModelBars: perModelBars,
 		Recent:       recent,
 	}
@@ -945,8 +956,10 @@ func errorRatePct(flagged, totalSessions int64) float64 {
 }
 
 // kpiView is one entry of the KPI strip: a value plus an optional delta badge.
+// Title, when set, is the exact value revealed on hover (for humanized values).
 type kpiView struct {
 	Value string
+	Title string
 	Label string
 	Delta *kpiDelta
 }

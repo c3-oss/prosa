@@ -345,6 +345,7 @@ func weekStartLabel(day string) string {
 type shareLegendRow struct {
 	ColorIdx int
 	Model    string
+	RawModel string // exact model id, revealed on hover
 	Sessions string
 }
 
@@ -412,10 +413,11 @@ func buildModelShare(rows []*prosav1.AnalyticsRow) modelShareView {
 
 	datasets := make([]charts.Dataset, 0, len(top)+1)
 	legend := make([]shareLegendRow, 0, len(top)+1)
-	addSeries := func(name string, totals int64, values []float64) {
+	addSeries := func(raw, name string, totals int64, values []float64) {
 		legend = append(legend, shareLegendRow{
 			ColorIdx: len(datasets),
 			Model:    name,
+			RawModel: raw,
 			Sessions: formatPanelInt(totals),
 		})
 		datasets = append(datasets, charts.Dataset{Name: name, Values: values})
@@ -425,7 +427,7 @@ func buildModelShare(rows []*prosav1.AnalyticsRow) modelShareView {
 		for i, w := range weeks {
 			values[i] = float64(counts[key{w, m}])
 		}
-		addSeries(displayModel(m), modelTotals[m], values)
+		addSeries(m, displayModel(m), modelTotals[m], values)
 	}
 	if hasOther {
 		values := make([]float64, len(weeks))
@@ -436,7 +438,7 @@ func buildModelShare(rows []*prosav1.AnalyticsRow) modelShareView {
 				values[i] += float64(counts[key{w, m}])
 			}
 		}
-		addSeries("other", otherTotal, values)
+		addSeries("other", "other", otherTotal, values)
 	}
 
 	// Frappe has no percentage-stacked mode, so normalize each week's
@@ -1166,10 +1168,11 @@ func buildDayByModelTZ(rows []*prosav1.AnalyticsRow, offsetHours int) dayByModel
 
 	datasets := make([]charts.Dataset, 0, len(top)+1)
 	legend := make([]shareLegendRow, 0, len(top)+1)
-	addSeries := func(name string, totals int64, values []float64) {
+	addSeries := func(raw, name string, totals int64, values []float64) {
 		legend = append(legend, shareLegendRow{
 			ColorIdx: len(datasets),
 			Model:    name,
+			RawModel: raw,
 			Sessions: formatPanelInt(totals),
 		})
 		datasets = append(datasets, charts.Dataset{Name: name, Values: values})
@@ -1179,7 +1182,7 @@ func buildDayByModelTZ(rows []*prosav1.AnalyticsRow, offsetHours int) dayByModel
 		for h := range 24 {
 			values[h] = float64(sessions[key{h, m}])
 		}
-		addSeries(displayModel(m), modelTotals[m], values)
+		addSeries(m, displayModel(m), modelTotals[m], values)
 	}
 	if hasOther {
 		values := make([]float64, 24)
@@ -1190,7 +1193,7 @@ func buildDayByModelTZ(rows []*prosav1.AnalyticsRow, offsetHours int) dayByModel
 				values[h] += float64(sessions[key{h, m}])
 			}
 		}
-		addSeries("other", otherTotal, values)
+		addSeries("other", "other", otherTotal, values)
 	}
 
 	return dayByModelView{

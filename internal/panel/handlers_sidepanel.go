@@ -85,25 +85,26 @@ func (p *Panel) handleRawChunk(w http.ResponseWriter, r *http.Request) {
 // dedicated "Subagents" disclosure when it's non-empty. All derived in
 // loadSidePanel so the template stays declarative.
 type sidePanelData struct {
-	Session       *prosav1.Session
-	Kinds         []string
-	Project       projectDisplay
-	TokensTotal   string
-	TokensIn      string
-	TokensOut     string
-	Cost          string
-	Turns         []render.Turn
-	TurnGroups    []render.TurnGroup
-	Tools         []*prosav1.ToolUsage
-	Children      []*prosav1.Session
-	TurnsCount    int
-	ToolsCount    int
-	DurationLabel string
-	Chunk         string
-	NextURL       string
-	EOF           bool
-	Total         int64
-	Progress      int64
+	Session         *prosav1.Session
+	Kinds           []string
+	Project         projectDisplay
+	TokensTotal     string
+	TokensTotalFull string // exact token count, revealed on hover
+	TokensIn        string
+	TokensOut       string
+	Cost            string
+	Turns           []render.Turn
+	TurnGroups      []render.TurnGroup
+	Tools           []*prosav1.ToolUsage
+	Children        []*prosav1.Session
+	TurnsCount      int
+	ToolsCount      int
+	DurationLabel   string
+	Chunk           string
+	NextURL         string
+	EOF             bool
+	Total           int64
+	Progress        int64
 
 	// Sibling navigation, populated only when this session is a subagent
 	// (it has a parent). The detail panel renders a pager that steps
@@ -181,29 +182,30 @@ func (p *Panel) loadSidePanel(ctx context.Context, id string) (sidePanelData, er
 		costLabel = formatUSD(cost)
 	}
 	sp := sidePanelData{
-		Session:       sess,
-		Kinds:         sess.GetKinds(),
-		Project:       projectDisplayFromSession(sess),
-		TokensTotal:   formatTokensCompact(usage.TotalTokens),
-		TokensIn:      formatPanelInt(usage.InputTokens),
-		TokensOut:     formatPanelInt(usage.OutputTokens),
-		Cost:          costLabel,
-		Turns:         turns,
-		TurnGroups:    render.GroupTurns(turns),
-		Tools:         getResp.Msg.Tools,
-		Children:      children,
-		TurnsCount:    countMessageDisplayTurns(turns),
-		ToolsCount:    sumToolCounts(getResp.Msg.Tools),
-		DurationLabel: sessionDurationLabel(sess),
-		ParentId:      parentID,
-		SiblingIndex:  sibIndex,
-		SiblingCount:  sibCount,
-		PrevSiblingId: prevSib,
-		NextSiblingId: nextSib,
-		Chunk:         chunkText,
-		EOF:           eof,
-		Total:         rawResp.Msg.TotalSize,
-		Progress:      int64(len(chunk)),
+		Session:         sess,
+		Kinds:           sess.GetKinds(),
+		Project:         projectDisplayFromSession(sess),
+		TokensTotal:     formatTokensCompact(usage.TotalTokens),
+		TokensTotalFull: formatPanelInt(usage.TotalTokens),
+		TokensIn:        formatPanelInt(usage.InputTokens),
+		TokensOut:       formatPanelInt(usage.OutputTokens),
+		Cost:            costLabel,
+		Turns:           turns,
+		TurnGroups:      render.GroupTurns(turns),
+		Tools:           getResp.Msg.Tools,
+		Children:        children,
+		TurnsCount:      countMessageDisplayTurns(turns),
+		ToolsCount:      sumToolCounts(getResp.Msg.Tools),
+		DurationLabel:   sessionDurationLabel(sess),
+		ParentId:        parentID,
+		SiblingIndex:    sibIndex,
+		SiblingCount:    sibCount,
+		PrevSiblingId:   prevSib,
+		NextSiblingId:   nextSib,
+		Chunk:           chunkText,
+		EOF:             eof,
+		Total:           rawResp.Msg.TotalSize,
+		Progress:        int64(len(chunk)),
 	}
 	if !sp.EOF {
 		sp.NextURL = fmt.Sprintf("/raw/%s?offset=%d", id, sp.Progress)

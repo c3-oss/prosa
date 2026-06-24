@@ -64,7 +64,7 @@
         </div>
         <ul class="cost-legend share-legend">
           {{range .Share.Legend}}
-            <li><span class="cost-legend-dot" data-ci="{{.ColorIdx}}"></span><span class="cost-legend-model">{{.Model}}</span><span class="cost-legend-cost">{{.Sessions}}</span></li>
+            <li><span class="cost-legend-dot" data-ci="{{.ColorIdx}}"></span><span class="cost-legend-model" title="{{.RawModel}}">{{.Model}}</span><span class="cost-legend-cost">{{.Sessions}}</span></li>
           {{end}}
         </ul>
       {{else}}
@@ -114,7 +114,7 @@
         </div>
         <ul class="cost-legend share-legend">
           {{range .Day.Legend}}
-            <li><span class="cost-legend-dot" data-ci="{{.ColorIdx}}"></span><span class="cost-legend-model">{{.Model}}</span><span class="cost-legend-cost">{{.Sessions}}</span></li>
+            <li><span class="cost-legend-dot" data-ci="{{.ColorIdx}}"></span><span class="cost-legend-model" title="{{.RawModel}}">{{.Model}}</span><span class="cost-legend-cost">{{.Sessions}}</span></li>
           {{end}}
         </ul>
       </div>

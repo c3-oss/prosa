@@ -6,7 +6,7 @@
   <section class="kpi-strip" aria-label="overview">
     {{range .KPIs}}
       <div class="kpi">
-        <div class="kpi-value">{{.Value}}{{if .Delta}}<span class="kpi-delta kpi-delta-{{.Delta.Dir}} kpi-tone-{{.Delta.Tone}}" title="vs previous {{$.Last}}">{{.Delta.Text}}</span>{{end}}</div>
+        <div class="kpi-value"{{if .Title}} title="{{.Title}}"{{end}}>{{.Value}}{{if .Delta}}<span class="kpi-delta kpi-delta-{{.Delta.Dir}} kpi-tone-{{.Delta.Tone}}" title="vs previous {{$.Last}}">{{.Delta.Text}}</span>{{end}}</div>
         <div class="kpi-label">{{.Label}}</div>
       </div>
     {{end}}
@@ -78,7 +78,7 @@
       </div>
       <ul class="cost-legend share-legend">
         {{range .Trend.Legend}}
-          <li><span class="cost-legend-dot" data-ci="{{.ColorIdx}}"></span><span class="cost-legend-model">{{displayAgent .Model}}</span><span class="cost-legend-cost">{{.Sessions}}</span></li>
+          <li><span class="cost-legend-dot" data-ci="{{.ColorIdx}}"></span><span class="cost-legend-model" title="{{.Model}}">{{displayAgent .Model}}</span><span class="cost-legend-cost">{{.Sessions}}</span></li>
         {{end}}
       </ul>
     {{else}}
@@ -148,7 +148,7 @@
       {{if .UsageRows}}
         <div class="usage-summary">
           <div>
-            <span class="usage-summary-value">{{.UsageTotalTokens}}</span>
+            <span class="usage-summary-value" title="{{.UsageTotalTokensFull}}">{{.UsageTotalTokens}}</span>
             <span class="usage-summary-label">tokens</span>
           </div>
           <div>
@@ -170,7 +170,7 @@
                 <span style="width: {{.Percent}}%"></span>
               </div>
               <div class="usage-breakdown">
-                <span>{{.Total}} total</span>
+                <span title="{{.TotalFull}}">{{.Total}} total</span>
                 <span>{{.Input}} input</span>
                 <span>{{.Output}} output</span>
                 <span>{{.Cached}} cached</span>
@@ -199,7 +199,7 @@
         <div class="kpi-label">error rate</div>
       </div>
       <div class="kpi">
-        <div class="kpi-value kpi-value-mono" title="{{.IssuesTopModel}}">{{.IssuesTopModel}}</div>
+        <div class="kpi-value kpi-value-mono"{{if .IssuesTopModelRaw}} title="{{.IssuesTopModelRaw}}"{{end}}>{{.IssuesTopModel}}</div>
         <div class="kpi-label">most error-prone model</div>
       </div>
     </div>
@@ -258,9 +258,9 @@
         {{range .ModelBoard}}
           <div class="models-row">
             <span class="cost-legend-dot" data-ci="{{.ColorIdx}}"></span>
-            <span class="models-name">{{.Model}}</span>
+            <span class="models-name" title="{{.ModelRaw}}">{{.Model}}</span>
             <span class="models-num">{{.Sessions}}</span>
-            <span class="models-num">{{.Tokens}}</span>
+            <span class="models-num" title="{{.TokensFull}}">{{.Tokens}}</span>
             <span class="models-num">{{.Cost}}</span>
             <span class="bar-track"><span class="bar-fill" style="width: {{.Percent}}%"></span></span>
           </div>
