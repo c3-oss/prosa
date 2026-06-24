@@ -226,20 +226,18 @@
                        x-data="{ collapsed: false }"
                        @messages-toggle-all.window="collapsed = $event.detail.collapsed"
                        :class="{ 'is-collapsed': collapsed }">
-                <header class="bubble-meta">
-                  <button type="button" class="bubble-toggle"
-                          @click="collapsed = !collapsed"
-                          :aria-expanded="(!collapsed).toString()"
-                          :aria-label="collapsed ? 'Expand message' : 'Collapse message'">
-                    <span class="bubble-caret" :class="{ 'is-open': !collapsed }" aria-hidden="true">▸</span>
-                  </button>
+                <button type="button" class="bubble-meta"
+                        @click="collapsed = !collapsed"
+                        :aria-expanded="(!collapsed).toString()"
+                        :aria-label="collapsed ? 'Expand message' : 'Collapse message'">
+                  <span class="bubble-caret" :class="{ 'is-open': !collapsed }" aria-hidden="true">▸</span>
                   <span class="bubble-role">{{.Role}}</span>
                   {{if eq .Kind "tool_result"}}<span class="bubble-tool-name">{{.ToolName}}</span>{{end}}
                   {{if and (eq .Role "user") .UserExtras .UserExtras.Command}}
                     <span class="cmd-chip">/{{.UserExtras.Command}}{{if .UserExtras.CommandArgs}} {{.UserExtras.CommandArgs}}{{end}}</span>
                   {{end}}
                   {{if not .Ts.IsZero}}<time class="bubble-time">{{.Ts.Format "15:04:05"}}</time>{{end}}
-                </header>
+                </button>
                 {{if .Body}}<div class="bubble-body" x-show="!collapsed">{{.Body}}</div>{{end}}
                 {{if and (eq .Role "user") .UserExtras .UserExtras.HasDetails}}
                   <div class="user-extras" x-show="!collapsed">
