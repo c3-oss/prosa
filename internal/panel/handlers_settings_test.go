@@ -250,7 +250,7 @@ func TestResetPreferencesClearsThemeAndWindows(t *testing.T) {
 	p.mux.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
 	body := rec.Body.String()
-	require.Contains(t, body, `data-theme="colorblind"`)
+	require.Contains(t, body, `data-theme="almanac"`)
 	require.Contains(t, body, `value="30d" selected`)
 }
 
@@ -265,7 +265,7 @@ func TestSettingsPageRendersThemePicker(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	body := rec.Body.String()
-	require.Contains(t, body, `data-theme="colorblind"`)
+	require.Contains(t, body, `data-theme="almanac"`)
 	require.Contains(t, body, "theme-swatch")
 	require.Contains(t, body, `value="dracula"`)
 	require.Contains(t, body, "Solarized Dark")

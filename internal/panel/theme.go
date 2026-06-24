@@ -55,7 +55,7 @@ func validTheme(id string) bool {
 }
 
 // currentTheme resolves the theme for the request's owner, defaulting to
-// colorblind for anonymous requests or on any lookup failure.
+// almanac for anonymous requests or on any lookup failure.
 func (p *Panel) currentTheme(r *http.Request) string {
 	s, ok := p.cookie.FromRequest(r)
 	if !ok {
