@@ -195,6 +195,26 @@ func TestDevLoginRequiresLoginCSRF(t *testing.T) {
 	require.NotNil(t, findCookie(postRec.Result().Cookies(), session.CookieName))
 }
 
+func TestFaviconDoesNotRefreshLoginCSRF(t *testing.T) {
+	t.Parallel()
+	p, err := New(Config{
+		ServerURL:     "http://server.test",
+		AdminToken:    "secret",
+		CookieKey:     "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		OwnerEmails:   []string{"dev@localhost"},
+		ListenAddr:    ":0",
+		PublicBaseURL: "http://panel.test",
+		DevLoginEmail: "dev@localhost",
+	})
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodGet, "/favicon.ico", nil)
+	rec := httptest.NewRecorder()
+	p.mux.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusNoContent, rec.Code)
+	require.Nil(t, findCookie(rec.Result().Cookies(), loginCSRFName))
+}
+
 func issueTestSessionCookie(t *testing.T, p *Panel) *http.Cookie {
 	t.Helper()
 	rec := httptest.NewRecorder()

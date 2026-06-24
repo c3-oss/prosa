@@ -4,7 +4,7 @@
   {{if .Notice}}<div class="empty" style="color: var(--ok)">✓ {{.Notice}}</div>{{end}}
 
   <h1>Devices</h1>
-  <table>
+  <table class="devices-table">
     <thead><tr>
       <th>ID</th><th>Friendly</th><th>Hostname</th><th>Sessions</th>
       <th>Last sync</th><th>State</th><th>Actions</th>
@@ -12,8 +12,8 @@
     <tbody>
       {{range .Devices}}
         <tr>
-          <td class="text-mono">{{.Id}}</td>
-          <td class="rename-cell" data-rename-id="{{.Id}}">
+          <td class="text-mono" data-label="ID">{{.Id}}</td>
+          <td class="rename-cell" data-label="Friendly" data-rename-id="{{.Id}}">
             <span class="rename-view">
               <button type="button" class="rename-edit" title="Edit friendly name" aria-label="Edit friendly name">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
@@ -30,11 +30,11 @@
               <button type="button" class="btn btn-sm rename-cancel">Cancel</button>
             </form>
           </td>
-          <td><a href="/sessions?device={{if .FriendlyName}}{{.FriendlyName | urlquery}}{{else}}{{.Id | urlquery}}{{end}}" title="Open sessions for this device">{{.Hostname}}</a></td>
-          <td>{{.Sessions}}</td>
-          <td>{{if .LastSync}}{{(.LastSync.AsTime).Format "2006-01-02 15:04"}}{{else}}—{{end}}</td>
-          <td>{{if .Revoked}}<span style="color: var(--danger)">revoked</span>{{else}}<span style="color: var(--ok)">active</span>{{end}}</td>
-          <td>
+          <td data-label="Hostname"><a href="/sessions?device={{if .FriendlyName}}{{.FriendlyName | urlquery}}{{else}}{{.Id | urlquery}}{{end}}" title="Open sessions for this device">{{.Hostname}}</a></td>
+          <td data-label="Sessions">{{.Sessions}}</td>
+          <td data-label="Last sync">{{if .LastSync}}{{(.LastSync.AsTime).Format "2006-01-02 15:04"}}{{else}}—{{end}}</td>
+          <td data-label="State">{{if .Revoked}}<span style="color: var(--danger)">revoked</span>{{else}}<span style="color: var(--ok)">active</span>{{end}}</td>
+          <td data-label="Actions">
             {{if not .Revoked}}
               <form method="post" action="/devices/{{.Id}}/revoke" onsubmit="return confirm('Revoke {{.FriendlyName}}? Bearer tokens will stop working.')">
                 <input type="hidden" name="csrf" value="{{$.CSRF}}">

@@ -381,3 +381,34 @@ mark.search-match.is-active {
   color: var(--on-accent);
   outline: 1px solid var(--accent);
 }
+
+@media (max-width: 760px) {
+  .sp-body {
+    padding: var(--space-5);
+  }
+
+  .sp-prompt {
+    display: block;
+    overflow: visible;
+  }
+
+  .stats-cluster {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-4) var(--space-5);
+  }
+
+  .stat-value {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    overflow-wrap: anywhere;
+  }
+
+  .sp-transcript-head {
+    flex-wrap: wrap;
+  }
+
+  .sp-collapse-all {
+    margin-left: 0;
+  }
+}

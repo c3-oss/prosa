@@ -130,6 +130,10 @@ func (p *Panel) routes() {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok\n"))
 	})
+	p.mux.HandleFunc("/favicon.ico", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+		w.WriteHeader(http.StatusNoContent)
+	})
 
 	p.mux.HandleFunc("/login", p.handleLogin)
 	p.mux.HandleFunc("/oauth/github/callback", p.handleGitHubCallback)
