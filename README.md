@@ -10,6 +10,8 @@
 > A conversation, a chat, an informal exchange of ideas.
 > Prosa lets you have a conversation with your own work history.
 
+![prosa-panel — Home dashboard](docs/panel/screenshots/home-overview.png)
+
 `prosa` turns scattered Claude Code, Codex, Cursor, Gemini, and Antigravity
 session histories into one local, searchable timeline. It is built around a
 single load-bearing question:
