@@ -201,19 +201,20 @@ In `internal/panel/assets/` (embedded via `assets.FS`):
   `--chart-*` palette from CSS, and renders it with Frappe Charts;
   re-renders on `htmx:afterSettle` and on a `data-theme` flip.
 
-Component CSS landed so far (under `css/components/`):
+Component CSS under `css/components/`:
 
-- `sidepanel.css` — sticky header, stats cluster, metadata grid (F1).
-- `bubbles.css` — chat-style user/assistant/tool bubbles + assistant
-  prose styles for markdown nodes (F2).
+- `sidepanel.css` — sticky header, masthead, stats cluster, Details
+  metadata grid, transcript toolbar and search.
+- `bubbles.css` — iMessage-style user/assistant/tool bubbles + assistant
+  prose styles for markdown nodes.
 - `tool-group.css` — collapsible Alpine wrapper around runs of
-  `Role="tool"` turns (F3).
+  `Role="tool"` turns.
 - `user-bubble.css` — slash command chip + disclosure blocks for the
-  XML wrappers `sessiontext.ParseUserMessage` peels off (F4).
+  XML wrappers `sessiontext.ParseUserMessage` peels off.
 - `thinking.css` — discreet dashed-rule card for coalesced thinking
-  runs (F5).
+  runs.
 - `subagents.css` — list of child sessions on the parent's sidepanel,
-  HTMX-swappable to drill down (F7).
+  HTMX-swappable to drill down.
 - `kind-badge.css` — per-kind colored pills for special-session
   classifications (goal / workflow / ralph-loop / orchestrator) shown in
   the Sessions table and side-panel header.
@@ -222,11 +223,6 @@ Component CSS landed so far (under `css/components/`):
 - `charts.css` — re-skins Frappe Charts' runtime-injected styles (axis
   labels, gridlines, tooltip) with the design tokens, and hides Frappe's
   built-in legend in favor of the cards' own HTML legends.
-
-Planned next (sidepanel redesign):
-
-- `css/components/{tool-group,user-bubble,thinking,transcript}.css` —
-  per-component styles added during the remaining F3-F6 phases.
 
 Deferred:
 
