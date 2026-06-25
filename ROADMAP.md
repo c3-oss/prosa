@@ -17,7 +17,6 @@ Captured loosely so they don't get lost; not commitments. Each of these
 becomes a real plan only when the central question demands it.
 
 - Cursor and Gemini importers stabilize against representative captures.
-- Panel: airy redesign per [`docs/panel/design-brief.md`](docs/panel/design-brief.md).
 - Token / cost ingestion across importers (the data is in the raw; the
   canonical schema needs the slots).
 - Optional MCP server (high-value, intentionally post-MVP per INTENT).
