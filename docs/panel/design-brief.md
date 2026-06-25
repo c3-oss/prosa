@@ -13,7 +13,7 @@ The panel is functional and lean:
 - Go + `html/template` + `embed.FS` (single binary, no build step);
 - HTMX for partial swaps (sidepanel, raw pagination);
 - SSE for the "new sessions" badge in real time;
-- 5 screens — Home (dashboard), Sessions, Projects, Devices, Settings;
+- 7 screens — Home, Insights, Sessions, Projects, Profiles, Devices, Settings;
 - Editorial Almanac palette, self-hosted serif and sans-serif fonts, CSS grid layout;
 - Auth via GitHub OAuth with a `PROSA_PANEL_DEV_LOGIN` bypass for dev.
 
@@ -199,8 +199,8 @@ component.
    sparkline per row on the top 5.
 4. **Analytics: models donut** with 3–4 models and a compact legend.
 5. **Analytics: heatmap** calendar 30 d × 24 h in a single-color scale.
-6. **Sidepanel open** with metadata + stats cluster + paginated raw
-   transcript.
+6. **Sidepanel open** with the masthead + five-up stats cluster +
+   metadata + iMessage-style chat transcript + paginated raw transcript.
 7. **Filter pills** active and inactive, with hover state.
 8. **Command palette** open with an input, 5 recent-session suggestions,
    3 report shortcuts.
