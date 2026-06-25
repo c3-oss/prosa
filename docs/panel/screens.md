@@ -63,6 +63,8 @@ Default page after login. Dashboard composed of cards drawn from the
 analytics service. Top to bottom: filters (collapsed), KPI strip,
 heatmap card, activity trend card, then two-column rows of cards.
 
+![Home — KPI strip and activity heatmap](screenshots/home-overview.png)
+
 ### Filters
 
 A single `<details>` block sits at the top of the page so it doesn't
@@ -155,6 +157,8 @@ filtered window — the 53-week heatmap call above is untouched.
 Two-column rows under the heatmap, with the full-width Issues section
 between the second and third rows.
 
+![Home — hour-of-day chart and per-agent usage](screenshots/home-usage.png)
+
 ```
 +---------------------+   +---------------------+
 | Tools               |   | Models              |
@@ -219,6 +223,8 @@ the `dashboard_filters.html` partial. Top to bottom: rhythm KPI strip,
 spend & tokens card, model share + punch card row, across-the-day
 card, durations + fan-out row, delegation card, top delegators +
 by-parent-agent row.
+
+![Insights — session durations and delegation](screenshots/insights-delegation.png)
 
 ```
    4 days     11 days    62% (45/72)  18%       31%        Tuesday
@@ -331,6 +337,8 @@ by-parent-agent row.
 
 The primary browsing surface. Filtered, searchable, sortable, paginated.
 All state lives in the querystring.
+
+![Sessions — full-text search and filters](screenshots/sessions-search.png)
 
 ### Layout
 
@@ -621,6 +629,8 @@ Settings
 
 Triggered by a click on a `/sessions` row or by `?session=<id>` in the
 URL. Slide-in 180 ms from the right.
+
+![Session sidepanel — detail drawer](screenshots/sessions-detail.png)
 
 ```
 +----------------+
