@@ -633,73 +633,91 @@ URL. Slide-in 180 ms from the right.
 ![Session sidepanel — detail drawer](screenshots/sessions-detail.png)
 
 ```
-+----------------+
-| sticky header  |
-|  claude-code   |
-|  "refactor..." |
-|                |
-| stats cluster  |
-|  18 / 3        |  ← turns / tools
-|  18min / opus  |  ← duration / model
-|                |
-| metadata grid  |
-|  ID      ...   |
-|  Started ...   |
-|  Project ...   |
-|  ...           |
-|                |
-| transcript     |
-|  (chat-style — see F2+)
-|                |
-| raw transcript |
-|  paginated     |
-|  [load more]   |
-+----------------+
++----------------------------------+
+| sticky header                    |
+|  [claude-code] [goal]        ×   |  ← agent + kind badges · close
+|                                  |
+| masthead                         |
+|  "refactor sync logic"           |  ← first prompt (serif h2)
+|  c3-oss/prosa · Jun 2, 15:04 · opus
+|                                  |
+| stats cluster                    |
+|  33    156    1h23m  18.3m  $26  |
+|  turns tools  dur.   tokens cost |
+|                                  |
+| Details                          |
+|  Started / Last activity / ...   |
+|  Project / Profile / Device      |
+|  Tokens / Tools / ID / Raw       |
+|                                  |
+| Subagents · N        (if any)    |
+|                                  |
+| Transcript    33 turns · 156     |
+|  [search…]          [Collapse all]
+|  (chat bubbles)                  |
+|                                  |
+| raw transcript                   |
+|  paginated  [load more]          |
++----------------------------------+
 ```
 
-- Width 44% of main, max 720 px;
-- Background `--bg-elev-1`, 1 px left divider;
-- Sticky header (`.sp-header`) at the top of the panel, padding
-  `--space-5 --space-6`. Shows the agent name (mono, `--text-3`) and
-  the first prompt (`--text-md` weight 500). `esc`-style close button
-  on the right.
-- Stats cluster (`.stats-cluster`): 2 × 2 grid, gap `--space-4
-  --space-5`. Each KPI is a number at `--text-lg` tabular plus a
-  `--text-xs` uppercase label in `--text-3`. Cells: **turns**
+- Width 44% of main, max 720 px; background `--bg-elev-1`, 1 px left
+  divider.
+- Sticky header (`.sp-header`): the agent badge and any session-kind
+  badges (goal / workflow / orchestrator / …) on the left, a `×` close
+  button (`Esc`) on the right.
+- Subagent nav (`.sp-sibling-nav`): only when the open session is
+  itself a subagent — a `‹ parent` link, a `subagent i / n` position,
+  and ↑/↓ to step through siblings. Every link HTMX-swaps the panel in
+  place and updates `?session=`.
+- Masthead (`.sp-masthead`): the first prompt as a serif `h2`
+  (`.sp-prompt`), then a byline (`.sp-byline`) with the project link
+  (`projectLink`), the start time (mono), and the model (mono,
+  `displayModel`).
+- Stats cluster (`.stats-cluster`): a row of five KPIs — **turns**
   (user+assistant message count), **tools** (sum of tool invocations),
   **duration** (last_activity − started_at, `humanDuration`-formatted),
-  **model**.
-- Metadata grid (`.sp-meta`): labels in `--text-xs` uppercase
-  `--text-3`, values in `--text-sm` `--text-1`, monospace for IDs and
-  hashes.
+  **tokens** (total; hover reveals the exact count), **cost**. Each is
+  a tabular number at `--text-lg` over a `--text-xs` uppercase label in
+  `--text-3`.
+- Details (`.sp-details`): a "Details" section holding the metadata
+  grid (`.sp-meta`) — Started, Last activity, Project (link), Profile,
+  Device, Tokens (`in · out · total`), Tools (chips), ID, and Raw
+  (`bytes · hash`). Labels in `--text-xs` uppercase `--text-3`, values
+  in `--text-sm`, monospace for IDs and hashes.
 - Subagents: when the session spawned children (Claude Code Agent
-  tool, Codex `thread_spawn`), a "Subagents · N" section sits above
-  the raw transcript with one card per child. Each card shows agent,
-  start time, and the child's first prompt; clicking it
-  HTMX-swaps the sidepanel to the child without losing the route.
-- Transcript: chat-style bubbles. **User** aligns right with a
-  filled `--bg-elev-2` surface and `<br>`-preserving escaped plain
-  text; the raw boilerplate agents inject (`<command-name>`,
-  `<system-reminder>`, `<environment_context>`,
-  `<local-command-stdout>`, …) is stripped via
-  `sessiontext.ParseUserMessage` — slash commands surface as a tiny
-  `/cmd` chip in the bubble meta, everything else attaches as
-  discrete `<details>` blocks below the body ("3 system reminders",
-  "command stdout", "environment context"). **Assistant** aligns left
-  and is rendered as markdown (goldmark/GFM, `WithUnsafe` off) with
-  prose styles for headings, lists, code, tables. Consecutive
-  `Role="tool"` turns coalesce into a single collapsible **tool
-  group** with a one-line summary ("Read ×3 · Bash ×1"); each tool
-  inside expands independently via native `<details>`. **Thinking**
-  turns (Claude `content[].type="thinking"`, Codex `reasoning.summary`)
-  coalesce into a discreet "Processed" card between dashed rules,
-  body italic in `--text-3`. Between turn groups with a Ts gap
-  ≥ `render.DividerThreshold` (30 s), a `time-divider` line shows
-  "Worked for 2m 14s" so long agent runs stay visible without
-  reading every cell.
-- Raw transcript in `<pre class="raw">` at font-mono 11 px,
-  white-space pre-wrap, kept as the verbatim source-of-truth panel.
-- "load more" is an HTMX link with `hx-swap="beforeend"`.
+  tool, Codex `thread_spawn`), a "Subagents · N" section lists one
+  entry per child with its first prompt and start time; clicking
+  HTMX-swaps the panel to the child without losing the route.
+- Transcript head (`.sp-transcript-head`): a "Transcript" title with a
+  `N turns · M tools` count and a "Collapse all" / "Expand all" toggle
+  that folds every message at once.
+- Transcript search (`.transcript-search`): an in-panel box that
+  highlights matches across the transcript with a match counter and
+  prev/next navigation.
+- Transcript: an iMessage-style chat, bubbles capped at 82% width.
+  **Your** turns align right as a tinted "me" bubble (a `color-mix` of
+  the accent over `--bg-elev-1`), `<br>`-preserving escaped plain text;
+  the raw boilerplate agents inject (`<command-name>`,
+  `<system-reminder>`, `<environment_context>`, `<local-command-stdout>`,
+  …) is stripped via `sessiontext.ParseUserMessage` — slash commands
+  surface as a tiny `/cmd` chip, everything else attaches as discrete
+  `<details>` blocks below the body ("3 system reminders", "command
+  stdout", "environment context"). **The agent** aligns left: the
+  **assistant** reply is an outlined bubble (`--bg-elev-1` + 1 px
+  `--divider`) rendered as markdown (goldmark/GFM, `WithUnsafe` off)
+  with prose styles for headings, lists, code, tables; consecutive
+  `Role="tool"` turns coalesce into a collapsible **tool group** with a
+  one-line summary ("Read ×3 · Bash ×1"), each tool expanding via
+  native `<details>`; **thinking** turns (Claude
+  `content[].type="thinking"`, Codex `reasoning.summary`) coalesce into
+  a discreet "Processed" card. The whole meta row (caret + role +
+  timestamp) is the collapse toggle for each message. Between turn
+  groups with a gap ≥ `render.DividerThreshold` (30 s), a `time-divider`
+  shows "Worked for 2m 14s".
+- Raw transcript in `<pre class="raw">` at font-mono 11 px, white-space
+  pre-wrap, kept as the verbatim source-of-truth panel; "load more" is
+  an HTMX link with `hx-swap="beforeend"`.
 
 `Esc` closes. Clicking outside also closes.
 

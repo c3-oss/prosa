@@ -688,40 +688,47 @@ role-specific variants `.bubble-user`, `.bubble-assistant`,
 `.bubble-tool`.
 
 ```
-ASSISTANT                                              09:14:32
-The transcript today renders as `.turn-{role}` cards in
-monospace — this is what F2 replaces.
+▾ assistant                                            09:14:32
+╭────────────────────────────────────────────────╮
+│ ### Decision                                     │   ← outlined, left, markdown
+│ Refactor sync to use channels.                   │
+╰────────────────────────────────────────────────╯
 
-                                            USER       09:14:08
-                                  +---------------------------+
-                                  | Aperfeiçoe o frontend.    |
-                                  +---------------------------+
+                                       ▾ user  09:14:08
+                            ╭─────────────────────────╮
+                            │ Aperfeiçoe o frontend.  │   ← tinted "me", right
+                            ╰─────────────────────────╯
 
-TOOL  Read                                             09:14:35
-+------------------------------------------------------------+
-| internal/panel/templates/side_panel.html                   |
-+------------------------------------------------------------+
+▾ tool · Read                                          09:14:35
+╭────────────────────────────────────────────────╮
+│ internal/panel/templates/side_panel.html         │   ← outlined mono, left
+╰────────────────────────────────────────────────╯
 ```
 
-- **User** bubble: right-aligned (`align-self: flex-end`), filled
-  surface `--bg-elev-2`, `--radius-md` with a slightly tighter
-  bottom-right corner, body in `--font-sans`. Content is escaped plain
+The transcript reads as an iMessage-style chat: your turns on the
+right, the agent (and the tool/thinking groups belonging to its turn)
+on the left, each side one voice. Bubbles cap at 82% width.
+
+- **User** bubble: right-aligned (`align-self: flex-end`), a tinted
+  "me" surface `color-mix(in srgb, var(--accent) 16%, var(--bg-elev-1))`
+  at `--radius-lg`, body in `--font-sans`. Content is escaped plain
   text — `<br>` for newlines, no markdown rendering (a literal
   `**stars**` stays literal).
-- **Assistant** bubble: left-aligned, no surface, body is markdown
-  rendered with goldmark (GFM extension). Prose styles for `h*`,
-  `p`, `ul/ol`, `code` (inline + fenced), `blockquote`, `a`, `table`,
-  `hr`. Code fences keep `class="language-*"` for downstream
-  highlighting.
-- **Tool** bubble: full-width discrete block, `--bg-elev-1` surface
-  with a 2 px `--accent-soft` left rule, body in `--font-mono`,
-  `max-height: 400px` with internal scroll. F3 coalesces consecutive
-  tool bubbles into a collapsible group with a one-line summary.
-- **Meta header** (`.bubble-meta`): tiny role label uppercase
-  `--text-3`, tool name in mono `--accent` when role is `tool`,
-  timestamp right-aligned in mono `--text-3`. The whole header
-  reverses to row-reverse on user bubbles so the timestamp sits on
-  the same edge as the body.
+- **Assistant** bubble: left-aligned, an outlined surface (`--bg-elev-1`
+  with a 1 px `--divider` border, `--radius-lg`), body is markdown
+  rendered with goldmark (GFM extension). Prose styles for `h*`, `p`,
+  `ul/ol`, `code` (inline + fenced), `blockquote`, `a`, `table`, `hr`.
+  Code fences keep `class="language-*"` for downstream highlighting.
+- **Tool** bubble: left-aligned (it belongs to the agent's turn), an
+  outlined `--bg-elev-1` block with a 1 px `--divider` border at
+  `--radius-sm`, body in `--font-mono`, `max-height: 400px` with internal
+  scroll. Consecutive tool turns coalesce into a collapsible group with a
+  one-line summary (see below).
+- **Meta header** (`.bubble-meta`): the whole row is the collapse button
+  for the message — a caret that rotates on open, a small-caps role
+  label, the tool name in mono `--accent` when the role is `tool`, and
+  the timestamp in mono on the trailing edge. A click anywhere on the
+  row folds the bubble.
 
 Body content is pre-rendered server-side as `template.HTML` by
 `internal/panel/render`: `render.Markdown(s)` for assistant,
@@ -839,35 +846,33 @@ Lives in `internal/panel/assets/css/components/thinking.css`.
 
 ## Stats cluster (sidepanel)
 
-Mini-KPIs in a 2 × 3 grid inside the sidepanel (six cells: turns,
-tools, duration, model, tokens total, estimated cost). Lives in
+Mini-KPIs in a five-up row inside the sidepanel (turns, tools,
+duration, tokens total, estimated cost). Lives in
 `internal/panel/assets/css/components/sidepanel.css` as
 `.stats-cluster` plus `.stat-kpi` (with `.stat-value`,
 `.stat-label`).
 
 ```
-+-------+-------+
-| 18    | 3     |
-| TURNS | TOOLS |
-+-------+-------+
-| 18min | opus  |
-| DURAT.| MODEL |
-+-------+-------+
++-------+-------+-------+--------+------+
+| 33    | 156   | 1h23m | 18.3m  | $26  |
+| TURNS | TOOLS | DUR.  | TOKENS | COST |
++-------+-------+-------+--------+------+
 ```
 
 - Numbers at `--text-lg` (22 px) tabular, `--w-regular`;
 - Labels at `--text-xs` (12 px) uppercase letter-spacing 0.06em
   `--text-3`;
-- Model variant uses `--font-mono` at `--text-base` so long names like
-  `claude-sonnet-4-6-20251022` stay readable without wrapping;
+- The tokens value carries a `title` with the exact count, so the
+  humanized figure (`18.3m`) stays hover-inspectable;
 - Internal gap `--space-4 --space-5`, plus `--space-6` padding-bottom
   and a 1 px `--divider` rule under the cluster.
 
 Values are derived server-side in `loadSidePanel`: `TurnsCount`
 (user + assistant message rows, excluding `tool_result`/`operational`),
 `ToolsCount` (sum of `Session.Tools[].Count`), `DurationLabel`
-(`humanDuration(LastActivityAt − StartedAt)`), the model name from
-`Session.Model`, token totals from `Session.Usage`, and `Cost` from
-`pricing.CostUSD`. The metadata block also lists tokens in/out/total
-and renders **Project** via `projectLink` (GitHub/GitLab
-`owner/repo` when the remote is recognized).
+(`humanDuration(LastActivityAt − StartedAt)`), token totals from
+`Session.Usage`, and `Cost` from `pricing.CostUSD`. The model name
+(`displayModel Session.Model`) sits in the masthead byline above the
+cluster, not in it. The metadata block lists tokens in/out/total and
+renders **Project** via `projectLink` (GitHub/GitLab `owner/repo` when
+the remote is recognized).
