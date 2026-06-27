@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"time"
 
@@ -13,6 +15,13 @@ import (
 )
 
 var scheduleIntervalFlag time.Duration
+
+type scheduleStatusJSON struct {
+	Status    string `json:"status"`
+	Installed bool   `json:"installed"`
+	Unit      string `json:"unit,omitempty"`
+	Interval  string `json:"interval,omitempty"`
+}
 
 func newScheduleCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -89,6 +98,9 @@ func runScheduleStatus(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
+	if g.JSON {
+		return emitScheduleStatusJSON(os.Stdout, st)
+	}
 	if IsInteractive() {
 		if st.Installed {
 			fmt.Fprintf(os.Stdout, "%s installed     %s\n",
@@ -114,4 +126,19 @@ func runScheduleStatus(cmd *cobra.Command, _ []string) error {
 		fmt.Fprintln(os.Stdout, "status\tnot_installed")
 	}
 	return nil
+}
+
+func emitScheduleStatusJSON(w io.Writer, st schedule.State) error {
+	status := scheduleStatusJSON{
+		Status:    "not_installed",
+		Installed: st.Installed,
+	}
+	if st.Installed {
+		status.Status = "installed"
+		status.Unit = st.UnitPath
+		if st.Interval > 0 {
+			status.Interval = st.Interval.String()
+		}
+	}
+	return json.NewEncoder(w).Encode(status)
 }
