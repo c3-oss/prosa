@@ -250,6 +250,9 @@ message SearchRequest {
   repeated string device_names = 9;
   // profile matches sessions.profile exactly.
   string profile = 10;
+  // project_match is the CLI --project substring filter. It matches
+  // project_path, project_remote, or project_marker.
+  string project_match = 11;
 }
 
 message SearchHit {
