@@ -358,6 +358,15 @@ func (h *SessionsHandler) Search(ctx context.Context, req *connect.Request[prosa
 	if req.Msg.ProjectMarker != "" {
 		addEq("project_marker", req.Msg.ProjectMarker)
 	}
+	if req.Msg.ProjectMatch != "" {
+		conds = append(conds, fmt.Sprintf(
+			"(s.project_path LIKE $%d OR s.project_remote LIKE $%d OR s.project_marker LIKE $%d)",
+			idx, idx+1, idx+2,
+		))
+		pattern := "%" + req.Msg.ProjectMatch + "%"
+		args = append(args, pattern, pattern, pattern)
+		idx += 3
+	}
 	if req.Msg.Agent != "" {
 		addEq("agent", req.Msg.Agent)
 	}

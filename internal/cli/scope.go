@@ -96,6 +96,10 @@ func (s ProjectScope) ApplyListRequest(req *prosav1.ListRequest) {
 }
 
 func (s ProjectScope) ApplySearchRequest(req *prosav1.SearchRequest) {
+	if s.Project != "" {
+		req.ProjectMatch = s.Project
+		return
+	}
 	switch {
 	case s.Match.Remote != "":
 		req.ProjectRemote = s.Match.Remote

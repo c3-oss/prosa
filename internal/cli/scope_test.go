@@ -31,6 +31,7 @@ func TestResolveProjectScopeExplicitProject(t *testing.T) {
 
 	searchReq := &prosav1.SearchRequest{}
 	scope.ApplySearchRequest(searchReq)
+	require.Equal(t, "prosa", searchReq.ProjectMatch)
 	require.Empty(t, searchReq.ProjectRemote)
 	require.Empty(t, searchReq.ProjectMarker)
 }
