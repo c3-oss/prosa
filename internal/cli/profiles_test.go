@@ -11,8 +11,6 @@ import (
 )
 
 func TestProfilesMutatorsEmitJSON(t *testing.T) {
-	originalFlags := g
-	t.Cleanup(func() { g = originalFlags })
 	t.Setenv("PROSA_CONFIG_HOME", filepath.Join(t.TempDir(), "config"))
 
 	path1 := t.TempDir()
@@ -50,8 +48,46 @@ func TestProfilesMutatorsEmitJSON(t *testing.T) {
 	}
 }
 
+func TestProfilesRejectSessionQueryGlobals(t *testing.T) {
+	t.Setenv("PROSA_CONFIG_HOME", filepath.Join(t.TempDir(), "config"))
+
+	for _, tc := range []struct {
+		name    string
+		args    []string
+		wantErr string
+	}{
+		{
+			name:    "invalid last remains rejected",
+			args:    []string{"profiles", "list", "--json", "--last", "notaduration"},
+			wantErr: "profiles does not accept --last",
+		},
+		{
+			name:    "window mix rejected before silent no-op",
+			args:    []string{"profiles", "list", "--json", "--last", "1d", "--since", "2026-01-01"},
+			wantErr: "profiles does not accept --last",
+		},
+		{
+			name:    "profile filter rejected",
+			args:    []string{"profiles", "list", "--json", "--profile", "work"},
+			wantErr: "profiles does not accept --profile",
+		},
+		{
+			name:    "remote rejected",
+			args:    []string{"profiles", "list", "--json", "--remote"},
+			wantErr: "profiles does not accept --remote",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stdout, _, err := executeProfilesCommandForTest(t, tc.args...)
+			require.ErrorContains(t, err, tc.wantErr)
+			require.Empty(t, stdout)
+		})
+	}
+}
+
 func executeProfilesCommandForTest(t *testing.T, args ...string) (string, string, error) {
 	t.Helper()
+	originalFlags := g
 	var execErr error
 	stdout, stderr := captureStdoutStderr(t, func() {
 		cmd := newRootCmd()
@@ -60,5 +96,6 @@ func executeProfilesCommandForTest(t *testing.T, args ...string) (string, string
 		cmd.SetErr(io.Discard)
 		execErr = cmd.Execute()
 	})
+	g = originalFlags
 	return stdout, stderr, execErr
 }
