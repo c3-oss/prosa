@@ -77,7 +77,21 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newProfilesCmd())
 	cmd.AddCommand(newScheduleCmd())
 	cmd.AddCommand(newSetupCmd())
+	configureCompletionCmd(cmd)
 	return cmd
+}
+
+func configureCompletionCmd(cmd *cobra.Command) {
+	cmd.InitDefaultCompletionCmd()
+	completion, _, err := cmd.Find([]string{"completion"})
+	if err != nil || completion.Name() != "completion" {
+		return
+	}
+	completion.ValidArgs = []string{"bash", "zsh", "fish", "powershell"}
+	completion.Args = cobra.MatchAll(cobra.MaximumNArgs(1), cobra.OnlyValidArgs)
+	completion.RunE = func(cmd *cobra.Command, _ []string) error {
+		return cmd.Help()
+	}
 }
 
 // validateGlobals rejects flag combinations that are contradictory (INTENT §5).

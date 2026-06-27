@@ -73,3 +73,30 @@ func TestParentCommandsRequireExplicitSubcommands(t *testing.T) {
 		})
 	}
 }
+
+func TestCompletionRejectsUnknownShell(t *testing.T) {
+	originalFlags := g
+	t.Cleanup(func() { g = originalFlags })
+
+	cmd := newRootCmd()
+	cmd.SetArgs([]string{"completion", "wat"})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	require.ErrorContains(t, cmd.Execute(), `invalid argument "wat"`)
+}
+
+func TestCompletionWithoutShellShowsHelp(t *testing.T) {
+	originalFlags := g
+	t.Cleanup(func() { g = originalFlags })
+
+	var out bytes.Buffer
+	cmd := newRootCmd()
+	cmd.SetArgs([]string{"completion"})
+	cmd.SetOut(&out)
+	cmd.SetErr(io.Discard)
+
+	require.NoError(t, cmd.Execute())
+	require.Contains(t, out.String(), "Generate the autocompletion script")
+	require.Contains(t, out.String(), "bash")
+}
