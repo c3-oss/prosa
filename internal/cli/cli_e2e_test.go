@@ -59,9 +59,9 @@ func TestCLIEndToEnd(t *testing.T) {
 
 	var row map[string]any
 	require.NoError(t, json.Unmarshal([]byte(lines[0]), &row))
-	require.Equal(t, e2eSessionID, row["ID"])
-	require.Equal(t, "codex", row["Agent"])
-	require.Equal(t, "explain entanglement", row["FirstPrompt"])
+	require.Equal(t, e2eSessionID, row["id"])
+	require.Equal(t, "codex", row["agent"])
+	require.Equal(t, "explain entanglement", row["first_prompt"])
 }
 
 type cliEnv struct {
