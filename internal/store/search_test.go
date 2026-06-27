@@ -128,6 +128,44 @@ func TestSearchFilterByAgent(t *testing.T) {
 	require.Equal(t, "assistant", hits[0].Role)
 }
 
+func TestSearchFilterByProfileAndReturnsProfile(t *testing.T) {
+	t.Parallel()
+	ctx, s, now := seedSearchStore(t)
+	project := "/u/proj-alpha"
+	require.NoError(t, s.UpsertSession(ctx, session.Session{
+		ID:             "c",
+		Agent:          "codex",
+		DeviceID:       "local",
+		ProjectPath:    &project,
+		Profile:        "work",
+		StartedAt:      now.Add(-30 * time.Minute),
+		LastActivityAt: now.Add(-29 * time.Minute),
+		RawPath:        "/tmp/c.jsonl",
+		RawHash:        "h-c",
+		RawSize:        100,
+	}, nil))
+
+	workHits, err := s.Search(ctx, "quantum", SessionFilter{
+		Since:   now.Add(-24 * time.Hour),
+		Until:   now,
+		Profile: ptrStr("work"),
+	}, 10)
+	require.NoError(t, err)
+	require.Len(t, workHits, 1)
+	require.Equal(t, "c", workHits[0].Session.ID)
+	require.Equal(t, "work", workHits[0].Session.Profile)
+
+	defaultHits, err := s.Search(ctx, "quantum", SessionFilter{
+		Since:   now.Add(-24 * time.Hour),
+		Until:   now,
+		Profile: ptrStr(session.DefaultProfile),
+	}, 10)
+	require.NoError(t, err)
+	require.Len(t, defaultHits, 1)
+	require.Equal(t, "a", defaultHits[0].Session.ID)
+	require.Equal(t, session.DefaultProfile, defaultHits[0].Session.Profile)
+}
+
 func TestSearchFilterByProjectExact(t *testing.T) {
 	t.Parallel()
 	ctx, s, now := seedSearchStore(t)

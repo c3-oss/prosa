@@ -85,6 +85,10 @@ func (s *Store) Search(ctx context.Context, query string, f SessionFilter, limit
 		conds = append(conds, "s.agent = ?")
 		args = append(args, *f.Agent)
 	}
+	if f.Profile != nil {
+		conds = append(conds, "s.profile = ?")
+		args = append(args, *f.Profile)
+	}
 	join := ""
 	if f.DeviceName != nil {
 		join = " JOIN devices d ON d.id = s.device_id"
@@ -114,7 +118,7 @@ func (s *Store) Search(ctx context.Context, query string, f SessionFilter, limit
 		       s.started_at, s.last_activity_at,
 		       s.first_prompt, s.model,
 		       s.raw_path, s.raw_hash, s.raw_size,
-		       s.parent_session_id,
+		       s.parent_session_id, s.profile,
 		       su.session_id, su.total_tokens, su.input_tokens, su.output_tokens,
 		       su.cached_tokens, su.cache_read_tokens, su.cache_creation_tokens,
 		       t.id, t.ts, t.role, t.kind, t.tool_name,
@@ -154,6 +158,7 @@ func (s *Store) Search(ctx context.Context, query string, f SessionFilter, limit
 			firstPrompt   sql.NullString
 			model         sql.NullString
 			parentID      sql.NullString
+			profile       string
 			usageSession  sql.NullString
 			totalTokens   sql.NullInt64
 			inputTokens   sql.NullInt64
@@ -172,7 +177,7 @@ func (s *Store) Search(ctx context.Context, query string, f SessionFilter, limit
 			&startedAt, &lastAct,
 			&firstPrompt, &model,
 			&h.Session.RawPath, &h.Session.RawHash, &h.Session.RawSize,
-			&parentID,
+			&parentID, &profile,
 			&usageSession, &totalTokens, &inputTokens, &outputTokens,
 			&cachedTokens, &cacheRead, &cacheCreate,
 			&h.TurnID, &turnTS, &h.Role, &h.Kind, &toolName,
@@ -217,6 +222,7 @@ func (s *Store) Search(ctx context.Context, query string, f SessionFilter, limit
 			v := parentID.String
 			h.Session.ParentSessionID = &v
 		}
+		h.Session.Profile = profile
 		if t, ok := parseTime(startedAt); ok {
 			h.Session.StartedAt = t
 		}
