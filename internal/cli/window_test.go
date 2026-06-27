@@ -99,6 +99,43 @@ func TestParseBetweenEndBeforeStartMessage(t *testing.T) {
 	}
 }
 
+func TestParseLast(t *testing.T) {
+	cases := []struct {
+		in      string
+		want    time.Duration
+		wantErr bool
+	}{
+		{"7d", 7 * 24 * time.Hour, false},
+		{"12h", 12 * time.Hour, false},
+		{"45m", 45 * time.Minute, false},
+		{"  1d  ", 24 * time.Hour, false},
+		{"", 0, true},
+		{"abc", 0, true},
+		{"1.5d", 0, true},
+		{"0d", 0, true},
+		{"0s", 0, true},
+		{"-1d", 0, true},
+		{"-24h", 0, true},
+	}
+	for _, c := range cases {
+		t.Run(c.in, func(t *testing.T) {
+			got, err := ParseLast(c.in)
+			if c.wantErr {
+				if err == nil {
+					t.Fatalf("ParseLast(%q) = %s, want error", c.in, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ParseLast(%q) error: %v", c.in, err)
+			}
+			if got != c.want {
+				t.Fatalf("ParseLast(%q) = %s, want %s", c.in, got, c.want)
+			}
+		})
+	}
+}
+
 // newWindowCmd returns a cobra command pre-wired with the --last
 // flag default so ResolveWindow's Changed() check has something to
 // observe.

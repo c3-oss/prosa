@@ -19,11 +19,18 @@ func ParseLast(s string) (time.Duration, error) {
 		if err != nil {
 			return 0, fmt.Errorf("parse days %q: %w", s, err)
 		}
-		return time.Duration(n) * 24 * time.Hour, nil
+		d := time.Duration(n) * 24 * time.Hour
+		if d <= 0 {
+			return 0, fmt.Errorf("duration must be > 0")
+		}
+		return d, nil
 	}
 	d, err := time.ParseDuration(s)
 	if err != nil {
 		return 0, fmt.Errorf("parse duration %q (try forms like 7d, 12h, 45m): %w", s, err)
+	}
+	if d <= 0 {
+		return 0, fmt.Errorf("duration must be > 0")
 	}
 	return d, nil
 }
