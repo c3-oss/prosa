@@ -32,6 +32,7 @@ func newAnalyticsCmd() *cobra.Command {
 			"  tools            most-used tools (top 20)\n" +
 			"  models           sessions per model\n" +
 			"  projects         sessions per project, grouped by agent\n" +
+			"  profiles         sessions per profile, grouped by agent\n" +
 			"  heatmap          daily session count, fixed to the trailing year\n" +
 			"  usage            tokens and estimated USD cost by agent\n" +
 			"  errors           sessions whose assistant turns look like failures\n" +
@@ -39,7 +40,7 @@ func newAnalyticsCmd() *cobra.Command {
 			"  usage_by_model   tokens and estimated USD cost by model\n" +
 			"  errors_by_model  flagged sessions by model\n" +
 			"  subagents        subagent fan-out per parent agent\n\n" +
-			"All reports honor the global filters. heatmap ignores --last / --since / --between.",
+			"All reports honor the global filters. heatmap rejects --last, --since, and --between.",
 		ValidArgs: validAnalyticsReports,
 		Args:      cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
 		RunE:      runAnalytics,

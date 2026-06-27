@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"path/filepath"
 	"strconv"
 	"testing"
@@ -219,6 +221,19 @@ func TestValidAnalyticsReportsIncludesNewReports(t *testing.T) {
 	for _, name := range []string{"hours", "usage_by_model", "errors_by_model", "subagents"} {
 		require.Contains(t, validAnalyticsReports, name)
 	}
+}
+
+func TestAnalyticsHelpListsProfilesAndHeatmapWindowRule(t *testing.T) {
+	var out bytes.Buffer
+	cmd := newAnalyticsCmd()
+	cmd.SetArgs([]string{"--help"})
+	cmd.SetOut(&out)
+	cmd.SetErr(io.Discard)
+
+	require.NoError(t, cmd.Execute())
+	require.Contains(t, out.String(), "profiles         sessions per profile, grouped by agent")
+	require.Contains(t, out.String(), "heatmap rejects --last, --since, and --between")
+	require.NotContains(t, out.String(), "heatmap ignores --last")
 }
 
 // TestDispatchAnalyticsRoutesNewReports exercises the CLI's report dispatch
