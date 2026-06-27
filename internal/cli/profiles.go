@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -78,6 +79,14 @@ type profileRow struct {
 	Base     string   `json:"base,omitempty"` // empty for the synthesized default
 	Roots    []string `json:"roots"`
 	Sessions int      `json:"sessions"`
+}
+
+type profileMutationJSON struct {
+	Action   string `json:"action"`
+	Agent    string `json:"agent"`
+	Profile  string `json:"profile"`
+	Path     string `json:"path,omitempty"`
+	Replaced bool   `json:"replaced,omitempty"`
 }
 
 func runProfilesList(cmd *cobra.Command, _ []string) error {
@@ -215,6 +224,15 @@ func runProfilesAdd(cmd *cobra.Command, args []string) error {
 	if replaced {
 		verb = "updated"
 	}
+	if g.JSON {
+		return emitProfileMutationJSON(os.Stdout, profileMutationJSON{
+			Action:   "add",
+			Agent:    agent,
+			Profile:  name,
+			Path:     path,
+			Replaced: replaced,
+		})
+	}
 	fmt.Fprintf(os.Stdout, "%s profile %s/%s → %s\n", verb, agent, name, path)
 	return nil
 }
@@ -240,6 +258,14 @@ func runProfilesSetPath(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("save profiles: %w", err)
 	}
 	warnIfMissing(path)
+	if g.JSON {
+		return emitProfileMutationJSON(os.Stdout, profileMutationJSON{
+			Action:  "set_path",
+			Agent:   agent,
+			Profile: name,
+			Path:    path,
+		})
+	}
 	fmt.Fprintf(os.Stdout, "set profile %s/%s → %s\n", agent, name, path)
 	return nil
 }
@@ -262,8 +288,19 @@ func runProfilesRemove(cmd *cobra.Command, args []string) error {
 	if err := profiles.Save(cfg); err != nil {
 		return fmt.Errorf("save profiles: %w", err)
 	}
+	if g.JSON {
+		return emitProfileMutationJSON(os.Stdout, profileMutationJSON{
+			Action:  "remove",
+			Agent:   agent,
+			Profile: name,
+		})
+	}
 	fmt.Fprintf(os.Stdout, "removed profile %s/%s (imported sessions are kept)\n", agent, name)
 	return nil
+}
+
+func emitProfileMutationJSON(w io.Writer, payload profileMutationJSON) error {
+	return json.NewEncoder(w).Encode(payload)
 }
 
 func validateProfileArgs(agent, name string) error {
