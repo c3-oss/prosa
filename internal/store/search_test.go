@@ -196,6 +196,126 @@ func TestSearchSnippetContainsMatch(t *testing.T) {
 	)
 }
 
+func TestSearchHyphenatedTerms(t *testing.T) {
+	t.Parallel()
+	ctx, s, now := seedSearchStore(t)
+	project := "/u/proj-security"
+	require.NoError(t, s.UpsertSession(ctx, session.Session{
+		ID:             "hyphen",
+		Agent:          "codex",
+		DeviceID:       "local",
+		ProjectPath:    &project,
+		StartedAt:      now.Add(-10 * time.Minute),
+		LastActivityAt: now.Add(-9 * time.Minute),
+		RawPath:        "/tmp/hyphen.jsonl",
+		RawHash:        "h-hyphen",
+		RawSize:        100,
+	}, nil))
+	require.NoError(t, s.InsertTurns(ctx, "hyphen", []session.Turn{{
+		Role:      "user",
+		Content:   "PR agregador found security issues in mz-irm-api mz-core-api and mz-intelligence-api",
+		Timestamp: now.Add(-10 * time.Minute),
+	}}))
+
+	for _, q := range []string{
+		"mz-irm-api mz-core-api mz-intelligence-api security issues",
+		"PR agregador mz-core-api mz-intelligence-api",
+		"security issues mz-irm-api",
+	} {
+		t.Run(q, func(t *testing.T) {
+			hits, err := s.Search(ctx, q, SessionFilter{
+				Since: now.Add(-24 * time.Hour), Until: now,
+			}, 10)
+			require.NoError(t, err)
+			require.NotEmpty(t, hits)
+			require.Equal(t, "hyphen", hits[0].Session.ID)
+			require.Contains(t, hits[0].Snippet, SnippetMarkStart)
+			require.Contains(t, hits[0].Snippet, SnippetMarkEnd)
+		})
+	}
+}
+
+func TestSearchPreservesORAndPrefixOperators(t *testing.T) {
+	t.Parallel()
+	ctx, s, now := seedSearchStore(t)
+	project := "/u/proj-security"
+	require.NoError(t, s.UpsertSession(ctx, session.Session{
+		ID:             "hyphen-prefix",
+		Agent:          "codex",
+		DeviceID:       "local",
+		ProjectPath:    &project,
+		StartedAt:      now.Add(-10 * time.Minute),
+		LastActivityAt: now.Add(-9 * time.Minute),
+		RawPath:        "/tmp/hyphen-prefix.jsonl",
+		RawHash:        "h-hyphen-prefix",
+		RawSize:        100,
+	}, nil))
+	require.NoError(t, s.InsertTurns(ctx, "hyphen-prefix", []session.Turn{{
+		Role:      "assistant",
+		Content:   "mz-core-api deployment notes",
+		Timestamp: now.Add(-10 * time.Minute),
+	}}))
+
+	orHits, err := s.Search(ctx, "quantum OR terraform", SessionFilter{
+		Since: now.Add(-24 * time.Hour), Until: now,
+	}, 10)
+	require.NoError(t, err)
+	require.Len(t, orHits, 3)
+
+	prefixHits, err := s.Search(ctx, "terr*", SessionFilter{
+		Since: now.Add(-24 * time.Hour), Until: now,
+	}, 10)
+	require.NoError(t, err)
+	require.Len(t, prefixHits, 1)
+	require.Equal(t, "b", prefixHits[0].Session.ID)
+
+	hyphenPrefixHits, err := s.Search(ctx, "mz-core-ap*", SessionFilter{
+		Since: now.Add(-24 * time.Hour), Until: now,
+	}, 10)
+	require.NoError(t, err)
+	require.Len(t, hyphenPrefixHits, 1)
+	require.Equal(t, "hyphen-prefix", hyphenPrefixHits[0].Session.ID)
+}
+
+func TestSearchTreatsPunctuationAndDanglingOperatorsAsLiterals(t *testing.T) {
+	t.Parallel()
+	ctx, s, now := seedSearchStore(t)
+	require.NoError(t, s.InsertTurns(ctx, "a", []session.Turn{{
+		Role:      "user",
+		Content:   "foo bar audit trail",
+		Timestamp: now.Add(-time.Hour),
+	}}))
+
+	hits, err := s.Search(ctx, "foo(bar)", SessionFilter{
+		Since: now.Add(-24 * time.Hour), Until: now,
+	}, 10)
+	require.NoError(t, err)
+	require.Len(t, hits, 1)
+	require.Equal(t, "a", hits[0].Session.ID)
+
+	for _, q := range []string{"(", "audit OR", "NOT audit"} {
+		t.Run(q, func(t *testing.T) {
+			_, err := s.Search(ctx, q, SessionFilter{
+				Since: now.Add(-24 * time.Hour), Until: now,
+			}, 10)
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestSearchWrapsInvalidFTSQuerySyntax(t *testing.T) {
+	t.Parallel()
+	ctx, s, now := seedSearchStore(t)
+
+	_, err := s.Search(ctx, "NEAR (audit profile, )", SessionFilter{
+		Since: now.Add(-24 * time.Hour), Until: now,
+	}, 10)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid search query")
+	require.NotContains(t, err.Error(), "SQL logic error")
+	require.NotContains(t, err.Error(), "fts5:")
+}
+
 func TestSearchProjectMatchSpansPathRemoteMarker(t *testing.T) {
 	t.Parallel()
 	ctx, s, now := seedSearchStore(t)
