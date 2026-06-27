@@ -390,8 +390,7 @@ func analyticsQuery(selectSQL, tail string, f SessionFilter) (string, []any) {
 		args = append(args, *f.ProjectExact)
 	}
 	if f.ProjectMatch != nil {
-		conds = append(conds, "s.project_path LIKE ?")
-		args = append(args, "%"+*f.ProjectMatch+"%")
+		conds, args = applyProjectMatch(conds, args, *f.ProjectMatch)
 	}
 	if f.ProjectRemote != nil {
 		conds = append(conds, "s.project_remote = ?")

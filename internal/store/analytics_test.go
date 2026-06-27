@@ -153,6 +153,41 @@ func TestAnalyticsProjectsIsNotCappedBeforePanelRollup(t *testing.T) {
 	require.Len(t, r.Rows, 31)
 }
 
+func TestAnalyticsProjectMatchSpansPathRemoteMarker(t *testing.T) {
+	t.Parallel()
+	ctx, s := openAnalyticsTestStore(t)
+	started := time.Date(2026, 1, 5, 10, 0, 0, 0, time.UTC)
+	seed := func(id, path string, remote, marker *string) {
+		t.Helper()
+		model := "claude-sonnet-4-6"
+		require.NoError(t, s.UpsertSession(ctx, session.Session{
+			ID:             id,
+			Agent:          "claude-code",
+			DeviceID:       "local",
+			ProjectPath:    &path,
+			ProjectRemote:  remote,
+			ProjectMarker:  marker,
+			Model:          &model,
+			StartedAt:      started,
+			LastActivityAt: started.Add(time.Minute),
+			RawPath:        "/tmp/" + id + ".jsonl",
+			RawHash:        "h-" + id,
+		}, nil))
+	}
+	seed("path", "/tmp/movaincentivo-path", nil, nil)
+	seed("remote", "/tmp/alpha", ptrStr("git@github.com:movaincentivo/iac.git"), nil)
+	seed("marker", "/tmp/beta", nil, ptrStr("movaincentivo-monorepo"))
+	seed("miss", "/tmp/gamma", ptrStr("git@github.com:c3-oss/prosa.git"), nil)
+
+	f := wideAnalyticsFilter()
+	f.ProjectMatch = ptrStr("movaincentivo")
+	r, err := s.AnalyticsSessions(ctx, f)
+	require.NoError(t, err)
+	require.Equal(t, []string{"AGENT", "SESSIONS", "TURNS"}, r.Headers)
+	require.Len(t, r.Rows, 1)
+	require.Equal(t, []any{"claude-code", "3", "0"}, r.Rows[0].Values)
+}
+
 func TestAnalyticsErrorsByModel(t *testing.T) {
 	t.Parallel()
 	ctx, s := openAnalyticsTestStore(t)
