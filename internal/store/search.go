@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/c3-oss/prosa/pkg/session"
 )
@@ -62,7 +63,8 @@ func (s *Store) Search(ctx context.Context, query string, f SessionFilter, limit
 	}
 
 	conds := []string{"s.started_at >= ?", "s.started_at <= ?"}
-	args := []any{query, formatTime(f.Since), formatTime(f.Until)}
+	matchQuery := fts5SearchQuery(query)
+	args := []any{matchQuery, formatTime(f.Since), formatTime(f.Until)}
 
 	if f.ProjectExact != nil {
 		conds = append(conds, "s.project_path = ?")
@@ -134,6 +136,9 @@ func (s *Store) Search(ctx context.Context, query string, f SessionFilter, limit
 
 	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
+		if isFTS5QueryError(err) {
+			return nil, fmt.Errorf("invalid search query %q", query)
+		}
 		return nil, err
 	}
 	defer rows.Close()
@@ -234,4 +239,167 @@ func (s *Store) Search(ctx context.Context, query string, f SessionFilter, limit
 		}
 	}
 	return out, rows.Err()
+}
+
+type fts5QueryToken struct {
+	text   string
+	quote  bool
+	syntax bool
+}
+
+func fts5SearchQuery(query string) string {
+	tokens := tokenizeFTS5Query(query)
+	parts := make([]string, 0, len(tokens))
+	for i, tok := range tokens {
+		part := normalizeFTS5Token(tok, operatorContext(tokens, i))
+		if part != "" {
+			parts = append(parts, part)
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+func tokenizeFTS5Query(query string) []fts5QueryToken {
+	var tokens []fts5QueryToken
+	runes := []rune(query)
+	pendingNear := false
+	parenDepth := 0
+	nearDepth := 0
+	for i := 0; i < len(runes); {
+		switch {
+		case isSpace(runes[i]):
+			i++
+		case runes[i] == '"':
+			var b strings.Builder
+			i++
+			for i < len(runes) {
+				if runes[i] == '"' {
+					if i+1 < len(runes) && runes[i+1] == '"' {
+						b.WriteRune('"')
+						i += 2
+						continue
+					}
+					i++
+					break
+				}
+				b.WriteRune(runes[i])
+				i++
+			}
+			tokens = append(tokens, fts5QueryToken{text: b.String(), quote: true})
+			pendingNear = false
+		case isFTS5SyntaxRune(runes[i], pendingNear, nearDepth):
+			tokens = append(tokens, fts5QueryToken{text: string(runes[i]), syntax: true})
+			switch runes[i] {
+			case '(':
+				parenDepth++
+				if pendingNear {
+					nearDepth = parenDepth
+				}
+				pendingNear = false
+			case ')':
+				if parenDepth == nearDepth {
+					nearDepth = 0
+				}
+				if parenDepth > 0 {
+					parenDepth--
+				}
+				pendingNear = false
+			}
+			i++
+		default:
+			start := i
+			for i < len(runes) && !isSpace(runes[i]) && runes[i] != '"' && !isFTS5SyntaxRune(runes[i], pendingNear, nearDepth) {
+				i++
+			}
+			text := string(runes[start:i])
+			tokens = append(tokens, fts5QueryToken{text: text})
+			pendingNear = text == "NEAR"
+		}
+	}
+	return tokens
+}
+
+func normalizeFTS5Token(tok fts5QueryToken, operatorOK bool) string {
+	if tok.syntax {
+		return tok.text
+	}
+	if tok.text == "" {
+		return ""
+	}
+	if !tok.quote {
+		switch tok.text {
+		case "AND", "OR", "NOT", "NEAR":
+			if operatorOK {
+				return tok.text
+			}
+		}
+		if isDigits(tok.text) {
+			return tok.text
+		}
+	}
+	prefix := !tok.quote && strings.HasSuffix(tok.text, "*") && len(tok.text) > 1
+	text := tok.text
+	if prefix {
+		text = strings.TrimSuffix(text, "*")
+	}
+	if text == "" {
+		return ""
+	}
+	quoted := `"` + strings.ReplaceAll(text, `"`, `""`) + `"`
+	if prefix {
+		return quoted + "*"
+	}
+	return quoted
+}
+
+func operatorContext(tokens []fts5QueryToken, i int) bool {
+	tok := tokens[i]
+	if tok.quote || tok.syntax {
+		return false
+	}
+	switch tok.text {
+	case "AND", "OR", "NOT":
+		return i > 0 && i+1 < len(tokens) && isFTS5Operand(tokens[i-1]) && isFTS5Operand(tokens[i+1])
+	case "NEAR":
+		return i+1 < len(tokens) && tokens[i+1].syntax && tokens[i+1].text == "("
+	default:
+		return false
+	}
+}
+
+func isFTS5Operand(tok fts5QueryToken) bool {
+	if tok.syntax {
+		return tok.text == ")"
+	}
+	return tok.text != ""
+}
+
+func isFTS5SyntaxRune(r rune, pendingNear bool, nearDepth int) bool {
+	switch r {
+	case '(':
+		return pendingNear || nearDepth > 0
+	case ')':
+		return nearDepth > 0
+	case ',':
+		return nearDepth > 0
+	default:
+		return false
+	}
+}
+
+func isSpace(r rune) bool {
+	return unicode.IsSpace(r)
+}
+
+func isDigits(s string) bool {
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return s != ""
+}
+
+func isFTS5QueryError(err error) bool {
+	return strings.Contains(err.Error(), "fts5:")
 }
