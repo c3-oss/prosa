@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"time"
 
@@ -88,13 +89,7 @@ func runNu(cmd *cobra.Command, _ []string) error {
 	}
 
 	if g.JSON {
-		enc := json.NewEncoder(os.Stdout)
-		for i := range sessions {
-			if err := enc.Encode(sessions[i]); err != nil {
-				return err
-			}
-		}
-		return nil
+		return emitTimelineJSON(os.Stdout, sessions)
 	}
 
 	if len(sessions) == 0 {
@@ -185,13 +180,7 @@ func runNuRemote(ctx context.Context, w Window, now time.Time) error {
 		sessions = append(sessions, remoteSessionToLocal(in))
 	}
 	if g.JSON {
-		enc := json.NewEncoder(os.Stdout)
-		for i := range sessions {
-			if err := enc.Encode(sessions[i]); err != nil {
-				return err
-			}
-		}
-		return nil
+		return emitTimelineJSON(os.Stdout, sessions)
 	}
 	if len(sessions) == 0 {
 		if interactive {
@@ -222,6 +211,104 @@ func runNuRemote(ctx context.Context, w Window, now time.Time) error {
 		Slots:        render.ResolveSlots(items, layout),
 		DeviceLabels: remoteDeviceLabels(ctx, auth),
 	})
+}
+
+type timelineSessionJSON struct {
+	ID             string             `json:"id"`
+	Agent          string             `json:"agent"`
+	DeviceID       string             `json:"device_id"`
+	Project        string             `json:"project,omitempty"`
+	ProjectPath    string             `json:"project_path,omitempty"`
+	ProjectRemote  string             `json:"project_remote,omitempty"`
+	ProjectMarker  string             `json:"project_marker,omitempty"`
+	StartedAt      time.Time          `json:"started_at"`
+	LastActivityAt time.Time          `json:"last_activity_at"`
+	FirstPrompt    string             `json:"first_prompt,omitempty"`
+	Model          string             `json:"model,omitempty"`
+	RawPath        string             `json:"raw_path,omitempty"`
+	RawHash        string             `json:"raw_hash,omitempty"`
+	RawSize        int64              `json:"raw_size,omitempty"`
+	Usage          *timelineUsageJSON `json:"usage,omitempty"`
+	ParentID       string             `json:"parent_session_id,omitempty"`
+	Profile        string             `json:"profile"`
+	Kinds          []string           `json:"kinds,omitempty"`
+}
+
+type timelineUsageJSON struct {
+	TotalTokens         int64 `json:"total_tokens"`
+	InputTokens         int64 `json:"input_tokens"`
+	OutputTokens        int64 `json:"output_tokens"`
+	CachedTokens        int64 `json:"cached_tokens"`
+	CacheReadTokens     int64 `json:"cache_read_tokens"`
+	CacheCreationTokens int64 `json:"cache_creation_tokens"`
+}
+
+func emitTimelineJSON(w io.Writer, sessions []session.Session) error {
+	enc := json.NewEncoder(w)
+	for i := range sessions {
+		if err := enc.Encode(timelineSessionPayload(sessions[i])); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func timelineSessionPayload(s session.Session) timelineSessionJSON {
+	out := timelineSessionJSON{
+		ID:             s.ID,
+		Agent:          s.Agent,
+		DeviceID:       s.DeviceID,
+		ProjectPath:    ptrText(s.ProjectPath),
+		ProjectRemote:  ptrText(s.ProjectRemote),
+		ProjectMarker:  ptrText(s.ProjectMarker),
+		StartedAt:      s.StartedAt,
+		LastActivityAt: s.LastActivityAt,
+		FirstPrompt:    ptrText(s.FirstPrompt),
+		Model:          ptrText(s.Model),
+		RawPath:        s.RawPath,
+		RawHash:        s.RawHash,
+		RawSize:        s.RawSize,
+		Usage:          timelineUsagePayload(s.Usage),
+		ParentID:       ptrText(s.ParentSessionID),
+		Profile:        session.ProfileOrDefault(s.Profile),
+	}
+	out.Project = timelineProject(out.ProjectPath, out.ProjectRemote, out.ProjectMarker)
+	if len(s.Kinds) > 0 {
+		out.Kinds = append([]string(nil), s.Kinds...)
+	}
+	return out
+}
+
+func timelineProject(path, remote, marker string) string {
+	switch {
+	case marker != "":
+		return marker
+	case remote != "":
+		return remote
+	default:
+		return path
+	}
+}
+
+func timelineUsagePayload(u *session.TokenUsage) *timelineUsageJSON {
+	if u == nil {
+		return nil
+	}
+	return &timelineUsageJSON{
+		TotalTokens:         u.TotalTokens,
+		InputTokens:         u.InputTokens,
+		OutputTokens:        u.OutputTokens,
+		CachedTokens:        u.CachedTokens,
+		CacheReadTokens:     u.CacheReadTokens,
+		CacheCreationTokens: u.CacheCreationTokens,
+	}
+}
+
+func ptrText(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return *v
 }
 
 func remoteDeviceLabels(ctx context.Context, auth rpc.AuthFile) map[string]string {

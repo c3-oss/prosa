@@ -237,6 +237,14 @@ func remoteSessionToLocal(in *prosav1.Session) session.Session {
 		v := in.Model
 		out.Model = &v
 	}
+	if in.ParentSessionId != "" {
+		v := in.ParentSessionId
+		out.ParentSessionID = &v
+	}
+	out.Profile = session.ProfileOrDefault(in.Profile)
+	if len(in.Kinds) > 0 {
+		out.Kinds = append([]string(nil), in.Kinds...)
+	}
 	if in.Usage != nil {
 		out.Usage = &session.TokenUsage{
 			TotalTokens:         in.Usage.TotalTokens,

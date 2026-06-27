@@ -249,7 +249,7 @@ prosa search "sqlite" --remote --last 90d
 prosa --project mz-iac --agent codex
 
 # pipe to jq
-prosa --last 30d --json | jq '[.[] | {agent, project, started_at}]'
+prosa --last 30d --json | jq -s '[.[] | {agent, project, started_at}]'
 
 # show the raw of the most recent session
 prosa --last 1d --json \
