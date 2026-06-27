@@ -90,6 +90,9 @@ type profileMutationJSON struct {
 }
 
 func runProfilesList(cmd *cobra.Command, _ []string) error {
+	if err := rejectProfilesSessionGlobals(cmd); err != nil {
+		return err
+	}
 	ctx := cmd.Context()
 	if ctx == nil {
 		ctx = context.Background()
@@ -203,6 +206,9 @@ func renderProfileTable(w *os.File, rows []profileRow, interactive bool) error {
 }
 
 func runProfilesAdd(cmd *cobra.Command, args []string) error {
+	if err := rejectProfilesSessionGlobals(cmd); err != nil {
+		return err
+	}
 	agent, name, path := args[0], args[1], args[2]
 	if err := validateProfileArgs(agent, name); err != nil {
 		return err
@@ -238,6 +244,9 @@ func runProfilesAdd(cmd *cobra.Command, args []string) error {
 }
 
 func runProfilesSetPath(cmd *cobra.Command, args []string) error {
+	if err := rejectProfilesSessionGlobals(cmd); err != nil {
+		return err
+	}
 	agent, name, path := args[0], args[1], args[2]
 	if err := validateProfileArgs(agent, name); err != nil {
 		return err
@@ -271,6 +280,9 @@ func runProfilesSetPath(cmd *cobra.Command, args []string) error {
 }
 
 func runProfilesRemove(cmd *cobra.Command, args []string) error {
+	if err := rejectProfilesSessionGlobals(cmd); err != nil {
+		return err
+	}
 	agent, name := args[0], args[1]
 	if err := validateAgentName(agent); err != nil {
 		return err
@@ -301,6 +313,15 @@ func runProfilesRemove(cmd *cobra.Command, args []string) error {
 
 func emitProfileMutationJSON(w io.Writer, payload profileMutationJSON) error {
 	return json.NewEncoder(w).Encode(payload)
+}
+
+func rejectProfilesSessionGlobals(cmd *cobra.Command) error {
+	for _, name := range []string{"last", "since", "between", "project", "device", "agent", "profile", "all", "remote"} {
+		if cmd.Flags().Changed(name) {
+			return fmt.Errorf("profiles does not accept --%s", name)
+		}
+	}
+	return nil
 }
 
 func validateProfileArgs(agent, name string) error {
