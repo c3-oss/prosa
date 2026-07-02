@@ -213,7 +213,7 @@ prosa renders for three audiences:
   per command.
 
 Logs that aren't part of the command's primary output go to stderr —
-including project scope hints ("scoped to prosa · use --all for every
+including project scope hints ("scoped to c3-oss/prosa · use --all for every
 project").
 
 ## Environment variables

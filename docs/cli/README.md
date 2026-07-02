@@ -86,9 +86,9 @@ source, warnings, or diagnostics. Command data belongs on `stdout`.
 Examples of context lines:
 
 ```text
-prosa · local · scoped to prosa · last 7d
+prosa · local · scoped to c3-oss/prosa · last 7d
 prosa · local · all projects · last 30d
-search · local · scoped to prosa · "sqlite"
+search · local · scoped to c3-oss/prosa · "sqlite"
 ```
 
 Use the context line to remove ambiguity. Do not turn it into a banner.
