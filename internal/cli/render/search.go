@@ -5,6 +5,9 @@ import (
 	"io"
 	"strings"
 	"time"
+	"unicode/utf8"
+
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/c3-oss/prosa/internal/store"
 )
@@ -154,19 +157,107 @@ func highlightSnippet(s string) string {
 	}
 }
 
+// truncateMarkedSnippet fits a «»-marked snippet into n display
+// columns while keeping the first match visible: when the match sits
+// past the cut, the window shifts left so roughly a third of context
+// precedes it. Marker pairs survive truncation so highlights stay
+// attached to the matched text.
 func truncateMarkedSnippet(s string, n int) string {
 	if n <= 0 {
 		return ""
 	}
 	s = normalizeDisplayText(s)
-	if len(s) == 0 {
+	if s == "" {
 		return s
 	}
-	plain := flattenSnippet(s)
-	if len([]rune(plain)) <= n {
+
+	type markedRune struct {
+		r      rune
+		w      int
+		marked bool
+	}
+	var runes []markedRune
+	marked := false
+	total := 0
+	for i := 0; i < len(s); {
+		switch {
+		case strings.HasPrefix(s[i:], snippetMarkStart):
+			marked = true
+			i += len(snippetMarkStart)
+		case strings.HasPrefix(s[i:], snippetMarkEnd):
+			marked = false
+			i += len(snippetMarkEnd)
+		default:
+			r, size := utf8.DecodeRuneInString(s[i:])
+			w := lipgloss.Width(string(r))
+			runes = append(runes, markedRune{r: r, w: w, marked: marked})
+			total += w
+			i += size
+		}
+	}
+	if total <= n {
 		return s
 	}
-	return truncateWidth(plain, n)
+
+	firstMatch := 0
+	for i, mr := range runes {
+		if mr.marked {
+			firstMatch = i
+			break
+		}
+	}
+	widthBefore := 0
+	for _, mr := range runes[:firstMatch] {
+		widthBefore += mr.w
+	}
+	start := 0
+	if widthBefore > n*2/3 {
+		keepBefore := n / 3
+		trim := widthBefore - keepBefore
+		for start < firstMatch && trim > 0 {
+			trim -= runes[start].w
+			start++
+		}
+	}
+
+	var b strings.Builder
+	budget := n
+	if start > 0 {
+		b.WriteString("…")
+		budget--
+	}
+	inMark := false
+	used := 0
+	i := start
+	for ; i < len(runes); i++ {
+		mr := runes[i]
+		// Hold one column back for the trailing ellipsis unless this
+		// rune is the last one and closes the line exactly.
+		reserve := 0
+		if i+1 < len(runes) {
+			reserve = 1
+		}
+		if used+mr.w > budget-reserve {
+			break
+		}
+		if mr.marked && !inMark {
+			b.WriteString(snippetMarkStart)
+			inMark = true
+		}
+		if !mr.marked && inMark {
+			b.WriteString(snippetMarkEnd)
+			inMark = false
+		}
+		b.WriteRune(mr.r)
+		used += mr.w
+	}
+	if inMark {
+		b.WriteString(snippetMarkEnd)
+	}
+	if i < len(runes) {
+		b.WriteString("…")
+	}
+	return b.String()
 }
 
 // flattenSnippet strips the FTS5 markers entirely for non-TTY output so
