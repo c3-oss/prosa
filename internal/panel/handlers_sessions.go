@@ -671,7 +671,7 @@ func sessionCost(s *prosav1.Session) (float64, bool) {
 	if s == nil {
 		return 0, false
 	}
-	return pricing.CostUSD(s.Model, tokenUsageFromProto(s.Usage))
+	return pricing.CostUSD(s.Model, tokenUsageFromProto(s.Usage), sessionStartedAt(s))
 }
 
 func addSessionCost(total float64, priced bool, s *prosav1.Session) (float64, bool) {

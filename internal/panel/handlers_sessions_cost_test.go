@@ -5,8 +5,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	prosav1 "github.com/c3-oss/prosa/gen/go/prosa/v1"
 	"github.com/c3-oss/prosa/gen/go/prosa/v1/prosav1connect"
@@ -153,6 +155,16 @@ func TestListSessionsSortedByCostUngroupedUsesOwnCost(t *testing.T) {
 	require.Equal(t, 0, childCalls)
 }
 
+func TestSessionCostPricesSonnet5ByStartedAt(t *testing.T) {
+	introCost, ok := sessionCost(sonnet5PanelSession(time.Date(2026, 8, 31, 12, 0, 0, 0, time.UTC)))
+	require.True(t, ok)
+	require.InDelta(t, 2.0, introCost, 0.00000001)
+
+	standardCost, ok := sessionCost(sonnet5PanelSession(time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)))
+	require.True(t, ok)
+	require.InDelta(t, 3.0, standardCost, 0.00000001)
+}
+
 func newPanelWithFakeSessions(t *testing.T, svc fakeSessionsService) *Panel {
 	t.Helper()
 
@@ -200,6 +212,19 @@ func unpricedPanelSession(id, prompt string) *prosav1.Session {
 		FirstPrompt: prompt,
 		Model:       "not-a-real-model-name",
 		Usage:       &prosav1.TokenUsage{TotalTokens: 1000, InputTokens: 1000},
+	}
+}
+
+func sonnet5PanelSession(started time.Time) *prosav1.Session {
+	return &prosav1.Session{
+		Id:        "sonnet-5",
+		Agent:     "claude-code",
+		Model:     "claude-sonnet-5",
+		StartedAt: timestamppb.New(started),
+		Usage: &prosav1.TokenUsage{
+			TotalTokens: 1000000,
+			InputTokens: 1000000,
+		},
 	}
 }
 

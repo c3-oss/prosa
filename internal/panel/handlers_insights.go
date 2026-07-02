@@ -241,7 +241,7 @@ func buildSpendTrend(rows []*prosav1.AnalyticsRow, since, until time.Time) spend
 			CacheReadTokens:     parsePanelInt(row.Values[8]),
 			CacheCreationTokens: parsePanelInt(row.Values[9]),
 		}
-		if cost, ok := pricing.CostUSD(row.Values[1], usage); ok {
+		if cost, ok := pricing.CostUSD(row.Values[1], usage, pricingTimeFromDay(day)); ok {
 			spendByDay[day] += cost
 			totalSpend += cost
 			priced = true
@@ -900,7 +900,7 @@ func buildDelegationKPIs(usageRows, parentRows []*prosav1.AnalyticsRow) delegati
 		subTokens += usage.TotalTokens
 		subSessions += parsePanelInt(row.Values[3])
 		if measured > 0 {
-			if c, ok := pricing.CostUSD(model, usage); ok {
+			if c, ok := pricing.CostUSD(model, usage, pricingTimeFromDay(row.Values[0])); ok {
 				spend += c
 				priced = true
 			}
@@ -988,6 +988,14 @@ func buildDelegationTrend(rows []*prosav1.AnalyticsRow) delegationTrendView {
 		EndLabel:   weeks[len(weeks)-1],
 		HasData:    true,
 	}
+}
+
+func pricingTimeFromDay(day string) time.Time {
+	t, err := time.Parse("2006-01-02", strings.TrimSpace(day))
+	if err != nil {
+		return time.Time{}
+	}
+	return t
 }
 
 // fanoutView powers the fan-out histogram: how many spawning sessions ran

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -78,7 +79,7 @@ func (p *Panel) handleProfiles(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("profiles devices.list failed", "err", err)
 	}
 	projectNames := projectLabelsFromRows(out.projects.Rows)
-	profileNames := profileLabelsFromRows(out.usage.Rows)
+	profileNames := profileLabelsFromUsageRows(out.usage.Rows)
 
 	windowNote := ""
 	if trendClamped {
@@ -156,10 +157,9 @@ type profileCostRow struct {
 	Percent int
 }
 
-// buildProfileUsage folds profile_usage rows (one per device × agent ×
-// profile × model) into per-profile aggregates. Charts label agent·profile
-// (devices folded — the same logical account may sync from several
-// devices); the table stays per-device.
+// buildProfileUsage folds profile_usage rows into per-profile aggregates.
+// Charts label agent·profile (devices folded — the same logical account may
+// sync from several devices); the table stays per-device.
 func buildProfileUsage(rows []*prosav1.AnalyticsRow) profileUsageView {
 	type tableAgg struct {
 		row      profilePanelRow
@@ -179,26 +179,26 @@ func buildProfileUsage(rows []*prosav1.AnalyticsRow) profileUsageView {
 	priced := false
 
 	for _, row := range rows {
-		if len(row.Values) < 13 {
+		if len(row.Values) < 14 {
 			continue
 		}
-		device, agent, profile, model := row.Values[0], row.Values[1], row.Values[2], row.Values[3]
-		sessions := parsePanelInt(row.Values[4])
-		measured := parsePanelInt(row.Values[5])
+		day, device, agent, profile, model := row.Values[0], row.Values[1], row.Values[2], row.Values[3], row.Values[4]
+		sessions := parsePanelInt(row.Values[5])
+		measured := parsePanelInt(row.Values[6])
 		usage := session.TokenUsage{
-			TotalTokens:         parsePanelInt(row.Values[6]),
-			InputTokens:         parsePanelInt(row.Values[7]),
-			OutputTokens:        parsePanelInt(row.Values[8]),
-			CachedTokens:        parsePanelInt(row.Values[9]),
-			CacheReadTokens:     parsePanelInt(row.Values[10]),
-			CacheCreationTokens: parsePanelInt(row.Values[11]),
+			TotalTokens:         parsePanelInt(row.Values[7]),
+			InputTokens:         parsePanelInt(row.Values[8]),
+			OutputTokens:        parsePanelInt(row.Values[9]),
+			CachedTokens:        parsePanelInt(row.Values[10]),
+			CacheReadTokens:     parsePanelInt(row.Values[11]),
+			CacheCreationTokens: parsePanelInt(row.Values[12]),
 		}
-		lastSeen := row.Values[12]
+		lastSeen := row.Values[13]
 
 		var cost float64
 		rowPriced := false
 		if measured > 0 {
-			if c, ok := pricing.CostUSD(model, usage); ok {
+			if c, ok := pricing.CostUSD(model, usage, pricingTimeFromDay(day)); ok {
 				cost = c
 				rowPriced = true
 				priced = true
@@ -292,4 +292,22 @@ func buildProfileTrend(rows []*prosav1.AnalyticsRow) trendView {
 		})
 	}
 	return buildActivityTrend(mapped)
+}
+
+func profileLabelsFromUsageRows(rows []*prosav1.AnalyticsRow) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(rows))
+	for _, row := range rows {
+		if len(row.Values) < 4 {
+			continue
+		}
+		v := strings.TrimSpace(row.Values[3])
+		if v == "" || seen[v] {
+			continue
+		}
+		seen[v] = true
+		out = append(out, v)
+	}
+	sort.Strings(out)
+	return out
 }

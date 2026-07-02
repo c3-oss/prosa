@@ -122,10 +122,10 @@ func (fakeAnalyticsService) GetReport(_ context.Context, req *connect.Request[pr
 			row("2026-05-30 09:00", "claude-code", "github.com/c3-oss/prosa", "sess-1", "2"),
 		}},
 		"profile_usage": {
-			Headers: []string{"DEVICE", "AGENT", "PROFILE", "MODEL", "SESSIONS", "MEASURED", "TOTAL", "INPUT", "OUTPUT", "CACHED", "CACHE_READ", "CACHE_CREATION", "LAST_ACTIVITY"},
+			Headers: []string{"DAY", "DEVICE", "AGENT", "PROFILE", "MODEL", "SESSIONS", "MEASURED", "TOTAL", "INPUT", "OUTPUT", "CACHED", "CACHE_READ", "CACHE_CREATION", "LAST_ACTIVITY"},
 			Rows: []*prosav1.AnalyticsRow{
-				row("Laptop", "claude-code", "default", "claude-opus-4-5", "3", "3", "1500", "1200", "300", "0", "0", "0", "2026-05-30 09:00"),
-				row("Laptop", "codex", "work", "gpt-5-codex", "2", "2", "500", "400", "100", "0", "0", "0", "2026-05-31 14:00"),
+				row("2026-05-30", "Laptop", "claude-code", "default", "claude-opus-4-5", "3", "3", "1500", "1200", "300", "0", "0", "0", "2026-05-30 09:00"),
+				row("2026-05-31", "Laptop", "codex", "work", "gpt-5-codex", "2", "2", "500", "400", "100", "0", "0", "0", "2026-05-31 14:00"),
 			},
 		},
 		"profiles_by_day": {Headers: []string{"DAY", "AGENT", "PROFILE", "SESSIONS"}, Rows: []*prosav1.AnalyticsRow{

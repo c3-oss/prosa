@@ -162,6 +162,20 @@ func TestBuildSpendTrendPricesOnlyMeasuredRows(t *testing.T) {
 	require.Contains(t, v.Chart.Datasets[1].Values, float64(100)) // peak tokens day
 }
 
+func TestBuildSpendTrendPricesSonnet5ByDay(t *testing.T) {
+	t.Parallel()
+	since := time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC)
+	until := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+	rows := []*prosav1.AnalyticsRow{
+		aRow("2026-08-31", "claude-sonnet-5", "1", "1", "1000000", "1000000", "0", "0", "0", "0"),
+		aRow("2026-09-01", "claude-sonnet-5", "1", "1", "1000000", "1000000", "0", "0", "0", "0"),
+	}
+	v := buildSpendTrend(rows, since, until)
+	require.True(t, v.HasData)
+	require.Equal(t, "$5.00", v.TotalSpend)
+	require.Equal(t, "2m", v.TotalTokens)
+}
+
 func TestBuildSpendTrendUnpricedIsNA(t *testing.T) {
 	t.Parallel()
 	since := time.Date(2026, 5, 30, 0, 0, 0, 0, time.UTC)

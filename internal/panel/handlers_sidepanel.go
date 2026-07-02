@@ -178,7 +178,7 @@ func (p *Panel) loadSidePanel(ctx context.Context, id string) (sidePanelData, er
 	}
 	usage := tokenUsageFromProto(sess.GetUsage())
 	costLabel := "n/a"
-	if cost, ok := pricing.CostUSD(sess.GetModel(), usage); ok {
+	if cost, ok := pricing.CostUSD(sess.GetModel(), usage, sessionStartedAt(sess)); ok {
 		costLabel = formatUSD(cost)
 	}
 	sp := sidePanelData{

@@ -242,3 +242,27 @@ func TestAnalyticsUsageByModel(t *testing.T) {
 	require.Equal(t, "300", opus[4])  // output
 	require.NotEmpty(t, opus[5])      // est cost — claude-opus-4-5 is priced
 }
+
+func TestAnalyticsUsagePricesSonnet5BySessionDay(t *testing.T) {
+	t.Parallel()
+	ctx, s := openAnalyticsTestStore(t)
+	intro := time.Date(2026, 8, 31, 12, 0, 0, 0, time.UTC)
+	standard := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+	usage := &session.TokenUsage{TotalTokens: 1000000, InputTokens: 1000000}
+	seedAnalyticsSession(t, ctx, s, "sonnet-intro", "claude-sonnet-5", intro, usage, nil)
+	seedAnalyticsSession(t, ctx, s, "sonnet-standard", "claude-sonnet-5", standard, usage, nil)
+
+	f := SessionFilter{
+		Since: time.Date(2026, 8, 30, 0, 0, 0, 0, time.UTC),
+		Until: time.Date(2026, 9, 2, 0, 0, 0, 0, time.UTC),
+	}
+	byModel, err := s.AnalyticsUsageByModel(ctx, f)
+	require.NoError(t, err)
+	require.Len(t, byModel.Rows, 1)
+	require.Equal(t, []any{"claude-sonnet-5", "2", "2000000", "2000000", "0", "5.0000"}, byModel.Rows[0].Values)
+
+	byAgent, err := s.AnalyticsUsage(ctx, f)
+	require.NoError(t, err)
+	require.Len(t, byAgent.Rows, 1)
+	require.Equal(t, "5.0000", byAgent.Rows[0].Values[7])
+}

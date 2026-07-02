@@ -491,17 +491,17 @@ func TestDelegationAndProfileReportsEndToEnd(t *testing.T) {
 
 	profUsage := report("profile_usage", nil)
 	require.Equal(t,
-		[]string{"DEVICE", "AGENT", "PROFILE", "MODEL", "SESSIONS", "MEASURED", "TOTAL", "INPUT", "OUTPUT", "CACHED", "CACHE_READ", "CACHE_CREATION", "LAST_ACTIVITY"},
+		[]string{"DAY", "DEVICE", "AGENT", "PROFILE", "MODEL", "SESSIONS", "MEASURED", "TOTAL", "INPUT", "OUTPUT", "CACHED", "CACHE_READ", "CACHE_CREATION", "LAST_ACTIVITY"},
 		profUsage.Headers)
 	profCells := map[string][]string{}
 	for _, row := range profUsage.Rows {
-		profCells[row.Values[1]+"|"+row.Values[2]] = row.Values
+		profCells[row.Values[2]+"|"+row.Values[3]] = row.Values
 	}
-	require.Equal(t, "Test Device", profCells["claude-code|default"][0])
-	require.Equal(t, "3", profCells["claude-code|default"][4])
-	require.Equal(t, "3000", profCells["claude-code|default"][6])
-	require.Equal(t, "2", profCells["codex|work"][4])
-	require.Equal(t, "2026-05-31 14:15", profCells["codex|work"][12])
+	require.Equal(t, "Test Device", profCells["claude-code|default"][1])
+	require.Equal(t, "3", profCells["claude-code|default"][5])
+	require.Equal(t, "3000", profCells["claude-code|default"][7])
+	require.Equal(t, "2", profCells["codex|work"][5])
+	require.Equal(t, "2026-05-31 14:15", profCells["codex|work"][13])
 
 	profDays := report("profiles_by_day", nil)
 	require.Equal(t, []string{"DAY", "AGENT", "PROFILE", "SESSIONS"}, profDays.Headers)

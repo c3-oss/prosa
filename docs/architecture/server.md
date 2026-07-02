@@ -75,7 +75,7 @@ only and have **no SQLite/CLI mirror**:
 | `duration_stats` | one row: median/p90/avg/max seconds | duration card subtitle |
 | `subagent_usage_by_day` | per (UTC day, direct\|subagent, model) session counts + token splits | delegated token share + spend KPIs, delegation trend |
 | `subagent_parents` | one row per spawning session: started, agent, project, id, child count | delegation KPIs, fan-out histogram, top delegators |
-| `profile_usage` | per (device, agent, profile, model) session counts + token splits + last activity | profiles dashboard KPIs, charts, table |
+| `profile_usage` | per (UTC day, device, agent, profile, model) session counts + token splits + last activity | profiles dashboard KPIs, charts, table |
 | `profiles_by_day` | per (UTC day, agent, profile) session counts | profiles dashboard trend |
 
 `subagents` (per parent-agent: parents, children, max fan-out) backs

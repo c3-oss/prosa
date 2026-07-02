@@ -510,7 +510,7 @@ table.
 - **KPI strip**: active profiles (distinct device × agent × profile
   groups in the window), share of sessions outside the `default`
   profile, token total, and estimated spend — all from the
-  `profile_usage` report, priced panel-side per model.
+  `profile_usage` report, priced panel-side per UTC day and model.
 - **Sessions per profile**: stacked weekly columns per `agent·profile`
   (top 4 + "other", same fold as Home's activity trend), from the
   `profiles_by_day` report. Charts label `agent·profile` with devices

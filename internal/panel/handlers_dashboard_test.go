@@ -65,6 +65,20 @@ func TestBuildModelBoardCapsAndSkipsEmpty(t *testing.T) {
 	require.Equal(t, "$1.00", board[0].Cost)
 }
 
+func TestBuildProfileUsagePricesSonnet5ByDay(t *testing.T) {
+	t.Parallel()
+	v := buildProfileUsage([]*prosav1.AnalyticsRow{
+		aRow("2026-08-31", "Laptop", "claude-code", "default", "claude-sonnet-5", "1", "1", "1000000", "1000000", "0", "0", "0", "0", "2026-08-31 12:00"),
+		aRow("2026-09-01", "Laptop", "claude-code", "default", "claude-sonnet-5", "1", "1", "1000000", "1000000", "0", "0", "0", "0", "2026-09-01 12:00"),
+	})
+	require.True(t, v.HasData)
+	require.Equal(t, "$5.00", v.TotalSpend)
+	require.Len(t, v.Rows, 1)
+	require.Equal(t, "2", v.Rows[0].Sessions)
+	require.Equal(t, "$5.00", v.Rows[0].Cost)
+	require.Equal(t, "2026-09-01 12:00", v.Rows[0].LastSeen)
+}
+
 func TestBuildIssuesRateAndRecent(t *testing.T) {
 	t.Parallel()
 	errModel := []*prosav1.AnalyticsRow{

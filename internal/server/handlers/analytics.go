@@ -84,7 +84,7 @@ func (h *AnalyticsHandler) GetReport(ctx context.Context, req *connect.Request[p
 			[]string{"STARTED", "AGENT", "PROJECT", "SESSION", "CHILDREN"})
 	case "profile_usage":
 		return runReport(ctx, h.Pool, req.Msg, queryProfileUsage,
-			[]string{"DEVICE", "AGENT", "PROFILE", "MODEL", "SESSIONS", "MEASURED", "TOTAL", "INPUT", "OUTPUT", "CACHED", "CACHE_READ", "CACHE_CREATION", "LAST_ACTIVITY"})
+			[]string{"DAY", "DEVICE", "AGENT", "PROFILE", "MODEL", "SESSIONS", "MEASURED", "TOTAL", "INPUT", "OUTPUT", "CACHED", "CACHE_READ", "CACHE_CREATION", "LAST_ACTIVITY"})
 	case "profiles_by_day":
 		return runReport(ctx, h.Pool, req.Msg, queryProfilesByDay, []string{"DAY", "AGENT", "PROFILE", "SESSIONS"})
 	case "punchcard":
@@ -273,7 +273,8 @@ func runUsage(
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 	q := `
-		SELECT s.agent,
+		SELECT to_char((s.started_at AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD') AS day,
+		       s.agent,
 		       COALESCE(s.model, '') AS model,
 		       COUNT(DISTINCT s.id)::bigint AS sessions,
 		       COUNT(su.session_id)::bigint AS measured,
@@ -286,7 +287,7 @@ func runUsage(
 		FROM sessions s
 		LEFT JOIN session_usage su ON su.session_id = s.id
 		` + whereSQL + `
-		GROUP BY s.agent, model
+		GROUP BY day, s.agent, model
 		ORDER BY COUNT(DISTINCT s.id) DESC`
 	rows, err := pool.Query(ctx, q, args...)
 	if err != nil {
@@ -305,13 +306,14 @@ func runUsage(
 	byAgent := map[string]*usageAgg{}
 	for rows.Next() {
 		var (
+			day          string
 			agent, model string
 			sessionsN    int64
 			measured     int64
 			u            session.TokenUsage
 		)
 		if err := rows.Scan(
-			&agent, &model, &sessionsN, &measured,
+			&day, &agent, &model, &sessionsN, &measured,
 			&u.TotalTokens, &u.InputTokens, &u.OutputTokens, &u.CachedTokens,
 			&u.CacheReadTokens, &u.CacheCreationTokens,
 		); err != nil {
@@ -331,7 +333,7 @@ func runUsage(
 		agg.usage.CacheReadTokens += u.CacheReadTokens
 		agg.usage.CacheCreationTokens += u.CacheCreationTokens
 		if measured > 0 {
-			if c, ok := pricing.CostUSD(model, u); ok {
+			if c, ok := pricing.CostUSD(model, u, analyticsPricingTime(day)); ok {
 				agg.cost += c
 				agg.priced = true
 			}
@@ -374,8 +376,8 @@ func runUsage(
 	return connect.NewResponse(out), nil
 }
 
-// runUsageByModel groups by model instead of agent; each group shares one
-// model so cost is a straight pricing.CostUSD over the summed usage.
+// runUsageByModel groups by model instead of agent, pricing day-sized slices
+// before folding them back into the public row shape.
 func runUsageByModel(
 	ctx context.Context,
 	pool *pgxpool.Pool,
@@ -386,7 +388,8 @@ func runUsageByModel(
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 	q := `
-		SELECT COALESCE(s.model, '(none)') AS model,
+		SELECT to_char((s.started_at AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD') AS day,
+		       COALESCE(s.model, '(none)') AS model,
 		       COUNT(DISTINCT s.id)::bigint AS sessions,
 		       COUNT(su.session_id)::bigint AS measured,
 		       COALESCE(SUM(su.total_tokens), 0)::bigint AS total_tokens,
@@ -398,7 +401,7 @@ func runUsageByModel(
 		FROM sessions s
 		LEFT JOIN session_usage su ON su.session_id = s.id
 		` + whereSQL + `
-		GROUP BY model
+		GROUP BY day, model
 		ORDER BY COUNT(DISTINCT s.id) DESC`
 	rows, err := pool.Query(ctx, q, args...)
 	if err != nil {
@@ -406,40 +409,79 @@ func runUsageByModel(
 	}
 	defer rows.Close()
 
-	out := &prosav1.GetReportResponse{Headers: []string{
-		"MODEL", "SESSIONS", "TOTAL", "INPUT", "OUTPUT", "EST_COST_USD",
-	}}
+	type modelAgg struct {
+		model    string
+		sessions int64
+		usage    session.TokenUsage
+		cost     float64
+		priced   bool
+	}
+	byModel := map[string]*modelAgg{}
 	for rows.Next() {
 		var (
+			day       string
 			model     string
 			sessionsN int64
 			measured  int64
 			u         session.TokenUsage
 		)
 		if err := rows.Scan(
-			&model, &sessionsN, &measured,
+			&day, &model, &sessionsN, &measured,
 			&u.TotalTokens, &u.InputTokens, &u.OutputTokens, &u.CachedTokens,
 			&u.CacheReadTokens, &u.CacheCreationTokens,
 		); err != nil {
 			return nil, connect.NewError(connect.CodeInternal, err)
 		}
-		cost := ""
+		agg := byModel[model]
+		if agg == nil {
+			agg = &modelAgg{model: model}
+			byModel[model] = agg
+		}
+		agg.sessions += sessionsN
+		agg.usage.TotalTokens += u.TotalTokens
+		agg.usage.InputTokens += u.InputTokens
+		agg.usage.OutputTokens += u.OutputTokens
+		agg.usage.CachedTokens += u.CachedTokens
+		agg.usage.CacheReadTokens += u.CacheReadTokens
+		agg.usage.CacheCreationTokens += u.CacheCreationTokens
 		if measured > 0 {
-			if c, ok := pricing.CostUSD(model, u); ok {
-				cost = fmt.Sprintf("%.4f", c)
+			if c, ok := pricing.CostUSD(model, u, analyticsPricingTime(day)); ok {
+				agg.cost += c
+				agg.priced = true
 			}
 		}
-		out.Rows = append(out.Rows, &prosav1.AnalyticsRow{Values: []string{
-			model,
-			fmt.Sprintf("%d", sessionsN),
-			fmt.Sprintf("%d", u.TotalTokens),
-			fmt.Sprintf("%d", u.InputTokens),
-			fmt.Sprintf("%d", u.OutputTokens),
-			cost,
-		}})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+
+	aggs := make([]*modelAgg, 0, len(byModel))
+	for _, agg := range byModel {
+		aggs = append(aggs, agg)
+	}
+	sort.Slice(aggs, func(i, j int) bool {
+		if aggs[i].sessions == aggs[j].sessions {
+			return aggs[i].model < aggs[j].model
+		}
+		return aggs[i].sessions > aggs[j].sessions
+	})
+
+	out := &prosav1.GetReportResponse{Headers: []string{
+		"MODEL", "SESSIONS", "TOTAL", "INPUT", "OUTPUT", "EST_COST_USD",
+	}}
+	for _, agg := range aggs {
+		cost := ""
+		if agg.priced {
+			cost = fmt.Sprintf("%.4f", agg.cost)
+		}
+		out.Rows = append(out.Rows, &prosav1.AnalyticsRow{Values: []string{
+			agg.model,
+			fmt.Sprintf("%d", agg.sessions),
+			fmt.Sprintf("%d", agg.usage.TotalTokens),
+			fmt.Sprintf("%d", agg.usage.InputTokens),
+			fmt.Sprintf("%d", agg.usage.OutputTokens),
+			cost,
+		}})
 	}
 	return connect.NewResponse(out), nil
 }
@@ -447,6 +489,14 @@ func runUsageByModel(
 func dayStart(t time.Time) time.Time {
 	y, m, d := t.UTC().Date()
 	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
+}
+
+func analyticsPricingTime(day string) time.Time {
+	t, err := time.Parse("2006-01-02", strings.TrimSpace(day))
+	if err != nil {
+		return time.Time{}
+	}
+	return t
 }
 
 func querySessions(whereSQL string, args []any) (string, []any) {
@@ -721,7 +771,8 @@ func querySubagentParents(whereSQL string, args []any) (string, []any) {
 // can price each group), token sums, and the group's latest activity.
 func queryProfileUsage(whereSQL string, args []any) (string, []any) {
 	q := `
-		SELECT COALESCE(NULLIF(d.friendly_name, ''), s.device_id) AS device,
+		SELECT to_char((s.started_at AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD') AS day,
+		       COALESCE(NULLIF(d.friendly_name, ''), s.device_id) AS device,
 		       s.agent,
 		       s.profile,
 		       COALESCE(s.model, '(none)') AS model,
@@ -738,8 +789,8 @@ func queryProfileUsage(whereSQL string, args []any) (string, []any) {
 		LEFT JOIN devices d ON d.id = s.device_id
 		LEFT JOIN session_usage su ON su.session_id = s.id
 		` + whereSQL + `
-		GROUP BY device, s.agent, s.profile, model
-		ORDER BY device ASC, s.agent ASC, s.profile ASC, model ASC`
+		GROUP BY day, device, s.agent, s.profile, model
+		ORDER BY day ASC, device ASC, s.agent ASC, s.profile ASC, model ASC`
 	return q, args
 }
 

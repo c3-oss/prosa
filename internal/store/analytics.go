@@ -167,7 +167,8 @@ func (s *Store) AnalyticsHeatmap(ctx context.Context, f SessionFilter) (Analytic
 // estimated USD cost where the embedded pricing table recognizes the model.
 func (s *Store) AnalyticsUsage(ctx context.Context, f SessionFilter) (AnalyticsResult, error) {
 	q, args := analyticsQuery(`
-		SELECT s.agent,
+		SELECT substr(s.started_at, 1, 10) AS day,
+		       s.agent,
 		       COALESCE(s.model, '') AS model,
 		       COUNT(DISTINCT s.id) AS sessions,
 		       COUNT(su.session_id) AS measured,
@@ -179,7 +180,7 @@ func (s *Store) AnalyticsUsage(ctx context.Context, f SessionFilter) (AnalyticsR
 		       COALESCE(SUM(su.cache_creation_tokens), 0) AS cache_creation_tokens
 		FROM sessions s
 		LEFT JOIN session_usage su ON su.session_id = s.id
-	`, ` GROUP BY s.agent, model ORDER BY sessions DESC`, f)
+	`, ` GROUP BY day, s.agent, model ORDER BY sessions DESC`, f)
 
 	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
@@ -198,13 +199,14 @@ func (s *Store) AnalyticsUsage(ctx context.Context, f SessionFilter) (AnalyticsR
 	byAgent := map[string]*usageAgg{}
 	for rows.Next() {
 		var (
+			day          string
 			agent, model string
 			sessionsN    int64
 			measured     int64
 			u            session.TokenUsage
 		)
 		if err := rows.Scan(
-			&agent, &model, &sessionsN, &measured,
+			&day, &agent, &model, &sessionsN, &measured,
 			&u.TotalTokens, &u.InputTokens, &u.OutputTokens, &u.CachedTokens,
 			&u.CacheReadTokens, &u.CacheCreationTokens,
 		); err != nil {
@@ -224,7 +226,7 @@ func (s *Store) AnalyticsUsage(ctx context.Context, f SessionFilter) (AnalyticsR
 		agg.usage.CacheReadTokens += u.CacheReadTokens
 		agg.usage.CacheCreationTokens += u.CacheCreationTokens
 		if measured > 0 {
-			if c, ok := pricing.CostUSD(model, u); ok {
+			if c, ok := pricing.CostUSD(model, u, analyticsPricingTime(day)); ok {
 				agg.cost += c
 				agg.priced = true
 			}
@@ -319,12 +321,12 @@ func (s *Store) AnalyticsErrorsByModel(ctx context.Context, f SessionFilter) (An
 
 // AnalyticsUsageByModel mirrors AnalyticsUsage but groups by model instead
 // of agent, so the panel can rank token spend per model and draw a cost
-// donut. Each group shares one model, so cost is a straight
-// pricing.CostUSD over the summed usage; models the table doesn't
-// recognize emit an empty EST_COST_USD.
+// donut. Cost is priced per day before the rows are folded back by model;
+// models the table doesn't recognize emit an empty EST_COST_USD.
 func (s *Store) AnalyticsUsageByModel(ctx context.Context, f SessionFilter) (AnalyticsResult, error) {
 	q, args := analyticsQuery(`
-		SELECT COALESCE(s.model, '(none)') AS model,
+		SELECT substr(s.started_at, 1, 10) AS day,
+		       COALESCE(s.model, '(none)') AS model,
 		       COUNT(DISTINCT s.id) AS sessions,
 		       COUNT(su.session_id) AS measured,
 		       COALESCE(SUM(su.total_tokens), 0) AS total_tokens,
@@ -335,7 +337,7 @@ func (s *Store) AnalyticsUsageByModel(ctx context.Context, f SessionFilter) (Ana
 		       COALESCE(SUM(su.cache_creation_tokens), 0) AS cache_creation_tokens
 		FROM sessions s
 		LEFT JOIN session_usage su ON su.session_id = s.id
-	`, ` GROUP BY model ORDER BY sessions DESC`, f)
+	`, ` GROUP BY day, model ORDER BY sessions DESC`, f)
 
 	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
@@ -343,39 +345,89 @@ func (s *Store) AnalyticsUsageByModel(ctx context.Context, f SessionFilter) (Ana
 	}
 	defer rows.Close()
 
-	out := AnalyticsResult{Headers: []string{
-		"MODEL", "SESSIONS", "TOTAL", "INPUT", "OUTPUT", "EST_COST_USD",
-	}}
+	type modelAgg struct {
+		model    string
+		sessions int64
+		usage    session.TokenUsage
+		cost     float64
+		priced   bool
+	}
+	byModel := map[string]*modelAgg{}
 	for rows.Next() {
 		var (
+			day       string
 			model     string
 			sessionsN int64
 			measured  int64
 			u         session.TokenUsage
 		)
 		if err := rows.Scan(
-			&model, &sessionsN, &measured,
+			&day, &model, &sessionsN, &measured,
 			&u.TotalTokens, &u.InputTokens, &u.OutputTokens, &u.CachedTokens,
 			&u.CacheReadTokens, &u.CacheCreationTokens,
 		); err != nil {
 			return AnalyticsResult{}, err
 		}
-		cost := ""
+		agg := byModel[model]
+		if agg == nil {
+			agg = &modelAgg{model: model}
+			byModel[model] = agg
+		}
+		agg.sessions += sessionsN
+		agg.usage.TotalTokens += u.TotalTokens
+		agg.usage.InputTokens += u.InputTokens
+		agg.usage.OutputTokens += u.OutputTokens
+		agg.usage.CachedTokens += u.CachedTokens
+		agg.usage.CacheReadTokens += u.CacheReadTokens
+		agg.usage.CacheCreationTokens += u.CacheCreationTokens
 		if measured > 0 {
-			if c, ok := pricing.CostUSD(model, u); ok {
-				cost = fmt.Sprintf("%.4f", c)
+			if c, ok := pricing.CostUSD(model, u, analyticsPricingTime(day)); ok {
+				agg.cost += c
+				agg.priced = true
 			}
 		}
+	}
+	if err := rows.Err(); err != nil {
+		return AnalyticsResult{}, err
+	}
+
+	aggs := make([]*modelAgg, 0, len(byModel))
+	for _, agg := range byModel {
+		aggs = append(aggs, agg)
+	}
+	sort.Slice(aggs, func(i, j int) bool {
+		if aggs[i].sessions == aggs[j].sessions {
+			return aggs[i].model < aggs[j].model
+		}
+		return aggs[i].sessions > aggs[j].sessions
+	})
+
+	out := AnalyticsResult{Headers: []string{
+		"MODEL", "SESSIONS", "TOTAL", "INPUT", "OUTPUT", "EST_COST_USD",
+	}}
+	for _, agg := range aggs {
+		cost := ""
+		if agg.priced {
+			cost = fmt.Sprintf("%.4f", agg.cost)
+		}
 		out.Rows = append(out.Rows, AnalyticsRow{Values: []any{
-			model,
-			fmt.Sprintf("%d", sessionsN),
-			fmt.Sprintf("%d", u.TotalTokens),
-			fmt.Sprintf("%d", u.InputTokens),
-			fmt.Sprintf("%d", u.OutputTokens),
+			agg.model,
+			fmt.Sprintf("%d", agg.sessions),
+			fmt.Sprintf("%d", agg.usage.TotalTokens),
+			fmt.Sprintf("%d", agg.usage.InputTokens),
+			fmt.Sprintf("%d", agg.usage.OutputTokens),
 			cost,
 		}})
 	}
-	return out, rows.Err()
+	return out, nil
+}
+
+func analyticsPricingTime(day string) time.Time {
+	t, err := time.Parse("2006-01-02", strings.TrimSpace(day))
+	if err != nil {
+		return time.Time{}
+	}
+	return t
 }
 
 // analyticsQuery builds a filtered analytics SQL statement from a SELECT
