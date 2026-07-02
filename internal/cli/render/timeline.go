@@ -15,7 +15,13 @@ import (
 	"github.com/c3-oss/prosa/pkg/session"
 )
 
-const promptMaxRunes = 60
+// Prompt text is the row's payload; it absorbs whatever width the
+// metadata columns leave over, between these bounds. The cap keeps
+// very wide terminals from stretching rows past a comfortable measure.
+const (
+	promptMinWidth = 24
+	promptMaxWidth = 96
+)
 
 type TimelineLayout int
 
@@ -71,6 +77,7 @@ func TimelineItems(w io.Writer, items []TimelineItem, now time.Time, opts Timeli
 	if opts.Width <= 0 {
 		opts.Width = 80
 	}
+	widths := timelineColumnWidths(items, opts)
 
 	var lastHeader string
 	for i, item := range items {
@@ -82,7 +89,7 @@ func TimelineItems(w io.Writer, items []TimelineItem, now time.Time, opts Timeli
 			fmt.Fprintln(w, StyleHeader.Render(hdr))
 			lastHeader = hdr
 		}
-		renderSessionTTY(w, item, now, opts)
+		renderSessionTTY(w, item, now, opts, widths)
 		if i+1 < len(items) && DayHeader(items[i+1].Session.StartedAt.Local(), now.Local()) == hdr {
 			fmt.Fprintln(w, StyleRail.Render("│"))
 		}
@@ -90,7 +97,7 @@ func TimelineItems(w io.Writer, items []TimelineItem, now time.Time, opts Timeli
 	return nil
 }
 
-func renderSessionTTY(w io.Writer, item TimelineItem, now time.Time, opts TimelineOptions) {
+func renderSessionTTY(w io.Writer, item TimelineItem, now time.Time, opts TimelineOptions, widths timelineWidths) {
 	s := item.Session
 	startLocal := s.StartedAt.Local()
 	timeStr := startLocal.Format("15:04")
@@ -102,7 +109,6 @@ func renderSessionTTY(w io.Writer, item TimelineItem, now time.Time, opts Timeli
 		activeMark = StyleActive.Render(activeRaw)
 	}
 
-	widths := timelineColumnWidths(opts.Width)
 	device := ""
 	if opts.Slots.Device {
 		device = padTrunc(DeviceLabel(opts.DeviceLabels, s.DeviceID), widths.device)
@@ -110,7 +116,7 @@ func renderSessionTTY(w io.Writer, item TimelineItem, now time.Time, opts Timeli
 	agent := padTrunc(agentLabel(s.Agent), widths.agent)
 	project := ""
 	if opts.Slots.Project {
-		project = padTrunc(projectLabel(s), widths.project)
+		project = padRight(fitProjectLabel(projectLabel(s), widths.project), widths.project)
 	}
 
 	first := ""
@@ -124,8 +130,8 @@ func renderSessionTTY(w io.Writer, item TimelineItem, now time.Time, opts Timeli
 	if promptWidth < 12 {
 		promptWidth = 12
 	}
-	if promptWidth > promptMaxRunes {
-		promptWidth = promptMaxRunes
+	if promptWidth > promptMaxWidth {
+		promptWidth = promptMaxWidth
 	}
 
 	if !isClean || first == "" {
@@ -163,15 +169,106 @@ type timelineWidths struct {
 	project int
 }
 
-func timelineColumnWidths(width int) timelineWidths {
-	switch {
-	case width < 72:
-		return timelineWidths{device: 6, agent: 7, project: 10}
-	case width < 92:
-		return timelineWidths{device: 7, agent: 8, project: 12}
-	default:
-		return timelineWidths{device: 8, agent: 12, project: 14}
+// Ceilings for the metadata columns. Values are sized to their content
+// up to these; anything longer truncates so the prompt keeps room.
+const (
+	deviceMaxWidth  = 18
+	agentMaxWidth   = 12
+	projectMaxWidth = 32
+)
+
+// timelineColumnWidths sizes the metadata columns from the rows about
+// to render: each column takes its widest value, capped by the
+// ceilings above. When the terminal is too narrow to keep the prompt
+// at promptMinWidth, columns give width back following the contract's
+// compression order — device shrinks before project.
+func timelineColumnWidths(items []TimelineItem, opts TimelineOptions) timelineWidths {
+	w := timelineWidths{}
+	for _, it := range items {
+		s := it.Session
+		if opts.Slots.Device {
+			w.device = max(w.device, lipgloss.Width(DeviceLabel(opts.DeviceLabels, s.DeviceID)))
+		}
+		w.agent = max(w.agent, lipgloss.Width(agentLabel(s.Agent)))
+		if opts.Slots.Project {
+			w.project = max(w.project, lipgloss.Width(projectLabel(s)))
+		}
 	}
+	w.device = min(w.device, deviceMaxWidth)
+	w.agent = min(w.agent, agentMaxWidth)
+	w.project = min(w.project, projectMaxWidth)
+
+	// rail(2) + time+active(6) + two spaces after each column + quotes.
+	overhead := 2 + 6 + 2 + 2
+	for _, cw := range []int{w.device, w.agent, w.project} {
+		if cw > 0 {
+			overhead += cw + 2
+		}
+	}
+	deficit := promptMinWidth - (opts.Width - overhead)
+	if deficit > 0 {
+		w.device, deficit = shrinkColumn(w.device, 8, deficit)
+		w.project, _ = shrinkColumn(w.project, 14, deficit)
+	}
+	return w
+}
+
+// shrinkColumn takes up to deficit columns away from cur without going
+// below floor, returning the new width and the remaining deficit.
+func shrinkColumn(cur, floor, deficit int) (int, int) {
+	if deficit <= 0 || cur <= floor {
+		return cur, deficit
+	}
+	give := cur - floor
+	if give > deficit {
+		give = deficit
+	}
+	return cur - give, deficit - give
+}
+
+// fitProjectLabel shortens a project label to n columns keeping the
+// distinguishing tail: owner/repo drops the owner first, and whatever
+// still overflows truncates from the left per the rendering contract.
+func fitProjectLabel(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	if lipgloss.Width(s) <= n {
+		return s
+	}
+	if i := strings.LastIndex(s, "/"); i >= 0 {
+		if tail := s[i+1:]; tail != "" && lipgloss.Width(tail) <= n {
+			return tail
+		}
+	}
+	return truncateWidthLeft(s, n)
+}
+
+func truncateWidthLeft(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	if lipgloss.Width(s) <= n {
+		return s
+	}
+	if n == 1 {
+		return "…"
+	}
+	runes := []rune(s)
+	keep := make([]rune, 0, n)
+	width := 0
+	for i := len(runes) - 1; i >= 0; i-- {
+		rw := lipgloss.Width(string(runes[i]))
+		if width+rw > n-1 {
+			break
+		}
+		keep = append(keep, runes[i])
+		width += rw
+	}
+	for l, r := 0, len(keep)-1; l < r; l, r = l+1, r-1 {
+		keep[l], keep[r] = keep[r], keep[l]
+	}
+	return "…" + string(keep)
 }
 
 // timelinePrefix builds the row's left half. Slots drive which

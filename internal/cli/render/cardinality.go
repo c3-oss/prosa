@@ -11,8 +11,16 @@ type RowSlots struct {
 	Project bool
 }
 
+// UniformValues carries the value shared by every row when a column
+// collapses to cardinality 1, so the caller can surface it in the
+// context line instead of dropping the information entirely.
+type UniformValues struct {
+	DeviceID string // single device id, when only one distinct device
+	Project  string // single project label, when only one distinct project
+}
+
 // ResolveSlots inspects items + layout intent and returns the slot
-// flags. Rules:
+// flags plus the uniform values behind any suppressed column. Rules:
 //
 //   - TimelineScoped implies omit-project regardless of cardinality
 //     (the context line already names the project).
@@ -21,7 +29,7 @@ type RowSlots struct {
 //
 // Agent is never a slot — it's central enough that we always render
 // it, even when uniform.
-func ResolveSlots(items []TimelineItem, layout TimelineLayout) RowSlots {
+func ResolveSlots(items []TimelineItem, layout TimelineLayout) (RowSlots, UniformValues) {
 	devices := map[string]struct{}{}
 	projects := map[string]struct{}{}
 	for _, it := range items {
@@ -35,5 +43,14 @@ func ResolveSlots(items []TimelineItem, layout TimelineLayout) RowSlots {
 	if layout == TimelineScoped {
 		slots.Project = false
 	}
-	return slots
+	uniform := UniformValues{}
+	if len(items) > 0 {
+		if len(devices) == 1 {
+			uniform.DeviceID = items[0].Session.DeviceID
+		}
+		if label := projectLabel(items[0].Session); len(projects) == 1 && label != unscopedProjectLabel {
+			uniform.Project = label
+		}
+	}
+	return slots, uniform
 }

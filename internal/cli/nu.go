@@ -59,17 +59,6 @@ func runNu(cmd *cobra.Command, _ []string) error {
 	projectScope := ResolveProjectScope(ctx, g, s)
 	projectScope.ApplySessionFilter(&filter)
 
-	if interactive && !g.JSON {
-		fmt.Fprintln(os.Stderr, render.ContextLine(render.ContextLineOptions{
-			Command:    "prosa",
-			Source:     "local",
-			Scope:      projectScope.Scope,
-			ScopeLabel: projectScope.Label,
-			Last:       w.LastLabel,
-			Since:      w.SinceLabel,
-			Between:    w.BetweenLabel,
-		}))
-	}
 	if g.Agent != "" {
 		a := g.Agent
 		filter.Agent = &a
@@ -92,6 +81,38 @@ func runNu(cmd *cobra.Command, _ []string) error {
 		return emitTimelineJSON(os.Stdout, sessions)
 	}
 
+	items := make([]render.TimelineItem, len(sessions))
+	for i := range sessions {
+		tools, err := s.GetSessionTools(ctx, sessions[i].ID)
+		if err != nil {
+			return err
+		}
+		items[i] = render.TimelineItem{Session: sessions[i], Tools: tools}
+	}
+	layout := render.TimelineGlobal
+	if g.Project != "" || filter.ProjectExact != nil || filter.ProjectRemote != nil || filter.ProjectMarker != nil {
+		layout = render.TimelineScoped
+	}
+	slots, uniform := render.ResolveSlots(items, layout)
+	deviceLabels, derr := s.ListDevicesMap(ctx)
+	if derr != nil {
+		deviceLabels = nil // render falls back to truncated hex
+	}
+
+	if interactive {
+		fmt.Fprintln(os.Stderr, render.ContextLine(render.ContextLineOptions{
+			Command:        "prosa",
+			Source:         "local",
+			Scope:          projectScope.Scope,
+			ScopeLabel:     projectScope.Label,
+			Last:           w.LastLabel,
+			Since:          w.SinceLabel,
+			Between:        w.BetweenLabel,
+			UniformProject: uniformProjectSegment(uniform, layout),
+			UniformDevice:  uniformDeviceSegment(uniform, deviceLabels),
+		}))
+	}
+
 	if len(sessions) == 0 {
 		if interactive {
 			if projectScope.Label != "" {
@@ -107,29 +128,29 @@ func runNu(cmd *cobra.Command, _ []string) error {
 		return nil
 	}
 
-	items := make([]render.TimelineItem, len(sessions))
-	for i := range sessions {
-		tools, err := s.GetSessionTools(ctx, sessions[i].ID)
-		if err != nil {
-			return err
-		}
-		items[i] = render.TimelineItem{Session: sessions[i], Tools: tools}
-	}
-	layout := render.TimelineGlobal
-	if g.Project != "" || filter.ProjectExact != nil || filter.ProjectRemote != nil || filter.ProjectMarker != nil {
-		layout = render.TimelineScoped
-	}
-	deviceLabels, derr := s.ListDevicesMap(ctx)
-	if derr != nil {
-		deviceLabels = nil // render falls back to truncated hex
-	}
 	return render.TimelineItems(os.Stdout, items, now, render.TimelineOptions{
 		Interactive:  interactive,
 		Width:        TerminalWidth(),
 		Layout:       layout,
-		Slots:        render.ResolveSlots(items, layout),
+		Slots:        slots,
 		DeviceLabels: deviceLabels,
 	})
+}
+
+// uniformProjectSegment names the single project behind a suppressed
+// column. Scoped layouts skip it — the scope label already names it.
+func uniformProjectSegment(uniform render.UniformValues, layout render.TimelineLayout) string {
+	if layout == render.TimelineScoped {
+		return ""
+	}
+	return uniform.Project
+}
+
+func uniformDeviceSegment(uniform render.UniformValues, deviceLabels map[string]string) string {
+	if uniform.DeviceID == "" {
+		return ""
+	}
+	return render.DeviceLabel(deviceLabels, uniform.DeviceID)
 }
 
 func runNuRemote(ctx context.Context, w Window, now time.Time) error {
@@ -158,17 +179,6 @@ func runNuRemote(ctx context.Context, w Window, now time.Time) error {
 	}
 
 	interactive := IsInteractive()
-	if interactive && !g.JSON {
-		fmt.Fprintln(os.Stderr, render.ContextLine(render.ContextLineOptions{
-			Command:    "prosa",
-			Source:     "remote",
-			Scope:      projectScope.Scope,
-			ScopeLabel: projectScope.Label,
-			Last:       w.LastLabel,
-			Since:      w.SinceLabel,
-			Between:    w.BetweenLabel,
-		}))
-	}
 
 	client := rpc.Sessions(auth.Server, auth.Token)
 	resp, err := client.List(ctx, connect.NewRequest(req))
@@ -182,6 +192,32 @@ func runNuRemote(ctx context.Context, w Window, now time.Time) error {
 	if g.JSON {
 		return emitTimelineJSON(os.Stdout, sessions)
 	}
+
+	items := make([]render.TimelineItem, len(sessions))
+	for i := range sessions {
+		items[i] = render.TimelineItem{Session: sessions[i]}
+	}
+	layout := render.TimelineGlobal
+	if g.Project != "" || req.ProjectPath != "" || req.ProjectRemote != "" || req.ProjectMarker != "" {
+		layout = render.TimelineScoped
+	}
+	slots, uniform := render.ResolveSlots(items, layout)
+	deviceLabels := remoteDeviceLabels(ctx, auth)
+
+	if interactive {
+		fmt.Fprintln(os.Stderr, render.ContextLine(render.ContextLineOptions{
+			Command:        "prosa",
+			Source:         "remote",
+			Scope:          projectScope.Scope,
+			ScopeLabel:     projectScope.Label,
+			Last:           w.LastLabel,
+			Since:          w.SinceLabel,
+			Between:        w.BetweenLabel,
+			UniformProject: uniformProjectSegment(uniform, layout),
+			UniformDevice:  uniformDeviceSegment(uniform, deviceLabels),
+		}))
+	}
+
 	if len(sessions) == 0 {
 		if interactive {
 			if projectScope.Label != "" {
@@ -196,20 +232,12 @@ func runNuRemote(ctx context.Context, w Window, now time.Time) error {
 		return nil
 	}
 
-	items := make([]render.TimelineItem, len(sessions))
-	for i := range sessions {
-		items[i] = render.TimelineItem{Session: sessions[i]}
-	}
-	layout := render.TimelineGlobal
-	if g.Project != "" || req.ProjectPath != "" || req.ProjectRemote != "" || req.ProjectMarker != "" {
-		layout = render.TimelineScoped
-	}
 	return render.TimelineItems(os.Stdout, items, now, render.TimelineOptions{
 		Interactive:  interactive,
 		Width:        TerminalWidth(),
 		Layout:       layout,
-		Slots:        render.ResolveSlots(items, layout),
-		DeviceLabels: remoteDeviceLabels(ctx, auth),
+		Slots:        slots,
+		DeviceLabels: deviceLabels,
 	})
 }
 

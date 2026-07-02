@@ -26,7 +26,7 @@ func TestNormalizeRemote(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.in, func(t *testing.T) {
-			require.Equal(t, c.want, normalizeRemote(c.in))
+			require.Equal(t, c.want, NormalizeRemote(c.in))
 		})
 	}
 }

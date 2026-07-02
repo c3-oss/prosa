@@ -30,15 +30,20 @@ const (
 // "YYYY-MM-DD and YYYY-MM-DD" range string. The renderer adds the
 // appropriate "last " / "since " / "between " prefix.
 // Query is only used by the search variant; ignored by ContextLine.
+// UniformProject / UniformDevice carry values dropped from the rows by
+// cardinality-1 suppression; they render as trailing segments so the
+// information survives the collapsed column.
 type ContextLineOptions struct {
-	Command    string
-	Source     string
-	Scope      ContextScope
-	ScopeLabel string
-	Last       string
-	Since      string
-	Between    string
-	Query      string
+	Command        string
+	Source         string
+	Scope          ContextScope
+	ScopeLabel     string
+	Last           string
+	Since          string
+	Between        string
+	Query          string
+	UniformProject string
+	UniformDevice  string
 }
 
 // ContextLine builds the stderr context anchor printed before timeline
@@ -48,6 +53,7 @@ type ContextLineOptions struct {
 //	prosa · local · all projects · last 7d
 //	prosa · local · project not detected · showing all projects · last 7d
 //	prosa · remote · scoped to prosa · last 30d
+//	prosa · local · all projects · last 1d · project c3-oss/prosa · device tbox
 func ContextLine(opts ContextLineOptions) string {
 	parts := []string{
 		opts.Command,
@@ -57,6 +63,12 @@ func ContextLine(opts ContextLineOptions) string {
 	tail := lastSegment2(opts)
 	if tail != "" {
 		parts = append(parts, tail)
+	}
+	if opts.UniformProject != "" {
+		parts = append(parts, "project "+opts.UniformProject)
+	}
+	if opts.UniformDevice != "" {
+		parts = append(parts, "device "+opts.UniformDevice)
 	}
 	return strings.Join(parts, " · ")
 }

@@ -9,10 +9,10 @@ import (
 
 const unscopedProjectLabel = "(unscoped)"
 
-// normalizeRemote collapses a git remote URL down to "owner/repo" form.
+// NormalizeRemote collapses a git remote URL down to "owner/repo" form.
 // Anything that does not look like a URL is returned as-is so callers
 // preserve best-effort project information instead of dropping data.
-func normalizeRemote(remote string) string {
+func NormalizeRemote(remote string) string {
 	r := strings.TrimSpace(remote)
 	if r == "" {
 		return ""
@@ -48,7 +48,7 @@ func projectLabel(s session.Session) string {
 		return v
 	}
 	if v := stringPtrValue(s.ProjectRemote); v != "" {
-		if n := normalizeRemote(v); n != "" {
+		if n := NormalizeRemote(v); n != "" {
 			return n
 		}
 	}
