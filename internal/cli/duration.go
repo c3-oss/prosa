@@ -17,7 +17,7 @@ func ParseLast(s string) (time.Duration, error) {
 	if strings.HasSuffix(s, "d") {
 		n, err := strconv.Atoi(strings.TrimSuffix(s, "d"))
 		if err != nil {
-			return 0, fmt.Errorf("parse days %q: %w", s, err)
+			return 0, fmt.Errorf("cannot parse %q as a window (try 7d, 12h, 45m)", s)
 		}
 		d := time.Duration(n) * 24 * time.Hour
 		if d <= 0 {
@@ -27,7 +27,7 @@ func ParseLast(s string) (time.Duration, error) {
 	}
 	d, err := time.ParseDuration(s)
 	if err != nil {
-		return 0, fmt.Errorf("parse duration %q (try forms like 7d, 12h, 45m): %w", s, err)
+		return 0, fmt.Errorf("cannot parse %q as a window (try 7d, 12h, 45m)", s)
 	}
 	if d <= 0 {
 		return 0, fmt.Errorf("duration must be > 0")
