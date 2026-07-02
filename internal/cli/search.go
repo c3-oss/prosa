@@ -120,7 +120,7 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	if len(hits) == 0 {
 		if interactive {
 			fmt.Fprintln(os.Stderr, "no matches")
-			fmt.Fprintln(os.Stderr, "try `--all`, widen the window, or search a broader term")
+			fmt.Fprintln(os.Stderr, searchEmptyHint())
 			return nil
 		}
 		fmt.Fprintf(os.Stderr, "no matches for %q\n", query)
@@ -136,6 +136,15 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		HideDevice:   hideDevice,
 		HideProject:  hideProject,
 	})
+}
+
+// searchEmptyHint suggests the next-widest search; it skips `--all`
+// when the caller already opted out of project scoping.
+func searchEmptyHint() string {
+	if g.All {
+		return "widen the window (e.g. --last 30d) or search a broader term"
+	}
+	return "try `--all`, widen the window, or search a broader term"
 }
 
 func countDistinctDevices(hits []store.SearchHit) int {
@@ -237,7 +246,7 @@ func runSearchRemote(ctx context.Context, query string, w Window, limit int) err
 	if len(hits) == 0 {
 		if interactive {
 			fmt.Fprintln(os.Stderr, "no matches")
-			fmt.Fprintln(os.Stderr, "try `--all`, widen the window, or search a broader term")
+			fmt.Fprintln(os.Stderr, searchEmptyHint())
 			return nil
 		}
 		fmt.Fprintf(os.Stderr, "no matches for %q (remote)\n", query)

@@ -39,7 +39,10 @@ func newRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "prosa",
 		Short: "Unified history of AI agent sessions",
-		RunE:  runNu,
+		Long: "prosa answers \"what did I work on?\" across AI coding agents.\n" +
+			"Run it bare to print the session timeline for the current project\n" +
+			"(last 7 days); every listing accepts the same window and scope flags.",
+		RunE: runNu,
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
 			if err := validateGlobals(cmd); err != nil {
 				return err
@@ -67,18 +70,32 @@ func newRootCmd() *cobra.Command {
 	cmd.Flags().IntVar(&g.Limit, "limit", 0, "cap timeline sessions returned (0 = no limit)")
 	pf.BoolVar(&g.Remote, "remote", false, "query the prosa server instead of the local store")
 
-	cmd.AddCommand(newSyncCmd())
-	cmd.AddCommand(newShowCmd())
-	cmd.AddCommand(newSearchCmd())
-	cmd.AddCommand(newAnalyticsCmd())
-	cmd.AddCommand(newLoginCmd())
-	cmd.AddCommand(newLogoutCmd())
-	cmd.AddCommand(newDevicesCmd())
-	cmd.AddCommand(newProfilesCmd())
-	cmd.AddCommand(newScheduleCmd())
-	cmd.AddCommand(newSetupCmd())
+	cmd.AddGroup(
+		&cobra.Group{ID: groupStart, Title: "Getting started:"},
+		&cobra.Group{ID: groupExplore, Title: "Explore your history:"},
+		&cobra.Group{ID: groupSync, Title: "Import & sync:"},
+		&cobra.Group{ID: groupServer, Title: "Remote server:"},
+	)
+	addGrouped(cmd, groupStart, newSetupCmd())
+	addGrouped(cmd, groupExplore, newSearchCmd(), newShowCmd(), newAnalyticsCmd())
+	addGrouped(cmd, groupSync, newSyncCmd(), newScheduleCmd(), newProfilesCmd())
+	addGrouped(cmd, groupServer, newLoginCmd(), newLogoutCmd(), newDevicesCmd())
 	configureCompletionCmd(cmd)
 	return cmd
+}
+
+const (
+	groupStart   = "start"
+	groupExplore = "explore"
+	groupSync    = "sync"
+	groupServer  = "server"
+)
+
+func addGrouped(root *cobra.Command, groupID string, cmds ...*cobra.Command) {
+	for _, c := range cmds {
+		c.GroupID = groupID
+		root.AddCommand(c)
+	}
 }
 
 func configureCompletionCmd(cmd *cobra.Command) {

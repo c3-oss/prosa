@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/c3-oss/prosa/internal/cli/render"
 	"github.com/c3-oss/prosa/internal/projectid"
 	"github.com/c3-oss/prosa/internal/store"
 )
@@ -87,15 +88,19 @@ func applyMatchFilter(f *store.SessionFilter, m Match) {
 	}
 }
 
-// HintLabel returns a short human label for the context-line status hint.
+// HintLabel returns a short human label for the context-line status
+// hint: remotes collapse to "owner/repo", paths abbreviate $HOME to ~.
 func (m Match) HintLabel() string {
 	switch {
 	case m.Remote != "":
+		if n := render.NormalizeRemote(m.Remote); n != "" {
+			return n
+		}
 		return m.Remote
 	case m.Marker != "":
 		return m.Marker + " (.prosa.yaml)"
 	case m.Path != "":
-		return m.Path
+		return render.AbbreviateHome(m.Path)
 	}
 	return ""
 }

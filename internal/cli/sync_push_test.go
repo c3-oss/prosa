@@ -1,9 +1,13 @@
 package cli
 
 import (
+	"errors"
+	"fmt"
+	"net"
 	"testing"
 	"time"
 
+	"connectrpc.com/connect"
 	"github.com/stretchr/testify/require"
 
 	"github.com/c3-oss/prosa/pkg/session"
@@ -66,4 +70,15 @@ func TestPushProtoSanitizesDerivedText(t *testing.T) {
 func TestShouldChunkPush(t *testing.T) {
 	require.False(t, shouldChunkPush(chunkPushThresholdBytes))
 	require.True(t, shouldChunkPush(chunkPushThresholdBytes+1))
+}
+
+func TestIsRemoteUnavailableClassifiesTransportErrors(t *testing.T) {
+	dialErr := &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("i/o timeout")}
+	require.True(t, isRemoteUnavailable(dialErr))
+	require.True(t, isRemoteUnavailable(fmt.Errorf("push rpc: %w", dialErr)))
+	require.True(t, isRemoteUnavailable(connect.NewError(connect.CodeUnavailable, errors.New("down"))))
+	require.True(t, isRemoteUnavailable(connect.NewError(connect.CodeDeadlineExceeded, errors.New("slow"))))
+	require.False(t, isRemoteUnavailable(connect.NewError(connect.CodeInvalidArgument, errors.New("bad"))))
+	require.False(t, isRemoteUnavailable(errors.New("plain failure")))
+	require.False(t, isRemoteUnavailable(nil))
 }

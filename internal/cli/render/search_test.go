@@ -80,3 +80,28 @@ func TestSearchHitsPlainStripsMarkers(t *testing.T) {
 	require.NotContains(t, out, "»")
 	require.False(t, strings.Contains(out, "\x1b["), "plain output must not contain ANSI escapes")
 }
+
+func TestTruncateMarkedSnippetKeepsHighlightPastCut(t *testing.T) {
+	t.Parallel()
+
+	long := strings.Repeat("x", 100) + " «sqlite» store " + strings.Repeat("y", 40)
+	got := truncateMarkedSnippet(long, 60)
+	require.Contains(t, got, "«sqlite»", "markers must survive truncation")
+	require.True(t, strings.HasPrefix(got, "…"), "window shifted left needs a leading ellipsis")
+	require.True(t, strings.HasSuffix(got, "…"), "cut tail needs a trailing ellipsis")
+}
+
+func TestTruncateMarkedSnippetShortPassthrough(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, "uses «sqlite» here", truncateMarkedSnippet("uses «sqlite» here", 60))
+}
+
+func TestTruncateMarkedSnippetEarlyMatchKeepsHead(t *testing.T) {
+	t.Parallel()
+
+	long := "«sqlite» is used " + strings.Repeat("z", 100)
+	got := truncateMarkedSnippet(long, 40)
+	require.True(t, strings.HasPrefix(got, "«sqlite»"), "early match keeps the snippet head, got %q", got)
+	require.True(t, strings.HasSuffix(got, "…"))
+}

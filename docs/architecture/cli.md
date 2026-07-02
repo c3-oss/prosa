@@ -85,6 +85,8 @@ scripts stay clean.
 
 - **timeline.go / timeline_test.go** — the default `prosa` view, day-grouped.
 - **search.go** — search hit rendering with snippet highlighting.
+- **table.go** — the shared width-aligned table primitive used by
+  analytics, devices, and profiles.
 - **device.go**, **prompt.go**, **cardinality.go**, **analytics.go** — small
   shared helpers for the various tabular outputs.
 

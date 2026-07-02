@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/stretchr/testify/require"
 
 	"github.com/c3-oss/prosa/pkg/session"
@@ -88,4 +89,102 @@ func TestTimelineItemsPlainKeepsStableRows(t *testing.T) {
 	require.NotContains(t, out, "│")
 	require.NotContains(t, out, "└")
 	require.False(t, strings.Contains(out, "\x1b["), "plain output must not contain ANSI escapes")
+}
+
+func TestFitProjectLabelDropsOwnerThenTruncatesLeft(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, "c3-oss/prosa", fitProjectLabel("c3-oss/prosa", 20))
+	require.Equal(t, "mz-operator-1", fitProjectLabel("mz-codes/mz-operator-1", 18))
+	// Tail still too long → left truncation keeps the distinguishing end.
+	require.Equal(t, "…rator-1", fitProjectLabel("mz-codes/mz-operator-1", 8))
+}
+
+func TestTimelineWidthsSizeToContent(t *testing.T) {
+	t.Parallel()
+
+	items := []TimelineItem{
+		{Session: session.Session{Agent: "codex", DeviceID: "laptop", ProjectRemote: strp("git@github.com:mz-codes/mz-operator-1.git")}},
+		{Session: session.Session{Agent: "claude-code", DeviceID: "tbox", ProjectRemote: strp("git@github.com:c3-oss/q.git")}},
+	}
+	w := timelineColumnWidths(items, TimelineOptions{
+		Width: 120,
+		Slots: RowSlots{Device: true, Project: true},
+	})
+	require.Equal(t, len("mz-codes/mz-operator-1"), w.project)
+	require.Equal(t, len("laptop"), w.device)
+	require.Equal(t, len("claude"), w.agent) // claude-code renders as "claude"
+}
+
+func TestTimelineWidthsShrinkDeviceBeforeProjectWhenNarrow(t *testing.T) {
+	t.Parallel()
+
+	labels := map[string]string{
+		"d1": "ip-192-168-0-16-long",
+		"d2": "another-long-device",
+	}
+	items := []TimelineItem{
+		{Session: session.Session{Agent: "claude-code", DeviceID: "d1", ProjectRemote: strp("git@github.com:mz-codes/mz-operator-1.git")}},
+		{Session: session.Session{Agent: "codex", DeviceID: "d2", ProjectRemote: strp("git@github.com:c3-oss/prosa.git")}},
+	}
+	wide := timelineColumnWidths(items, TimelineOptions{Width: 200, Slots: RowSlots{Device: true, Project: true}, DeviceLabels: labels})
+	narrow := timelineColumnWidths(items, TimelineOptions{Width: 80, Slots: RowSlots{Device: true, Project: true}, DeviceLabels: labels})
+	require.Less(t, narrow.device, wide.device, "device should shrink first on narrow terminals")
+	require.LessOrEqual(t, narrow.project, wide.project)
+}
+
+func TestTimelineItemsShowsFullProjectWhenSpaceAllows(t *testing.T) {
+	now := time.Date(2026, 5, 30, 12, 0, 0, 0, time.Local)
+	item := TimelineItem{
+		Session: session.Session{
+			ID:             "s1",
+			Agent:          "claude-code",
+			DeviceID:       "laptop",
+			ProjectRemote:  strp("git@github.com:mz-codes/mz-operator-1.git"),
+			StartedAt:      now.Add(-10 * time.Minute),
+			LastActivityAt: now.Add(-5 * time.Minute),
+			FirstPrompt:    strp("refactor sync logic"),
+		},
+	}
+	var b bytes.Buffer
+	err := TimelineItems(&b, []TimelineItem{item}, now, TimelineOptions{
+		Interactive: true,
+		Width:       110,
+		Layout:      TimelineGlobal,
+		Slots:       RowSlots{Device: true, Project: true},
+	})
+	require.NoError(t, err)
+	require.Contains(t, b.String(), "mz-codes/mz-operator-1",
+		"project label must not be truncated when the row fits")
+}
+
+func TestTimelineRowKeepsQuotesLiteralWithinWidth(t *testing.T) {
+	now := time.Date(2026, 5, 30, 12, 0, 0, 0, time.Local)
+	prompt := `the client "prospera" cancelled the contract and we need a full audit of everything`
+	item := TimelineItem{
+		Session: session.Session{
+			ID:             "s1",
+			Agent:          "claude-code",
+			DeviceID:       "laptop",
+			ProjectPath:    strp("/work/mova"),
+			StartedAt:      now.Add(-10 * time.Minute),
+			LastActivityAt: now.Add(-5 * time.Minute),
+			FirstPrompt:    &prompt,
+		},
+	}
+	var b bytes.Buffer
+	err := TimelineItems(&b, []TimelineItem{item}, now, TimelineOptions{
+		Interactive: true,
+		Width:       80,
+		Layout:      TimelineGlobal,
+		Slots:       RowSlots{Device: true, Project: true},
+	})
+	require.NoError(t, err)
+	out := b.String()
+
+	require.Contains(t, out, `"prospera"`, "embedded quotes must render literally")
+	require.NotContains(t, out, `\"`, "prompt must not be Go-escaped")
+	for _, line := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
+		require.LessOrEqual(t, lipgloss.Width(line), 80, "row exceeds width: %q", line)
+	}
 }

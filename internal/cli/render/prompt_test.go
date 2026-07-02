@@ -44,10 +44,3 @@ func TestRenderFirstPromptPassesThroughRealContent(t *testing.T) {
 	out := RenderFirstPrompt("explain quantum entanglement")
 	require.Equal(t, "explain quantum entanglement", out)
 }
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}

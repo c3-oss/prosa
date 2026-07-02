@@ -139,6 +139,14 @@ Rules:
 - Missing project renders as `-` in rows and `(unscoped)` in analytics.
 - The first prompt is quoted and truncated with `…`.
 - Use a light left rail only in TTY mode.
+- Metadata columns size themselves to the widest value in the rendered
+  set, capped per column (device 18, agent 12, project 32). When the
+  terminal is too narrow to keep at least 24 columns of prompt, device
+  gives width back first, then project.
+- A project label that overflows its column drops the owner segment
+  first (`mz-codes/mz-operator-1` → `mz-operator-1`); anything still
+  too long truncates from the left (`…rator-1`).
+- The prompt absorbs the remaining row width up to 96 columns.
 
 Plain timeline rows are tab-separated:
 
@@ -159,6 +167,17 @@ the context line instead. Applies to:
 - `project`: dropped when the layout is scoped (the context line
   already names the project), or when there's only one distinct
   project label across rows.
+
+A dropped column's value is not lost: the context line grows a
+trailing `project <label>` / `device <label>` segment naming the
+uniform value, e.g.
+
+```text
+prosa · local · all projects · last 1d · project mz-codes/mz-operator-1 · device tbox
+```
+
+The `project` segment is skipped in scoped layouts (the scope label
+already names it) and when the uniform label is `(unscoped)`.
 
 `agent` is never dropped, even when it's uniform — agent identity is
 central enough that repetition is preferable to absence.
@@ -187,19 +206,23 @@ non-boilerplate user message.
 
 `device_id` is the stable per-machine fingerprint hex. The renderer
 substitutes the device's `friendly_name` (from
-`prosa devices rename`) before display; when no friendly_name is
-known, falls back to the first 7 hex chars + `…`. Plain mode keeps
+`prosa devices rename`) before display, trimmed to its first dot
+segment so FQDN-style hostnames read like `hostname -s`
+(`ip-10-0-0-1.ec2.internal` → `ip-10-0-0-1`); when no friendly_name
+is known, falls back to the first 7 hex chars + `…`. Plain mode keeps
 the raw fingerprint hex for script stability.
 
 ## Auto Scope Notices
 
 When the command auto-detects a project from the current working directory,
-human output prints a short notice to `stderr`.
+human output prints a short notice to `stderr`. The scope label is the
+normalized project identity: git remotes collapse to `owner/repo`,
+paths under `$HOME` abbreviate to `~/…`.
 
 Timeline:
 
 ```text
-prosa · local · scoped to prosa · last 7d
+prosa · local · scoped to c3-oss/prosa · last 7d
 ```
 
 The tail segment after scope reflects whichever window flag is active.
@@ -212,7 +235,7 @@ Exactly one of three shapes:
 Search:
 
 ```text
-search · local · scoped to prosa · "sqlite"
+search · local · scoped to c3-oss/prosa · "sqlite"
 ```
 
 Do not print scope notices in JSON/NDJSON mode.
@@ -236,8 +259,9 @@ Preservation order:
 Compression rules:
 
 - Truncate prompt and snippet text before structural metadata.
-- Shorten device names before project names.
-- Collapse secondary metadata into the detail row below 80 columns.
+- Shorten device names before project names: when the prompt would
+  drop below its minimum, the device column shrinks in place first
+  (floor 8), then the project column (floor 14).
 - Truncate paths from the left.
 - Use `…` as the only truncation marker.
 - Avoid wrapping rows unless the content is raw output.
@@ -260,6 +284,8 @@ Rules:
 - show the matching role, such as `user` or `assistant`, in the body;
 - the body uses plain indent (no `├` / `└` branches) for visual quietness;
 - highlight only matched text;
+- snippet truncation keeps the first match visible (the window shifts
+  left with `…` on the cut sides) and never strips the highlight;
 - keep snippets single-line by default;
 - end with a compact match count and raw-view hint when useful.
 
@@ -325,7 +351,11 @@ manifest-driven reconcile that makes the remote converge to the local
 set; `Catch-up: sent 0` on a re-run is the new idempotency criterion.
 `Remote` appears only when that auth file exists but the server cannot
 be reached; it replaces raw transport warnings and does not make the
-local import fail.
+local import fail. The first unreachable-server error trips a
+circuit breaker: every remaining push in the run is skipped instantly
+instead of paying one connection timeout per session, and connection
+attempts themselves are bounded (5s dial) so an offline server delays
+a sync by seconds, not hours.
 
 Plain sync uses structured logs plus the same factual summary. It must not use
 spinners, cursor movement, alternate screen, or ANSI escapes.
@@ -358,8 +388,9 @@ Rules:
 picks one based on flags and TTY context:
 
 1. **Rendered (default in a TTY)** — a structured human view:
-   header line with project · agent · device, a metadata block
-   (`id`, `started`, `duration`, `model`, `tools`, `raw`), then a
+   header line with project · agent · device (friendly name when
+   known), a metadata block (`id`, `started`, `duration`, `model`,
+   `tokens` when usage was measured, `tools`, `raw`), then a
    `turns` section. Tool projections appear as
    `tool:<name>` rows (e.g. `tool:Bash npm test failed with exit 1`);
    chat turns show the bare role.
@@ -382,13 +413,30 @@ Analytics output is a dense table.
 Rules:
 
 - headers are muted and bold in TTY;
-- numeric columns may use the soft `accent` token;
+- numeric columns are right-aligned, thousands-separated, and may use
+  the soft `accent` token;
+- in TTY, `PROJECT` values collapse git remotes to `owner/repo` and
+  abbreviate `$HOME` paths to `~/…`; `STARTED` renders as local
+  wall-clock time; `EST_COST_USD` renders as `$1,234.56`;
 - no chart glyphs;
-- no progress bars;
+- no progress bars (exception: the `usage` report's proportional
+  token bar and the `heatmap` grid, which are those reports' point);
 - no decorative dashboard framing;
 - align columns by display width, not byte length.
 
-Plain analytics output is tab-separated with a header row.
+Plain analytics output is tab-separated with a header row and keeps
+raw values (full remotes, RFC3339 timestamps, undecorated numbers) so
+scripts never see the TTY humanizations.
+
+## Command Tables
+
+`prosa devices list` and `prosa profiles list` share the analytics
+table shape: muted bold headers, columns aligned by display width
+(styling never shifts alignment), numeric columns (`SESSIONS`)
+right-aligned with the `accent` token. Device `LAST SYNC` renders as
+local wall-clock time in TTY and RFC3339 in plain mode; device state
+uses the `success` / `error` tokens. Plain output is tab-separated,
+same as analytics.
 
 ## Empty States
 
@@ -413,6 +461,13 @@ Search:
 ```text
 no matches
 try `--all`, widen the window, or search a broader term
+```
+
+When `--all` is already set, the hint drops the `--all` suggestion:
+
+```text
+no matches
+widen the window (e.g. --last 30d) or search a broader term
 ```
 
 Analytics:

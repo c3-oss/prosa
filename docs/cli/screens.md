@@ -10,7 +10,7 @@ Human TTY output prints scope context to `stderr` and timeline data to
 `stdout`. The context line is intentionally compact.
 
 ```text
-prosa · local · scoped to prosa · last 7d
+prosa · local · scoped to c3-oss/prosa · last 7d
 
 Today
 │ 11:24  claude-code  "refactor sync logic"
@@ -37,9 +37,9 @@ The context line's tail segment reflects whichever window flag was
 active. Three shapes, mutually exclusive:
 
 ```text
-prosa · local · scoped to prosa · last 7d
-prosa · local · scoped to prosa · since 2026-01-01
-prosa · local · scoped to prosa · between 2026-01-01 and 2026-03-15
+prosa · local · scoped to c3-oss/prosa · last 7d
+prosa · local · scoped to c3-oss/prosa · since 2026-01-01
+prosa · local · scoped to c3-oss/prosa · between 2026-01-01 and 2026-03-15
 ```
 
 Plain output omits human context and uses one stable row per session.
@@ -108,18 +108,19 @@ Today
 │        └ 1h04 · read, bash, curl
 ```
 
-Below 80 columns, collapse the secondary metadata row first. Keep the row
+Below 80 columns, the device column shrinks in place first (floor 8),
+then project (floor 14); prompts absorb the rest. Keep the row
 single-purpose and readable.
 
 ```text
 Today
-│ 16:31  prosa       codex   "design CLI output docs"
+│ 16:31  prosa       codex   laptop  "design CLI…"
 │        ├ id        codex-2026-05-30-a1b2c3d4
-│        └ 41min · laptop · read, write, rg
+│        └ 41min · read, write, rg
 │
-│ 11:56* infra-prod  codex   "debug deploy health check…"
+│ 11:56* infra-prod  codex   rem-1   "debug deplo…"
 │        ├ id        codex-2026-05-30-i9j0k1l2
-│        └ 1h04 · rem-1 · read, bash, curl
+│        └ 1h04 · read, bash, curl
 ```
 
 ## 4. `prosa search "sqlite"`
@@ -130,7 +131,7 @@ and role obvious without using a full table.
 The `«sqlite»` markers below indicate where TTY highlighting is applied.
 
 ```text
-search · local · scoped to prosa · "sqlite"
+search · local · scoped to c3-oss/prosa · "sqlite"
 
 │ 57f476a0-8e1  codex · Today 13:42
 │   user       add a local «sqlite» store for session metadata and FTS
@@ -148,7 +149,7 @@ search · local · scoped to prosa · "sqlite"
 ```
 
 Scope-aware suppression at work: project is dropped because the
-context line already says "scoped to prosa", and device is dropped
+context line already says "scoped to c3-oss/prosa", and device is dropped
 because every hit shares the same device. When either dimension
 varies across hits, that column comes back as a `·`-separated
 segment in the header.
@@ -355,7 +356,7 @@ run `prosa sync` to import local agent history
 No sessions with auto-scope:
 
 ```text
-prosa · local · scoped to prosa · last 7d
+prosa · local · scoped to c3-oss/prosa · last 7d
 
 no sessions found for prosa
 use `prosa --all` to show every project
@@ -364,7 +365,7 @@ use `prosa --all` to show every project
 No search results:
 
 ```text
-search · local · scoped to prosa · "sqlite"
+search · local · scoped to c3-oss/prosa · "sqlite"
 
 no matches
 try `--all`, widen the window, or search a broader term

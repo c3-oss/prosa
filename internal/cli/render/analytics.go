@@ -3,6 +3,8 @@ package render
 import (
 	"fmt"
 	"io"
+	"math"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -34,42 +36,90 @@ func analyticsTTY(w io.Writer, r store.AnalyticsResult) error {
 	if isUsageResult(r) {
 		return analyticsUsageTTY(w, r)
 	}
-	widths := make([]int, len(r.Headers))
+	cols := make([]TableColumn, len(r.Headers))
 	for i, h := range r.Headers {
-		widths[i] = lipgloss.Width(h)
+		cols[i] = TableColumn{Header: h, Right: isNumericCol(h)}
 	}
+	rows := make([][]TableCell, 0, len(r.Rows))
 	for _, row := range r.Rows {
+		cells := make([]TableCell, len(row.Values))
 		for i, v := range row.Values {
-			s := toString(v)
-			if lipgloss.Width(s) > widths[i] {
-				widths[i] = lipgloss.Width(s)
-			}
-		}
-	}
-
-	for i, h := range r.Headers {
-		if i > 0 {
-			fmt.Fprint(w, "  ")
-		}
-		fmt.Fprint(w, StyleHeader.Foreground(ColorMuted).Render(padRight(h, widths[i])))
-	}
-	fmt.Fprintln(w)
-
-	for _, row := range r.Rows {
-		for i, v := range row.Values {
-			if i > 0 {
-				fmt.Fprint(w, "  ")
-			}
-			s := padRight(toString(v), widths[i])
-			if isNumericCol(r.Headers[i]) {
-				fmt.Fprint(w, StyleAccent.Render(s))
+			if i < len(r.Headers) {
+				cells[i] = analyticsCell(r.Headers[i], toString(v))
 			} else {
-				fmt.Fprint(w, s)
+				cells[i] = Cell(toString(v))
 			}
 		}
-		fmt.Fprintln(w)
+		rows = append(rows, cells)
 	}
-	return nil
+	return Table(w, cols, rows, true)
+}
+
+// analyticsCell applies the TTY-only humanizations: numeric columns
+// get thousands separators and the accent tone, PROJECT collapses git
+// remotes to owner/repo and $HOME paths to ~, STARTED becomes local
+// wall-clock time, EST_COST_USD reads as dollars. Plain output keeps
+// the raw values.
+func analyticsCell(header, s string) TableCell {
+	switch header {
+	case "PROJECT":
+		return Cell(displayProject(s))
+	case "STARTED":
+		return TableCell{Text: displayTimestamp(s), Style: StyleMuted}
+	case "EST_COST_USD":
+		return TableCell{Text: formatCost(s), Style: StyleAccent}
+	}
+	if isNumericCol(header) {
+		return TableCell{Text: formatNumericText(s), Style: StyleAccent}
+	}
+	return Cell(s)
+}
+
+func formatNumericText(s string) string {
+	n, err := strconv.ParseInt(strings.TrimSpace(s), 10, 64)
+	if err != nil {
+		return s
+	}
+	return formatInt(n)
+}
+
+// displayProject rewrites a project identity for reading: git remotes
+// collapse to "owner/repo", home-anchored paths abbreviate to ~.
+func displayProject(s string) string {
+	s = strings.TrimSpace(s)
+	if strings.HasPrefix(s, "/") {
+		return AbbreviateHome(s)
+	}
+	if n := NormalizeRemote(s); n != "" {
+		return n
+	}
+	return s
+}
+
+// AbbreviateHome rewrites an absolute path under $HOME to the ~ form.
+func AbbreviateHome(p string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return p
+	}
+	if p == home {
+		return "~"
+	}
+	if strings.HasPrefix(p, home+"/") {
+		return "~" + p[len(home):]
+	}
+	return p
+}
+
+// displayTimestamp renders an RFC3339 instant as local wall-clock
+// time, day-grained like the rest of the CLI. Unparseable values pass
+// through untouched.
+func displayTimestamp(s string) string {
+	t, err := time.Parse(time.RFC3339, strings.TrimSpace(s))
+	if err != nil {
+		return s
+	}
+	return t.Local().Format("2006-01-02 15:04")
 }
 
 type heatmapDay struct {
@@ -192,20 +242,20 @@ func analyticsUsageTTY(w io.Writer, r store.AnalyticsResult) error {
 		fmt.Fprintln(w, "no rows")
 		return nil
 	}
-	var max int64
+	var maxTotal int64
 	for _, row := range rows {
-		if row.total > max {
-			max = row.total
+		if row.total > maxTotal {
+			maxTotal = row.total
 		}
 	}
 
 	widths := []int{len("AGENT"), len("SESS"), len("MEASURED"), len("TOTAL"), len("COST")}
 	for _, row := range rows {
-		widths[0] = maxWidth(widths[0], lipgloss.Width(row.agent))
-		widths[1] = maxWidth(widths[1], lipgloss.Width(formatInt(row.sessions)))
-		widths[2] = maxWidth(widths[2], lipgloss.Width(formatInt(row.measured)))
-		widths[3] = maxWidth(widths[3], lipgloss.Width(formatInt(row.total)))
-		widths[4] = maxWidth(widths[4], lipgloss.Width(formatCost(row.cost)))
+		widths[0] = max(widths[0], lipgloss.Width(row.agent))
+		widths[1] = max(widths[1], lipgloss.Width(formatInt(row.sessions)))
+		widths[2] = max(widths[2], lipgloss.Width(formatInt(row.measured)))
+		widths[3] = max(widths[3], lipgloss.Width(formatInt(row.total)))
+		widths[4] = max(widths[4], lipgloss.Width(formatCost(row.cost)))
 	}
 
 	headers := []string{"AGENT", "SESS", "MEASURED", "TOTAL", "COST"}
@@ -213,7 +263,11 @@ func analyticsUsageTTY(w io.Writer, r store.AnalyticsResult) error {
 		if i > 0 {
 			fmt.Fprint(w, "  ")
 		}
-		fmt.Fprint(w, StyleHeader.Foreground(ColorMuted).Render(padRight(h, widths[i])))
+		aligned := padRight(h, widths[i])
+		if i > 0 {
+			aligned = padLeft(h, widths[i])
+		}
+		fmt.Fprint(w, StyleHeader.Foreground(ColorMuted).Render(aligned))
 	}
 	fmt.Fprintf(w, "  %s\n", StyleHeader.Foreground(ColorMuted).Render("TOKENS"))
 
@@ -229,18 +283,18 @@ func analyticsUsageTTY(w io.Writer, r store.AnalyticsResult) error {
 			if i > 0 {
 				fmt.Fprint(w, "  ")
 			}
-			cell := padRight(v, widths[i])
 			if i == 0 {
-				fmt.Fprint(w, cell)
+				fmt.Fprint(w, padRight(v, widths[i]))
 				continue
 			}
+			cell := padLeft(v, widths[i])
 			if i == 4 && row.cost == "" {
 				fmt.Fprint(w, StyleMuted.Render(cell))
 				continue
 			}
 			fmt.Fprint(w, StyleAccent.Render(cell))
 		}
-		fmt.Fprintf(w, "  %s\n", usageBar(row.total, max, 18))
+		fmt.Fprintf(w, "  %s\n", usageBar(row.total, maxTotal, 18))
 		fmt.Fprintf(
 			w, "%s%s\n",
 			strings.Repeat(" ", widths[0]+2),
@@ -361,18 +415,20 @@ func formatInt(n int64) string {
 	return sign + s
 }
 
+// formatCost renders an estimated USD amount for reading: grouped
+// dollars, two decimal places. Values that fail to parse keep the raw
+// text so no information silently disappears.
 func formatCost(s string) string {
-	if strings.TrimSpace(s) == "" {
+	t := strings.TrimSpace(s)
+	if t == "" {
 		return "n/a"
 	}
-	return "$" + s
-}
-
-func maxWidth(a, b int) int {
-	if b > a {
-		return b
+	f, err := strconv.ParseFloat(t, 64)
+	if err != nil {
+		return "$" + t
 	}
-	return a
+	cents := int64(math.Round(f * 100))
+	return fmt.Sprintf("$%s.%02d", formatInt(cents/100), cents%100)
 }
 
 func toString(v any) string {

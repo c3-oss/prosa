@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 
@@ -179,30 +178,27 @@ func profileSessionCounts(ctx context.Context) (map[string]map[string]int, error
 	return out, nil
 }
 
-var profHdrStyle = render.StyleHeader.Foreground(render.ColorMuted)
-
 func renderProfileTable(w *os.File, rows []profileRow, interactive bool) error {
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	header := []string{"AGENT", "PROFILE", "LOCATION", "SESSIONS"}
-	if interactive {
-		styled := make([]string, len(header))
-		for i, h := range header {
-			styled[i] = profHdrStyle.Render(h)
-		}
-		fmt.Fprintln(tw, joinTabs(styled))
-	} else {
-		fmt.Fprintln(tw, joinTabs(header))
+	cols := []render.TableColumn{
+		{Header: "AGENT"},
+		{Header: "PROFILE"},
+		{Header: "LOCATION"},
+		{Header: "SESSIONS", Right: true},
 	}
+	cells := make([][]render.TableCell, 0, len(rows))
 	for _, r := range rows {
-		location := strings.Join(r.Roots, ", ")
-		if location == "" {
-			location = "(not configured)"
+		location := render.Cell(strings.Join(r.Roots, ", "))
+		if location.Text == "" {
+			location = render.TableCell{Text: "(not configured)", Style: render.StyleMuted}
 		}
-		fmt.Fprintln(tw, joinTabs([]string{
-			r.Agent, r.Name, location, fmt.Sprintf("%d", r.Sessions),
-		}))
+		cells = append(cells, []render.TableCell{
+			render.Cell(r.Agent),
+			render.Cell(r.Name),
+			location,
+			{Text: fmt.Sprintf("%d", r.Sessions), Style: render.StyleAccent},
+		})
 	}
-	return tw.Flush()
+	return render.Table(w, cols, cells, interactive)
 }
 
 func runProfilesAdd(cmd *cobra.Command, args []string) error {

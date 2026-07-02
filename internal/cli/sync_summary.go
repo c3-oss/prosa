@@ -129,9 +129,9 @@ func (sc *syncCounts) printSummaryTTY() {
 	}
 	if sc.denoiseCleaned > 0 {
 		fmt.Fprintf(
-			os.Stderr, "%s %s  %s %d %s\n",
+			os.Stderr, "%s %s %s %d %s\n",
 			render.StyleRail.Render("│"),
-			render.StyleHeader.Render("Denoise"),
+			render.StyleMuted.Render(padSummaryLabel("Denoise")),
 			render.StyleSuccess.Render("cleaned"),
 			sc.denoiseCleaned,
 			render.StyleMuted.Render("prompts"),
@@ -139,17 +139,17 @@ func (sc *syncCounts) printSummaryTTY() {
 	}
 	if sc.remoteUnavailable {
 		fmt.Fprintf(
-			os.Stderr, "%s %s  %s\n",
+			os.Stderr, "%s %s %s\n",
 			render.StyleRail.Render("│"),
-			render.StyleHeader.Render("Remote"),
+			render.StyleMuted.Render(padSummaryLabel("Remote")),
 			render.StyleMuted.Render(sc.remoteUnavailableText()),
 		)
 	}
 	if sc.suppressedWarnings > 0 {
 		fmt.Fprintf(
-			os.Stderr, "%s %s  %s\n",
+			os.Stderr, "%s %s %s\n",
 			render.StyleRail.Render("│"),
-			render.StyleHeader.Render("Warnings"),
+			render.StyleMuted.Render(padSummaryLabel("Warnings")),
 			render.StyleMuted.Render(suppressedWarningsText(sc.suppressedWarnings)),
 		)
 	}

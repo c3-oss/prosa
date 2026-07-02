@@ -8,10 +8,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"connectrpc.com/connect"
 
@@ -96,7 +98,19 @@ func (t *bearerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 }
 
 func httpClient(token string) *http.Client {
-	return &http.Client{Transport: &bearerTransport{base: http.DefaultTransport, token: token}}
+	return &http.Client{Transport: &bearerTransport{base: baseTransport(), token: token}}
+}
+
+// baseTransport bounds the connection phases so an unreachable server
+// fails in seconds instead of hanging a sync for the kernel's full TCP
+// retry cycle. Body transfer time stays unbounded on purpose — large
+// raw pushes on slow links must not be cut off mid-stream.
+func baseTransport() http.RoundTripper {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.DialContext = (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}).DialContext
+	t.TLSHandshakeTimeout = 5 * time.Second
+	t.ResponseHeaderTimeout = 60 * time.Second
+	return t
 }
 
 // NormalizeServerURL turns ":7070" into "http://localhost:7070" and
