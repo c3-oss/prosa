@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -274,8 +275,26 @@ func safeRawPathForPush(agent, rawPath string) (string, error) {
 	return rawPath, nil
 }
 
+// isRemoteUnavailable classifies errors that mean "the server cannot
+// be reached at all" — the signal that flips the pusher's circuit
+// breaker so the remaining import doesn't pay one connect timeout per
+// session. Transport-level failures (dial timeout, refused, DNS) reach
+// us as net errors wrapped by connect; those and the explicit
+// Unavailable/DeadlineExceeded codes all mean the same thing here.
 func isRemoteUnavailable(err error) bool {
-	return connect.CodeOf(err) == connect.CodeUnavailable
+	if err == nil {
+		return false
+	}
+	switch connect.CodeOf(err) {
+	case connect.CodeUnavailable, connect.CodeDeadlineExceeded:
+		return true
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return true
+	}
+	var opErr *net.OpError
+	return errors.As(err, &opErr)
 }
 
 func (p *pusher) markRemoteUnavailable() {
