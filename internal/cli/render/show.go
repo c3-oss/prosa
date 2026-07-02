@@ -16,6 +16,8 @@ type SessionDetail struct {
 	// MaxOutputLines caps the number of lines printed per turn. 0 means
 	// no cap; negative values use the legacy single-line collapse.
 	MaxOutputLines int
+	// DeviceLabels maps device_id → friendly_name for the header line.
+	DeviceLabels map[string]string
 }
 
 func ShowSession(w io.Writer, d SessionDetail) error {
@@ -30,7 +32,7 @@ func ShowSession(w io.Writer, d SessionDetail) error {
 		StyleRail.Render("│"),
 		StyleProject.Render(projectLabel(s)),
 		StyleAgent.Render(agentLabel(s.Agent)),
-		StyleDevice.Render(s.DeviceID),
+		StyleDevice.Render(DeviceLabel(d.DeviceLabels, s.DeviceID)),
 	)
 
 	fields := []struct {
@@ -46,6 +48,15 @@ func ShowSession(w io.Writer, d SessionDetail) error {
 			label string
 			value string
 		}{"model", *s.Model})
+	}
+	if u := s.Usage; u != nil && u.TotalTokens > 0 {
+		fields = append(fields, struct {
+			label string
+			value string
+		}{"tokens", fmt.Sprintf(
+			"%s · input %s · output %s",
+			formatInt(u.TotalTokens), formatInt(u.InputTokens), formatInt(u.OutputTokens),
+		)})
 	}
 	if tools := topTools(d.Tools, 5); tools != "" {
 		fields = append(fields, struct {

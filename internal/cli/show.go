@@ -91,6 +91,7 @@ func runShow(cmd *cobra.Command, args []string) error {
 			Turns:          payload.Turns,
 			Width:          TerminalWidth(),
 			MaxOutputLines: showMaxOutputLines,
+			DeviceLabels:   localDeviceLabels(ctx),
 		})
 	default:
 		// Non-TTY without --json or --raw: stay pipeable (`prosa show <id> | jq`).
@@ -121,6 +122,23 @@ func selectShowOutputMode(jsonMode, raw, remote, interactive bool) showOutputMod
 	default:
 		return showModeLocalPipeRaw
 	}
+}
+
+// localDeviceLabels reads friendly device names from the local store
+// for rendering. Best effort: a missing or unreadable store just means
+// the raw fingerprint shows instead.
+func localDeviceLabels(ctx context.Context) map[string]string {
+	storePath, err := paths.StorePath()
+	if err != nil {
+		return nil
+	}
+	s, err := store.OpenReadOnly(ctx, storePath)
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = s.Close() }()
+	labels, _ := s.ListDevicesMap(ctx)
+	return labels
 }
 
 func loadShowLocal(ctx context.Context, id string) (showPayload, error) {
