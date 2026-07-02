@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"text/tabwriter"
 	"time"
 
 	"connectrpc.com/connect"
@@ -127,58 +126,39 @@ type devicesClient interface {
 	Revoke(ctx context.Context, req *connect.Request[prosav1.RevokeRequest]) (*connect.Response[prosav1.RevokeResponse], error)
 }
 
-var (
-	devHdrStyle = render.StyleHeader.Foreground(render.ColorMuted)
-	devCellRev  = render.StyleError
-	devCellOK   = render.StyleSuccess
-)
-
 func renderDeviceTable(w *os.File, devices []*prosav1.Device, interactive bool) error {
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	header := []string{"ID", "FRIENDLY", "HOSTNAME", "SESSIONS", "LAST SYNC", "STATE"}
-	if interactive {
-		styled := make([]string, len(header))
-		for i, h := range header {
-			styled[i] = devHdrStyle.Render(h)
-		}
-		fmt.Fprintln(tw, joinTabs(styled))
-	} else {
-		fmt.Fprintln(tw, joinTabs(header))
+	cols := []render.TableColumn{
+		{Header: "ID"},
+		{Header: "FRIENDLY"},
+		{Header: "HOSTNAME"},
+		{Header: "SESSIONS", Right: true},
+		{Header: "LAST SYNC"},
+		{Header: "STATE"},
 	}
+	rows := make([][]render.TableCell, 0, len(devices))
 	for _, d := range devices {
-		state := devCellOK.Render("active")
+		state := render.TableCell{Text: "active", Style: render.StyleSuccess}
 		if d.Revoked {
-			state = devCellRev.Render("revoked")
-		}
-		if !interactive {
-			if d.Revoked {
-				state = "revoked"
-			} else {
-				state = "active"
-			}
+			state = render.TableCell{Text: "revoked", Style: render.StyleError}
 		}
 		last := "-"
 		if d.LastSync != nil {
-			last = d.LastSync.AsTime().Local().Format(time.RFC3339)
+			if interactive {
+				last = d.LastSync.AsTime().Local().Format("2006-01-02 15:04")
+			} else {
+				last = d.LastSync.AsTime().Local().Format(time.RFC3339)
+			}
 		}
-		row := []string{
-			d.Id, d.FriendlyName, d.Hostname,
-			fmt.Sprintf("%d", d.Sessions), last, state,
-		}
-		fmt.Fprintln(tw, joinTabs(row))
+		rows = append(rows, []render.TableCell{
+			render.Cell(d.Id),
+			render.Cell(d.FriendlyName),
+			render.Cell(d.Hostname),
+			{Text: fmt.Sprintf("%d", d.Sessions), Style: render.StyleAccent},
+			{Text: last, Style: render.StyleMuted},
+			state,
+		})
 	}
-	return tw.Flush()
-}
-
-func joinTabs(parts []string) string {
-	out := ""
-	for i, p := range parts {
-		if i > 0 {
-			out += "\t"
-		}
-		out += p
-	}
-	return out
+	return render.Table(w, cols, rows, interactive)
 }
 
 func deviceJSON(d *prosav1.Device) map[string]any {
