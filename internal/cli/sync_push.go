@@ -290,11 +290,7 @@ func isRemoteUnavailable(err error) bool {
 		return true
 	}
 	var netErr net.Error
-	if errors.As(err, &netErr) {
-		return true
-	}
-	var opErr *net.OpError
-	return errors.As(err, &opErr)
+	return errors.As(err, &netErr)
 }
 
 func (p *pusher) markRemoteUnavailable() {

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/stretchr/testify/require"
 
 	"github.com/c3-oss/prosa/pkg/session"
@@ -155,4 +156,35 @@ func TestTimelineItemsShowsFullProjectWhenSpaceAllows(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, b.String(), "mz-codes/mz-operator-1",
 		"project label must not be truncated when the row fits")
+}
+
+func TestTimelineRowKeepsQuotesLiteralWithinWidth(t *testing.T) {
+	now := time.Date(2026, 5, 30, 12, 0, 0, 0, time.Local)
+	prompt := `the client "prospera" cancelled the contract and we need a full audit of everything`
+	item := TimelineItem{
+		Session: session.Session{
+			ID:             "s1",
+			Agent:          "claude-code",
+			DeviceID:       "laptop",
+			ProjectPath:    strp("/work/mova"),
+			StartedAt:      now.Add(-10 * time.Minute),
+			LastActivityAt: now.Add(-5 * time.Minute),
+			FirstPrompt:    &prompt,
+		},
+	}
+	var b bytes.Buffer
+	err := TimelineItems(&b, []TimelineItem{item}, now, TimelineOptions{
+		Interactive: true,
+		Width:       80,
+		Layout:      TimelineGlobal,
+		Slots:       RowSlots{Device: true, Project: true},
+	})
+	require.NoError(t, err)
+	out := b.String()
+
+	require.Contains(t, out, `"prospera"`, "embedded quotes must render literally")
+	require.NotContains(t, out, `\"`, "prompt must not be Go-escaped")
+	for _, line := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
+		require.LessOrEqual(t, lipgloss.Width(line), 80, "row exceeds width: %q", line)
+	}
 }

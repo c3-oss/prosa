@@ -139,8 +139,11 @@ func renderSessionTTY(w io.Writer, item TimelineItem, now time.Time, opts Timeli
 		// not user content.
 		fmt.Fprintf(w, "%s%s\n", prefixStyled, StyleMuted.Render(MetaPlaceholder))
 	} else {
+		// Literal quotes, not %q: the content is already normalized to
+		// printable runes, and escaping would inflate the row past the
+		// width the truncation just computed.
 		first = truncateWidth(first, promptWidth)
-		fmt.Fprintf(w, "%s%q\n", prefixStyled, first)
+		fmt.Fprintf(w, "%s\"%s\"\n", prefixStyled, first)
 	}
 
 	fmt.Fprintf(

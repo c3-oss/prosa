@@ -5,6 +5,7 @@ import (
 	"io"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/charmbracelet/lipgloss"
@@ -102,7 +103,7 @@ func SearchHitsWithOptions(w io.Writer, hits []store.SearchHit, now time.Time, o
 			switch {
 			case first != "":
 				fmt.Fprintf(
-					w, "%s   %s %q\n",
+					w, "%s   %s \"%s\"\n",
 					StyleRail.Render("│"),
 					StyleMuted.Render(padRight("session", searchLabelWidth)),
 					first,
@@ -268,8 +269,16 @@ func flattenSnippet(s string) string {
 	return normalizeDisplayText(s)
 }
 
+// normalizeDisplayText flattens whitespace runs to single spaces and
+// drops non-printable runes so row content can render inside literal
+// quotes without escaping.
 func normalizeDisplayText(s string) string {
-	return strings.Join(strings.Fields(s), " ")
+	return strings.Map(func(r rune) rune {
+		if unicode.IsPrint(r) {
+			return r
+		}
+		return -1
+	}, strings.Join(strings.Fields(s), " "))
 }
 
 func searchTimeLabel(t, now time.Time) string {

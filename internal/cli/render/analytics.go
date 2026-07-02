@@ -88,20 +88,27 @@ func formatNumericText(s string) string {
 func displayProject(s string) string {
 	s = strings.TrimSpace(s)
 	if strings.HasPrefix(s, "/") {
-		if home, err := os.UserHomeDir(); err == nil && home != "" {
-			if s == home {
-				return "~"
-			}
-			if strings.HasPrefix(s, home+"/") {
-				return "~" + s[len(home):]
-			}
-		}
-		return s
+		return AbbreviateHome(s)
 	}
 	if n := NormalizeRemote(s); n != "" {
 		return n
 	}
 	return s
+}
+
+// AbbreviateHome rewrites an absolute path under $HOME to the ~ form.
+func AbbreviateHome(p string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return p
+	}
+	if p == home {
+		return "~"
+	}
+	if strings.HasPrefix(p, home+"/") {
+		return "~" + p[len(home):]
+	}
+	return p
 }
 
 // displayTimestamp renders an RFC3339 instant as local wall-clock
