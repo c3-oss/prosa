@@ -200,7 +200,8 @@ component.
 4. **Analytics: models donut** with 3–4 models and a compact legend.
 5. **Analytics: heatmap** calendar 30 d × 24 h in a single-color scale.
 6. **Sidepanel open** with the masthead + five-up stats cluster +
-   metadata + iMessage-style chat transcript + paginated raw transcript.
+   metadata + iMessage-style chat transcript (windowed, newest turns
+   first on screen) + paginated raw transcript.
 7. **Filter pills** active and inactive, with hover state.
 8. **Command palette** open with an input, 5 recent-session suggestions,
    3 report shortcuts.
