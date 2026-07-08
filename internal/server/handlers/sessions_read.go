@@ -45,7 +45,12 @@ func (h *SessionsHandler) Get(ctx context.Context, req *connect.Request[prosav1.
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 
-	turns, err := selectTurns(ctx, h.Pool, req.Msg.Id)
+	totalTurns, messageTurns, err := selectTurnCounts(ctx, h.Pool, req.Msg.Id)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	window := turnWindow{limit: req.Msg.TurnLimit, offset: req.Msg.TurnOffset, tail: req.Msg.TurnTail, total: totalTurns}
+	turns, err := selectTurns(ctx, h.Pool, req.Msg.Id, window)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
@@ -53,7 +58,13 @@ func (h *SessionsHandler) Get(ctx context.Context, req *connect.Request[prosav1.
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	return connect.NewResponse(&prosav1.GetResponse{Session: s, Turns: turns, Tools: tools}), nil
+	return connect.NewResponse(&prosav1.GetResponse{
+		Session:      s,
+		Turns:        turns,
+		Tools:        tools,
+		TotalTurns:   totalTurns,
+		MessageTurns: messageTurns,
+	}), nil
 }
 
 func (h *SessionsHandler) Manifest(ctx context.Context, req *connect.Request[prosav1.ManifestRequest]) (*connect.Response[prosav1.ManifestResponse], error) {
@@ -203,12 +214,56 @@ func attachSessionKinds(ctx context.Context, pool *pgxpool.Pool, sessions []*pro
 	return nil
 }
 
-func selectTurns(ctx context.Context, pool *pgxpool.Pool, sessionID string) ([]*prosav1.Turn, error) {
-	rows, err := pool.Query(
+// turnWindow describes which slice of a session's chronological turn
+// stream to return. A non-positive limit means "everything". tail
+// anchors the window at the end of the stream; total (the session's
+// full turn count) is what tail resolves against.
+type turnWindow struct {
+	limit  int32
+	offset int64
+	tail   bool
+	total  int64
+}
+
+// resolve returns the effective (offset, limit) pair, or all=true when
+// the window spans the whole stream.
+func (w turnWindow) resolve() (offset, limit int64, all bool) {
+	if w.limit <= 0 {
+		return 0, 0, true
+	}
+	limit = int64(w.limit)
+	if w.tail {
+		offset = w.total - limit
+	} else {
+		offset = w.offset
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	return offset, limit, false
+}
+
+// selectTurnCounts returns the session's full turn count alongside the
+// conversational subset (kind not in tool_result/operational — the
+// panel's "turns" KPI definition).
+func selectTurnCounts(ctx context.Context, pool *pgxpool.Pool, sessionID string) (total, messages int64, err error) {
+	err = pool.QueryRow(
 		ctx,
-		`SELECT role, content, ts, kind, tool_name FROM turns WHERE session_id = $1 ORDER BY ts ASC, id ASC`,
+		`SELECT COUNT(*), COUNT(*) FILTER (WHERE kind NOT IN ('tool_result', 'operational'))
+		 FROM turns WHERE session_id = $1`,
 		sessionID,
-	)
+	).Scan(&total, &messages)
+	return total, messages, err
+}
+
+func selectTurns(ctx context.Context, pool *pgxpool.Pool, sessionID string, window turnWindow) ([]*prosav1.Turn, error) {
+	q := `SELECT role, content, ts, kind, tool_name FROM turns WHERE session_id = $1 ORDER BY ts ASC, id ASC`
+	args := []any{sessionID}
+	if offset, limit, all := window.resolve(); !all {
+		q += ` OFFSET $2 LIMIT $3`
+		args = append(args, offset, limit)
+	}
+	rows, err := pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
