@@ -2,6 +2,7 @@ package panel
 
 import (
 	"bytes"
+	"html/template"
 	"net/url"
 	"strconv"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	prosav1 "github.com/c3-oss/prosa/gen/go/prosa/v1"
+	"github.com/c3-oss/prosa/internal/panel/render"
 )
 
 func TestIsBinaryChunkDetectsSQLiteMagic(t *testing.T) {
@@ -78,7 +80,7 @@ func TestBinaryPlaceholderMentionsSize(t *testing.T) {
 func TestLoadViewsParsesAllTemplates(t *testing.T) {
 	views, err := loadViews()
 	require.NoError(t, err)
-	for _, name := range []string{"home", "insights", "sessions", "projects", "profiles", "settings", "devices", "login", "cli_authorize", "side_panel", "raw_chunk"} {
+	for _, name := range []string{"home", "insights", "sessions", "projects", "profiles", "settings", "devices", "login", "cli_authorize", "side_panel", "raw_chunk", "transcript_page"} {
 		require.Contains(t, views, name, "view %q should be parsed", name)
 	}
 }
@@ -92,6 +94,36 @@ func TestLoadViewsSharesCommonPartials(t *testing.T) {
 		require.NotNil(t, views[name].Lookup("icon-github"), "view %q should include shared icons", name)
 		require.NotNil(t, views[name].Lookup("side_panel_body"), "view %q should include side-panel partials", name)
 	}
+}
+
+// TestTranscriptPageRendersOlderAnchor covers the transcript paging
+// partial: bubbles render without per-message Alpine state, and the
+// "load earlier turns" anchor points at the preceding window.
+func TestTranscriptPageRendersOlderAnchor(t *testing.T) {
+	views, err := loadViews()
+	require.NoError(t, err)
+
+	data := transcriptPageData{
+		TurnGroups: render.GroupTurns([]render.Turn{
+			{Role: "user", Body: template.HTML("<p>hi</p>")},
+			{Role: "assistant", Body: template.HTML("<p>hello</p>")},
+		}),
+		OlderURL:   "/sessions/abc/turns?before=200",
+		OlderCount: 200,
+	}
+	var out bytes.Buffer
+	require.NoError(t, views["transcript_page"].ExecuteTemplate(&out, "transcript_page", data))
+	html := out.String()
+	require.Contains(t, html, `hx-get="/sessions/abc/turns?before=200"`)
+	require.Contains(t, html, "200 more")
+	require.Contains(t, html, `class="bubble bubble-user"`)
+	require.NotContains(t, html, "x-data")
+
+	// Without an OlderURL (window reached turn 0) the anchor is gone.
+	out.Reset()
+	data.OlderURL = ""
+	require.NoError(t, views["transcript_page"].ExecuteTemplate(&out, "transcript_page", data))
+	require.NotContains(t, out.String(), "transcript-older")
 }
 
 func TestProfilesTemplateRendersRows(t *testing.T) {

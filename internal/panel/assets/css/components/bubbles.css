@@ -84,6 +84,11 @@
   opacity: 1;
 }
 
+.bubble.is-collapsed .bubble-body,
+.bubble.is-collapsed .user-extras {
+  display: none;
+}
+
 .bubble-role {
   font-variant: small-caps;
   font-weight: var(--w-medium);

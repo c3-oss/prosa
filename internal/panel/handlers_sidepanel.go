@@ -19,10 +19,21 @@ import (
 	"github.com/c3-oss/prosa/internal/sessiontext"
 )
 
+// turnPageSize bounds how many turns the side panel renders per page.
+// The transcript opens on the tail (most recent window) and pages
+// backwards via the "load earlier turns" HTMX anchor, so a session
+// with hundreds of thousands of turns never lands in the DOM at once.
+const turnPageSize = 200
+
 // handleSessionDetail handles HTMX swap requests like
-// GET /sessions/<id> → partial fragment that fills #side-panel.
+// GET /sessions/<id> → partial fragment that fills #side-panel, and
+// GET /sessions/<id>/turns?before=N → an earlier transcript page.
 func (p *Panel) handleSessionDetail(w http.ResponseWriter, r *http.Request) {
 	sid := strings.TrimPrefix(r.URL.Path, "/sessions/")
+	if rest, ok := strings.CutSuffix(sid, "/turns"); ok {
+		p.handleTranscriptPage(w, r, rest)
+		return
+	}
 	if sid == "" {
 		http.NotFound(w, r)
 		return
@@ -36,6 +47,52 @@ func (p *Panel) handleSessionDetail(w http.ResponseWriter, r *http.Request) {
 	p.render(w, r, "side_panel", map[string]any{
 		"SidePanel": sp,
 	})
+}
+
+// transcriptPageData feeds the transcript_page partial: one page of
+// turn groups plus the (possibly absent) anchor to the page before it.
+// Field names match sidePanelData so the shared turn-group templates
+// bind against either.
+type transcriptPageData struct {
+	TurnGroups []render.TurnGroup
+	OlderURL   string
+	OlderCount int64
+}
+
+// handleTranscriptPage serves GET /sessions/<id>/turns?before=N — the
+// window of up to turnPageSize turns immediately preceding chronological
+// index N. HTMX swaps the fragment in place of the "load earlier turns"
+// anchor, so older pages stack above the already-rendered transcript.
+func (p *Panel) handleTranscriptPage(w http.ResponseWriter, r *http.Request, sid string) {
+	if sid == "" {
+		http.NotFound(w, r)
+		return
+	}
+	before, err := strconv.ParseInt(r.URL.Query().Get("before"), 10, 64)
+	if err != nil || before <= 0 {
+		http.Error(w, "invalid before offset", http.StatusBadRequest)
+		return
+	}
+	offset := max(before-turnPageSize, 0)
+	getResp, err := p.clients.Sessions.Get(r.Context(), connect.NewRequest(&prosav1.GetRequest{
+		Id:         sid,
+		TurnLimit:  int32(before - offset),
+		TurnOffset: offset,
+	}))
+	if err != nil {
+		slog.Warn("transcript page load failed", "id", sid, "err", err)
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	turns := buildDisplayTurns(getResp.Msg.Turns)
+	data := transcriptPageData{
+		TurnGroups: render.GroupTurns(turns),
+		OlderCount: offset,
+	}
+	if offset > 0 {
+		data.OlderURL = fmt.Sprintf("/sessions/%s/turns?before=%d", sid, offset)
+	}
+	p.render(w, r, "transcript_page", data)
 }
 
 // handleRawChunk paginates the raw transcript. URL:
@@ -106,6 +163,13 @@ type sidePanelData struct {
 	Total           int64
 	Progress        int64
 
+	// Transcript windowing: the panel renders only the last
+	// turnPageSize turns up front. OlderURL (when non-empty) is the
+	// HTMX endpoint for the page of turns preceding the rendered
+	// window; OlderCount is how many turns that leaves unloaded.
+	OlderURL   string
+	OlderCount int64
+
 	// Sibling navigation, populated only when this session is a subagent
 	// (it has a parent). The detail panel renders a pager that steps
 	// through the parent's children and a link back to the parent.
@@ -118,7 +182,11 @@ type sidePanelData struct {
 }
 
 func (p *Panel) loadSidePanel(ctx context.Context, id string) (sidePanelData, error) {
-	getResp, err := p.clients.Sessions.Get(ctx, connect.NewRequest(&prosav1.GetRequest{Id: id}))
+	getResp, err := p.clients.Sessions.Get(ctx, connect.NewRequest(&prosav1.GetRequest{
+		Id:        id,
+		TurnLimit: turnPageSize,
+		TurnTail:  true,
+	}))
 	if err != nil {
 		return sidePanelData{}, err
 	}
@@ -181,6 +249,20 @@ func (p *Panel) loadSidePanel(ctx context.Context, id string) (sidePanelData, er
 	if cost, ok := pricing.CostUSD(sess.GetModel(), usage, sessionStartedAt(sess)); ok {
 		costLabel = formatUSD(cost)
 	}
+	// The "turns" KPI counts the whole session, not just the rendered
+	// window. A server that predates turn windowing reports zero counts
+	// (and returns every turn), so fall back to counting locally.
+	turnsCount := int(getResp.Msg.MessageTurns)
+	if getResp.Msg.TotalTurns == 0 {
+		turnsCount = countMessageDisplayTurns(turns)
+	}
+	// windowStart is the chronological index of the first rendered
+	// turn; anything before it stays server-side until the reader asks.
+	windowStart := getResp.Msg.TotalTurns - int64(len(getResp.Msg.Turns))
+	olderURL := ""
+	if windowStart > 0 {
+		olderURL = fmt.Sprintf("/sessions/%s/turns?before=%d", id, windowStart)
+	}
 	sp := sidePanelData{
 		Session:         sess,
 		Kinds:           sess.GetKinds(),
@@ -194,9 +276,11 @@ func (p *Panel) loadSidePanel(ctx context.Context, id string) (sidePanelData, er
 		TurnGroups:      render.GroupTurns(turns),
 		Tools:           getResp.Msg.Tools,
 		Children:        children,
-		TurnsCount:      countMessageDisplayTurns(turns),
+		TurnsCount:      turnsCount,
 		ToolsCount:      sumToolCounts(getResp.Msg.Tools),
 		DurationLabel:   sessionDurationLabel(sess),
+		OlderURL:        olderURL,
+		OlderCount:      windowStart,
 		ParentId:        parentID,
 		SiblingIndex:    sibIndex,
 		SiblingCount:    sibCount,

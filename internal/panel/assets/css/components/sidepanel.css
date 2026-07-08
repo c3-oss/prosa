@@ -276,6 +276,29 @@
   border-color: var(--accent-soft);
 }
 
+/* "Load earlier turns" anchor — the transcript opens on its tail and
+   this pulls the preceding page in place via HTMX. */
+.transcript-older {
+  align-self: stretch;
+  display: block;
+  text-align: center;
+  padding: var(--space-2) 0;
+  border: 1px dashed var(--divider);
+  border-radius: var(--radius-sm);
+  color: var(--text-2);
+  font-size: var(--text-xs);
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: color var(--duration-fast) var(--ease),
+              border-color var(--duration-fast) var(--ease);
+}
+
+.transcript-older:hover {
+  color: var(--text-1);
+  border-color: var(--text-3);
+}
+
 /* Transcript search ------------------------------------------------- */
 
 .transcript-search {
