@@ -227,12 +227,31 @@ message ListResponse {
 
 message GetRequest {
   string id = 1;
+  // turn_limit bounds how many turns come back. 0 (or negative) means
+  // "all turns" — the pre-windowing behavior, kept for compatibility.
+  int32 turn_limit = 2;
+  // turn_offset is the 0-based offset into the session's turns in
+  // chronological (ts ASC, id ASC) order. Clamped to >= 0. Only
+  // meaningful when turn_limit > 0 and turn_tail is false.
+  int64 turn_offset = 3;
+  // turn_tail selects the LAST turn_limit turns instead of an
+  // offset-anchored window. The panel opens huge sessions on the tail
+  // and pages backwards from there. Ignored when turn_limit <= 0.
+  bool turn_tail = 4;
 }
 
 message GetResponse {
   Session session = 1;
   repeated Turn turns = 2;
   repeated ToolUsage tools = 3;
+  // total_turns is the session's full turn count, ignoring any window.
+  // Lets clients place a returned window ("turns 4800–5000 of 5000")
+  // and decide whether older pages exist.
+  int64 total_turns = 4;
+  // message_turns counts only conversational turns (kind not in
+  // tool_result/operational), ignoring any window. Feeds the panel's
+  // "turns" KPI so it stays exact even when turns are windowed.
+  int64 message_turns = 5;
 }
 
 message SearchRequest {

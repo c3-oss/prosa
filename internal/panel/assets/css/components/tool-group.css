@@ -1,7 +1,8 @@
 /* Coalesced run of consecutive tool_result turns. One summary header
-   (Alpine-toggled) plus a list of expandable per-tool entries
-   inside. F3 renders this in place of the per-tool .bubble-tool
-   blocks from F2 when ≥1 tool sit next to each other in the stream. */
+   (toggled by transcript.js via [hidden]) plus a list of expandable
+   per-tool entries inside. F3 renders this in place of the per-tool
+   .bubble-tool blocks from F2 when ≥1 tool sit next to each other in
+   the stream. */
 
 .tool-group {
   align-self: stretch;
@@ -58,6 +59,10 @@
   font-variant-numeric: tabular-nums;
 }
 
+.tool-group-entries[hidden] {
+  display: none;
+}
+
 .tool-group-entries {
   display: flex;
   flex-direction: column;
@@ -67,9 +72,8 @@
   margin-top: 0;
 }
 
-/* Individual tool entry — native <details>/<summary>. Alpine handles
-   the outer group; native disclosure is enough per-entry and saves
-   us from threading nested x-data scopes. */
+/* Individual tool entry — native <details>/<summary>. transcript.js
+   toggles the outer group; native disclosure is enough per-entry. */
 
 .tool-entry {
   background: var(--bg);

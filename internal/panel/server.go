@@ -72,6 +72,7 @@ func loadViews() (map[string]*template.Template, error) {
 		{"cli_authorize", "cli_authorize.html"},
 		{"side_panel", ""},
 		{"raw_chunk", "raw_chunk.html"},
+		{"transcript_page", "transcript_page.html"},
 	}
 	shared, err := template.New("").Funcs(templateFuncs()).ParseFS(
 		templates.FS,
@@ -225,7 +226,7 @@ func (p *Panel) render(w http.ResponseWriter, r *http.Request, name string, data
 	// own top-level define directly.
 	root := "base"
 	switch name {
-	case "login", "cli_authorize", "side_panel", "raw_chunk":
+	case "login", "cli_authorize", "side_panel", "raw_chunk", "transcript_page":
 		root = name
 	}
 	// Full-page (base layout) renders resolve the owner's theme so

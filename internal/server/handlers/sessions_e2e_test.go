@@ -144,6 +144,29 @@ func TestSessionsConnectEndToEnd(t *testing.T) {
 	require.Equal(t, "shell", getResp.Msg.Turns[2].ToolName)
 	require.Len(t, getResp.Msg.Tools, 1)
 	require.Equal(t, "shell", getResp.Msg.Tools[0].Name)
+	require.Equal(t, int64(3), getResp.Msg.TotalTurns)
+	require.Equal(t, int64(2), getResp.Msg.MessageTurns)
+
+	// turn_tail returns the LAST turn_limit turns; counts still cover
+	// the whole session.
+	tailReq := connect.NewRequest(&prosav1.GetRequest{Id: sessionID, TurnLimit: 2, TurnTail: true})
+	tailReq.Header().Set("Authorization", "Bearer "+bearer)
+	tailResp, err := client.Get(ctx, tailReq)
+	require.NoError(t, err)
+	require.Len(t, tailResp.Msg.Turns, 2)
+	require.Equal(t, "assistant", tailResp.Msg.Turns[0].Role)
+	require.Equal(t, "tool", tailResp.Msg.Turns[1].Role)
+	require.Equal(t, int64(3), tailResp.Msg.TotalTurns)
+	require.Equal(t, int64(2), tailResp.Msg.MessageTurns)
+
+	// turn_offset + turn_limit is an offset-anchored window in
+	// chronological order.
+	windowReq := connect.NewRequest(&prosav1.GetRequest{Id: sessionID, TurnLimit: 1, TurnOffset: 1})
+	windowReq.Header().Set("Authorization", "Bearer "+bearer)
+	windowResp, err := client.Get(ctx, windowReq)
+	require.NoError(t, err)
+	require.Len(t, windowResp.Msg.Turns, 1)
+	require.Equal(t, "assistant", windowResp.Msg.Turns[0].Role)
 
 	listReq := connect.NewRequest(&prosav1.ListRequest{
 		Since: timestamppb.New(started.Add(-time.Hour)),

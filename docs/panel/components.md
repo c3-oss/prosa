@@ -728,7 +728,9 @@ on the left, each side one voice. Bubbles cap at 82% width.
   for the message — a caret that rotates on open, a small-caps role
   label, the tool name in mono `--accent` when the role is `tool`, and
   the timestamp in mono on the trailing edge. A click anywhere on the
-  row folds the bubble.
+  row folds the bubble — a delegated `transcript.js` listener toggling
+  `.is-collapsed`, shared by every bubble (no per-message component or
+  listener), which is what keeps 100k-turn sessions scrollable.
 
 Body content is pre-rendered server-side as `template.HTML` by
 `internal/panel/render`: `render.Markdown(s)` for assistant,
@@ -748,7 +750,7 @@ collapsible block instead of N separate `.bubble-tool` cards.
 
 ```
 ┌─ ▸ Read ×3 · Bash ×1 · WebSearch ×1            5 calls ──┐
-│   (collapsed by default; Alpine toggle on the header)    │
+│   (collapsed by default; header toggled by transcript.js)│
 └──────────────────────────────────────────────────────────┘
 
 when open:
@@ -762,18 +764,19 @@ when open:
 └──────────────────────────────────────────────────────────┘
 ```
 
-- **Outer toggle** uses Alpine `x-data="{open:false}"` +
-  `x-collapse` so opening animates the entries in smoothly. Header
-  is a `<button>` with `aria-expanded` bound to `open`, so the
-  control is accessible to screen readers and keyboard.
+- **Outer toggle** is a delegated click listener in
+  `assets/transcript.js` flipping `[hidden]` on the entries and
+  `aria-expanded` on the header `<button>` — one listener for the
+  whole document, no per-group component, so transcripts with
+  thousands of groups stay responsive.
 - **Summary** is built server-side by `render.GroupTurns` —
   `"Read ×3 · Bash ×1"`. Order is invocation count descending, then
   name ascending. Empty `ToolName` falls into a generic `tool`
   bucket so nothing disappears.
 - **Count** chip (`Ncall(s)`) on the right reflects the total
   invocations in the run.
-- **Entries** are native `<details>` per tool result. The Alpine
-  scope only wraps the outer block; native disclosure handles each
+- **Entries** are native `<details>` per tool result. The delegated
+  toggle only handles the outer block; native disclosure handles each
   entry independently. Each entry's body is the truncated tool
   output (server already capped at ~4 KB / 40 lines in the
   importer), monospace, `max-height: 400px` with internal scroll.
@@ -833,9 +836,9 @@ the panel collapses consecutive ones into a single discreet card.
 - **Visual** uses dashed `--divider` rules above and below, italic
   summary in `--text-3` — the block reads as "context, not content"
   so the eye skips it on first scan.
-- **Toggle** is Alpine `x-data="{open:false}"` + `x-collapse` so
-  opening animates the entries in. Header is a `<button>` with
-  `aria-expanded` for accessibility.
+- **Toggle** is the same delegated `transcript.js` listener as the
+  tool group — `[hidden]` on the entries, `aria-expanded` on the
+  header `<button>`.
 - **Body** of each step is shown as italic prose with a left rule,
   monospace-free — reasoning reads as continuous thought, not as
   log output.

@@ -50,6 +50,10 @@
   flex: 1;
 }
 
+.thinking-entries[hidden] {
+  display: none;
+}
+
 .thinking-entries {
   display: flex;
   flex-direction: column;

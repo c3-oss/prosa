@@ -23,7 +23,9 @@ code; it inspects diffs and reports.
    routing. Targets and triggers are scoped to the smallest block that
    needs to change.
 3. Alpine.js usage is local UI state only (toggle, modal, hover, command
-   palette). No data fetching, no cross-component store.
+   palette). No data fetching, no cross-component store, and no Alpine
+   on repeated-per-turn transcript elements — those use delegated
+   vanilla JS in `assets/transcript.js`.
 4. Charts are built as a `charts.Spec` in `internal/panel/charts/` and
    rendered client-side by Frappe Charts (`assets/charts-init.js`) from a
    JSON island; no second chart library is added. Series colors come from

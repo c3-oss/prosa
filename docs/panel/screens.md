@@ -654,6 +654,7 @@ URL. Slide-in 180 ms from the right.
 |                                  |
 | Transcript    33 turns · 156     |
 |  [search…]          [Collapse all]
+|  [↑ load earlier turns (N more)] |
 |  (chat bubbles)                  |
 |                                  |
 | raw transcript                   |
@@ -693,8 +694,16 @@ URL. Slide-in 180 ms from the right.
   `N turns · M tools` count and a "Collapse all" / "Expand all" toggle
   that folds every message at once.
 - Transcript search (`.transcript-search`): an in-panel box that
-  highlights matches across the transcript with a match counter and
-  prev/next navigation.
+  highlights matches across the loaded transcript with a match counter
+  and prev/next navigation.
+- Transcript windowing: the panel renders the **last 200 turns**
+  (`turnPageSize`) and opens on the tail of the conversation. When the
+  session has more, a "↑ load earlier turns (N more)" anchor
+  (`.transcript-older`) at the top of the transcript HTMX-swaps in the
+  preceding 200-turn page (`GET /sessions/<id>/turns?before=N`),
+  stacking older pages above what's on screen until turn 0 is reached.
+  The stats-cluster "turns" KPI counts the whole session regardless of
+  the window (server-side `message_turns`).
 - Transcript: an iMessage-style chat, bubbles capped at 82% width.
   **Your** turns align right as a tinted "me" bubble (a `color-mix` of
   the accent over `--bg-elev-1`), `<br>`-preserving escaped plain text;
@@ -714,7 +723,11 @@ URL. Slide-in 180 ms from the right.
   a discreet "Processed" card. The whole meta row (caret + role +
   timestamp) is the collapse toggle for each message. Between turn
   groups with a gap ≥ `render.DividerThreshold` (30 s), a `time-divider`
-  shows "Worked for 2m 14s".
+  shows "Worked for 2m 14s". All collapse/expand state (per-bubble,
+  tool/thinking groups, "Collapse all") is plain classes + `[hidden]`
+  driven by delegated listeners in `transcript.js` — a constant number
+  of listeners regardless of transcript length, so huge sessions stay
+  responsive.
 - Raw transcript in `<pre class="raw">` at font-mono 11 px, white-space
   pre-wrap, kept as the verbatim source-of-truth panel; "load more" is
   an HTMX link with `hx-swap="beforeend"`.

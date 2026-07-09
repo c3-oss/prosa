@@ -12,10 +12,14 @@ client-side behavior.
 
 - **Go + `html/template` + `embed.FS`** — server-rendered, single binary,
   no build step.
-- **HTMX** — partial swaps for the sidepanel and raw transcript
-  pagination today; chart filter swaps as the panel grows.
+- **HTMX** — partial swaps for the sidepanel, transcript paging
+  (`/sessions/<id>/turns`), and raw transcript pagination today; chart
+  filter swaps as the panel grows.
 - **Alpine.js (~15 KB)** — local UI state only: toggles, modals, hover,
-  filter pill open/close, command palette. Not for data fetching.
+  filter pill open/close, command palette. Not for data fetching, and
+  never per-repeated-element: anything that exists once per transcript
+  turn (bubble collapse, tool/thinking group toggles) is delegated
+  vanilla JS in `assets/transcript.js`, one listener for the document.
 - **Charts via Frappe Charts** (vendored ~19 KB SVG library). The server
   builds a `charts.Spec` in `internal/panel/charts/` and emits it as a
   JSON island; `assets/charts-init.js` renders it client-side with the

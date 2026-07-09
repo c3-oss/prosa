@@ -1,7 +1,7 @@
 {{define "side_panel"}}{{template "side_panel_body" .SidePanel}}{{end}}
 
 {{define "side_panel_body"}}
-<article class="sp" x-data="{ allCollapsed: false }">
+<article class="sp">
   <header class="sp-header">
     <div class="sp-agent">{{agentBadge .Session.Agent}}{{template "kindBadges" .Kinds}}</div>
     <button class="sp-close" type="button"
@@ -97,10 +97,8 @@
       {{if .TurnGroups}}
         <span class="sp-transcript-count">{{.TurnsCount}} turns · {{.ToolsCount}} tools</span>
         <button class="sp-collapse-all" type="button"
-                @click="allCollapsed = !allCollapsed; $dispatch('messages-toggle-all', { collapsed: allCollapsed })"
-                :aria-pressed="allCollapsed.toString()"
-                :title="allCollapsed ? 'Expand all messages' : 'Collapse all messages'"
-                x-text="allCollapsed ? 'Expand all' : 'Collapse all'">Collapse all</button>
+                aria-pressed="false"
+                title="Collapse all messages">Collapse all</button>
       {{end}}
     </div>
 
@@ -219,18 +217,52 @@
 
     {{if .TurnGroups}}
       <section class="transcript" aria-label="session transcript">
-        {{range .TurnGroups}}
+        {{template "transcript_older" .}}
+        {{template "turn_groups" .TurnGroups}}
+      </section>
+    {{else}}
+      <p class="empty">no transcript available</p>
+    {{end}}
+
+    <details class="raw-toggle">
+      <summary>View raw transcript</summary>
+      <div id="raw-stream">
+        <pre class="raw">{{.Chunk}}</pre>
+        {{if not .EOF}}
+          <a class="raw-more" hx-get="{{.NextURL}}" hx-target="#raw-stream" hx-swap="beforeend">
+            load more ({{.Progress}} / {{.Total}})
+          </a>
+        {{end}}
+      </div>
+    </details>
+  </div>
+</article>
+{{end}}
+
+{{/* transcript_older is the HTMX anchor that pulls the page of turns
+     preceding the rendered window. Swapped outerHTML: the response
+     (an earlier page + its own anchor) replaces it in place, so older
+     turns stack above the transcript that's already on screen. */}}
+{{define "transcript_older"}}
+{{if .OlderURL}}
+  <a class="transcript-older" role="button"
+     hx-get="{{.OlderURL}}" hx-target="this" hx-swap="outerHTML">
+    ↑ load earlier turns ({{.OlderCount}} more)
+  </a>
+{{end}}
+{{end}}
+
+{{/* turn_groups renders a []render.TurnGroup as transcript blocks.
+     Collapse/expand state is plain classes + [hidden], driven by the
+     delegated listeners in transcript.js — no per-message component. */}}
+{{define "turn_groups"}}
+        {{range .}}
           {{if eq .Kind "single"}}
             {{with .Turn}}
-              <article class="bubble bubble-{{.Role}}{{if eq .Kind "tool_result"}} bubble-tool{{end}}"
-                       x-data="{ collapsed: false }"
-                       @messages-toggle-all.window="collapsed = $event.detail.collapsed"
-                       :class="{ 'is-collapsed': collapsed }">
+              <article class="bubble bubble-{{.Role}}{{if eq .Kind "tool_result"}} bubble-tool{{end}}">
                 <button type="button" class="bubble-meta"
-                        @click="collapsed = !collapsed"
-                        :aria-expanded="(!collapsed).toString()"
-                        :aria-label="collapsed ? 'Expand message' : 'Collapse message'">
-                  <span class="bubble-caret" :class="{ 'is-open': !collapsed }" aria-hidden="true">▸</span>
+                        aria-expanded="true" aria-label="Collapse message">
+                  <span class="bubble-caret is-open" aria-hidden="true">▸</span>
                   <span class="bubble-role">{{.Role}}</span>
                   {{if eq .Kind "tool_result"}}<span class="bubble-tool-name">{{.ToolName}}</span>{{end}}
                   {{if and (eq .Role "user") .UserExtras .UserExtras.Command}}
@@ -238,9 +270,9 @@
                   {{end}}
                   {{if not .Ts.IsZero}}<time class="bubble-time">{{.Ts.Format "15:04:05"}}</time>{{end}}
                 </button>
-                {{if .Body}}<div class="bubble-body" x-show="!collapsed">{{.Body}}</div>{{end}}
+                {{if .Body}}<div class="bubble-body">{{.Body}}</div>{{end}}
                 {{if and (eq .Role "user") .UserExtras .UserExtras.HasDetails}}
-                  <div class="user-extras" x-show="!collapsed">
+                  <div class="user-extras">
                     {{if .UserExtras.Reminders}}
                       <details class="extra-details">
                         <summary>{{len .UserExtras.Reminders}} system reminder{{if ne (len .UserExtras.Reminders) 1}}s{{end}}</summary>
@@ -306,16 +338,13 @@
               </article>
             {{end}}
           {{else if eq .Kind "tool-group"}}
-            <div class="tool-group" x-data="{ open: false }"
-                 @transcript-expand-groups.window="open = true">
-              <button type="button" class="tool-group-summary"
-                      :aria-expanded="open ? 'true' : 'false'"
-                      @click="open = !open">
-                <span class="tool-group-caret" :class="{ 'is-open': open }" aria-hidden="true">▸</span>
+            <div class="tool-group">
+              <button type="button" class="tool-group-summary" aria-expanded="false">
+                <span class="tool-group-caret" aria-hidden="true">▸</span>
                 <span class="tool-group-label">{{.Summary}}</span>
                 <span class="tool-group-count">{{len .Tools}} call{{if ne (len .Tools) 1}}s{{end}}</span>
               </button>
-              <div class="tool-group-entries" x-show="open" x-collapse>
+              <div class="tool-group-entries" hidden>
                 {{range .Tools}}
                   <details class="tool-entry">
                     <summary class="tool-entry-summary">
@@ -332,15 +361,12 @@
               <span>{{.Summary}}</span>
             </div>
           {{else if eq .Kind "thinking-group"}}
-            <div class="thinking-group" x-data="{ open: false }"
-                 @transcript-expand-groups.window="open = true">
-              <button type="button" class="thinking-summary"
-                      :aria-expanded="open ? 'true' : 'false'"
-                      @click="open = !open">
-                <span class="thinking-caret" :class="{ 'is-open': open }" aria-hidden="true">▸</span>
+            <div class="thinking-group">
+              <button type="button" class="thinking-summary" aria-expanded="false">
+                <span class="thinking-caret" aria-hidden="true">▸</span>
                 <span class="thinking-label">{{.Summary}}</span>
               </button>
-              <div class="thinking-entries" x-show="open" x-collapse>
+              <div class="thinking-entries" hidden>
                 {{range .Tools}}
                   <div class="thinking-entry">
                     {{if not .Ts.IsZero}}<time class="thinking-time">{{.Ts.Format "15:04:05"}}</time>{{end}}
@@ -351,22 +377,4 @@
             </div>
           {{end}}
         {{end}}
-      </section>
-    {{else}}
-      <p class="empty">no transcript available</p>
-    {{end}}
-
-    <details class="raw-toggle">
-      <summary>View raw transcript</summary>
-      <div id="raw-stream">
-        <pre class="raw">{{.Chunk}}</pre>
-        {{if not .EOF}}
-          <a class="raw-more" hx-get="{{.NextURL}}" hx-target="#raw-stream" hx-swap="beforeend">
-            load more ({{.Progress}} / {{.Total}})
-          </a>
-        {{end}}
-      </div>
-    </details>
-  </div>
-</article>
 {{end}}
