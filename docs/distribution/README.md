@@ -58,11 +58,11 @@ Required GitHub Actions repository secrets:
 | Secret | Used by | Notes |
 | --- | --- | --- |
 | `HOMEBREW_TAP_TOKEN` | GoReleaser brew step | Classic PAT with `repo` scope on the external tap repo. Rotated ~every 6 months. |
-| `NPM_TOKEN` | `scripts/publish-npm.sh` | Granular token, scoped to the `@c3-oss` org. Publish permission only. |
 | `GITHUB_TOKEN` | GoReleaser + Docker push | Auto-provisioned by Actions; no rotation needed. |
 
 `GITHUB_TOKEN` gets `packages: write` permission on the release workflow so
-GHCR pushes succeed.
+GHCR pushes succeed. npm publishing uses OIDC trusted publishing, so it needs
+no repository secret.
 
 ## Tooling pinning
 
