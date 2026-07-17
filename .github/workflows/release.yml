@@ -7,6 +7,7 @@ on:
 permissions:
   contents: write
   packages: write
+  id-token: write
 
 jobs:
   goreleaser:
@@ -58,13 +59,12 @@ jobs:
           registry-url: 'https://registry.npmjs.org'
           package-manager-cache: false
 
+      # Trusted publishing needs npm >= 11.5.1; Node's bundled npm may be older.
+      - name: Ensure npm supports trusted publishing
+        run: npm install -g npm@latest
+
       - name: Publish npm packages
         run: ./scripts/publish-npm.sh
-        env:
-          # NPM_TOKEN is a granular access token scoped to the
-          # @c3-oss org; required to publish @c3-oss/prosa and the
-          # four platform sub-packages.
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
