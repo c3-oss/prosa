@@ -135,6 +135,13 @@ func TestLookupKnownModelsFromRealStore(t *testing.T) {
 		{"gemini-3.5-flash-medium", Rates{Input: 1.5e-6, Output: 9.0e-6, CacheRead: 1.5e-7}},
 		{"gemini-3.5-flash-high", Rates{Input: 1.5e-6, Output: 9.0e-6, CacheRead: 1.5e-7}},
 		{"gemini-3.5-flash-minimal", Rates{Input: 1.5e-6, Output: 9.0e-6, CacheRead: 1.5e-7}},
+		{"gemini-3-pro", Rates{Input: 2.0e-6, Output: 1.2e-5, CacheRead: 2.0e-7}},
+		{"gemini-3.1-pro", Rates{Input: 2.0e-6, Output: 1.2e-5, CacheRead: 2.0e-7}},
+
+		{"o3", Rates{Input: 2.0e-6, Output: 8.0e-6, CacheRead: 5.0e-7}},
+
+		{"glm-4.7", Rates{Input: 6.0e-7, Output: 2.2e-6, CacheRead: 1.1e-7}},
+		{"glm-4.5-air", Rates{Input: 2.0e-7, Output: 1.1e-6, CacheRead: 3.0e-8}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.model, func(t *testing.T) {

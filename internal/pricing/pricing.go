@@ -84,6 +84,9 @@ var ratesByModel = map[string][]ratePeriod{
 	"gpt-5.6-terra": fixed(Rates{Input: 2.5e-6, Output: 1.5e-5, CacheRead: 2.5e-7, CacheCreation: 3.125e-6}),
 	"gpt-5.6-luna":  fixed(Rates{Input: 1.0e-6, Output: 6.0e-6, CacheRead: 1.0e-7, CacheCreation: 1.25e-6}),
 
+	// OpenAI — o-series reasoning models.
+	"o3": fixed(Rates{Input: 2.0e-6, Output: 8.0e-6, CacheRead: 5.0e-7}),
+
 	// Google — Gemini 2.5 / 3 / 3.5 generation.
 	// Tier-pricing for >200k context is not yet modelled; we use the base tariff for every call.
 	"gemini-2.5-pro":         fixed(Rates{Input: 1.25e-6, Output: 1.0e-5, CacheRead: 1.25e-7}),
@@ -91,7 +94,13 @@ var ratesByModel = map[string][]ratePeriod{
 	"gemini-2.5-flash-lite":  fixed(Rates{Input: 1.0e-7, Output: 4.0e-7, CacheRead: 1.0e-8}),
 	"gemini-3-pro-preview":   fixed(Rates{Input: 2.0e-6, Output: 1.2e-5, CacheRead: 2.0e-7}),
 	"gemini-3-flash-preview": fixed(Rates{Input: 5.0e-7, Output: 3.0e-6, CacheRead: 5.0e-8}),
+	"gemini-3-pro":           fixed(Rates{Input: 2.0e-6, Output: 1.2e-5, CacheRead: 2.0e-7}),
+	"gemini-3.1-pro":         fixed(Rates{Input: 2.0e-6, Output: 1.2e-5, CacheRead: 2.0e-7}),
 	"gemini-3.5-flash":       fixed(Rates{Input: 1.5e-6, Output: 9.0e-6, CacheRead: 1.5e-7}),
+
+	// Z.AI — GLM generation. Cached-input storage is currently free.
+	"glm-4.7":     fixed(Rates{Input: 6.0e-7, Output: 2.2e-6, CacheRead: 1.1e-7}),
+	"glm-4.5-air": fixed(Rates{Input: 2.0e-7, Output: 1.1e-6, CacheRead: 3.0e-8}),
 
 	// Cursor — Composer generation.
 	"composer-2.5": fixed(Rates{Input: 5.0e-7, Output: 2.5e-6, CacheRead: 2.0e-7}),
