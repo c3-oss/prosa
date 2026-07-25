@@ -4,8 +4,8 @@
 # version coherence, and `npm publish` each.
 #
 # Designed to run after goreleaser inside .github/workflows/release.yml.
-# Requires Node.js in PATH (used for portable package.json edits) and
-# NODE_AUTH_TOKEN set to a valid npm token for @c3-oss/*.
+# Requires Node.js in PATH (used for portable package.json edits). Auth is
+# via npm OIDC trusted publishing (npm >= 11.5.1); no token needed.
 
 set -eu
 
@@ -85,8 +85,8 @@ done
 #    install @c3-oss/prosa with unresolved optionalDependencies and
 #    the shim would fail at runtime.
 for p in $PLATFORMS; do
-    (cd "$NPM_ROOT/prosa-$p" && npm publish --access public)
+    (cd "$NPM_ROOT/prosa-$p" && npm publish --access public --provenance)
 done
-(cd "$NPM_ROOT/prosa" && npm publish --access public)
+(cd "$NPM_ROOT/prosa" && npm publish --access public --provenance)
 
 echo "published @c3-oss/prosa@$VERSION + 4 platform sub-packages"

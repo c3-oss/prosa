@@ -108,8 +108,8 @@ after GoReleaser finishes producing artifacts in `dist/`.
      copy dist/prosa_<os>_<arch>/prosa → npm/prosa-<platform>/bin/prosa
      chmod +x
 5. verify all five package.json versions match (abort if not)
-6. cd into each sub-package and `npm publish --access public`
-7. cd into the main package and `npm publish --access public`
+6. cd into each sub-package and `npm publish --access public --provenance`
+7. cd into the main package and `npm publish --access public --provenance`
 ```
 
 The script uses Node.js for JSON editing (no `jq` dependency). It exits
@@ -122,16 +122,17 @@ live, npm refuses the resolve and `npm install -g @c3-oss/prosa` fails for
 early users. Publishing the sub-packages first guarantees that when the
 main package goes live, every optional dep already exists.
 
-## NPM_TOKEN
+## Authentication (OIDC trusted publishing)
 
-A granular npm token scoped to the `@c3-oss` org with **publish**
-permission. Notes:
+Publishing authenticates via npm **trusted publishing** (OIDC): the release
+job exchanges a short-lived GitHub Actions id-token for npm credentials, so
+no token is stored. Notes:
 
-- Use a granular token, not a classic one. Scope it as tightly as possible.
-- Set automation token (`type: automation`) so 2FA doesn't block CI.
-- Stored as the GitHub Actions secret `NPM_TOKEN`.
-- The release workflow exports it as `NODE_AUTH_TOKEN` for the `npm
-  publish` calls.
+- The workflow grants `id-token: write` and runs on a GitHub-hosted runner
+  (both required for the OIDC exchange).
+- Each of the five package names has a trusted publisher registered on npm
+  pointing at `c3-oss/prosa` + `release.yml`.
+- Provenance attestations are generated automatically.
 
 ## First-time setup of the npm packages
 

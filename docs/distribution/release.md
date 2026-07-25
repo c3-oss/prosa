@@ -110,7 +110,8 @@ Secrets used: `GITHUB_TOKEN` (auto), `HOMEBREW_TAP_TOKEN` (manual,
 - Verifies all five versions match (aborts otherwise).
 - Publishes the four sub-packages first, then `@c3-oss/prosa`.
 
-Secret used: `NPM_TOKEN` (granular, `@c3-oss` org publish scope).
+Auth: npm OIDC trusted publishing — the job's `id-token: write` is exchanged
+for npm credentials (no stored token).
 
 ### Step 3 — Docker push
 
@@ -184,8 +185,9 @@ Possible causes:
 
 - **Version drift between sub-packages**: `publish-npm.sh` aborts before
   any publish. Fix the script or the artifacts and re-run the job.
-- **`NPM_TOKEN` expired or wrong scope**: rotate, update the secret,
-  re-run.
+- **Trusted publisher not configured / OIDC exchange failed**: confirm each
+  package has a trusted publisher for `c3-oss/prosa` + `release.yml`, and the
+  job has `id-token: write` on a GitHub-hosted runner; re-run.
 - **One sub-package failed mid-loop**: the script exits non-zero; later
   sub-packages and the metapackage don't publish. Re-run the job — `npm
   publish` rejects re-publishing the same version, but the script can
@@ -225,8 +227,6 @@ After all four channels confirm the new version is live:
 
 - `HOMEBREW_TAP_TOKEN` — rotate every 6 months. Mark it on your calendar
   the day you generate it.
-- `NPM_TOKEN` — granular tokens can be set to expire; check the npm
-  account periodically.
 - `GITHUB_TOKEN` — auto-rotated by Actions; no manual step.
 - `PROSA_ADMIN_TOKEN`, `PROSA_PANEL_COOKIE_KEY` — these aren't release
   secrets; they live on your prod environment. Rotate on a schedule
