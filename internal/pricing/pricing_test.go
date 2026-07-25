@@ -97,7 +97,7 @@ func TestLookupKnownModelsFromRealStore(t *testing.T) {
 		{"claude-haiku-4.5", Rates{Input: 1.0e-6, Output: 5.0e-6, CacheRead: 1.0e-7, CacheCreation: 1.25e-6}},
 		{"claude-fable-5", Rates{Input: 1.0e-5, Output: 5.0e-5, CacheRead: 1.0e-6, CacheCreation: 1.25e-5}},
 		{"claude-fable-5-20260601", Rates{Input: 1.0e-5, Output: 5.0e-5, CacheRead: 1.0e-6, CacheCreation: 1.25e-5}},
-		{"composer-2.5", Rates{Input: 3.0e-6, Output: 1.5e-5}},
+		{"composer-2.5", Rates{Input: 5.0e-7, Output: 2.5e-6, CacheRead: 2.0e-7}},
 
 		// OpenAI GPT-5 family — the live store has minor versions 5.0
 		// through 5.5 plus the codex / mini / nano variants.

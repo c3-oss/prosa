@@ -84,8 +84,8 @@ var ratesByModel = map[string][]ratePeriod{
 	"gemini-3-flash-preview": fixed(Rates{Input: 5.0e-7, Output: 3.0e-6, CacheRead: 5.0e-8}),
 	"gemini-3.5-flash":       fixed(Rates{Input: 1.5e-6, Output: 9.0e-6, CacheRead: 1.5e-7}),
 
-	// Cursor — Composer generation. Fast (default) pricing; no cache tier.
-	"composer-2.5": fixed(Rates{Input: 3.0e-6, Output: 1.5e-5}),
+	// Cursor — Composer generation.
+	"composer-2.5": fixed(Rates{Input: 5.0e-7, Output: 2.5e-6, CacheRead: 2.0e-7}),
 }
 
 // modelAliases maps dot-form or reordered model ids to their canonical key in ratesByModel.
