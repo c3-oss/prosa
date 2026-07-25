@@ -24,7 +24,13 @@ type ratePeriod struct {
 	Rates Rates
 }
 
-var sonnet5StandardFrom = time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+var (
+	sonnet5StandardFrom = time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+
+	// xAI retired the grok-code-fast-1 slug on this date. Requests still
+	// resolve, but bill at grok-4.3 rates.
+	grokCodeFast1RetiredFrom = time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC)
+)
 
 func fixed(r Rates) []ratePeriod {
 	return []ratePeriod{{Rates: r}}
@@ -97,6 +103,12 @@ var ratesByModel = map[string][]ratePeriod{
 	"gemini-3-pro":           fixed(Rates{Input: 2.0e-6, Output: 1.2e-5, CacheRead: 2.0e-7}),
 	"gemini-3.1-pro":         fixed(Rates{Input: 2.0e-6, Output: 1.2e-5, CacheRead: 2.0e-7}),
 	"gemini-3.5-flash":       fixed(Rates{Input: 1.5e-6, Output: 9.0e-6, CacheRead: 1.5e-7}),
+
+	// xAI — Grok generation.
+	"grok-code-fast-1": {
+		{Rates: Rates{Input: 2.0e-7, Output: 1.5e-6, CacheRead: 2.0e-8}},
+		{From: grokCodeFast1RetiredFrom, Rates: Rates{Input: 1.25e-6, Output: 2.5e-6, CacheRead: 2.0e-7}},
+	},
 
 	// Z.AI — GLM generation. Cached-input storage is currently free.
 	"glm-4.7":     fixed(Rates{Input: 6.0e-7, Output: 2.2e-6, CacheRead: 1.1e-7}),

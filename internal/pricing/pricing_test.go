@@ -76,6 +76,16 @@ func TestCostUSDPricesSonnet5ByDate(t *testing.T) {
 	require.InDelta(t, 0.005265, standard, 0.00000001)
 }
 
+func TestLookupPricesGrokCodeFast1ByDate(t *testing.T) {
+	launch, ok := Lookup("grok-code-fast-1", time.Date(2026, 5, 14, 23, 59, 59, 0, time.UTC))
+	require.True(t, ok)
+	require.Equal(t, Rates{Input: 2.0e-7, Output: 1.5e-6, CacheRead: 2.0e-8}, launch)
+
+	retired, ok := Lookup("grok-code-fast-1", grokCodeFast1RetiredFrom)
+	require.True(t, ok)
+	require.Equal(t, Rates{Input: 1.25e-6, Output: 2.5e-6, CacheRead: 2.0e-7}, retired)
+}
+
 // TestLookupKnownModelsFromRealStore covers every model id observed in
 // the maintainer's local store at the time of this commit. Each entry
 // must return priced=true so that future regressions in the matcher
@@ -153,6 +163,8 @@ func TestLookupKnownModelsFromRealStore(t *testing.T) {
 
 		{"glm-4.7", Rates{Input: 6.0e-7, Output: 2.2e-6, CacheRead: 1.1e-7}},
 		{"glm-4.5-air", Rates{Input: 2.0e-7, Output: 1.1e-6, CacheRead: 3.0e-8}},
+
+		{"grok-code-fast-1", Rates{Input: 1.25e-6, Output: 2.5e-6, CacheRead: 2.0e-7}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.model, func(t *testing.T) {
