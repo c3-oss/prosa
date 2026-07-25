@@ -50,6 +50,10 @@ var ratesByModel = map[string][]ratePeriod{
 	},
 	"claude-haiku-4-5": fixed(Rates{Input: 1.0e-6, Output: 5.0e-6, CacheRead: 1.0e-7, CacheCreation: 1.25e-6}),
 	"claude-fable-5":   fixed(Rates{Input: 1.0e-5, Output: 5.0e-5, CacheRead: 1.0e-6, CacheCreation: 1.25e-5}),
+	// Fast mode doubles Opus 5 to $10/$50 but keeps the same model id, so
+	// fast-mode sessions are estimated at the standard rate.
+	"claude-opus-5":   fixed(Rates{Input: 5.0e-6, Output: 2.5e-5, CacheRead: 5.0e-7, CacheCreation: 6.25e-6}),
+	"claude-mythos-5": fixed(Rates{Input: 1.0e-5, Output: 5.0e-5, CacheRead: 1.0e-6, CacheCreation: 1.25e-5}),
 
 	// OpenAI — GPT-5 generation.
 	"gpt-5":               fixed(Rates{Input: 1.25e-6, Output: 1.0e-5, CacheRead: 1.25e-7}),
