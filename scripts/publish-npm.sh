@@ -65,9 +65,12 @@ for p in $PLATFORMS; do
     chmod 0755 "$dst"
 done
 
-# 3. Pre-flight: every package.json shares the exact same version.
-#    A divergent main package vs. sub-package version makes
-#    optionalDependencies resolve to nothing.
+# 3. Pre-flight: every package.json shares the exact same version and
+#    declares the repository. A divergent main package vs. sub-package
+#    version makes optionalDependencies resolve to nothing, and npm
+#    rejects a --provenance publish whose repository.url does not match
+#    the repo the workflow ran in.
+EXPECTED_REPO_URL=git+https://github.com/c3-oss/prosa.git
 for pkg in "$NPM_ROOT/prosa/package.json" \
            "$NPM_ROOT/prosa-darwin-arm64/package.json" \
            "$NPM_ROOT/prosa-darwin-amd64/package.json" \
@@ -76,6 +79,11 @@ for pkg in "$NPM_ROOT/prosa/package.json" \
     actual=$(node -e "console.log(require('$pkg').version)")
     if [ "$actual" != "$VERSION" ]; then
         echo "version mismatch in $pkg: $actual != $VERSION" >&2
+        exit 1
+    fi
+    repo=$(node -e "console.log((require('$pkg').repository || {}).url || '')")
+    if [ "$repo" != "$EXPECTED_REPO_URL" ]; then
+        echo "repository.url in $pkg is '$repo', expected '$EXPECTED_REPO_URL'" >&2
         exit 1
     fi
 done

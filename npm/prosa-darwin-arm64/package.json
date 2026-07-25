@@ -3,6 +3,10 @@
   "version": "0.0.0-dev",
   "description": "prosa CLI binary for macOS arm64 (Apple Silicon)",
   "homepage": "https://github.com/c3-oss/prosa",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/c3-oss/prosa.git"
+  },
   "license": "CC0-1.0",
   "os": ["darwin"],
   "cpu": ["arm64"],
