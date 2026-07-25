@@ -90,6 +90,13 @@ func TestLookupKnownModelsFromRealStore(t *testing.T) {
 		{"claude-opus-4-5-20251101", Rates{Input: 5.0e-6, Output: 2.5e-5, CacheRead: 5.0e-7, CacheCreation: 6.25e-6}},
 		{"claude-opus-4.6", Rates{Input: 5.0e-6, Output: 2.5e-5, CacheRead: 5.0e-7, CacheCreation: 6.25e-6}},
 		{"claude-opus-4.7", Rates{Input: 5.0e-6, Output: 2.5e-5, CacheRead: 5.0e-7, CacheCreation: 6.25e-6}},
+		{"claude-opus-4-7-thinking-high", Rates{Input: 5.0e-6, Output: 2.5e-5, CacheRead: 5.0e-7, CacheCreation: 6.25e-6}},
+		// Cursor's family-last ids.
+		{"claude-4.6-opus-high", Rates{Input: 5.0e-6, Output: 2.5e-5, CacheRead: 5.0e-7, CacheCreation: 6.25e-6}},
+		{"claude-4.6-opus-max-thinking", Rates{Input: 5.0e-6, Output: 2.5e-5, CacheRead: 5.0e-7, CacheCreation: 6.25e-6}},
+		{"claude-4.6-opus-high-thinking", Rates{Input: 5.0e-6, Output: 2.5e-5, CacheRead: 5.0e-7, CacheCreation: 6.25e-6}},
+		{"claude-4.5-opus-high-thinking", Rates{Input: 5.0e-6, Output: 2.5e-5, CacheRead: 5.0e-7, CacheCreation: 6.25e-6}},
+		{"claude-4.5-sonnet-thinking", Rates{Input: 3.0e-6, Output: 1.5e-5, CacheRead: 3.0e-7, CacheCreation: 3.75e-6}},
 		{"claude-sonnet-4-6", Rates{Input: 3.0e-6, Output: 1.5e-5, CacheRead: 3.0e-7, CacheCreation: 3.75e-6}},
 		{"claude-sonnet-4-5-20250929", Rates{Input: 3.0e-6, Output: 1.5e-5, CacheRead: 3.0e-7, CacheCreation: 3.75e-6}},
 		{"claude-sonnet-5", Rates{Input: 2.0e-6, Output: 1.0e-5, CacheRead: 2.0e-7, CacheCreation: 2.5e-6}},
@@ -210,6 +217,17 @@ func TestNormalizeModel(t *testing.T) {
 		"claude-sonnet-5-20260701":    "claude-sonnet-5",
 		"claude-haiku-4-5-20251001":   "claude-haiku-4-5",
 		"gpt-5.3-codex-spark@spark":   "gpt-5.3-codex-spark",
+
+		// Cursor writes the family last and the version dotted.
+		"claude-4.6-opus-high":           "claude-opus-4-6-high",
+		"claude-4.6-opus-max-thinking":   "claude-opus-4-6-max-thinking",
+		"claude-4.5-opus-high-thinking":  "claude-opus-4-5-high-thinking",
+		"claude-4.5-sonnet-thinking":     "claude-sonnet-4-5-thinking",
+		"claude-4.5-haiku":               "claude-haiku-4-5",
+		"anthropic/claude-4.6-opus-high": "claude-opus-4-6-high",
+		// Canonical ids stay untouched.
+		"claude-opus-4-7-thinking-high": "claude-opus-4-7-thinking-high",
+		"claude-opus-4.7":               "claude-opus-4.7",
 	}
 	for in, want := range cases {
 		require.Equal(t, want, NormalizeModel(in), in)

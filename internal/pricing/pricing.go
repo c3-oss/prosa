@@ -126,6 +126,10 @@ var modelAliases = map[string]string{
 var (
 	datedSuffixRE = regexp.MustCompile(`-\d{8}$|-\d{4}-\d{2}-\d{2}$`)
 
+	// Cursor writes Claude ids family-last and dot-versioned, e.g.
+	// claude-4.6-opus-high-thinking for claude-opus-4-6.
+	reorderedClaudeRE = regexp.MustCompile(`^claude-(\d+)\.(\d+)-(opus|sonnet|haiku)(-.*)?$`)
+
 	prefixKeysOnce sync.Once
 	prefixKeys     []string
 )
@@ -196,7 +200,8 @@ func rateAt(periods []ratePeriod, at time.Time) (Rates, bool) {
 }
 
 // NormalizeModel strips provider prefixes, vendor-tag suffixes, and dated
-// snapshot suffixes so a family stays priced after the snapshot date rotates.
+// snapshot suffixes so a family stays priced after the snapshot date rotates,
+// then rewrites Cursor's family-last Claude ids into the canonical order.
 func NormalizeModel(model string) string {
 	s := strings.ToLower(strings.TrimSpace(model))
 	s = strings.TrimPrefix(s, "openai/")
@@ -206,7 +211,8 @@ func NormalizeModel(model string) string {
 	if at := strings.IndexByte(s, '@'); at >= 0 {
 		s = s[:at]
 	}
-	return datedSuffixRE.ReplaceAllString(s, "")
+	s = datedSuffixRE.ReplaceAllString(s, "")
+	return reorderedClaudeRE.ReplaceAllString(s, "claude-$3-$1-$2$4")
 }
 
 // sortedPrefixKeys returns rate-table keys ordered longest-first so the prefix
