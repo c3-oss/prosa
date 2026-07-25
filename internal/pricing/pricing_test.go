@@ -115,6 +115,10 @@ func TestLookupKnownModelsFromRealStore(t *testing.T) {
 		{"gpt-5.4-mini", Rates{Input: 7.5e-7, Output: 4.5e-6, CacheRead: 7.5e-8}},
 		{"gpt-5.5", Rates{Input: 5.0e-6, Output: 3.0e-5, CacheRead: 5.0e-7}},
 		{"gpt-codex-5.3", Rates{Input: 1.75e-6, Output: 1.4e-5, CacheRead: 1.75e-7}},
+		{"gpt-5.6-sol", Rates{Input: 5.0e-6, Output: 3.0e-5, CacheRead: 5.0e-7, CacheCreation: 6.25e-6}},
+		{"gpt-5.6-terra", Rates{Input: 2.5e-6, Output: 1.5e-5, CacheRead: 2.5e-7, CacheCreation: 3.125e-6}},
+		{"gpt-5.6-terra-high", Rates{Input: 2.5e-6, Output: 1.5e-5, CacheRead: 2.5e-7, CacheCreation: 3.125e-6}},
+		{"gpt-5.6-luna", Rates{Input: 1.0e-6, Output: 6.0e-6, CacheRead: 1.0e-7, CacheCreation: 1.25e-6}},
 
 		{"gemini-2.5-pro", Rates{Input: 1.25e-6, Output: 1.0e-5, CacheRead: 1.25e-7}},
 		{"gemini-2.5-flash", Rates{Input: 3.0e-7, Output: 2.5e-6, CacheRead: 3.0e-8}},
@@ -147,6 +151,15 @@ func TestLookupOpus47DoesNotInheritOpus4Rate(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, 5.0e-6, got.Input, "opus-4-7 must use the cheaper 4.5+ input rate, not opus-4's $15/M")
 	require.Equal(t, 2.5e-5, got.Output, "opus-4-7 must use the cheaper 4.5+ output rate, not opus-4's $75/M")
+}
+
+// TestLookupBareGPT56ResolvesToSol covers OpenAI's flagship alias. The
+// prefix fallback cannot reach it — that path requires a "gpt-5.6-"
+// separator — so the alias table is what keeps the bare id priced.
+func TestLookupBareGPT56ResolvesToSol(t *testing.T) {
+	got, ok := Lookup("gpt-5.6", pricingTestTime)
+	require.True(t, ok)
+	require.Equal(t, Rates{Input: 5.0e-6, Output: 3.0e-5, CacheRead: 5.0e-7, CacheCreation: 6.25e-6}, got)
 }
 
 // TestLookupDeterministic guards against Go's randomised map iteration:

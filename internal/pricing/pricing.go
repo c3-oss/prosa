@@ -75,6 +75,11 @@ var ratesByModel = map[string][]ratePeriod{
 	"gpt-5.5":             fixed(Rates{Input: 5.0e-6, Output: 3.0e-5, CacheRead: 5.0e-7}),
 	"gpt-5.5-pro":         fixed(Rates{Input: 3.0e-5, Output: 1.8e-4}),
 
+	// GPT-5.6 is the first OpenAI family to bill cache writes separately.
+	"gpt-5.6-sol":   fixed(Rates{Input: 5.0e-6, Output: 3.0e-5, CacheRead: 5.0e-7, CacheCreation: 6.25e-6}),
+	"gpt-5.6-terra": fixed(Rates{Input: 2.5e-6, Output: 1.5e-5, CacheRead: 2.5e-7, CacheCreation: 3.125e-6}),
+	"gpt-5.6-luna":  fixed(Rates{Input: 1.0e-6, Output: 6.0e-6, CacheRead: 1.0e-7, CacheCreation: 1.25e-6}),
+
 	// Google — Gemini 2.5 / 3 / 3.5 generation.
 	// Tier-pricing for >200k context is not yet modelled; we use the base tariff for every call.
 	"gemini-2.5-pro":         fixed(Rates{Input: 1.25e-6, Output: 1.0e-5, CacheRead: 1.25e-7}),
@@ -97,6 +102,7 @@ var modelAliases = map[string]string{
 	"claude-sonnet-4.6": "claude-sonnet-4-6",
 	"claude-haiku-4.5":  "claude-haiku-4-5",
 	"gpt-codex-5.3":     "gpt-5.3-codex",
+	"gpt-5.6":           "gpt-5.6-sol",
 }
 
 var (
