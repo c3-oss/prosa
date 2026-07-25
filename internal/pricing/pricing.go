@@ -102,8 +102,13 @@ var ratesByModel = map[string][]ratePeriod{
 	"glm-4.7":     fixed(Rates{Input: 6.0e-7, Output: 2.2e-6, CacheRead: 1.1e-7}),
 	"glm-4.5-air": fixed(Rates{Input: 2.0e-7, Output: 1.1e-6, CacheRead: 3.0e-8}),
 
-	// Cursor — Composer generation.
-	"composer-2.5": fixed(Rates{Input: 5.0e-7, Output: 2.5e-6, CacheRead: 2.0e-7}),
+	// Cursor — Composer generation. composer-2-fast needs its own key so the
+	// prefix fallback cannot collapse it onto composer-2's cheaper tier.
+	"composer-1":      fixed(Rates{Input: 1.25e-6, Output: 1.0e-5, CacheRead: 1.25e-7}),
+	"composer-1.5":    fixed(Rates{Input: 3.5e-6, Output: 1.75e-5, CacheRead: 3.5e-7}),
+	"composer-2":      fixed(Rates{Input: 5.0e-7, Output: 2.5e-6, CacheRead: 2.0e-7}),
+	"composer-2-fast": fixed(Rates{Input: 1.5e-6, Output: 7.5e-6, CacheRead: 3.5e-7}),
+	"composer-2.5":    fixed(Rates{Input: 5.0e-7, Output: 2.5e-6, CacheRead: 2.0e-7}),
 }
 
 // modelAliases maps dot-form or reordered model ids to their canonical key in ratesByModel.

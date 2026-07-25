@@ -99,6 +99,10 @@ func TestLookupKnownModelsFromRealStore(t *testing.T) {
 		{"claude-fable-5-20260601", Rates{Input: 1.0e-5, Output: 5.0e-5, CacheRead: 1.0e-6, CacheCreation: 1.25e-5}},
 		{"claude-opus-5", Rates{Input: 5.0e-6, Output: 2.5e-5, CacheRead: 5.0e-7, CacheCreation: 6.25e-6}},
 		{"claude-mythos-5", Rates{Input: 1.0e-5, Output: 5.0e-5, CacheRead: 1.0e-6, CacheCreation: 1.25e-5}},
+		{"composer-1", Rates{Input: 1.25e-6, Output: 1.0e-5, CacheRead: 1.25e-7}},
+		{"composer-1.5", Rates{Input: 3.5e-6, Output: 1.75e-5, CacheRead: 3.5e-7}},
+		{"composer-2", Rates{Input: 5.0e-7, Output: 2.5e-6, CacheRead: 2.0e-7}},
+		{"composer-2-fast", Rates{Input: 1.5e-6, Output: 7.5e-6, CacheRead: 3.5e-7}},
 		{"composer-2.5", Rates{Input: 5.0e-7, Output: 2.5e-6, CacheRead: 2.0e-7}},
 
 		// OpenAI GPT-5 family — the live store has minor versions 5.0
@@ -160,6 +164,16 @@ func TestLookupOpus47DoesNotInheritOpus4Rate(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, 5.0e-6, got.Input, "opus-4-7 must use the cheaper 4.5+ input rate, not opus-4's $15/M")
 	require.Equal(t, 2.5e-5, got.Output, "opus-4-7 must use the cheaper 4.5+ output rate, not opus-4's $75/M")
+}
+
+// TestLookupComposer2FastDoesNotInheritComposer2Rate is the composer-side
+// twin of the opus-4-7 guard: Cursor's fast variant costs 3× the standard
+// tier, so a prefix collapse would under-report it.
+func TestLookupComposer2FastDoesNotInheritComposer2Rate(t *testing.T) {
+	got, ok := Lookup("composer-2-fast", pricingTestTime)
+	require.True(t, ok)
+	require.Equal(t, 1.5e-6, got.Input, "composer-2-fast must not fall back to composer-2's $0.50/M input")
+	require.Equal(t, 7.5e-6, got.Output, "composer-2-fast must not fall back to composer-2's $2.50/M output")
 }
 
 // TestLookupBareGPT56ResolvesToSol covers OpenAI's flagship alias. The
