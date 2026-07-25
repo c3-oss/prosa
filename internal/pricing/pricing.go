@@ -24,7 +24,13 @@ type ratePeriod struct {
 	Rates Rates
 }
 
-var sonnet5StandardFrom = time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+var (
+	sonnet5StandardFrom = time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+
+	// xAI retired the grok-code-fast-1 slug on this date. Requests still
+	// resolve, but bill at grok-4.3 rates.
+	grokCodeFast1RetiredFrom = time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC)
+)
 
 func fixed(r Rates) []ratePeriod {
 	return []ratePeriod{{Rates: r}}
@@ -50,6 +56,10 @@ var ratesByModel = map[string][]ratePeriod{
 	},
 	"claude-haiku-4-5": fixed(Rates{Input: 1.0e-6, Output: 5.0e-6, CacheRead: 1.0e-7, CacheCreation: 1.25e-6}),
 	"claude-fable-5":   fixed(Rates{Input: 1.0e-5, Output: 5.0e-5, CacheRead: 1.0e-6, CacheCreation: 1.25e-5}),
+	// Fast mode doubles Opus 5 to $10/$50 but keeps the same model id, so
+	// fast-mode sessions are estimated at the standard rate.
+	"claude-opus-5":   fixed(Rates{Input: 5.0e-6, Output: 2.5e-5, CacheRead: 5.0e-7, CacheCreation: 6.25e-6}),
+	"claude-mythos-5": fixed(Rates{Input: 1.0e-5, Output: 5.0e-5, CacheRead: 1.0e-6, CacheCreation: 1.25e-5}),
 
 	// OpenAI — GPT-5 generation.
 	"gpt-5":               fixed(Rates{Input: 1.25e-6, Output: 1.0e-5, CacheRead: 1.25e-7}),
@@ -75,6 +85,14 @@ var ratesByModel = map[string][]ratePeriod{
 	"gpt-5.5":             fixed(Rates{Input: 5.0e-6, Output: 3.0e-5, CacheRead: 5.0e-7}),
 	"gpt-5.5-pro":         fixed(Rates{Input: 3.0e-5, Output: 1.8e-4}),
 
+	// GPT-5.6 is the first OpenAI family to bill cache writes separately.
+	"gpt-5.6-sol":   fixed(Rates{Input: 5.0e-6, Output: 3.0e-5, CacheRead: 5.0e-7, CacheCreation: 6.25e-6}),
+	"gpt-5.6-terra": fixed(Rates{Input: 2.5e-6, Output: 1.5e-5, CacheRead: 2.5e-7, CacheCreation: 3.125e-6}),
+	"gpt-5.6-luna":  fixed(Rates{Input: 1.0e-6, Output: 6.0e-6, CacheRead: 1.0e-7, CacheCreation: 1.25e-6}),
+
+	// OpenAI — o-series reasoning models.
+	"o3": fixed(Rates{Input: 2.0e-6, Output: 8.0e-6, CacheRead: 5.0e-7}),
+
 	// Google — Gemini 2.5 / 3 / 3.5 generation.
 	// Tier-pricing for >200k context is not yet modelled; we use the base tariff for every call.
 	"gemini-2.5-pro":         fixed(Rates{Input: 1.25e-6, Output: 1.0e-5, CacheRead: 1.25e-7}),
@@ -82,10 +100,27 @@ var ratesByModel = map[string][]ratePeriod{
 	"gemini-2.5-flash-lite":  fixed(Rates{Input: 1.0e-7, Output: 4.0e-7, CacheRead: 1.0e-8}),
 	"gemini-3-pro-preview":   fixed(Rates{Input: 2.0e-6, Output: 1.2e-5, CacheRead: 2.0e-7}),
 	"gemini-3-flash-preview": fixed(Rates{Input: 5.0e-7, Output: 3.0e-6, CacheRead: 5.0e-8}),
+	"gemini-3-pro":           fixed(Rates{Input: 2.0e-6, Output: 1.2e-5, CacheRead: 2.0e-7}),
+	"gemini-3.1-pro":         fixed(Rates{Input: 2.0e-6, Output: 1.2e-5, CacheRead: 2.0e-7}),
 	"gemini-3.5-flash":       fixed(Rates{Input: 1.5e-6, Output: 9.0e-6, CacheRead: 1.5e-7}),
 
-	// Cursor — Composer generation. Fast (default) pricing; no cache tier.
-	"composer-2.5": fixed(Rates{Input: 3.0e-6, Output: 1.5e-5}),
+	// xAI — Grok generation.
+	"grok-code-fast-1": {
+		{Rates: Rates{Input: 2.0e-7, Output: 1.5e-6, CacheRead: 2.0e-8}},
+		{From: grokCodeFast1RetiredFrom, Rates: Rates{Input: 1.25e-6, Output: 2.5e-6, CacheRead: 2.0e-7}},
+	},
+
+	// Z.AI — GLM generation. Cached-input storage is currently free.
+	"glm-4.7":     fixed(Rates{Input: 6.0e-7, Output: 2.2e-6, CacheRead: 1.1e-7}),
+	"glm-4.5-air": fixed(Rates{Input: 2.0e-7, Output: 1.1e-6, CacheRead: 3.0e-8}),
+
+	// Cursor — Composer generation. composer-2-fast needs its own key so the
+	// prefix fallback cannot collapse it onto composer-2's cheaper tier.
+	"composer-1":      fixed(Rates{Input: 1.25e-6, Output: 1.0e-5, CacheRead: 1.25e-7}),
+	"composer-1.5":    fixed(Rates{Input: 3.5e-6, Output: 1.75e-5, CacheRead: 3.5e-7}),
+	"composer-2":      fixed(Rates{Input: 5.0e-7, Output: 2.5e-6, CacheRead: 2.0e-7}),
+	"composer-2-fast": fixed(Rates{Input: 1.5e-6, Output: 7.5e-6, CacheRead: 3.5e-7}),
+	"composer-2.5":    fixed(Rates{Input: 5.0e-7, Output: 2.5e-6, CacheRead: 2.0e-7}),
 }
 
 // modelAliases maps dot-form or reordered model ids to their canonical key in ratesByModel.
@@ -97,10 +132,15 @@ var modelAliases = map[string]string{
 	"claude-sonnet-4.6": "claude-sonnet-4-6",
 	"claude-haiku-4.5":  "claude-haiku-4-5",
 	"gpt-codex-5.3":     "gpt-5.3-codex",
+	"gpt-5.6":           "gpt-5.6-sol",
 }
 
 var (
 	datedSuffixRE = regexp.MustCompile(`-\d{8}$|-\d{4}-\d{2}-\d{2}$`)
+
+	// Cursor writes Claude ids family-last and dot-versioned, e.g.
+	// claude-4.6-opus-high-thinking for claude-opus-4-6.
+	reorderedClaudeRE = regexp.MustCompile(`^claude-(\d+)\.(\d+)-(opus|sonnet|haiku)(-.*)?$`)
 
 	prefixKeysOnce sync.Once
 	prefixKeys     []string
@@ -172,7 +212,8 @@ func rateAt(periods []ratePeriod, at time.Time) (Rates, bool) {
 }
 
 // NormalizeModel strips provider prefixes, vendor-tag suffixes, and dated
-// snapshot suffixes so a family stays priced after the snapshot date rotates.
+// snapshot suffixes so a family stays priced after the snapshot date rotates,
+// then rewrites Cursor's family-last Claude ids into the canonical order.
 func NormalizeModel(model string) string {
 	s := strings.ToLower(strings.TrimSpace(model))
 	s = strings.TrimPrefix(s, "openai/")
@@ -182,7 +223,8 @@ func NormalizeModel(model string) string {
 	if at := strings.IndexByte(s, '@'); at >= 0 {
 		s = s[:at]
 	}
-	return datedSuffixRE.ReplaceAllString(s, "")
+	s = datedSuffixRE.ReplaceAllString(s, "")
+	return reorderedClaudeRE.ReplaceAllString(s, "claude-$3-$1-$2$4")
 }
 
 // sortedPrefixKeys returns rate-table keys ordered longest-first so the prefix

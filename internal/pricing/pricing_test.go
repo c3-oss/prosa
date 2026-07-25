@@ -76,6 +76,16 @@ func TestCostUSDPricesSonnet5ByDate(t *testing.T) {
 	require.InDelta(t, 0.005265, standard, 0.00000001)
 }
 
+func TestLookupPricesGrokCodeFast1ByDate(t *testing.T) {
+	launch, ok := Lookup("grok-code-fast-1", time.Date(2026, 5, 14, 23, 59, 59, 0, time.UTC))
+	require.True(t, ok)
+	require.Equal(t, Rates{Input: 2.0e-7, Output: 1.5e-6, CacheRead: 2.0e-8}, launch)
+
+	retired, ok := Lookup("grok-code-fast-1", grokCodeFast1RetiredFrom)
+	require.True(t, ok)
+	require.Equal(t, Rates{Input: 1.25e-6, Output: 2.5e-6, CacheRead: 2.0e-7}, retired)
+}
+
 // TestLookupKnownModelsFromRealStore covers every model id observed in
 // the maintainer's local store at the time of this commit. Each entry
 // must return priced=true so that future regressions in the matcher
@@ -90,6 +100,13 @@ func TestLookupKnownModelsFromRealStore(t *testing.T) {
 		{"claude-opus-4-5-20251101", Rates{Input: 5.0e-6, Output: 2.5e-5, CacheRead: 5.0e-7, CacheCreation: 6.25e-6}},
 		{"claude-opus-4.6", Rates{Input: 5.0e-6, Output: 2.5e-5, CacheRead: 5.0e-7, CacheCreation: 6.25e-6}},
 		{"claude-opus-4.7", Rates{Input: 5.0e-6, Output: 2.5e-5, CacheRead: 5.0e-7, CacheCreation: 6.25e-6}},
+		{"claude-opus-4-7-thinking-high", Rates{Input: 5.0e-6, Output: 2.5e-5, CacheRead: 5.0e-7, CacheCreation: 6.25e-6}},
+		// Cursor's family-last ids.
+		{"claude-4.6-opus-high", Rates{Input: 5.0e-6, Output: 2.5e-5, CacheRead: 5.0e-7, CacheCreation: 6.25e-6}},
+		{"claude-4.6-opus-max-thinking", Rates{Input: 5.0e-6, Output: 2.5e-5, CacheRead: 5.0e-7, CacheCreation: 6.25e-6}},
+		{"claude-4.6-opus-high-thinking", Rates{Input: 5.0e-6, Output: 2.5e-5, CacheRead: 5.0e-7, CacheCreation: 6.25e-6}},
+		{"claude-4.5-opus-high-thinking", Rates{Input: 5.0e-6, Output: 2.5e-5, CacheRead: 5.0e-7, CacheCreation: 6.25e-6}},
+		{"claude-4.5-sonnet-thinking", Rates{Input: 3.0e-6, Output: 1.5e-5, CacheRead: 3.0e-7, CacheCreation: 3.75e-6}},
 		{"claude-sonnet-4-6", Rates{Input: 3.0e-6, Output: 1.5e-5, CacheRead: 3.0e-7, CacheCreation: 3.75e-6}},
 		{"claude-sonnet-4-5-20250929", Rates{Input: 3.0e-6, Output: 1.5e-5, CacheRead: 3.0e-7, CacheCreation: 3.75e-6}},
 		{"claude-sonnet-5", Rates{Input: 2.0e-6, Output: 1.0e-5, CacheRead: 2.0e-7, CacheCreation: 2.5e-6}},
@@ -97,7 +114,13 @@ func TestLookupKnownModelsFromRealStore(t *testing.T) {
 		{"claude-haiku-4.5", Rates{Input: 1.0e-6, Output: 5.0e-6, CacheRead: 1.0e-7, CacheCreation: 1.25e-6}},
 		{"claude-fable-5", Rates{Input: 1.0e-5, Output: 5.0e-5, CacheRead: 1.0e-6, CacheCreation: 1.25e-5}},
 		{"claude-fable-5-20260601", Rates{Input: 1.0e-5, Output: 5.0e-5, CacheRead: 1.0e-6, CacheCreation: 1.25e-5}},
-		{"composer-2.5", Rates{Input: 3.0e-6, Output: 1.5e-5}},
+		{"claude-opus-5", Rates{Input: 5.0e-6, Output: 2.5e-5, CacheRead: 5.0e-7, CacheCreation: 6.25e-6}},
+		{"claude-mythos-5", Rates{Input: 1.0e-5, Output: 5.0e-5, CacheRead: 1.0e-6, CacheCreation: 1.25e-5}},
+		{"composer-1", Rates{Input: 1.25e-6, Output: 1.0e-5, CacheRead: 1.25e-7}},
+		{"composer-1.5", Rates{Input: 3.5e-6, Output: 1.75e-5, CacheRead: 3.5e-7}},
+		{"composer-2", Rates{Input: 5.0e-7, Output: 2.5e-6, CacheRead: 2.0e-7}},
+		{"composer-2-fast", Rates{Input: 1.5e-6, Output: 7.5e-6, CacheRead: 3.5e-7}},
+		{"composer-2.5", Rates{Input: 5.0e-7, Output: 2.5e-6, CacheRead: 2.0e-7}},
 
 		// OpenAI GPT-5 family — the live store has minor versions 5.0
 		// through 5.5 plus the codex / mini / nano variants.
@@ -115,6 +138,10 @@ func TestLookupKnownModelsFromRealStore(t *testing.T) {
 		{"gpt-5.4-mini", Rates{Input: 7.5e-7, Output: 4.5e-6, CacheRead: 7.5e-8}},
 		{"gpt-5.5", Rates{Input: 5.0e-6, Output: 3.0e-5, CacheRead: 5.0e-7}},
 		{"gpt-codex-5.3", Rates{Input: 1.75e-6, Output: 1.4e-5, CacheRead: 1.75e-7}},
+		{"gpt-5.6-sol", Rates{Input: 5.0e-6, Output: 3.0e-5, CacheRead: 5.0e-7, CacheCreation: 6.25e-6}},
+		{"gpt-5.6-terra", Rates{Input: 2.5e-6, Output: 1.5e-5, CacheRead: 2.5e-7, CacheCreation: 3.125e-6}},
+		{"gpt-5.6-terra-high", Rates{Input: 2.5e-6, Output: 1.5e-5, CacheRead: 2.5e-7, CacheCreation: 3.125e-6}},
+		{"gpt-5.6-luna", Rates{Input: 1.0e-6, Output: 6.0e-6, CacheRead: 1.0e-7, CacheCreation: 1.25e-6}},
 
 		{"gemini-2.5-pro", Rates{Input: 1.25e-6, Output: 1.0e-5, CacheRead: 1.25e-7}},
 		{"gemini-2.5-flash", Rates{Input: 3.0e-7, Output: 2.5e-6, CacheRead: 3.0e-8}},
@@ -129,6 +156,15 @@ func TestLookupKnownModelsFromRealStore(t *testing.T) {
 		{"gemini-3.5-flash-medium", Rates{Input: 1.5e-6, Output: 9.0e-6, CacheRead: 1.5e-7}},
 		{"gemini-3.5-flash-high", Rates{Input: 1.5e-6, Output: 9.0e-6, CacheRead: 1.5e-7}},
 		{"gemini-3.5-flash-minimal", Rates{Input: 1.5e-6, Output: 9.0e-6, CacheRead: 1.5e-7}},
+		{"gemini-3-pro", Rates{Input: 2.0e-6, Output: 1.2e-5, CacheRead: 2.0e-7}},
+		{"gemini-3.1-pro", Rates{Input: 2.0e-6, Output: 1.2e-5, CacheRead: 2.0e-7}},
+
+		{"o3", Rates{Input: 2.0e-6, Output: 8.0e-6, CacheRead: 5.0e-7}},
+
+		{"glm-4.7", Rates{Input: 6.0e-7, Output: 2.2e-6, CacheRead: 1.1e-7}},
+		{"glm-4.5-air", Rates{Input: 2.0e-7, Output: 1.1e-6, CacheRead: 3.0e-8}},
+
+		{"grok-code-fast-1", Rates{Input: 1.25e-6, Output: 2.5e-6, CacheRead: 2.0e-7}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.model, func(t *testing.T) {
@@ -147,6 +183,25 @@ func TestLookupOpus47DoesNotInheritOpus4Rate(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, 5.0e-6, got.Input, "opus-4-7 must use the cheaper 4.5+ input rate, not opus-4's $15/M")
 	require.Equal(t, 2.5e-5, got.Output, "opus-4-7 must use the cheaper 4.5+ output rate, not opus-4's $75/M")
+}
+
+// TestLookupComposer2FastDoesNotInheritComposer2Rate is the composer-side
+// twin of the opus-4-7 guard: Cursor's fast variant costs 3× the standard
+// tier, so a prefix collapse would under-report it.
+func TestLookupComposer2FastDoesNotInheritComposer2Rate(t *testing.T) {
+	got, ok := Lookup("composer-2-fast", pricingTestTime)
+	require.True(t, ok)
+	require.Equal(t, 1.5e-6, got.Input, "composer-2-fast must not fall back to composer-2's $0.50/M input")
+	require.Equal(t, 7.5e-6, got.Output, "composer-2-fast must not fall back to composer-2's $2.50/M output")
+}
+
+// TestLookupBareGPT56ResolvesToSol covers OpenAI's flagship alias. The
+// prefix fallback cannot reach it — that path requires a "gpt-5.6-"
+// separator — so the alias table is what keeps the bare id priced.
+func TestLookupBareGPT56ResolvesToSol(t *testing.T) {
+	got, ok := Lookup("gpt-5.6", pricingTestTime)
+	require.True(t, ok)
+	require.Equal(t, Rates{Input: 5.0e-6, Output: 3.0e-5, CacheRead: 5.0e-7, CacheCreation: 6.25e-6}, got)
 }
 
 // TestLookupDeterministic guards against Go's randomised map iteration:
@@ -174,6 +229,17 @@ func TestNormalizeModel(t *testing.T) {
 		"claude-sonnet-5-20260701":    "claude-sonnet-5",
 		"claude-haiku-4-5-20251001":   "claude-haiku-4-5",
 		"gpt-5.3-codex-spark@spark":   "gpt-5.3-codex-spark",
+
+		// Cursor writes the family last and the version dotted.
+		"claude-4.6-opus-high":           "claude-opus-4-6-high",
+		"claude-4.6-opus-max-thinking":   "claude-opus-4-6-max-thinking",
+		"claude-4.5-opus-high-thinking":  "claude-opus-4-5-high-thinking",
+		"claude-4.5-sonnet-thinking":     "claude-sonnet-4-5-thinking",
+		"claude-4.5-haiku":               "claude-haiku-4-5",
+		"anthropic/claude-4.6-opus-high": "claude-opus-4-6-high",
+		// Canonical ids stay untouched.
+		"claude-opus-4-7-thinking-high": "claude-opus-4-7-thinking-high",
+		"claude-opus-4.7":               "claude-opus-4.7",
 	}
 	for in, want := range cases {
 		require.Equal(t, want, NormalizeModel(in), in)
