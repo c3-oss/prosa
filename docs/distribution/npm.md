@@ -107,13 +107,20 @@ after GoReleaser finishes producing artifacts in `dist/`.
 4. for each platform { darwin-arm64, darwin-amd64, linux-amd64, linux-arm64 }:
      copy dist/prosa_<os>_<arch>/prosa → npm/prosa-<platform>/bin/prosa
      chmod +x
-5. verify all five package.json versions match (abort if not)
+5. verify all five package.json versions match and each declares
+   repository.url = git+https://github.com/c3-oss/prosa.git (abort if not)
 6. cd into each sub-package and `npm publish --access public --provenance`
 7. cd into the main package and `npm publish --access public --provenance`
 ```
 
 The script uses Node.js for JSON editing (no `jq` dependency). It exits
 non-zero on any sub-step, including version drift.
+
+All five manifests carry a `repository` field. `--provenance` makes npm compare
+it against the repository recorded in the sigstore bundle, and a manifest
+without one is rejected with `422 Unprocessable Entity`. The pre-flight in
+step 5 catches that before the first publish, so a mismatch cannot leave some
+sub-packages published and others not.
 
 ## Why sub-packages first
 

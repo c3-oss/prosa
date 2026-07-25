@@ -3,6 +3,10 @@
   "version": "0.0.0-dev",
   "description": "prosa CLI binary for Linux amd64",
   "homepage": "https://github.com/c3-oss/prosa",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/c3-oss/prosa.git"
+  },
   "license": "CC0-1.0",
   "os": ["linux"],
   "cpu": ["x64"],
