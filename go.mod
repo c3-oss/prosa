@@ -13,7 +13,7 @@ require (
 	github.com/muesli/termenv v0.16.0
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
-	github.com/yuin/goldmark v1.8.2
+	github.com/yuin/goldmark v1.8.5
 	golang.org/x/sync v0.21.0
 	golang.org/x/term v0.44.0
 	google.golang.org/protobuf v1.36.11
