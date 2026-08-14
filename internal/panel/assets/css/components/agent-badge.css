@@ -1,6 +1,6 @@
 /* Agent badge — small colored pill that replaces plain-text agent
-   names in tables, headers, and dashboard cards. Each of the six known
-   agents has its own background tint + foreground hue; unknown agents
+   names in tables, headers, and dashboard cards. Each known agent has
+   its own background tint + foreground hue; unknown agents
    fall back to the muted variant. Pairs with the agentBadge Go
    template helper in internal/panel/server.go. */
 
@@ -51,6 +51,12 @@
 .agent-badge[data-agent="hermes"] {
   background: var(--agent-hermes-soft);
   color: var(--agent-hermes);
+}
+
+.agent-badge[data-agent="grok-build"],
+.agent-badge[data-agent="grok"] {
+  background: var(--agent-grok-soft);
+  color: var(--agent-grok);
 }
 
 /* Size variants — the table cell renders at the base size; the

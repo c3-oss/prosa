@@ -9,6 +9,7 @@ import (
 	"github.com/c3-oss/prosa/internal/importers/codex"
 	"github.com/c3-oss/prosa/internal/importers/cursor"
 	"github.com/c3-oss/prosa/internal/importers/gemini"
+	"github.com/c3-oss/prosa/internal/importers/grokbuild"
 	"github.com/c3-oss/prosa/internal/importers/hermes"
 	"github.com/c3-oss/prosa/pkg/importer"
 )
@@ -21,6 +22,7 @@ func registeredImporters() []importer.Importer {
 		gemini.New(),
 		antigravity.New(),
 		hermes.New(),
+		grokbuild.New(),
 	}
 }
 

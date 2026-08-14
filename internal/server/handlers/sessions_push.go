@@ -428,7 +428,7 @@ func validatePushedSessionID(id string) error {
 
 func validatePushedAgent(agent string) error {
 	switch agent {
-	case "claude-code", "codex", "cursor", "gemini", "antigravity", "hermes":
+	case "claude-code", "codex", "cursor", "gemini", "antigravity", "hermes", "grok-build":
 		return nil
 	case "":
 		return missingFields("session.agent")
@@ -455,7 +455,7 @@ func rawKey(deviceID, agent, sessionID string, started time.Time) string {
 
 func extForAgent(agent string) string {
 	switch agent {
-	case "claude-code", "codex", "hermes":
+	case "claude-code", "codex", "hermes", "grok-build":
 		return ".jsonl"
 	case "gemini":
 		return ".json"
