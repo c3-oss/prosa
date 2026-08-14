@@ -292,7 +292,7 @@ What `session.Turn` and `session.ToolUsage` surface for Cursor:
 The schema is closed-source and undocumented by Anysphere. Independent
 community parsers converge on the layout above:
 
-- [marcus/sidecar](https://github.com/marcus/sidecar/blob/main/docs/deprecated/guides/cursor-db-format-guide.md) — fullest single-file spec.
+- [marcus/sidecar](https://github.com/marcus/sidecar/blob/main/docs/guides/deprecated/cursor-db-format-guide.md) — fullest single-file spec.
 - [tyql688/cc-session](https://github.com/tyql688/cc-session/blob/master/CLAUDE.md) — Rust impl, the only public source documenting all three cursor session kinds (CLI / IDE Composer / ACP).
 - [Alakazam-211/K2SO](https://github.com/Alakazam-211/K2SO/blob/main/docs/cursor-chat-migration.md) — distinguishes IDE Composer (`workspaceStorage/<hash>/state.vscdb`) from CLI Agent (`~/.cursor/chats/<md5>/<uuid>/store.db`).
 - [OpenLAIR/dr-claw](https://github.com/OpenLAIR/dr-claw/blob/main/server/routes/cursor.js) — JS impl with the explicit `0x7B` JSON / `0x0A 0x20` protobuf classification.
