@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -581,6 +582,31 @@ func TestImportDropsMalformedAndTornLines(t *testing.T) {
 	require.NoError(t, err)
 	require.NotContains(t, string(raw), "broken json")
 	require.NotContains(t, string(raw), "torn lin")
+}
+
+// failingLastHashSink wraps the in-memory sink so LastHash fails,
+// proving Import surfaces sink errors instead of treating them as a
+// cache miss and re-preserving/re-writing the session.
+type failingLastHashSink struct {
+	*importertest.Sink
+}
+
+func (s *failingLastHashSink) LastHash(context.Context, string) (string, bool, error) {
+	return "", false, errors.New("sink unavailable")
+}
+
+func TestImportReturnsLastHashError(t *testing.T) {
+	t.Setenv("PROSA_HOME", t.TempDir())
+	root := t.TempDir()
+
+	summaryPath := writeSessionDir(t, root, encodedCwd, uuidA, defaultSummary(uuidA),
+		[]map[string]any{humanUser(0, "hi")},
+		[]map[string]any{turnCompleted(uuidA, "p", usageDelta(10, 5, 0, 0))})
+
+	sink := &failingLastHashSink{Sink: newSink()}
+	_, err := New().Import(context.Background(), summaryPath, sink, importer.ImportOptions{})
+	require.ErrorContains(t, err, "sink unavailable")
+	require.Empty(t, sink.Sessions)
 }
 
 func TestImportPrefersSummaryIDOverDirName(t *testing.T) {

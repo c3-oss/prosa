@@ -112,7 +112,11 @@ func (i *Importer) Import(ctx context.Context, summaryPath string, sink importer
 	hash, size := importerutil.HashProjectedLines(lines)
 
 	if !opts.Overwrite {
-		if prev, found, err := sink.LastHash(ctx, id); err == nil && found && prev == hash {
+		prev, found, err := sink.LastHash(ctx, id)
+		if err != nil {
+			return importer.ImportResult{}, fmt.Errorf("read last hash %s: %w", id, err)
+		}
+		if found && prev == hash {
 			return importer.ImportResult{
 				SessionID: id,
 				RawHash:   hash,
