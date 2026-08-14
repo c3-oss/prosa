@@ -75,12 +75,15 @@ informally. Prosa lets you have a conversation with your own work history.
   users are a known post-MVP direction; the schema reflects today's reality,
   not tomorrow's.
 - **Not a place that mutates your data.** Raw `.jsonl` from each agent is
-  preserved as-is, hash-addressed, never altered. When an agent's source is
-  a multi-session container (today: Hermes `state.db`), the raw artifact
-  per session is a canonical per-session JSONL projected from that
-  container — the only exception, taken because copying the container N
-  times has exhausted disk in real installs. Every other agent (one source
-  file per session) is preserved byte-for-byte.
+  preserved as-is, hash-addressed, never altered. Two source shapes carry
+  a canonical per-session JSONL **projection** instead of a verbatim copy:
+  multi-session containers (Hermes `state.db` — copying the container N
+  times has exhausted disk in real installs) and multi-file session
+  directories (Grok Build — a session spans summary, chat, and a usage
+  ledger, and no single file captures it). Projections are complete: every
+  source line that informs the canonical session, including usage/cost
+  provenance, lands in the projected artifact verbatim. Every other agent
+  (one source file per session) is preserved byte-for-byte.
 
 ---
 

@@ -16,6 +16,7 @@ change, the corresponding file here gets updated and the importer adapts.
 | Codex | [codex.md](codex.md) | `internal/importers/codex/` |
 | Cursor | [cursor.md](cursor.md) | `internal/importers/cursor/` |
 | Gemini CLI | [gemini.md](gemini.md) | `internal/importers/gemini/` |
+| Grok Build | [grok-build.md](grok-build.md) | `internal/importers/grokbuild/` |
 | Hermes | [hermes.md](hermes.md) | `internal/importers/hermes/` |
 
 ## What each file covers

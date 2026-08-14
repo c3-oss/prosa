@@ -12,8 +12,8 @@
 
 ![prosa-panel — Home dashboard](docs/panel/screenshots/home-overview.png)
 
-`prosa` turns scattered Claude Code, Codex, Cursor, Gemini, and Antigravity
-session histories into one local, searchable timeline. It is built around a
+`prosa` turns scattered Claude Code, Codex, Cursor, Gemini, Antigravity,
+and Grok Build session histories into one local, searchable timeline. It is built around a
 single load-bearing question:
 
 > **What did I work on in the last N days?**
@@ -107,7 +107,7 @@ Useful flags everywhere:
 - `--since 2026-01-01` — anchored lower bound, UTC.
 - `--between 2026-01-01..2026-03-15` — closed UTC range.
 - `--project <name>` — project filter.
-- `--agent claude-code|codex|cursor|gemini|antigravity|hermes` — agent filter.
+- `--agent claude-code|codex|cursor|gemini|antigravity|hermes|grok-build` — agent filter.
 - `--device <name-or-id>` — device filter; matches a device id or friendly name.
 - `--remote` — query the server instead of the local store.
 - `--json` — machine-readable NDJSON output.

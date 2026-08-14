@@ -21,8 +21,10 @@ server-side equivalent see [server.md](server.md).
     │   └── ...
     ├── gemini/
     │   └── ...
-    └── antigravity/
-        └── 2026/06/<session-id>.db        SQLite database, byte-identical
+    ├── antigravity/
+    │   └── 2026/06/<session-id>.db        SQLite database, byte-identical
+    └── grok-build/
+        └── 2026/08/<session-id>.jsonl     canonical projection of the session dir
 ```
 
 - **`store.db`** holds session metadata, the extracted turns for FTS, tool
@@ -118,7 +120,7 @@ fingerprint on first successful `prosa sync` via `RebindLocalSessions`.
 | Column | Type | Notes |
 | --- | --- | --- |
 | `id` | TEXT PRIMARY KEY | Agent-assigned session ID |
-| `agent` | TEXT | `claude-code`, `codex`, `cursor`, `gemini`, `antigravity`, `hermes` |
+| `agent` | TEXT | `claude-code`, `codex`, `cursor`, `gemini`, `antigravity`, `hermes`, `grok-build` |
 | `device_id` | TEXT FK | → `devices.id` |
 | `project_path` | TEXT NULL | cwd when discoverable |
 | `project_remote` | TEXT NULL | Git remote origin URL |

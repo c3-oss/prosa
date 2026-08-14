@@ -338,3 +338,66 @@ and a `sessions.json` index). The full reference is `docs/sources/hermes.md`.
 ### Implementation pointer
 
 `internal/importers/hermes/` matches the four-file shape, with a wider `parse.go`: `importer.go` dispatches on filename (`state.db`, `*.jsonl`, `session_*.json`); `walk.go` is non-recursive and yields the sibling `state.db` at `<root>/../state.db` plus top-level `.jsonl` and `session_*.json` files; `parse.go` opens SQLite with `mode=ro&immutable=1` for the multi-row state.db path, decodes JSONL with a `bufio.Scanner` for transcripts, and applies the message-count merge rule before each state.db row's projection; `raw.go` takes an explicit `ext` so the same state.db source produces N `<id>.db` raws (one per session id) without re-deriving the extension.
+
+## Grok Build
+
+Source: `~/.grok/sessions/<percent-encoded-cwd>/<uuidv7>/` — one directory per
+session holding `summary.json` (the import anchor), `chat_history.jsonl`, and
+`updates.jsonl`. The full reference is `docs/sources/grok-build.md`.
+
+### `session.Session`
+
+| Field | Source |
+|---|---|
+| `ID` | `summary.info.id`; fallback: session directory basename (mismatch is logged, `info.id` wins) |
+| `Agent` | constant `"grok-build"` |
+| `DeviceID` | `device.IDOnce()` |
+| `ProjectPath` | `summary.info.cwd`; fallback: `url.PathUnescape` of the project directory name |
+| `ProjectRemote` | pre-filled from `summary.git_remotes[0]`, then `projectid.Apply` overrides when the cwd still resolves a live remote |
+| `StartedAt` | `summary.created_at` |
+| `LastActivityAt` | `summary.last_active_at`; fallback `updated_at`, then `created_at` |
+| `FirstPrompt` | first human user chat line (`prompt_index` present, `synthetic_reason` absent), `<user_query>` wrapper stripped, through `sessiontext.BuildFirstPrompt` (200 runes) |
+| `Model` | `summary.current_model_id` (`grok-4.5`, `grok-4.6`; the per-record `-build` variants price via prefix fallback) |
+| `ParentSessionID` | when `summary.session_kind == "subagent"`: `parent_session_id` from the sibling `*/subagents/<child-id>/meta.json` (project dir first, sessions root fallback) |
+| `Usage` | sum of `turn_completed` deltas in `updates.jsonl`, excluding `subagent-completed-*` aggregates. `CacheRead`/`Cached` = `cachedReadTokens`; `CacheCreation` = `cacheCreationTokens`; `Total` falls back to input+output |
+| `RawPath` / `RawHash` / `RawSize` | canonical projection at `$PROSA_HOME/raw/grok-build/<YYYY>/<MM>/<session-id>.jsonl`: compacted `summary.json` line, optional `subagent_meta` line, every `chat_history.jsonl` line verbatim, every `turn_completed` update line verbatim. The pre-write projection hash is the dedup key, the sync hash, and `RawHash` — all three identical |
+
+### `session.Turn`
+
+Chat records carry no timestamps; every turn is stamped with `created_at`
+(store ordering `ts ASC, id ASC` preserves insertion order).
+
+| Role | Source |
+|---|---|
+| `user` | human user lines only (`prompt_index` present, `synthetic_reason` absent); `content` text blocks concatenated, `<user_query>` stripped. Synthetic and injected user lines are skipped |
+| `assistant` | assistant lines with non-empty `content` string → `KindMessage`. Tool calls are processed independently of content, so content-empty tool-calling records still count tools without emitting a turn |
+| `assistant` (thinking) | `reasoning` lines: `summary[].type=="summary_text"` texts concatenated → `KindThinking`, preview-truncated; empty summaries yield no turn |
+| `tool` | `tool_result` lines → `KindToolResult`, preview-truncated, `ToolName` resolved via the `tool_call_id` → call-name map |
+
+### `session.ToolUsage`
+
+| Field | Source |
+|---|---|
+| `Name` | assistant `tool_calls[].name`; `backend_tool_call` records count under `kind.tool_type` (e.g. `web_search`) |
+| `Count` | aggregated per name within the session |
+
+### Excluded
+
+- `system` chat lines, synthetic/injected user lines, unknown chat record
+  types (open set — warned and skipped, preserved in raw).
+- `events.jsonl`, `signals.json`, `terminal/`, lock files, project-level
+  `prompt_history.jsonl`, and the `session_search.sqlite` index.
+- `updates.jsonl` lines other than `turn_completed`.
+- `subagent-completed-*` usage aggregates (the child session's own ledger
+  carries them; the parent's regular turns still fold child model calls
+  into their totals — the fleet-level double count is accepted, as with
+  Claude Code sidechains).
+
+### Implementation pointer
+
+`internal/importers/grokbuild/` is bespoke (hermes-style) because a session
+is a multi-file directory: `walk.go` anchors on `summary.json` at exactly
+depth 3 with a uuid-shaped parent dir; `importer.go` builds the raw
+projection in memory, hashes it before any write (`importerutil.HashProjectedLines`),
+and preserves it via `importerutil.PreserveProjectedJSONL`; `parse.go` owns
+the chat/usage decoding, including grok's own content-block shapes.
