@@ -75,6 +75,26 @@ func TestPreserveProjectedJSONL(t *testing.T) {
 	require.Equal(t, int64(len(got)), size)
 }
 
+func TestHashProjectedLinesMatchesPreservedBytes(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	lines := []json.RawMessage{
+		json.RawMessage(`{"type":"session_summary","data":{"id":"s"}}`),
+		json.RawMessage(`{"type":"user","content":"hi"}`),
+	}
+	hash, size := HashProjectedLines(lines)
+
+	_, wroteHash, wroteSize, err := PreserveProjectedJSONL("test-agent", "session-h", time.Now(), lines)
+	require.NoError(t, err)
+	require.Equal(t, wroteHash, hash)
+	require.Equal(t, wroteSize, size)
+
+	emptyHash, emptySize := HashProjectedLines(nil)
+	sum := sha256.Sum256(nil)
+	require.Equal(t, hex.EncodeToString(sum[:]), emptyHash)
+	require.Equal(t, int64(0), emptySize)
+}
+
 func TestPreserveProjectedJSONLEmpty(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 
