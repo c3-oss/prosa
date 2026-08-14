@@ -407,8 +407,12 @@ func truncateWidth(s string, n int) string {
 }
 
 func agentLabel(agent string) string {
-	if agent == "claude-code" {
+	switch agent {
+	case "claude-code":
 		return "claude"
+	case "grok-build":
+		return "grok"
+	default:
+		return agent
 	}
-	return agent
 }

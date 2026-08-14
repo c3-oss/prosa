@@ -67,6 +67,14 @@ multi-session `.db` file. See `docs/sources/hermes.md` for the projection
 contract and issue #235 for the disk-exhaustion failure mode that drove
 the projection.
 
+Grok Build is bespoke for the inverse reason: one session spans **many
+source files** (`summary.json`, `chat_history.jsonl`, `updates.jsonl`,
+optional subagent `meta.json`). Its raw artifact is a canonical projection
+of those files, hashed in memory (`importerutil.HashProjectedLines`)
+before preservation so the dedup key, the sync hash, and `RawHash` are the
+same value — a requirement of the server's `validateRawIntegrity` check,
+which compares `sha256(raw artifact)` against the pushed `RawHash`.
+
 ## Idempotency contract
 
 An importer must:
@@ -108,7 +116,15 @@ Side effects an importer must perform:
 
 - **Preserve the raw** — copy the source `.jsonl` byte-for-byte into
   `paths.RawRoot(agent)/<YYYY>/<MM>/<session-id>.jsonl`. The hash must
-  match what was on disk.
+  match what was on disk. Two source shapes are authorized to preserve a
+  **canonical per-session JSONL projection** instead of a verbatim copy:
+  multi-session containers (Hermes `state.db` — copying the container per
+  session exhausts disk) and multi-file session directories (Grok Build —
+  a single file cannot carry the session, and usage/cost provenance lives
+  only in `updates.jsonl`). In both cases `RawHash` describes the
+  projected artifact, and `sync --overwrite` re-imports from the source
+  roots, never from raw — the projection is about raw completeness, not
+  rebuildability.
 - **Never alter the source** — prosa does not delete, rename, or rewrite
   the agent's files.
 
@@ -175,6 +191,7 @@ is the `default` profile's scan root; other profiles scan
 | `gemini` | `internal/importers/gemini/` | `~/.gemini/tmp/` |
 | `antigravity` | `internal/importers/antigravity/` | `~/.gemini/antigravity-cli/conversations/` |
 | `hermes` | `internal/importers/hermes/` | `~/.hermes/sessions/` |
+| `grok-build` | `internal/importers/grokbuild/` | `~/.grok/sessions/` |
 
 For per-agent source format details, see [`../sources/`](../sources/).
 
@@ -196,8 +213,8 @@ stored in `sessions.profile`, pushed to the server, and queryable by
 
 A new importer needs no profile-specific code beyond implementing
 `RootsUnder`. `importerutil.RunSingleFile` stamps `opts.Profile` onto the
-session automatically; bespoke importers (Hermes `state.db`) stamp it
-themselves.
+session automatically; bespoke importers (Hermes `state.db`, Grok Build)
+stamp it themselves.
 
 ## Adding a new importer
 

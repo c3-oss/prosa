@@ -17,7 +17,8 @@ A short wizard:
    **Authorize this device**; the CLI captures the callback on localhost).
 3. Detection of local agent histories (`~/.claude/projects`,
    `~/.codex/sessions`, `~/.cursor/`, `~/.gemini/`,
-   `~/.gemini/antigravity-cli/conversations/`).
+   `~/.gemini/antigravity-cli/conversations/`, `~/.hermes/sessions/`,
+   `~/.grok/sessions/`).
 4. Scheduled sync install (LaunchAgent on macOS, systemd user timer on
    Linux). Default interval: 15 minutes.
 5. The first scan (opt-in; you can skip it and run `prosa sync` later).
@@ -180,7 +181,7 @@ subcommand):
 | `--between <A..B>` | | Closed UTC range. Both ends `YYYY-MM-DD`, separated by `..`. |
 | `--project <name>` | | Convenience substring filter. Matches `project_path`, `project_remote`, or `project_marker` — so `--project movaincentivo` finds sessions captured under any of the three. Because this is substring matching, large stores should prefer cwd auto-scoping when possible; auto-scoping uses exact project identity filters. |
 | `--device <name-or-id>` | | Match a device friendly name or id. |
-| `--agent <name>` | | One of `claude-code`, `codex`, `cursor`, `gemini`, `antigravity`, `hermes`. |
+| `--agent <name>` | | One of `claude-code`, `codex`, `cursor`, `gemini`, `antigravity`, `hermes`, `grok-build`. |
 | `--profile <name>` | | Match `sessions.profile` exactly (e.g. `default`, `work`). |
 | `--all` | | Drop the auto cwd-based project scoping. |
 | `--remote` | | Query the server instead of the local store. |

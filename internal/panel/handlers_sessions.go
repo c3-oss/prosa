@@ -22,7 +22,7 @@ import (
 // the Sessions filter dropdown. Mirrors the slice used inline in
 // handleAnalytics; declared here so we don't have to widen the
 // analytics handler's signature just to share it.
-var panelAgents = []string{"codex", "claude-code", "gemini", "antigravity", "hermes", "cursor"}
+var panelAgents = []string{"codex", "claude-code", "gemini", "antigravity", "hermes", "cursor", "grok-build"}
 
 // panelKinds is the special-session classification list the Sessions
 // Kind filter exposes. Order matches the badge precedence the template

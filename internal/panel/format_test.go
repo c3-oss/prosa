@@ -10,6 +10,7 @@ func TestDisplayAgent(t *testing.T) {
 		{"antigravity", "Antigravity"},
 		{"hermes", "Hermes"},
 		{"cursor", "Cursor"},
+		{"grok-build", "Grok Build"},
 		{"", ""},
 	}
 	for _, c := range cases {

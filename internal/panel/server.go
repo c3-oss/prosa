@@ -330,6 +330,8 @@ func agentShortLabel(agent string) string {
 		return "claude"
 	case "antigravity":
 		return "antigrav"
+	case "grok-build":
+		return "grok"
 	default:
 		return agent
 	}

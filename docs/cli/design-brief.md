@@ -6,8 +6,9 @@
 
 > What did I work on in the last few days?
 
-It imports local sessions from AI coding agents — Codex, Claude Code,
-Cursor, Gemini — and consolidates them into a single, searchable timeline.
+It imports local sessions from AI coding agents — Claude Code, Codex,
+Cursor, Gemini, Antigravity, Hermes, Grok Build — and consolidates them
+into a single, searchable timeline.
 The user is not trying to manage chats; they want to recover work context
 fast.
 

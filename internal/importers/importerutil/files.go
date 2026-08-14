@@ -88,6 +88,25 @@ func PreserveRaw(agent, sessionID, ext string, startedAt time.Time, srcPath stri
 	return dst, nil
 }
 
+// HashProjectedLines returns the sha256 and byte size of the exact bytes
+// PreserveProjectedJSONL would write for lines — '\n'-joined, no trailing
+// newline. Importers that need the projection hash before writing (dedup
+// against sink.LastHash) use this so the pre-write hash and the preserved
+// artifact's hash are guaranteed identical.
+func HashProjectedLines(lines []json.RawMessage) (string, int64) {
+	h := sha256.New()
+	var size int64
+	for i, line := range lines {
+		if i > 0 {
+			h.Write([]byte{'\n'})
+			size++
+		}
+		h.Write(line)
+		size += int64(len(line))
+	}
+	return hex.EncodeToString(h.Sum(nil)), size
+}
+
 func OpenSQLiteReadOnly(path string) (*sql.DB, error) {
 	dsn := "file:" + url.PathEscape(path) + "?mode=ro&immutable=1"
 	return sql.Open("sqlite", dsn)

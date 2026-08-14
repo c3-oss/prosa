@@ -573,6 +573,8 @@
 .feed-dot[data-agent="antigravity"],
 .feed-dot[data-agent="antigrav"] { background: var(--agent-antigrav); }
 .feed-dot[data-agent="hermes"] { background: var(--agent-hermes); }
+.feed-dot[data-agent="grok-build"],
+.feed-dot[data-agent="grok"] { background: var(--agent-grok); }
 
 @media (max-width: 760px) {
   .feed-row {

@@ -80,6 +80,8 @@
   --agent-antigrav-soft: #f06bcd26;
   --agent-hermes: #5be0d6;
   --agent-hermes-soft: #5be0d626;
+  --agent-grok: #e05252;
+  --agent-grok-soft: #e0525226;
 
   /* Categorical chart palette — warm-neutral + petrol, legible on the
      warm-dark bg. Charts-init.js reads these tokens. */
@@ -161,6 +163,8 @@
   --agent-antigrav-soft: #c0288f1f;
   --agent-hermes: #0e9b90;
   --agent-hermes-soft: #0e9b901f;
+  --agent-grok: #e05252;
+  --agent-grok-soft: #e052521f;
 
   /* Canonical Okabe–Ito hues, tuned for the white --bg: yellow and grey
      are darkened so they keep contrast on light surfaces. */
@@ -203,6 +207,8 @@
     --agent-antigrav-soft: #c0288f1f;
     --agent-hermes: #0e9b90;
     --agent-hermes-soft: #0e9b901f;
+    --agent-grok: #e05252;
+    --agent-grok-soft: #e052521f;
 
     --chart-1: #56b4e9;
     --chart-2: #e69f00;
@@ -306,6 +312,8 @@
   --agent-antigrav-soft: #c0288f1f;
   --agent-hermes: #0e9b90;
   --agent-hermes-soft: #0e9b901f;
+  --agent-grok: #e05252;
+  --agent-grok-soft: #e052521f;
 
   --chart-1: #268bd2;
   --chart-2: #b58900;

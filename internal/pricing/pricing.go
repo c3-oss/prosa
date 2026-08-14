@@ -104,11 +104,16 @@ var ratesByModel = map[string][]ratePeriod{
 	"gemini-3.1-pro":         fixed(Rates{Input: 2.0e-6, Output: 1.2e-5, CacheRead: 2.0e-7}),
 	"gemini-3.5-flash":       fixed(Rates{Input: 1.5e-6, Output: 9.0e-6, CacheRead: 1.5e-7}),
 
-	// xAI — Grok generation.
+	// xAI — Grok generation. Grok Build emits `-build` model ids
+	// (grok-4.5-build) that resolve via the longest-prefix fallback.
+	// The ≥200K-context 2x surcharge is not modelled — same documented
+	// approximation as the Gemini context tiers.
 	"grok-code-fast-1": {
 		{Rates: Rates{Input: 2.0e-7, Output: 1.5e-6, CacheRead: 2.0e-8}},
 		{From: grokCodeFast1RetiredFrom, Rates: Rates{Input: 1.25e-6, Output: 2.5e-6, CacheRead: 2.0e-7}},
 	},
+	"grok-4.5": fixed(Rates{Input: 2.0e-6, Output: 6.0e-6, CacheRead: 3.0e-7}),
+	"grok-4.6": fixed(Rates{Input: 2.0e-6, Output: 6.0e-6, CacheRead: 5.0e-7}),
 
 	// Z.AI — GLM generation. Cached-input storage is currently free.
 	"glm-4.7":     fixed(Rates{Input: 6.0e-7, Output: 2.2e-6, CacheRead: 1.1e-7}),

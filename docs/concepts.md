@@ -13,8 +13,8 @@ stopped or moved on.
 Every session has:
 
 - a **stable ID** assigned by the source agent (Claude Code, Codex, Cursor,
-  Gemini, Antigravity, Hermes) — prosa never invents one;
-- an **agent** name (`claude-code`, `codex`, `cursor`, `gemini`, `antigravity`, `hermes`);
+  Gemini, Antigravity, Hermes, Grok Build) — prosa never invents one;
+- an **agent** name (`claude-code`, `codex`, `cursor`, `gemini`, `antigravity`, `hermes`, `grok-build`);
 - a **device** it ran on (see [Device identity](#device-identity));
 - a **project context** (see [Project identity](#project-identity));
 - a **timestamp** for start and last activity;
@@ -192,7 +192,8 @@ including the analytics around the work.
 Specifically in scope:
 
 - Three Go binaries: `prosa`, `prosa-server`, `prosa-panel`.
-- Importers for Claude Code, Codex, Cursor, Gemini.
+- Importers for Claude Code, Codex, Cursor, Gemini, Antigravity, Hermes,
+  and Grok Build.
 - Single-user auth (PKCE + localhost callback for CLI, OAuth + whitelist for panel).
 - Push-only sync, idempotent by sha256.
 - Chronological timeline with project/agent/device/time filters.

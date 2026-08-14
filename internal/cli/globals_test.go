@@ -41,7 +41,7 @@ func TestValidateGlobalsAgentKnown(t *testing.T) {
 
 	invalid := newRootCmd()
 	require.NoError(t, invalid.ParseFlags([]string{"--agent", "banana"}))
-	require.ErrorContains(t, validateGlobals(invalid), `--agent: unknown agent "banana"; expected one of (claude-code, codex, cursor, gemini, antigravity, hermes)`)
+	require.ErrorContains(t, validateGlobals(invalid), `--agent: unknown agent "banana"; expected one of (claude-code, codex, cursor, gemini, antigravity, hermes, grok-build)`)
 }
 
 // The combination is rejected through the command's PersistentPreRunE, so
@@ -71,5 +71,5 @@ func TestRootRejectsUnknownAgentEndToEnd(t *testing.T) {
 	cmd.SetErr(io.Discard)
 
 	err := cmd.Execute()
-	require.ErrorContains(t, err, `--agent: unknown agent "banana"; expected one of (claude-code, codex, cursor, gemini, antigravity, hermes)`)
+	require.ErrorContains(t, err, `--agent: unknown agent "banana"; expected one of (claude-code, codex, cursor, gemini, antigravity, hermes, grok-build)`)
 }

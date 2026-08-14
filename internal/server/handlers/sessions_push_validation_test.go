@@ -38,7 +38,7 @@ func TestValidatePushedSessionID(t *testing.T) {
 }
 
 func TestValidatePushedAgent(t *testing.T) {
-	for _, agent := range []string{"claude-code", "codex", "cursor", "gemini", "antigravity", "hermes"} {
+	for _, agent := range []string{"claude-code", "codex", "cursor", "gemini", "antigravity", "hermes", "grok-build"} {
 		t.Run("valid "+agent, func(t *testing.T) {
 			require.NoError(t, validatePushedAgent(agent))
 		})
