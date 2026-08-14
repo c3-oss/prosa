@@ -17,7 +17,8 @@ A short wizard:
    **Authorize this device**; the CLI captures the callback on localhost).
 3. Detection of local agent histories (`~/.claude/projects`,
    `~/.codex/sessions`, `~/.cursor/`, `~/.gemini/`,
-   `~/.gemini/antigravity-cli/conversations/`, `~/.grok/sessions/`).
+   `~/.gemini/antigravity-cli/conversations/`, `~/.hermes/sessions/`,
+   `~/.grok/sessions/`).
 4. Scheduled sync install (LaunchAgent on macOS, systemd user timer on
    Linux). Default interval: 15 minutes.
 5. The first scan (opt-in; you can skip it and run `prosa sync` later).

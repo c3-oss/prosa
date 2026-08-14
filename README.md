@@ -13,8 +13,8 @@
 ![prosa-panel — Home dashboard](docs/panel/screenshots/home-overview.png)
 
 `prosa` turns scattered Claude Code, Codex, Cursor, Gemini, Antigravity,
-and Grok Build session histories into one local, searchable timeline. It is built around a
-single load-bearing question:
+Hermes, and Grok Build session histories into one local, searchable
+timeline. It is built around a single load-bearing question:
 
 > **What did I work on in the last N days?**
 
