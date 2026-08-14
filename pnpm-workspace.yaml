@@ -3,3 +3,5 @@ onlyBuiltDependencies:
 
 overrides:
   js-yaml@<=4.1.1: '>=4.2.0'
+  js-yaml@<=5.2.1: '>=5.2.2'
+  fast-uri@<3.1.5: '^3.1.5'
