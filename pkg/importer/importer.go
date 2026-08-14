@@ -18,9 +18,9 @@ type Source struct {
 	Root  string
 }
 
-// ImportResult is the per-file outcome. Skipped == true means the file's
-// sha256 matched the recorded sync_state and the import short-circuited
-// without parsing or rewriting the raw copy.
+// ImportResult is the outcome of one Import call. Skipped == true means
+// the raw artifact's sha256 matched the recorded sync_state and the
+// import short-circuited without rewriting the raw copy.
 type ImportResult struct {
 	SessionID string
 	RawPath   string
@@ -65,7 +65,9 @@ type Importer interface {
 	// Walk discovers session files under root.
 	Walk(ctx context.Context, root string) ([]string, error)
 
-	// Import parses a single JSONL file and writes the projection through sink.
+	// Import parses one session anchor — an agent-defined path yielded by
+	// Walk (a JSONL transcript, a SQLite file, or a session directory's
+	// summary file) — and writes the projection through sink.
 	Import(ctx context.Context, jsonlPath string, sink Sink, opts ImportOptions) (ImportResult, error)
 }
 

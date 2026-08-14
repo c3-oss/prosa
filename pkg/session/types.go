@@ -6,8 +6,9 @@ package session
 import "time"
 
 // Session is the unit prosa lists in its timeline and stores as one row in
-// the local SQLite metadata table. The raw transcript (always preserved
-// verbatim) is reachable via RawPath.
+// the local SQLite metadata table. The preserved raw artifact — the verbatim
+// source file, or a canonical projection for the authorized multi-session /
+// multi-file sources — is reachable via RawPath.
 type Session struct {
 	// ID is the agent-assigned session id (e.g. Claude Code's UUID
 	// filename). Stable across re-imports of the same file.
@@ -52,14 +53,16 @@ type Session struct {
 	// Model is the assistant model name encountered first ("claude-sonnet-4-6", ...).
 	Model *string
 
-	// RawPath is the absolute path where the preserved verbatim JSONL lives.
+	// RawPath is the absolute path where the preserved raw artifact lives:
+	// the verbatim source file, or the canonical per-session projection for
+	// the authorized multi-session / multi-file sources.
 	RawPath string
 
-	// RawHash is sha256 of the source file contents at import time. Drives
-	// idempotency: re-importing a file with the same hash is a no-op.
+	// RawHash is sha256 of the preserved raw artifact at import time. Drives
+	// idempotency: re-importing an unchanged session is a no-op.
 	RawHash string
 
-	// RawSize is the byte size of the source file at import time.
+	// RawSize is the byte size of the preserved raw artifact at import time.
 	RawSize int64
 
 	// Usage is the token consumption reported by the source agent, when
