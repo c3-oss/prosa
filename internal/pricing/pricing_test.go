@@ -165,6 +165,10 @@ func TestLookupKnownModelsFromRealStore(t *testing.T) {
 		{"glm-4.5-air", Rates{Input: 2.0e-7, Output: 1.1e-6, CacheRead: 3.0e-8}},
 
 		{"grok-code-fast-1", Rates{Input: 1.25e-6, Output: 2.5e-6, CacheRead: 2.0e-7}},
+		{"grok-4.5", Rates{Input: 2.0e-6, Output: 6.0e-6, CacheRead: 3.0e-7}},
+		// Grok Build's -build variant resolves via the prefix fallback.
+		{"grok-4.5-build", Rates{Input: 2.0e-6, Output: 6.0e-6, CacheRead: 3.0e-7}},
+		{"grok-4.6", Rates{Input: 2.0e-6, Output: 6.0e-6, CacheRead: 5.0e-7}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.model, func(t *testing.T) {
