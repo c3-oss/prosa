@@ -30,6 +30,13 @@ var (
 	// xAI retired the grok-code-fast-1 slug on this date. Requests still
 	// resolve, but bill at grok-4.3 rates.
 	grokCodeFast1RetiredFrom = time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC)
+
+	// OpenAI cut Terra by 20% and Luna by 80% on this date.
+	gpt56TerraLunaCutFrom = time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC)
+
+	// Sol's promotional rate, announced 2026-08-21 and running at least
+	// through 2026-11-21. No reversion period until OpenAI ends the promo.
+	gpt56SolPromoFrom = time.Date(2026, 8, 21, 0, 0, 0, 0, time.UTC)
 )
 
 func fixed(r Rates) []ratePeriod {
@@ -86,10 +93,18 @@ var ratesByModel = map[string][]ratePeriod{
 	"gpt-5.5-pro":         fixed(Rates{Input: 3.0e-5, Output: 1.8e-4}),
 
 	// GPT-5.6 is the first OpenAI family to bill cache writes separately.
-	"gpt-5.6-sol":   fixed(Rates{Input: 5.0e-6, Output: 3.0e-5, CacheRead: 5.0e-7, CacheCreation: 6.25e-6}),
-	"gpt-5.6-terra": fixed(Rates{Input: 2.5e-6, Output: 1.5e-5, CacheRead: 2.5e-7, CacheCreation: 3.125e-6}),
-	"gpt-5.6-luna":  fixed(Rates{Input: 1.0e-6, Output: 6.0e-6, CacheRead: 1.0e-7, CacheCreation: 1.25e-6}),
-
+	"gpt-5.6-sol": {
+		{Rates: Rates{Input: 5.0e-6, Output: 3.0e-5, CacheRead: 5.0e-7, CacheCreation: 6.25e-6}},
+		{From: gpt56SolPromoFrom, Rates: Rates{Input: 4.0e-6, Output: 2.0e-5, CacheRead: 4.0e-7, CacheCreation: 5.0e-6}},
+	},
+	"gpt-5.6-terra": {
+		{Rates: Rates{Input: 2.5e-6, Output: 1.5e-5, CacheRead: 2.5e-7, CacheCreation: 3.125e-6}},
+		{From: gpt56TerraLunaCutFrom, Rates: Rates{Input: 2.0e-6, Output: 1.2e-5, CacheRead: 2.0e-7, CacheCreation: 2.5e-6}},
+	},
+	"gpt-5.6-luna": {
+		{Rates: Rates{Input: 1.0e-6, Output: 6.0e-6, CacheRead: 1.0e-7, CacheCreation: 1.25e-6}},
+		{From: gpt56TerraLunaCutFrom, Rates: Rates{Input: 2.0e-7, Output: 1.2e-6, CacheRead: 2.0e-8, CacheCreation: 2.5e-7}},
+	},
 	// OpenAI — o-series reasoning models.
 	"o3": fixed(Rates{Input: 2.0e-6, Output: 8.0e-6, CacheRead: 5.0e-7}),
 
