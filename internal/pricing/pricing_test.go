@@ -95,6 +95,11 @@ func TestLookupPricesGPT56FamilyByDate(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, Rates{Input: 4.0e-6, Output: 2.0e-5, CacheRead: 4.0e-7, CacheCreation: 5.0e-6}, solPromo)
 
+	// The Daybreak alias must track Sol through every period.
+	daybreak, ok := Lookup("gpt-daybreak-blue-latest", gpt56SolPromoFrom)
+	require.True(t, ok)
+	require.Equal(t, solPromo, daybreak)
+
 	preCut := time.Date(2026, 7, 29, 23, 59, 59, 0, time.UTC)
 
 	terraLaunch, ok := Lookup("gpt-5.6-terra", preCut)
@@ -170,6 +175,11 @@ func TestLookupKnownModelsFromRealStore(t *testing.T) {
 		{"gpt-5.6-terra", Rates{Input: 2.5e-6, Output: 1.5e-5, CacheRead: 2.5e-7, CacheCreation: 3.125e-6}},
 		{"gpt-5.6-terra-high", Rates{Input: 2.5e-6, Output: 1.5e-5, CacheRead: 2.5e-7, CacheCreation: 3.125e-6}},
 		{"gpt-5.6-luna", Rates{Input: 1.0e-6, Output: 6.0e-6, CacheRead: 1.0e-7, CacheCreation: 1.25e-6}},
+		// Daybreak program alias for Sol; Codex records the -latest form,
+		// which resolves via the prefix fallback.
+		{"gpt-daybreak-blue", Rates{Input: 5.0e-6, Output: 3.0e-5, CacheRead: 5.0e-7, CacheCreation: 6.25e-6}},
+		{"gpt-daybreak-blue-latest", Rates{Input: 5.0e-6, Output: 3.0e-5, CacheRead: 5.0e-7, CacheCreation: 6.25e-6}},
+
 		{"gemini-2.5-pro", Rates{Input: 1.25e-6, Output: 1.0e-5, CacheRead: 1.25e-7}},
 		{"gemini-2.5-flash", Rates{Input: 3.0e-7, Output: 2.5e-6, CacheRead: 3.0e-8}},
 		{"gemini-2.5-flash-lite", Rates{Input: 1.0e-7, Output: 4.0e-7, CacheRead: 1.0e-8}},
