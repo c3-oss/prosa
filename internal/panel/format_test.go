@@ -34,6 +34,9 @@ func TestDisplayModel(t *testing.T) {
 		{"gpt-5.5", "GPT-5.5"},
 		{"gpt-5.4", "GPT-5.4"},
 		{"gpt-5.3-codex", "GPT-5.3 Codex"},
+		{"gpt-5-chat-latest", "GPT-5 Chat"}, // trailing "latest" dropped
+		{"gpt-daybreak-blue", "GPT-Daybreak Blue"},
+		{"gpt-daybreak-blue-latest", "GPT-Daybreak Blue"},
 		{"gemini-2.5-pro", "Gemini 2.5 Pro"},
 		{"gemini-2.0-flash", "Gemini 2.0 Flash"},
 		{"  claude-opus-4-8  ", "Opus 4.8"}, // trimmed

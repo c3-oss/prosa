@@ -78,6 +78,7 @@ func formatCompactDecimal(v float64) string {
 //	claude-3-5-sonnet          → "Sonnet 3.5"  (older ordering)
 //	gpt-5.5                    → "GPT-5.5"
 //	gpt-5.3-codex              → "GPT-5.3 Codex"
+//	gpt-daybreak-blue-latest   → "GPT-Daybreak Blue" (trailing "latest" dropped)
 //	gemini-2.5-pro             → "Gemini 2.5 Pro"
 //	"" / "(none)"              → "(none)"
 func displayModel(raw string) string {
@@ -112,8 +113,9 @@ func displayModel(raw string) string {
 		return tier + " " + strings.Join(ver, ".")
 
 	case strings.HasPrefix(low, "gpt-"):
-		segs := strings.SplitN(s[len("gpt-"):], "-", 2)
-		out := "GPT-" + segs[0]
+		tail := strings.TrimSuffix(s[len("gpt-"):], "-latest")
+		segs := strings.SplitN(tail, "-", 2)
+		out := "GPT-" + titleWord(segs[0])
 		if len(segs) == 2 && segs[1] != "" {
 			out += " " + titleWords(segs[1])
 		}
