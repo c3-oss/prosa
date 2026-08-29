@@ -230,6 +230,10 @@ metadata-rich version with tool-call summaries.
 
 ## Notes for prosa importers
 
+- Claude Code appends to the transcript while the session runs, so a torn
+  write occasionally leaves a line cut mid-token. Such lines are skipped,
+  as are blank lines; the file earns one warning carrying the count, the
+  first offending line, and the first parse error.
 - Walk `*.jsonl` directly. `sessions-index.json` is a hint, never the
   source of truth.
 - Subagents are the majority of files in active workspaces. Include

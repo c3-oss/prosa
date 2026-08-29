@@ -38,12 +38,8 @@ func runSyncInteractive(
 	}
 	updates := make(chan spinner.Update, len(work)*2+16)
 
-	// Scope log suppression to the pusher's logger, not the process-global slog
-	// default, so only reconcile chatter is silenced during Bubble Tea repaints.
 	var suppressedWarnings atomic.Int64
-	if push != nil {
-		push.logger = slog.New(warningCounterHandler{count: &suppressedWarnings})
-	}
+	opts = quietSyncLogging(opts, push, &suppressedWarnings)
 
 	go func() {
 		defer close(updates)
@@ -240,6 +236,22 @@ func runSyncPlain(ctx context.Context, work []syncJob, sink importer.Sink, push 
 		}
 	}
 	return nil
+}
+
+// quietSyncLogging points the pusher and every importer at a logger that
+// tallies warn-level records instead of writing them. Bubble Tea repaints
+// by cursor-up over its own frame on stdout, so an unrelated stderr write
+// mid-frame desyncs that line accounting and smears the output. The tally
+// surfaces afterwards in the summary; the plain and JSON paths keep
+// slog.Default(). Scoped per call — the process-global default is never
+// swapped.
+func quietSyncLogging(opts importer.ImportOptions, push *pusher, count *atomic.Int64) importer.ImportOptions {
+	quiet := slog.New(warningCounterHandler{count: count})
+	if push != nil {
+		push.logger = quiet
+	}
+	opts.Logger = quiet
+	return opts
 }
 
 // localItemErr returns what the spinner shows on a local-phase row.

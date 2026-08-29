@@ -104,8 +104,15 @@ bytes. This keeps them testable and keeps each command file small.
   spinner, no in-place updates. The scheduler invokes prosa this way, so
   this is the default for the production install.
 
-The fallback decision lives in `internal/cli/sync.go` and looks at whether
-`stderr` is a TTY (not stdout — sync writes its summary to stdout).
+The fallback decision lives in `internal/cli/sync.go` and requires both
+`stdout` and `stderr` to be TTYs (`IsInteractive` in `internal/cli/term.go`).
+Sync writes its summary to `stderr`, keeping `stdout` free for piped output.
+
+The interactive branch owns the terminal for the duration of the frame, so
+it swaps the *scoped* loggers of the pusher and of every importer
+(`opts.Logger`) for one that tallies warn-level records; the count is
+reported in the summary afterwards. The process-global `slog` default is
+never touched.
 
 ## Store access
 

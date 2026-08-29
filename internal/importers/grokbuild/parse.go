@@ -90,7 +90,7 @@ const subagentCompletedPrefix = "subagent-completed-"
 // file. Malformed or torn lines are warned and dropped so they never
 // reach the raw projection (a torn tail would change on the next append
 // anyway). A missing file returns nil with no error.
-func readJSONLines(path string) ([]json.RawMessage, error) {
+func readJSONLines(path string, log *slog.Logger) ([]json.RawMessage, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -105,6 +105,8 @@ func readJSONLines(path string) ([]json.RawMessage, error) {
 
 	var out []json.RawMessage
 	line := 0
+	malformed := 0
+	malformedAt := 0
 	for sc.Scan() {
 		line++
 		b := sc.Bytes()
@@ -112,14 +114,23 @@ func readJSONLines(path string) ([]json.RawMessage, error) {
 			continue
 		}
 		if !json.Valid(b) {
-			slog.Warn("grok-build: malformed JSONL line dropped", "path", path, "line", line)
+			malformed++
+			if malformedAt == 0 {
+				malformedAt = line
+			}
 			continue
 		}
 		out = append(out, json.RawMessage(append([]byte(nil), b...)))
 	}
+	// One record per file, not per line: a torn write can cut a line
+	// mid-token, and a truncated file can cut many.
+	if malformed > 0 {
+		log.Warn("grok-build: malformed JSONL lines dropped",
+			"path", path, "count", malformed, "first_line", malformedAt)
+	}
 	if err := sc.Err(); err != nil {
 		if errors.Is(err, bufio.ErrTooLong) {
-			slog.Warn("grok-build: JSONL line exceeded 16 MiB scan buffer; partial file",
+			log.Warn("grok-build: JSONL line exceeded 16 MiB scan buffer; partial file",
 				"path", path, "line", line+1)
 			return out, nil
 		}
@@ -187,14 +198,14 @@ func sumUsage(recs []updateRecord) (usage *session.TokenUsage, seenUsage bool) {
 // counters, and the first human prompt. Chat records carry no
 // timestamps, so every turn is stamped with the session's created_at —
 // the store orders by (ts, id) so insertion order is preserved.
-func projectChat(lines []json.RawMessage, createdAt time.Time) (turns []session.Turn, toolCounts map[string]int, firstPrompt *string) {
+func projectChat(lines []json.RawMessage, createdAt time.Time, log *slog.Logger) (turns []session.Turn, toolCounts map[string]int, firstPrompt *string) {
 	toolCounts = map[string]int{}
 	callIDToName := map[string]string{}
 
 	for n, line := range lines {
 		var r chatRecord
 		if err := json.Unmarshal(line, &r); err != nil {
-			slog.Warn("grok-build: undecodable chat record skipped", "line", n+1, "err", err)
+			log.Warn("grok-build: undecodable chat record skipped", "line", n+1, "err", err)
 			continue
 		}
 		switch r.Type {
@@ -269,7 +280,7 @@ func projectChat(lines []json.RawMessage, createdAt time.Time) (turns []session.
 			}
 
 		default:
-			slog.Warn("grok-build: unknown chat record type skipped", "type", r.Type, "line", n+1)
+			log.Warn("grok-build: unknown chat record type skipped", "type", r.Type, "line", n+1)
 		}
 	}
 	return turns, toolCounts, firstPrompt

@@ -2,6 +2,7 @@ package claudecode
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -93,7 +94,7 @@ func peekSessionID(path string) (string, error) {
 // parseSession streams the JSONL once and returns the projected metadata
 // plus a UsageState classifying whether the transcript carried any usage
 // event (and if so, whether totals were positive).
-func parseSession(ctx context.Context, path string) (session.Session, []session.Turn, []session.ToolUsage, session.UsageState, error) {
+func parseSession(ctx context.Context, path string, log *slog.Logger) (session.Session, []session.Turn, []session.ToolUsage, session.UsageState, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return session.Session{}, nil, nil, session.UsageStateUnknown, err
@@ -114,6 +115,10 @@ func parseSession(ctx context.Context, path string) (session.Session, []session.
 		modelSet        bool
 		firstPromptSet  bool
 		line            int
+
+		malformed    int
+		malformedAt  int
+		malformedErr error
 	)
 
 	// Subagent transcripts live under `<parent-uuid>/subagents/` and
@@ -135,10 +140,17 @@ func parseSession(ctx context.Context, path string) (session.Session, []session.
 			return session.Session{}, nil, nil, session.UsageStateUnknown, err
 		}
 
+		raw := sc.Bytes()
+		if len(bytes.TrimSpace(raw)) == 0 {
+			continue
+		}
+
 		var r rawRecord
-		if err := json.Unmarshal(sc.Bytes(), &r); err != nil {
-			slog.Warn("claude-code: malformed JSONL line skipped",
-				"path", path, "line", line, "err", err)
+		if err := json.Unmarshal(raw, &r); err != nil {
+			malformed++
+			if malformedAt == 0 {
+				malformedAt, malformedErr = line, err
+			}
 			continue
 		}
 
@@ -228,11 +240,16 @@ func parseSession(ctx context.Context, path string) (session.Session, []session.
 
 	if err := sc.Err(); err != nil {
 		if errors.Is(err, bufio.ErrTooLong) {
-			slog.Warn("claude-code: JSONL line exceeded 16 MiB scan buffer; partial session",
+			log.Warn("claude-code: JSONL line exceeded 16 MiB scan buffer; partial session",
 				"path", path, "line", line+1)
 		} else {
 			return session.Session{}, nil, nil, session.UsageStateUnknown, fmt.Errorf("scan %s: %w", path, err)
 		}
+	}
+
+	if malformed > 0 {
+		log.Warn("claude-code: malformed JSONL lines skipped",
+			"path", path, "count", malformed, "first_line", malformedAt, "err", malformedErr)
 	}
 
 	tools := make([]session.ToolUsage, 0, len(toolCounts))

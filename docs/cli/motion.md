@@ -130,6 +130,11 @@ The command should finish with a non-zero exit status only when the requested
 operation cannot complete. Per-file importer errors can be summarized at the
 end while allowing the rest of the import to proceed.
 
+Warn-level diagnostics are counted rather than printed while the frame is
+live — an out-of-band write desyncs the in-place repaint — and the tally
+lands in the final summary. Plain and `--json` mode stream them to `stderr`
+as they happen.
+
 ## Cancellation
 
 `ctrl+c` cancels the progress program and releases the terminal. After
