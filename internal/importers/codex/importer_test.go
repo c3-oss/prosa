@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -724,4 +725,49 @@ func TestTruncatePreviewKeepsUTF8Valid(t *testing.T) {
 
 	require.True(t, utf8.ValidString(got))
 	require.Contains(t, got, "…")
+}
+
+// TestImportAggregatesTornAndBlankLines models what Codex actually writes:
+// concurrent appends occasionally tear a line mid-token. Those lines are
+// skipped without touching the rest of the session, blank lines are not
+// diagnostics at all, and the file earns exactly one warning.
+func TestImportAggregatesTornAndBlankLines(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv("PROSA_HOME", filepath.Join(t.TempDir(), "prosa-home"))
+
+	root := filepath.Join(t.TempDir(), "codex-root")
+	src := writeFixtureEnvelope(t, root)
+
+	clean, err := os.ReadFile(src)
+	require.NoError(t, err)
+
+	torn := []byte(`{"timestamp":"2026-05-30T12:00:40Z","ordinal":520,"type":"inter_agent_communicatio` + "\n" +
+		`{"timestamp":"2026-05-30T12:00:41Z","type":"response_ite` + "\n" +
+		"\n   \t\n")
+	require.NoError(t, os.WriteFile(src, append(clean, torn...), 0o644))
+
+	var logs bytes.Buffer
+	sink := newSink()
+	res, err := New().Import(ctx, src, sink, importer.ImportOptions{
+		Logger: slog.New(slog.NewTextHandler(&logs, nil)),
+	})
+	require.NoError(t, err)
+	require.False(t, res.Skipped)
+
+	// The good records still project exactly as they do without the damage.
+	s := sink.Sessions[fixtureSessionID]
+	require.Equal(t, fixtureSessionID, s.ID)
+	require.NotNil(t, s.Usage)
+	require.Equal(t, int64(1120), s.Usage.TotalTokens)
+	turns := sink.Turns[fixtureSessionID]
+	require.Len(t, turns, 2)
+	require.Equal(t, "user", turns[0].Role)
+	require.Equal(t, "assistant", turns[1].Role)
+	require.Len(t, sink.Tools[fixtureSessionID], 1)
+
+	// One record for the file, carrying the tally — not one per bad line,
+	// and blank/whitespace-only lines are not counted as malformed.
+	require.Equal(t, 1, strings.Count(logs.String(), "level=WARN"))
+	require.Contains(t, logs.String(), "codex: malformed JSONL lines skipped")
+	require.Contains(t, logs.String(), "count=2")
 }

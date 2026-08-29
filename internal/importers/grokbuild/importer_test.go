@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -570,8 +571,11 @@ func TestImportDropsMalformedAndTornLines(t *testing.T) {
 	chat = append(chat, []byte(`{"type":"assistant","content":"torn lin`)...) // torn tail, no newline
 	require.NoError(t, os.WriteFile(filepath.Join(filepath.Dir(summaryPath), "chat_history.jsonl"), chat, 0o644))
 
+	var logs bytes.Buffer
 	sink := newSink()
-	res := importSession(t, summaryPath, sink, importer.ImportOptions{})
+	res := importSession(t, summaryPath, sink, importer.ImportOptions{
+		Logger: slog.New(slog.NewTextHandler(&logs, nil)),
+	})
 	require.False(t, res.Skipped)
 
 	turns := sink.Turns[uuidA]
@@ -582,6 +586,36 @@ func TestImportDropsMalformedAndTornLines(t *testing.T) {
 	require.NoError(t, err)
 	require.NotContains(t, string(raw), "broken json")
 	require.NotContains(t, string(raw), "torn lin")
+
+	// Both bad lines are one warning for the file, not one apiece.
+	require.Equal(t, 1, strings.Count(logs.String(), "level=WARN"))
+	require.Contains(t, logs.String(), "grok-build: malformed JSONL lines dropped")
+	require.Contains(t, logs.String(), "count=2")
+}
+
+// TestImportHashUnchangedByBlankLines locks the projection bytes. The
+// lines readJSONLines collects are hashed verbatim, and that hash is the
+// dedup key, the sync hash, and RawHash at once — so trimming a collected
+// line would silently re-import and re-push every touched session.
+func TestImportHashUnchangedByBlankLines(t *testing.T) {
+	t.Setenv("PROSA_HOME", t.TempDir())
+	root := t.TempDir()
+
+	summaryPath := writeSessionDir(t, root, encodedCwd, uuidA, defaultSummary(uuidA),
+		[]map[string]any{humanUser(0, "hello")},
+		[]map[string]any{turnCompleted(uuidA, "p", usageDelta(10, 5, 0, 0))})
+
+	first := importSession(t, summaryPath, newSink(), importer.ImportOptions{})
+	require.False(t, first.Skipped)
+
+	chatPath := filepath.Join(filepath.Dir(summaryPath), "chat_history.jsonl")
+	chat, err := os.ReadFile(chatPath)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(chatPath, append(chat, []byte("\n")...), 0o644))
+
+	second := importSession(t, summaryPath, newSink(), importer.ImportOptions{})
+	require.Equal(t, first.RawHash, second.RawHash, "a blank line must not move the projection hash")
+	require.Equal(t, first.RawSize, second.RawSize)
 }
 
 // failingLastHashSink wraps the in-memory sink so LastHash fails,

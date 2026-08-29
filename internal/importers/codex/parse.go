@@ -2,6 +2,7 @@ package codex
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -169,6 +170,10 @@ func parseSession(ctx context.Context, path string, log *slog.Logger) (session.S
 		firstPromptSet bool
 		seenUsageEvent bool
 		line           int
+
+		malformed    int
+		malformedAt  int
+		malformedErr error
 	)
 
 	for sc.Scan() {
@@ -177,10 +182,17 @@ func parseSession(ctx context.Context, path string, log *slog.Logger) (session.S
 			return session.Session{}, nil, nil, session.UsageStateUnknown, err
 		}
 
+		raw := sc.Bytes()
+		if len(bytes.TrimSpace(raw)) == 0 {
+			continue
+		}
+
 		var r rawRecord
-		if err := json.Unmarshal(sc.Bytes(), &r); err != nil {
-			log.Warn("codex: malformed JSONL line skipped",
-				"path", path, "line", line, "err", err)
+		if err := json.Unmarshal(raw, &r); err != nil {
+			malformed++
+			if malformedAt == 0 {
+				malformedAt, malformedErr = line, err
+			}
 			continue
 		}
 
@@ -266,7 +278,7 @@ func parseSession(ctx context.Context, path string, log *slog.Logger) (session.S
 				// Legacy records carry the call_id alongside; round-trip
 				// it via the raw payload so function_call_output can find
 				// the tool name later.
-				if id := legacyCallID(sc.Bytes()); id != "" {
+				if id := legacyCallID(raw); id != "" {
 					callIDToName[id] = r.Name
 				}
 			}
@@ -276,7 +288,7 @@ func parseSession(ctx context.Context, path string, log *slog.Logger) (session.S
 			if text == "" {
 				break
 			}
-			id := legacyCallID(sc.Bytes())
+			id := legacyCallID(raw)
 			name := callIDToName[id]
 			ts, _ := importerutil.ParseRFC3339(r.Timestamp)
 			turns = append(turns, session.Turn{
@@ -296,6 +308,13 @@ func parseSession(ctx context.Context, path string, log *slog.Logger) (session.S
 		} else {
 			return session.Session{}, nil, nil, session.UsageStateUnknown, fmt.Errorf("scan %s: %w", path, err)
 		}
+	}
+
+	// One record per file, not per line: Codex appends concurrently and a
+	// torn write leaves a line cut mid-token every few thousand records.
+	if malformed > 0 {
+		log.Warn("codex: malformed JSONL lines skipped",
+			"path", path, "count", malformed, "first_line", malformedAt, "err", malformedErr)
 	}
 
 	tools := make([]session.ToolUsage, 0, len(toolCounts))

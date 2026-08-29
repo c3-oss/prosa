@@ -105,6 +105,8 @@ func readJSONLines(path string, log *slog.Logger) ([]json.RawMessage, error) {
 
 	var out []json.RawMessage
 	line := 0
+	malformed := 0
+	malformedAt := 0
 	for sc.Scan() {
 		line++
 		b := sc.Bytes()
@@ -112,10 +114,19 @@ func readJSONLines(path string, log *slog.Logger) ([]json.RawMessage, error) {
 			continue
 		}
 		if !json.Valid(b) {
-			log.Warn("grok-build: malformed JSONL line dropped", "path", path, "line", line)
+			malformed++
+			if malformedAt == 0 {
+				malformedAt = line
+			}
 			continue
 		}
 		out = append(out, json.RawMessage(append([]byte(nil), b...)))
+	}
+	// One record per file, not per line: a torn write can cut a line
+	// mid-token, and a truncated file can cut many.
+	if malformed > 0 {
+		log.Warn("grok-build: malformed JSONL lines dropped",
+			"path", path, "count", malformed, "first_line", malformedAt)
 	}
 	if err := sc.Err(); err != nil {
 		if errors.Is(err, bufio.ErrTooLong) {

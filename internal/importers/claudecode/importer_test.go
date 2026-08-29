@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -811,4 +812,39 @@ func TestImportStripsStdoutWrapperAndANSI(t *testing.T) {
 	require.NotEmpty(t, turns)
 	require.Equal(t, "user", turns[0].Role)
 	require.Equal(t, "now refactor the sync logic", turns[0].Content)
+}
+
+// TestImportAggregatesTornAndBlankLines mirrors the codex case: a torn
+// append leaves a line cut mid-token, and the session must survive it
+// with one warning for the whole file.
+func TestImportAggregatesTornAndBlankLines(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv("PROSA_HOME", filepath.Join(t.TempDir(), "prosa-home"))
+	src := writeFixtureSmall(t, t.TempDir())
+
+	clean, err := os.ReadFile(src)
+	require.NoError(t, err)
+
+	torn := []byte(`{"type":"user","sessionId":"` + fixtureSessionID + `","message":{"role":"use` + "\n" +
+		`{"type":"assistant","sessionId":"` + fixtureSessionID + "\n" +
+		"\n   \t\n")
+	require.NoError(t, os.WriteFile(src, append(clean, torn...), 0o644))
+
+	var logs bytes.Buffer
+	sink := newSink()
+	res, err := New().Import(ctx, src, sink, importer.ImportOptions{
+		Logger: slog.New(slog.NewTextHandler(&logs, nil)),
+	})
+	require.NoError(t, err)
+	require.False(t, res.Skipped)
+
+	s := sink.Sessions[fixtureSessionID]
+	require.Equal(t, fixtureSessionID, s.ID)
+	require.NotNil(t, s.Usage)
+	require.Equal(t, int64(135), s.Usage.TotalTokens)
+	require.Len(t, sink.Turns[fixtureSessionID], 3)
+
+	require.Equal(t, 1, strings.Count(logs.String(), "level=WARN"))
+	require.Contains(t, logs.String(), "claude-code: malformed JSONL lines skipped")
+	require.Contains(t, logs.String(), "count=2")
 }
