@@ -14,6 +14,7 @@ import (
 	"github.com/c3-oss/prosa/internal/importers/importerutil"
 	"github.com/c3-oss/prosa/internal/paths"
 	"github.com/c3-oss/prosa/pkg/importer"
+	"github.com/c3-oss/prosa/pkg/session"
 )
 
 // Name is the agent identifier used in session rows and CLI output.
@@ -48,7 +49,9 @@ func (i *Importer) Import(ctx context.Context, jsonlPath string, sink importer.S
 		Opts:   opts,
 		Hash:   importerutil.HashAndSize,
 		PeekID: peekSessionID,
-		Parse:  parseSession,
+		Parse: func(ctx context.Context, p string) (session.Session, []session.Turn, []session.ToolUsage, session.UsageState, error) {
+			return parseSession(ctx, p, importerutil.Logger(opts))
+		},
 		PreserveRaw: func(srcPath, sessionID string, startedAt time.Time) (string, error) {
 			return importerutil.PreserveRaw(Name, sessionID, ".jsonl", startedAt, srcPath)
 		},

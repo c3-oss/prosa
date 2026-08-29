@@ -8,6 +8,7 @@ package importer
 
 import (
 	"context"
+	"log/slog"
 
 	"github.com/c3-oss/prosa/pkg/session"
 )
@@ -49,6 +50,11 @@ type ImportOptions struct {
 
 	// Profile names the profile the scanned file belongs to; empty means "default".
 	Profile string
+
+	// Logger receives this import's diagnostics; nil means slog.Default().
+	// Scoped per call so the interactive sync path can tally warnings
+	// instead of interleaving them with its in-place progress frame.
+	Logger *slog.Logger
 }
 
 // Importer is the plugin contract every per-agent connector implements.

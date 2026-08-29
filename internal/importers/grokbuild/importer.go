@@ -66,6 +66,7 @@ type projectedLine struct {
 // re-import.
 func (i *Importer) Import(ctx context.Context, summaryPath string, sink importer.Sink, opts importer.ImportOptions) (importer.ImportResult, error) {
 	dir := filepath.Dir(summaryPath)
+	log := importerutil.Logger(opts)
 
 	summaryRaw, err := os.ReadFile(summaryPath)
 	if err != nil {
@@ -80,7 +81,7 @@ func (i *Importer) Import(ctx context.Context, summaryPath string, sink importer
 	if id == "" {
 		id = filepath.Base(dir)
 	} else if id != filepath.Base(dir) {
-		slog.Warn("grok-build: summary id differs from directory name",
+		log.Warn("grok-build: summary id differs from directory name",
 			"summary_id", id, "dir", filepath.Base(dir))
 	}
 	if err := session.ValidateID(id); err != nil {
@@ -92,14 +93,14 @@ func (i *Importer) Import(ctx context.Context, summaryPath string, sink importer
 		parentMetaRaw json.RawMessage
 	)
 	if sum.SessionKind == "subagent" {
-		parentID, parentMetaRaw = resolveParentMeta(dir, id)
+		parentID, parentMetaRaw = resolveParentMeta(dir, id, log)
 	}
 
-	chatLines, err := readJSONLines(filepath.Join(dir, "chat_history.jsonl"))
+	chatLines, err := readJSONLines(filepath.Join(dir, "chat_history.jsonl"), log)
 	if err != nil {
 		return importer.ImportResult{}, fmt.Errorf("read chat history %s: %w", dir, err)
 	}
-	updateLines, err := readJSONLines(filepath.Join(dir, "updates.jsonl"))
+	updateLines, err := readJSONLines(filepath.Join(dir, "updates.jsonl"), log)
 	if err != nil {
 		return importer.ImportResult{}, fmt.Errorf("read updates %s: %w", dir, err)
 	}
@@ -136,7 +137,7 @@ func (i *Importer) Import(ctx context.Context, summaryPath string, sink importer
 	if parentID != "" {
 		sess.ParentSessionID = &parentID
 	}
-	turns, toolCounts, firstPrompt := projectChat(chatLines, sess.StartedAt)
+	turns, toolCounts, firstPrompt := projectChat(chatLines, sess.StartedAt, log)
 	sess.FirstPrompt = firstPrompt
 	usage, seenUsage := sumUsage(usageRecs)
 	sess.Usage = usage
@@ -256,7 +257,7 @@ func marshalProjectedLine(typ string, data []byte) (json.RawMessage, error) {
 // returns the parent session id plus the raw meta bytes for the
 // projection. Resolution happens before hashing so a late-appearing or
 // changed meta.json changes the hash and triggers re-import.
-func resolveParentMeta(dir, childID string) (string, json.RawMessage) {
+func resolveParentMeta(dir, childID string, log *slog.Logger) (string, json.RawMessage) {
 	projectDir := filepath.Dir(dir)
 	patterns := []string{
 		filepath.Join(projectDir, "*", "subagents", childID, "meta.json"),
@@ -277,6 +278,6 @@ func resolveParentMeta(dir, childID string) (string, json.RawMessage) {
 		}
 		return meta.ParentSessionID, raw
 	}
-	slog.Warn("grok-build: subagent session has no resolvable parent meta", "session", childID)
+	log.Warn("grok-build: subagent session has no resolvable parent meta", "session", childID)
 	return "", nil
 }
