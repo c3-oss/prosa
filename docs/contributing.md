@@ -89,6 +89,9 @@ they are enforced by reviewers (human or agent).
 - **Error wrapping**: `fmt.Errorf("doing X: %w", err)`. No
   `pkg/errors`-style ladders.
 - **Logging**: `log/slog` with the default text handler in CLI commands.
+  Importers and the pusher write through a caller-supplied `*slog.Logger`
+  so the interactive sync path can scope them; `slog.SetDefault` is never
+  called at runtime.
 - **Comments** are sparse, local, and surgical. Reach for one only to
   document a behaviour that is not immediately obvious; otherwise let the
   code speak for itself. Docstrings are allowed but stay short and avoid

@@ -49,6 +49,11 @@ type SkipCache interface {
   decide whether to no-op, parse it, classify its usage, and write into
   the sink. `opts.Overwrite` bypasses the idempotency short-circuit and
   the no_usage skip cache (used by `prosa sync --overwrite`).
+  `opts.Logger` is where this import's diagnostics go; resolve it with
+  `importerutil.Logger(opts)`, which falls back to `slog.Default()` when
+  the caller left it nil. The interactive sync path passes a counting
+  logger so warnings are tallied instead of written into its progress
+  frame.
 
 The `Sink` is implemented by `internal/store` (locally) and by an in-memory
 fake for tests. Importers never know about SQLite, Postgres, or the server.
@@ -227,7 +232,9 @@ The short version:
 2. Create `internal/importers/<agent>/`. Mirror the shape of
    `internal/importers/claudecode/`.
 3. Implement `Walk` and `Import`. Be paranoid about malformed records and
-   partial files.
+   partial files: skip blank lines silently, and report malformed records
+   once per file with a count and the first offending line rather than
+   once per record.
 4. Write parser tests (`parse_test.go`) covering representative records,
    missing fields, malformed JSON, truncated files, sessions with no
    turns.
@@ -265,3 +272,5 @@ Skill backing the reviewer:
 - Special-case a single user. If a behavior is needed, document it in
   `docs/sources/<agent>.md` and put it under a flag if it's optional.
 - Mutate the agent's raw files in any way.
+- Call package-level `slog`. Diagnostics go through
+  `importerutil.Logger(opts)` so the caller decides where they land.

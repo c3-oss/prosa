@@ -93,6 +93,12 @@ Use `stderr` for operational context:
 - cancellation notices;
 - logs.
 
+Between the first and last frame of an in-place progress render, nothing
+writes to `stdout` or `stderr` outside the renderer: the frame repaints by
+moving the cursor over its own previous output, so an out-of-band line
+desyncs that accounting. Warn-level diagnostics raised in that window are
+counted and reported in the summary instead.
+
 For non-interactive automation, progress may stream to `stderr` while the final
 result remains pipeable on `stdout`.
 
@@ -341,10 +347,14 @@ Live:     imported N · skipped N · errors N
 Legacy:   imported N · skipped N · errors N (of N catalog rows)
 Push:     sent N · skipped N · errors N
 Catch-up: sent N · skipped N · errors N  (local L · remote R)
+Warnings: N diagnostic logs suppressed in TTY; use `--verbose` to see them
 Remote:   server unavailable at <server>; local import is saved. Run `prosa sync` again when it is back.
 ```
 
-`Legacy` only appears when `--legacy-bundle` was passed. `Push` and
+`Warnings` appears in the TTY summary when the run raised warn-level
+diagnostics — from the importers or from the catch-up phase — that the
+in-place frame could not display. `Legacy` only appears when
+`--legacy-bundle` was passed. `Push` and
 `Catch-up` only appear when the device is logged in to a prosa-server
 (i.e. when `~/.config/prosa/auth.json` exists). `Catch-up` is the
 manifest-driven reconcile that makes the remote converge to the local

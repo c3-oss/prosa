@@ -213,6 +213,10 @@ metadata and tool-call summaries; the recipe above is for raw inspection.
 
 ## Notes for prosa importers
 
+- Codex appends to the rollout file while the session runs, so a torn
+  write occasionally leaves a line cut mid-token. Such lines are skipped,
+  as are blank lines; the file earns one warning carrying the count, the
+  first offending line, and the first parse error.
 - Recent files use the envelope; older files may emit top-level
   `message`, `reasoning`, `function_call`, `function_call_output`. Both
   shapes must be projected.
