@@ -41,7 +41,7 @@ func pushStatusString(outcome pushOutcome) string {
 	switch outcome {
 	case pushImported:
 		return "sent"
-	case pushAlreadyHashed, pushSkippedNoUsage:
+	case pushAlreadyHashed, pushSkippedNoUsage, pushSkippedPruned:
 		return "skipped"
 	case pushFailed:
 		return "failed"

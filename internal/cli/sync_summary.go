@@ -58,7 +58,7 @@ func (sc *syncCounts) recordPush(outcome pushOutcome, err error) {
 	switch outcome {
 	case pushImported:
 		sc.pushImp++
-	case pushAlreadyHashed, pushSkippedNoUsage:
+	case pushAlreadyHashed, pushSkippedNoUsage, pushSkippedPruned:
 		sc.pushSkip++
 	case pushFailed:
 		sc.pushErr++

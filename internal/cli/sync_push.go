@@ -72,6 +72,7 @@ const (
 	pushFailed
 	pushSkippedRemoteUnavailable
 	pushSkippedNoUsage
+	pushSkippedPruned
 )
 
 const (
@@ -98,6 +99,10 @@ func (p *pusher) pushSession(ctx context.Context, sessionID string) (pushOutcome
 	sess, err := p.store.GetSession(ctx, sessionID)
 	if err != nil {
 		return pushFailed, fmt.Errorf("load session: %w", err)
+	}
+	if sess.PrunedAt != nil {
+		// The local raw is gone; the server already holds it.
+		return pushSkippedPruned, nil
 	}
 	turns, err := p.store.GetTurns(ctx, sessionID)
 	if err != nil {
@@ -136,10 +141,20 @@ func (p *pusher) pushSession(ctx context.Context, sessionID string) (pushOutcome
 		}
 		return pushFailed, fmt.Errorf("push rpc: %w", err)
 	}
+	p.recordPushed(ctx, sess.ID, sess.RawHash, resp.Msg.RawUri)
 	if resp.Msg.Skipped {
 		return pushAlreadyHashed, nil
 	}
 	return pushImported, nil
+}
+
+// recordPushed persists the server-confirmed push state. Best effort: the
+// upload already happened, and the reconcile backfill self-heals a missed
+// record on the next sync.
+func (p *pusher) recordPushed(ctx context.Context, sessionID, rawHash, rawURI string) {
+	if err := p.store.RecordPushed(ctx, sessionID, rawHash, rawURI); err != nil {
+		p.log().WarnContext(ctx, "record pushed state", "session", sessionID, "err", err)
+	}
 }
 
 func shouldChunkPush(rawSize int64) bool {
@@ -174,6 +189,7 @@ func (p *pusher) pushSessionChunked(ctx context.Context, sess session.Session, t
 		if err != nil {
 			return p.pushChunkError(err)
 		}
+		p.recordPushed(ctx, sess.ID, sess.RawHash, resp.Msg.RawUri)
 		if resp.Msg.Skipped {
 			return pushAlreadyHashed, nil
 		}
@@ -182,6 +198,7 @@ func (p *pusher) pushSessionChunked(ctx context.Context, sess session.Session, t
 
 	buf := make([]byte, chunkPushChunkBytes)
 	var offset int64
+	var lastRawURI string
 	chunkIndex := 0
 	for offset < sess.RawSize {
 		remaining := sess.RawSize - offset
@@ -213,7 +230,9 @@ func (p *pusher) pushSessionChunked(ctx context.Context, sess session.Session, t
 		if err != nil {
 			return p.pushChunkError(fmt.Errorf("send raw chunk %d at offset %d: %w", chunkIndex, offset, err))
 		}
+		lastRawURI = resp.Msg.RawUri
 		if resp.Msg.Skipped {
+			p.recordPushed(ctx, sess.ID, sess.RawHash, resp.Msg.RawUri)
 			return pushAlreadyHashed, nil
 		}
 		offset += int64(n)
@@ -228,9 +247,11 @@ func (p *pusher) pushSessionChunked(ctx context.Context, sess session.Session, t
 			break
 		}
 		if final {
+			p.recordPushed(ctx, sess.ID, sess.RawHash, resp.Msg.RawUri)
 			return pushImported, nil
 		}
 	}
+	p.recordPushed(ctx, sess.ID, sess.RawHash, lastRawURI)
 	return pushImported, nil
 }
 
@@ -381,6 +402,8 @@ func logPush(sessionID string, outcome pushOutcome, err error) {
 		slog.Info("pushed", "session", sessionID, "status", "skipped")
 	case pushSkippedNoUsage:
 		slog.Info("pushed", "session", sessionID, "status", "skipped", "reason", "no_usage")
+	case pushSkippedPruned:
+		slog.Info("pushed", "session", sessionID, "status", "skipped", "reason", "pruned")
 	case pushFailed:
 		slog.Warn("push failed", "session", sessionID, "err", err)
 	}

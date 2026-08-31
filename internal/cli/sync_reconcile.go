@@ -56,11 +56,34 @@ func reconcileWithServer(
 	counts.localTotal = len(local)
 
 	var work []string
+	backfill := map[string]string{}
+	prunedExcluded := 0
 	for _, row := range local {
+		if row.Pruned {
+			// No local raw to read; the server copy was confirmed at prune
+			// time. Excluded even under --overwrite.
+			prunedExcluded++
+			continue
+		}
 		remote, ok := serverHas[row.ID]
 		staleProjection := ok && remote.ProjectionVersion < session.ProjectionVersion
 		if opts.Overwrite || !ok || remote.RawHash != row.RawHash || staleProjection {
 			work = append(work, row.ID)
+			continue
+		}
+		// Converged on the server but not recorded locally: sessions pushed
+		// before push state existed. Backfill so prune can see them.
+		if row.PushedHash != row.RawHash {
+			backfill[row.ID] = row.RawHash
+		}
+	}
+
+	if prunedExcluded > 0 {
+		push.log().InfoContext(ctx, "reconcile: pruned sessions excluded", "count", prunedExcluded)
+	}
+	if len(backfill) > 0 {
+		if berr := push.store.RecordPushedBatch(ctx, backfill); berr != nil {
+			push.log().WarnContext(ctx, "record pushed backfill", "err", berr)
 		}
 	}
 
@@ -86,7 +109,7 @@ func reconcileWithServer(
 		switch outcome {
 		case pushImported:
 			counts.sent++
-		case pushAlreadyHashed, pushSkippedNoUsage:
+		case pushAlreadyHashed, pushSkippedNoUsage, pushSkippedPruned:
 			counts.skipped++
 		case pushFailed:
 			counts.errs++
