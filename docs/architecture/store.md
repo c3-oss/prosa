@@ -34,9 +34,11 @@ server-side equivalent see [server.md](server.md).
   raw text. It's never altered, never listed by directory scan — every
   lookup goes through the store's `raw_path` column.
 
-The raw layer is authoritative for content; the SQLite layer is a
-derivable index. Lose the index and the next `prosa sync` rebuilds it from
-the server's manifest.
+The raw layer is authoritative for content until a session is pruned by
+`prosa prune`; the server's S3 copy then takes over, reachable by session
+id via `SessionsService.GetRaw`. The SQLite layer is a derivable index.
+Lose the index and the next `prosa sync` rebuilds it from the server's
+manifest.
 
 ## Paths
 
@@ -96,6 +98,7 @@ applied.
 | `0004_usage_projection` | `session_usage` table + `sync_state.projection_version` |
 | `0005_turns_evidence` | `turns.kind` (default `'message'`), `turns.tool_name`, indexes on both |
 | `0009_session_profile` | `sessions.profile` (default `'default'`) + `(device_id, agent, profile)` index |
+| `0011_push_prune` | `sync_state.pushed_at/pushed_hash/remote_uri` + `sessions.pruned_at` + partial index |
 
 Each migration has an up and down `.sql` file. The store applies up only;
 down is for manual recovery.
@@ -134,6 +137,7 @@ fingerprint on first successful `prosa sync` via `RebindLocalSessions`.
 | `raw_size` | INTEGER | Bytes |
 | `parent_session_id` | TEXT NULL | Parent on subagent/spawned sessions (`0008`) |
 | `profile` | TEXT NOT NULL DEFAULT `'default'` | Per-agent, per-device profile the session was imported from (`0009`) |
+| `pruned_at` | TEXT NULL | Set when the local raw copy was deleted by `prosa prune`; raw reads stream from the server (`0011`) |
 
 Indexes:
 
@@ -145,6 +149,7 @@ Indexes:
 - `idx_sessions_agent`.
 - `idx_sessions_device_id`.
 - `idx_sessions_profile` on `(device_id, agent, profile)`.
+- `idx_sessions_pruned` (partial: `WHERE pruned_at IS NOT NULL`).
 
 ### `session_tools`
 
@@ -198,11 +203,18 @@ match slightly differently than the local version.
 | Column | Type | Notes |
 | --- | --- | --- |
 | `session_id` | TEXT PRIMARY KEY FK | → `sessions.id` |
-| `last_hash` | TEXT | sha256 of last successfully pushed raw |
-| `last_synced_at` | TEXT | RFC3339 UTC |
+| `last_hash` | TEXT | sha256 of the raw the importer last projected |
+| `last_synced_at` | TEXT | RFC3339 UTC of that import |
+| `projection_version` | INTEGER | Projection the row was imported at (`0004`) |
+| `pushed_at` | TEXT NULL | RFC3339 UTC of the last server-confirmed push (`0011`) |
+| `pushed_hash` | TEXT NULL | Raw hash the server confirmed holding (`0011`) |
+| `remote_uri` | TEXT NULL | S3 URI returned by the push (`0011`) |
 
-The push step compares the current session hash against this value to
-decide whether to push.
+`last_hash`/`last_synced_at`/`projection_version` are importer state: they
+short-circuit re-imports of unchanged files. `pushed_at`/`pushed_hash`/
+`remote_uri` are transport state: written by the pusher on every confirmed
+push and backfilled from the server manifest during reconcile. Prune
+candidates require `pushed_hash = sessions.raw_hash`.
 
 ## Public API (Go)
 
@@ -231,8 +243,13 @@ Selected functions (full list in `internal/store/`):
 | `GetSessionTools(ctx, sessionID)` | Read tool aggregates |
 | `ListSessions(ctx, filter)` | Timeline list; honors `SessionFilter.Limit` |
 | `Search(ctx, query, filter, limit)` | FTS5 query → `SearchHit` (snippet + turn metadata + rank) |
-| `ListSessionsWithBoilerplatePrompt(ctx, limit)` | Denoise sweep — iterates `internal/sessiontext.Prefixes` so SQL stays in lockstep with the Go classifier |
-| `ListSessionsManifest(ctx, deviceID, after, limit)` | Reconcile cursor |
+| `ListSessionsWithBoilerplatePrompt(ctx, limit)` | Denoise sweep — iterates `internal/sessiontext.Prefixes` so SQL stays in lockstep with the Go classifier; skips pruned rows |
+| `ListSessionsManifest(ctx, deviceID, after, limit)` | Reconcile cursor; carries `Pruned` and `PushedHash` per row |
+| `RecordPushed(ctx, sessionID, hash, uri)` | Persist a server-confirmed push into `sync_state` |
+| `RecordPushedBatch(ctx, hashes)` | Manifest-driven backfill of pushed state |
+| `ListPruneCandidates(ctx, deviceID, before, limit)` | Pushed, unpruned sessions inactive since `before` |
+| `MarkPruned(ctx, sessionID, rawHash)` / `ClearPruned(ctx, sessionID)` | Guarded prune flip and its revert |
+| `PruneAdvisory(ctx, deviceID, before, pushedBefore)` | Count + bytes behind the sync summary's Prune line |
 | `ListDevicesMap(ctx)` | `id → friendly_name` lookup |
 | `RebindLocalSessions(ctx, deviceID)` | Migrate `local` seed device |
 | `Analytics*` | Per-report queries |
@@ -278,7 +295,12 @@ Files are written atomically: write to a temp file, fsync, rename.
 Hash is computed before rename so a partial write can be detected and
 discarded.
 
-Removing the raw layer:
+The supported way to remove raw files is `prosa prune`: it deletes only
+raws the server re-confirmed holding, flips `sessions.pruned_at` first so
+sync and denoise never chase the missing file, and sweeps empty `YYYY/MM`
+shard directories afterwards.
+
+Removing the raw layer by hand:
 
 ```sh
 rm -rf -- "$HOME/.local/share/prosa/raw"
