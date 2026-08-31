@@ -89,6 +89,11 @@ results (rendered as `tool:<name>`). `--json` emits a single
 and any non-TTY pipe without `--json` emit the preserved JSONL bytes
 verbatim — the agent's source is never altered.
 
+For a [pruned](concepts.md#session-lifecycle) session, `--raw` and the
+pipe default stream the bytes from the server (a login is required); the
+rendered view stays fully local and marks the raw path with
+`(pruned · raw on server)`.
+
 ### Sync
 
 ```sh
@@ -104,7 +109,32 @@ quiet, structured log.
 With `--json`, sync writes NDJSON to stdout: one
 `{"type":"session","phase":"local|catchup","agent","session_id","status":"imported|skipped|error","push":"sent|skipped|failed|unavailable|disabled|deferred","err"}`
 record per session, then one `{"type":"summary",…}` record with the run
-tally. Diagnostics stay on stderr.
+tally (including `prunable_sessions` and `prunable_bytes`). Diagnostics
+stay on stderr.
+
+When sessions pushed more than a week ago have been inactive for over 30
+days, the sync summary adds an advisory `Prune` line with the count and
+the disk a `prosa prune` would reclaim. It is informational only — sync
+never deletes anything.
+
+### Reclaiming disk
+
+```sh
+prosa prune --dry-run               # list what would be pruned
+prosa prune                         # delete raws older than 30 days
+prosa prune --older-than 90d        # custom age (last activity)
+prosa prune --limit 100             # cap this run
+prosa prune --json                  # NDJSON per session + a final summary
+```
+
+`prosa prune` deletes the local raw copies of sessions the server holds,
+keeping every session listed, searchable, and viewable offline (turns and
+analytics live in `store.db`). Safety model: a candidate needs a locally
+recorded push whose hash still matches the raw, and the server manifest
+re-confirms every id before its file is deleted. Without a login or with
+the server unreachable, prune errors out and deletes nothing. A pruned
+session's raw remains readable via `prosa show --raw` (streamed from the
+server), and a re-import of a changed source restores the local copy.
 
 ### Analytics
 

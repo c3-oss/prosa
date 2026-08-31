@@ -98,6 +98,7 @@ it can detect one, and shows the last 7 days. `--all` lifts the scope.
 | `prosa analytics <report>`           | Fixed reports: `sessions`/`tools`/`errors`/`models`/`projects` |
 | `prosa devices list \| rename \| revoke` | Manage known machines (cross-device)             |
 | `prosa schedule install \| status \| uninstall` | Manage the background sync job              |
+| `prosa prune`                        | Delete local raws of old sessions already on the server |
 | `prosa setup`                        | Interactive first-run wizard                       |
 | `prosa login`                        | Re-authenticate (sub-step of setup)                |
 

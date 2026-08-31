@@ -347,6 +347,7 @@ Live:     imported N · skipped N · errors N
 Legacy:   imported N · skipped N · errors N (of N catalog rows)
 Push:     sent N · skipped N · errors N
 Catch-up: sent N · skipped N · errors N  (local L · remote R)
+Prune:    N sessions (X GiB) already on the server — run `prosa prune` to reclaim disk
 Warnings: N diagnostic logs suppressed in TTY; use `--verbose` to see them
 Remote:   server unavailable at <server>; local import is saved. Run `prosa sync` again when it is back.
 ```
@@ -359,6 +360,10 @@ in-place frame could not display. `Legacy` only appears when
 (i.e. when `~/.config/prosa/auth.json` exists). `Catch-up` is the
 manifest-driven reconcile that makes the remote converge to the local
 set; `Catch-up: sent 0` on a re-run is the new idempotency criterion.
+`Prune` appears only when prunable sessions exist (pushed over a week
+ago, inactive beyond 30 days); it is advisory-only, muted in TTY, and
+never prompts. The `--json` summary always carries the matching
+`prunable_sessions` / `prunable_bytes` fields, zero included.
 `Remote` appears only when that auth file exists but the server cannot
 be reached; it replaces raw transport warnings and does not make the
 local import fail. The first unreachable-server error trips a
@@ -415,6 +420,12 @@ picks one based on flags and TTY context:
 `0` means no cap. `--remote` fetches the same payload from
 prosa-server; when combined with `--raw`, raw bytes stream through
 `GetRaw`.
+
+For a pruned session the rendered metadata block suffixes the `raw`
+row with a muted `(pruned · raw on server)`, and the raw shape streams
+the identical bytes through `GetRaw` — output stays byte-identical and
+pipeable. Without a login, the raw shape fails with an actionable
+`prosa login` error instead of a file-not-found.
 
 ## Analytics
 

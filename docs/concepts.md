@@ -70,8 +70,15 @@ Closed sessions are only synced if their raw file is modified after the
 fact (rare — agents usually rotate to a new session).
 
 A session is **orphaned** if the source agent deletes or rotates the
-original `.jsonl`. prosa keeps the raw copy it already preserved. There is
-no auto-delete, no `prosa prune` in the MVP. Disk is cheap.
+original `.jsonl`. prosa keeps the raw copy it already preserved.
+
+A session is **pruned** when `prosa prune` deletes its local raw copy after
+the server confirms it holds the same `raw_hash`. Pruning is always an
+explicit command — nothing is deleted automatically. A pruned session keeps
+its metadata, turns, FTS entries, and analytics locally; only raw reads
+(`prosa show --raw`, the non-TTY pipe default) stream from the server. A
+re-import of a changed source file rewrites the raw copy and un-prunes the
+session.
 
 ## Project identity
 
@@ -143,7 +150,11 @@ is down" failure mode for everyday queries.
   all local by default.
 - `--remote` is opt-in. When you pass it, the same command runs against the
   server (Postgres FTS, server-side analytics).
-- `prosa sync` is the only command that always touches the server.
+- `prosa sync` is the only command that always touches the server;
+  `prosa prune` requires it (deletion only happens after the server
+  re-confirms it holds the raw).
+- Raw reads of a **pruned** session stream from the server — the one local
+  read that needs the network.
 
 Practical consequence: you can work offline indefinitely. When you come
 back online, the next `prosa sync` (manual or scheduled) reconciles
@@ -157,7 +168,9 @@ Sync is one-way: client → server. The server stores; it does not push back.
 - If `hash == sync_state.last_hash`, no-op.
 - Otherwise: `Push(session, turns, tools, raw)` over Connect. The server
   stores the raw in S3, upserts Postgres, and returns the S3 URI.
-- The client updates `sync_state.last_hash`.
+- The client updates `sync_state.last_hash` and records the confirmed push
+  (`pushed_at`, `pushed_hash`, `remote_uri`) — the local evidence
+  `prosa prune` and the sync advisory rely on.
 
 Re-syncs are cheap: every session re-hashes in milliseconds; unchanged
 sessions become no-ops.
@@ -176,8 +189,10 @@ The store has two layers, each with one job:
 - **Raw transcript files** on disk (locally) or in S3 (remotely).
   Hash-addressed. Never mutated.
 
-The raw layer is the source of truth for content. The metadata layer is a
-derivable index — if it's lost, the next sync rebuilds it from the manifest.
+The raw layer is the source of truth for content until a session is pruned;
+from then on the server's copy is, reachable by session id via `GetRaw`.
+The metadata layer is a derivable index — if it's lost, the next sync
+rebuilds it from the manifest.
 
 There is no DuckDB, no Parquet, no content-addressable store. SQLite +
 Postgres is enough. See
@@ -212,8 +227,10 @@ Specifically out of scope (today):
 - Export. The raw is on disk; roll your own.
 - Redaction at upload. TLS in transit; trust at rest.
 - Pull-down of remote sessions to the local store. Push-only stays
-  push-only.
-- Automatic retention / pruning. Manual if you ever need it.
+  push-only for sync; the one read-back is streaming a pruned session's
+  raw on demand, and it never re-enters the local store.
+- Automatic retention. Pruning exists (`prosa prune`) but only runs when
+  you invoke it; `prosa sync` merely advertises what it would reclaim.
 - Cold-tier object storage. One bucket.
 - Incremental upload by byte range or turn. Whole-file hash is fast enough.
 - DuckDB / Parquet / columnar sidecars.
