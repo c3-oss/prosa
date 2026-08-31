@@ -82,6 +82,11 @@ type Session struct {
 	// reads as "default".
 	Profile string
 
+	// PrunedAt is set when the local raw copy was deleted after the server
+	// confirmed it holds the same raw_hash. nil means the raw is present
+	// locally at RawPath; non-nil means raw reads stream from the server.
+	PrunedAt *time.Time
+
 	// Kinds are the projected "special session" classifications this
 	// session carries (any of internal/sessionkind's Kind* constants:
 	// "goal", "workflow", "ralph-loop", "orchestrator"). A session may
