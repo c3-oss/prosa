@@ -131,3 +131,26 @@ func TestShowSessionZeroMaxOutputLinesDoesNotCap(t *testing.T) {
 	require.Contains(t, out, "line3")
 	require.NotContains(t, out, "…")
 }
+
+func TestShowSessionMarksPrunedRaw(t *testing.T) {
+	now := time.Now()
+	pruned := now.Add(-time.Hour)
+	detail := SessionDetail{
+		Session: session.Session{
+			ID:             "pruned-1",
+			Agent:          "claude-code",
+			DeviceID:       "laptop",
+			StartedAt:      now.Add(-2 * time.Hour),
+			LastActivityAt: now.Add(-90 * time.Minute),
+			RawPath:        "/tmp/raw.jsonl",
+			PrunedAt:       &pruned,
+		},
+		Turns: []session.Turn{{Role: "user", Content: "hello"}},
+		Width: 96,
+	}
+
+	var b bytes.Buffer
+	require.NoError(t, ShowSession(&b, detail))
+	require.Contains(t, b.String(), "pruned · raw on server")
+	require.Contains(t, b.String(), "/tmp/raw.jsonl")
+}

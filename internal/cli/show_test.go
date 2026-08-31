@@ -133,3 +133,11 @@ func TestRunShowRemoteRawNoLongerRejectsFlagPair(t *testing.T) {
 	require.Contains(t, err.Error(), "not logged in")
 	require.NotContains(t, err.Error(), "mutually exclusive")
 }
+
+func TestCopyPrunedRemoteRawRequiresLogin(t *testing.T) {
+	t.Setenv("PROSA_CONFIG_HOME", t.TempDir())
+
+	err := copyPrunedRemoteRaw(context.Background(), "s1")
+	require.ErrorContains(t, err, "pruned locally")
+	require.ErrorContains(t, err, "prosa login")
+}
