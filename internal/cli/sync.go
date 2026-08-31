@@ -210,6 +210,14 @@ func runSync(cmd *cobra.Command, _ []string) error {
 
 	counts.denoiseCleaned = runDenoisePass(ctx, s)
 
+	now := time.Now().UTC()
+	if n, b, err := s.PruneAdvisory(ctx, dev.ID,
+		now.Add(-pruneDefaultAge), now.Add(-pruneAdvisoryPushGrace)); err != nil {
+		slog.Warn("prune advisory failed", "err", err)
+	} else {
+		counts.prunableCount, counts.prunableBytes = n, b
+	}
+
 	switch {
 	case g.JSON:
 		emitSyncJSONSummary(os.Stdout, counts)

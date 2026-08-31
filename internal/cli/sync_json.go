@@ -34,6 +34,10 @@ type syncJSONSummary struct {
 	CatchupSent    int    `json:"catchup_sent"`
 	CatchupSkipped int    `json:"catchup_skipped"`
 	CatchupErrors  int    `json:"catchup_errors"`
+	// PrunableSessions/PrunableBytes advertise what `prosa prune` would
+	// reclaim; emitted even when zero to keep the shape stable.
+	PrunableSessions int   `json:"prunable_sessions"`
+	PrunableBytes    int64 `json:"prunable_bytes"`
 }
 
 // pushStatusString maps a pushOutcome to the --json "push" field value.
@@ -136,15 +140,17 @@ func runSyncJSON(
 
 func emitSyncJSONSummary(w io.Writer, counts *syncCounts) {
 	_ = json.NewEncoder(w).Encode(syncJSONSummary{
-		Type:           "summary",
-		Imported:       counts.liveImp + counts.legacyImp,
-		Skipped:        counts.liveSkip + counts.legacySkip,
-		Errors:         counts.liveErr + counts.legacyErr,
-		PushSent:       counts.pushImp,
-		PushSkipped:    counts.pushSkip,
-		PushErrors:     counts.pushErr,
-		CatchupSent:    counts.catchUpSent,
-		CatchupSkipped: counts.catchUpSkip,
-		CatchupErrors:  counts.catchUpErr,
+		Type:             "summary",
+		Imported:         counts.liveImp + counts.legacyImp,
+		Skipped:          counts.liveSkip + counts.legacySkip,
+		Errors:           counts.liveErr + counts.legacyErr,
+		PushSent:         counts.pushImp,
+		PushSkipped:      counts.pushSkip,
+		PushErrors:       counts.pushErr,
+		CatchupSent:      counts.catchUpSent,
+		CatchupSkipped:   counts.catchUpSkip,
+		CatchupErrors:    counts.catchUpErr,
+		PrunableSessions: counts.prunableCount,
+		PrunableBytes:    counts.prunableBytes,
 	})
 }

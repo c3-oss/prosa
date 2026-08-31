@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"testing"
 	"time"
@@ -25,7 +26,8 @@ func TestPushRecordsPushedState(t *testing.T) {
 	require.Equal(t, pushImported, outcome)
 
 	var pushedHash, remoteURI string
-	require.NoError(t, fx.store.DB().QueryRowContext(ctx,
+	require.NoError(t, fx.store.DB().QueryRowContext(
+		ctx,
 		`SELECT pushed_hash, remote_uri FROM sync_state WHERE session_id = 's1'`,
 	).Scan(&pushedHash, &remoteURI))
 	require.Equal(t, "h-s1", pushedHash)
@@ -44,7 +46,8 @@ func TestPushAlreadyHashedRecordsPushedState(t *testing.T) {
 	require.Equal(t, pushAlreadyHashed, outcome)
 
 	var pushedHash string
-	require.NoError(t, fx.store.DB().QueryRowContext(ctx,
+	require.NoError(t, fx.store.DB().QueryRowContext(
+		ctx,
 		`SELECT pushed_hash FROM sync_state WHERE session_id = 's1'`,
 	).Scan(&pushedHash))
 	require.Equal(t, "h-s1", pushedHash)
@@ -122,7 +125,8 @@ func TestReconcileBackfillsPushedState(t *testing.T) {
 	require.Zero(t, counts.sent)
 
 	var pushedHash string
-	require.NoError(t, fx.store.DB().QueryRowContext(ctx,
+	require.NoError(t, fx.store.DB().QueryRowContext(
+		ctx,
 		`SELECT pushed_hash FROM sync_state WHERE session_id = 's1'`,
 	).Scan(&pushedHash))
 	require.Equal(t, "h-s1", pushedHash)
@@ -131,4 +135,33 @@ func TestReconcileBackfillsPushedState(t *testing.T) {
 		time.Now().UTC().Add(24*time.Hour), time.Now().UTC().Add(24*time.Hour))
 	require.NoError(t, err)
 	require.Equal(t, 1, adv)
+}
+
+func TestSyncSummaryShowsPruneAdvisory(t *testing.T) {
+	counts := &syncCounts{prunableCount: 3, prunableBytes: 5 * 1024 * 1024 * 1024}
+
+	_, stderr := captureStdoutStderr(t, counts.printSummary)
+	require.Contains(t, stderr, "Prune:    3 sessions (5.0 GiB) already on the server")
+	require.Contains(t, stderr, "run `prosa prune` to reclaim disk")
+
+	_, stderrTTY := captureStdoutStderr(t, counts.printSummaryTTY)
+	require.Contains(t, stderrTTY, "3 sessions (5.0 GiB) already on the server")
+}
+
+func TestSyncSummaryOmitsPruneAdvisoryWhenZero(t *testing.T) {
+	counts := &syncCounts{}
+	_, stderr := captureStdoutStderr(t, counts.printSummary)
+	require.NotContains(t, stderr, "Prune:")
+}
+
+func TestSyncJSONSummaryCarriesPrunable(t *testing.T) {
+	var buf bytes.Buffer
+	emitSyncJSONSummary(&buf, &syncCounts{prunableCount: 2, prunableBytes: 4096})
+	require.Contains(t, buf.String(), `"prunable_sessions":2`)
+	require.Contains(t, buf.String(), `"prunable_bytes":4096`)
+
+	buf.Reset()
+	emitSyncJSONSummary(&buf, &syncCounts{})
+	require.Contains(t, buf.String(), `"prunable_sessions":0`,
+		"zero counts stay in the payload for a stable shape")
 }

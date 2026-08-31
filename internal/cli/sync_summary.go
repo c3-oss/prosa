@@ -19,6 +19,8 @@ type syncCounts struct {
 	catchUpSent, catchUpSkip, catchUpErr int
 	localTotal, remoteTotal              int
 	denoiseCleaned                       int
+	prunableCount                        int
+	prunableBytes                        int64
 	pushEnabled                          bool
 	remoteUnavailable                    bool
 	remoteServer                         string
@@ -103,6 +105,9 @@ func (sc *syncCounts) printSummary() {
 	if sc.denoiseCleaned > 0 {
 		fmt.Fprintf(os.Stderr, "Denoise:  cleaned %d prompts\n", sc.denoiseCleaned)
 	}
+	if sc.prunableCount > 0 {
+		fmt.Fprintf(os.Stderr, "Prune:    %s\n", sc.prunableText())
+	}
 	if sc.remoteUnavailable {
 		fmt.Fprintf(os.Stderr, "Remote:   %s\n", sc.remoteUnavailableText())
 	}
@@ -137,6 +142,14 @@ func (sc *syncCounts) printSummaryTTY() {
 			render.StyleMuted.Render("prompts"),
 		)
 	}
+	if sc.prunableCount > 0 {
+		fmt.Fprintf(
+			os.Stderr, "%s %s %s\n",
+			render.StyleRail.Render("│"),
+			render.StyleMuted.Render(padSummaryLabel("Prune")),
+			render.StyleMuted.Render(sc.prunableText()),
+		)
+	}
 	if sc.remoteUnavailable {
 		fmt.Fprintf(
 			os.Stderr, "%s %s %s\n",
@@ -161,6 +174,15 @@ func (sc *syncCounts) printSummaryTTY() {
 			render.StyleMuted.Render(sc.legacySummaryText()),
 		)
 	}
+}
+
+func (sc *syncCounts) prunableText() string {
+	noun := "sessions"
+	if sc.prunableCount == 1 {
+		noun = "session"
+	}
+	return fmt.Sprintf("%d %s (%s) already on the server — run `prosa prune` to reclaim disk",
+		sc.prunableCount, noun, humanBytes(sc.prunableBytes))
 }
 
 func (sc *syncCounts) legacySummaryText() string {
