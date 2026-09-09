@@ -64,6 +64,44 @@ type stateDBRow struct {
 	startedAt    sql.NullFloat64
 	startedAtStr sql.NullString
 	messageCount sql.NullInt64
+	usage        stateDBUsage
+}
+
+// stateDBUsage mirrors the token counters Hermes keeps on the `sessions`
+// row. Field order and JSON keys are the projected `session_usage` line's
+// schema, so they must stay stable.
+type stateDBUsage struct {
+	Input      int64 `json:"input_tokens"`
+	Output     int64 `json:"output_tokens"`
+	CacheRead  int64 `json:"cache_read_tokens"`
+	CacheWrite int64 `json:"cache_write_tokens"`
+	Reasoning  int64 `json:"reasoning_tokens"`
+}
+
+// toTokenUsage maps Hermes's counters onto the canonical aggregate.
+//
+// Hermes stores uncached input in `input_tokens`, so InputTokens is the
+// cache-inclusive sum — the same convention the Claude Code importer uses,
+// and exactly how Hermes derives its own `prompt_tokens`. `reasoning_tokens`
+// is already inside `output_tokens` and is provenance only; adding it would
+// double count.
+//
+// ok is false when every counter is zero, mirroring Hermes's own has_usage
+// flag. That keeps a session with no counters classified Unknown rather than
+// ExplicitZero, which the import policy would drop.
+func (u stateDBUsage) toTokenUsage() (*session.TokenUsage, bool) {
+	if u.Input == 0 && u.Output == 0 && u.CacheRead == 0 && u.CacheWrite == 0 {
+		return nil, false
+	}
+	input := u.Input + u.CacheRead + u.CacheWrite
+	return &session.TokenUsage{
+		TotalTokens:         input + u.Output,
+		InputTokens:         input,
+		OutputTokens:        u.Output,
+		CachedTokens:        u.CacheRead,
+		CacheReadTokens:     u.CacheRead,
+		CacheCreationTokens: u.CacheWrite,
+	}, true
 }
 
 // toolCall is one entry of a Hermes `tool_calls` array.
@@ -305,15 +343,32 @@ func readStateDBSessions(ctx context.Context, path string) ([]stateDBRow, error)
 	}
 	defer func() { _ = db.Close() }()
 
-	hasParentID, err := tableHasColumn(ctx, db, "sessions", "parent_session_id")
+	cols, err := columnSet(ctx, db, "sessions")
 	if err != nil {
 		return nil, err
 	}
-	parentExpr := "NULL AS parent_session_id"
-	if hasParentID {
-		parentExpr = "parent_session_id"
+	// Optional columns: `parent_session_id` and the token counters were each
+	// added by a later Hermes build. A missing one becomes a `NULL AS <name>`
+	// placeholder so the scan targets stay fixed. The order here matches the
+	// Scan target order below — keep them in sync.
+	optional := []string{
+		"parent_session_id",
+		"input_tokens",
+		"output_tokens",
+		"cache_read_tokens",
+		"cache_write_tokens",
+		"reasoning_tokens",
 	}
-	query := fmt.Sprintf(`SELECT id, model, %s, started_at, message_count FROM sessions ORDER BY started_at`, parentExpr)
+	exprs := make([]string, 0, len(optional))
+	for _, name := range optional {
+		if cols[name] {
+			exprs = append(exprs, name)
+		} else {
+			exprs = append(exprs, "NULL AS "+name)
+		}
+	}
+	query := "SELECT id, model, started_at, message_count, " + strings.Join(exprs, ", ") +
+		" FROM sessions ORDER BY started_at"
 	rows, err := db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("query sessions: %w", err)
@@ -331,11 +386,27 @@ func readStateDBSessions(ctx context.Context, path string) ([]stateDBRow, error)
 			parentID     sql.NullString
 			startedAt    any
 			messageCount sql.NullInt64
+			usage        [5]sql.NullInt64 // input, output, cache read, cache write, reasoning
 		)
-		if err := rows.Scan(&id, &model, &parentID, &startedAt, &messageCount); err != nil {
+		if err := rows.Scan(
+			&id, &model, &startedAt, &messageCount, &parentID,
+			&usage[0], &usage[1], &usage[2], &usage[3], &usage[4],
+		); err != nil {
 			return nil, fmt.Errorf("scan session: %w", err)
 		}
-		row := stateDBRow{id: id, model: model, parentID: parentID, messageCount: messageCount}
+		row := stateDBRow{
+			id:           id,
+			model:        model,
+			parentID:     parentID,
+			messageCount: messageCount,
+			usage: stateDBUsage{
+				Input:      usage[0].Int64,
+				Output:     usage[1].Int64,
+				CacheRead:  usage[2].Int64,
+				CacheWrite: usage[3].Int64,
+				Reasoning:  usage[4].Int64,
+			},
+		}
 		switch v := startedAt.(type) {
 		case float64:
 			row.startedAt = sql.NullFloat64{Float64: v, Valid: true}
@@ -498,6 +569,14 @@ func projectStateDBSession(ctx context.Context, path string, row stateDBRow) (se
 	}
 
 	sess, turns, tools, state := projectMessagesWithDefaults(msgs, envStart, time.Time{}, envModel)
+	// The session row's counters are the authoritative usage signal: Hermes
+	// tracks tokens per session, and `messages.token_count` has been NULL
+	// since the counters landed. Fall back to the message-derived state when
+	// the row carries none.
+	if usage, ok := row.usage.toTokenUsage(); ok {
+		sess.Usage = usage
+		state = session.UsageStatePresent
+	}
 	sess.ID = row.id
 	if row.parentID.Valid {
 		if parentID := strings.TrimSpace(row.parentID.String); parentID != "" {
@@ -505,14 +584,6 @@ func projectStateDBSession(ctx context.Context, path string, row stateDBRow) (se
 		}
 	}
 	return sess, turns, tools, state, msgs, nil
-}
-
-func tableHasColumn(ctx context.Context, db *sql.DB, table, column string) (bool, error) {
-	cols, err := columnSet(ctx, db, table)
-	if err != nil {
-		return false, err
-	}
-	return cols[column], nil
 }
 
 // columnSet returns the set of column names declared on `table`. Used to

@@ -15,6 +15,7 @@ package hermes
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"time"
@@ -183,6 +184,16 @@ func (i *Importer) importStateDB(ctx context.Context, path string, sink importer
 		lines, err := marshalProjectedJSONL(msgs)
 		if err != nil {
 			return importer.ImportResult{}, fmt.Errorf("project session %s: %w", row.id, err)
+		}
+		// Hermes counts tokens on the session row, not per message, so the
+		// counters lead the projection: without them the raw could not
+		// explain the usage prosa derives from it.
+		if _, ok := row.usage.toTokenUsage(); ok {
+			usageLine, err := marshalProjectedUsageLine(row.usage)
+			if err != nil {
+				return importer.ImportResult{}, fmt.Errorf("project session %s: %w", row.id, err)
+			}
+			lines = append([]json.RawMessage{usageLine}, lines...)
 		}
 		rawPath, rawHash, rawSize, err := importerutil.PreserveProjectedJSONL(Name, row.id, sess.StartedAt, lines)
 		if err != nil {
