@@ -149,6 +149,12 @@ func TestLookupKnownModelsFromRealStore(t *testing.T) {
 		{"claude-fable-5-20260601", Rates{Input: 1.0e-5, Output: 5.0e-5, CacheRead: 1.0e-6, CacheCreation: 1.25e-5}},
 		{"claude-opus-5", Rates{Input: 5.0e-6, Output: 2.5e-5, CacheRead: 5.0e-7, CacheCreation: 6.25e-6}},
 		{"claude-mythos-5", Rates{Input: 1.0e-5, Output: 5.0e-5, CacheRead: 1.0e-6, CacheCreation: 1.25e-5}},
+		// The 5.1 generation reads cache at $0.25/MTok, not $1.
+		{"claude-fable-5-1", Rates{Input: 1.0e-5, Output: 5.0e-5, CacheRead: 2.5e-7, CacheCreation: 1.25e-5}},
+		{"claude-fable-5-1-20260901", Rates{Input: 1.0e-5, Output: 5.0e-5, CacheRead: 2.5e-7, CacheCreation: 1.25e-5}},
+		{"claude-fable-5.1", Rates{Input: 1.0e-5, Output: 5.0e-5, CacheRead: 2.5e-7, CacheCreation: 1.25e-5}},
+		{"claude-mythos-5-1", Rates{Input: 1.0e-5, Output: 5.0e-5, CacheRead: 2.5e-7, CacheCreation: 1.25e-5}},
+		{"claude-mythos-5.1", Rates{Input: 1.0e-5, Output: 5.0e-5, CacheRead: 2.5e-7, CacheCreation: 1.25e-5}},
 		{"composer-1", Rates{Input: 1.25e-6, Output: 1.0e-5, CacheRead: 1.25e-7}},
 		{"composer-1.5", Rates{Input: 3.5e-6, Output: 1.75e-5, CacheRead: 3.5e-7}},
 		{"composer-2", Rates{Input: 5.0e-7, Output: 2.5e-6, CacheRead: 2.0e-7}},
@@ -175,6 +181,8 @@ func TestLookupKnownModelsFromRealStore(t *testing.T) {
 		{"gpt-5.6-terra", Rates{Input: 2.5e-6, Output: 1.5e-5, CacheRead: 2.5e-7, CacheCreation: 3.125e-6}},
 		{"gpt-5.6-terra-high", Rates{Input: 2.5e-6, Output: 1.5e-5, CacheRead: 2.5e-7, CacheCreation: 3.125e-6}},
 		{"gpt-5.6-luna", Rates{Input: 1.0e-6, Output: 6.0e-6, CacheRead: 1.0e-7, CacheCreation: 1.25e-6}},
+		{"gpt-6-astra", Rates{Input: 1.0e-5, Output: 5.0e-5, CacheRead: 1.0e-6, CacheCreation: 1.25e-5}},
+		{"gpt-6-astra-high", Rates{Input: 1.0e-5, Output: 5.0e-5, CacheRead: 1.0e-6, CacheCreation: 1.25e-5}},
 		// Daybreak program alias for Sol; Codex records the -latest form,
 		// which resolves via the prefix fallback.
 		{"gpt-daybreak-blue", Rates{Input: 5.0e-6, Output: 3.0e-5, CacheRead: 5.0e-7, CacheCreation: 6.25e-6}},
@@ -229,6 +237,19 @@ func TestLookupOpus47DoesNotInheritOpus4Rate(t *testing.T) {
 // TestLookupComposer2FastDoesNotInheritComposer2Rate is the composer-side
 // twin of the opus-4-7 guard: Cursor's fast variant costs 3× the standard
 // tier, so a prefix collapse would under-report it.
+// TestLookupFable51DoesNotInheritFable5CacheRate pins the reason
+// claude-fable-5-1 needs its own key: without it the prefix fallback lands on
+// claude-fable-5 and overstates every cache read by 4x.
+func TestLookupFable51DoesNotInheritFable5CacheRate(t *testing.T) {
+	got, ok := Lookup("claude-fable-5-1", pricingTestTime)
+	require.True(t, ok)
+	require.Equal(t, 2.5e-7, got.CacheRead)
+
+	base, ok := Lookup("claude-fable-5", pricingTestTime)
+	require.True(t, ok)
+	require.Equal(t, 1.0e-6, base.CacheRead)
+}
+
 func TestLookupComposer2FastDoesNotInheritComposer2Rate(t *testing.T) {
 	got, ok := Lookup("composer-2-fast", pricingTestTime)
 	require.True(t, ok)

@@ -46,6 +46,14 @@ var gpt56SolPeriods = []ratePeriod{
 	{From: gpt56SolPromoFrom, Rates: Rates{Input: 4.0e-6, Output: 2.0e-5, CacheRead: 4.0e-7, CacheCreation: 5.0e-6}},
 }
 
+// fable51Periods is shared by claude-fable-5-1 and claude-mythos-5-1, which
+// ship at the same tariff. Anthropic left the $0.25/MTok cache read
+// unconfirmed for Mythos 5.1 at launch; the shared slice mirrors Fable 5.1
+// and keeps the two from drifting.
+var fable51Periods = []ratePeriod{
+	{Rates: Rates{Input: 1.0e-5, Output: 5.0e-5, CacheRead: 2.5e-7, CacheCreation: 1.25e-5}},
+}
+
 func fixed(r Rates) []ratePeriod {
 	return []ratePeriod{{Rates: r}}
 }
@@ -74,6 +82,11 @@ var ratesByModel = map[string][]ratePeriod{
 	// fast-mode sessions are estimated at the standard rate.
 	"claude-opus-5":   fixed(Rates{Input: 5.0e-6, Output: 2.5e-5, CacheRead: 5.0e-7, CacheCreation: 6.25e-6}),
 	"claude-mythos-5": fixed(Rates{Input: 1.0e-5, Output: 5.0e-5, CacheRead: 1.0e-6, CacheCreation: 1.25e-5}),
+	// The 5.1 generation kept the $10/$50 tariff but cut the cache read to
+	// $0.25/MTok. Both ids need their own key so the prefix fallback cannot
+	// price them at the 5.0 generation's $1/MTok read.
+	"claude-fable-5-1":  fable51Periods,
+	"claude-mythos-5-1": fable51Periods,
 
 	// OpenAI — GPT-5 generation.
 	"gpt-5":               fixed(Rates{Input: 1.25e-6, Output: 1.0e-5, CacheRead: 1.25e-7}),
@@ -112,6 +125,13 @@ var ratesByModel = map[string][]ratePeriod{
 	// Codex emits gpt-daybreak-blue-latest; the bare key prices it and any
 	// future suffix through the prefix fallback.
 	"gpt-daybreak-blue": gpt56SolPeriods,
+
+	// OpenAI — GPT-6 generation.
+	// Prompts over 272K input reprice the whole request at 2x input and 1.5x
+	// output, and Fast mode doubles the tariff under the same model id.
+	// Neither is modelled: session totals carry no per-request prompt length,
+	// the same documented approximation as the Gemini and Grok context tiers.
+	"gpt-6-astra": fixed(Rates{Input: 1.0e-5, Output: 5.0e-5, CacheRead: 1.0e-6, CacheCreation: 1.25e-5}),
 
 	// OpenAI — o-series reasoning models.
 	"o3": fixed(Rates{Input: 2.0e-6, Output: 8.0e-6, CacheRead: 5.0e-7}),
@@ -159,6 +179,8 @@ var modelAliases = map[string]string{
 	"claude-sonnet-4.5": "claude-sonnet-4-5",
 	"claude-sonnet-4.6": "claude-sonnet-4-6",
 	"claude-haiku-4.5":  "claude-haiku-4-5",
+	"claude-fable-5.1":  "claude-fable-5-1",
+	"claude-mythos-5.1": "claude-mythos-5-1",
 	"gpt-codex-5.3":     "gpt-5.3-codex",
 	"gpt-5.6":           "gpt-5.6-sol",
 }
