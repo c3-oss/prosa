@@ -75,6 +75,7 @@ func formatCompactDecimal(v float64) string {
 //	claude-opus-4-8            → "Opus 4.8"
 //	claude-sonnet-4-6          → "Sonnet 4.6"
 //	claude-haiku-4-5-20251001  → "Haiku 4.5"   (trailing date stamp dropped)
+//	claude-fable-5-1           → "Fable 5.1"
 //	claude-3-5-sonnet          → "Sonnet 3.5"  (older ordering)
 //	gpt-5.5                    → "GPT-5.5"
 //	gpt-5.3-codex              → "GPT-5.3 Codex"
@@ -98,7 +99,7 @@ func displayModel(raw string) string {
 		ver := make([]string, 0, len(parts))
 		for _, p := range parts {
 			switch strings.ToLower(p) {
-			case "opus", "sonnet", "haiku":
+			case "opus", "sonnet", "haiku", "fable", "mythos":
 				tier = titleWord(p)
 			default:
 				ver = append(ver, p)
