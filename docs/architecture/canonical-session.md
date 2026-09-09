@@ -38,7 +38,7 @@ stays excluded.
 
 ## Projection version
 
-`session.ProjectionVersion = 12`. The server's push handler compares
+`session.ProjectionVersion = 13`. The server's push handler compares
 `projection_version >= session.ProjectionVersion` before short-
 circuiting, so bumping this constant forces existing sessions to be
 re-projected on the next push from any client. Recent versions:
@@ -49,7 +49,9 @@ Hermes parent edges from `state.db` and transcript `parent_session_id`
 fields; v10 projects Hermes `state.db` rows to per-session canonical
 JSONL; v11 maps `ParentSessionID` onto the push wire and imports
 Claude Code subagent transcripts under their real on-disk naming; v12
-projects special-session `Kinds` into the `session_kinds` table.
+projects special-session `Kinds` into the `session_kinds` table; v13 reads
+Hermes usage from the `state.db` session-row token counters and projects
+them as a leading `session_usage` line.
 
 | Version | Brought |
 |---|---|
@@ -65,6 +67,7 @@ projects special-session `Kinds` into the `session_kinds` table.
 | 10 | Hermes `state.db` rows project to per-session canonical JSONL — the raw artifact for those sessions is a per-session `.jsonl` instead of the multi-session `.db` container; `raw_hash` / `raw_size` describe the projected JSONL. |
 | 11 | parent edges reach the server — `sessionToProto` maps `Session.ParentSessionID` onto the wire (previously dropped at push, so the server never stored an edge). Claude Code subagent transcripts are imported under their real layouts: the walker accepts `agent-<hex>.jsonl` alongside the older `agent-<uuid>.jsonl`, both directly under `subagents/` (Agent tool) and nested at `subagents/workflows/wf_<id>/` (Workflow tool). The child session id is the filename stem because every record inside carries the parent's `sessionId`; the parent UUID is the directory above the innermost `subagents` component. |
 | 12 | special-session classification projected — `Session.Kinds` carries any of `goal` (Codex `<codex_internal_context source="goal">` first user turn), `workflow` (Claude Code `Workflow` tool), `ralph-loop` (Claude Code `/ralph-loop:ralph-loop` command), and `orchestrator` (session that spawned subagents). Stored in the `session_kinds` table (migration `0010_session_kinds` local / `0013_session_kinds` server) and pushed on the wire as `Session.kinds`. `goal`/`workflow`/`ralph-loop` are derived per session by `internal/sessionkind`; `orchestrator` is edge-derived — the client reconciles it post-sweep via `store.RefreshOrchestratorKinds` and the server derives it from parent edges at push (`deriveOrchestratorKinds`). The Codex goal `<objective>` is also unwrapped into `FirstPrompt` instead of the raw scaffold. |
+| 13 | Hermes usage read from `state.db`'s `sessions` token counters instead of `messages.token_count`, which Hermes no longer populates. `InputTokens` is the cache-inclusive sum; `reasoning_tokens` stays out of `OutputTokens`. The projected JSONL gains a leading `{"type":"session_usage","data":{…}}` line, so `raw_hash` changes and Hermes sessions re-push. |
 
 ## Import eligibility
 
@@ -310,7 +313,8 @@ and a `sessions.json` index). The full reference is `docs/sources/hermes.md`.
 | `FirstPrompt` | first `messages.role=="user"` row (SQLite) or first user line/message (JSONL/JSON) with non-empty `content` (text or first text item of an array); whitespace-collapsed + truncated to 200 runes |
 | `Model` | `sessions.model` (SQLite); `model` (JSON snapshot); first assistant-side `model` encountered (JSONL) |
 | `ParentSessionID` | `sessions.parent_session_id` (SQLite); top-level `parent_session_id` (JSON snapshot); first per-message `parent_session_id` encountered (JSONL / snapshot messages) |
-| `RawPath` / `RawHash` / `RawSize` | per-session JSONL at `$PROSA_HOME/raw/hermes/<YYYY>/<MM>/<session-id>.jsonl`; `RawHash`/`RawSize` describe the per-session artifact. For `.jsonl` / `session_*.json` shapes the source bytes are preserved verbatim (extension follows the source); for `state.db`, each `sessions` row is projected to its own JSONL (`messages` rows + hidden reasoning/codex/tool-call columns, one per line). The multi-session `.db` is **not** copied — see issue #235 |
+| `Usage` | `state.db` rows: the `sessions` token counters. `InputTokens` is `input_tokens + cache_read_tokens + cache_write_tokens` because Hermes stores uncached input alone; `CacheReadTokens`/`CachedTokens` from `cache_read_tokens`, `CacheCreationTokens` from `cache_write_tokens`, `OutputTokens` from `output_tokens`. `reasoning_tokens` is already inside `output_tokens` and is provenance only. All-zero counters classify Unknown, not ExplicitZero. `.jsonl` / `session_*.json` shapes carry no counters, so a session that defers to a fuller sibling transcript has no usage — see the dual-source gap in `docs/sources/hermes.md` |
+| `RawPath` / `RawHash` / `RawSize` | per-session JSONL at `$PROSA_HOME/raw/hermes/<YYYY>/<MM>/<session-id>.jsonl`; `RawHash`/`RawSize` describe the per-session artifact. For `.jsonl` / `session_*.json` shapes the source bytes are preserved verbatim (extension follows the source); for `state.db`, each `sessions` row is projected to its own JSONL (a leading `session_usage` line when the row carries token counters, then `messages` rows + hidden reasoning/codex/tool-call columns, one per line). The multi-session `.db` is **not** copied — see issue #235 |
 
 ### `session.Turn`
 
