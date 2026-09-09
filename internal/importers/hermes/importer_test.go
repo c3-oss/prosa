@@ -60,6 +60,14 @@ type hermesStateRow struct {
 	model     string
 	startedAt float64
 	messages  []hermesStateMessage
+
+	// Session-level token counters. Hermes stores uncached input in
+	// inputTokens; cacheRead/cacheWrite are the rest of the prompt.
+	inputTokens  int64
+	outputTokens int64
+	cacheRead    int64
+	cacheWrite   int64
+	reasoning    int64
 }
 
 type hermesStateMessage struct {
@@ -82,10 +90,23 @@ type hermesStateMessage struct {
 	codexMessageItems   string
 }
 
-// buildHermesStateDB writes a state.db with the Hermes schema. Optional
-// message-level columns land as NULL when the field is zero, matching
-// older Hermes builds that lack those columns.
+// buildHermesStateDB writes a state.db with the current Hermes schema,
+// session-level token counters included. Optional message-level columns land
+// as NULL when the field is zero.
 func buildHermesStateDB(t *testing.T, dir string, rows []hermesStateRow) string {
+	t.Helper()
+	return buildStateDB(t, dir, rows, true)
+}
+
+// buildLegacyHermesStateDB writes a state.db from a Hermes build predating
+// the session-level token counters, so the importer's NULL-placeholder
+// projection stays covered.
+func buildLegacyHermesStateDB(t *testing.T, dir string, rows []hermesStateRow) string {
+	t.Helper()
+	return buildStateDB(t, dir, rows, false)
+}
+
+func buildStateDB(t *testing.T, dir string, rows []hermesStateRow, withUsage bool) string {
 	t.Helper()
 	require.NoError(t, os.MkdirAll(dir, 0o755))
 	dbPath := filepath.Join(dir, "state.db")
@@ -93,6 +114,16 @@ func buildHermesStateDB(t *testing.T, dir string, rows []hermesStateRow) string 
 	db, err := sql.Open("sqlite", dbPath)
 	require.NoError(t, err)
 	defer func() { _ = db.Close() }()
+
+	usageColumns := ""
+	if withUsage {
+		usageColumns = `
+  input_tokens INTEGER DEFAULT 0,
+  output_tokens INTEGER DEFAULT 0,
+  cache_read_tokens INTEGER DEFAULT 0,
+  cache_write_tokens INTEGER DEFAULT 0,
+  reasoning_tokens INTEGER DEFAULT 0,`
+	}
 
 	_, err = db.Exec(`
 CREATE TABLE sessions (
@@ -106,7 +137,7 @@ CREATE TABLE sessions (
   ended_at REAL,
   end_reason TEXT,
   message_count INTEGER,
-  tool_call_count INTEGER,
+  tool_call_count INTEGER,` + usageColumns + `
   title TEXT
 );
 CREATE TABLE messages (
@@ -129,10 +160,21 @@ CREATE TABLE messages (
 	require.NoError(t, err)
 
 	for _, r := range rows {
-		_, err = db.Exec(
-			`INSERT INTO sessions(id, source, model, parent_session_id, started_at, message_count) VALUES (?, ?, ?, ?, ?, ?)`,
-			r.id, "cli", r.model, r.parentID, r.startedAt, len(r.messages),
-		)
+		if withUsage {
+			_, err = db.Exec(
+				`INSERT INTO sessions(
+					id, source, model, parent_session_id, started_at, message_count,
+					input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				r.id, "cli", r.model, r.parentID, r.startedAt, len(r.messages),
+				r.inputTokens, r.outputTokens, r.cacheRead, r.cacheWrite, r.reasoning,
+			)
+		} else {
+			_, err = db.Exec(
+				`INSERT INTO sessions(id, source, model, parent_session_id, started_at, message_count) VALUES (?, ?, ?, ?, ?, ?)`,
+				r.id, "cli", r.model, r.parentID, r.startedAt, len(r.messages),
+			)
+		}
 		require.NoError(t, err)
 		for _, m := range r.messages {
 			_, err = db.Exec(
@@ -610,6 +652,150 @@ func TestImportStateDBProjectsJSONL(t *testing.T) {
 	require.NotContains(t, plainAssistant, "codex_reasoning_items")
 }
 
+// TestImportStateDBUsesSessionTokenCounters pins the mapping from Hermes's
+// session-level counters onto the canonical aggregate. Two things are easy to
+// get wrong and both are asserted here: InputTokens is the cache-inclusive
+// sum, because Hermes stores uncached input only, and reasoning_tokens stays
+// out of OutputTokens, because Hermes already counts it there.
+func TestImportStateDBUsesSessionTokenCounters(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv("PROSA_HOME", filepath.Join(t.TempDir(), "prosa-home"))
+
+	hermesHome := filepath.Join(t.TempDir(), ".hermes")
+	require.NoError(t, os.MkdirAll(filepath.Join(hermesHome, "sessions"), 0o755))
+
+	base := time.Date(2026, 8, 1, 9, 0, 0, 0, time.UTC)
+	dbPath := buildHermesStateDB(t, hermesHome, []hermesStateRow{{
+		id: "usage-1", model: "gpt-5.5", startedAt: float64(base.Unix()),
+		inputTokens: 100, outputTokens: 20, cacheRead: 1000, cacheWrite: 50, reasoning: 7,
+		messages: []hermesStateMessage{
+			{role: "user", content: "prompt", timestamp: float64(base.Unix())},
+			{
+				role: "assistant", content: "answer",
+				timestamp: float64(base.Add(time.Second).Unix()),
+				// A stale per-message count must lose to the session row.
+				tokenCount: ptrInt64(3),
+			},
+		},
+	}})
+
+	sink := newSink()
+	_, err := New().Import(ctx, dbPath, sink, importer.ImportOptions{})
+	require.NoError(t, err)
+
+	usage := sink.Sessions["usage-1"].Usage
+	require.NotNil(t, usage)
+	require.Equal(t, int64(1150), usage.InputTokens, "input must include cache read and cache write")
+	require.Equal(t, int64(20), usage.OutputTokens, "reasoning is already inside output")
+	require.Equal(t, int64(1000), usage.CacheReadTokens)
+	require.Equal(t, int64(1000), usage.CachedTokens)
+	require.Equal(t, int64(50), usage.CacheCreationTokens)
+	require.Equal(t, int64(1170), usage.TotalTokens)
+}
+
+// TestImportStateDBProjectsUsageProvenance covers the raw side of the same
+// change: the counters prosa derives usage from must be visible in the
+// preserved artifact, so the projection leads with a session_usage line.
+func TestImportStateDBProjectsUsageProvenance(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv("PROSA_HOME", filepath.Join(t.TempDir(), "prosa-home"))
+
+	hermesHome := filepath.Join(t.TempDir(), ".hermes")
+	require.NoError(t, os.MkdirAll(filepath.Join(hermesHome, "sessions"), 0o755))
+
+	base := time.Date(2026, 8, 2, 9, 0, 0, 0, time.UTC)
+	dbPath := buildHermesStateDB(t, hermesHome, []hermesStateRow{{
+		id: "prov-1", model: "gpt-5.5", startedAt: float64(base.Unix()),
+		inputTokens: 11, outputTokens: 22, cacheRead: 33, cacheWrite: 44, reasoning: 55,
+		messages: []hermesStateMessage{
+			{role: "user", content: "prompt", timestamp: float64(base.Unix())},
+		},
+	}})
+
+	sink := newSink()
+	_, err := New().Import(ctx, dbPath, sink, importer.ImportOptions{})
+	require.NoError(t, err)
+
+	sess := sink.Sessions["prov-1"]
+	contents, err := os.ReadFile(sess.RawPath)
+	require.NoError(t, err)
+	lines := strings.Split(string(contents), "\n")
+	require.Len(t, lines, 2, "one usage line then one message line")
+	require.JSONEq(t,
+		`{"type":"session_usage","data":{"input_tokens":11,"output_tokens":22,`+
+			`"cache_read_tokens":33,"cache_write_tokens":44,"reasoning_tokens":55}}`,
+		lines[0],
+	)
+	require.Contains(t, lines[1], `"role":"user"`)
+
+	// The hash must still describe the bytes actually written.
+	require.Equal(t, int64(len(contents)), sess.RawSize)
+	sum := sha256.Sum256(contents)
+	require.Equal(t, hex.EncodeToString(sum[:]), sess.RawHash)
+}
+
+// TestImportStateDBZeroCountersStayAdmitted guards the sessions that carry no
+// usage at all. Claiming a usage event was seen would classify them
+// ExplicitZero, and the import policy drops those outright — so a session
+// that exists today would silently vanish from the store.
+func TestImportStateDBZeroCountersStayAdmitted(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv("PROSA_HOME", filepath.Join(t.TempDir(), "prosa-home"))
+
+	hermesHome := filepath.Join(t.TempDir(), ".hermes")
+	require.NoError(t, os.MkdirAll(filepath.Join(hermesHome, "sessions"), 0o755))
+
+	base := time.Date(2026, 8, 3, 9, 0, 0, 0, time.UTC)
+	dbPath := buildHermesStateDB(t, hermesHome, []hermesStateRow{{
+		id: "zero-1", model: "gpt-5.5", startedAt: float64(base.Unix()),
+		messages: []hermesStateMessage{
+			{role: "user", content: "prompt", timestamp: float64(base.Unix())},
+		},
+	}})
+
+	sink := newSink()
+	_, err := New().Import(ctx, dbPath, sink, importer.ImportOptions{})
+	require.NoError(t, err)
+
+	sess, ok := sink.Sessions["zero-1"]
+	require.True(t, ok, "a session with no counters must still be imported")
+	require.Nil(t, sess.Usage)
+
+	contents, err := os.ReadFile(sess.RawPath)
+	require.NoError(t, err)
+	require.NotContains(t, string(contents), "session_usage",
+		"no counters means no provenance line to project")
+}
+
+// TestImportStateDBWithoutUsageColumns exercises the NULL-placeholder
+// projection: a Hermes build predating the session counters must still
+// import, falling back to the per-message token_count it does have.
+func TestImportStateDBWithoutUsageColumns(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv("PROSA_HOME", filepath.Join(t.TempDir(), "prosa-home"))
+
+	hermesHome := filepath.Join(t.TempDir(), ".hermes")
+	require.NoError(t, os.MkdirAll(filepath.Join(hermesHome, "sessions"), 0o755))
+
+	base := time.Date(2026, 8, 4, 9, 0, 0, 0, time.UTC)
+	dbPath := buildLegacyHermesStateDB(t, hermesHome, []hermesStateRow{{
+		id: "legacy-1", model: "claude-opus-4-7", startedAt: float64(base.Unix()),
+		messages: []hermesStateMessage{
+			{role: "user", content: "prompt", timestamp: float64(base.Unix()), tokenCount: ptrInt64(9)},
+		},
+	}})
+
+	sink := newSink()
+	_, err := New().Import(ctx, dbPath, sink, importer.ImportOptions{})
+	require.NoError(t, err)
+
+	sess, ok := sink.Sessions["legacy-1"]
+	require.True(t, ok)
+	require.NotNil(t, sess.Usage)
+	require.Equal(t, int64(9), sess.Usage.TotalTokens)
+	require.Zero(t, sess.Usage.InputTokens, "the old column carries no input/output split")
+}
+
 // TestImportStateDBNoLongerCopiesFullDB is the explicit regression guard
 // for issue #235: after importing a state.db, no `.db` files may exist
 // anywhere under the prosa raw tree.
@@ -665,6 +851,7 @@ func TestImportStateDBProjectionDeterministic(t *testing.T) {
 	rows := []hermesStateRow{
 		{
 			id: "det-1", model: "claude-sonnet-4-6", startedAt: float64(base.Unix()),
+			inputTokens: 12, outputTokens: 3, cacheRead: 400, cacheWrite: 5, reasoning: 1,
 			messages: []hermesStateMessage{
 				{
 					role: "assistant", content: "answer",

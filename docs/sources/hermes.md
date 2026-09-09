@@ -57,18 +57,24 @@ time — same idiom as Cursor and Gemini.
 
 ```sql
 CREATE TABLE sessions (
-  id                TEXT PRIMARY KEY,
-  source            TEXT NOT NULL,
-  model             TEXT,
-  model_config      TEXT,
-  system_prompt     TEXT,
-  parent_session_id TEXT,
-  started_at        REAL NOT NULL,
-  ended_at          REAL,
-  end_reason        TEXT,
-  message_count     INTEGER,
-  tool_call_count   INTEGER,
-  title             TEXT
+  id                 TEXT PRIMARY KEY,
+  source             TEXT NOT NULL,
+  model              TEXT,
+  model_config       TEXT,
+  system_prompt      TEXT,
+  parent_session_id  TEXT,
+  started_at         REAL NOT NULL,
+  ended_at           REAL,
+  end_reason         TEXT,
+  message_count      INTEGER,
+  tool_call_count    INTEGER,
+  input_tokens       INTEGER DEFAULT 0,
+  output_tokens      INTEGER DEFAULT 0,
+  cache_read_tokens  INTEGER DEFAULT 0,
+  cache_write_tokens INTEGER DEFAULT 0,
+  reasoning_tokens   INTEGER DEFAULT 0,
+  estimated_cost_usd REAL,
+  title              TEXT
 );
 
 CREATE TABLE messages (
@@ -97,6 +103,37 @@ importer normalizes both to UTC `time.Time` after parse.
 `messages.content`, `messages.tool_calls`, and the reasoning columns may
 hold plain text or JSON-encoded values; the importer treats them as
 opaque strings unless a column is explicitly parsed (`tool_calls`).
+
+Hermes counts tokens **per session**, on the `sessions` row. The importer
+reads those five counters and ignores `messages.token_count`, which Hermes
+stopped populating when the counters landed. The mapping onto prosa's
+canonical aggregate:
+
+| prosa `TokenUsage` | Hermes column |
+| --- | --- |
+| `InputTokens` | `input_tokens + cache_read_tokens + cache_write_tokens` |
+| `CacheReadTokens`, `CachedTokens` | `cache_read_tokens` |
+| `CacheCreationTokens` | `cache_write_tokens` |
+| `OutputTokens` | `output_tokens` |
+
+Two rules the mapping depends on. `input_tokens` holds **uncached** input
+only, so prosa's cache-inclusive `InputTokens` is the sum of all three prompt
+columns — Hermes derives its own `prompt_tokens` the same way. And
+`reasoning_tokens` is already counted inside `output_tokens`, which Hermes's
+`total_tokens` confirms by not adding it; prosa keeps it as provenance and
+never folds it into `OutputTokens`.
+
+A row whose counters are all zero classifies Unknown, not ExplicitZero, so it
+is still imported. This mirrors Hermes's own `has_usage` flag, which only
+records usage once a counter is non-zero.
+
+`estimated_cost_usd` is read for reference only. Hermes prices
+subscription-covered routes at zero, so prosa estimates cost from its own rate
+table instead, the same treatment Claude Code and Codex sessions get.
+
+A Hermes build predating the counters still imports: the sessions query
+projects missing columns as `NULL`, and usage falls back to
+`messages.token_count`.
 
 ## Transcript files (`.jsonl`)
 
@@ -323,12 +360,18 @@ What `session.Turn` and `session.ToolUsage` surface for Hermes today:
   - every per-message hidden column — `messages.reasoning`,
     `reasoning_content`, `reasoning_details`, `codex_reasoning_items`,
     `codex_message_items`, `tool_call_id`, `tool_name`, `finish_reason`,
-    `token_count`;
+    `token_count` (no longer the usage source — see the session-level
+    counters above, which the projection carries on its own line);
   - the full body of every `tool_calls` payload and `tool`-role
     `content` blob, beyond what the `ToolUsage` aggregate counts;
   - for sibling `<id>.jsonl` / `session_<id>.json` shapes, the source
     bytes verbatim (including the snapshot envelope's `system_prompt` /
     `platform` / `last_updated` when present).
+- **Projected usage line**: a `state.db` row carrying token counters leads
+  its projected JSONL with
+  `{"type":"session_usage","data":{"input_tokens":…,"output_tokens":…,"cache_read_tokens":…,"cache_write_tokens":…,"reasoning_tokens":…}}`,
+  so the preserved raw explains the usage prosa derives from it. Rows with no
+  counters project messages only.
 - **Not preserved in raw** for `state.db`-sourced sessions:
   - session-level columns without a per-message equivalent
     (`sessions.system_prompt`, `model_config`, `end_reason`, `title`,
@@ -341,4 +384,7 @@ What `session.Turn` and `session.ToolUsage` surface for Hermes today:
   other had more messages), only the winning surface lands as raw —
   there is no separate copy of the dropped side. A future cut that
   wants to merge them must read both sources at projection time; the
-  importer at this cut does not attempt the merge.
+  importer at this cut does not attempt the merge. The visible cost of
+  that gap is usage: a session that defers to a sibling transcript gets
+  no token counters, because they live only on the `state.db` row and a
+  transcript's raw is a verbatim copy that cannot carry them.
