@@ -8,6 +8,7 @@ import (
 	"github.com/c3-oss/prosa/internal/device"
 	"github.com/c3-oss/prosa/internal/importers/importpolicy"
 	"github.com/c3-oss/prosa/internal/projectid"
+	"github.com/c3-oss/prosa/internal/rawlock"
 	"github.com/c3-oss/prosa/internal/sessionkind"
 	"github.com/c3-oss/prosa/pkg/importer"
 	"github.com/c3-oss/prosa/pkg/session"
@@ -84,6 +85,14 @@ func RunSingleFile(ctx context.Context, cfg SingleFileConfig) (importer.ImportRe
 	if importpolicy.ClassifyForImport(usageState) == importpolicy.DecisionSkipNoUsage {
 		return importpolicy.RecordNoUsageSkip(ctx, cfg.Sink, writeID, hash, size)
 	}
+
+	// Hold across the rename and the store commit. Prune takes the same lock
+	// before it unlinks, so it cannot delete bytes this write is publishing.
+	release, err := rawlock.Hold(writeID)
+	if err != nil {
+		return importer.ImportResult{}, fmt.Errorf("lock raw %s: %w", writeID, err)
+	}
+	defer release()
 
 	rawPath, err := cfg.PreserveRaw(cfg.Path, writeID, sess.StartedAt)
 	if err != nil {

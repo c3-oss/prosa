@@ -78,7 +78,7 @@ func newRootCmd() *cobra.Command {
 	)
 	addGrouped(cmd, groupStart, newSetupCmd())
 	addGrouped(cmd, groupExplore, newSearchCmd(), newShowCmd(), newAnalyticsCmd())
-	addGrouped(cmd, groupSync, newSyncCmd(), newScheduleCmd(), newProfilesCmd())
+	addGrouped(cmd, groupSync, newSyncCmd(), newScheduleCmd(), newProfilesCmd(), newPruneCmd())
 	addGrouped(cmd, groupServer, newLoginCmd(), newLogoutCmd(), newDevicesCmd())
 	configureCompletionCmd(cmd)
 	return cmd

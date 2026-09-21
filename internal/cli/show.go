@@ -83,6 +83,9 @@ func runShow(cmd *cobra.Command, args []string) error {
 		payload = capShowPayloadLines(payload, showMaxOutputLines)
 		return emitShowJSON(os.Stdout, payload)
 	case showModeLocalRaw:
+		if payload.Session.PrunedAt != nil {
+			return copyPrunedRemoteRaw(ctx, id)
+		}
 		return copyRaw(payload.Session.RawPath)
 	case showModeRendered:
 		return render.ShowSession(os.Stdout, render.SessionDetail{
@@ -95,6 +98,9 @@ func runShow(cmd *cobra.Command, args []string) error {
 		})
 	default:
 		// Non-TTY without --json or --raw: stay pipeable (`prosa show <id> | jq`).
+		if payload.Session.PrunedAt != nil {
+			return copyPrunedRemoteRaw(ctx, id)
+		}
 		return copyRaw(payload.Session.RawPath)
 	}
 }
@@ -313,6 +319,22 @@ type rawGetter interface {
 }
 
 const showRemoteRawChunkLimit = 1 << 20
+
+// copyPrunedRemoteRaw streams a pruned session's raw from the server — the
+// local copy was deleted by `prosa prune`.
+func copyPrunedRemoteRaw(ctx context.Context, id string) error {
+	auth, err := rpc.LoadAuth()
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("session %s is pruned locally; its raw lives on the server — run `prosa login --server <URL>` first", id)
+		}
+		return err
+	}
+	if err := streamRemoteRaw(ctx, rpc.Sessions(auth.Server, auth.Token), id, os.Stdout); err != nil {
+		return fmt.Errorf("stream pruned raw: %w", err)
+	}
+	return nil
+}
 
 func copyRemoteRaw(ctx context.Context, id string, w io.Writer) error {
 	auth, err := rpc.LoadAuth()

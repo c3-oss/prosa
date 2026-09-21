@@ -2,11 +2,13 @@ package importerutil
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/c3-oss/prosa/internal/rawlock"
 	"github.com/c3-oss/prosa/pkg/importer"
 	"github.com/c3-oss/prosa/pkg/session"
 )
@@ -83,6 +85,7 @@ func TestRunSingleFileSkipsMatchingHash(t *testing.T) {
 }
 
 func TestRunSingleFileWritesProjection(t *testing.T) {
+	t.Setenv("PROSA_HOME", filepath.Join(t.TempDir(), "prosa-home"))
 	started := time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC)
 	sink := &fakeSink{}
 
@@ -129,6 +132,80 @@ func TestRunSingleFileWritesProjection(t *testing.T) {
 	require.Len(t, sink.wroteTurns, 1)
 	require.Len(t, sink.wroteTools, 1)
 	require.Equal(t, "hash-b", sink.wroteHash)
+}
+
+type blockingSink struct {
+	fakeSink
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (s *blockingSink) WriteSession(ctx context.Context, sess session.Session, tools []session.ToolUsage, turns []session.Turn, hash string) error {
+	close(s.entered)
+	<-s.release
+	return s.fakeSink.WriteSession(ctx, sess, tools, turns, hash)
+}
+
+func TestRunSingleFileHoldsRawLockUntilWriteReturns(t *testing.T) {
+	t.Setenv("PROSA_HOME", filepath.Join(t.TempDir(), "prosa-home"))
+	sink := &blockingSink{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := RunSingleFile(context.Background(), SingleFileConfig{
+			Agent: "agent",
+			Path:  "/tmp/source.jsonl",
+			Sink:  sink,
+			Hash: func(string) (string, int64, error) {
+				return "hash-lock", 4, nil
+			},
+			PeekID: func(string) (string, error) { return "peek", nil },
+			Parse: func(context.Context, string) (session.Session, []session.Turn, []session.ToolUsage, session.UsageState, error) {
+				return session.Session{}, nil, nil, session.UsageStatePresent, nil
+			},
+			PreserveRaw: func(string, string, time.Time) (string, error) {
+				return "/raw/peek.jsonl", nil
+			},
+		})
+		done <- err
+	}()
+
+	select {
+	case <-sink.entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("write did not start")
+	}
+
+	second := make(chan struct{})
+	go func() {
+		release, err := rawlock.Hold("peek")
+		if err != nil {
+			t.Errorf("hold: %v", err)
+		} else {
+			release()
+		}
+		close(second)
+	}()
+	select {
+	case <-second:
+		t.Fatal("prune-side lock was acquired while the importer was still inside WriteSession")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(sink.release)
+
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("import did not finish")
+	}
+	select {
+	case <-second:
+	case <-time.After(2 * time.Second):
+		t.Fatal("lock was not released when WriteSession returned")
+	}
 }
 
 func TestRunSingleFileNoUsageCanUseParsedSessionID(t *testing.T) {

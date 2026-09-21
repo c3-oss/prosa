@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"connectrpc.com/connect"
 
 	prosav1 "github.com/c3-oss/prosa/gen/go/prosa/v1"
+	"github.com/c3-oss/prosa/internal/store"
 	"github.com/c3-oss/prosa/pkg/importer"
 	"github.com/c3-oss/prosa/pkg/session"
 )
@@ -56,11 +58,36 @@ func reconcileWithServer(
 	counts.localTotal = len(local)
 
 	var work []string
+	backfill := map[string]store.PushedBackfill{}
+	prunedExcluded := 0
 	for _, row := range local {
+		if row.Pruned {
+			// No local raw to read; the server copy was confirmed at prune
+			// time. Excluded even under --overwrite.
+			prunedExcluded++
+			continue
+		}
 		remote, ok := serverHas[row.ID]
 		staleProjection := ok && remote.ProjectionVersion < session.ProjectionVersion
 		if opts.Overwrite || !ok || remote.RawHash != row.RawHash || staleProjection {
 			work = append(work, row.ID)
+			continue
+		}
+		// Converged on the server but not recorded locally: sessions pushed
+		// before push state existed. Backfill so prune can see them. Keep
+		// the server's timestamp — time.Now() would hide the backlog from
+		// the advisory for a week.
+		if row.PushedHash != row.RawHash {
+			backfill[row.ID] = store.PushedBackfill{Hash: row.RawHash, At: remote.LastSyncedAt}
+		}
+	}
+
+	if prunedExcluded > 0 {
+		push.log().InfoContext(ctx, "reconcile: pruned sessions excluded", "count", prunedExcluded)
+	}
+	if len(backfill) > 0 {
+		if berr := push.store.RecordPushedBatch(ctx, backfill); berr != nil {
+			push.log().WarnContext(ctx, "record pushed backfill", "err", berr)
 		}
 	}
 
@@ -86,7 +113,7 @@ func reconcileWithServer(
 		switch outcome {
 		case pushImported:
 			counts.sent++
-		case pushAlreadyHashed, pushSkippedNoUsage:
+		case pushAlreadyHashed, pushSkippedNoUsage, pushSkippedPruned:
 			counts.skipped++
 		case pushFailed:
 			counts.errs++
@@ -108,6 +135,7 @@ func reconcileWithServer(
 type serverManifestRow struct {
 	RawHash           string
 	ProjectionVersion int
+	LastSyncedAt      time.Time
 }
 
 func fetchServerManifest(ctx context.Context, push *pusher) (map[string]serverManifestRow, error) {
@@ -129,10 +157,14 @@ func fetchServerManifest(ctx context.Context, push *pusher) (map[string]serverMa
 			return nil, fmt.Errorf("manifest rpc: %w", err)
 		}
 		for _, e := range resp.Msg.Entries {
-			out[e.Id] = serverManifestRow{
+			row := serverManifestRow{
 				RawHash:           e.RawHash,
 				ProjectionVersion: int(e.ProjectionVersion),
 			}
+			if e.LastSyncedAt != nil {
+				row.LastSyncedAt = e.LastSyncedAt.AsTime()
+			}
+			out[e.Id] = row
 		}
 		if resp.Msg.NextAfterId == "" {
 			return out, nil

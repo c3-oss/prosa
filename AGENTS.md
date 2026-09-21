@@ -118,11 +118,13 @@ goes through `just` (the project's task runner). There is no Makefile.
 INTENT § **Out of scope, intentionally** is the source of truth. Highlights:
 
 - No DuckDB / Parquet / columnar sidecars.
-- No bidirectional sync — push-only stays push-only.
+- No bidirectional sync — push-only stays push-only (a pruned session's
+  raw streams from the server on read, but never re-enters the local store).
 - No multi-user / multi-tenant in the MVP (post-MVP direction; no hooks
   pre-baked).
 - No redaction at upload time.
-- No automatic retention / pruning.
+- No automatic retention — `prosa prune` is explicit and server-verified;
+  sync only advertises what it would reclaim.
 
 Developer hooks are intentionally present now as repo-local quality guardrails.
 Adding new runtime scope is still a product decision that requires reading

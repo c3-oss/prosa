@@ -34,6 +34,7 @@ type fakeSessionsClient struct {
 	pushCalls     int
 	pushErr       error
 	pushSkippedID map[string]bool // sessions for which Push returns Skipped=true
+	pushRawURI    string          // raw_uri returned on every Push response
 }
 
 func (f *fakeSessionsClient) Push(_ context.Context, req *connect.Request[prosav1.PushRequest]) (*connect.Response[prosav1.PushResponse], error) {
@@ -43,7 +44,7 @@ func (f *fakeSessionsClient) Push(_ context.Context, req *connect.Request[prosav
 	}
 	f.pushed = append(f.pushed, req.Msg)
 	skipped := req.Msg.Session != nil && f.pushSkippedID[req.Msg.Session.Id]
-	return connect.NewResponse(&prosav1.PushResponse{Skipped: skipped}), nil
+	return connect.NewResponse(&prosav1.PushResponse{Skipped: skipped, RawUri: f.pushRawURI}), nil
 }
 
 func (f *fakeSessionsClient) PushChunk(_ context.Context, _ *connect.Request[prosav1.PushChunkRequest]) (*connect.Response[prosav1.PushChunkResponse], error) {

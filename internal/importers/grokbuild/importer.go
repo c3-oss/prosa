@@ -23,6 +23,7 @@ import (
 	"github.com/c3-oss/prosa/internal/importers/importpolicy"
 	"github.com/c3-oss/prosa/internal/paths"
 	"github.com/c3-oss/prosa/internal/projectid"
+	"github.com/c3-oss/prosa/internal/rawlock"
 	"github.com/c3-oss/prosa/internal/sessionkind"
 	"github.com/c3-oss/prosa/pkg/importer"
 	"github.com/c3-oss/prosa/pkg/session"
@@ -146,18 +147,9 @@ func (i *Importer) Import(ctx context.Context, summaryPath string, sink importer
 		return importpolicy.RecordNoUsageSkip(ctx, sink, id, hash, size)
 	}
 
-	rawPath, rawHash, rawSize, err := importerutil.PreserveProjectedJSONL(Name, id, sess.StartedAt, lines)
-	if err != nil {
-		return importer.ImportResult{}, fmt.Errorf("preserve projected raw %s: %w", id, err)
-	}
-	sess.RawPath = rawPath
-	sess.RawHash = rawHash
-	sess.RawSize = rawSize
-
 	sess.Agent = Name
 	sess.DeviceID = device.IDOnce()
 	sess.Profile = session.ProfileOrDefault(opts.Profile)
-	projectid.Apply(&sess)
 
 	tools := make([]session.ToolUsage, 0, len(toolCounts))
 	for name, count := range toolCounts {
@@ -165,8 +157,26 @@ func (i *Importer) Import(ctx context.Context, summaryPath string, sink importer
 	}
 	sess.Kinds = sessionkind.Classify(turns, importerutil.ToolNames(tools))
 
-	if err := sink.WriteSession(ctx, sess, tools, turns, hash); err != nil {
-		return importer.ImportResult{}, fmt.Errorf("write session %s: %w", id, err)
+	var rawPath, rawHash string
+	var rawSize int64
+	// Hold from the rename through the store commit so prune cannot unlink
+	// the new bytes before their hash is recorded.
+	if err := rawlock.With(id, func() error {
+		var perr error
+		rawPath, rawHash, rawSize, perr = importerutil.PreserveProjectedJSONL(Name, id, sess.StartedAt, lines)
+		if perr != nil {
+			return fmt.Errorf("preserve projected raw %s: %w", id, perr)
+		}
+		sess.RawPath = rawPath
+		sess.RawHash = rawHash
+		sess.RawSize = rawSize
+		projectid.Apply(&sess)
+		if perr = sink.WriteSession(ctx, sess, tools, turns, hash); perr != nil {
+			return fmt.Errorf("write session %s: %w", id, perr)
+		}
+		return nil
+	}); err != nil {
+		return importer.ImportResult{}, err
 	}
 
 	return importer.ImportResult{

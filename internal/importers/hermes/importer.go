@@ -25,6 +25,7 @@ import (
 	"github.com/c3-oss/prosa/internal/importers/importpolicy"
 	"github.com/c3-oss/prosa/internal/paths"
 	"github.com/c3-oss/prosa/internal/projectid"
+	"github.com/c3-oss/prosa/internal/rawlock"
 	"github.com/c3-oss/prosa/internal/sessionkind"
 	"github.com/c3-oss/prosa/pkg/importer"
 	"github.com/c3-oss/prosa/pkg/session"
@@ -195,18 +196,25 @@ func (i *Importer) importStateDB(ctx context.Context, path string, sink importer
 			}
 			lines = append([]json.RawMessage{usageLine}, lines...)
 		}
-		rawPath, rawHash, rawSize, err := importerutil.PreserveProjectedJSONL(Name, row.id, sess.StartedAt, lines)
+		// With releases the lock before the next row. A defer in this loop
+		// would hold every session until the function returned.
+		err = rawlock.With(row.id, func() error {
+			rawPath, rawHash, rawSize, perr := importerutil.PreserveProjectedJSONL(Name, row.id, sess.StartedAt, lines)
+			if perr != nil {
+				return fmt.Errorf("preserve projected raw %s: %w", row.id, perr)
+			}
+			sess.RawPath = rawPath
+			sess.RawHash = rawHash
+			sess.RawSize = rawSize
+			projectid.Apply(&sess)
+			sess.Kinds = sessionkind.Classify(turns, importerutil.ToolNames(tools))
+			if perr = sink.WriteSession(ctx, sess, tools, turns, hash); perr != nil {
+				return fmt.Errorf("write session %s: %w", row.id, perr)
+			}
+			return nil
+		})
 		if err != nil {
-			return importer.ImportResult{}, fmt.Errorf("preserve projected raw %s: %w", row.id, err)
-		}
-		sess.RawPath = rawPath
-		sess.RawHash = rawHash
-		sess.RawSize = rawSize
-		projectid.Apply(&sess)
-		sess.Kinds = sessionkind.Classify(turns, importerutil.ToolNames(tools))
-
-		if err := sink.WriteSession(ctx, sess, tools, turns, hash); err != nil {
-			return importer.ImportResult{}, fmt.Errorf("write session %s: %w", row.id, err)
+			return importer.ImportResult{}, err
 		}
 		imported++
 	}

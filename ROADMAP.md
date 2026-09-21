@@ -8,8 +8,13 @@ release is `0.11.0`; the next patch will be cut as a follow-up.
 
 ## Next
 
-Nothing actively queued. The "After v0.11.0" list below is the open
-backlog — items move up here when they become real plans.
+- **Local prune** (in progress): `prosa prune` deletes local raw copies of
+  old sessions the server confirmed holding; sync records push state and
+  advertises reclaimable disk; `show --raw` streams pruned raws from the
+  server. Metadata, turns, and search stay local.
+
+The "After v0.11.0" list below is the open backlog — items move up here
+when they become real plans.
 
 ## After v0.11.0
 

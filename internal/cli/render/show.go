@@ -64,10 +64,14 @@ func ShowSession(w io.Writer, d SessionDetail) error {
 			value string
 		}{"tools", tools})
 	}
+	rawValue := s.RawPath
+	if s.PrunedAt != nil {
+		rawValue += "  " + StyleMuted.Render("(pruned · raw on server)")
+	}
 	fields = append(fields, struct {
 		label string
 		value string
-	}{"raw", s.RawPath})
+	}{"raw", rawValue})
 
 	for i, field := range fields {
 		branch := "├"

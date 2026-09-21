@@ -75,7 +75,9 @@ informally. Prosa lets you have a conversation with your own work history.
   users are a known post-MVP direction; the schema reflects today's reality,
   not tomorrow's.
 - **Not a place that mutates your data.** Raw `.jsonl` from each agent is
-  preserved as-is, hash-addressed, never altered. Two source shapes carry
+  preserved as-is, hash-addressed, never altered. The preserved copy lives
+  locally until an explicit `prosa prune` hands custody of old, already
+  synced raws to the server — the bytes themselves are never rewritten. Two source shapes carry
   a canonical per-session JSONL **projection** instead of a verbatim copy:
   multi-session containers (Hermes `state.db` — copying the container N
   times has exhausted disk in real installs) and multi-file session
@@ -152,9 +154,14 @@ them.
   has no `user_id`. Organizations and users are a known post-MVP direction.
 - **Redaction at upload time.** TLS in transit; trust at rest.
 - **Pull-down of remote sessions into the local store.** Push-only stays
-  push-only.
-- **Automatic retention / pruning.** Disk is cheap; explicit cleanup if it
-  ever hurts.
+  push-only for sync. The one read-back is `prosa show --raw` streaming a
+  session's raw from the server on demand (`--remote`, or a pruned
+  session); nothing is ever written back into the local store.
+- **Automatic retention.** Cleanup exists but stays explicit: `prosa prune`
+  deletes local raw copies the server already confirmed holding, and only
+  when invoked. `prosa sync` may advertise what a prune would reclaim; it
+  never deletes on its own. Metadata, turns, and search stay local either
+  way.
 - **Cold tier of object storage.** One bucket.
 - **Incremental upload by byte range or turn.** Hashing the whole file is
   fast enough.

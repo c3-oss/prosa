@@ -70,7 +70,8 @@ func upsertSessionTx(ctx context.Context, tx *sql.Tx, sess session.Session, tool
 			raw_hash          = excluded.raw_hash,
 			raw_size          = excluded.raw_size,
 			parent_session_id = excluded.parent_session_id,
-			profile           = excluded.profile
+			profile           = excluded.profile,
+			pruned_at         = NULL
 	`,
 		sess.ID, sess.Agent, sess.DeviceID, nullableString(sess.ProjectPath),
 		nullableString(sess.ProjectRemote), nullableString(sess.ProjectMarker),
@@ -290,7 +291,7 @@ func (s *Store) ListSessions(ctx context.Context, f SessionFilter) ([]session.Se
 		       s.started_at, s.last_activity_at,
 		       s.first_prompt, s.model,
 		       s.raw_path, s.raw_hash, s.raw_size,
-		       s.parent_session_id, s.profile,
+		       s.parent_session_id, s.profile, s.pruned_at,
 		       su.session_id, su.total_tokens, su.input_tokens, su.output_tokens,
 		       su.cached_tokens, su.cache_read_tokens, su.cache_creation_tokens
 		FROM sessions s
@@ -385,7 +386,7 @@ func (s *Store) ListChildren(ctx context.Context, parentID string) ([]session.Se
 		       s.started_at, s.last_activity_at,
 		       s.first_prompt, s.model,
 		       s.raw_path, s.raw_hash, s.raw_size,
-		       s.parent_session_id, s.profile,
+		       s.parent_session_id, s.profile, s.pruned_at,
 		       su.session_id, su.total_tokens, su.input_tokens, su.output_tokens,
 		       su.cached_tokens, su.cache_read_tokens, su.cache_creation_tokens
 		FROM sessions s
@@ -415,7 +416,7 @@ func (s *Store) GetSession(ctx context.Context, id string) (session.Session, err
 		       s.started_at, s.last_activity_at,
 		       s.first_prompt, s.model,
 		       s.raw_path, s.raw_hash, s.raw_size,
-		       s.parent_session_id, s.profile,
+		       s.parent_session_id, s.profile, s.pruned_at,
 		       su.session_id, su.total_tokens, su.input_tokens, su.output_tokens,
 		       su.cached_tokens, su.cache_read_tokens, su.cache_creation_tokens
 		FROM sessions s
@@ -476,6 +477,12 @@ type ManifestRow struct {
 	ID      string
 	RawHash string
 	RawPath string
+	// Pruned marks rows whose local raw copy was deleted; reconcile must
+	// never queue them for a push.
+	Pruned bool
+	// PushedHash is the raw hash the server last confirmed holding, empty
+	// when no push was recorded locally.
+	PushedHash string
 }
 
 // BoilerplateCandidate is one row returned by
@@ -506,7 +513,7 @@ func (s *Store) ListSessionsWithBoilerplatePrompt(ctx context.Context, limit int
 		args = append(args, escapeLikePattern(p)+"%")
 	}
 	q := `SELECT id, raw_path FROM sessions
-		WHERE first_prompt IS NOT NULL AND (` +
+		WHERE first_prompt IS NOT NULL AND pruned_at IS NULL AND (` +
 		strings.Join(clauses, " OR ") + `)`
 	if limit > 0 {
 		q += ` LIMIT ?`
@@ -546,10 +553,13 @@ func (s *Store) UpdateFirstPrompt(ctx context.Context, sessionID, prompt string)
 // 0003 makes this an index-only walk.
 func (s *Store) ListSessionsManifest(ctx context.Context, deviceID, afterID string, limit int) ([]ManifestRow, error) {
 	q := `
-		SELECT id, raw_hash, raw_path
-		FROM sessions
-		WHERE device_id = ? AND id > ?
-		ORDER BY id ASC`
+		SELECT s.id, s.raw_hash, s.raw_path,
+		       s.pruned_at IS NOT NULL,
+		       COALESCE(ss.pushed_hash, '')
+		FROM sessions s
+		LEFT JOIN sync_state ss ON ss.session_id = s.id
+		WHERE s.device_id = ? AND s.id > ?
+		ORDER BY s.id ASC`
 	args := []any{deviceID, afterID}
 	if limit > 0 {
 		q += ` LIMIT ?`
@@ -563,7 +573,7 @@ func (s *Store) ListSessionsManifest(ctx context.Context, deviceID, afterID stri
 	var out []ManifestRow
 	for rows.Next() {
 		var r ManifestRow
-		if err := rows.Scan(&r.ID, &r.RawHash, &r.RawPath); err != nil {
+		if err := rows.Scan(&r.ID, &r.RawHash, &r.RawPath, &r.Pruned, &r.PushedHash); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -582,6 +592,7 @@ func scanSessions(rows *sql.Rows) ([]session.Session, error) {
 			firstPrompt   sql.NullString
 			model         sql.NullString
 			parentID      sql.NullString
+			prunedAt      sql.NullString
 			usageSession  sql.NullString
 			totalTokens   sql.NullInt64
 			inputTokens   sql.NullInt64
@@ -598,7 +609,7 @@ func scanSessions(rows *sql.Rows) ([]session.Session, error) {
 			&startedAt, &lastAct,
 			&firstPrompt, &model,
 			&sess.RawPath, &sess.RawHash, &sess.RawSize,
-			&parentID, &sess.Profile,
+			&parentID, &sess.Profile, &prunedAt,
 			&usageSession, &totalTokens, &inputTokens, &outputTokens,
 			&cachedTokens, &cacheRead, &cacheCreate,
 		); err != nil {
@@ -627,6 +638,11 @@ func scanSessions(rows *sql.Rows) ([]session.Session, error) {
 		if parentID.Valid && parentID.String != "" {
 			v := parentID.String
 			sess.ParentSessionID = &v
+		}
+		if prunedAt.Valid {
+			if t, ok := parseTime(prunedAt.String); ok {
+				sess.PrunedAt = &t
+			}
 		}
 		if t, ok := parseTime(startedAt); ok {
 			sess.StartedAt = t

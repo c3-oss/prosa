@@ -256,6 +256,7 @@ type timelineSessionJSON struct {
 	RawPath        string             `json:"raw_path,omitempty"`
 	RawHash        string             `json:"raw_hash,omitempty"`
 	RawSize        int64              `json:"raw_size,omitempty"`
+	PrunedAt       *time.Time         `json:"pruned_at,omitempty"`
 	Usage          *timelineUsageJSON `json:"usage,omitempty"`
 	ParentID       string             `json:"parent_session_id,omitempty"`
 	Profile        string             `json:"profile"`
@@ -296,6 +297,7 @@ func timelineSessionPayload(s session.Session) timelineSessionJSON {
 		RawPath:        s.RawPath,
 		RawHash:        s.RawHash,
 		RawSize:        s.RawSize,
+		PrunedAt:       s.PrunedAt,
 		Usage:          timelineUsagePayload(s.Usage),
 		ParentID:       ptrText(s.ParentSessionID),
 		Profile:        session.ProfileOrDefault(s.Profile),

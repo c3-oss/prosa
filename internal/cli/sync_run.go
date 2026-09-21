@@ -126,10 +126,10 @@ func runSyncInteractive(
 						Path:  sid,
 					},
 				}
-				switch outcome {
-				case pushAlreadyHashed, pushSkippedNoUsage, pushSkippedRemoteUnavailable:
+				switch {
+				case pushCountsAsSkipped(outcome):
 					u.Skipped = true
-				case pushFailed:
+				case outcome == pushFailed:
 					if err != nil {
 						u.Err = err
 					} else {
