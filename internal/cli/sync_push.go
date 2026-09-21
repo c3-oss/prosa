@@ -394,6 +394,18 @@ func wireText(s string) string {
 	return strings.ReplaceAll(s, "\x00", " ")
 }
 
+// pushCountsAsSkipped reports outcomes that did not send a new raw.
+// The interactive spinner and the JSON status share this set so a new
+// skip reason cannot be counted as a send in only one of them.
+func pushCountsAsSkipped(outcome pushOutcome) bool {
+	switch outcome {
+	case pushAlreadyHashed, pushSkippedNoUsage, pushSkippedRemoteUnavailable, pushSkippedPruned:
+		return true
+	default:
+		return false
+	}
+}
+
 func logPush(sessionID string, outcome pushOutcome, err error) {
 	switch outcome {
 	case pushImported:

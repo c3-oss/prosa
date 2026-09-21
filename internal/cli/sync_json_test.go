@@ -99,4 +99,9 @@ func TestPushStatusString(t *testing.T) {
 	require.Equal(t, "skipped", pushStatusString(pushSkippedNoUsage))
 	require.Equal(t, "failed", pushStatusString(pushFailed))
 	require.Equal(t, "unavailable", pushStatusString(pushSkippedRemoteUnavailable))
+	require.Equal(t, "skipped", pushStatusString(pushSkippedPruned))
+	require.True(t, pushCountsAsSkipped(pushSkippedPruned))
+	require.True(t, pushCountsAsSkipped(pushAlreadyHashed))
+	require.False(t, pushCountsAsSkipped(pushImported))
+	require.False(t, pushCountsAsSkipped(pushFailed))
 }

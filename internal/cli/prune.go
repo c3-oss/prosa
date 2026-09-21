@@ -16,7 +16,9 @@ import (
 	"github.com/c3-oss/prosa/internal/cli/render"
 	"github.com/c3-oss/prosa/internal/cli/rpc"
 	"github.com/c3-oss/prosa/internal/device"
+	"github.com/c3-oss/prosa/internal/importers/importerutil"
 	"github.com/c3-oss/prosa/internal/paths"
+	"github.com/c3-oss/prosa/internal/rawlock"
 	"github.com/c3-oss/prosa/internal/store"
 	"github.com/c3-oss/prosa/pkg/session"
 )
@@ -60,7 +62,7 @@ type pruneJSONRecord struct {
 	Type           string `json:"type"` // always "session"
 	SessionID      string `json:"session_id"`
 	Agent          string `json:"agent"`
-	Status         string `json:"status"` // pruned | skipped | error
+	Status         string `json:"status"` // pruned | would_prune | skipped | error
 	ReclaimedBytes int64  `json:"reclaimed_bytes,omitempty"`
 	Err            string `json:"err,omitempty"`
 }
@@ -102,7 +104,9 @@ func runPrune(cmd *cobra.Command, _ []string) error {
 	defer func() { _ = s.Close() }()
 
 	before := time.Now().UTC().Add(-olderThan)
-	candidates, err := s.ListPruneCandidates(ctx, device.IDOnce(), before, pruneLimitFlag)
+	// Limit is applied after the server confirms a row. A SQL limit would
+	// let unconfirmed old sessions consume the whole cap.
+	candidates, err := s.ListPruneCandidates(ctx, device.IDOnce(), before, 0)
 	if err != nil {
 		return fmt.Errorf("list prune candidates: %w", err)
 	}
@@ -116,16 +120,10 @@ func runPrune(cmd *cobra.Command, _ []string) error {
 		return nil
 	}
 
-	if pruneDryRunFlag {
-		return emitPruneDryRun(enc, candidates)
-	}
-
-	// The candidate filter already requires a locally recorded push, but
-	// deletion is destructive: re-confirm every id against the server
-	// manifest before touching the filesystem.
+	// Dry-run uses the same confirmation as a real run. Listing local
+	// candidates alone reports sessions this command would skip.
 	server := rpc.NormalizeServerURL(a.Server)
-	push := &pusher{client: rpc.Sessions(server, a.Token), store: s, server: server}
-	serverHas, err := fetchServerManifest(ctx, push)
+	serverHas, err := loadPruneManifest(ctx, server, a.Token)
 	if err != nil {
 		if isRemoteUnavailable(err) {
 			return fmt.Errorf("server unavailable at %s; nothing was pruned", server)
@@ -136,16 +134,32 @@ func runPrune(cmd *cobra.Command, _ []string) error {
 	var pruned, skipped, errCount int
 	var reclaimed int64
 	agents := map[string]struct{}{}
+	var would []store.PruneCandidate
+	kept := 0
 	for _, c := range candidates {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		status, perr := pruneOne(ctx, s, serverHas, c)
+		if pruneLimitFlag > 0 && kept >= pruneLimitFlag {
+			break
+		}
+		var status string
+		var perr error
+		if pruneDryRunFlag {
+			status, perr = classifyPruneCandidate(serverHas, c)
+		} else {
+			status, perr = pruneOne(ctx, s, serverHas, c)
+		}
 		switch status {
-		case "pruned":
+		case "pruned", "would_prune":
+			kept++
 			pruned++
 			reclaimed += c.RawSize
-			agents[c.Agent] = struct{}{}
+			if status == "pruned" {
+				agents[c.Agent] = struct{}{}
+			} else {
+				would = append(would, c)
+			}
 		case "skipped":
 			skipped++
 		case "error":
@@ -153,7 +167,7 @@ func runPrune(cmd *cobra.Command, _ []string) error {
 		}
 		if g.JSON {
 			rec := pruneJSONRecord{Type: "session", SessionID: c.ID, Agent: c.Agent, Status: status}
-			if status == "pruned" {
+			if status == "pruned" || status == "would_prune" {
 				rec.ReclaimedBytes = c.RawSize
 			}
 			if perr != nil {
@@ -165,39 +179,118 @@ func runPrune(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
-	removeEmptyRawDirs(agents)
+	if !pruneDryRunFlag {
+		removeEmptyRawDirs(agents)
+	}
 
 	if g.JSON {
-		return enc.Encode(pruneJSONSummary{
+		if err := enc.Encode(pruneJSONSummary{
 			Type: "summary", Pruned: pruned, Skipped: skipped,
-			Errors: errCount, ReclaimedBytes: reclaimed,
-		})
+			Errors: errCount, ReclaimedBytes: reclaimed, DryRun: pruneDryRunFlag,
+		}); err != nil {
+			return err
+		}
+		return pruneFinished(errCount)
+	}
+	if pruneDryRunFlag {
+		return finishPruneDryRun(would, pruned, skipped, reclaimed, errCount)
 	}
 	fmt.Fprintf(os.Stderr, "pruned %d sessions · reclaimed %s · skipped %d · errors %d\n",
 		pruned, humanBytes(reclaimed), skipped, errCount)
+	return pruneFinished(errCount)
+}
+
+// loadPruneManifest confirms candidates against the server. Tests replace it.
+var loadPruneManifest = func(ctx context.Context, server, token string) (map[string]serverManifestRow, error) {
+	push := &pusher{client: rpc.Sessions(server, token), server: server}
+	return fetchServerManifest(ctx, push)
+}
+
+func pruneFinished(errCount int) error {
 	if errCount > 0 {
 		return fmt.Errorf("prune finished with %d errors", errCount)
 	}
 	return nil
 }
 
-// pruneOne verifies one candidate against the server manifest, flips the
-// row, and deletes the raw file. DB first: the dangerous inconsistency is a
-// deleted file the store still believes in, not the reverse.
-func pruneOne(ctx context.Context, s *store.Store, serverHas map[string]serverManifestRow, c store.PruneCandidate) (string, error) {
+// errRawChanged means the on-disk bytes are no longer the hash the server
+// confirmed. The file must stay; a newer import may already own it.
+var errRawChanged = errors.New("local raw changed since the server confirmed it; skipping")
+
+func pruneServerReject(serverHas map[string]serverManifestRow, c store.PruneCandidate) error {
 	remote, ok := serverHas[c.ID]
 	if !ok || remote.RawHash != c.RawHash {
-		return "skipped", fmt.Errorf("not confirmed on server (hash mismatch or missing); skipping")
+		return fmt.Errorf("not confirmed on server (hash mismatch or missing); skipping")
 	}
 	if remote.ProjectionVersion < session.ProjectionVersion {
-		return "skipped", fmt.Errorf("server projection is stale; sync first, then prune")
+		return fmt.Errorf("server projection is stale; sync first, then prune")
+	}
+	return nil
+}
+
+// confirmRawBytes checks the file still hashes to the confirmed raw.
+// A missing file is fine: there is nothing newer to protect.
+func confirmRawBytes(c store.PruneCandidate) error {
+	hash, _, err := importerutil.HashAndSize(c.RawPath)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	if hash != c.RawHash {
+		return errRawChanged
+	}
+	return nil
+}
+
+func classifyPruneCandidate(serverHas map[string]serverManifestRow, c store.PruneCandidate) (string, error) {
+	if err := pruneServerReject(serverHas, c); err != nil {
+		return "skipped", err
+	}
+	if err := confirmRawBytes(c); err != nil {
+		if errors.Is(err, errRawChanged) {
+			return "skipped", err
+		}
+		return "error", err
+	}
+	return "would_prune", nil
+}
+
+// pruneOne verifies one candidate against the server manifest, re-checks the
+// local bytes under the raw lock, flips the row, and deletes the file.
+// DB first: the dangerous inconsistency is a deleted file the store still
+// believes in, not the reverse.
+func pruneOne(ctx context.Context, s *store.Store, serverHas map[string]serverManifestRow, c store.PruneCandidate) (string, error) {
+	if err := pruneServerReject(serverHas, c); err != nil {
+		return "skipped", err
+	}
+	release, err := rawlock.Hold(c.ID)
+	if err != nil {
+		return "error", err
+	}
+	defer release()
+
+	sess, err := s.GetSession(ctx, c.ID)
+	if err != nil {
+		return "error", err
+	}
+	// The importer commits the new hash before it drops the lock. A mismatch
+	// here means those bytes are not the ones the server confirmed.
+	if sess.PrunedAt != nil || sess.RawHash != c.RawHash || sess.RawPath != c.RawPath {
+		return "skipped", nil
+	}
+	if err := confirmRawBytes(c); err != nil {
+		if errors.Is(err, errRawChanged) {
+			return "skipped", err
+		}
+		return "error", err
 	}
 	ok, err := s.MarkPruned(ctx, c.ID, c.RawHash)
 	if err != nil {
 		return "error", err
 	}
 	if !ok {
-		// Raw changed or a concurrent prune won since candidate listing.
 		return "skipped", nil
 	}
 	if err := os.Remove(c.RawPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -209,44 +302,32 @@ func pruneOne(ctx context.Context, s *store.Store, serverHas map[string]serverMa
 	return "pruned", nil
 }
 
-func emitPruneDryRun(enc *json.Encoder, candidates []store.PruneCandidate) error {
-	var total int64
-	if g.JSON {
-		for _, c := range candidates {
-			_ = enc.Encode(pruneJSONRecord{
-				Type: "session", SessionID: c.ID, Agent: c.Agent,
-				Status: "pruned", ReclaimedBytes: c.RawSize,
-			})
-			total += c.RawSize
-		}
-		return enc.Encode(pruneJSONSummary{
-			Type: "summary", Pruned: len(candidates),
-			ReclaimedBytes: total, DryRun: true,
-		})
+func finishPruneDryRun(would []store.PruneCandidate, pruned, skipped int, reclaimed int64, errCount int) error {
+	if len(would) == 0 {
+		fmt.Fprintf(os.Stderr, "Nothing to prune. skipped %d\n", skipped)
+		return pruneFinished(errCount)
 	}
-
 	cols := []render.TableColumn{
 		{Header: "SESSION"},
 		{Header: "AGENT"},
 		{Header: "LAST ACTIVITY"},
 		{Header: "SIZE", Right: true},
 	}
-	rows := make([][]render.TableCell, 0, len(candidates))
-	for _, c := range candidates {
+	rows := make([][]render.TableCell, 0, len(would))
+	for _, c := range would {
 		rows = append(rows, []render.TableCell{
 			render.Cell(c.ID),
 			render.Cell(c.Agent),
 			{Text: c.LastActivityAt.Local().Format("2006-01-02 15:04"), Style: render.StyleMuted},
 			{Text: humanBytes(c.RawSize), Style: render.StyleAccent},
 		})
-		total += c.RawSize
 	}
 	if err := render.Table(os.Stdout, cols, rows, IsInteractive()); err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "would prune %d sessions · reclaim %s\n",
-		len(candidates), humanBytes(total))
-	return nil
+	fmt.Fprintf(os.Stderr, "would prune %d sessions · reclaim %s · skipped %d\n",
+		pruned, humanBytes(reclaimed), skipped)
+	return pruneFinished(errCount)
 }
 
 // removeEmptyRawDirs clears out now-empty YYYY/MM shard directories under

@@ -114,9 +114,12 @@ func TestReconcileBackfillsPushedState(t *testing.T) {
 	require.NoError(t, fx.store.RecordSync(ctx, "s1", "h-s1"))
 
 	// Server already converged (pushed before push state existed locally).
+	// The manifest time is historical. Backfill must keep it: stamping
+	// time.Now() would hide this session from the week-long advisory grace.
+	pushedAt := time.Now().Add(-40 * 24 * time.Hour).UTC()
 	fx.fake.manifestPages[""] = &prosav1.ManifestResponse{
 		Entries: []*prosav1.ManifestEntry{
-			{Id: "s1", RawHash: "h-s1", LastSyncedAt: timestamppb.Now(), ProjectionVersion: int32(session.ProjectionVersion)},
+			{Id: "s1", RawHash: "h-s1", LastSyncedAt: timestamppb.New(pushedAt), ProjectionVersion: int32(session.ProjectionVersion)},
 		},
 	}
 
@@ -124,15 +127,18 @@ func TestReconcileBackfillsPushedState(t *testing.T) {
 	require.NoError(t, err)
 	require.Zero(t, counts.sent)
 
-	var pushedHash string
+	var pushedHash, pushedAtRaw string
 	require.NoError(t, fx.store.DB().QueryRowContext(
 		ctx,
-		`SELECT pushed_hash FROM sync_state WHERE session_id = 's1'`,
-	).Scan(&pushedHash))
+		`SELECT pushed_hash, pushed_at FROM sync_state WHERE session_id = 's1'`,
+	).Scan(&pushedHash, &pushedAtRaw))
 	require.Equal(t, "h-s1", pushedHash)
+	gotAt, err := time.Parse(time.RFC3339Nano, pushedAtRaw)
+	require.NoError(t, err)
+	require.WithinDuration(t, pushedAt, gotAt, time.Second)
 
 	adv, _, err := fx.store.PruneAdvisory(ctx, "dev",
-		time.Now().UTC().Add(24*time.Hour), time.Now().UTC().Add(24*time.Hour))
+		time.Now().UTC().Add(24*time.Hour), time.Now().UTC().Add(-7*24*time.Hour))
 	require.NoError(t, err)
 	require.Equal(t, 1, adv)
 }

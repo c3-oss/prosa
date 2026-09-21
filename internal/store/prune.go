@@ -25,11 +25,20 @@ func (s *Store) RecordPushed(ctx context.Context, sessionID, pushedHash, remoteU
 	return nil
 }
 
+// PushedBackfill is one manifest-confirmed push to record locally.
+// At is when the server says it stored the raw, not when this process
+// noticed. The sync advisory hides pushes younger than a week, so stamping
+// a historical backfill with time.Now would hide the whole backlog.
+type PushedBackfill struct {
+	Hash string
+	At   time.Time
+}
+
 // RecordPushedBatch backfills pushed state for sessions the server manifest
-// confirmed holding with the given hashes. One transaction; remote_uri is
-// left untouched (the manifest does not carry it).
-func (s *Store) RecordPushedBatch(ctx context.Context, hashes map[string]string) error {
-	if len(hashes) == 0 {
+// confirmed holding. One transaction; remote_uri is left untouched (the
+// manifest does not carry it).
+func (s *Store) RecordPushedBatch(ctx context.Context, stamps map[string]PushedBackfill) error {
+	if len(stamps) == 0 {
 		return nil
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -38,12 +47,15 @@ func (s *Store) RecordPushedBatch(ctx context.Context, hashes map[string]string)
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	now := formatTime(time.Now())
-	for id, hash := range hashes {
+	for id, stamp := range stamps {
+		at := stamp.At
+		if at.IsZero() {
+			at = time.Unix(0, 0)
+		}
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE sync_state SET pushed_at = ?, pushed_hash = ?
 			WHERE session_id = ?
-		`, now, hash, id); err != nil {
+		`, formatTime(at), stamp.Hash, id); err != nil {
 			return fmt.Errorf("record pushed %s: %w", id, err)
 		}
 	}

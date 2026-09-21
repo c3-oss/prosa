@@ -191,8 +191,10 @@ The store has two layers, each with one job:
 
 The raw layer is the source of truth for content until a session is pruned;
 from then on the server's copy is, reachable by session id via `GetRaw`.
-The metadata layer is a derivable index — if it's lost, the next sync
-rebuilds it from the manifest.
+The metadata layer is an index of sessions whose agent source is still on
+disk. The next sync rebuilds those rows by re-importing that source. A
+pruned session whose source is gone stays only on the server until a raw
+read streams it with `GetRaw`.
 
 There is no DuckDB, no Parquet, no content-addressable store. SQLite +
 Postgres is enough. See

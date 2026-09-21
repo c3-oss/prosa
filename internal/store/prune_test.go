@@ -86,15 +86,23 @@ func TestRecordPushedBatch(t *testing.T) {
 		require.NoError(t, s.RecordSync(ctx, id, "deadbeef"))
 	}
 
-	require.NoError(t, s.RecordPushedBatch(ctx, map[string]string{
-		"b-1": "deadbeef",
-		"b-2": "deadbeef",
+	backfilledAt := now.Add(-40 * 24 * time.Hour)
+	require.NoError(t, s.RecordPushedBatch(ctx, map[string]PushedBackfill{
+		"b-1": {Hash: "deadbeef", At: backfilledAt},
+		"b-2": {Hash: "deadbeef", At: backfilledAt},
 	}))
 
 	var n int
 	require.NoError(t, s.DB().QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM sync_state WHERE pushed_hash = 'deadbeef'`).Scan(&n))
 	require.Equal(t, 2, n)
+
+	var pushedAt string
+	require.NoError(t, s.DB().QueryRowContext(ctx,
+		`SELECT pushed_at FROM sync_state WHERE session_id = 'b-1'`).Scan(&pushedAt))
+	gotAt, ok := parseTime(pushedAt)
+	require.True(t, ok)
+	require.WithinDuration(t, backfilledAt, gotAt, time.Second)
 }
 
 // seedPrunable inserts a session with recorded import + push state, last

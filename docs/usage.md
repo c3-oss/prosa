@@ -120,10 +120,10 @@ never deletes anything.
 ### Reclaiming disk
 
 ```sh
-prosa prune --dry-run               # list what would be pruned
+prosa prune --dry-run               # same server check, then list what would be pruned
 prosa prune                         # delete raws older than 30 days
 prosa prune --older-than 90d        # custom age (last activity)
-prosa prune --limit 100             # cap this run
+prosa prune --limit 100             # cap successful prunes; skips do not consume it
 prosa prune --json                  # NDJSON per session + a final summary
 ```
 
@@ -131,10 +131,13 @@ prosa prune --json                  # NDJSON per session + a final summary
 keeping every session listed, searchable, and viewable offline (turns and
 analytics live in `store.db`). Safety model: a candidate needs a locally
 recorded push whose hash still matches the raw, and the server manifest
-re-confirms every id before its file is deleted. Without a login or with
-the server unreachable, prune errors out and deletes nothing. A pruned
-session's raw remains readable via `prosa show --raw` (streamed from the
-server), and a re-import of a changed source restores the local copy.
+re-confirms every id before its file is deleted. `--dry-run` performs that
+same confirmation and writes `would_prune` (not `pruned`) for rows it
+would delete. Without a login or with the server unreachable, prune
+errors out and deletes nothing, dry-run included. A delete that fails
+exits non-zero, including under `--json`. A pruned session's raw remains
+readable via `prosa show --raw` (streamed from the server), and a
+re-import of a changed source restores the local copy.
 
 ### Analytics
 
