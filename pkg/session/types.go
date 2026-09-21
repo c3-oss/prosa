@@ -147,7 +147,15 @@ type Session struct {
 //	    spawned subagents). Stored in the session_kinds table and pushed
 //	    to the server. The Codex goal objective is also unwrapped into
 //	    FirstPrompt instead of the raw scaffold.
-const ProjectionVersion = 12
+//	v13: Hermes usage read from state.db's `sessions` token counters
+//	    instead of `messages.token_count`, which Hermes stopped
+//	    populating. InputTokens is the cache-inclusive sum
+//	    (input + cache_read + cache_write) per the canonical convention;
+//	    reasoning_tokens stays out of OutputTokens because Hermes already
+//	    counts it there. The projected JSONL gains a leading
+//	    {"type":"session_usage","data":{…}} line carrying the counters, so
+//	    raw_hash changes and sync_reconcile re-pushes Hermes sessions.
+const ProjectionVersion = 13
 
 // DefaultProfile is the profile name every agent has by default.
 const DefaultProfile = "default"

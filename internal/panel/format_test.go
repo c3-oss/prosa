@@ -30,6 +30,9 @@ func TestDisplayModel(t *testing.T) {
 		{"claude-sonnet-4-6", "Sonnet 4.6"},
 		{"claude-haiku-4-5-20251001", "Haiku 4.5"}, // trailing date stamp dropped
 		{"claude-3-5-sonnet", "Sonnet 3.5"},        // older number-first ordering
+		{"claude-fable-5", "Fable 5"},
+		{"claude-fable-5-1", "Fable 5.1"},
+		{"claude-mythos-5-1", "Mythos 5.1"},
 		{"claude-3-5-sonnet-20241022", "Sonnet 3.5"},
 		{"gpt-5.5", "GPT-5.5"},
 		{"gpt-5.4", "GPT-5.4"},
@@ -39,6 +42,8 @@ func TestDisplayModel(t *testing.T) {
 		{"gpt-daybreak-blue-latest", "GPT-Daybreak Blue"},
 		{"gemini-2.5-pro", "Gemini 2.5 Pro"},
 		{"gemini-2.0-flash", "Gemini 2.0 Flash"},
+		{"gpt-6-astra", "GPT-6 Astra"},
+		{"grok-4.6", "Grok 4.6"},            // unknown vendor → title-cased fallback
 		{"  claude-opus-4-8  ", "Opus 4.8"}, // trimmed
 		{"", "(none)"},
 		{"(none)", "(none)"},
