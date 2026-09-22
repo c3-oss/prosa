@@ -15,7 +15,6 @@ import (
 
 	"github.com/c3-oss/prosa/internal/cli/render"
 	"github.com/c3-oss/prosa/internal/cli/rpc"
-	"github.com/c3-oss/prosa/internal/device"
 	"github.com/c3-oss/prosa/internal/importers/importerutil"
 	"github.com/c3-oss/prosa/internal/paths"
 	"github.com/c3-oss/prosa/internal/rawlock"
@@ -103,10 +102,15 @@ func runPrune(cmd *cobra.Command, _ []string) error {
 	}
 	defer func() { _ = s.Close() }()
 
+	dev, err := bindLocalDevice(ctx, s)
+	if err != nil {
+		return err
+	}
+
 	before := time.Now().UTC().Add(-olderThan)
 	// Limit is applied after the server confirms a row. A SQL limit would
 	// let unconfirmed old sessions consume the whole cap.
-	candidates, err := s.ListPruneCandidates(ctx, device.IDOnce(), before, 0)
+	candidates, err := s.ListPruneCandidates(ctx, dev.ID, before, 0)
 	if err != nil {
 		return fmt.Errorf("list prune candidates: %w", err)
 	}

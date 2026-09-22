@@ -342,6 +342,55 @@ func TestPruneDryRunConfirmsWithServer(t *testing.T) {
 	require.True(t, sawSkip)
 }
 
+func TestPruneDryRunFindsSessionsReboundFromStaleDevice(t *testing.T) {
+	if device.MachineID() == "" {
+		t.Skip("rebind matches on machine id, and this host has none")
+	}
+	s := openPruneCommandStore(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	const staleID = "stale-dhcp"
+	require.NotEqual(t, device.IDOnce(), staleID)
+	require.NoError(t, s.UpsertDevice(ctx, store.Device{
+		ID:              staleID,
+		Hostname:        "192.168.0.19",
+		MachineID:       device.MachineID(),
+		FriendlyName:    "192.168.0.19",
+		FingerprintedAt: now.Add(-time.Hour),
+	}))
+	rawPath, hash := seedCommandSession(t, s, "stale-sess", 60*24*time.Hour, []byte("raw-stale"))
+	_, err := s.DB().ExecContext(ctx, `UPDATE sessions SET device_id = ? WHERE id = ?`, staleID, "stale-sess")
+	require.NoError(t, err)
+
+	before := time.Now().UTC().Add(-30 * 24 * time.Hour)
+	got, err := s.ListPruneCandidates(ctx, device.IDOnce(), before, 0)
+	require.NoError(t, err)
+	require.Empty(t, got)
+
+	restorePruneHooks(t)
+	loadPruneManifest = func(context.Context, string, string) (map[string]serverManifestRow, error) {
+		return confirmedManifest("stale-sess", hash), nil
+	}
+
+	stdout, _ := captureStdoutStderr(t, func() {
+		cmd := newRootCmd()
+		cmd.SetArgs([]string{"--json", "prune", "--dry-run"})
+		require.NoError(t, cmd.Execute())
+	})
+	require.Contains(t, stdout, `"session_id":"stale-sess"`)
+	require.Contains(t, stdout, `"status":"would_prune"`)
+	require.FileExists(t, rawPath)
+
+	var deviceID string
+	require.NoError(t, s.DB().QueryRowContext(ctx,
+		`SELECT device_id FROM sessions WHERE id = 'stale-sess'`).Scan(&deviceID))
+	require.Equal(t, device.IDOnce(), deviceID)
+	var staleRows int
+	require.NoError(t, s.DB().QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM devices WHERE id = ?`, staleID).Scan(&staleRows))
+	require.Zero(t, staleRows)
+}
+
 func TestPruneDryRunErrorsWhenServerUnreachable(t *testing.T) {
 	s := openPruneCommandStore(t)
 	rawPath, _ := seedCommandSession(t, s, "s1", 60*24*time.Hour, []byte("raw"))
