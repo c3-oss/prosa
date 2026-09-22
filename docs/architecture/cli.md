@@ -132,7 +132,8 @@ Each query funnels into a small set of functions:
 | `WriteSession`, `LastHash` | `sync` (importer `Sink`) |
 | `ListDevicesMap` | timeline column resolution |
 | `Analytics*` | `analytics` |
-| `RebindLocalSessions` | one-time migration helper during `setup` |
+| `RebindLocalSessions` | `sync` and `prune`: move seed `local` sessions onto this machine's fingerprint |
+| `RebindDevicesByMachineID` | `sync` and `prune`: collapse other device rows that share this machine id |
 | `RecordPushed`, `RecordPushedBatch` | `sync` (push confirmation + manifest backfill) |
 | `ListPruneCandidates`, `MarkPruned`, `ClearPruned` | `prune` |
 | `PruneAdvisory` | `sync` (post-run Prune summary line) |

@@ -111,14 +111,17 @@ down is for manual recovery.
 
 | Column | Type | Notes |
 | --- | --- | --- |
-| `id` | TEXT PRIMARY KEY | Device fingerprint |
-| `hostname` | TEXT | |
-| `machine_id` | TEXT | OS-level machine ID |
+| `id` | TEXT PRIMARY KEY | `hex(sha256(hostname + NUL + machine-id))[:16]` |
+| `hostname` | TEXT | LocalHostName on macOS; system hostname elsewhere, with a trailing `.local` removed |
+| `machine_id` | TEXT | IOPlatformUUID on macOS; `/etc/machine-id` on Linux |
 | `friendly_name` | TEXT | Defaults to hostname; user-editable cross-device |
 | `fingerprinted_at` | TEXT | RFC3339 of first registration |
 
-Seeded with one `'local'` row at install. Replaced by the real
-fingerprint on first successful `prosa sync` via `RebindLocalSessions`.
+Seeded with one `local` row at install. `prosa sync` and `prosa prune`
+upsert the current fingerprint. `RebindLocalSessions` moves
+`device_id = 'local'` sessions onto it. `RebindDevicesByMachineID` moves
+sessions off every other row with the same non-empty `machine_id` and
+deletes those rows. Rows with an empty `machine_id` stay in place.
 
 ### `sessions`
 
@@ -254,7 +257,8 @@ Selected functions (full list in `internal/store/`):
 | `MarkPruned(ctx, sessionID, rawHash)` / `ClearPruned(ctx, sessionID)` | Guarded prune flip and its revert |
 | `PruneAdvisory(ctx, deviceID, before, pushedBefore)` | Count + bytes behind the sync summary's Prune line |
 | `ListDevicesMap(ctx)` | `id → friendly_name` lookup |
-| `RebindLocalSessions(ctx, deviceID)` | Migrate `local` seed device |
+| `RebindLocalSessions(ctx, deviceID)` | Move `device_id = 'local'` sessions onto a fingerprint |
+| `RebindDevicesByMachineID(ctx, device)` | Move sessions off other rows with the same machine id, then delete those rows |
 | `Analytics*` | Per-report queries |
 
 The `SessionFilter` type carries the parsed `--since/--until/--project/...`
