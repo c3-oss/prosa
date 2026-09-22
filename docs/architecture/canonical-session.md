@@ -106,7 +106,7 @@ Workflow-tool spawns). Each line is a JSON object discriminated by
 |---|---|
 | `ID` | main sessions: `<session-id>` basename of the JSONL file (UUID), matching the `sessionId` field inside records. Subagents: the filename stem (`agent-<id>`) — their records carry the parent's `sessionId`, so the stem is the only stable identity |
 | `Agent` | constant `"claude-code"` |
-| `DeviceID` | constant `"local"` in cut 1 (fingerprint lands with sync) |
+| `DeviceID` | `device.IDOnce()` |
 | `ProjectPath` | first non-empty `cwd` encountered on any record |
 | `StartedAt` | `min(timestamp)` over all records (RFC 3339, UTC after parse) |
 | `LastActivityAt` | `max(timestamp)` over all records |
@@ -161,7 +161,7 @@ The full envelope reference is `docs/sources/codex.md`.
 |---|---|
 | `ID` | envelope: `session_meta.payload.id`. Legacy/missing meta: UUID suffix of the filename (`...-<UUID>.jsonl`) |
 | `Agent` | constant `"codex"` |
-| `DeviceID` | constant `"local"` in cut 2 |
+| `DeviceID` | `device.IDOnce()` |
 | `ProjectPath` | first non-empty of `session_meta.payload.cwd`, then `turn_context.payload.cwd` |
 | `StartedAt` / `LastActivityAt` | `min`/`max` of every record's top-level `timestamp` (both envelope and legacy carry it) |
 | `FirstPrompt` | first `response_item.payload.type=="message"` with `role=="user"` and non-empty `content[*].input_text` (legacy: first `{type:"message", role:"user"}`); whitespace-collapsed + truncated to 200 runes |

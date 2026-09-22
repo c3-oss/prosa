@@ -114,6 +114,26 @@ func (s *Store) ListPruneCandidates(ctx context.Context, deviceID string, before
 	return out, rows.Err()
 }
 
+// CountOldUnconfirmed counts sessions on deviceID that are inactive before
+// the cutoff, not pruned, and not confirmed: pushed_hash is NULL or differs
+// from raw_hash. ListPruneCandidates leaves these rows out.
+func (s *Store) CountOldUnconfirmed(ctx context.Context, deviceID string, before time.Time) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM sessions s
+		JOIN sync_state ss ON ss.session_id = s.id
+		WHERE s.device_id = ?
+		  AND s.pruned_at IS NULL
+		  AND s.last_activity_at < ?
+		  AND (ss.pushed_hash IS NULL OR ss.pushed_hash != s.raw_hash)
+	`, deviceID, formatTime(before)).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("count unconfirmed sessions: %w", err)
+	}
+	return n, nil
+}
+
 // MarkPruned flips a session to pruned, guarded by the raw hash observed at
 // candidate time and by not being pruned already. Returns false when the
 // guard failed (raw changed or a concurrent prune won) — the caller must

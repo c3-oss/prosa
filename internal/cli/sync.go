@@ -9,7 +9,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/c3-oss/prosa/internal/device"
 	"github.com/c3-oss/prosa/internal/importers/claudecode"
 	"github.com/c3-oss/prosa/internal/importers/codex"
 	"github.com/c3-oss/prosa/internal/importers/cursor"
@@ -88,23 +87,9 @@ func runSync(cmd *cobra.Command, _ []string) error {
 	}
 	defer func() { _ = s.Close() }()
 
-	// Migrate any rows inserted under the seed `'local'` device id (v1 bundle
-	// restore path) to the real fingerprint — those sessions came from this machine.
-	dev := store.Device{
-		ID:              device.IDOnce(),
-		Hostname:        device.Hostname(),
-		MachineID:       device.MachineID(),
-		FriendlyName:    device.FriendlyName(),
-		FingerprintedAt: time.Now().UTC(),
-	}
-	if err := s.UpsertDevice(ctx, dev); err != nil {
-		return fmt.Errorf("upsert device: %w", err)
-	}
-	if n, err := s.RebindLocalSessions(ctx, dev.ID); err != nil {
-		return fmt.Errorf("rebind 'local' sessions to %s: %w", dev.ID, err)
-	} else if n > 0 {
-		slog.Info("rebound legacy 'local' sessions to fingerprint",
-			"device_id", dev.ID, "rows", n)
+	dev, err := bindLocalDevice(ctx, s)
+	if err != nil {
+		return err
 	}
 
 	if err := backfillProjectIdentity(ctx, s); err != nil {

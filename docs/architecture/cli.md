@@ -33,7 +33,7 @@ is the Connect-Go client in `internal/cli` that talks to `prosa-server`.
 | `prosa devices …` | `internal/cli/devices.go` | `list`, `rename`, `revoke` |
 | `prosa profiles …` | `internal/cli/profiles.go` | `list`, `add`, `remove`, `set-path` — manage per-agent import locations (local `profiles.json`) |
 | `prosa schedule …` | `internal/cli/schedule_cmd.go` + `internal/cli/schedule/` | `install`, `status`, `uninstall` |
-| `prosa prune` | `internal/cli/prune.go` | Delete local raw copies of old, server-confirmed sessions (`--older-than`, `--dry-run`, `--limit`) |
+| `prosa prune` | `internal/cli/prune.go` | Delete local raw copies of old sessions a prior sync confirmed (`pushed_hash` equals `raw_hash`). `--older-than`, `--dry-run`, `--limit`. When none qualify, reports how many older sessions still lack that confirmation. |
 | `prosa setup` | `internal/cli/setup.go` | Wizard wrapping login + schedule + first sync |
 
 Each handler:
@@ -132,9 +132,11 @@ Each query funnels into a small set of functions:
 | `WriteSession`, `LastHash` | `sync` (importer `Sink`) |
 | `ListDevicesMap` | timeline column resolution |
 | `Analytics*` | `analytics` |
-| `RebindLocalSessions` | one-time migration helper during `setup` |
+| `RebindLocalSessions` | `sync` and `prune`: move seed `local` sessions onto this machine's fingerprint |
+| `RebindDevicesByMachineID` | `sync` and `prune`: collapse other device rows that share this machine id |
 | `RecordPushed`, `RecordPushedBatch` | `sync` (push confirmation + manifest backfill) |
 | `ListPruneCandidates`, `MarkPruned`, `ClearPruned` | `prune` |
+| `CountOldUnconfirmed` | `prune`, when no candidate is confirmed |
 | `PruneAdvisory` | `sync` (post-run Prune summary line) |
 
 The CLI never builds SQL by hand. If a query doesn't exist, add a function

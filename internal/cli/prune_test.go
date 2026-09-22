@@ -342,6 +342,91 @@ func TestPruneDryRunConfirmsWithServer(t *testing.T) {
 	require.True(t, sawSkip)
 }
 
+func TestPruneDryRunFindsSessionsReboundFromStaleDevice(t *testing.T) {
+	const (
+		pinnedID  = "aabbccddeeff0011"
+		pinnedMid = "machine-pinned"
+		staleID   = "stale-dhcp"
+	)
+	restore := device.SetResolveForTest(pinnedID, "tbox", "tbox", pinnedMid)
+	t.Cleanup(restore)
+
+	s := openPruneCommandStore(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	require.Equal(t, pinnedID, device.IDOnce())
+	require.NoError(t, s.UpsertDevice(ctx, store.Device{
+		ID:              staleID,
+		Hostname:        "192.168.0.19",
+		MachineID:       pinnedMid,
+		FriendlyName:    "192.168.0.19",
+		FingerprintedAt: now.Add(-time.Hour),
+	}))
+	rawPath, hash := seedCommandSession(t, s, "stale-sess", 60*24*time.Hour, []byte("raw-stale"))
+	_, err := s.DB().ExecContext(ctx, `UPDATE sessions SET device_id = ? WHERE id = ?`, staleID, "stale-sess")
+	require.NoError(t, err)
+
+	before := time.Now().UTC().Add(-30 * 24 * time.Hour)
+	got, err := s.ListPruneCandidates(ctx, device.IDOnce(), before, 0)
+	require.NoError(t, err)
+	require.Empty(t, got)
+
+	restorePruneHooks(t)
+	loadPruneManifest = func(context.Context, string, string) (map[string]serverManifestRow, error) {
+		return confirmedManifest("stale-sess", hash), nil
+	}
+
+	stdout, _ := captureStdoutStderr(t, func() {
+		cmd := newRootCmd()
+		cmd.SetArgs([]string{"--json", "prune", "--dry-run"})
+		require.NoError(t, cmd.Execute())
+	})
+	require.Contains(t, stdout, `"session_id":"stale-sess"`)
+	require.Contains(t, stdout, `"status":"would_prune"`)
+	require.FileExists(t, rawPath)
+
+	var deviceID string
+	require.NoError(t, s.DB().QueryRowContext(ctx,
+		`SELECT device_id FROM sessions WHERE id = 'stale-sess'`).Scan(&deviceID))
+	require.Equal(t, pinnedID, deviceID)
+	var staleRows int
+	require.NoError(t, s.DB().QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM devices WHERE id = ?`, staleID).Scan(&staleRows))
+	require.Zero(t, staleRows)
+}
+
+func TestPruneNothingHintsUnconfirmed(t *testing.T) {
+	s := openPruneCommandStore(t)
+	ctx := context.Background()
+	rawPath, _ := seedCommandSession(t, s, "old-null", 60*24*time.Hour, []byte("raw-null"))
+	_, err := s.DB().ExecContext(ctx, `UPDATE sync_state SET pushed_hash = NULL WHERE session_id = ?`, "old-null")
+	require.NoError(t, err)
+	seedCommandSession(t, s, "old-diverged", 50*24*time.Hour, []byte("raw-diverged"))
+	_, err = s.DB().ExecContext(ctx, `UPDATE sync_state SET pushed_hash = ? WHERE session_id = ?`, "other-hash", "old-diverged")
+	require.NoError(t, err)
+	seedCommandSession(t, s, "recent-null", time.Hour, []byte("raw-recent"))
+	_, err = s.DB().ExecContext(ctx, `UPDATE sync_state SET pushed_hash = NULL WHERE session_id = ?`, "recent-null")
+	require.NoError(t, err)
+
+	restorePruneHooks(t)
+	_, stderr := captureStdoutStderr(t, func() {
+		cmd := newRootCmd()
+		cmd.SetArgs([]string{"prune", "--dry-run"})
+		require.NoError(t, cmd.Execute())
+	})
+	require.Contains(t, stderr, "Nothing to prune. Unconfirmed sessions older than the window: 2; run `prosa sync` first.")
+	require.FileExists(t, rawPath)
+
+	stdout, _ := captureStdoutStderr(t, func() {
+		cmd := newRootCmd()
+		cmd.SetArgs([]string{"--json", "prune", "--dry-run"})
+		require.NoError(t, cmd.Execute())
+	})
+	require.Contains(t, stdout, `"unconfirmed":2`)
+	require.Contains(t, stdout, `"dry_run":true`)
+	require.NotContains(t, stdout, `"status":"would_prune"`)
+}
+
 func TestPruneDryRunErrorsWhenServerUnreachable(t *testing.T) {
 	s := openPruneCommandStore(t)
 	rawPath, _ := seedCommandSession(t, s, "s1", 60*24*time.Hour, []byte("raw"))

@@ -15,7 +15,6 @@ import (
 
 	"github.com/c3-oss/prosa/internal/cli/render"
 	"github.com/c3-oss/prosa/internal/cli/rpc"
-	"github.com/c3-oss/prosa/internal/device"
 	"github.com/c3-oss/prosa/internal/importers/importerutil"
 	"github.com/c3-oss/prosa/internal/paths"
 	"github.com/c3-oss/prosa/internal/rawlock"
@@ -75,6 +74,7 @@ type pruneJSONSummary struct {
 	Errors         int    `json:"errors"`
 	ReclaimedBytes int64  `json:"reclaimed_bytes"`
 	DryRun         bool   `json:"dry_run"`
+	Unconfirmed    int    `json:"unconfirmed,omitempty"`
 }
 
 func runPrune(cmd *cobra.Command, _ []string) error {
@@ -103,18 +103,33 @@ func runPrune(cmd *cobra.Command, _ []string) error {
 	}
 	defer func() { _ = s.Close() }()
 
+	dev, err := bindLocalDevice(ctx, s)
+	if err != nil {
+		return err
+	}
+
 	before := time.Now().UTC().Add(-olderThan)
 	// Limit is applied after the server confirms a row. A SQL limit would
 	// let unconfirmed old sessions consume the whole cap.
-	candidates, err := s.ListPruneCandidates(ctx, device.IDOnce(), before, 0)
+	candidates, err := s.ListPruneCandidates(ctx, dev.ID, before, 0)
 	if err != nil {
 		return fmt.Errorf("list prune candidates: %w", err)
 	}
 
 	enc := json.NewEncoder(os.Stdout)
 	if len(candidates) == 0 {
+		unconfirmed, err := s.CountOldUnconfirmed(ctx, dev.ID, before)
+		if err != nil {
+			return err
+		}
 		if g.JSON {
-			return enc.Encode(pruneJSONSummary{Type: "summary", DryRun: pruneDryRunFlag})
+			return enc.Encode(pruneJSONSummary{
+				Type: "summary", DryRun: pruneDryRunFlag, Unconfirmed: unconfirmed,
+			})
+		}
+		if unconfirmed > 0 {
+			fmt.Fprintf(os.Stderr, "Nothing to prune. Unconfirmed sessions older than the window: %d; run `prosa sync` first.\n", unconfirmed)
+			return nil
 		}
 		fmt.Fprintln(os.Stderr, "Nothing to prune.")
 		return nil

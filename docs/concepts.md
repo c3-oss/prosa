@@ -80,6 +80,12 @@ its metadata, turns, FTS entries, and analytics locally; only raw reads
 re-import of a changed source file rewrites the raw copy and un-prunes the
 session.
 
+`prosa prune` lists only sessions a prior sync confirmed: `pushed_hash`
+equals the current `raw_hash`, the row is not pruned, and last activity is
+older than the window. Older sessions that still lack that confirmation stay
+on disk. Prune reports their count and names `prosa sync`, which records the
+confirmation from the server manifest.
+
 ## Project identity
 
 prosa picks a project for each session in this order:
@@ -101,9 +107,17 @@ meaningful.
 A *device* is a single machine prosa has been set up on. Each device has a
 fingerprint and a `friendly_name`.
 
-Fingerprint = `hash(hostname + machine-id)`. Sources of the machine-id:
+The fingerprint is `hex(sha256(hostname + NUL + machine-id))[:16]`.
 
-- **Linux**: `/etc/machine-id`.
+On macOS the hostname is the LocalHostName (`scutil --get LocalHostName`,
+trimmed). When that command fails or returns empty, prosa uses the system
+hostname with a trailing `.local` removed. On Linux, and on every other
+platform, the hostname is the system hostname (`os.Hostname()`) with a
+trailing `.local` removed.
+
+Machine-id sources:
+
+- **Linux**: `/etc/machine-id`, then `/var/lib/dbus/machine-id`.
 - **macOS**: `IOPlatformUUID`.
 - **Windows**: `MachineGuid` from the registry. (Not in MVP target
   platforms.)
@@ -111,6 +125,12 @@ Fingerprint = `hash(hostname + machine-id)`. Sources of the machine-id:
 The `friendly_name` defaults to the hostname. You can rename via
 `prosa devices rename <id|self> <name>` (cross-device only, talks to the
 server).
+
+`prosa sync` and `prosa prune` upsert this machine's device row. They move
+sessions still stored on the seed `local` id onto the current fingerprint,
+and they collapse other local device rows that share its machine-id:
+sessions are reassigned to the current fingerprint and the extra rows are
+deleted. Rows with an empty machine-id stay in place.
 
 The CLI sends its device fingerprint as part of every authenticated request.
 The server uses this to attribute pushed sessions to a device.

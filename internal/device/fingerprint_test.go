@@ -1,10 +1,13 @@
 package device
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+var errScutil = errors.New("scutil failed")
 
 func TestFingerprintIsStableAndShort(t *testing.T) {
 	id1 := Fingerprint("laptop", "BEEFCAFE-1234")
@@ -35,8 +38,82 @@ func TestFingerprintEmptyMachineIDStillStable(t *testing.T) {
 	require.NotEmpty(t, a)
 }
 
+func TestSetResolveForTestPinsMachineID(t *testing.T) {
+	restore := SetResolveForTest("aabbccddeeff0011", "tbox", "tbox", "mid-pin")
+	t.Cleanup(restore)
+
+	require.Equal(t, "mid-pin", MachineID())
+	require.Equal(t, "aabbccddeeff0011", IDOnce())
+	require.Equal(t, "tbox", Hostname())
+	require.Equal(t, "tbox", FriendlyName())
+}
+
 func TestIDOnceMatchesFingerprintOfResolvedInputs(t *testing.T) {
 	id := IDOnce()
 	expected := Fingerprint(Hostname(), MachineID())
 	require.Equal(t, expected, id)
+}
+
+func TestResolveHostname(t *testing.T) {
+	origLocal := darwinLocalHostName
+	origHost := osHostname
+	t.Cleanup(func() {
+		darwinLocalHostName = origLocal
+		osHostname = origHost
+	})
+
+	tests := []struct {
+		name   string
+		goos   string
+		local  func() (string, error)
+		host   func() (string, error)
+		want   string
+		scutil bool
+	}{
+		{
+			name:   "darwin scutil success",
+			goos:   "darwin",
+			local:  func() (string, error) { return "  tbox\n", nil },
+			host:   func() (string, error) { return "192.168.0.19", nil },
+			want:   "tbox",
+			scutil: true,
+		},
+		{
+			name:   "darwin scutil failure falls back",
+			goos:   "darwin",
+			local:  func() (string, error) { return "", errScutil },
+			host:   func() (string, error) { return "192.168.0.19", nil },
+			want:   "192.168.0.19",
+			scutil: true,
+		},
+		{
+			name:   "darwin empty scutil falls back and strips .local",
+			goos:   "darwin",
+			local:  func() (string, error) { return " \n", nil },
+			host:   func() (string, error) { return "studio.local", nil },
+			want:   "studio",
+			scutil: true,
+		},
+		{
+			name:   "linux keeps os hostname and strips one .local",
+			goos:   "linux",
+			local:  func() (string, error) { return "ignored", nil },
+			host:   func() (string, error) { return "box.local", nil },
+			want:   "box",
+			scutil: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			called := false
+			darwinLocalHostName = func() (string, error) {
+				called = true
+				return tt.local()
+			}
+			osHostname = tt.host
+			require.Equal(t, tt.want, resolveHostname(tt.goos))
+			require.Equal(t, tt.scutil, called)
+		})
+	}
 }
