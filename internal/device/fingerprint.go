@@ -88,6 +88,30 @@ func Fingerprint(hostname, machineID string) string {
 	return hex.EncodeToString(h[:])[:16]
 }
 
+// SetResolveForTest pins the cached device identity. The returned function
+// restores the previous resolver and clears the cache again.
+func SetResolveForTest(id, hostname, friendly, machineID string) func() {
+	prev := resolve
+	resolve = func() resolved {
+		return resolved{
+			id:        id,
+			hostname:  hostname,
+			friendly:  friendly,
+			machineID: machineID,
+		}
+	}
+	resetResolveCache()
+	return func() {
+		resolve = prev
+		resetResolveCache()
+	}
+}
+
+func resetResolveCache() {
+	once = sync.Once{}
+	cached = resolved{}
+}
+
 func doResolve() resolved {
 	host := resolveHostname(runtime.GOOS)
 	mid, err := readMachineID()

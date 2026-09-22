@@ -38,6 +38,16 @@ func TestFingerprintEmptyMachineIDStillStable(t *testing.T) {
 	require.NotEmpty(t, a)
 }
 
+func TestSetResolveForTestPinsMachineID(t *testing.T) {
+	restore := SetResolveForTest("aabbccddeeff0011", "tbox", "tbox", "mid-pin")
+	t.Cleanup(restore)
+
+	require.Equal(t, "mid-pin", MachineID())
+	require.Equal(t, "aabbccddeeff0011", IDOnce())
+	require.Equal(t, "tbox", Hostname())
+	require.Equal(t, "tbox", FriendlyName())
+}
+
 func TestIDOnceMatchesFingerprintOfResolvedInputs(t *testing.T) {
 	id := IDOnce()
 	expected := Fingerprint(Hostname(), MachineID())
