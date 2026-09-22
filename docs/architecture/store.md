@@ -254,6 +254,7 @@ Selected functions (full list in `internal/store/`):
 | `RecordPushed(ctx, sessionID, hash, uri)` | Persist a server-confirmed push into `sync_state` |
 | `RecordPushedBatch(ctx, stamps)` | Manifest-driven backfill of pushed state, keeping each entry's `last_synced_at` |
 | `ListPruneCandidates(ctx, deviceID, before, limit)` | Pushed, unpruned sessions inactive since `before` |
+| `CountOldUnconfirmed(ctx, deviceID, before)` | Older unpruned sessions whose `pushed_hash` is missing or differs from `raw_hash` |
 | `MarkPruned(ctx, sessionID, rawHash)` / `ClearPruned(ctx, sessionID)` | Guarded prune flip and its revert |
 | `PruneAdvisory(ctx, deviceID, before, pushedBefore)` | Count + bytes behind the sync summary's Prune line |
 | `ListDevicesMap(ctx)` | `id → friendly_name` lookup |

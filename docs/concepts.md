@@ -80,6 +80,12 @@ its metadata, turns, FTS entries, and analytics locally; only raw reads
 re-import of a changed source file rewrites the raw copy and un-prunes the
 session.
 
+`prosa prune` lists only sessions a prior sync confirmed: `pushed_hash`
+equals the current `raw_hash`, the row is not pruned, and last activity is
+older than the window. Older sessions that still lack that confirmation stay
+on disk. Prune reports their count and names `prosa sync`, which records the
+confirmation from the server manifest.
+
 ## Project identity
 
 prosa picks a project for each session in this order:
