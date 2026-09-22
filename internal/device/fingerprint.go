@@ -1,12 +1,18 @@
 // Package device resolves the stable per-machine identity prosa uses for
-// the sessions.device_id column and the future server-side device row.
-// The id is hex(sha256(hostname + machineID))[:16] so it survives
-// hostname renames as long as the machine-id stays put, and survives
-// machine-id changes (rare) as long as the hostname stays put.
+// sessions.device_id and the server device row.
 //
-// macOS: machineID = IOPlatformUUID parsed from `ioreg -rd1 -c IOPlatformExpertDevice`.
-// Linux: machineID = /etc/machine-id (or /var/lib/dbus/machine-id fallback).
-// Other: empty machineID; hostname alone still produces a stable id.
+// The id is hex(sha256(hostname + "\x00" + machineID))[:16].
+//
+// On darwin the hostname is `scutil --get LocalHostName`, trimmed. When
+// scutil fails or returns empty, it is os.Hostname() with a trailing
+// ".local" removed. On linux and every other platform it is os.Hostname()
+// with a trailing ".local" removed.
+//
+// macOS machineID is the IOPlatformUUID parsed from
+// `ioreg -rd1 -c IOPlatformExpertDevice`.
+// Linux machineID is /etc/machine-id, or /var/lib/dbus/machine-id when
+// that file is missing.
+// Other platforms leave machineID empty; the hostname still yields an id.
 //
 // All public funcs return cached values after the first call so
 // repeated importer invocations on the same process pay the cost once.
@@ -26,6 +32,13 @@ var (
 	once    sync.Once
 	cached  resolved
 	resolve = doResolve // overridable for tests
+
+	// darwinLocalHostName is the raw stdout of `scutil --get LocalHostName`.
+	// Tests replace it so hostname resolution does not spawn a process.
+	darwinLocalHostName = execDarwinLocalHostName
+
+	// osHostname is os.Hostname. Tests replace it.
+	osHostname = os.Hostname
 )
 
 type resolved struct {
@@ -45,8 +58,10 @@ func IDOnce() string {
 	return cached.id
 }
 
-// Hostname returns the machine hostname, with macOS' "<host>.local"
-// suffix stripped for friendliness. Cached.
+// Hostname returns the hostname mixed into the fingerprint. Cached.
+// On darwin this is the LocalHostName when scutil succeeds. Otherwise,
+// and on every other platform, it is os.Hostname() with a trailing
+// ".local" removed.
 func Hostname() string {
 	once.Do(func() { cached = resolve() })
 	return cached.hostname
@@ -66,16 +81,15 @@ func MachineID() string {
 	return cached.machineID
 }
 
-// Fingerprint computes hex(sha256(hostname + machineID))[:16]. Exposed so
-// tests can reproduce the ID without going through the resolver.
+// Fingerprint computes hex(sha256(hostname + "\x00" + machineID))[:16].
+// Exposed so tests can reproduce the id without going through the resolver.
 func Fingerprint(hostname, machineID string) string {
 	h := sha256.Sum256([]byte(hostname + "\x00" + machineID))
 	return hex.EncodeToString(h[:])[:16]
 }
 
 func doResolve() resolved {
-	host, _ := os.Hostname()
-	host = strings.TrimSuffix(host, ".local")
+	host := resolveHostname(runtime.GOOS)
 	mid, err := readMachineID()
 	return resolved{
 		id:           Fingerprint(host, mid),
@@ -84,6 +98,28 @@ func doResolve() resolved {
 		machineID:    mid,
 		resolveError: err,
 	}
+}
+
+// resolveHostname picks the hostname mixed into the fingerprint.
+// goos is injectable so tests cover darwin without running on darwin.
+func resolveHostname(goos string) string {
+	if goos == "darwin" {
+		if raw, err := darwinLocalHostName(); err == nil {
+			if name := strings.TrimSpace(raw); name != "" {
+				return name
+			}
+		}
+	}
+	host, _ := osHostname()
+	return strings.TrimSuffix(host, ".local")
+}
+
+func execDarwinLocalHostName() (string, error) {
+	out, err := exec.Command("scutil", "--get", "LocalHostName").Output()
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
 }
 
 func readMachineID() (string, error) {
