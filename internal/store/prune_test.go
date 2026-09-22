@@ -120,6 +120,48 @@ func seedPrunable(t *testing.T, s *Store, id string, ago time.Duration) session.
 	return sess
 }
 
+func TestListPruneCandidatesAfterDeviceRebind(t *testing.T) {
+	t.Parallel()
+	ctx, s := newStore(t)
+	now := time.Now().UTC()
+
+	canonical := Device{
+		ID: "canon", Hostname: "tbox", MachineID: "uuid-1",
+		FriendlyName: "tbox", FingerprintedAt: now,
+	}
+	stale := Device{
+		ID: "stale", Hostname: "192.168.0.19", MachineID: "uuid-1",
+		FriendlyName: "192.168.0.19", FingerprintedAt: now.Add(-time.Hour),
+	}
+	require.NoError(t, s.UpsertDevice(ctx, canonical))
+	require.NoError(t, s.UpsertDevice(ctx, stale))
+
+	sess := newSession("old-stale", now)
+	sess.DeviceID = stale.ID
+	sess.RawHash = "abc123hash"
+	sess.StartedAt = now.Add(-60 * 24 * time.Hour)
+	sess.LastActivityAt = now.Add(-40 * 24 * time.Hour)
+	require.NoError(t, s.UpsertSession(ctx, sess, nil))
+	require.NoError(t, s.RecordSync(ctx, sess.ID, sess.RawHash))
+	require.NoError(t, s.RecordPushed(ctx, sess.ID, sess.RawHash, "s3://bucket/"+sess.ID))
+
+	before := now.Add(-30 * 24 * time.Hour)
+	got, err := s.ListPruneCandidates(ctx, canonical.ID, before, 0)
+	require.NoError(t, err)
+	require.Empty(t, got)
+
+	n, err := s.RebindDevicesByMachineID(ctx, canonical)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), n)
+
+	got, err = s.ListPruneCandidates(ctx, canonical.ID, before, 0)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.Equal(t, sess.ID, got[0].ID)
+	require.Equal(t, sess.RawHash, got[0].RawHash)
+	require.Equal(t, sess.Agent, got[0].Agent)
+}
+
 func TestListPruneCandidatesFilters(t *testing.T) {
 	t.Parallel()
 	ctx, s := newStore(t)

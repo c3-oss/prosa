@@ -97,6 +97,46 @@ func (s *Store) ListDevicesMap(ctx context.Context) (map[string]string, error) {
 	return out, rows.Err()
 }
 
+// RebindDevicesByMachineID moves sessions off every other devices row that
+// shares d.MachineID onto d.ID, then deletes those rows. d must already be
+// stored: sessions.device_id references devices.id, and that column is the
+// only local reference to a device id. Returns the number of sessions
+// rebound. An empty MachineID matches nothing.
+func (s *Store) RebindDevicesByMachineID(ctx context.Context, d Device) (int64, error) {
+	if d.ID == "" || d.MachineID == "" {
+		return 0, nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	res, err := tx.ExecContext(ctx, `
+		UPDATE sessions
+		SET device_id = ?
+		WHERE device_id IN (
+			SELECT id FROM devices
+			WHERE machine_id = ? AND id != ?
+		)
+	`, d.ID, d.MachineID, d.ID)
+	if err != nil {
+		return 0, fmt.Errorf("rebind sessions for machine %s: %w", d.MachineID, err)
+	}
+	n, _ := res.RowsAffected()
+
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM devices
+		WHERE machine_id = ? AND id != ?
+	`, d.MachineID, d.ID); err != nil {
+		return 0, fmt.Errorf("delete stale devices for machine %s: %w", d.MachineID, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
 // RebindLocalSessions reassigns every `device_id = 'local'` session row to
 // the given fingerprint, in one transaction. Returns the count rewritten.
 // Used during startup to migrate sessions imported under the seed device id
