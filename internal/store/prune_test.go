@@ -162,6 +162,54 @@ func TestListPruneCandidatesAfterDeviceRebind(t *testing.T) {
 	require.Equal(t, sess.Agent, got[0].Agent)
 }
 
+func TestCountOldUnconfirmed(t *testing.T) {
+	t.Parallel()
+	ctx, s := newStore(t)
+	now := time.Now().UTC()
+	before := now.Add(-30 * 24 * time.Hour)
+
+	oldNull := newSession("old-null", now)
+	oldNull.LastActivityAt = now.Add(-40 * 24 * time.Hour)
+	require.NoError(t, s.UpsertSession(ctx, oldNull, nil))
+	require.NoError(t, s.RecordSync(ctx, oldNull.ID, oldNull.RawHash))
+
+	diverged := seedPrunable(t, s, "old-diverged", 40*24*time.Hour)
+	require.NoError(t, s.RecordPushed(ctx, diverged.ID, "stale-hash", ""))
+
+	seedPrunable(t, s, "old-confirmed", 40*24*time.Hour)
+
+	recentNull := newSession("recent-null", now)
+	recentNull.LastActivityAt = now.Add(-time.Hour)
+	require.NoError(t, s.UpsertSession(ctx, recentNull, nil))
+	require.NoError(t, s.RecordSync(ctx, recentNull.ID, recentNull.RawHash))
+
+	pruned := newSession("old-pruned", now)
+	pruned.LastActivityAt = now.Add(-40 * 24 * time.Hour)
+	require.NoError(t, s.UpsertSession(ctx, pruned, nil))
+	require.NoError(t, s.RecordSync(ctx, pruned.ID, pruned.RawHash))
+	ok, err := s.MarkPruned(ctx, pruned.ID, pruned.RawHash)
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	require.NoError(t, s.UpsertDevice(ctx, Device{
+		ID: "other", Hostname: "laptop", MachineID: "mid-other",
+		FriendlyName: "laptop", FingerprintedAt: now,
+	}))
+	foreign := newSession("old-foreign", now)
+	foreign.DeviceID = "other"
+	foreign.LastActivityAt = now.Add(-40 * 24 * time.Hour)
+	require.NoError(t, s.UpsertSession(ctx, foreign, nil))
+	require.NoError(t, s.RecordSync(ctx, foreign.ID, foreign.RawHash))
+
+	noState := newSession("old-no-sync-state", now)
+	noState.LastActivityAt = now.Add(-40 * 24 * time.Hour)
+	require.NoError(t, s.UpsertSession(ctx, noState, nil))
+
+	n, err := s.CountOldUnconfirmed(ctx, "local", before)
+	require.NoError(t, err)
+	require.Equal(t, 2, n)
+}
+
 func TestListPruneCandidatesFilters(t *testing.T) {
 	t.Parallel()
 	ctx, s := newStore(t)
