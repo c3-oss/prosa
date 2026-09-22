@@ -343,18 +343,22 @@ func TestPruneDryRunConfirmsWithServer(t *testing.T) {
 }
 
 func TestPruneDryRunFindsSessionsReboundFromStaleDevice(t *testing.T) {
-	if device.MachineID() == "" {
-		t.Skip("rebind matches on machine id, and this host has none")
-	}
+	const (
+		pinnedID  = "aabbccddeeff0011"
+		pinnedMid = "machine-pinned"
+		staleID   = "stale-dhcp"
+	)
+	restore := device.SetResolveForTest(pinnedID, "tbox", "tbox", pinnedMid)
+	t.Cleanup(restore)
+
 	s := openPruneCommandStore(t)
 	ctx := context.Background()
 	now := time.Now().UTC()
-	const staleID = "stale-dhcp"
-	require.NotEqual(t, device.IDOnce(), staleID)
+	require.Equal(t, pinnedID, device.IDOnce())
 	require.NoError(t, s.UpsertDevice(ctx, store.Device{
 		ID:              staleID,
 		Hostname:        "192.168.0.19",
-		MachineID:       device.MachineID(),
+		MachineID:       pinnedMid,
 		FriendlyName:    "192.168.0.19",
 		FingerprintedAt: now.Add(-time.Hour),
 	}))
@@ -384,11 +388,43 @@ func TestPruneDryRunFindsSessionsReboundFromStaleDevice(t *testing.T) {
 	var deviceID string
 	require.NoError(t, s.DB().QueryRowContext(ctx,
 		`SELECT device_id FROM sessions WHERE id = 'stale-sess'`).Scan(&deviceID))
-	require.Equal(t, device.IDOnce(), deviceID)
+	require.Equal(t, pinnedID, deviceID)
 	var staleRows int
 	require.NoError(t, s.DB().QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM devices WHERE id = ?`, staleID).Scan(&staleRows))
 	require.Zero(t, staleRows)
+}
+
+func TestPruneNothingHintsUnconfirmed(t *testing.T) {
+	s := openPruneCommandStore(t)
+	ctx := context.Background()
+	rawPath, _ := seedCommandSession(t, s, "old-null", 60*24*time.Hour, []byte("raw-null"))
+	_, err := s.DB().ExecContext(ctx, `UPDATE sync_state SET pushed_hash = NULL WHERE session_id = ?`, "old-null")
+	require.NoError(t, err)
+	seedCommandSession(t, s, "old-diverged", 50*24*time.Hour, []byte("raw-diverged"))
+	_, err = s.DB().ExecContext(ctx, `UPDATE sync_state SET pushed_hash = ? WHERE session_id = ?`, "other-hash", "old-diverged")
+	require.NoError(t, err)
+	seedCommandSession(t, s, "recent-null", time.Hour, []byte("raw-recent"))
+	_, err = s.DB().ExecContext(ctx, `UPDATE sync_state SET pushed_hash = NULL WHERE session_id = ?`, "recent-null")
+	require.NoError(t, err)
+
+	restorePruneHooks(t)
+	_, stderr := captureStdoutStderr(t, func() {
+		cmd := newRootCmd()
+		cmd.SetArgs([]string{"prune", "--dry-run"})
+		require.NoError(t, cmd.Execute())
+	})
+	require.Contains(t, stderr, "Nothing to prune. Unconfirmed sessions older than the window: 2; run `prosa sync` first.")
+	require.FileExists(t, rawPath)
+
+	stdout, _ := captureStdoutStderr(t, func() {
+		cmd := newRootCmd()
+		cmd.SetArgs([]string{"--json", "prune", "--dry-run"})
+		require.NoError(t, cmd.Execute())
+	})
+	require.Contains(t, stdout, `"unconfirmed":2`)
+	require.Contains(t, stdout, `"dry_run":true`)
+	require.NotContains(t, stdout, `"status":"would_prune"`)
 }
 
 func TestPruneDryRunErrorsWhenServerUnreachable(t *testing.T) {

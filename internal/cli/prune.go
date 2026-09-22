@@ -74,6 +74,7 @@ type pruneJSONSummary struct {
 	Errors         int    `json:"errors"`
 	ReclaimedBytes int64  `json:"reclaimed_bytes"`
 	DryRun         bool   `json:"dry_run"`
+	Unconfirmed    int    `json:"unconfirmed,omitempty"`
 }
 
 func runPrune(cmd *cobra.Command, _ []string) error {
@@ -117,8 +118,18 @@ func runPrune(cmd *cobra.Command, _ []string) error {
 
 	enc := json.NewEncoder(os.Stdout)
 	if len(candidates) == 0 {
+		unconfirmed, err := s.CountOldUnconfirmed(ctx, dev.ID, before)
+		if err != nil {
+			return err
+		}
 		if g.JSON {
-			return enc.Encode(pruneJSONSummary{Type: "summary", DryRun: pruneDryRunFlag})
+			return enc.Encode(pruneJSONSummary{
+				Type: "summary", DryRun: pruneDryRunFlag, Unconfirmed: unconfirmed,
+			})
+		}
+		if unconfirmed > 0 {
+			fmt.Fprintf(os.Stderr, "Nothing to prune. Unconfirmed sessions older than the window: %d; run `prosa sync` first.\n", unconfirmed)
+			return nil
 		}
 		fmt.Fprintln(os.Stderr, "Nothing to prune.")
 		return nil
