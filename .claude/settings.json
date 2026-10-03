@@ -36,7 +36,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "if printf '%s' \"$CLAUDE_TOOL_INPUT\" | grep -qE '\"file_path\"[^,]*\"[^\"]*/gen/'; then printf 'BLOCKED: gen/ is generated code. Run `just gen` to regenerate it; do not edit by hand.\\n' >&2; exit 2; fi",
+            "command": "if grep -qE '\"file_path\"[^,]*\"[^\"]*/gen/'; then printf 'BLOCKED: gen/ is generated code. Run `just gen` to regenerate it; do not edit by hand.\\n' >&2; exit 2; fi",
             "timeout": 5
           }
         ]
