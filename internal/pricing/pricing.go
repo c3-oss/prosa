@@ -6,8 +6,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/c3-oss/prosa/pkg/session"
 )
 
 // Rates are USD-per-token prices. The table is intentionally embedded and
@@ -234,33 +232,6 @@ var (
 	prefixKeysOnce sync.Once
 	prefixKeys     []string
 )
-
-// CostUSD estimates one session's usage cost. cached_tokens is treated as
-// cache-read input when the provider does not expose the read/create split.
-func CostUSD(model string, usage session.TokenUsage, at time.Time) (float64, bool) {
-	r, ok := Lookup(model, at)
-	if !ok {
-		return 0, false
-	}
-
-	cacheRead := usage.CacheReadTokens
-	if cacheRead == 0 {
-		cacheRead = usage.CachedTokens
-	}
-	if cacheRead > usage.InputTokens {
-		cacheRead = usage.InputTokens
-	}
-	uncachedInput := usage.InputTokens - cacheRead - usage.CacheCreationTokens
-	if uncachedInput < 0 {
-		uncachedInput = 0
-	}
-
-	cost := float64(uncachedInput)*r.Input +
-		float64(cacheRead)*r.CacheRead +
-		float64(usage.CacheCreationTokens)*r.CacheCreation +
-		float64(usage.OutputTokens)*r.Output
-	return cost, true
-}
 
 // Lookup resolves rates for a raw model string. Falls back to a longest-prefix
 // match so versioned variants (e.g. claude-opus-4-7) don't collapse onto a
