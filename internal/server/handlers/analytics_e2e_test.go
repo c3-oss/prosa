@@ -118,7 +118,7 @@ func TestAnalyticsReportsEndToEnd(t *testing.T) {
 	require.Equal(t, "1", h["14"][1])
 
 	usage := report("usage_by_model")
-	require.Equal(t, []string{"MODEL", "SESSIONS", "TOTAL", "INPUT", "OUTPUT", "EST_COST_USD"}, usage.Headers)
+	require.Equal(t, []string{"MODEL", "SESSIONS", "TOTAL", "INPUT", "OUTPUT", "EST_COST_USD", "COST_STATUS", "PRICED_TOKENS", "UNPRICED_TOKENS"}, usage.Headers)
 	u := rowMap(usage)
 	require.Equal(t, "2", u["claude-opus-4-5"][1])    // sessions
 	require.Equal(t, "2000", u["claude-opus-4-5"][2]) // total tokens
@@ -313,7 +313,7 @@ func TestInsightsReportsEndToEnd(t *testing.T) {
 
 	usage := report("usage_by_day")
 	require.Equal(t,
-		[]string{"DAY", "MODEL", "SESSIONS", "MEASURED", "TOTAL", "INPUT", "OUTPUT", "CACHED", "CACHE_READ", "CACHE_CREATION"},
+		[]string{"DAY", "MODEL", "SESSIONS", "MEASURED", "TOTAL", "INPUT", "OUTPUT", "CACHED", "CACHE_READ", "CACHE_CREATION", "EST_COST_USD", "COST_STATUS", "PRICED_TOKENS", "UNPRICED_TOKENS"},
 		usage.Headers)
 	byDayModel := map[string][]string{}
 	for _, row := range usage.Rows {
@@ -471,7 +471,7 @@ func TestDelegationAndProfileReportsEndToEnd(t *testing.T) {
 
 	subUsage := report("subagent_usage_by_day", nil)
 	require.Equal(t,
-		[]string{"DAY", "KIND", "MODEL", "SESSIONS", "MEASURED", "TOTAL", "INPUT", "OUTPUT", "CACHED", "CACHE_READ", "CACHE_CREATION"},
+		[]string{"DAY", "KIND", "MODEL", "SESSIONS", "MEASURED", "TOTAL", "INPUT", "OUTPUT", "CACHED", "CACHE_READ", "CACHE_CREATION", "EST_COST_USD", "COST_STATUS", "PRICED_TOKENS", "UNPRICED_TOKENS"},
 		subUsage.Headers)
 	kindCells := map[string][]string{}
 	for _, row := range subUsage.Rows {
@@ -491,7 +491,7 @@ func TestDelegationAndProfileReportsEndToEnd(t *testing.T) {
 
 	profUsage := report("profile_usage", nil)
 	require.Equal(t,
-		[]string{"DAY", "DEVICE", "AGENT", "PROFILE", "MODEL", "SESSIONS", "MEASURED", "TOTAL", "INPUT", "OUTPUT", "CACHED", "CACHE_READ", "CACHE_CREATION", "LAST_ACTIVITY"},
+		[]string{"DAY", "DEVICE", "AGENT", "PROFILE", "MODEL", "SESSIONS", "MEASURED", "TOTAL", "INPUT", "OUTPUT", "CACHED", "CACHE_READ", "CACHE_CREATION", "LAST_ACTIVITY", "EST_COST_USD", "COST_STATUS", "PRICED_TOKENS", "UNPRICED_TOKENS"},
 		profUsage.Headers)
 	profCells := map[string][]string{}
 	for _, row := range profUsage.Rows {

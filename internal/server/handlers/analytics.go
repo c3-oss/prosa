@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -13,9 +12,7 @@ import (
 
 	prosav1 "github.com/c3-oss/prosa/gen/go/prosa/v1"
 	"github.com/c3-oss/prosa/gen/go/prosa/v1/prosav1connect"
-	"github.com/c3-oss/prosa/internal/pricing"
 	"github.com/c3-oss/prosa/internal/server/auth"
-	"github.com/c3-oss/prosa/pkg/session"
 )
 
 // AnalyticsHandler implements AnalyticsService against Postgres. The
@@ -62,29 +59,18 @@ func (h *AnalyticsHandler) GetReport(ctx context.Context, req *connect.Request[p
 		return runReport(ctx, h.Pool, req.Msg, queryErrors, []string{"STARTED", "AGENT", "PROJECT", "SESSION"})
 	case "heatmap":
 		return runHeatmap(ctx, h.Pool, req.Msg)
-	case "usage":
-		return runUsage(ctx, h.Pool, req.Msg)
+	case "usage", "usage_by_model", "usage_by_day", "subagent_usage_by_day", "profile_usage":
+		return runPricedUsage(ctx, h.Pool, req.Msg)
 	case "hours":
 		return runReport(ctx, h.Pool, req.Msg, queryHours, []string{"HOUR", "SESSIONS"})
 	case "errors_by_model":
 		return runReport(ctx, h.Pool, req.Msg, queryErrorsByModel, []string{"MODEL", "SESSIONS"})
-	case "usage_by_model":
-		return runUsageByModel(ctx, h.Pool, req.Msg)
-	case "usage_by_day":
-		return runReport(ctx, h.Pool, req.Msg, queryUsageByDay,
-			[]string{"DAY", "MODEL", "SESSIONS", "MEASURED", "TOTAL", "INPUT", "OUTPUT", "CACHED", "CACHE_READ", "CACHE_CREATION"})
 	case "usage_by_hour":
 		return runReport(ctx, h.Pool, req.Msg, queryUsageByHour,
 			[]string{"HOUR", "MODEL", "SESSIONS", "MEASURED", "TOTAL", "INPUT", "OUTPUT", "CACHED", "CACHE_READ", "CACHE_CREATION"})
-	case "subagent_usage_by_day":
-		return runReport(ctx, h.Pool, req.Msg, querySubagentUsageByDay,
-			[]string{"DAY", "KIND", "MODEL", "SESSIONS", "MEASURED", "TOTAL", "INPUT", "OUTPUT", "CACHED", "CACHE_READ", "CACHE_CREATION"})
 	case "subagent_parents":
 		return runReport(ctx, h.Pool, req.Msg, querySubagentParents,
 			[]string{"STARTED", "AGENT", "PROJECT", "SESSION", "CHILDREN"})
-	case "profile_usage":
-		return runReport(ctx, h.Pool, req.Msg, queryProfileUsage,
-			[]string{"DAY", "DEVICE", "AGENT", "PROFILE", "MODEL", "SESSIONS", "MEASURED", "TOTAL", "INPUT", "OUTPUT", "CACHED", "CACHE_READ", "CACHE_CREATION", "LAST_ACTIVITY"})
 	case "profiles_by_day":
 		return runReport(ctx, h.Pool, req.Msg, queryProfilesByDay, []string{"DAY", "AGENT", "PROFILE", "SESSIONS"})
 	case "punchcard":
@@ -263,240 +249,9 @@ func runHeatmap(
 	return connect.NewResponse(out), nil
 }
 
-func runUsage(
-	ctx context.Context,
-	pool *pgxpool.Pool,
-	msg *prosav1.GetReportRequest,
-) (*connect.Response[prosav1.GetReportResponse], error) {
-	whereSQL, args, err := buildWhere(ctx, msg)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
-	}
-	q := `
-		SELECT to_char((s.started_at AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD') AS day,
-		       s.agent,
-		       COALESCE(s.model, '') AS model,
-		       COUNT(DISTINCT s.id)::bigint AS sessions,
-		       COUNT(su.session_id)::bigint AS measured,
-		       COALESCE(SUM(su.total_tokens), 0)::bigint AS total_tokens,
-		       COALESCE(SUM(su.input_tokens), 0)::bigint AS input_tokens,
-		       COALESCE(SUM(su.output_tokens), 0)::bigint AS output_tokens,
-		       COALESCE(SUM(su.cached_tokens), 0)::bigint AS cached_tokens,
-		       COALESCE(SUM(su.cache_read_tokens), 0)::bigint AS cache_read_tokens,
-		       COALESCE(SUM(su.cache_creation_tokens), 0)::bigint AS cache_creation_tokens
-		FROM sessions s
-		LEFT JOIN session_usage su ON su.session_id = s.id
-		` + whereSQL + `
-		GROUP BY day, s.agent, model
-		ORDER BY COUNT(DISTINCT s.id) DESC`
-	rows, err := pool.Query(ctx, q, args...)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("analytics usage: %w", err))
-	}
-	defer rows.Close()
-
-	type usageAgg struct {
-		agent    string
-		sessions int64
-		measured int64
-		usage    session.TokenUsage
-		cost     float64
-		priced   bool
-	}
-	byAgent := map[string]*usageAgg{}
-	for rows.Next() {
-		var (
-			day          string
-			agent, model string
-			sessionsN    int64
-			measured     int64
-			u            session.TokenUsage
-		)
-		if err := rows.Scan(
-			&day, &agent, &model, &sessionsN, &measured,
-			&u.TotalTokens, &u.InputTokens, &u.OutputTokens, &u.CachedTokens,
-			&u.CacheReadTokens, &u.CacheCreationTokens,
-		); err != nil {
-			return nil, connect.NewError(connect.CodeInternal, err)
-		}
-		agg := byAgent[agent]
-		if agg == nil {
-			agg = &usageAgg{agent: agent}
-			byAgent[agent] = agg
-		}
-		agg.sessions += sessionsN
-		agg.measured += measured
-		agg.usage.TotalTokens += u.TotalTokens
-		agg.usage.InputTokens += u.InputTokens
-		agg.usage.OutputTokens += u.OutputTokens
-		agg.usage.CachedTokens += u.CachedTokens
-		agg.usage.CacheReadTokens += u.CacheReadTokens
-		agg.usage.CacheCreationTokens += u.CacheCreationTokens
-		if measured > 0 {
-			if c, ok := pricing.CostUSD(model, u, analyticsPricingTime(day)); ok {
-				agg.cost += c
-				agg.priced = true
-			}
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
-	}
-
-	aggs := make([]*usageAgg, 0, len(byAgent))
-	for _, agg := range byAgent {
-		aggs = append(aggs, agg)
-	}
-	sort.Slice(aggs, func(i, j int) bool {
-		if aggs[i].sessions == aggs[j].sessions {
-			return aggs[i].agent < aggs[j].agent
-		}
-		return aggs[i].sessions > aggs[j].sessions
-	})
-
-	out := &prosav1.GetReportResponse{Headers: []string{
-		"AGENT", "SESSIONS", "MEASURED", "TOTAL", "INPUT", "OUTPUT", "CACHED", "EST_COST_USD",
-	}}
-	for _, agg := range aggs {
-		cost := ""
-		if agg.priced {
-			cost = fmt.Sprintf("%.4f", agg.cost)
-		}
-		out.Rows = append(out.Rows, &prosav1.AnalyticsRow{Values: []string{
-			agg.agent,
-			fmt.Sprintf("%d", agg.sessions),
-			fmt.Sprintf("%d", agg.measured),
-			fmt.Sprintf("%d", agg.usage.TotalTokens),
-			fmt.Sprintf("%d", agg.usage.InputTokens),
-			fmt.Sprintf("%d", agg.usage.OutputTokens),
-			fmt.Sprintf("%d", agg.usage.CachedTokens),
-			cost,
-		}})
-	}
-	return connect.NewResponse(out), nil
-}
-
-// runUsageByModel groups by model instead of agent, pricing day-sized slices
-// before folding them back into the public row shape.
-func runUsageByModel(
-	ctx context.Context,
-	pool *pgxpool.Pool,
-	msg *prosav1.GetReportRequest,
-) (*connect.Response[prosav1.GetReportResponse], error) {
-	whereSQL, args, err := buildWhere(ctx, msg)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
-	}
-	q := `
-		SELECT to_char((s.started_at AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD') AS day,
-		       COALESCE(s.model, '(none)') AS model,
-		       COUNT(DISTINCT s.id)::bigint AS sessions,
-		       COUNT(su.session_id)::bigint AS measured,
-		       COALESCE(SUM(su.total_tokens), 0)::bigint AS total_tokens,
-		       COALESCE(SUM(su.input_tokens), 0)::bigint AS input_tokens,
-		       COALESCE(SUM(su.output_tokens), 0)::bigint AS output_tokens,
-		       COALESCE(SUM(su.cached_tokens), 0)::bigint AS cached_tokens,
-		       COALESCE(SUM(su.cache_read_tokens), 0)::bigint AS cache_read_tokens,
-		       COALESCE(SUM(su.cache_creation_tokens), 0)::bigint AS cache_creation_tokens
-		FROM sessions s
-		LEFT JOIN session_usage su ON su.session_id = s.id
-		` + whereSQL + `
-		GROUP BY day, model
-		ORDER BY COUNT(DISTINCT s.id) DESC`
-	rows, err := pool.Query(ctx, q, args...)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("analytics usage_by_model: %w", err))
-	}
-	defer rows.Close()
-
-	type modelAgg struct {
-		model    string
-		sessions int64
-		usage    session.TokenUsage
-		cost     float64
-		priced   bool
-	}
-	byModel := map[string]*modelAgg{}
-	for rows.Next() {
-		var (
-			day       string
-			model     string
-			sessionsN int64
-			measured  int64
-			u         session.TokenUsage
-		)
-		if err := rows.Scan(
-			&day, &model, &sessionsN, &measured,
-			&u.TotalTokens, &u.InputTokens, &u.OutputTokens, &u.CachedTokens,
-			&u.CacheReadTokens, &u.CacheCreationTokens,
-		); err != nil {
-			return nil, connect.NewError(connect.CodeInternal, err)
-		}
-		agg := byModel[model]
-		if agg == nil {
-			agg = &modelAgg{model: model}
-			byModel[model] = agg
-		}
-		agg.sessions += sessionsN
-		agg.usage.TotalTokens += u.TotalTokens
-		agg.usage.InputTokens += u.InputTokens
-		agg.usage.OutputTokens += u.OutputTokens
-		agg.usage.CachedTokens += u.CachedTokens
-		agg.usage.CacheReadTokens += u.CacheReadTokens
-		agg.usage.CacheCreationTokens += u.CacheCreationTokens
-		if measured > 0 {
-			if c, ok := pricing.CostUSD(model, u, analyticsPricingTime(day)); ok {
-				agg.cost += c
-				agg.priced = true
-			}
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
-	}
-
-	aggs := make([]*modelAgg, 0, len(byModel))
-	for _, agg := range byModel {
-		aggs = append(aggs, agg)
-	}
-	sort.Slice(aggs, func(i, j int) bool {
-		if aggs[i].sessions == aggs[j].sessions {
-			return aggs[i].model < aggs[j].model
-		}
-		return aggs[i].sessions > aggs[j].sessions
-	})
-
-	out := &prosav1.GetReportResponse{Headers: []string{
-		"MODEL", "SESSIONS", "TOTAL", "INPUT", "OUTPUT", "EST_COST_USD",
-	}}
-	for _, agg := range aggs {
-		cost := ""
-		if agg.priced {
-			cost = fmt.Sprintf("%.4f", agg.cost)
-		}
-		out.Rows = append(out.Rows, &prosav1.AnalyticsRow{Values: []string{
-			agg.model,
-			fmt.Sprintf("%d", agg.sessions),
-			fmt.Sprintf("%d", agg.usage.TotalTokens),
-			fmt.Sprintf("%d", agg.usage.InputTokens),
-			fmt.Sprintf("%d", agg.usage.OutputTokens),
-			cost,
-		}})
-	}
-	return connect.NewResponse(out), nil
-}
-
 func dayStart(t time.Time) time.Time {
 	y, m, d := t.UTC().Date()
 	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
-}
-
-func analyticsPricingTime(day string) time.Time {
-	t, err := time.Parse("2006-01-02", strings.TrimSpace(day))
-	if err != nil {
-		return time.Time{}
-	}
-	return t
 }
 
 func querySessions(whereSQL string, args []any) (string, []any) {
@@ -626,28 +381,6 @@ func queryErrorsByModel(whereSQL string, args []any) (string, []any) {
 	return q, args
 }
 
-// queryUsageByDay returns raw token sums per (UTC day, model). No zero-fill:
-// the panel fills calendar gaps and prices each row, so rows stay bounded by active days.
-func queryUsageByDay(whereSQL string, args []any) (string, []any) {
-	q := `
-		SELECT to_char((s.started_at AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD') AS day,
-		       COALESCE(s.model, '(none)') AS model,
-		       COUNT(DISTINCT s.id)::text  AS sessions,
-		       COUNT(su.session_id)::text  AS measured,
-		       COALESCE(SUM(su.total_tokens), 0)::text          AS total_tokens,
-		       COALESCE(SUM(su.input_tokens), 0)::text          AS input_tokens,
-		       COALESCE(SUM(su.output_tokens), 0)::text         AS output_tokens,
-		       COALESCE(SUM(su.cached_tokens), 0)::text         AS cached_tokens,
-		       COALESCE(SUM(su.cache_read_tokens), 0)::text     AS cache_read_tokens,
-		       COALESCE(SUM(su.cache_creation_tokens), 0)::text AS cache_creation_tokens
-		FROM sessions s
-		LEFT JOIN session_usage su ON su.session_id = s.id
-		` + whereSQL + `
-		GROUP BY day, model
-		ORDER BY day ASC, model ASC`
-	return q, args
-}
-
 // queryPunchcard buckets sessions by (UTC weekday, UTC start-hour).
 // EXTRACT(DOW) is 0=Sunday, matching Go's time.Weekday; the panel rotates to local time.
 func queryPunchcard(whereSQL string, args []any) (string, []any) {
@@ -722,32 +455,6 @@ func queryUsageByHour(whereSQL string, args []any) (string, []any) {
 	return q, args
 }
 
-// querySubagentUsageByDay is queryUsageByDay split by delegation kind:
-// 'subagent' rows are sessions spawned by another session (parent edge
-// set), 'direct' rows are top-level work. Kind needs only the child's own
-// parent_session_id, so children whose parent was never imported still
-// count as delegated.
-func querySubagentUsageByDay(whereSQL string, args []any) (string, []any) {
-	q := `
-		SELECT to_char((s.started_at AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD') AS day,
-		       CASE WHEN s.parent_session_id IS NULL THEN 'direct' ELSE 'subagent' END AS kind,
-		       COALESCE(s.model, '(none)') AS model,
-		       COUNT(DISTINCT s.id)::text  AS sessions,
-		       COUNT(su.session_id)::text  AS measured,
-		       COALESCE(SUM(su.total_tokens), 0)::text          AS total_tokens,
-		       COALESCE(SUM(su.input_tokens), 0)::text          AS input_tokens,
-		       COALESCE(SUM(su.output_tokens), 0)::text         AS output_tokens,
-		       COALESCE(SUM(su.cached_tokens), 0)::text         AS cached_tokens,
-		       COALESCE(SUM(su.cache_read_tokens), 0)::text     AS cache_read_tokens,
-		       COALESCE(SUM(su.cache_creation_tokens), 0)::text AS cache_creation_tokens
-		FROM sessions s
-		LEFT JOIN session_usage su ON su.session_id = s.id
-		` + whereSQL + `
-		GROUP BY day, kind, model
-		ORDER BY day ASC, kind ASC, model ASC`
-	return q, args
-}
-
 // querySubagentParents emits one row per spawning session: parent metadata
 // plus how many children it spawned in the window. Like querySubagents,
 // filters apply to the children; the parent supplies the display columns.
@@ -764,33 +471,6 @@ func querySubagentParents(whereSQL string, args []any) (string, []any) {
 		` + whereSQL + ` AND s.parent_session_id IS NOT NULL
 		GROUP BY p.id
 		ORDER BY COUNT(*) DESC, p.started_at DESC`
-	return q, args
-}
-
-// queryProfileUsage extends queryProfiles with a model split (so the panel
-// can price each group), token sums, and the group's latest activity.
-func queryProfileUsage(whereSQL string, args []any) (string, []any) {
-	q := `
-		SELECT to_char((s.started_at AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD') AS day,
-		       COALESCE(NULLIF(d.friendly_name, ''), s.device_id) AS device,
-		       s.agent,
-		       s.profile,
-		       COALESCE(s.model, '(none)') AS model,
-		       COUNT(DISTINCT s.id)::text  AS sessions,
-		       COUNT(su.session_id)::text  AS measured,
-		       COALESCE(SUM(su.total_tokens), 0)::text          AS total_tokens,
-		       COALESCE(SUM(su.input_tokens), 0)::text          AS input_tokens,
-		       COALESCE(SUM(su.output_tokens), 0)::text         AS output_tokens,
-		       COALESCE(SUM(su.cached_tokens), 0)::text         AS cached_tokens,
-		       COALESCE(SUM(su.cache_read_tokens), 0)::text     AS cache_read_tokens,
-		       COALESCE(SUM(su.cache_creation_tokens), 0)::text AS cache_creation_tokens,
-		       to_char(MAX(s.last_activity_at), 'YYYY-MM-DD HH24:MI') AS last_activity
-		FROM sessions s
-		LEFT JOIN devices d ON d.id = s.device_id
-		LEFT JOIN session_usage su ON su.session_id = s.id
-		` + whereSQL + `
-		GROUP BY day, device, s.agent, s.profile, model
-		ORDER BY day ASC, device ASC, s.agent ASC, s.profile ASC, model ASC`
 	return q, args
 }
 

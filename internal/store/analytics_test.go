@@ -228,7 +228,7 @@ func TestAnalyticsUsageByModel(t *testing.T) {
 
 	r, err := s.AnalyticsUsageByModel(ctx, wideAnalyticsFilter())
 	require.NoError(t, err)
-	require.Equal(t, []string{"MODEL", "SESSIONS", "TOTAL", "INPUT", "OUTPUT", "EST_COST_USD"}, r.Headers)
+	require.Equal(t, []string{"MODEL", "SESSIONS", "TOTAL", "INPUT", "OUTPUT", "EST_COST_USD", "COST_STATUS", "PRICED_TOKENS", "UNPRICED_TOKENS"}, r.Headers)
 
 	byModel := map[string][]any{}
 	for _, row := range r.Rows {
@@ -259,10 +259,66 @@ func TestAnalyticsUsagePricesSonnet5BySessionDay(t *testing.T) {
 	byModel, err := s.AnalyticsUsageByModel(ctx, f)
 	require.NoError(t, err)
 	require.Len(t, byModel.Rows, 1)
-	require.Equal(t, []any{"claude-sonnet-5", "2", "2000000", "2000000", "0", "5.0000"}, byModel.Rows[0].Values)
+	require.Equal(t, []any{"claude-sonnet-5", "2", "2000000", "2000000", "0", "4.0000", "estimated", "2000000", "0"}, byModel.Rows[0].Values)
 
 	byAgent, err := s.AnalyticsUsage(ctx, f)
 	require.NoError(t, err)
 	require.Len(t, byAgent.Rows, 1)
-	require.Equal(t, "5.0000", byAgent.Rows[0].Values[7])
+	require.Equal(t, "4.0000", byAgent.Rows[0].Values[7])
+}
+
+func TestAnalyticsUsagePricesCallsBeforeGroupingAndAttributesModels(t *testing.T) {
+	t.Parallel()
+	ctx, s := openAnalyticsTestStore(t)
+	at := time.Date(2026, 10, 1, 10, 0, 0, 0, time.UTC)
+	before := time.Date(2026, 10, 6, 23, 59, 59, 0, time.UTC)
+	after := before.Add(time.Second)
+	standard, global := "standard", "global"
+	u := session.TokenUsage{TotalTokens: 1000000, InputTokens: 1000000, CachedTokens: 1000000, CacheReadTokens: 1000000}
+	sess := newSession("request-analytics", at)
+	sess.StartedAt = at
+	sess.RequestCoverage = session.RequestCoverageComplete
+	sess.Requests = []session.RequestUsage{
+		{ID: "before", Model: "claude-sonnet-5-5", Timestamp: &before, Usage: u, ServiceTier: &standard, Speed: &standard, InferenceGeo: &global},
+		{ID: "after", Model: "claude-sonnet-5-5", Timestamp: &after, Usage: u, ServiceTier: &standard, Speed: &standard, InferenceGeo: &global},
+		{ID: "unknown", Model: "unpriced-model", Timestamp: &after, Usage: session.TokenUsage{TotalTokens: 100, InputTokens: 100}},
+	}
+	var total session.TokenUsage
+	for _, request := range sess.Requests {
+		total.Add(request.Usage)
+	}
+	sess.Usage = &total
+	require.NoError(t, s.WriteSession(ctx, sess, nil, nil, "request-analytics"))
+	f := SessionFilter{Since: at.Add(-time.Hour), Until: at.Add(time.Hour)}
+	byModel, err := s.AnalyticsUsageByModel(ctx, f)
+	require.NoError(t, err)
+	models := map[string][]any{}
+	for _, row := range byModel.Rows {
+		models[row.Values[0].(string)] = row.Values
+	}
+	require.Len(t, models, 2)
+	require.Equal(t, []any{"claude-sonnet-5-5", "1", "2000000", "2000000", "0", "0.3000", "calculated", "2000000", "0"}, models["claude-sonnet-5-5"])
+	require.Equal(t, []any{"unpriced-model", "1", "100", "100", "0", "", "unavailable", "0", "100"}, models["unpriced-model"])
+	byAgent, err := s.AnalyticsUsage(ctx, f)
+	require.NoError(t, err)
+	require.Len(t, byAgent.Rows, 1)
+	require.Equal(t, []any{"claude-code", "1", "1", "2000100", "2000100", "0", "2000000", "0.3000", "partial", "2000000", "100"}, byAgent.Rows[0].Values)
+}
+
+func TestAnalyticsPartialCallsUseAggregateWithoutDoubleCounting(t *testing.T) {
+	t.Parallel()
+	ctx, s := openAnalyticsTestStore(t)
+	at := time.Date(2026, 10, 1, 10, 0, 0, 0, time.UTC)
+	sess := newSession("partial-analytics", at)
+	sess.Model = ptrStr("claude-sonnet-5")
+	sess.StartedAt = at
+	sess.RequestCoverage = session.RequestCoveragePartial
+	sess.Usage = &session.TokenUsage{TotalTokens: 1000000, InputTokens: 1000000}
+	sess.Requests = []session.RequestUsage{{ID: "partial", Model: "gpt-6-astra", Usage: session.TokenUsage{TotalTokens: 100, InputTokens: 100}}}
+	require.NoError(t, s.WriteSession(ctx, sess, nil, nil, "partial-analytics"))
+	f := SessionFilter{Since: at.Add(-time.Hour), Until: at.Add(time.Hour)}
+	got, err := s.AnalyticsUsageByModel(ctx, f)
+	require.NoError(t, err)
+	require.Len(t, got.Rows, 1)
+	require.Equal(t, []any{"claude-sonnet-5", "1", "1000000", "1000000", "0", "2.0000", "estimated", "1000000", "0"}, got.Rows[0].Values)
 }

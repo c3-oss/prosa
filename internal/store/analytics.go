@@ -163,79 +163,36 @@ func (s *Store) AnalyticsHeatmap(ctx context.Context, f SessionFilter) (Analytic
 	return out, nil
 }
 
-// AnalyticsUsage aggregates measured token consumption by agent and adds an
-// estimated USD cost where the embedded pricing table recognizes the model.
+// AnalyticsUsage aggregates token consumption and individually priced usage by agent.
 func (s *Store) AnalyticsUsage(ctx context.Context, f SessionFilter) (AnalyticsResult, error) {
-	q, args := analyticsQuery(`
-		SELECT substr(s.started_at, 1, 10) AS day,
-		       s.agent,
-		       COALESCE(s.model, '') AS model,
-		       COUNT(DISTINCT s.id) AS sessions,
-		       COUNT(su.session_id) AS measured,
-		       COALESCE(SUM(su.total_tokens), 0) AS total_tokens,
-		       COALESCE(SUM(su.input_tokens), 0) AS input_tokens,
-		       COALESCE(SUM(su.output_tokens), 0) AS output_tokens,
-		       COALESCE(SUM(su.cached_tokens), 0) AS cached_tokens,
-		       COALESCE(SUM(su.cache_read_tokens), 0) AS cache_read_tokens,
-		       COALESCE(SUM(su.cache_creation_tokens), 0) AS cache_creation_tokens
-		FROM sessions s
-		LEFT JOIN session_usage su ON su.session_id = s.id
-	`, ` GROUP BY day, s.agent, model ORDER BY sessions DESC`, f)
-
-	rows, err := s.db.QueryContext(ctx, q, args...)
+	f.Limit = 0
+	sessions, err := s.ListSessions(ctx, f)
 	if err != nil {
 		return AnalyticsResult{}, fmt.Errorf("analytics usage: %w", err)
 	}
-	defer rows.Close()
-
 	type usageAgg struct {
 		agent    string
 		sessions int64
 		measured int64
 		usage    session.TokenUsage
-		cost     float64
-		priced   bool
+		cost     session.CostSummary
 	}
 	byAgent := map[string]*usageAgg{}
-	for rows.Next() {
-		var (
-			day          string
-			agent, model string
-			sessionsN    int64
-			measured     int64
-			u            session.TokenUsage
-		)
-		if err := rows.Scan(
-			&day, &agent, &model, &sessionsN, &measured,
-			&u.TotalTokens, &u.InputTokens, &u.OutputTokens, &u.CachedTokens,
-			&u.CacheReadTokens, &u.CacheCreationTokens,
-		); err != nil {
-			return AnalyticsResult{}, err
-		}
-		agg := byAgent[agent]
+	for _, sess := range sessions {
+		agg := byAgent[sess.Agent]
 		if agg == nil {
-			agg = &usageAgg{agent: agent}
-			byAgent[agent] = agg
+			agg = &usageAgg{agent: sess.Agent}
+			byAgent[sess.Agent] = agg
 		}
-		agg.sessions += sessionsN
-		agg.measured += measured
-		agg.usage.TotalTokens += u.TotalTokens
-		agg.usage.InputTokens += u.InputTokens
-		agg.usage.OutputTokens += u.OutputTokens
-		agg.usage.CachedTokens += u.CachedTokens
-		agg.usage.CacheReadTokens += u.CacheReadTokens
-		agg.usage.CacheCreationTokens += u.CacheCreationTokens
-		if measured > 0 {
-			if c, ok := pricing.CostUSD(model, u, analyticsPricingTime(day)); ok {
-				agg.cost += c
-				agg.priced = true
-			}
+		agg.sessions++
+		if sess.Usage != nil || len(sess.Requests) > 0 {
+			agg.measured++
 		}
+		for _, unit := range pricing.UsageCosts(sess) {
+			agg.usage.Add(unit.Usage)
+		}
+		agg.cost = pricing.CombineCosts(agg.cost, pricing.SessionCost(sess))
 	}
-	if err := rows.Err(); err != nil {
-		return AnalyticsResult{}, err
-	}
-
 	aggs := make([]*usageAgg, 0, len(byAgent))
 	for _, agg := range byAgent {
 		aggs = append(aggs, agg)
@@ -246,14 +203,14 @@ func (s *Store) AnalyticsUsage(ctx context.Context, f SessionFilter) (AnalyticsR
 		}
 		return aggs[i].sessions > aggs[j].sessions
 	})
-
 	out := AnalyticsResult{Headers: []string{
 		"AGENT", "SESSIONS", "MEASURED", "TOTAL", "INPUT", "OUTPUT", "CACHED", "EST_COST_USD",
+		"COST_STATUS", "PRICED_TOKENS", "UNPRICED_TOKENS",
 	}}
 	for _, agg := range aggs {
 		cost := ""
-		if agg.priced {
-			cost = fmt.Sprintf("%.4f", agg.cost)
+		if agg.cost.USD != nil {
+			cost = fmt.Sprintf("%.4f", *agg.cost.USD)
 		}
 		out.Rows = append(out.Rows, AnalyticsRow{Values: []any{
 			agg.agent,
@@ -263,7 +220,9 @@ func (s *Store) AnalyticsUsage(ctx context.Context, f SessionFilter) (AnalyticsR
 			fmt.Sprintf("%d", agg.usage.InputTokens),
 			fmt.Sprintf("%d", agg.usage.OutputTokens),
 			fmt.Sprintf("%d", agg.usage.CachedTokens),
-			cost,
+			cost, agg.cost.Status,
+			fmt.Sprintf("%d", agg.cost.PricedTokens),
+			fmt.Sprintf("%d", agg.cost.UnpricedTokens),
 		}})
 	}
 	return out, nil
@@ -319,78 +278,48 @@ func (s *Store) AnalyticsErrorsByModel(ctx context.Context, f SessionFilter) (An
 	return scanAnalytics(ctx, s.db, q, args, []string{"MODEL", "SESSIONS"})
 }
 
-// AnalyticsUsageByModel mirrors AnalyticsUsage but groups by model instead
-// of agent, so the panel can rank token spend per model and draw a cost
-// donut. Cost is priced per day before the rows are folded back by model;
-// models the table doesn't recognize emit an empty EST_COST_USD.
+// AnalyticsUsageByModel attributes individually priced usage to each request's model.
 func (s *Store) AnalyticsUsageByModel(ctx context.Context, f SessionFilter) (AnalyticsResult, error) {
-	q, args := analyticsQuery(`
-		SELECT substr(s.started_at, 1, 10) AS day,
-		       COALESCE(s.model, '(none)') AS model,
-		       COUNT(DISTINCT s.id) AS sessions,
-		       COUNT(su.session_id) AS measured,
-		       COALESCE(SUM(su.total_tokens), 0) AS total_tokens,
-		       COALESCE(SUM(su.input_tokens), 0) AS input_tokens,
-		       COALESCE(SUM(su.output_tokens), 0) AS output_tokens,
-		       COALESCE(SUM(su.cached_tokens), 0) AS cached_tokens,
-		       COALESCE(SUM(su.cache_read_tokens), 0) AS cache_read_tokens,
-		       COALESCE(SUM(su.cache_creation_tokens), 0) AS cache_creation_tokens
-		FROM sessions s
-		LEFT JOIN session_usage su ON su.session_id = s.id
-	`, ` GROUP BY day, model ORDER BY sessions DESC`, f)
-
-	rows, err := s.db.QueryContext(ctx, q, args...)
+	f.Limit = 0
+	sessions, err := s.ListSessions(ctx, f)
 	if err != nil {
 		return AnalyticsResult{}, fmt.Errorf("analytics usage_by_model: %w", err)
 	}
-	defer rows.Close()
-
 	type modelAgg struct {
 		model    string
 		sessions int64
 		usage    session.TokenUsage
-		cost     float64
-		priced   bool
+		cost     session.CostSummary
 	}
 	byModel := map[string]*modelAgg{}
-	for rows.Next() {
-		var (
-			day       string
-			model     string
-			sessionsN int64
-			measured  int64
-			u         session.TokenUsage
-		)
-		if err := rows.Scan(
-			&day, &model, &sessionsN, &measured,
-			&u.TotalTokens, &u.InputTokens, &u.OutputTokens, &u.CachedTokens,
-			&u.CacheReadTokens, &u.CacheCreationTokens,
-		); err != nil {
-			return AnalyticsResult{}, err
-		}
-		agg := byModel[model]
-		if agg == nil {
-			agg = &modelAgg{model: model}
-			byModel[model] = agg
-		}
-		agg.sessions += sessionsN
-		agg.usage.TotalTokens += u.TotalTokens
-		agg.usage.InputTokens += u.InputTokens
-		agg.usage.OutputTokens += u.OutputTokens
-		agg.usage.CachedTokens += u.CachedTokens
-		agg.usage.CacheReadTokens += u.CacheReadTokens
-		agg.usage.CacheCreationTokens += u.CacheCreationTokens
-		if measured > 0 {
-			if c, ok := pricing.CostUSD(model, u, analyticsPricingTime(day)); ok {
-				agg.cost += c
-				agg.priced = true
+	for _, sess := range sessions {
+		seen := map[string]bool{}
+		units := pricing.UsageCosts(sess)
+		if len(units) == 0 {
+			model := ""
+			if sess.Model != nil {
+				model = *sess.Model
 			}
+			units = []pricing.UsageCost{{Model: model, Cost: pricing.SessionCost(sess)}}
+		}
+		for _, unit := range units {
+			model := unit.Model
+			if model == "" {
+				model = "(none)"
+			}
+			agg := byModel[model]
+			if agg == nil {
+				agg = &modelAgg{model: model}
+				byModel[model] = agg
+			}
+			if !seen[model] {
+				agg.sessions++
+				seen[model] = true
+			}
+			agg.usage.Add(unit.Usage)
+			agg.cost = pricing.CombineCosts(agg.cost, unit.Cost)
 		}
 	}
-	if err := rows.Err(); err != nil {
-		return AnalyticsResult{}, err
-	}
-
 	aggs := make([]*modelAgg, 0, len(byModel))
 	for _, agg := range byModel {
 		aggs = append(aggs, agg)
@@ -401,14 +330,14 @@ func (s *Store) AnalyticsUsageByModel(ctx context.Context, f SessionFilter) (Ana
 		}
 		return aggs[i].sessions > aggs[j].sessions
 	})
-
 	out := AnalyticsResult{Headers: []string{
 		"MODEL", "SESSIONS", "TOTAL", "INPUT", "OUTPUT", "EST_COST_USD",
+		"COST_STATUS", "PRICED_TOKENS", "UNPRICED_TOKENS",
 	}}
 	for _, agg := range aggs {
 		cost := ""
-		if agg.priced {
-			cost = fmt.Sprintf("%.4f", agg.cost)
+		if agg.cost.USD != nil {
+			cost = fmt.Sprintf("%.4f", *agg.cost.USD)
 		}
 		out.Rows = append(out.Rows, AnalyticsRow{Values: []any{
 			agg.model,
@@ -416,18 +345,12 @@ func (s *Store) AnalyticsUsageByModel(ctx context.Context, f SessionFilter) (Ana
 			fmt.Sprintf("%d", agg.usage.TotalTokens),
 			fmt.Sprintf("%d", agg.usage.InputTokens),
 			fmt.Sprintf("%d", agg.usage.OutputTokens),
-			cost,
+			cost, agg.cost.Status,
+			fmt.Sprintf("%d", agg.cost.PricedTokens),
+			fmt.Sprintf("%d", agg.cost.UnpricedTokens),
 		}})
 	}
 	return out, nil
-}
-
-func analyticsPricingTime(day string) time.Time {
-	t, err := time.Parse("2006-01-02", strings.TrimSpace(day))
-	if err != nil {
-		return time.Time{}
-	}
-	return t
 }
 
 // analyticsQuery builds a filtered analytics SQL statement from a SELECT

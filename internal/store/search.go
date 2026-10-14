@@ -118,7 +118,7 @@ func (s *Store) Search(ctx context.Context, query string, f SessionFilter, limit
 		       s.started_at, s.last_activity_at,
 		       s.first_prompt, s.model,
 		       s.raw_path, s.raw_hash, s.raw_size,
-		       s.parent_session_id, s.profile,
+		       s.parent_session_id, s.profile, s.request_coverage, s.projection_version,
 		       su.session_id, su.total_tokens, su.input_tokens, su.output_tokens,
 		       su.cached_tokens, su.cache_read_tokens, su.cache_creation_tokens,
 		       t.id, t.ts, t.role, t.kind, t.tool_name,
@@ -177,7 +177,7 @@ func (s *Store) Search(ctx context.Context, query string, f SessionFilter, limit
 			&startedAt, &lastAct,
 			&firstPrompt, &model,
 			&h.Session.RawPath, &h.Session.RawHash, &h.Session.RawSize,
-			&parentID, &profile,
+			&parentID, &profile, &h.Session.RequestCoverage, &h.Session.ProjectionVersion,
 			&usageSession, &totalTokens, &inputTokens, &outputTokens,
 			&cachedTokens, &cacheRead, &cacheCreate,
 			&h.TurnID, &turnTS, &h.Role, &h.Kind, &toolName,
@@ -244,7 +244,21 @@ func (s *Store) Search(ctx context.Context, query string, f SessionFilter, limit
 			break
 		}
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	list := make([]session.Session, len(out))
+	for i := range out {
+		list[i] = out[i].Session
+	}
+	if err := attachRequests(ctx, s.db, list); err != nil {
+		return nil, err
+	}
+	for i := range out {
+		out[i].Session = list[i]
+	}
+	return out, nil
 }
 
 type fts5QueryToken struct {

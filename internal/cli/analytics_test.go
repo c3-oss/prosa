@@ -148,7 +148,7 @@ func TestAnalyticsUsage(t *testing.T) {
 	ctx, s, now := newAnalyticsStore(t)
 	r, err := s.AnalyticsUsage(ctx, filter(now))
 	require.NoError(t, err)
-	require.Equal(t, []string{"AGENT", "SESSIONS", "MEASURED", "TOTAL", "INPUT", "OUTPUT", "CACHED", "EST_COST_USD"}, r.Headers)
+	require.Equal(t, []string{"AGENT", "SESSIONS", "MEASURED", "TOTAL", "INPUT", "OUTPUT", "CACHED", "EST_COST_USD", "COST_STATUS", "PRICED_TOKENS", "UNPRICED_TOKENS"}, r.Headers)
 
 	byAgent := map[string][]any{}
 	for _, row := range r.Rows {
@@ -246,7 +246,7 @@ func TestDispatchAnalyticsRoutesNewReports(t *testing.T) {
 		headers []string
 	}{
 		{"hours", []string{"HOUR", "SESSIONS"}},
-		{"usage_by_model", []string{"MODEL", "SESSIONS", "TOTAL", "INPUT", "OUTPUT", "EST_COST_USD"}},
+		{"usage_by_model", []string{"MODEL", "SESSIONS", "TOTAL", "INPUT", "OUTPUT", "EST_COST_USD", "COST_STATUS", "PRICED_TOKENS", "UNPRICED_TOKENS"}},
 		{"errors_by_model", []string{"MODEL", "SESSIONS"}},
 		{"subagents", []string{"AGENT", "PARENTS", "CHILDREN", "MAX_FANOUT"}},
 	} {
