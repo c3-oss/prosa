@@ -165,18 +165,16 @@ func buildProfileUsage(rows []*prosav1.AnalyticsRow) profileUsageView {
 		row      profilePanelRow
 		sessions int64
 		tokens   int64
-		cost     float64
-		priced   bool
+		cost     session.CostSummary
 		lastSeen string
 	}
 	tableOrder := []string{}
 	table := map[string]*tableAgg{}
 	chartOrder := []string{}
 	chartTokens := map[string]int64{}
-	chartCost := map[string]float64{}
+	chartCost := map[string]session.CostSummary{}
 	var totalSessions, nonDefault, totalTokens int64
-	var totalCost float64
-	priced := false
+	var totalCost session.CostSummary
 
 	for _, row := range rows {
 		if len(row.Values) < 14 {
@@ -195,14 +193,9 @@ func buildProfileUsage(rows []*prosav1.AnalyticsRow) profileUsageView {
 		}
 		lastSeen := row.Values[13]
 
-		var cost float64
-		rowPriced := false
-		if measured > 0 {
-			if c, ok := pricing.CostUSD(model, usage, pricingTimeFromDay(day)); ok {
-				cost = c
-				rowPriced = true
-				priced = true
-			}
+		cost := session.CostSummary{Status: session.CostUnavailable}
+		if measured > 0 || len(row.Values) >= 18 {
+			cost = reportTailCost(row.Values, 14, model, usage, pricingTimeFromDay(day))
 		}
 
 		totalSessions += sessions
@@ -210,7 +203,7 @@ func buildProfileUsage(rows []*prosav1.AnalyticsRow) profileUsageView {
 			nonDefault += sessions
 		}
 		totalTokens += usage.TotalTokens
-		totalCost += cost
+		totalCost = pricing.CombineCosts(totalCost, cost)
 
 		tk := device + "|" + agent + "|" + profile
 		agg := table[tk]
@@ -221,8 +214,7 @@ func buildProfileUsage(rows []*prosav1.AnalyticsRow) profileUsageView {
 		}
 		agg.sessions += sessions
 		agg.tokens += usage.TotalTokens
-		agg.cost += cost
-		agg.priced = agg.priced || rowPriced
+		agg.cost = pricing.CombineCosts(agg.cost, cost)
 		if lastSeen > agg.lastSeen {
 			agg.lastSeen = lastSeen
 		}
@@ -232,14 +224,14 @@ func buildProfileUsage(rows []*prosav1.AnalyticsRow) profileUsageView {
 			chartOrder = append(chartOrder, ck)
 		}
 		chartTokens[ck] += usage.TotalTokens
-		chartCost[ck] += cost
+		chartCost[ck] = pricing.CombineCosts(chartCost[ck], cost)
 	}
 
 	view := profileUsageView{
 		ActiveProfiles:  formatPanelInt(int64(len(tableOrder))),
 		TotalTokens:     formatTokensCompact(totalTokens),
 		TotalTokensFull: formatPanelInt(totalTokens),
-		TotalSpend:      costLabel(totalCost, priced),
+		TotalSpend:      costSummaryLabel(totalCost),
 		NonDefaultPct:   "—",
 		HasData:         totalSessions > 0,
 	}
@@ -259,7 +251,7 @@ func buildProfileUsage(rows []*prosav1.AnalyticsRow) profileUsageView {
 		view.ProfileBars = append(view.ProfileBars, profileCostRow{
 			Label:   b.Label,
 			Tokens:  b.Count,
-			Cost:    costLabel(cost, cost > 0),
+			Cost:    costSummaryLabel(cost),
 			Percent: b.Percent,
 		})
 	}
@@ -268,7 +260,7 @@ func buildProfileUsage(rows []*prosav1.AnalyticsRow) profileUsageView {
 		agg := table[tk]
 		agg.row.Sessions = formatPanelInt(agg.sessions)
 		agg.row.Tokens = formatTokensCompact(agg.tokens)
-		agg.row.Cost = costLabel(agg.cost, agg.priced)
+		agg.row.Cost = costSummaryLabel(agg.cost)
 		agg.row.LastSeen = agg.lastSeen
 		view.Rows = append(view.Rows, agg.row)
 	}

@@ -60,7 +60,10 @@ func (h *SessionsHandler) Push(ctx context.Context, req *connect.Request[prosav1
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
-	return h.commitPush(ctx, deviceID, sess, req.Msg.Turns, req.Msg.Tools, bytes.NewReader(req.Msg.Raw), int64(len(req.Msg.Raw)))
+	if err := validateRequests(sess, req.Msg.Requests); err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	return h.commitPush(ctx, deviceID, sess, req.Msg.Turns, req.Msg.Tools, req.Msg.Requests, bytes.NewReader(req.Msg.Raw), int64(len(req.Msg.Raw)))
 }
 
 func (h *SessionsHandler) PushChunk(ctx context.Context, req *connect.Request[prosav1.PushChunkRequest]) (*connect.Response[prosav1.PushChunkResponse], error) {
@@ -158,7 +161,10 @@ func (h *SessionsHandler) PushChunk(ctx context.Context, req *connect.Request[pr
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("rewind raw temp file: %w", err))
 	}
 
-	resp, err := h.commitPush(ctx, deviceID, sess, req.Msg.Turns, req.Msg.Tools, tmp, size)
+	if err := validateRequests(sess, req.Msg.Requests); err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	resp, err := h.commitPush(ctx, deviceID, sess, req.Msg.Turns, req.Msg.Tools, req.Msg.Requests, tmp, size)
 	if err != nil {
 		return nil, err
 	}
@@ -181,6 +187,20 @@ func validatePushSession(sess *prosav1.Session) (*prosav1.Session, error) {
 	if err := validatePushedAgent(sess.Agent); err != nil {
 		return nil, err
 	}
+	if sess.ProjectionVersion == 0 {
+		sess.ProjectionVersion = session.LegacyProjectionVersion
+	}
+	if sess.ProjectionVersion < 0 {
+		return nil, errors.New("negative projection version")
+	}
+	if sess.RequestCoverage == "" {
+		sess.RequestCoverage = session.RequestCoverageNone
+	}
+	switch sess.RequestCoverage {
+	case session.RequestCoverageNone, session.RequestCoveragePartial, session.RequestCoverageComplete:
+	default:
+		return nil, errors.New("invalid request coverage")
+	}
 	return sess, nil
 }
 
@@ -194,7 +214,7 @@ func (h *SessionsHandler) pushAlreadyCurrent(ctx context.Context, sess *prosav1.
 		`SELECT last_hash, projection_version FROM sync_state WHERE session_id = $1`, sess.Id,
 	).Scan(&lastHash, &projectionVersion)
 	if err == nil {
-		return lastHash == sess.RawHash && projectionVersion >= session.ProjectionVersion, nil
+		return lastHash == sess.RawHash && projectionVersion >= int(sess.ProjectionVersion), nil
 	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
@@ -314,7 +334,7 @@ func validateRawIntegrity(sess *prosav1.Session, gotSize int64, gotHash string) 
 	return nil
 }
 
-func (h *SessionsHandler) commitPush(ctx context.Context, deviceID string, sess *prosav1.Session, turns []*prosav1.Turn, tools []*prosav1.ToolUsage, raw io.Reader, rawSize int64) (*connect.Response[prosav1.PushResponse], error) {
+func (h *SessionsHandler) commitPush(ctx context.Context, deviceID string, sess *prosav1.Session, turns []*prosav1.Turn, tools []*prosav1.ToolUsage, requests []*prosav1.RequestUsage, raw io.Reader, rawSize int64) (*connect.Response[prosav1.PushResponse], error) {
 	started := sess.StartedAt.AsTime().UTC()
 	key := rawKey(deviceID, sess.Agent, sess.Id, started)
 
@@ -358,6 +378,19 @@ func (h *SessionsHandler) commitPush(ctx context.Context, deviceID string, sess 
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, sess.Id); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	var previousHash string
+	var previousVersion int32
+	err = tx.QueryRow(ctx, `SELECT last_hash, projection_version FROM sync_state WHERE session_id = $1`, sess.Id).Scan(&previousHash, &previousVersion)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	if err == nil && previousHash == sess.RawHash && previousVersion >= sess.ProjectionVersion {
+		committed = true
+		return connect.NewResponse(&prosav1.PushResponse{Skipped: true, RawUri: uri}), nil
+	}
 
 	// Capture the previous parent before the upsert overwrites it, so a
 	// re-parented or de-parented child can prune the orchestrator tag off
@@ -373,6 +406,9 @@ func (h *SessionsHandler) commitPush(ctx context.Context, deviceID string, sess 
 	if err := replaceSessionUsage(ctx, tx, sess.Id, sess.Usage); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
+	if err := replaceSessionRequests(ctx, tx, sess.Id, requests); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
 	if err := replaceSessionTools(ctx, tx, sess.Id, tools); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
@@ -385,7 +421,7 @@ func (h *SessionsHandler) commitPush(ctx context.Context, deviceID string, sess 
 	if err := replaceTurns(ctx, tx, sess.Id, turns); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	if err := recordSync(ctx, tx, sess.Id, sess.RawHash); err != nil {
+	if err := recordSync(ctx, tx, sess.Id, sess.RawHash, sess.ProjectionVersion); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 
@@ -471,8 +507,8 @@ func upsertSession(ctx context.Context, tx pgx.Tx, s *prosav1.Session) error {
 		INSERT INTO sessions (
 			id, agent, device_id, project_path, project_remote, project_marker,
 			started_at, last_activity_at, first_prompt, model,
-			raw_uri, raw_hash, raw_size, parent_session_id, profile
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+			raw_uri, raw_hash, raw_size, parent_session_id, profile, request_coverage, projection_version
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
 		ON CONFLICT (id) DO UPDATE SET
 			agent             = EXCLUDED.agent,
 			device_id         = EXCLUDED.device_id,
@@ -487,13 +523,15 @@ func upsertSession(ctx context.Context, tx pgx.Tx, s *prosav1.Session) error {
 			raw_hash          = EXCLUDED.raw_hash,
 			raw_size          = EXCLUDED.raw_size,
 			parent_session_id = EXCLUDED.parent_session_id,
-			profile           = EXCLUDED.profile
+			profile           = EXCLUDED.profile,
+			request_coverage  = EXCLUDED.request_coverage,
+			projection_version = EXCLUDED.projection_version
 	`,
 		s.Id, s.Agent, s.DeviceId,
 		nullIfEmpty(s.ProjectPath), nullIfEmpty(s.ProjectRemote), nullIfEmpty(s.ProjectMarker),
 		tsToTime(s.StartedAt), tsToTime(s.LastActivityAt),
 		nullIfEmpty(s.FirstPrompt), nullIfEmpty(s.Model),
-		s.RawUri, s.RawHash, s.RawSize, nullIfEmpty(s.ParentSessionId), session.ProfileOrDefault(s.Profile),
+		s.RawUri, s.RawHash, s.RawSize, nullIfEmpty(s.ParentSessionId), session.ProfileOrDefault(s.Profile), s.RequestCoverage, s.ProjectionVersion,
 	)
 	if err != nil {
 		return fmt.Errorf("upsert session %s: %w", s.Id, err)
@@ -666,14 +704,14 @@ func replaceTurns(ctx context.Context, tx pgx.Tx, sessionID string, turns []*pro
 	return nil
 }
 
-func recordSync(ctx context.Context, tx pgx.Tx, sessionID, hash string) error {
+func recordSync(ctx context.Context, tx pgx.Tx, sessionID, hash string, version int32) error {
 	_, err := tx.Exec(ctx, `
 		INSERT INTO sync_state(session_id, last_hash, last_synced_at, projection_version) VALUES ($1, $2, $3, $4)
 		ON CONFLICT (session_id) DO UPDATE SET
 			last_hash          = EXCLUDED.last_hash,
 			last_synced_at     = EXCLUDED.last_synced_at,
 			projection_version = EXCLUDED.projection_version
-	`, sessionID, hash, time.Now().UTC(), session.ProjectionVersion)
+	`, sessionID, hash, time.Now().UTC(), version)
 	if err != nil {
 		return fmt.Errorf("record sync_state: %w", err)
 	}

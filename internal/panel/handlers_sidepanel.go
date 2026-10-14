@@ -15,7 +15,6 @@ import (
 
 	prosav1 "github.com/c3-oss/prosa/gen/go/prosa/v1"
 	"github.com/c3-oss/prosa/internal/panel/render"
-	"github.com/c3-oss/prosa/internal/pricing"
 	"github.com/c3-oss/prosa/internal/sessiontext"
 )
 
@@ -245,10 +244,7 @@ func (p *Panel) loadSidePanel(ctx context.Context, id string) (sidePanelData, er
 		}
 	}
 	usage := tokenUsageFromProto(sess.GetUsage())
-	costLabel := "n/a"
-	if cost, ok := pricing.CostUSD(sess.GetModel(), usage, sessionStartedAt(sess)); ok {
-		costLabel = formatUSD(cost)
-	}
+	costLabel := costSummaryLabel(sessionCostSummary(sess))
 	// The "turns" KPI counts the whole session, not just the rendered
 	// window. A server that predates turn windowing reports zero counts
 	// (and returns every turn), so fall back to counting locally.

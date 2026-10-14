@@ -46,6 +46,12 @@ func (s *Store) UpsertSession(ctx context.Context, sess session.Session, tools [
 // inside an existing transaction. UpsertSession wraps it in its own tx;
 // WriteSession reuses it so the whole projection commits atomically.
 func upsertSessionTx(ctx context.Context, tx *sql.Tx, sess session.Session, tools []session.ToolUsage) error {
+	if sess.RequestCoverage == "" {
+		sess.RequestCoverage = session.RequestCoverageNone
+	}
+	if sess.ProjectionVersion == 0 {
+		sess.ProjectionVersion = session.ProjectionVersion
+	}
 	if _, err := tx.ExecContext(
 		ctx, `
 		INSERT INTO sessions (
@@ -54,8 +60,8 @@ func upsertSessionTx(ctx context.Context, tx *sql.Tx, sess session.Session, tool
 			started_at, last_activity_at,
 			first_prompt, model,
 			raw_path, raw_hash, raw_size,
-			parent_session_id, profile
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			parent_session_id, profile, request_coverage, projection_version
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			agent             = excluded.agent,
 			device_id         = excluded.device_id,
@@ -71,6 +77,8 @@ func upsertSessionTx(ctx context.Context, tx *sql.Tx, sess session.Session, tool
 			raw_size          = excluded.raw_size,
 			parent_session_id = excluded.parent_session_id,
 			profile           = excluded.profile,
+			request_coverage  = excluded.request_coverage,
+			projection_version = excluded.projection_version,
 			pruned_at         = NULL
 	`,
 		sess.ID, sess.Agent, sess.DeviceID, nullableString(sess.ProjectPath),
@@ -79,6 +87,7 @@ func upsertSessionTx(ctx context.Context, tx *sql.Tx, sess session.Session, tool
 		nullableString(sess.FirstPrompt), nullableString(sess.Model),
 		sess.RawPath, sess.RawHash, sess.RawSize,
 		nullableString(sess.ParentSessionID), session.ProfileOrDefault(sess.Profile),
+		sess.RequestCoverage, sess.ProjectionVersion,
 	); err != nil {
 		return fmt.Errorf("upsert session %s: %w", sess.ID, err)
 	}
@@ -109,6 +118,9 @@ func upsertSessionTx(ctx context.Context, tx *sql.Tx, sess session.Session, tool
 		sess.Usage.CachedTokens, sess.Usage.CacheReadTokens, sess.Usage.CacheCreationTokens,
 	); err != nil {
 		return fmt.Errorf("upsert session_usage %s: %w", sess.ID, err)
+	}
+	if err := replaceRequestsTx(ctx, tx, sess); err != nil {
+		return err
 	}
 
 	// Direct Exec rather than a prepared statement: tool counts are a
@@ -202,35 +214,36 @@ func applyKindsFilter(conds []string, args []any, kinds []string) ([]string, []a
 	return conds, args
 }
 
-// attachKinds loads session_kinds for every session in list and assigns
-// them onto the matching Session.Kinds. One batched query (no per-row
-// N+1); a no-op for an empty list.
+// attachKinds loads session classifications in bounded batches.
 func attachKinds(ctx context.Context, db *sql.DB, list []session.Session) error {
-	if len(list) == 0 {
-		return nil
-	}
-	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(list)), ",")
-	args := make([]any, 0, len(list))
-	for i := range list {
-		args = append(args, list[i].ID)
-	}
-	rows, err := db.QueryContext(ctx,
-		`SELECT session_id, kind FROM session_kinds WHERE session_id IN (`+placeholders+`) ORDER BY session_id, kind`,
-		args...)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
+	const batchSize = 500
 	byID := make(map[string][]string, len(list))
-	for rows.Next() {
-		var id, kind string
-		if err := rows.Scan(&id, &kind); err != nil {
+	for start := 0; start < len(list); start += batchSize {
+		end := min(start+batchSize, len(list))
+		batch := list[start:end]
+		placeholders := strings.TrimSuffix(strings.Repeat("?,", len(batch)), ",")
+		args := make([]any, len(batch))
+		for i := range batch {
+			args[i] = batch[i].ID
+		}
+		rows, err := db.QueryContext(ctx,
+			`SELECT session_id, kind FROM session_kinds WHERE session_id IN (`+placeholders+`) ORDER BY session_id, kind`,
+			args...)
+		if err != nil {
 			return err
 		}
-		byID[id] = append(byID[id], kind)
-	}
-	if err := rows.Err(); err != nil {
-		return err
+		for rows.Next() {
+			var id, kind string
+			if err := rows.Scan(&id, &kind); err != nil {
+				rows.Close()
+				return err
+			}
+			byID[id] = append(byID[id], kind)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
 	}
 	for i := range list {
 		list[i].Kinds = byID[list[i].ID]
@@ -292,6 +305,7 @@ func (s *Store) ListSessions(ctx context.Context, f SessionFilter) ([]session.Se
 		       s.first_prompt, s.model,
 		       s.raw_path, s.raw_hash, s.raw_size,
 		       s.parent_session_id, s.profile, s.pruned_at,
+		       s.request_coverage, s.projection_version,
 		       su.session_id, su.total_tokens, su.input_tokens, su.output_tokens,
 		       su.cached_tokens, su.cache_read_tokens, su.cache_creation_tokens
 		FROM sessions s
@@ -314,6 +328,9 @@ func (s *Store) ListSessions(ctx context.Context, f SessionFilter) ([]session.Se
 		return nil, err
 	}
 	if err := attachKinds(ctx, s.db, list); err != nil {
+		return nil, err
+	}
+	if err := attachRequests(ctx, s.db, list); err != nil {
 		return nil, err
 	}
 	return list, nil
@@ -387,6 +404,7 @@ func (s *Store) ListChildren(ctx context.Context, parentID string) ([]session.Se
 		       s.first_prompt, s.model,
 		       s.raw_path, s.raw_hash, s.raw_size,
 		       s.parent_session_id, s.profile, s.pruned_at,
+		       s.request_coverage, s.projection_version,
 		       su.session_id, su.total_tokens, su.input_tokens, su.output_tokens,
 		       su.cached_tokens, su.cache_read_tokens, su.cache_creation_tokens
 		FROM sessions s
@@ -405,6 +423,9 @@ func (s *Store) ListChildren(ctx context.Context, parentID string) ([]session.Se
 	if err := attachKinds(ctx, s.db, list); err != nil {
 		return nil, err
 	}
+	if err := attachRequests(ctx, s.db, list); err != nil {
+		return nil, err
+	}
 	return list, nil
 }
 
@@ -417,6 +438,7 @@ func (s *Store) GetSession(ctx context.Context, id string) (session.Session, err
 		       s.first_prompt, s.model,
 		       s.raw_path, s.raw_hash, s.raw_size,
 		       s.parent_session_id, s.profile, s.pruned_at,
+		       s.request_coverage, s.projection_version,
 		       su.session_id, su.total_tokens, su.input_tokens, su.output_tokens,
 		       su.cached_tokens, su.cache_read_tokens, su.cache_creation_tokens
 		FROM sessions s
@@ -435,6 +457,9 @@ func (s *Store) GetSession(ctx context.Context, id string) (session.Session, err
 		return session.Session{}, sql.ErrNoRows
 	}
 	if err := attachKinds(ctx, s.db, list); err != nil {
+		return session.Session{}, err
+	}
+	if err := attachRequests(ctx, s.db, list); err != nil {
 		return session.Session{}, err
 	}
 	return list[0], nil
@@ -482,7 +507,8 @@ type ManifestRow struct {
 	Pruned bool
 	// PushedHash is the raw hash the server last confirmed holding, empty
 	// when no push was recorded locally.
-	PushedHash string
+	PushedHash        string
+	ProjectionVersion int
 }
 
 // BoilerplateCandidate is one row returned by
@@ -555,7 +581,7 @@ func (s *Store) ListSessionsManifest(ctx context.Context, deviceID, afterID stri
 	q := `
 		SELECT s.id, s.raw_hash, s.raw_path,
 		       s.pruned_at IS NOT NULL,
-		       COALESCE(ss.pushed_hash, '')
+		       COALESCE(ss.pushed_hash, ''), s.projection_version
 		FROM sessions s
 		LEFT JOIN sync_state ss ON ss.session_id = s.id
 		WHERE s.device_id = ? AND s.id > ?
@@ -573,7 +599,7 @@ func (s *Store) ListSessionsManifest(ctx context.Context, deviceID, afterID stri
 	var out []ManifestRow
 	for rows.Next() {
 		var r ManifestRow
-		if err := rows.Scan(&r.ID, &r.RawHash, &r.RawPath, &r.Pruned, &r.PushedHash); err != nil {
+		if err := rows.Scan(&r.ID, &r.RawHash, &r.RawPath, &r.Pruned, &r.PushedHash, &r.ProjectionVersion); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -610,6 +636,7 @@ func scanSessions(rows *sql.Rows) ([]session.Session, error) {
 			&firstPrompt, &model,
 			&sess.RawPath, &sess.RawHash, &sess.RawSize,
 			&parentID, &sess.Profile, &prunedAt,
+			&sess.RequestCoverage, &sess.ProjectionVersion,
 			&usageSession, &totalTokens, &inputTokens, &outputTokens,
 			&cachedTokens, &cacheRead, &cacheCreate,
 		); err != nil {

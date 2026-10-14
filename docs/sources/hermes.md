@@ -388,3 +388,9 @@ What `session.Turn` and `session.ToolUsage` surface for Hermes today:
   that gap is usage: a session that defers to a sibling transcript gets
   no token counters, because they live only on the `state.db` row and a
   transcript's raw is a verbatim copy that cannot carry them.
+
+## Request usage
+
+Hermes usage is a session aggregate across model calls. The canonical session
+retains that aggregate with request coverage `none`; pricing reports an
+estimate from the session model and dates.

@@ -68,7 +68,7 @@ only and have **no SQLite/CLI mirror**:
 
 | Report | Shape | Powers |
 | --- | --- | --- |
-| `usage_by_day` | per (UTC day, model) session counts + token splits | spend & tokens trend, model share (cost priced panel-side) |
+| `usage_by_day` | per (UTC day, model) session counts, token splits and calculated cost | spend & tokens trend, model share |
 | `usage_by_hour` | per (UTC hour, model) session counts + token splits | across-the-day card (rotated to local panel-side) |
 | `punchcard` | per (UTC weekday, UTC hour) session counts | punch card + schedule-profile KPIs (rotated to local panel-side) |
 | `durations` | fixed buckets of `last_activity_at − started_at` | session-duration histogram |
@@ -83,19 +83,33 @@ both the CLI report and the panel's by-parent-agent table; like the
 other subagent reports, filters apply to the children (the spawned
 sessions in the window).
 
+`usage`, `usage_by_model`, `usage_by_day`, `subagent_usage_by_day`, and
+`profile_usage` price measured inferences before grouping. Their existing
+columns are followed by cost status and priced/unpriced token coverage;
+daily and profile rows also include the calculated USD subtotal. Session
+counts are distinct within each group. Filters and day buckets follow the
+session start, while tariff selection follows each inference's timestamp.
+
 ### Push
 
-`SessionsService.Push` accepts a session + turns + tool aggregates + the
-raw bytes. It is idempotent by `raw_hash`:
+`SessionsService.Push` accepts a session, turns, tool aggregates, request
+usage and raw bytes. `PushChunk` receives request usage on the final chunk.
+It is idempotent by `raw_hash` and the uploaded projection version:
 
-1. If the (device_id, session_id, raw_hash) tuple already exists in
-   Postgres → no-op, return the existing S3 URI.
+1. If the hash matches and the stored projection version is at least the
+   uploaded version → no-op.
 2. Otherwise: upload raw to S3, upsert into Postgres (replacing turns
    atomically), return the S3 URI.
 
 The handler enforces a max raw size (configured in code) and a max content
 length per turn (Postgres tsvector has a 1 MiB ceiling — see
 [`../../TECH_DEBT.md`](../../TECH_DEBT.md)).
+
+Migration `0015_request_usage` adds `session_requests` and session coverage
+and projection-version fields. Request facts are stored as JSONB and replaced
+transactionally. The server validates complete collections against aggregate
+usage and serializes concurrent metadata commits for each session. A payload
+without `projection_version` carries legacy version 13.
 
 ### List / Get / Search
 
@@ -111,6 +125,11 @@ Project identity filters are split deliberately: `project_path`,
 `project_match` / `project_matches` are convenience substring filters that
 may scan the project columns. CLI cwd auto-scoping and sync identity use the
 exact fields when they can.
+
+List, Get, Search and ListChildren attach a derived `CostSummary`, loading
+request facts in batches of 500. Responses carry the summary and actual
+projection version. The panel consumes this summary for display and cost
+sorting; uploads supply the measured facts that determine it.
 
 There's no Redis, no in-memory cache. Postgres is fast enough for
 single-user volumes.

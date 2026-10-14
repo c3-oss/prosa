@@ -46,7 +46,7 @@ func TestBuildModelBoardJoinsSessionsTokensCost(t *testing.T) {
 	require.Equal(t, "Opus 4.5", board[1].Model)
 	require.Equal(t, "2", board[1].Sessions)
 	require.Equal(t, "1.5k", board[1].Tokens) // compact token formatting
-	require.Equal(t, "$0.12", board[1].Cost)
+	require.Equal(t, "~$0.12", board[1].Cost)
 	require.Equal(t, 40, board[1].Percent) // 2/5
 	require.Equal(t, 1, board[1].ColorIdx)
 }
@@ -62,7 +62,7 @@ func TestBuildModelBoardCapsAndSkipsEmpty(t *testing.T) {
 	board := buildModelBoard(rows, 1)
 	require.Len(t, board, 1)              // capped to top 1 by sessions
 	require.Equal(t, "A", board[0].Model) // "a" title-cased by displayModel
-	require.Equal(t, "$1.00", board[0].Cost)
+	require.Equal(t, "~$1.00", board[0].Cost)
 }
 
 func TestBuildProfileUsagePricesSonnet5ByDay(t *testing.T) {
@@ -72,10 +72,10 @@ func TestBuildProfileUsagePricesSonnet5ByDay(t *testing.T) {
 		aRow("2026-09-01", "Laptop", "claude-code", "default", "claude-sonnet-5", "1", "1", "1000000", "1000000", "0", "0", "0", "0", "2026-09-01 12:00"),
 	})
 	require.True(t, v.HasData)
-	require.Equal(t, "$5.00", v.TotalSpend)
+	require.Equal(t, "~$4.00", v.TotalSpend)
 	require.Len(t, v.Rows, 1)
 	require.Equal(t, "2", v.Rows[0].Sessions)
-	require.Equal(t, "$5.00", v.Rows[0].Cost)
+	require.Equal(t, "~$4.00", v.Rows[0].Cost)
 	require.Equal(t, "2026-09-01 12:00", v.Rows[0].LastSeen)
 }
 

@@ -70,16 +70,17 @@ func TestSessionsConnectEndToEnd(t *testing.T) {
 	rawHash := sha256Hex(raw)
 	pushReq := connect.NewRequest(&prosav1.PushRequest{
 		Session: &prosav1.Session{
-			Id:             sessionID,
-			Agent:          "codex",
-			DeviceId:       "spoofed-device",
-			ProjectPath:    "/work/prosa",
-			StartedAt:      timestamppb.New(started),
-			LastActivityAt: timestamppb.New(started.Add(5 * time.Minute)),
-			FirstPrompt:    "explain quantum entanglement",
-			Model:          "gpt-5-codex",
-			RawHash:        rawHash,
-			RawSize:        int64(len(raw)),
+			Id:                sessionID,
+			ProjectionVersion: session.ProjectionVersion,
+			Agent:             "codex",
+			DeviceId:          "spoofed-device",
+			ProjectPath:       "/work/prosa",
+			StartedAt:         timestamppb.New(started),
+			LastActivityAt:    timestamppb.New(started.Add(5 * time.Minute)),
+			FirstPrompt:       "explain quantum entanglement",
+			Model:             "gpt-5-codex",
+			RawHash:           rawHash,
+			RawSize:           int64(len(raw)),
 			Usage: &prosav1.TokenUsage{
 				TotalTokens:  120,
 				InputTokens:  100,

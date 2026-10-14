@@ -46,9 +46,9 @@ func (s *Store) RecordSync(ctx context.Context, sessionID, hash string) error {
 // recordSyncTx is the transaction-scoped form RecordSync and WriteSession
 // share. WriteSession calls it so sync_state commits atomically with the
 // session row and turns.
-func recordSyncTx(ctx context.Context, tx *sql.Tx, sessionID, hash string) error {
+func recordSyncTx(ctx context.Context, tx *sql.Tx, sessionID, hash string, version int) error {
 	_, err := tx.ExecContext(ctx, recordSyncSQL,
-		sessionID, hash, formatTime(time.Now()), session.ProjectionVersion)
+		sessionID, hash, formatTime(time.Now()), version)
 	return err
 }
 

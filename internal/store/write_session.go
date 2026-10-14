@@ -18,6 +18,9 @@ func (s *Store) WriteSession(
 	turns []session.Turn,
 	hash string,
 ) error {
+	if sess.ProjectionVersion == 0 {
+		sess.ProjectionVersion = session.ProjectionVersion
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -30,7 +33,7 @@ func (s *Store) WriteSession(
 	if err := insertTurnsTx(ctx, tx, sess.ID, turns); err != nil {
 		return err
 	}
-	if err := recordSyncTx(ctx, tx, sess.ID, hash); err != nil {
+	if err := recordSyncTx(ctx, tx, sess.ID, hash, sess.ProjectionVersion); err != nil {
 		return err
 	}
 	return tx.Commit()

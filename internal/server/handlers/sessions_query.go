@@ -216,6 +216,9 @@ func (h *SessionsHandler) List(ctx context.Context, req *connect.Request[prosav1
 	if err := attachSessionKinds(ctx, h.Pool, out.Sessions); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
+	if err := attachSessionCosts(ctx, h.Pool, out.Sessions); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
 
 	var total int64
 	if err := h.Pool.QueryRow(ctx, totalQ, totalArgs...).Scan(&total); err != nil {
@@ -423,7 +426,18 @@ func (h *SessionsHandler) Search(ctx context.Context, req *connect.Request[prosa
 		}
 		out.Hits = append(out.Hits, hit)
 	}
-	return connect.NewResponse(out), rows.Err()
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	sessions := make([]*prosav1.Session, len(out.Hits))
+	for i, hit := range out.Hits {
+		sessions[i] = hit.Session
+	}
+	if err := attachSessionCosts(ctx, h.Pool, sessions); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	return connect.NewResponse(out), nil
 }
 
 // Manifest returns the next page of (id, raw_hash, last_synced_at) for

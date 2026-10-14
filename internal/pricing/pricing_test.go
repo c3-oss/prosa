@@ -11,8 +11,17 @@ import (
 
 var pricingTestTime = time.Date(2026, 7, 2, 12, 0, 0, 0, time.UTC)
 
-func TestCostUSDUsesCachedRate(t *testing.T) {
-	cost, ok := CostUSD("openai/gpt-5-codex-20250530", session.TokenUsage{
+// costUSD prices aggregate usage through RequestCost with the session model and time as fallbacks.
+func costUSD(model string, usage session.TokenUsage, at time.Time) (float64, bool) {
+	cost := RequestCost(session.RequestUsage{Usage: usage}, model, at)
+	if cost.USD == nil {
+		return 0, false
+	}
+	return *cost.USD, true
+}
+
+func TestRequestCostUsesCachedRate(t *testing.T) {
+	cost, ok := costUSD("openai/gpt-5-codex-20250530", session.TokenUsage{
 		InputTokens:     1000,
 		OutputTokens:    100,
 		CachedTokens:    400,
@@ -22,20 +31,20 @@ func TestCostUSDUsesCachedRate(t *testing.T) {
 	require.InDelta(t, 0.0018, cost, 0.00001)
 }
 
-func TestCostUSDUnknownModel(t *testing.T) {
-	_, ok := CostUSD("unknown-model", session.TokenUsage{InputTokens: 100}, pricingTestTime)
+func TestRequestCostUnknownModel(t *testing.T) {
+	_, ok := costUSD("unknown-model", session.TokenUsage{InputTokens: 100}, pricingTestTime)
 	require.False(t, ok)
 }
 
-func TestCostUSDSyntheticAndPlaceholderUnpriced(t *testing.T) {
+func TestRequestCostSyntheticAndPlaceholderUnpriced(t *testing.T) {
 	for _, m := range []string{"<synthetic>", "not-a-real-model-name", ""} {
-		_, ok := CostUSD(m, session.TokenUsage{InputTokens: 100}, pricingTestTime)
+		_, ok := costUSD(m, session.TokenUsage{InputTokens: 100}, pricingTestTime)
 		require.False(t, ok, "%q should be unpriced", m)
 	}
 }
 
-func TestCostUSDPricesClaudeCacheCreationSeparately(t *testing.T) {
-	cost, ok := CostUSD("claude-sonnet-4-6", session.TokenUsage{
+func TestRequestCostPricesClaudeCacheCreationSeparately(t *testing.T) {
+	cost, ok := costUSD("claude-sonnet-4-6", session.TokenUsage{
 		InputTokens:         115,
 		OutputTokens:        20,
 		CachedTokens:        10,
@@ -46,8 +55,8 @@ func TestCostUSDPricesClaudeCacheCreationSeparately(t *testing.T) {
 	require.InDelta(t, 0.00062175, cost, 0.00000001)
 }
 
-func TestCostUSDPricesFable5(t *testing.T) {
-	cost, ok := CostUSD("claude-fable-5", session.TokenUsage{
+func TestRequestCostPricesFable5(t *testing.T) {
+	cost, ok := costUSD("claude-fable-5", session.TokenUsage{
 		InputTokens:         1000,
 		OutputTokens:        200,
 		CachedTokens:        300,
@@ -58,7 +67,7 @@ func TestCostUSDPricesFable5(t *testing.T) {
 	require.InDelta(t, 0.01755, cost, 0.00000001)
 }
 
-func TestCostUSDPricesSonnet5ByDate(t *testing.T) {
+func TestRequestCostPricesSonnet5AcrossCancelledIncrease(t *testing.T) {
 	usage := session.TokenUsage{
 		InputTokens:         1000,
 		OutputTokens:        200,
@@ -67,13 +76,13 @@ func TestCostUSDPricesSonnet5ByDate(t *testing.T) {
 		CacheCreationTokens: 100,
 	}
 
-	intro, ok := CostUSD("claude-sonnet-5", usage, time.Date(2026, 8, 31, 23, 59, 59, 0, time.UTC))
+	intro, ok := costUSD("claude-sonnet-5", usage, time.Date(2026, 8, 31, 23, 59, 59, 0, time.UTC))
 	require.True(t, ok)
 	require.InDelta(t, 0.00351, intro, 0.00000001)
 
-	standard, ok := CostUSD("claude-sonnet-5", usage, sonnet5StandardFrom)
+	standard, ok := costUSD("claude-sonnet-5", usage, time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC))
 	require.True(t, ok)
-	require.InDelta(t, 0.005265, standard, 0.00000001)
+	require.InDelta(t, 0.00351, standard, 0.00000001)
 }
 
 func TestLookupPricesGrokCodeFast1ByDate(t *testing.T) {
@@ -301,7 +310,7 @@ func TestNormalizeModel(t *testing.T) {
 		"anthropic/claude-4.6-opus-high": "claude-opus-4-6-high",
 		// Canonical ids stay untouched.
 		"claude-opus-4-7-thinking-high": "claude-opus-4-7-thinking-high",
-		"claude-opus-4.7":               "claude-opus-4.7",
+		"claude-opus-4.7":               "claude-opus-4-7",
 	}
 	for in, want := range cases {
 		require.Equal(t, want, NormalizeModel(in), in)

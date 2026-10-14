@@ -1,5 +1,5 @@
 // Package session defines the canonical domain types every importer maps
-// agent-specific session histories into. See docs/canonical-session.md for
+// agent-specific session histories into. See docs/architecture/canonical-session.md for
 // the contract that each importer must satisfy.
 package session
 
@@ -68,7 +68,11 @@ type Session struct {
 	// Usage is the token consumption reported by the source agent, when
 	// available. Importers leave it nil when the raw transcript does not
 	// expose reliable usage counters.
-	Usage *TokenUsage
+	Usage             *TokenUsage
+	Requests          []RequestUsage
+	RequestCoverage   string
+	ProjectionVersion int
+	Cost              *CostSummary
 
 	// ParentSessionID is set on subagent / spawned sessions. Claude
 	// Code: parent UUID is the directory above the `subagents/` folder
@@ -155,7 +159,13 @@ type Session struct {
 //	    counts it there. The projected JSONL gains a leading
 //	    {"type":"session_usage","data":{…}} line carrying the counters, so
 //	    raw_hash changes and sync_reconcile re-pushes Hermes sessions.
-const ProjectionVersion = 13
+const ProjectionVersion = 14
+
+// RequestProjectionVersion is the first projection that carries per-request usage.
+const RequestProjectionVersion = 14
+
+// LegacyProjectionVersion is assumed for pushes that predate projection_version on the wire.
+const LegacyProjectionVersion = RequestProjectionVersion - 1
 
 // DefaultProfile is the profile name every agent has by default.
 const DefaultProfile = "default"
