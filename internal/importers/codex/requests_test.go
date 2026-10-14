@@ -29,7 +29,8 @@ func TestMeasuredRequestsMatchCumulativeAndModelChanges(t *testing.T) {
 		{"gap", event(`{"input_tokens":300,"output_tokens":40,"cached_input_tokens":50,"cache_write_input_tokens":8,"total_tokens":340}`, second), session.RequestCoveragePartial, 2},
 		{"reset", event(first, first), session.RequestCoveragePartial, 2},
 		{"malformed nested usage", event(total, `{"input_tokens":"oops","output_tokens":10}`), session.RequestCoveragePartial, 2},
-		{"missing usage info", `{"type":"event_msg","payload":{"type":"token_count"}}`, session.RequestCoveragePartial, 2},
+		{"rate-limit refresh without info", `{"type":"event_msg","payload":{"type":"token_count","info":null,"rate_limits":{"limit_id":"codex"}}}`, session.RequestCoverageComplete, 2},
+		{"malformed event", `{"type":"event_msg","payload":{"type":"token_count","info":"oops"}}`, session.RequestCoveragePartial, 2},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "session.jsonl")

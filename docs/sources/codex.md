@@ -292,9 +292,11 @@ What `loadTranscript` / `prosa v1 session show` surface for Codex sessions:
 
 A `token_count` event supplies a measured request when `last_token_usage`
 exactly matches the component-wise increase in `total_token_usage`. Repeated
-cumulative counters contribute no additional request. Missing calls, counter
-resets and malformed or truncated lines make request coverage `partial`;
-transcripts carrying only aggregate usage have coverage `none`.
+cumulative counters contribute no additional request, and a `token_count`
+event with `info: null` is a rate-limit refresh that carries no usage.
+Missing calls, counter resets and malformed or truncated lines make request
+coverage `partial`; transcripts carrying only aggregate usage have coverage
+`none`.
 
 Each request retains the active turn model, provider and available billing
 parameters, plus the event timestamp. Cache writes are preserved from

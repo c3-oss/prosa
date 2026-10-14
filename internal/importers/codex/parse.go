@@ -276,7 +276,8 @@ func parseSession(ctx context.Context, path string, log *slog.Logger) (session.S
 		case r.Type == "event_msg" && len(r.Payload) > 0:
 			var event eventMsgPayload
 			decodeErr := json.Unmarshal(r.Payload, &event)
-			if event.Type == "token_count" && (decodeErr != nil || event.Info == nil) {
+			// info is null on rate-limit-only refreshes, which carry no usage.
+			if event.Type == "token_count" && decodeErr != nil {
 				requestGap = true
 			}
 			if decodeErr == nil && event.Type == "token_count" && event.Info != nil {
