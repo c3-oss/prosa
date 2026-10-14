@@ -171,6 +171,8 @@ func (i *Importer) importStateDB(ctx context.Context, path string, sink importer
 			noUsageSkipped++
 			continue
 		}
+		sess.ProjectionVersion = session.ProjectionVersion
+		sess.RequestCoverage = session.RequestCoverageNone
 		sess.Agent = Name
 		sess.DeviceID = device.IDOnce()
 		sess.Profile = session.ProfileOrDefault(opts.Profile)

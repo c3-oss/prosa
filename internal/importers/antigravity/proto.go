@@ -283,6 +283,8 @@ func readStepEventTime(metadata []byte) (time.Time, bool) {
 // running context — so prosa surfaces it directly without trying to
 // disentangle the user prompt from the system prompt.
 type StepUsage struct {
+	ModelID              uint64
+	RequestID            string
 	InputTokens          int64
 	OutputTokens         int64
 	CacheReadTokens      int64
@@ -310,10 +312,15 @@ func readStepUsage(metadata []byte) StepUsage {
 	}
 	out := StepUsage{Present: true}
 	for _, f := range sub {
+		if f.Num == 11 && f.Wire == protowire.BytesType {
+			out.RequestID = string(f.B)
+		}
 		if f.Wire != protowire.VarintType {
 			continue
 		}
 		switch f.Num {
+		case 1:
+			out.ModelID = f.V
 		case 2:
 			out.InputTokens = int64(f.V)
 		case 3:

@@ -42,9 +42,10 @@ type rawRecord struct {
 }
 
 type sessionMetaPayload struct {
-	ID     string             `json:"id"`
-	CWD    string             `json:"cwd"`
-	Source *sessionMetaSource `json:"source"`
+	ID            string             `json:"id"`
+	CWD           string             `json:"cwd"`
+	ModelProvider *string            `json:"model_provider"`
+	Source        *sessionMetaSource `json:"source"`
 }
 
 // sessionMetaSource carries the optional subagent / spawn metadata
@@ -63,8 +64,12 @@ type sessionMetaThreadSpawn struct {
 }
 
 type turnContextPayload struct {
-	Model string `json:"model"`
-	CWD   string `json:"cwd"`
+	Model         string  `json:"model"`
+	CWD           string  `json:"cwd"`
+	ModelProvider *string `json:"model_provider"`
+	ServiceTier   *string `json:"service_tier"`
+	Speed         *string `json:"speed"`
+	InferenceGeo  *string `json:"inference_geo"`
 }
 
 type responseItemPayload struct {
@@ -105,11 +110,12 @@ type tokenCountInfo struct {
 }
 
 type tokenUsageJSON struct {
-	InputTokens          int64 `json:"input_tokens"`
-	OutputTokens         int64 `json:"output_tokens"`
-	TotalTokens          int64 `json:"total_tokens"`
-	CachedInputTokens    int64 `json:"cached_input_tokens"`
-	CacheReadInputTokens int64 `json:"cache_read_input_tokens"`
+	InputTokens           int64 `json:"input_tokens"`
+	OutputTokens          int64 `json:"output_tokens"`
+	TotalTokens           int64 `json:"total_tokens"`
+	CachedInputTokens     int64 `json:"cached_input_tokens"`
+	CacheReadInputTokens  int64 `json:"cache_read_input_tokens"`
+	CacheWriteInputTokens int64 `json:"cache_write_input_tokens"`
 }
 
 // peekSessionID returns the session ID from the first session_meta record,
@@ -159,17 +165,21 @@ func parseSession(ctx context.Context, path string, log *slog.Logger) (session.S
 	sc.Buffer(make([]byte, 0, importerutil.ScanBufferInitial), importerutil.ScanBufferMax)
 
 	var (
-		sess           session.Session
-		turns          []session.Turn
-		toolCounts     = map[string]int{}
-		callIDToName   = map[string]string{}
-		bestUsage      *session.TokenUsage
-		sessIDSet      bool
-		cwdSet         bool
-		modelSet       bool
-		firstPromptSet bool
-		seenUsageEvent bool
-		line           int
+		sess                                                   session.Session
+		turns                                                  []session.Turn
+		toolCounts                                             = map[string]int{}
+		callIDToName                                           = map[string]string{}
+		bestUsage                                              *session.TokenUsage
+		previousUsage                                          session.TokenUsage
+		requestGap                                             bool
+		currentModel                                           string
+		currentProvider, currentTier, currentSpeed, currentGeo *string
+		sessIDSet                                              bool
+		cwdSet                                                 bool
+		modelSet                                               bool
+		firstPromptSet                                         bool
+		seenUsageEvent                                         bool
+		line                                                   int
 
 		malformed    int
 		malformedAt  int
@@ -213,6 +223,9 @@ func parseSession(ctx context.Context, path string, log *slog.Logger) (session.S
 			if err := json.Unmarshal(r.Payload, &p); err != nil {
 				continue
 			}
+			if p.ModelProvider != nil {
+				currentProvider = p.ModelProvider
+			}
 			if !sessIDSet && p.ID != "" {
 				sess.ID = p.ID
 				sessIDSet = true
@@ -235,6 +248,13 @@ func parseSession(ctx context.Context, path string, log *slog.Logger) (session.S
 			if err := json.Unmarshal(r.Payload, &p); err != nil {
 				continue
 			}
+			if p.Model != "" {
+				currentModel = p.Model
+			}
+			if p.ModelProvider != nil {
+				currentProvider = p.ModelProvider
+			}
+			currentTier, currentSpeed, currentGeo = p.ServiceTier, p.Speed, p.InferenceGeo
 			if !modelSet && p.Model != "" {
 				m := p.Model
 				sess.Model = &m
@@ -254,6 +274,36 @@ func parseSession(ctx context.Context, path string, log *slog.Logger) (session.S
 			handleResponseItem(p, r.Timestamp, &sess, &turns, &firstPromptSet, toolCounts, callIDToName)
 
 		case r.Type == "event_msg" && len(r.Payload) > 0:
+			var event eventMsgPayload
+			decodeErr := json.Unmarshal(r.Payload, &event)
+			if event.Type == "token_count" && (decodeErr != nil || event.Info == nil) {
+				requestGap = true
+			}
+			if decodeErr == nil && event.Type == "token_count" && event.Info != nil {
+				if total := event.Info.TotalTokenUsage; total != nil {
+					cumulative := total.canonical()
+					if cumulative != previousUsage {
+						if last := event.Info.LastTokenUsage; last != nil && matchesUsageDelta(cumulative, previousUsage, last.canonical()) {
+							usage := last.canonical()
+							prompt := usage.InputTokens
+							req := session.RequestUsage{
+								ID: fmt.Sprintf("line:%d", line), Model: currentModel,
+								Usage: usage, PromptTokens: &prompt, Provider: currentProvider, ServiceTier: currentTier,
+								Speed: currentSpeed, InferenceGeo: currentGeo,
+							}
+							if ts, ok := importerutil.ParseRFC3339(r.Timestamp); ok {
+								req.Timestamp = &ts
+							}
+							sess.Requests = append(sess.Requests, req)
+						} else {
+							requestGap = true
+						}
+						previousUsage = cumulative
+					}
+				} else {
+					requestGap = true
+				}
+			}
 			usage, isUsageEvent, hasUsage := tokenUsageFromEvent(r.Payload)
 			if isUsageEvent {
 				// Any token_count event counts as "we saw usage",
@@ -324,6 +374,17 @@ func parseSession(ctx context.Context, path string, log *slog.Logger) (session.S
 	if bestUsage != nil {
 		sess.Usage = bestUsage
 	}
+	sess.RequestCoverage = session.RequestCoverageNone
+	if len(sess.Requests) > 0 {
+		sess.RequestCoverage = session.RequestCoverageComplete
+		var measured session.TokenUsage
+		for _, req := range sess.Requests {
+			measured.Add(req.Usage)
+		}
+		if requestGap || malformed > 0 || sc.Err() != nil || bestUsage == nil || measured != *bestUsage {
+			sess.RequestCoverage = session.RequestCoveragePartial
+		}
+	}
 	state := session.ClassifyUsage(seenUsageEvent, sess.Usage)
 	return sess, turns, tools, state, nil
 }
@@ -349,6 +410,11 @@ func tokenUsageFromEvent(raw json.RawMessage) (usage session.TokenUsage, isUsage
 	if src == nil {
 		return session.TokenUsage{}, true, false
 	}
+	usage = src.canonical()
+	return usage, true, session.HasTokenUsage(&usage)
+}
+
+func (src tokenUsageJSON) canonical() session.TokenUsage {
 	cached := src.CachedInputTokens
 	if cached == 0 {
 		cached = src.CacheReadInputTokens
@@ -360,16 +426,22 @@ func tokenUsageFromEvent(raw json.RawMessage) (usage session.TokenUsage, isUsage
 	if total == 0 {
 		total = src.InputTokens + src.OutputTokens
 	}
-	if total == 0 && src.InputTokens == 0 && src.OutputTokens == 0 && cached == 0 {
-		return session.TokenUsage{}, true, false
-	}
 	return session.TokenUsage{
-		TotalTokens:     total,
-		InputTokens:     src.InputTokens,
-		OutputTokens:    src.OutputTokens,
-		CachedTokens:    cached,
-		CacheReadTokens: cached,
-	}, true, true
+		TotalTokens: total, InputTokens: src.InputTokens,
+		OutputTokens: src.OutputTokens, CachedTokens: cached, CacheReadTokens: cached,
+		CacheCreationTokens: src.CacheWriteInputTokens,
+	}
+}
+
+func matchesUsageDelta(total, prev, last session.TokenUsage) bool {
+	return total.TotalTokens >= prev.TotalTokens && total.InputTokens >= prev.InputTokens &&
+		total.OutputTokens >= prev.OutputTokens && total.CacheReadTokens >= prev.CacheReadTokens &&
+		total.CacheCreationTokens >= prev.CacheCreationTokens &&
+		total.TotalTokens-prev.TotalTokens == last.TotalTokens &&
+		total.InputTokens-prev.InputTokens == last.InputTokens &&
+		total.OutputTokens-prev.OutputTokens == last.OutputTokens &&
+		total.CacheReadTokens-prev.CacheReadTokens == last.CacheReadTokens &&
+		total.CacheCreationTokens-prev.CacheCreationTokens == last.CacheCreationTokens
 }
 
 func handleResponseItem(

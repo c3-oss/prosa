@@ -141,7 +141,7 @@ func projectEnvelope(ctx context.Context, env envelope) (session.Session, []sess
 			// classifier can tell explicit-zero from no-event.
 			seenUsageEvent = true
 		}
-		if m.Type == "gemini" && collectGeminiUsage(m, i, usageSeen, &usage) {
+		if m.Type == "gemini" && collectGeminiUsage(m, i, usageSeen, &usage, &sess.Requests) {
 			usageSet = true
 		}
 		ts, _ := importerutil.ParseRFC3339(m.Timestamp)
@@ -186,6 +186,10 @@ func projectEnvelope(ctx context.Context, env envelope) (session.Session, []sess
 	}
 	if usageSet {
 		sess.Usage = &usage
+	}
+	sess.RequestCoverage = session.RequestCoverageNone
+	if len(sess.Requests) > 0 {
+		sess.RequestCoverage = session.RequestCoverageComplete
 	}
 	state := session.ClassifyUsage(seenUsageEvent, sess.Usage)
 	return sess, turns, tools, state, nil
@@ -233,7 +237,7 @@ func projectLiveArray(ctx context.Context, rows []message) (session.Session, []s
 		if m.Type == "gemini" && m.Tokens != nil {
 			seenUsageEvent = true
 		}
-		if m.Type == "gemini" && collectGeminiUsage(m, i, usageSeen, &usage) {
+		if m.Type == "gemini" && collectGeminiUsage(m, i, usageSeen, &usage, &sess.Requests) {
 			usageSet = true
 		}
 		ts, _ := importerutil.ParseRFC3339(m.Timestamp)
@@ -272,11 +276,15 @@ func projectLiveArray(ctx context.Context, rows []message) (session.Session, []s
 	if usageSet {
 		sess.Usage = &usage
 	}
+	sess.RequestCoverage = session.RequestCoverageNone
+	if len(sess.Requests) > 0 {
+		sess.RequestCoverage = session.RequestCoverageComplete
+	}
 	state := session.ClassifyUsage(seenUsageEvent, sess.Usage)
 	return sess, turns, nil, state, nil
 }
 
-func collectGeminiUsage(m message, idx int, seen map[string]struct{}, out *session.TokenUsage) bool {
+func collectGeminiUsage(m message, idx int, seen map[string]struct{}, out *session.TokenUsage, requests *[]session.RequestUsage) bool {
 	if m.Tokens == nil {
 		return false
 	}
@@ -295,11 +303,20 @@ func collectGeminiUsage(m message, idx int, seen map[string]struct{}, out *sessi
 	if total == 0 {
 		total = m.Tokens.Input + m.Tokens.Output + m.Tokens.Thought + m.Tokens.Tool
 	}
-	out.TotalTokens += total
-	out.InputTokens += m.Tokens.Input
-	out.OutputTokens += m.Tokens.Output
-	out.CachedTokens += m.Tokens.Cached
-	out.CacheReadTokens += m.Tokens.Cached
+	input := m.Tokens.Input + m.Tokens.Tool
+	req := session.RequestUsage{
+		ID: key, Model: m.Model, PromptTokens: &input,
+		Usage: session.TokenUsage{
+			TotalTokens: total, InputTokens: input,
+			OutputTokens: m.Tokens.Output + m.Tokens.Thought, CachedTokens: m.Tokens.Cached,
+			CacheReadTokens: m.Tokens.Cached,
+		},
+	}
+	if ts, ok := importerutil.ParseRFC3339(m.Timestamp); ok {
+		req.Timestamp = &ts
+	}
+	*requests = append(*requests, req)
+	out.Add(req.Usage)
 	return true
 }
 
