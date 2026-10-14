@@ -58,7 +58,7 @@ func TestCostUSDPricesFable5(t *testing.T) {
 	require.InDelta(t, 0.01755, cost, 0.00000001)
 }
 
-func TestCostUSDPricesSonnet5ByDate(t *testing.T) {
+func TestCostUSDPricesSonnet5AcrossCancelledIncrease(t *testing.T) {
 	usage := session.TokenUsage{
 		InputTokens:         1000,
 		OutputTokens:        200,
@@ -71,9 +71,9 @@ func TestCostUSDPricesSonnet5ByDate(t *testing.T) {
 	require.True(t, ok)
 	require.InDelta(t, 0.00351, intro, 0.00000001)
 
-	standard, ok := CostUSD("claude-sonnet-5", usage, sonnet5StandardFrom)
+	standard, ok := CostUSD("claude-sonnet-5", usage, time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC))
 	require.True(t, ok)
-	require.InDelta(t, 0.005265, standard, 0.00000001)
+	require.InDelta(t, 0.00351, standard, 0.00000001)
 }
 
 func TestLookupPricesGrokCodeFast1ByDate(t *testing.T) {
@@ -301,7 +301,7 @@ func TestNormalizeModel(t *testing.T) {
 		"anthropic/claude-4.6-opus-high": "claude-opus-4-6-high",
 		// Canonical ids stay untouched.
 		"claude-opus-4-7-thinking-high": "claude-opus-4-7-thinking-high",
-		"claude-opus-4.7":               "claude-opus-4.7",
+		"claude-opus-4.7":               "claude-opus-4-7",
 	}
 	for in, want := range cases {
 		require.Equal(t, want, NormalizeModel(in), in)
