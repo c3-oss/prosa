@@ -412,8 +412,9 @@ states on repeat clicks:
 
 The active column shows an arrow in the header (▴ ascending, ▾
 descending). Cost sorts in the panel after loading all matching rows and
-combining each server cost summary with its children before pagination;
-other columns sort server-side via
+combining each server cost summary with its children before pagination; a
+failed children lookup is logged and the parent sorts by its own cost.
+Other columns sort server-side via
 `Sessions.List` (`sort_by` + `sort_dir`). FTS search (`q` set) still
 overrides explicit sort (rank wins).
 

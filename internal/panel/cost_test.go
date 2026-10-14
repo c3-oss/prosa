@@ -67,13 +67,14 @@ func TestCostSortPricesEveryBatchBeforePaging(t *testing.T) {
 	require.Equal(t, "session-1185", got[9].Id)
 }
 
-func TestCostSortChildFailureIsReturnedAndTiesUseID(t *testing.T) {
+func TestCostSortChildFailureDegradesToParentCostAndTiesUseID(t *testing.T) {
 	usd := 1.0
 	rows := []*prosav1.Session{{Id: "b", Cost: &prosav1.CostSummary{Usd: &usd, Status: session.CostCalculated}}, {Id: "a", Cost: &prosav1.CostSummary{Usd: &usd, Status: session.CostCalculated}}}
 	p := newPanelWithFakeSessions(t, fakeSessionsService{listResponse: &prosav1.ListResponse{Sessions: rows, TotalCount: 2}, childrenErr: errors.New("child lookup failed")})
-	_, _, _, err := p.listSessionsSortedByCost(context.Background(), &prosav1.ListRequest{TopLevelOnly: true}, 1, 10, "desc")
-	require.ErrorContains(t, err, "child lookup failed")
-	got, _, _, err := p.listSessionsSortedByCost(context.Background(), &prosav1.ListRequest{}, 1, 10, "desc")
+	got, _, _, err := p.listSessionsSortedByCost(context.Background(), &prosav1.ListRequest{TopLevelOnly: true}, 1, 10, "desc")
+	require.NoError(t, err)
+	require.Equal(t, []string{"a", "b"}, panelSessionIDs(got))
+	got, _, _, err = p.listSessionsSortedByCost(context.Background(), &prosav1.ListRequest{}, 1, 10, "desc")
 	require.NoError(t, err)
 	require.Equal(t, []string{"a", "b"}, panelSessionIDs(got))
 }
