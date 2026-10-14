@@ -76,8 +76,8 @@ func validateRequests(s *prosav1.Session, requests []*prosav1.RequestUsage) erro
 	if s.RequestCoverage == session.RequestCoverageComplete && (len(requests) == 0 || s.Usage == nil || sum != domainUsage(s.Usage)) {
 		return fmt.Errorf("complete request usage must match session usage")
 	}
-	if len(requests) > 0 && s.ProjectionVersion < 14 {
-		return fmt.Errorf("request usage requires projection version 14 or later")
+	if len(requests) > 0 && int(s.ProjectionVersion) < session.RequestProjectionVersion {
+		return fmt.Errorf("request usage requires projection version %d or later", session.RequestProjectionVersion)
 	}
 	return nil
 }

@@ -161,6 +161,12 @@ type Session struct {
 //	    raw_hash changes and sync_reconcile re-pushes Hermes sessions.
 const ProjectionVersion = 14
 
+// RequestProjectionVersion is the first projection that carries per-request usage.
+const RequestProjectionVersion = 14
+
+// LegacyProjectionVersion is assumed for pushes that predate projection_version on the wire.
+const LegacyProjectionVersion = RequestProjectionVersion - 1
+
 // DefaultProfile is the profile name every agent has by default.
 const DefaultProfile = "default"
 

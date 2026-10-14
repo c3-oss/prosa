@@ -188,7 +188,7 @@ func validatePushSession(sess *prosav1.Session) (*prosav1.Session, error) {
 		return nil, err
 	}
 	if sess.ProjectionVersion == 0 {
-		sess.ProjectionVersion = 13
+		sess.ProjectionVersion = session.LegacyProjectionVersion
 	}
 	if sess.ProjectionVersion < 0 {
 		return nil, errors.New("negative projection version")
