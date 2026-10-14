@@ -162,7 +162,7 @@ func TestSessionCostPricesSonnet5ByStartedAt(t *testing.T) {
 
 	standardCost, ok := sessionCost(sonnet5PanelSession(time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)))
 	require.True(t, ok)
-	require.InDelta(t, 3.0, standardCost, 0.00000001)
+	require.InDelta(t, 2.0, standardCost, 0.00000001)
 }
 
 func newPanelWithFakeSessions(t *testing.T, svc fakeSessionsService) *Panel {

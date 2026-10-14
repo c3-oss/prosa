@@ -145,7 +145,7 @@ func TestBuildSpendTrendPricesOnlyMeasuredRows(t *testing.T) {
 	}
 	v := buildSpendTrend(rows, since, until)
 	require.True(t, v.HasData)
-	require.Equal(t, "$7.50", v.TotalSpend)
+	require.Equal(t, "$7.50 (partial)", v.TotalSpend)
 	require.Equal(t, "1.1m", v.TotalTokens)
 	require.Equal(t, "per day", v.BucketLabel)
 	require.Equal(t, "05-29", v.StartLabel)
@@ -172,7 +172,7 @@ func TestBuildSpendTrendPricesSonnet5ByDay(t *testing.T) {
 	}
 	v := buildSpendTrend(rows, since, until)
 	require.True(t, v.HasData)
-	require.Equal(t, "$5.00", v.TotalSpend)
+	require.Equal(t, "~$4.00", v.TotalSpend)
 	require.Equal(t, "2m", v.TotalTokens)
 }
 

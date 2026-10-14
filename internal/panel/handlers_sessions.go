@@ -79,6 +79,7 @@ type sessionRow struct {
 	Cost            string
 	costAmount      float64
 	costPriced      bool
+	costSummary     session.CostSummary
 	Device          string
 	StartedAt       string
 	StartedAtFull   string
@@ -505,7 +506,10 @@ func (p *Panel) listSessionsSortedByCost(
 	rows := make([]costSortRow, len(all))
 	includeChildren := base.GetTopLevelOnly()
 	for i, s := range all {
-		cost, ok := p.sessionCostForSort(ctx, s, includeChildren)
+		cost, ok, err := p.sessionCostForSort(ctx, s, includeChildren)
+		if err != nil {
+			return nil, 0, 0, err
+		}
 		rows[i] = costSortRow{session: s, cost: cost, ok: ok}
 	}
 	costDesc := costDir != "asc"
@@ -522,6 +526,9 @@ func (p *Panel) listSessionsSortedByCost(
 		}
 		ti := sessionStartedAt(ri.session)
 		tj := sessionStartedAt(rj.session)
+		if ti.Equal(tj) {
+			return ri.session.Id < rj.session.Id
+		}
 		if costDesc {
 			return ti.After(tj)
 		}
@@ -550,21 +557,23 @@ func (p *Panel) listSessionsSortedByCost(
 	return out, total, pageCount, nil
 }
 
-func (p *Panel) sessionCostForSort(ctx context.Context, s *prosav1.Session, includeChildren bool) (float64, bool) {
-	cost, ok := sessionCost(s)
-	if !includeChildren || s == nil {
-		return cost, ok
+func (p *Panel) sessionCostForSort(ctx context.Context, s *prosav1.Session, includeChildren bool) (float64, bool, error) {
+	cost := sessionCostSummary(s)
+	if includeChildren && s != nil {
+		resp, err := p.clients.Sessions.ListChildren(ctx, connect.NewRequest(&prosav1.ListChildrenRequest{ParentId: s.Id}))
+		if err != nil {
+			return 0, false, err
+		}
+		costs := []session.CostSummary{cost}
+		for _, child := range resp.Msg.Sessions {
+			costs = append(costs, sessionCostSummary(child))
+		}
+		cost = pricing.CombineCosts(costs...)
 	}
-	childResp, err := p.clients.Sessions.ListChildren(ctx,
-		connect.NewRequest(&prosav1.ListChildrenRequest{ParentId: s.Id}))
-	if err != nil {
-		slog.Warn("sessions.listChildren cost sort failed", "id", s.Id, "err", err)
-		return cost, ok
+	if cost.USD == nil {
+		return 0, false, nil
 	}
-	for _, child := range childResp.Msg.Sessions {
-		cost, ok = addSessionCost(cost, ok, child)
-	}
-	return cost, ok
+	return *cost.USD, true, nil
 }
 
 func sessionStartedAt(s *prosav1.Session) time.Time {
@@ -585,6 +594,7 @@ func buildSessionRow(s *prosav1.Session, current *url.URL, deviceLookup map[stri
 		return sessionRow{}
 	}
 	usage := tokenUsageFromProto(s.Usage)
+	costSummary := sessionCostSummary(s)
 	cost, priced := sessionCost(s)
 	startedFull := ""
 	startedRel := ""
@@ -615,7 +625,8 @@ func buildSessionRow(s *prosav1.Session, current *url.URL, deviceLookup map[stri
 		TokensTotalFull: formatPanelInt(usage.TotalTokens),
 		TokensIn:        formatPanelInt(usage.InputTokens),
 		TokensOut:       formatPanelInt(usage.OutputTokens),
-		Cost:            costLabel(cost, priced),
+		Cost:            costSummaryLabel(costSummary),
+		costSummary:     costSummary,
 		costAmount:      cost,
 		costPriced:      priced,
 		Device:          device,
@@ -654,32 +665,25 @@ func rollUpSessionRowCost(row *sessionRow) {
 	if row == nil {
 		return
 	}
-	cost := row.costAmount
-	priced := row.costPriced
+	costs := []session.CostSummary{row.costSummary}
 	for _, child := range row.Children {
-		if child.costPriced {
-			cost += child.costAmount
-			priced = true
-		}
+		costs = append(costs, child.costSummary)
 	}
-	row.costAmount = cost
-	row.costPriced = priced
-	row.Cost = costLabel(cost, priced)
+	row.costSummary = pricing.CombineCosts(costs...)
+	row.costPriced = row.costSummary.USD != nil
+	row.costAmount = 0
+	if row.costPriced {
+		row.costAmount = *row.costSummary.USD
+	}
+	row.Cost = costSummaryLabel(row.costSummary)
 }
 
 func sessionCost(s *prosav1.Session) (float64, bool) {
-	if s == nil {
+	cost := sessionCostSummary(s)
+	if cost.USD == nil {
 		return 0, false
 	}
-	return pricing.CostUSD(s.Model, tokenUsageFromProto(s.Usage), sessionStartedAt(s))
-}
-
-func addSessionCost(total float64, priced bool, s *prosav1.Session) (float64, bool) {
-	cost, ok := sessionCost(s)
-	if ok {
-		return total + cost, true
-	}
-	return total, priced
+	return *cost.USD, true
 }
 
 // loadDeviceLookup returns the dropdown-ready sorted list of device
@@ -706,7 +710,7 @@ func (p *Panel) loadDeviceLookup(ctx context.Context) ([]string, map[string]stri
 }
 
 // tokenUsageFromProto reshapes the proto-side TokenUsage into the
-// pkg/session.TokenUsage shape pricing.CostUSD expects. Returns a zero
+// pkg/session.TokenUsage shape used by pricing. Returns a zero
 // value when the proto pointer is nil so the cost path still runs and
 // returns priced=false uniformly.
 func tokenUsageFromProto(u *prosav1.TokenUsage) session.TokenUsage {
