@@ -233,3 +233,29 @@ func TestVariantTariffsDoNotInheritFamilyPrices(t *testing.T) {
 	require.NotNil(t, free.USD)
 	require.Zero(t, *free.USD)
 }
+
+func TestCombineCostsIgnoresUnmeasuredMembers(t *testing.T) {
+	usd := 1.25
+	got := CombineCosts(
+		session.CostSummary{USD: &usd, Status: session.CostCalculated, PricedTokens: 1000},
+		session.CostSummary{Status: session.CostUnavailable},
+	)
+	require.Equal(t, session.CostCalculated, got.Status)
+	require.InDelta(t, 1.25, *got.USD, 1e-10)
+
+	got = CombineCosts(
+		session.CostSummary{USD: &usd, Status: session.CostCalculated, PricedTokens: 1000},
+		session.CostSummary{Status: session.CostUnavailable, UnpricedTokens: 100},
+	)
+	require.Equal(t, session.CostPartial, got.Status)
+	require.Equal(t, int64(100), got.UnpricedTokens)
+}
+
+func TestRequestCostNormalisesInferenceGeoCase(t *testing.T) {
+	for _, model := range []string{"gemini-3.5-flash", "gpt-6-astra"} {
+		req := measuredRequest(model, 1000, 100)
+		geo := "Global"
+		req.InferenceGeo = &geo
+		require.Equal(t, session.CostCalculated, RequestCost(req, "", time.Time{}).Status, model)
+	}
+}

@@ -88,7 +88,7 @@ func CombineCosts(costs ...session.CostSummary) session.CostSummary {
 			total += *c.USD
 		}
 		estimated = estimated || c.Status == session.CostEstimated
-		partial = partial || c.Status == session.CostPartial || c.Status == session.CostUnavailable || c.UnpricedTokens > 0
+		partial = partial || c.Status == session.CostPartial || c.UnpricedTokens > 0
 	}
 	if !priced {
 		return out
@@ -173,19 +173,19 @@ func RequestCost(req session.RequestUsage, fallbackModel string, fallbackTime ti
 	var modeKnown bool
 	r, modeKnown = processingRates(key, r, req.ServiceTier, req.Speed, long)
 	estimated = estimated || !modeKnown
+	geo := ""
+	if req.InferenceGeo != nil {
+		geo = strings.ToLower(*req.InferenceGeo)
+	}
 	if regionalModel(key) {
-		if req.InferenceGeo == nil {
+		switch geo {
+		case "global", "not_available":
+		case "us", "eu", "regional":
+			r = scaleRates(r, 1.1, 1.1, 1.1)
+		default:
 			estimated = true
-		} else {
-			switch strings.ToLower(*req.InferenceGeo) {
-			case "global", "not_available":
-			case "us", "eu", "regional":
-				r = scaleRates(r, 1.1, 1.1, 1.1)
-			default:
-				estimated = true
-			}
 		}
-	} else if req.InferenceGeo != nil && *req.InferenceGeo != "global" && *req.InferenceGeo != "not_available" {
+	} else if req.InferenceGeo != nil && geo != "global" && geo != "not_available" {
 		estimated = true
 	}
 	creationCost := float64(u.CacheCreationTokens) * r.CacheCreation
@@ -235,7 +235,7 @@ func requestContext(key string, prompt *int64) (bool, bool) {
 	case key == "claude-haiku-5-5":
 		threshold = 100000
 	case key == "gpt-5.4" || key == "gpt-5.4-pro" || key == "gpt-5.5" || key == "gpt-5.5-pro" ||
-		key == "gpt-5.6-sol" || key == "gpt-daybreak-blue" || key == "gpt-5.6-terra" || key == "gpt-5.6-luna" || strings.HasPrefix(key, "gpt-6"):
+		key == "gpt-5.6-sol" || key == "gpt-5.6-terra" || key == "gpt-5.6-luna" || strings.HasPrefix(key, "gpt-6"):
 		threshold = 272000
 	case strings.HasPrefix(key, "grok-4.") || key == "grok-build-0.1":
 		threshold, inclusive = 200000, true

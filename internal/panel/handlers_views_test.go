@@ -327,7 +327,7 @@ func TestBuildUsage_HidesZeroTokenAgents(t *testing.T) {
 	require.Equal(t, int64(8869844323), totalTokens)
 	require.InDelta(t, 4697.1771, totalCost, 0.0000001)
 	require.True(t, priced)
-	require.Equal(t, "$4,697.18 (partial)", costSummaryLabel(usageReportCost(rows)))
+	require.Equal(t, "~$4,697.18", costSummaryLabel(usageReportCost(rows)), "unmeasured agents do not mark the total partial")
 	require.Equal(t, "~$4,697.18", out[0].Cost, "per-row cost rounded to 2 decimals")
 }
 

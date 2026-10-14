@@ -64,6 +64,8 @@ basis. A partial collection with no aggregate supplies a partial subtotal.
 parameters produce an estimate using the standard tariff. Zero-token
 requests are neutral within a measured collection. Sessions with no usable
 token counters have unavailable cost; a measured free model has USD zero.
+A combined summary is `partial` when a member is partial or carries unpriced
+tokens; members without any tokens leave the combined status untouched.
 
 Session responses carry a derived cost summary. Uploads carry request facts
 and the persisted `Session.ProjectionVersion`; costs are calculated on read.
