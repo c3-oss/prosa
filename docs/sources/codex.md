@@ -287,3 +287,17 @@ What `loadTranscript` / `prosa v1 session show` surface for Codex sessions:
 - **Gaps**: subagent → parent linkage relies on
   `session_meta.payload.source.subagent.thread_spawn.parent_thread_id`
   and is `null` for older session files.
+
+## Request usage
+
+A `token_count` event supplies a measured request when `last_token_usage`
+exactly matches the component-wise increase in `total_token_usage`. Repeated
+cumulative counters contribute no additional request. Missing calls, counter
+resets and malformed or truncated lines make request coverage `partial`;
+transcripts carrying only aggregate usage have coverage `none`.
+
+Each request retains the active turn model, provider and available billing
+parameters, plus the event timestamp. Cache writes are preserved from
+`cache_write_input_tokens`. The prompt size is `last_token_usage.input_tokens`,
+including cached input. `model_context_window` describes model capacity.
+The session usage retains the largest observed aggregate for fallback pricing.

@@ -1,9 +1,8 @@
 # Canonical session mapping
 
-This document is the contract every prosa importer fills out. The two domain
-types — `session.Session` and `session.Turn` (defined in `pkg/session/types.go`)
-plus the `session.ToolUsage` aggregate — are agent-agnostic. Per-agent JSONL
-formats project into them.
+This document is the contract every prosa importer fills out. The canonical
+session, turns, request usage, cost summaries, and tool aggregates in
+`pkg/session` are agent-agnostic. Per-agent source formats project into them.
 
 When introducing a new agent, add a column / section here so the next reader
 can see how each field is resolved without spelunking through importer code.
@@ -36,12 +35,49 @@ outputs as `KindToolResult` with `ToolName` resolved via the agent's
 own call-id linkage. Anything binary, image-only, or thinking-only
 stays excluded.
 
+## Request usage and token costs
+
+`Session.Requests` carries measured inferences as `RequestUsage` records:
+
+| Field | Meaning |
+|---|---|
+| `ID`, `Model` | Source request identity and effective model; Claude iterations have distinct identities |
+| `Timestamp` | Optional inference time |
+| `Usage` | Cache-inclusive input, output, cache read/write and total counters |
+| `PromptTokens` | Optional full prompt length, including cached input |
+| `Provider`, `ServiceTier`, `Speed`, `InferenceGeo` | Optional observed billing parameters |
+| `CacheCreation5mTokens`, `CacheCreation1hTokens` | Optional separate cache-write counters |
+
+`Session.RequestCoverage` is `none`, `partial`, or `complete`. Complete
+collections reconcile with the session aggregate. Claude Code, Codex, Gemini
+and Antigravity project measured inferences. Hermes and Grok Build preserve
+their aggregate usage; Cursor records sessions without token usage.
+
+SQLite and Postgres replace `session_requests` with the rest of a session's
+projection in one transaction. The cost engine prices complete collections
+per inference and aggregates the resulting charges. A partial collection
+with a reliable session aggregate uses that aggregate as its estimated
+basis. A partial collection with no aggregate supplies a partial subtotal.
+
+`CostSummary` carries optional USD, status (`calculated`, `estimated`,
+`partial`, `unavailable`), and priced/unpriced token coverage. Missing billing
+parameters produce an estimate using the standard tariff. Zero-token
+requests are neutral within a measured collection. Sessions with no usable
+token counters have unavailable cost; a measured free model has USD zero.
+
+Session responses carry a derived cost summary. Uploads carry request facts
+and the persisted `Session.ProjectionVersion`; costs are calculated on read.
+Analytics retain their session-start filters and calendar buckets, while
+tariff selection uses each inference's own timestamp and model.
+
 ## Projection version
 
-`session.ProjectionVersion = 13`. The server's push handler compares
-`projection_version >= session.ProjectionVersion` before short-
-circuiting, so bumping this constant forces existing sessions to be
-re-projected on the next push from any client. Recent versions:
+`session.ProjectionVersion = 14`. Each stored session records its actual
+projection version, and uploads and manifests transport that version.
+Same-hash uploads are current when the server's stored version is at least
+the uploaded version. Payloads without a version are legacy projection 13.
+Available source files are re-projected during the next sync when their
+stored version is older than the current importer. Recent versions:
 v8 adds the `parent_session_id` column + index plus the
 `Sessions.ListChildren` RPC (migrations `0008_subagent_edges`) and
 starts walking Claude Code subagent JSONLs alongside parents; v9 projects
@@ -67,7 +103,8 @@ them as a leading `session_usage` line.
 | 10 | Hermes `state.db` rows project to per-session canonical JSONL — the raw artifact for those sessions is a per-session `.jsonl` instead of the multi-session `.db` container; `raw_hash` / `raw_size` describe the projected JSONL. |
 | 11 | parent edges reach the server — `sessionToProto` maps `Session.ParentSessionID` onto the wire (previously dropped at push, so the server never stored an edge). Claude Code subagent transcripts are imported under their real layouts: the walker accepts `agent-<hex>.jsonl` alongside the older `agent-<uuid>.jsonl`, both directly under `subagents/` (Agent tool) and nested at `subagents/workflows/wf_<id>/` (Workflow tool). The child session id is the filename stem because every record inside carries the parent's `sessionId`; the parent UUID is the directory above the innermost `subagents` component. |
 | 12 | special-session classification projected — `Session.Kinds` carries any of `goal` (Codex `<codex_internal_context source="goal">` first user turn), `workflow` (Claude Code `Workflow` tool), `ralph-loop` (Claude Code `/ralph-loop:ralph-loop` command), and `orchestrator` (session that spawned subagents). Stored in the `session_kinds` table (migration `0010_session_kinds` local / `0013_session_kinds` server) and pushed on the wire as `Session.kinds`. `goal`/`workflow`/`ralph-loop` are derived per session by `internal/sessionkind`; `orchestrator` is edge-derived — the client reconciles it post-sweep via `store.RefreshOrchestratorKinds` and the server derives it from parent edges at push (`deriveOrchestratorKinds`). The Codex goal `<objective>` is also unwrapped into `FirstPrompt` instead of the raw scaffold. |
-| 13 | Hermes usage read from `state.db`'s `sessions` token counters instead of `messages.token_count`, which Hermes no longer populates. `InputTokens` is the cache-inclusive sum; `reasoning_tokens` stays out of `OutputTokens`. The projected JSONL gains a leading `{"type":"session_usage","data":{…}}` line, so `raw_hash` changes and Hermes sessions re-push. |
+| 13 | Hermes usage from `state.db` session-row counters, preserved in a leading `session_usage` projection line. |
+| 14 | Request-level usage and billing parameters, inference coverage, Gemini thinking output, Claude executor/advisor/compaction usage, and persisted projection versions on the wire. |
 
 ## Import eligibility
 

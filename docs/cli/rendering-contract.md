@@ -438,7 +438,10 @@ Rules:
   the soft `accent` token;
 - in TTY, `PROJECT` values collapse git remotes to `owner/repo` and
   abbreviate `$HOME` paths to `~/…`; `STARTED` renders as local
-  wall-clock time; `EST_COST_USD` renders as `$1,234.56`;
+  wall-clock time; `EST_COST_USD` renders as `$1,234.56`, with `~` for
+  estimates and `(partial)` when some tokens are unpriced. Plain and JSON
+  output retain numeric costs plus `COST_STATUS`, `PRICED_TOKENS` and
+  `UNPRICED_TOKENS`;
 - no chart glyphs;
 - no progress bars (exception: the `usage` report's proportional
   token bar and the `heatmap` grid, which are those reports' point);

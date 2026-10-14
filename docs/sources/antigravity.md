@@ -186,9 +186,9 @@ tool defs + accumulated history) gets re-read on every turn, so
 number of model calls — an "olá" session with 18 model invocations
 and a ~28 KB cached prefix can total ~500 K cache reads on top of
 ~85 K fresh tokens. `InputTokens` includes that full envelope so
-`internal/pricing.CostUSD` can discount the cached portion at the
-provider's cache_read rate (≈10× cheaper for Gemini Flash) and still
-produce a billing-dashboard-faithful estimate.
+`internal/pricing.SessionCost` prices the measured calls and discounts the
+cached portion at the provider's cache-read rate. Missing billing
+parameters produce an estimated status.
 
 `thinking_output_tokens` and `response_output_tokens` are intentionally
 NOT plumbed through the canonical session shape — they would split
@@ -248,3 +248,12 @@ default 4 KB. `modernc.org/sqlite` reads this without configuration.
 - Codeium / Windsurf "Cascade" — upstream codebase Antigravity forked
   from; many `exa.*_pb` namespaces are visible in the binary's symbol
   table.
+
+## Request usage
+
+Each measured `model_usage` step becomes a request, deduplicated by field 11
+`request_id`, with the step index as a stable fallback. The importer retains
+its direct step timestamp and cache-inclusive prompt size. Executor metadata
+at the same step index supplies a model name when available. Numeric model
+enums remain uninterpreted; an absent request model allows pricing to use the
+session model as an estimate. Reported requests have `complete` coverage.

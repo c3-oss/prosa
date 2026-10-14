@@ -278,9 +278,9 @@ by-parent-agent row.
   [area chart](components.md#area-chart) on the same buckets. (Frappe
   Charts has no secondary axis, so the running total lives in the card
   subtitle rather than as a cumulative overlay line.) Data: the `usage_by_day` report (per UTC day, per
-  model), priced panel-side via `internal/pricing` — rows with no
-  measured usage or an unknown model count tokens but no spend, the
-  same honesty rule as the Usage card. Past ~120 days, buckets collapse
+  model), using the server's cost and token-coverage summaries. Estimates
+  carry `~`, partial amounts carry `(partial)`, and unavailable amounts
+  display `n/a`. The Usage card uses the same indicators. Past ~120 days, buckets collapse
   into ISO weeks; `last=all` clamps to trailing 365d (subtitle says
   so).
 - **Model share**: weekly share of sessions per model as normalized
@@ -307,8 +307,8 @@ by-parent-agent row.
   report, in canonical order.
 - **Delegation**: KPI row — spawning sessions, subagent sessions, and
   max fan-out from `subagent_parents`; tokens-delegated share and
-  estimated subagent spend from `subagent_usage_by_day` (priced
-  panel-side, same honesty rule as Spend & tokens) — plus a weekly
+  subagent spend and price coverage from `subagent_usage_by_day`
+  (the same cost indicators as Spend & tokens) — plus a weekly
   delegated-token-share line chart. The share is token-based: subagent
   tokens over all tokens in the window. Counts come from two reports
   with slightly different reach: the usage split needs only the child's
@@ -412,7 +412,8 @@ states on repeat clicks:
 
 The active column shows an arrow in the header (▴ ascending, ▾
 descending). Cost sorts in the panel after loading all matching rows and
-computing `pricing.CostUSD`; other columns sort server-side via
+combining each server cost summary with its children before pagination;
+other columns sort server-side via
 `Sessions.List` (`sort_by` + `sort_dir`). FTS search (`q` set) still
 overrides explicit sort (rank wins).
 
@@ -510,7 +511,9 @@ table.
 - **KPI strip**: active profiles (distinct device × agent × profile
   groups in the window), share of sessions outside the `default`
   profile, token total, and estimated spend — all from the
-  `profile_usage` report, priced panel-side per UTC day and model.
+  `profile_usage` report with costs and coverage calculated by the server.
+  Estimates show `~`, partial totals show `(partial)`, and unavailable costs
+  show `n/a`.
 - **Sessions per profile**: stacked weekly columns per `agent·profile`
   (top 4 + "other", same fold as Home's activity trend), from the
   `profiles_by_day` report. Charts label `agent·profile` with devices

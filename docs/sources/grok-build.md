@@ -156,12 +156,18 @@ not "zero usage".
   `*/subagents/<child-id>/meta.json` among sibling sessions (project dir
   first, sessions root as fallback) and read `parent_session_id`.
 - **Pricing**: `grok-4.5-build` / `grok-4.6-build` resolve to the
-  `grok-4.5` / `grok-4.6` rates by prefix. The ≥200K-context 2× input
-  surcharge is not modelled — costs for very long contexts are
-  underestimated, the same approximation prosa applies to Gemini's
-  context tiers.
+  `grok-4.5` / `grok-4.6` rates by prefix. Aggregate usage receives an
+  estimated standard-context cost because the ledger omits per-request
+  prompt lengths. The pricing engine applies context tiers when a source
+  supplies measured request usage and prompt length.
 
 ## References
 
 - Live store survey: 105 sessions, grok v1.0.3, 2026-08.
 - Importer: `internal/importers/grokbuild/`.
+
+## Request usage
+
+The `turn_completed` ledger contains aggregates spanning `modelCalls`.
+The canonical session retains those aggregates with request coverage `none`;
+pricing estimates token cost from the session model and dates.

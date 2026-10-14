@@ -298,3 +298,8 @@ community parsers converge on the layout above:
 - [OpenLAIR/dr-claw](https://github.com/OpenLAIR/dr-claw/blob/main/server/routes/cursor.js) — JS impl with the explicit `0x7B` JSON / `0x0A 0x20` protobuf classification.
 - [specstoryai/getspecstory](https://github.com/specstoryai/getspecstory/blob/main/specstory-cli/pkg/providers/cursorcli/sqlite_reader.go) — production Go reader, proves the `?mode=ro&immutable=1` DSN coexists with a running cursor.
 - [jxtngx/dgx-lab](https://github.com/jxtngx/dgx-lab/blob/main/backend/app/cursor_chats.py) — `currentPlanUri` → workspace path extraction.
+
+## Request usage
+
+Cursor transcripts supply no measured token usage. Canonical request coverage
+is `none`, and token cost is unavailable.
