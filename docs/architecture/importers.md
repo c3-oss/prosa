@@ -158,11 +158,15 @@ session.Session{
 
 Plus:
 
-- `session.TokenUsage` — aggregate token usage. Sessions without any
-  positive token field are skipped by import policy.
-- `[]session.Turn` — every user/assistant turn (text content only), in
-  source order. Tool calls and tool results are NOT included in turns in
-  the MVP cut — they're preserved in raw but not indexed.
+- `session.TokenUsage` — aggregate token usage. Import policy admits
+  positive usage and sessions without observed usage events; sessions
+  whose observed usage events contain only zeros are skipped.
+- `session.RequestUsage` — measured inferences and observed billing
+  parameters. `Session.RequestCoverage` records whether this collection
+  covers all aggregate usage. The canonical contract defines each field.
+- `[]session.Turn` — message text in source order, including supported
+  tool-result text. Each turn carries its kind; the canonical contract
+  defines searchable content.
 - `[]session.ToolUsage` — `name → count` aggregation per session.
 
 The exact `session.Session` definition is in `pkg/session/types.go`. The

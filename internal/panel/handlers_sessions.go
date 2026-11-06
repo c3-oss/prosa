@@ -77,8 +77,7 @@ type sessionRow struct {
 	TokensIn        string
 	TokensOut       string
 	Cost            string
-	costAmount      float64
-	costPriced      bool
+	costSummary     session.CostSummary
 	Device          string
 	StartedAt       string
 	StartedAtFull   string
@@ -522,6 +521,9 @@ func (p *Panel) listSessionsSortedByCost(
 		}
 		ti := sessionStartedAt(ri.session)
 		tj := sessionStartedAt(rj.session)
+		if ti.Equal(tj) {
+			return ri.session.Id < rj.session.Id
+		}
 		if costDesc {
 			return ti.After(tj)
 		}
@@ -550,21 +552,26 @@ func (p *Panel) listSessionsSortedByCost(
 	return out, total, pageCount, nil
 }
 
+// sessionCostForSort degrades to the parent's own cost when the children
+// lookup fails, so one transient error does not break the whole page.
 func (p *Panel) sessionCostForSort(ctx context.Context, s *prosav1.Session, includeChildren bool) (float64, bool) {
-	cost, ok := sessionCost(s)
-	if !includeChildren || s == nil {
-		return cost, ok
+	cost := sessionCostSummary(s)
+	if includeChildren && s != nil {
+		resp, err := p.clients.Sessions.ListChildren(ctx, connect.NewRequest(&prosav1.ListChildrenRequest{ParentId: s.Id}))
+		if err != nil {
+			slog.Warn("sessions.listChildren cost sort failed", "id", s.Id, "err", err)
+		} else {
+			costs := []session.CostSummary{cost}
+			for _, child := range resp.Msg.Sessions {
+				costs = append(costs, sessionCostSummary(child))
+			}
+			cost = pricing.CombineCosts(costs...)
+		}
 	}
-	childResp, err := p.clients.Sessions.ListChildren(ctx,
-		connect.NewRequest(&prosav1.ListChildrenRequest{ParentId: s.Id}))
-	if err != nil {
-		slog.Warn("sessions.listChildren cost sort failed", "id", s.Id, "err", err)
-		return cost, ok
+	if cost.USD == nil {
+		return 0, false
 	}
-	for _, child := range childResp.Msg.Sessions {
-		cost, ok = addSessionCost(cost, ok, child)
-	}
-	return cost, ok
+	return *cost.USD, true
 }
 
 func sessionStartedAt(s *prosav1.Session) time.Time {
@@ -585,7 +592,7 @@ func buildSessionRow(s *prosav1.Session, current *url.URL, deviceLookup map[stri
 		return sessionRow{}
 	}
 	usage := tokenUsageFromProto(s.Usage)
-	cost, priced := sessionCost(s)
+	costSummary := sessionCostSummary(s)
 	startedFull := ""
 	startedRel := ""
 	startedDay := ""
@@ -615,9 +622,8 @@ func buildSessionRow(s *prosav1.Session, current *url.URL, deviceLookup map[stri
 		TokensTotalFull: formatPanelInt(usage.TotalTokens),
 		TokensIn:        formatPanelInt(usage.InputTokens),
 		TokensOut:       formatPanelInt(usage.OutputTokens),
-		Cost:            costLabel(cost, priced),
-		costAmount:      cost,
-		costPriced:      priced,
+		Cost:            costSummaryLabel(costSummary),
+		costSummary:     costSummary,
 		Device:          device,
 		StartedAt:       startedRel,
 		StartedAtFull:   startedFull,
@@ -654,32 +660,12 @@ func rollUpSessionRowCost(row *sessionRow) {
 	if row == nil {
 		return
 	}
-	cost := row.costAmount
-	priced := row.costPriced
+	costs := []session.CostSummary{row.costSummary}
 	for _, child := range row.Children {
-		if child.costPriced {
-			cost += child.costAmount
-			priced = true
-		}
+		costs = append(costs, child.costSummary)
 	}
-	row.costAmount = cost
-	row.costPriced = priced
-	row.Cost = costLabel(cost, priced)
-}
-
-func sessionCost(s *prosav1.Session) (float64, bool) {
-	if s == nil {
-		return 0, false
-	}
-	return pricing.CostUSD(s.Model, tokenUsageFromProto(s.Usage), sessionStartedAt(s))
-}
-
-func addSessionCost(total float64, priced bool, s *prosav1.Session) (float64, bool) {
-	cost, ok := sessionCost(s)
-	if ok {
-		return total + cost, true
-	}
-	return total, priced
+	row.costSummary = pricing.CombineCosts(costs...)
+	row.Cost = costSummaryLabel(row.costSummary)
 }
 
 // loadDeviceLookup returns the dropdown-ready sorted list of device
@@ -706,7 +692,7 @@ func (p *Panel) loadDeviceLookup(ctx context.Context) ([]string, map[string]stri
 }
 
 // tokenUsageFromProto reshapes the proto-side TokenUsage into the
-// pkg/session.TokenUsage shape pricing.CostUSD expects. Returns a zero
+// pkg/session.TokenUsage shape used by pricing. Returns a zero
 // value when the proto pointer is nil so the cost path still runs and
 // returns priced=false uniformly.
 func tokenUsageFromProto(u *prosav1.TokenUsage) session.TokenUsage {

@@ -18,6 +18,7 @@ import (
 
 	prosav1 "github.com/c3-oss/prosa/gen/go/prosa/v1"
 	"github.com/c3-oss/prosa/internal/panel/charts"
+	"github.com/c3-oss/prosa/pkg/session"
 )
 
 // handleHome renders the dashboard: KPI strip + heatmap card + tools /
@@ -175,7 +176,7 @@ func (p *Panel) handleHome(w http.ResponseWriter, r *http.Request) {
 
 	heatmap := buildHeatmap(out.heatmap.Rows)
 	usageRows, usageTokens, usageCost, usagePriced := buildUsage(out.usage.Rows)
-	usageCostLabel := costLabel(usageCost, usagePriced)
+	usageCostLabel := costSummaryLabel(usageReportCost(out.usage.Rows))
 	projectBars := buildProjectBars(out.projects.Rows, 10)
 	modelBoard := buildModelBoard(out.usageByModel.Rows, 12)
 	hourChart := buildHourChart(out.hours.Rows)
@@ -596,14 +597,6 @@ type usagePanelRow struct {
 	Percent   int
 }
 
-// costLabel renders estimated spend as "$X.XX", or "n/a" when unpriced.
-func costLabel(cost float64, priced bool) string {
-	if !priced {
-		return "n/a"
-	}
-	return formatUSD(cost)
-}
-
 func buildUsage(rows []*prosav1.AnalyticsRow) ([]usagePanelRow, int64, float64, bool) {
 	type parsedRow struct {
 		values usagePanelRow
@@ -628,19 +621,14 @@ func buildUsage(rows []*prosav1.AnalyticsRow) ([]usagePanelRow, int64, float64, 
 		if total > maxTotal {
 			maxTotal = total
 		}
-		costStr := strings.TrimSpace(row.Values[7])
-		costLabel := "n/a"
+		summary := reportCost(row.Values, 7, total)
+		costLabel := costSummaryLabel(summary)
 		var costFloat float64
-		priced := false
-		if costStr != "" {
-			if f, err := strconv.ParseFloat(costStr, 64); err == nil {
-				costFloat = f
-				priced = true
-				costLabel = formatUSD(f)
-			} else {
-				costLabel = "$" + costStr
-			}
+		priced := summary.USD != nil
+		if priced {
+			costFloat = *summary.USD
 		}
+
 		parsed = append(parsed, parsedRow{
 			total:  total,
 			cost:   costFloat,
@@ -734,8 +722,7 @@ func buildModelBoard(rows []*prosav1.AnalyticsRow, limit int) []modelBoardRow {
 		model    string
 		sessions int64
 		tokens   int64
-		cost     float64
-		priced   bool
+		summary  session.CostSummary
 	}
 	items := make([]agg, 0, len(rows))
 	for _, row := range rows {
@@ -751,12 +738,8 @@ func buildModelBoard(rows []*prosav1.AnalyticsRow, limit int) []modelBoardRow {
 			sessions: parsePanelInt(row.Values[1]),
 			tokens:   parsePanelInt(row.Values[2]),
 		}
-		if costStr := strings.TrimSpace(row.Values[5]); costStr != "" {
-			if c, err := strconv.ParseFloat(costStr, 64); err == nil {
-				it.cost = c
-				it.priced = true
-			}
-		}
+		it.summary = reportCost(row.Values, 5, it.tokens)
+
 		items = append(items, it)
 	}
 	sort.SliceStable(items, func(i, j int) bool {
@@ -784,7 +767,7 @@ func buildModelBoard(rows []*prosav1.AnalyticsRow, limit int) []modelBoardRow {
 			Sessions:   formatPanelInt(it.sessions),
 			Tokens:     formatTokensCompact(it.tokens),
 			TokensFull: formatPanelInt(it.tokens),
-			Cost:       costLabel(it.cost, it.priced),
+			Cost:       costSummaryLabel(it.summary),
 			Percent:    pct,
 		})
 	}

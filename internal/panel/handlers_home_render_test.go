@@ -17,6 +17,8 @@ import (
 type fakeSessionsService struct {
 	prosav1connect.UnimplementedSessionsServiceHandler
 	listResponse   *prosav1.ListResponse
+	listPage       func(*prosav1.ListRequest) *prosav1.ListResponse
+	childrenErr    error
 	children       map[string][]*prosav1.Session
 	onList         func(*prosav1.ListRequest)
 	onListChildren func(*prosav1.ListChildrenRequest)
@@ -26,6 +28,9 @@ func (s fakeSessionsService) List(_ context.Context, req *connect.Request[prosav
 	if s.onList != nil {
 		s.onList(req.Msg)
 	}
+	if s.listPage != nil {
+		return connect.NewResponse(s.listPage(req.Msg)), nil
+	}
 	if s.listResponse != nil {
 		return connect.NewResponse(s.listResponse), nil
 	}
@@ -33,6 +38,9 @@ func (s fakeSessionsService) List(_ context.Context, req *connect.Request[prosav
 }
 
 func (s fakeSessionsService) ListChildren(_ context.Context, req *connect.Request[prosav1.ListChildrenRequest]) (*connect.Response[prosav1.ListChildrenResponse], error) {
+	if s.childrenErr != nil {
+		return nil, s.childrenErr
+	}
 	if s.onListChildren != nil {
 		s.onListChildren(req.Msg)
 	}

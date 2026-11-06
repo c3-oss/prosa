@@ -147,6 +147,8 @@ func (i *Importer) Import(ctx context.Context, summaryPath string, sink importer
 		return importpolicy.RecordNoUsageSkip(ctx, sink, id, hash, size)
 	}
 
+	sess.ProjectionVersion = session.ProjectionVersion
+	sess.RequestCoverage = session.RequestCoverageNone
 	sess.Agent = Name
 	sess.DeviceID = device.IDOnce()
 	sess.Profile = session.ProfileOrDefault(opts.Profile)

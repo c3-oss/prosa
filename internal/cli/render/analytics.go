@@ -46,6 +46,15 @@ func analyticsTTY(w io.Writer, r store.AnalyticsResult) error {
 		for i, v := range row.Values {
 			if i < len(r.Headers) {
 				cells[i] = analyticsCell(r.Headers[i], toString(v))
+				if r.Headers[i] == "EST_COST_USD" {
+					status := "estimated"
+					for j, h := range r.Headers {
+						if h == "COST_STATUS" && j < len(row.Values) {
+							status = toString(row.Values[j])
+						}
+					}
+					cells[i].Text = formatCostStatus(toString(v), status)
+				}
 			} else {
 				cells[i] = Cell(toString(v))
 			}
@@ -234,6 +243,7 @@ type usageRow struct {
 	output   int64
 	cached   int64
 	cost     string
+	status   string
 }
 
 func analyticsUsageTTY(w io.Writer, r store.AnalyticsResult) error {
@@ -255,7 +265,7 @@ func analyticsUsageTTY(w io.Writer, r store.AnalyticsResult) error {
 		widths[1] = max(widths[1], lipgloss.Width(formatInt(row.sessions)))
 		widths[2] = max(widths[2], lipgloss.Width(formatInt(row.measured)))
 		widths[3] = max(widths[3], lipgloss.Width(formatInt(row.total)))
-		widths[4] = max(widths[4], lipgloss.Width(formatCost(row.cost)))
+		widths[4] = max(widths[4], lipgloss.Width(formatCostStatus(row.cost, row.status)))
 	}
 
 	headers := []string{"AGENT", "SESS", "MEASURED", "TOTAL", "COST"}
@@ -277,7 +287,7 @@ func analyticsUsageTTY(w io.Writer, r store.AnalyticsResult) error {
 			formatInt(row.sessions),
 			formatInt(row.measured),
 			formatInt(row.total),
-			formatCost(row.cost),
+			formatCostStatus(row.cost, row.status),
 		}
 		for i, v := range values {
 			if i > 0 {
@@ -315,7 +325,12 @@ func parseUsageRows(r store.AnalyticsResult) []usageRow {
 		if len(row.Values) < 8 {
 			continue
 		}
+		status := "estimated"
+		if len(row.Values) >= 11 {
+			status = toString(row.Values[8])
+		}
 		out = append(out, usageRow{
+			status:   status,
 			agent:    toString(row.Values[0]),
 			sessions: parseInt(row.Values[1]),
 			measured: parseInt(row.Values[2]),
@@ -372,7 +387,8 @@ func isHeatmapResult(r store.AnalyticsResult) bool {
 }
 
 func isUsageResult(r store.AnalyticsResult) bool {
-	return sameHeaders(r.Headers, []string{"AGENT", "SESSIONS", "MEASURED", "TOTAL", "INPUT", "OUTPUT", "CACHED", "EST_COST_USD"})
+	headers := []string{"AGENT", "SESSIONS", "MEASURED", "TOTAL", "INPUT", "OUTPUT", "CACHED", "EST_COST_USD"}
+	return len(r.Headers) >= len(headers) && sameHeaders(r.Headers[:len(headers)], headers)
 }
 
 func sameHeaders(got, want []string) bool {
@@ -438,4 +454,18 @@ func toString(v any) string {
 	default:
 		return fmt.Sprintf("%v", x)
 	}
+}
+
+func formatCostStatus(value, status string) string {
+	label := formatCost(value)
+	if strings.TrimSpace(value) == "" {
+		return label
+	}
+	switch status {
+	case "estimated":
+		return "~" + label
+	case "partial":
+		return label + " (partial)"
+	}
+	return label
 }

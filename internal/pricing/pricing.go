@@ -6,8 +6,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/c3-oss/prosa/pkg/session"
 )
 
 // Rates are USD-per-token prices. The table is intentionally embedded and
@@ -25,7 +23,7 @@ type ratePeriod struct {
 }
 
 var (
-	sonnet5StandardFrom = time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	sonnet55CacheCutFrom = time.Date(2026, 10, 7, 0, 0, 0, 0, time.UTC)
 
 	// xAI retired the grok-code-fast-1 slug on this date. Requests still
 	// resolve, but bill at grok-4.3 rates.
@@ -72,21 +70,22 @@ var ratesByModel = map[string][]ratePeriod{
 	"claude-sonnet-4-0": fixed(Rates{Input: 3.0e-6, Output: 1.5e-5, CacheRead: 3.0e-7, CacheCreation: 3.75e-6}),
 	"claude-sonnet-4-5": fixed(Rates{Input: 3.0e-6, Output: 1.5e-5, CacheRead: 3.0e-7, CacheCreation: 3.75e-6}),
 	"claude-sonnet-4-6": fixed(Rates{Input: 3.0e-6, Output: 1.5e-5, CacheRead: 3.0e-7, CacheCreation: 3.75e-6}),
-	"claude-sonnet-5": {
-		{Rates: Rates{Input: 2.0e-6, Output: 1.0e-5, CacheRead: 2.0e-7, CacheCreation: 2.5e-6}},
-		{From: sonnet5StandardFrom, Rates: Rates{Input: 3.0e-6, Output: 1.5e-5, CacheRead: 3.0e-7, CacheCreation: 3.75e-6}},
-	},
-	"claude-haiku-4-5": fixed(Rates{Input: 1.0e-6, Output: 5.0e-6, CacheRead: 1.0e-7, CacheCreation: 1.25e-6}),
-	"claude-fable-5":   fixed(Rates{Input: 1.0e-5, Output: 5.0e-5, CacheRead: 1.0e-6, CacheCreation: 1.25e-5}),
-	// Fast mode doubles Opus 5 to $10/$50 but keeps the same model id, so
-	// fast-mode sessions are estimated at the standard rate.
-	"claude-opus-5":   fixed(Rates{Input: 5.0e-6, Output: 2.5e-5, CacheRead: 5.0e-7, CacheCreation: 6.25e-6}),
-	"claude-mythos-5": fixed(Rates{Input: 1.0e-5, Output: 5.0e-5, CacheRead: 1.0e-6, CacheCreation: 1.25e-5}),
+	"claude-sonnet-5":   fixed(Rates{Input: 2.0e-6, Output: 1.0e-5, CacheRead: 2.0e-7, CacheCreation: 2.5e-6}),
+	"claude-haiku-4-5":  fixed(Rates{Input: 1.0e-6, Output: 5.0e-6, CacheRead: 1.0e-7, CacheCreation: 1.25e-6}),
+	"claude-fable-5":    fixed(Rates{Input: 1.0e-5, Output: 5.0e-5, CacheRead: 1.0e-6, CacheCreation: 1.25e-5}),
+	"claude-opus-5":     fixed(Rates{Input: 5.0e-6, Output: 2.5e-5, CacheRead: 5.0e-7, CacheCreation: 6.25e-6}),
+	"claude-mythos-5":   fixed(Rates{Input: 1.0e-5, Output: 5.0e-5, CacheRead: 1.0e-6, CacheCreation: 1.25e-5}),
 	// The 5.1 generation kept the $10/$50 tariff but cut the cache read to
 	// $0.25/MTok. Both ids need their own key so the prefix fallback cannot
 	// price them at the 5.0 generation's $1/MTok read.
 	"claude-fable-5-1":  fable51Periods,
 	"claude-mythos-5-1": fable51Periods,
+	"claude-opus-5-5":   fixed(Rates{Input: 4e-6, Output: 20e-6, CacheRead: .2e-6, CacheCreation: 5e-6}),
+	"claude-sonnet-5-5": {
+		{Rates: Rates{Input: 2e-6, Output: 10e-6, CacheRead: .2e-6, CacheCreation: 2.5e-6}},
+		{From: sonnet55CacheCutFrom, Rates: Rates{Input: 2e-6, Output: 10e-6, CacheRead: .1e-6, CacheCreation: 2.5e-6}},
+	},
+	"claude-haiku-5-5": fixed(Rates{Input: .1e-6, Output: .5e-6, CacheRead: .01e-6, CacheCreation: .125e-6}),
 
 	// OpenAI — GPT-5 generation.
 	"gpt-5":               fixed(Rates{Input: 1.25e-6, Output: 1.0e-5, CacheRead: 1.25e-7}),
@@ -127,17 +126,19 @@ var ratesByModel = map[string][]ratePeriod{
 	"gpt-daybreak-blue": gpt56SolPeriods,
 
 	// OpenAI — GPT-6 generation.
-	// Prompts over 272K input reprice the whole request at 2x input and 1.5x
-	// output, and Fast mode doubles the tariff under the same model id.
-	// Neither is modelled: session totals carry no per-request prompt length,
-	// the same documented approximation as the Gemini and Grok context tiers.
-	"gpt-6-astra": fixed(Rates{Input: 1.0e-5, Output: 5.0e-5, CacheRead: 1.0e-6, CacheCreation: 1.25e-5}),
+	"gpt-6-astra":            fixed(Rates{Input: 1.0e-5, Output: 5.0e-5, CacheRead: 1.0e-6, CacheCreation: 1.25e-5}),
+	"gpt-6-sol":              fixed(Rates{Input: 2e-6, Output: 10e-6, CacheRead: .2e-6, CacheCreation: 2.5e-6}),
+	"gpt-6.1-sol":            fixed(Rates{Input: 2e-6, Output: 10e-6, CacheRead: .1e-6, CacheCreation: 2.5e-6}),
+	"gpt-6-luna":             fixed(Rates{Input: .1e-6, Output: .5e-6, CacheRead: .01e-6, CacheCreation: .125e-6}),
+	"gpt-5.6-cyber":          fixed(Rates{Input: 12.5e-6, Output: 75e-6, CacheRead: 1.25e-6, CacheCreation: 15.625e-6}),
+	"gpt-5.5-cyber":          fixed(Rates{Input: 12.5e-6, Output: 75e-6, CacheRead: 1.25e-6}),
+	"gpt-rosalind-research":  fixed(Rates{Input: 5e-6, Output: 25e-6, CacheRead: .5e-6}),
+	"gpt-rosalind-discovery": fixed(Rates{Input: 5e-6, Output: 25e-6, CacheRead: .5e-6}),
 
 	// OpenAI — o-series reasoning models.
 	"o3": fixed(Rates{Input: 2.0e-6, Output: 8.0e-6, CacheRead: 5.0e-7}),
 
 	// Google — Gemini 2.5 / 3 / 3.5 generation.
-	// Tier-pricing for >200k context is not yet modelled; we use the base tariff for every call.
 	"gemini-2.5-pro":         fixed(Rates{Input: 1.25e-6, Output: 1.0e-5, CacheRead: 1.25e-7}),
 	"gemini-2.5-flash":       fixed(Rates{Input: 3.0e-7, Output: 2.5e-6, CacheRead: 3.0e-8}),
 	"gemini-2.5-flash-lite":  fixed(Rates{Input: 1.0e-7, Output: 4.0e-7, CacheRead: 1.0e-8}),
@@ -145,30 +146,65 @@ var ratesByModel = map[string][]ratePeriod{
 	"gemini-3-flash-preview": fixed(Rates{Input: 5.0e-7, Output: 3.0e-6, CacheRead: 5.0e-8}),
 	"gemini-3-pro":           fixed(Rates{Input: 2.0e-6, Output: 1.2e-5, CacheRead: 2.0e-7}),
 	"gemini-3.1-pro":         fixed(Rates{Input: 2.0e-6, Output: 1.2e-5, CacheRead: 2.0e-7}),
-	"gemini-3.5-flash":       fixed(Rates{Input: 1.5e-6, Output: 9.0e-6, CacheRead: 1.5e-7}),
+	"gemini-3.5-flash": {
+		{Rates: Rates{Input: 1.5e-6, Output: 9e-6, CacheRead: .15e-6}},
+		{From: time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC), Rates: Rates{Input: .75e-6, Output: 3.75e-6, CacheRead: .075e-6}},
+		{From: time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC), Rates: Rates{Input: 1.5e-6, Output: 7.5e-6, CacheRead: .15e-6}},
+	},
+	"gemini-3.1-flash-lite": fixed(Rates{Input: .25e-6, Output: 1.5e-6, CacheRead: .025e-6}),
+	"gemini-3.5-flash-lite": fixed(Rates{Input: .3e-6, Output: 2.5e-6, CacheRead: .03e-6}),
+	"gemini-3.6-flash": {
+		{Rates: Rates{Input: 1.5e-6, Output: 7.5e-6, CacheRead: .15e-6}},
+		{From: time.Date(2026, 8, 13, 0, 0, 0, 0, time.UTC), Rates: Rates{Input: .75e-6, Output: 3.75e-6, CacheRead: .075e-6}},
+		{From: time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC), Rates: Rates{Input: 1.5e-6, Output: 7.5e-6, CacheRead: .15e-6}},
+	},
+	"gemini-3.7-flash": geminiFlashPeriods,
+	"gemini-3.8-flash": geminiFlashPeriods,
+	"gemini-4-argon": {
+		{Rates: Rates{Input: 2e-6, Output: 10e-6, CacheRead: .1e-6}},
+		{From: time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC), Rates: Rates{Input: 4e-6, Output: 20e-6, CacheRead: .2e-6}},
+	},
 
 	// xAI — Grok generation. Grok Build emits `-build` model ids
 	// (grok-4.5-build) that resolve via the longest-prefix fallback.
-	// The ≥200K-context 2x surcharge is not modelled — same documented
-	// approximation as the Gemini context tiers.
 	"grok-code-fast-1": {
 		{Rates: Rates{Input: 2.0e-7, Output: 1.5e-6, CacheRead: 2.0e-8}},
 		{From: grokCodeFast1RetiredFrom, Rates: Rates{Input: 1.25e-6, Output: 2.5e-6, CacheRead: 2.0e-7}},
 	},
-	"grok-4.5": fixed(Rates{Input: 2.0e-6, Output: 6.0e-6, CacheRead: 3.0e-7}),
-	"grok-4.6": fixed(Rates{Input: 2.0e-6, Output: 6.0e-6, CacheRead: 5.0e-7}),
+	"grok-4.5":                     fixed(Rates{Input: 2.0e-6, Output: 6.0e-6, CacheRead: 3.0e-7}),
+	"grok-4.6":                     fixed(Rates{Input: 2.0e-6, Output: 6.0e-6, CacheRead: 5.0e-7}),
+	"grok-4.7":                     fixed(Rates{Input: 2e-6, Output: 6e-6, CacheRead: .5e-6}),
+	"grok-4.3":                     fixed(Rates{Input: 1.25e-6, Output: 2.5e-6, CacheRead: .2e-6}),
+	"grok-build-0.1":               fixed(Rates{Input: 1e-6, Output: 2e-6, CacheRead: .2e-6}),
+	"grok-4.20-multi-agent-0309":   fixed(Rates{Input: 1.25e-6, Output: 2.5e-6, CacheRead: .2e-6}),
+	"grok-4.20-0309-reasoning":     fixed(Rates{Input: 1.25e-6, Output: 2.5e-6, CacheRead: .2e-6}),
+	"grok-4.20-0309-non-reasoning": fixed(Rates{Input: 1.25e-6, Output: 2.5e-6, CacheRead: .2e-6}),
 
 	// Z.AI — GLM generation. Cached-input storage is currently free.
-	"glm-4.7":     fixed(Rates{Input: 6.0e-7, Output: 2.2e-6, CacheRead: 1.1e-7}),
-	"glm-4.5-air": fixed(Rates{Input: 2.0e-7, Output: 1.1e-6, CacheRead: 3.0e-8}),
+	"glm-4.7":        fixed(Rates{Input: 6.0e-7, Output: 2.2e-6, CacheRead: 1.1e-7}),
+	"glm-4.5-air":    fixed(Rates{Input: 2.0e-7, Output: 1.1e-6, CacheRead: 3.0e-8}),
+	"glm-4.7-flash":  fixed(Rates{}),
+	"glm-4.7-flashx": fixed(Rates{Input: .07e-6, Output: .4e-6, CacheRead: .01e-6}),
+	"glm-5":          fixed(Rates{Input: 1e-6, Output: 3.2e-6, CacheRead: .2e-6}),
+	"glm-5.1":        fixed(Rates{Input: 1.4e-6, Output: 4.4e-6, CacheRead: .26e-6}),
+	"glm-5.2":        fixed(Rates{Input: 1.4e-6, Output: 4.4e-6, CacheRead: .26e-6}),
+	"glm-5.3":        fixed(Rates{Input: 1.4e-6, Output: 4.4e-6, CacheRead: .26e-6}),
+	"glm-5.3-flash":  fixed(Rates{Input: .15e-6, Output: .5e-6, CacheRead: .03e-6}),
+	"glm-5.3-flashx": fixed(Rates{Input: .37e-6, Output: 1.25e-6, CacheRead: .075e-6}),
 
 	// Cursor — Composer generation. composer-2-fast needs its own key so the
 	// prefix fallback cannot collapse it onto composer-2's cheaper tier.
-	"composer-1":      fixed(Rates{Input: 1.25e-6, Output: 1.0e-5, CacheRead: 1.25e-7}),
-	"composer-1.5":    fixed(Rates{Input: 3.5e-6, Output: 1.75e-5, CacheRead: 3.5e-7}),
-	"composer-2":      fixed(Rates{Input: 5.0e-7, Output: 2.5e-6, CacheRead: 2.0e-7}),
-	"composer-2-fast": fixed(Rates{Input: 1.5e-6, Output: 7.5e-6, CacheRead: 3.5e-7}),
-	"composer-2.5":    fixed(Rates{Input: 5.0e-7, Output: 2.5e-6, CacheRead: 2.0e-7}),
+	"composer-1":        fixed(Rates{Input: 1.25e-6, Output: 1.0e-5, CacheRead: 1.25e-7}),
+	"composer-1.5":      fixed(Rates{Input: 3.5e-6, Output: 1.75e-5, CacheRead: 3.5e-7}),
+	"composer-2":        fixed(Rates{Input: 5.0e-7, Output: 2.5e-6, CacheRead: 2.0e-7}),
+	"composer-2-fast":   fixed(Rates{Input: 1.5e-6, Output: 7.5e-6, CacheRead: 3.5e-7}),
+	"composer-2.5":      fixed(Rates{Input: 5.0e-7, Output: 2.5e-6, CacheRead: 2.0e-7}),
+	"composer-2.5-fast": fixed(Rates{Input: 3e-6, Output: 15e-6, CacheRead: .5e-6}),
+}
+
+var geminiFlashPeriods = []ratePeriod{
+	{Rates: Rates{Input: .75e-6, Output: 3.75e-6, CacheRead: .075e-6}},
+	{From: time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC), Rates: Rates{Input: 1.5e-6, Output: 7.5e-6, CacheRead: .15e-6}},
 }
 
 // modelAliases maps dot-form or reordered model ids to their canonical key in ratesByModel.
@@ -191,37 +227,11 @@ var (
 	// Cursor writes Claude ids family-last and dot-versioned, e.g.
 	// claude-4.6-opus-high-thinking for claude-opus-4-6.
 	reorderedClaudeRE = regexp.MustCompile(`^claude-(\d+)\.(\d+)-(opus|sonnet|haiku)(-.*)?$`)
+	dottedClaudeRE    = regexp.MustCompile(`^claude-(opus|sonnet|haiku|fable|mythos)-(\d+)\.(\d+)(-.*)?$`)
 
 	prefixKeysOnce sync.Once
 	prefixKeys     []string
 )
-
-// CostUSD estimates one session's usage cost. cached_tokens is treated as
-// cache-read input when the provider does not expose the read/create split.
-func CostUSD(model string, usage session.TokenUsage, at time.Time) (float64, bool) {
-	r, ok := Lookup(model, at)
-	if !ok {
-		return 0, false
-	}
-
-	cacheRead := usage.CacheReadTokens
-	if cacheRead == 0 {
-		cacheRead = usage.CachedTokens
-	}
-	if cacheRead > usage.InputTokens {
-		cacheRead = usage.InputTokens
-	}
-	uncachedInput := usage.InputTokens - cacheRead - usage.CacheCreationTokens
-	if uncachedInput < 0 {
-		uncachedInput = 0
-	}
-
-	cost := float64(uncachedInput)*r.Input +
-		float64(cacheRead)*r.CacheRead +
-		float64(usage.CacheCreationTokens)*r.CacheCreation +
-		float64(usage.OutputTokens)*r.Output
-	return cost, true
-}
 
 // Lookup resolves rates for a raw model string. Falls back to a longest-prefix
 // match so versioned variants (e.g. claude-opus-4-7) don't collapse onto a
@@ -250,7 +260,7 @@ func rateAt(periods []ratePeriod, at time.Time) (Rates, bool) {
 		return Rates{}, false
 	}
 	if at.IsZero() {
-		return periods[len(periods)-1].Rates, true
+		at = time.Now().UTC()
 	}
 	out := periods[0].Rates
 	for _, p := range periods {
@@ -274,7 +284,8 @@ func NormalizeModel(model string) string {
 		s = s[:at]
 	}
 	s = datedSuffixRE.ReplaceAllString(s, "")
-	return reorderedClaudeRE.ReplaceAllString(s, "claude-$3-$1-$2$4")
+	s = reorderedClaudeRE.ReplaceAllString(s, "claude-$3-$1-$2$4")
+	return dottedClaudeRE.ReplaceAllString(s, "claude-$1-$2-$3$4")
 }
 
 // sortedPrefixKeys returns rate-table keys ordered longest-first so the prefix

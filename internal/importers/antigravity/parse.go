@@ -83,7 +83,7 @@ func parseSession(ctx context.Context, path string) (session.Session, []session.
 		sess.ProjectPath = &p
 	}
 
-	turns, tools, firstTS, lastTS, firstPromptText, usage, seenUsage, err := projectSteps(ctx, db)
+	turns, tools, firstTS, lastTS, firstPromptText, usage, seenUsage, requests, err := projectSteps(ctx, db)
 	if err != nil {
 		return session.Session{}, nil, nil, session.UsageStateUnknown,
 			fmt.Errorf("project steps: %w", err)
@@ -112,6 +112,11 @@ func parseSession(ctx context.Context, path string) (session.Session, []session.
 		sess.Model = &m
 	}
 
+	sess.Requests = requests
+	sess.RequestCoverage = session.RequestCoverageNone
+	if len(requests) > 0 {
+		sess.RequestCoverage = session.RequestCoverageComplete
+	}
 	state := session.ClassifyUsage(seenUsage, sess.Usage)
 	return sess, turns, tools, state, nil
 }
@@ -140,24 +145,27 @@ func projectSteps(ctx context.Context, db *sql.DB) (
 	firstPrompt string,
 	usage *session.TokenUsage,
 	seenUsage bool,
+	requests []session.RequestUsage,
 	err error,
 ) {
+	executorModels := readExecutorModels(ctx, db)
 	rows, qerr := db.QueryContext(ctx, `
 		SELECT idx, step_type, metadata, step_payload
 		FROM steps
 		ORDER BY idx ASC
 	`)
 	if qerr != nil {
-		return nil, nil, time.Time{}, time.Time{}, "", nil, false, qerr
+		return nil, nil, time.Time{}, time.Time{}, "", nil, false, nil, qerr
 	}
 	defer func() { _ = rows.Close() }()
 
 	toolCounts := map[string]int{}
+	seenRequests := map[string]bool{}
 	var prevTS time.Time
 	var sumInput, sumOutput, sumCacheRead, sumCacheWrite int64
 	for rows.Next() {
 		if cerr := ctx.Err(); cerr != nil {
-			return nil, nil, time.Time{}, time.Time{}, "", nil, false, cerr
+			return nil, nil, time.Time{}, time.Time{}, "", nil, false, nil, cerr
 		}
 		var (
 			idx     int
@@ -166,7 +174,7 @@ func projectSteps(ctx context.Context, db *sql.DB) (
 			payload []byte
 		)
 		if serr := rows.Scan(&idx, &stepTyp, &meta, &payload); serr != nil {
-			return nil, nil, time.Time{}, time.Time{}, "", nil, false, fmt.Errorf("scan step: %w", serr)
+			return nil, nil, time.Time{}, time.Time{}, "", nil, false, nil, fmt.Errorf("scan step: %w", serr)
 		}
 		ts, ok := readStepEventTime(meta)
 		if !ok {
@@ -184,10 +192,30 @@ func projectSteps(ctx context.Context, db *sql.DB) (
 
 		if u := readStepUsage(meta); u.Present {
 			seenUsage = true
-			sumInput += u.InputTokens
-			sumOutput += u.OutputTokens
-			sumCacheRead += u.CacheReadTokens
-			sumCacheWrite += u.CacheWriteTokens
+			id := u.RequestID
+			if id == "" {
+				id = fmt.Sprintf("step:%d", idx)
+			}
+			if !seenRequests[id] {
+				seenRequests[id] = true
+				sumInput += u.InputTokens
+				sumOutput += u.OutputTokens
+				sumCacheRead += u.CacheReadTokens
+				sumCacheWrite += u.CacheWriteTokens
+				input := u.InputTokens + u.CacheReadTokens + u.CacheWriteTokens
+				req := session.RequestUsage{
+					ID: id, Model: executorModels[idx], PromptTokens: &input,
+					Usage: session.TokenUsage{
+						InputTokens: input, OutputTokens: u.OutputTokens,
+						TotalTokens: input + u.OutputTokens, CachedTokens: u.CacheReadTokens,
+						CacheReadTokens: u.CacheReadTokens, CacheCreationTokens: u.CacheWriteTokens,
+					},
+				}
+				if directTS, ok := readStepEventTime(meta); ok {
+					req.Timestamp = &directTS
+				}
+				requests = append(requests, req)
+			}
 		}
 
 		switch stepTyp {
@@ -243,7 +271,7 @@ func projectSteps(ctx context.Context, db *sql.DB) (
 		}
 	}
 	if rerr := rows.Err(); rerr != nil {
-		return nil, nil, time.Time{}, time.Time{}, "", nil, false, rerr
+		return nil, nil, time.Time{}, time.Time{}, "", nil, false, nil, rerr
 	}
 
 	tools = make([]session.ToolUsage, 0, len(toolCounts))
@@ -269,7 +297,7 @@ func projectSteps(ctx context.Context, db *sql.DB) (
 		}
 	}
 
-	return turns, tools, firstTS, lastTS, firstPrompt, usage, seenUsage, nil
+	return turns, tools, firstTS, lastTS, firstPrompt, usage, seenUsage, requests, nil
 }
 
 // readGenerationModel returns the canonical model identifier. Prefers
@@ -303,4 +331,24 @@ func readGenerationModel(ctx context.Context, db *sql.DB) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+func readExecutorModels(ctx context.Context, db *sql.DB) map[int]string {
+	models := map[int]string{}
+	rows, err := db.QueryContext(ctx, `SELECT idx, data FROM executor_metadata ORDER BY idx ASC`)
+	if err != nil {
+		return models
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var idx int
+		var blob []byte
+		if rows.Scan(&idx, &blob) != nil {
+			return models
+		}
+		if name, ok := readExecutorModelName(blob); ok {
+			models[idx] = name
+		}
+	}
+	return models
 }

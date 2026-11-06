@@ -134,8 +134,8 @@ func TestImportEnvelope(t *testing.T) {
 	require.Equal(t, "gemini-2.5-pro", *s.Model)
 	require.NotNil(t, s.Usage)
 	require.Equal(t, int64(135), s.Usage.TotalTokens)
-	require.Equal(t, int64(100), s.Usage.InputTokens)
-	require.Equal(t, int64(20), s.Usage.OutputTokens)
+	require.Equal(t, int64(105), s.Usage.InputTokens)
+	require.Equal(t, int64(30), s.Usage.OutputTokens)
 	require.Equal(t, int64(30), s.Usage.CachedTokens)
 	require.Equal(t, 2026, s.StartedAt.Year())
 

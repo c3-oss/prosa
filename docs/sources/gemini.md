@@ -79,7 +79,11 @@ operational records.
 The importer joins every non-empty `text` value with `\n`.
 
 `tokens` (gemini only) is `{ cached, input, output, thoughts, tool, total }`.
-The v3 importer does not project tokens today.
+The importer preserves one measured request per assistant token block, keyed
+by message ID and retaining its model and timestamp. Input includes `tool`
+tokens, output includes `thoughts`, and cached tokens remain part of input.
+Session usage sums the deduplicated requests; request coverage is `complete`
+when token blocks are present, or `none` when no blocks are reported.
 
 `thoughts` (gemini only) is an array of
 `{ description, subject, timestamp }`. The v3 importer does not
@@ -245,7 +249,7 @@ find ~/.gemini/tmp -path '*/chats/session-*.json' -print0 |
     [.ts, .type, .file, (.text | gsub("\n"; " ") | .[0:240])] | @tsv'
 ```
 
-**Sum tokens per model (raw JSON, not projected by v3):**
+**Inspect raw tokens per model:**
 
 ```bash
 find ~/.gemini/tmp -path '*/chats/session-*.json' -print0 |

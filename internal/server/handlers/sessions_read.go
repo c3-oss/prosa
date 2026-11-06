@@ -44,6 +44,9 @@ func (h *SessionsHandler) Get(ctx context.Context, req *connect.Request[prosav1.
 	if err := attachSessionKinds(ctx, h.Pool, []*prosav1.Session{s}); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
+	if err := attachSessionCosts(ctx, h.Pool, []*prosav1.Session{s}); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
 
 	totalTurns, messageTurns, err := selectTurnCounts(ctx, h.Pool, req.Msg.Id)
 	if err != nil {
@@ -174,6 +177,9 @@ func (h *SessionsHandler) ListChildren(ctx context.Context, req *connect.Request
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	if err := attachSessionKinds(ctx, h.Pool, out.Sessions); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	if err := attachSessionCosts(ctx, h.Pool, out.Sessions); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	return connect.NewResponse(out), nil

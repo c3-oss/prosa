@@ -154,6 +154,23 @@ func (f *reconcileFixture) addSessionMissingRaw(t *testing.T, ctx context.Contex
 	require.NoError(t, f.store.UpsertSession(ctx, sess, nil))
 }
 
+func TestReconcileUsesStoredProjectionVersionForHistoricalSessions(t *testing.T) {
+	ctx := context.Background()
+	fx := newReconcileFixture(t, "dev")
+	fx.addSession(t, ctx, "dev", "historical")
+	sess, err := fx.store.GetSession(ctx, "historical")
+	require.NoError(t, err)
+	sess.ProjectionVersion = session.ProjectionVersion - 1
+	require.NoError(t, fx.store.UpsertSession(ctx, sess, nil))
+	fx.fake.manifestPages[""] = &prosav1.ManifestResponse{Entries: []*prosav1.ManifestEntry{
+		{Id: sess.ID, RawHash: sess.RawHash, ProjectionVersion: int32(sess.ProjectionVersion)},
+	}}
+	counts, err := reconcileWithServer(ctx, fx.pusher, "dev", importer.ImportOptions{}, reconcileHooks{})
+	require.NoError(t, err)
+	require.Zero(t, counts.sent)
+	require.Zero(t, fx.fake.pushCalls)
+}
+
 func (f *reconcileFixture) writeRaw(t *testing.T, agent, name, body string) string {
 	t.Helper()
 	rawPath := f.rawPath(t, agent, name)

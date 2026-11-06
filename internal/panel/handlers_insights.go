@@ -208,7 +208,7 @@ type trendBucket struct {
 }
 
 // buildSpendTrend folds usage_by_day rows into a continuous daily series
-// between since and until, pricing each (day, model) via internal/pricing.
+// between since and until, preserving the server cost summaries.
 // Unpriced rows still count tokens but contribute no spend.
 func buildSpendTrend(rows []*prosav1.AnalyticsRow, since, until time.Time) spendTrendView {
 	dayspan := buildDaySpan(since, until)
@@ -218,8 +218,7 @@ func buildSpendTrend(rows []*prosav1.AnalyticsRow, since, until time.Time) spend
 	spendByDay := map[string]float64{}
 	tokensByDay := map[string]int64{}
 	var totalTokens int64
-	var totalSpend float64
-	priced := false
+	var totalCost session.CostSummary
 	hasRows := false
 	for _, row := range rows {
 		if len(row.Values) < 10 {
@@ -230,8 +229,8 @@ func buildSpendTrend(rows []*prosav1.AnalyticsRow, since, until time.Time) spend
 		tokens := parsePanelInt(row.Values[4])
 		tokensByDay[day] += tokens
 		totalTokens += tokens
-		if parsePanelInt(row.Values[3]) == 0 {
-			continue // no measured usage → nothing to price
+		if parsePanelInt(row.Values[3]) == 0 && len(row.Values) < 14 {
+			continue
 		}
 		usage := session.TokenUsage{
 			TotalTokens:         tokens,
@@ -241,11 +240,12 @@ func buildSpendTrend(rows []*prosav1.AnalyticsRow, since, until time.Time) spend
 			CacheReadTokens:     parsePanelInt(row.Values[8]),
 			CacheCreationTokens: parsePanelInt(row.Values[9]),
 		}
-		if cost, ok := pricing.CostUSD(row.Values[1], usage, pricingTimeFromDay(day)); ok {
-			spendByDay[day] += cost
-			totalSpend += cost
-			priced = true
+		cost := reportTailCost(row.Values, 10, row.Values[1], usage, pricingTimeFromDay(day))
+		totalCost = pricing.CombineCosts(totalCost, cost)
+		if cost.USD != nil {
+			spendByDay[day] += *cost.USD
 		}
+
 	}
 
 	buckets := make([]trendBucket, 0, len(dayspan))
@@ -289,10 +289,7 @@ func buildSpendTrend(rows []*prosav1.AnalyticsRow, since, until time.Time) spend
 		}
 	}
 
-	totalSpendLabel := "n/a"
-	if priced {
-		totalSpendLabel = formatUSD(totalSpend)
-	}
+	totalSpendLabel := costSummaryLabel(totalCost)
 	return spendTrendView{
 		// One axis-mixed chart: spend bars + tokens line, each as a share of
 		// its own peak so both read on a single 0–100 axis. Real magnitudes
@@ -886,8 +883,7 @@ func subagentUsageRow(row *prosav1.AnalyticsRow) (kind, model string, usage sess
 // subagent_parents (spawning sessions) into the Delegation KPI strip.
 func buildDelegationKPIs(usageRows, parentRows []*prosav1.AnalyticsRow) delegationKPIsView {
 	var subTokens, allTokens, subSessions int64
-	var spend float64
-	priced := false
+	var spend session.CostSummary
 	for _, row := range usageRows {
 		kind, model, usage, measured, ok := subagentUsageRow(row)
 		if !ok {
@@ -899,11 +895,9 @@ func buildDelegationKPIs(usageRows, parentRows []*prosav1.AnalyticsRow) delegati
 		}
 		subTokens += usage.TotalTokens
 		subSessions += parsePanelInt(row.Values[3])
-		if measured > 0 {
-			if c, ok := pricing.CostUSD(model, usage, pricingTimeFromDay(row.Values[0])); ok {
-				spend += c
-				priced = true
-			}
+		if measured > 0 || len(row.Values) >= 15 {
+			cost := reportTailCost(row.Values, 11, model, usage, pricingTimeFromDay(row.Values[0]))
+			spend = pricing.CombineCosts(spend, cost)
 		}
 	}
 
@@ -926,7 +920,7 @@ func buildDelegationKPIs(usageRows, parentRows []*prosav1.AnalyticsRow) delegati
 		Spawning:      formatPanelInt(spawning),
 		Children:      formatPanelInt(children),
 		DelegatedPct:  pct,
-		SubagentSpend: costLabel(spend, priced),
+		SubagentSpend: costSummaryLabel(spend),
 		MaxFan:        formatPanelInt(maxFan),
 		HasData:       spawning > 0 || subSessions > 0,
 	}

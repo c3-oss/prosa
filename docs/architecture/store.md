@@ -101,6 +101,7 @@ applied.
 | `0005_turns_evidence` | `turns.kind` (default `'message'`), `turns.tool_name`, indexes on both |
 | `0009_session_profile` | `sessions.profile` (default `'default'`) + `(device_id, agent, profile)` index |
 | `0011_push_prune` | `sync_state.pushed_at/pushed_hash/remote_uri` + `sessions.pruned_at` + partial index |
+| `0012_request_usage` | `session_requests`, `sessions.request_coverage`, and the session's actual `projection_version` |
 
 Each migration has an up and down `.sql` file. The store applies up only;
 down is for manual recovery.
@@ -155,6 +156,20 @@ Indexes:
 - `idx_sessions_device_id`.
 - `idx_sessions_profile` on `(device_id, agent, profile)`.
 - `idx_sessions_pruned` (partial: `WHERE pruned_at IS NOT NULL`).
+
+### `session_requests`
+
+Each row carries `(session_id, ordinal, payload)`, with a cascading foreign
+key to `sessions`. The payload is JSON for one canonical `RequestUsage`;
+nullable billing fields retain their presence. A session's collection is
+replaced in the same transaction as its aggregate usage, tools, turns and
+sync state. Sessions store request coverage and their actual projection
+version, initialized from existing sync state during migration.
+
+Usage analytics load inference collections in bounded batches and price
+them through `internal/pricing` before aggregation. Results include cost
+status and priced/unpriced token coverage. See
+[token costs](../concepts.md#token-costs) for interpretation.
 
 ### `session_tools`
 

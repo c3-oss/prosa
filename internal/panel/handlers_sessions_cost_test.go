@@ -156,13 +156,13 @@ func TestListSessionsSortedByCostUngroupedUsesOwnCost(t *testing.T) {
 }
 
 func TestSessionCostPricesSonnet5ByStartedAt(t *testing.T) {
-	introCost, ok := sessionCost(sonnet5PanelSession(time.Date(2026, 8, 31, 12, 0, 0, 0, time.UTC)))
-	require.True(t, ok)
-	require.InDelta(t, 2.0, introCost, 0.00000001)
+	introCost := sessionCostSummary(sonnet5PanelSession(time.Date(2026, 8, 31, 12, 0, 0, 0, time.UTC)))
+	require.NotNil(t, introCost.USD)
+	require.InDelta(t, 2.0, *introCost.USD, 0.00000001)
 
-	standardCost, ok := sessionCost(sonnet5PanelSession(time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)))
-	require.True(t, ok)
-	require.InDelta(t, 3.0, standardCost, 0.00000001)
+	standardCost := sessionCostSummary(sonnet5PanelSession(time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)))
+	require.NotNil(t, standardCost.USD)
+	require.InDelta(t, 2.0, *standardCost.USD, 0.00000001)
 }
 
 func newPanelWithFakeSessions(t *testing.T, svc fakeSessionsService) *Panel {

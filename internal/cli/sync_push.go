@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	prosav1 "github.com/c3-oss/prosa/gen/go/prosa/v1"
@@ -78,6 +79,7 @@ const (
 const (
 	chunkPushThresholdBytes int64 = 32 * 1024 * 1024
 	chunkPushChunkBytes           = 8 * 1024 * 1024
+	maxPushMessageBytes           = 64 * 1024 * 1024
 )
 
 // shouldInlinePush reports whether the session should be pushed immediately
@@ -125,10 +127,11 @@ func (p *pusher) pushSession(ctx context.Context, sessionID string) (pushOutcome
 	}
 
 	req := &prosav1.PushRequest{
-		Session: sessionToProto(sess),
-		Turns:   turnsToProto(turns),
-		Tools:   toolsToProto(tools),
-		Raw:     raw,
+		Session:  sessionToProto(sess),
+		Turns:    turnsToProto(turns),
+		Tools:    toolsToProto(tools),
+		Raw:      raw,
+		Requests: requestsToProto(sess.Requests),
 	}
 	resp, err := p.client.Push(ctx, connect.NewRequest(req))
 	if err != nil {
@@ -179,13 +182,19 @@ func (p *pusher) pushSessionChunked(ctx context.Context, sess session.Session, t
 	sessProto := sessionToProto(sess)
 	turnsProto := turnsToProto(turns)
 	toolsProto := toolsToProto(tools)
+	requestsProto := requestsToProto(sess.Requests)
 	if sess.RawSize == 0 {
-		resp, err := p.client.PushChunk(ctx, connect.NewRequest(&prosav1.PushChunkRequest{
-			Session: sessProto,
-			Turns:   turnsProto,
-			Tools:   toolsProto,
-			Final:   true,
-		}))
+		req := &prosav1.PushChunkRequest{
+			Session:  sessProto,
+			Turns:    turnsProto,
+			Tools:    toolsProto,
+			Requests: requestsProto,
+			Final:    true,
+		}
+		if err := validatePushChunkSize(req); err != nil {
+			return pushFailed, err
+		}
+		resp, err := p.client.PushChunk(ctx, connect.NewRequest(req))
 		if err != nil {
 			return p.pushChunkError(err)
 		}
@@ -225,6 +234,10 @@ func (p *pusher) pushSessionChunked(ctx context.Context, sess session.Session, t
 		if final {
 			req.Turns = turnsProto
 			req.Tools = toolsProto
+			req.Requests = requestsProto
+		}
+		if err := validatePushChunkSize(req); err != nil {
+			return pushFailed, err
 		}
 		resp, err := p.client.PushChunk(ctx, connect.NewRequest(req))
 		if err != nil {
@@ -253,6 +266,13 @@ func (p *pusher) pushSessionChunked(ctx context.Context, sess session.Session, t
 	}
 	p.recordPushed(ctx, sess.ID, sess.RawHash, lastRawURI)
 	return pushImported, nil
+}
+
+func validatePushChunkSize(req *prosav1.PushChunkRequest) error {
+	if size := proto.Size(req); size > maxPushMessageBytes {
+		return fmt.Errorf("push session %s: final projection payload is %d bytes, exceeding the %d-byte server limit", req.GetSession().GetId(), size, maxPushMessageBytes)
+	}
+	return nil
 }
 
 func (p *pusher) pushChunkError(err error) (pushOutcome, error) {
@@ -323,14 +343,16 @@ func (p *pusher) markRemoteUnavailable() {
 
 func sessionToProto(s session.Session) *prosav1.Session {
 	out := &prosav1.Session{
-		Id:             s.ID,
-		Agent:          s.Agent,
-		DeviceId:       s.DeviceID,
-		Profile:        session.ProfileOrDefault(s.Profile),
-		StartedAt:      timestamppb.New(s.StartedAt),
-		LastActivityAt: timestamppb.New(s.LastActivityAt),
-		RawHash:        s.RawHash,
-		RawSize:        s.RawSize,
+		Id:                s.ID,
+		Agent:             s.Agent,
+		DeviceId:          s.DeviceID,
+		Profile:           session.ProfileOrDefault(s.Profile),
+		StartedAt:         timestamppb.New(s.StartedAt),
+		LastActivityAt:    timestamppb.New(s.LastActivityAt),
+		RawHash:           s.RawHash,
+		RawSize:           s.RawSize,
+		ProjectionVersion: int32(s.ProjectionVersion),
+		RequestCoverage:   s.RequestCoverage,
 	}
 	if s.ProjectPath != nil {
 		out.ProjectPath = wireText(*s.ProjectPath)
@@ -362,6 +384,45 @@ func sessionToProto(s session.Session) *prosav1.Session {
 		}
 	}
 	return out
+}
+
+func requestsToProto(requests []session.RequestUsage) []*prosav1.RequestUsage {
+	out := make([]*prosav1.RequestUsage, 0, len(requests))
+	for _, request := range requests {
+		u := request.Usage
+		r := &prosav1.RequestUsage{
+			Id:    wireText(request.ID),
+			Model: wireText(request.Model),
+			Usage: &prosav1.TokenUsage{
+				TotalTokens:         u.TotalTokens,
+				InputTokens:         u.InputTokens,
+				OutputTokens:        u.OutputTokens,
+				CachedTokens:        u.CachedTokens,
+				CacheReadTokens:     u.CacheReadTokens,
+				CacheCreationTokens: u.CacheCreationTokens,
+			},
+			PromptTokens:           request.PromptTokens,
+			Provider:               optionalWireText(request.Provider),
+			ServiceTier:            optionalWireText(request.ServiceTier),
+			Speed:                  optionalWireText(request.Speed),
+			InferenceGeo:           optionalWireText(request.InferenceGeo),
+			CacheCreation_5MTokens: request.CacheCreation5mTokens,
+			CacheCreation_1HTokens: request.CacheCreation1hTokens,
+		}
+		if request.Timestamp != nil {
+			r.Timestamp = timestamppb.New(*request.Timestamp)
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+func optionalWireText(s *string) *string {
+	if s == nil {
+		return nil
+	}
+	out := wireText(*s)
+	return &out
 }
 
 func turnsToProto(turns []session.Turn) []*prosav1.Turn {

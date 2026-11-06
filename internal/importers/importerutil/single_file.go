@@ -72,6 +72,10 @@ func RunSingleFile(ctx context.Context, cfg SingleFileConfig) (importer.ImportRe
 	if sess.ID == "" {
 		sess.ID = peekID
 	}
+	sess.ProjectionVersion = session.ProjectionVersion
+	if sess.RequestCoverage == "" {
+		sess.RequestCoverage = session.RequestCoverageNone
+	}
 	sess.Agent = cfg.Agent
 	sess.DeviceID = device.IDOnce()
 	sess.Profile = session.ProfileOrDefault(cfg.Opts.Profile)

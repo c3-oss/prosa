@@ -82,6 +82,30 @@ message Session {
   // session may carry several (e.g. a goal that orchestrates subagents).
   // Empty for an ordinary session.
   repeated string kinds = 17;
+  int32 projection_version = 18;
+  string request_coverage = 19;
+  CostSummary cost = 20;
+}
+
+message RequestUsage {
+  string id = 1;
+  string model = 2;
+  google.protobuf.Timestamp timestamp = 3;
+  TokenUsage usage = 4;
+  optional int64 prompt_tokens = 5;
+  optional string provider = 6;
+  optional string service_tier = 7;
+  optional string speed = 8;
+  optional string inference_geo = 9;
+  optional int64 cache_creation_5m_tokens = 10;
+  optional int64 cache_creation_1h_tokens = 11;
+}
+
+message CostSummary {
+  optional double usd = 1;
+  string status = 2;
+  int64 priced_tokens = 3;
+  int64 unpriced_tokens = 4;
 }
 
 message TokenUsage {
@@ -120,6 +144,7 @@ message PushRequest {
   // PushChunk so each transport message stays below the server's
   // configured request cap.
   bytes raw = 4;
+  repeated RequestUsage requests = 5;
 }
 
 message PushChunkRequest {
@@ -138,6 +163,7 @@ message PushChunkRequest {
   // final tells the server to validate the reconstructed raw_size and
   // raw_hash, upload the raw object, and commit metadata transactionally.
   bool final = 6;
+  repeated RequestUsage requests = 7;
 }
 
 message PushResponse {

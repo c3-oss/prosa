@@ -874,7 +874,10 @@ Values are derived server-side in `loadSidePanel`: `TurnsCount`
 (user + assistant message rows, excluding `tool_result`/`operational`),
 `ToolsCount` (sum of `Session.Tools[].Count`), `DurationLabel`
 (`humanDuration(LastActivityAt − StartedAt)`), token totals from
-`Session.Usage`, and `Cost` from `pricing.CostUSD`. The model name
+`Session.Usage`, and `Cost` from the server's cost summary. Costs show `~`
+for estimates, `(partial)` for totals with unpriced tokens, and `n/a` for
+unavailable amounts. Child totals preserve those quality indicators. Older
+servers supply an estimate from their aggregate usage. The model name
 (`displayModel Session.Model`) sits in the masthead byline above the
 cluster, not in it. The metadata block lists tokens in/out/total and
 renders **Project** via `projectLink` (GitHub/GitLab `owner/repo` when

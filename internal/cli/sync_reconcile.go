@@ -11,7 +11,6 @@ import (
 	prosav1 "github.com/c3-oss/prosa/gen/go/prosa/v1"
 	"github.com/c3-oss/prosa/internal/store"
 	"github.com/c3-oss/prosa/pkg/importer"
-	"github.com/c3-oss/prosa/pkg/session"
 )
 
 // reconcileCounts aggregates the catch-up phase results.
@@ -68,7 +67,7 @@ func reconcileWithServer(
 			continue
 		}
 		remote, ok := serverHas[row.ID]
-		staleProjection := ok && remote.ProjectionVersion < session.ProjectionVersion
+		staleProjection := ok && remote.ProjectionVersion < row.ProjectionVersion
 		if opts.Overwrite || !ok || remote.RawHash != row.RawHash || staleProjection {
 			work = append(work, row.ID)
 			continue

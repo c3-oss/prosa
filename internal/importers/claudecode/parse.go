@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/c3-oss/prosa/internal/importers/importerutil"
@@ -48,11 +49,27 @@ type rawContentBlock struct {
 }
 
 type claudeUsage struct {
-	InputTokens              int64                    `json:"input_tokens"`
-	OutputTokens             int64                    `json:"output_tokens"`
-	CacheReadInputTokens     int64                    `json:"cache_read_input_tokens"`
-	CacheCreationInputTokens int64                    `json:"cache_creation_input_tokens"`
-	CacheCreation            claudeCacheCreationUsage `json:"cache_creation"`
+	InputTokens              int64                     `json:"input_tokens"`
+	OutputTokens             int64                     `json:"output_tokens"`
+	CacheReadInputTokens     int64                     `json:"cache_read_input_tokens"`
+	CacheCreationInputTokens int64                     `json:"cache_creation_input_tokens"`
+	CacheCreation            *claudeCacheCreationUsage `json:"cache_creation"`
+	ServiceTier              *string                   `json:"service_tier"`
+	Speed                    *string                   `json:"speed"`
+	InferenceGeo             *string                   `json:"inference_geo"`
+	Iterations               []claudeIteration         `json:"iterations"`
+}
+
+type claudeIteration struct {
+	Type  string `json:"type"`
+	Model string `json:"model"`
+	claudeUsage
+}
+
+type claudeRequest struct {
+	Record  rawRecord
+	Message rawMessage
+	Line    int
 }
 
 type claudeCacheCreationUsage struct {
@@ -109,11 +126,12 @@ func parseSession(ctx context.Context, path string, log *slog.Logger) (session.S
 		turns           []session.Turn
 		toolCounts      = map[string]int{}
 		toolUseIDToName = map[string]string{}
-		usageByKey      = map[string]claudeUsage{}
+		usageByKey      = map[string]claudeRequest{}
 		sessIDSet       bool
 		cwdSet          bool
 		modelSet        bool
 		firstPromptSet  bool
+		usageGap        bool
 		line            int
 
 		malformed    int
@@ -205,7 +223,9 @@ func parseSession(ctx context.Context, path string, log *slog.Logger) (session.S
 			}
 
 		case "assistant":
-			collectUsage(r, line, usageByKey)
+			if !collectUsage(r, line, usageByKey) {
+				usageGap = true
+			}
 			text := extractAssistantText(r.Message)
 			if text != "" {
 				ts, _ := importerutil.ParseRFC3339(r.Timestamp)
@@ -256,8 +276,20 @@ func parseSession(ctx context.Context, path string, log *slog.Logger) (session.S
 	for name, count := range toolCounts {
 		tools = append(tools, session.ToolUsage{Name: name, Count: count})
 	}
-	if usage := buildClaudeUsage(usageByKey); usage != nil {
-		sess.Usage = usage
+	sess.RequestCoverage = session.RequestCoverageNone
+	sess.Requests = buildClaudeRequests(usageByKey)
+	if len(sess.Requests) > 0 {
+		var usage session.TokenUsage
+		for _, req := range sess.Requests {
+			usage.Add(req.Usage)
+		}
+		if session.HasTokenUsage(&usage) {
+			sess.Usage = &usage
+		}
+		sess.RequestCoverage = session.RequestCoverageComplete
+		if usageGap || malformed > 0 || sc.Err() != nil {
+			sess.RequestCoverage = session.RequestCoveragePartial
+		}
 	}
 	// Any populated usageByKey entry means we observed at least one
 	// assistant.message.usage block — even if every field came back
@@ -268,13 +300,13 @@ func parseSession(ctx context.Context, path string, log *slog.Logger) (session.S
 	return sess, turns, tools, state, nil
 }
 
-func collectUsage(r rawRecord, line int, usageByKey map[string]claudeUsage) {
-	if len(r.Message) == 0 {
-		return
-	}
+func collectUsage(r rawRecord, line int, usageByKey map[string]claudeRequest) bool {
 	var m rawMessage
-	if err := json.Unmarshal(r.Message, &m); err != nil || m.Usage == nil {
-		return
+	if err := json.Unmarshal(r.Message, &m); err != nil {
+		return false
+	}
+	if m.Usage == nil {
+		return true
 	}
 	key := r.RequestID
 	if key == "" {
@@ -286,39 +318,96 @@ func collectUsage(r rawRecord, line int, usageByKey map[string]claudeUsage) {
 	if key == "" {
 		key = fmt.Sprintf("line:%d", line)
 	}
-	if prev, ok := usageByKey[key]; !ok || canonicalClaudeUsage(*m.Usage) >= canonicalClaudeUsage(prev) {
-		usageByKey[key] = *m.Usage
+	prev, ok := usageByKey[key]
+	if !ok || canonicalClaudeUsage(*m.Usage) >= canonicalClaudeUsage(*prev.Message.Usage) {
+		firstLine := line
+		if ok {
+			firstLine = prev.Line
+		}
+		usageByKey[key] = claudeRequest{Record: r, Message: m, Line: firstLine}
 	}
+	return true
 }
 
-func buildClaudeUsage(usageByKey map[string]claudeUsage) *session.TokenUsage {
-	if len(usageByKey) == 0 {
-		return nil
+func buildClaudeRequests(byKey map[string]claudeRequest) []session.RequestUsage {
+	keys := make([]string, 0, len(byKey))
+	for key := range byKey {
+		keys = append(keys, key)
 	}
-	var out session.TokenUsage
-	for _, u := range usageByKey {
-		cacheCreation := u.cacheCreationTokens()
-		input := u.InputTokens + u.CacheReadInputTokens + cacheCreation
-		out.InputTokens += input
-		out.OutputTokens += u.OutputTokens
-		out.CachedTokens += u.CacheReadInputTokens
-		out.CacheReadTokens += u.CacheReadInputTokens
-		out.CacheCreationTokens += cacheCreation
-		out.TotalTokens += input + u.OutputTokens
+	sort.Slice(keys, func(i, j int) bool { return byKey[keys[i]].Line < byKey[keys[j]].Line })
+	var requests []session.RequestUsage
+	for _, key := range keys {
+		entry := byKey[key]
+		u := entry.Message.Usage
+		if len(u.Iterations) == 0 {
+			requests = append(requests, claudeMeasuredRequest(key, entry.Message.Model, entry.Record.Timestamp, *u))
+			continue
+		}
+		for i, iteration := range u.Iterations {
+			model := iteration.Model
+			if model == "" && (iteration.Type == "message" || iteration.Type == "compaction") {
+				model = entry.Message.Model
+			}
+			usage := iteration.claudeUsage
+			if iteration.Type == "message" || iteration.Type == "compaction" {
+				if usage.Speed == nil {
+					usage.Speed = u.Speed
+				}
+				if usage.ServiceTier == nil {
+					usage.ServiceTier = u.ServiceTier
+				}
+				if usage.InferenceGeo == nil {
+					usage.InferenceGeo = u.InferenceGeo
+				}
+			}
+			requests = append(requests, claudeMeasuredRequest(fmt.Sprintf("%s:iteration:%d", key, i), model, entry.Record.Timestamp, usage))
+		}
 	}
-	if out.TotalTokens == 0 && out.InputTokens == 0 && out.OutputTokens == 0 {
-		return nil
+	return requests
+}
+
+func claudeMeasuredRequest(id, model, timestamp string, u claudeUsage) session.RequestUsage {
+	cache := u.cacheCreationTokens()
+	input := u.InputTokens + u.CacheReadInputTokens + cache
+	req := session.RequestUsage{
+		ID: id, Model: model, PromptTokens: &input,
+		ServiceTier: u.ServiceTier, Speed: u.Speed, InferenceGeo: u.InferenceGeo,
+		Usage: session.TokenUsage{
+			InputTokens: input, OutputTokens: u.OutputTokens,
+			TotalTokens: input + u.OutputTokens, CachedTokens: u.CacheReadInputTokens,
+			CacheReadTokens: u.CacheReadInputTokens, CacheCreationTokens: cache,
+		},
 	}
-	return &out
+	if isSyntheticModel(req.Model) {
+		req.Model = ""
+	}
+	if ts, ok := importerutil.ParseRFC3339(timestamp); ok {
+		req.Timestamp = &ts
+	}
+	if u.CacheCreation != nil {
+		five, hour := u.CacheCreation.Ephemeral5mInputTokens, u.CacheCreation.Ephemeral1hInputTokens
+		req.CacheCreation5mTokens, req.CacheCreation1hTokens = &five, &hour
+	}
+	return req
 }
 
 func canonicalClaudeUsage(u claudeUsage) int64 {
+	if len(u.Iterations) > 0 {
+		var total int64
+		for _, iteration := range u.Iterations {
+			total += canonicalClaudeUsage(iteration.claudeUsage)
+		}
+		return total
+	}
 	return u.InputTokens + u.OutputTokens + u.CacheReadInputTokens + u.cacheCreationTokens()
 }
 
 func (u claudeUsage) cacheCreationTokens() int64 {
 	if u.CacheCreationInputTokens > 0 {
 		return u.CacheCreationInputTokens
+	}
+	if u.CacheCreation == nil {
+		return 0
 	}
 	return u.CacheCreation.Ephemeral5mInputTokens + u.CacheCreation.Ephemeral1hInputTokens
 }

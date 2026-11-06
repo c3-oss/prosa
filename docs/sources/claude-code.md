@@ -310,3 +310,18 @@ What `loadTranscript` / `prosa v1 session show` surface for Claude Code sessions
 - **Gaps**: `type='system'` events are projected as
   `messages.role='operational'`, not `system_prompt`, so consumers that
   look only at `role='system_prompt'` miss them.
+
+## Request usage
+
+Assistant usage is deduplicated by `requestId`, message ID, record UUID,
+then source line. The largest observed usage for each key supplies the
+request model, timestamp, speed, service tier, inference region and cache
+creation counters for 5 minutes and 1 hour. Requests retain source order.
+
+When `usage.iterations` is present, each iteration becomes a measured
+request. Message and compaction iterations use their explicit model or the
+executor model; advisor iterations use their own `model`. The session total
+sums iterations, including advisors. Executor parameters propagate to executor
+iterations; advisor parameters come from the advisor iteration. This follows
+the [Anthropic usage contract](https://platform.claude.com/docs/en/agents-and-tools/tool-use/advisor-tool).
+Malformed or truncated lines make measured request coverage `partial`.
