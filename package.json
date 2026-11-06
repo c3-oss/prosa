@@ -18,5 +18,11 @@
     "agnix": "0.24.0",
     "husky": "^9.1.7",
     "lint-staged": "^17.0.8"
+  },
+  "pnpm": {
+    "overrides": {
+      "fast-uri": "3.1.9",
+      "js-yaml": "4.3.2"
+    }
   }
 }
