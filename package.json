@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "description": "Developer tooling for prosa.",
-  "packageManager": "pnpm@10.20.0",
+  "packageManager": "pnpm@12.16.1",
   "scripts": {
     "commitlint": "commitlint --config commitlint.config.cjs",
     "lint:agents": "agnix .claude .codex",
@@ -18,11 +18,5 @@
     "agnix": "0.24.0",
     "husky": "^9.1.7",
     "lint-staged": "^17.0.8"
-  },
-  "pnpm": {
-    "overrides": {
-      "fast-uri": "3.1.9",
-      "js-yaml": "4.3.2"
-    }
   }
 }
