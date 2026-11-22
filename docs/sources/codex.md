@@ -305,12 +305,14 @@ coverage `partial`; transcripts carrying only aggregate usage have coverage
 `none`.
 
 Each request retains the active turn model, provider and available billing
-parameters, plus the event timestamp. The service tier comes from the latest
-`thread_settings_applied` event and holds across turns until the next one; a
-`turn_context` that carries `service_tier`, `speed` or `inference_geo`
-updates the same parameters. Requests before the first settings event, and
-requests after a settings event without `service_tier`, have an unknown
-tier. Cache writes are preserved from
+parameters, plus the event timestamp. The service tier is the thread default
+from the latest `thread_settings_applied` event, taken when a turn starts and
+held across turns until the next settings event. Settings applied after a
+turn's first measured request take effect on the following turn. A
+`turn_context` that carries `service_tier`, `speed` or `inference_geo` sets
+them for that turn only. Requests before the first settings event, and
+turns under a settings event without `service_tier`, have an unknown tier.
+Cache writes are preserved from
 `cache_write_input_tokens`. The prompt size is `last_token_usage.input_tokens`,
 including cached input. `model_context_window` describes model capacity.
 The session usage retains the largest observed aggregate for fallback pricing.
