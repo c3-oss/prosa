@@ -162,7 +162,7 @@ type Session struct {
 //	v14: request-level usage and billing parameters, inference coverage,
 //	    and persisted projection versions on the wire.
 //	v15: Codex service tier and provider read from thread_settings_applied
-//	    events, carried forward until the next one.
+//	    events as the default for the turns that follow.
 const ProjectionVersion = 15
 
 // RequestProjectionVersion is the first projection that carries per-request usage.

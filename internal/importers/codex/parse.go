@@ -106,7 +106,7 @@ type eventMsgPayload struct {
 }
 
 // threadSettings is the payload of thread_settings_applied events, which
-// carry the billing parameters in effect until the next such event.
+// carry the thread's billing defaults for the turns that follow.
 type threadSettings struct {
 	ModelProviderID *string `json:"model_provider_id"`
 	ServiceTier     *string `json:"service_tier"`
@@ -182,6 +182,8 @@ func parseSession(ctx context.Context, path string, log *slog.Logger) (session.S
 		requestGap                                             bool
 		currentModel                                           string
 		currentProvider, currentTier, currentSpeed, currentGeo *string
+		threadTier                                             *string
+		turnTierPinned, turnMeasured                           bool
 		sessIDSet                                              bool
 		cwdSet                                                 bool
 		modelSet                                               bool
@@ -262,14 +264,10 @@ func parseSession(ctx context.Context, path string, log *slog.Logger) (session.S
 			if p.ModelProvider != nil {
 				currentProvider = p.ModelProvider
 			}
-			if p.ServiceTier != nil {
+			currentTier, currentSpeed, currentGeo = threadTier, p.Speed, p.InferenceGeo
+			turnTierPinned, turnMeasured = p.ServiceTier != nil, false
+			if turnTierPinned {
 				currentTier = p.ServiceTier
-			}
-			if p.Speed != nil {
-				currentSpeed = p.Speed
-			}
-			if p.InferenceGeo != nil {
-				currentGeo = p.InferenceGeo
 			}
 			if !modelSet && p.Model != "" {
 				m := p.Model
@@ -297,7 +295,11 @@ func parseSession(ctx context.Context, path string, log *slog.Logger) (session.S
 				requestGap = true
 			}
 			if decodeErr == nil && event.Type == "thread_settings_applied" && event.ThreadSettings != nil {
-				currentTier = event.ThreadSettings.ServiceTier
+				threadTier = event.ThreadSettings.ServiceTier
+				// Settings applied mid-turn take effect on the next turn.
+				if !turnMeasured && !turnTierPinned {
+					currentTier = threadTier
+				}
 				if event.ThreadSettings.ModelProviderID != nil {
 					currentProvider = event.ThreadSettings.ModelProviderID
 				}
@@ -306,6 +308,7 @@ func parseSession(ctx context.Context, path string, log *slog.Logger) (session.S
 				if total := event.Info.TotalTokenUsage; total != nil {
 					cumulative := total.canonical()
 					if cumulative != previousUsage {
+						turnMeasured = true
 						if last := event.Info.LastTokenUsage; last != nil && matchesUsageDelta(cumulative, previousUsage, last.canonical()) {
 							usage := last.canonical()
 							prompt := usage.InputTokens

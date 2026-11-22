@@ -13,42 +13,57 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestThreadSettingsCarryServiceTierAcrossTurns(t *testing.T) {
+func TestThreadSettingsSetServiceTierPerTurn(t *testing.T) {
 	usage := func(requests int) string {
 		return fmt.Sprintf(`{"input_tokens":%d,"output_tokens":%d,"cached_input_tokens":0,"total_tokens":%d}`, requests*100, requests*10, requests*110)
 	}
-	event := func(requests int) string {
-		return fmt.Sprintf(`{"type":"event_msg","timestamp":"2026-11-22T04:29:12Z","payload":{"type":"token_count","info":{"total_token_usage":%s,"last_token_usage":%s}}}`, usage(requests), usage(1))
+	n := 0
+	event := func() string {
+		n++
+		return fmt.Sprintf(`{"type":"event_msg","timestamp":"2026-11-22T04:29:12Z","payload":{"type":"token_count","info":{"total_token_usage":%s,"last_token_usage":%s}}}`, usage(n), usage(1))
 	}
 	settings := func(fields string) string {
 		return `{"type":"event_msg","payload":{"type":"thread_settings_applied","thread_settings":{"model":"gpt-6.2-astra"` + fields + `}}}`
 	}
-	turn := `{"type":"turn_context","payload":{"model":"gpt-6.2-astra","effort":"max"}}`
-	lines := []string{
-		turn, event(1),
-		settings(`,"model_provider_id":"openai","service_tier":"priority"`), event(2),
-		turn, event(3),
-		settings(`,"service_tier":"default"`), event(4),
-		settings(``), event(5),
-		`{"type":"turn_context","payload":{"model":"gpt-6.2-astra","service_tier":"flex"}}`, event(6),
+	turn := func(fields string) string {
+		return `{"type":"turn_context","payload":{"model":"gpt-6.2-astra","effort":"max"` + fields + `}}`
+	}
+	priority, standard, flex, fast := "priority", "default", "flex", "fast"
+	steps := []struct {
+		name        string
+		lines       []string
+		tier, speed *string
+	}{
+		{"before any settings", []string{turn(""), event()}, nil, nil},
+		{"settings before the turn", []string{settings(`,"model_provider_id":"openai","service_tier":"priority"`), turn(""), event()}, &priority, nil},
+		{"carried to the next turn", []string{turn(""), event()}, &priority, nil},
+		{"settings after the turn opens", []string{turn(""), settings(`,"service_tier":"default"`), event()}, &standard, nil},
+		{"settings applied mid-turn", []string{settings(`,"service_tier":"priority"`), event()}, &standard, nil},
+		{"mid-turn settings reach the next turn", []string{turn(""), event()}, &priority, nil},
+		{"turn override", []string{turn(`,"service_tier":"flex","speed":"fast"`), settings(`,"service_tier":"priority"`), event()}, &flex, &fast},
+		{"override ends with its turn", []string{turn(""), event()}, &priority, nil},
+		{"settings without a tier", []string{settings(""), turn(""), event()}, nil, nil},
+	}
+	var lines []string
+	for _, step := range steps {
+		lines = append(lines, step.lines...)
 	}
 	path := filepath.Join(t.TempDir(), "session.jsonl")
 	require.NoError(t, os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600))
 	sess, _, _, _, err := parseSession(context.Background(), path, slog.Default())
 	require.NoError(t, err)
 	require.Equal(t, session.RequestCoverageComplete, sess.RequestCoverage)
-	require.Len(t, sess.Requests, 6)
+	require.Len(t, sess.Requests, len(steps))
 
-	require.Nil(t, sess.Requests[0].ServiceTier)
 	require.Nil(t, sess.Requests[0].Provider)
-	for i, want := range []string{"priority", "priority", "default"} {
-		req := sess.Requests[i+1]
-		require.NotNil(t, req.ServiceTier, i)
-		require.Equal(t, want, *req.ServiceTier)
-		require.Equal(t, "openai", *req.Provider)
+	for i, step := range steps {
+		req := sess.Requests[i]
+		require.Equal(t, step.tier, req.ServiceTier, step.name)
+		require.Equal(t, step.speed, req.Speed, step.name)
+		if i > 0 {
+			require.Equal(t, "openai", *req.Provider, step.name)
+		}
 	}
-	require.Nil(t, sess.Requests[4].ServiceTier)
-	require.Equal(t, "flex", *sess.Requests[5].ServiceTier)
 }
 
 func TestMeasuredRequestsMatchCumulativeAndModelChanges(t *testing.T) {
