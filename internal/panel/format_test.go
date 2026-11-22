@@ -43,6 +43,11 @@ func TestDisplayModel(t *testing.T) {
 		{"gemini-2.5-pro", "Gemini 2.5 Pro"},
 		{"gemini-2.0-flash", "Gemini 2.0 Flash"},
 		{"gpt-6-astra", "GPT-6 Astra"},
+		{"gpt-6.2-astra", "GPT-6.2 Astra"},
+		{"gpt-6.2-sol", "GPT-6.2 Sol"},
+		{"claude-fable-5-2", "Fable 5.2"},
+		{"gemini-4-carbon", "Gemini 4 Carbon"},
+		{"grok-4.7-build-fast", "Grok 4.7 Build Fast"},
 		{"grok-4.6", "Grok 4.6"},            // unknown vendor → title-cased fallback
 		{"  claude-opus-4-8  ", "Opus 4.8"}, // trimmed
 		{"", "(none)"},

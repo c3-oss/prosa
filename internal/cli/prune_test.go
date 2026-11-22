@@ -179,13 +179,36 @@ func mustCandidate(t *testing.T, fx *reconcileFixture, id string) store.PruneCan
 	sess, err := fx.store.GetSession(context.Background(), id)
 	require.NoError(t, err)
 	return store.PruneCandidate{
-		ID:             sess.ID,
-		Agent:          sess.Agent,
-		RawPath:        sess.RawPath,
-		RawHash:        sess.RawHash,
-		RawSize:        sess.RawSize,
-		LastActivityAt: sess.LastActivityAt,
+		ID:                sess.ID,
+		Agent:             sess.Agent,
+		RawPath:           sess.RawPath,
+		RawHash:           sess.RawHash,
+		RawSize:           sess.RawSize,
+		LastActivityAt:    sess.LastActivityAt,
+		ProjectionVersion: sess.ProjectionVersion,
 	}
+}
+
+// A session whose source is gone stays on its import projection, and the
+// server copy at that same projection is all there is to confirm.
+func TestPruneOneAcceptsServerAtLocalProjection(t *testing.T) {
+	ctx := context.Background()
+	fx := newReconcileFixture(t, "dev")
+	rawPath, hash := prunableFixtureSession(t, fx, "s1")
+	older := session.ProjectionVersion - 1
+	_, err := fx.store.DB().ExecContext(ctx, `UPDATE sessions SET projection_version = ? WHERE id = 's1'`, older)
+	require.NoError(t, err)
+
+	candidates, err := fx.store.ListPruneCandidates(ctx, "dev", time.Now().UTC(), 0)
+	require.NoError(t, err)
+	require.Len(t, candidates, 1)
+	require.Equal(t, older, candidates[0].ProjectionVersion)
+
+	serverHas := map[string]serverManifestRow{"s1": {RawHash: hash, ProjectionVersion: older}}
+	status, err := pruneOne(ctx, fx.store, serverHas, candidates[0])
+	require.NoError(t, err)
+	require.Equal(t, "pruned", status)
+	require.NoFileExists(t, rawPath)
 }
 
 func TestPruneOneSkipsWhenFileBytesChange(t *testing.T) {

@@ -72,6 +72,8 @@ type PruneCandidate struct {
 	RawHash        string
 	RawSize        int64
 	LastActivityAt time.Time
+	// ProjectionVersion is the projection the local row was imported at.
+	ProjectionVersion int
 }
 
 // ListPruneCandidates returns prunable sessions for a device: not pruned,
@@ -79,7 +81,7 @@ type PruneCandidate struct {
 // the cutoff. Ordered oldest activity first; limit <= 0 returns all.
 func (s *Store) ListPruneCandidates(ctx context.Context, deviceID string, before time.Time, limit int) ([]PruneCandidate, error) {
 	q := `
-		SELECT s.id, s.agent, s.raw_path, s.raw_hash, s.raw_size, s.last_activity_at
+		SELECT s.id, s.agent, s.raw_path, s.raw_hash, s.raw_size, s.last_activity_at, s.projection_version
 		FROM sessions s
 		JOIN sync_state ss ON ss.session_id = s.id
 		WHERE s.device_id = ?
@@ -103,7 +105,7 @@ func (s *Store) ListPruneCandidates(ctx context.Context, deviceID string, before
 			c       PruneCandidate
 			lastAct string
 		)
-		if err := rows.Scan(&c.ID, &c.Agent, &c.RawPath, &c.RawHash, &c.RawSize, &lastAct); err != nil {
+		if err := rows.Scan(&c.ID, &c.Agent, &c.RawPath, &c.RawHash, &c.RawSize, &lastAct, &c.ProjectionVersion); err != nil {
 			return nil, err
 		}
 		if t, ok := parseTime(lastAct); ok {

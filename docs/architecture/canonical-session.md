@@ -74,7 +74,7 @@ tariff selection uses each inference's own timestamp and model.
 
 ## Projection version
 
-`session.ProjectionVersion = 14`. Each stored session records its actual
+`session.ProjectionVersion = 15`. Each stored session records its actual
 projection version, and uploads and manifests transport that version.
 Same-hash uploads are current when the server's stored version is at least
 the uploaded version. Payloads without a version are legacy projection 13.
@@ -107,6 +107,7 @@ them as a leading `session_usage` line.
 | 12 | special-session classification projected — `Session.Kinds` carries any of `goal` (Codex `<codex_internal_context source="goal">` first user turn), `workflow` (Claude Code `Workflow` tool), `ralph-loop` (Claude Code `/ralph-loop:ralph-loop` command), and `orchestrator` (session that spawned subagents). Stored in the `session_kinds` table (migration `0010_session_kinds` local / `0013_session_kinds` server) and pushed on the wire as `Session.kinds`. `goal`/`workflow`/`ralph-loop` are derived per session by `internal/sessionkind`; `orchestrator` is edge-derived — the client reconciles it post-sweep via `store.RefreshOrchestratorKinds` and the server derives it from parent edges at push (`deriveOrchestratorKinds`). The Codex goal `<objective>` is also unwrapped into `FirstPrompt` instead of the raw scaffold. |
 | 13 | Hermes usage from `state.db` session-row counters, preserved in a leading `session_usage` projection line. |
 | 14 | Request-level usage and billing parameters, inference coverage, Gemini thinking output, Claude executor/advisor/compaction usage, and persisted projection versions on the wire. |
+| 15 | Codex service tier and provider read from `thread_settings_applied` events as the default for the turns that follow. |
 
 ## Import eligibility
 
