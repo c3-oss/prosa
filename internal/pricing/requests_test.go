@@ -54,6 +54,10 @@ func TestRequestProcessingAndCachePrices(t *testing.T) {
 	}{
 		{"astra fast long", "gpt-6-astra", "standard", "fast", "global", 300000, 1000, 12.15},
 		{"sol ultrafast", "gpt-6.1-sol", "ultrafast", "standard", "global", 1000, 100, .018},
+		{"astra 6.2 priority long", "gpt-6.2-astra", "priority", "standard", "global", 300000, 1000, 9.72},
+		{"sol 6.2 introductory ultrafast", "gpt-6.2-sol", "ultrafast", "standard", "global", 1000, 100, .009},
+		{"terra 6.1 flex", "gpt-6.1-terra", "flex", "standard", "global", 1000, 100, .00075},
+		{"fable fast regional", "claude-fable-5-2", "standard", "fast", "us", 1000, 100, .0264},
 		{"sol batch", "gpt-6.1-sol", "batch", "standard", "global", 1000, 100, .0015},
 		{"opus fast regional", "claude-opus-5-5", "standard", "fast", "us", 1000, 100, .0132},
 		{"grok fast long", "grok-4.7", "standard", "fast", "global", 200000, 1000, 1.218},
@@ -91,6 +95,15 @@ func TestRequestProcessingAndCachePrices(t *testing.T) {
 	require.Equal(t, session.CostEstimated, got.Status)
 	require.InDelta(t, .012, *got.USD, 1e-10)
 
+	req = measuredRequest("gpt-6.2-sol", 1000, 100)
+	ultrafast, flex := "ultrafast", "flex"
+	req.ServiceTier, req.Timestamp = &ultrafast, &gpt62UltrafastFullFrom
+	got = RequestCost(req, "", time.Time{})
+	require.Equal(t, session.CostCalculated, got.Status)
+	require.InDelta(t, .018, *got.USD, 1e-10)
+	req.ServiceTier = &flex
+	require.Equal(t, session.CostEstimated, RequestCost(req, "", time.Time{}).Status)
+
 	req = measuredRequest("gemini-3.5-flash-lite", 1000, 100)
 	req.ServiceTier = &priority
 	req.Usage.CacheReadTokens, req.Usage.CachedTokens = 400, 400
@@ -116,6 +129,11 @@ func TestRequestHistoricalCacheAndPromotions(t *testing.T) {
 	}{
 		{"gemini-4-argon", time.Date(2026, 11, 30, 23, 59, 59, 0, time.UTC), 2e-6},
 		{"gemini-4-argon", time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC), 4e-6},
+		{"gemini-4-carbon", time.Date(2026, 11, 30, 23, 59, 59, 0, time.UTC), 2e-6},
+		{"gemini-4-carbon", time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC), 4e-6},
+		{"gemini-2.5-pro", time.Date(2026, 11, 30, 23, 59, 59, 0, time.UTC), 1.25e-6},
+		{"gemini-2.5-pro", gemini25RedirectFrom, .75e-6},
+		{"gemini-2.5-pro", time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC), 1.5e-6},
 		{"gemini-3.8-flash", time.Date(2026, 12, 31, 23, 59, 59, 0, time.UTC), .75e-6},
 		{"gemini-3.8-flash", time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC), 1.5e-6},
 		{"gemini-3.5-flash", time.Date(2026, 10, 7, 23, 59, 59, 0, time.UTC), 1.5e-6},
@@ -125,9 +143,66 @@ func TestRequestHistoricalCacheAndPromotions(t *testing.T) {
 		require.True(t, ok)
 		require.InDelta(t, tc.input, r.Input, 1e-15)
 	}
+	// A redirected gemini-2.5-pro request loses the long-context tier with its tariff.
+	req = measuredRequest("gemini-2.5-pro", 300000, 1000)
+	req.Timestamp = &gemini25RedirectFrom
+	got = RequestCost(req, "", time.Time{})
+	require.Equal(t, session.CostCalculated, got.Status)
+	require.InDelta(t, .22875, *got.USD, 1e-10)
+
+	// A redirected gemini-2.5-flash request takes the flash-lite priority cache read.
+	req = measuredRequest("gemini-2.5-flash", 1000, 100)
+	priority := "priority"
+	req.ServiceTier = &priority
+	req.Usage.CacheReadTokens, req.Usage.CachedTokens = 400, 400
+	before = gemini25RedirectFrom.Add(-time.Nanosecond)
+	req.Timestamp = &before
+	got = RequestCost(req, "", time.Time{})
+	require.InDelta(t, .0007956, *got.USD, 1e-10)
+	req.Timestamp = &gemini25RedirectFrom
+	got = RequestCost(req, "", time.Time{})
+	require.Equal(t, session.CostCalculated, got.Status)
+	require.InDelta(t, .000794, *got.USD, 1e-10)
+
 	r, ok := rateAt([]ratePeriod{{Rates: Rates{Input: 1}}, {From: time.Now().AddDate(1, 0, 0), Rates: Rates{Input: 2}}}, time.Time{})
 	require.True(t, ok)
 	require.Equal(t, 1.0, r.Input)
+}
+
+func TestSolPromotionBoundaryDayIsEstimated(t *testing.T) {
+	req := measuredRequest("gpt-5.6-sol", 1000, 100)
+	for _, tc := range []struct {
+		at     time.Time
+		status string
+		want   float64
+	}{
+		{gpt56SolPromoUntil.AddDate(0, 0, -1).Add(-time.Nanosecond), session.CostCalculated, .006},
+		{gpt56SolPromoUntil.AddDate(0, 0, -1), session.CostEstimated, .006},
+		{gpt56SolPromoUntil, session.CostCalculated, .008},
+	} {
+		req.Timestamp = &tc.at
+		got := RequestCost(req, "", time.Time{})
+		require.Equal(t, tc.status, got.Status, tc.at)
+		require.InDelta(t, tc.want, *got.USD, 1e-10)
+	}
+}
+
+func TestGrokFastModelIDImpliesFastSpeed(t *testing.T) {
+	req := measuredRequest("grok-4.7-build-fast", 1000, 100)
+	req.Speed = nil
+	got := RequestCost(req, "", time.Time{})
+	require.Equal(t, session.CostEstimated, got.Status)
+	require.InDelta(t, .0052, *got.USD, 1e-10)
+
+	req.Model = "grok-4.7-build"
+	got = RequestCost(req, "", time.Time{})
+	require.InDelta(t, .0026, *got.USD, 1e-10)
+
+	model := "grok-4.7-build-fast"
+	usage := session.TokenUsage{InputTokens: 1000, OutputTokens: 100, TotalTokens: 1100}
+	got = SessionCost(session.Session{Model: &model, Usage: &usage, StartedAt: time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)})
+	require.Equal(t, session.CostEstimated, got.Status)
+	require.InDelta(t, .0052, *got.USD, 1e-10)
 }
 
 func TestUnknownGLMSpeedIsEstimated(t *testing.T) {
@@ -191,6 +266,13 @@ func TestVariantTariffsDoNotInheritFamilyPrices(t *testing.T) {
 		{"gpt-6-sol", 2, 10, .2, 2.5},
 		{"gpt-6.1-sol", 2, 10, .1, 2.5},
 		{"gpt-6-luna", .1, .5, .01, .125},
+		{"gpt-6.1-terra", 1, 5, .05, 1.25},
+		{"gpt-6.2-astra", 8, 40, .4, 10},
+		{"gpt-6.2-sol", 2, 10, .1, 2.5},
+		{"gpt-6-cyber", 20, 100, 2, 25},
+		{"gpt-6-rosalind", 10, 50, 1, 12.5},
+		{"claude-fable-5-2", 8, 40, .2, 10},
+		{"claude-mythos-5.2", 8, 40, .2, 10},
 		{"gpt-5.6-cyber", 12.5, 75, 1.25, 15.625},
 		{"gpt-5.5-cyber", 12.5, 75, 1.25, 0},
 		{"gpt-rosalind-research", 5, 25, .5, 0},
@@ -204,6 +286,9 @@ func TestVariantTariffsDoNotInheritFamilyPrices(t *testing.T) {
 		{"gemini-3.7-flash", .75, 3.75, .075, 0},
 		{"gemini-3.8-flash", .75, 3.75, .075, 0},
 		{"gemini-4-argon", 2, 10, .1, 0},
+		{"gemini-4-carbon", 2, 10, .1, 0},
+		{"gemini-4-hydrogen", 1.5, 7.5, .075, 0},
+		{"gemini-4-neon", 3, 15, .15, 0},
 		{"grok-4.7-build", 2, 6, .5, 0},
 		{"grok-4.3", 1.25, 2.5, .2, 0},
 		{"grok-build-0.1", 1, 2, .2, 0},

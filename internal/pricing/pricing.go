@@ -32,9 +32,17 @@ var (
 	// OpenAI cut Terra by 20% and Luna by 80% on this date.
 	gpt56TerraLunaCutFrom = time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC)
 
-	// Sol's promotional rate, announced 2026-08-21 and running at least
-	// through 2026-11-21. No reversion period until OpenAI ends the promo.
-	gpt56SolPromoFrom = time.Date(2026, 8, 21, 0, 0, 0, 0, time.UTC)
+	// Sol's promotional rate, announced 2026-08-21 and listed until
+	// 2026-11-30; the launch tariff returns afterwards.
+	gpt56SolPromoFrom  = time.Date(2026, 8, 21, 0, 0, 0, 0, time.UTC)
+	gpt56SolPromoUntil = time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
+
+	// GPT-6.2 Ultrafast runs at an introductory 3x until this date, 6x after.
+	gpt62UltrafastFullFrom = time.Date(2027, 3, 1, 0, 0, 0, 0, time.UTC)
+
+	// Google routes gemini-2.5-pro to gemini-3.8-flash and gemini-2.5-flash
+	// to gemini-3.5-flash-lite from this date, billing at the target's rates.
+	gemini25RedirectFrom = time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
 )
 
 // gpt56SolPeriods is shared by gpt-5.6-sol and gpt-daybreak-blue (OpenAI's
@@ -42,6 +50,7 @@ var (
 var gpt56SolPeriods = []ratePeriod{
 	{Rates: Rates{Input: 5.0e-6, Output: 3.0e-5, CacheRead: 5.0e-7, CacheCreation: 6.25e-6}},
 	{From: gpt56SolPromoFrom, Rates: Rates{Input: 4.0e-6, Output: 2.0e-5, CacheRead: 4.0e-7, CacheCreation: 5.0e-6}},
+	{From: gpt56SolPromoUntil, Rates: Rates{Input: 5.0e-6, Output: 3.0e-5, CacheRead: 5.0e-7, CacheCreation: 6.25e-6}},
 }
 
 // fable51Periods is shared by claude-fable-5-1 and claude-mythos-5-1, which
@@ -50,6 +59,12 @@ var gpt56SolPeriods = []ratePeriod{
 // and keeps the two from drifting.
 var fable51Periods = []ratePeriod{
 	{Rates: Rates{Input: 1.0e-5, Output: 5.0e-5, CacheRead: 2.5e-7, CacheCreation: 1.25e-5}},
+}
+
+// fable52Periods is shared by claude-fable-5-2 and claude-mythos-5-2, which
+// ship at the same tariff.
+var fable52Periods = []ratePeriod{
+	{Rates: Rates{Input: 8e-6, Output: 40e-6, CacheRead: .2e-6, CacheCreation: 10e-6}},
 }
 
 func fixed(r Rates) []ratePeriod {
@@ -80,6 +95,10 @@ var ratesByModel = map[string][]ratePeriod{
 	// price them at the 5.0 generation's $1/MTok read.
 	"claude-fable-5-1":  fable51Periods,
 	"claude-mythos-5-1": fable51Periods,
+	// The 5.2 generation runs at $8/$40 with a $0.20/MTok cache read and
+	// needs its own keys for the same reason.
+	"claude-fable-5-2":  fable52Periods,
+	"claude-mythos-5-2": fable52Periods,
 	"claude-opus-5-5":   fixed(Rates{Input: 4e-6, Output: 20e-6, CacheRead: .2e-6, CacheCreation: 5e-6}),
 	"claude-sonnet-5-5": {
 		{Rates: Rates{Input: 2e-6, Output: 10e-6, CacheRead: .2e-6, CacheCreation: 2.5e-6}},
@@ -129,7 +148,12 @@ var ratesByModel = map[string][]ratePeriod{
 	"gpt-6-astra":            fixed(Rates{Input: 1.0e-5, Output: 5.0e-5, CacheRead: 1.0e-6, CacheCreation: 1.25e-5}),
 	"gpt-6-sol":              fixed(Rates{Input: 2e-6, Output: 10e-6, CacheRead: .2e-6, CacheCreation: 2.5e-6}),
 	"gpt-6.1-sol":            fixed(Rates{Input: 2e-6, Output: 10e-6, CacheRead: .1e-6, CacheCreation: 2.5e-6}),
+	"gpt-6.1-terra":          fixed(Rates{Input: 1e-6, Output: 5e-6, CacheRead: .05e-6, CacheCreation: 1.25e-6}),
+	"gpt-6.2-astra":          fixed(Rates{Input: 8e-6, Output: 40e-6, CacheRead: .4e-6, CacheCreation: 10e-6}),
+	"gpt-6.2-sol":            fixed(Rates{Input: 2e-6, Output: 10e-6, CacheRead: .1e-6, CacheCreation: 2.5e-6}),
 	"gpt-6-luna":             fixed(Rates{Input: .1e-6, Output: .5e-6, CacheRead: .01e-6, CacheCreation: .125e-6}),
+	"gpt-6-cyber":            fixed(Rates{Input: 20e-6, Output: 100e-6, CacheRead: 2e-6, CacheCreation: 25e-6}),
+	"gpt-6-rosalind":         fixed(Rates{Input: 10e-6, Output: 50e-6, CacheRead: 1e-6, CacheCreation: 12.5e-6}),
 	"gpt-5.6-cyber":          fixed(Rates{Input: 12.5e-6, Output: 75e-6, CacheRead: 1.25e-6, CacheCreation: 15.625e-6}),
 	"gpt-5.5-cyber":          fixed(Rates{Input: 12.5e-6, Output: 75e-6, CacheRead: 1.25e-6}),
 	"gpt-rosalind-research":  fixed(Rates{Input: 5e-6, Output: 25e-6, CacheRead: .5e-6}),
@@ -158,15 +182,16 @@ var ratesByModel = map[string][]ratePeriod{
 		{From: time.Date(2026, 8, 13, 0, 0, 0, 0, time.UTC), Rates: Rates{Input: .75e-6, Output: 3.75e-6, CacheRead: .075e-6}},
 		{From: time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC), Rates: Rates{Input: 1.5e-6, Output: 7.5e-6, CacheRead: .15e-6}},
 	},
-	"gemini-3.7-flash": geminiFlashPeriods,
-	"gemini-3.8-flash": geminiFlashPeriods,
-	"gemini-4-argon": {
-		{Rates: Rates{Input: 2e-6, Output: 10e-6, CacheRead: .1e-6}},
-		{From: time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC), Rates: Rates{Input: 4e-6, Output: 20e-6, CacheRead: .2e-6}},
-	},
+	"gemini-3.7-flash":  geminiFlashPeriods,
+	"gemini-3.8-flash":  geminiFlashPeriods,
+	"gemini-4-argon":    gemini4IntroPeriods,
+	"gemini-4-carbon":   gemini4IntroPeriods,
+	"gemini-4-hydrogen": fixed(Rates{Input: 1.5e-6, Output: 7.5e-6, CacheRead: .075e-6}),
+	"gemini-4-neon":     fixed(Rates{Input: 3e-6, Output: 15e-6, CacheRead: .15e-6}),
 
 	// xAI — Grok generation. Grok Build emits `-build` model ids
-	// (grok-4.5-build) that resolve via the longest-prefix fallback.
+	// (grok-4.5-build, grok-4.7-build-fast) that resolve via the
+	// longest-prefix fallback.
 	"grok-code-fast-1": {
 		{Rates: Rates{Input: 2.0e-7, Output: 1.5e-6, CacheRead: 2.0e-8}},
 		{From: grokCodeFast1RetiredFrom, Rates: Rates{Input: 1.25e-6, Output: 2.5e-6, CacheRead: 2.0e-7}},
@@ -200,6 +225,13 @@ var ratesByModel = map[string][]ratePeriod{
 	"composer-2-fast":   fixed(Rates{Input: 1.5e-6, Output: 7.5e-6, CacheRead: 3.5e-7}),
 	"composer-2.5":      fixed(Rates{Input: 5.0e-7, Output: 2.5e-6, CacheRead: 2.0e-7}),
 	"composer-2.5-fast": fixed(Rates{Input: 3e-6, Output: 15e-6, CacheRead: .5e-6}),
+}
+
+// gemini4IntroPeriods is shared by gemini-4-argon and gemini-4-carbon, whose
+// introductory rate doubles on the same date.
+var gemini4IntroPeriods = []ratePeriod{
+	{Rates: Rates{Input: 2e-6, Output: 10e-6, CacheRead: .1e-6}},
+	{From: time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC), Rates: Rates{Input: 4e-6, Output: 20e-6, CacheRead: .2e-6}},
 }
 
 var geminiFlashPeriods = []ratePeriod{
@@ -237,22 +269,26 @@ var (
 // match so versioned variants (e.g. claude-opus-4-7) don't collapse onto a
 // shorter key (claude-opus-4) with a different price tier.
 func Lookup(model string, at time.Time) (Rates, bool) {
-	norm := NormalizeModel(model)
-	if norm == "" {
-		return Rates{}, false
+	key, _ := modelKey(model)
+	return rateAt(ratesByModel[redirectedKey(key, at)], at)
+}
+
+// redirectedKey follows provider redirects, so a retired id takes both the
+// tariff and the processing rules of the model that serves it.
+func redirectedKey(key string, at time.Time) string {
+	if at.IsZero() {
+		at = time.Now().UTC()
 	}
-	if canon, ok := modelAliases[norm]; ok {
-		norm = canon
+	if at.Before(gemini25RedirectFrom) {
+		return key
 	}
-	if periods, ok := ratesByModel[norm]; ok {
-		return rateAt(periods, at)
+	switch key {
+	case "gemini-2.5-pro":
+		return "gemini-3.8-flash"
+	case "gemini-2.5-flash":
+		return "gemini-3.5-flash-lite"
 	}
-	for _, key := range sortedPrefixKeys() {
-		if strings.HasPrefix(norm, key+"-") {
-			return rateAt(ratesByModel[key], at)
-		}
-	}
-	return Rates{}, false
+	return key
 }
 
 func rateAt(periods []ratePeriod, at time.Time) (Rates, bool) {

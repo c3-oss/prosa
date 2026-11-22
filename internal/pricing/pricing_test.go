@@ -104,10 +104,22 @@ func TestLookupPricesGPT56FamilyByDate(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, Rates{Input: 4.0e-6, Output: 2.0e-5, CacheRead: 4.0e-7, CacheCreation: 5.0e-6}, solPromo)
 
-	// The Daybreak alias must track Sol through every period.
-	daybreak, ok := Lookup("gpt-daybreak-blue-latest", gpt56SolPromoFrom)
+	solPromoEnd, ok := Lookup("gpt-5.6-sol", gpt56SolPromoUntil.Add(-time.Nanosecond))
 	require.True(t, ok)
-	require.Equal(t, solPromo, daybreak)
+	require.Equal(t, solPromo, solPromoEnd)
+
+	solReverted, ok := Lookup("gpt-5.6-sol", gpt56SolPromoUntil)
+	require.True(t, ok)
+	require.Equal(t, solLaunch, solReverted)
+
+	// The Daybreak alias must track Sol through every period.
+	for _, at := range []time.Time{gpt56SolPromoFrom, gpt56SolPromoUntil} {
+		sol, ok := Lookup("gpt-5.6-sol", at)
+		require.True(t, ok)
+		daybreak, ok := Lookup("gpt-daybreak-blue-latest", at)
+		require.True(t, ok)
+		require.Equal(t, sol, daybreak)
+	}
 
 	preCut := time.Date(2026, 7, 29, 23, 59, 59, 0, time.UTC)
 
@@ -223,6 +235,12 @@ func TestLookupKnownModelsFromRealStore(t *testing.T) {
 		// Grok Build's -build variant resolves via the prefix fallback.
 		{"grok-4.5-build", Rates{Input: 2.0e-6, Output: 6.0e-6, CacheRead: 3.0e-7}},
 		{"grok-4.6", Rates{Input: 2.0e-6, Output: 6.0e-6, CacheRead: 5.0e-7}},
+		{"grok-4.7", Rates{Input: 2.0e-6, Output: 6.0e-6, CacheRead: 5.0e-7}},
+		{"grok-4.7-build-fast", Rates{Input: 2.0e-6, Output: 6.0e-6, CacheRead: 5.0e-7}},
+
+		{"claude-fable-5-2", Rates{Input: 8.0e-6, Output: 4.0e-5, CacheRead: 2.0e-7, CacheCreation: 1.0e-5}},
+		{"gpt-6.2-astra", Rates{Input: 8.0e-6, Output: 4.0e-5, CacheRead: 4.0e-7, CacheCreation: 1.0e-5}},
+		{"gpt-6.2-sol", Rates{Input: 2.0e-6, Output: 1.0e-5, CacheRead: 1.0e-7, CacheCreation: 2.5e-6}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.model, func(t *testing.T) {
@@ -257,6 +275,17 @@ func TestLookupFable51DoesNotInheritFable5CacheRate(t *testing.T) {
 	base, ok := Lookup("claude-fable-5", pricingTestTime)
 	require.True(t, ok)
 	require.Equal(t, 1.0e-6, base.CacheRead)
+}
+
+// TestLookupFable52DoesNotInheritFable5Rate is the same guard for the 5.2
+// generation, which undercuts claude-fable-5 on every rate.
+func TestLookupFable52DoesNotInheritFable5Rate(t *testing.T) {
+	want := Rates{Input: 8e-6, Output: 40e-6, CacheRead: .2e-6, CacheCreation: 10e-6}
+	for _, model := range []string{"claude-fable-5-2", "claude-fable-5.2", "claude-mythos-5-2"} {
+		got, ok := Lookup(model, pricingTestTime)
+		require.True(t, ok)
+		require.Equal(t, want, got, model)
+	}
 }
 
 func TestLookupComposer2FastDoesNotInheritComposer2Rate(t *testing.T) {

@@ -142,6 +142,7 @@ func RequestCost(req session.RequestUsage, fallbackModel string, fallbackTime ti
 		estimated = true
 	}
 	key, fallback := modelKey(model)
+	key = redirectedKey(key, at)
 	r, ok := Lookup(key, at)
 	if !ok {
 		return out
@@ -154,6 +155,11 @@ func RequestCost(req session.RequestUsage, fallbackModel string, fallbackTime ti
 		estimated = true
 	}
 	if key == "gemini-3.6-flash" && at.Before(time.Date(2026, 8, 13, 0, 0, 0, 0, time.UTC)) {
+		estimated = true
+	}
+	// OpenAI lists the Sol promotion "until November 30" without saying
+	// which tariff that day bills at.
+	if key == "gpt-5.6-sol" && !at.Before(gpt56SolPromoUntil.AddDate(0, 0, -1)) && at.Before(gpt56SolPromoUntil) {
 		estimated = true
 	}
 	long, contextKnown := requestContext(key, req.PromptTokens)
@@ -171,7 +177,7 @@ func RequestCost(req session.RequestUsage, fallbackModel string, fallbackTime ti
 		}
 	}
 	var modeKnown bool
-	r, modeKnown = processingRates(key, r, req.ServiceTier, req.Speed, long)
+	r, modeKnown = processingRates(key, r, req.ServiceTier, requestSpeed(key, model, req.Speed), long, at)
 	estimated = estimated || !modeKnown
 	geo := ""
 	if req.InferenceGeo != nil {
@@ -228,6 +234,16 @@ func modelKey(model string) (string, bool) {
 	return norm, false
 }
 
+// requestSpeed reads the Fast variant Grok Build and Cursor encode in the
+// model id (grok-4.7-build-fast) when the request carries no speed field.
+func requestSpeed(key, model string, speed *string) *string {
+	if speed == nil && key == "grok-4.7" && strings.HasSuffix(NormalizeModel(model), "-fast") {
+		fast := "fast"
+		return &fast
+	}
+	return speed
+}
+
 func requestContext(key string, prompt *int64) (bool, bool) {
 	var threshold int64
 	inclusive := false
@@ -254,7 +270,7 @@ func scaleRates(r Rates, input, output, cache float64) Rates {
 	return Rates{Input: r.Input * input, Output: r.Output * output, CacheRead: r.CacheRead * cache, CacheCreation: r.CacheCreation * cache}
 }
 
-func processingRates(key string, r Rates, tier, speed *string, long bool) (Rates, bool) {
+func processingRates(key string, r Rates, tier, speed *string, long bool, at time.Time) (Rates, bool) {
 	mode := "standard"
 	known := tier != nil
 	if tier != nil {
@@ -283,7 +299,8 @@ func processingRates(key string, r Rates, tier, speed *string, long bool) (Rates
 			if strings.Contains(key, "cyber") || strings.Contains(key, "rosalind") || strings.Contains(key, "codex") {
 				return r, false
 			}
-			if mode == "batch" || strings.HasPrefix(key, "gpt-6") || strings.HasPrefix(key, "gpt-5.6") || key == "gpt-5.5" || key == "gpt-5.4" || key == "gpt-5.4-mini" || key == "gpt-5.4-nano" || key == "o3" {
+			flex := strings.HasPrefix(key, "gpt-6") && !strings.HasPrefix(key, "gpt-6.2")
+			if mode == "batch" || flex || strings.HasPrefix(key, "gpt-5.6") || key == "gpt-5.5" || key == "gpt-5.4" || key == "gpt-5.4-mini" || key == "gpt-5.4-nano" || key == "o3" {
 				return scaleRates(r, .5, .5, .5), known
 			}
 		case "fast", "priority":
@@ -299,12 +316,23 @@ func processingRates(key string, r Rates, tier, speed *string, long bool) (Rates
 			}
 			return scaleRates(r, factor, factor, factor), known && (!long || strings.HasPrefix(key, "gpt-6") || strings.HasPrefix(key, "gpt-5.6"))
 		case "ultrafast":
-			if key == "gpt-6-astra" || key == "gpt-6.1-sol" {
+			switch key {
+			case "gpt-6-astra", "gpt-6.1-sol":
 				return scaleRates(r, 6, 6, 6), known
+			case "gpt-6.2-astra", "gpt-6.2-sol":
+				factor := 3.0
+				if !at.Before(gpt62UltrafastFullFrom) {
+					factor = 6
+				}
+				return scaleRates(r, factor, factor, factor), known
 			}
 		}
 	case strings.HasPrefix(key, "claude-"):
-		fastSupported := key == "claude-opus-5-5" || key == "claude-opus-5" || key == "claude-opus-4-8"
+		var fastSupported bool
+		switch key {
+		case "claude-opus-5-5", "claude-opus-5", "claude-opus-4-8", "claude-fable-5-2", "claude-mythos-5-2":
+			fastSupported = true
+		}
 		if mode == "priority" && fastSupported && speed != nil && strings.EqualFold(*speed, "fast") {
 			return scaleRates(r, 2, 2, 2), false
 		}
