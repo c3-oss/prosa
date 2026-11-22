@@ -19,7 +19,6 @@ import (
 	"github.com/c3-oss/prosa/internal/paths"
 	"github.com/c3-oss/prosa/internal/rawlock"
 	"github.com/c3-oss/prosa/internal/store"
-	"github.com/c3-oss/prosa/pkg/session"
 )
 
 var (
@@ -237,7 +236,7 @@ func pruneServerReject(serverHas map[string]serverManifestRow, c store.PruneCand
 	if !ok || remote.RawHash != c.RawHash {
 		return fmt.Errorf("not confirmed on server (hash mismatch or missing); skipping")
 	}
-	if remote.ProjectionVersion < session.ProjectionVersion {
+	if remote.ProjectionVersion < c.ProjectionVersion {
 		return fmt.Errorf("server projection is stale; sync first, then prune")
 	}
 	return nil
