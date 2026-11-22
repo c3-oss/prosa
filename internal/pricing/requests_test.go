@@ -97,12 +97,27 @@ func TestRequestProcessingAndCachePrices(t *testing.T) {
 
 	req = measuredRequest("gpt-6.2-sol", 1000, 100)
 	ultrafast, flex := "ultrafast", "flex"
-	req.ServiceTier, req.Timestamp = &ultrafast, &gpt62UltrafastFullFrom
+	introEnd := time.Date(2027, 3, 1, 7, 59, 59, 0, time.UTC)
+	req.ServiceTier, req.Timestamp = &ultrafast, &introEnd
+	got = RequestCost(req, "", time.Time{})
+	require.Equal(t, session.CostCalculated, got.Status)
+	require.InDelta(t, .009, *got.USD, 1e-10)
+	fullFrom := time.Date(2027, 3, 1, 8, 0, 0, 0, time.UTC)
+	req.Timestamp = &fullFrom
 	got = RequestCost(req, "", time.Time{})
 	require.Equal(t, session.CostCalculated, got.Status)
 	require.InDelta(t, .018, *got.USD, 1e-10)
 	req.ServiceTier = &flex
 	require.Equal(t, session.CostEstimated, RequestCost(req, "", time.Time{}).Status)
+
+	// An OpenAI cache write of unknown lifetime is priced at the 30-minute rate.
+	req = measuredRequest("gpt-6.2-astra", 1000, 100)
+	req.Usage.CacheCreationTokens = 100
+	lifetimes := openAILongCacheWriteFrom
+	req.Timestamp = &lifetimes
+	got = RequestCost(req, "", time.Time{})
+	require.Equal(t, session.CostEstimated, got.Status)
+	require.InDelta(t, .0122, *got.USD, 1e-10)
 
 	req = measuredRequest("gemini-3.5-flash-lite", 1000, 100)
 	req.ServiceTier = &priority
@@ -163,6 +178,16 @@ func TestRequestHistoricalCacheAndPromotions(t *testing.T) {
 	got = RequestCost(req, "", time.Time{})
 	require.Equal(t, session.CostCalculated, got.Status)
 	require.InDelta(t, .000794, *got.USD, 1e-10)
+	for mode, want := range map[string]float64{"batch": .000221, "flex": .000223} {
+		req.ServiceTier = &mode
+		got = RequestCost(req, "", time.Time{})
+		require.InDelta(t, want, *got.USD, 1e-10, mode)
+	}
+
+	// Only the retiring ids redirect; a variant matched by prefix keeps its tariff.
+	variant, ok := Lookup("gemini-2.5-pro-preview-tts", gemini25RedirectFrom)
+	require.True(t, ok)
+	require.InDelta(t, 1.25e-6, variant.Input, 1e-15)
 
 	r, ok := rateAt([]ratePeriod{{Rates: Rates{Input: 1}}, {From: time.Now().AddDate(1, 0, 0), Rates: Rates{Input: 2}}}, time.Time{})
 	require.True(t, ok)

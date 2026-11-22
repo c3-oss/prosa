@@ -142,7 +142,7 @@ func RequestCost(req session.RequestUsage, fallbackModel string, fallbackTime ti
 		estimated = true
 	}
 	key, fallback := modelKey(model)
-	key = redirectedKey(key, at)
+	key = redirectedKey(key, fallback, at)
 	r, ok := Lookup(key, at)
 	if !ok {
 		return out
@@ -206,6 +206,8 @@ func RequestCost(req session.RequestUsage, fallbackModel string, fallbackTime ti
 			}
 		} else if r.CacheCreation == 0 {
 			creationCost = float64(u.CacheCreationTokens) * r.Input
+			estimated = true
+		} else if strings.HasPrefix(key, "gpt-") && !at.Before(openAILongCacheWriteFrom) {
 			estimated = true
 		}
 	}
@@ -359,7 +361,7 @@ func processingRates(key string, r Rates, tier, speed *string, long bool, at tim
 				cache = 1
 			}
 			out := scaleRates(r, .5, .5, cache)
-			if key == "gemini-3.5-flash-lite" {
+			if key == "gemini-3.5-flash-lite" && mode == "flex" {
 				out.CacheRead = .02e-6
 			}
 			return out, known

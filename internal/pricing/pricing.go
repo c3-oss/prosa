@@ -37,8 +37,13 @@ var (
 	gpt56SolPromoFrom  = time.Date(2026, 8, 21, 0, 0, 0, 0, time.UTC)
 	gpt56SolPromoUntil = time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
 
-	// GPT-6.2 Ultrafast runs at an introductory 3x until this date, 6x after.
-	gpt62UltrafastFullFrom = time.Date(2027, 3, 1, 0, 0, 0, 0, time.UTC)
+	// GPT-6.2 Ultrafast runs at an introductory 3x until March 1, 2027
+	// Pacific time, 6x after.
+	gpt62UltrafastFullFrom = time.Date(2027, 3, 1, 8, 0, 0, 0, time.UTC)
+
+	// OpenAI bills 12-hour cache writes at twice the 30-minute rate from
+	// this date; sources record the written tokens without their lifetime.
+	openAILongCacheWriteFrom = time.Date(2026, 10, 20, 0, 0, 0, 0, time.UTC)
 
 	// Google routes gemini-2.5-pro to gemini-3.8-flash and gemini-2.5-flash
 	// to gemini-3.5-flash-lite from this date, billing at the target's rates.
@@ -269,17 +274,18 @@ var (
 // match so versioned variants (e.g. claude-opus-4-7) don't collapse onto a
 // shorter key (claude-opus-4) with a different price tier.
 func Lookup(model string, at time.Time) (Rates, bool) {
-	key, _ := modelKey(model)
-	return rateAt(ratesByModel[redirectedKey(key, at)], at)
+	key, fallback := modelKey(model)
+	return rateAt(ratesByModel[redirectedKey(key, fallback, at)], at)
 }
 
 // redirectedKey follows provider redirects, so a retired id takes both the
-// tariff and the processing rules of the model that serves it.
-func redirectedKey(key string, at time.Time) string {
+// tariff and the processing rules of the model that serves it. Variants
+// that only matched by prefix keep their own key.
+func redirectedKey(key string, fallback bool, at time.Time) string {
 	if at.IsZero() {
 		at = time.Now().UTC()
 	}
-	if at.Before(gemini25RedirectFrom) {
+	if fallback || at.Before(gemini25RedirectFrom) {
 		return key
 	}
 	switch key {
