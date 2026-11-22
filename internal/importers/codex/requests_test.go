@@ -6,11 +6,50 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/c3-oss/prosa/pkg/session"
 	"github.com/stretchr/testify/require"
 )
+
+func TestThreadSettingsCarryServiceTierAcrossTurns(t *testing.T) {
+	usage := func(requests int) string {
+		return fmt.Sprintf(`{"input_tokens":%d,"output_tokens":%d,"cached_input_tokens":0,"total_tokens":%d}`, requests*100, requests*10, requests*110)
+	}
+	event := func(requests int) string {
+		return fmt.Sprintf(`{"type":"event_msg","timestamp":"2026-11-22T04:29:12Z","payload":{"type":"token_count","info":{"total_token_usage":%s,"last_token_usage":%s}}}`, usage(requests), usage(1))
+	}
+	settings := func(fields string) string {
+		return `{"type":"event_msg","payload":{"type":"thread_settings_applied","thread_settings":{"model":"gpt-6.2-astra"` + fields + `}}}`
+	}
+	turn := `{"type":"turn_context","payload":{"model":"gpt-6.2-astra","effort":"max"}}`
+	lines := []string{
+		turn, event(1),
+		settings(`,"model_provider_id":"openai","service_tier":"priority"`), event(2),
+		turn, event(3),
+		settings(`,"service_tier":"default"`), event(4),
+		settings(``), event(5),
+		`{"type":"turn_context","payload":{"model":"gpt-6.2-astra","service_tier":"flex"}}`, event(6),
+	}
+	path := filepath.Join(t.TempDir(), "session.jsonl")
+	require.NoError(t, os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600))
+	sess, _, _, _, err := parseSession(context.Background(), path, slog.Default())
+	require.NoError(t, err)
+	require.Equal(t, session.RequestCoverageComplete, sess.RequestCoverage)
+	require.Len(t, sess.Requests, 6)
+
+	require.Nil(t, sess.Requests[0].ServiceTier)
+	require.Nil(t, sess.Requests[0].Provider)
+	for i, want := range []string{"priority", "priority", "default"} {
+		req := sess.Requests[i+1]
+		require.NotNil(t, req.ServiceTier, i)
+		require.Equal(t, want, *req.ServiceTier)
+		require.Equal(t, "openai", *req.Provider)
+	}
+	require.Nil(t, sess.Requests[4].ServiceTier)
+	require.Equal(t, "flex", *sess.Requests[5].ServiceTier)
+}
 
 func TestMeasuredRequestsMatchCumulativeAndModelChanges(t *testing.T) {
 	first := `{"input_tokens":100,"output_tokens":20,"cached_input_tokens":30,"cache_write_input_tokens":5,"total_tokens":120}`

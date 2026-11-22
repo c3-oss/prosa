@@ -100,8 +100,16 @@ type contentBlock struct {
 }
 
 type eventMsgPayload struct {
-	Type string          `json:"type"`
-	Info *tokenCountInfo `json:"info"`
+	Type           string          `json:"type"`
+	Info           *tokenCountInfo `json:"info"`
+	ThreadSettings *threadSettings `json:"thread_settings"`
+}
+
+// threadSettings is the payload of thread_settings_applied events, which
+// carry the billing parameters in effect until the next such event.
+type threadSettings struct {
+	ModelProviderID *string `json:"model_provider_id"`
+	ServiceTier     *string `json:"service_tier"`
 }
 
 type tokenCountInfo struct {
@@ -254,7 +262,15 @@ func parseSession(ctx context.Context, path string, log *slog.Logger) (session.S
 			if p.ModelProvider != nil {
 				currentProvider = p.ModelProvider
 			}
-			currentTier, currentSpeed, currentGeo = p.ServiceTier, p.Speed, p.InferenceGeo
+			if p.ServiceTier != nil {
+				currentTier = p.ServiceTier
+			}
+			if p.Speed != nil {
+				currentSpeed = p.Speed
+			}
+			if p.InferenceGeo != nil {
+				currentGeo = p.InferenceGeo
+			}
 			if !modelSet && p.Model != "" {
 				m := p.Model
 				sess.Model = &m
@@ -279,6 +295,12 @@ func parseSession(ctx context.Context, path string, log *slog.Logger) (session.S
 			// info is null on rate-limit-only refreshes, which carry no usage.
 			if event.Type == "token_count" && decodeErr != nil {
 				requestGap = true
+			}
+			if decodeErr == nil && event.Type == "thread_settings_applied" && event.ThreadSettings != nil {
+				currentTier = event.ThreadSettings.ServiceTier
+				if event.ThreadSettings.ModelProviderID != nil {
+					currentProvider = event.ThreadSettings.ModelProviderID
+				}
 			}
 			if decodeErr == nil && event.Type == "token_count" && event.Info != nil {
 				if total := event.Info.TotalTokenUsage; total != nil {

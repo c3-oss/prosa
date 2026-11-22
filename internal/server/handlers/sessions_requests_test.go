@@ -69,7 +69,7 @@ func TestPushRequestProjectionAndLegacyDowngrade(t *testing.T) {
 	s.Cost = &prosav1.CostSummary{Usd: &forged, Status: session.CostCalculated}
 	require.False(t, push(s, calls).Skipped)
 	projected := get()
-	require.EqualValues(t, 14, projected.ProjectionVersion)
+	require.EqualValues(t, session.ProjectionVersion, projected.ProjectionVersion)
 	require.Equal(t, session.RequestCoverageComplete, projected.RequestCoverage)
 	require.Equal(t, session.CostCalculated, projected.Cost.Status)
 	require.InDelta(t, 1.21, *projected.Cost.Usd, 1e-10)

@@ -159,7 +159,11 @@ type Session struct {
 //	    counts it there. The projected JSONL gains a leading
 //	    {"type":"session_usage","data":{…}} line carrying the counters, so
 //	    raw_hash changes and sync_reconcile re-pushes Hermes sessions.
-const ProjectionVersion = 14
+//	v14: request-level usage and billing parameters, inference coverage,
+//	    and persisted projection versions on the wire.
+//	v15: Codex service tier and provider read from thread_settings_applied
+//	    events, carried forward until the next one.
+const ProjectionVersion = 15
 
 // RequestProjectionVersion is the first projection that carries per-request usage.
 const RequestProjectionVersion = 14
