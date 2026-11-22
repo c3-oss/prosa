@@ -244,11 +244,15 @@ coverage fields. Measured usage on a free model has an available zero cost.
 
 Historical periods select the tariff applicable to each inference. The
 catalog records Sonnet 5 at its permanent introductory rate, Sonnet 5.5's
-cache reduction on October 7, 2026, and Gemini redirects and announced
-promotion deadlines. Missing inference dates use the session start; missing
-session dates use the current tariff and an estimated status. Source files
-available at sync time receive the current request projection. Older
-projections retain aggregate estimates when their sources are unavailable.
+cache reduction on October 7, 2026, the GPT-5.6 Sol promotion ending
+November 30, 2026, the GPT-6.2 Ultrafast introductory multiplier through
+February 28, 2027, and Gemini redirects and announced promotion deadlines.
+A Fast variant named in the model id (`grok-4.7-build-fast`) bills at the
+Fast multiplier of its base model. Missing inference dates use the session
+start; missing session dates use the current tariff and an estimated status.
+Source files available at sync time receive the current request projection.
+Older projections retain aggregate estimates when their sources are
+unavailable.
 
 The value covers model tokens at public rates. Tool-call fees, cache-storage
 duration charges, subscription allowances, negotiated discounts and taxes
@@ -256,11 +260,11 @@ are separate billing dimensions. Unknown routing or processing settings
 produce a standard-rate estimate. Tariff history with an unconfirmed start
 date is likewise estimated.
 
-Official catalog sources, checked October 14, 2026:
+Official catalog sources, checked November 22, 2026:
 
 - [OpenAI API pricing](https://developers.openai.com/api/docs/pricing).
 - [Claude model pricing](https://platform.claude.com/docs/en/about-claude/pricing).
-- [Gemini API pricing](https://ai.google.dev/gemini-api/docs/pricing).
+- [Gemini API pricing](https://aistudio.google.com/docs/pricing).
 - [xAI API pricing](https://docs.x.ai/developers/pricing).
 - [Z.AI pricing](https://docs.z.ai/guides/overview/pricing).
 - [Cursor Composer 2.5 pricing](https://prod.cursor.com/docs/models/cursor-composer-2-5).

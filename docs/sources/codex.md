@@ -82,8 +82,14 @@ Operational UI/tool events. `payload.type` discriminates:
 token_count, agent_reasoning, exec_command_end, agent_message,
 user_message, task_started, task_complete, patch_apply_end,
 web_search_end, mcp_tool_call_end, turn_aborted, item_completed,
-context_compacted, view_image_tool_call, error
+context_compacted, view_image_tool_call, thread_settings_applied, error
 ```
+
+`thread_settings_applied` records the settings in effect for the thread
+from that point on: `thread_settings.model`, `model_provider_id`,
+`service_tier` (`default`, `priority`), `reasoning_effort`, and the approval
+and permission profile. Codex writes one whenever settings are applied to
+the thread, typically on each turn.
 
 `exec_command_end` is the audit-grade record of a shell command:
 `call_id`, `command`, `cwd`, `exit_code`, `stdout`, `stderr`,
@@ -299,7 +305,12 @@ coverage `partial`; transcripts carrying only aggregate usage have coverage
 `none`.
 
 Each request retains the active turn model, provider and available billing
-parameters, plus the event timestamp. Cache writes are preserved from
+parameters, plus the event timestamp. The service tier comes from the latest
+`thread_settings_applied` event and holds across turns until the next one; a
+`turn_context` that carries `service_tier`, `speed` or `inference_geo`
+updates the same parameters. Requests before the first settings event, and
+requests after a settings event without `service_tier`, have an unknown
+tier. Cache writes are preserved from
 `cache_write_input_tokens`. The prompt size is `last_token_usage.input_tokens`,
 including cached input. `model_context_window` describes model capacity.
 The session usage retains the largest observed aggregate for fallback pricing.

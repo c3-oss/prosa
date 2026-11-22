@@ -156,10 +156,12 @@ not "zero usage".
   `*/subagents/<child-id>/meta.json` among sibling sessions (project dir
   first, sessions root as fallback) and read `parent_session_id`.
 - **Pricing**: `grok-4.5-build` / `grok-4.6-build` resolve to the
-  `grok-4.5` / `grok-4.6` rates by prefix. Aggregate usage receives an
-  estimated standard-context cost because the ledger omits per-request
-  prompt lengths. The pricing engine applies context tiers when a source
-  supplies measured request usage and prompt length.
+  `grok-4.5` / `grok-4.6` rates by prefix. `grok-4.7-build-fast` resolves
+  to `grok-4.7` at Fast speed (2x the standard rates, 1.5x for
+  long-context requests). Aggregate usage receives an estimated
+  standard-context cost because the ledger omits per-request prompt
+  lengths. The pricing engine applies context tiers when a source supplies
+  measured request usage and prompt length.
 
 ## References
 
